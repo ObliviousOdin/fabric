@@ -4,9 +4,22 @@ title: "Web Dashboard"
 description: "Browser-based administration panel for managing configuration, API keys, MCP servers, messaging pairing, webhooks, the gateway, memory, credentials, sessions, logs, analytics, cron jobs, and skills"
 ---
 
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
 # Web Dashboard
 
 The web dashboard is a browser-based UI for managing your Fabric installation. Instead of editing YAML files or running CLI commands, you can configure settings, manage API keys, and monitor sessions from a clean web interface.
+
+<div className="docs-product-grid">
+  <figure>
+    <img src={useBaseUrl('/img/product/fabric-web-models.png')} width="1280" height="720" alt="Fabric web dashboard Models page showing a connected local Ollama model." />
+    <figcaption>Models: verify the active route and local Ollama connection.</figcaption>
+  </figure>
+  <figure>
+    <img src={useBaseUrl('/img/product/fabric-web-skills.png')} width="1280" height="720" alt="Fabric web dashboard Skills page showing installed and available skill packages." loading="lazy" />
+    <figcaption>Skills: inspect installed capabilities and add trusted workflows.</figcaption>
+  </figure>
+</div>
 
 ## Quick Start
 

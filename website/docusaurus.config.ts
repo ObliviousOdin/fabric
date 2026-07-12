@@ -1,48 +1,48 @@
-import {themes as prismThemes} from 'prism-react-renderer';
-import type {Config} from '@docusaurus/types';
-import type * as Preset from '@docusaurus/preset-classic';
+import { themes as prismThemes } from "prism-react-renderer";
+import type { Config } from "@docusaurus/types";
+import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
-  title: 'Fabric',
-  tagline: 'One agent, woven through every surface',
-  favicon: 'img/favicon.ico',
+  title: "Fabric",
+  tagline: "One agent, woven through every surface",
+  favicon: "img/favicon.ico",
 
-  url: 'https://obliviousodin.github.io',
-  baseUrl: '/fabric/',
+  url: "https://obliviousodin.github.io",
+  baseUrl: "/fabric/",
 
   organizationName: 'ObliviousOdin',
   projectName: 'fabric',
 
-  onBrokenLinks: 'throw',
-  onBrokenAnchors: 'throw',
+  onBrokenLinks: "throw",
+  onBrokenAnchors: "throw",
 
   markdown: {
     mermaid: true,
     hooks: {
-      onBrokenMarkdownLinks: 'throw',
+      onBrokenMarkdownLinks: "throw",
     },
   },
 
   i18n: {
-    defaultLocale: 'en',
-    locales: ['en'],
+    defaultLocale: "en",
+    locales: ["en"],
     localeConfigs: {
       en: {
-        label: 'English',
+        label: "English",
       },
     },
   },
 
   themes: [
-    '@docusaurus/theme-mermaid',
+    "@docusaurus/theme-mermaid",
     [
-      require.resolve('@easyops-cn/docusaurus-search-local'),
+      require.resolve("@easyops-cn/docusaurus-search-local"),
       /** @type {import("@easyops-cn/docusaurus-search-local").PluginOptions} */
-      ({
+      {
         hashed: true,
-        language: ['en'],
+        language: ["en"],
         indexBlog: false,
-        docsRouteBasePath: '/',
+        docsRouteBasePath: "/",
         // Disabled: appends ?_highlight=... to URLs (before the #anchor),
         // which makes copy/pasted doc links ugly. Ctrl+F on the page is fine.
         highlightSearchTermsOnTargetPage: false,
@@ -59,33 +59,33 @@ const config: Config = {
           /^user-guide\/skills\/bundled\//,
           /^user-guide\/skills\/optional\//,
         ],
-      }),
+      },
     ],
   ],
 
   plugins: [
     [
-      '@docusaurus/plugin-client-redirects',
+      "@docusaurus/plugin-client-redirects",
       {
         // Static-host redirects for renamed doc pages (GitHub Pages can't
         // do server-side redirects). Paths are relative to baseUrl (/fabric/).
         redirects: [
           {
             // Renamed when Automation Templates became Automation Blueprints.
-            from: '/guides/automation-templates',
-            to: '/guides/automation-blueprints',
+            from: "/guides/automation-templates",
+            to: "/guides/automation-blueprints",
           },
           {
-            from: '/integrations/nous-portal',
-            to: '/integrations/providers',
+            from: "/integrations/nous-portal",
+            to: "/integrations/providers",
           },
           {
-            from: '/guides/run-fabric-with-nous-portal',
-            to: '/integrations/providers',
+            from: "/guides/run-fabric-with-nous-portal",
+            to: "/integrations/providers",
           },
           {
-            from: '/guides/run-nemotron-3-ultra-free',
-            to: '/integrations/providers',
+            from: "/guides/run-nemotron-3-ultra-free",
+            to: "/integrations/providers",
           },
         ],
       },
@@ -94,25 +94,31 @@ const config: Config = {
 
   presets: [
     [
-      'classic',
+      "classic",
       {
         docs: {
-          routeBasePath: '/',  // Docs at the root of /docs/
-          sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/ObliviousOdin/fabric/edit/main/website/',
+          routeBasePath: "/", // Docs at the root of /docs/
+          sidebarPath: "./sidebars.ts",
+          editUrl: "https://github.com/ObliviousOdin/fabric/edit/main/website/",
         },
         blog: false,
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: "./src/css/custom.css",
         },
       } satisfies Preset.Options,
     ],
   ],
 
   themeConfig: {
-    image: 'img/fabric-mark.svg',
+    image: "img/fabric-mark.svg",
+    metadata: [
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
+      },
+    ],
     colorMode: {
-      defaultMode: 'dark',
+      defaultMode: "dark",
       respectPrefersColorScheme: true,
     },
     docs: {
@@ -122,51 +128,72 @@ const config: Config = {
       },
     },
     navbar: {
-      title: 'Fabric',
+      title: "Fabric",
       logo: {
-        alt: 'Fabric',
-        src: 'img/fabric-mark.svg',
+        // The visible title already names the product. Keep the mark
+        // decorative so screen readers announce the brand only once.
+        alt: "",
+        src: "img/fabric-mark.svg",
       },
       items: [
-        {to: '/docs', label: 'Docs', position: 'left'},
+        { to: "/docs", label: "Docs", position: "left" },
         {
-          to: '/skills',
-          label: 'Skills',
-          position: 'left',
+          to: "/skills",
+          label: "Skills",
+          position: "left",
         },
-        {to: '/getting-started/installation', label: 'Install', position: 'right', className: 'navbar__install'},
         {
-          href: 'https://github.com/ObliviousOdin/fabric',
-          label: 'GitHub',
-          position: 'right',
+          to: "/getting-started/installation",
+          label: "Install",
+          position: "right",
+          className: "navbar__install",
+        },
+        {
+          href: "https://github.com/ObliviousOdin/fabric",
+          label: "GitHub",
+          position: "right",
+        },
+        {
+          type: "search",
+          position: "right",
+          className: "navbar__search-container",
         },
       ],
     },
     footer: {
-      style: 'dark',
+      style: "dark",
       links: [
         {
-          title: 'Docs',
+          title: "Docs",
           items: [
-            { label: 'Getting Started', to: '/getting-started/quickstart' },
-            { label: 'User Guide', to: '/user-guide/' },
-            { label: 'Developer Guide', to: '/developer-guide/architecture' },
-            { label: 'Reference', to: '/reference/' },
+            { label: "Getting Started", to: "/getting-started/quickstart" },
+            { label: "User Guide", to: "/user-guide/" },
+            { label: "Developer Guide", to: "/developer-guide/architecture" },
+            { label: "Reference", to: "/reference/" },
           ],
         },
         {
-          title: 'Community',
+          title: "Community",
           items: [
-            { label: 'GitHub Issues', href: 'https://github.com/ObliviousOdin/fabric/issues' },
-            { label: 'Skills Hub', href: 'https://agentskills.io' },
+            {
+              label: "GitHub Issues",
+              href: "https://github.com/ObliviousOdin/fabric/issues",
+            },
+            { label: "Skills Hub", href: "https://agentskills.io" },
           ],
         },
         {
-          title: 'More',
+          title: "More",
           items: [
-            { label: 'Install Fabric', to: '/getting-started/installation' },
-            { label: 'GitHub', href: 'https://github.com/ObliviousOdin/fabric' },
-            { label: 'License and attribution', href: 'https://github.com/ObliviousOdin/fabric/blob/main/NOTICE' },
+            { label: "Install Fabric", to: "/getting-started/installation" },
+            {
+              label: "GitHub",
+              href: "https://github.com/ObliviousOdin/fabric",
+            },
+            {
+              label: "License and attribution",
+              href: "https://github.com/ObliviousOdin/fabric/blob/main/NOTICE",
+            },
           ],
         },
       ],
@@ -175,10 +202,10 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
-      additionalLanguages: ['bash', 'yaml', 'json', 'python', 'toml'],
+      additionalLanguages: ["bash", "yaml", "json", "python", "toml"],
     },
     mermaid: {
-      theme: {light: 'neutral', dark: 'dark'},
+      theme: { light: "neutral", dark: "dark" },
     },
   } satisfies Preset.ThemeConfig,
 };

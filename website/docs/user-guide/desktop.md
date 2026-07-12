@@ -4,12 +4,17 @@ title: "Fabric Desktop"
 description: "Use Fabric's native macOS, Windows, and Linux app for chat, providers, local models, memory, skills, projects, and operations."
 ---
 
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
 # Fabric Desktop
 
-Fabric Desktop is a native Electron application over the same agent core
-used by the CLI, TUI, web dashboard, API, and messaging gateway. Profiles,
-provider accounts, model choices, sessions, memory, skills, and approvals are
-shared rather than copied into a desktop-only database.
+Fabric Desktop brings chat, projects, model controls, memory, and skills into
+one app. It uses the same profile as the CLI, TUI, web dashboard, API, and
+messaging gateway, so your provider accounts, sessions, and approvals carry
+across instead of living in a desktop-only database.
+
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-home.jpg')} width="1172" height="768" alt="Fabric Desktop home screen with a new-chat composer and local Ollama model selected." />
+<p className="docs-figure-caption">The actual Fabric Desktop home screen, running against an isolated local profile with Ollama selected.</p>
 
 The app targets **macOS, Windows, and Linux**. See
 [Platform Support](/getting-started/platform-support) for the distinction
@@ -114,6 +119,9 @@ public, metadata, credential-bearing, and unsafe URLs are rejected.
 
 See [Local Ollama](/guides/local-ollama-setup) for context-window,
 tool-capability, egress, and troubleshooting guidance.
+
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-model-settings.jpg')} width="1172" height="768" alt="Fabric Desktop model settings showing Ollama Local with qwen3:8b selected." loading="lazy" />
+<p className="docs-figure-caption">Desktop model settings use the same profile-level route as every other Fabric surface.</p>
 
 ## Memory and skills
 

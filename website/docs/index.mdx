@@ -2,89 +2,147 @@
 slug: /docs
 sidebar_position: 0
 title: "Fabric Documentation"
-description: "Install, connect, operate, and extend Fabric across CLI, desktop, web, messaging, memory, and skills."
+description: "Get Fabric running, connect a model, choose an interface, and build reliable agent workflows."
 hide_table_of_contents: true
 displayed_sidebar: docs
 ---
 
-# Fabric documentation
+<div className="docs-hub docs-hub--root">
 
-Fabric is a local-first agent engine: one profile-scoped core across the CLI,
-native desktop app, web dashboard, messaging gateway, API, and IDE integrations.
-It supports personal subscriptions/OAuth, API providers, native local Ollama,
-durable memory, skills, scheduled work, and delegated agents.
+<p className="docs-hub__eyebrow">Documentation</p>
 
-:::tip Verified distribution
-Install from this repository or from a release published on the
-[`ObliviousOdin/fabric` release page](https://github.com/ObliviousOdin/fabric/releases)
-with checksums and the required platform signature.
-:::
+# Put Fabric to work
 
-## Start here
+<div className="docs-hub__lede">
+Fabric is a local-first agent engine for terminal, desktop, web, messaging, API,
+and IDE workflows. Start with one useful task, then add memory, skills, and
+automation as you need them.
+</div>
 
-On macOS, Linux, or WSL2:
+<div className="docs-hub__actions">
+
+[Run your first task](/getting-started/quickstart) [Install Fabric](/getting-started/installation)
+
+</div>
+
+## What do you want to do?
+
+<div className="docs-hub-grid docs-hub-grid--three">
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Start</p>
+
+### Get to a working prompt
+
+Install Fabric, connect one model route, and verify a real tool-assisted task.
+
+[Follow the Quickstart →](/getting-started/quickstart)
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Accounts</p>
+
+### Use a subscription you own
+
+Connect a supported ChatGPT or xAI account with a profile-scoped browser approval flow.
+
+[Connect ChatGPT →](/guides/chatgpt-codex-subscription) · [Connect xAI/Grok →](/guides/xai-grok-oauth)
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Local models</p>
+
+### Keep inference on your machine
+
+Run a keyless Ollama model and understand the boundary between local inference and an air gap.
+
+[Set up Ollama →](/guides/local-ollama-setup)
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Interfaces</p>
+
+### Work where you are
+
+Choose the native desktop app, CLI, full-screen TUI, web dashboard, or a messaging channel.
+
+[Choose an interface →](/user-guide/)
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Capabilities</p>
+
+### Build a reusable workflow
+
+Give Fabric durable memory, focused skills, scheduled jobs, and delegated work.
+
+[Explore features →](/user-guide/features/overview) · [Work with skills →](/guides/work-with-skills)
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Operations</p>
+
+### Run it with confidence
+
+Inspect the effective profile, repair an install, and review platform and security boundaries.
+
+[Open the operator path →](/user-guide/security) · [Diagnose an install →](/getting-started/repair)
+
+</section>
+
+</div>
+
+## The shortest useful path
+
+On macOS, Linux, or WSL2, install Fabric and prove one model route before adding
+more providers or automation:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ObliviousOdin/fabric/main/scripts/install.sh | bash
-fabric version
-```
-
-Then configure one model route and prove it works:
-
-```bash
 fabric model
 fabric status --deep
-fabric chat -q "Summarize the README in this workspace."
 ```
 
-Launch the native desktop app from the managed checkout with:
+Then run `fabric` and ask it to complete a small, observable task in a non-secret
+workspace. A model appearing in a picker is not the same as a successful request;
+the [Quickstart](/getting-started/quickstart) shows the complete verification loop.
 
-```bash
-fabric desktop
-```
+## One profile, every surface
 
-See [Install Fabric](/getting-started/installation) for platform and
-distribution details.
+Your selected profile owns the model routes, credentials, memory, skills,
+approvals, and sessions used across supported interfaces.
 
-## Choose a path
+<div className="docs-hub-strip">
 
-| Goal                                         | Guide                                                      |
-| -------------------------------------------- | ---------------------------------------------------------- |
-| Install and prove a first task               | [Quickstart](/getting-started/quickstart)                  |
-| Use the native macOS/Windows/Linux interface | [Fabric Desktop](/user-guide/desktop)                |
-| Connect a ChatGPT subscription               | [ChatGPT subscription](/guides/chatgpt-codex-subscription) |
-| Connect Grok/xAI                             | [xAI Grok OAuth](/guides/xai-grok-oauth)                   |
-| Keep model inference local                   | [Native Ollama](/guides/local-ollama-setup)                |
-| Understand profile memory                    | [Memory](/user-guide/features/memory)                      |
-| Inspect and install skills                   | [Skills](/user-guide/features/skills)                      |
-| Set up a messaging channel                   | [Messaging](/user-guide/messaging)                         |
-| Operate the browser dashboard                | [Web dashboard](/user-guide/features/web-dashboard)        |
-| Diagnose a broken install                    | [Repair](/getting-started/repair)                          |
-| Review platform guarantees                   | [Platform support](/getting-started/platform-support)      |
+- **See and compose work:** [Desktop](/user-guide/desktop) or [web dashboard](/user-guide/features/web-dashboard)
+- **Stay in the terminal:** [CLI](/user-guide/cli) or [TUI](/user-guide/tui)
+- **Keep a conversation running:** [Messaging gateway](/user-guide/messaging/)
+- **Connect applications and editors:** [API server](/user-guide/features/api-server), [ACP](/user-guide/features/acp), or [MCP](/user-guide/features/mcp)
 
-## One core, multiple surfaces
+</div>
 
-- **CLI and TUI** — direct terminal work, scripting, and approvals.
-- **Desktop** — chat, projects, previews, providers, local models, memory,
-  skills, messaging, and operations in a native window.
-- **Web dashboard** — loopback-first administration and a remote backend when a
-  real authentication boundary is configured.
-- **Gateway** — long-running conversations across supported messaging channels.
-- **API/ACP/MCP** — application, editor, and capability integrations.
+:::tip Verify public builds
+Install from this repository or from a release published on the
+[`ObliviousOdin/fabric` release page](https://github.com/ObliviousOdin/fabric/releases).
+Published desktop packages should include the expected checksum and platform signature.
+:::
 
-These surfaces share the selected Fabric profile. Provider credentials, memory,
-skills, and sessions do not need to be re-entered for each UI.
+## Need an exact answer?
 
-## Safety defaults
-
-Fabric keeps behavioral settings in `~/.fabric/config.yaml`, secrets in the
-profile's private auth store or `.env`, and dangerous commands behind approvals.
-Local model inference is not automatically an air-gap claim: `local_ai` limits
-participating AI/memory routes, while a whole-process `air_gapped` mode remains
-fail-closed until its network boundary is verified.
-
-## License and attribution
-
-Fabric is available under the MIT License. Required copyright and attribution
+Use the [Reference](/reference/) for command syntax, configuration keys, model
+and skill catalogs, and troubleshooting. Required copyright and attribution
 notices are preserved in [`LICENSE`](https://github.com/ObliviousOdin/fabric/blob/main/LICENSE)
 and [`NOTICE`](https://github.com/ObliviousOdin/fabric/blob/main/NOTICE).
+
+</div>

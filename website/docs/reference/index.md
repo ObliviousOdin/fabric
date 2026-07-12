@@ -1,36 +1,100 @@
 ---
 title: "Fabric Reference"
-description: "Command, configuration, tool, model, and skill references for Fabric operators and developers."
+description: "Find exact Fabric commands, settings, model and skill catalogs, and recovery guidance."
 sidebar_position: 0
 ---
 
-# Fabric Reference
+<div className="docs-hub docs-hub--section docs-hub--reference">
 
-Use these pages when you need an exact command, setting, schema, or capability
-contract. For task-oriented setup, start with the [Quickstart](/getting-started/quickstart)
-or [User Guide](/user-guide/).
+<p className="docs-hub__eyebrow">Reference</p>
 
-## Commands
+# Find the exact answer
 
-- [CLI commands](/reference/cli-commands)
-- [Slash commands](/reference/slash-commands)
-- [Profile commands](/reference/profile-commands)
+<div className="docs-hub__lede">
+Use these pages when you know what you need and want the precise command,
+setting, schema, or capability contract. For a guided workflow, use the
+task-oriented documentation instead.
+</div>
 
-## Configuration
+<div className="docs-hub__actions">
 
-- [Environment variables](/reference/environment-variables)
-- [MCP configuration](/reference/mcp-config-reference)
-- [Model catalog](/reference/model-catalog)
+[Follow the Quickstart](/getting-started/quickstart) [Browse the User Guide](/user-guide/)
 
-## Tools and skills
+</div>
 
-- [Tools](/reference/tools-reference)
-- [Toolsets](/reference/toolsets-reference)
-- [Bundled skills](/reference/skills-catalog)
-- [Optional skills](/reference/optional-skills-catalog)
+## Look up by question
 
-## Help
+<div className="docs-hub-grid docs-hub-grid--two">
 
-- [FAQ and troubleshooting](/reference/faq)
-- [Repair a Fabric install](/getting-started/repair)
-- [Platform support](/getting-started/platform-support)
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Commands</p>
+
+### What can I run?
+
+- [CLI commands](/reference/cli-commands) — top-level commands, flags, and subcommands
+- [Slash commands](/reference/slash-commands) — commands available inside a session
+- [Profile commands](/reference/profile-commands) — create, select, inspect, and manage isolated profiles
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Configuration</p>
+
+### Which setting controls this?
+
+- [Environment variables](/reference/environment-variables) — credentials and runtime overrides
+- [MCP configuration](/reference/mcp-config-reference) — server definitions, transports, and tool filtering
+- [Model catalog](/reference/model-catalog) — supported model identifiers and route metadata
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Capabilities</p>
+
+### What can Fabric load?
+
+- [Tools](/reference/tools-reference) — callable capabilities and their contracts
+- [Toolsets](/reference/toolsets-reference) — capability groups and activation rules
+- [Bundled skills](/reference/skills-catalog) — skills included with Fabric
+- [Optional skills](/reference/optional-skills-catalog) — additional installable workflows
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Recovery</p>
+
+### Why is this not working?
+
+- [FAQ and troubleshooting](/reference/faq) — common symptoms and next checks
+- [Repair an install](/getting-started/repair) — restore a managed installation
+- [Platform support](/getting-started/platform-support) — supported environments and known boundaries
+
+</section>
+
+</div>
+
+## Verify before changing more
+
+When a route or tool behaves unexpectedly, inspect the resolved profile before
+adding another provider or changing unrelated settings:
+
+```bash
+fabric status --deep
+fabric doctor
+```
+
+The status output is the better starting point for runtime questions; the
+configuration file alone may not show defaults, profile selection, or the
+effective provider route.
+
+<div className="docs-hub__actions">
+
+[Browse the User Guide](/user-guide/) [Open troubleshooting](/reference/faq)
+
+</div>
+
+</div>

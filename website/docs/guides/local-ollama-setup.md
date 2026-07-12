@@ -4,6 +4,8 @@ title: "Use a Local Ollama Model with Fabric"
 description: "Connect Fabric to a local Ollama server, enforce the profile's local-AI routes, verify readiness, and understand traffic outside that boundary."
 ---
 
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
 # Use a Local Ollama Model with Fabric
 
 Fabric has a first-class, keyless **Ollama (Local)** provider. It discovers
@@ -12,41 +14,73 @@ thinking, images, and streaming through native `/api/chat`; you do not need to
 pretend that Ollama is a custom OpenAI endpoint. Local Ollama and **Ollama
 Cloud** remain different routes: this guide uses `provider: ollama` and an
 Ollama server root on your machine or private network, not `ollama-cloud` and
-not a `/v1` URL. A loopback setup automatically enables the profile's
+not a `/v1` URL.
+
+## First success: connect a local model
+
+This is the shortest working path. Your model must expose reliable tool calling
+and a real context window of at least **64,000 tokens**; Fabric recommends
+**65,536**. A model that only produces text is not enough for agentic file,
+terminal, browser, or delegation work.
+
+### 1. Start Ollama
+
+Start Ollama with a 65,536-token runtime window in a separate terminal. If the
+Ollama desktop app or a service manager already owns the daemon, configure the
+same context value there instead of starting a second server.
+
+```bash
+OLLAMA_CONTEXT_LENGTH=65536 ollama serve
+```
+
+### 2. Pull a model
+
+Choose an Ollama model whose metadata reports at least 64,000 context tokens
+and tool support, then replace `YOUR_MODEL` with its complete ID and tag:
+
+```bash
+ollama pull YOUR_MODEL
+ollama list
+```
+
+### 3. Select it in Fabric
+
+Create a dedicated profile (skip the first command if `local` already exists),
+then open Fabric's model picker:
+
+```bash
+fabric profile create local
+fabric -p local model
+```
+
+Choose **Ollama (Local)**, keep `http://127.0.0.1:11434` when Ollama is on this
+machine, and select the model you just pulled. Do not add `/v1`. The same flow
+is available from the dashboard's **Models** page:
+
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-web-models.png')} width="1280" height="720" alt="Fabric web dashboard Models page showing a connected local Ollama model." />
+<p className="docs-figure-caption">The actual dashboard Models page with a local Ollama route connected and ready to select.</p>
+
+### 4. Verify before relying on it
+
+Run the deep readiness check, then test both a plain response and one small,
+reversible tool action:
+
+```bash
+fabric -p local status --deep
+fabric -p local chat
+```
+
+In chat, ask for a short response first. Then ask Fabric to list files in the
+current directory. A successful text reply alone does not prove that tool
+calling works. If readiness reports less than 64,000 tokens or no tool support,
+adjust the Ollama model/runtime or select a different model before continuing.
+
+When the selected endpoint is loopback, Fabric also enables the profile's
 application-level `local_ai` policy so participating AI work cannot silently
-move to a remote provider.
+move to a remote provider. See [Understand the `local_ai` boundary](#advanced-understand-the-local_ai-boundary)
+after the detailed setup when locality is part of your security requirements.
 
-## Know the boundary first
-
-`security.egress_mode: local_ai` covers primary inference, live model changes,
-auxiliary work such as title generation and compression, fallback, delegation,
-and every Mixture-of-Agents slot. Each participating route must use a canonical
-literal loopback address or a literal private address inside a CIDR approved by
-this profile. Fabric does not use DNS, environment proxies, or redirects to turn
-that approved route into another destination.
-
-Built-in `MEMORY.md` and `USER.md` continue to work. External memory adapters
-are unavailable in this first milestone and are stopped before import,
-initialization, health checks, prompt contribution, recall, or writes.
-
-:::caution Local inference is not an air-gap
-Fabric does not currently enforce a global no-egress mode. `local_ai` is an
-application boundary for the participating AI paths described above.
-The `local_ai` policy does not block web/browser tools, MCP servers, plugins,
-skills that invoke networked capabilities, arbitrary terminal commands,
-messaging gateways, installs, updates, Ollama model downloads, or a
-user-initiated CLI/dashboard OAuth or device-code setup. Account setup can
-contact its provider's remote authorization service; `local_ai` gates
-inference-time identity resolution, not an explicit setup ceremony. A trusted
-local server could also proxy a request onward without Fabric knowing.
-
-`air_gapped` is a reserved, configured-but-unavailable mode. Selecting it blocks
-Fabric runtime startup with reason `whole_process_network_boundary_missing`;
-it does not activate an air gap. A whole-process claim still requires a verified
-host/container/network boundary and packet-level evidence.
-:::
-
-## Before you start
+## What Fabric requires
 
 You need:
 
@@ -330,8 +364,9 @@ OAuth, secret-vault, MCP, plugin, package-audit, container, SSH, and update
 probes.
 
 For a configured native Ollama candidate, `fabric status --deep` performs one
-bounded, read-only Ollama readiness inspection. Explicit model switches on the shared CLI/TUI/gateway path
-use the same sanitized capability facts before commit. The inspection
+bounded, read-only Ollama readiness inspection. Explicit model switches on the
+shared CLI/TUI/gateway path use the same sanitized capability facts before
+commit. The inspection
 distinguishes an unreachable daemon, the wrong server protocol, a missing
 selected model, insufficient or unverified context, and reported tool/vision
 support. When available, deep status also shows whether the model is loaded and
@@ -364,6 +399,33 @@ configuration before discovery. Fabric does not cold-fetch models.dev or a
 remote provider catalog merely to render or enrich the picker, and it does not
 run Ollama readiness merely to open the picker. The bounded readiness request
 belongs to the later explicit-selection action.
+
+## Advanced: understand the `local_ai` boundary
+
+`security.egress_mode: local_ai` covers primary inference, live model changes,
+auxiliary work such as title generation and compression, fallback, delegation,
+and every Mixture-of-Agents slot. Each participating route must use a canonical
+literal loopback address or a literal private address inside a CIDR approved by
+this profile. Fabric does not use DNS, environment proxies, or redirects to turn
+that approved route into another destination.
+
+Built-in `MEMORY.md` and `USER.md` continue to work. External memory adapters
+are unavailable in this first milestone and are stopped before import,
+initialization, health checks, prompt contribution, recall, or writes.
+
+:::caution Local inference is not an air-gap
+Fabric does not currently enforce a global no-egress mode. `local_ai` is an
+application boundary for the participating AI paths described above. It does
+not block web/browser tools, MCP servers, plugins, networked skills, terminal
+commands, messaging gateways, installs, updates, Ollama model downloads, or a
+user-initiated OAuth or device-code setup. A trusted local server could also
+proxy a request onward without Fabric knowing.
+
+`air_gapped` is a reserved, configured-but-unavailable mode. Selecting it blocks
+Fabric runtime startup with reason `whole_process_network_boundary_missing`;
+it does not activate an air gap. A whole-process claim still requires a verified
+host/container/network boundary and packet-level evidence.
+:::
 
 ## Profiles and isolation
 

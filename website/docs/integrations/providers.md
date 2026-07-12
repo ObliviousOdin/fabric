@@ -6,9 +6,23 @@ sidebar_position: 1
 
 # AI Providers
 
-This page covers setting up inference providers for Fabric — from cloud APIs like OpenRouter and Anthropic, to self-hosted endpoints like Ollama and vLLM, to advanced routing and fallback configurations. You need at least one provider configured to use Fabric.
+Fabric needs one model provider. Start with the setup that matches your constraint, then use the catalog below when you need provider-specific details.
 
-## Inference Providers
+| If you want… | Start with… | Why |
+|--------------|-------------|-----|
+| A local model with no cloud inference | [Ollama](#ollama-local--first-class-native-provider) | Runs on your machine and requires no provider API key |
+| One hosted account with access to many model families | OpenRouter | One API key and a broad model catalog |
+| Direct billing and controls from a model vendor | A first-class API-key provider | Fabric connects directly to that vendor's API |
+| To use an existing account login | `fabric model` | Shows the OAuth and device-code options available to your installation and account |
+| Your own GPU server or compatible gateway | [Custom & self-hosted providers](#custom--self-hosted-llm-providers) | Connects to Ollama, vLLM, SGLang, llama.cpp, LiteLLM, or another compatible endpoint |
+
+Run `fabric model` for the guided path. It stores non-secret settings in `~/.fabric/config.yaml` and credentials in the profile's credential store or `~/.fabric/.env`, depending on the provider.
+
+:::note Account and plan availability
+OAuth, device-code, model-catalog, and subscription access are controlled by each provider. Plans, eligible models, usage limits, and terms can change independently of Fabric. Treat `fabric model` as the availability check for your account, and confirm current terms with the provider before relying on a subscription-backed setup.
+:::
+
+## Provider Catalog
 
 You need at least one way to connect to an LLM. Use `fabric model` to switch providers and models interactively, or configure directly:
 
@@ -17,9 +31,9 @@ You need at least one way to connect to an LLM. Use `fabric model` to switch pro
 | **OpenAI Codex** | `fabric model` (ChatGPT device-code sign-in; see the [Fabric guide](/guides/chatgpt-codex-subscription)) |
 | **GitHub Copilot** | `fabric model` (OAuth device code flow, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`) |
 | **GitHub Copilot ACP** | `fabric model` (spawns local `copilot --acp --stdio`) |
-| **Anthropic** | `fabric model` (Claude Max + extra usage credits via OAuth; also supports Anthropic API key or manual setup-token — see note below) |
+| **Anthropic** | `fabric model` (OAuth when available for the account; also supports an Anthropic API key or manual setup-token — see note below) |
 | **OpenRouter** | `OPENROUTER_API_KEY` in `~/.fabric/.env` |
-| **NovitaAI** | `NOVITA_API_KEY` in `~/.fabric/.env` (provider: `novita`, 200+ models, Model API, Agent Sandbox, GPU Cloud) |
+| **NovitaAI** | `NOVITA_API_KEY` in `~/.fabric/.env` (provider: `novita`; Model API, Agent Sandbox, and GPU Cloud) |
 | **z.ai / GLM** | `GLM_API_KEY` in `~/.fabric/.env` (provider: `zai`) |
 | **Kimi / Moonshot** | `KIMI_API_KEY` in `~/.fabric/.env` (provider: `kimi-coding`) |
 | **Kimi / Moonshot (China)** | `KIMI_CN_API_KEY` in `~/.fabric/.env` (provider: `kimi-coding-cn`; aliases: `kimi-cn`, `moonshot-cn`) |
@@ -28,7 +42,7 @@ You need at least one way to connect to an LLM. Use `fabric model` to switch pro
 | **MiniMax** | `MINIMAX_API_KEY` in `~/.fabric/.env` (provider: `minimax`) |
 | **MiniMax China** | `MINIMAX_CN_API_KEY` in `~/.fabric/.env` (provider: `minimax-cn`) |
 | **xAI (Grok) — Responses API** | `XAI_API_KEY` in `~/.fabric/.env` (provider: `xai`) |
-| **xAI Grok OAuth (SuperGrok)** | `fabric model` → "xAI Grok OAuth (SuperGrok / Premium+)" — browser login, no API key. See [guide](../guides/xai-grok-oauth.md) |
+| **xAI Grok OAuth** | `fabric model` → choose the provider whose label begins "xAI Grok OAuth" — browser login when xAI authorizes the account; no API key. See [guide](../guides/xai-grok-oauth.md) |
 | **Qwen Cloud (Alibaba DashScope)** | `DASHSCOPE_API_KEY` in `~/.fabric/.env` (provider: `alibaba`) |
 | **Alibaba Cloud (Coding Plan)** | `DASHSCOPE_API_KEY` (provider: `alibaba-coding-plan`, alias: `alibaba_coding`) — separate billing SKU, different endpoint |
 | **Kilo Code** | `KILOCODE_API_KEY` in `~/.fabric/.env` (provider: `kilocode`) |
@@ -88,10 +102,8 @@ If you're trying to switch to a provider you haven't set up yet (e.g. you only h
 
 Use Claude models directly through the Anthropic API — no OpenRouter proxy needed. Supports three auth methods:
 
-:::caution Requires Claude Max "extra usage" credits
-When you authenticate via `fabric model` → Anthropic OAuth (or via `fabric auth add anthropic --type oauth`), Fabric routes as Claude Code against your Anthropic account. **It only works if you're on a Claude Max plan and have purchased extra usage credits.** The base Max plan allowance (the usage included in Claude Code by default) is not consumed by Fabric — only the extra/overage credits you've added on top are. Claude Pro subscribers cannot use this path.
-
-If you don't have Max + extra credits, use an `ANTHROPIC_API_KEY` instead — requests are billed pay-per-token against that key's organization (standard API pricing, independent of any Claude subscription).
+:::caution Anthropic OAuth availability
+Anthropic controls which accounts, plans, and usage pools may be used through OAuth, and those rules may change. Complete the OAuth flow through `fabric model` to check your account. If OAuth is unavailable or your account is not eligible, use an `ANTHROPIC_API_KEY`; API usage is billed by Anthropic under the organization associated with that key.
 :::
 
 ```bash
@@ -128,7 +140,7 @@ model:
 
 Fabric supports GitHub Copilot as a first-class provider with two modes:
 
-**`copilot` — Direct Copilot API** (recommended). Uses your GitHub Copilot subscription to access GPT-5.x, Claude, Gemini, and other models through the Copilot API.
+**`copilot` — Direct Copilot API**. Authenticates to GitHub Copilot and discovers the model catalog available to your account. Models, usage limits, and availability depend on your current GitHub plan and entitlements.
 
 ```bash
 fabric chat --provider copilot --model gpt-5.4
@@ -257,14 +269,15 @@ When using the Z.AI / GLM provider, Fabric automatically probes multiple endpoin
 
 xAI is wired through the Responses API (`codex_responses` transport) for automatic reasoning support on Grok 4 models — no `reasoning_effort` parameter needed, the server reasons by default. Set `XAI_API_KEY` in `~/.fabric/.env` and pick xAI in `fabric model`, or drop `grok` as a shortcut into `/model grok-4-fast-reasoning`.
 
-SuperGrok and X Premium+ subscribers can sign in with browser OAuth instead of
-using an API key—pick **xAI Grok OAuth (SuperGrok / Premium+)** in `fabric model`,
-or run `fabric auth add xai-oauth`. The same profile-scoped connection can serve
-direct xAI tools such as TTS, image generation, video, transcription, and X Search
-when enabled. See the [Fabric xAI Grok OAuth guide](../guides/xai-grok-oauth.md)
-for the full flow. xAI uses device-code authorization, so remote hosts do **not**
-need an `ssh -L` callback tunnel; open the printed verification URL in a trusted
-browser instead.
+Some xAI accounts may be eligible for browser OAuth instead of an API key. In
+`fabric model`, choose the provider whose label begins **xAI Grok OAuth**, or run
+`fabric auth add xai-oauth`. xAI controls account eligibility; if the login is
+not offered or authorization is rejected, use an `XAI_API_KEY`. The same
+profile-scoped connection can serve direct xAI tools such as TTS, image
+generation, video, transcription, and X Search when enabled. See the
+[Fabric xAI Grok OAuth guide](../guides/xai-grok-oauth.md) for the full flow. xAI
+uses device-code authorization, so remote hosts do **not** need an `ssh -L`
+callback tunnel; open the printed verification URL in a trusted browser instead.
 
 When using xAI as a provider (any base URL containing `x.ai`), Fabric automatically enables prompt caching by sending the `x-grok-conv-id` header with every API request. This routes requests to the same server within a conversation session, allowing xAI's infrastructure to reuse cached system prompts and conversation history.
 
@@ -272,7 +285,7 @@ No configuration is needed — caching activates automatically when an xAI endpo
 
 xAI also ships a dedicated TTS endpoint (`/v1/tts`). Select **xAI TTS** in `fabric tools` → Voice & TTS, or see the [Voice & TTS](../user-guide/features/tts.md#text-to-speech) page for config.
 
-**Retired xAI model migration (May 15, 2026):** xAI is retiring `grok-4*`, `grok-3`, `grok-code-fast-1`, and `grok-imagine-image-pro` on 2026-05-15. `fabric doctor` and `fabric chat` startup both detect any config still pointing at a retired ref and print the recommended replacement. Use `fabric migrate xai` for a one-shot config rewrite — dry-run by default, add `--apply` to write changes (a timestamped `config.yaml.bak-pre-migrate-xai-*` backup is created automatically).
+**Retired xAI model migration:** `fabric doctor` and `fabric chat` startup detect xAI model references covered by Fabric's retirement map and print the recommended replacement. Use `fabric migrate xai` for a one-shot config rewrite. It runs as a dry-run by default; add `--apply` to write changes. Fabric creates a timestamped `config.yaml.bak-pre-migrate-xai-*` backup before applying the migration. Check xAI's current model catalog for retirements added after your installed Fabric release.
 
 ```bash
 fabric migrate xai          # preview replacements
@@ -283,7 +296,7 @@ fabric migrate xai --apply  # rewrite ~/.fabric/config.yaml in place
 
 ### NovitaAI
 
-[NovitaAI](https://novita.ai) is the AI-native cloud for builders and agents. Its three product lines are Model API for 200+ models, Agent Sandbox for building and running AI agents, and GPU Cloud for scalable compute, all available from one platform.
+[NovitaAI](https://novita.ai) provides a Model API, Agent Sandbox, and GPU Cloud. Its model catalog changes over time; use the exact model ID returned by its API.
 
 ```bash
 # Use any available model
@@ -462,7 +475,7 @@ Supported models: `MiniMax-M2.7` (main) and `MiniMax-M2.7-highspeed` (wired as t
 
 ### NVIDIA NIM
 
-Nemotron and other open source models via [build.nvidia.com](https://build.nvidia.com) (free API key) or a local NIM endpoint.
+Nemotron and other open-source models via [build.nvidia.com](https://build.nvidia.com) or a local NIM endpoint. Check NVIDIA's current access and billing terms before using the hosted endpoint.
 
 ```bash
 # Cloud (build.nvidia.com)
@@ -526,7 +539,7 @@ The base URL can be overridden with `STEPFUN_BASE_URL` (default: `https://api.st
 
 ### Hugging Face Inference Providers
 
-[Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers) routes to 20+ open models through a unified OpenAI-compatible endpoint (`router.huggingface.co/v1`). Requests are automatically routed to the fastest available backend (Groq, Together, SambaNova, etc.) with automatic failover.
+[Hugging Face Inference Providers](https://huggingface.co/docs/inference-providers) routes supported open models through a unified OpenAI-compatible endpoint (`router.huggingface.co/v1`). Backend selection and failover are controlled by Hugging Face.
 
 ```bash
 # Use any available model
@@ -544,7 +557,7 @@ model:
   default: "Qwen/Qwen3.5-397B-A17B"
 ```
 
-Get your token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) — make sure to enable the "Make calls to Inference Providers" permission. Free tier included ($0.10/month credit, no markup on provider rates).
+Get your token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and enable the "Make calls to Inference Providers" permission. Check Hugging Face's current pricing and quota documentation for your account.
 
 You can append routing suffixes to model names: `:fastest` (default), `:cheapest`, or `:provider_name` to force a specific backend.
 
@@ -1052,7 +1065,7 @@ model:
 
 ### LiteLLM Proxy — Multi-Provider Gateway
 
-[LiteLLM](https://docs.litellm.ai/) is an OpenAI-compatible proxy that unifies 100+ LLM providers behind a single API. Best for: switching between providers without config changes, load balancing, fallback chains, budget controls.
+[LiteLLM](https://docs.litellm.ai/) is an OpenAI-compatible proxy that presents multiple LLM providers behind a single API. It is useful for switching providers without Fabric config changes, load balancing, fallback chains, and budget controls.
 
 ```bash
 # Install and start
@@ -1084,7 +1097,7 @@ router_settings:
 
 ### ClawRouter — Cost-Optimized Routing
 
-[ClawRouter](https://github.com/BlockRunAI/ClawRouter) by BlockRunAI is a local routing proxy that auto-selects models based on query complexity. It classifies requests across 14 dimensions and routes to the cheapest model that can handle the task. Payment is via USDC cryptocurrency (no API keys).
+[ClawRouter](https://github.com/BlockRunAI/ClawRouter) by BlockRunAI is a third-party routing proxy that selects models based on query complexity. Fabric connects to it as an OpenAI-compatible endpoint; routing behavior, model availability, and payment requirements are controlled by ClawRouter.
 
 ```bash
 # Install and start
@@ -1094,16 +1107,16 @@ npx @blockrun/clawrouter    # Starts on port 8402
 Then configure Fabric with `fabric model` → Custom endpoint → `http://localhost:8402/v1` → model name `blockrun/auto`.
 
 Routing profiles:
-| Profile | Strategy | Savings |
-|---------|----------|---------|
-| `blockrun/auto` | Balanced quality/cost | 74-100% |
-| `blockrun/eco` | Cheapest possible | 95-100% |
-| `blockrun/premium` | Best quality models | 0% |
-| `blockrun/free` | Free models only | 100% |
-| `blockrun/agentic` | Optimized for tool use | varies |
+| Profile | Routing intent |
+|---------|----------------|
+| `blockrun/auto` | Balance capability and cost |
+| `blockrun/eco` | Prioritize lower-cost routes |
+| `blockrun/premium` | Prioritize higher-capability routes |
+| `blockrun/free` | Prefer eligible no-cost routes when available |
+| `blockrun/agentic` | Prioritize models suited to tool use |
 
 :::note
-ClawRouter requires a USDC-funded wallet on Base or Solana for payment. All requests route through BlockRun's backend API. Run `npx @blockrun/clawrouter doctor` to check wallet status.
+ClawRouter is not a local-inference privacy boundary: requests pass through BlockRun's service. Review its current funding, network, and account requirements, then run `npx @blockrun/clawrouter doctor` to validate your setup.
 :::
 
 ---
@@ -1157,11 +1170,11 @@ Fabric uses a multi-source resolution chain to detect the correct context window
 4. **Endpoint `/models`** — queries your server's API (local/custom endpoints)
 5. **Anthropic `/v1/models`** — queries Anthropic's API for `max_input_tokens` (API-key users only)
 6. **OpenRouter API** — live model metadata from OpenRouter
-7. **Nous Portal** — suffix-matches Nous model IDs against OpenRouter metadata
-8. **[models.dev](https://models.dev)** — community-maintained registry with provider-specific context lengths for 3800+ models across 100+ providers
-9. **Fallback defaults** — broad model family patterns (128K default)
+7. **Provider-specific metadata** — used when a built-in provider exposes compatible model metadata
+8. **[models.dev](https://models.dev)** — community-maintained registry with provider-specific context lengths
+9. **Fallback defaults** — broad model-family patterns
 
-For most setups this works out of the box. The system is provider-aware — the same model can have different context limits depending on who serves it (e.g., `claude-opus-4.6` is 1M on Anthropic direct but 128K on GitHub Copilot).
+For most setups this works out of the box. The system is provider-aware: the same model ID can have different context limits depending on the service that hosts it.
 
 To set the context length explicitly, add `context_length` to your model config:
 
@@ -1306,7 +1319,7 @@ Together's `/v1/models` endpoint works, so `fabric model` can auto-discover avai
 
 #### Groq
 
-Ultra-fast inference (~500 tok/s on Llama-3.3-70B). Small catalog but strong for latency-sensitive interactive use.
+Cloud-hosted inference optimized for low-latency interactive use. Available models and actual throughput vary by region, account tier, and service load.
 
 ```yaml
 # ~/.fabric/config.yaml
@@ -1368,9 +1381,9 @@ model:
 ```
 
 :::tip Troubleshooting
-- `fabric doctor` should print no `Unknown provider` warnings for any of these names after the CLI validator fixes in [PR #15083](https://github.com/NousResearch/hermes-agent/pull/15083).
-- If a provider's `/v1/models` endpoint is unreachable (Perplexity is the common one), `fabric model` will persist the model with a warning rather than hard-reject — see [PR #15136](https://github.com/NousResearch/hermes-agent/pull/15136).
-- To skip `custom_providers:` entirely and use bare `provider: custom` with `CUSTOM_BASE_URL` env var, see [PR #15103](https://github.com/NousResearch/hermes-agent/pull/15103).
+- Run `fabric doctor` after setup. An `Unknown provider` warning usually means the configured provider name does not match the name under `custom_providers:`.
+- If a provider's `/v1/models` endpoint is unreachable, `fabric model` can save the model with a warning. Confirm the model ID against the provider's current catalog before starting a session.
+- Prefer named `custom_providers:` entries in `config.yaml` for repeatable setups. The legacy bare `provider: custom` plus `CUSTOM_BASE_URL` path remains available for compatibility.
 :::
 
 ---
@@ -1379,7 +1392,7 @@ model:
 
 | Use Case | Recommended |
 |----------|-------------|
-| **Just want it to work** | OpenRouter or a supported personal subscription |
+| **Guided hosted setup** | `fabric model`, then choose an available API-key or account-login provider |
 | **Local models, easy setup** | Ollama |
 | **Production GPU serving** | vLLM or SGLang |
 | **Mac / no GPU** | Ollama or llama.cpp |
@@ -1449,7 +1462,7 @@ provider_routing:
 
 ## OpenRouter Pareto Code Router
 
-OpenRouter ships an experimental coding-model router at `openrouter/pareto-code` that auto-routes requests to the cheapest model meeting a coding-quality bar (ranked by [Artificial Analysis](https://artificialanalysis.ai/)). Pick this model and tune the `min_coding_score` knob in `~/.fabric/config.yaml`:
+OpenRouter exposes an experimental coding-model router at `openrouter/pareto-code`. It uses an external coding score and price data to select a route; its model pool and selection behavior can change as those inputs change. Pick this model and tune the `min_coding_score` knob in `~/.fabric/config.yaml`:
 
 ```yaml
 model:
@@ -1492,7 +1505,7 @@ fallback_model:
 
 When activated, the fallback swaps the model and provider mid-session without losing your conversation. The chain is tried entry-by-entry; activation is one-shot per session.
 
-Supported providers: `openrouter`, `nous`, `novita`, `openai-codex`, `copilot`, `copilot-acp`, `anthropic`, `gemini`, `qwen-oauth`, `huggingface`, `zai`, `kimi-coding`, `kimi-coding-cn`, `minimax`, `minimax-cn`, `minimax-oauth`, `deepseek`, `nvidia`, `xai`, `xai-oauth`, `ollama-cloud`, `bedrock`, `azure-foundry`, `opencode-zen`, `opencode-go`, `kilocode`, `xiaomi`, `arcee`, `gmi`, `stepfun`, `lmstudio`, `alibaba`, `alibaba-coding-plan`, `tencent-tokenhub`, `custom`.
+Use provider identifiers shown by `fabric model` for your installed version. Built-in catalogs and account-backed model availability can change between releases; named custom providers are also valid fallback targets.
 
 :::tip
 Fallback is configured exclusively through `config.yaml` — or interactively via `fabric fallback`. For full details on when it triggers, how the chain advances, and how it interacts with auxiliary tasks and delegation, see [Fallback Providers](/user-guide/features/fallback-providers).

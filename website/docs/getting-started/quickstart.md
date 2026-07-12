@@ -1,21 +1,14 @@
 ---
 sidebar_position: 1
 title: "Fabric Quickstart"
-description: "Install Fabric, connect one model route, verify memory and skills, and run a real first task."
+description: "Install Fabric, connect one model route, and complete a real first task in four steps."
 ---
 
 # Fabric Quickstart
 
-This is the shortest evidence-based path from a fresh machine to a working
-fabric profile. It uses the `fabric` command, stores state under `~/.fabric`, and
-keeps account, model, memory, and skill choices scoped to one profile.
-
-:::caution Verify downloads
-Use the installer and release assets published by
-[`ObliviousOdin/fabric`](https://github.com/ObliviousOdin/fabric). Desktop
-packages are official only when they appear on the repository's release page
-with the expected checksums and platform signature.
-:::
+Get from a fresh machine to a working Fabric session with one profile and one
+model route. You can add memory providers, skills, desktop apps, and messaging
+surfaces after the core path works.
 
 ## 1. Install Fabric
 
@@ -25,151 +18,117 @@ On macOS, Linux, or WSL:
 curl -fsSL https://raw.githubusercontent.com/ObliviousOdin/fabric/main/scripts/install.sh | bash
 ```
 
-The installer creates the managed virtual environment, installs dependencies,
-seeds bundled skills, exposes `fabric` through `~/.local/bin`, and starts the
-setup wizard.
-
-Reload the shell if `fabric` is not found, then verify the entry point:
+The installer creates Fabric's managed environment, installs its dependencies,
+seeds the bundled skills, adds `fabric` to `~/.local/bin`, and opens the setup
+wizard. If your shell cannot find the command, reload it and confirm the install:
 
 ```bash
 source ~/.zshrc  # use ~/.bashrc for Bash
 fabric version
 ```
 
-The install downloads Python dependencies and is not an offline operation. See
-the [Docker guide](/user-guide/docker) for container deployment.
+The installer downloads Python dependencies and requires network access. Use
+only the installer and release assets published by
+[`ObliviousOdin/fabric`](https://github.com/ObliviousOdin/fabric); official
+desktop packages appear on that repository's release page with checksums and
+platform signatures. For containers, use the [Docker guide](/user-guide/docker).
 
-## 2. Choose the profile that owns the setup
+## 2. Choose one profile and keep using it
 
-Use the default profile for a single personal environment, or create a named
-profile to isolate its credentials, sessions, memory, skills, and settings:
+The default profile is the simplest choice for one personal environment. It
+lives under `~/.fabric/`, and you can continue without a profile flag.
+
+Create a named profile when you need isolated credentials, sessions, memory,
+skills, and settings:
 
 ```bash
 fabric profile create work
-```
-
-Put `-p work` immediately after `fabric` for every command that should operate on
-that profile:
-
-```bash
 fabric -p work status
 ```
 
-The default profile lives under `~/.fabric/`; named profiles live under
-`~/.fabric/profiles/<name>/`. Keep the flag consistent during setup so a successful
-login or model selection cannot be mistaken for another profile's state.
+Named profiles live under `~/.fabric/profiles/<name>/`. In the rest of this
+guide, `-p work` means the named profile above. Omit it everywhere if you chose
+the default profile. Do not switch between the two during setup; a login or
+model selection belongs only to the profile where you completed it.
 
-## 3. Connect exactly one model route
+## 3. Connect one model route
 
-Start with one route and prove it works before adding fallback, delegation, a
-gateway, or automation:
+Open the model setup and choose just one route:
 
 ```bash
 fabric -p work model
 ```
 
-Choose the path that matches who owns the account and where inference runs:
-
-| Route | Setup | Important boundary |
+| Route | Setup or selection | What to know |
 |---|---|---|
-| ChatGPT subscription | `fabric -p work auth account openai-codex personal` | Profile-owned device-code sign-in; separate from OpenAI API billing |
-| xAI/Grok subscription | `fabric -p work auth account xai-oauth personal` | Browser approval does not itself prove model entitlement |
-| Fabric-managed request | `fabric -p work auth account openai-codex request --device-label "work fabric"` | Durable local request and unverified email handoff; no automatic provisioning |
-| Local Ollama | `fabric -p work ollama pull MODEL`, then `fabric -p work model` → **Ollama (Local)** | First-class keyless native provider, distinct from Ollama Cloud |
-| API key or compatible endpoint | `fabric -p work model` | Credentials belong in the private profile auth store or `.env`; behavioral settings belong in `config.yaml` |
+| ChatGPT subscription | `fabric -p work auth account openai-codex personal` | Uses a profile-owned device-code sign-in; it is separate from OpenAI API billing |
+| xAI/Grok subscription | `fabric -p work auth account xai-oauth personal` | Browser approval and model entitlement are separate checks |
+| Fabric-managed request | `fabric -p work auth account openai-codex request --device-label "work fabric"` | Records a durable local request; it does not send email, provision an account, or make the route ready |
+| Local Ollama | `fabric -p work ollama pull MODEL`, then choose **Ollama (Local)** in `fabric -p work model` | Keyless local inference; distinct from Ollama Cloud |
+| API key or compatible endpoint | Choose it in `fabric -p work model` | Secrets belong in the profile auth store or `.env`; behavior belongs in `config.yaml` |
 
-For ChatGPT or xAI, **My account** runs the local device-code ceremony. The separate
-**Fabric-managed** CLI, dashboard, and desktop lanes record a durable profile-local
-request and prepare the same server-owned non-secret handoff. They do not email a
-code, send mail, prove delivery, provision an account, or make the route ready. Full
-request status, cancellation, and operator transitions remain CLI-first.
-Never send a device code, OAuth session ID, token, or API key by email or chat.
+For a subscription route, finish the browser ceremony for the same profile. You
+may open the verification page in another trusted browser when the provider's
+device-code flow allows it, but never send a device code, OAuth session ID,
+token, or API key through email or chat. The complete account contracts are in the
+[ChatGPT subscription guide](/guides/chatgpt-codex-subscription) and
+[xAI/Grok OAuth guide](/guides/xai-grok-oauth).
 
-Use the dedicated guides for the complete account contracts:
+For a local route, follow [Use a Local Ollama Model with
+Fabric](/guides/local-ollama-setup) for model sizing, context, and network-policy
+details.
 
-- [ChatGPT subscription: personal and Fabric-managed paths](/guides/chatgpt-codex-subscription)
-- [xAI/Grok OAuth: personal and Fabric-managed paths](/guides/xai-grok-oauth)
+## 4. Verify the route and complete a real task
 
-## 4. Optional: keep participating AI work local with Ollama
-
-Local inference and air-gapped operation are different claims. To use Ollama,
-follow [Use a Local Ollama Model with Fabric](/guides/local-ollama-setup) and
-set the profile's egress mode to `local_ai` after configuring the endpoint:
-
-```yaml title="~/.fabric/profiles/work/config.yaml"
-security:
-  egress_mode: local_ai
-  local_ai_allowed_cidrs: []
-```
-
-Loopback needs no CIDR entry. The `local_ai` policy keeps participating primary,
-auxiliary, fallback, delegation, and Mixture-of-Agents routes on approved local
-addresses and disables external memory adapters. It does not block arbitrary
-terminal commands, web/browser tools, MCP servers, plugins, messaging, installs,
-updates, or an explicit OAuth ceremony.
-
-`air_gapped` is reserved but unavailable until Fabric has verified a whole-process
-network boundary. Selecting it blocks runtime startup; it does not silently claim
-that the machine is isolated.
-
-## 5. Verify authentication, route readiness, and a real task
-
-Authentication and runtime readiness are separate. Inspect both before opening a
-long session:
+Check the effective provider and model for the same profile:
 
 ```bash
 fabric -p work status --deep
-fabric -p work doctor
 ```
 
-Then start a normal conversation:
+Then start Fabric:
 
 ```bash
 fabric -p work
 ```
 
-Ask for a small, observable task such as reading a non-secret file and summarizing
-it. A complete first verification has all of these properties:
+Ask for a small, observable task, such as reading a non-secret file and
+summarizing it. Your first setup is complete when:
 
-- the selected provider and model match the intended profile;
-- the model returns a response without an auth, entitlement, or context error;
-- a requested tool call succeeds only after the expected approval; and
-- `fabric -p work status --deep` still reports the intended effective route.
+- the reported provider and model match the profile you intended;
+- the model returns a response without an authentication, entitlement, or
+  context error; and
+- any requested tool call runs only after the expected approval.
 
-Do not treat a saved token, a populated model picker, or an HTTP connection alone
-as end-to-end proof.
+A saved token, populated model picker, or successful HTTP connection alone is
+not end-to-end proof. Confirm that the model can answer and the approved tool
+can complete the task.
 
-## 6. Inspect memory before enabling an external provider
+## After your first success
 
-Fabric includes profile-local human-readable memory and can load one external
-memory adapter. Inspect the current tiers and selected adapter without initializing
-a provider:
+Once the four-step path works, add one capability at a time so failures remain
+easy to isolate.
+
+### Inspect memory
+
+Fabric includes profile-local, human-readable memory and can load one external
+memory adapter. Inspect the current state before configuring an adapter:
 
 ```bash
 fabric -p work memory status
+fabric -p work memory setup  # only when you want an external adapter
 ```
 
-To configure an external adapter deliberately:
+`eligible` means a future session may attempt initialization; it does not mean
+the provider is currently healthy. Recalled external content is bounded,
+provider-labeled, threat-scanned, and treated as untrusted data. See the
+[memory guide](/user-guide/features/memory) and
+[memory-provider guide](/user-guide/features/memory-providers) for lifecycle
+and provider-specific limits.
 
-```bash
-fabric -p work memory setup
-```
+### Inspect and add skills
 
-The status vocabulary distinguishes installed, configured, eligible, active, and
-healthy. `eligible` means a later session may attempt initialization; it is not a
-live-health claim. Recalled external content is treated as untrusted data, bounded,
-provider-labeled, threat-scanned, and kept out of the cached system prompt.
-
-Current limitations remain explicit: external-write consent, a durable capture
-outbox, revision-safe edit/delete, portable export/import, and verified remote
-erasure are later memory milestones. The [memory guide](/user-guide/features/memory)
-documents the built-in stores and [memory-provider guide](/user-guide/features/memory-providers)
-describes adapter-specific capability differences.
-
-## 7. Inspect and add skills safely
-
-Skills are on-demand instruction packages. Their full bodies load only when a task
-selects them, which avoids placing every workflow into each request.
+Skills load on demand rather than adding every workflow to every request:
 
 ```bash
 fabric -p work skills list --enabled-only
@@ -177,74 +136,66 @@ fabric -p work skills audit
 fabric -p work skills search kubernetes
 ```
 
-Installing from a registry is a networked, mutating operation. Inspect the exact
-identifier and scan result before approving it:
+Registry installation changes the profile and uses the network. Inspect the
+exact source and scan result before approving it:
 
 ```bash
 fabric -p work skills inspect SOURCE/SKILL
 fabric -p work skills install SOURCE/SKILL
 ```
 
-Fabric-authored Compound Engineering and Product Design router/member sources exist
-and their catalog/planner tests pass, but the transactional pack apply command is
-not released yet. Journaled apply, rollback/recovery, signed provenance, surface
-parity, and distribution evidence must pass before this guide can tell users to run
-`fabric packs apply`. Until then, use individually installed and reviewed skills;
-do not copy pack source directories into a profile and call that a supported
-installation.
+Compound Engineering and Product Design skills are available as individual,
+reviewable skills. Fabric does not currently provide a supported transactional
+`fabric packs apply` workflow, so do not copy pack source directories into a
+profile and treat that as an installation.
 
-## 8. Choose a user interface or messaging surface
+### Open another interface
 
-All supported surfaces use the same profile-scoped agent core:
+The supported interfaces use the same profile-scoped agent core:
 
 ```bash
 fabric -p work --tui       # terminal UI
 fabric -p work desktop     # source-built native desktop app
-fabric -p work dashboard   # local web dashboard, loopback by default
+fabric -p work dashboard   # local web dashboard
 fabric -p work gateway setup
 ```
 
-Configure one surface at a time. Prove the CLI task first, then connect a messaging
-platform and verify its allowlist/pairing policy before installing an always-on
-gateway service. A non-loopback dashboard bind requires an authentication provider;
-do not weaken that boundary for convenience. A desktop package is a public Fabric
-release only when it appears under `ObliviousOdin/fabric` with the required
-platform signature and checksums; the source-build command does not make that claim.
+Prove the CLI task before adding a messaging platform or always-on service.
+Verify pairing and allowlist policy for a gateway. A dashboard bound beyond
+loopback requires an authentication provider; keep that boundary in place.
 
-## 9. Back up and know the recovery path
+### Tighten local-model network policy
 
-Create a profile-aware backup before a large configuration or skill change:
+Local inference and an air-gapped process are different guarantees. After
+configuring Ollama, use `local_ai` to keep participating model and external
+memory routes on approved local addresses:
+
+```yaml title="~/.fabric/profiles/work/config.yaml"
+security:
+  egress_mode: local_ai
+  local_ai_allowed_cidrs: []
+```
+
+Loopback needs no CIDR entry. This policy covers primary, auxiliary, fallback,
+delegation, Mixture-of-Agents, and external-memory routes. It does not block
+arbitrary terminal commands, web/browser tools, MCP servers, plugins,
+messaging, installs, updates, or an explicit OAuth ceremony. `air_gapped` is
+reserved but unavailable and fails closed rather than claiming whole-process
+isolation.
+
+### Run deeper checks and back up the profile
+
+Use read-oriented checks before applying a repair:
 
 ```bash
+fabric -p work doctor
+fabric -p work config check
+fabric -p work logs errors -n 100
 fabric -p work backup
 ```
 
-When something fails, start with read-oriented diagnostics:
-
-```bash
-fabric -p work status --deep
-fabric -p work config check
-fabric -p work doctor
-fabric -p work logs errors -n 100
-```
-
-Use [Diagnose and Repair Fabric](/getting-started/repair) before running a
-mutation such as `doctor --fix`, config migration, memory reset, or profile import.
-
-## What is ready now
-
-| Capability | Current state |
-|---|---|
-| Hosted/API/custom model onboarding | Available through `fabric model` |
-| ChatGPT and xAI personal OAuth | Profile-owned CLI, legacy auth, and model-picker paths available; cross-surface ownership-state adapters pending |
-| Organization-managed provider request | Durable local intent; configure and operate any provisioning service separately |
-| Local Ollama | First-class native CLI, desktop, and web setup plus verified foreground pull |
-| `local_ai` policy | Enforced for participating AI and external-memory routes |
-| Whole-process `air_gapped` mode | Unavailable and fail-closed |
-| Built-in memory and external recall safety | Available |
-| External-memory lifecycle/data controls | Partial; later R2 milestone |
-| Individual skills | Available with inspection and security scanning |
-| Compound Engineering/Product Design packs | Authored and validated; transactional installation not shipped |
+Use [Diagnose and Repair Fabric](/getting-started/repair) before a mutation such
+as `doctor --fix`, config migration, memory reset, or profile import.
 
 Required copyright and attribution notices are preserved in
 [`LICENSE`](https://github.com/ObliviousOdin/fabric/blob/main/LICENSE) and

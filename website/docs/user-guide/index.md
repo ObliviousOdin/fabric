@@ -1,37 +1,125 @@
 ---
 title: "Using Fabric"
-description: "Choose a Fabric interface, configure a profile, and understand the shared runtime behind every surface."
+description: "Choose a Fabric interface, shape a profile, and build reliable workflows on the shared agent core."
 sidebar_position: 0
 ---
 
-# Using Fabric
+<div className="docs-hub docs-hub--section">
 
-Fabric runs one profile-scoped agent core across desktop, terminal, web,
-messaging, IDE, and API surfaces. Start with the interface that fits the work;
-your model routes, memory, skills, approvals, and sessions remain attached to
-the selected profile.
+<p className="docs-hub__eyebrow">User guide</p>
 
-## Choose an interface
+# Choose how you work
 
-- [Desktop](/user-guide/desktop) for a native visual workspace.
-- [CLI](/user-guide/cli) for direct terminal work and scripting.
-- [TUI](/user-guide/tui) for the full-screen terminal interface.
-- [Web dashboard](/user-guide/features/web-dashboard) for browser-based administration.
-- [Messaging](/user-guide/messaging) for long-running channel conversations.
+<div className="docs-hub__lede">
+Every Fabric interface uses the same profile-scoped agent core. Pick the surface
+that fits today’s task; your model routes, memory, skills, approvals, and
+sessions stay with the profile.
+</div>
 
-## Configure the profile
+<div className="docs-hub__actions">
 
-1. Select a model route with `fabric model`.
-2. Add only the capability backends you need with `fabric tools`.
-3. Verify the resolved profile with `fabric status --deep`.
-4. Review [configuration](/user-guide/configuration), [profiles](/user-guide/profiles), and [security](/user-guide/security) before remote or unattended work.
+[Open the first-run guide](/getting-started/quickstart) [Configure a model](/user-guide/configuring-models)
 
-## Build on the core
+</div>
 
-- [Memory](/user-guide/features/memory) carries durable context between sessions.
-- [Skills](/user-guide/features/skills) load focused playbooks on demand.
-- [Cron](/user-guide/features/cron) schedules repeatable work.
-- [Delegation](/user-guide/features/delegation) divides larger tasks across agents.
-- [Plugins](/user-guide/features/plugins) extend providers and capability surfaces without widening the core.
+## Pick a surface
 
-For a guided first run, use the [Quickstart](/getting-started/quickstart).
+<div className="docs-hub-grid docs-hub-grid--three">
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Visual workspace</p>
+
+### See the work as it happens
+
+Use the native app for focused chat and project work, or open the dashboard for browser-based administration.
+
+[Use Desktop →](/user-guide/desktop) · [Open the web dashboard guide →](/user-guide/features/web-dashboard)
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Terminal</p>
+
+### Stay close to the repository
+
+Use the CLI for direct work and scripting, or the TUI for an interactive full-screen terminal experience.
+
+[Use the CLI →](/user-guide/cli) · [Use the TUI →](/user-guide/tui)
+
+</section>
+
+<section className="docs-hub-card">
+
+<p className="docs-hub-card__kicker">Messaging</p>
+
+### Keep a conversation available
+
+Connect a supported channel for long-running conversations, scheduled delivery, and remote access.
+
+[Set up messaging →](/user-guide/messaging/)
+
+</section>
+
+</div>
+
+## Shape the agent around your work
+
+<div className="docs-hub-grid docs-hub-grid--two">
+
+<section className="docs-hub-card">
+
+### Remember the right context
+
+Use profile-local memory for durable facts and project context files for instructions that belong with the work.
+
+[Understand memory →](/user-guide/features/memory) · [Add project context →](/user-guide/features/context-files)
+
+</section>
+
+<section className="docs-hub-card">
+
+### Add focused capabilities
+
+Skills load task-specific playbooks on demand. Tools and plugins connect services without turning every workflow into core behavior.
+
+[Work with skills →](/user-guide/features/skills) · [Configure tools →](/user-guide/features/tools) · [Extend with plugins →](/user-guide/features/plugins)
+
+</section>
+
+<section className="docs-hub-card">
+
+### Automate repeatable work
+
+Schedule jobs with cron, split larger tasks with delegation, and use checkpoints before risky changes.
+
+[Schedule a job →](/user-guide/features/cron) · [Delegate work →](/user-guide/features/delegation) · [Use checkpoints →](/user-guide/checkpoints-and-rollback)
+
+</section>
+
+<section className="docs-hub-card">
+
+### Separate and secure environments
+
+Use profiles to isolate credentials and state, then review approval and network boundaries before remote or unattended operation.
+
+[Manage profiles →](/user-guide/profiles) · [Review security →](/user-guide/security) · [Store secrets →](/user-guide/secrets/)
+
+</section>
+
+</div>
+
+## A reliable first session
+
+<ol className="docs-hub-steps">
+  <li><strong>Select one route.</strong> Run <code>fabric model</code> and configure only the provider you intend to test.</li>
+  <li><strong>Verify the profile.</strong> Run <code>fabric status --deep</code> before opening a long session.</li>
+  <li><strong>Prove one task.</strong> Ask Fabric to complete a small, observable action, then add memory, skills, or another surface.</li>
+</ol>
+
+For the exact commands and verification criteria, follow the
+[Quickstart](/getting-started/quickstart). For configuration keys and command
+syntax, use the [Reference](/reference/).
+
+</div>

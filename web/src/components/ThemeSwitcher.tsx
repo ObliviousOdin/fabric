@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Palette, Check, Type } from "lucide-react";
+import { Palette, Check, Type, SunMoon } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { ListItem } from "@nous-research/ui/ui/components/list-item";
 import { BottomSheet } from "@nous-research/ui/ui/components/bottom-sheet";
+import { Segmented } from "@nous-research/ui/ui/components/segmented";
+import { Switch } from "@nous-research/ui/ui/components/switch";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
 import { BUILTIN_THEMES, THEME_DEFAULT_FONT_ID, useTheme } from "@/themes";
-import type { DashboardTheme, FontChoice, ThemeListEntry } from "@/themes";
+import type {
+  AppearancePref,
+  DashboardTheme,
+  FontChoice,
+  ThemeListEntry,
+} from "@/themes";
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -97,6 +104,7 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
           title={sheetTitle}
         >
           <div aria-label={sheetTitle} role="listbox">
+            <AppearanceSection />
             <ThemeSwitcherOptions
               availableThemes={availableThemes}
               close={close}
@@ -139,6 +147,8 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
               </Typography>
             </div>
 
+            <AppearanceSection />
+
             <ThemeSwitcherOptions
               availableThemes={availableThemes}
               close={close}
@@ -154,6 +164,49 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
         );
         return dropUp ? createPortal(dropdown, document.body) : dropdown;
       })()}
+    </div>
+  );
+}
+
+/** Appearance (dark / light / system) + high-contrast controls. Appearance
+ *  swaps between the generated theme pair (`fabric-dark` / `fabric-light`);
+ *  `system` follows the OS via `prefers-color-scheme`. High contrast swaps
+ *  the generated pair for their high-contrast variants — hand-authored
+ *  presets keep their fixed look. */
+function AppearanceSection() {
+  const { appearance, setAppearance, contrast, setContrast } = useTheme();
+  const { t } = useI18n();
+  const highContrastLabel = t.theme?.highContrast ?? "High contrast";
+  return (
+    <div className="flex flex-col gap-2 border-b border-current/20 px-3 py-2">
+      <span className="inline-flex items-center gap-1.5">
+        <SunMoon className="h-3 w-3 text-text-tertiary" />
+        <Typography className="text-display text-xs tracking-[0.12em] text-text-tertiary">
+          {t.theme?.appearance ?? "Appearance"}
+        </Typography>
+      </span>
+      <Segmented<AppearancePref>
+        onChange={setAppearance}
+        options={[
+          { label: t.theme?.appearanceDark ?? "Dark", value: "dark" },
+          { label: t.theme?.appearanceLight ?? "Light", value: "light" },
+          { label: t.theme?.appearanceSystem ?? "System", value: "system" },
+        ]}
+        size="sm"
+        value={appearance}
+      />
+      <div className="flex items-center justify-between gap-3">
+        <Typography className="text-xs tracking-normal text-text-secondary">
+          {highContrastLabel}
+        </Typography>
+        <Switch
+          aria-label={highContrastLabel}
+          checked={contrast === "high"}
+          onCheckedChange={(checked) =>
+            setContrast(checked ? "high" : "normal")
+          }
+        />
+      </div>
     </div>
   );
 }

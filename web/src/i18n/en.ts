@@ -83,6 +83,13 @@ export const en: Translations = {
       sessions: "Sessions",
       skills: "Skills",
     },
+    navSections: {
+      capabilities: "Capabilities",
+      connect: "Connect",
+      observe: "Observe",
+      system: "System",
+      work: "Work",
+    },
     modelToolsSheetSubtitle: "& tools",
     modelToolsSheetTitle: "Model",
     navigation: "Navigation",
@@ -230,6 +237,8 @@ export const en: Translations = {
     component: "Component",
     lines: "Lines",
     noLogLines: "No log lines found",
+    noLinesHint: "Try another file, level, or component filter.",
+    jumpToLatest: "Jump to latest",
   },
 
   cron: {
@@ -281,6 +290,9 @@ export const en: Translations = {
     deliverTo: "Deliver to",
     scheduledJobs: "Scheduled Jobs",
     noJobs: "No cron jobs configured. Create one above.",
+    noJobsTitle: "No scheduled jobs",
+    noJobsDescription:
+      "Cron jobs run prompts or scripts on a schedule and can deliver results to your channels.",
     last: "Last",
     next: "Next",
     pause: "Pause",
@@ -568,6 +580,28 @@ export const en: Translations = {
     fontSans: "Sans",
     fontSerif: "Serif",
     fontMono: "Mono",
+    appearance: "Appearance",
+    appearanceDark: "Dark",
+    appearanceLight: "Light",
+    appearanceSystem: "System",
+    highContrast: "High contrast",
+  },
+
+  commandPalette: {
+    title: "Command palette",
+    placeholder: "Type a command or search…",
+    pages: "Pages",
+    actions: "Actions",
+    themes: "Themes",
+    noResults: "No matching commands",
+    openPalette: "Open command palette",
+    showShortcuts: "Show keyboard shortcuts",
+    shortcutsTitle: "Keyboard shortcuts",
+    toggleSidebar: "Toggle sidebar",
+    scopeGlobal: "Global",
+    hintNavigate: "navigate",
+    hintSelect: "select",
+    hintClose: "close",
   },
 
   achievements: {

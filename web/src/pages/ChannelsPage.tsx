@@ -24,6 +24,7 @@ import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Switch } from "@nous-research/ui/ui/components/switch";
 import { Toast } from "@nous-research/ui/ui/components/toast";
 import { useToast } from "@nous-research/ui/hooks/use-toast";
+import { EmptyState, Skeleton } from "@/components/ui";
 import { api } from "@/lib/api";
 import type {
   MessagingPlatform,
@@ -280,8 +281,13 @@ export default function ChannelsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner className="text-2xl text-primary" />
+      <div className="flex flex-col gap-6" aria-busy="true">
+        <Skeleton className="h-4 w-80" />
+        <div className="grid gap-3">
+          <Skeleton variant="block" className="h-28" />
+          <Skeleton variant="block" className="h-28" />
+          <Skeleton variant="block" className="h-28" />
+        </div>
       </div>
     );
   }
@@ -326,11 +332,13 @@ export default function ChannelsPage() {
         </Card>
       )}
 
-      <p className="text-xs text-muted-foreground">
-        {configured} of {platforms.length} channels configured. Credentials are
-        written to <code className="font-courier">{envPath}</code>; the
-        gateway connects each enabled channel on its next restart.
-      </p>
+      {platforms.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {configured} of {platforms.length} channels configured. Credentials are
+          written to <code className="font-courier">{envPath}</code>; the
+          gateway connects each enabled channel on its next restart.
+        </p>
+      )}
 
       {/* Config modal */}
       {editing && (
@@ -454,6 +462,27 @@ export default function ChannelsPage() {
 
       {/* Platform list */}
       <div className="grid gap-3">
+        {platforms.length === 0 && (
+          <Card className="border-border">
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Radio}
+                title="No channels available"
+                description="The gateway reported no messaging platforms. Refresh once it has finished starting, or check the logs."
+                action={
+                  <Button
+                    size="sm"
+                    outlined
+                    className="uppercase"
+                    onClick={() => void load()}
+                  >
+                    Refresh
+                  </Button>
+                }
+              />
+            </CardContent>
+          </Card>
+        )}
         {platforms.map((platform) => {
           const badge = stateBadge(platform.state);
           const busy = togglingId === platform.id;

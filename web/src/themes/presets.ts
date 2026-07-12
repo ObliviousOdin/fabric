@@ -1,4 +1,5 @@
 import type { DashboardTheme, ThemeTypography, ThemeLayout } from "./types";
+import { fabricDarkTheme, fabricLightTheme } from "./generated";
 
 /**
  * Built-in dashboard themes.
@@ -7,8 +8,11 @@ import type { DashboardTheme, ThemeTypography, ThemeLayout } from "./types";
  * themes produces visible changes beyond just color — fonts, density, and
  * corner-radius all shift to match the theme's personality.
  *
- * Theme names must stay in sync with the backend's
- * `_BUILTIN_DASHBOARD_THEMES` list in `fabric_cli/web_server.py`.
+ * Hand-authored theme names must stay in sync with the backend's
+ * `_BUILTIN_DASHBOARD_THEMES` list in `fabric_cli/web_server.py`. The
+ * generated pair (`fabric-dark` / `fabric-light`, from `generated.ts`) is
+ * client-side only — the backend persists arbitrary theme names, and the
+ * provider unions client built-ins into the picker list.
  */
 
 // ---------------------------------------------------------------------------
@@ -231,6 +235,10 @@ export const defaultLargeTheme: DashboardTheme = {
 export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   default: defaultTheme,
   "default-large": defaultLargeTheme,
+  // Generated pair (normal-contrast variants; the provider swaps in the
+  // high-contrast variants via the contrast preference).
+  "fabric-dark": fabricDarkTheme,
+  "fabric-light": fabricLightTheme,
   "fabric-blue": fabricBlueTheme,
   midnight: midnightTheme,
   ember: emberTheme,

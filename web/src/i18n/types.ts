@@ -100,6 +100,17 @@ export interface Translations {
       sessions: string;
       skills: string;
     };
+    /**
+     * Sidebar nav section labels. Optional — non-English locales fall back
+     * to the English literals at the call site until translated.
+     */
+    navSections?: {
+      capabilities: string;
+      connect: string;
+      observe: string;
+      system: string;
+      work: string;
+    };
     modelToolsSheetSubtitle: string;
     modelToolsSheetTitle: string;
     navigation: string;
@@ -247,6 +258,10 @@ export interface Translations {
     component: string;
     lines: string;
     noLogLines: string;
+    // Optional: non-English locales fall back to the English literal at the
+    // call site until translated.
+    noLinesHint?: string;
+    jumpToLatest?: string;
   };
 
   // ── Cron page ──
@@ -297,6 +312,10 @@ export interface Translations {
     deliverTo: string;
     scheduledJobs: string;
     noJobs: string;
+    // Optional: non-English locales fall back to `noJobs` / the English
+    // literal at the call site until translated.
+    noJobsTitle?: string;
+    noJobsDescription?: string;
     last: string;
     next: string;
     pause: string;
@@ -586,6 +605,34 @@ export interface Translations {
     fontSans?: string;
     fontSerif?: string;
     fontMono?: string;
+    /** Appearance + contrast controls (optional — English fallback). */
+    appearance?: string;
+    appearanceDark?: string;
+    appearanceLight?: string;
+    appearanceSystem?: string;
+    highContrast?: string;
+  };
+
+  // ── Command palette & keyboard shortcuts ──
+  /**
+   * Optional — non-English locales fall back to the English literals at the
+   * call sites until translated (same pattern as `app.navSections`).
+   */
+  commandPalette?: {
+    title: string;
+    placeholder: string;
+    pages: string;
+    actions: string;
+    themes: string;
+    noResults: string;
+    openPalette: string;
+    showShortcuts: string;
+    shortcutsTitle: string;
+    toggleSidebar: string;
+    scopeGlobal: string;
+    hintNavigate: string;
+    hintSelect: string;
+    hintClose: string;
   };
 
   // ── Achievements plugin (plugins/fabric-achievements) ──

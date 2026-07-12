@@ -20,6 +20,7 @@ import {
   cronJobFormFromJob,
   type CronJobFormState,
 } from "@/lib/cron-job";
+import { EmptyState, Skeleton } from "@/components/ui";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import {
   DEFAULT_SCHEDULE_STATE,
@@ -763,8 +764,13 @@ export default function CronPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner className="text-2xl text-primary" />
+      <div className="flex flex-col gap-6" aria-busy="true">
+        <Skeleton className="h-8 w-56" />
+        <div className="flex flex-col gap-3">
+          <Skeleton variant="block" className="h-24" />
+          <Skeleton variant="block" className="h-24" />
+          <Skeleton variant="block" className="h-24" />
+        </div>
       </div>
     );
   }
@@ -978,8 +984,29 @@ export default function CronPage() {
 
         {jobs.length === 0 && (
           <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              {t.cron.noJobs}
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Clock}
+                title={t.cron.noJobsTitle ?? t.cron.noJobs}
+                description={
+                  t.cron.noJobsDescription ??
+                  "Cron jobs run prompts or scripts on a schedule and can deliver results to your channels."
+                }
+                action={
+                  <Button
+                    size="sm"
+                    className="uppercase"
+                    onClick={() => {
+                      setCreateProfile(
+                        selectedProfile === "all" ? "default" : selectedProfile,
+                      );
+                      setCreateModalOpen(true);
+                    }}
+                  >
+                    {t.common.create}
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         )}

@@ -4,10 +4,17 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { BUILTIN_THEMES, defaultTheme } from "./presets";
+import {
+  GENERATED_THEME_VARIANTS,
+  generatedThemeNameForAppearance,
+} from "./generated";
+import { themeAppearance } from "./generate";
+import type { ThemeContrast } from "./generate";
 import {
   FONT_CHOICES,
   THEME_DEFAULT_FONT_ID,
@@ -41,6 +48,20 @@ const LEGACY_STORAGE_KEY = "hermes-dashboard-theme";
  *  the React tree mounts (see `main.tsx`) to avoid a font flash. */
 const FONT_STORAGE_KEY = "fabric-dashboard-font";
 const LEGACY_FONT_STORAGE_KEY = "hermes-dashboard-font";
+
+/** LocalStorage key for the appearance preference (dark | light | system).
+ *  `system` follows `prefers-color-scheme` and swaps between the generated
+ *  dark/light pair; picking a hand-authored preset pins the preference to
+ *  that preset's native mode. */
+const APPEARANCE_STORAGE_KEY = "fabric-appearance";
+
+/** LocalStorage key for the contrast preference (normal | high). High
+ *  contrast swaps the generated pair for their high-contrast variants;
+ *  hand-authored presets are unaffected. */
+const CONTRAST_STORAGE_KEY = "fabric-contrast";
+
+export type AppearancePref = "dark" | "light" | "system";
+export type ContrastPref = ThemeContrast;
 
 /** Renames of built-in theme keys we've shipped previously. Without this,
  *  users who saved one of the old names in localStorage (or had it
@@ -412,6 +433,11 @@ function applyTheme(theme: DashboardTheme) {
   applyCustomCSS(theme.customCSS);
   applyLayoutVariant(theme.layoutVariant);
 
+  // Keep native form controls / scrollbars in step with the canvas —
+  // light themes (fabric-blue, fabric-light, light YAML themes) would
+  // otherwise render dark scrollbars against a light page.
+  root.style.setProperty("color-scheme", themeAppearance(theme));
+
   // Terminal colors — read by ChatPage via useTheme(); also available as CSS vars.
   root.style.setProperty(
     "--theme-terminal-background",
@@ -478,19 +504,73 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return valid;
   });
 
+  /** Appearance preference. Unset storage infers from the persisted theme
+   *  so the control reflects reality on first render (user YAML themes
+   *  aren't loaded yet at init — they fall back to `dark` until then). */
+  const [appearance, setAppearanceState] = useState<AppearancePref>(() => {
+    if (typeof window === "undefined") return "dark";
+    const stored = window.localStorage.getItem(APPEARANCE_STORAGE_KEY);
+    if (stored === "dark" || stored === "light" || stored === "system") {
+      return stored;
+    }
+    const initialTheme =
+      BUILTIN_THEMES[
+        migrateThemeName(window.localStorage.getItem(STORAGE_KEY) ?? "default")
+      ];
+    return initialTheme ? themeAppearance(initialTheme) : "dark";
+  });
+
+  /** Mirror for effects that must read the CURRENT preference without
+   *  re-subscribing (the one-shot getThemes mount effect). */
+  const appearanceRef = useRef(appearance);
+  useEffect(() => {
+    appearanceRef.current = appearance;
+  }, [appearance]);
+
+  /** Contrast preference — swaps generated themes for their high-contrast
+   *  variants; hand-authored presets ignore it. */
+  const [contrast, setContrastState] = useState<ContrastPref>(() => {
+    if (typeof window === "undefined") return "normal";
+    return window.localStorage.getItem(CONTRAST_STORAGE_KEY) === "high"
+      ? "high"
+      : "normal";
+  });
+
   // Resolve a theme name to a full DashboardTheme, falling back to default
-  // only when neither a built-in nor a user theme is found.
+  // only when neither a built-in nor a user theme is found. Generated
+  // themes resolve through their contrast variants first (BUILTIN_THEMES
+  // only holds their normal-contrast definitions for the picker).
   const resolveTheme = useCallback(
     (name: string): DashboardTheme => {
       const canonicalName = migrateThemeName(name);
+      const generated = GENERATED_THEME_VARIANTS[canonicalName];
+      if (generated) return generated[contrast];
       return (
         BUILTIN_THEMES[canonicalName] ??
         userThemeDefs[canonicalName] ??
         defaultTheme
       );
     },
-    [userThemeDefs],
+    [userThemeDefs, contrast],
   );
+
+  // `system` appearance: follow prefers-color-scheme, swapping between the
+  // generated dark/light pair. Local-only persistence — server `active`
+  // adoption is skipped in system mode (see the getThemes effect below).
+  useEffect(() => {
+    if (appearance !== "system" || typeof window === "undefined") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const next = generatedThemeNameForAppearance(
+        mq.matches ? "dark" : "light",
+      );
+      setThemeName(next);
+      window.localStorage.setItem(STORAGE_KEY, next);
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, [appearance]);
 
   // Apply the active theme (and re-assert the font override at its tail)
   // whenever the theme, the resolver, OR the font override changes. Folding
@@ -510,13 +590,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (resp.themes?.length) {
           const canonicalEntries = resp.themes.map(canonicalizeThemeEntry);
-          setAvailableThemes(
-            Array.from(
-              new Map(
-                canonicalEntries.map((entry) => [entry.name, entry]),
-              ).values(),
-            ),
-          );
+          // Union client built-ins UNDER the server list: older backends
+          // don't know about client-side presets (the generated pair), and
+          // replacing the list outright would drop them from the picker.
+          const merged = new Map<string, ThemeListEntry>();
+          for (const t of Object.values(BUILTIN_THEMES)) {
+            merged.set(t.name, {
+              name: t.name,
+              label: t.label,
+              description: t.description,
+            });
+          }
+          for (const entry of canonicalEntries) {
+            merged.set(entry.name, entry);
+          }
+          setAvailableThemes(Array.from(merged.values()));
           // Index any definitions the server shipped (user themes).
           const defs: Record<string, DashboardTheme> = {};
           for (const entry of canonicalEntries) {
@@ -526,7 +614,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           }
           if (Object.keys(defs).length > 0) setUserThemeDefs(defs);
         }
-        if (resp.active) {
+        // In system mode the OS — not the server — owns the active theme;
+        // adopting `resp.active` here would fight the matchMedia effect.
+        if (resp.active && appearanceRef.current !== "system") {
           const migratedActive = migrateThemeName(resp.active);
           if (migratedActive !== themeName) {
             setThemeName(migratedActive);
@@ -582,13 +672,46 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const canonicalName = migrateThemeName(name);
       const next = knownNames.has(canonicalName) ? canonicalName : "default";
       setThemeName(next);
+      // Picking a theme pins the appearance preference to that theme's
+      // native mode (leaves `system` mode) so the picker stays truthful.
+      const native = themeAppearance(resolveTheme(next));
+      setAppearanceState(native);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(STORAGE_KEY, next);
+        window.localStorage.setItem(APPEARANCE_STORAGE_KEY, native);
+      }
+      api.setTheme(next).catch(() => {});
+    },
+    [availableThemes, userThemeDefs, resolveTheme],
+  );
+
+  const setAppearance = useCallback(
+    (pref: AppearancePref) => {
+      setAppearanceState(pref);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(APPEARANCE_STORAGE_KEY, pref);
+      }
+      if (pref === "system") return; // the matchMedia effect takes over
+      // Explicit dark/light: keep the active theme when it already matches
+      // (hand-authored presets keep their fixed appearance); otherwise swap
+      // to the designated generated pair member.
+      if (themeAppearance(resolveTheme(themeName)) === pref) return;
+      const next = generatedThemeNameForAppearance(pref);
+      setThemeName(next);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(STORAGE_KEY, next);
       }
       api.setTheme(next).catch(() => {});
     },
-    [availableThemes, userThemeDefs],
+    [resolveTheme, themeName],
   );
+
+  const setContrast = useCallback((pref: ContrastPref) => {
+    setContrastState(pref);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(CONTRAST_STORAGE_KEY, pref);
+    }
+  }, []);
 
   const setFont = useCallback((id: string) => {
     const next = getFontChoice(id) ? id : THEME_DEFAULT_FONT_ID;
@@ -608,8 +731,23 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       fontId,
       fontChoices: FONT_CHOICES,
       setFont,
+      appearance,
+      setAppearance,
+      contrast,
+      setContrast,
     }),
-    [themeName, availableThemes, setTheme, resolveTheme, fontId, setFont],
+    [
+      themeName,
+      availableThemes,
+      setTheme,
+      resolveTheme,
+      fontId,
+      setFont,
+      appearance,
+      setAppearance,
+      contrast,
+      setContrast,
+    ],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
@@ -631,6 +769,10 @@ const ThemeContext = createContext<ThemeContextValue>({
   fontId: THEME_DEFAULT_FONT_ID,
   fontChoices: FONT_CHOICES,
   setFont: () => {},
+  appearance: "dark",
+  setAppearance: () => {},
+  contrast: "normal",
+  setContrast: () => {},
 });
 
 interface ThemeContextValue {
@@ -644,4 +786,10 @@ interface ThemeContextValue {
   fontChoices: FontChoice[];
   /** Set the font override (independent of theme). */
   setFont: (id: string) => void;
+  /** Appearance preference: pinned dark/light, or follow the OS. */
+  appearance: AppearancePref;
+  setAppearance: (pref: AppearancePref) => void;
+  /** Contrast preference — applies to the generated theme pair. */
+  contrast: ContrastPref;
+  setContrast: (pref: ContrastPref) => void;
 }

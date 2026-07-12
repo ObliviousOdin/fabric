@@ -69,10 +69,12 @@ import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 
 const SOURCE_CONFIG: Record<string, { icon: typeof Terminal; color: string }> =
   {
+    // Monochrome source icons (theme tokens only): the glyph carries the
+    // distinction; cli keeps the accent, cron/whatsapp keep status tones.
     cli: { icon: Terminal, color: "text-primary" },
-    telegram: { icon: MessageCircle, color: "text-[oklch(0.65_0.15_250)]" },
-    discord: { icon: Hash, color: "text-[oklch(0.65_0.15_280)]" },
-    slack: { icon: MessageSquare, color: "text-[oklch(0.7_0.15_155)]" },
+    telegram: { icon: MessageCircle, color: "text-foreground" },
+    discord: { icon: Hash, color: "text-foreground" },
+    slack: { icon: MessageSquare, color: "text-foreground" },
     whatsapp: { icon: Globe, color: "text-success" },
     cron: { icon: Clock, color: "text-warning" },
   };

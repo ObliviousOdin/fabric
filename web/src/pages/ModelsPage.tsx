@@ -28,6 +28,7 @@ import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Stats } from "@nous-research/ui/ui/components/stats";
 import { Card, CardContent, CardHeader, CardTitle } from "@nous-research/ui/ui/components/card";
 import { Badge } from "@nous-research/ui/ui/components/badge";
+import { EmptyState, Skeleton } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { usePageHeader } from "@/contexts/usePageHeader";
@@ -99,15 +100,25 @@ function TokenBar({
   const total = input + output + cacheRead + reasoning;
   if (total === 0) return null;
 
-  // Segments carry a CSS color value (hex or `var(--token)`) rather than
-  // a Tailwind class so the input/output series can pick up the active
+  // Segments carry a CSS color value (`var(--token)` or a color-mix over
+  // one) rather than a Tailwind class so the series can pick up the active
   // theme's `--series-*-token` vars — see `themes/types.ts`
-  // `ThemeSeriesColors`. The /60–/70 fade on the bar is applied via
-  // color-mix on the same value so themes don't need to ship two
-  // separate hex literals.
+  // `ThemeSeriesColors`. Cache reads are input-side and reasoning is
+  // output-side, so both derive from the same two series tokens (mixed
+  // toward the canvas) instead of introducing extra chromatic accents.
   const segments: Array<{ color: string; label: string; value: number }> = [
-    { value: cacheRead, color: "#60a5fa", label: "Cache Read" }, // tailwind blue-400
-    { value: reasoning, color: "#c084fc", label: "Reasoning" }, // tailwind purple-400
+    {
+      value: cacheRead,
+      color:
+        "color-mix(in srgb, var(--series-input-token) 45%, var(--background-base))",
+      label: "Cache Read",
+    },
+    {
+      value: reasoning,
+      color:
+        "color-mix(in srgb, var(--series-output-token) 45%, var(--background-base))",
+      label: "Reasoning",
+    },
     { value: input, color: "var(--series-input-token)", label: "Input" },
     { value: output, color: "var(--series-output-token)", label: "Output" },
   ].filter((s) => s.value > 0);
@@ -173,12 +184,12 @@ function CapabilityBadges({
         </span>
       )}
       {capabilities.supports_vision && (
-        <span className="inline-flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400">
+        <span className="inline-flex items-center gap-1 bg-muted px-1.5 py-0.5 text-xs font-medium text-text-secondary">
           <Eye className="h-2.5 w-2.5" /> Vision
         </span>
       )}
       {capabilities.supports_reasoning && (
-        <span className="inline-flex items-center gap-1 bg-purple-500/10 px-1.5 py-0.5 text-xs font-medium text-purple-600 dark:text-purple-400">
+        <span className="inline-flex items-center gap-1 bg-muted px-1.5 py-0.5 text-xs font-medium text-text-secondary">
           <Brain className="h-2.5 w-2.5" /> Reasoning
         </span>
       )}
@@ -411,7 +422,7 @@ function ModelCard({
                 </span>
               )}
               {mainAuxTask && (
-                <span className="inline-flex items-center bg-purple-500/10 px-1.5 py-0.5 text-display text-xs font-medium tracking-wider text-purple-600 dark:text-purple-400">
+                <span className="inline-flex items-center bg-muted px-1.5 py-0.5 text-display text-xs font-medium tracking-wider text-text-secondary">
                   aux · {mainAuxTask}
                 </span>
               )}
@@ -1192,6 +1203,8 @@ export default function ModelsPage() {
           onSaved={onAssigned}
         />
 
+        {!data && loading && <Skeleton variant="block" className="h-40" />}
+
         {data && (
           <Card className="min-w-0 max-w-full overflow-hidden">
             <CardContent className="min-w-0 py-6">
@@ -1258,8 +1271,13 @@ export default function ModelsPage() {
       </div>
 
       {loading && !data && (
-        <div className="flex items-center justify-center py-24">
-          <Spinner className="text-2xl text-primary" />
+        <div
+          className="grid min-w-0 gap-4 md:grid-cols-2 xl:grid-cols-3"
+          aria-busy="true"
+        >
+          {Array.from({ length: 6 }, (_, i) => (
+            <Skeleton key={i} variant="block" className="h-44" />
+          ))}
         </div>
       )}
 
@@ -1289,14 +1307,22 @@ export default function ModelsPage() {
             </div>
           ) : (
             <Card>
-              <CardContent className="py-12">
-                <div className="flex flex-col items-center text-muted-foreground">
-                  <Cpu className="h-8 w-8 mb-3 opacity-40" />
-                  <p className="text-sm font-medium">{t.models.noModelsData}</p>
-                  <p className="text-xs mt-1 text-text-tertiary">
-                    {t.models.startSession}
-                  </p>
-                </div>
+              <CardContent className="p-0">
+                <EmptyState
+                  icon={Cpu}
+                  title={t.models.noModelsData}
+                  description={t.models.startSession}
+                  action={
+                    <Button
+                      size="sm"
+                      outlined
+                      className="uppercase"
+                      onClick={load}
+                    >
+                      {t.common.refresh}
+                    </Button>
+                  }
+                />
               </CardContent>
             </Card>
           )}

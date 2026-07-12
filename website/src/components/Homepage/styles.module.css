@@ -12,14 +12,15 @@
   --page-terminal-ink: #f5f2ea;
   --page-terminal-muted: #aaa4b3;
   --page-terminal-accent: #b8adff;
-  --display-font: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --display-font:
+    "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
 
   overflow: hidden;
   color: var(--page-ink);
   background: var(--page-bg);
 }
 
-:global([data-theme='dark']) .page {
+:global([data-theme="dark"]) .page {
   --page-bg: #0b0a0f;
   --page-surface: #121018;
   --page-ink: #f5f2ea;
@@ -86,8 +87,13 @@
 .hero::before {
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, var(--page-bg) 0%, transparent 45%, var(--page-bg) 100%);
-  content: '';
+  background: linear-gradient(
+    90deg,
+    var(--page-bg) 0%,
+    transparent 45%,
+    var(--page-bg) 100%
+  );
+  content: "";
   opacity: 0.88;
   pointer-events: none;
 }
@@ -159,7 +165,10 @@
   font-size: 0.94rem;
   font-weight: 700;
   text-decoration: none;
-  transition: transform 160ms ease-out, border-color 160ms ease-out, background-color 160ms ease-out;
+  transition:
+    transform 160ms ease-out,
+    border-color 160ms ease-out,
+    background-color 160ms ease-out;
 }
 
 .primaryAction {
@@ -169,7 +178,7 @@
   background: var(--page-accent);
 }
 
-:global([data-theme='dark']) .primaryAction {
+:global([data-theme="dark"]) .primaryAction {
   color: #15111f;
 }
 
@@ -185,7 +194,7 @@
   background: var(--page-accent-strong);
 }
 
-:global([data-theme='dark']) .primaryAction:hover {
+:global([data-theme="dark"]) .primaryAction:hover {
   color: #15111f;
 }
 
@@ -222,7 +231,7 @@
   width: 4px;
   height: 4px;
   background: var(--page-accent);
-  content: '';
+  content: "";
   transform: translateY(-50%) rotate(45deg);
 }
 
@@ -379,6 +388,7 @@
 }
 
 .surfacesSection,
+.productSection,
 .compoundSection,
 .installSection {
   padding: 120px 0;
@@ -512,9 +522,14 @@
   gap: 24px;
   border-bottom: 1px solid rgba(184, 173, 255, 0.18);
   color: var(--page-terminal-ink);
-  grid-template-columns: minmax(165px, 0.34fr) minmax(180px, 0.35fr) minmax(300px, 1fr) 24px;
+  grid-template-columns: minmax(165px, 0.34fr) minmax(180px, 0.35fr) minmax(
+      300px,
+      1fr
+    ) 24px;
   text-decoration: none;
-  transition: background-color 160ms ease-out, padding 160ms ease-out;
+  transition:
+    background-color 160ms ease-out,
+    padding 160ms ease-out;
 }
 
 .routeRow:hover {
@@ -542,6 +557,119 @@
 .routeCopy {
   color: var(--page-terminal-muted);
   line-height: 1.55;
+}
+
+.productSection {
+  border-bottom: 1px solid var(--page-line);
+  background: var(--page-bg);
+}
+
+.productHeading {
+  display: grid;
+  align-items: end;
+  gap: 30px 64px;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 0.8fr) minmax(
+      260px,
+      0.42fr
+    );
+  margin-bottom: 56px;
+}
+
+.productHeading .sectionLabel {
+  margin-bottom: 10px;
+}
+
+.productHeading h2 {
+  margin-bottom: 0;
+  font-size: clamp(2.8rem, 4.5vw, 5rem);
+  line-height: 1;
+}
+
+.productHeading > p:last-child {
+  margin-bottom: 4px;
+  color: var(--page-muted);
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+.productGrid {
+  display: grid;
+  align-items: start;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.82fr);
+}
+
+.productCard {
+  overflow: hidden;
+  border: 1px solid var(--page-line-strong);
+  background: var(--page-surface);
+  box-shadow: 10px 10px 0 var(--page-accent-soft);
+}
+
+.productCard:first-child {
+  grid-row: span 2;
+}
+
+.productImageLink {
+  display: block;
+  overflow: hidden;
+  border-bottom: 1px solid var(--page-line-strong);
+  background: #0b0a0f;
+}
+
+.productImageLink img {
+  display: block;
+  width: 100%;
+  height: auto;
+  transition: transform 240ms ease-out;
+}
+
+.productImageLink:hover img {
+  transform: scale(1.012);
+}
+
+.productCopy {
+  padding: 26px 28px 28px;
+}
+
+.productLabel {
+  margin-bottom: 10px;
+  color: var(--page-accent-strong);
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.productCopy h3 {
+  margin-bottom: 10px;
+  font-family: var(--display-font);
+  font-size: clamp(1.45rem, 2.2vw, 2rem);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+
+.productCopy > p:not(.productLabel) {
+  margin-bottom: 18px;
+  color: var(--page-muted);
+  line-height: 1.6;
+}
+
+.productCopy a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  color: var(--page-ink);
+  font-size: 0.84rem;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.productCopy a:hover {
+  color: var(--page-accent-strong);
+  text-decoration: none;
 }
 
 .compoundSection {
@@ -690,6 +818,7 @@
   }
 
   .surfacesSection,
+  .productSection,
   .compoundSection,
   .installSection {
     padding: 88px 0;
@@ -697,6 +826,7 @@
 
   .sectionHeading,
   .routesIntro,
+  .productHeading,
   .compoundGrid,
   .installGrid {
     grid-template-columns: 1fr;
@@ -708,6 +838,14 @@
 
   .sectionHeading > p:last-child {
     grid-column: 1;
+  }
+
+  .productGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .productCard:first-child {
+    grid-row: auto;
   }
 
   .surfaceList li {
@@ -848,6 +986,7 @@
   }
 
   .surfacesSection,
+  .productSection,
   .compoundSection,
   .installSection,
   .routesSection {
@@ -860,6 +999,7 @@
 
   .sectionHeading h2,
   .routesIntro h2,
+  .productHeading h2,
   .compoundIntro h2,
   .installGrid h2 {
     font-size: clamp(2.65rem, 12vw, 3.8rem);
@@ -881,6 +1021,22 @@
 
   .routesIntro {
     margin-bottom: 42px;
+  }
+
+  .productHeading {
+    margin-bottom: 42px;
+  }
+
+  .productGrid {
+    gap: 22px;
+  }
+
+  .productCard {
+    box-shadow: 7px 7px 0 var(--page-accent-soft);
+  }
+
+  .productCopy {
+    padding: 22px 20px 24px;
   }
 
   .routeRow {
@@ -914,12 +1070,17 @@
 @media (prefers-reduced-motion: reduce) {
   .primaryAction,
   .secondaryAction,
-  .routeRow {
+  .routeRow,
+  .productImageLink img {
     transition: none;
   }
 
   .primaryAction:hover,
   .secondaryAction:hover {
+    transform: none;
+  }
+
+  .productImageLink:hover img {
     transform: none;
   }
 }

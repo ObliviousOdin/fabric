@@ -4,11 +4,16 @@ title: "TUI"
 description: "Launch the modern terminal UI for Fabric — mouse-friendly, rich overlays, and non-blocking input."
 ---
 
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
 # TUI
 
 The TUI is the modern front-end for Fabric — a terminal UI backed by the same Python runtime as the [Classic CLI](cli.md). Same agent, same sessions, same slash commands; a cleaner, more responsive surface for interacting with them.
 
 It's the recommended way to run Fabric interactively.
+
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-tui-help.png')} width="1280" height="720" alt="Fabric TUI showing command help, installed skill commands, an active local Ollama model, and session status." />
+<p className="docs-figure-caption">The real TUI running inside Fabric's browser dashboard. The terminal and dashboard use the same TUI binary.</p>
 
 ## Launch
 

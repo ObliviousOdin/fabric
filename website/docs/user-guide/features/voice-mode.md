@@ -22,10 +22,6 @@ Before using voice features, make sure you have:
 The `~/.fabric/` directory and default `config.yaml` are created automatically the first time you run `fabric`. You only need to create `~/.fabric/.env` manually for API keys.
 :::
 
-:::tip Nous Portal covers both
-A paid [Nous Portal](/user-guide/features/tool-gateway) subscription supplies the LLM (step 2) **and** OpenAI TTS via the Tool Gateway — no separate OpenAI key needed. On a fresh install, `fabric setup --portal` wires both up at once.
-:::
-
 ## Overview
 
 | Feature | Platform | Description |

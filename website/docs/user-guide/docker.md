@@ -40,7 +40,8 @@ docker run -it --rm \
 This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.fabric/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
 
 :::tip
-Inside the container, run `fabric setup --portal` once — the refresh token persists in the mounted `~/.fabric` volume. See [Nous Portal](/integrations/nous-portal).
+Inside the container, run `fabric model` once. Credentials and model choices
+persist in the mounted `~/.fabric` volume.
 :::
 
 ## Running in gateway mode
@@ -125,15 +126,12 @@ The dashboard is supervised by s6 — if it crashes, `s6-supervise` restarts it 
 
 The dashboard inside the container defaults to binding `0.0.0.0` — without it, the published `-p 9119:9119` port would not be reachable from the host. To restrict the bind to container loopback (for sidecar / reverse-proxy setups), set `HERMES_DASHBOARD_HOST=127.0.0.1`.
 
-The dashboard's auth gate engages automatically when both of the following are true:
-
-1. The bind host is non-loopback (e.g. the default `0.0.0.0` inside the container), **and**
-2. A `DashboardAuthProvider` plugin is registered.
+The dashboard's auth gate engages automatically for every non-loopback bind (for example, the default `0.0.0.0` inside the container). At least one `DashboardAuthProvider` must then be configured; otherwise the dashboard fails closed at startup.
 
 There are three bundled ways to satisfy the second condition:
 
 - **Username/password** — the simplest for a self-hosted / on-prem / homelab container on a trusted network or behind a VPN: set `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` + `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` (and `HERMES_DASHBOARD_BASIC_AUTH_SECRET` for restart-stable sessions). Not suitable for direct public-internet exposure.
-- **OAuth (Nous Portal)** — for hosted/public deploys: the `dashboard_auth/nous` provider activates whenever `HERMES_DASHBOARD_OAUTH_CLIENT_ID` is set.
+- **Hosted subscription compatibility** — retained for existing deployments: the `dashboard_auth/nous` provider activates whenever `HERMES_DASHBOARD_OAUTH_CLIENT_ID` is set.
 - **Self-hosted OIDC** — to authenticate against your own identity provider via standard OpenID Connect: the `dashboard_auth/self_hosted` provider activates when `HERMES_DASHBOARD_OIDC_ISSUER` + `HERMES_DASHBOARD_OIDC_CLIENT_ID` are set.
 
 Whichever you choose, the gate redirects callers to a login page before they can reach any protected route. See [Web Dashboard → Authentication](features/web-dashboard.md#authentication-gated-mode) for all three providers.

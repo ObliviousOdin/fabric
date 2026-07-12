@@ -191,7 +191,7 @@ Environment variables for the bundled [`observability/langfuse`](/user-guide/fea
 
 ### Nous Tool Gateway
 
-These variables configure the [Tool Gateway](/user-guide/features/tool-gateway) for paid Nous subscribers or self-hosted gateway deployments. Most users don't need to set these — the gateway is configured automatically via `fabric model` or `fabric tools`.
+These variables configure a [Managed Tool Route](/user-guide/features/tool-gateway) for compatible hosted accounts or self-hosted gateway deployments. Most users should configure the route through `fabric tools` instead of setting these variables directly.
 
 | Variable | Description |
 |----------|-------------|
@@ -488,7 +488,15 @@ For cloud sandbox backends, persistence is filesystem-oriented. `TERMINAL_LIFETI
 
 Auth for the [web dashboard](/user-guide/features/web-dashboard) and for connecting [Fabric to a remote backend](/user-guide/features/web-dashboard#connecting-fabric-desktop-to-a-remote-backend). Per the secrets-only convention, credentials belong in `~/.fabric/.env`; the OAuth `client_id` is better set under `dashboard.oauth` in `config.yaml` (env wins when set).
 
-Three dashboard-auth providers ship in the box. For a remote Fabric connection or any internet-facing dashboard, the recommended provider is **OAuth (Nous Portal)** — set `HERMES_DASHBOARD_OAUTH_CLIENT_ID` (provision it with `fabric dashboard register`). The bundled **username/password** provider (`HERMES_DASHBOARD_BASIC_AUTH_*`) is the quickest option for a backend on a trusted LAN or behind a VPN, but is not suitable for direct public-internet exposure. To authenticate against your own identity provider, use the **self-hosted OIDC** provider (`HERMES_DASHBOARD_OIDC_*`). Either way, a non-loopback bind (`fabric dashboard --host 0.0.0.0`) engages the auth gate. See [Web Dashboard → Authentication](/user-guide/features/web-dashboard#authentication-gated-mode) for the full picture.
+Three dashboard-auth providers ship in the box. For an internet-facing
+dashboard, prefer the **self-hosted OIDC** provider
+(`HERMES_DASHBOARD_OIDC_*`) backed by an identity provider you administer. The
+bundled **username/password** provider (`HERMES_DASHBOARD_BASIC_AUTH_*`) is for
+a trusted LAN or VPN, not direct public-internet exposure. A hosted subscription
+OAuth compatibility provider is also available. In every case, a non-loopback
+bind (`fabric dashboard --host 0.0.0.0`) engages the auth gate. See
+[Web Dashboard → Authentication](/user-guide/features/web-dashboard#authentication-gated-mode)
+for the full picture.
 
 | Variable | Description |
 |----------|-------------|

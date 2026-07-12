@@ -11,7 +11,8 @@ Chat with Fabric from Telegram, Discord, Slack, WhatsApp, Signal, SMS, Email, Ho
 For the full voice feature set — including CLI microphone mode, spoken replies in messaging, and Discord voice-channel conversations — see [Voice Mode](/user-guide/features/voice-mode) and [Use Voice Mode with Fabric](/guides/use-voice-mode-with-fabric).
 
 :::tip
-Bots need both a model provider and tool providers (TTS, web). A [Nous Portal](/integrations/nous-portal) subscription bundles all of them.
+Bots use the model and tool routes in the active profile. Verify both with
+`fabric status --deep` before starting a long-running gateway.
 :::
 
 ## Platform Comparison

@@ -47,11 +47,10 @@ List the files in /home/user/projects and summarize the repo structure.
 
 Fabric will discover the MCP server's tools and use them like any other tool.
 
-## Catalog: one-click install for Nous-approved MCPs
+## Catalog: one-click install for Fabric-curated MCPs
 
-Fabric ships a curated catalog of MCP servers that Nous staff has reviewed
-and merged. They're disabled by default — install only what you actually
-want.
+Fabric ships a curated catalog of MCP servers reviewed and merged by Fabric
+maintainers. They're disabled by default—install only what you actually want.
 
 ```bash
 fabric mcp                # interactive picker (default)
@@ -70,7 +69,7 @@ github       installed (disabled)   GitHub repo + PR tools
 Hit `Enter` on a row to install (and walk through any required credentials),
 enable, disable, or uninstall. Catalog entries are stored under
 `optional-mcps/` in the Fabric repository — presence in that directory means
-Nous approval. There is no community submission tier; entries are added by
+Fabric curation. There is no community submission tier; entries are added by
 merging a PR.
 
 Catalog entries can require:

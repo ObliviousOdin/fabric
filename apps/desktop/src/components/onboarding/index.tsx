@@ -7,7 +7,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { Input } from '@/components/ui/input'
 import { getGlobalModelOptions } from '@/hermes'
 import { useI18n } from '@/i18n'
-import { Check, ChevronDown, ChevronLeft, Cpu, KeyRound, Loader2 } from '@/lib/icons'
+import { Check, ChevronLeft, Cpu, KeyRound, Loader2 } from '@/lib/icons'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
 import { cn } from '@/lib/utils'
 import { $desktopBoot, type DesktopBootState } from '@/store/boot'
@@ -29,9 +29,9 @@ import {
 import type { ModelOptionProvider, OAuthProvider } from '@/types/hermes'
 
 import { DocsLink, FlowPanel, Status } from './flow'
-import { FeaturedProviderRow, KeyProviderRow, ProviderRow, sortProviders } from './providers'
+import { KeyProviderRow, ProviderRow, sortProviders } from './providers'
 
-export { FeaturedProviderRow, KeyProviderRow, ProviderRow, providerTitle, sortProviders } from './providers'
+export { KeyProviderRow, ProviderRow, providerTitle, sortProviders } from './providers'
 
 interface DesktopOnboardingOverlayProps {
   enabled: boolean
@@ -383,31 +383,9 @@ function Header() {
   )
 }
 
-export const FEATURED_ID = 'nous'
-const SHOW_ALL_KEY = 'hermes-onboarding-show-all-v1'
-
-const readShowAll = () => {
-  try {
-    return window.localStorage.getItem(SHOW_ALL_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-const persistShowAll = (value: boolean) => {
-  try {
-    window.localStorage.setItem(SHOW_ALL_KEY, value ? '1' : '0')
-  } catch {
-    // localStorage unavailable — degrade silently.
-  }
-
-  return value
-}
-
 export function Picker({ ctx }: { ctx: OnboardingContext }) {
   const { t } = useI18n()
   const { localEndpoint, manual, mode, providers } = useStore($desktopOnboarding)
-  const [showAll, setShowAll] = useState(readShowAll)
   const ordered = useMemo(() => (providers ? sortProviders(providers) : []), [providers])
   const hasOauth = ordered.length > 0
   const apiKeyOptions = useApiKeyCatalog()
@@ -440,19 +418,15 @@ export function Picker({ ctx }: { ctx: OnboardingContext }) {
   }
 
   const select = (p: OAuthProvider) => void startProviderOAuth(p, ctx)
-  const featured = ordered.find(p => p.id === FEATURED_ID) ?? null
-  const rest = featured ? ordered.filter(p => p.id !== FEATURED_ID) : ordered
-  // Collapse the secondary providers behind a disclosure only when Nous
-  // Portal is present to anchor the choice — otherwise show the full list.
-  const collapsible = Boolean(featured) && rest.length > 0
-  const showRest = !collapsible || showAll
 
   return (
     <div className="grid gap-2">
       <div className="grid max-h-[60dvh] gap-2 overflow-y-auto p-1">
-        {featured ? <FeaturedProviderRow onSelect={select} provider={featured} /> : null}
+        {ordered.map(p => (
+          <ProviderRow key={p.id} onSelect={select} provider={p} />
+        ))}
         <button
-          className="group flex w-full items-center justify-between gap-3 rounded-md border border-(--stroke-nous) bg-(--ui-bg-tertiary)/30 px-3 py-3 text-left transition-colors hover:bg-(--ui-control-hover-background) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group flex w-full items-center justify-between gap-3 rounded-md border border-(--ui-stroke-tertiary) bg-(--ui-bg-tertiary)/30 px-3 py-3 text-left transition-colors hover:bg-(--ui-control-hover-background) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setOnboardingMode('ollama')}
           type="button"
         >
@@ -467,27 +441,8 @@ export function Picker({ ctx }: { ctx: OnboardingContext }) {
           </span>
           <ChevronLeft className="size-4 shrink-0 rotate-180 text-muted-foreground transition group-hover:translate-x-0.5" />
         </button>
-        {showRest ? (
-          <>
-            {rest.map(p => (
-              <ProviderRow key={p.id} onSelect={select} provider={p} />
-            ))}
-            <KeyProviderRow onClick={() => setOnboardingMode('apikey')} />
-          </>
-        ) : null}
+        <KeyProviderRow onClick={() => setOnboardingMode('apikey')} />
       </div>
-      {collapsible ? (
-        <Button
-          className="mt-1 self-center font-medium"
-          onClick={() => setShowAll(persistShowAll(!showAll))}
-          size="xs"
-          type="button"
-          variant="text"
-        >
-          {showAll ? t.onboarding.collapse : t.onboarding.otherProviders}
-          <ChevronDown className={cn('size-3.5 transition', showAll && 'rotate-180')} />
-        </Button>
-      ) : null}
       <div className="flex items-center justify-between gap-3 pt-1">
         {/* First run only: let the user defer the choice and land in the app.
             In manual mode the overlay already has a close affordance, so the

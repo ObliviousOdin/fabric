@@ -25,7 +25,8 @@ That's it. `coder` is now its own Fabric profile with its own config, memory, an
 ## Creating a profile
 
 :::tip
-Quickest setup: run `fabric setup --portal` inside the new profile to wire up models + tools at once. See [Nous Portal](/integrations/nous-portal).
+Run `fabric model` inside the new profile, then add only the tool backends that
+profile needs with `fabric tools`.
 :::
 
 ### Blank profile

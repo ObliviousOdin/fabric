@@ -119,7 +119,7 @@ def _catalog_description(text: str) -> str:
     return (
         str(text or "")
         .replace("Nous Research", "Fabric")
-        .replace("Nous-approved", "curated")
+        .replace("Fabric-curated", "curated")
         .replace(_LEGACY_PRODUCT_NAME, "Fabric")
     )
 

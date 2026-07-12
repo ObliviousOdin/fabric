@@ -13,7 +13,8 @@ If you haven't installed Fabric yet, begin with the [Installation guide](/gettin
 :::
 
 :::tip First-time provider setup
-First-time users almost always want `fabric setup --portal` — one OAuth covers a model plus the four Tool Gateway tools (search/image/TTS/browser). See [Nous Portal](/integrations/nous-portal).
+Run `fabric model` to choose between a personal subscription, an API provider,
+or local Ollama. Then use `fabric status --deep` to verify the selected route.
 :::
 
 ## How to Use This Page

@@ -1,192 +1,115 @@
 ---
-title: "Nous Tool Gateway"
-description: "One subscription, every tool. Web search, image generation, TTS, and cloud browsers — all routed through Nous Portal with no extra API keys."
-sidebar_label: "Tool Gateway"
+title: "Managed Tool Routes"
+description: "Configure web, image, speech, and browser backends independently with Fabric's profile-scoped tool routing."
+sidebar_label: "Managed Tool Routes"
 sidebar_position: 2
 ---
 
-# Nous Tool Gateway
+# Managed Tool Routes
 
-**One subscription. Every tool built in.**
+Fabric keeps model inference and tool backends separate. You can use a local
+model with hosted web search, a subscription model with local browser
+automation, or direct API keys for every capability. Each choice belongs to the
+active profile.
 
-The Tool Gateway is included with every paid [Nous Portal](https://portal.nousresearch.com) subscription. It routes Fabric's tool calls — web search, image generation, text-to-speech, and cloud browser automation — through infrastructure Nous already runs, so you don't have to sign up with Firecrawl, FAL, OpenAI, Browser Use, or anyone else just to make your agent useful.
+## Configure routes
 
-<div style={{display: 'flex', gap: '1rem', flexWrap: 'wrap', margin: '1.5rem 0'}}>
-  <a href="https://portal.nousresearch.com/manage-subscription" style={{background: 'var(--ifm-color-primary)', color: 'white', padding: '0.75rem 1.5rem', borderRadius: '6px', textDecoration: 'none', fontWeight: 'bold'}}>Start or manage subscription →</a>
-</div>
+Use the interactive tools command to inspect and change one capability at a
+time:
 
-## What's included
+```bash
+fabric tools
+fabric status --deep
+```
 
-| | Tool | What you get |
+`fabric tools` lists the supported backends for each capability. Selecting a
+backend may prompt for its credential; saving the selection is not a live
+provider health check. Optional plugins can add more choices without expanding
+the permanent core tool schema.
+
+## Capability map
+
+| Capability | Direct or local options | Configuration |
 |---|---|---|
-| 🔍 | **Web search & extract** | Agent-grade web search and full-page extraction via Firecrawl. No rate limits to worry about — the gateway handles scaling. |
-| 🎨 | **Image generation** | Nine models under one endpoint: **FLUX 2 Klein 9B**, **FLUX 2 Pro**, **Z-Image Turbo**, **Nano Banana Pro** (Gemini 3 Pro Image), **GPT Image 1.5**, **GPT Image 2**, **Ideogram V3**, **Recraft V4 Pro**, **Qwen Image**. Pick per-generation with a flag, or let Fabric default to FLUX 2 Klein. |
-| 🔊 | **Text-to-speech** | OpenAI TTS voices wired into the `text_to_speech` tool. Drop voice notes into Telegram, generate audio for pipelines, narrate anything. |
-| 🌐 | **Cloud browser automation** | Headless Chromium sessions via Browser Use. `browser_navigate`, `browser_click`, `browser_type`, `browser_vision` — all the agent-driving primitives, no Browserbase account required. |
+| Web search and extraction | DDGS, SearXNG, Firecrawl, Tavily, Exa, Parallel, xAI | `fabric tools` → Web |
+| Image generation | FAL and installed image-provider plugins | `fabric tools` → Image generation |
+| Text to speech | Edge TTS, ElevenLabs, OpenAI, Mistral | `fabric tools` → Text to speech |
+| Browser automation | Local browser, Browserbase, installed browser-provider plugins | `fabric tools` → Browser |
 
-All four are pay-as-you-use billed against your Nous subscription. Use any combination — run the gateway for web and images while keeping your own ElevenLabs key for TTS, or route everything through Nous.
+The exact list evolves with installed plugins and credentials. The interactive
+picker is the source of truth for the active profile.
 
-## Why it's here
+## Bring your own credentials
 
-Building an agent that can actually *do things* means stitching together 5+ API subscriptions — each with their own signup, rate limits, billing, and quirks. The gateway collapses that into one account:
+Secrets belong in the profile's private auth store or `~/.fabric/.env`.
+Behavioral choices belong in `~/.fabric/config.yaml`.
 
-- **One bill.** Pay Nous; we handle the rest.
-- **One signup.** No Firecrawl, FAL, Browser Use, or OpenAI audio accounts to manage.
-- **One key.** Your Nous Portal OAuth covers every tool.
-- **Same quality.** Same backends the direct-key route uses — just fronted by us.
+Common direct-provider credentials include:
 
-Bring your own keys anytime — per-tool, whenever you want to. The gateway isn't a lock-in, it's a shortcut.
+| Capability | Credential |
+|---|---|
+| Firecrawl | `FIRECRAWL_API_KEY` |
+| Browserbase | `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID` |
+| FAL image generation | `FAL_KEY` |
+| ElevenLabs speech | `ELEVENLABS_API_KEY` |
+| OpenAI speech | `VOICE_TOOLS_OPENAI_KEY` |
+| Mistral speech | `MISTRAL_API_KEY` |
 
-## Get started
+Run `fabric tools` after adding a credential to select the route without
+hand-editing provider-specific YAML. Verify it with a small real call before
+depending on it in scheduled or unattended work.
 
-There are three ways in — pick whichever fits where you are:
+## Mix routes intentionally
 
-```bash
-fabric setup --portal     # Fresh install: Nous OAuth + set Nous as provider + turn on the Tool Gateway in one go
-```
+Tool routing is per capability, not all-or-nothing. For example:
 
-```bash
-fabric model              # Switch your inference provider to Nous Portal — Fabric then offers to turn on the gateway for all tools
-```
+- use free local DDGS search and a direct Firecrawl key for extraction;
+- keep browser automation local while routing image generation to FAL;
+- use Edge TTS for local speech and ElevenLabs only for premium voices;
+- keep inference on Ollama while enabling a hosted tool that the workflow
+  explicitly needs.
 
-```bash
-fabric tools              # Enable the gateway per-tool — pick "Nous Subscription" for any tool you want
-```
+This separation avoids an accidental vendor bundle and makes cost, privacy,
+and failure boundaries visible.
 
-`fabric setup --portal` and `fabric model` are the all-at-once paths: log in once, optionally flip every tool to the gateway. `fabric tools` is the à la carte path — turn on just the tools you want, one at a time.
+## Local-AI boundary
 
-**You don't have to log in first.** With `fabric tools`, the Nous-managed backends (Web search, Image, Video, TTS, Browser) are always listed, even if you've never signed into Nous Portal. Select one and Fabric runs the Portal login right there if you aren't already authenticated — no need to run `fabric model` beforehand. If your Nous OAuth is already active, selecting the backend enables it immediately with no extra prompt. This path only logs you in and turns on the one tool you picked — it does **not** switch your inference provider, and it does **not** prompt you to enable the gateway for every other tool.
+Choosing Ollama does not automatically make the whole process offline. Web
+search, cloud browsers, hosted image generation, remote memory, and speech
+providers may still send data over the network.
 
-Check what's active at any time:
-
-```bash
-fabric portal info        # Portal auth + Tool Gateway routing summary
-fabric portal tools       # Gateway catalog with current routing per tool
-fabric status             # Full system status (Tool Gateway is one section)
-```
-
-`fabric portal info` shows a section like:
-
-```
-◆ Nous Tool Gateway
-  Nous Portal     ✓ managed tools available
-  Web tools       ✓ active via Nous subscription
-  Image gen       ✓ active via Nous subscription
-  TTS             ✓ active via Nous subscription
-  Browser         ○ active via Browser Use key
-```
-
-Tools marked "active via Nous subscription" are going through the gateway. Anything else is using your own keys.
-
-## Eligibility
-
-The Tool Gateway is a **paid-subscription** feature. Free-tier Nous accounts can use Portal for inference but don't include managed tools — [upgrade your plan](https://portal.nousresearch.com/manage-subscription) to unlock the gateway.
-
-Some accounts are also entitled to a **free tool pool** — a small managed-tool allowance that covers gateway tool calls without a paid subscription. When a free pool is available, the gateway surfaces it and shows a setup prompt on first use, so you can opt in and start using managed tools right away.
-
-## Mix and match
-
-The gateway is per-tool. Turn it on for just what you want:
-
-- **All tools through Nous** — easiest; one subscription, done.
-- **Gateway for web + images, bring your own TTS** — keep your ElevenLabs voice, let Nous handle the rest.
-- **Gateway only for things you don't have keys for** — "I already pay for Browserbase, but I don't want a Firecrawl account" works fine.
-
-Switch any tool at any time via:
+Use the profile's `local_ai` policy to restrict participating AI and memory
+routes, then inspect the result:
 
 ```bash
-fabric tools          # Interactive picker for each tool category
+fabric status --deep
 ```
 
-Select the tool, pick **Nous Subscription** as the provider (or any direct provider you prefer). No config editing required. If you aren't logged into Nous Portal yet, picking **Nous Subscription** kicks off the Portal login inline — you don't need to authenticate through `fabric model` first.
+Treat whole-process air-gapping as a separate, verified network boundary.
 
-## Using individual image models
+## Troubleshooting
 
-Image generation defaults to FLUX 2 Klein 9B for speed. Override per-call by passing the model ID to the `image_generate` tool:
+### A backend does not appear
 
-| Model | ID | Best for |
-|---|---|---|
-| FLUX 2 Klein 9B | `fal-ai/flux-2/klein/9b` | Fast, good default |
-| FLUX 2 Pro | `fal-ai/flux-2-pro` | Higher fidelity FLUX |
-| Z-Image Turbo | `fal-ai/z-image/turbo` | Stylized, fast |
-| Nano Banana Pro | `fal-ai/nano-banana-pro` | Google Gemini 3 Pro Image |
-| GPT Image 1.5 | `fal-ai/gpt-image-1.5` | OpenAI image gen, text+image |
-| GPT Image 2 | `fal-ai/gpt-image-2` | OpenAI latest |
-| Ideogram V3 | `fal-ai/ideogram/v3` | Strong prompt adherence + typography |
-| Recraft V4 Pro | `fal-ai/recraft/v4/pro/text-to-image` | Vector-style, graphic design |
-| Qwen Image | `fal-ai/qwen-image` | Alibaba multimodal |
+1. Confirm its plugin is installed or its credential is present.
+2. Run `fabric tools` again.
+3. Check `fabric logs --level warning` for provider initialization failures.
+4. Run a small provider-specific task to verify credentials and reachability.
 
-The set evolves — `fabric tools` → Image Generation shows the current live list.
+### A configured backend is not used
 
----
+Confirm you changed the intended profile. Tool routes are profile-scoped, so a
+setting in `default` does not silently inherit into another profile.
 
-## Configuration reference
+### A hosted route fails
 
-Most users never need to touch this — `fabric model` and `fabric tools` cover every workflow interactively. This section is for writing config.yaml directly or scripting setups.
+Use the provider's direct status page, verify the credential, and keep a local
+or alternate backend configured when the workflow must degrade gracefully.
 
-### Per-tool `use_gateway` flag
+## Related guides
 
-Each tool's config block takes a `use_gateway` boolean:
-
-```yaml
-web:
-  backend: firecrawl
-  use_gateway: true
-
-image_gen:
-  use_gateway: true
-
-tts:
-  provider: openai
-  use_gateway: true
-
-browser:
-  cloud_provider: browser-use
-  use_gateway: true
-```
-
-Precedence: `use_gateway: true` routes through Nous regardless of any direct keys in `.env`. `use_gateway: false` (or absent) uses direct keys if available and only falls back to the gateway when none exist.
-
-### Disabling the gateway
-
-```yaml
-web:
-  use_gateway: false   # Fabric now uses FIRECRAWL_API_KEY from .env
-```
-
-`fabric tools` automatically clears the flag when you pick a non-gateway provider, so this usually happens for you.
-
-### Self-hosted gateway (advanced)
-
-Running your own Nous-compatible gateway? Override endpoints in `~/.fabric/.env`:
-
-```bash
-TOOL_GATEWAY_DOMAIN=your-domain.example.com
-TOOL_GATEWAY_SCHEME=https
-TOOL_GATEWAY_USER_TOKEN=your-token        # normally auto-populated from Portal login
-FIRECRAWL_GATEWAY_URL=https://...         # override one endpoint specifically
-```
-
-These knobs exist for custom infrastructure setups (enterprise deployments, dev environments). Regular subscribers never set them.
-
-## FAQ
-
-### Does it work with Telegram / Discord / the other messaging gateways?
-
-Yes. Tool Gateway operates at the tool-execution layer, not the CLI. Every interface that can call a tool — CLI, Telegram, Discord, Slack, IRC, Teams, the API server, anything — benefits from it transparently.
-
-### What happens if my subscription expires?
-
-Tools routed through the gateway stop working until you renew or swap in direct API keys via `fabric tools`. Fabric shows a clear error pointing at the portal.
-
-### Can I see usage or costs per tool?
-
-Yes — the [Nous Portal dashboard](https://portal.nousresearch.com) breaks usage down by tool so you can see what's driving your bill.
-
-### Is Modal (serverless terminal) included?
-
-Modal is available as an **optional add-on** through the Nous subscription, not part of the default Tool Gateway bundle. Configure it via `fabric setup terminal` or directly in `config.yaml` when you want a remote sandbox for shell execution.
-
-### Do I need to delete my existing API keys when I enable the gateway?
-
-No — keep them in `.env`. When `use_gateway: true`, Fabric skips direct keys and uses the gateway. Flip the flag back to `false` and your keys become the source again. The gateway isn't a lock-in.
+- [Tools](/user-guide/features/tools)
+- [Provider routing](/user-guide/features/provider-routing)
+- [Local Ollama](/guides/local-ollama-setup)
+- [Local-AI boundary](/guides/local-ollama-setup#review-traffic-outside-the-local-ai-boundary)
+- [Plugins](/user-guide/features/plugins)

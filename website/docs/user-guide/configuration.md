@@ -9,7 +9,8 @@ description: "Configure Fabric — config.yaml, providers, models, API keys, and
 All settings are stored in the `~/.fabric/` directory for easy access.
 
 :::tip Easiest path to a working `config.yaml`
-Run `fabric setup --portal` — one OAuth gets you a model provider and all four Tool Gateway tools without hand-editing YAML. Portal subscribers also get 10% off token-billed providers. See [Nous Portal](/integrations/nous-portal).
+Run `fabric model` to write the model route, then use `fabric tools` for optional
+web, browser, image, and speech backends. You do not need to hand-edit YAML.
 :::
 
 ## Directory Structure

@@ -1577,9 +1577,7 @@ export interface Translations {
     backToAccountChoice: string
     deviceCodeSecurityWarning: string
     chooseLater: string
-    recommended: string
     connected: string
-    featuredPitch: string
     openRouterPitch: string
     apiKeyOptions: Record<string, { short: string; description: string }>
     backToSignIn: string

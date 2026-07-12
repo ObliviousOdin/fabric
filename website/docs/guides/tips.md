@@ -9,7 +9,8 @@ description: "Practical advice to get the most out of Fabric — prompt tips, CL
 A quick-wins collection of practical tips that make you immediately more effective with Fabric. Each section targets a different aspect — scan the headers and jump to what's relevant.
 
 :::tip Confused which model to pick?
-Run `fabric setup --portal` — you get 300+ models including Claude, GPT-5, and Gemini under one subscription. See [Nous Portal](/integrations/nous-portal).
+Run `fabric model` and choose the route you already trust: a supported personal
+subscription, your own API provider, or local Ollama.
 :::
 
 ---

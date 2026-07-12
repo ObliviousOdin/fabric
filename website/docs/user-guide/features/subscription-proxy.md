@@ -1,7 +1,7 @@
 ---
 sidebar_position: 15
 title: "Subscription Proxy"
-description: "Use your Nous Portal subscription (or other OAuth provider) as an OpenAI-compatible endpoint for external apps"
+description: "Expose a supported OAuth provider as an OpenAI-compatible endpoint for external apps"
 ---
 
 # Subscription Proxy

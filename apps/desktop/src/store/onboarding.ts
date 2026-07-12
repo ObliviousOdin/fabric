@@ -326,7 +326,7 @@ function notifyReady(provider: string) {
   notify({ kind: 'success', title: `${desktopBrand.productName} is ready`, message: `${provider} connected.` })
 }
 
-// Human-friendly labels for tools auto-routed through the Nous Tool Gateway,
+// Human-friendly labels for tools auto-routed through a managed Tool Gateway,
 // mirroring fabric_cli/nous_subscription._GATEWAY_TOOL_LABELS so the GUI and
 // CLI describe the same thing.
 const GATEWAY_TOOL_LABELS: Record<string, string> = {
@@ -337,8 +337,8 @@ const GATEWAY_TOOL_LABELS: Record<string, string> = {
   web: 'web search & extract'
 }
 
-// When switching to Nous auto-routes unconfigured tools through the Tool
-// Gateway, tell the user which ones — same information the CLI prints. Silent
+// When a provider auto-routes unconfigured tools through the Tool Gateway,
+// tell the user which ones — same information the CLI prints. Silent
 // when nothing changed (subscriber already configured, has own keys, etc.).
 function notifyGatewayTools(tools: string[] | undefined) {
   if (!tools || tools.length === 0) {
@@ -351,8 +351,8 @@ function notifyGatewayTools(tools: string[] | undefined) {
   notify({
     durationMs: 8000,
     kind: 'info',
-    message: `${list} now run through your Nous subscription — no separate API keys needed.`,
-    title: 'Tool Gateway enabled'
+    message: `${list} now use the configured managed route.`,
+    title: 'Managed tool routes enabled'
   })
 }
 

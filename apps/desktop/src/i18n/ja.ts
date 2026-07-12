@@ -858,7 +858,7 @@ export const ja = defineLocale({
         'このツールセットにはプロバイダーのオプションがありません。有効にすれば現在の設定で動作します。',
       noProviders: '現在このツールセットに利用可能なプロバイダーがありません。',
       ready: '準備完了',
-      nousIncluded: 'Nous サブスクリプションに含まれています。有効にするには Nous Portal にサインインしてください。',
+      nousIncluded: '互換性のある管理対象ツールルートを設定すると利用できます。',
       noApiKeyRequired: 'API キーは不要です。',
       postSetupHint: step =>
         `このバックエンドは一度だけインストールが必要です (${step})。このマシン上で実行され、数分かかる場合があります。`,
@@ -1903,14 +1903,12 @@ export const ja = defineLocale({
     deviceCodeSecurityWarning:
       '接続しようとしている Fabric の場合のみ続行してください。このデバイスコードをメールやチャットで転送しないでください。',
     chooseLater: '後でプロバイダーを選択します',
-    recommended: '推奨',
     connected: '接続済み',
-    featuredPitch: '1 つのサブスクリプションで 300 以上の最先端モデル — Fabric を実行するための推奨方法',
-    openRouterPitch: '1 つのキーで数百のモデル — 堅実なデフォルト',
+    openRouterPitch: '1 つの API キーで多数のホスト型モデルに接続',
     apiKeyOptions: {
       openrouter: {
         short: '1 つのキーで多くのモデル',
-        description: '1 つのキーで数百のモデルをホスト。新規インストールのデフォルトとして最適。'
+        description: '1 つのキーで数百のホスト型モデルにアクセスできます。'
       },
       openai: { short: 'GPT クラスのモデル', description: 'OpenAI モデルへの直接アクセス。' },
       gemini: { short: 'Gemini モデル', description: 'Google Gemini モデルへの直接アクセス。' },
@@ -1975,7 +1973,7 @@ export const ja = defineLocale({
     loadFailed: 'モデルを読み込めませんでした',
     noAuthenticatedProviders: '認証済みプロバイダーがありません。',
     pro: 'Pro',
-    proNeedsSubscription: 'Pro モデルには有料の Nous サブスクリプションが必要です。',
+    proNeedsSubscription: 'Pro モデルには対象となる有料プロバイダープランが必要です。',
     free: '無料',
     freeTier: '無料プラン',
     priceTitle: '100 万トークンあたりの入力/出力価格'

@@ -11,7 +11,9 @@ The API server exposes fabric-agent as an OpenAI-compatible HTTP endpoint. Any f
 Your agent handles requests with its full toolset (terminal, file operations, web search, memory, skills) and returns the final response. When streaming, tool progress indicators appear inline so frontends can show what the agent is doing.
 
 :::tip One backend covers models + tools
-Fabric itself needs a configured provider and tool backends for the API server to be useful. A [Nous Portal](/user-guide/features/tool-gateway) subscription handles both — 300+ models plus web/image/TTS/browser via the Tool Gateway. Run `fabric setup --portal` once before starting the API server and frontends like Open WebUI or LobeChat get a fully tool-equipped backend.
+Fabric needs a configured model route and any tool backends the client expects.
+Run `fabric model`, configure optional capabilities with `fabric tools`, and
+verify the complete route set before exposing the API server.
 :::
 
 ## Quick Start

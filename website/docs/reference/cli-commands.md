@@ -280,7 +280,8 @@ the full guide, supported languages, and configuration knobs.
 fabric setup [model|tts|terminal|gateway|tools|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
 ```
 
-**Easiest path:** `fabric setup --portal` — OAuth into Nous Portal and opt into the [Tool Gateway](../user-guide/features/tool-gateway.md) in one shot.
+Run `fabric setup` for the full interactive wizard, or use `fabric model` and
+`fabric tools` to configure model and tool routes independently.
 
 **First run:** launches the first-time wizard.
 
@@ -1306,8 +1307,8 @@ Manage MCP (Model Context Protocol) server configurations and run Fabric as an M
 
 | Subcommand | Description |
 |------------|-------------|
-| *(none)* or `picker` | Interactive catalog picker — browse Nous-approved MCPs and install/enable/disable. |
-| `catalog` | List Nous-approved MCPs (plain text, scriptable). |
+| *(none)* or `picker` | Interactive catalog picker — browse Fabric-curated MCPs and install/enable/disable. |
+| `catalog` | List Fabric-curated MCPs (plain text, scriptable). |
 | `install <name>` | Install a catalog entry (e.g. `fabric mcp install n8n`). |
 | `serve [-v\|--verbose]` | Run Fabric as an MCP server — expose conversations to other agents. |
 | `add <name> [--url URL] [--command CMD] [--auth oauth\|header] [--args ...]` | Add a custom MCP server with automatic tool discovery. `--args` passes the remaining argv to the stdio command, so put it last. |

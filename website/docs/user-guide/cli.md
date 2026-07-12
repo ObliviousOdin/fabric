@@ -9,7 +9,8 @@ description: "Master the Fabric terminal interface — commands, keybindings, pe
 Fabric's CLI is a full terminal user interface (TUI) — not a web UI. It features multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output. Built for people who live in the terminal.
 
 :::tip First-time setup
-One command — `fabric setup --portal` — and you're ready to `fabric chat`. See [Nous Portal](/integrations/nous-portal).
+Run `fabric model`, verify the route with `fabric status --deep`, and then start
+with `fabric chat`.
 :::
 
 :::tip

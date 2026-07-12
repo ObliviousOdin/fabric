@@ -8,10 +8,6 @@ description: "Browser-based administration panel for managing configuration, API
 
 The web dashboard is a browser-based UI for managing your Fabric installation. Instead of editing YAML files or running CLI commands, you can configure settings, manage API keys, and monitor sessions from a clean web interface.
 
-:::tip
-Hosted-mode auth uses Nous Portal OAuth; if you also want the dashboard to talk to a real backend, `fabric setup --portal` wires up the model and tool gateway too. See [Nous Portal](/integrations/nous-portal).
-:::
-
 ## Quick Start
 
 ```bash
@@ -27,7 +23,7 @@ This starts a local web server and opens `http://127.0.0.1:9119` in your browser
 | `--port` | `9119` | Port to run the web server on |
 | `--host` | `127.0.0.1` | Bind address |
 | `--no-open` | — | Don't auto-open the browser |
-| `--insecure` | off | Allow binding to non-localhost hosts (**DANGEROUS** — exposes API keys on the network; pair with a firewall and strong auth) |
+| `--insecure` | off | Deprecated compatibility flag. It no longer bypasses authentication; every non-loopback bind still requires an auth provider. |
 | `--isolated` | off | When launched from a named profile (`worker dashboard`), run a dedicated per-profile server instead of routing to the machine dashboard |
 
 ```bash
@@ -307,7 +303,7 @@ block in `config.yaml` that `fabric mcp` reads from.
 - **Remove** — delete a server from the config
 - Secret-shaped env values are redacted in the list view
 
-**Catalog:** browse the Nous-approved MCP servers (the bundled `optional-mcps/`
+**Catalog:** browse the Fabric-curated MCP servers (the bundled `optional-mcps/`
 catalog) and install any of them with one click. Entries that need API keys
 prompt for them inline; the values go to `.env`. This is the same catalog
 `fabric mcp catalog` / `fabric mcp install` use.
@@ -507,7 +503,7 @@ same auth gate as the rest of `/api/`.
 | `POST /api/mcp/servers/{name}/test` | Connect, list tools, disconnect |
 | `PUT /api/mcp/servers/{name}/enabled` | Enable / disable a server |
 | `DELETE /api/mcp/servers/{name}` | Remove a server |
-| `GET /api/mcp/catalog` | Browse the Nous-approved MCP catalog |
+| `GET /api/mcp/catalog` | Browse the Fabric-curated MCP catalog |
 | `POST /api/mcp/catalog/install` | Install a catalog entry (with required env) |
 | `GET /api/messaging/platforms` | List every messaging channel with status + per-platform setup fields |
 | `PUT /api/messaging/platforms/{id}` | Configure a channel. Body: `{enabled?, env?, clear_env?}` (env writes to `.env`, enabled to `config.yaml`) |
@@ -549,8 +545,8 @@ same auth gate as the rest of `/api/`.
 When the dashboard is bound to a public or non-loopback address — anything other than `127.0.0.1` / `localhost` — Fabric engages an auth gate. Every request must carry a verified session cookie or it's bounced to the login page. Three providers ship in the box:
 
 - **[Username/password](#usernamepassword-provider-no-oauth-idp)** — the simplest way to put auth on a self-hosted / on-prem / homelab dashboard. No external identity provider. **Use it only on a trusted network or behind a VPN — not for public-internet exposure.**
-- **[OAuth (Nous Portal)](#default-provider-nous-research)** — for hosted deployments and any dashboard reachable over the public internet, and the recommended path for a [remote Fabric connection](#connecting-fabric-desktop-to-a-remote-backend). Every login is verified against your Nous account, so this is the provider suitable for internet-facing use.
-- **[Self-hosted OIDC](#self-hosted-oidc-provider)** — for bringing your own identity provider via standard OpenID Connect (Keycloak, Auth0, Okta, Google, GitHub via an OIDC bridge, etc.). No Nous Portal involved; suitable for public-internet exposure when fronted by a conformant OIDC server.
+- **[Self-hosted OIDC](#self-hosted-oidc-provider)** — the preferred public-internet route when you administer an OpenID Connect provider such as Keycloak, Auth0, Okta, Google, or GitHub through an OIDC bridge.
+- **[Hosted subscription OAuth](#default-provider-nous-research)** — an optional compatibility provider for deployments already using that subscription account.
 
 Operator-owned dashboards bound to loopback are unaffected — no auth, no login page.
 
@@ -561,13 +557,14 @@ Operator-owned dashboards bound to loopback are unaffected — no auth, no login
 | `fabric dashboard` (default — binds to `127.0.0.1`) | OFF | Local development |
 | `fabric dashboard --host 0.0.0.0` | **ON** | Remote / production — protect with the username/password provider or OAuth |
 
-The gate is on if and only if:
+The gate is on whenever the bind host is not `127.0.0.1`, `::1`, or
+`localhost`. Wildcard binds such as `0.0.0.0` are non-loopback and always
+engage it.
 
-1. The bind host is not `127.0.0.1`, `::1`, `localhost`, or `0.0.0.0` AND
-2. The `--insecure` flag is **not** set.
-
-:::danger `--insecure` disables auth entirely
-`--insecure` skips the gate and serves an unauthenticated dashboard that reads/writes your `.env` (API keys, secrets) and can run agent commands. **Do not use it for a remote connection.** To expose the dashboard to another machine, configure the [username/password provider](#usernamepassword-provider-no-oauth-idp) (or OAuth) and leave `--insecure` off. The flag exists only as a last-resort escape hatch on a fully trusted, firewalled single-host network.
+:::warning `--insecure` is now a no-op
+The legacy flag is accepted so old launch scripts do not break, but it cannot
+disable the auth gate. Configure an auth provider for every non-loopback bind,
+or bind to `127.0.0.1` and connect through an SSH tunnel or VPN.
 :::
 
 ### Fail-closed semantics
@@ -576,11 +573,13 @@ If the gate would engage but **no** `DashboardAuthProvider` is registered (no No
 
 When you run `fabric dashboard --host 0.0.0.0` **interactively** (a real terminal) and no provider is configured yet, Fabric doesn't just fail — it offers to set one up on the spot: pick **username & password** (writes `dashboard.basic_auth` to `config.yaml` and you're running in seconds) or **OAuth** (points you at `fabric dashboard register`). Non-interactive callers — Docker/s6, CI, piped runs — skip the prompt and hit the fail-closed error above, so an unattended deploy still never starts without auth.
 
-### Default provider: Nous Research
+### Hosted subscription compatibility {#default-provider-nous-research}
 
-The bundled `plugins/dashboard_auth/nous` plugin is **always installed** and auto-loaded. It auto-registers a `DashboardAuthProvider` named `nous` when a client ID is configured.
+The bundled `plugins/dashboard_auth/nous` plugin is retained for compatibility with deployments that already use a Nous subscription account. It auto-registers a `DashboardAuthProvider` named `nous` when a client ID is configured.
 
-Because every login is verified against Nous Portal and protected by your Nous account, **the Nous provider is the one suitable for exposing a dashboard to the public internet.**
+This compatibility provider verifies login against its hosted subscription
+account. For a new public deployment, prefer the self-hosted OIDC provider so
+the identity boundary remains under operator control.
 
 #### Registering a dashboard
 
@@ -630,10 +629,8 @@ Bundled providers reported these issues:
     provisions this env var (shape 'agent:{instance_id}') when it
     deploys a Fabric instance — set it to your provisioned
     client id (either as an env var or under dashboard.oauth.client_id
-    in config.yaml), or pass --insecure to skip the OAuth gate entirely.
-
-Or pass --insecure to skip the auth gate (NOT recommended on untrusted
-networks).
+    in config.yaml). Configure an auth provider, or bind to 127.0.0.1 and
+    connect through an SSH tunnel or VPN.
 ```
 
 #### Worked example: Nous Research
@@ -649,7 +646,8 @@ fabric dashboard register
 # …writes HERMES_DASHBOARD_OAUTH_CLIENT_ID to ~/.fabric/.env
 ```
 
-**2. Run the dashboard on a reachable address.** A non-loopback bind without `--insecure` engages the OAuth gate, and the `client_id` just written activates the `nous` provider:
+**2. Run the dashboard on a reachable address.** A non-loopback bind engages
+the OAuth gate, and the `client_id` just written activates the `nous` provider:
 
 ```bash
 fabric dashboard --host 0.0.0.0 --port 9119 --no-open
@@ -669,15 +667,23 @@ curl -s http://<host>:9119/api/status | jq '.auth_required, .auth_providers'
 
 If you don't want to wire up an OAuth identity provider — a self-hosted "just put a password on my dashboard" deployment — the bundled `plugins/dashboard_auth/basic` plugin registers a `DashboardAuthProvider` named `basic` that authenticates with a **username and password** instead of an OAuth redirect.
 
-It plugs into the same gate as the OAuth provider: the gate engages on a non-loopback bind without `--insecure`, the login page renders a credential form for this provider (instead of a "Log in with X" button), and everything downstream of login — session cookies, transparent refresh, WS tickets, logout, the audit log — is identical to the OAuth path. Sessions are stateless HMAC-signed tokens the provider mints itself, so there's **no database and no external IDP**. Password hashing uses stdlib `scrypt` (no third-party dependency).
+It plugs into the same gate as the OAuth provider: every non-loopback bind
+engages the gate, the login page renders a credential form for this provider,
+and everything downstream of login—session cookies, transparent refresh, WS
+tickets, logout, and the audit log—is identical to the OAuth path. Sessions are
+stateless HMAC-signed tokens, so there is no database or external IDP. Password
+hashing uses stdlib `scrypt`.
 
 :::warning Use this on trusted networks only — not the public internet
-The username/password provider is intended for self-hosted / on-prem / homelab dashboards on a **trusted network**, or reachable only over a **VPN**. It protects a single shared credential with no external identity provider, MFA, or per-user accounts behind it, so it is **not suitable for exposing a dashboard directly to the public internet**. For an internet-facing dashboard, use the [Nous Research provider](#default-provider-nous-research) (or your own [self-hosted OIDC](#self-hosted-oidc-provider) / [custom OAuth](#custom-providers) provider) instead.
+The username/password provider is intended for self-hosted / on-prem / homelab dashboards on a **trusted network**, or reachable only over a **VPN**. It protects a single shared credential with no external identity provider, MFA, or per-user accounts behind it, so it is **not suitable for exposing a dashboard directly to the public internet**. For an internet-facing dashboard, use your own [self-hosted OIDC](#self-hosted-oidc-provider) or [custom OAuth](#custom-providers) provider instead. The [hosted subscription provider](#default-provider-nous-research) remains available only for compatibility with existing deployments.
 :::
 
 #### Configuration
 
-Like the Nous provider, it reads from `config.yaml` (canonical) with environment variables winning when set non-empty. It activates only when `username` plus either `password_hash` (preferred) or `password` are configured — otherwise it's a no-op, so OAuth users and loopback/`--insecure` operators are unaffected.
+Like the hosted OAuth provider, it reads from `config.yaml` (canonical) with
+non-empty environment variables taking precedence. It activates only when
+`username` plus either `password_hash` (preferred) or `password` are configured;
+otherwise it is a no-op, so OAuth users and loopback operators are unaffected.
 
 **`config.yaml`:**
 
@@ -728,7 +734,8 @@ EOF
 chmod 600 ~/.fabric/.env
 ```
 
-**2. Run the dashboard on a reachable address.** A non-loopback bind without `--insecure` engages the gate, and the username + hash activate the `basic` provider:
+**2. Run the dashboard on a reachable address.** A non-loopback bind engages
+the gate, and the username + hash activate the `basic` provider:
 
 ```bash
 fabric dashboard --host 0.0.0.0 --port 9119 --no-open
@@ -742,7 +749,7 @@ curl -s http://<host>:9119/api/status | jq '.auth_required, .auth_providers'
 # ["basic"]
 ```
 
-`GET /api/auth/me` then returns the verified session (`provider: basic`). Keep this behind a VPN — see the warning above; for a public host use the [Nous Research](#default-provider-nous-research) or [self-hosted OIDC](#self-hosted-oidc-provider) provider instead.
+`GET /api/auth/me` then returns the verified session (`provider: basic`). Keep this behind a VPN — see the warning above; for a public host use [self-hosted OIDC](#self-hosted-oidc-provider) or a [custom OAuth provider](#custom-providers).
 
 #### Writing your own password provider
 
@@ -754,7 +761,8 @@ If you run your own identity provider, the bundled `plugins/dashboard_auth/self_
 
 > **Authentik · Keycloak · Zitadel · Authelia · Auth0 · Okta · Google · …**
 
-Like the Nous provider, it auto-loads and only registers itself once it's configured, so it's a no-op for loopback / `--insecure` dashboards.
+Like the hosted OAuth provider, it auto-loads and only registers itself once it
+is configured, so it is a no-op for loopback dashboards.
 
 #### Configuration
 
@@ -863,7 +871,7 @@ fabric dashboard --host 0.0.0.0 --port 9119 --no-open
 
 `HERMES_DASHBOARD_PUBLIC_URL` tells the dashboard its OAuth callback is
 `http://localhost:9119/auth/callback` — the redirect URI the realm registered
-above. Binding to `0.0.0.0` (a non-loopback bind) without `--insecure` is what
+above. Binding to `0.0.0.0` (a non-loopback bind) is what
 engages the OAuth gate.
 
 **3. Log in.** Open `http://localhost:9119/`, you'll be bounced to `/login`. Click **Sign in with Self-Hosted OIDC** → authenticate at Keycloak as `testuser` / `testpassword` → land back on the authenticated dashboard. The sidebar shows `Logged in as Test User via self-hosted`, and `GET /api/auth/me` returns the verified session (`provider: self-hosted`, `email: testuser@example.com`).
@@ -990,9 +998,16 @@ The dashboard's React StatusPage shows the same fields under "Web server". A sid
 
 Fabric can drive a Fabric backend running on another machine (a VPS, a home server, a Mini behind Tailscale). In the app this lives under **Settings → Gateway → Remote gateway**, which asks for a **Remote URL** and a way to **Sign in**. (For the desktop app itself — install, settings, chat — see the [Fabric](/user-guide/desktop) page.)
 
-You protect the remote dashboard with one of the bundled auth providers, and the desktop app signs in against whichever one the backend advertises. For a backend reachable beyond your own machine — a VPS, a public host, anything internet-facing — the recommended provider is **OAuth (Nous Portal)** (register it with [`fabric dashboard register`](#registering-a-dashboard) and sign in with *Sign in with Nous Research*). The bundled [username/password provider](#usernamepassword-provider-no-oauth-idp) is the quickest option when the backend is on a trusted LAN or reachable only over a VPN, but is **not suitable for direct public-internet exposure**. Binding the dashboard to a non-loopback address engages its auth gate; once signed in, Desktop reuses the session for the chat WebSocket automatically — there is no token to copy or paste.
+You protect the remote dashboard with one of the bundled auth providers, and
+the desktop app signs in against whichever one the backend advertises. For a
+VPS or public host, prefer [self-hosted OIDC](#self-hosted-oidc-provider). The
+bundled [username/password provider](#usernamepassword-provider-no-oauth-idp)
+is for a trusted LAN or VPN and is **not suitable for direct public-internet
+exposure**. Binding to a non-loopback address engages the auth gate; once signed
+in, Desktop reuses the session for the chat WebSocket automatically.
 
-The recipe below uses the username/password path because it's the quickest to stand up on a trusted network; for the OAuth path see [Default provider: Nous Research](#default-provider-nous-research).
+The recipe below uses username/password on a trusted network. For a public
+deployment, follow [Self-hosted OIDC](#self-hosted-oidc-provider).
 
 ### On the backend (the remote machine)
 
@@ -1016,7 +1031,7 @@ Prefer no plaintext at rest? Use `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` wit
 If you run the dashboard as a systemd service, `~/.fabric/.env` is picked up automatically when the unit has `EnvironmentFile=%h/.fabric/.env`, so the credentials are in the environment at boot.
 
 :::warning
-The dashboard reads and writes your `.env` (API keys, secrets) and can run agent commands. The **username/password** setup shown here is for a trusted network — never expose a password-protected dashboard directly to the open internet. Put it behind a VPN. [Tailscale](https://tailscale.com/) is the clean option: bind to the machine's tailscale IP (`--host <tailscale-ip>`) and use `http://<tailscale-ip>:9119` as the Remote URL. Only devices on your tailnet can reach it. To reach a backend over the public internet, use the **OAuth (Nous Portal)** provider instead.
+The dashboard reads and writes your `.env` (API keys, secrets) and can run agent commands. The **username/password** setup shown here is for a trusted network — never expose a password-protected dashboard directly to the open internet. Put it behind a VPN. [Tailscale](https://tailscale.com/) is the clean option: bind to the machine's tailscale IP (`--host <tailscale-ip>`) and use `http://<tailscale-ip>:9119` as the Remote URL. Only devices on your tailnet can reach it. To reach a backend over the public internet, use a standards-based [self-hosted OIDC](#self-hosted-oidc-provider) or [custom OAuth](#custom-providers) provider instead.
 :::
 
 ### In Fabric

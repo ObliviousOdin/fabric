@@ -12531,7 +12531,7 @@ async def set_mcp_server_enabled(
 
 @app.get("/api/mcp/catalog")
 async def list_mcp_catalog(profile: Optional[str] = None):
-    """Browse the Nous-approved MCP catalog (the optional-mcps/ manifests).
+    """Browse the Fabric-curated MCP catalog (the optional-mcps/ manifests).
 
     Each entry reports whether it's already installed and enabled so the UI
     can show install / enabled state inline.  This is the same catalog

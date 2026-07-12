@@ -14,7 +14,6 @@ You need at least one way to connect to an LLM. Use `fabric model` to switch pro
 
 | Provider | Setup |
 |----------|-------|
-| **Nous Portal** | `fabric model` (OAuth, subscription-based) |
 | **OpenAI Codex** | `fabric model` (ChatGPT device-code sign-in; see the [Fabric guide](/guides/chatgpt-codex-subscription)) |
 | **GitHub Copilot** | `fabric model` (OAuth device code flow, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`) |
 | **GitHub Copilot ACP** | `fabric model` (spawns local `copilot --acp --stdio`) |
@@ -59,25 +58,6 @@ In the `model:` config section, you can use either `default:` or `model:` as the
 :::
 
 
-### Nous Portal
-
-[Nous Portal](https://portal.nousresearch.com) is Nous Research's unified subscription gateway and **the recommended way to run Fabric**. One OAuth login covers 300+ frontier agentic models (Claude, GPT, Gemini, DeepSeek, Qwen, Kimi, GLM, MiniMax, Grok, ...) plus the [Tool Gateway](/user-guide/features/tool-gateway) (web search, image generation, TTS, browser automation) plus [Nous Chat](https://chat.nousresearch.com) — billed against your Nous subscription instead of separate per-provider accounts.
-
-```bash
-fabric setup --portal     # fresh install — OAuth + provider + gateway in one command
-fabric model              # existing install — pick "Nous Portal" from the list
-fabric portal info        # inspect login + routing at any time
-```
-
-Don't have a subscription yet? Get one at [portal.nousresearch.com/manage-subscription](https://portal.nousresearch.com/manage-subscription).
-
-**For full details:** see the dedicated [Nous Portal integration page](/integrations/nous-portal) (what's in the subscription, model catalog, troubleshooting) and the step-by-step [Run Fabric with Nous Portal guide](/guides/run-fabric-with-nous-portal).
-
-**Client identification.** Every Portal request from Fabric carries a `client=fabric-client-v<version>` tag (e.g. `client=fabric-client-v0.13.0`) auto-aligned to your installed release. This is sent on all Portal pathways — main chat loop, auxiliary calls, compression summarizer, web extraction — and lets Portal-side telemetry distinguish Fabric traffic from other clients. No config required; the tag updates automatically when you `fabric update`.
-
-**JWT auth (automatic).** Fabric prefers scoped `inference:invoke` JWTs for Portal requests with the legacy opaque session-key path as a fallback. No configuration is required — credentials are managed by the OAuth flow and rotate transparently. Revoked refresh tokens are quarantined to avoid replay loops.
-
-
 :::info Codex Note
 The OpenAI Codex provider authenticates via device code (open a URL, enter a code). Fabric stores the resulting credentials in the selected profile's auth store and can import existing Codex CLI credentials from `~/.codex/auth.json` when present. No Codex CLI installation is required. Never email or forward the device code; the [ChatGPT subscription guide](/guides/chatgpt-codex-subscription) explains the separate personal and Fabric-managed paths.
 
@@ -85,11 +65,11 @@ If a token refresh fails with a terminal error (HTTP 4xx, `invalid_grant`, revok
 :::
 
 :::warning
-Even when using Nous Portal, Codex, or a custom endpoint, some tools (vision, web summarization, MoA) use a separate "auxiliary" model. By default (`auxiliary.*.provider: "auto"`), Fabric routes these tasks to your **main chat model** — the same model you picked in `fabric model`. You can override each task individually to route it to a cheaper/faster model (e.g. Gemini Flash on OpenRouter) — see [Auxiliary Models](/user-guide/configuration#auxiliary-models).
-:::
-
-:::tip Nous Tool Gateway
-Paid Nous Portal subscribers also get access to the **[Tool Gateway](/user-guide/features/tool-gateway)** — web search, image generation, TTS, and browser automation routed through your subscription. No extra API keys needed. On a fresh install, `fabric setup --portal` logs you in, sets Nous as your provider, and turns the gateway on in one command. Existing users can enable it from `fabric model` or per-tool from `fabric tools`. Inspect routing at any time with `fabric portal info`.
+Even when using a subscription or custom endpoint, some tools (vision, web
+summarization, MoA) use a separate "auxiliary" model. By default
+(`auxiliary.*.provider: "auto"`), Fabric routes these tasks to your **main chat
+model**. You can override each task individually — see
+[Auxiliary Models](/user-guide/configuration#auxiliary-models).
 :::
 
 ### Two Commands for Model Management
@@ -1399,7 +1379,7 @@ model:
 
 | Use Case | Recommended |
 |----------|-------------|
-| **Just want it to work** | OpenRouter (default) or Nous Portal |
+| **Just want it to work** | OpenRouter or a supported personal subscription |
 | **Local models, easy setup** | Ollama |
 | **Production GPU serving** | vLLM or SGLang |
 | **Mac / no GPU** | Ollama or llama.cpp |

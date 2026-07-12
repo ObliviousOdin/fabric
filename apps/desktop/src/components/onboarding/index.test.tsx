@@ -87,18 +87,15 @@ afterEach(() => {
 })
 
 describe('onboarding Picker', () => {
-  it('features Nous Portal and hides other providers behind a disclosure', () => {
+  it('shows every provider uniformly without a featured badge or disclosure', () => {
     setProviders([provider('anthropic', 'Anthropic Claude'), provider('nous', 'Nous Portal')])
     render(<Picker ctx={ctx} />)
 
     expect(screen.getByText('Nous Portal')).toBeTruthy()
-    expect(screen.getByText('Recommended')).toBeTruthy()
-    expect(screen.queryByText('Anthropic API Key')).toBeNull()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Other providers' }))
-
     expect(screen.getByText('Anthropic API Key')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Collapse' })).toBeTruthy()
+    expect(screen.queryByText('Recommended')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Other providers' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Collapse' })).toBeNull()
   })
 
   it('shows every provider directly when Nous Portal is absent', () => {

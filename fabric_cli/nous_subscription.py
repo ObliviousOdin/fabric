@@ -1110,12 +1110,9 @@ def prompt_enable_tool_gateway(
     pre_selected = list(range(len(unconfigured)))
 
     if pool_only:
-        title = "Your free Nous tool pool — pick the tools to enable:"
+        title = "Your free managed tool pool — pick the tools to enable:"
     else:
-        title = (
-            "Your Nous subscription includes the Tool Gateway — "
-            "pick the tools to enable:"
-        )
+        title = "Managed Tool Gateway available — pick the tools to enable:"
 
     try:
         chosen_idx = prompt_checklist(title, labels, pre_selected)

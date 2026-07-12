@@ -768,7 +768,7 @@ export const en: Translations = {
       noProviderOptions: 'This toolset has no provider options — enable it and it works with your current setup.',
       noProviders: 'No providers are available for this toolset right now.',
       ready: 'Ready',
-      nousIncluded: 'Included with a Nous subscription — sign in to Nous Portal to activate.',
+      nousIncluded: 'Available when a compatible managed tool route is configured.',
       noApiKeyRequired: 'No API key required.',
       postSetupHint: step =>
         `This backend needs a one-time install (${step}). Runs on this machine — may take a few minutes.`,
@@ -1926,14 +1926,12 @@ export const en: Translations = {
     deviceCodeSecurityWarning:
       'Only continue for the Fabric you are connecting. Never forward this device code by email or chat.',
     chooseLater: "I'll choose a provider later",
-    recommended: 'Recommended',
     connected: 'Connected',
-    featuredPitch: 'One subscription, 300+ frontier models — the recommended way to run Fabric',
-    openRouterPitch: 'One key, hundreds of models — a solid default',
+    openRouterPitch: 'One API key for many hosted models',
     apiKeyOptions: {
       openrouter: {
         short: 'one key, many models',
-        description: 'Hosts hundreds of models behind a single key. Good default for new installs.'
+        description: 'Access hundreds of hosted models through a single key.'
       },
       openai: { short: 'GPT-class models', description: 'Direct access to OpenAI models.' },
       gemini: { short: 'Gemini models', description: 'Direct access to Google Gemini models.' },
@@ -2002,7 +2000,7 @@ export const en: Translations = {
     loadFailed: 'Could not load models',
     noAuthenticatedProviders: 'No authenticated providers.',
     pro: 'Pro',
-    proNeedsSubscription: 'Pro models need a paid Nous subscription.',
+    proNeedsSubscription: 'Pro models require an eligible paid provider plan.',
     free: 'Free',
     freeTier: 'Free tier',
     priceTitle: 'Input / Output price per million tokens'

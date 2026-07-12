@@ -10,7 +10,8 @@ Fabric can optionally hand `openai/*` and `openai-codex/*` turns to the [Codex C
 This is **opt-in only**. Default Fabric behavior is unchanged unless you flip the flag. Fabric never auto-routes you onto this runtime.
 
 :::tip
-Not using OpenAI Codex? `fabric setup --portal` configures a non-Codex backend with Claude/Gemini/etc. in one step. See [Nous Portal](/integrations/nous-portal).
+Not using OpenAI Codex? Run `fabric model` to select another API, subscription,
+or local route. The app-server runtime remains opt-in.
 :::
 
 ## Why

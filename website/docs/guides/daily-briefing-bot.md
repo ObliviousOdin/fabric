@@ -11,7 +11,8 @@ In this tutorial, you'll build a personal briefing bot that wakes up every morni
 By the end, you'll have a fully automated workflow combining **web search**, **cron scheduling**, **delegation**, and **messaging delivery** — no code required.
 
 :::tip
-This recipe hits web search, summarization, and optional TTS — all bundled in a Portal subscription. The fastest setup is `fabric setup --portal`. See [Nous Portal](/integrations/nous-portal).
+This recipe needs a chat model, web search, and optional TTS. Configure each
+route explicitly with `fabric model` and `fabric tools` before scheduling it.
 :::
 
 ## What We're Building

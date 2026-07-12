@@ -32,8 +32,8 @@ High-level categories:
 
 For the authoritative code-derived registry, see [Built-in Tools Reference](/reference/tools-reference) and [Toolsets Reference](/reference/toolsets-reference).
 
-:::tip Nous Tool Gateway
-Paid [Nous Portal](https://portal.nousresearch.com) subscribers can use web search, image generation, TTS, and browser automation through the **[Tool Gateway](tool-gateway.md)** — no separate API keys needed. Run `fabric model` to enable it, or configure individual tools with `fabric tools`.
+:::tip Managed tool routes
+Some installations can route web search, image generation, TTS, and browser automation through a configured managed service. See **[Managed Tool Routes](tool-gateway.md)** for the supported backends and use `fabric tools` to configure each capability.
 :::
 
 ## Using Toolsets

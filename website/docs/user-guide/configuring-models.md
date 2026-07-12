@@ -11,10 +11,9 @@ Fabric uses two kinds of model slots:
 
 This page covers configuring both from the dashboard. If you prefer config files or the CLI, jump to [Alternative methods](#alternative-methods) at the bottom.
 
-:::tip Fastest path: Nous Portal
-[Nous Portal](/user-guide/features/tool-gateway) provides 300+ models under one subscription. On a fresh install, run `fabric setup --portal` to log in and set Nous as your provider in one command. Inspect what's wired up with `fabric portal info`.
-
-- Portal subscribers also get **10% off token-billed providers**.
+:::tip Start with the route you control
+Run `fabric model` to choose a supported personal subscription, your own API
+provider, or local Ollama. Inspect the resolved route with `fabric status --deep`.
 :::
 
 :::note `model:` schema — empty string vs. mapping

@@ -1,0 +1,99 @@
+/*
+ * Fabric Setup — reuse the desktop's structural design tokens, then paint the
+ * installer with Fabric's own purple identity below.
+ *
+ * Rather than re-implement the shared desktop design system (and inevitably drift
+ * from it), we import apps/desktop/src/styles.css wholesale. The desktop
+ * is the canonical source of truth for fonts, color tokens, button chrome,
+ * scrollbars, layout utilities, and animations. Any change to the
+ * component and layout refinements propagate here with no copy-paste maintenance.
+ *
+ * Path resolution caveats:
+ *   - Tailwind v4's `@import` resolves relative to this file. The desktop's
+ *     `@source '../../../node_modules/...'` declarations therefore re-resolve
+ *     against apps/bootstrap-installer/src/. Since both apps live two levels
+ *     deep under the same repo root, `../../../node_modules` lands in the
+ *     same place. (Verify if either app ever moves.)
+ *   - The desktop's `@font-face url('../../../node_modules/...')` references
+ *     are baked into the *imported* stylesheet; CSS resolves url()s relative
+ *     to the file that contains them, so they continue to point at the
+ *     correct node_modules path even from here.
+ *
+ * Follows the OS appearance: the installer has no in-app theme switcher, so
+ * src/theme.ts tracks the Tauri window theme and toggles `.dark` on
+ * <html>. The desktop's runtime applyTheme() normally PAINTS the dark seed
+ * colors inline (its imported :root.dark below only flips the per-mode mix
+ * knobs + neutral chrome), so we supply Fabric light and dark seeds ourselves.
+ */
+@import "../../desktop/src/styles.css";
+
+/* Installer-only additions: a fade-in animation and a warm radial glow
+   for the welcome screen. Everything else inherits from the desktop. */
+@keyframes fabric-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fabric-fade-in {
+  animation: fabric-fade-in 0.45s ease-out both;
+}
+
+.fabric-glow {
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--ui-warm) 18%, transparent) 0%,
+    transparent 60%
+  );
+}
+
+/*
+ * Fabric brand seeds.
+ *
+ * `#4628cc` is the canonical purple used by the official Fabric mark and web
+ * product. These unlayered overrides intentionally win over the shared
+ * desktop stylesheet's default theme without modifying that separate app.
+ */
+:root {
+  --theme-foreground: #17131f;
+  --theme-primary: #4628cc;
+  --theme-secondary: color-mix(in srgb, #4628cc 7%, #ffffff);
+  --theme-accent-soft: color-mix(in srgb, #4628cc 11%, #ffffff);
+  --theme-midground: #4628cc;
+  --theme-warm: #6c4fe0;
+  --theme-background-seed: #faf9ff;
+  --theme-sidebar-seed: #f5f2ff;
+  --theme-card-seed: #ffffff;
+  --theme-elevated-seed: #ffffff;
+  --theme-bubble-seed: color-mix(in srgb, #4628cc 7%, #ffffff);
+  --dt-primary-foreground: #ffffff;
+  --dt-destructive: #b4233d;
+  --dt-destructive-foreground: #ffffff;
+  --stroke-fabric: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+:root.dark {
+  color-scheme: dark;
+
+  --theme-foreground: #f7f3ff;
+  --theme-primary: #b9a9ff;
+  --theme-secondary: #2b1d57;
+  --theme-accent-soft: #382469;
+  --theme-midground: #8a70f0;
+  --theme-warm: #c3b5ff;
+  --theme-background-seed: #17102f;
+  --theme-sidebar-seed: #120c27;
+  --theme-card-seed: #201542;
+  --theme-elevated-seed: #281a4f;
+  --theme-bubble-seed: #2a1c55;
+
+  /* Non-derived shadcn tokens normally painted by the desktop theme runtime. */
+  --dt-primary-foreground: #17102f;
+  --dt-destructive: #d55368;
+  --dt-destructive-foreground: #fef2f2;
+}

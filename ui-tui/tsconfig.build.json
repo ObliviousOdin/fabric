@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@fabric/ink": ["src/types/fabric-ink.d.ts"]
+    }
+  }
+}

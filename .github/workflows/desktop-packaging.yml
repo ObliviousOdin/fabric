@@ -1,0 +1,200 @@
+name: Desktop packaging verification
+
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "apps/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-packaging.yml"
+      - "tests/contract/test_fabric_desktop_release_brand.py"
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "apps/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/desktop-packaging.yml"
+      - "tests/contract/test_fabric_desktop_release_brand.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-packaging-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  brand-contract:
+    name: Validate Fabric desktop identity
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact_stem: ${{ steps.brand.outputs.artifact_stem }}
+      version: ${{ steps.brand.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Validate manifest and package metadata
+        id: brand
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+
+          import {
+            createElectronBuilderConfig,
+            loadDesktopBrand
+          } from './apps/desktop/scripts/desktop-brand.mjs'
+
+          const pkg = JSON.parse(fs.readFileSync('apps/desktop/package.json', 'utf8'))
+          const brand = loadDesktopBrand()
+          const config = createElectronBuilderConfig(pkg.build, brand)
+          const expectedArtifact = `${brand.artifactName}-\${version}-\${os}-\${arch}.\${ext}`
+          const failures = []
+
+          if (brand.productName !== 'Fabric') failures.push('productName must be Fabric')
+          if (brand.desktopName !== 'Fabric') failures.push('desktopName must be Fabric')
+          if (brand.vendorName !== 'Fabric') failures.push('vendorName must be Fabric')
+          if (brand.appId !== 'io.github.obliviousodin.fabric') failures.push('unexpected appId')
+          if (brand.primaryProtocol !== 'fabric') failures.push('primary protocol must be fabric')
+          if (config.artifactName !== expectedArtifact) failures.push('artifact template drifted')
+          if (config.productName !== brand.productName) failures.push('builder productName drifted')
+          if (config.executableName !== brand.executableName) failures.push('builder executable drifted')
+          if (config.mac?.extendInfo?.CFBundleDisplayName !== brand.desktopName) {
+            failures.push('macOS display name drifted')
+          }
+          if (config.nsis?.shortcutName !== brand.desktopName) {
+            failures.push('Windows shortcut name drifted')
+          }
+          if (config.linux?.desktop?.entry?.Name !== brand.desktopName) {
+            failures.push('Linux desktop entry drifted')
+          }
+
+          if (failures.length) {
+            for (const failure of failures) console.error(`::error::${failure}`)
+            process.exit(1)
+          }
+
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `artifact_stem=${brand.artifactName}\nversion=${pkg.version}\n`,
+            'utf8'
+          )
+          NODE
+
+  package:
+    name: Package ${{ matrix.label }}
+    needs: brand-contract
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS arm64
+            runner: macos-15
+            npm_script: dist:mac
+            platform: mac
+            arch: arm64
+            extensions: dmg,zip
+            artifact_suffix: macos-arm64
+          - label: Windows x64
+            runner: windows-2025
+            npm_script: dist:win
+            platform: win
+            arch: x64
+            extensions: exe,msi
+            artifact_suffix: windows-x64
+          - label: Linux x64
+            runner: ubuntu-24.04
+            npm_script: dist:linux
+            platform: linux
+            arch: x64
+            extensions: AppImage,deb,rpm
+            artifact_suffix: linux-x64
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build native packages without publishing
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run --prefix apps/desktop ${{ matrix.npm_script }} -- --publish never
+      - name: Verify package names and write checksums
+        shell: bash
+        env:
+          DESKTOP_PLATFORM: ${{ matrix.platform }}
+          DESKTOP_ARCH: ${{ matrix.arch }}
+          DESKTOP_EXTENSIONS: ${{ matrix.extensions }}
+        run: |
+          node --input-type=module <<'NODE'
+          import crypto from 'node:crypto'
+          import fs from 'node:fs'
+          import path from 'node:path'
+
+          import { loadDesktopBrand } from './apps/desktop/scripts/desktop-brand.mjs'
+
+          const desktopRoot = path.resolve('apps/desktop')
+          const releaseRoot = path.join(desktopRoot, 'release')
+          const pkg = JSON.parse(fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'))
+          const brand = loadDesktopBrand(undefined, { desktopRoot })
+          const expectedPrefix = `${brand.artifactName}-${pkg.version}-${process.env.DESKTOP_PLATFORM}-${process.env.DESKTOP_ARCH}.`
+          const requiredExtensions = process.env.DESKTOP_EXTENSIONS.split(',')
+
+          function filesBelow(directory) {
+            return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+              const candidate = path.join(directory, entry.name)
+              return entry.isDirectory() ? filesBelow(candidate) : [candidate]
+            })
+          }
+
+          const files = filesBelow(releaseRoot)
+          const releaseFiles = files.filter(file => path.basename(file).startsWith(expectedPrefix))
+          const legacyArtifacts = files.filter(file => /^Hermes(?:[-_.]|$)/i.test(path.basename(file)))
+          const failures = []
+
+          for (const extension of requiredExtensions) {
+            const expectedName = `${expectedPrefix}${extension}`
+            if (!releaseFiles.some(file => path.basename(file) === expectedName)) {
+              failures.push(`missing ${expectedName}`)
+            }
+          }
+          if (legacyArtifacts.length) {
+            failures.push(`legacy Hermes artifacts: ${legacyArtifacts.map(file => path.relative(releaseRoot, file)).join(', ')}`)
+          }
+          if (failures.length) {
+            for (const failure of failures) console.error(`::error::${failure}`)
+            process.exit(1)
+          }
+
+          const checksumLines = releaseFiles.sort().map(file => {
+            const digest = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+            return `${digest}  ${path.basename(file)}`
+          })
+          const checksumPath = path.join(
+            releaseRoot,
+            `${brand.artifactName}-${pkg.version}-${process.env.DESKTOP_PLATFORM}-${process.env.DESKTOP_ARCH}.SHA256SUMS`
+          )
+          fs.writeFileSync(checksumPath, `${checksumLines.join('\n')}\n`, 'utf8')
+          NODE
+      - name: Upload unsigned verification artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ needs.brand-contract.outputs.artifact_stem }}-${{ matrix.artifact_suffix }}-unsigned
+          path: |
+            apps/desktop/release/${{ needs.brand-contract.outputs.artifact_stem }}-${{ needs.brand-contract.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}.*
+          if-no-files-found: error
+          retention-days: 14

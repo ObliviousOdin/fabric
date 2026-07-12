@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""Fabric Agent CLI launcher."""
+
+if __name__ == "__main__":
+    from fabric_cli.main import main
+    main()

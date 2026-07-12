@@ -1,0 +1,3 @@
+interface:
+  display_name: "Fabric Compound Spike"
+  short_description: "Resolve one uncertainty with a bounded experiment"

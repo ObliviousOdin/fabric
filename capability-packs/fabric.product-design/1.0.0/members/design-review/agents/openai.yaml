@@ -1,0 +1,3 @@
+interface:
+  display_name: "Fabric Design Review"
+  short_description: "Audit, fix by authorization, and verify design work"

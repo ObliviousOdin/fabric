@@ -1,0 +1,43 @@
+name: Public repository checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-release-audit:
+    name: Public release audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install pinned linter
+        run: python3 -m pip install --disable-pip-version-check ruff==0.15.10
+
+      - name: Enforce Python lint contract
+        run: ruff check .
+
+      - name: Compile release audit
+        run: python3 -m py_compile scripts/public-release-audit.py scripts/fabric-brand-audit.py
+
+      - name: Test release audit rules
+        run: python3 -m unittest discover -s tests/scripts -p 'test_public_release_audit.py'
+
+      - name: Audit public snapshot
+        run: python3 scripts/public-release-audit.py
+
+      - name: Validate installer syntax
+        run: bash -n scripts/install.sh

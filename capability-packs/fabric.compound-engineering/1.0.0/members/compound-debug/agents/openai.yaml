@@ -1,0 +1,3 @@
+interface:
+  display_name: "Fabric Compound Debug"
+  short_description: "Prove a failure's causal chain before repair"

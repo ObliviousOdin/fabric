@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "productName": "Fabric",
+  "desktopName": "Fabric",
+  "vendorName": "Fabric",
+  "supportEmail": "11676741+ObliviousOdin@users.noreply.github.com",
+  "docsUrl": "https://obliviousodin.github.io/fabric/",
+  "websiteUrl": "https://github.com/ObliviousOdin/fabric/",
+  "releaseNotesUrl": "https://github.com/ObliviousOdin/fabric/releases",
+  "appId": "io.github.obliviousodin.fabric",
+  "cliName": "fabric",
+  "homeDirectoryName": ".fabric",
+  "executableName": "Fabric",
+  "artifactName": "Fabric",
+  "iconAsset": "apple-touch-icon.png",
+  "description": "Native desktop app for Fabric.",
+  "copyright": "Copyright © 2026 Fabric contributors",
+  "protocols": [
+    {
+      "scheme": "fabric",
+      "name": "Fabric Protocol",
+      "primary": true
+    },
+    {
+      "scheme": "hermes",
+      "name": "Fabric Compatibility Protocol",
+      "legacy": true
+    }
+  ],
+  "assets": {
+    "base": "assets/icon",
+    "png": "assets/icon.png",
+    "ico": "assets/icon.ico",
+    "icns": "assets/icon.icns",
+    "publicPng": "public/apple-touch-icon.png"
+  }
+}

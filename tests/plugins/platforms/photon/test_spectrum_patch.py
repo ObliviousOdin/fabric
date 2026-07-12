@@ -1,12 +1,14 @@
-"""Regression tests for Hermes' Spectrum mixed text+attachment workaround."""
+"""Regression tests for Fabric's Spectrum mixed-attachment compatibility."""
 from __future__ import annotations
 
+import json
 import subprocess
 import textwrap
 from pathlib import Path
 
 
 _PATCHER = Path("plugins/platforms/photon/sidecar/patch-spectrum-mixed-attachments.mjs")
+_SIDECAR = Path("plugins/platforms/photon/sidecar")
 
 
 def test_sidecar_applies_spectrum_patch_before_importing_sdk() -> None:
@@ -158,6 +160,68 @@ def _write_fixture(tmp_path: Path) -> Path:
     chunk = dist / "index.js"
     chunk.write_text(_tabify(_SPECTRUM_IMESSAGE_FIXTURE), encoding="utf-8")
     return chunk
+
+
+def test_spectrum_9_native_mixed_attachment_support_is_not_rewritten(
+    tmp_path: Path,
+) -> None:
+    """Spectrum 9's ordered-parts mapper is the upstream fix; the compatibility
+    script must recognize it without mutating vendor code.
+    """
+    dist = tmp_path / "node_modules" / "@spectrum-ts" / "imessage" / "dist"
+    dist.mkdir(parents=True)
+    chunk = dist / "index.js"
+    native = _tabify(
+        """
+const toOrderedParts = (text, attachments) => {
+  return text ? [{ type: "text", text }, ...attachments] : attachments;
+};
+const buildOrderedPartMessage = async (client, base, part, id, partIndex, parentId) => ({ id, partIndex, parentId });
+const buildUnwrappedContentMessage = async (client, base, message, messageGuidStr) => {
+  const attachments = message.content.attachments;
+  const parts = toOrderedParts(message.content.text, attachments);
+  const items = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    items.push(await buildOrderedPartMessage(client, base, part, formatChildId(i, messageGuidStr), i, messageGuidStr));
+  }
+};
+const rebuildFromAppleMessage = async () => {};
+const toInboundMessages = async () => {};
+"""
+    )
+    chunk.write_text(native, encoding="utf-8")
+
+    result = subprocess.run(
+        ["node", str(_PATCHER), str(tmp_path)],
+        cwd=Path.cwd(),
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "patch ok" in result.stderr
+    assert chunk.read_text(encoding="utf-8") == native
+
+
+def test_sidecar_lock_has_safe_opentelemetry_core_versions() -> None:
+    """Keep every installed core node at the advisory's fixed floor (2.8.0)."""
+    package = json.loads((_SIDECAR / "package.json").read_text(encoding="utf-8"))
+    lock = json.loads((_SIDECAR / "package-lock.json").read_text(encoding="utf-8"))
+
+    assert package["dependencies"]["spectrum-ts"] == "9.3.1"
+    assert package["engines"]["node"] == ">=20.18.1"
+    core_versions = [
+        metadata["version"]
+        for path, metadata in lock["packages"].items()
+        if path.endswith("node_modules/@opentelemetry/core")
+    ]
+    assert core_versions
+    assert all(
+        tuple(int(part) for part in version.split(".")[:3]) >= (2, 8, 0)
+        for version in core_versions
+    ), core_versions
 
 
 def test_spectrum_patch_rewrites_the_imessage_mapper(tmp_path: Path) -> None:

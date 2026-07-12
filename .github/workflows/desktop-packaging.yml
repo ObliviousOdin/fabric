@@ -103,21 +103,21 @@ jobs:
             npm_script: dist:mac
             platform: mac
             arch: arm64
-            extensions: dmg,zip
+            artifact_arches: '{"dmg":"arm64","zip":"arm64"}'
             artifact_suffix: macos-arm64
           - label: Windows x64
             runner: windows-2025
             npm_script: dist:win
             platform: win
             arch: x64
-            extensions: exe,msi
+            artifact_arches: '{"exe":"x64","msi":"x64"}'
             artifact_suffix: windows-x64
           - label: Linux x64
             runner: ubuntu-24.04
             npm_script: dist:linux
             platform: linux
             arch: x64
-            extensions: AppImage,deb,rpm
+            artifact_arches: '{"AppImage":"x86_64","deb":"amd64","rpm":"x86_64"}'
             artifact_suffix: linux-x64
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -138,7 +138,7 @@ jobs:
         env:
           DESKTOP_PLATFORM: ${{ matrix.platform }}
           DESKTOP_ARCH: ${{ matrix.arch }}
-          DESKTOP_EXTENSIONS: ${{ matrix.extensions }}
+          DESKTOP_ARTIFACT_ARCHES: ${{ matrix.artifact_arches }}
         run: |
           node --input-type=module <<'NODE'
           import crypto from 'node:crypto'
@@ -149,10 +149,10 @@ jobs:
 
           const desktopRoot = path.resolve('apps/desktop')
           const releaseRoot = path.join(desktopRoot, 'release')
+          const verifiedRoot = path.join(desktopRoot, 'verified-artifacts')
           const pkg = JSON.parse(fs.readFileSync(path.join(desktopRoot, 'package.json'), 'utf8'))
           const brand = loadDesktopBrand(undefined, { desktopRoot })
-          const expectedPrefix = `${brand.artifactName}-${pkg.version}-${process.env.DESKTOP_PLATFORM}-${process.env.DESKTOP_ARCH}.`
-          const requiredExtensions = process.env.DESKTOP_EXTENSIONS.split(',')
+          const artifactArchitectures = JSON.parse(process.env.DESKTOP_ARTIFACT_ARCHES)
 
           function filesBelow(directory) {
             return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
@@ -162,14 +162,19 @@ jobs:
           }
 
           const files = filesBelow(releaseRoot)
-          const releaseFiles = files.filter(file => path.basename(file).startsWith(expectedPrefix))
           const legacyArtifacts = files.filter(file => /^Hermes(?:[-_.]|$)/i.test(path.basename(file)))
           const failures = []
+          const verifiedPackages = []
 
-          for (const extension of requiredExtensions) {
-            const expectedName = `${expectedPrefix}${extension}`
-            if (!releaseFiles.some(file => path.basename(file) === expectedName)) {
+          for (const [extension, artifactArch] of Object.entries(artifactArchitectures)) {
+            const expectedName = `${brand.artifactName}-${pkg.version}-${process.env.DESKTOP_PLATFORM}-${artifactArch}.${extension}`
+            const matches = files.filter(file => path.basename(file) === expectedName)
+            if (matches.length === 0) {
               failures.push(`missing ${expectedName}`)
+            } else if (matches.length > 1) {
+              failures.push(`duplicate ${expectedName}: ${matches.map(file => path.relative(releaseRoot, file)).join(', ')}`)
+            } else {
+              verifiedPackages.push(matches[0])
             }
           }
           if (legacyArtifacts.length) {
@@ -180,12 +185,15 @@ jobs:
             process.exit(1)
           }
 
-          const checksumLines = releaseFiles.sort().map(file => {
+          fs.rmSync(verifiedRoot, { recursive: true, force: true })
+          fs.mkdirSync(verifiedRoot, { recursive: true })
+          const checksumLines = verifiedPackages.sort().map(file => {
             const digest = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')
+            fs.copyFileSync(file, path.join(verifiedRoot, path.basename(file)))
             return `${digest}  ${path.basename(file)}`
           })
           const checksumPath = path.join(
-            releaseRoot,
+            verifiedRoot,
             `${brand.artifactName}-${pkg.version}-${process.env.DESKTOP_PLATFORM}-${process.env.DESKTOP_ARCH}.SHA256SUMS`
           )
           fs.writeFileSync(checksumPath, `${checksumLines.join('\n')}\n`, 'utf8')
@@ -194,7 +202,6 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ needs.brand-contract.outputs.artifact_stem }}-${{ matrix.artifact_suffix }}-unsigned
-          path: |
-            apps/desktop/release/${{ needs.brand-contract.outputs.artifact_stem }}-${{ needs.brand-contract.outputs.version }}-${{ matrix.platform }}-${{ matrix.arch }}.*
+          path: apps/desktop/verified-artifacts/*
           if-no-files-found: error
           retention-days: 14

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Patch spectrum-ts' iMessage inbound mapper until upstream preserves mixed
-// text + attachment Apple events. The mapper returns only
+// Patch older spectrum-ts iMessage inbound mappers that do not preserve mixed
+// text + attachment Apple events. The old mapper returns only
 // buildAttachmentMessage(...) whenever attachments are present, which drops
 // `message.content.text` before Fabric can see it. We rewrite the two inbound
 // mappers — `rebuildFromAppleMessage` (used by `space.getMessage`) and
@@ -8,6 +8,10 @@
 // text and attachment(s) surfaces as a group whose first child is the typed
 // text. Paths with no text are rewritten to byte-identical behavior, so only
 // mixed text+attachment messages change shape.
+//
+// Spectrum 9.x preserves ordered text and attachment parts natively. This
+// script detects that implementation and exits without rewriting it, while
+// retaining the compatibility repair for stale 5.x-8.x installs.
 //
 // Since spectrum-ts 5.x split the SDK into scoped packages, the iMessage mapper
 // lives in `@spectrum-ts/imessage/dist/index.js` (it used to be a chunk under
@@ -115,6 +119,19 @@ function patchChildIndices(source) {
   );
 }
 
+function hasNativeMixedAttachmentSupport(source) {
+  // Spectrum 9 introduced a shared ordered-parts mapper for both local and
+  // remote iMessage content. Require the complete remote path here rather
+  // than keying off one helper name: a partial refactor must still fail loudly
+  // instead of silently dropping text from mixed inbound messages.
+  return [
+    `const toOrderedParts = (text, attachments) => {`,
+    `const buildOrderedPartMessage = async`,
+    `const parts = toOrderedParts(message.content.text, attachments);`,
+    `items.push(await buildOrderedPartMessage(client, base, part, formatChildId(i, messageGuidStr), i, messageGuidStr));`,
+  ].every((anchor) => source.includes(anchor));
+}
+
 export function patchSpectrumTs(root = scriptDir()) {
   const dist = path.join(
     root,
@@ -144,6 +161,13 @@ export function patchSpectrumTs(root = scriptDir()) {
     const CRLF = CR + "\n";
     const usedCRLF = raw.includes(CRLF);
     const original = usedCRLF ? raw.split(CRLF).join("\n") : raw;
+    if (hasNativeMixedAttachmentSupport(original)) {
+      return {
+        patched: false,
+        file,
+        reason: "native mixed attachment support",
+      };
+    }
     if (!original.includes("const toInboundMessages = async") ||
         !original.includes("const rebuildFromAppleMessage = async")) {
       continue;

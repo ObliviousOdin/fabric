@@ -38,7 +38,7 @@
 // On SIGINT/SIGTERM the sidecar calls `app.stop()` (3s graceful) before
 // exiting. Logs go to stderr; Python supervises restart.
 //
-// Requires spectrum-ts 8.x — pinned exactly in package.json because the SDK
+// Requires spectrum-ts 9.x — pinned exactly in package.json because the SDK
 // ships breaking majors; see README "Upgrading spectrum-ts".
 //
 // Env vars (required):
@@ -212,9 +212,9 @@ if (!projectId || !projectSecret || !sharedToken) {
 }
 
 // Lazy-load spectrum-ts so a missing install fails with a clear message
-// instead of a cryptic module-resolution error during import. Apply Hermes'
-// pinned-sdk compatibility patch first so existing installs self-heal at
-// runtime, not only during npm postinstall.
+// instead of a cryptic module-resolution error during import. Verify native
+// mixed-attachment support (or repair a stale pre-9 install) first so existing
+// installs self-heal at runtime, not only during npm postinstall.
 try {
   const patchResult = patchSpectrumTs();
   if (patchResult.patched) {

@@ -15,6 +15,9 @@ The sidecar:
 
 ## Install
 
+Requires Node.js 20.18.1 or newer. The sidecar pins `spectrum-ts` 9.3.1 and
+installs it from the committed lockfile.
+
 ```bash
 cd plugins/platforms/photon/sidecar
 npm install

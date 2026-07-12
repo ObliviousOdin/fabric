@@ -120,19 +120,25 @@ def test_packaging_workflow_derives_names_and_checks_all_native_formats() -> Non
     assert re.search(r"CSC_IDENTITY_AUTO_DISCOVERY:\s+[\"']false[\"']", workflow)
 
     expected_lanes = {
-        "macos-15": ("mac", "arm64", ("dmg", "zip")),
-        "windows-2025": ("win", "x64", ("exe", "msi")),
-        "ubuntu-24.04": ("linux", "x64", ("AppImage", "deb", "rpm")),
+        "macos-15": ("mac", "arm64", {"dmg": "arm64", "zip": "arm64"}),
+        "windows-2025": ("win", "x64", {"exe": "x64", "msi": "x64"}),
+        "ubuntu-24.04": (
+            "linux",
+            "x64",
+            {"AppImage": "x86_64", "deb": "amd64", "rpm": "x86_64"},
+        ),
     }
-    for runner, (platform, arch, extensions) in expected_lanes.items():
+    for runner, (platform, arch, artifact_arches) in expected_lanes.items():
         assert f"runner: {runner}" in workflow
         assert f"platform: {platform}" in workflow
         assert f"arch: {arch}" in workflow
-        for extension in extensions:
-            assert extension in workflow
+        expected_mapping = json.dumps(artifact_arches, separators=(",", ":"))
+        assert f"artifact_arches: '{expected_mapping}'" in workflow
 
     assert "legacy Hermes artifacts" in workflow
     assert "SHA256SUMS" in workflow
+    assert "apps/desktop/verified-artifacts/*" in workflow
+    assert "apps/desktop/release/${{" not in workflow
     assert "-unsigned" in workflow
     assert (
         "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in workflow

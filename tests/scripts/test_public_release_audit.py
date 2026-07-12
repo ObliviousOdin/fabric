@@ -38,6 +38,28 @@ class PublicReleaseAuditTests(unittest.TestCase):
     def _issues(self):
         return self.audit.audit_repository(self.root)
 
+    def _docs_workflow_contract(self, text: str):
+        return self.audit._audit_brand_workflow_contract(  # noqa: SLF001
+            ".github/workflows/docs-pages.yml",
+            text,
+        )
+
+    def _valid_docs_workflow(self) -> str:
+        return """jobs:
+  build:
+    steps:
+      - name: Audit public release
+        run: python3 scripts/public-release-audit.py
+      - name: Audit source brand
+        run: python3 scripts/fabric-brand-audit.py --mode public
+      - name: Build docs
+        run: npm run --prefix website build
+      - name: Audit rendered brand
+        run: python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+"""
+
     def test_clean_public_snapshot_passes(self) -> None:
         (self.root / "website/docs/guide.md").parent.mkdir(parents=True)
         (self.root / "website/docs/guide.md").write_text(
@@ -397,6 +419,97 @@ class PublicReleaseAuditTests(unittest.TestCase):
         )
 
         self.assertIn("workflow-surface", {issue.rule for issue in self._issues()})
+
+    def test_pages_brand_audits_must_be_active_and_ordered(self) -> None:
+        workflow = self.root / ".github/workflows/docs-pages.yml"
+        text = workflow.read_text(encoding="utf-8")
+        workflow.write_text(
+            text.replace(
+                "run: python3 scripts/fabric-brand-audit.py --mode public",
+                "# run: python3 scripts/fabric-brand-audit.py --mode public",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        self.assertIn("workflow-brand-gate", {issue.rule for issue in self._issues()})
+
+    def test_pages_rendered_brand_audit_must_precede_upload(self) -> None:
+        workflow = self.root / ".github/workflows/docs-pages.yml"
+        text = workflow.read_text(encoding="utf-8")
+        rendered = "run: python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build"
+        upload = "actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa"
+        text = text.replace(rendered, "__RENDERED__").replace(upload, rendered)
+        workflow.write_text(text.replace("__RENDERED__", upload), encoding="utf-8")
+
+        self.assertIn("workflow-brand-gate", {issue.rule for issue in self._issues()})
+
+    def test_pages_upload_must_be_an_active_uses_directive(self) -> None:
+        workflow = self.root / ".github/workflows/docs-pages.yml"
+        text = workflow.read_text(encoding="utf-8")
+        workflow.write_text(
+            text.replace(
+                "uses: actions/upload-pages-artifact@",
+                "# uses: actions/upload-pages-artifact@",
+            ),
+            encoding="utf-8",
+        )
+
+        issues = self._issues()
+
+        self.assertTrue(
+            any(
+                issue.rule == "workflow-brand-gate"
+                and "active Pages artifact upload" in issue.message
+                for issue in issues
+            )
+        )
+
+    def test_required_pages_steps_may_not_be_conditional(self) -> None:
+        cases = (
+            (
+                "run: python3 scripts/public-release-audit.py",
+                "${{ 1 == 2 }}",
+            ),
+            (
+                "run: python3 scripts/fabric-brand-audit.py --mode public",
+                "${{ false }}",
+            ),
+            ("run: npm run --prefix website build", "0"),
+            (
+                "run: python3 scripts/fabric-brand-audit.py --mode public "
+                "--build-dir website/build",
+                "${{ 0 }}",
+            ),
+            (
+                "uses: actions/upload-pages-artifact@"
+                "56afc609e74202658d3ffba0e8f6dda462b719fa",
+                "null",
+            ),
+        )
+        for directive, condition in cases:
+            with self.subTest(directive=directive, condition=condition):
+                text = self._valid_docs_workflow().replace(
+                    directive,
+                    f"{directive}\n        if: {condition}",
+                )
+
+                issues = self._docs_workflow_contract(text)
+
+                self.assertTrue(
+                    any("must be unconditional" in issue.message for issue in issues),
+                    issues,
+                )
+
+    def test_brand_audits_may_not_continue_on_error(self) -> None:
+        workflow = self.root / ".github/workflows/public-ci.yml"
+        workflow.write_text(
+            workflow.read_text(encoding="utf-8")
+            + "\ncontinue-on-error: true\n",
+            encoding="utf-8",
+        )
+
+        self.assertIn("workflow-brand-gate", {issue.rule for issue in self._issues()})
 
     def test_rejects_private_planning_directories(self) -> None:
         plan = self.root / ".hermes/plans/internal.md"

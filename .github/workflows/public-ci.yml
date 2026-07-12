@@ -34,10 +34,13 @@ jobs:
         run: python3 -m py_compile scripts/public-release-audit.py scripts/fabric-brand-audit.py
 
       - name: Test release audit rules
-        run: python3 -m unittest discover -s tests/scripts -p 'test_public_release_audit.py'
+        run: python3 -m unittest discover -s tests/scripts -p 'test_*audit.py'
 
       - name: Audit public snapshot
         run: python3 scripts/public-release-audit.py
+
+      - name: Audit public product identity
+        run: python3 scripts/fabric-brand-audit.py --mode public
 
       - name: Validate installer syntax
         run: bash -n scripts/install.sh

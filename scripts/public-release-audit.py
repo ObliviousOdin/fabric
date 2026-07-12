@@ -252,7 +252,9 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "permissions:\n  contents: read",
         "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
         "persist-credentials: false",
-        "python3 scripts/public-release-audit.py",
+        "run: python3 -m unittest discover -s tests/scripts -p 'test_*audit.py'",
+        "run: python3 scripts/public-release-audit.py",
+        "run: python3 scripts/fabric-brand-audit.py --mode public",
     ),
     ".github/workflows/desktop-packaging.yml": (
         "name: Desktop packaging verification",
@@ -273,7 +275,11 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
         "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
         "actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b",
-        "actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa",
+        "run: python3 scripts/public-release-audit.py",
+        "run: python3 scripts/fabric-brand-audit.py --mode public",
+        "run: npm run --prefix website build",
+        "run: python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build",
+        "uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa",
         "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e",
     ),
     "LICENSE": (
@@ -337,6 +343,22 @@ UNSAFE_PUBLISH_RE = re.compile(
     r"--publish(?:[ =]+)(?!never(?:\s|$))[^\s]+|"
     r"(?:softprops/action-gh-release|actions/create-release|release-drafter)/",
     re.IGNORECASE,
+)
+
+PUBLIC_BRAND_AUDIT_COMMAND = "python3 scripts/fabric-brand-audit.py --mode public"
+PUBLIC_RELEASE_AUDIT_COMMAND = "python3 scripts/public-release-audit.py"
+BRAND_AUDIT_TEST_COMMAND = (
+    "python3 -m unittest discover -s tests/scripts -p 'test_*audit.py'"
+)
+RENDERED_BRAND_AUDIT_COMMAND = (
+    "python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build"
+)
+DOCS_BUILD_COMMAND = "npm run --prefix website build"
+PAGES_UPLOAD_ACTION_PREFIX = "actions/upload-pages-artifact@"
+WORKFLOW_STEP_IF_RE = re.compile(r"(?im)^[ \t]*if[ \t]*:")
+WORKFLOW_STEP_START_RE = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)-[ \t]+"
+    r"(?=(?:name|id|if|uses|run|with|env|continue-on-error|timeout-minutes):)"
 )
 
 
@@ -663,6 +685,183 @@ def _customer_source_identity_matches(
             yield line_number, match.group(0)
 
 
+def _active_run_offset(text: str, command: str) -> int:
+    """Return the offset of an exact active single-line workflow command."""
+
+    match = re.search(
+        rf"(?m)^[ \t]*run:[ \t]+{re.escape(command)}[ \t]*$",
+        text,
+    )
+    return -1 if match is None else match.start()
+
+
+def _active_uses_offset(text: str, action_prefix: str) -> int:
+    """Return the offset of an uncommented workflow ``uses:`` directive."""
+
+    match = re.search(
+        rf"(?m)^[ \t]*(?:-[ \t]+)?uses:[ \t]+"
+        rf"{re.escape(action_prefix)}[^\s#]+[ \t]*(?:#.*)?$",
+        text,
+    )
+    return -1 if match is None else match.start()
+
+
+def _workflow_step_text(text: str, offset: int) -> str:
+    """Return the YAML step containing offset."""
+
+    if offset < 0:
+        return ""
+    starts = [match for match in WORKFLOW_STEP_START_RE.finditer(text) if match.start() <= offset]
+    if not starts:
+        # Unit fixtures intentionally use the minimal canonical fragments rather
+        # than a complete workflow. Treat the whole fixture as the step.
+        return text
+    current = starts[-1]
+    same_indent_start = re.compile(
+        rf"(?m)^{re.escape(current.group('indent'))}-[ \t]+"
+        r"(?=(?:name|id|if|uses|run|with|env|continue-on-error|timeout-minutes):)"
+    )
+    following = same_indent_start.search(text, current.end())
+    end = len(text) if following is None else following.start()
+    return text[current.start() : end]
+
+
+def _step_has_condition(text: str, offset: int) -> bool:
+    """Return whether a required fail-closed step is conditional."""
+
+    return bool(WORKFLOW_STEP_IF_RE.search(_workflow_step_text(text, offset)))
+
+
+def _append_required_step_issues(
+    issues: list[Issue],
+    *,
+    relative: str,
+    text: str,
+    offset: int,
+    missing_message: str,
+    conditional_message: str,
+    continue_message: str | None = None,
+) -> None:
+    """Validate that a required workflow step exists and fails closed."""
+
+    if offset < 0:
+        issues.append(Issue("workflow-brand-gate", relative, 0, missing_message))
+        return
+    if _step_has_condition(text, offset):
+        issues.append(
+            Issue(
+                "workflow-brand-gate",
+                relative,
+                _line_number(text, offset),
+                conditional_message,
+            )
+        )
+    if continue_message and re.search(
+        r"(?m)^\s*continue-on-error:\s*true\s*$",
+        _workflow_step_text(text, offset),
+        re.IGNORECASE,
+    ):
+        issues.append(
+            Issue(
+                "workflow-brand-gate",
+                relative,
+                _line_number(text, offset),
+                continue_message,
+            )
+        )
+
+
+def _audit_brand_workflow_contract(relative: str, text: str) -> list[Issue]:
+    """Require active, fail-closed brand gates in public workflows."""
+
+    issues: list[Issue] = []
+    source_offset = _active_run_offset(text, PUBLIC_BRAND_AUDIT_COMMAND)
+    release_offset = _active_run_offset(text, PUBLIC_RELEASE_AUDIT_COMMAND)
+    _append_required_step_issues(
+        issues,
+        relative=relative,
+        text=text,
+        offset=release_offset,
+        missing_message="active public release audit step is missing",
+        conditional_message="public release audit must be unconditional (remove if:)",
+        continue_message="public release audit may not continue on error",
+    )
+    _append_required_step_issues(
+        issues,
+        relative=relative,
+        text=text,
+        offset=source_offset,
+        missing_message="active public source-brand audit step is missing",
+        conditional_message="public source-brand audit must be unconditional (remove if:)",
+        continue_message="public source-brand audit may not continue on error",
+    )
+
+    if Path(relative).name == "public-ci.yml":
+        tests_offset = _active_run_offset(text, BRAND_AUDIT_TEST_COMMAND)
+        _append_required_step_issues(
+            issues,
+            relative=relative,
+            text=text,
+            offset=tests_offset,
+            missing_message="active brand-audit regression test step is missing",
+            conditional_message="brand-audit regression tests must be unconditional (remove if:)",
+            continue_message="brand-audit regression tests may not continue on error",
+        )
+        return issues
+
+    if Path(relative).name != "docs-pages.yml":
+        return issues
+
+    build_offset = _active_run_offset(text, DOCS_BUILD_COMMAND)
+    rendered_offset = _active_run_offset(text, RENDERED_BRAND_AUDIT_COMMAND)
+    upload_offset = _active_uses_offset(text, PAGES_UPLOAD_ACTION_PREFIX)
+    _append_required_step_issues(
+        issues,
+        relative=relative,
+        text=text,
+        offset=build_offset,
+        missing_message="active documentation build step is missing",
+        conditional_message="documentation build must be unconditional (remove if:)",
+    )
+    _append_required_step_issues(
+        issues,
+        relative=relative,
+        text=text,
+        offset=rendered_offset,
+        missing_message="active rendered-brand audit step is missing",
+        conditional_message="rendered-brand audit must be unconditional (remove if:)",
+        continue_message="rendered-brand audit may not continue on error",
+    )
+    _append_required_step_issues(
+        issues,
+        relative=relative,
+        text=text,
+        offset=upload_offset,
+        missing_message="active Pages artifact upload step is missing",
+        conditional_message="Pages artifact upload must be unconditional (remove if:)",
+    )
+
+    if min(
+        release_offset,
+        source_offset,
+        build_offset,
+        rendered_offset,
+        upload_offset,
+    ) >= 0 and not (
+        release_offset < source_offset < build_offset < rendered_offset < upload_offset
+    ):
+        issues.append(
+            Issue(
+                "workflow-brand-gate",
+                relative,
+                0,
+                "required order is public release audit, source audit, build, "
+                "rendered audit, Pages upload",
+            )
+        )
+    return issues
+
+
 def _audit_workflow_safety(relative: str, text: str) -> list[Issue]:
     issues: list[Issue] = []
     for match in UNSAFE_WORKFLOW_RE.finditer(text):
@@ -726,6 +925,8 @@ def _audit_workflow_safety(relative: str, text: str) -> list[Issue]:
                 "every checkout step must set persist-credentials: false",
             )
         )
+    if Path(relative).name in {"docs-pages.yml", "public-ci.yml"}:
+        issues.extend(_audit_brand_workflow_contract(relative, text))
     return issues
 
 

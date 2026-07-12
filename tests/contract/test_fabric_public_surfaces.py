@@ -152,6 +152,51 @@ def test_native_guide_audit_allows_exact_historical_upstream_citations(
     assert audit.audit_native_guides(tmp_path, ("guide.md",)) == []
 
 
+def test_public_discovery_audit_rejects_upstream_product_identity(
+    tmp_path: Path,
+) -> None:
+    audit = _load_audit_module()
+    homepage = tmp_path / "homepage.md"
+    homepage.write_text("# Fabric\n\nRecommended by Nous Portal.\n", encoding="utf-8")
+
+    issues = audit.audit_public_site_sources(tmp_path, ("homepage.md",))
+
+    assert any("public discovery surface" in issue for issue in issues)
+
+
+def test_public_discovery_audit_does_not_scan_provider_detail_pages(
+    tmp_path: Path,
+) -> None:
+    audit = _load_audit_module()
+    homepage = tmp_path / "homepage.md"
+    provider = tmp_path / "provider.md"
+    homepage.write_text("# Fabric\n\nChoose a model route.\n", encoding="utf-8")
+    provider.write_text(
+        "# Optional provider\n\nNous is a third-party provider identifier.\n",
+        encoding="utf-8",
+    )
+
+    assert audit.audit_public_site_sources(tmp_path, ("homepage.md",)) == []
+
+
+def test_built_public_site_audit_checks_rendered_entry_points(
+    tmp_path: Path,
+) -> None:
+    audit = _load_audit_module()
+    for relative in audit.BUILT_PUBLIC_DISCOVERY_PATHS:
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("Fabric", encoding="utf-8")
+    (tmp_path / "index.html").write_text(
+        "<html><body>Hermes Agent</body></html>",
+        encoding="utf-8",
+    )
+
+    issues = audit.audit_built_public_site(tmp_path)
+
+    assert any(issue.startswith("index.html:") for issue in issues)
+
+
 def test_native_guide_audit_rejects_non_provenance_upstream_support_route(
     tmp_path: Path,
 ) -> None:

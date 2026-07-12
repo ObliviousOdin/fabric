@@ -251,7 +251,9 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     ".github/workflows/public-ci.yml": (
         "permissions:\n  contents: read",
         "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+        "fetch-depth: 0",
         "persist-credentials: false",
+        "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
         "run: python3 -m unittest discover -s tests/scripts -p 'test_*audit.py'",
         "run: python3 scripts/public-release-audit.py",
         "run: python3 scripts/fabric-brand-audit.py --mode public",
@@ -271,6 +273,7 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "contents: read",
         "pages: write",
         "id-token: write",
+        "fetch-depth: 0",
         "persist-credentials: false",
         "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
         "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
@@ -923,6 +926,32 @@ def _audit_workflow_safety(relative: str, text: str) -> list[Issue]:
                 relative,
                 0,
                 "every checkout step must set persist-credentials: false",
+            )
+        )
+    if Path(relative).name in {"docs-pages.yml", "public-ci.yml"}:
+        full_history_count = len(
+            re.findall(r"(?m)^\s*fetch-depth:\s*0\s*$", text)
+        )
+        if full_history_count < checkout_count:
+            issues.append(
+                Issue(
+                    "workflow-surface",
+                    relative,
+                    0,
+                    "public history audits require fetch-depth: 0 on every checkout",
+                )
+            )
+    if Path(relative).name == "public-ci.yml" and not re.search(
+        r"(?m)^\s*ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.sha\s*"
+        r"\|\|\s*github\.sha\s*\}\}\s*$",
+        text,
+    ):
+        issues.append(
+            Issue(
+                "workflow-surface",
+                relative,
+                0,
+                "PR history audit must checkout the actual head SHA, not the synthetic merge ref",
             )
         )
     if Path(relative).name in {"docs-pages.yml", "public-ci.yml"}:

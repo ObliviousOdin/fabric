@@ -44,6 +44,9 @@ class PublicReleaseAuditTests(unittest.TestCase):
             text,
         )
 
+    def _workflow_safety(self, relative: str, text: str):
+        return self.audit._audit_workflow_safety(relative, text)  # noqa: SLF001
+
     def _valid_docs_workflow(self) -> str:
         return """jobs:
   build:
@@ -463,6 +466,60 @@ class PublicReleaseAuditTests(unittest.TestCase):
                 and "active Pages artifact upload" in issue.message
                 for issue in issues
             )
+        )
+
+    def test_public_history_workflows_must_fetch_full_history(self) -> None:
+        for relative in (
+            ".github/workflows/public-ci.yml",
+            ".github/workflows/docs-pages.yml",
+        ):
+            with self.subTest(relative=relative):
+                ref = (
+                    "          ref: ${{ github.event.pull_request.head.sha || github.sha }}\n"
+                    if relative.endswith("public-ci.yml")
+                    else ""
+                )
+                text = (
+                    "steps:\n"
+                    "  - uses: actions/checkout@"
+                    "11bd71901bbe5b1630ceea73d27597364c9af683\n"
+                    "    with:\n"
+                    "      fetch-depth: 1\n"
+                    "      persist-credentials: false\n"
+                    + ref
+                )
+
+                issues = self._workflow_safety(relative, text)
+
+                self.assertTrue(
+                    any(
+                        issue.rule == "workflow-surface"
+                        and "fetch-depth: 0" in issue.message
+                        for issue in issues
+                    ),
+                    issues,
+                )
+
+    def test_public_ci_must_audit_pr_head_not_synthetic_merge_ref(self) -> None:
+        text = (
+            "steps:\n"
+            "  - uses: actions/checkout@"
+            "11bd71901bbe5b1630ceea73d27597364c9af683\n"
+            "    with:\n"
+            "      fetch-depth: 0\n"
+            "      persist-credentials: false\n"
+            "      ref: ${{ github.sha }}\n"
+        )
+
+        issues = self._workflow_safety(".github/workflows/public-ci.yml", text)
+
+        self.assertTrue(
+            any(
+                issue.rule == "workflow-surface"
+                and "actual head SHA" in issue.message
+                for issue in issues
+            ),
+            issues,
         )
 
     def test_required_pages_steps_may_not_be_conditional(self) -> None:

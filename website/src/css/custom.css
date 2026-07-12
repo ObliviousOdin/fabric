@@ -1,42 +1,32 @@
-/**
- * Fabric — Custom Docusaurus Theme
- * Matches the landing page branding: amber-on-dark, terminal aesthetic
- * Colors from landingpage/style.css
- */
-
-/* Import fonts to match landing page */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/** Fabric public site — shared documentation and navigation tokens. */
 
 :root {
-  /* Dark amber palette for light mode — readable on white (WCAG AA compliant)
-     Current gold #FFD700 has only 1.4:1 contrast on white; these tones pass 4.5:1+ */
-  --ifm-color-primary: #8B6508;
-  --ifm-color-primary-dark: #7A5800;
-  --ifm-color-primary-darker: #6E4F00;
-  --ifm-color-primary-darkest: #5A4100;
-  --ifm-color-primary-light: #9E7410;
-  --ifm-color-primary-lighter: #B38319;
-  --ifm-color-primary-lightest: #C89222;
+  --ifm-color-primary: #4e3bc2;
+  --ifm-color-primary-dark: #4432ae;
+  --ifm-color-primary-darker: #3f2fa5;
+  --ifm-color-primary-darkest: #332588;
+  --ifm-color-primary-light: #604bd0;
+  --ifm-color-primary-lighter: #6a56d4;
+  --ifm-color-primary-lightest: #8c7ce0;
 
-  --ifm-font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --ifm-font-family-monospace: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-font-family-monospace: 'SFMono-Regular', 'Cascadia Mono', 'Cascadia Code', 'Fira Code', monospace;
 
   --ifm-code-font-size: 90%;
   --ifm-heading-font-weight: 600;
 
-  --ifm-link-color: #7A5800;
-  --ifm-link-hover-color: #5A4100;
+  --ifm-link-color: #4432ae;
+  --ifm-link-hover-color: #332588;
 }
 
-/* Dark mode — the PRIMARY mode, matches landing page */
 [data-theme='dark'] {
-  --ifm-color-primary: #FFD700;
-  --ifm-color-primary-dark: #E6C200;
-  --ifm-color-primary-darker: #D9B700;
-  --ifm-color-primary-darkest: #B39600;
-  --ifm-color-primary-light: #FFDD33;
-  --ifm-color-primary-lighter: #FFE14D;
-  --ifm-color-primary-lightest: #FFEB80;
+  --ifm-color-primary: #b8adff;
+  --ifm-color-primary-dark: #a598ff;
+  --ifm-color-primary-darker: #9b8dff;
+  --ifm-color-primary-darkest: #7766ee;
+  --ifm-color-primary-light: #cbc3ff;
+  --ifm-color-primary-lighter: #d4cdff;
+  --ifm-color-primary-lightest: #eeeaff;
 
   --ifm-background-color: #07070d;
   --ifm-background-surface-color: #0f0f18;
@@ -48,27 +38,25 @@
   --ifm-font-color-base: #e8e4dc;
   --ifm-font-color-secondary: #9a968e;
 
-  --ifm-link-color: #FFD700;
-  --ifm-link-hover-color: #FFBF00;
+  --ifm-link-color: #b8adff;
+  --ifm-link-hover-color: #d5ceff;
 
   --ifm-code-background: #0f0f18;
 
-  --ifm-toc-border-color: rgba(255, 215, 0, 0.08);
-  --ifm-hr-border-color: rgba(255, 215, 0, 0.08);
+  --ifm-toc-border-color: rgba(184, 173, 255, 0.12);
+  --ifm-hr-border-color: rgba(184, 173, 255, 0.12);
 
-  --docusaurus-highlighted-code-line-bg: rgba(255, 215, 0, 0.08);
+  --docusaurus-highlighted-code-line-bg: rgba(184, 173, 255, 0.1);
 }
 
-/* Subtle dot grid background matching landing page */
 [data-theme='dark'] .main-wrapper {
-  background-image: radial-gradient(rgba(255, 215, 0, 0.02) 1px, transparent 1px);
-  background-size: 32px 32px;
+  background-color: #07070d;
 }
 
 /* Navbar styling */
 .navbar {
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(255, 215, 0, 0.08);
+  border-bottom: 1px solid rgba(78, 59, 194, 0.14);
 }
 
 /* backdrop-filter creates a stacking context that hides
@@ -84,28 +72,62 @@
   letter-spacing: -0.02em;
 }
 
+.navbar__link,
+.navbar__brand,
+.navbar__toggle,
+.navbar__search-input {
+  min-height: 44px;
+}
+
+.navbar__toggle,
+.navbar__items--right .clean-btn {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.navbar__link {
+  align-items: center;
+}
+
+@media (min-width: 997px) {
+  .navbar__link {
+    display: inline-flex;
+  }
+}
+
+.navbar__install {
+  padding-right: 1rem;
+  padding-left: 1rem;
+  border: 1px solid var(--ifm-color-primary);
+}
+
+:where(a, button, input, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--ifm-color-primary);
+  outline-offset: 3px;
+}
+
 /* Sidebar tweaks */
 [data-theme='dark'] .menu {
   background-color: transparent;
 }
 
 [data-theme='dark'] .menu__link--active:not(.menu__link--sublist) {
-  background-color: rgba(255, 215, 0, 0.08);
-  border-left: 3px solid #FFD700;
+  background-color: rgba(184, 173, 255, 0.1);
+  border-left: 3px solid #b8adff;
   padding-left: calc(var(--ifm-menu-link-padding-horizontal) - 3px);
 }
 
 /* Light mode sidebar active */
 [data-theme='light'] .menu__link--active:not(.menu__link--sublist) {
-  background-color: rgba(139, 101, 8, 0.08);
-  border-left: 3px solid #8B6508;
+  background-color: rgba(78, 59, 194, 0.08);
+  border-left: 3px solid #4e3bc2;
   padding-left: calc(var(--ifm-menu-link-padding-horizontal) - 3px);
 }
 
 /* Code blocks */
 [data-theme='dark'] .prism-code {
   background-color: #0a0a12 !important;
-  border: 1px solid rgba(255, 215, 0, 0.06);
+  border: 1px solid rgba(184, 173, 255, 0.1);
 }
 
 /* Text diagrams: preserve spacing, disable ligatures, and prefer box-drawing-safe fonts */
@@ -116,7 +138,7 @@ pre.prism-code.language-ascii {
   white-space: pre;
   overflow-x: auto;
   line-height: 1.35;
-  font-family: 'JetBrains Mono', 'Cascadia Mono', 'Cascadia Code', 'Fira Code', 'SFMono-Regular', 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+  font-family: 'SFMono-Regular', 'Cascadia Mono', 'Cascadia Code', 'Fira Code', 'DejaVu Sans Mono', 'Liberation Mono', monospace;
   font-variant-ligatures: none;
   font-feature-settings: "liga" 0, "calt" 0;
   text-rendering: optimizeSpeed;
@@ -146,7 +168,7 @@ pre.prism-code.language-ascii code {
   width: 100%;
   max-width: 900px;
   margin: 1.25rem auto 0.5rem;
-  border: 1px solid rgba(255, 215, 0, 0.08);
+  border: 1px solid rgba(184, 173, 255, 0.12);
   border-radius: 12px;
   background: #0a0a12;
 }
@@ -158,10 +180,9 @@ pre.prism-code.language-ascii code {
   font-size: 0.95rem;
 }
 
-/* Admonitions — gold-tinted */
 [data-theme='dark'] .alert--info {
-  --ifm-alert-background-color: rgba(255, 215, 0, 0.05);
-  --ifm-alert-border-color: rgba(255, 215, 0, 0.15);
+  --ifm-alert-background-color: rgba(184, 173, 255, 0.07);
+  --ifm-alert-border-color: rgba(184, 173, 255, 0.2);
 }
 
 /* Table styling */
@@ -170,41 +191,52 @@ pre.prism-code.language-ascii code {
 }
 
 [data-theme='dark'] table th {
-  background-color: rgba(255, 215, 0, 0.06);
-  border-color: rgba(255, 215, 0, 0.12);
+  background-color: rgba(184, 173, 255, 0.07);
+  border-color: rgba(184, 173, 255, 0.15);
 }
 
 [data-theme='dark'] table td {
-  border-color: rgba(255, 215, 0, 0.06);
+  border-color: rgba(184, 173, 255, 0.08);
 }
 
 /* Light mode table styling */
 [data-theme='light'] table th {
-  background-color: rgba(139, 101, 8, 0.06);
-  border-color: rgba(139, 101, 8, 0.15);
+  background-color: rgba(78, 59, 194, 0.06);
+  border-color: rgba(78, 59, 194, 0.15);
 }
 
 [data-theme='light'] table td {
-  border-color: rgba(139, 101, 8, 0.10);
+  border-color: rgba(78, 59, 194, 0.1);
 }
 
 /* Footer */
 .footer {
-  border-top: 1px solid rgba(255, 215, 0, 0.08);
+  border-top: 1px solid rgba(184, 173, 255, 0.12);
 }
 
 .footer a {
-  color: #9a968e;
+  color: #d0cbd8;
   transition: color 0.2s;
 }
 
+.footer__link-item {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+}
+
+.theme-code-block button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 [data-theme='dark'] .footer a:hover {
-  color: #FFD700;
+  color: #fff;
   text-decoration: none;
 }
 
 [data-theme='light'] .footer a:hover {
-  color: #7A5800;
+  color: #fff;
   text-decoration: none;
 }
 
@@ -230,7 +262,7 @@ pre.prism-code.language-ascii code {
 /* Search bar */
 [data-theme='dark'] .DocSearch-Button {
   background-color: #0f0f18;
-  border: 1px solid rgba(255, 215, 0, 0.08);
+  border: 1px solid rgba(184, 173, 255, 0.12);
 }
 
 /* ─── Mobile sidebar improvements ─────────────────────────────────────────── */
@@ -246,7 +278,7 @@ pre.prism-code.language-ascii code {
     font-weight: 600;
     font-size: 1rem;
     padding: 0.75rem 0.75rem;
-    border-bottom: 1px solid rgba(255, 215, 0, 0.06);
+    border-bottom: 1px solid rgba(184, 173, 255, 0.08);
   }
 
   /* Category caret — more visible */
@@ -257,7 +289,7 @@ pre.prism-code.language-ascii code {
   /* Indent subcategories clearly */
   .menu__list .menu__list {
     padding-left: 0.75rem;
-    border-left: 1px solid rgba(255, 215, 0, 0.06);
+    border-left: 1px solid rgba(184, 173, 255, 0.08);
     margin-left: 0.5rem;
   }
 
@@ -271,10 +303,4 @@ pre.prism-code.language-ascii code {
     width: 85vw;
     max-width: 360px;
   }
-}
-
-/* Hero banner for docs landing if needed */
-.hero--fabric {
-  background: linear-gradient(135deg, #07070d 0%, #0f0f18 100%);
-  padding: 4rem 0;
 }

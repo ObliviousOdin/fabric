@@ -21,6 +21,7 @@ const sidebars: SidebarsConfig = {
       label: 'Using Fabric',
       collapsed: true,
       items: [
+        'user-guide/index',
         'user-guide/cli',
         'user-guide/tui',
         'user-guide/desktop',
@@ -676,7 +677,6 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'integrations/index',
-        'integrations/nous-portal',
         'integrations/providers',
         'user-guide/features/mcp',
         'user-guide/features/acp',
@@ -690,8 +690,6 @@ const sidebars: SidebarsConfig = {
       label: 'Guides & Tutorials',
       collapsed: true,
       items: [
-        'guides/run-nemotron-3-ultra-free',
-        'guides/run-fabric-with-nous-portal',
         'guides/tips',
         'guides/local-llm-on-mac',
         'guides/daily-briefing-bot',
@@ -782,6 +780,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Reference',
       items: [
+        'reference/index',
         {
           type: 'category',
           label: 'Command Reference',

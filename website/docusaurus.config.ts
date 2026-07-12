@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Fabric',
-  tagline: 'The self-improving AI agent',
+  tagline: 'One agent, woven through every surface',
   favicon: 'img/favicon.ico',
 
   url: 'https://obliviousodin.github.io',
@@ -13,12 +13,13 @@ const config: Config = {
   organizationName: 'ObliviousOdin',
   projectName: 'fabric',
 
-  onBrokenLinks: 'warn',
+  onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
 
   markdown: {
     mermaid: true,
     hooks: {
-      onBrokenMarkdownLinks: 'warn',
+      onBrokenMarkdownLinks: 'throw',
     },
   },
 
@@ -74,6 +75,18 @@ const config: Config = {
             from: '/guides/automation-templates',
             to: '/guides/automation-blueprints',
           },
+          {
+            from: '/integrations/nous-portal',
+            to: '/integrations/providers',
+          },
+          {
+            from: '/guides/run-fabric-with-nous-portal',
+            to: '/integrations/providers',
+          },
+          {
+            from: '/guides/run-nemotron-3-ultra-free',
+            to: '/integrations/providers',
+          },
         ],
       },
     ],
@@ -115,27 +128,13 @@ const config: Config = {
         src: 'img/fabric-mark.svg',
       },
       items: [
-        {
-          type: 'docSidebar',
-          sidebarId: 'docs',
-          position: 'left',
-          label: 'Docs',
-        },
+        {to: '/docs', label: 'Docs', position: 'left'},
         {
           to: '/skills',
           label: 'Skills',
           position: 'left',
         },
-        {
-          href: 'https://github.com/ObliviousOdin/fabric/releases',
-          label: 'Download',
-          position: 'left',
-        },
-        {
-          href: 'https://github.com/ObliviousOdin/fabric',
-          label: 'Home',
-          position: 'right',
-        },
+        {to: '/getting-started/installation', label: 'Install', position: 'right', className: 'navbar__install'},
         {
           href: 'https://github.com/ObliviousOdin/fabric',
           label: 'GitHub',
@@ -150,9 +149,9 @@ const config: Config = {
           title: 'Docs',
           items: [
             { label: 'Getting Started', to: '/getting-started/quickstart' },
-            { label: 'User Guide', to: '/user-guide/cli' },
+            { label: 'User Guide', to: '/user-guide/' },
             { label: 'Developer Guide', to: '/developer-guide/architecture' },
-            { label: 'Reference', to: '/reference/cli-commands' },
+            { label: 'Reference', to: '/reference/' },
           ],
         },
         {
@@ -165,7 +164,7 @@ const config: Config = {
         {
           title: 'More',
           items: [
-            { label: 'Desktop Download', href: 'https://github.com/ObliviousOdin/fabric/releases' },
+            { label: 'Install Fabric', to: '/getting-started/installation' },
             { label: 'GitHub', href: 'https://github.com/ObliviousOdin/fabric' },
             { label: 'License and attribution', href: 'https://github.com/ObliviousOdin/fabric/blob/main/NOTICE' },
           ],

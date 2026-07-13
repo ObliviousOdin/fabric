@@ -87,6 +87,19 @@ class FabricBrandAuditTests(unittest.TestCase):
 
         self.assertTrue(self.audit.audit_public_positioning_sources(self.root))
 
+    def test_legacy_upstream_media_id_fails_even_with_fabric_iframe_title(self) -> None:
+        self._write(
+            "website/docs/guide.md",
+            '<iframe src="https://www.youtube.com/embed/WNYe5mD4fY8" '
+            'title="Fabric tutorial" />\n',
+        )
+
+        issues = self.audit.audit_public_positioning_sources(self.root)
+
+        self.assertTrue(
+            any("legacy upstream media in public content" in issue for issue in issues)
+        )
+
     def test_managed_vendor_bundle_promotion_fails(self) -> None:
         self._write(
             "website/docs/guide.md",

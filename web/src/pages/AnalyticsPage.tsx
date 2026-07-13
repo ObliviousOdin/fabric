@@ -19,6 +19,7 @@ import type {
   SessionStoreStats,
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
+import { formatTokens } from "@/lib/format";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Stats } from "@nous-research/ui/ui/components/stats";
@@ -51,12 +52,6 @@ const RECENT_RUNS_LIMIT = 20;
 
 /** Mono numeric readout (G12 — `tabular-nums` for every number). */
 const VALUE_CN = "font-mono-ui tabular-nums";
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
 
 function formatDate(day: string): string {
   try {

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { Package, Power, Server, Trash2, X, Zap } from "lucide-react";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Package, Server, X } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
@@ -18,17 +17,21 @@ import { useToast } from "@nous-research/ui/hooks/use-toast";
 import { useConfirmDelete } from "@nous-research/ui/hooks/use-confirm-delete";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { Toast } from "@nous-research/ui/ui/components/toast";
-import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { Input } from "@nous-research/ui/ui/components/input";
 import { Label } from "@nous-research/ui/ui/components/label";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { cn, themedBody } from "@/lib/utils";
+import { EmptyState, Skeleton } from "@/components/ui";
+import {
+  McpServerRow,
+  type McpProbeKind,
+  type McpProbeRecord,
+} from "@/components/mcp/McpServerRow";
+import { McpCatalogRow } from "@/components/mcp/McpCatalogRow";
+import { McpInstallLogCard } from "@/components/mcp/McpInstallLogCard";
+import { useI18n } from "@/i18n";
 
 type Transport = "http" | "stdio";
-
-function isHttpUrl(value: string): boolean {
-  return /^https?:\/\//i.test(value.trim());
-}
 
 function truncateText(value: string, maxLength: number): string {
   return value.length > maxLength ? value.slice(0, maxLength) + "..." : value;
@@ -57,19 +60,38 @@ function parseEnv(raw: string): Record<string, string> {
   return env;
 }
 
-const TRANSPORT_TONE: Record<string, "success" | "warning" | "secondary"> = {
-  http: "success",
-  stdio: "warning",
-  unknown: "secondary",
-};
+/** Section-scoped destructive banner + Retry (X11) — a broken catalog
+ *  must never hide configured servers, so each section owns its error. */
+function SectionErrorBanner({
+  message,
+  retryLabel,
+  onRetry,
+}: {
+  message: string;
+  retryLabel: string;
+  onRetry(): void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border border-destructive/40 bg-destructive/10 px-3 py-2">
+      <p className="text-xs text-destructive">{message}</p>
+      <Button outlined size="xs" onClick={onRetry}>
+        {retryLabel}
+      </Button>
+    </div>
+  );
+}
 
 export default function McpPage() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
   const [diagnostics, setDiagnostics] = useState<McpCatalogDiagnostic[]>([]);
   const [loading, setLoading] = useState(true);
+  const [serversError, setServersError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const { toast, showToast } = useToast();
   const { setEnd } = usePageHeader();
+  const { t } = useI18n();
+  const M = t.mcp;
 
   // Add server modal state
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -86,11 +108,16 @@ export default function McpPage() {
     onClose: closeCreateModal,
   });
 
-  // Test results keyed by server name
-  const [testing, setTesting] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<
-    Record<string, McpTestResult>
-  >({});
+  // Probe (test/auth) results keyed by server name — probe-time outcomes
+  // with timestamps, session-local by design: there is no persisted MCP
+  // health to render a standing badge from (X-decision 1).
+  const [probes, setProbes] = useState<Record<string, McpProbeRecord>>({});
+  // Single busy key across `/test` and `/auth` — both block server-side
+  // for seconds-to-minutes, so one probe at a time, row-local UI (X6/R17).
+  const [probing, setProbing] = useState<{
+    name: string;
+    kind: McpProbeKind;
+  } | null>(null);
 
   // Enable/disable state
   const [togglingName, setTogglingName] = useState<string | null>(null);
@@ -102,6 +129,8 @@ export default function McpPage() {
   );
   const [installEnv, setInstallEnv] = useState<Record<string, string>>({});
   const [installingName, setInstallingName] = useState<string | null>(null);
+  // Background git-bootstrap install being tailed (X8, CAP10 log card).
+  const [installAction, setInstallAction] = useState<string | null>(null);
   const closeInstallModal = useCallback(() => setInstallEntry(null), []);
   const installModalRef = useModalBehavior({
     open: installEntry !== null,
@@ -111,9 +140,12 @@ export default function McpPage() {
   const loadServers = useCallback(() => {
     return api
       .getMcpServers()
-      .then((res) => setServers(res.servers))
-      .catch((e) => showToast(`Error: ${e}`, "error"));
-  }, [showToast]);
+      .then((res) => {
+        setServers(res.servers);
+        setServersError(null);
+      })
+      .catch((e) => setServersError(String(e)));
+  }, []);
 
   const loadCatalog = useCallback(() => {
     return api
@@ -121,9 +153,10 @@ export default function McpPage() {
       .then((res) => {
         setCatalog(res.entries);
         setDiagnostics(res.diagnostics);
+        setCatalogError(null);
       })
-      .catch((e) => showToast(`Error: ${e}`, "error"));
-  }, [showToast]);
+      .catch((e) => setCatalogError(String(e)));
+  }, []);
 
   useEffect(() => {
     Promise.all([loadServers(), loadCatalog()]).finally(() =>
@@ -174,22 +207,36 @@ export default function McpPage() {
     }
   };
 
-  const handleTest = async (server: McpServer) => {
-    setTesting(server.name);
-    try {
-      const result = await api.testMcpServer(server.name);
-      setTestResults((prev) => ({ ...prev, [server.name]: result }));
-      if (result.ok) {
-        showToast(`${server.name}: ${result.tools.length} tool(s)`, "success");
-      } else {
-        showToast(`${server.name}: ${result.error ?? "Failed"}`, "error");
+  /** Shared `/test` + `/auth` runner — same busy key, same result shape:
+   *  both record a timestamped probe outcome on the row (X2/X6). */
+  const runProbe = useCallback(
+    async (server: McpServer, kind: McpProbeKind) => {
+      setProbing({ name: server.name, kind });
+      try {
+        const result: McpTestResult =
+          kind === "auth"
+            ? await api.authMcpServer(server.name)
+            : await api.testMcpServer(server.name);
+        setProbes((prev) => ({
+          ...prev,
+          [server.name]: { result, at: Date.now() },
+        }));
+        if (result.ok) {
+          showToast(
+            `${server.name}: ${result.tools.length} tool(s)`,
+            "success",
+          );
+        } else {
+          showToast(`${server.name}: ${result.error ?? "Failed"}`, "error");
+        }
+      } catch (e) {
+        showToast(`Error: ${e}`, "error");
+      } finally {
+        setProbing(null);
       }
-    } catch (e) {
-      showToast(`Error: ${e}`, "error");
-    } finally {
-      setTesting(null);
-    }
-  };
+    },
+    [showToast],
+  );
 
   const handleToggleEnabled = async (server: McpServer) => {
     const next = !server.enabled;
@@ -202,7 +249,8 @@ export default function McpPage() {
         ),
       );
       setRestartNote(
-        "Enable/disable takes effect on the next gateway restart.",
+        M?.restartNote ??
+          "Enable/disable takes effect on the next gateway restart.",
       );
     } catch (e) {
       showToast(`Error: ${e}`, "error");
@@ -217,7 +265,7 @@ export default function McpPage() {
         try {
           await api.removeMcpServer(serverName);
           showToast(`Delete: "${truncateText(serverName, 30)}"`, "success");
-          setTestResults((prev) => {
+          setProbes((prev) => {
             const next = { ...prev };
             delete next[serverName];
             return next;
@@ -238,21 +286,28 @@ export default function McpPage() {
       setInstallingName(entry.name);
       try {
         const res = await api.installMcpCatalogEntry(entry.name, envMap, true);
-        if (res.background) {
-          showToast("Installing in background…", "success");
-        } else {
-          showToast(`Installed: "${truncateText(entry.name, 30)}"`, "success");
-        }
         setInstallEntry(null);
         setInstallEnv({});
-        await Promise.all([loadServers(), loadCatalog()]);
+        if (res.background && res.action) {
+          // Git-bootstrap install: tail the spawned action's log (X8);
+          // lists reload when it finishes — an immediate reload would
+          // show nothing changed for slow clones.
+          showToast(
+            M?.installingBackground ?? "Installing in background…",
+            "success",
+          );
+          setInstallAction(res.action);
+        } else {
+          showToast(`Installed: "${truncateText(entry.name, 30)}"`, "success");
+          await Promise.all([loadServers(), loadCatalog()]);
+        }
       } catch (e) {
         showToast(`Failed to install: ${e}`, "error");
       } finally {
         setInstallingName(null);
       }
     },
-    [loadServers, loadCatalog, showToast],
+    [loadServers, loadCatalog, showToast, M],
   );
 
   const handleInstallClick = (entry: McpCatalogEntry) => {
@@ -284,6 +339,10 @@ export default function McpPage() {
     void runInstall(installEntry, envMap);
   };
 
+  const handleInstallFinished = useCallback(() => {
+    void Promise.all([loadServers(), loadCatalog()]);
+  }, [loadServers, loadCatalog]);
+
   // Put "Add Server" button in page header
   useLayoutEffect(() => {
     setEnd(
@@ -292,18 +351,20 @@ export default function McpPage() {
         size="sm"
         onClick={() => setCreateModalOpen(true)}
       >
-        Add Server
+        {M?.addServer ?? "Add Server"}
       </Button>,
     );
     return () => {
       setEnd(null);
     };
-  }, [setEnd, loading]);
+  }, [setEnd, loading, M]);
 
   if (loading) {
+    // Layout-shaped skeletons instead of a page-blocking spinner (X9).
     return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner className="text-2xl text-primary" />
+      <div className="flex flex-col gap-6" aria-busy="true">
+        <Skeleton variant="row-list" rows={3} />
+        <Skeleton variant="row-list" rows={5} />
       </div>
     );
   }
@@ -312,6 +373,8 @@ export default function McpPage() {
   diagnostics.forEach((d) => {
     (diagnosticsByName[d.name] ??= []).push(d);
   });
+
+  const enabledCount = servers.filter((s) => s.enabled).length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -526,8 +589,8 @@ export default function McpPage() {
                   }
                 >
                   {installingName === installEntry.name
-                    ? "Installing..."
-                    : "Install"}
+                    ? (M?.installing ?? "Installing...")
+                    : (M?.install ?? "Install")}
                 </Button>
               </div>
             </div>
@@ -535,299 +598,130 @@ export default function McpPage() {
         </div>
       )}
 
-      {/* ── Your MCP servers ── */}
+      {/* ── Your MCP servers (X1: roster first) ── */}
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
           <H2
             variant="sm"
             className="flex items-center gap-2 text-muted-foreground"
           >
             <Server className="h-4 w-4" />
-            Your MCP servers ({servers.length})
+            {M?.yourServers ?? "Your MCP servers"} ({servers.length})
           </H2>
+          {servers.length > 0 && (
+            // Honest client-side summary — config counts, no fake health
+            // tally (X3 / X-decision 1).
+            <p className="font-mono-ui text-xs tabular-nums text-muted-foreground">
+              {(M?.serversSummary ?? "{n} servers · {m} enabled")
+                .replace("{n}", String(servers.length))
+                .replace("{m}", String(enabledCount))}
+            </p>
+          )}
         </div>
 
-        {restartNote && (
-          <p className="text-xs text-warning">{restartNote}</p>
+        {serversError && (
+          <SectionErrorBanner
+            message={M?.loadServersFailed ?? "Failed to load MCP servers"}
+            retryLabel={t.common.retry}
+            onRetry={() => void loadServers()}
+          />
         )}
 
-        {servers.length === 0 && (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              No MCP servers configured.
-            </CardContent>
-          </Card>
-        )}
-
-        {servers.map((server) => {
-          const envCount = Object.keys(server.env ?? {}).length;
-          const result = testResults[server.name];
-
-          return (
-            <Card key={server.name}>
-              <CardContent
-                className={cn(
-                  "flex items-start gap-4 py-4",
-                  !server.enabled && "opacity-60",
-                )}
+        {!serversError && servers.length === 0 && (
+          <EmptyState
+            icon={Server}
+            title={M?.noServersTitle ?? "No MCP servers"}
+            description={
+              M?.noServersDescription ??
+              "Add a server or install one from the catalog below."
+            }
+            action={
+              <Button
+                className="uppercase"
+                size="sm"
+                onClick={() => setCreateModalOpen(true)}
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm truncate">
-                      {server.name}
-                    </span>
-                    <Badge
-                      tone={TRANSPORT_TONE[server.transport] ?? "secondary"}
-                    >
-                      {server.transport}
-                    </Badge>
-                    {!server.enabled && (
-                      <Badge tone="outline">disabled</Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    {server.transport === "http" ? (
-                      <span className="font-mono truncate">
-                        {server.url ?? "—"}
-                      </span>
-                    ) : (
-                      <span className="font-mono truncate">
-                        {[server.command, ...(server.args ?? [])]
-                          .filter(Boolean)
-                          .join(" ") || "—"}
-                      </span>
-                    )}
-                    {envCount > 0 && (
-                      <span>
-                        {envCount} env var{envCount === 1 ? "" : "s"}
-                      </span>
-                    )}
-                  </div>
-                  {result && (
-                    <div className="mt-2 text-xs">
-                      {result.ok ? (
-                        <p className="text-success">
-                          {result.tools.length === 0
-                            ? "Connected — no tools"
-                            : `Tools: ${result.tools
-                                .map((tool) => tool.name)
-                                .join(", ")}`}
-                        </p>
-                      ) : (
-                        <p className="text-destructive">
-                          {result.error ?? "Connection failed"}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {M?.addServer ?? "Add Server"}
+              </Button>
+            }
+          />
+        )}
 
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    ghost
-                    size="sm"
-                    title={server.enabled ? "Disable" : "Enable"}
-                    aria-label={server.enabled ? "Disable" : "Enable"}
-                    onClick={() => handleToggleEnabled(server)}
-                    disabled={togglingName === server.name}
-                    prefix={
-                      togglingName === server.name ? (
-                        <Spinner />
-                      ) : (
-                        <Power />
-                      )
-                    }
-                    className={server.enabled ? "text-success" : undefined}
-                  >
-                    {server.enabled ? "Disable" : "Enable"}
-                  </Button>
-
-                  <Button
-                    ghost
-                    size="icon"
-                    title="Test connection"
-                    aria-label="Test connection"
-                    onClick={() => handleTest(server)}
-                    disabled={testing === server.name}
-                  >
-                    {testing === server.name ? <Spinner /> : <Zap />}
-                  </Button>
-
-                  <Button
-                    ghost
-                    destructive
-                    size="icon"
-                    title="Delete"
-                    aria-label="Delete"
-                    onClick={() => serverDelete.requestDelete(server.name)}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {servers.map((server) => (
+          <McpServerRow
+            key={server.name}
+            server={server}
+            probe={probes[server.name]}
+            busy={probing?.name === server.name ? probing.kind : null}
+            probeLocked={probing !== null}
+            toggling={togglingName === server.name}
+            onToggleEnabled={() => void handleToggleEnabled(server)}
+            onTest={() => void runProbe(server, "test")}
+            onLogin={() => void runProbe(server, "auth")}
+            onDelete={() => serverDelete.requestDelete(server.name)}
+          />
+        ))}
       </div>
+
+      {restartNote && (
+        // R16 truthfulness strip (X1 item 2, between roster and catalog):
+        // enabled ≠ running until the gateway restarts — warning-tinted
+        // 1px box (X2).
+        <div className="border border-warning/40 bg-warning/10 px-3 py-2">
+          <p className="text-xs text-warning">{restartNote}</p>
+        </div>
+      )}
 
       {/* ── Catalog ── */}
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <H2
-            variant="sm"
-            className="flex items-center gap-2 text-muted-foreground"
-          >
-            <Package className="h-4 w-4" />
-            Catalog ({catalog.length})
-          </H2>
-        </div>
+        <H2
+          variant="sm"
+          className="flex items-center gap-2 text-muted-foreground"
+        >
+          <Package className="h-4 w-4" />
+          {M?.catalog ?? "Catalog"} ({catalog.length})
+        </H2>
 
         <p className="text-xs text-muted-foreground">
-          Browse Fabric-curated MCP servers and install them with one click.
+          {M?.catalogIntro ??
+            "Browse Fabric-curated MCP servers and install them with one click."}
         </p>
 
-        {catalog.length === 0 && (
-          <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              No catalog entries available.
-            </CardContent>
-          </Card>
+        {/* Background-install log tail (X8, CAP10) — at the top of the
+            catalog section while a git-bootstrap install runs. */}
+        {installAction && (
+          <McpInstallLogCard
+            key={installAction}
+            action={installAction}
+            onFinished={handleInstallFinished}
+            onDismiss={() => setInstallAction(null)}
+          />
         )}
 
-        {catalog.map((entry) => {
-          const entryDiags = diagnosticsByName[entry.name] ?? [];
-          const isInstalling = installingName === entry.name;
+        {catalogError && (
+          <SectionErrorBanner
+            message={M?.loadCatalogFailed ?? "Failed to load the catalog"}
+            retryLabel={t.common.retry}
+            onRetry={() => void loadCatalog()}
+          />
+        )}
 
-          return (
-            <Card key={entry.name}>
-              <CardContent className="flex items-start gap-4 py-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-medium text-sm truncate">
-                      {entry.name}
-                    </span>
-                    <Badge
-                      tone={TRANSPORT_TONE[entry.transport] ?? "secondary"}
-                    >
-                      {entry.transport}
-                    </Badge>
-                    <Badge tone="outline">auth: {entry.auth_type}</Badge>
-                    {isHttpUrl(entry.source) ? (
-                      <a
-                        href={entry.source}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
-                      >
-                        source ↗
-                      </a>
-                    ) : (
-                      entry.source && (
-                        <Badge tone="outline">{entry.source}</Badge>
-                      )
-                    )}
-                    {entry.installed && (
-                      <Badge tone="success">Installed</Badge>
-                    )}
-                    {entry.installed && !entry.enabled && (
-                      <Badge tone="outline">disabled</Badge>
-                    )}
-                  </div>
-                  {entry.description && (
-                    <p className="text-xs text-muted-foreground">
-                      {entry.description}
-                    </p>
-                  )}
-                  {/* Connection detail: what the agent actually talks to. */}
-                  {entry.transport === "http" && entry.url && (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      <span className="font-medium">Endpoint:</span>{" "}
-                      <code className="font-mono">{entry.url}</code>
-                    </p>
-                  )}
-                  {entry.transport === "stdio" && entry.command && (
-                    <p className="mt-1 text-xs text-muted-foreground break-all">
-                      <span className="font-medium">Runs:</span>{" "}
-                      <code className="font-mono">
-                        {[entry.command, ...entry.args].join(" ")}
-                      </code>
-                    </p>
-                  )}
-                  {/* Git bootstrap — surfaced so users see what gets cloned/run
-                      before they install (matches the docs trust model). */}
-                  {entry.install_url && (
-                    <p className="mt-1 text-xs text-muted-foreground break-all">
-                      <span className="font-medium">Installs from:</span>{" "}
-                      {isHttpUrl(entry.install_url) ? (
-                        <a
-                          href={entry.install_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary underline underline-offset-2 hover:opacity-80"
-                        >
-                          {entry.install_url}
-                        </a>
-                      ) : (
-                        <code className="font-mono">{entry.install_url}</code>
-                      )}
-                      {entry.install_ref && (
-                        <span> @ {entry.install_ref}</span>
-                      )}
-                    </p>
-                  )}
-                  {entry.bootstrap.length > 0 && (
-                    <details className="mt-1 text-xs text-muted-foreground">
-                      <summary className="cursor-pointer select-none">
-                        Bootstrap commands ({entry.bootstrap.length})
-                      </summary>
-                      <ul className="mt-1 ml-3 list-disc space-y-0.5">
-                        {entry.bootstrap.map((cmd, i) => (
-                          <li key={`${entry.name}-bs-${i}`} className="break-all">
-                            <code className="font-mono">{cmd}</code>
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
-                  {entry.post_install && (
-                    <details className="mt-1 text-xs text-muted-foreground">
-                      <summary className="cursor-pointer select-none">
-                        Setup notes
-                      </summary>
-                      <p className="mt-1 whitespace-pre-wrap">
-                        {entry.post_install.trim()}
-                      </p>
-                    </details>
-                  )}
-                  {entryDiags.map((d, i) => (
-                    <p
-                      key={`${entry.name}-diag-${i}`}
-                      className="text-xs text-warning mt-1"
-                    >
-                      {d.message}
-                    </p>
-                  ))}
-                </div>
+        {!catalogError && catalog.length === 0 && (
+          <EmptyState
+            icon={Package}
+            title={M?.noCatalogTitle ?? "No catalog entries available"}
+          />
+        )}
 
-                <div className="flex items-center gap-1 shrink-0">
-                  {entry.installed ? (
-                    <Badge tone="success">Installed</Badge>
-                  ) : (
-                    <Button
-                      className="uppercase"
-                      size="sm"
-                      onClick={() => handleInstallClick(entry)}
-                      disabled={isInstalling}
-                      prefix={isInstalling ? <Spinner /> : undefined}
-                    >
-                      {isInstalling ? "Installing..." : "Install"}
-                    </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+        {catalog.map((entry) => (
+          <McpCatalogRow
+            key={entry.name}
+            entry={entry}
+            diagnostics={diagnosticsByName[entry.name] ?? []}
+            installing={installingName === entry.name}
+            onInstall={() => handleInstallClick(entry)}
+          />
+        ))}
       </div>
     </div>
   );

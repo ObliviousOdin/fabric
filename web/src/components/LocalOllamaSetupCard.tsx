@@ -19,6 +19,12 @@ import { Toast } from "@nous-research/ui/ui/components/toast";
 interface Props {
   onConfigured?: () => void;
   refreshKey?: number;
+  /**
+   * Render as a row group inside the Models loadout card (spec M2) instead
+   * of a standalone Card. Behavior — passive catalog load, explicit-button
+   * discovery, configure flow — is identical in both variants (N14).
+   */
+  embedded?: boolean;
 }
 
 const stateMessage = (state: string): string => {
@@ -32,7 +38,11 @@ const stateMessage = (state: string): string => {
 };
 
 /** First-class, keyless native Ollama setup for the web Models page. */
-export function LocalOllamaSetupCard({ onConfigured, refreshKey = 0 }: Props) {
+export function LocalOllamaSetupCard({
+  onConfigured,
+  refreshKey = 0,
+  embedded = false,
+}: Props) {
   const { toast, showToast } = useToast();
   const [provider, setProvider] = useState<LocalModelProvider | null>(null);
   const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:11434");
@@ -133,6 +143,103 @@ export function LocalOllamaSetupCard({ onConfigured, refreshKey = 0 }: Props) {
 
   if (loading || !provider) return null;
 
+  const body = (
+    <>
+      <div className="grid gap-1.5">
+        <Label htmlFor="local-ollama-url">Ollama server URL</Label>
+        <div className="flex flex-wrap gap-2">
+          <Input
+            id="local-ollama-url"
+            className="min-w-64 flex-1 font-mono"
+            value={baseUrl}
+            onChange={(event) => setBaseUrl(event.target.value)}
+          />
+          <Button
+            type="button"
+            outlined
+            disabled={discovering || configuring || !baseUrl.trim()}
+            onClick={() => void discover()}
+          >
+            {discovering ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+            {discovering ? "Discovering…" : "Refresh"}
+          </Button>
+        </div>
+      </div>
+
+      {models.length > 0 ? (
+        <div className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <div className="grid gap-1.5">
+            <Label htmlFor="local-ollama-model">Installed model</Label>
+            <Select
+              id="local-ollama-model"
+              value={selectedModel}
+              onValueChange={setSelectedModel}
+            >
+              {models.map((model) => (
+                <SelectOption key={model} value={model}>
+                  {model}
+                </SelectOption>
+              ))}
+            </Select>
+          </div>
+          <Button
+            type="button"
+            disabled={!selectedModel || configuring}
+            onClick={() => void configure()}
+          >
+            {configuring && <Loader2 className="animate-spin" />}
+            {configuring ? "Applying…" : "Use model"}
+          </Button>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {message || "Start Ollama, then refresh. To install a model, run"}{" "}
+          <code className="font-mono">{provider.pull_command}</code>
+        </p>
+      )}
+
+      {message && models.length > 0 && (
+        <p className="text-sm text-muted-foreground">{message}</p>
+      )}
+    </>
+  );
+
+  if (embedded) {
+    // Loadout row-group variant (M2): same content and behavior, styled as
+    // the fourth row inside the Models page's assignment surface. When the
+    // provider is configured it shows the CAP2 success-tone `active` badge
+    // (the `title` carries the R16 "new sessions" truthfulness copy).
+    return (
+      <>
+        <div className="flex min-w-0 flex-col gap-3 bg-muted/20 border border-border/50 px-3 py-2">
+          <div className="min-w-0">
+            <div className="mb-0.5 flex flex-wrap items-center gap-2">
+              <Cpu className="h-3 w-3 text-text-tertiary" />
+              <span className="text-display text-xs font-medium tracking-wider">
+                {provider.name}
+              </span>
+              {provider.configured && (
+                <Badge
+                  tone="success"
+                  className="text-xs"
+                  title="applies to new sessions"
+                >
+                  active
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-text-secondary">
+              {provider.description}. Discovery runs only when you press
+              Refresh.
+            </p>
+          </div>
+          <div className="grid gap-3">{body}</div>
+        </div>
+        <Toast toast={toast} />
+      </>
+    );
+  }
+
   return (
     <>
       <Card>
@@ -155,68 +262,7 @@ export function LocalOllamaSetupCard({ onConfigured, refreshKey = 0 }: Props) {
             )}
           </div>
         </CardHeader>
-        <CardContent className="grid gap-4">
-          <div className="grid gap-1.5">
-            <Label htmlFor="local-ollama-url">Ollama server URL</Label>
-            <div className="flex flex-wrap gap-2">
-              <Input
-                id="local-ollama-url"
-                className="min-w-64 flex-1 font-mono"
-                value={baseUrl}
-                onChange={(event) => setBaseUrl(event.target.value)}
-              />
-              <Button
-                type="button"
-                outlined
-                disabled={discovering || configuring || !baseUrl.trim()}
-                onClick={() => void discover()}
-              >
-                {discovering ? (
-                  <Loader2 className="animate-spin" />
-                ) : (
-                  <RefreshCw />
-                )}
-                {discovering ? "Discovering…" : "Refresh"}
-              </Button>
-            </div>
-          </div>
-
-          {models.length > 0 ? (
-            <div className="grid gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <div className="grid gap-1.5">
-                <Label htmlFor="local-ollama-model">Installed model</Label>
-                <Select
-                  id="local-ollama-model"
-                  value={selectedModel}
-                  onValueChange={setSelectedModel}
-                >
-                  {models.map((model) => (
-                    <SelectOption key={model} value={model}>
-                      {model}
-                    </SelectOption>
-                  ))}
-                </Select>
-              </div>
-              <Button
-                type="button"
-                disabled={!selectedModel || configuring}
-                onClick={() => void configure()}
-              >
-                {configuring && <Loader2 className="animate-spin" />}
-                {configuring ? "Applying…" : "Use model"}
-              </Button>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {message || "Start Ollama, then refresh. To install a model, run"}{" "}
-              <code className="font-mono">{provider.pull_command}</code>
-            </p>
-          )}
-
-          {message && models.length > 0 && (
-            <p className="text-sm text-muted-foreground">{message}</p>
-          )}
-        </CardContent>
+        <CardContent className="grid gap-4">{body}</CardContent>
       </Card>
       <Toast toast={toast} />
     </>

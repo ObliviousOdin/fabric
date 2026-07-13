@@ -353,6 +353,59 @@ export interface Translations {
     toolCalls: string;
     noModelsData: string;
     startSession: string;
+    // Optional loadout keys (Capabilities revamp, spec M1–M11): non-English
+    // locales fall back to the English literal at the call site until
+    // translated, matching the `analytics.workload` pattern.
+    loadout?: {
+      /** Chrome label of the assignment surface (M2). */
+      loadout: string;
+      /** Load-bearing subtitle — assignments apply to new sessions only. */
+      appliesToNewSessions: string;
+      mainModel: string;
+      auxiliaryTasks: string;
+      mixtureOfAgents: string;
+      /** Italic-muted placeholder for an unset provider/model slot. */
+      unset: string;
+      /** One-line inline warning when `/api/model/auxiliary` fails (M11). */
+      auxUnavailable: string;
+      /** Destructive banner when the analytics load fails (M11). */
+      loadFailed: string;
+      /** Compact one-row token-gate notice (CAP8, Observe A1.2 pattern). */
+      tokensHiddenSummary: string;
+      configLink: string;
+    };
+  };
+
+  // ── MCP page ──
+  // Optional group (CAPABILITIES revamp, spec X1–X11): call sites fall back
+  // to the English literals until a locale translates it.
+  mcp?: {
+    addServer: string;
+    yourServers: string;
+    /** `{n}` = configured servers, `{m}` = enabled servers (X3 summary). */
+    serversSummary: string;
+    noServersTitle: string;
+    noServersDescription: string;
+    catalog: string;
+    catalogIntro: string;
+    noCatalogTitle: string;
+    restartNote: string;
+    test: string;
+    login: string;
+    waitingForBrowser: string;
+    connectedNoTools: string;
+    /** `{n}` placeholders (mono meta-line counts). */
+    envVarCount: string;
+    envVarsCount: string;
+    toolsEnabledCount: string;
+    promptsCount: string;
+    resourcesCount: string;
+    installed: string;
+    install: string;
+    installing: string;
+    installingBackground: string;
+    loadServersFailed: string;
+    loadCatalogFailed: string;
   };
 
   // ── Logs page ──
@@ -517,6 +570,19 @@ export interface Translations {
     versionBadge: string;
     showInSidebar: string;
     hideFromSidebar: string;
+    // Optional CAPABILITIES-revamp strings (spec P1 loadout-first order,
+    // P2 corrected state chips, P6–P8 states). Non-English locales fall
+    // back to the English literals at the call sites until translated
+    // (same pattern as `cron.agents`).
+    agents?: {
+      enginesLabel: string;
+      hubLoadFailed: string;
+      noPluginsTitle: string;
+      noPluginsDescription: string;
+      installCta: string;
+      needsAuth: string;
+      stateEffectNote: string;
+    };
   };
 
   // ── Profiles page ──
@@ -609,6 +675,35 @@ export interface Translations {
     profileSelector?: string;
     currentProfile?: string;
     managingProfile?: string;
+    /**
+     * CAPABILITIES revamp (K-requirements). Optional group — the Skills
+     * page falls back to the English literals at the call sites until
+     * translated (same pattern as `sessions.ledger`).
+     */
+    inventory?: {
+      /** Chrome label of the rail provenance-filter group (K2). */
+      provenance: string;
+      provenanceHub: string;
+      provenanceBundled: string;
+      /** `agent` provenance is labeled "custom" in UI copy (K2). */
+      provenanceAgent: string;
+      /** `{count} use{s}` skill-usage meta segment (K4/K5). */
+      uses: string;
+      /** `{count} tool{s}` toolset meta segment (K7). */
+      toolCount: string;
+      /** `~{count} calls · 30d` best-effort toolset usage join (K7/R20). */
+      callsMeta: string;
+      /** `title` caveat on the calls segment (R14/R20). */
+      callsCaveat: string;
+      /** R16 `title` copy on toolset/skill state — no hot-swap implied. */
+      appliesNewSessions: string;
+      loadFailed: string;
+      noSkillsTitle: string;
+      noMatchTitle: string;
+      noToolsetsTitle: string;
+      clearSearch: string;
+      clearFilter: string;
+    };
   };
 
   // ── Config page ──

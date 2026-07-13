@@ -132,7 +132,9 @@ export function CommandPalette({
     }
     list.push({
       group: "actions",
-      hint: formatCombo("["),
+      // Advertise the layout-safe binding — "[" needs AltGr on many
+      // European layouts (see the mod+b registration in App.tsx).
+      hint: formatCombo("mod+b"),
       icon: PanelLeftClose,
       id: "action:toggle-sidebar",
       label: t.commandPalette?.toggleSidebar ?? "Toggle sidebar",

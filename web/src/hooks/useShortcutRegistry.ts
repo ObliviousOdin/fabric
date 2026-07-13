@@ -62,18 +62,36 @@ function parseCombo(combo: string): ParsedCombo {
 }
 
 /**
+ * Whether the event's key satisfies a parsed combo key. Compared against
+ * `event.key` first (layout-respecting); letter combos additionally accept
+ * the physical key position via `event.code` when the active layout
+ * produces a non-Latin character (Cyrillic, Greek, Hebrew…) — otherwise
+ * mod+k would be dead on those layouts. Punctuation and named keys keep
+ * the `event.key`-only path so shifted punctuation stays layout-true.
+ */
+function comboKeyMatches(event: KeyboardEvent, key: string): boolean {
+  if (event.key.toLowerCase() === key) return true;
+  return (
+    /^[a-z]$/.test(key) &&
+    !/^[a-zA-Z]$/.test(event.key) &&
+    event.code === `Key${key.toUpperCase()}`
+  );
+}
+
+/**
  * Whether a keyboard event satisfies a combo string.
  *
  * The key is compared against `event.key` (lowercased), so shifted
  * punctuation works naturally: registering `"?"` matches the event produced
  * by Shift+/ without declaring shift, while `"["` does not fire for `{`.
- * Combos without a modifier require Ctrl/Meta/Alt to be up, so plain `"["`
- * never swallows browser chords like Cmd+[.
+ * Letter keys fall back to `event.code` on non-Latin layouts (see
+ * `comboKeyMatches`). Combos without a modifier require Ctrl/Meta/Alt to be
+ * up, so plain `"["` never swallows browser chords like Cmd+[.
  */
 export function matchesCombo(event: KeyboardEvent, combo: string): boolean {
   const parsed = parseCombo(combo);
   if (!parsed.key) return false;
-  if (event.key.toLowerCase() !== parsed.key) return false;
+  if (!comboKeyMatches(event, parsed.key)) return false;
 
   if (parsed.mod) {
     if (!event.metaKey && !event.ctrlKey) return false;

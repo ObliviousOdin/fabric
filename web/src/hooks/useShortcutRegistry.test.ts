@@ -37,6 +37,22 @@ describe("matchesCombo", () => {
     expect(matchesCombo(keydown({ key: "k" }), "mod+k")).toBe(false);
   });
 
+  it("matches letter combos by physical position on non-Latin layouts", () => {
+    // Russian layout: the physical K key produces "л" in event.key.
+    expect(
+      matchesCombo(keydown({ key: "л", code: "KeyK", ctrlKey: true }), "mod+k"),
+    ).toBe(true);
+    // Latin layouts keep strict event.key matching — a remapped layout
+    // producing "j" on KeyK must not fire the "k" binding.
+    expect(
+      matchesCombo(keydown({ key: "j", code: "KeyK", ctrlKey: true }), "mod+k"),
+    ).toBe(false);
+    // Punctuation never falls back to event.code.
+    expect(matchesCombo(keydown({ key: "х", code: "BracketLeft" }), "[")).toBe(
+      false,
+    );
+  });
+
   it("matches shifted punctuation by the produced key", () => {
     // Shift+/ produces "?" — registering "?" must match without declaring shift.
     expect(matchesCombo(keydown({ key: "?", shiftKey: true }), "?")).toBe(true);

@@ -477,7 +477,7 @@ export default function App() {
  * Global command palette (⌘K) + shortcut registry wiring. Lives inside the
  * app shell so it can reuse the exact nav structures the sidebar renders
  * (Pages in the palette can never drift from the sidebar) and the shared
- * sidebar-collapse toggle. The three global shortcuts are registered here;
+ * sidebar-collapse toggle. The global shortcuts are registered here;
  * ShortcutHelp lists whatever the registry currently holds.
  */
 function AppCommandLayer({

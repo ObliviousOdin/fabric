@@ -527,6 +527,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     appearanceRef.current = appearance;
   }, [appearance]);
 
+  /** Same mirror for the active theme name — the mount effect must compare
+   *  against the CURRENT theme, not its first-render closure capture. */
+  const themeNameRef = useRef(themeName);
+  useEffect(() => {
+    themeNameRef.current = themeName;
+  }, [themeName]);
+
+  /** Flipped once the user explicitly picks a theme or appearance in this
+   *  session. The getThemes adoption below bails out when set, so a slow
+   *  /themes response can never clobber a choice the user made while the
+   *  request was in flight. */
+  const userPickedRef = useRef(false);
+
   /** Contrast preference — swaps generated themes for their high-contrast
    *  variants; hand-authored presets ignore it. */
   const [contrast, setContrastState] = useState<ContrastPref>(() => {
@@ -618,9 +631,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         }
         // In system mode the OS — not the server — owns the active theme;
         // adopting `resp.active` here would fight the matchMedia effect.
-        if (resp.active && appearanceRef.current !== "system") {
+        // Likewise a theme/appearance the user picked while this request
+        // was in flight outranks the (now stale) server value.
+        if (
+          resp.active &&
+          !userPickedRef.current &&
+          appearanceRef.current !== "system"
+        ) {
           const migratedActive = migrateThemeName(resp.active);
-          if (migratedActive !== themeName) {
+          if (migratedActive !== themeNameRef.current) {
             setThemeName(migratedActive);
             window.localStorage.setItem(STORAGE_KEY, migratedActive);
           }
@@ -648,7 +667,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load the server-persisted font override once on mount. The server is
@@ -677,6 +695,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setTheme = useCallback(
     (name: string) => {
+      userPickedRef.current = true;
       // Accept any name the server told us exists OR any built-in.
       const knownNames = new Set<string>([
         ...Object.keys(BUILTIN_THEMES),
@@ -701,6 +720,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const setAppearance = useCallback(
     (pref: AppearancePref) => {
+      userPickedRef.current = true;
       setAppearanceState(pref);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(APPEARANCE_STORAGE_KEY, pref);

@@ -27,7 +27,9 @@ export function EmptyState({
       )}
     >
       {Icon ? <Icon aria-hidden="true" className="mb-3 h-8 w-8 opacity-40" /> : null}
-      <p className="text-sm font-medium">{title}</p>
+      {/* Real heading (same level as the DS CardTitle's <h3>) so the empty
+          state is reachable via screen-reader heading navigation. */}
+      <h3 className="text-sm font-medium">{title}</h3>
       {description ? (
         <p className="mt-1 text-xs text-text-tertiary">{description}</p>
       ) : null}

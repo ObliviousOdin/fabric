@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import type { Translations } from "@/i18n/types";
 import { SidebarTooltip, type TooltipWarmRef } from "./SidebarTooltip";
+import { navItemLabel } from "./nav-label";
 import type { NavItem } from "./nav-model";
 
 export function SidebarNavLink({
@@ -12,13 +13,11 @@ export function SidebarNavLink({
   tooltipWarmRef,
   t,
 }: SidebarNavLinkProps) {
-  const { path, label, labelKey, icon: Icon } = item;
+  const { path, icon: Icon } = item;
   const [hovered, setHovered] = useState(false);
   const [tooltipAnchor, setTooltipAnchor] = useState<HTMLElement | null>(null);
 
-  const navLabel = labelKey
-    ? ((t.app.nav as Record<string, string>)[labelKey] ?? label)
-    : label;
+  const navLabel = navItemLabel(item, t);
   const showTooltip = (
     event: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>,
   ) => {

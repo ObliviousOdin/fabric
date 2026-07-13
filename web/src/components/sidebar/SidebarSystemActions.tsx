@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { Download, RotateCw } from "lucide-react";
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
+import { RestartGatewayConfirm } from "@/components/RestartGatewayConfirm";
 import { SidebarStatusStrip } from "@/components/SidebarStatusStrip";
 import { useSystemActions } from "@/contexts/useSystemActions";
 import type { SystemAction } from "@/contexts/system-actions-context";
@@ -108,13 +109,6 @@ export function SidebarSystemActions({
     onNavigate();
   };
 
-  const confirmRestart = () => {
-    setRestartConfirmOpen(false);
-    void runAction("restart");
-    navigate("/sessions");
-    onNavigate();
-  };
-
   const confirmUpdate = () => {
     setUpdateConfirmOpen(false);
     void runAction("update");
@@ -173,20 +167,10 @@ export function SidebarSystemActions({
         </ul>
       </div>
 
-      <ConfirmDialog
-        cancelLabel={t.common.cancel}
-        confirmLabel={t.status.restartGateway}
-        description={
-          t.status.restartGatewayConfirmMessage ??
-          "This restarts the Fabric gateway process. Connected channels and active sessions will reconnect afterward."
-        }
-        loading={pendingAction === "restart"}
-        onCancel={() => setRestartConfirmOpen(false)}
-        onConfirm={confirmRestart}
+      <RestartGatewayConfirm
+        onClose={() => setRestartConfirmOpen(false)}
+        onConfirmed={onNavigate}
         open={restartConfirmOpen}
-        title={
-          t.status.restartGatewayConfirmTitle ?? `${t.status.restartGateway}?`
-        }
       />
 
       <ConfirmDialog
@@ -262,7 +246,7 @@ function SystemActionButton({
           <Icon
             className={cn(
               "h-3.5 w-3.5 shrink-0",
-              isActionRunning && !spin && "animate-pulse",
+              isActionRunning && !spin && "animate-pulse motion-reduce:animate-none",
             )}
           />
         )}

@@ -6,17 +6,16 @@
 
 /**
  * Generic sortable table. Typed columns (`key`/`header`/`sortable`/`align`/
- * `mono`/`render`), client-side sorting with nulls-last semantics, chrome-idiom
- * header row, optional sticky header and compact density, and an `empty` slot
- * (typically an `<EmptyState />`).
+ * `mono`/`render`), client-side sorting with nulls-last semantics and an
+ * optional `defaultSortKey`, chrome-idiom header row. Callers render their
+ * own empty state (typically an `<EmptyState />`) instead of the table.
  */
 export { DataTable } from "./DataTable";
-export type { DataTableColumn, DataTableProps, SortDirection } from "./DataTable";
+export type { DataTableColumn, DataTableProps } from "./DataTable";
 
 /**
  * Centered muted empty placeholder: lucide icon slot + title + description +
- * optional action button. Used standalone in cards and as DataTable's `empty`
- * slot.
+ * optional action button. Used standalone in cards and page bodies.
  */
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";

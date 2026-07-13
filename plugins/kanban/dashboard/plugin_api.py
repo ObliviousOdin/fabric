@@ -863,6 +863,10 @@ def remove_attachment(attachment_id: int, board: Optional[str] = Query(None)):
 
 class UpdateTaskBody(BaseModel):
     status: Optional[str] = None
+    # Explicit acknowledgement for the destructive running -> review path.
+    # Without it, a stale client cannot unknowingly terminate a worker that
+    # was claimed after the UI last rendered the task.
+    confirm_stop_running: bool = False
     assignee: Optional[str] = None
     priority: Optional[int] = None
     title: Optional[str] = None
@@ -927,13 +931,29 @@ def update_task(task_id: str, payload: UpdateTaskBody, board: Optional[str] = Qu
                     detail="Cannot set status to 'running' directly; use the dispatcher/claim path",
                 )
             elif s in ("todo", "triage", "scheduled", "review"):
-                ok = _set_status_direct(conn, task_id, s)
+                ok = _set_status_direct(
+                    conn,
+                    task_id,
+                    s,
+                    allow_worker_stop=(
+                        s != "review" or payload.confirm_stop_running
+                    ),
+                )
             else:
                 raise HTTPException(status_code=400, detail=f"unknown status: {s}")
             if not ok:
                 if s == "review":
                     current = kanban_db.get_task(conn, task_id)
                     if current and current.status == "running":
+                        if not payload.confirm_stop_running:
+                            raise HTTPException(
+                                status_code=409,
+                                detail=(
+                                    "Review handoff would stop the active worker. "
+                                    "Confirm the stop and retry with "
+                                    "confirm_stop_running=true."
+                                ),
+                            )
                         raise HTTPException(
                             status_code=409,
                             detail=(
@@ -1047,7 +1067,11 @@ def _parents_blocking_ready(
 
 
 def _set_status_direct(
-    conn: sqlite3.Connection, task_id: str, new_status: str,
+    conn: sqlite3.Connection,
+    task_id: str,
+    new_status: str,
+    *,
+    allow_worker_stop: bool = True,
 ) -> bool:
     """Direct status write for drag-drop moves that aren't covered by the
     structured complete/block/unblock/archive verbs (e.g. todo<->ready,
@@ -1069,6 +1093,18 @@ def _set_status_direct(
         return False
 
     was_running = prev["status"] == "running"
+    if was_running and new_status == "review" and not allow_worker_stop:
+        return False
+
+    # Validate the dependency gate before touching the worker process. A
+    # parent may have been reopened while this child was running; killing the
+    # worker only to reject the requested ready transition would strand a
+    # dead run behind a live claim until its TTL expires.
+    if was_running and new_status == "ready" and _parents_blocking_ready(
+        conn, task_id,
+    ):
+        return False
+
     termination = None
     if was_running and new_status != "running":
         termination = kanban_db._terminate_reclaimed_worker(
@@ -1099,15 +1135,54 @@ def _set_status_direct(
         # Prevents the dispatcher from spawning a child whose upstream work
         # hasn't completed (e.g. T4 dispatched while T3 is still blocked).
         if new_status == "ready":
-            parent_statuses = conn.execute(
-                "SELECT t.status FROM tasks t "
-                "JOIN task_links l ON l.parent_id = t.id "
-                "WHERE l.child_id = ?",
-                (task_id,),
-            ).fetchall()
-            if parent_statuses and not all(
-                p["status"] == "done" for p in parent_statuses
-            ):
+            blockers = _parents_blocking_ready(conn, task_id)
+            if blockers:
+                # A parent can reopen after the preflight check while worker
+                # termination is in flight. The worker is already gone, so
+                # returning with the task still marked running would leave a
+                # dead claim. Close the run and park the task in todo in this
+                # same transaction; the caller still receives a 409 naming
+                # the dependency that invalidated the requested transition.
+                if was_running and termination and termination.get("terminated"):
+                    recovery_metadata = dict(termination)
+                    recovery_metadata.update({
+                        "requested_status": "ready",
+                        "fallback_status": "todo",
+                        "reason": "dependency_changed_after_worker_stop",
+                    })
+                    conn.execute(
+                        "UPDATE tasks SET status = 'todo', claim_lock = NULL, "
+                        "claim_expires = NULL, worker_pid = NULL WHERE id = ?",
+                        (task_id,),
+                    )
+                    run_id = None
+                    if prev["current_run_id"]:
+                        run_id = kanban_db._end_run(
+                            conn,
+                            task_id,
+                            outcome="reclaimed",
+                            status="reclaimed",
+                            summary=(
+                                "ready transition aborted because a dependency "
+                                "changed after worker termination"
+                            ),
+                            metadata=recovery_metadata,
+                        )
+                    conn.execute(
+                        "INSERT INTO task_events "
+                        "(task_id, run_id, kind, payload, created_at) "
+                        "VALUES (?, ?, 'status', ?, ?)",
+                        (
+                            task_id,
+                            run_id,
+                            json.dumps({
+                                "status": "todo",
+                                "requested_status": "ready",
+                                "reason": "dependency_changed_after_worker_stop",
+                            }),
+                            int(time.time()),
+                        ),
+                    )
                 return False
 
         reopening_satisfied_parent = (

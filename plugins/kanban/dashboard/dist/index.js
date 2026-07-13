@@ -163,6 +163,13 @@
     if (!key) return null;
     return tx(t, key, FALLBACK_DESTRUCTIVE[status]);
   }
+  function getReviewHandoffConfirm(t) {
+    return tx(
+      t,
+      "confirmReviewRunning",
+      "Send this task to review? If an agent is active when the handoff is applied, it will be stopped.",
+    );
+  }
   function getDiagnosticEventLabel(t, kind) {
     const key = DIAGNOSTIC_EVENT_KIND_KEYS[kind];
     if (!key) return null;
@@ -598,11 +605,20 @@
     const wsBackoffRef = useRef(1000);
     const wsClosedRef = useRef(false);
     const updatesPausedRef = useRef(false);
+    const liveRefreshGenerationRef = useRef(0);
+    const pausedRecentEventsRef = useRef([]);
+    const pausedTaskEventCountsRef = useRef({});
 
     useEffect(function () {
       updatesPausedRef.current = updatesPaused;
       setLiveStatus(updatesPaused ? "paused" : (wsRef.current ? "live" : "connecting"));
     }, [updatesPaused]);
+
+    useEffect(function () {
+      // Never replay visible activity from a previously-selected board.
+      pausedRecentEventsRef.current = [];
+      pausedTaskEventCountsRef.current = {};
+    }, [board]);
 
     // --- load config once ---------------------------------------------------
     useEffect(function () {
@@ -620,22 +636,34 @@
     }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
     // --- fetch full board ---------------------------------------------------
-    const loadBoard = useCallback(() => {
+    const loadBoard = useCallback((options) => {
+      const isLiveRefresh = !!(options && options.liveRefresh === true);
+      const refreshGeneration = liveRefreshGenerationRef.current;
+      const canApply = function () {
+        return !isLiveRefresh || (
+          !updatesPausedRef.current &&
+          refreshGeneration === liveRefreshGenerationRef.current
+        );
+      };
       const qs = new URLSearchParams();
       if (tenantFilter) qs.set("tenant", tenantFilter);
       if (includeArchived) qs.set("include_archived", "true");
       const url = qs.toString() ? `${API}/board?${qs}` : `${API}/board`;
       return SDK.fetchJSON(withBoard(url, board))
         .then(function (data) {
+          if (!canApply()) return;
           setBoardData(data);
           cursorRef.current = data.latest_event_id || 0;
           setLastUpdateAt(Date.now());
           setError(null);
         })
         .catch(function (err) {
+          if (!canApply()) return;
           setError(String(err && err.message ? err.message : err));
         })
-        .finally(function () { setLoading(false); });
+        .finally(function () {
+          if (canApply()) setLoading(false);
+        });
     }, [tenantFilter, includeArchived, board]);
 
     // --- load list of boards for the switcher ------------------------------
@@ -666,7 +694,7 @@
       if (reloadTimerRef.current) return;
       reloadTimerRef.current = setTimeout(function () {
         reloadTimerRef.current = null;
-        loadBoard();
+        loadBoard({ liveRefresh: true });
       }, 250);
     }, [loadBoard]);
 
@@ -714,19 +742,34 @@
               const msg = JSON.parse(ev.data);
               if (msg && Array.isArray(msg.events) && msg.events.length > 0) {
                 cursorRef.current = msg.cursor || cursorRef.current;
-                setLastUpdateAt(Date.now());
-                setRecentEvents(function (prev) {
-                  return msg.events.concat(prev).slice(0, 8);
-                });
-                // Stamp per-task signal so the TaskDrawer can reload itself.
-                setTaskEventTick(function (prev) {
-                  const next = Object.assign({}, prev);
+                if (updatesPausedRef.current) {
+                  // Keep consuming the stream so reconnects do not replay an
+                  // unbounded backlog, but buffer every visible consequence.
+                  // Pausing is a presentation freeze; agents continue to run.
+                  pausedRecentEventsRef.current = msg.events
+                    .concat(pausedRecentEventsRef.current)
+                    .slice(0, 8);
                   for (const e of msg.events) {
-                    if (e && e.task_id) next[e.task_id] = (next[e.task_id] || 0) + 1;
+                    if (e && e.task_id) {
+                      const counts = pausedTaskEventCountsRef.current;
+                      counts[e.task_id] = (counts[e.task_id] || 0) + 1;
+                    }
                   }
-                  return next;
-                });
-                if (!updatesPausedRef.current) scheduleReload();
+                } else {
+                  setLastUpdateAt(Date.now());
+                  setRecentEvents(function (prev) {
+                    return msg.events.concat(prev).slice(0, 8);
+                  });
+                  // Stamp per-task signal so the TaskDrawer can reload itself.
+                  setTaskEventTick(function (prev) {
+                    const next = Object.assign({}, prev);
+                    for (const e of msg.events) {
+                      if (e && e.task_id) next[e.task_id] = (next[e.task_id] || 0) + 1;
+                    }
+                    return next;
+                  });
+                  scheduleReload();
+                }
               }
             } catch (_e) { /* ignore */ }
           };
@@ -781,9 +824,13 @@
 
     // --- actions ------------------------------------------------------------
     const moveTask = useCallback(function (taskId, newStatus) {
-      const confirmMsg = getDestructiveConfirm(t, newStatus);
+      const confirmMsg = newStatus === "review"
+        ? getReviewHandoffConfirm(t)
+        : getDestructiveConfirm(t, newStatus);
       if (confirmMsg && !window.confirm(confirmMsg)) return;
-      const patch = withCompletionSummary({ status: newStatus }, 1, t);
+      const requestedPatch = { status: newStatus };
+      if (newStatus === "review") requestedPatch.confirm_stop_running = true;
+      const patch = withCompletionSummary(requestedPatch, 1, t);
       if (!patch) return;
       setBoardData(function (b) {
         if (!b) return b;
@@ -1106,8 +1153,37 @@
 
     const toggleUpdates = function () {
       const next = !updatesPaused;
+      // Synchronize the ref before React commits state so a WebSocket event
+      // landing in the click/effect gap cannot repaint the paused surface.
+      updatesPausedRef.current = next;
+      liveRefreshGenerationRef.current += 1;
+      if (next && reloadTimerRef.current) {
+        clearTimeout(reloadTimerRef.current);
+        reloadTimerRef.current = null;
+      }
       setUpdatesPaused(next);
-      if (!next) loadBoard();
+      if (!next) {
+        const pendingRecent = pausedRecentEventsRef.current;
+        const pendingCounts = pausedTaskEventCountsRef.current;
+        pausedRecentEventsRef.current = [];
+        pausedTaskEventCountsRef.current = {};
+        if (pendingRecent.length > 0) {
+          setRecentEvents(function (prev) {
+            return pendingRecent.concat(prev).slice(0, 8);
+          });
+          setLastUpdateAt(Date.now());
+        }
+        if (Object.keys(pendingCounts).length > 0) {
+          setTaskEventTick(function (prev) {
+            const merged = Object.assign({}, prev);
+            for (const taskId of Object.keys(pendingCounts)) {
+              merged[taskId] = (merged[taskId] || 0) + pendingCounts[taskId];
+            }
+            return merged;
+          });
+        }
+        loadBoard();
+      }
     };
 
     const reviewFirst = function () {
@@ -1229,6 +1305,8 @@
         selectedTaskId ? h(TaskDrawer, {
           taskId: selectedTaskId,
           boardSlug: board,
+          updatesPausedRef: updatesPausedRef,
+          liveRefreshGenerationRef: liveRefreshGenerationRef,
           onClose: function () { setSelectedTaskId(null); },
           onRefresh: loadBoard,
           renderMarkdown: renderMd,
@@ -3867,12 +3945,34 @@
     const [homeBusy, setHomeBusy] = useState({});
     const boardSlug = props.boardSlug;
 
-    const load = useCallback(function () {
+    const load = useCallback(function (options) {
+      const isLiveRefresh = !!(options && options.liveRefresh === true);
+      const refreshGeneration = props.liveRefreshGenerationRef.current;
+      const canApply = function () {
+        return !isLiveRefresh || (
+          !props.updatesPausedRef.current &&
+          refreshGeneration === props.liveRefreshGenerationRef.current
+        );
+      };
       return SDK.fetchJSON(withBoard(`${API}/tasks/${encodeURIComponent(props.taskId)}`, boardSlug))
-        .then(function (d) { setData(d); setErr(null); setPatchErr(null); })
-        .catch(function (e) { setErr(String(e.message || e)); })
-        .finally(function () { setLoading(false); });
-    }, [props.taskId, boardSlug]);
+        .then(function (d) {
+          if (!canApply()) return;
+          setData(d);
+          setErr(null);
+          setPatchErr(null);
+        })
+        .catch(function (e) {
+          if (canApply()) setErr(String(e.message || e));
+        })
+        .finally(function () {
+          if (canApply()) setLoading(false);
+        });
+    }, [
+      props.taskId,
+      boardSlug,
+      props.liveRefreshGenerationRef,
+      props.updatesPausedRef,
+    ]);
 
     const loadHomeChannels = useCallback(function () {
       const qs = new URLSearchParams({ task_id: props.taskId });
@@ -3885,7 +3985,19 @@
     // Reload when the WS stream reports new events for this task id
     // (completion, block, crash, etc. — anything that'd make the drawer
     // show stale data if we only loaded on mount).
-    useEffect(function () { load(); }, [load, props.eventTick]);
+    const priorEventTickRef = useRef(props.eventTick);
+    useEffect(function () {
+      // Task/board changes are explicit navigation and must load even while
+      // presentation updates are paused. Stream-driven refreshes are gated so
+      // a request that began just before Pause cannot repaint the drawer.
+      priorEventTickRef.current = props.eventTick;
+      load();
+    }, [load]);
+    useEffect(function () {
+      if (props.eventTick === priorEventTickRef.current) return;
+      priorEventTickRef.current = props.eventTick;
+      load({ liveRefresh: true });
+    }, [load, props.eventTick]);
     useEffect(function () { loadHomeChannels(); }, [loadHomeChannels]);
     useEffect(function () {
       function onKey(e) { if (e.key === "Escape" && !editing) props.onClose(); }
@@ -4875,8 +4987,9 @@
           task.status === "running" || task.status === "ready",
           getDestructiveConfirm(t, "blocked")),
         b(tx(t, "unblock", "Unblock"),   { status: "ready" },    task.status === "blocked"),
-        b("Send to review", { status: "review" },
-          task.status === "running" || task.status === "ready" || task.status === "blocked"),
+        b("Send to review", { status: "review", confirm_stop_running: true },
+          task.status === "running" || task.status === "ready" || task.status === "blocked",
+          getReviewHandoffConfirm(t)),
         b(tx(t, "complete", "Complete"),  { status: "done" },
           task.status === "running" || task.status === "ready" || task.status === "blocked" || task.status === "review",
           getDestructiveConfirm(t, "done")),

@@ -482,7 +482,7 @@ def test_patch_running_task_to_review_terminates_worker_and_closes_run(
 
     response = client.patch(
         f"/api/plugins/kanban/tasks/{task['id']}",
-        json={"status": "review"},
+        json={"status": "review", "confirm_stop_running": True},
     )
     assert response.status_code == 200
     assert response.json()["task"]["status"] == "review"
@@ -494,6 +494,48 @@ def test_patch_running_task_to_review_terminates_worker_and_closes_run(
     assert ended["ended_at"] is not None
     assert ended["outcome"] == "review"
     assert ended["metadata"]["terminated"] is True
+
+
+def test_patch_running_task_to_review_requires_worker_stop_confirmation(
+    client, monkeypatch,
+):
+    """A stale client cannot stop a newly-claimed worker without consent."""
+    task = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "prepare release", "assignee": "builder"},
+    ).json()["task"]
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, task["id"], claimer="dashboard-test")
+        assert claimed is not None
+        open_run_id = claimed.current_run_id
+        conn.execute(
+            "UPDATE tasks SET worker_pid = ? WHERE id = ?",
+            (424242, task["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    stopped = []
+    monkeypatch.setattr(
+        kb,
+        "_terminate_reclaimed_worker",
+        lambda *_args, **_kwargs: stopped.append(True) or {"terminated": True},
+    )
+
+    response = client.patch(
+        f"/api/plugins/kanban/tasks/{task['id']}",
+        json={"status": "review"},
+    )
+    assert response.status_code == 409
+    assert "confirm_stop_running=true" in response.json()["detail"]
+    assert stopped == []
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{task['id']}").json()
+    assert detail["task"]["status"] == "running"
+    assert detail["active_run"]["id"] == open_run_id
 
 
 def test_patch_running_task_to_review_keeps_claim_when_worker_survives(
@@ -532,7 +574,7 @@ def test_patch_running_task_to_review_keeps_claim_when_worker_survives(
 
     response = client.patch(
         f"/api/plugins/kanban/tasks/{task['id']}",
-        json={"status": "review"},
+        json={"status": "review", "confirm_stop_running": True},
     )
     assert response.status_code == 409
     assert "active worker" in response.json()["detail"]
@@ -540,6 +582,134 @@ def test_patch_running_task_to_review_keeps_claim_when_worker_survives(
     detail = client.get(f"/api/plugins/kanban/tasks/{task['id']}").json()
     assert detail["task"]["status"] == "running"
     assert detail["active_run"]["id"] == open_run_id
+
+
+def test_patch_running_task_to_ready_validates_dependencies_before_worker_stop(
+    client, monkeypatch,
+):
+    """A reopened parent must reject ready without touching the live worker."""
+    parent = client.post(
+        "/api/plugins/kanban/tasks", json={"title": "parent"},
+    ).json()["task"]
+    child = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "child", "assignee": "builder", "parents": [parent["id"]]},
+    ).json()["task"]
+    assert client.patch(
+        f"/api/plugins/kanban/tasks/{parent['id']}", json={"status": "done"},
+    ).status_code == 200
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, child["id"], claimer="dashboard-test")
+        assert claimed is not None
+        open_run_id = claimed.current_run_id
+        conn.execute(
+            "UPDATE tasks SET worker_pid = ? WHERE id = ?",
+            (424242, child["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Reopening the completed parent leaves an already-running child alone,
+    # but it must block a manual request to return that child to ready.
+    assert client.patch(
+        f"/api/plugins/kanban/tasks/{parent['id']}", json={"status": "todo"},
+    ).status_code == 200
+
+    stopped = []
+    monkeypatch.setattr(
+        kb,
+        "_terminate_reclaimed_worker",
+        lambda *_args, **_kwargs: stopped.append(True) or {"terminated": True},
+    )
+
+    response = client.patch(
+        f"/api/plugins/kanban/tasks/{child['id']}",
+        json={"status": "ready"},
+    )
+    assert response.status_code == 409
+    assert parent["id"] in response.json()["detail"]
+    assert stopped == []
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{child['id']}").json()
+    assert detail["task"]["status"] == "running"
+    assert detail["active_run"]["id"] == open_run_id
+
+
+def test_patch_running_task_to_ready_recovers_if_dependency_changes_after_stop(
+    client, monkeypatch,
+):
+    """A dependency race after termination closes the dead run atomically."""
+    parent = client.post(
+        "/api/plugins/kanban/tasks", json={"title": "parent"},
+    ).json()["task"]
+    child = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "child", "assignee": "builder", "parents": [parent["id"]]},
+    ).json()["task"]
+    assert client.patch(
+        f"/api/plugins/kanban/tasks/{parent['id']}", json={"status": "done"},
+    ).status_code == 200
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, child["id"], claimer="dashboard-test")
+        assert claimed is not None
+        open_run_id = claimed.current_run_id
+        claim_lock = claimed.claim_lock
+        conn.execute(
+            "UPDATE tasks SET worker_pid = ? WHERE id = ?",
+            (424242, child["id"]),
+        )
+        conn.execute(
+            "UPDATE task_runs SET worker_pid = ? WHERE id = ?",
+            (424242, open_run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    stopped = []
+
+    def terminate_then_reopen_parent(pid, lock, **_kwargs):
+        stopped.append((pid, lock))
+        race_conn = kb.connect()
+        try:
+            race_conn.execute(
+                "UPDATE tasks SET status = 'todo' WHERE id = ?",
+                (parent["id"],),
+            )
+            race_conn.commit()
+        finally:
+            race_conn.close()
+        return {
+            "prev_pid": pid,
+            "host_local": True,
+            "termination_attempted": True,
+            "terminated": True,
+            "sigkill": False,
+        }
+
+    monkeypatch.setattr(kb, "_terminate_reclaimed_worker", terminate_then_reopen_parent)
+
+    response = client.patch(
+        f"/api/plugins/kanban/tasks/{child['id']}",
+        json={"status": "ready"},
+    )
+    assert response.status_code == 409
+    assert stopped == [(424242, claim_lock)]
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{child['id']}").json()
+    assert detail["task"]["status"] == "todo"
+    assert detail["active_run"] is None
+    ended = next(run for run in detail["runs"] if run["id"] == open_run_id)
+    assert ended["ended_at"] is not None
+    assert ended["outcome"] == "reclaimed"
+    assert ended["metadata"]["requested_status"] == "ready"
+    assert ended["metadata"]["fallback_status"] == "todo"
+    assert ended["metadata"]["reason"] == "dependency_changed_after_worker_stop"
 
 
 def test_patch_drag_drop_move_todo_to_ready(client):
@@ -2496,6 +2666,36 @@ def test_dashboard_work_graph_uses_dag_safe_accessibility_semantics():
     assert '`${props.boardLabel} interactive work outline`' in dist
     assert 'event.key === "Home"' in dist
     assert 'event.key === "End"' in dist
+
+
+def test_dashboard_pause_buffers_all_visible_websocket_updates():
+    """Pause must freeze activity, freshness, board, and drawer refresh state."""
+    repo_root = Path(__file__).resolve().parents[2]
+    dist = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+
+    assert "pausedRecentEventsRef" in dist
+    assert "pausedTaskEventCountsRef" in dist
+    assert "liveRefreshGenerationRef" in dist
+    assert "if (updatesPausedRef.current)" in dist
+    assert "loadBoard({ liveRefresh: true })" in dist
+    assert "updatesPausedRef.current = next" in dist
+    assert "clearTimeout(reloadTimerRef.current)" in dist
+    assert "props.liveRefreshGenerationRef.current" in dist
+    assert "load({ liveRefresh: true })" in dist
+    assert "if (props.eventTick === priorEventTickRef.current) return" in dist
+    assert "pendingRecent.concat(prev).slice(0, 8)" in dist
+    assert "merged[taskId] = (merged[taskId] || 0) + pendingCounts[taskId]" in dist
+
+
+def test_dashboard_confirms_before_running_agent_review_handoff():
+    """Review handoffs acknowledge agents that claim work after rendering."""
+    repo_root = Path(__file__).resolve().parents[2]
+    dist = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+
+    assert "function getReviewHandoffConfirm" in dist
+    assert "If an agent is active when the handoff is applied" in dist
+    assert "requestedPatch.confirm_stop_running = true" in dist
+    assert '{ status: "review", confirm_stop_running: true }' in dist
 
 
 def test_dashboard_bulk_actions_include_reclaim_first():

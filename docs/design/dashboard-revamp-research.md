@@ -128,7 +128,7 @@ lucide-react icons. Key findings:
 - Keyboard handling is ad-hoc in 8 files; no global shortcut registry, no ⌘K.
 - Page monoliths: `SystemPage` 63 KB, `SessionsPage` 58 KB, `SkillsPage` 56 KB,
   `ProfilesPage` 49 KB, `ChannelsPage`/`ModelsPage` 47 KB, `App.tsx` 42 KB / 1359 lines.
-- Incomplete `hermes → fabric` rename across storage keys, CSS classes, DOM ids, and
+- Incomplete legacy-to-Fabric rename across storage keys, CSS classes, DOM ids, and
   API fields.
 
 ---
@@ -195,7 +195,7 @@ Plugins keep their injected group; ⌘K palette layered on top for navigation + 
 
 **Phase 0 — Debt removal (days).** Remove the 5 unused deps (`gsap`, `motion`, `three`,
 `@react-three/fiber`, `leva`); delete or route `DocsPage`; extract `App.tsx` sidebar
-sub-components into `components/`; finish the `hermes → fabric` rename behind the
+sub-components into `components/`; finish the legacy-to-Fabric rename behind the
 existing migration shims.
 
 **Phase 1 — Foundation: tokens & theme system.** OKLCH generated themes (base/accent/

@@ -145,7 +145,7 @@ const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Eye,
 };
 
-export function resolveIcon(
+function resolveIcon(
   name: string,
 ): ComponentType<{ className?: string }> {
   return ICON_MAP[name] ?? Puzzle;

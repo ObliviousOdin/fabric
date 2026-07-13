@@ -25,19 +25,6 @@ export interface DataTableProps<T> {
   rowKey?: (row: T, index: number) => string | number;
   /** Initial sort column; omit to render rows in the given order until a header is clicked. */
   defaultSortKey?: keyof T & string;
-  defaultSortDir?: SortDirection;
-  /** Keep the header row visible while the table body scrolls. */
-  stickyHeader?: boolean;
-  /**
-   * Tighter cell paddings. Both densities use Tailwind spacing utilities,
-   * which resolve against `--spacing` and therefore already scale with the
-   * theme's `--theme-spacing-mul` density multiplier.
-   */
-  compact?: boolean;
-  /** Rendered (full-width, under the header row) when `rows` is empty — typically an `<EmptyState />`. */
-  empty?: ReactNode;
-  onRowClick?: (row: T) => void;
-  className?: string;
 }
 
 const ALIGN_CLASS: Record<NonNullable<DataTableColumn<unknown>["align"]>, string> = {
@@ -58,20 +45,18 @@ function compareValues(aVal: unknown, bVal: unknown, dir: SortDirection): number
   return dir === "asc" ? cmp : -cmp;
 }
 
+// Tailwind spacing utilities resolve against `--spacing`, so cell paddings
+// already scale with the theme's `--theme-spacing-mul` density multiplier.
+const CELL_PAD = "py-2 px-4 first:pl-0 last:pr-0";
+
 export function DataTable<T>({
   columns,
   rows,
   rowKey,
   defaultSortKey,
-  defaultSortDir = "desc",
-  stickyHeader = false,
-  compact = false,
-  empty,
-  onRowClick,
-  className,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(defaultSortKey ?? null);
-  const [sortDir, setSortDir] = useState<SortDirection>(defaultSortDir);
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
 
   const sorted = useMemo(() => {
     if (!sortKey) return rows;
@@ -95,14 +80,10 @@ export function DataTable<T>({
     [sortKey],
   );
 
-  const cellPad = compact
-    ? "py-1 px-3 first:pl-0 last:pr-0"
-    : "py-2 px-4 first:pl-0 last:pr-0";
-
   return (
-    <div className={cn("overflow-x-auto", className)}>
+    <div className="overflow-x-auto">
       <table className={cn("w-full text-sm", themedBody)}>
-        <thead className={cn(stickyHeader && "sticky top-0 z-10 bg-card")}>
+        <thead>
           <tr className="border-b border-border font-sans text-display text-xs uppercase tracking-[0.12em] text-muted-foreground">
             {columns.map((col) => {
               const active = col.sortable && col.key === sortKey;
@@ -118,7 +99,7 @@ export function DataTable<T>({
                       : undefined
                   }
                   className={cn(
-                    cellPad,
+                    CELL_PAD,
                     "font-medium",
                     ALIGN_CLASS[col.align ?? "left"],
                     col.headerClassName,
@@ -150,45 +131,33 @@ export function DataTable<T>({
           </tr>
         </thead>
         <tbody>
-          {sorted.length === 0 ? (
-            <tr>
-              <td colSpan={columns.length} className="p-0">
-                {empty}
-              </td>
+          {sorted.map((row, i) => (
+            <tr
+              key={rowKey ? rowKey(row, i) : i}
+              className="border-b border-border/50 transition-colors hover:bg-secondary/20"
+            >
+              {columns.map((col) => {
+                const value = row[col.key];
+                return (
+                  <td
+                    key={col.key}
+                    className={cn(
+                      CELL_PAD,
+                      ALIGN_CLASS[col.align ?? "left"],
+                      col.mono && "font-mono-ui text-xs",
+                      col.cellClassName,
+                    )}
+                  >
+                    {col.render
+                      ? col.render(row)
+                      : value === null || value === undefined
+                        ? "—"
+                        : String(value)}
+                  </td>
+                );
+              })}
             </tr>
-          ) : (
-            sorted.map((row, i) => (
-              <tr
-                key={rowKey ? rowKey(row, i) : i}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={cn(
-                  "border-b border-border/50 transition-colors hover:bg-secondary/20",
-                  onRowClick && "cursor-pointer",
-                )}
-              >
-                {columns.map((col) => {
-                  const value = row[col.key];
-                  return (
-                    <td
-                      key={col.key}
-                      className={cn(
-                        cellPad,
-                        ALIGN_CLASS[col.align ?? "left"],
-                        col.mono && "font-mono-ui text-xs",
-                        col.cellClassName,
-                      )}
-                    >
-                      {col.render
-                        ? col.render(row)
-                        : value === null || value === undefined
-                          ? "—"
-                          : String(value)}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))
-          )}
+          ))}
         </tbody>
       </table>
     </div>

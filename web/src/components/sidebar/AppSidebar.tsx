@@ -11,6 +11,7 @@ import type { Translations } from "@/i18n/types";
 import type { StatusResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { PluginSlot } from "@/plugins";
+import { themeAppearance, useTheme } from "@/themes";
 import { SidebarIconWithTooltip } from "./SidebarIconWithTooltip";
 import { SidebarNavLink } from "./SidebarNavLink";
 import { SidebarSystemActions } from "./SidebarSystemActions";
@@ -47,6 +48,10 @@ export function AppSidebar({
   tooltipWarmRef,
 }: AppSidebarProps) {
   const { t } = useI18n();
+  const { theme } = useTheme();
+  // plus-lighter is additive: on light canvases it clamps the wordmark to
+  // near-white, so only blend when the active theme is actually dark.
+  const isDarkAppearance = themeAppearance(theme) === "dark";
 
   const primarySections = sections.filter((s) => s.id !== "system");
   const systemSection = sections.find((s) => s.id === "system");
@@ -87,7 +92,7 @@ export function AppSidebar({
 
           <Typography
             className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase"
-            style={{ mixBlendMode: "plus-lighter" }}
+            style={isDarkAppearance ? { mixBlendMode: "plus-lighter" } : undefined}
           >
             Fabric
           </Typography>

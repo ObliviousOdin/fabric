@@ -33,6 +33,7 @@ import type {
   TelegramOnboardingStartResponse,
   WhatsAppOnboardingStartResponse,
 } from "@/lib/api";
+import { useI18n } from "@/i18n";
 import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { cn, themedBody } from "@/lib/utils";
@@ -120,6 +121,7 @@ export default function ChannelsPage() {
     "Fabric gateway start",
   );
   const [loading, setLoading] = useState(true);
+  const { t } = useI18n();
   const { toast, showToast } = useToast();
   const { setEnd } = usePageHeader();
 
@@ -463,12 +465,15 @@ export default function ChannelsPage() {
       {/* Platform list */}
       <div className="grid gap-3">
         {platforms.length === 0 && (
-          <Card className="border-border">
+          <Card>
             <CardContent className="p-0">
               <EmptyState
                 icon={Radio}
-                title="No channels available"
-                description="The gateway reported no messaging platforms. Refresh once it has finished starting, or check the logs."
+                title={t.channels?.noChannelsTitle ?? "No channels available"}
+                description={
+                  t.channels?.noChannelsDescription ??
+                  "The gateway reported no messaging platforms. Refresh once it has finished starting, or check the logs."
+                }
                 action={
                   <Button
                     size="sm"
@@ -476,7 +481,7 @@ export default function ChannelsPage() {
                     className="uppercase"
                     onClick={() => void load()}
                   >
-                    Refresh
+                    {t.common.refresh}
                   </Button>
                 }
               />

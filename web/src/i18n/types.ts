@@ -332,6 +332,16 @@ export interface Translations {
     };
   };
 
+  // ── Channels page ──
+  /**
+   * Optional — the page is otherwise un-i18n'd; call sites fall back to the
+   * English literals until translated (same pattern as `commandPalette`).
+   */
+  channels?: {
+    noChannelsTitle: string;
+    noChannelsDescription: string;
+  };
+
   // ── Plugins page ──
   pluginsPage: {
     contextEngineLabel: string;

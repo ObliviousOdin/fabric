@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DataTable, type DataTableColumn } from "@/components/ui/DataTable";
-import { EmptyState } from "@/components/ui/EmptyState";
 
 interface Row {
   name: string;
@@ -140,22 +139,5 @@ describe("DataTable", () => {
     expect(columnTexts(container, 1)).toEqual(["200", "50", "—"]);
     const monoCell = container.querySelector("tbody td.font-mono-ui");
     expect(monoCell).not.toBeNull();
-  });
-
-  it("renders the empty slot across all columns when there are no rows", async () => {
-    await act(async () => {
-      root.render(
-        <DataTable
-          columns={COLUMNS}
-          rows={[]}
-          empty={<EmptyState title="no usage data" description="start a session" />}
-        />,
-      );
-    });
-
-    const td = container.querySelector("tbody td");
-    expect(td?.getAttribute("colspan")).toBe("2");
-    expect(container.textContent).toContain("no usage data");
-    expect(container.textContent).toContain("start a session");
   });
 });

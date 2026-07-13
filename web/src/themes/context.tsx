@@ -588,6 +588,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       .getThemes()
       .then((resp) => {
         if (cancelled) return;
+        // Definitions the server shipped (user themes). Hoisted so the
+        // adoption branch below can resolve the active theme against the
+        // fresh defs — the userThemeDefs state hasn't flushed yet here.
+        const defs: Record<string, DashboardTheme> = {};
         if (resp.themes?.length) {
           const canonicalEntries = resp.themes.map(canonicalizeThemeEntry);
           // Union client built-ins UNDER the server list: older backends
@@ -605,8 +609,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             merged.set(entry.name, entry);
           }
           setAvailableThemes(Array.from(merged.values()));
-          // Index any definitions the server shipped (user themes).
-          const defs: Record<string, DashboardTheme> = {};
           for (const entry of canonicalEntries) {
             if (entry.definition) {
               defs[entry.name] = entry.definition;
@@ -621,6 +623,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           if (migratedActive !== themeName) {
             setThemeName(migratedActive);
             window.localStorage.setItem(STORAGE_KEY, migratedActive);
+          }
+          // Mirror setTheme(): adopting the server's active theme also pins
+          // the appearance preference to that theme's native mode, so the
+          // Appearance control stays truthful when the server flips the mode.
+          const adopted =
+            BUILTIN_THEMES[migratedActive] ??
+            defs[migratedActive] ??
+            defaultTheme;
+          const native = themeAppearance(adopted);
+          if (native !== appearanceRef.current) {
+            setAppearanceState(native);
+            window.localStorage.setItem(APPEARANCE_STORAGE_KEY, native);
           }
           // If the server is still persisting the stale key, push the
           // migrated value back so it converges too — otherwise every

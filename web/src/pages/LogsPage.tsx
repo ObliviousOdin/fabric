@@ -280,6 +280,10 @@ export default function LogsPage() {
             {lines.length === 0 && !loading && !error && (
               <EmptyState
                 icon={FileText}
+                // Reset to the themed sans stack: the scroller's font-mono-ui
+                // would otherwise leak into the empty-state copy, which is
+                // prose, not a technical readout.
+                className="font-sans"
                 title={t.logs.noLogLines}
                 description={
                   t.logs.noLinesHint ??

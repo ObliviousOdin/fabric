@@ -103,8 +103,10 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
           open={open}
           title={sheetTitle}
         >
+          {/* Appearance controls (radiogroup/switch) are not valid listbox
+              children, so they live outside the option list. */}
+          <AppearanceSection />
           <div aria-label={sheetTitle} role="listbox">
-            <AppearanceSection />
             <ThemeSwitcherOptions
               availableThemes={availableThemes}
               close={close}
@@ -125,14 +127,12 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
         const dropdown = (
           <div
             ref={dropdownRef}
-            aria-label={sheetTitle}
             className={cn(
               "min-w-[240px] max-h-[70dvh] overflow-y-auto",
               "border border-current/20 bg-background-base/95",
               "shadow-[0_12px_32px_-8px_rgba(0,0,0,0.6)]",
               dropUp ? "fixed z-[100]" : "absolute z-50 right-0 top-full mt-1",
             )}
-            role="listbox"
             style={
               dropUp && rect
                 ? { bottom: window.innerHeight - rect.top + 4, left: rect.left }
@@ -147,19 +147,23 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
               </Typography>
             </div>
 
+            {/* Appearance controls (radiogroup/switch) are not valid listbox
+                children, so the listbox role is scoped to the option rows. */}
             <AppearanceSection />
 
-            <ThemeSwitcherOptions
-              availableThemes={availableThemes}
-              close={close}
-              setTheme={setTheme}
-              themeName={themeName}
-            />
-            <FontSection
-              fontChoices={fontChoices}
-              fontId={fontId}
-              setFont={setFont}
-            />
+            <div aria-label={sheetTitle} role="listbox">
+              <ThemeSwitcherOptions
+                availableThemes={availableThemes}
+                close={close}
+                setTheme={setTheme}
+                themeName={themeName}
+              />
+              <FontSection
+                fontChoices={fontChoices}
+                fontId={fontId}
+                setFont={setFont}
+              />
+            </div>
           </div>
         );
         return dropUp ? createPortal(dropdown, document.body) : dropdown;

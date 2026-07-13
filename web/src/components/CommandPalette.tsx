@@ -16,7 +16,6 @@ import {
   RotateCw,
   Search,
 } from "lucide-react";
-import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -24,6 +23,8 @@ import {
 } from "@nous-research/ui/ui/components/dialog";
 import { Input } from "@nous-research/ui/ui/components/input";
 import { ListItem } from "@nous-research/ui/ui/components/list-item";
+import { RestartGatewayConfirm } from "@/components/RestartGatewayConfirm";
+import { navItemLabel } from "@/components/sidebar/nav-label";
 import type { NavItem, NavSection } from "@/components/sidebar/nav-model";
 import { useSystemActions } from "@/contexts/useSystemActions";
 import { formatCombo } from "@/hooks/useShortcutRegistry";
@@ -72,7 +73,7 @@ export function CommandPalette({
 }: CommandPaletteProps) {
   const { t } = useI18n();
   const navigate = useNavigate();
-  const { isBusy, pendingAction, runAction } = useSystemActions();
+  const { isBusy } = useSystemActions();
   const { availableThemes, setTheme, themeName } = useTheme();
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
 
@@ -85,9 +86,7 @@ export function CommandPalette({
     for (const item of navItems) {
       if (seen.has(item.path)) continue;
       seen.add(item.path);
-      const label = item.labelKey
-        ? ((t.app.nav as Record<string, string>)[item.labelKey] ?? item.label)
-        : item.label;
+      const label = navItemLabel(item, t);
       list.push({
         group: "pages",
         hint: item.path,
@@ -206,24 +205,9 @@ export function CommandPalette({
         </DialogContent>
       </Dialog>
 
-      <ConfirmDialog
-        cancelLabel={t.common.cancel}
-        confirmLabel={t.status.restartGateway}
-        description={
-          t.status.restartGatewayConfirmMessage ??
-          "This restarts the Fabric gateway process. Connected channels and active sessions will reconnect afterward."
-        }
-        loading={pendingAction === "restart"}
-        onCancel={() => setRestartConfirmOpen(false)}
-        onConfirm={() => {
-          setRestartConfirmOpen(false);
-          void runAction("restart");
-          navigate("/sessions");
-        }}
+      <RestartGatewayConfirm
+        onClose={() => setRestartConfirmOpen(false)}
         open={restartConfirmOpen}
-        title={
-          t.status.restartGatewayConfirmTitle ?? `${t.status.restartGateway}?`
-        }
       />
     </>
   );
@@ -344,55 +328,61 @@ function PaletteBody({
           </div>
         )}
 
-        {groups.map((group) => (
-          <div key={group.id} role="presentation">
-            <div
-              aria-hidden
-              className="px-3 pb-1 pt-2.5 font-sans text-display text-xs uppercase tracking-[0.12em] text-muted-foreground"
-            >
-              {groupLabel(group.id, t)}
-            </div>
+        {groups.map((group) => {
+          const headerId = `${listboxId}-group-${group.id}`;
+          return (
+            <div aria-labelledby={headerId} key={group.id} role="group">
+              <div
+                className="px-3 pb-1 pt-2.5 font-sans text-display text-xs uppercase tracking-[0.12em] text-muted-foreground"
+                id={headerId}
+              >
+                {groupLabel(group.id, t)}
+              </div>
 
-            {group.commands.map((command) => {
-              const index = indexOf.get(command.id) ?? -1;
-              const isActive = index === effectiveIndex;
-              const Icon = command.icon;
-              return (
-                <ListItem
-                  active={isActive}
-                  aria-selected={isActive}
-                  className="gap-3 px-3 py-1.5 font-sans text-sm normal-case tracking-normal"
-                  id={optionDomId(command)}
-                  key={command.id}
-                  onClick={() => command.perform()}
-                  onMouseMove={() => {
-                    if (!isActive) setActiveIndex(index);
-                  }}
-                  role="option"
-                  tabIndex={-1}
-                >
-                  <Icon aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">{command.label}</span>
-                  {command.active && (
-                    <Check aria-hidden className="h-3 w-3 shrink-0 text-primary" />
-                  )}
-                  {command.hint && (
-                    <span className="shrink-0 font-mono-ui text-xs text-muted-foreground">
-                      {command.hint}
-                    </span>
-                  )}
-                </ListItem>
-              );
-            })}
-          </div>
-        ))}
+              {group.commands.map((command) => {
+                const index = indexOf.get(command.id) ?? -1;
+                const isActive = index === effectiveIndex;
+                const Icon = command.icon;
+                return (
+                  <ListItem
+                    active={isActive}
+                    // Theme options carry the applied state; pages/actions
+                    // leave it undefined so the attribute is omitted.
+                    aria-checked={command.active}
+                    aria-selected={isActive}
+                    className="gap-3 px-3 py-1.5 font-sans text-sm normal-case tracking-normal"
+                    id={optionDomId(command)}
+                    key={command.id}
+                    onClick={() => command.perform()}
+                    onMouseMove={() => {
+                      if (!isActive) setActiveIndex(index);
+                    }}
+                    role="option"
+                    tabIndex={-1}
+                  >
+                    <Icon aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{command.label}</span>
+                    {command.active && (
+                      <Check aria-hidden className="h-3 w-3 shrink-0 text-primary" />
+                    )}
+                    {command.hint && (
+                      <span className="shrink-0 font-mono-ui text-xs text-muted-foreground">
+                        {command.hint}
+                      </span>
+                    )}
+                  </ListItem>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
 
       <div
         aria-hidden
         className={cn(
           "flex items-center gap-4 border-t border-border px-3 py-2",
-          "text-[0.6875rem] text-muted-foreground",
+          "text-xs text-muted-foreground",
         )}
       >
         <span className="inline-flex items-center gap-1">
@@ -412,9 +402,11 @@ function PaletteBody({
   );
 }
 
+// Chip classes kept byte-identical with the <kbd> in ShortcutHelp.tsx so the
+// two keyboard surfaces render the same semantic element at the same size.
 function PaletteKbd({ children }: { children: string }) {
   return (
-    <kbd className="border border-border bg-secondary/40 px-1 font-mono-ui text-[0.625rem] leading-4 text-text-secondary">
+    <kbd className="border border-border bg-secondary/40 px-1.5 py-0.5 font-mono-ui text-xs text-text-secondary">
       {children}
     </kbd>
   );

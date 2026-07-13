@@ -82,9 +82,18 @@ export function matchesCombo(event: KeyboardEvent, combo: string): boolean {
     if (event.metaKey !== parsed.meta) return false;
   }
   if (event.altKey !== parsed.alt) return false;
-  // Shift is only enforced when declared: for shifted characters ("?") the
-  // event key already encodes the shift state.
   if (parsed.shift && !event.shiftKey) return false;
+  // Undeclared Shift is only tolerated for shifted punctuation ("?"), where
+  // the event key already encodes the shift state. For letters and named
+  // keys ("enter") Shift does not change `event.key`, so it marks a
+  // different chord: "mod+k" must not swallow Cmd/Ctrl+Shift+K.
+  if (
+    !parsed.shift &&
+    event.shiftKey &&
+    (parsed.key.length > 1 || /^[a-z]$/.test(parsed.key))
+  ) {
+    return false;
+  }
   return true;
 }
 

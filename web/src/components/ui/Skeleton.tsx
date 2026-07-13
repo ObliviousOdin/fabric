@@ -13,7 +13,7 @@ export interface SkeletonProps {
 /* Cycle a few widths so row lists read as text, not stripes. */
 const ROW_WIDTHS = ["w-full", "w-11/12", "w-4/5"] as const;
 
-const BAR = "animate-pulse rounded-sm bg-muted";
+const BAR = "animate-pulse motion-reduce:animate-none rounded-sm bg-muted";
 
 export function Skeleton({ variant = "line", rows = 3, className }: SkeletonProps) {
   if (variant === "row-list") {

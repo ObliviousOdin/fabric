@@ -375,6 +375,12 @@ export const en: Translations = {
     actions: "Actions",
   },
 
+  channels: {
+    noChannelsTitle: "No channels available",
+    noChannelsDescription:
+      "The gateway reported no messaging platforms. Refresh once it has finished starting, or check the logs.",
+  },
+
   pluginsPage: {
     contextEngineLabel: "Context engine",
     dashboardSlots: "Dashboard slots",

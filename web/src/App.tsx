@@ -29,7 +29,7 @@ import {
 import type { NavItem, NavSection } from "@/components/sidebar/nav-model";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ShortcutHelp } from "@/components/ShortcutHelp";
-import { useShortcut } from "@/hooks/useShortcutRegistry";
+import { matchesCombo, useShortcut } from "@/hooks/useShortcutRegistry";
 import ConfigPage from "@/pages/ConfigPage";
 import EnvPage from "@/pages/EnvPage";
 import FilesPage from "@/pages/FilesPage";
@@ -520,6 +520,35 @@ function AppCommandLayer({
     handler: toggleCollapsed,
     scope,
   });
+  // "[" needs AltGr on many European layouts (German, French, Spanish,
+  // Italian), and matchesCombo rejects Alt-bearing events for bare-key
+  // combos (that guard protects Cmd+[ browser-back). mod+b is the
+  // layout-safe companion binding — the VS Code/Slack sidebar convention.
+  useShortcut({
+    combo: "mod+b",
+    description: t.commandPalette?.toggleSidebar ?? "Toggle sidebar",
+    handler: toggleCollapsed,
+    scope,
+  });
+
+  // The shortcut registry drops events from editable targets, and while the
+  // palette is open focus sits in its autoFocus search input — so the
+  // registered mod+k toggle can open the palette but never close it. This
+  // listener (attached only while open) restores press-⌘K-again-to-dismiss.
+  // The defaultPrevented check defers to the registry for the rare case
+  // where focus has left the input and the registered toggle already
+  // handled the event.
+  useEffect(() => {
+    if (!paletteOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.repeat) return;
+      if (!matchesCombo(event, "mod+k")) return;
+      event.preventDefault();
+      setPaletteOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [paletteOpen]);
 
   return (
     <>

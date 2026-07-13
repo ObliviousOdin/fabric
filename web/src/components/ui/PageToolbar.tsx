@@ -2,14 +2,12 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export interface PageToolbarProps {
-  /** Accessible name for the toolbar (localize at the call site). */
+  /** Accessible name for the control row (localize at the call site). */
   label?: string;
   /** Filter cluster — `FilterGroup`/`Segmented` groups, period buttons, search inputs. */
   filters?: ReactNode;
   /** Action cluster — refresh, toggles, primary actions; pushed to the trailing edge. */
   actions?: ReactNode;
-  /** Extra content appended after `filters` inside the leading cluster. */
-  children?: ReactNode;
   className?: string;
 }
 
@@ -24,22 +22,22 @@ export function PageToolbar({
   label,
   filters,
   actions,
-  children,
   className,
 }: PageToolbarProps) {
   return (
     <div
-      role="toolbar"
+      // role="group", not "toolbar": children are plain Tab stops — the
+      // toolbar role would promise roving-tabindex/arrow-key traversal.
+      role="group"
       aria-label={label}
       className={cn(
         "flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2",
         className,
       )}
     >
-      {filters || children ? (
+      {filters ? (
         <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-3">
           {filters}
-          {children}
         </div>
       ) : null}
       {actions ? (

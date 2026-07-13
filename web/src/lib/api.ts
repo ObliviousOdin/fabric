@@ -368,20 +368,34 @@ export const api = {
     offset = 0,
     profile = getManagementProfile(),
     order: "created" | "recent" = "created",
+    /** Optional server-side source filter (`cli`, `telegram`, `cron`, …). */
+    source?: string,
   ) =>
     fetchJSON<PaginatedSessions>(
       appendProfileParam(
-        `/api/sessions?limit=${limit}&offset=${offset}&order=${order}`,
+        `/api/sessions?limit=${limit}&offset=${offset}&order=${order}${
+          source ? `&source=${encodeURIComponent(source)}` : ""
+        }`,
         profile,
       ),
     ),
-  getSessionMessages: (id: string, profile = getManagementProfile()) =>
-    fetchJSON<SessionMessagesResponse>(
+  getSessionMessages: (
+    id: string,
+    profile = getManagementProfile(),
+    /** Endpoint clamps `limit` to ≤500; omit both for the full default page. */
+    opts?: { limit?: number; offset?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts?.offset !== undefined) params.set("offset", String(opts.offset));
+    const qs = params.toString();
+    return fetchJSON<SessionMessagesResponse>(
       appendProfileParam(
-        `/api/sessions/${encodeURIComponent(id)}/messages`,
+        `/api/sessions/${encodeURIComponent(id)}/messages${qs ? `?${qs}` : ""}`,
         profile,
       ),
-    ),
+    );
+  },
   getSessionDetail: (id: string, profile = getManagementProfile()) =>
     fetchJSON<SessionInfo>(
       appendProfileParam(`/api/sessions/${encodeURIComponent(id)}`, profile),
@@ -493,6 +507,9 @@ export const api = {
     lines?: number;
     level?: string;
     component?: string;
+    /** Server-side case-insensitive substring filter over a 2000-line raw
+     * tail (also carries the Logs page's session-tag filter, spec L9). */
+    search?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params.file) qs.set("file", params.file);
@@ -500,6 +517,7 @@ export const api = {
     if (params.level && params.level !== "ALL") qs.set("level", params.level);
     if (params.component && params.component !== "all")
       qs.set("component", params.component);
+    if (params.search) qs.set("search", params.search);
     return fetchJSON<LogsResponse>(`/api/logs?${qs.toString()}`);
   },
   getAnalytics: (days: number, profile = getManagementProfile()) =>
@@ -633,6 +651,20 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key }),
     }),
+  /**
+   * E7 — live-probe a provider credential before it's saved
+   * (POST /api/providers/validate, token-gated). Only the keys in
+   * `fabric_cli/web_server.py::_CREDENTIAL_PROBES` (OpenRouter / OpenAI /
+   * xAI / Gemini) plus the `OPENAI_BASE_URL` compatibility branch have
+   * server-side probes; `apiKey` is only read by that base-URL branch so
+   * auth-gated `/v1/models` endpoints can still enumerate their catalog.
+   */
+  validateProviderKey: (key: string, value: string, apiKey = "") =>
+    fetchJSON<ProviderValidateResponse>("/api/providers/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value, api_key: apiKey }),
+    }),
 
   // Cron jobs
   getCronJobs: (profile = "all") =>
@@ -678,6 +710,19 @@ export const api = {
     fetchJSON<{ ok: boolean }>(
       `/api/cron/jobs/${encodeURIComponent(id)}?profile=${encodeURIComponent(profile)}`,
       { method: "DELETE" },
+    ),
+  /**
+   * Run sessions spawned by a cron job, newest first (C6). The endpoint
+   * (`GET /api/cron/jobs/{id}/runs`) existed server-side but had no web
+   * binding until now. Rows share the `/api/sessions` shape (`SessionInfo`)
+   * with `profile` injected server-side; `limit` is clamped to 100 there.
+   * Always pass the job's own profile (`getJobProfile(job)`) — `profile=all`
+   * job listings fan out across profiles and a wrong profile hits the wrong
+   * `state.db` (R6).
+   */
+  getCronJobRuns: (id: string, profile = "default", limit = 10) =>
+    fetchJSON<CronJobRunsResponse>(
+      `/api/cron/jobs/${encodeURIComponent(id)}/runs?profile=${encodeURIComponent(profile)}&limit=${limit}`,
     ),
 
   // Automation Blueprints — parameterized automation blueprints
@@ -1195,6 +1240,15 @@ export const api = {
       `/api/mcp/servers/${encodeURIComponent(name)}/test`,
       { method: "POST" },
     ),
+  /** Run the OAuth browser flow for an HTTP MCP server. Blocks server-side
+   *  until the flow completes (up to minutes) — keep busy state per-row,
+   *  never page-level (R17). Same result shape as `/test`, without the
+   *  prompt/resource counts. */
+  authMcpServer: (name: string) =>
+    fetchJSON<McpTestResult>(
+      `/api/mcp/servers/${encodeURIComponent(name)}/auth`,
+      { method: "POST" },
+    ),
   setMcpServerEnabled: (name: string, enabled: boolean) =>
     fetchJSON<{ ok: boolean; name: string; enabled: boolean }>(
       `/api/mcp/servers/${encodeURIComponent(name)}/enabled`,
@@ -1643,6 +1697,10 @@ export interface McpTestResult {
   ok: boolean;
   error?: string;
   tools: Array<{ name: string; description: string }>;
+  /** Prompt/resource counts — served on successful `/test` probes only
+   *  (absent on errors and on the `/auth` flow's result). */
+  prompts?: number;
+  resources?: number;
 }
 
 export interface MessagingPlatformEnvVar {
@@ -2065,6 +2123,19 @@ export interface SessionInfo {
   output_tokens: number;
   preview: string | null;
   parent_session_id?: string | null;
+  // ── Fields already present in every list/detail payload (S3) ─────────
+  // ``GET /api/sessions`` serves ``SELECT s.*`` minus ``system_prompt`` /
+  // ``model_config`` (see ``_strip_session_list_rows`` +
+  // ``_compact_session_cols`` in the backend), so these ride along today —
+  // the TS type simply under-declared them. ``archived`` is coerced to a
+  // real JSON boolean server-side; the rest are nullable schema columns.
+  archived: boolean;
+  end_reason?: string | null;
+  cwd?: string | null;
+  git_branch?: string | null;
+  estimated_cost_usd?: number | null;
+  actual_cost_usd?: number | null;
+  api_call_count?: number;
 }
 
 export interface SessionLatestDescendantResponse {
@@ -2094,6 +2165,21 @@ export interface EnvVarInfo {
   channel_managed?: boolean;
   /** True when this key is set in .env but not in any catalog (user-added custom key). */
   custom?: boolean;
+}
+
+/**
+ * `POST /api/providers/validate` result (E7). `ok` = the provider accepted
+ * the credential (or, for `OPENAI_BASE_URL`, the endpoint served a
+ * recognizable model catalog). `ok:false, reachable:true` = the value was
+ * rejected; `reachable:false` = the probe could not run (offline), so
+ * callers should warn rather than hard-block.
+ */
+export interface ProviderValidateResponse {
+  ok: boolean;
+  reachable: boolean;
+  message: string;
+  /** Model ids — only served by the `OPENAI_BASE_URL` catalog branch. */
+  models?: string[];
 }
 
 export interface TelegramOnboardingStartResponse {
@@ -2171,6 +2257,8 @@ export interface SessionMessage {
 export interface SessionMessagesResponse {
   session_id: string;
   messages: SessionMessage[];
+  /** No total here — derive remaining pages from the row's `message_count`. */
+  pagination?: { limit: number; offset: number; returned: number };
 }
 
 export interface LogsResponse {
@@ -2253,6 +2341,17 @@ export interface AnalyticsSkillsSummary {
   distinct_skills_used: number;
 }
 
+/**
+ * Per-tool-name call counts from `InsightsEngine._get_tool_usage` —
+ * served (desc-ordered) by `/api/analytics/usage` all along; the TS type
+ * simply under-declared it (Observe spec A3). Counts merge two extraction
+ * paths with `max()` on overlap: an activity signal, not billing-grade.
+ */
+export interface AnalyticsToolEntry {
+  tool_name: string;
+  count: number;
+}
+
 export interface AnalyticsResponse {
   daily: AnalyticsDailyEntry[];
   by_model: AnalyticsModelEntry[];
@@ -2270,6 +2369,7 @@ export interface AnalyticsResponse {
     summary: AnalyticsSkillsSummary;
     top_skills: AnalyticsSkillEntry[];
   };
+  tools: AnalyticsToolEntry[];
 }
 
 export interface ActiveProfileInfo {
@@ -2404,6 +2504,17 @@ export interface CronDeliveryTarget {
   home_env_var: string | null;
 }
 
+/**
+ * `GET /api/cron/jobs/{id}/runs` — run sessions produced by a cron job,
+ * newest first. Same row shape as `/api/sessions` (verified server-side:
+ * `_list_cron_job_runs_sync` reuses the session row serialization and
+ * injects `profile` + a fresh `is_active`), so rows are plain `SessionInfo`.
+ */
+export interface CronJobRunsResponse {
+  runs: SessionInfo[];
+  limit: number;
+}
+
 export interface AutomationBlueprintField {
   name: string;
   type: "time" | "enum" | "text" | "weekdays";
@@ -2432,6 +2543,13 @@ export interface SkillInfo {
   description: string;
   category: string;
   enabled: boolean;
+  /** Activity count from the skill-usage store (0 = never used). */
+  usage: number;
+  /**
+   * hub-installed > bundled > agent, where "agent" covers agent-authored
+   * AND local hand-made skills — the tier the user may edit/delete.
+   */
+  provenance: "hub" | "bundled" | "agent";
 }
 
 export interface SkillContent {

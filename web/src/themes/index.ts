@@ -1,5 +1,7 @@
 export { ThemeProvider, useTheme } from "./context";
+export type { AppearancePref, ContrastPref } from "./context";
 export { BUILTIN_THEMES, defaultTheme } from "./presets";
+export { themeAppearance } from "./generate";
 export {
   FONT_CHOICES,
   THEME_DEFAULT_FONT_ID,

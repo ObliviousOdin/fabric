@@ -1,13 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Palette, Check, Type } from "lucide-react";
+import { Palette, Check, Type, SunMoon } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { ListItem } from "@nous-research/ui/ui/components/list-item";
 import { BottomSheet } from "@nous-research/ui/ui/components/bottom-sheet";
+import { Segmented } from "@nous-research/ui/ui/components/segmented";
+import { Switch } from "@nous-research/ui/ui/components/switch";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
 import { BUILTIN_THEMES, THEME_DEFAULT_FONT_ID, useTheme } from "@/themes";
-import type { DashboardTheme, FontChoice, ThemeListEntry } from "@/themes";
+import type {
+  AppearancePref,
+  DashboardTheme,
+  FontChoice,
+  ThemeListEntry,
+} from "@/themes";
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -96,6 +103,11 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
           open={open}
           title={sheetTitle}
         >
+          {/* Appearance controls (radiogroup/switch) are not valid listbox
+              children, so they live outside the option lists. Themes and
+              fonts are independent single-select groups, so each gets its
+              own listbox (see FontSection for the font one). */}
+          <AppearanceSection />
           <div aria-label={sheetTitle} role="listbox">
             <ThemeSwitcherOptions
               availableThemes={availableThemes}
@@ -103,12 +115,12 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
               setTheme={setTheme}
               themeName={themeName}
             />
-            <FontSection
-              fontChoices={fontChoices}
-              fontId={fontId}
-              setFont={setFont}
-            />
           </div>
+          <FontSection
+            fontChoices={fontChoices}
+            fontId={fontId}
+            setFont={setFont}
+          />
         </BottomSheet>
       )}
 
@@ -117,14 +129,12 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
         const dropdown = (
           <div
             ref={dropdownRef}
-            aria-label={sheetTitle}
             className={cn(
               "min-w-[240px] max-h-[70dvh] overflow-y-auto",
               "border border-current/20 bg-background-base/95",
               "shadow-[0_12px_32px_-8px_rgba(0,0,0,0.6)]",
               dropUp ? "fixed z-[100]" : "absolute z-50 right-0 top-full mt-1",
             )}
-            role="listbox"
             style={
               dropUp && rect
                 ? { bottom: window.innerHeight - rect.top + 4, left: rect.left }
@@ -139,12 +149,20 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
               </Typography>
             </div>
 
-            <ThemeSwitcherOptions
-              availableThemes={availableThemes}
-              close={close}
-              setTheme={setTheme}
-              themeName={themeName}
-            />
+            {/* Appearance controls (radiogroup/switch) are not valid listbox
+                children, so they live outside the option lists. Themes and
+                fonts are independent single-select groups, so each gets its
+                own listbox (see FontSection for the font one). */}
+            <AppearanceSection />
+
+            <div aria-label={sheetTitle} role="listbox">
+              <ThemeSwitcherOptions
+                availableThemes={availableThemes}
+                close={close}
+                setTheme={setTheme}
+                themeName={themeName}
+              />
+            </div>
             <FontSection
               fontChoices={fontChoices}
               fontId={fontId}
@@ -154,6 +172,55 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
         );
         return dropUp ? createPortal(dropdown, document.body) : dropdown;
       })()}
+    </div>
+  );
+}
+
+/** Appearance (dark / light / system) + high-contrast controls. Appearance
+ *  swaps between the generated theme pair (`fabric-dark` / `fabric-light`);
+ *  `system` follows the OS via `prefers-color-scheme`. High contrast swaps
+ *  the generated pair for their high-contrast variants — hand-authored
+ *  presets keep their fixed look. */
+function AppearanceSection() {
+  const { appearance, setAppearance, contrast, setContrast } = useTheme();
+  const { t } = useI18n();
+  const labelId = useId();
+  const highContrastLabel = t.theme?.highContrast ?? "High contrast";
+  return (
+    <div className="flex flex-col gap-2 border-b border-current/20 px-3 py-2">
+      <span className="inline-flex items-center gap-1.5" id={labelId}>
+        <SunMoon className="h-3 w-3 text-text-tertiary" />
+        <Typography className="text-display text-xs tracking-[0.12em] text-text-tertiary">
+          {t.theme?.appearance ?? "Appearance"}
+        </Typography>
+      </span>
+      {/* The DS Segmented hardcodes role="radiogroup" without forwarding
+          aria props, so the visible caption is attached via a labelled
+          group wrapper — otherwise SRs announce the radios with no context. */}
+      <div aria-labelledby={labelId} role="group">
+        <Segmented<AppearancePref>
+          onChange={setAppearance}
+          options={[
+            { label: t.theme?.appearanceDark ?? "Dark", value: "dark" },
+            { label: t.theme?.appearanceLight ?? "Light", value: "light" },
+            { label: t.theme?.appearanceSystem ?? "System", value: "system" },
+          ]}
+          size="sm"
+          value={appearance}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <Typography className="text-xs tracking-normal text-text-secondary">
+          {highContrastLabel}
+        </Typography>
+        <Switch
+          aria-label={highContrastLabel}
+          checked={contrast === "high"}
+          onCheckedChange={(checked) =>
+            setContrast(checked ? "high" : "normal")
+          }
+        />
+      </div>
     </div>
   );
 }
@@ -222,14 +289,21 @@ const FONT_CATEGORY_LABEL_KEY: Record<FontChoice["category"], "fontSans" | "font
 
 /** Font-override section rendered below the theme list. Lets the user pick
  *  any catalog font independently of the active theme, or "Theme default"
- *  to clear the override. Each row previews itself in its own font. */
+ *  to clear the override. Each row previews itself in its own font.
+ *
+ *  The font options form their own single-select listbox (labelled by the
+ *  "Font" header, which stays outside it — plain text divs are not valid
+ *  listbox children); the per-category labels use the same role="group" +
+ *  aria-labelledby idiom as the command palette's groups. */
 function FontSection({ fontChoices, fontId, setFont }: FontSectionProps) {
   const { t } = useI18n();
+  const baseId = useId();
+  const headerId = `${baseId}-font-header`;
   const order: FontChoice["category"][] = ["sans", "serif", "mono"];
   return (
     <>
       <div className="mt-1 border-t border-current/20 px-3 pb-1 pt-2">
-        <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5" id={headerId}>
           <Type className="h-3 w-3 text-text-tertiary" />
           <Typography
             className="text-display text-xs tracking-[0.12em] text-text-tertiary"
@@ -239,75 +313,78 @@ function FontSection({ fontChoices, fontId, setFont }: FontSectionProps) {
         </span>
       </div>
 
-      {/* Theme-default (clears the override). */}
-      <ListItem
-        active={fontId === THEME_DEFAULT_FONT_ID}
-        aria-selected={fontId === THEME_DEFAULT_FONT_ID}
-        className="gap-3"
-        onClick={() => setFont(THEME_DEFAULT_FONT_ID)}
-        role="option"
-      >
-        <span aria-hidden className="h-4 w-9 shrink-0" />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <Typography className="truncate text-xs tracking-normal">
-            {t.theme?.fontDefault ?? "Theme default"}
-          </Typography>
-          <Typography className="truncate text-xs tracking-normal text-text-tertiary">
-            {t.theme?.fontDefaultHint ?? "Use the active theme's font"}
-          </Typography>
-        </div>
-        <Check
-          className={cn(
-            "h-3 w-3 shrink-0 text-midground",
-            fontId === THEME_DEFAULT_FONT_ID ? "opacity-100" : "opacity-0",
-          )}
-        />
-      </ListItem>
-
-      {order.map((cat) => {
-        const fonts = fontChoices.filter((f) => f.category === cat);
-        if (fonts.length === 0) return null;
-        const catLabel = t.theme?.[FONT_CATEGORY_LABEL_KEY[cat]] ?? cat;
-        return (
-          <div key={cat}>
-            <div className="px-3 pb-0.5 pt-1.5">
-              <Typography className="text-[0.65rem] uppercase tracking-[0.1em] text-text-tertiary">
-                {catLabel}
-              </Typography>
-            </div>
-            {fonts.map((f) => {
-              const isActive = f.id === fontId;
-              return (
-                <ListItem
-                  active={isActive}
-                  aria-selected={isActive}
-                  className="gap-3"
-                  key={f.id}
-                  onClick={() => setFont(f.id)}
-                  role="option"
-                >
-                  <span aria-hidden className="h-4 w-9 shrink-0" />
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    {/* Preview the font in its own stack. */}
-                    <span
-                      className="truncate text-sm"
-                      style={{ fontFamily: f.stack }}
-                    >
-                      {f.label}
-                    </span>
-                  </div>
-                  <Check
-                    className={cn(
-                      "h-3 w-3 shrink-0 text-midground",
-                      isActive ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                </ListItem>
-              );
-            })}
+      <div aria-labelledby={headerId} role="listbox">
+        {/* Theme-default (clears the override). */}
+        <ListItem
+          active={fontId === THEME_DEFAULT_FONT_ID}
+          aria-selected={fontId === THEME_DEFAULT_FONT_ID}
+          className="gap-3"
+          onClick={() => setFont(THEME_DEFAULT_FONT_ID)}
+          role="option"
+        >
+          <span aria-hidden className="h-4 w-9 shrink-0" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <Typography className="truncate text-xs tracking-normal">
+              {t.theme?.fontDefault ?? "Theme default"}
+            </Typography>
+            <Typography className="truncate text-xs tracking-normal text-text-tertiary">
+              {t.theme?.fontDefaultHint ?? "Use the active theme's font"}
+            </Typography>
           </div>
-        );
-      })}
+          <Check
+            className={cn(
+              "h-3 w-3 shrink-0 text-midground",
+              fontId === THEME_DEFAULT_FONT_ID ? "opacity-100" : "opacity-0",
+            )}
+          />
+        </ListItem>
+
+        {order.map((cat) => {
+          const fonts = fontChoices.filter((f) => f.category === cat);
+          if (fonts.length === 0) return null;
+          const catLabel = t.theme?.[FONT_CATEGORY_LABEL_KEY[cat]] ?? cat;
+          const catLabelId = `${baseId}-cat-${cat}`;
+          return (
+            <div aria-labelledby={catLabelId} key={cat} role="group">
+              <div className="px-3 pb-0.5 pt-1.5" id={catLabelId}>
+                <Typography className="text-[0.65rem] uppercase tracking-[0.1em] text-text-tertiary">
+                  {catLabel}
+                </Typography>
+              </div>
+              {fonts.map((f) => {
+                const isActive = f.id === fontId;
+                return (
+                  <ListItem
+                    active={isActive}
+                    aria-selected={isActive}
+                    className="gap-3"
+                    key={f.id}
+                    onClick={() => setFont(f.id)}
+                    role="option"
+                  >
+                    <span aria-hidden className="h-4 w-9 shrink-0" />
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      {/* Preview the font in its own stack. */}
+                      <span
+                        className="truncate text-sm"
+                        style={{ fontFamily: f.stack }}
+                      >
+                        {f.label}
+                      </span>
+                    </div>
+                    <Check
+                      className={cn(
+                        "h-3 w-3 shrink-0 text-midground",
+                        isActive ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                  </ListItem>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
     </>
   );
 }

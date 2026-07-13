@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { Clock, Pause, Pencil, Play, Trash2, X, Zap } from "lucide-react";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { Clock, X } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
-import { H2 } from "@nous-research/ui/ui/components/typography/h2";
 import { api } from "@/lib/api";
 import type {
   CronJob,
@@ -20,6 +24,7 @@ import {
   cronJobFormFromJob,
   type CronJobFormState,
 } from "@/lib/cron-job";
+import { EmptyState, PageToolbar, Skeleton } from "@/components/ui";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import {
   DEFAULT_SCHEDULE_STATE,
@@ -27,7 +32,6 @@ import {
 } from "@/components/ScheduleBuilder";
 import {
   buildScheduleString,
-  describeSchedule,
   englishOrdinal,
   parseScheduleString,
   type ScheduleBuilderState,
@@ -46,26 +50,33 @@ import { PluginSlot } from "@/plugins";
 import { Segmented } from "@nous-research/ui/ui/components/segmented";
 import { AutomationBlueprints } from "@/components/AutomationBlueprints";
 import { cn, themedBody } from "@/lib/utils";
+import { CronJobRow } from "@/components/cron/CronJobRow";
+import {
+  CronRunHistory,
+  type CronRunsEntry,
+} from "@/components/cron/CronRunHistory";
+import { CronSummaryStrip } from "@/components/cron/CronSummaryStrip";
+import {
+  getJobKey,
+  getJobProfile,
+  getJobState,
+  getJobTitle,
+  profileLabel,
+  splitJobKey,
+  truncateText,
+} from "@/components/cron/job-utils";
 
-function formatTime(iso?: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString();
-}
-
-function asText(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function truncateText(value: string, maxLength: number): string {
-  return value.length > maxLength
-    ? value.slice(0, maxLength) + "..."
-    : value;
-}
-
-function getJobPrompt(job: CronJob): string {
-  return asText(job.prompt);
-}
+/** Runs fetched per job drawer (server clamps at 100; C6 specifies 10). */
+const RUNS_LIMIT = 10;
+/** C7 trigger-follow poll cadence / hard stop. */
+const FOLLOW_POLL_MS = 5_000;
+const FOLLOW_MAX_MS = 3 * 60_000;
+/**
+ * A run whose `started_at` lands within this window before the trigger
+ * call still counts as "spawned by this trigger" (clock skew between the
+ * browser and the gateway host).
+ */
+const FOLLOW_SPAWN_SLACK_MS = 60_000;
 
 function NameCheckboxPicker({
   id,
@@ -424,96 +435,15 @@ function CronJobFormFields({
   );
 }
 
-function getJobName(job: CronJob): string {
-  return asText(job.name).trim();
-}
-
-function getJobTitle(job: CronJob): string {
-  const name = getJobName(job);
-  if (name) return name;
-
-  const prompt = getJobPrompt(job);
-  if (prompt) return truncateText(prompt, 60);
-
-  const script = asText(job.script);
-  if (script) return truncateText(script, 60);
-
-  return job.id || "Cron job";
-}
-
-function getJobScheduleDisplay(
-  job: CronJob,
-  strings: ScheduleDescribeStrings,
-): string {
-  // Prefer a structured render so cron expressions like
-  // ``30 14 * * 1,3,5`` surface as "Weekly on Mon, Wed, Fri at 14:30"
-  // in the list instead of the raw five-field gibberish. Falls back
-  // through the existing chain (``schedule_display`` from the backend,
-  // then the structured ``display`` field, then the raw ``expr``) so
-  // legacy job rows still render *something* meaningful.
-  return describeSchedule(
-    job.schedule,
-    asText(job.schedule_display) || asText(job.schedule?.display),
-    strings,
-  );
-}
-
-function getJobState(job: CronJob): string {
-  return asText(job.state) || (job.enabled === false ? "disabled" : "scheduled");
-}
-
-function getRepeatDisplay(job: CronJob): string {
-  const repeat = job.repeat;
-  if (!repeat || repeat.times == null) return "forever";
-  const completed = repeat.completed ?? 0;
-  return completed > 0 ? `${completed}/${repeat.times}` : `${repeat.times} times`;
-}
-
-function getJobMode(job: CronJob): string {
-  if (job.no_agent) return "no_agent";
-  if (job.script) return "script+agent";
-  return "agent";
-}
-
-function getModelDisplay(job: CronJob): string {
-  const provider = asText(job.provider);
-  const model = asText(job.model);
-  if (provider && model) return `${provider}/${model}`;
-  return model || provider;
-}
-
-function getJobProfile(job: CronJob): string {
-  return asText(job.profile) || asText(job.profile_name) || "default";
-}
-
-function getJobKey(job: CronJob): string {
-  return `${getJobProfile(job)}:${job.id}`;
-}
-
-function splitJobKey(key: string): { profile: string; id: string } {
-  const idx = key.indexOf(":");
-  if (idx === -1) return { profile: "default", id: key };
-  return { profile: key.slice(0, idx) || "default", id: key.slice(idx + 1) };
-}
-
-function profileLabel(profile: string): string {
-  return profile === "default" ? "default" : profile;
-}
-
-const STATUS_TONE: Record<string, "success" | "warning" | "destructive"> = {
-  enabled: "success",
-  scheduled: "success",
-  paused: "warning",
-  error: "destructive",
-  completed: "destructive",
-};
-
 export default function CronPage() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [selectedProfile, setSelectedProfile] = useState("all");
   const [view, setView] = useState<"jobs" | "blueprints">("jobs");
   const [loading, setLoading] = useState(true);
+  // C13: list-load failures surface as a destructive banner with Retry
+  // (the old path mislabeled them behind a `t.common.loading` toast).
+  const [jobsError, setJobsError] = useState<string | null>(null);
   const { toast, showToast } = useToast();
   const { t, locale } = useI18n();
   const { setEnd } = usePageHeader();
@@ -579,10 +509,135 @@ export default function CronPage() {
   const loadJobs = useCallback(() => {
     api
       .getCronJobs(selectedProfile)
-      .then(setJobs)
-      .catch(() => showToast(t.common.loading, "error"))
+      .then((next) => {
+        setJobs(next);
+        setJobsError(null);
+      })
+      .catch((e) => setJobsError(String(e)))
       .finally(() => setLoading(false));
-  }, [selectedProfile, showToast, t.common.loading]);
+  }, [selectedProfile]);
+
+  // The C7 follow poll runs on an interval whose closure would otherwise
+  // pin the `loadJobs` captured at trigger time (wrong profile after a
+  // filter switch mid-follow) — route it through a ref.
+  const loadJobsRef = useRef(loadJobs);
+  useEffect(() => {
+    loadJobsRef.current = loadJobs;
+  }, [loadJobs]);
+
+  // ── Run-history drawers (C6) + trigger-follow poll (C7) ─────────────
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const [runsByJob, setRunsByJob] = useState<Record<string, CronRunsEntry>>({});
+  const followTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(
+    new Map(),
+  );
+
+  const stopFollowing = useCallback((key: string) => {
+    const timer = followTimers.current.get(key);
+    if (timer !== undefined) {
+      clearInterval(timer);
+      followTimers.current.delete(key);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timers = followTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearInterval(timer);
+      timers.clear();
+    };
+  }, []);
+
+  const loadRuns = useCallback(
+    async (job: CronJob, opts?: { silent?: boolean }) => {
+      const key = getJobKey(job);
+      if (!opts?.silent) {
+        setRunsByJob((prev) => ({
+          ...prev,
+          [key]: {
+            loading: true,
+            error: null,
+            runs: prev[key]?.runs ?? null,
+          },
+        }));
+      }
+      try {
+        // Always the job's own profile — `profile=all` listings fan out
+        // across profiles and the dashboard profile may not own this job
+        // (R6).
+        const res = await api.getCronJobRuns(
+          job.id,
+          getJobProfile(job),
+          RUNS_LIMIT,
+        );
+        setRunsByJob((prev) => ({
+          ...prev,
+          [key]: { loading: false, error: null, runs: res.runs },
+        }));
+        return res.runs;
+      } catch (e) {
+        setRunsByJob((prev) => ({
+          ...prev,
+          [key]: {
+            loading: false,
+            error: String(e),
+            runs: prev[key]?.runs ?? null,
+          },
+        }));
+        return null;
+      }
+    },
+    [],
+  );
+
+  const toggleJobExpanded = useCallback(
+    (job: CronJob) => {
+      const key = getJobKey(job);
+      const opening = !expandedJobs.has(key);
+      setExpandedJobs((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      // First expand fetches; re-expands reuse the cached entry (retry
+      // and the C7 poll are the explicit refresh paths).
+      if (opening && !runsByJob[key]) void loadRuns(job);
+    },
+    [expandedJobs, runsByJob, loadRuns],
+  );
+
+  /**
+   * C7 — make "Trigger now" visibly run: poll the job's runs (+ the jobs
+   * list, for `last_run_at`/`last_status`) every 5 s until the spawned
+   * run settles, hard-stopping after 3 min. "Spawned" = newest run
+   * started at/after the trigger call (minus clock-skew slack) — an old
+   * settled run must not end the follow before the new one appears.
+   */
+  const followTriggeredJob = useCallback(
+    (job: CronJob) => {
+      const key = getJobKey(job);
+      stopFollowing(key);
+      const triggeredAtMs = Date.now();
+      const deadlineMs = triggeredAtMs + FOLLOW_MAX_MS;
+      const timer = setInterval(() => {
+        if (Date.now() > deadlineMs) {
+          stopFollowing(key);
+          return;
+        }
+        void loadRuns(job, { silent: true }).then((runs) => {
+          const newest = runs?.[0];
+          if (!newest) return;
+          const spawned =
+            newest.started_at * 1000 >= triggeredAtMs - FOLLOW_SPAWN_SLACK_MS;
+          if (spawned && !newest.is_active) stopFollowing(key);
+        });
+        loadJobsRef.current();
+      }, FOLLOW_POLL_MS);
+      followTimers.current.set(key, timer);
+    },
+    [loadRuns, stopFollowing],
+  );
 
   useEffect(() => {
     api
@@ -716,6 +771,16 @@ export default function CronPage() {
         "success",
       );
       loadJobs();
+      // C7: open the drawer and follow the spawned run live.
+      const key = getJobKey(job);
+      setExpandedJobs((prev) => {
+        if (prev.has(key)) return prev;
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
+      void loadRuns(job, { silent: Boolean(runsByJob[key]?.runs) });
+      followTriggeredJob(job);
     } catch (e) {
       showToast(`${t.status.error}: ${e}`, "error");
     }
@@ -763,8 +828,15 @@ export default function CronPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner className="text-2xl text-primary" />
+      <div className="flex flex-col gap-6" aria-busy="true">
+        <Skeleton className="h-8 w-56" />
+        {/* C11: one line for the summary strip, then the job blocks. */}
+        <Skeleton variant="line" />
+        <div className="flex flex-col gap-3">
+          <Skeleton variant="block" className="h-24" />
+          <Skeleton variant="block" className="h-24" />
+          <Skeleton variant="block" className="h-24" />
+        </div>
       </div>
     );
   }
@@ -950,168 +1022,103 @@ export default function CronPage() {
 
       {view === "jobs" && (
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <H2
-            variant="sm"
-            className="flex items-center gap-2 text-muted-foreground"
-          >
-            <Clock className="h-4 w-4" />
-            {t.cron.scheduledJobs} ({jobs.length})
-          </H2>
+        {/* C2 — summary strip, computed from the fetched jobs. */}
+        <CronSummaryStrip jobs={jobs} />
 
-          <div className="grid gap-1 min-w-[220px]">
-            <Label htmlFor="cron-profile-filter">Profile</Label>
-            <Select
-              id="cron-profile-filter"
-              value={selectedProfile}
-              onValueChange={(v) => setSelectedProfile(v)}
+        {/* C3 — toolbar: profile filter only; the job count lives in the
+            summary strip and "Create" stays in the page header end slot. */}
+        <PageToolbar
+          label={t.cron.scheduledJobs}
+          filters={
+            <div className="grid min-w-[220px] gap-1">
+              <Label htmlFor="cron-profile-filter">Profile</Label>
+              <Select
+                id="cron-profile-filter"
+                value={selectedProfile}
+                onValueChange={(v) => setSelectedProfile(v)}
+              >
+                <SelectOption value="all">All profiles</SelectOption>
+                {profiles.map((profile) => (
+                  <SelectOption key={profile.name} value={profile.name}>
+                    {profileLabel(profile.name)}
+                  </SelectOption>
+                ))}
+              </Select>
+            </div>
+          }
+        />
+
+        {/* C13 — load failure banner with Retry (was a mislabeled toast). */}
+        {jobsError && (
+          <div className="flex items-center gap-3 border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+            <span className="min-w-0 flex-1 truncate" title={jobsError}>
+              {t.cron.agents?.jobsLoadFailed ?? "Could not load cron jobs"}
+            </span>
+            <Button
+              ghost
+              size="sm"
+              className="uppercase"
+              onClick={() => loadJobs()}
             >
-              <SelectOption value="all">All profiles</SelectOption>
-              {profiles.map((profile) => (
-                <SelectOption key={profile.name} value={profile.name}>
-                  {profileLabel(profile.name)}
-                </SelectOption>
-              ))}
-            </Select>
+              {t.common.retry}
+            </Button>
           </div>
-        </div>
+        )}
 
-        {jobs.length === 0 && (
+        {jobs.length === 0 && !jobsError && (
           <Card>
-            <CardContent className="py-8 text-center text-sm text-muted-foreground">
-              {t.cron.noJobs}
+            <CardContent className="p-0">
+              <EmptyState
+                icon={Clock}
+                title={t.cron.noJobsTitle ?? t.cron.noJobs}
+                description={
+                  t.cron.noJobsDescription ??
+                  "Cron jobs run prompts or scripts on a schedule and can deliver results to your channels."
+                }
+                action={
+                  <Button
+                    size="sm"
+                    className="uppercase"
+                    onClick={() => {
+                      setCreateProfile(
+                        selectedProfile === "all" ? "default" : selectedProfile,
+                      );
+                      setCreateModalOpen(true);
+                    }}
+                  >
+                    {t.common.create}
+                  </Button>
+                }
+              />
             </CardContent>
           </Card>
         )}
 
         {jobs.map((job) => {
-          const state = getJobState(job);
-          const promptText = getJobPrompt(job);
-          const title = getJobTitle(job);
-          const hasName = Boolean(getJobName(job));
-          const deliver = asText(job.deliver);
-          const profile = getJobProfile(job);
           const jobKey = getJobKey(job);
-          const mode = getJobMode(job);
-          const modelDisplay = getModelDisplay(job);
-          const toolsets = Array.isArray(job.enabled_toolsets)
-            ? job.enabled_toolsets.filter(Boolean)
-            : [];
-
+          const entry = runsByJob[jobKey];
           return (
-            <Card key={jobKey}>
-              <CardContent className="flex items-start gap-4 py-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm truncate">
-                      {title}
-                    </span>
-                    <Badge tone={STATUS_TONE[state] ?? "secondary"}>
-                      {state}
-                    </Badge>
-                    <Badge tone="outline">{profileLabel(profile)}</Badge>
-                    {deliver && deliver !== "local" && (
-                      <Badge tone="outline">{deliver}</Badge>
-                    )}
-                    {Array.isArray(job.skills) && job.skills.length > 0 && (
-                      <Badge tone="outline" title={job.skills.join(", ")}>
-                        {job.skills.length === 1
-                          ? job.skills[0]
-                          : `${job.skills.length} skills`}
-                      </Badge>
-                    )}
-                    {mode !== "agent" && (
-                      <Badge tone="outline">{mode}</Badge>
-                    )}
-                    {modelDisplay && (
-                      <Badge tone="outline" title={modelDisplay}>
-                        model
-                      </Badge>
-                    )}
-                    {toolsets.length > 0 && (
-                      <Badge tone="outline" title={toolsets.join(", ")}>
-                        {toolsets.length} toolsets
-                      </Badge>
-                    )}
-                  </div>
-                  {hasName && promptText && (
-                    <p className="text-xs text-muted-foreground truncate mb-1">
-                      {truncateText(promptText, 100)}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="font-mono-ui">
-                      {getJobScheduleDisplay(job, scheduleDescribeStrings)}
-                    </span>
-                    <span>repeat: {getRepeatDisplay(job)}</span>
-                    <span>
-                      {t.cron.last}: {formatTime(job.last_run_at)}
-                    </span>
-                    <span>
-                      {t.cron.next}: {formatTime(job.next_run_at)}
-                    </span>
-                  </div>
-                  {job.last_delivery_error && (
-                    <p className="text-xs text-destructive mt-1">
-                      delivery: {job.last_delivery_error}
-                    </p>
-                  )}
-                  {job.last_error && (
-                    <p className="text-xs text-destructive mt-1">
-                      {job.last_error}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    ghost
-                    size="icon"
-                    title={state === "paused" ? t.cron.resume : t.cron.pause}
-                    aria-label={
-                      state === "paused" ? t.cron.resume : t.cron.pause
-                    }
-                    onClick={() => handlePauseResume(job)}
-                    className={
-                      state === "paused" ? "text-success" : "text-warning"
-                    }
-                  >
-                    {state === "paused" ? <Play /> : <Pause />}
-                  </Button>
-
-                  <Button
-                    ghost
-                    size="icon"
-                    title={t.cron.triggerNow}
-                    aria-label={t.cron.triggerNow}
-                    onClick={() => handleTrigger(job)}
-                  >
-                    <Zap />
-                  </Button>
-
-                  <Button
-                    ghost
-                    size="icon"
-                    title="Edit job"
-                    aria-label="Edit job"
-                    onClick={() => openEditModal(job)}
-                  >
-                    <Pencil />
-                  </Button>
-
-                  <Button
-                    ghost
-                    destructive
-                    size="icon"
-                    title={t.common.delete}
-                    aria-label={t.common.delete}
-                    onClick={() => jobDelete.requestDelete(jobKey)}
-                  >
-                    <Trash2 />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <CronJobRow
+              key={jobKey}
+              job={job}
+              scheduleStrings={scheduleDescribeStrings}
+              // C10: live only from actually-loaded run data, never
+              // inferred from `last_run_at`.
+              runningNow={entry?.runs?.[0]?.is_active === true}
+              expanded={expandedJobs.has(jobKey)}
+              onToggleExpanded={() => toggleJobExpanded(job)}
+              onPauseResume={() => handlePauseResume(job)}
+              onTrigger={() => handleTrigger(job)}
+              onEdit={() => openEditModal(job)}
+              onDelete={() => jobDelete.requestDelete(jobKey)}
+            >
+              <CronRunHistory
+                profile={getJobProfile(job)}
+                entry={entry}
+                onRetry={() => void loadRuns(job)}
+                onTrigger={() => handleTrigger(job)}
+              />
+            </CronJobRow>
           );
         })}
       </div>

@@ -44,12 +44,68 @@ export const en: Translations = {
     general: "General",
     messaging: "Messaging",
     gateway: "Gateway",
+    copyId: "Copy ID",
     gatewayHint:
       "Messaging platforms, the API server and webhooks are configured on the Channels page. These are gateway-wide settings (proxy/relay mode and the global allowlist).",
     pluginLoadFailed:
       "Could not load this plugin’s script. Check the Network tab (dashboard-plugins/…) and the server’s plugin path.",
     pluginNotRegistered:
       "The plugin’s script did not call register(), or the script errored. Open the browser console for details.",
+  },
+
+  agentStatus: {
+    live: "live",
+    idle: "idle",
+    scheduled: "scheduled",
+    paused: "paused",
+    failed: "failed",
+    done: "done",
+  },
+
+  capabilities: {
+    enabled: "enabled",
+    active: "active",
+    installed: "installed",
+    ready: "ready",
+    disabled: "disabled",
+    inactive: "inactive",
+    needsSetup: "needs setup",
+    needsAuth: "needs auth",
+    unavailable: "unavailable",
+    missing: "missing",
+    reachable: "reachable",
+    unreachable: "unreachable",
+  },
+
+  gatewayRestart: {
+    restartNow: "Restart now",
+    restarting: "Restarting…",
+    needed: "Changes are saved. Restart the gateway for them to take effect.",
+  },
+
+  system: {
+    host: "Host",
+    gateway: "Gateway",
+    portal: "Nous Portal",
+    curator: "Skill curator",
+    memory: "Memory",
+    credentialPool: "Credential pool",
+    operations: "Operations",
+    checkpoints: "Checkpoints",
+    shellHooks: "Shell hooks",
+    newHook: "New hook",
+    noHooksTitle: "No shell hooks configured",
+    noHooksDescription:
+      "Hooks run trusted scripts on gateway and session events.",
+  },
+
+  chatRail: {
+    agent: "agent",
+    activity: "activity",
+    running: "running…",
+    responding: "responding…",
+    reasoning: "reasoning…",
+    waitingApproval: "waiting for approval — respond in the terminal",
   },
 
   app: {
@@ -82,6 +138,13 @@ export const en: Translations = {
       plugins: "Plugins",
       sessions: "Sessions",
       skills: "Skills",
+    },
+    navSections: {
+      capabilities: "Capabilities",
+      connect: "Connect",
+      observe: "Observe",
+      system: "System",
+      work: "Work",
     },
     modelToolsSheetSubtitle: "& tools",
     modelToolsSheetTitle: "Model",
@@ -176,6 +239,29 @@ export const en: Translations = {
     newChat: "New chat",
     previousPage: "Previous page",
     nextPage: "Next page",
+    ledger: {
+      statsLabel: "Session store summary",
+      statsSessions: "sessions",
+      statsActiveNow: "active now",
+      statsInStore: "in store",
+      statsMessages: "messages",
+      statsArchived: "archived",
+      gatewayLabel: "gateway",
+      toolbarLabel: "Session filters",
+      sourceFilterLabel: "source",
+      allSources: "all",
+      openChat: "Open chat",
+      clearSearch: "Clear search",
+      clearFilter: "Clear filter",
+      noSourceTitle: "No sessions from this source",
+      noSourceDescription: "No sessions with source “{source}”.",
+      loadFailed: "Failed to load sessions",
+      loadEarlier: "Load earlier messages",
+      contextCwd: "working directory",
+      contextBranch: "git branch",
+      contextEndReason: "end reason",
+      contextModel: "model",
+    },
     roles: {
       user: "User",
       assistant: "Assistant",
@@ -208,6 +294,30 @@ export const en: Translations = {
     perDayAvg: "/day avg",
     acrossModels: "across {count} models",
     inOut: "{input} in / {output} out",
+    workload: {
+      runs: "runs",
+      apiCalls: "api calls",
+      skillActions: "skill actions",
+      toolCalls: "tool calls",
+      tokens: "tokens",
+      estCost: "est. cost",
+      estimatesHiddenSummary:
+        "token & cost estimates hidden — local counts diverge from provider billing",
+      configLink: "Config",
+      recentRuns: "Recent Runs",
+      lastRunsQualifier: "last {limit}",
+      openInSessions: "Open in Sessions",
+      noRunsYet: "No runs yet",
+      noRunsHint: "Runs appear here once an agent has done work",
+      openChat: "Open chat",
+      busiestTools: "Busiest Tools",
+      tool: "Tool",
+      calls: "Calls",
+      moreTools: "+{count} more",
+      toolCountsNote:
+        "Best-effort counts merged from two extraction paths — an activity signal, not billing-grade",
+      runsBySource: "Runs by Source",
+    },
   },
 
   models: {
@@ -220,6 +330,47 @@ export const en: Translations = {
     toolCalls: "tool calls",
     noModelsData: "No model usage data for this period",
     startSession: "Start a session to see model data here",
+    loadout: {
+      loadout: "loadout",
+      appliesToNewSessions: "applies to new sessions",
+      mainModel: "Main model",
+      auxiliaryTasks: "Auxiliary tasks",
+      mixtureOfAgents: "Mixture of Agents",
+      unset: "(unset)",
+      auxUnavailable:
+        "Couldn't load model assignments — slots show (unset) until they refresh.",
+      loadFailed: "Failed to load model analytics",
+      tokensHiddenSummary:
+        "token & cost estimates hidden — local counts diverge from provider billing",
+      configLink: "Config",
+    },
+  },
+
+  mcp: {
+    addServer: "Add Server",
+    yourServers: "Your MCP servers",
+    serversSummary: "{n} servers · {m} enabled",
+    noServersTitle: "No MCP servers",
+    noServersDescription: "Add a server or install one from the catalog below.",
+    catalog: "Catalog",
+    catalogIntro:
+      "Browse Fabric-curated MCP servers and install them with one click.",
+    noCatalogTitle: "No catalog entries available",
+    restartNote: "Enable/disable takes effect on the next gateway restart.",
+    test: "Test connection",
+    login: "Login",
+    waitingForBrowser: "Waiting for the browser OAuth flow…",
+    connectedNoTools: "Connected — no tools",
+    envVarCount: "{n} env var",
+    envVarsCount: "{n} env vars",
+    toolsEnabledCount: "{n} tools enabled",
+    promptsCount: "{n} prompts",
+    resourcesCount: "{n} resources",
+    install: "Install",
+    installing: "Installing...",
+    installingBackground: "Installing in background…",
+    loadServersFailed: "Failed to load MCP servers",
+    loadCatalogFailed: "Failed to load the catalog",
   },
 
   logs: {
@@ -230,6 +381,20 @@ export const en: Translations = {
     component: "Component",
     lines: "Lines",
     noLogLines: "No log lines found",
+    noLinesHint: "Try another file, level, or component filter.",
+    jumpToLatest: "Jump to latest",
+    searchPlaceholder: "search lines…",
+    clearSearch: "Clear search",
+    noMatchesFor: 'No lines match "{term}".',
+    filterSession: "Filter this session",
+    streaming: "streaming",
+    streamingScrolled: "streaming (scrolled)",
+    streamPaused: "paused",
+    pausedHere: "paused here",
+    earlierScrolledOut: "earlier lines scrolled out",
+    inViewHint: "of the last {n} fetched lines",
+    errAbbrev: "err",
+    warnAbbrev: "warn",
   },
 
   cron: {
@@ -281,11 +446,26 @@ export const en: Translations = {
     deliverTo: "Deliver to",
     scheduledJobs: "Scheduled Jobs",
     noJobs: "No cron jobs configured. Create one above.",
+    noJobsTitle: "No scheduled jobs",
+    noJobsDescription:
+      "Cron jobs run prompts or scripts on a schedule and can deliver results to your channels.",
     last: "Last",
     next: "Next",
     pause: "Pause",
     resume: "Resume",
     triggerNow: "Trigger now",
+    agents: {
+      statJobs: "jobs",
+      statNextRun: "next run",
+      statPaused: "paused",
+      statFailing: "failing",
+      runHistory: "Run history",
+      jobsLoadFailed: "Could not load cron jobs",
+      runsLoadFailed: "Could not load run history",
+      noRunsTitle: "No runs yet",
+      noRunsDescription: "Trigger now to run this job immediately.",
+      openInSessions: "Open in Sessions",
+    },
     delivery: {
       local: "Local",
       telegram: "Telegram",
@@ -361,6 +541,44 @@ export const en: Translations = {
     modelSaved: "Model updated",
     modelSelect: "Select a model",
     actions: "Actions",
+    activeVsCurrentTitle:
+      "Active is the sticky default new CLI/gateway runs use; current is the profile this dashboard process is scoped to.",
+    loadFailed: "Could not load profiles",
+  },
+
+  channels: {
+    noChannelsTitle: "No channels available",
+    noChannelsDescription:
+      "The gateway reported no messaging platforms. Refresh once it has finished starting, or check the logs.",
+    loadFailed: "Failed to load channels.",
+    sessionsEvidenceTitle: "sessions started from this channel (all time)",
+  },
+
+  webhooks: {
+    noSubscriptionsTitle: "No webhook subscriptions yet",
+    noSubscriptionsDescription:
+      "Create one with “New subscription” — each gets its own URL and signing secret.",
+    loadFailed: "Failed to load webhooks.",
+  },
+
+  pairing: {
+    pendingHeading: "Pending requests",
+    approvedHeading: "Approved users",
+    noPendingTitle: "No pending pairing requests",
+    noPendingDescription:
+      "Pairing codes appear here when an unapproved user messages the agent on a connected channel",
+    noApprovedTitle: "No approved users yet",
+    noApprovedDescription:
+      "Approve a pending request to grant a user access to the agent",
+    loadFailed: "Failed to load pairing requests",
+    clearPending: "Clear pending",
+    clearPendingConfirm: "Clear all pending pairing requests?",
+  },
+
+  files: {
+    noFilesTitle: "No files here",
+    noFilesDescription:
+      "Drop files here or upload to make them available to the agent",
   },
 
   pluginsPage: {
@@ -402,6 +620,14 @@ export const en: Translations = {
     versionBadge: "Version",
     showInSidebar: "Show in sidebar",
     hideFromSidebar: "Hide from sidebar",
+    agents: {
+      enginesLabel: "engines",
+      hubLoadFailed: "Could not load plugins",
+      noPluginsTitle: "No plugins installed",
+      noPluginsDescription: "Install one from a Git repository with the install card below.",
+      installCta: "Install a plugin",
+      stateEffectNote: "Takes effect when the agent next loads plugins",
+    },
   },
 
   skills: {
@@ -422,6 +648,24 @@ export const en: Translations = {
     setupNeeded: "Setup needed",
     disabledForCli: "Disabled for CLI",
     more: "+{count} more",
+    inventory: {
+      provenance: "Provenance",
+      provenanceHub: "hub",
+      provenanceBundled: "bundled",
+      provenanceAgent: "custom",
+      uses: "{count} use{s}",
+      toolCount: "{count} tool{s}",
+      callsMeta: "~{count} calls · 30d",
+      callsCaveat:
+        "Best-effort: summed from tool-call analytics over the last 30 days; extraction is approximate.",
+      appliesNewSessions: "Applies to new sessions",
+      loadFailed: "Failed to load skills and toolsets",
+      noSkillsTitle: "No skills yet",
+      noMatchTitle: "No matching skills",
+      noToolsetsTitle: "No matching toolsets",
+      clearSearch: "Clear search",
+      clearFilter: "Clear filter",
+    },
     profileSelector: "Profile",
     currentProfile: "current ({name})",
     managingProfile:
@@ -449,6 +693,9 @@ export const en: Translations = {
     failedToLoadRaw: "Failed to load raw config",
     configImported: "Config imported — review and save",
     invalidJson: "Invalid JSON file",
+    effectNote: "Most changes apply to new sessions or after a gateway restart.",
+    loadFailed: "Couldn't load the configuration or its schema.",
+    clearSearch: "Clear search",
     categories: {
       general: "General",
       agent: "Agent",
@@ -496,6 +743,12 @@ export const en: Translations = {
     customKeyNamePlaceholder: "e.g. MY_SERVICE_API_KEY",
     add: "Add",
     invalidKeyName: "Use letters, numbers and underscores only (must start with a letter or underscore).",
+    testKey: "Test",
+    testingKey: "Testing…",
+    keyAccepted: "key accepted",
+    keyUnreachable: "could not reach provider",
+    revealRateLimited: "Reveal rate-limited — try again in a moment",
+    loadFailed: "Could not load environment keys",
   },
 
   oauth: {
@@ -568,6 +821,28 @@ export const en: Translations = {
     fontSans: "Sans",
     fontSerif: "Serif",
     fontMono: "Mono",
+    appearance: "Appearance",
+    appearanceDark: "Dark",
+    appearanceLight: "Light",
+    appearanceSystem: "System",
+    highContrast: "High contrast",
+  },
+
+  commandPalette: {
+    title: "Command palette",
+    placeholder: "Type a command or search…",
+    pages: "Pages",
+    actions: "Actions",
+    themes: "Themes",
+    noResults: "No matching commands",
+    openPalette: "Open command palette",
+    showShortcuts: "Show keyboard shortcuts",
+    shortcutsTitle: "Keyboard shortcuts",
+    toggleSidebar: "Toggle sidebar",
+    scopeGlobal: "Global",
+    hintNavigate: "navigate",
+    hintSelect: "select",
+    hintClose: "close",
   },
 
   achievements: {

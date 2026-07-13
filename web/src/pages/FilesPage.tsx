@@ -31,7 +31,9 @@ import { Input } from "@nous-research/ui/ui/components/input";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Toast } from "@nous-research/ui/ui/components/toast";
 import { useToast } from "@nous-research/ui/hooks/use-toast";
+import { EmptyState, PageToolbar, Skeleton } from "@/components/ui";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { api } from "@/lib/api";
 import type { ManagedFileEntry, ManagedFilesResponse } from "@/lib/api";
@@ -78,6 +80,7 @@ function transferHasFiles(event: ReactDragEvent<HTMLElement>): boolean {
 export default function FilesPage() {
   const { toast, showToast } = useToast();
   const { setAfterTitle, setEnd } = usePageHeader();
+  const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const [currentPath, setCurrentPath] = useState<string | undefined>(undefined);
@@ -272,56 +275,65 @@ export default function FilesPage() {
         onChange={(event) => void uploadFiles(event.currentTarget.files)}
       />
 
-      <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        {canChangePath ? (
-          <form
-            className="flex min-w-0 flex-1 items-center gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void goToPath();
-            }}
-          >
-            <Input
-              value={pathInput}
-              onChange={(event) => setPathInput(event.target.value)}
-              aria-label="Path"
-              placeholder="Path"
-              className="h-9 min-w-0 flex-1 font-mono"
-            />
-            <Button type="submit" size="sm" outlined className="uppercase">
-              Go
+      {/* Path bar + file actions on the shared toolbar row (G13). The
+          arbitrary variant lets the path cluster keep filling the row —
+          PageToolbar's filter wrapper does not grow by default. */}
+      <PageToolbar
+        label="File browser"
+        className="[&>div:first-child]:min-w-0 [&>div:first-child]:flex-1"
+        filters={
+          canChangePath ? (
+            <form
+              className="flex min-w-0 flex-1 items-center gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void goToPath();
+              }}
+            >
+              <Input
+                value={pathInput}
+                onChange={(event) => setPathInput(event.target.value)}
+                aria-label="Path"
+                placeholder="Path"
+                className="h-9 min-w-0 flex-1 font-mono"
+              />
+              <Button type="submit" size="sm" outlined className="uppercase">
+                Go
+              </Button>
+            </form>
+          ) : (
+            <div className="min-w-0 flex-1 truncate font-mono text-sm text-text-secondary" title={activePath}>
+              {activePath}
+            </div>
+          )
+        }
+        actions={
+          <>
+            <Button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!canUpload}
+              size="sm"
+              outlined
+              className="uppercase"
+              prefix={uploading ? <Spinner /> : <Upload />}
+            >
+              Upload
             </Button>
-          </form>
-        ) : (
-          <div className="min-w-0 truncate font-mono text-sm text-text-secondary" title={activePath}>
-            {activePath}
-          </div>
-        )}
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={!canUpload}
-            size="sm"
-            outlined
-            className="uppercase"
-            prefix={uploading ? <Spinner /> : <Upload />}
-          >
-            Upload
-          </Button>
-          <Button
-            type="button"
-            onClick={() => setCreateDialogOpen(true)}
-            disabled={!activePath}
-            size="sm"
-            outlined
-            className="uppercase"
-            prefix={<FolderPlus />}
-          >
-            Create
-          </Button>
-        </div>
-      </div>
+            <Button
+              type="button"
+              onClick={() => setCreateDialogOpen(true)}
+              disabled={!activePath}
+              size="sm"
+              outlined
+              className="uppercase"
+              prefix={<FolderPlus />}
+            >
+              Create
+            </Button>
+          </>
+        }
+      />
 
       <button
         type="button"
@@ -359,8 +371,11 @@ export default function FilesPage() {
       <Card className="min-w-0 max-w-full overflow-hidden">
         <CardContent className="overflow-x-auto p-0">
           {error && (
-            <div className="border-b border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
-              {error}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+              <span className="min-w-0 break-words">{error}</span>
+              <Button outlined size="xs" type="button" onClick={() => void load()}>
+                {t.common.retry}
+              </Button>
             </div>
           )}
 
@@ -388,12 +403,32 @@ export default function FilesPage() {
           )}
 
           {loading && !listing ? (
-            <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-              <Spinner />
-              Loading files...
+            // First load only — background reloads keep the listing (F4).
+            <div aria-busy="true" className="p-4">
+              <Skeleton variant="row-list" rows={8} />
             </div>
           ) : listing && listing.entries.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">No files</div>
+            <EmptyState
+              icon={FolderOpen}
+              title={t.files?.noFilesTitle ?? "No files here"}
+              description={
+                t.files?.noFilesDescription ??
+                "Drop files here or upload to make them available to the agent"
+              }
+              action={
+                <Button
+                  type="button"
+                  size="sm"
+                  outlined
+                  className="uppercase"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!canUpload}
+                  prefix={uploading ? <Spinner /> : <Upload />}
+                >
+                  Upload
+                </Button>
+              }
+            />
           ) : (
             listing?.entries.map((entry) => (
               <div
@@ -406,7 +441,8 @@ export default function FilesPage() {
                   className="flex min-w-0 items-center gap-2 text-left font-mono text-foreground"
                 >
                   {entry.is_directory ? (
-                    <Folder className="h-4 w-4 shrink-0 text-warning" />
+                    // G11: color is not decoration; warning means warning.
+                    <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
                   ) : (
                     <FileIcon className="h-4 w-4 shrink-0 text-text-tertiary" />
                   )}

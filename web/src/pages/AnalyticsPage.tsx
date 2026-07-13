@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
+  AlertTriangle,
   BarChart3,
   Brain,
+  ChevronDown,
   Cpu,
   RefreshCw,
   TrendingUp,
@@ -15,12 +15,26 @@ import type {
   AnalyticsDailyEntry,
   AnalyticsModelEntry,
   AnalyticsSkillEntry,
+  SessionInfo,
+  SessionStoreStats,
 } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
+import { formatTokens } from "@/lib/format";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Stats } from "@nous-research/ui/ui/components/stats";
 import { Card, CardContent, CardHeader, CardTitle } from "@nous-research/ui/ui/components/card";
+import {
+  DataTable,
+  EmptyState,
+  PageToolbar,
+  Skeleton,
+  formatCost,
+} from "@/components/ui";
+import type { DataTableColumn } from "@/components/ui";
+import { RecentRunsCard } from "@/components/analytics/RecentRunsCard";
+import { RunsBySourceCard } from "@/components/analytics/RunsBySourceCard";
+import { ToolsTable } from "@/components/analytics/ToolsTable";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { PluginSlot } from "@/plugins";
@@ -33,11 +47,11 @@ const PERIODS = [
 
 const CHART_HEIGHT_PX = 160;
 
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
+/** Honest bound for the recent-runs ledger excerpt (A6). */
+const RECENT_RUNS_LIMIT = 20;
+
+/** Mono numeric readout (G12 — `tabular-nums` for every number). */
+const VALUE_CN = "font-mono-ui tabular-nums";
 
 function formatDate(day: string): string {
   try {
@@ -48,87 +62,71 @@ function formatDate(day: string): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sorting
-// ---------------------------------------------------------------------------
+/**
+ * Compact expandable variant of the old full-page explainer (A1.2): the
+ * one-row notice carries the caveat; the full three-paragraph explanation
+ * (verbatim from the previous card — good copy, no longer load-bearing)
+ * lives in the `<details>` expansion. This is the only place the
+ * token/cost-divergence caveat is stated (R12).
+ */
+function TokenEstimateNotice() {
+  const { t } = useI18n();
+  const W = t.analytics.workload;
 
-function useTableSort<T>(
-  data: T[],
-  defaultKey: keyof T & string,
-  defaultDir: "asc" | "desc" = "desc",
-) {
-  const [sortKey, setSortKey] = useState<string>(defaultKey);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">(defaultDir);
-
-  const sorted = useMemo(() => {
-    return [...data].sort((a, b) => {
-      const aVal = a[sortKey as keyof T];
-      const bVal = b[sortKey as keyof T];
-      // Nulls always last regardless of direction
-      if (aVal === null || aVal === undefined) return 1;
-      if (bVal === null || bVal === undefined) return -1;
-      if (aVal === bVal) return 0;
-      const cmp = aVal > bVal ? 1 : -1;
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [data, sortKey, sortDir]);
-
-  const toggle = useCallback(
-    (key: string) => {
-      if (key === sortKey) {
-        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-      } else {
-        setSortKey(key);
-        setSortDir("desc");
-      }
-    },
-    [sortKey],
-  );
-
-  return { sorted, sortKey, sortDir, toggle };
-}
-
-function SortHeader({
-  label,
-  col,
-  sortKey,
-  sortDir,
-  toggle,
-  className,
-}: {
-  label: string;
-  col: string;
-  sortKey: string;
-  sortDir: "asc" | "desc";
-  toggle: (key: string) => void;
-  className?: string;
-}) {
-  const active = col === sortKey;
   return (
-    <th
-      onClick={() => toggle(col)}
-      className={`cursor-pointer select-none ${className ?? ""}`}
-    >
-      <span className="inline-flex items-center gap-1.5 rounded px-1 -mx-1 py-0.5 hover:bg-muted/40 transition-colors">
-        {label}
-        {active ? (
-          sortDir === "asc" ? (
-            <ArrowUp className="h-3.5 w-3.5 text-foreground/80 shrink-0" />
-          ) : (
-            <ArrowDown className="h-3.5 w-3.5 text-foreground/80 shrink-0" />
-          )
-        ) : (
-          <ArrowUpDown className="h-3 w-3 text-text-tertiary shrink-0" />
-        )}
-      </span>
-    </th>
+    <details className="group border border-warning/30 bg-warning/[0.04] px-3 py-2">
+      <summary className="flex cursor-pointer list-none items-center gap-2 text-xs [&::-webkit-details-marker]:hidden">
+        <AlertTriangle
+          aria-hidden="true"
+          className="h-3.5 w-3.5 shrink-0 text-warning"
+        />
+        <span className="min-w-0 flex-1 text-muted-foreground">
+          {W?.estimatesHiddenSummary ??
+            "token & cost estimates hidden — local counts diverge from provider billing"}{" "}
+          &#183;{" "}
+          <a href="/config" className="underline">
+            {W?.configLink ?? "Config"}
+          </a>
+        </span>
+        <ChevronDown
+          aria-hidden="true"
+          className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none group-open:rotate-180"
+        />
+      </summary>
+      <div className="mt-3 flex max-w-2xl flex-col gap-3 text-sm text-muted-foreground">
+        <p>
+          The token, cost, and per-day analytics on this page are a
+          local debug estimate. They only count successful main-agent
+          responses with a usable <span className="font-mono">usage</span>{" "}
+          block, and silently exclude auxiliary calls (context
+          compression, title generation, vision, session search, web
+          extract, smart approvals, MCP routing, plugin LLM access)
+          plus provider-side retries and fallback attempts. Cache
+          writes are missing entirely.
+        </p>
+        <p>
+          On models with heavy auxiliary traffic (Kimi K2.6, MiniMax
+          M2.7) the local total can be 10x–100x lower than what your
+          provider bills. Hiding these numbers is safer than letting
+          them look authoritative.
+        </p>
+        <p>
+          Check your provider dashboard (OpenRouter, Anthropic, etc.)
+          for actual usage and billing. To re-enable the local debug
+          estimate anyway, set{" "}
+          <span className="font-mono">
+            dashboard.show_token_analytics: true
+          </span>{" "}
+          in <a href="/config" className="underline">Config</a>.
+        </p>
+      </div>
+    </details>
   );
 }
-
-
 
 function TokenBarChart({ daily }: { daily: AnalyticsDailyEntry[] }) {
   const { t } = useI18n();
+  const W = t.analytics.workload;
   if (daily.length === 0) return null;
 
   const maxTokens = Math.max(
@@ -193,6 +191,17 @@ function TokenBarChart({ daily }: { daily: AnalyticsDailyEntry[] }) {
                     <div>
                       {t.analytics.total}: {formatTokens(total)}
                     </div>
+                    {/* A4: already-fetched per-day fields ride along in the
+                        tooltip; cost line only when > 0 (R4/R12). */}
+                    <div>
+                      {W?.runs ?? "runs"}: {d.sessions}
+                    </div>
+                    {d.estimated_cost > 0 && (
+                      <div>
+                        {W?.estCost ?? "est. cost"}:{" "}
+                        {formatCost(d.estimated_cost)}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -234,9 +243,60 @@ function TokenBarChart({ daily }: { daily: AnalyticsDailyEntry[] }) {
 
 function DailyTable({ daily }: { daily: AnalyticsDailyEntry[] }) {
   const { t } = useI18n();
-  const { sorted, sortKey, sortDir, toggle } = useTableSort(daily, "day", "desc");
+  const W = t.analytics.workload;
 
   if (daily.length === 0) return null;
+
+  const columns: DataTableColumn<AnalyticsDailyEntry>[] = [
+    {
+      key: "day",
+      header: t.analytics.date,
+      sortable: true,
+      render: (d) => <span className="font-medium">{formatDate(d.day)}</span>,
+    },
+    {
+      key: "sessions",
+      header: t.sessions.title,
+      sortable: true,
+      align: "right",
+      mono: true,
+      cellClassName: "text-muted-foreground",
+    },
+    {
+      key: "input_tokens",
+      header: t.analytics.input,
+      sortable: true,
+      align: "right",
+      mono: true,
+      render: (d) => (
+        <span style={{ color: "var(--series-input-token)" }}>
+          {formatTokens(d.input_tokens)}
+        </span>
+      ),
+    },
+    {
+      key: "output_tokens",
+      header: t.analytics.output,
+      sortable: true,
+      align: "right",
+      mono: true,
+      render: (d) => (
+        <span style={{ color: "var(--series-output-token)" }}>
+          {formatTokens(d.output_tokens)}
+        </span>
+      ),
+    },
+    {
+      // A4: served-but-unused `estimated_cost`; `—` when 0 (R12).
+      key: "estimated_cost",
+      header: W?.estCost ?? "Est. Cost",
+      sortable: true,
+      align: "right",
+      mono: true,
+      render: (d) =>
+        d.estimated_cost > 0 ? formatCost(d.estimated_cost) : "—",
+    },
+  ];
 
   return (
     <Card>
@@ -249,43 +309,12 @@ function DailyTable({ daily }: { daily: AnalyticsDailyEntry[] }) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full font-mondwest normal-case text-sm">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground text-xs">
-                <SortHeader label={t.analytics.date} col="day" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-left py-2 pr-4 font-medium" />
-                <SortHeader label={t.sessions.title} col="sessions" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 px-4 font-medium" />
-                <SortHeader label={t.analytics.input} col="input_tokens" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 px-4 font-medium" />
-                <SortHeader label={t.analytics.output} col="output_tokens" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 pl-4 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((d) => (
-                <tr
-                    key={d.day}
-                    className="border-b border-border/50 hover:bg-secondary/20 transition-colors"
-                  >
-                  <td className="py-2 pr-4 font-medium">
-                      {formatDate(d.day)}
-                    </td>
-                  <td className="text-right py-2 px-4 text-muted-foreground">
-                      {d.sessions}
-                    </td>
-                  <td className="text-right py-2 px-4">
-                    <span style={{ color: "var(--series-input-token)" }}>
-                        {formatTokens(d.input_tokens)}
-                      </span>
-                  </td>
-                  <td className="text-right py-2 pl-4">
-                    <span style={{ color: "var(--series-output-token)" }}>
-                        {formatTokens(d.output_tokens)}
-                      </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={columns}
+          rows={daily}
+          rowKey={(d) => d.day}
+          defaultSortKey="day"
+        />
       </CardContent>
     </Card>
   );
@@ -293,9 +322,58 @@ function DailyTable({ daily }: { daily: AnalyticsDailyEntry[] }) {
 
 function ModelTable({ models }: { models: AnalyticsModelEntry[] }) {
   const { t } = useI18n();
-  const { sorted, sortKey, sortDir, toggle } = useTableSort(models, "input_tokens", "desc");
+  const W = t.analytics.workload;
 
   if (models.length === 0) return null;
+
+  const columns: DataTableColumn<AnalyticsModelEntry>[] = [
+    { key: "model", header: t.analytics.model, sortable: true, mono: true },
+    {
+      key: "sessions",
+      header: t.sessions.title,
+      sortable: true,
+      align: "right",
+      mono: true,
+      cellClassName: "text-muted-foreground",
+    },
+    {
+      key: "input_tokens",
+      header: t.analytics.tokens,
+      sortable: true,
+      align: "right",
+      mono: true,
+      render: (m) => (
+        <>
+          <span style={{ color: "var(--series-input-token)" }}>
+            {formatTokens(m.input_tokens)}
+          </span>
+          {" / "}
+          <span style={{ color: "var(--series-output-token)" }}>
+            {formatTokens(m.output_tokens)}
+          </span>
+        </>
+      ),
+    },
+    {
+      // A5: served-but-unused `api_calls`.
+      key: "api_calls",
+      header: W?.apiCalls ?? "API Calls",
+      sortable: true,
+      align: "right",
+      mono: true,
+      cellClassName: "text-muted-foreground",
+    },
+    {
+      // A5: served-but-unused `estimated_cost`; `—` when 0 (R12).
+      key: "estimated_cost",
+      header: W?.estCost ?? "Est. Cost",
+      sortable: true,
+      align: "right",
+      mono: true,
+      render: (m) =>
+        m.estimated_cost > 0 ? formatCost(m.estimated_cost) : "—",
+    },
+  ];
 
   return (
     <Card>
@@ -308,41 +386,12 @@ function ModelTable({ models }: { models: AnalyticsModelEntry[] }) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full font-mondwest normal-case text-sm">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground text-xs">
-                <SortHeader label={t.analytics.model} col="model" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-left py-2 pr-4 font-medium" />
-                <SortHeader label={t.sessions.title} col="sessions" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 px-4 font-medium" />
-                <SortHeader label={t.analytics.tokens} col="input_tokens" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 pl-4 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((m) => (
-                <tr
-                  key={m.model}
-                  className="border-b border-border/50 hover:bg-secondary/20 transition-colors"
-                >
-                  <td className="py-2 pr-4">
-                    <span className="font-mono-ui text-xs">{m.model}</span>
-                  </td>
-                  <td className="text-right py-2 px-4 text-muted-foreground">
-                    {m.sessions}
-                  </td>
-                  <td className="text-right py-2 pl-4">
-                    <span style={{ color: "var(--series-input-token)" }}>
-                      {formatTokens(m.input_tokens)}
-                    </span>
-                    {" / "}
-                    <span style={{ color: "var(--series-output-token)" }}>
-                      {formatTokens(m.output_tokens)}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={columns}
+          rows={models}
+          rowKey={(m) => m.model}
+          defaultSortKey="input_tokens"
+        />
       </CardContent>
     </Card>
   );
@@ -350,9 +399,43 @@ function ModelTable({ models }: { models: AnalyticsModelEntry[] }) {
 
 function SkillTable({ skills }: { skills: AnalyticsSkillEntry[] }) {
   const { t } = useI18n();
-  const { sorted, sortKey, sortDir, toggle } = useTableSort(skills, "total_count", "desc");
 
   if (skills.length === 0) return null;
+
+  const columns: DataTableColumn<AnalyticsSkillEntry>[] = [
+    { key: "skill", header: t.analytics.skill, sortable: true, mono: true },
+    {
+      key: "view_count",
+      header: t.analytics.loads,
+      sortable: true,
+      align: "right",
+      mono: true,
+      cellClassName: "text-muted-foreground",
+    },
+    {
+      key: "manage_count",
+      header: t.analytics.edits,
+      sortable: true,
+      align: "right",
+      mono: true,
+      cellClassName: "text-muted-foreground",
+    },
+    {
+      key: "total_count",
+      header: t.analytics.total,
+      sortable: true,
+      align: "right",
+      mono: true,
+    },
+    {
+      key: "last_used_at",
+      header: t.analytics.lastUsed,
+      sortable: true,
+      align: "right",
+      cellClassName: "text-muted-foreground",
+      render: (s) => (s.last_used_at ? timeAgo(s.last_used_at) : "—"),
+    },
+  ];
 
   return (
     <Card>
@@ -363,41 +446,12 @@ function SkillTable({ skills }: { skills: AnalyticsSkillEntry[] }) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full font-mondwest normal-case text-sm">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground text-xs">
-                <SortHeader label={t.analytics.skill} col="skill" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-left py-2 pr-4 font-medium" />
-                <SortHeader label={t.analytics.loads} col="view_count" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 px-4 font-medium" />
-                <SortHeader label={t.analytics.edits} col="manage_count" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 px-4 font-medium" />
-                <SortHeader label={t.analytics.total} col="total_count" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 px-4 font-medium" />
-                <SortHeader label={t.analytics.lastUsed} col="last_used_at" sortKey={sortKey} sortDir={sortDir} toggle={toggle} className="text-right py-2 pl-4 font-medium" />
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((skill) => (
-                <tr
-                  key={skill.skill}
-                  className="border-b border-border/50 hover:bg-secondary/20 transition-colors"
-                >
-                  <td className="py-2 pr-4">
-                    <span className="font-mono-ui text-xs">{skill.skill}</span>
-                  </td>
-                  <td className="text-right py-2 px-4 text-muted-foreground">
-                    {skill.view_count}
-                  </td>
-                  <td className="text-right py-2 px-4 text-muted-foreground">
-                    {skill.manage_count}
-                  </td>
-                  <td className="text-right py-2 px-4">{skill.total_count}</td>
-                  <td className="text-right py-2 pl-4 text-muted-foreground">
-                    {skill.last_used_at ? timeAgo(skill.last_used_at) : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={columns}
+          rows={skills}
+          rowKey={(s) => s.skill}
+          defaultSortKey="total_count"
+        />
       </CardContent>
     </Card>
   );
@@ -408,13 +462,22 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Gated on `dashboard.show_token_analytics` (default off).  When off the
-  // page renders an explanation card instead of fetching analytics — the
-  // local token counts exclude auxiliary calls and provider retries, so
-  // they diverge from provider billing in ways that mislead users.
+  // Supplementary fetches (recent runs + by-source stats). Their errors
+  // degrade silently to hidden cards (A11) — a broken supplementary card
+  // must never take down the report.
+  const [recent, setRecent] = useState<SessionInfo[] | null>(null);
+  const [recentFailed, setRecentFailed] = useState(false);
+  const [stats, setStats] = useState<SessionStoreStats | null>(null);
+  // `dashboard.show_token_analytics` (default off) is now tile-level (A2):
+  // it hides only the token/cost surfaces (▲ tiles, TokenBarChart, daily/
+  // model tables) because local token counts exclude auxiliary calls and
+  // provider retries. Run/skill/tool counts are exact local facts and
+  // render regardless.
   const [showTokens, setShowTokens] = useState<boolean | null>(null);
   const { t } = useI18n();
+  const navigate = useNavigate();
   const { setAfterTitle, setEnd } = usePageHeader();
+  const W = t.analytics.workload;
 
   useEffect(() => {
     api
@@ -426,178 +489,328 @@ export default function AnalyticsPage() {
       .catch(() => setShowTokens(false));
   }, []);
 
-  const load = useCallback(() => {
-    if (!showTokens) return;
-    setLoading(true);
-    setError(null);
+  // Bumping the nonce refetches usage without the effect body itself
+  // calling setState (react-hooks/set-state-in-effect stays clean —
+  // SkillsPage precedent).
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  useEffect(() => {
+    // Always fetch (A2): skills/tools/session aggregates come from the same
+    // response; the gate only shapes which tiles display.
+    let cancelled = false;
     api
       .getAnalytics(days)
-      .then(setData)
-      .catch((err) => setError(String(err)))
-      .finally(() => setLoading(false));
-  }, [days, showTokens]);
+      .then((res) => {
+        if (cancelled) return;
+        setData(res);
+        setError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [days, reloadNonce]);
+
+  const reload = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setReloadNonce((n) => n + 1);
+  }, []);
+
+  // One fetch on mount + on refresh; no poll (A6/O7 — Analytics is a
+  // report, not a monitor; Sessions owns liveness).
+  const loadSupplements = useCallback(() => {
+    api
+      .getSessions(RECENT_RUNS_LIMIT, 0, undefined, "recent")
+      .then((res) => {
+        setRecent(res.sessions);
+        setRecentFailed(false);
+      })
+      .catch((err) => {
+        console.error("analytics: recent-runs fetch failed", err);
+        setRecentFailed(true);
+      });
+    api
+      .getSessionStats()
+      .then(setStats)
+      .catch((err) => {
+        console.error("analytics: session-stats fetch failed", err);
+        setStats(null);
+      });
+  }, []);
 
   useLayoutEffect(() => {
     // Period selector + refresh both live in afterTitle so the controls
     // sit immediately next to the page title instead of being pinned to
-    // the far-right `end` slot. The active period is conveyed by the
-    // filled (non-outlined) button — no redundant period badge.
+    // the far-right `end` slot. Always rendered (A1.1) — the page always
+    // has content now that the gate is tile-level.
     setAfterTitle(
-      showTokens === false ? null : (
-        <div className="flex flex-wrap items-center gap-1.5">
-          {PERIODS.map((p) => (
-            <Button
-              key={p.label}
-              type="button"
-              size="sm"
-              outlined={days !== p.days}
-              onClick={() => setDays(p.days)}
-            >
-              {p.label}
-            </Button>
-          ))}
+      <PageToolbar
+        label={t.analytics.period}
+        filters={
+          <div className="flex flex-wrap items-center gap-1.5">
+            {PERIODS.map((p) => (
+              <Button
+                key={p.label}
+                type="button"
+                size="sm"
+                outlined={days !== p.days}
+                onClick={() => {
+                  if (days === p.days) return;
+                  // Handler-side loading flip (not effect-side) keeps the
+                  // refresh spinner behavior of the old `load()` path.
+                  setDays(p.days);
+                  setLoading(true);
+                  setError(null);
+                }}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+        }
+        actions={
           <Button
             type="button"
             ghost
             size="icon"
             className="text-muted-foreground hover:text-foreground"
-            onClick={load}
+            onClick={() => {
+              reload();
+              loadSupplements();
+            }}
             disabled={loading}
             aria-label={t.common.refresh}
           >
             {loading ? <Spinner /> : <RefreshCw />}
           </Button>
-        </div>
-      ),
+        }
+      />,
     );
     setEnd(null);
     return () => {
       setAfterTitle(null);
       setEnd(null);
     };
-  }, [days, loading, load, setAfterTitle, setEnd, t.common.refresh, showTokens]);
+  }, [
+    days,
+    loading,
+    reload,
+    loadSupplements,
+    setAfterTitle,
+    setEnd,
+    t.analytics.period,
+    t.common.refresh,
+  ]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    loadSupplements();
+  }, [loadSupplements]);
+
+  // A10: the all-empty state also requires an empty tools list and an
+  // empty (resolved) recent-runs fetch.
+  const allEmpty =
+    data !== null &&
+    data.daily.length === 0 &&
+    data.by_model.length === 0 &&
+    data.skills.top_skills.length === 0 &&
+    data.tools.length === 0 &&
+    recent !== null &&
+    recent.length === 0;
+
+  const toolCallTotal = data
+    ? data.tools.reduce((sum, tool) => sum + tool.count, 0)
+    : 0;
 
   return (
     <div className="flex flex-col gap-6">
       <PluginSlot name="analytics:top" />
 
-      {showTokens === false && (
+      {showTokens === false && <TokenEstimateNotice />}
+
+      {loading && !data && (
+        <div className="flex flex-col gap-6" aria-busy="true">
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Skeleton variant="block" className="h-40" />
+            <Skeleton variant="block" className="h-40" />
+          </div>
+          <Skeleton variant="row-list" rows={6} />
+        </div>
+      )}
+
+      {error && (
         <Card>
-          <CardContent className="py-12">
-            <div className="mx-auto flex max-w-2xl flex-col gap-3 text-sm text-muted-foreground">
-              <h2 className="font-mondwest text-display text-base tracking-wider text-foreground">
-                Token analytics hidden
-              </h2>
-              <p>
-                The token, cost, and per-day analytics on this page are a
-                local debug estimate. They only count successful main-agent
-                responses with a usable <span className="font-mono">usage</span>{" "}
-                block, and silently exclude auxiliary calls (context
-                compression, title generation, vision, session search, web
-                extract, smart approvals, MCP routing, plugin LLM access)
-                plus provider-side retries and fallback attempts. Cache
-                writes are missing entirely.
-              </p>
-              <p>
-                On models with heavy auxiliary traffic (Kimi K2.6, MiniMax
-                M2.7) the local total can be 10x–100x lower than what your
-                provider bills. Hiding these numbers is safer than letting
-                them look authoritative.
-              </p>
-              <p>
-                Check your provider dashboard (OpenRouter, Anthropic, etc.)
-                for actual usage and billing. To re-enable the local debug
-                estimate anyway, set{" "}
-                <span className="font-mono">
-                  dashboard.show_token_analytics: true
-                </span>{" "}
-                in <a href="/config" className="underline">Config</a>.
-              </p>
+          <CardContent className="py-6">
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-sm text-destructive text-center">{error}</p>
+              <Button type="button" outlined size="sm" onClick={reload}>
+                {t.common.retry}
+              </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {showTokens && loading && !data && (
-        <div className="flex items-center justify-center py-24">
-          <Spinner className="text-2xl text-primary" />
-        </div>
-      )}
-
-      {showTokens && error && (
-        <Card>
-          <CardContent className="py-6">
-            <p className="text-sm text-destructive text-center">{error}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {showTokens && data && (
+      {data && !allEmpty && (
         <>
           <div className="grid gap-6 lg:grid-cols-2">
+            {/* Workload summary strip (A1.3): run/api/skill/tool counts are
+                ungated exact local facts; token + cost tiles are ▲gated. */}
             <Card>
               <CardContent className="py-6">
                 <Stats
                   items={[
                     {
-                      label: t.analytics.totalTokens,
-                      value: formatTokens(
-                        data.totals.total_input + data.totals.total_output,
-                      ),
+                      label: W?.runs ?? "runs",
+                      value: {
+                        key: "runs",
+                        node: (
+                          <span className={VALUE_CN}>
+                            {data.totals.total_sessions} (~
+                            {(data.totals.total_sessions / days).toFixed(1)}
+                            {t.analytics.perDayAvg})
+                          </span>
+                        ),
+                      },
                     },
                     {
-                      label: t.analytics.input,
-                      value: formatTokens(data.totals.total_input),
+                      label: W?.apiCalls ?? "api calls",
+                      value: {
+                        key: "api-calls",
+                        node: (
+                          <span className={VALUE_CN}>
+                            {/* SQL SUM over zero rows yields null — fall
+                                back to the per-day api_calls (not sessions). */}
+                            {data.totals.total_api_calls ??
+                              data.daily.reduce(
+                                (sum, d) => sum + d.api_calls,
+                                0,
+                              )}
+                          </span>
+                        ),
+                      },
                     },
                     {
-                      label: t.analytics.output,
-                      value: formatTokens(data.totals.total_output),
+                      label: W?.skillActions ?? "skill actions",
+                      value: {
+                        key: "skill-actions",
+                        node: (
+                          <span className={VALUE_CN}>
+                            {data.skills.summary.total_skill_actions}
+                          </span>
+                        ),
+                      },
                     },
                     {
-                      label: t.analytics.totalSessions,
-                      value: `${data.totals.total_sessions} (~${(data.totals.total_sessions / days).toFixed(1)}${t.analytics.perDayAvg})`,
+                      label: W?.toolCalls ?? "tool calls",
+                      value: {
+                        key: "tool-calls",
+                        node: (
+                          <span className={VALUE_CN}>{toolCallTotal}</span>
+                        ),
+                      },
                     },
-                    {
-                      label: t.analytics.apiCalls,
-                      value: String(
-                        data.totals.total_api_calls ??
-                          data.daily.reduce((sum, d) => sum + d.sessions, 0),
-                      ),
-                    },
+                    ...(showTokens
+                      ? [
+                          {
+                            label: W?.tokens ?? "tokens",
+                            value: {
+                              key: "tokens",
+                              node: (
+                                <span className={VALUE_CN}>
+                                  {formatTokens(
+                                    data.totals.total_input +
+                                      data.totals.total_output,
+                                  )}
+                                </span>
+                              ),
+                            },
+                          },
+                        ]
+                      : []),
+                    ...(showTokens && data.totals.total_estimated_cost > 0
+                      ? [
+                          {
+                            label: W?.estCost ?? "est. cost",
+                            value: {
+                              key: "est-cost",
+                              node: (
+                                <span className={VALUE_CN}>
+                                  {formatCost(
+                                    data.totals.total_estimated_cost,
+                                  )}
+                                </span>
+                              ),
+                            },
+                          },
+                        ]
+                      : []),
                   ]}
                 />
               </CardContent>
             </Card>
 
-            <TokenBarChart daily={data.daily} />
+            {/* A1.4: chart when the gate is on; the by-source meter takes
+                the fold slot when it's off so the fold stays two-up. */}
+            {showTokens ? (
+              <TokenBarChart daily={data.daily} />
+            ) : stats ? (
+              <RunsBySourceCard stats={stats} />
+            ) : null}
           </div>
-
-          <DailyTable daily={data.daily} />
-          <ModelTable models={data.by_model} />
-          <SkillTable skills={data.skills.top_skills} />
         </>
       )}
 
-      {data &&
-        data.daily.length === 0 &&
-        data.by_model.length === 0 &&
-        data.skills.top_skills.length === 0 && (
-          <Card>
-            <CardContent className="py-12">
-              <div className="flex flex-col items-center text-muted-foreground">
-                <BarChart3 className="h-8 w-8 mb-3 opacity-40" />
-                <p className="text-sm font-medium">{t.analytics.noUsageData}</p>
-                <p className="text-xs mt-1 text-text-tertiary">
-                  {t.analytics.startSession}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+      {/* A9: the recent-runs ledger resolves independently of the usage
+          fetch — it renders (with its own skeleton) even while usage is
+          still loading or has errored; a failed supplementary fetch hides
+          the card silently (A11). */}
+      {!allEmpty && !recentFailed && (
+        <RecentRunsCard sessions={recent} limit={RECENT_RUNS_LIMIT} />
+      )}
+
+      {data && !allEmpty && (
+        <>
+          {showTokens && stats && <RunsBySourceCard stats={stats} />}
+
+          {showTokens && <DailyTable daily={data.daily} />}
+          {showTokens && <ModelTable models={data.by_model} />}
+
+          {(data.skills.top_skills.length > 0 || data.tools.length > 0) && (
+            <div className="grid items-start gap-6 lg:grid-cols-2">
+              <SkillTable skills={data.skills.top_skills} />
+              <ToolsTable tools={data.tools} />
+            </div>
+          )}
+        </>
+      )}
+
+      {allEmpty && (
+        <Card>
+          <CardContent className="p-0">
+            <EmptyState
+              icon={BarChart3}
+              title={t.analytics.noUsageData}
+              description={t.analytics.startSession}
+              action={
+                <Button
+                  type="button"
+                  outlined
+                  size="sm"
+                  onClick={() => navigate("/chat")}
+                >
+                  {W?.openChat ?? "Open chat"}
+                </Button>
+              }
+            />
+          </CardContent>
+        </Card>
+      )}
       <PluginSlot name="analytics:bottom" />
     </div>
   );

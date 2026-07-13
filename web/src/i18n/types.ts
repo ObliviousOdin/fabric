@@ -64,8 +64,90 @@ export interface Translations {
     // component until translated, matching the enriched-profiles keys.
     gateway?: string;
     gatewayHint?: string;
+    copyId?: string;
     pluginLoadFailed: string;
     pluginNotRegistered: string;
+  };
+
+  // ── Shared agent-status vocabulary (WORK-section primitives) ──
+  // Optional group: `AgentStatusBadge` falls back to the raw status word
+  // for locales that haven't translated it yet.
+  agentStatus?: {
+    live: string;
+    idle: string;
+    scheduled: string;
+    paused: string;
+    failed: string;
+    done: string;
+  };
+
+  // ── Shared capability-state vocabulary (CAPABILITIES-section primitives) ──
+  // Optional group: capability badges fall back to the English state words
+  // from `capability-state.ts` for locales that haven't translated it yet.
+  capabilities?: {
+    enabled: string;
+    active: string;
+    installed: string;
+    ready: string;
+    disabled: string;
+    inactive: string;
+    needsSetup: string;
+    needsAuth: string;
+    unavailable: string;
+    missing: string;
+    reachable: string;
+    unreachable: string;
+  };
+
+  // ── Shared gateway-restart lifecycle (CONNECT-section primitives, CN3) ──
+  // Optional group: `RestartBanner` falls back to the English literals for
+  // locales that haven't translated it yet.
+  gatewayRestart?: {
+    /** Action label on the restart-needed banner. */
+    restartNow: string;
+    /** Action label while the restart POST is in flight. */
+    restarting: string;
+    /** Default restart-needed copy when the page supplies none. */
+    needed: string;
+  };
+
+  // ── System page (operator's console, Y-requirements) ──
+  // Optional group (CN6): call sites fall back to the English literals
+  // until translated (O5 pattern).
+  system?: {
+    /** Section headings (Y1 order). */
+    host: string;
+    gateway: string;
+    portal: string;
+    curator: string;
+    memory: string;
+    credentialPool: string;
+    operations: string;
+    checkpoints: string;
+    shellHooks: string;
+    /** Shell hooks header/empty-state action (Y10/Y14). */
+    newHook: string;
+    /** Y14 empty-hooks EmptyState. */
+    noHooksTitle: string;
+    noHooksDescription: string;
+  };
+
+  // ── Chat rail (Agent card + Activity feed, CH-requirements) ──
+  // Optional group: the chat rail falls back to English literals until
+  // locales translate it.
+  chatRail?: {
+    /** Chrome label of the Agent card. */
+    agent: string;
+    /** Chrome label of the Activity feed card. */
+    activity: string;
+    /** Trailing label on a tool row awaiting its tool.complete. */
+    running: string;
+    /** Transient state line while the agent streams reply text. */
+    responding: string;
+    /** Transient state line during reasoning/thinking deltas. */
+    reasoning: string;
+    /** Pinned row while an approval.request awaits a terminal response. */
+    waitingApproval: string;
   };
 
   // ── App shell ──
@@ -99,6 +181,17 @@ export interface Translations {
       plugins: string;
       sessions: string;
       skills: string;
+    };
+    /**
+     * Sidebar nav section labels. Optional — non-English locales fall back
+     * to the English literals at the call site until translated.
+     */
+    navSections?: {
+      capabilities: string;
+      connect: string;
+      observe: string;
+      system: string;
+      work: string;
     };
     modelToolsSheetSubtitle: string;
     modelToolsSheetTitle: string;
@@ -190,6 +283,35 @@ export interface Translations {
     newChat: string;
     previousPage: string;
     nextPage: string;
+    /**
+     * WORK-section "run ledger" revamp keys (spec S1–S11). Optional —
+     * call sites fall back to the English literals until translated,
+     * matching the `agentStatus` / `channels` pattern.
+     */
+    ledger?: {
+      statsLabel: string;
+      statsSessions: string;
+      statsActiveNow: string;
+      statsInStore: string;
+      statsMessages: string;
+      statsArchived: string;
+      gatewayLabel: string;
+      toolbarLabel: string;
+      sourceFilterLabel: string;
+      allSources: string;
+      openChat: string;
+      clearSearch: string;
+      clearFilter: string;
+      noSourceTitle: string;
+      /** `{source}` placeholder = the active source filter. */
+      noSourceDescription: string;
+      loadFailed: string;
+      loadEarlier: string;
+      contextCwd: string;
+      contextBranch: string;
+      contextEndReason: string;
+      contextModel: string;
+    };
     roles: {
       user: string;
       assistant: string;
@@ -223,6 +345,34 @@ export interface Translations {
     perDayAvg: string;
     acrossModels: string;
     inOut: string;
+    // Optional workload-report keys (Observe revamp, spec A1–A11):
+    // non-English locales fall back to the English literal at the call
+    // site until translated, matching the `sessions.ledger` pattern.
+    workload?: {
+      runs: string;
+      apiCalls: string;
+      skillActions: string;
+      toolCalls: string;
+      tokens: string;
+      estCost: string;
+      /** Compact one-row notice shown while token analytics are gated off. */
+      estimatesHiddenSummary: string;
+      configLink: string;
+      recentRuns: string;
+      /** `{limit}` placeholder = the recent-runs fetch bound (e.g. "last 20"). */
+      lastRunsQualifier: string;
+      openInSessions: string;
+      noRunsYet: string;
+      noRunsHint: string;
+      openChat: string;
+      busiestTools: string;
+      tool: string;
+      calls: string;
+      /** "+{count} more" footer under the truncated tools table. */
+      moreTools: string;
+      toolCountsNote: string;
+      runsBySource: string;
+    };
   };
 
   // ── Models page ──
@@ -236,6 +386,59 @@ export interface Translations {
     toolCalls: string;
     noModelsData: string;
     startSession: string;
+    // Optional loadout keys (Capabilities revamp, spec M1–M11): non-English
+    // locales fall back to the English literal at the call site until
+    // translated, matching the `analytics.workload` pattern.
+    loadout?: {
+      /** Chrome label of the assignment surface (M2). */
+      loadout: string;
+      /** Load-bearing subtitle — assignments apply to new sessions only. */
+      appliesToNewSessions: string;
+      mainModel: string;
+      auxiliaryTasks: string;
+      mixtureOfAgents: string;
+      /** Italic-muted placeholder for an unset provider/model slot. */
+      unset: string;
+      /** One-line inline warning when `/api/model/auxiliary` fails (M11). */
+      auxUnavailable: string;
+      /** Destructive banner when the analytics load fails (M11). */
+      loadFailed: string;
+      /** Compact one-row token-gate notice (CAP8, Observe A1.2 pattern). */
+      tokensHiddenSummary: string;
+      configLink: string;
+    };
+  };
+
+  // ── MCP page ──
+  // Optional group (CAPABILITIES revamp, spec X1–X11): call sites fall back
+  // to the English literals until a locale translates it.
+  mcp?: {
+    addServer: string;
+    yourServers: string;
+    /** `{n}` = configured servers, `{m}` = enabled servers (X3 summary). */
+    serversSummary: string;
+    noServersTitle: string;
+    noServersDescription: string;
+    catalog: string;
+    catalogIntro: string;
+    noCatalogTitle: string;
+    restartNote: string;
+    test: string;
+    login: string;
+    waitingForBrowser: string;
+    connectedNoTools: string;
+    /** `{n}` placeholders (mono meta-line counts). */
+    envVarCount: string;
+    envVarsCount: string;
+    toolsEnabledCount: string;
+    promptsCount: string;
+    resourcesCount: string;
+    // Installed-state chip label lives in the shared `capabilities` group.
+    install: string;
+    installing: string;
+    installingBackground: string;
+    loadServersFailed: string;
+    loadCatalogFailed: string;
   };
 
   // ── Logs page ──
@@ -247,6 +450,26 @@ export interface Translations {
     component: string;
     lines: string;
     noLogLines: string;
+    // Optional: non-English locales fall back to the English literal at the
+    // call site until translated.
+    noLinesHint?: string;
+    jumpToLatest?: string;
+    // Observe revamp (spec L4/L5/L9/L11/L13) — optional: non-English
+    // locales fall back to the English literals at the call site.
+    searchPlaceholder?: string;
+    clearSearch?: string;
+    /** `{term}` placeholder = the active search/session term. */
+    noMatchesFor?: string;
+    filterSession?: string;
+    streaming?: string;
+    streamingScrolled?: string;
+    streamPaused?: string;
+    pausedHere?: string;
+    earlierScrolledOut?: string;
+    /** `{n}` placeholder = fetched-window size (chip/tally `title`s). */
+    inViewHint?: string;
+    errAbbrev?: string;
+    warnAbbrev?: string;
   };
 
   // ── Cron page ──
@@ -297,11 +520,30 @@ export interface Translations {
     deliverTo: string;
     scheduledJobs: string;
     noJobs: string;
+    // Optional: non-English locales fall back to `noJobs` / the English
+    // literal at the call site until translated.
+    noJobsTitle?: string;
+    noJobsDescription?: string;
     last: string;
     next: string;
     pause: string;
     resume: string;
     triggerNow: string;
+    // Optional agentic-revamp strings (C2 summary strip, C6 run-history
+    // drawer, C12/C13 states). Non-English locales fall back to the English
+    // literals at the call sites until translated.
+    agents?: {
+      statJobs: string;
+      statNextRun: string;
+      statPaused: string;
+      statFailing: string;
+      runHistory: string;
+      jobsLoadFailed: string;
+      runsLoadFailed: string;
+      noRunsTitle: string;
+      noRunsDescription: string;
+      openInSessions: string;
+    };
     delivery: {
       local: string;
       telegram: string;
@@ -311,6 +553,55 @@ export interface Translations {
       needsHomeChannel?: string;
       noneConfigured?: string;
     };
+  };
+
+  // ── Channels page ──
+  /**
+   * Optional — the page is otherwise un-i18n'd; call sites fall back to the
+   * English literals until translated (same pattern as `commandPalette`).
+   */
+  channels?: {
+    noChannelsTitle: string;
+    noChannelsDescription: string;
+    /** Load-failure banner copy (CONNECT revamp H5). */
+    loadFailed?: string;
+    /** `title` on the sessions-count usage-evidence segment (H6). */
+    sessionsEvidenceTitle?: string;
+  };
+
+  // ── Webhooks page ──
+  /**
+   * Optional — the page is otherwise un-i18n'd; call sites fall back to
+   * the English literals until translated (O5 pattern, CN6).
+   */
+  webhooks?: {
+    noSubscriptionsTitle: string;
+    noSubscriptionsDescription: string;
+    loadFailed: string;
+  };
+
+  // ── Pairing page ──
+  /**
+   * Optional — call sites fall back to the English literals until
+   * translated (CN6, same O5 pattern as `channels`).
+   */
+  pairing?: {
+    pendingHeading: string;
+    approvedHeading: string;
+    noPendingTitle: string;
+    noPendingDescription: string;
+    noApprovedTitle: string;
+    noApprovedDescription: string;
+    loadFailed: string;
+    clearPending: string;
+    clearPendingConfirm: string;
+  };
+
+  // ── Files page ──
+  /** Optional — same CN6/O5 fallback pattern as `pairing`. */
+  files?: {
+    noFilesTitle: string;
+    noFilesDescription: string;
   };
 
   // ── Plugins page ──
@@ -351,6 +642,19 @@ export interface Translations {
     versionBadge: string;
     showInSidebar: string;
     hideFromSidebar: string;
+    // Optional CAPABILITIES-revamp strings (spec P1 loadout-first order,
+    // P2 corrected state chips, P6–P8 states). Non-English locales fall
+    // back to the English literals at the call sites until translated
+    // (same pattern as `cron.agents`).
+    agents?: {
+      enginesLabel: string;
+      hubLoadFailed: string;
+      noPluginsTitle: string;
+      noPluginsDescription: string;
+      installCta: string;
+      // `needs auth` chip label lives in the shared `capabilities` group.
+      stateEffectNote: string;
+    };
   };
 
   // ── Profiles page ──
@@ -418,6 +722,12 @@ export interface Translations {
     actions?: string;
     manageSkills?: string;
     activeSetHint?: string;
+    // CONNECT+SYSTEM revamp (PR1/PR7). Optional — English fallbacks at the
+    // call sites until translated (O5 pattern).
+    /** PR1 `title` copy: active = sticky default for new runs, current = this dashboard's scope. */
+    activeVsCurrentTitle?: string;
+    /** PR7 roster load-failure banner text. */
+    loadFailed?: string;
   };
 
   // ── Skills page ──
@@ -443,6 +753,35 @@ export interface Translations {
     profileSelector?: string;
     currentProfile?: string;
     managingProfile?: string;
+    /**
+     * CAPABILITIES revamp (K-requirements). Optional group — the Skills
+     * page falls back to the English literals at the call sites until
+     * translated (same pattern as `sessions.ledger`).
+     */
+    inventory?: {
+      /** Chrome label of the rail provenance-filter group (K2). */
+      provenance: string;
+      provenanceHub: string;
+      provenanceBundled: string;
+      /** `agent` provenance is labeled "custom" in UI copy (K2). */
+      provenanceAgent: string;
+      /** `{count} use{s}` skill-usage meta segment (K4/K5). */
+      uses: string;
+      /** `{count} tool{s}` toolset meta segment (K7). */
+      toolCount: string;
+      /** `~{count} calls · 30d` best-effort toolset usage join (K7/R20). */
+      callsMeta: string;
+      /** `title` caveat on the calls segment (R14/R20). */
+      callsCaveat: string;
+      /** R16 `title` copy on toolset/skill state — no hot-swap implied. */
+      appliesNewSessions: string;
+      loadFailed: string;
+      noSkillsTitle: string;
+      noMatchTitle: string;
+      noToolsetsTitle: string;
+      clearSearch: string;
+      clearFilter: string;
+    };
   };
 
   // ── Config page ──
@@ -467,6 +806,14 @@ export interface Translations {
     failedToLoadRaw: string;
     configImported: string;
     invalidJson: string;
+    // CONNECT+SYSTEM revamp (CF4/CF5). Optional — English fallbacks at
+    // the call sites until translated (O5 pattern).
+    /** CF5 truthfulness note rendered once under the config path. */
+    effectNote?: string;
+    /** CF4 shared load-failure banner (config *and* schema both failed). */
+    loadFailed?: string;
+    /** CF4 no-match search action button. */
+    clearSearch?: string;
     categories: {
       general: string;
       agent: string;
@@ -514,6 +861,20 @@ export interface Translations {
     customKeyNamePlaceholder: string;
     add: string;
     invalidKeyName: string;
+    // CONNECT+SYSTEM revamp (E3/E7/E8). Optional — English fallbacks at the
+    // call sites until translated (O5 pattern).
+    /** E7 probe action label ("Test"). */
+    testKey?: string;
+    /** E7 probe in-flight label ("Testing…"). */
+    testingKey?: string;
+    /** E7 success chip label for an accepted credential. */
+    keyAccepted?: string;
+    /** E7 warning chip label when the probe could not reach the provider. */
+    keyUnreachable?: string;
+    /** E3 specific 429 message for the reveal rate limit (§0.7). */
+    revealRateLimited?: string;
+    /** E8 load-failure banner text. */
+    loadFailed?: string;
   };
 
   // ── OAuth ──
@@ -586,6 +947,34 @@ export interface Translations {
     fontSans?: string;
     fontSerif?: string;
     fontMono?: string;
+    /** Appearance + contrast controls (optional — English fallback). */
+    appearance?: string;
+    appearanceDark?: string;
+    appearanceLight?: string;
+    appearanceSystem?: string;
+    highContrast?: string;
+  };
+
+  // ── Command palette & keyboard shortcuts ──
+  /**
+   * Optional — non-English locales fall back to the English literals at the
+   * call sites until translated (same pattern as `app.navSections`).
+   */
+  commandPalette?: {
+    title: string;
+    placeholder: string;
+    pages: string;
+    actions: string;
+    themes: string;
+    noResults: string;
+    openPalette: string;
+    showShortcuts: string;
+    shortcutsTitle: string;
+    toggleSidebar: string;
+    scopeGlobal: string;
+    hintNavigate: string;
+    hintSelect: string;
+    hintClose: string;
   };
 
   // ── Achievements plugin (plugins/fabric-achievements) ──

@@ -50,6 +50,11 @@
 :root {
   /* These are the defaults for the `default` (Fabric Teal) dashboard theme;
      ThemeProvider rewrites them as inline styles when a user switches themes. */
+
+  /* Native form controls / scrollbars match the dark default canvas before
+     ThemeProvider mounts; applyTheme rewrites this per theme (light themes
+     — fabric-light, fabric-blue — flip it to `light`). */
+  color-scheme: dark;
   --foreground: color-mix(in srgb, #ffffff 0%, transparent);
   --foreground-base: #ffffff;
   --foreground-alpha: 0;

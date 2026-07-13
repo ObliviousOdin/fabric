@@ -14,6 +14,7 @@ import {
   type TimelineNodeKind,
 } from "@/components/ui";
 import { useI18n } from "@/i18n";
+import { splitCompactionContent } from "@/components/sessions/compaction";
 import { formatCompactCount, formatRunDuration } from "./job-utils";
 
 /**
@@ -37,37 +38,9 @@ const META_SEPARATOR = (
   </span>
 );
 
-// ── #29824 — compaction-handoff rows ───────────────────────────────────
-// Context-compaction handoffs are persisted as ``role="user"``/
-// ``role="assistant"`` rows whose content starts with one of these
-// prefixes — compressor metadata, not real turns. The timeline downgrades
-// them to a muted `kind:"handoff"` node (S4), splitting a merged
-// summary+reply row back into two nodes so the actual reply stays
-// readable. Keep prefixes + END marker in sync with
-// ``agent/context_compressor.py`` (same contract as SessionsPage).
-const COMPACTION_PREFIXES = [
-  "[CONTEXT COMPACTION — REFERENCE ONLY]",
-  "[CONTEXT COMPACTION - REFERENCE ONLY]",
-  "[CONTEXT SUMMARY]:",
-] as const;
-
-const COMPACTION_END_MARKER =
-  "--- END OF CONTEXT SUMMARY — respond to the message below, not the summary above ---";
-
-function splitCompactionContent(
-  content: string,
-): { summary: string; remainder: string } | null {
-  const head = content.trimStart();
-  if (!COMPACTION_PREFIXES.some((p) => head.startsWith(p))) return null;
-  const markerIdx = content.indexOf(COMPACTION_END_MARKER);
-  if (markerIdx < 0) return { summary: content, remainder: "" };
-  return {
-    summary: content.slice(0, markerIdx),
-    remainder: content
-      .slice(markerIdx + COMPACTION_END_MARKER.length)
-      .replace(/^\s+/, ""),
-  };
-}
+// #29824 compaction-handoff detection is shared with the Sessions timeline
+// (`@/components/sessions/compaction`) — one copy of the prefixes/END
+// marker keeps this drawer in sync with ``agent/context_compressor.py``.
 
 /** Collapsed tool-call block: mono name + `MonoId` of the call id, pretty-printed args on expand (S4). */
 function RunToolCall({

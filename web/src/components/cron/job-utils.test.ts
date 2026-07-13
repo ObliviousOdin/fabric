@@ -48,6 +48,22 @@ describe("summarizeCronJobs (C2)", () => {
     expect(summary.nextRunAt).toBe(soon);
   });
 
+  it("ignores next_run_at on jobs that will never fire (paused/disabled/completed)", () => {
+    const soon = "2026-07-13T12:05:00Z";
+    const later = "2026-07-13T14:00:00Z";
+    const summary = summarizeCronJobs(
+      [
+        // pause_job keeps the stale next_run_at — it must not win the stat.
+        job({ id: "a", state: "paused", next_run_at: soon }),
+        job({ id: "b", enabled: false, next_run_at: soon }),
+        job({ id: "c", state: "completed", next_run_at: soon }),
+        job({ id: "d", next_run_at: later }),
+      ],
+      NOW_MS,
+    );
+    expect(summary.nextRunAt).toBe(later);
+  });
+
   it("returns null next run when nothing is scheduled in the future", () => {
     expect(
       summarizeCronJobs([job({ id: "a", next_run_at: null })], NOW_MS)

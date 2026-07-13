@@ -92,8 +92,21 @@ export function CronJobRow({
     <Card className={cn(runningNow && "border-success/30 bg-success/[0.03]")}>
       <CardContent className="p-0">
         <div
-          className="flex cursor-pointer items-start gap-4 px-4 py-4 transition-colors hover:bg-secondary/30"
+          className="flex cursor-pointer items-start gap-4 px-4 py-4 transition-colors hover:bg-secondary/30 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30"
           onClick={onToggleExpanded}
+          // The run-history drawer (C6) is a NEW capability — it must be
+          // keyboard-operable, not mouse-only. The guard keeps Enter/Space
+          // on the nested action buttons from also toggling the drawer.
+          role="button"
+          tabIndex={0}
+          aria-expanded={expanded}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onToggleExpanded();
+            }
+          }}
         >
           <span className="shrink-0 pt-0.5 text-muted-foreground">
             {expanded ? (
@@ -132,7 +145,17 @@ export function CronJobRow({
               {META_SEPARATOR}
               <span>
                 {t.cron.next.toLowerCase()}:{" "}
-                <NextRunCountdown nextRunAt={job.next_run_at} />
+                {/* C5 scopes "overdue" to enabled jobs: the backend keeps a
+                    stale `next_run_at` on pause (cron/jobs.py pause_job), so
+                    paused/disabled/completed jobs must render `—`, not a
+                    warning-toned countdown for a run that will never fire. */}
+                <NextRunCountdown
+                  nextRunAt={
+                    derived.status === "paused" || derived.status === "done"
+                      ? null
+                      : job.next_run_at
+                  }
+                />
               </span>
               {META_SEPARATOR}
               <span>

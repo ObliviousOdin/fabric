@@ -22,7 +22,12 @@ export type ActivityStateLine = "responding" | "reasoning";
 
 export interface ToolFeedRow {
   rowKind: "tool";
-  /** Stable render key (tool_id, seq-suffixed when the id is missing). */
+  /**
+   * Stable render key. Always seq-suffixed: some providers number tool
+   * calls per turn ("call_0", "call_1"), so a raw tool_id repeats across
+   * turns while old rows are still inside the retention window — reused
+   * ids must never collide as React keys.
+   */
   key: string;
   toolId: string;
   name: string;
@@ -143,7 +148,7 @@ export function reduceActivityEvent(
       const seq = state.seq + 1;
       const row: ToolFeedRow = {
         rowKind: "tool",
-        key: toolId || `tool-${seq}`,
+        key: toolId ? `${toolId}#${seq}` : `tool-${seq}`,
         toolId,
         name,
         context: asTrimmedString(record?.context) || undefined,
@@ -193,7 +198,7 @@ export function reduceActivityEvent(
       const seq = state.seq + 1;
       const row: ToolFeedRow = {
         rowKind: "tool",
-        key: toolId || `tool-${seq}`,
+        key: toolId ? `${toolId}#${seq}` : `tool-${seq}`,
         toolId,
         name: asTrimmedString(record?.name) || "tool",
         running: false,

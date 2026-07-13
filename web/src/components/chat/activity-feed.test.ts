@@ -73,6 +73,22 @@ describe("CH3 activity-feed reducer", () => {
     });
   });
 
+  it("keeps render keys unique when a provider reuses tool_call ids across turns", () => {
+    // Some providers number tool calls per turn ("call_0"…), so the same
+    // tool_id legitimately recurs while older rows are still retained.
+    const state = feedEvents([
+      ["tool.start", { tool_id: "call_0", name: "bash" }],
+      ["tool.complete", { tool_id: "call_0", name: "bash", duration_s: 1 }],
+      ["tool.start", { tool_id: "call_0", name: "web_search" }],
+    ]);
+    expect(state.rows).toHaveLength(2);
+    const keys = state.rows.map((r) => r.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    // The second start is a fresh running row; the first stays completed.
+    expect(state.rows[0]).toMatchObject({ name: "web_search", running: true });
+    expect(state.rows[1]).toMatchObject({ name: "bash", running: false });
+  });
+
   it("prepends an already-done row for an unmatched tool.complete", () => {
     const state = feedEvents([
       ["tool.complete", { tool_id: "orphan", name: "bash", duration_s: 4 }],

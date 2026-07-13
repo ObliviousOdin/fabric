@@ -62,6 +62,31 @@ describe("RunRow", () => {
     expect(container.querySelector("[role=checkbox]")).not.toBeNull();
   });
 
+  it("makes the expand gesture keyboard-operable when onToggle is provided", async () => {
+    let toggles = 0;
+    await act(async () => {
+      root.render(
+        <RunRow {...BASE} status="done" onToggle={() => toggles++} expanded={false} />,
+      );
+    });
+    const row = container.querySelector("[role=button]") as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row.getAttribute("tabindex")).toBe("0");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => {
+      row.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(toggles).toBe(1);
+
+    // Without onToggle the row is inert — no phantom button semantics.
+    await act(async () => {
+      root.render(<RunRow {...BASE} status="done" />);
+    });
+    expect(container.querySelector("[role=button]")).toBeNull();
+  });
+
   it("truncates the id and shows the expansion body only when expanded", async () => {
     await act(async () => {
       root.render(

@@ -121,8 +121,13 @@ export function summarizeCronJobs(
   let paused = 0;
   let failing = 0;
   for (const job of jobs) {
-    if (job.state === "paused" || job.enabled === false) paused += 1;
+    const isPaused = job.state === "paused" || job.enabled === false;
+    if (isPaused) paused += 1;
     if (job.state === "error" || job.last_status === "error") failing += 1;
+    // Paused/disabled/completed jobs never fire: the backend keeps a stale
+    // `next_run_at` on pause (cron/jobs.py pause_job), so a non-schedulable
+    // job must not feed the "next run" stat.
+    if (isPaused || job.state === "completed") continue;
     const seconds = normalizeEpochSeconds(job.next_run_at);
     // Only strictly-future runs feed the "next run" stat — a stale past-due
     // timestamp would render "overdue" where the spec wants the soonest

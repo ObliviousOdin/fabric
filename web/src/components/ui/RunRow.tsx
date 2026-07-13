@@ -89,9 +89,27 @@ export function RunRow({
       <div
         className={cn(
           "flex items-start gap-3 p-3 transition-colors hover:bg-secondary/30",
-          onToggle && "cursor-pointer",
+          onToggle &&
+            "cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30",
         )}
         onClick={onToggle}
+        // Expand/collapse must be keyboard-operable too. The guard keeps
+        // Enter/Space on nested controls (checkbox, action buttons, MonoId)
+        // from also toggling the row.
+        role={onToggle ? "button" : undefined}
+        tabIndex={onToggle ? 0 : undefined}
+        aria-expanded={onToggle ? !!expanded : undefined}
+        onKeyDown={
+          onToggle
+            ? (e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onToggle();
+                }
+              }
+            : undefined
+        }
       >
         {onSelectClick && (
           <span className="flex shrink-0 items-center pt-0.5">

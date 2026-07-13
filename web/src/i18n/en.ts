@@ -97,6 +97,7 @@ export const en: Translations = {
     noHooksTitle: "No shell hooks configured",
     noHooksDescription:
       "Hooks run trusted scripts on gateway and session events.",
+    sectionsFailed: "Some system data failed to load",
   },
 
   chatRail: {

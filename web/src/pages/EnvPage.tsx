@@ -197,7 +197,12 @@ export default function EnvPage() {
               [key]: {
                 ...prev[key],
                 is_set: true,
-                redacted_value: value.slice(0, 4) + "..." + value.slice(-4),
+                // Short secrets must be fully masked — head+tail slices of a
+                // value under 9 chars overlap and echo the whole secret back.
+                redacted_value:
+                  value.length > 8
+                    ? value.slice(0, 4) + "..." + value.slice(-4)
+                    : "••••••••",
               },
             }
           : prev,

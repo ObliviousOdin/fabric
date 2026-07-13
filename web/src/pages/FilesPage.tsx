@@ -373,7 +373,7 @@ export default function FilesPage() {
           {error && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
               <span className="min-w-0 break-words">{error}</span>
-              <Button outlined size="xs" type="button" onClick={() => void load()}>
+              <Button outlined size="sm" type="button" onClick={() => void load()}>
                 {t.common.retry}
               </Button>
             </div>

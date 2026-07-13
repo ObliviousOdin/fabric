@@ -130,6 +130,8 @@ export interface Translations {
     /** Y14 empty-hooks EmptyState. */
     noHooksTitle: string;
     noHooksDescription: string;
+    /** Fetch-failure banner prefix (optional — English fallback inline). */
+    sectionsFailed?: string;
   };
 
   // ── Chat rail (Agent card + Activity feed, CH-requirements) ──

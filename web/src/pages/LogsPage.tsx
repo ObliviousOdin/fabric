@@ -158,7 +158,7 @@ function LevelChips({
               active
                 ? "border-primary/40 bg-primary/[0.06] text-foreground"
                 : "border-border text-muted-foreground hover:text-foreground",
-              belowThreshold && "text-text-tertiary opacity-60",
+              belowThreshold && "text-text-tertiary",
             )}
           >
             {chip}

@@ -195,7 +195,7 @@ export function ProfileCard({
               "line-clamp-2",
               p.description
                 ? "text-muted-foreground"
-                : "text-muted-foreground/60 italic",
+                : "text-muted-foreground italic",
             )}
           >
             {p.description || labels.noDescription}

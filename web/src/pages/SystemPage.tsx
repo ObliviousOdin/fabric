@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
+  AlertTriangle,
   Brain,
   Database,
   Globe,
@@ -9,6 +10,7 @@ import {
   Server,
   Sparkles,
 } from "lucide-react";
+import { Button } from "@nous-research/ui/ui/components/button";
 import { Toast } from "@nous-research/ui/ui/components/toast";
 import { useToast } from "@nous-research/ui/hooks/use-toast";
 import { EgressStatusCard } from "@/components/EgressStatusCard";
@@ -110,59 +112,79 @@ export default function SystemPage() {
     setSettled((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
   }, []);
 
+  // Sections whose fetch failed on the most recent loadAll — surfaced as a
+  // single banner so a dead backend doesn't masquerade as healthy defaults
+  // (status=null used to render the gateway as "stopped" with Start armed).
+  // Each fetch settles its own entry from its then/catch (never
+  // synchronously inside loadAll), so a successful retry clears its key.
+  const [failedSections, setFailedSections] = useState<SectionKey[]>([]);
+  const markSection = useCallback((key: SectionKey, failed: boolean) => {
+    setFailedSections((prev) => {
+      if (failed) return prev.includes(key) ? prev : [...prev, key];
+      return prev.includes(key) ? prev.filter((k) => k !== key) : prev;
+    });
+  }, []);
+
   const loadAll = useCallback(() => {
     // Each fetch resolves and settles its own section (Y14/R29): the
     // slowest endpoint (the network-bound update check) must never blank
     // the whole console, and a failed portal fetch skeleton→hides only
     // the Portal card.
+    const track =
+      <T,>(key: SectionKey, apply: (value: T) => void) =>
+      (value: T) => {
+        apply(value);
+        markSection(key, false);
+      };
     void api
       .getStatus()
-      .then(setStatus)
-      .catch(() => undefined)
+      .then(track("status", setStatus))
+      .catch(() => markSection("status", true))
       .finally(() => settle("status"));
     void api
       .getSystemStats()
-      .then(setStats)
-      .catch(() => undefined)
+      .then(track("stats", setStats))
+      .catch(() => markSection("stats", true))
       .finally(() => settle("stats"));
     void api
       .getMemory()
-      .then(setMemory)
-      .catch(() => undefined)
+      .then(track("memory", setMemory))
+      .catch(() => markSection("memory", true))
       .finally(() => settle("memory"));
     void api
       .getCredentialPool()
-      .then((p) => setPool(p.providers))
-      .catch(() => undefined)
+      .then(track("pool", (p: { providers: CredentialPoolProvider[] }) => setPool(p.providers)))
+      .catch(() => markSection("pool", true))
       .finally(() => settle("pool"));
     void api
       .getCheckpoints()
-      .then(setCheckpoints)
-      .catch(() => undefined)
+      .then(track("checkpoints", setCheckpoints))
+      .catch(() => markSection("checkpoints", true))
       .finally(() => settle("checkpoints"));
     void api
       .getHooks()
-      .then(setHooks)
-      .catch(() => undefined)
+      .then(track("hooks", setHooks))
+      .catch(() => markSection("hooks", true))
       .finally(() => settle("hooks"));
     void api
       .getCurator()
-      .then(setCurator)
-      .catch(() => undefined)
+      .then(track("curator", setCurator))
+      .catch(() => markSection("curator", true))
       .finally(() => settle("curator"));
     void api
       .getPortal()
-      .then(setPortal)
-      .catch(() => undefined)
+      .then(track("portal", setPortal))
+      .catch(() => markSection("portal", true))
       .finally(() => settle("portal"));
     // Cached (non-forced) check so the version row shows update status on
-    // load without a separate effect / a forced network round-trip.
+    // load without a separate effect / a forced network round-trip. A
+    // failed update check is routine offline, so it never joins the banner.
     void api
       .checkHermesUpdate(false)
       .then(setUpdateInfo)
       .catch(() => undefined)
       .finally(() => settle("update"));
-  }, [settle]);
+  }, [markSection, settle]);
 
   useEffect(() => {
     loadAll();
@@ -240,6 +262,23 @@ export default function SystemPage() {
           onComplete={handleActionComplete}
           onClose={() => setActiveAction(null)}
         />
+      )}
+
+      {/* Fetch-failure banner: a section rendering its zero state (gateway
+          "stopped", 0-byte checkpoints, blank host cells) must be
+          distinguishable from the backend being unreachable. */}
+      {failedSections.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border border-destructive/50 bg-destructive/10 p-3 text-sm">
+          <div className="flex min-w-0 items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <span className="min-w-0 break-words text-destructive">
+              {`${ts?.sectionsFailed ?? "Some system data failed to load"}: ${failedSections.join(", ")}`}
+            </span>
+          </div>
+          <Button outlined size="sm" className="uppercase shrink-0" onClick={loadAll}>
+            {t.common.retry}
+          </Button>
+        </div>
       )}
 
       {/* ── Host / system stats (Y11) ─────────────────────────────── */}

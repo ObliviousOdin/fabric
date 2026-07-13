@@ -120,8 +120,9 @@ export interface ThemeComponentStyles {
  *  Models, etc.). Themes provide hex strings; the provider emits them as
  *  `--series-input-token` / `--series-output-token` CSS vars consumed
  *  inline by pages that render input-vs-output token flows. Themes can
- *  omit either field to inherit the default token defined in
- *  `index.css` (Fabric teal `#ffe6cb` for input, `#34d399` for output). */
+ *  omit either field to inherit the defaults defined in `index.css`
+ *  (theme text tone for input, the theme's primary accent — Fabric blue
+ *  when unset — for output). */
 export interface ThemeSeriesColors {
   /** Input-tokens series accent (Analytics chart bars + table values). */
   inputTokenAccent?: string;

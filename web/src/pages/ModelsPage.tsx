@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertTriangle, Cpu, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import type {
@@ -269,9 +270,9 @@ export default function ModelsPage() {
                   {L?.tokensHiddenSummary ??
                     "token & cost estimates hidden — local counts diverge from provider billing"}{" "}
                   &#183;{" "}
-                  <a href="/config" className="underline">
+                  <Link to="/config" className="underline">
                     {L?.configLink ?? "Config"}
-                  </a>
+                  </Link>
                 </span>
               </div>
             )}
@@ -296,7 +297,7 @@ export default function ModelsPage() {
           <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
           <span className="min-w-0 flex-1 text-sm text-destructive">
             {L?.loadFailed ?? "Failed to load model analytics"}
-            <span className="ml-2 font-mono text-xs opacity-80">{error}</span>
+            <span className="ml-2 font-mono text-xs">{error}</span>
           </span>
           <Button outlined size="sm" className="shrink-0" onClick={load}>
             {t.common.retry}

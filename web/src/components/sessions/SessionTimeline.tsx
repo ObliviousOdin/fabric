@@ -50,11 +50,11 @@ function ToolCallBlock({
           {toolCall.function.name}
         </span>
         <span className="ml-auto">
-          <MonoId id={toolCall.id} className="text-warning/50" />
+          <MonoId id={toolCall.id} className="text-muted-foreground" />
         </span>
       </ListItem>
       {open && (
-        <pre className="border-t border-warning/20 px-3 py-2 text-xs text-warning/80 overflow-x-auto whitespace-pre-wrap font-mono">
+        <pre className="border-t border-warning/20 px-3 py-2 text-xs text-muted-foreground overflow-x-auto whitespace-pre-wrap font-mono">
           {args}
         </pre>
       )}

@@ -13,7 +13,13 @@ import {
   GENERATED_THEME_VARIANTS,
   generatedThemeNameForAppearance,
 } from "./generated";
-import { themeAppearance } from "./generate";
+import {
+  bestForeground,
+  ensureContrast,
+  isLightColor,
+  oklchToHex,
+  themeAppearance,
+} from "./generate";
 import type { ThemeContrast } from "./generate";
 import {
   FONT_CHOICES,
@@ -36,6 +42,10 @@ import type {
   ThemeTypography,
 } from "./types";
 import { api } from "@/lib/api";
+import {
+  DEFAULT_TERMINAL_BACKGROUND,
+  DEFAULT_TERMINAL_FOREGROUND,
+} from "@/lib/terminal-theme";
 
 /** LocalStorage key — pre-applied before the React tree mounts to avoid
  *  a visible flash of the default palette on theme-overridden installs. */
@@ -182,10 +192,21 @@ const OVERRIDE_KEY_TO_VAR: Record<keyof ThemeColorOverrides, string> = {
   ring: "--color-ring",
 };
 
+/** The `@theme inline` bridge in index.css bakes `var(--theme-color-*, …)`
+ *  chains into compiled utilities, so overrides must land on that slot;
+ *  the plain `--color-*` copy keeps DS dist styles and plugin CSS that
+ *  read the vars directly in sync. */
+function themeOverrideVarFor(cssVar: string): string {
+  return cssVar.replace(/^--color-/, "--theme-color-");
+}
+
 /** Keys we might have written on a previous theme — needed to know which
  *  properties to clear when a theme with fewer overrides replaces one
  *  with more. */
-const ALL_OVERRIDE_VARS = Object.values(OVERRIDE_KEY_TO_VAR);
+const ALL_OVERRIDE_VARS = Object.values(OVERRIDE_KEY_TO_VAR).flatMap((v) => [
+  v,
+  themeOverrideVarFor(v),
+]);
 
 function overrideVars(
   overrides: ThemeColorOverrides | undefined,
@@ -195,8 +216,35 @@ function overrideVars(
   for (const [key, value] of Object.entries(overrides)) {
     if (!value) continue;
     const cssVar = OVERRIDE_KEY_TO_VAR[key as keyof ThemeColorOverrides];
-    if (cssVar) out[cssVar] = value;
+    if (cssVar) {
+      out[cssVar] = value;
+      out[themeOverrideVarFor(cssVar)] = value;
+    }
   }
+  return out;
+}
+
+/** AA status tones for themes that don't pin their own. The bridge
+ *  defaults (#be2323/#137d41/#876200) are tuned for the light canvas and
+ *  fall to ~3:1 on dark presets, so any theme that omits a status
+ *  override gets one derived against its actual background — the same
+ *  fixed-hue recipe `generateTheme` uses (generate.ts status tones),
+ *  with lightness matched to the theme's appearance. */
+function deriveStatusFallbacks(theme: DashboardTheme): ThemeColorOverrides {
+  const overrides = theme.colorOverrides ?? {};
+  const bgHex = theme.palette.background.hex;
+  const statusL = isLightColor(bgHex) ? 0.52 : 0.72;
+  const status = (h: number, c: number): string =>
+    oklchToHex(ensureContrast({ l: statusL, c, h }, bgHex, 4.5));
+  const out: ThemeColorOverrides = {};
+  if (!overrides.destructive) {
+    out.destructive = status(27, 0.19);
+    if (!overrides.destructiveForeground) {
+      out.destructiveForeground = bestForeground(out.destructive);
+    }
+  }
+  if (!overrides.success) out.success = status(152, 0.13);
+  if (!overrides.warning) out.warning = status(83, 0.14);
   return out;
 }
 
@@ -426,6 +474,7 @@ function applyTheme(theme: DashboardTheme) {
     ...paletteVars(theme.palette),
     ...typographyVars(theme.typography),
     ...layoutVars(theme.layout),
+    ...overrideVars(deriveStatusFallbacks(theme)),
     ...overrideVars(theme.colorOverrides),
     ...seriesColorVars(theme.seriesColors),
     ...assetMap,
@@ -447,11 +496,11 @@ function applyTheme(theme: DashboardTheme) {
   // Terminal colors — read by ChatPage via useTheme(); also available as CSS vars.
   root.style.setProperty(
     "--theme-terminal-background",
-    theme.terminalBackground ?? "#000000",
+    theme.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND,
   );
   root.style.setProperty(
     "--theme-terminal-foreground",
-    theme.terminalForeground ?? "#f0e6d2",
+    theme.terminalForeground ?? DEFAULT_TERMINAL_FOREGROUND,
   );
 
   // Re-assert the font override last: theme application just rewrote

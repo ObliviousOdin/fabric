@@ -163,7 +163,10 @@
     --ui-green: #1f8a65;
     --ui-cyan: #4c7f8c;
     --ui-blue: #0053fd;
-    --ui-purple: #9e94d5;
+    /* Light-surface purple: same hue family as the dark-mode #9e94d5 but
+       darkened to hold AA-adjacent contrast on light chrome (the pastel
+       reads at ~2.6:1 there); :root.dark restores the pastel. */
+    --ui-purple: #695e9b;
     --context-usage-system: color-mix(in srgb, var(--ui-base) 55%, transparent);
     --context-usage-tools: var(--ui-purple);
     --context-usage-rules: var(--ui-green);
@@ -423,6 +426,7 @@
     --ui-red: #e75e78;
     --ui-green: #55a583;
     --ui-cyan: #6f9ba6;
+    --ui-purple: #9e94d5;
 
     --sidebar-edge-border: color-mix(in srgb, var(--ui-base) 12%, transparent);
     --composer-ring-strength: 1.3;

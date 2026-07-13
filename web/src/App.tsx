@@ -350,7 +350,11 @@ export default function App() {
           "bg-background-base",
         )}
         style={{
-          background: "var(--component-header-background)",
+          // No built-in theme populates the header component bucket, so the
+          // var needs an explicit canvas fallback — an empty background here
+          // rendered the mobile header transparent over scrolled content.
+          background:
+            "var(--component-header-background, var(--background-base))",
           borderImage: "var(--component-header-border-image)",
           clipPath: "var(--component-header-clip-path)",
         }}

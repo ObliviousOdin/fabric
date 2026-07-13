@@ -378,9 +378,10 @@ export default function ConfigPage() {
 
   /* ---- Loading / load failure (CF4) ---- */
   if (!config || !schema) {
-    // Only a full outage (both core loads failed) gets the banner —
-    // partial failures degrade as before.
-    if (configLoadFailed && schemaLoadFailed) {
+    // Any failed core load that leaves us without renderable data gets the
+    // banner — a single-sided failure (config XOR schema) previously fell
+    // through to the skeleton branch below and spun forever.
+    if (configLoadFailed || schemaLoadFailed) {
       return (
         <div className="flex flex-col gap-4">
           <Toast toast={toast} />

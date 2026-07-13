@@ -362,16 +362,20 @@ function InlineContent({
 function HighlightedText({ text, terms }: { text: string; terms?: string[] }) {
   if (!terms || terms.length === 0) return <>{text}</>;
 
-  // Build a regex that matches any of the search terms (case-insensitive)
+  // Build a regex that matches any of the search terms (case-insensitive).
+  // The split regex is global; the membership check must NOT reuse it — a
+  // /g regex is stateful across .test() calls (lastIndex advances), which
+  // intermittently dropped highlight marks on alternating parts.
   const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const regex = new RegExp(`(${escaped.join("|")})`, "gi");
+  const isTerm = new RegExp(`^(?:${escaped.join("|")})$`, "i");
   const parts = text.split(regex);
 
   return (
     <>
       {parts.map((part, i) =>
-        regex.test(part) ? (
-          <mark key={i} className="bg-warning/30 text-warning px-0.5">
+        isTerm.test(part) ? (
+          <mark key={i} className="bg-warning/25 text-foreground px-0.5">
             {part}
           </mark>
         ) : (

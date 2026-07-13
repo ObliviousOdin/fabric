@@ -16150,6 +16150,7 @@ def _resolve_chat_argv(
     sidecar_url: Optional[str] = None,
     profile: Optional[str] = None,
     active_session_file: Optional[str] = None,
+    terminal_background: Optional[str] = None,
 ) -> tuple[list[str], Optional[str], Optional[dict]]:
     """Resolve the argv + cwd + env for the chat PTY.
 
@@ -16221,6 +16222,18 @@ def _resolve_chat_argv(
     # setdefault so an explicit operator value still wins.
     env.setdefault("COLORTERM", "truecolor")
     env["HERMES_TUI_DASHBOARD"] = "1"
+    # The TUI decides its light/dark palette from the child env at import
+    # (ui-tui detectLightMode), and the PTY child inherits the SERVER's
+    # env — not the browser's theme. Without a hint, a light dashboard
+    # theme renders the TUI's dark palette on a near-white xterm canvas
+    # (the "white-washed" chat). The client sends its xterm background via
+    # the `bg` query param; HERMES_TUI_BACKGROUND ranks below the explicit
+    # HERMES_TUI_LIGHT / HERMES_TUI_THEME operator overrides, so those
+    # still win when set.
+    if terminal_background and re.fullmatch(
+        r"#[0-9a-fA-F]{6}", terminal_background
+    ):
+        env["HERMES_TUI_BACKGROUND"] = terminal_background
 
     if profile_dir is not None:
         env["HERMES_HOME"] = str(profile_dir)
@@ -16330,6 +16343,7 @@ async def _resolve_chat_argv_async(
     sidecar_url: Optional[str] = None,
     profile: Optional[str] = None,
     active_session_file: Optional[str] = None,
+    terminal_background: Optional[str] = None,
 ) -> tuple[list[str], Optional[str], Optional[dict]]:
     """Resolve chat argv without blocking the dashboard event loop.
 
@@ -16348,6 +16362,8 @@ async def _resolve_chat_argv_async(
     }
     if active_session_file is not None:
         kwargs["active_session_file"] = active_session_file
+    if terminal_background is not None:
+        kwargs["terminal_background"] = terminal_background
 
     async with _get_chat_argv_lock(app):
         return await asyncio.to_thread(
@@ -17114,6 +17130,8 @@ async def pty_ws(ws: WebSocket) -> None:
     }
     if active_session_file is not None:
         resolve_kwargs["active_session_file"] = str(active_session_file)
+    if terminal_bg := (ws.query_params.get("bg") or None):
+        resolve_kwargs["terminal_background"] = terminal_bg
 
     try:
         argv, cwd, env = await _resolve_chat_argv_async(**resolve_kwargs)
@@ -17486,8 +17504,8 @@ def _canonical_dashboard_theme_name(name: str) -> str:
 
 
 _BUILTIN_DASHBOARD_THEMES = [
-    {"name": "fabric-light",  "label": "Fabric Light",        "description": "Generated light — monochrome surfaces, single teal accent"},
-    {"name": "fabric-dark",   "label": "Fabric Dark",         "description": "Generated dark — monochrome surfaces, single teal accent"},
+    {"name": "fabric-light",  "label": "Fabric Light",        "description": "Generated light — monochrome surfaces, single Fabric-blue accent"},
+    {"name": "fabric-dark",   "label": "Fabric Dark",         "description": "Generated dark — monochrome surfaces, single Fabric-blue accent"},
     {"name": "fabric-teal",   "label": "Fabric Teal (Heritage)", "description": "The original dark teal Fabric dashboard skin"},
     {"name": "default-large", "label": "Fabric Teal (Heritage, Large)", "description": "The original Fabric Teal skin with roomier spacing"},
     {"name": "fabric-blue",   "label": "Fabric Blue",         "description": "Light mode — vivid Fabric-blue accents on cream canvas"},

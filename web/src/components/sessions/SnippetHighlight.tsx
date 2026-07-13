@@ -12,7 +12,7 @@ export function SnippetHighlight({ snippet }: { snippet: string }) {
       parts.push(snippet.slice(last, match.index));
     }
     parts.push(
-      <mark key={i++} className="bg-warning/30 text-warning px-0.5">
+      <mark key={i++} className="bg-warning/25 text-foreground px-0.5">
         {match[1]}
       </mark>,
     );

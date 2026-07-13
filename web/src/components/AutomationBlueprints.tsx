@@ -129,7 +129,7 @@ function BlueprintCard({
         </div>
 
         {open && (
-          <div className="space-y-3 border-t pt-3">
+          <div className="space-y-3 border-t border-border pt-3">
             {blueprint.fields.map((f) => (
               <div key={f.name} className="space-y-1">
                 <Label htmlFor={`${blueprint.key}-${f.name}`}>{f.label}</Label>
@@ -144,7 +144,7 @@ function BlueprintCard({
               </div>
             ))}
             {error ? (
-              <p className="text-sm text-red-500" role="alert">
+              <p className="text-sm text-destructive" role="alert">
                 {error}
               </p>
             ) : null}
@@ -191,7 +191,7 @@ export function AutomationBlueprints({ profile, onCreated }: AutomationBlueprint
   }, []);
 
   if (loadError) {
-    return <p className="text-sm text-red-500">Couldn't load blueprints: {loadError}</p>;
+    return <p className="text-sm text-destructive">Couldn't load blueprints: {loadError}</p>;
   }
   if (blueprints === null) {
     return (

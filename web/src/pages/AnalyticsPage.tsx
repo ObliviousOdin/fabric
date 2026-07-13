@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   BarChart3,
@@ -84,9 +84,9 @@ function TokenEstimateNotice() {
           {W?.estimatesHiddenSummary ??
             "token & cost estimates hidden — local counts diverge from provider billing"}{" "}
           &#183;{" "}
-          <a href="/config" className="underline">
+          <Link to="/config" className="underline">
             {W?.configLink ?? "Config"}
-          </a>
+          </Link>
         </span>
         <ChevronDown
           aria-hidden="true"
@@ -117,7 +117,7 @@ function TokenEstimateNotice() {
           <span className="font-mono">
             dashboard.show_token_analytics: true
           </span>{" "}
-          in <a href="/config" className="underline">Config</a>.
+          in <Link to="/config" className="underline">Config</Link>.
         </p>
       </div>
     </details>

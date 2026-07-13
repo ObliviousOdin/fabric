@@ -391,6 +391,68 @@ def audit_built_public_site(build_dir: Path) -> list[str]:
     )
 
 
+# ── Brand color system ──────────────────────────────────────────────────
+#
+# The canonical Fabric accent is blue #0053fd (desktop --theme-primary /
+# --ui-blue, dashboard generated pair) with the purple family as the
+# identity/secondary hue. The inherited teal console palette survives only
+# inside the explicitly labeled "Fabric Teal (Heritage)" preset.
+
+BRAND_PRIMARY_ACCENT = "#0053fd"
+
+#: Legacy teal hexes that must not reappear outside the heritage preset:
+#: the old generated-pair accent, its light-canvas derivative, and the old
+#: workbench rail accent.
+LEGACY_TEAL_HEXES = ("#14b8a6", "#00a292", "#56cdbc")
+
+#: Dashboard sources where the legacy teal is still legitimate: the opt-in
+#: heritage preset and color-math test fixtures.
+LEGACY_TEAL_ALLOWED = (
+    "web/src/themes/presets.ts",
+    "web/src/themes/generate.test.ts",
+)
+
+BRAND_COLOR_SCAN_ROOTS = ("web/src",)
+
+
+def audit_brand_colors(root: Path = ROOT) -> list[str]:
+    """Enforce the blue/purple color system in dashboard sources."""
+
+    issues: list[str] = []
+
+    generated = root / "web/src/themes/generated.ts"
+    if generated.exists():
+        text = generated.read_text(encoding="utf-8", errors="replace")
+        if BRAND_PRIMARY_ACCENT not in text.lower():
+            issues.append(
+                "web/src/themes/generated.ts: generated theme pair no longer "
+                f"uses the canonical Fabric-blue accent {BRAND_PRIMARY_ACCENT}"
+            )
+    else:
+        issues.append("web/src/themes/generated.ts: missing")
+
+    for scan_root in BRAND_COLOR_SCAN_ROOTS:
+        base = root / scan_root
+        if not base.exists():
+            issues.append(f"{scan_root}: missing")
+            continue
+        for path in sorted(base.rglob("*")):
+            if path.suffix not in {".ts", ".tsx", ".css"} or not path.is_file():
+                continue
+            relative = path.relative_to(root).as_posix()
+            if relative in LEGACY_TEAL_ALLOWED:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace").lower()
+            for hexcode in LEGACY_TEAL_HEXES:
+                if hexcode in text:
+                    issues.append(
+                        f"{relative}: legacy teal {hexcode} outside the "
+                        "heritage preset (canonical accent is "
+                        f"{BRAND_PRIMARY_ACCENT})"
+                    )
+    return issues
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("public",), default="public")
@@ -406,6 +468,7 @@ def main() -> int:
         *audit_native_guides(),
         *audit_public_site_sources(),
         *audit_public_positioning_sources(),
+        *audit_brand_colors(),
     ]
     if args.build_dir is not None:
         build_dir = args.build_dir.resolve()
@@ -417,7 +480,10 @@ def main() -> int:
             print(f"  - {issue}")
         return 1
 
-    print("fabric-brand-audit: OK (public identity, discovery surfaces, and first-run guides)")
+    print(
+        "fabric-brand-audit: OK (public identity, discovery surfaces, "
+        "first-run guides, and brand color system)"
+    )
     return 0
 
 

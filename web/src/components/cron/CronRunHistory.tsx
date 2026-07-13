@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, Clock, ExternalLink } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
@@ -199,8 +199,7 @@ function CronRunItem({ run, profile }: { run: SessionInfo; profile: string }) {
   const { t } = useI18n();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!expanded || messages !== null || loading) return;
+  const loadMessages = () => {
     setLoading(true);
     setError(null);
     api
@@ -208,7 +207,14 @@ function CronRunItem({ run, profile }: { run: SessionInfo; profile: string }) {
       .then((resp) => setMessages(resp.messages))
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
-  }, [expanded, messages, loading, run.id, profile]);
+  };
+
+  // Event-driven fetch (not an effect): first expand loads the transcript,
+  // re-expands reuse it; Retry is the explicit refresh path.
+  const handleToggle = () => {
+    if (!expanded && messages === null && !loading && !error) loadMessages();
+    setExpanded((v) => !v);
+  };
 
   const duration = formatRunDuration(run.started_at, run.ended_at);
   const tokens = (run.input_tokens ?? 0) + (run.output_tokens ?? 0);
@@ -263,7 +269,7 @@ function CronRunItem({ run, profile }: { run: SessionInfo; profile: string }) {
       meta={meta}
       timestamp={run.started_at}
       expanded={expanded}
-      onToggle={() => setExpanded((v) => !v)}
+      onToggle={handleToggle}
       actions={
         <Button
           ghost
@@ -291,8 +297,7 @@ function CronRunItem({ run, profile }: { run: SessionInfo; profile: string }) {
             className="uppercase"
             onClick={(e) => {
               e.stopPropagation();
-              setError(null);
-              setMessages(null);
+              loadMessages();
             }}
           >
             {t.common.retry}

@@ -26,7 +26,7 @@ import { SessionTimeline } from "./SessionTimeline";
 
 // Monochrome source glyphs (G11): the glyph carries the distinction —
 // RunRow renders it muted, so no per-source color column here.
-export const SOURCE_CONFIG: Record<string, typeof Terminal> = {
+const SOURCE_CONFIG: Record<string, typeof Terminal> = {
   cli: Terminal,
   telegram: MessageCircle,
   discord: Hash,

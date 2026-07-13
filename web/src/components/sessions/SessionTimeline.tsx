@@ -180,8 +180,9 @@ export interface SessionTimelineProps {
  */
 export function SessionTimeline({ session, searchQuery }: SessionTimelineProps) {
   const [messages, setMessages] = useState<SessionMessage[] | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by the Retry button to re-run the fetch effect.
+  const [fetchNonce, setFetchNonce] = useState(0);
   // Offset of the earliest fetched message within the full transcript;
   // 0 = the whole history is loaded. Derived from `message_count` — the
   // messages endpoint returns no total (spec §0.1).
@@ -191,9 +192,12 @@ export function SessionTimeline({ session, searchQuery }: SessionTimelineProps) 
   const { t } = useI18n();
   const L = t.sessions.ledger;
 
-  const loadInitial = useCallback(() => {
-    setLoading(true);
-    setError(null);
+  // Loading is derived (no synchronous setState in the fetch effect):
+  // nothing fetched yet and no error → we're loading.
+  const loading = messages === null && error === null;
+
+  useEffect(() => {
+    let cancelled = false;
     const tailOffset =
       session.message_count > TAIL_LIMIT
         ? session.message_count - TAIL_LIMIT
@@ -207,16 +211,25 @@ export function SessionTimeline({ session, searchQuery }: SessionTimelineProps) 
         : api.getSessionMessages(session.id);
     fetchPromise
       .then((resp) => {
+        if (cancelled) return;
         setMessages(resp.messages);
         setEarliestOffset(tailOffset);
       })
-      .catch((err) => setError(String(err)))
-      .finally(() => setLoading(false));
-  }, [session.id, session.message_count]);
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.id, session.message_count, fetchNonce]);
 
-  useEffect(() => {
-    loadInitial();
-  }, [loadInitial]);
+  // S11: Retry re-runs the initial fetch (from an event handler, so the
+  // reset back to the loading state is legal here).
+  const retry = useCallback(() => {
+    setMessages(null);
+    setError(null);
+    setFetchNonce((n) => n + 1);
+  }, []);
 
   const loadEarlier = useCallback(() => {
     if (earliestOffset <= 0 || loadingEarlier) return;
@@ -312,7 +325,7 @@ export function SessionTimeline({ session, searchQuery }: SessionTimelineProps) 
       {error && (
         <div className="flex flex-col items-center gap-2 py-4">
           <p className="text-sm text-destructive text-center">{error}</p>
-          <Button outlined size="sm" onClick={loadInitial}>
+          <Button outlined size="sm" onClick={retry}>
             {t.common.retry}
           </Button>
         </div>

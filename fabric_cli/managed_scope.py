@@ -1,8 +1,9 @@
 """Managed scope — IT-pushed, user-immutable config & env layer.
 
-A system-level directory (default ``/etc/hermes``, root-owned and not
+A system-level directory (default ``/etc/fabric``, root-owned and not
 user-writable) supplies ``config.yaml`` and ``.env`` values that WIN over the
-user's ``~/.hermes/config.yaml`` and ``~/.hermes/.env`` on a per-leaf-key basis.
+user's ``~/.fabric/config.yaml`` and ``~/.fabric/.env`` on a per-leaf-key basis.
+Existing deployments using ``/etc/hermes`` remain supported as a fallback.
 
 This is DISTINCT from ``fabric_cli.config.is_managed()`` / ``HERMES_MANAGED``,
 which is a coarse package-manager write-lock (declarative-distro / formula
@@ -28,9 +29,10 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# POSIX default. Other-platform locations are a deliberate v2 item; when added,
+# POSIX defaults. Other-platform locations are a deliberate v2 item; when added,
 # they belong ONLY inside get_managed_dir().
-_DEFAULT_MANAGED_DIR = Path("/etc/hermes")
+_DEFAULT_MANAGED_DIR = Path("/etc/fabric")
+_LEGACY_MANAGED_DIR = Path("/etc/hermes")
 
 _CACHE_LOCK = threading.Lock()
 # path_key -> (mtime_ns, size, parsed)
@@ -41,10 +43,10 @@ _ENV_CACHE: Dict[str, tuple] = {}
 def _under_pytest() -> bool:
     """True when running inside the test suite.
 
-    Used to ignore the system default ``/etc/hermes`` during tests so a real
-    managed scope on a developer/CI box can't leak policy into the suite. Tests
-    that exercise managed scope set ``HERMES_MANAGED_DIR`` explicitly, which is
-    still honored (the override path below runs before this guard takes effect).
+    Used to ignore the system defaults during tests so a real managed scope on
+    a developer/CI box can't leak policy into the suite. Tests that exercise
+    managed scope set an explicit directory override, which is still honored
+    (override resolution runs before this guard takes effect).
     """
     return "PYTEST_CURRENT_TEST" in os.environ
 
@@ -53,22 +55,29 @@ def get_managed_dir() -> Optional[Path]:
     """Resolve the managed-scope directory, or None when no scope is present.
 
     Resolution (highest priority first):
-      1. ``$HERMES_MANAGED_DIR`` — deployment/bootstrap path override (IT-only;
+      1. ``$FABRIC_MANAGED_DIR`` — deployment/bootstrap path override (IT-only;
          never persisted to any .env). Honored only when set to a non-empty value
          AND the directory exists.
-      2. ``/etc/hermes`` — POSIX default, when it exists. Ignored under pytest so
-         a real system managed scope can't leak into the test suite.
+      2. ``$HERMES_MANAGED_DIR`` — legacy override, retained for compatibility.
+      3. ``/etc/fabric`` — canonical POSIX default, when it exists.
+      4. ``/etc/hermes`` — legacy POSIX fallback, when it exists.
 
-    A non-existent directory at either tier resolves to None (no managed scope),
-    which is the common case and must be cheap + side-effect-free.
+    System defaults are ignored under pytest so a real system managed scope
+    cannot leak into the test suite. An explicitly selected override that does
+    not exist resolves to None rather than silently falling through to a lower
+    priority source. With no override, the first existing system default wins.
     """
-    override = os.environ.get("HERMES_MANAGED_DIR", "").strip()
-    if override:
-        p = Path(override)
-        return p if p.is_dir() else None
+    for env_var in ("FABRIC_MANAGED_DIR", "HERMES_MANAGED_DIR"):
+        override = os.environ.get(env_var, "").strip()
+        if override:
+            path = Path(override)
+            return path if path.is_dir() else None
     if _under_pytest():
         return None
-    return _DEFAULT_MANAGED_DIR if _DEFAULT_MANAGED_DIR.is_dir() else None
+    for path in (_DEFAULT_MANAGED_DIR, _LEGACY_MANAGED_DIR):
+        if path.is_dir():
+            return path
+    return None
 
 
 def invalidate_managed_cache() -> None:

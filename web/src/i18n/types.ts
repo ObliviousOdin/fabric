@@ -111,6 +111,27 @@ export interface Translations {
     needed: string;
   };
 
+  // ── System page (operator's console, Y-requirements) ──
+  // Optional group (CN6): call sites fall back to the English literals
+  // until translated (O5 pattern).
+  system?: {
+    /** Section headings (Y1 order). */
+    host: string;
+    gateway: string;
+    portal: string;
+    curator: string;
+    memory: string;
+    credentialPool: string;
+    operations: string;
+    checkpoints: string;
+    shellHooks: string;
+    /** Shell hooks header/empty-state action (Y10/Y14). */
+    newHook: string;
+    /** Y14 empty-hooks EmptyState. */
+    noHooksTitle: string;
+    noHooksDescription: string;
+  };
+
   // ── Chat rail (Agent card + Activity feed, CH-requirements) ──
   // Optional group: the chat rail falls back to English literals until
   // locales translate it.
@@ -785,6 +806,14 @@ export interface Translations {
     failedToLoadRaw: string;
     configImported: string;
     invalidJson: string;
+    // CONNECT+SYSTEM revamp (CF4/CF5). Optional — English fallbacks at
+    // the call sites until translated (O5 pattern).
+    /** CF5 truthfulness note rendered once under the config path. */
+    effectNote?: string;
+    /** CF4 shared load-failure banner (config *and* schema both failed). */
+    loadFailed?: string;
+    /** CF4 no-match search action button. */
+    clearSearch?: string;
     categories: {
       general: string;
       agent: string;

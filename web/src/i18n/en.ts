@@ -83,6 +83,22 @@ export const en: Translations = {
     needed: "Changes are saved. Restart the gateway for them to take effect.",
   },
 
+  system: {
+    host: "Host",
+    gateway: "Gateway",
+    portal: "Nous Portal",
+    curator: "Skill curator",
+    memory: "Memory",
+    credentialPool: "Credential pool",
+    operations: "Operations",
+    checkpoints: "Checkpoints",
+    shellHooks: "Shell hooks",
+    newHook: "New hook",
+    noHooksTitle: "No shell hooks configured",
+    noHooksDescription:
+      "Hooks run trusted scripts on gateway and session events.",
+  },
+
   chatRail: {
     agent: "agent",
     activity: "activity",
@@ -677,6 +693,9 @@ export const en: Translations = {
     failedToLoadRaw: "Failed to load raw config",
     configImported: "Config imported — review and save",
     invalidJson: "Invalid JSON file",
+    effectNote: "Most changes apply to new sessions or after a gateway restart.",
+    loadFailed: "Couldn't load the configuration or its schema.",
+    clearSearch: "Clear search",
     categories: {
       general: "General",
       agent: "Agent",

@@ -75,7 +75,9 @@ export function AppSidebar({
         collapsed && "lg:w-14",
       )}
       style={{
-        background: "var(--component-sidebar-background)",
+        background: mobileOpen
+          ? "var(--background-base)"
+          : "var(--component-sidebar-background)",
         clipPath: "var(--component-sidebar-clip-path)",
         borderImage: "var(--component-sidebar-border-image)",
       }}

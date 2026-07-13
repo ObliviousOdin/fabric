@@ -53,6 +53,41 @@ export { AgentStatusBadge } from "./AgentStatusBadge";
 export type { AgentStatusBadgeProps } from "./AgentStatusBadge";
 
 /**
+ * Canonical capability-state vocabulary (`enabled | disabled | needs-setup
+ * | broken`) for the CAPABILITIES section (CAP2): DS `Badge` tone per
+ * state, pure mappers from real backend shapes (toolsets, plugins, MCP
+ * servers, memory providers) plus the last-outcome chip mappers (MCP
+ * probe, hub scan verdict). Component-free — rendering is plain `Badge`.
+ */
+export {
+  CAPABILITY_STATE_TONES,
+  mcpProbeOutcome,
+  mcpServerCapabilityState,
+  memoryProviderCapabilityState,
+  pluginCapabilityState,
+  scanVerdictOutcome,
+  toolsetCapabilityState,
+} from "./capability-state";
+export type {
+  CapabilityState,
+  DerivedCapabilityState,
+  ProbeOutcome,
+} from "./capability-state";
+
+/**
+ * Shared capability row (CAP3) — the five-zone grammar (identity / state /
+ * provenance / usage evidence / actions) for skill, toolset, plugin, MCP
+ * server and catalog/hub rows: 1px box, optional leading Switch + glyph,
+ * mono identity, badges, mono meta line, trailing actions, optional
+ * expansion body.
+ */
+export { CapabilityRow } from "./CapabilityRow";
+export type {
+  CapabilityRowProps,
+  CapabilityRowSwitch,
+} from "./CapabilityRow";
+
+/**
  * Truncated mono id (sessions, cron jobs, runs, tool calls) with full id in
  * `title` and click-to-copy + transient check icon.
  */

@@ -62,6 +62,21 @@ export const en: Translations = {
     done: "done",
   },
 
+  capabilities: {
+    enabled: "enabled",
+    active: "active",
+    installed: "installed",
+    ready: "ready",
+    disabled: "disabled",
+    inactive: "inactive",
+    needsSetup: "needs setup",
+    needsAuth: "needs auth",
+    unavailable: "unavailable",
+    missing: "missing",
+    reachable: "reachable",
+    unreachable: "unreachable",
+  },
+
   chatRail: {
     agent: "agent",
     activity: "activity",

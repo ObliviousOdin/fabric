@@ -81,6 +81,24 @@ export interface Translations {
     done: string;
   };
 
+  // ── Shared capability-state vocabulary (CAPABILITIES-section primitives) ──
+  // Optional group: capability badges fall back to the English state words
+  // from `capability-state.ts` for locales that haven't translated it yet.
+  capabilities?: {
+    enabled: string;
+    active: string;
+    installed: string;
+    ready: string;
+    disabled: string;
+    inactive: string;
+    needsSetup: string;
+    needsAuth: string;
+    unavailable: string;
+    missing: string;
+    reachable: string;
+    unreachable: string;
+  };
+
   // ── Chat rail (Agent card + Activity feed, CH-requirements) ──
   // Optional group: the chat rail falls back to English literals until
   // locales translate it.

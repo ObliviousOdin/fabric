@@ -1226,6 +1226,15 @@ export const api = {
       `/api/mcp/servers/${encodeURIComponent(name)}/test`,
       { method: "POST" },
     ),
+  /** Run the OAuth browser flow for an HTTP MCP server. Blocks server-side
+   *  until the flow completes (up to minutes) — keep busy state per-row,
+   *  never page-level (R17). Same result shape as `/test`, without the
+   *  prompt/resource counts. */
+  authMcpServer: (name: string) =>
+    fetchJSON<McpTestResult>(
+      `/api/mcp/servers/${encodeURIComponent(name)}/auth`,
+      { method: "POST" },
+    ),
   setMcpServerEnabled: (name: string, enabled: boolean) =>
     fetchJSON<{ ok: boolean; name: string; enabled: boolean }>(
       `/api/mcp/servers/${encodeURIComponent(name)}/enabled`,
@@ -1674,6 +1683,10 @@ export interface McpTestResult {
   ok: boolean;
   error?: string;
   tools: Array<{ name: string; description: string }>;
+  /** Prompt/resource counts — served on successful `/test` probes only
+   *  (absent on errors and on the `/auth` flow's result). */
+  prompts?: number;
+  resources?: number;
 }
 
 export interface MessagingPlatformEnvVar {
@@ -2501,6 +2514,13 @@ export interface SkillInfo {
   description: string;
   category: string;
   enabled: boolean;
+  /** Activity count from the skill-usage store (0 = never used). */
+  usage: number;
+  /**
+   * hub-installed > bundled > agent, where "agent" covers agent-authored
+   * AND local hand-made skills — the tier the user may edit/delete.
+   */
+  provenance: "hub" | "bundled" | "agent";
 }
 
 export interface SkillContent {

@@ -227,7 +227,7 @@ _LAST_EXPANDED_CONFIG_BY_PATH: Dict[str, Any] = {}
 # merged_value, env_ref_snapshot, managed_config_path). The managed file's path
 # is part of the identity as well as its stat signature: two policy roots can
 # legitimately contain same-sized files with the same timestamp, and switching
-# ``HERMES_MANAGED_DIR`` must never reuse the other root's merged config.
+# managed-directory overrides must never reuse the other root's merged config.
 # The env snapshot invalidates entries when a referenced ${VAR} changes value
 # (late .env load, in-process rotation — #58514).
 _LOAD_CONFIG_CACHE: Dict[
@@ -7057,7 +7057,7 @@ def _load_config_impl(*, want_deepcopy: bool) -> Dict[str, Any]:
             user_sig = None
 
         # Managed scope: fold the managed config file's (mtime, size) into the
-        # cache signature so editing /etc/hermes/config.yaml invalidates the
+        # cache signature so editing the managed config.yaml invalidates the
         # cached merged result. (0, 0) means "no managed config file".
         from fabric_cli import managed_scope
 

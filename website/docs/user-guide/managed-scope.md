@@ -44,23 +44,26 @@ the feature.
 
 ### Relocating the directory
 
-The location can be relocated with the `HERMES_MANAGED_DIR` environment variable
+The location can be relocated with the `FABRIC_MANAGED_DIR` environment variable
 (for containers or non-`/etc` deployments). This is a deployment/bootstrap path
 knob — like `FABRIC_HOME` — set by the same administrator who owns the managed
 files. It is **never persisted** to any `.env` by Fabric.
 
 ```bash
 # Point managed scope at a custom directory (set by IT / the deployment, not the user)
-export HERMES_MANAGED_DIR=/opt/org/fabric-policy
+export FABRIC_MANAGED_DIR=/opt/org/fabric-policy
 ```
 
 :::warning
-A user who can set `HERMES_MANAGED_DIR` can repoint managed scope at a directory
+A user who can set `FABRIC_MANAGED_DIR` can repoint managed scope at a directory
 they control, defeating it. In a real deployment this variable should be fixed
 by the administrator (e.g. baked into the service unit / container image), not
 left user-settable. `fabric doctor` reports the *resolved* managed directory so
 a redirect is visible.
 :::
+
+Existing deployments that set `HERMES_MANAGED_DIR` remain supported as a
+compatibility fallback. New deployments should use `FABRIC_MANAGED_DIR`.
 
 ## Precedence
 

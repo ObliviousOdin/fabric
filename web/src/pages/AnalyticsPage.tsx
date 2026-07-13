@@ -489,17 +489,38 @@ export default function AnalyticsPage() {
       .catch(() => setShowTokens(false));
   }, []);
 
-  const load = useCallback(() => {
+  // Bumping the nonce refetches usage without the effect body itself
+  // calling setState (react-hooks/set-state-in-effect stays clean —
+  // SkillsPage precedent).
+  const [reloadNonce, setReloadNonce] = useState(0);
+
+  useEffect(() => {
     // Always fetch (A2): skills/tools/session aggregates come from the same
     // response; the gate only shapes which tiles display.
-    setLoading(true);
-    setError(null);
+    let cancelled = false;
     api
       .getAnalytics(days)
-      .then(setData)
-      .catch((err) => setError(String(err)))
-      .finally(() => setLoading(false));
-  }, [days]);
+      .then((res) => {
+        if (cancelled) return;
+        setData(res);
+        setError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [days, reloadNonce]);
+
+  const reload = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setReloadNonce((n) => n + 1);
+  }, []);
 
   // One fetch on mount + on refresh; no poll (A6/O7 — Analytics is a
   // report, not a monitor; Sessions owns liveness).
@@ -539,7 +560,14 @@ export default function AnalyticsPage() {
                 type="button"
                 size="sm"
                 outlined={days !== p.days}
-                onClick={() => setDays(p.days)}
+                onClick={() => {
+                  if (days === p.days) return;
+                  // Handler-side loading flip (not effect-side) keeps the
+                  // refresh spinner behavior of the old `load()` path.
+                  setDays(p.days);
+                  setLoading(true);
+                  setError(null);
+                }}
               >
                 {p.label}
               </Button>
@@ -553,7 +581,7 @@ export default function AnalyticsPage() {
             size="icon"
             className="text-muted-foreground hover:text-foreground"
             onClick={() => {
-              load();
+              reload();
               loadSupplements();
             }}
             disabled={loading}
@@ -572,17 +600,13 @@ export default function AnalyticsPage() {
   }, [
     days,
     loading,
-    load,
+    reload,
     loadSupplements,
     setAfterTitle,
     setEnd,
     t.analytics.period,
     t.common.refresh,
   ]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   useEffect(() => {
     loadSupplements();
@@ -624,7 +648,7 @@ export default function AnalyticsPage() {
           <CardContent className="py-6">
             <div className="flex flex-col items-center gap-3">
               <p className="text-sm text-destructive text-center">{error}</p>
-              <Button type="button" outlined size="sm" onClick={load}>
+              <Button type="button" outlined size="sm" onClick={reload}>
                 {t.common.retry}
               </Button>
             </div>
@@ -734,11 +758,19 @@ export default function AnalyticsPage() {
               <RunsBySourceCard stats={stats} />
             ) : null}
           </div>
+        </>
+      )}
 
-          {!recentFailed && (
-            <RecentRunsCard sessions={recent} limit={RECENT_RUNS_LIMIT} />
-          )}
+      {/* A9: the recent-runs ledger resolves independently of the usage
+          fetch — it renders (with its own skeleton) even while usage is
+          still loading or has errored; a failed supplementary fetch hides
+          the card silently (A11). */}
+      {!allEmpty && !recentFailed && (
+        <RecentRunsCard sessions={recent} limit={RECENT_RUNS_LIMIT} />
+      )}
 
+      {data && !allEmpty && (
+        <>
           {showTokens && stats && <RunsBySourceCard stats={stats} />}
 
           {showTokens && <DailyTable daily={data.daily} />}

@@ -1,5 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, useMemo } from "react";
 import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useMemo,
+} from "react";
+import {
+  AlertTriangle,
   Code,
   Download,
   FormInput,
@@ -48,6 +56,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@nous-research/ui/ui/c
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
 import { Input } from "@nous-research/ui/ui/components/input";
 import { Badge } from "@nous-research/ui/ui/components/badge";
+import { PageToolbar, Skeleton } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { PluginSlot } from "@/plugins";
@@ -120,6 +129,12 @@ export default function ConfigPage() {
   const [configPath, setConfigPath] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [confirmReset, setConfirmReset] = useState(false);
+  // CF4: the config/schema loads were silent `catch(() => {})`s — track
+  // their failures so a full outage (config *and* schema failed) surfaces
+  // as a banner + Retry instead of an eternal skeleton. Partial failures
+  // degrade exactly as before.
+  const [configLoadFailed, setConfigLoadFailed] = useState(false);
+  const [schemaLoadFailed, setSchemaLoadFailed] = useState(false);
   const { toast, showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
@@ -161,18 +176,18 @@ export default function ConfigPage() {
     return cat.charAt(0).toUpperCase() + cat.slice(1);
   }
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api
       .getConfig()
       .then(setConfig)
-      .catch(() => {});
+      .catch(() => setConfigLoadFailed(true));
     api
       .getSchema()
       .then((resp) => {
         setSchema(resp.fields as Record<string, Record<string, unknown>>);
         setCategoryOrder(resp.category_order ?? []);
       })
-      .catch(() => {});
+      .catch(() => setSchemaLoadFailed(true));
     api
       .getDefaults()
       .then(setDefaults)
@@ -192,6 +207,10 @@ export default function ConfigPage() {
       .then((resp) => setConfigPath((prev) => prev ?? resp.config_path))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Set active category when categories load
   useEffect(() => {
@@ -357,11 +376,41 @@ export default function ConfigPage() {
     reader.readAsText(file);
   };
 
-  /* ---- Loading ---- */
+  /* ---- Loading / load failure (CF4) ---- */
   if (!config || !schema) {
+    // Only a full outage (both core loads failed) gets the banner —
+    // partial failures degrade as before.
+    if (configLoadFailed && schemaLoadFailed) {
+      return (
+        <div className="flex flex-col gap-4">
+          <Toast toast={toast} />
+          <div className="flex flex-col gap-3 border border-destructive/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <span>
+                {t.config.loadFailed ??
+                  "Couldn't load the configuration or its schema."}
+              </span>
+            </div>
+            <Button
+              size="sm"
+              className="uppercase shrink-0"
+              onClick={() => {
+                setConfigLoadFailed(false);
+                setSchemaLoadFailed(false);
+                load();
+              }}
+            >
+              {t.common.retry}
+            </Button>
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner className="text-2xl text-primary" />
+      <div aria-busy="true" className="flex flex-col gap-4 sm:flex-row">
+        <Skeleton variant="block" className="h-64 sm:w-56 sm:shrink-0" />
+        <Skeleton variant="block" className="h-96 flex-1" />
       </div>
     );
   }
@@ -426,14 +475,25 @@ export default function ConfigPage() {
       <PluginSlot name="config:top" />
       <Toast toast={toast} />
 
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div className="flex min-w-0 items-center gap-2 sm:flex-1">
-          <Settings2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <code className="min-w-0 flex-1 break-words text-xs text-muted-foreground bg-muted/50 px-2 py-0.5">
-            {configPath ?? t.config.configPath}
-          </code>
+      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 flex-col gap-1 sm:flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <Settings2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <code className="min-w-0 flex-1 break-words text-xs text-muted-foreground bg-muted/50 px-2 py-0.5">
+              {configPath ?? t.config.configPath}
+            </code>
+          </div>
+          {/* CF5: the one honest effect-timing sentence — no per-field
+              claims until the backend serves them (B30). */}
+          <p className="text-xs text-muted-foreground">
+            {t.config.effectNote ??
+              "Most changes apply to new sessions or after a gateway restart."}
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0">
+        <PageToolbar
+          className="sm:w-auto sm:shrink-0"
+          actions={
+            <>
           <Button
             ghost
             size="icon"
@@ -511,7 +571,9 @@ export default function ConfigPage() {
               {saving ? t.common.saving : t.common.save}
             </Button>
           )}
-        </div>
+            </>
+          }
+        />
       </div>
 
       {yamlMode ? (
@@ -600,7 +662,7 @@ export default function ConfigPage() {
                       <Search className="h-4 w-4" />
                       {t.config.searchResults}
                     </CardTitle>
-                    <Badge tone="secondary" className="text-xs">
+                    <Badge tone="secondary" className="text-xs tabular-nums">
                       {searchMatchedFields.length}{" "}
                       {t.config.fields.replace(
                         "{s}",
@@ -611,9 +673,14 @@ export default function ConfigPage() {
                 </CardHeader>
                 <CardContent className="grid gap-2 px-4 pb-4">
                   {searchMatchedFields.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">
-                      {t.config.noFieldsMatch.replace("{query}", searchQuery)}
-                    </p>
+                    <div className="flex flex-col items-center gap-3 py-8">
+                      <p className="text-sm text-muted-foreground text-center">
+                        {t.config.noFieldsMatch.replace("{query}", searchQuery)}
+                      </p>
+                      <Button size="sm" ghost onClick={() => setSearchQuery("")}>
+                        {t.config.clearSearch ?? "Clear search"}
+                      </Button>
+                    </div>
                   ) : (
                     renderFields(searchMatchedFields, true)
                   )}
@@ -631,7 +698,7 @@ export default function ConfigPage() {
                       />
                       {prettyCategoryName(activeCategory)}
                     </CardTitle>
-                    <Badge tone="secondary" className="text-xs">
+                    <Badge tone="secondary" className="text-xs tabular-nums">
                       {activeFields.length}{" "}
                       {t.config.fields.replace(
                         "{s}",

@@ -24,7 +24,7 @@ import { CredentialPoolCard } from "@/components/system/CredentialPoolCard";
 import { OperationsCard } from "@/components/system/OperationsCard";
 import {
   BackupRestoreCard,
-  type ActionCompletion,
+  type ActionCompleteHandler,
 } from "@/components/system/BackupRestoreCard";
 import { DebugShareCard } from "@/components/system/DebugShareCard";
 import { CheckpointsCard } from "@/components/system/CheckpointsCard";
@@ -101,9 +101,10 @@ export default function SystemPage() {
   );
 
   const [activeAction, setActiveAction] = useState<string | null>(null);
-  const [lastCompletion, setLastCompletion] =
-    useState<ActionCompletion | null>(null);
-  const completionSeq = useRef(0);
+  // BackupRestoreCard installs its completion handler here (Y7) so the
+  // pinned ActionLogViewer's `onComplete` can reach the backup state
+  // without lifting it out of the card.
+  const actionCompleteRef = useRef<ActionCompleteHandler | null>(null);
 
   const settle = useCallback((key: SectionKey) => {
     setSettled((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
@@ -221,8 +222,7 @@ export default function SystemPage() {
 
   const handleActionComplete = useCallback(
     (action: string, exitCode: number | null) => {
-      completionSeq.current += 1;
-      setLastCompletion({ action, exitCode, seq: completionSeq.current });
+      actionCompleteRef.current?.(action, exitCode);
     },
     [],
   );
@@ -328,7 +328,7 @@ export default function SystemPage() {
         <BackupRestoreCard
           setActiveAction={setActiveAction}
           showToast={showToast}
-          lastCompletion={lastCompletion}
+          completionHandlerRef={actionCompleteRef}
         />
         <DebugShareCard showToast={showToast} />
       </SystemSection>

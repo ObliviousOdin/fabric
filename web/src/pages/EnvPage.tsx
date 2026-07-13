@@ -1,20 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import {
-  Eye,
-  EyeOff,
-  ExternalLink,
-  KeyRound,
-  MessageSquare,
-  Pencil,
-  Plus,
-  Save,
-  Settings,
-  Trash2,
-  X,
-  Zap,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
+import { KeyRound, MessageSquare, Settings, Zap } from "lucide-react";
 import { api } from "@/lib/api";
 import type { EnvVarInfo } from "@/lib/api";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -23,8 +14,6 @@ import { useConfirmDelete } from "@nous-research/ui/hooks/use-confirm-delete";
 import { useToast } from "@nous-research/ui/hooks/use-toast";
 import { OAuthProvidersCard } from "@/components/OAuthProvidersCard";
 import { Button } from "@nous-research/ui/ui/components/button";
-import { ListItem } from "@nous-research/ui/ui/components/list-item";
-import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import {
   Card,
   CardContent,
@@ -32,18 +21,31 @@ import {
   CardHeader,
   CardTitle,
 } from "@nous-research/ui/ui/components/card";
-import { Badge } from "@nous-research/ui/ui/components/badge";
-import { Input } from "@nous-research/ui/ui/components/input";
-import { Label } from "@nous-research/ui/ui/components/label";
 import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { PluginSlot } from "@/plugins";
+import { Skeleton } from "@/components/ui";
+import type { EnvRowSharedProps } from "@/components/env/EnvVarRow";
+import {
+  ProviderGroupCard,
+  type ProviderGroup,
+} from "@/components/env/ProviderGroupCard";
+import {
+  EnvCategoryCard,
+  type EnvCategorySection,
+} from "@/components/env/EnvCategoryCard";
+import { CustomKeysCard } from "@/components/env/CustomKeysCard";
+import {
+  providerProbeOutcome,
+  type ProviderProbeOutcome,
+} from "@/components/env/env-validate";
 
 /* ------------------------------------------------------------------ */
 /*  Provider grouping                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Map env-var key prefixes to a human-friendly provider name + ordering. */
+/** Map env-var key prefixes to a human-friendly provider name + ordering.
+ *  Frontend-owned mirror of the provider catalog — drift risk noted (R28). */
 const PROVIDER_GROUPS: { prefix: string; name: string; priority: number }[] = [
   // Nous Portal first
   { prefix: "NOUS_", name: "Nous Portal", priority: 0 },
@@ -79,13 +81,6 @@ function getProviderPriority(groupName: string): number {
   return entry?.priority ?? 99;
 }
 
-interface ProviderGroup {
-  name: string;
-  priority: number;
-  entries: [string, EnvVarInfo][];
-  hasAnySet: boolean;
-}
-
 const CATEGORY_META_ICONS: Record<string, typeof KeyRound> = {
   provider: Zap,
   tool: KeyRound,
@@ -94,533 +89,43 @@ const CATEGORY_META_ICONS: Record<string, typeof KeyRound> = {
 };
 
 /* ------------------------------------------------------------------ */
-/*  EnvVarRow — single key edit row                                    */
-/* ------------------------------------------------------------------ */
-
-function EnvVarRow({
-  varKey,
-  info,
-  edits,
-  setEdits,
-  revealed,
-  saving,
-  onSave,
-  onClear,
-  onReveal,
-  onCancelEdit,
-  clearDialogOpen = false,
-  compact = false,
-}: {
-  varKey: string;
-  info: EnvVarInfo;
-  edits: Record<string, string>;
-  setEdits: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  revealed: Record<string, string>;
-  saving: string | null;
-  onSave: (key: string) => void;
-  onClear: (key: string) => void;
-  onReveal: (key: string) => void;
-  onCancelEdit: (key: string) => void;
-  clearDialogOpen?: boolean;
-  compact?: boolean;
-}) {
-  const { t } = useI18n();
-  const isEditing = edits[varKey] !== undefined;
-  const isRevealed = !!revealed[varKey];
-  const displayValue = isRevealed
-    ? revealed[varKey]
-    : (info.redacted_value ?? "---");
-
-  // Compact inline row for unset, non-editing keys (used inside provider groups)
-  if (compact && !info.is_set && !isEditing) {
-    return (
-      <div className="flex items-center justify-between gap-3 py-1.5 min-w-0 overflow-hidden text-text-secondary hover:text-foreground transition-colors">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono-ui text-xs">
-            {varKey}
-          </span>
-          <span className="text-xs text-text-tertiary truncate hidden sm:block">
-            {info.description}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {info.url && (
-            <a
-              href={info.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            >
-              {t.env.getKey} <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          )}
-          <Button
-            size="sm"
-            outlined
-            prefix={<Pencil />}
-            onClick={() => setEdits((prev) => ({ ...prev, [varKey]: "" }))}
-          >
-            {t.common.set}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Non-compact unset row
-  if (!info.is_set && !isEditing) {
-    return (
-      <div className="flex items-center justify-between gap-3 border border-border/50 px-4 py-2.5 min-w-0 overflow-hidden text-text-secondary hover:text-foreground transition-colors">
-        <div className="flex items-center gap-3 min-w-0">
-          <Label className="font-mono-ui text-xs">
-            {varKey}
-          </Label>
-          <span className="text-xs text-text-tertiary truncate hidden sm:block">
-            {info.description}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {info.url && (
-            <a
-              href={info.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-            >
-              {t.env.getKey} <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          )}
-          <Button
-            size="sm"
-            outlined
-            prefix={<Pencil />}
-            onClick={() => setEdits((prev) => ({ ...prev, [varKey]: "" }))}
-          >
-            {t.common.set}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Full expanded row for set keys or keys being edited
-  return (
-    <div className="grid gap-2 border border-border p-4 min-w-0 overflow-hidden">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Label className="font-mono-ui text-xs">{varKey}</Label>
-          <Badge tone={info.is_set ? "success" : "outline"}>
-            {info.is_set ? t.common.set : t.env.notSet}
-          </Badge>
-        </div>
-        {info.url && (
-          <a
-            href={info.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-          >
-            {t.env.getKey} <ExternalLink className="h-2.5 w-2.5" />
-          </a>
-        )}
-      </div>
-
-      <p className="text-xs text-muted-foreground">{info.description}</p>
-
-      {info.tools.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {info.tools.map((tool) => (
-            <Badge
-              key={tool}
-              tone="secondary"
-              className="text-xs py-0 px-1.5"
-            >
-              {tool}
-            </Badge>
-          ))}
-        </div>
-      )}
-
-      {!isEditing && (
-        <div className="flex items-center gap-2">
-          <div
-            className={`flex-1 border border-border px-3 py-2 font-mono-ui text-xs ${
-              isRevealed
-                ? "bg-background text-foreground select-all"
-                : "bg-muted/30 text-muted-foreground"
-            }`}
-          >
-            {info.is_set ? displayValue : "---"}
-          </div>
-
-          {info.is_set && (
-            <Button
-              ghost
-              size="icon"
-              onClick={() => onReveal(varKey)}
-              title={isRevealed ? t.env.hideValue : t.env.showValue}
-              aria-label={isRevealed ? `Hide ${varKey}` : `Reveal ${varKey}`}
-            >
-              {isRevealed ? <EyeOff /> : <Eye />}
-            </Button>
-          )}
-
-          <Button
-            size="sm"
-            outlined
-            prefix={<Pencil />}
-            onClick={() => setEdits((prev) => ({ ...prev, [varKey]: "" }))}
-          >
-            {info.is_set ? t.common.replace : t.common.set}
-          </Button>
-
-          {info.is_set && (
-            <Button
-              size="sm"
-              outlined
-              destructive
-              prefix={<Trash2 />}
-              onClick={() => onClear(varKey)}
-              disabled={saving === varKey || clearDialogOpen}
-            >
-              {saving === varKey ? "..." : t.common.clear}
-            </Button>
-          )}
-        </div>
-      )}
-
-      {isEditing && (
-        <div className="flex items-center gap-2">
-          <Input
-            autoFocus
-            type="text"
-            value={edits[varKey]}
-            onChange={(e) =>
-              setEdits((prev) => ({ ...prev, [varKey]: e.target.value }))
-            }
-            placeholder={
-              info.is_set
-                ? t.env.replaceCurrentValue.replace(
-                    "{preview}",
-                    info.redacted_value ?? "---",
-                  )
-                : t.env.enterValue
-            }
-            className="flex-1 font-mono-ui text-xs"
-          />
-          <Button
-            size="sm"
-            onClick={() => onSave(varKey)}
-            prefix={<Save />}
-            disabled={saving === varKey || !edits[varKey]}
-          >
-            {saving === varKey ? "..." : t.common.save}
-          </Button>
-          <Button
-            size="sm"
-            outlined
-            prefix={<X />}
-            onClick={() => onCancelEdit(varKey)}
-          >
-            {t.common.cancel}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  ProviderGroupCard — groups API key + base URL per provider         */
-/* ------------------------------------------------------------------ */
-
-function ProviderGroupCard({
-  group,
-  edits,
-  setEdits,
-  revealed,
-  saving,
-  onSave,
-  onClear,
-  onReveal,
-  onCancelEdit,
-  clearDialogOpen = false,
-}: {
-  group: ProviderGroup;
-  edits: Record<string, string>;
-  setEdits: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  revealed: Record<string, string>;
-  saving: string | null;
-  onSave: (key: string) => void;
-  onClear: (key: string) => void;
-  onReveal: (key: string) => void;
-  onCancelEdit: (key: string) => void;
-  clearDialogOpen?: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const { t } = useI18n();
-
-  // Separate API keys from base URLs and other settings
-  const apiKeys = group.entries.filter(
-    ([k]) => k.endsWith("_API_KEY") || k.endsWith("_TOKEN"),
-  );
-  const baseUrls = group.entries.filter(([k]) => k.endsWith("_BASE_URL"));
-  const other = group.entries.filter(
-    ([k]) =>
-      !k.endsWith("_API_KEY") &&
-      !k.endsWith("_TOKEN") &&
-      !k.endsWith("_BASE_URL"),
-  );
-  const hasAnyConfigured = group.entries.some(([, info]) => info.is_set);
-  const configuredCount = group.entries.filter(
-    ([, info]) => info.is_set,
-  ).length;
-
-  // Get a representative URL for "Get key" link
-  const keyUrl = apiKeys.find(([, info]) => info.url)?.[1]?.url ?? null;
-
-  return (
-    <div className="border border-border">
-      {/* Header — always visible */}
-      <ListItem
-        onClick={() => setExpanded(!expanded)}
-        aria-expanded={expanded}
-        className="justify-between gap-3 px-4 py-3 hover:bg-primary/5"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          {expanded ? (
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          ) : (
-            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          )}
-          <span className="font-semibold text-sm tracking-wide">
-            {group.name === "Other" ? t.common.other : group.name}
-          </span>
-          {hasAnyConfigured && (
-            <Badge tone="success" className="text-xs">
-              {configuredCount} {t.common.set.toLowerCase()}
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {keyUrl && (
-            <a
-              href={keyUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {t.env.getKey} <ExternalLink className="h-2.5 w-2.5" />
-            </a>
-          )}
-          <span className="text-xs text-text-tertiary">
-            {t.env.keysCount
-              .replace("{count}", String(group.entries.length))
-              .replace("{s}", group.entries.length !== 1 ? "s" : "")}
-          </span>
-        </div>
-      </ListItem>
-
-      {expanded && (
-        <div className="border-t border-border px-4 py-3 grid gap-2">
-          {apiKeys.map(([key, info]) => (
-            <EnvVarRow
-              key={key}
-              varKey={key}
-              info={info}
-              compact
-              edits={edits}
-              setEdits={setEdits}
-              revealed={revealed}
-              saving={saving}
-              onSave={onSave}
-              onClear={onClear}
-              onReveal={onReveal}
-              onCancelEdit={onCancelEdit}
-              clearDialogOpen={clearDialogOpen}
-            />
-          ))}
-
-          {baseUrls.map(([key, info]) => (
-            <EnvVarRow
-              key={key}
-              varKey={key}
-              info={info}
-              compact
-              edits={edits}
-              setEdits={setEdits}
-              revealed={revealed}
-              saving={saving}
-              onSave={onSave}
-              onClear={onClear}
-              onReveal={onReveal}
-              onCancelEdit={onCancelEdit}
-              clearDialogOpen={clearDialogOpen}
-            />
-          ))}
-
-          {other.map(([key, info]) => (
-            <EnvVarRow
-              key={key}
-              varKey={key}
-              info={info}
-              compact
-              edits={edits}
-              setEdits={setEdits}
-              revealed={revealed}
-              saving={saving}
-              onSave={onSave}
-              onClear={onClear}
-              onReveal={onReveal}
-              onCancelEdit={onCancelEdit}
-              clearDialogOpen={clearDialogOpen}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  CustomKeysCard — user-added arbitrary env vars + add-key form      */
-/* ------------------------------------------------------------------ */
-
-// Mirror of the backend env-name guard (fabric_cli/config.py _ENV_VAR_NAME_RE).
-const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-function CustomKeysCard({
-  entries,
-  edits,
-  setEdits,
-  revealed,
-  saving,
-  onSave,
-  onClear,
-  onReveal,
-  onCancelEdit,
-  onAddKey,
-  clearDialogOpen = false,
-}: {
-  entries: [string, EnvVarInfo][];
-  edits: Record<string, string>;
-  setEdits: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  revealed: Record<string, string>;
-  saving: string | null;
-  onSave: (key: string) => void;
-  onClear: (key: string) => void;
-  onReveal: (key: string) => void;
-  onCancelEdit: (key: string) => void;
-  onAddKey: (key: string) => void;
-  clearDialogOpen?: boolean;
-}) {
-  const { t } = useI18n();
-  const [newKey, setNewKey] = useState("");
-  const trimmed = newKey.trim().toUpperCase();
-  const alreadyEditing = edits[trimmed] !== undefined;
-  const nameValid = ENV_VAR_NAME_RE.test(trimmed);
-  const showInvalid = trimmed.length > 0 && !nameValid;
-
-  const rowProps = {
-    edits,
-    setEdits,
-    revealed,
-    saving,
-    onSave,
-    onClear,
-    onReveal,
-    onCancelEdit,
-    clearDialogOpen,
-  };
-
-  const handleAdd = () => {
-    if (!nameValid || alreadyEditing) return;
-    onAddKey(trimmed);
-    setNewKey("");
-  };
-
-  return (
-    <Card id="section-custom">
-      <CardHeader className="border-b border-border bg-card">
-        <div className="flex items-center gap-2">
-          <KeyRound className="h-5 w-5 text-muted-foreground" />
-          <CardTitle className="text-base">{t.env.customTitle}</CardTitle>
-        </div>
-        <CardDescription>
-          {t.env.customConfigured
-            .replace("{count}", String(entries.length))
-            .replace("{s}", entries.length !== 1 ? "s" : "")}
-        </CardDescription>
-        <CardDescription className="text-text-tertiary">
-          {t.env.customHint}
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="grid gap-3 overflow-hidden pt-4">
-        {entries.map(([key, info]) => (
-          <EnvVarRow key={key} varKey={key} info={info} {...rowProps} />
-        ))}
-
-        {/* Add-key form */}
-        <div className="grid gap-2 border border-dashed border-border p-4">
-          <Label className="text-xs font-semibold tracking-wide">
-            {t.env.addCustomKey}
-          </Label>
-          <div className="flex items-start gap-2">
-            <div className="flex-1">
-              <Input
-                type="text"
-                value={newKey}
-                onChange={(e) => setNewKey(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAdd();
-                }}
-                placeholder={t.env.customKeyNamePlaceholder}
-                aria-label={t.env.customKeyName}
-                className="w-full font-mono-ui text-xs"
-              />
-              {showInvalid && (
-                <p className="mt-1 text-xs text-destructive">
-                  {t.env.invalidKeyName}
-                </p>
-              )}
-            </div>
-            <Button
-              size="sm"
-              prefix={<Plus />}
-              onClick={handleAdd}
-              disabled={!nameValid || alreadyEditing}
-            >
-              {t.env.add}
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Main page                                                          */
 /* ------------------------------------------------------------------ */
 
 export default function EnvPage() {
   const [vars, setVars] = useState<Record<string, EnvVarInfo> | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(true); // Show all providers by default
+  // E7: per-key probe in-flight + session-local last outcomes. Never
+  // persisted, never auto-run — an explicit Test action only.
+  const [testing, setTesting] = useState<string | null>(null);
+  const [probeOutcomes, setProbeOutcomes] = useState<
+    Record<string, ProviderProbeOutcome>
+  >({});
   const { toast, showToast } = useToast();
   const { t } = useI18n();
   const { setAfterTitle } = usePageHeader();
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api
       .getEnvVars()
-      .then(setVars)
-      .catch(() => {});
+      .then((res) => {
+        setVars(res);
+        setLoadError(null);
+      })
+      .catch((e) => {
+        // E8: the silent catch becomes a banner + Retry — a blank page is
+        // not a recoverable state.
+        setLoadError(String(e));
+      });
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Scroll-to sub-nav in the page header
   const sections = useMemo(() => {
@@ -739,6 +244,13 @@ export default function EnvPage() {
             delete n[key];
             return n;
           });
+          // A cleared key's last probe outcome describes a value that no
+          // longer exists — drop it.
+          setProbeOutcomes((prev) => {
+            const n = { ...prev };
+            delete n[key];
+            return n;
+          });
           showToast(`${key} ${t.common.removed}`, "success");
         } catch (e) {
           showToast(`${t.common.failedToRemove} ${key}: ${e}`, "error");
@@ -763,8 +275,17 @@ export default function EnvPage() {
     try {
       const resp = await api.revealEnvVar(key);
       setRevealed((prev) => ({ ...prev, [key]: resp.value }));
-    } catch {
-      showToast(`${t.common.failedToReveal} ${key}`, "error");
+    } catch (e) {
+      // E3: the reveal endpoint is rate-limited (5 per 30 s → 429, §0.7);
+      // say so specifically instead of a generic failure.
+      const rateLimited = e instanceof Error && e.message.startsWith("429");
+      showToast(
+        rateLimited
+          ? (t.env.revealRateLimited ??
+              "Reveal rate-limited — try again in a moment")
+          : `${t.common.failedToReveal} ${key}`,
+        "error",
+      );
     }
   };
 
@@ -774,6 +295,31 @@ export default function EnvPage() {
       delete n[key];
       return n;
     });
+    // The chip described the discarded draft — drop it with the edit.
+    setProbeOutcomes((prev) => {
+      const n = { ...prev };
+      delete n[key];
+      return n;
+    });
+  };
+
+  // E7: explicit live probe of the draft value before it's saved. The
+  // OPENAI_BASE_URL branch also forwards a drafted OPENAI_API_KEY (if any)
+  // so auth-gated /v1/models endpoints can enumerate their catalog.
+  const handleTest = async (key: string) => {
+    const value = (edits[key] ?? "").trim();
+    if (!value) return;
+    setTesting(key);
+    try {
+      const apiKey =
+        key === "OPENAI_BASE_URL" ? (edits["OPENAI_API_KEY"] ?? "").trim() : "";
+      const res = await api.validateProviderKey(key, value, apiKey);
+      setProbeOutcomes((prev) => ({ ...prev, [key]: providerProbeOutcome(res) }));
+    } catch (e) {
+      showToast(`${t.status.error}: ${e}`, "error");
+    } finally {
+      setTesting(null);
+    }
   };
 
   // Add a custom key: register an unset row in local state and open it for
@@ -806,8 +352,8 @@ export default function EnvPage() {
   const { providerGroups, nonProviderGrouped, customEntries } = useMemo(() => {
     if (!vars)
       return {
-        providerGroups: [],
-        nonProviderGrouped: [],
+        providerGroups: [] as ProviderGroup[],
+        nonProviderGrouped: [] as EnvCategorySection[],
         customEntries: [] as [string, EnvVarInfo][],
       };
 
@@ -836,7 +382,8 @@ export default function EnvPage() {
     // Non-provider categories — use translated labels. Platform credentials
     // (channel_managed) are configured on the Channels page, so the messaging
     // category here is trimmed down to cross-cutting gateway / API / proxy
-    // settings and relabelled accordingly.
+    // settings and relabelled accordingly. (E1: the channel-managed exclusion
+    // is canonical, `_channel_managed_env_keys` in fabric_cli/web_server.py.)
     const CATEGORY_META_LABELS: Record<string, string> = {
       tool: t.app.nav.keys,
       messaging: t.common.gateway ?? "Gateway",
@@ -848,7 +395,7 @@ export default function EnvPage() {
         "Messaging platforms, the API server and webhooks are configured on the Channels page. These are gateway-wide settings (proxy/relay mode and the global allowlist).",
     };
     const otherCategories = ["tool", "messaging", "setting"];
-    const nonProvider = otherCategories.map((cat) => {
+    const nonProvider: EnvCategorySection[] = otherCategories.map((cat) => {
       const entries = Object.entries(vars).filter(
         ([, info]) =>
           info.category === cat &&
@@ -883,9 +430,32 @@ export default function EnvPage() {
   }, [vars, showAdvanced, t]);
 
   if (!vars) {
+    if (loadError) {
+      return (
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-2 border border-destructive/40 bg-destructive/10 px-3 py-2">
+            <p className="text-xs text-destructive">
+              {(t.env.loadFailed ?? "Could not load environment keys")}:{" "}
+              {loadError}
+            </p>
+            <Button outlined size="sm" onClick={load}>
+              {t.common.retry}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+    // E8/G13: layout-shaped Skeleton (OAuth card slot + provider rows)
+    // instead of a full-page Spinner.
     return (
-      <div className="flex items-center justify-center py-24">
-        <Spinner className="text-2xl text-primary" />
+      <div aria-busy="true" aria-live="polite" className="flex flex-col gap-6">
+        <span className="sr-only">{t.common.loading}</span>
+
+        <Skeleton variant="block" className="h-40" />
+
+        <div className="border border-border p-4">
+          <Skeleton variant="row-list" rows={6} />
+        </div>
       </div>
     );
   }
@@ -896,6 +466,21 @@ export default function EnvPage() {
   const pendingClearKey = keyClear.pendingId;
   const pendingKeyDescription =
     pendingClearKey && vars ? vars[pendingClearKey]?.description : undefined;
+
+  const rowProps: EnvRowSharedProps = {
+    edits,
+    setEdits,
+    revealed,
+    saving,
+    onSave: handleSave,
+    onClear: keyClear.requestDelete,
+    onReveal: handleReveal,
+    onCancelEdit: cancelEdit,
+    clearDialogOpen: keyClear.isOpen,
+    testing,
+    probeOutcomes,
+    onTest: handleTest,
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -946,7 +531,7 @@ export default function EnvPage() {
             <Zap className="h-5 w-5 text-muted-foreground" />
             <CardTitle className="text-base">{t.env.llmProviders}</CardTitle>
           </div>
-          <CardDescription>
+          <CardDescription className="tabular-nums">
             {t.env.providersConfigured
               .replace("{configured}", String(configuredProviders))
               .replace("{total}", String(totalProviders))}
@@ -955,19 +540,7 @@ export default function EnvPage() {
 
         <CardContent className="grid gap-0 p-0">
           {providerGroups.map((group) => (
-            <ProviderGroupCard
-              key={group.name}
-              group={group}
-              edits={edits}
-              setEdits={setEdits}
-              revealed={revealed}
-              saving={saving}
-              onSave={handleSave}
-              onClear={keyClear.requestDelete}
-              onReveal={handleReveal}
-              onCancelEdit={cancelEdit}
-              clearDialogOpen={keyClear.isOpen}
-            />
+            <ProviderGroupCard key={group.name} group={group} {...rowProps} />
           ))}
         </CardContent>
       </Card>
@@ -979,135 +552,16 @@ export default function EnvPage() {
           <EnvCategoryCard
             key={section.category}
             section={section}
-            edits={edits}
-            setEdits={setEdits}
-            revealed={revealed}
-            saving={saving}
-            onSave={handleSave}
-            onClear={keyClear.requestDelete}
-            onReveal={handleReveal}
-            onCancelEdit={cancelEdit}
-            clearDialogOpen={keyClear.isOpen}
+            {...rowProps}
           />
         );
       })}
       <CustomKeysCard
         entries={customEntries}
-        edits={edits}
-        setEdits={setEdits}
-        revealed={revealed}
-        saving={saving}
-        onSave={handleSave}
-        onClear={keyClear.requestDelete}
-        onReveal={handleReveal}
-        onCancelEdit={cancelEdit}
         onAddKey={handleAddKey}
-        clearDialogOpen={keyClear.isOpen}
+        {...rowProps}
       />
       <PluginSlot name="env:bottom" />
     </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  EnvCategoryCard — keys / messaging / settings sections             */
-/* ------------------------------------------------------------------ */
-
-function EnvCategoryCard({
-  section,
-  edits,
-  setEdits,
-  revealed,
-  saving,
-  onSave,
-  onClear,
-  onReveal,
-  onCancelEdit,
-  clearDialogOpen = false,
-}: {
-  section: {
-    category: string;
-    hint?: string;
-    icon: React.ComponentType<{ className?: string }>;
-    label: string;
-    setEntries: [string, EnvVarInfo][];
-    totalEntries: number;
-    unsetEntries: [string, EnvVarInfo][];
-  };
-  edits: Record<string, string>;
-  setEdits: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  revealed: Record<string, string>;
-  saving: string | null;
-  onSave: (key: string) => void;
-  onClear: (key: string) => void;
-  onReveal: (key: string) => void;
-  onCancelEdit: (key: string) => void;
-  clearDialogOpen?: boolean;
-}) {
-  const noneConfigured = section.setEntries.length === 0;
-  const [showAll, setShowAll] = useState(noneConfigured);
-  const { t } = useI18n();
-  const Icon = section.icon;
-  const hasContent = section.setEntries.length > 0 || showAll;
-  const rowProps = {
-    edits,
-    setEdits,
-    revealed,
-    saving,
-    onSave,
-    onClear,
-    onReveal,
-    onCancelEdit,
-    clearDialogOpen,
-  };
-
-  return (
-    <Card id={`section-${section.category}`}>
-      <CardHeader
-        className={`bg-card${hasContent ? " border-b border-border" : ""}`}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <Icon className="h-5 w-5 shrink-0 text-muted-foreground" />
-            <CardTitle className="text-base">{section.label}</CardTitle>
-          </div>
-
-          {section.unsetEntries.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowAll((open) => !open)}
-              aria-expanded={showAll}
-              className="shrink-0 cursor-pointer border-0 bg-transparent p-0 font-mondwest text-xs tracking-[0.08em] text-text-secondary transition-colors hover:text-foreground"
-            >
-              {showAll ? t.env.showLess : t.env.showMore}
-            </button>
-          )}
-        </div>
-
-        <CardDescription>
-          {section.setEntries.length} {t.common.of} {section.totalEntries}{" "}
-          {t.common.configured}
-        </CardDescription>
-
-        {section.hint && (
-          <CardDescription className="text-text-tertiary">
-            {section.hint}
-          </CardDescription>
-        )}
-      </CardHeader>
-
-      {hasContent && (
-        <CardContent className="grid gap-3 overflow-hidden pt-4">
-          {section.setEntries.map(([key, info]) => (
-            <EnvVarRow key={key} varKey={key} info={info} {...rowProps} />
-          ))}
-
-          {showAll &&
-            section.unsetEntries.map(([key, info]) => (
-              <EnvVarRow key={key} varKey={key} info={info} {...rowProps} />
-            ))}
-        </CardContent>
-      )}
-    </Card>
   );
 }

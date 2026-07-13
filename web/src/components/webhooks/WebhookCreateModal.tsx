@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Input } from "@nous-research/ui/ui/components/input";
@@ -47,14 +47,15 @@ export function WebhookCreateModal({
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedWebhook | null>(null);
 
-  const modalRef = useModalBehavior({ open, onClose });
-
   // Closing drops the secret from state immediately, so a reopened modal
   // always starts from the form — a previously shown secret never
   // reappears (shown-once semantics, CN9).
-  useEffect(() => {
-    if (!open) setCreated(null);
-  }, [open]);
+  const handleClose = useCallback(() => {
+    setCreated(null);
+    onClose();
+  }, [onClose]);
+
+  const modalRef = useModalBehavior({ open, onClose: handleClose });
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -97,7 +98,7 @@ export function WebhookCreateModal({
     <div
       ref={modalRef}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-background/85 p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      onClick={(e) => e.target === e.currentTarget && handleClose()}
       role="dialog"
       aria-modal="true"
       aria-labelledby="create-webhook-title"
@@ -106,7 +107,7 @@ export function WebhookCreateModal({
         <Button
           ghost
           size="icon"
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute right-2 top-2 text-muted-foreground hover:text-foreground"
           aria-label="Close"
         >
@@ -150,7 +151,7 @@ export function WebhookCreateModal({
             </div>
 
             <div className="flex justify-end">
-              <Button className="uppercase" size="sm" onClick={onClose}>
+              <Button className="uppercase" size="sm" onClick={handleClose}>
                 Done
               </Button>
             </div>

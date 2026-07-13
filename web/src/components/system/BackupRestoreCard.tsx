@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import { Database, Download, Upload } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
@@ -23,19 +24,22 @@ function backupFileName(path: string | null): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-/** The last settled spawn-action, relayed from the page's ActionLogViewer
- *  `onComplete` so the backup archive only becomes downloadable on exit 0. */
-export interface ActionCompletion {
-  action: string;
-  exitCode: number | null;
-  /** Monotonic sequence so identical completions still re-fire the effect. */
-  seq: number;
-}
+/** Spawn-action completion callback shape (page ActionLogViewer `onComplete`). */
+export type ActionCompleteHandler = (
+  action: string,
+  exitCode: number | null,
+) => void;
 
 export interface BackupRestoreCardProps {
   setActiveAction: (name: string) => void;
   showToast: ShowToast;
-  lastCompletion: ActionCompletion | null;
+  /**
+   * Registration slot for the page's ActionLogViewer `onComplete`: the
+   * card installs its handler here so the "backup" completion (pending
+   * archive → downloadable only on exit 0) keeps living next to the
+   * backup state it mutates.
+   */
+  completionHandlerRef: MutableRefObject<ActionCompleteHandler | null>;
 }
 
 /**
@@ -46,7 +50,7 @@ export interface BackupRestoreCardProps {
 export function BackupRestoreCard({
   setActiveAction,
   showToast,
-  lastCompletion,
+  completionHandlerRef,
 }: BackupRestoreCardProps) {
   const [pendingBackupArchive, setPendingBackupArchive] = useState<string | null>(
     null,
@@ -67,18 +71,24 @@ export function BackupRestoreCard({
     useState<BackupImportTarget | null>(null);
 
   // Backup completion: pending archive → downloadable only on exit 0 (Y7).
-  const handledSeqRef = useRef(-1);
+  const handleActionComplete = useCallback<ActionCompleteHandler>(
+    (action, exitCode) => {
+      if (action !== "backup" || !pendingBackupArchive) return;
+      if (exitCode === 0) {
+        setDownloadableBackupArchive(pendingBackupArchive);
+        showToast("Backup ready to download", "success");
+      } else {
+        setPendingBackupArchive(null);
+      }
+    },
+    [pendingBackupArchive, showToast],
+  );
   useEffect(() => {
-    if (!lastCompletion || lastCompletion.seq === handledSeqRef.current) return;
-    handledSeqRef.current = lastCompletion.seq;
-    if (lastCompletion.action !== "backup" || !pendingBackupArchive) return;
-    if (lastCompletion.exitCode === 0) {
-      setDownloadableBackupArchive(pendingBackupArchive);
-      showToast("Backup ready to download", "success");
-    } else {
-      setPendingBackupArchive(null);
-    }
-  }, [lastCompletion, pendingBackupArchive, showToast]);
+    completionHandlerRef.current = handleActionComplete;
+    return () => {
+      completionHandlerRef.current = null;
+    };
+  }, [completionHandlerRef, handleActionComplete]);
 
   const runDashboardBackup = async () => {
     try {

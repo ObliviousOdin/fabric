@@ -62,6 +62,9 @@ export function WhatsAppOnboardingPanel({
 
   useEffect(() => {
     if (!setup && phase === "idle" && configuredMode) {
+      // Frozen shipped behavior (N23): whenever the panel sits idle with no
+      // active setup, the mode picker re-syncs to the saved configuration.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMode(configuredMode);
     }
   }, [configuredMode, phase, setup]);

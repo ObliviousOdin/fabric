@@ -294,6 +294,33 @@ export interface Translations {
     perDayAvg: string;
     acrossModels: string;
     inOut: string;
+    // Optional workload-report keys (Observe revamp, spec A1–A11):
+    // non-English locales fall back to the English literal at the call
+    // site until translated, matching the `sessions.ledger` pattern.
+    workload?: {
+      runs: string;
+      apiCalls: string;
+      skillActions: string;
+      toolCalls: string;
+      tokens: string;
+      estCost: string;
+      /** Compact one-row notice shown while token analytics are gated off. */
+      estimatesHiddenSummary: string;
+      configLink: string;
+      recentRuns: string;
+      lastRunsQualifier: string;
+      openInSessions: string;
+      noRunsYet: string;
+      noRunsHint: string;
+      openChat: string;
+      busiestTools: string;
+      tool: string;
+      calls: string;
+      /** "+{count} more" footer under the truncated tools table. */
+      moreTools: string;
+      toolCountsNote: string;
+      runsBySource: string;
+    };
   };
 
   // ── Models page ──
@@ -322,6 +349,22 @@ export interface Translations {
     // call site until translated.
     noLinesHint?: string;
     jumpToLatest?: string;
+    // Observe revamp (spec L4/L5/L9/L11/L13) — optional: non-English
+    // locales fall back to the English literals at the call site.
+    searchPlaceholder?: string;
+    clearSearch?: string;
+    /** `{term}` placeholder = the active search/session term. */
+    noMatchesFor?: string;
+    filterSession?: string;
+    streaming?: string;
+    streamingScrolled?: string;
+    streamPaused?: string;
+    pausedHere?: string;
+    earlierScrolledOut?: string;
+    /** `{n}` placeholder = fetched-window size (chip/tally `title`s). */
+    inViewHint?: string;
+    errAbbrev?: string;
+    warnAbbrev?: string;
   };
 
   // ── Cron page ──

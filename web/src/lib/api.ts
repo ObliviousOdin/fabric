@@ -507,6 +507,9 @@ export const api = {
     lines?: number;
     level?: string;
     component?: string;
+    /** Server-side case-insensitive substring filter over a 2000-line raw
+     * tail (also carries the Logs page's session-tag filter, spec L9). */
+    search?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params.file) qs.set("file", params.file);
@@ -514,6 +517,7 @@ export const api = {
     if (params.level && params.level !== "ALL") qs.set("level", params.level);
     if (params.component && params.component !== "all")
       qs.set("component", params.component);
+    if (params.search) qs.set("search", params.search);
     return fetchJSON<LogsResponse>(`/api/logs?${qs.toString()}`);
   },
   getAnalytics: (days: number, profile = getManagementProfile()) =>
@@ -2295,6 +2299,17 @@ export interface AnalyticsSkillsSummary {
   distinct_skills_used: number;
 }
 
+/**
+ * Per-tool-name call counts from `InsightsEngine._get_tool_usage` —
+ * served (desc-ordered) by `/api/analytics/usage` all along; the TS type
+ * simply under-declared it (Observe spec A3). Counts merge two extraction
+ * paths with `max()` on overlap: an activity signal, not billing-grade.
+ */
+export interface AnalyticsToolEntry {
+  tool_name: string;
+  count: number;
+}
+
 export interface AnalyticsResponse {
   daily: AnalyticsDailyEntry[];
   by_model: AnalyticsModelEntry[];
@@ -2312,6 +2327,7 @@ export interface AnalyticsResponse {
     summary: AnalyticsSkillsSummary;
     top_skills: AnalyticsSkillEntry[];
   };
+  tools: AnalyticsToolEntry[];
 }
 
 export interface ActiveProfileInfo {

@@ -285,4 +285,4 @@ fix(security): prevent shell injection in sudo password piping
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](https://github.com/ObliviousOdin/fabric/blob/main/LICENSE).
+By contributing, you agree that your contributions will be licensed under the [Apache License 2.0](https://github.com/ObliviousOdin/fabric/blob/main/LICENSE).

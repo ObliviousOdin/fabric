@@ -1,11 +1,12 @@
-Fabric includes modified software from Hermes Agent by Nous Research.
+Fabric
+Copyright (c) 2026 ObliviousOdin and Fabric contributors
 
-The original software is copyright (c) 2025 Nous Research and is licensed
-under the MIT License. The complete copyright and permission notice is
-preserved in the root LICENSE file.
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
 
-Fabric modifications are copyright (c) 2026 ObliviousOdin and Fabric contributors
-and are distributed under the same MIT License.
+Fabric includes modified software from Hermes Agent by Nous Research,
+copyright (c) 2025 Nous Research, licensed under the MIT License. The
+complete, unmodified MIT copyright and permission notice is preserved in
+LICENSES/MIT-hermes-agent.txt as required by its terms.
 
 Third-party components retain their own copyright and license notices in the
 files shipped with those components. See THIRD_PARTY_NOTICES.md for guidance.

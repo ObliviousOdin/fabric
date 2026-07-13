@@ -43,7 +43,7 @@ export function SidebarNavLink({
         onBlur={collapsed ? hideTooltip : undefined}
         className={({ isActive }) =>
           cn(
-            "relative flex h-9 items-center gap-3 px-5",
+            "relative flex h-11 min-h-11 items-center gap-3 px-5",
             "font-sans text-sm",
             "whitespace-nowrap transition-colors cursor-pointer",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground",
@@ -58,7 +58,7 @@ export function SidebarNavLink({
       >
         {({ isActive }) => (
           <>
-            <Icon className="h-3.5 w-3.5 shrink-0" />
+            <Icon className="h-4 w-4 shrink-0" />
 
             <span
               className={cn(
@@ -72,7 +72,7 @@ export function SidebarNavLink({
             {isActive && (
               <span
                 aria-hidden
-                className="absolute left-0 top-0 bottom-0 w-px bg-midground"
+                className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-midground"
               />
             )}
           </>

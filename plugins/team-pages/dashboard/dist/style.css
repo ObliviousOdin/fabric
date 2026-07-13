@@ -1,0 +1,518 @@
+/* Fabric Team Pages — theme-aware, flat, and intentionally quiet. */
+.fabric-team-pages {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 1.5rem 1.5rem 3rem;
+  color: var(--color-foreground);
+  font-family: var(
+    --theme-font-sans,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif
+  );
+}
+
+.fabric-team-pages *,
+.fabric-team-pages *::before,
+.fabric-team-pages *::after {
+  box-sizing: border-box;
+}
+
+.fabric-team-pages h1,
+.fabric-team-pages h2,
+.fabric-team-pages h3,
+.fabric-team-pages h4,
+.fabric-team-pages p,
+.fabric-team-pages ul,
+.fabric-team-pages ol {
+  margin-top: 0;
+}
+
+.ftp-shell-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 2rem;
+  max-width: 76rem;
+  padding: 0.25rem 0 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ftp-shell-header h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  font-weight: 680;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+}
+
+.ftp-shell-header > div > p:last-child {
+  max-width: 42rem;
+  margin: 0.55rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.ftp-eyebrow,
+.ftp-picker-label {
+  margin-bottom: 0.55rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: 0.025em;
+}
+
+.ftp-source {
+  flex: 0 0 auto;
+  padding-bottom: 0.15rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.8rem;
+}
+
+.ftp-notice {
+  max-width: 76rem;
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+  color: var(--color-foreground);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.ftp-workspace {
+  display: grid;
+  grid-template-columns: minmax(11.5rem, 13.5rem) minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 4.5rem);
+  width: 100%;
+  max-width: 76rem;
+  padding-top: 2rem;
+}
+
+.ftp-page-picker {
+  align-self: start;
+  position: sticky;
+  top: 0;
+}
+
+.ftp-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.ftp-tabs button {
+  position: relative;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.85rem;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 540;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ftp-tabs button:hover {
+  background: color-mix(in srgb, var(--color-foreground) 5%, transparent);
+  color: var(--color-foreground);
+}
+
+.ftp-tabs button[aria-selected="true"] {
+  border-left-color: var(--color-ring);
+  background: color-mix(in srgb, var(--color-ring) 8%, transparent);
+  color: var(--color-foreground);
+  font-weight: 650;
+}
+
+.ftp-tabs button:focus-visible,
+.ftp-page-panel:focus-visible,
+.ftp-table-scroll:focus-visible,
+.ftp-links a:focus-visible,
+.ftp-markdown a:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+.ftp-page-content {
+  min-width: 0;
+  max-width: 56rem;
+}
+
+.ftp-page-title {
+  padding-bottom: 2rem;
+}
+
+.ftp-page-title h2 {
+  max-width: 46rem;
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.75rem);
+  font-weight: 660;
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+  text-wrap: balance;
+}
+
+.ftp-page-summary {
+  max-width: 42rem;
+  margin: 0.85rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: clamp(1rem, 1.4vw, 1.1rem);
+  line-height: 1.65;
+}
+
+.ftp-block {
+  padding: 1.75rem 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.ftp-block > h3,
+.ftp-text-block > h3,
+.ftp-markdown h3,
+.ftp-markdown h4 {
+  margin-bottom: 1rem;
+  color: var(--color-foreground);
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -0.012em;
+}
+
+.ftp-text-block p,
+.ftp-markdown p,
+.ftp-markdown li {
+  color: var(--color-muted-foreground);
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+.ftp-text-block p {
+  max-width: 46rem;
+  margin-bottom: 0;
+  white-space: pre-line;
+}
+
+.ftp-markdown p {
+  max-width: 46rem;
+  margin-bottom: 1rem;
+}
+
+.ftp-markdown p:last-child,
+.ftp-markdown ul:last-child,
+.ftp-markdown ol:last-child {
+  margin-bottom: 0;
+}
+
+.ftp-markdown ul,
+.ftp-markdown ol {
+  max-width: 46rem;
+  margin-bottom: 1rem;
+  padding-left: 1.25rem;
+}
+
+.ftp-markdown li + li {
+  margin-top: 0.35rem;
+}
+
+.ftp-markdown a {
+  color: var(--color-foreground);
+  text-decoration-color: color-mix(in srgb, var(--color-ring) 65%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.ftp-markdown a:hover {
+  text-decoration-color: var(--color-ring);
+}
+
+.ftp-markdown code {
+  padding: 0.1rem 0.3rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 72%, transparent);
+  color: var(--color-foreground);
+  font-family: var(--theme-font-mono, ui-monospace, monospace);
+  font-size: 0.86em;
+}
+
+.ftp-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 60%, transparent);
+}
+
+.ftp-status-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-top: 0.3rem;
+  border-radius: 50%;
+  background: var(--color-muted-foreground);
+}
+
+.ftp-status-info .ftp-status-dot {
+  background: var(--color-ring);
+}
+
+.ftp-status-success .ftp-status-dot {
+  background: var(--color-success);
+}
+
+.ftp-status-warning .ftp-status-dot {
+  background: var(--color-warning);
+}
+
+.ftp-status h3 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 660;
+  line-height: 1.4;
+}
+
+.ftp-status p {
+  margin: 0.25rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.ftp-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ftp-kpi-grid li {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 54%, transparent);
+}
+
+.ftp-kpi-label,
+.ftp-kpi-detail {
+  display: block;
+  color: var(--color-muted-foreground);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.ftp-kpi-grid strong {
+  display: block;
+  margin: 0.35rem 0 0.25rem;
+  overflow-wrap: anywhere;
+  color: var(--color-foreground);
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  font-weight: 680;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.ftp-links {
+  margin-bottom: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border);
+  list-style: none;
+}
+
+.ftp-links li {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ftp-links a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.5rem;
+  padding: 0.75rem 0;
+  color: var(--color-foreground);
+  text-decoration: none;
+}
+
+.ftp-links a:hover .ftp-link-arrow {
+  color: var(--color-ring);
+}
+
+.ftp-link-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ftp-link-copy strong {
+  font-size: 0.92rem;
+  font-weight: 630;
+  line-height: 1.35;
+}
+
+.ftp-link-copy > span {
+  color: var(--color-muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.ftp-link-arrow {
+  flex: 0 0 auto;
+  color: var(--color-muted-foreground);
+  font-size: 1rem;
+}
+
+.ftp-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+}
+
+.ftp-table-scroll table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.ftp-table-scroll th,
+.ftp-table-scroll td {
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted-foreground);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ftp-table-scroll thead th {
+  background: color-mix(in srgb, var(--color-card) 68%, transparent);
+  color: var(--color-foreground);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.ftp-table-scroll tbody th {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+
+.ftp-table-scroll tbody tr:last-child th,
+.ftp-table-scroll tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ftp-loading {
+  display: flex;
+  max-width: 52rem;
+  min-height: 18rem;
+  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.ftp-loading-line {
+  display: block;
+  width: min(100%, 38rem);
+  height: 0.85rem;
+  background: color-mix(in srgb, var(--color-muted-foreground) 18%, transparent);
+  animation: ftp-pulse 1.3s ease-in-out infinite alternate;
+}
+
+.ftp-loading-line-short {
+  width: min(45%, 15rem);
+}
+
+.ftp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes ftp-pulse {
+  from { opacity: 0.38; }
+  to { opacity: 0.82; }
+}
+
+@media (max-width: 760px) {
+  .fabric-team-pages {
+    height: 100%;
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 1rem 1rem 2rem;
+  }
+
+  .ftp-shell-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .ftp-source {
+    padding-bottom: 0;
+  }
+
+  .ftp-workspace {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    padding-top: 1.5rem;
+  }
+
+  .ftp-page-picker {
+    position: static;
+    min-width: 0;
+  }
+
+  .ftp-tabs {
+    flex-direction: row;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding: 0.125rem 0 0.35rem;
+  }
+
+  .ftp-tabs button {
+    width: auto;
+    min-width: max-content;
+    border: 1px solid var(--color-border);
+    padding-inline: 1rem;
+    text-align: center;
+  }
+
+  .ftp-tabs button[aria-selected="true"] {
+    border-color: var(--color-ring);
+  }
+
+  .ftp-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fabric-team-pages *,
+  .fabric-team-pages *::before,
+  .fabric-team-pages *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

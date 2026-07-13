@@ -940,6 +940,30 @@ class TestWebServerEndpoints:
 
     # ── Dashboard themes ───────────────────────────────────────────
 
+    def test_dashboard_theme_catalog_defaults_to_fabric_light(self):
+        resp = self.client.get("/api/dashboard/themes")
+        assert resp.status_code == 200
+
+        payload = resp.json()
+        assert payload["active"] == "fabric-light"
+        themes = {theme["name"]: theme for theme in payload["themes"]}
+        assert themes["fabric-light"]["label"] == "Fabric Light"
+        assert themes["fabric-dark"]["label"] == "Fabric Dark"
+        assert themes["fabric-teal"]["label"] == "Fabric Teal (Heritage)"
+        assert "default" not in themes
+
+    def test_dashboard_theme_migrates_legacy_default_id(self):
+        from fabric_cli.config import load_config, save_config
+
+        config = load_config()
+        config.setdefault("dashboard", {})["theme"] = "default"
+        save_config(config)
+
+        resp = self.client.get("/api/dashboard/themes")
+        assert resp.status_code == 200
+        assert resp.json()["active"] == "fabric-light"
+        assert load_config()["dashboard"]["theme"] == "fabric-light"
+
     def test_dashboard_theme_catalog_uses_fabric_blue_identity(self):
         resp = self.client.get("/api/dashboard/themes")
         assert resp.status_code == 200
@@ -6307,8 +6331,7 @@ class TestPluginAPIAuth:
 
 
 class TestDashboardPluginManifestExtensions:
-    """Tests for the extended plugin manifest fields (tab.override,
-    tab.hidden, slots) read by _discover_dashboard_plugins()."""
+    """Tests for extended plugin manifest fields read by discovery."""
 
     def _write_plugin(self, tmp_path, name, manifest):
         import json
@@ -6317,12 +6340,17 @@ class TestDashboardPluginManifestExtensions:
         (plug_dir / "manifest.json").write_text(json.dumps(manifest))
         return plug_dir
 
-    def test_override_and_hidden_carried_through(self, tmp_path, monkeypatch):
+    def test_override_hidden_and_layout_carried_through(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         self._write_plugin(tmp_path, "skin-home", {
             "name": "skin-home",
             "label": "Skin Home",
-            "tab": {"path": "/skin-home", "override": "/", "hidden": True},
+            "tab": {
+                "path": "/skin-home",
+                "override": "/",
+                "hidden": True,
+                "layout": "workspace",
+            },
             "slots": ["sidebar", "header-left"],
             "entry": "dist/index.js",
         })
@@ -6333,7 +6361,22 @@ class TestDashboardPluginManifestExtensions:
         entry = next(p for p in plugins if p["name"] == "skin-home")
         assert entry["tab"]["override"] == "/"
         assert entry["tab"]["hidden"] is True
+        assert entry["tab"]["layout"] == "workspace"
         assert entry["slots"] == ["sidebar", "header-left"]
+
+    def test_layout_rejects_unknown_value(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        self._write_plugin(tmp_path, "bad-layout", {
+            "name": "bad-layout",
+            "label": "Bad layout",
+            "tab": {"path": "/bad-layout", "layout": "fullscreen"},
+            "entry": "dist/index.js",
+        })
+        from fabric_cli import web_server
+        web_server._dashboard_plugins_cache = None
+        plugins = web_server._get_dashboard_plugins(force_rescan=True)
+        entry = next(p for p in plugins if p["name"] == "bad-layout")
+        assert "layout" not in entry["tab"]
 
     def test_override_requires_leading_slash(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))

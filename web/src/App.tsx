@@ -281,18 +281,28 @@ export default function App() {
     () => buildRoutes(builtinRoutes, manifests),
     [builtinRoutes, manifests],
   );
+  // Hidden plugin routes still need their layout metadata when opened by URL;
+  // visibility only controls navigation discovery, not workspace chrome.
   const pluginTabMeta = useMemo(
     () =>
-      manifests
-        .filter((m) => !m.tab.hidden)
-        .map((m) => ({
-          path: m.tab.override ?? m.tab.path,
-          label: m.label,
-        })),
+      manifests.map((m) => ({
+        path: m.tab.override ?? m.tab.path,
+        label: m.label,
+        layout: m.tab.layout,
+      })),
     [manifests],
   );
 
   const layoutVariant = theme.layoutVariant ?? "standard";
+  const isWorkspaceRoute = useMemo(
+    () =>
+      manifests.some(
+        (m) =>
+          m.tab.layout === "workspace" &&
+          (m.tab.override ?? m.tab.path).replace(/\/$/, "") === normalizedPath,
+      ),
+    [manifests, normalizedPath],
+  );
 
   useEffect(() => {
     if (!mobileOpen) return;
@@ -357,7 +367,7 @@ export default function App() {
           <Menu />
         </Button>
 
-        <Typography className="font-bold text-[0.95rem] leading-[0.95] tracking-[0.05em] text-midground">
+        <Typography className="font-sans text-[1rem] font-semibold leading-none tracking-[-0.01em] text-midground">
           {t.app.brand}
         </Typography>
       </header>
@@ -384,6 +394,7 @@ export default function App() {
             collapsed={collapsed}
             isDesktopCollapsed={isDesktopCollapsed}
             mobileOpen={mobileOpen}
+            workspaceActive={isWorkspaceRoute}
             pluginItems={sidebarNav.pluginItems}
             sections={sidebarNav.sections}
             status={sidebarStatus}
@@ -395,10 +406,12 @@ export default function App() {
             <div
               className={cn(
                 "relative z-2 flex min-w-0 min-h-0 flex-1 flex-col",
-                "px-3 sm:px-6",
-                isChatRoute
-                  ? "pb-0 pt-1 sm:pt-2 lg:pt-4"
-                  : "pt-2 sm:pt-4 lg:pt-6",
+                isWorkspaceRoute ? "px-0" : "px-3 sm:px-6",
+                isWorkspaceRoute
+                  ? "pb-0 pt-0"
+                  : isChatRoute
+                    ? "pb-0 pt-1 sm:pt-2 lg:pt-4"
+                    : "pt-2 sm:pt-4 lg:pt-6",
                 isDocsRoute && "min-h-0 flex-1",
               )}
             >
@@ -406,9 +419,9 @@ export default function App() {
               <div
                 className={cn(
                   "w-full min-w-0",
-                  !isChatRoute &&
+                  !isChatRoute && !isWorkspaceRoute &&
                     "pb-[calc(2rem+env(safe-area-inset-bottom,0px))] lg:pb-8",
-                  (isDocsRoute || isChatRoute) &&
+                  (isDocsRoute || isChatRoute || isWorkspaceRoute) &&
                     "min-h-0 flex flex-1 flex-col",
                 )}
               >

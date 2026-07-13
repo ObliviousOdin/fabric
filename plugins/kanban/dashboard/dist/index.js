@@ -5,14 +5,14 @@
  * ~/.fabric/kanban.db. Calls the plugin's backend at /api/plugins/kanban/
  * and tails task_events over a WebSocket for live updates.
  *
- * Plain IIFE, no build step. Uses window.__HERMES_PLUGIN_SDK__ for React +
- * shadcn primitives; HTML5 drag-and-drop for card movement on desktop and
+ * Plain IIFE, no build step. Uses the Fabric dashboard plugin SDK for React +
+ * host primitives; HTML5 drag-and-drop for card movement on desktop and
  * a pointer-based fallback for touch.
  */
 (function () {
   "use strict";
 
-  const SDK = window.__HERMES_PLUGIN_SDK__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__ || window.__HERMES_PLUGIN_SDK__;
   if (!SDK) return;
 
   const { React } = SDK;
@@ -23,6 +23,7 @@
   } = SDK.components;
   const { useState, useEffect, useCallback, useMemo, useRef } = SDK.hooks;
   const { cn, timeAgo } = SDK.utils;
+  const Icons = SDK.icons || {};
 
   // Newer host dashboards expose a DS-styled Checkbox on the plugin SDK.
   // Fall back to a native <input type="checkbox"> shim so older hosts that
@@ -68,6 +69,17 @@
     return str;
   }
 
+  function icon(name, props) {
+    const Component = Icons[name];
+    if (!Component) return null;
+    return h(Component, Object.assign({
+      size: 16,
+      strokeWidth: 1.8,
+      "aria-hidden": true,
+      focusable: false,
+    }, props || {}));
+  }
+
   // ``fetchJSON`` throws ``Error("<status>: <raw body>")`` on non-2xx, and
   // FastAPI bodies look like ``{"detail":"<message>"}``.  Pull the
   // human-readable message out so banners/toasts don't have to leak HTTP
@@ -87,25 +99,31 @@
   }
 
   // Order matches BOARD_COLUMNS in plugin_api.py.
-  const COLUMN_ORDER = ["triage", "todo", "ready", "running", "blocked", "done"];
+  const COLUMN_ORDER = [
+    "triage", "todo", "scheduled", "ready", "running", "blocked", "review", "done",
+  ];
   // English fallback dictionaries — used when the i18n catalog is missing
   // a key, and as defaults for the get*() helpers below so callers running
   // outside any React component (where there's no `t`) still get sane text.
   const FALLBACK_COLUMN_LABEL = {
     triage: "Triage",
     todo: "Todo",
+    scheduled: "Scheduled",
     ready: "Ready",
     running: "In Progress",
     blocked: "Blocked",
+    review: "Review",
     done: "Done",
     archived: "Archived",
   };
   const FALLBACK_COLUMN_HELP = {
     triage: "Raw ideas — a specifier will flesh out the spec",
     todo: "Waiting on dependencies or unassigned",
+    scheduled: "Waiting for a known time or follow-up",
     ready: "Dependencies satisfied; assign a profile to dispatch",
     running: "Claimed by a worker — in-flight",
     blocked: "Worker asked for human input",
+    review: "Work is ready for a person to review",
     done: "Completed",
     archived: "Archived",
   };
@@ -154,9 +172,11 @@
   const COLUMN_DOT = {
     triage: "hermes-kanban-dot-triage",
     todo: "hermes-kanban-dot-todo",
+    scheduled: "hermes-kanban-dot-scheduled",
     ready: "hermes-kanban-dot-ready",
     running: "hermes-kanban-dot-running",
     blocked: "hermes-kanban-dot-blocked",
+    review: "hermes-kanban-dot-review",
     done: "hermes-kanban-dot-done",
     archived: "hermes-kanban-dot-archived",
   };
@@ -205,11 +225,18 @@
   // CLI's on-disk ``<root>/kanban/current`` pointer so browser users
   // can inspect any board without shifting the CLI's active board out
   // from under a terminal they left open.
-  const LS_BOARD_KEY = "hermes.kanban.selectedBoard";
+  const LS_BOARD_KEY = "fabric.kanban.selectedBoard";
+  const LEGACY_LS_BOARD_KEY = "hermes.kanban.selectedBoard";
+  const LS_VIEW_KEY = "fabric.kanban.view";
 
   function readSelectedBoard() {
     try {
-      const v = window.localStorage.getItem(LS_BOARD_KEY);
+      const v = window.localStorage.getItem(LS_BOARD_KEY) ||
+        window.localStorage.getItem(LEGACY_LS_BOARD_KEY);
+      if (v) {
+        window.localStorage.setItem(LS_BOARD_KEY, v);
+        window.localStorage.removeItem(LEGACY_LS_BOARD_KEY);
+      }
       return (v || "").trim() || null;
     } catch (_e) { return null; }
   }
@@ -229,7 +256,23 @@
       // design intent. Regression: #20879.
       if (slug) window.localStorage.setItem(LS_BOARD_KEY, slug);
       else window.localStorage.removeItem(LS_BOARD_KEY);
+      window.localStorage.removeItem(LEGACY_LS_BOARD_KEY);
     } catch (_e) { /* ignore quota / private mode */ }
+  }
+
+  function readWorkView() {
+    try {
+      const value = window.localStorage.getItem(LS_VIEW_KEY);
+      return value === "board" || value === "graph" || value === "outline"
+        ? value
+        : (window.innerWidth < 768 ? "outline" : "graph");
+    } catch (_e) {
+      return "graph";
+    }
+  }
+
+  function writeWorkView(value) {
+    try { window.localStorage.setItem(LS_VIEW_KEY, value); } catch (_e) { /* noop */ }
   }
 
   function withBoard(url, board) {
@@ -509,6 +552,12 @@
     const [board, setBoard] = useState(() => readSelectedBoard() || null);
     const [boardList, setBoardList] = useState([]);      // [{slug, name, counts, ...}]
     const [showNewBoard, setShowNewBoard] = useState(false);
+    const [viewMode, setViewMode] = useState(readWorkView);
+    const [liveStatus, setLiveStatus] = useState("connecting");
+    const [lastUpdateAt, setLastUpdateAt] = useState(Date.now());
+    const [updatesPaused, setUpdatesPaused] = useState(false);
+    const [recentEvents, setRecentEvents] = useState([]);
+    const [selectedGraphNodeId, setSelectedGraphNodeId] = useState(null);
 
     const [kanbanBoard, setKanbanBoard] = useState(null);  // the grid data
     // Alias so the rest of the function can keep using `board` semantically
@@ -548,6 +597,12 @@
     const wsRef = useRef(null);
     const wsBackoffRef = useRef(1000);
     const wsClosedRef = useRef(false);
+    const updatesPausedRef = useRef(false);
+
+    useEffect(function () {
+      updatesPausedRef.current = updatesPaused;
+      setLiveStatus(updatesPaused ? "paused" : (wsRef.current ? "live" : "connecting"));
+    }, [updatesPaused]);
 
     // --- load config once ---------------------------------------------------
     useEffect(function () {
@@ -574,6 +629,7 @@
         .then(function (data) {
           setBoardData(data);
           cursorRef.current = data.latest_event_id || 0;
+          setLastUpdateAt(Date.now());
           setError(null);
         })
         .catch(function (err) {
@@ -649,12 +705,19 @@
           let ws;
           try { ws = new WebSocket(url); } catch (_e) { return; }
           wsRef.current = ws;
-          ws.onopen = function () { wsBackoffRef.current = 1000; };
+          ws.onopen = function () {
+            wsBackoffRef.current = 1000;
+            setLiveStatus(updatesPausedRef.current ? "paused" : "live");
+          };
           ws.onmessage = function (ev) {
             try {
               const msg = JSON.parse(ev.data);
               if (msg && Array.isArray(msg.events) && msg.events.length > 0) {
                 cursorRef.current = msg.cursor || cursorRef.current;
+                setLastUpdateAt(Date.now());
+                setRecentEvents(function (prev) {
+                  return msg.events.concat(prev).slice(0, 8);
+                });
                 // Stamp per-task signal so the TaskDrawer can reload itself.
                 setTaskEventTick(function (prev) {
                   const next = Object.assign({}, prev);
@@ -663,12 +726,13 @@
                   }
                   return next;
                 });
-                scheduleReload();
+                if (!updatesPausedRef.current) scheduleReload();
               }
             } catch (_e) { /* ignore */ }
           };
           ws.onclose = function (ev) {
             if (wsClosedRef.current) return;
+            setLiveStatus(updatesPausedRef.current ? "paused" : "reconnecting");
             if (ev && ev.code === 1008) {
               setError(tx(t, "wsAuthFailed",
                 "WebSocket auth failed — reload the page to refresh the session token."));
@@ -682,6 +746,7 @@
           // Ticket mint / URL build failed (e.g. session expired). Back off
           // and retry; a hard auth failure surfaces via the 1008 close path.
           if (wsClosedRef.current) return;
+          setLiveStatus(updatesPausedRef.current ? "paused" : "reconnecting");
           const delay = Math.min(wsBackoffRef.current, 30000);
           wsBackoffRef.current = Math.min(wsBackoffRef.current * 2, 30000);
           setTimeout(openWs, delay);
@@ -1026,79 +1091,940 @@
     if (!filteredBoard) return null;
 
     const renderMd = !config || config.render_markdown !== false;
+    const allTasks = boardData.columns.reduce(function (acc, c) {
+      return acc.concat(c.tasks || []);
+    }, []);
+    const reviewTasks = allTasks.filter(function (task) { return task.status === "review"; });
+    const selectedBoard = boardList.find(function (item) { return item.slug === board; });
+    const boardLabel = (selectedBoard && selectedBoard.name) || board || "Default board";
+    const workContext = deriveWorkContext(allTasks, boardLabel);
+
+    const changeView = function (nextView) {
+      setViewMode(nextView);
+      writeWorkView(nextView);
+    };
+
+    const toggleUpdates = function () {
+      const next = !updatesPaused;
+      setUpdatesPaused(next);
+      if (!next) loadBoard();
+    };
+
+    const reviewFirst = function () {
+      if (reviewTasks.length === 0) return;
+      // The review action is global to the current board. Clear local view
+      // filters before selecting so the target node cannot be hidden and make
+      // the primary CTA appear to do nothing.
+      setSearch("");
+      setAssigneeFilter("");
+      setSelectedGraphNodeId("task:" + reviewTasks[0].id);
+      changeView("graph");
+    };
 
     return h(ErrorBoundary, null,
-      h("div", { className: "hermes-kanban flex flex-col gap-4" },
-        h(BoardSwitcher, {
-          board: board,
-          boardList: boardList,
-          onSwitch: switchBoard,
-          onNewClick: function () { setShowNewBoard(true); },
-          onDeleteBoard: deleteBoard,
+      h("div", { className: "fabric-workbench hermes-kanban" },
+        h(WorkHeader, {
+          boardLabel: boardLabel,
+          context: workContext,
+          viewMode: viewMode,
+          onViewChange: changeView,
+          liveStatus: liveStatus,
+          lastUpdateAt: lastUpdateAt,
+          updatesPaused: updatesPaused,
+          onToggleUpdates: toggleUpdates,
+          reviewCount: reviewTasks.length,
+          onReview: reviewFirst,
         }),
+        h("div", { className: "fabric-workbench-board-row" },
+          h(BoardSwitcher, {
+            board: board,
+            boardList: boardList,
+            onSwitch: switchBoard,
+            onNewClick: function () { setShowNewBoard(true); },
+            onDeleteBoard: deleteBoard,
+          }),
+        ),
         showNewBoard ? h(NewBoardDialog, {
           onCancel: function () { setShowNewBoard(false); },
           onCreate: function (payload) {
             return createNewBoard(payload).then(function () { setShowNewBoard(false); });
           },
         }) : null,
-        h(OrchestrationPanel, null),
-        h(AttentionStrip, {
-          boardData,
-          onOpen: setSelectedTaskId,
-        }),
-        h(BoardToolbar, {
-          board: boardData,
-          tenantFilter, setTenantFilter,
-          assigneeFilter, setAssigneeFilter,
-          includeArchived, setIncludeArchived,
-          laneByProfile, setLaneByProfile,
-          search, setSearch,
-          onNudgeDispatch: function () {
-            SDK.fetchJSON(withBoard(`${API}/dispatch?max=8`, board), { method: "POST" })
-              .then(loadBoard)
-              .catch(function (e) { setError(String(e.message || e)); });
-          },
-          onRefresh: loadBoard,
-        }),
-       selectedIds.size > 0 ? h(BulkActionBar, {
-         count: selectedIds.size,
-         assignees: (boardData && boardData.assignees) || [],
-         onApply: applyBulk,
-         onClear: clearSelected,
-         onSelectAllVisible: selectAllVisible,
-         onDelete: deleteSelected,
-       }) : null,
-        error ? h("div", { className: "text-xs text-destructive px-2" }, error) : null,
-        h(BoardColumns, {
-          board: filteredBoard,
-          laneByProfile,
-          selectedIds,
-          failedIds,
-          draggingTaskId,
-          onDragStart: handleDragStart,
-          onDragEnd: handleDragEnd,
-          toggleSelected,
-          toggleRange,
-          selectAllInColumn,
-          onMove: moveTask,
-          onMoveSelected: moveSelected,
-          onDelete: deleteTask,
-          onOpen: setSelectedTaskId,
-          onCreate: createTask,
-          allTasks: boardData.columns.reduce(function (acc, c) { return acc.concat(c.tasks); }, []),
-        }),
+        error ? h("div", { className: "fabric-workbench-error", role: "alert" }, error) : null,
+        viewMode === "board"
+          ? h("div", {
+              className: "fabric-workbench-view fabric-workbench-view--board",
+              id: "fabric-work-panel-board",
+              role: "tabpanel",
+              "aria-labelledby": "fabric-work-tab-board",
+            },
+              h(OrchestrationPanel, null),
+              h(AttentionStrip, {
+                boardData,
+                onOpen: setSelectedTaskId,
+              }),
+              h(BoardToolbar, {
+                board: boardData,
+                tenantFilter, setTenantFilter,
+                assigneeFilter, setAssigneeFilter,
+                includeArchived, setIncludeArchived,
+                laneByProfile, setLaneByProfile,
+                search, setSearch,
+                onNudgeDispatch: function () {
+                  SDK.fetchJSON(withBoard(`${API}/dispatch?max=8`, board), { method: "POST" })
+                    .then(loadBoard)
+                    .catch(function (e) { setError(String(e.message || e)); });
+                },
+                onRefresh: loadBoard,
+              }),
+              selectedIds.size > 0 ? h(BulkActionBar, {
+                count: selectedIds.size,
+                assignees: (boardData && boardData.assignees) || [],
+                onApply: applyBulk,
+                onClear: clearSelected,
+                onSelectAllVisible: selectAllVisible,
+                onDelete: deleteSelected,
+              }) : null,
+              h(BoardColumns, {
+                board: filteredBoard,
+                laneByProfile,
+                selectedIds,
+                failedIds,
+                draggingTaskId,
+                onDragStart: handleDragStart,
+                onDragEnd: handleDragEnd,
+                toggleSelected,
+                toggleRange,
+                selectAllInColumn,
+                onMove: moveTask,
+                onMoveSelected: moveSelected,
+                onDelete: deleteTask,
+                onOpen: setSelectedTaskId,
+                onCreate: createTask,
+                allTasks: allTasks,
+              }),
+            )
+          : viewMode === "outline"
+            ? h(WorkOutlineView, {
+                board: filteredBoard,
+                boardLabel: boardLabel,
+                search: search,
+                setSearch: setSearch,
+                selectedNodeId: selectedGraphNodeId,
+                onSelectNode: setSelectedGraphNodeId,
+                onOpenTask: setSelectedTaskId,
+                onCreateFirst: function () { changeView("board"); },
+              })
+            : h(WorkGraphView, {
+                board: filteredBoard,
+                boardLabel: boardLabel,
+                search: search,
+                setSearch: setSearch,
+                selectedNodeId: selectedGraphNodeId,
+                onSelectNode: setSelectedGraphNodeId,
+                onOpenTask: setSelectedTaskId,
+                onCreateFirst: function () { changeView("board"); },
+                recentEvents: recentEvents,
+              }),
         selectedTaskId ? h(TaskDrawer, {
           taskId: selectedTaskId,
           boardSlug: board,
           onClose: function () { setSelectedTaskId(null); },
           onRefresh: loadBoard,
           renderMarkdown: renderMd,
-          allTasks: boardData.columns.reduce(function (acc, c) { return acc.concat(c.tasks); }, []),
+          allTasks: allTasks,
           assignees: (boardData && boardData.assignees) || [],
           eventTick: taskEventTick[selectedTaskId] || 0,
         }) : null,
       ),
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Live Work — shared Board / Graph / Outline projection
+  // -------------------------------------------------------------------------
+
+  const WORK_STATUS = {
+    triage:   { label: "Triage", tone: "neutral", icon: "Circle" },
+    todo:     { label: "Todo", tone: "neutral", icon: "Circle" },
+    scheduled:{ label: "Scheduled", tone: "scheduled", icon: "Clock3" },
+    ready:    { label: "Ready", tone: "ready", icon: "Circle" },
+    running:  { label: "Running", tone: "running", icon: "Play" },
+    blocked:  { label: "Blocked", tone: "blocked", icon: "AlertTriangle" },
+    review:   { label: "Review", tone: "review", icon: "AlertTriangle" },
+    done:     { label: "Complete", tone: "complete", icon: "CheckCircle2" },
+    archived: { label: "Archived", tone: "neutral", icon: "Circle" },
+  };
+
+  function WorkStatusBadge(props) {
+    const status = WORK_STATUS[props.status] || {
+      label: props.status || "Unknown",
+      tone: "neutral",
+      icon: "Circle",
+    };
+    return h("span", {
+      className: "fabric-work-status fabric-work-status--" + status.tone,
+      title: props.title || status.label,
+    },
+      icon(status.icon, { size: 13 }),
+      h("span", null, props.label || status.label),
+    );
+  }
+
+  function flattenBoardTasks(boardData) {
+    if (!boardData || !boardData.columns) return [];
+    const tasks = [];
+    for (const column of boardData.columns) {
+      for (const task of column.tasks || []) tasks.push(task);
+    }
+    return tasks;
+  }
+
+  function deriveWorkContext(tasks, boardLabel) {
+    const firstValue = function (key) {
+      const item = tasks.find(function (task) { return task && task[key]; });
+      return item ? item[key] : null;
+    };
+    return {
+      board: boardLabel,
+      project: firstValue("project_id"),
+      branch: firstValue("branch_name"),
+      session: firstValue("session_id"),
+      workspace: firstValue("workspace_path"),
+    };
+  }
+
+  function WorkHeader(props) {
+    const liveLabel = props.liveStatus === "paused"
+      ? "Paused"
+      : props.liveStatus === "reconnecting"
+        ? "Reconnecting"
+        : props.liveStatus === "connecting"
+          ? "Connecting"
+          : "Live";
+    const synced = props.lastUpdateAt && timeAgo
+      ? timeAgo(Math.floor(props.lastUpdateAt / 1000))
+      : "recently";
+    const contextItems = [
+      { key: "board", icon: "LayoutGrid", value: props.context.board },
+      { key: "project", icon: "Target", value: props.context.project },
+      { key: "branch", icon: "GitBranch", value: props.context.branch, technical: true },
+      { key: "session", icon: "Workflow", value: props.context.session, technical: true },
+    ].filter(function (item) { return item.value; });
+    const views = [
+      { id: "board", label: "Board", icon: "LayoutGrid" },
+      { id: "graph", label: "Graph", icon: "Workflow" },
+      { id: "outline", label: "Outline", icon: "ListTree" },
+    ];
+    const handleViewKeyDown = function (event, index) {
+      let nextIndex = null;
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        nextIndex = (index + 1) % views.length;
+      } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        nextIndex = (index - 1 + views.length) % views.length;
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = views.length - 1;
+      }
+      if (nextIndex == null) return;
+      event.preventDefault();
+      const container = event.currentTarget.parentElement;
+      props.onViewChange(views[nextIndex].id);
+      window.requestAnimationFrame(function () {
+        const tabs = container && container.querySelectorAll('[role="tab"]');
+        if (tabs && tabs[nextIndex] && tabs[nextIndex].focus) tabs[nextIndex].focus();
+      });
+    };
+
+    return h("header", { className: "fabric-work-header" },
+      h("div", { className: "fabric-work-header-main" },
+        h("div", { className: "fabric-work-title-group" },
+          h("div", { className: "fabric-work-eyebrow" }, "Work"),
+          h("h1", { className: "fabric-work-title" }, "Live work"),
+          h("p", { className: "fabric-work-subtitle" },
+            "Follow goals, plan steps, and parallel agent runs as they change."),
+        ),
+        h("div", { className: "fabric-work-header-actions" },
+          props.reviewCount > 0
+            ? h("button", {
+                type: "button",
+                className: "fabric-work-button fabric-work-button--primary",
+                onClick: props.onReview,
+              },
+                icon("CheckCircle2"),
+                `Review ${props.reviewCount} ready ${props.reviewCount === 1 ? "item" : "items"}`,
+              )
+            : null,
+          h("button", {
+            type: "button",
+            className: "fabric-work-button fabric-work-button--quiet",
+            onClick: props.onToggleUpdates,
+            "aria-pressed": props.updatesPaused,
+            title: props.updatesPaused
+              ? "Resume live updates"
+              : "Pause visual updates without stopping any agent",
+          },
+            icon(props.updatesPaused ? "Play" : "Pause"),
+            props.updatesPaused ? "Resume updates" : "Pause updates",
+          ),
+        ),
+      ),
+      h("div", { className: "fabric-work-header-meta" },
+        h("div", { className: "fabric-work-context", "aria-label": "Work context" },
+          contextItems.map(function (item) {
+            return h("span", {
+              key: item.key,
+              className: cn(
+                "fabric-work-context-item",
+                item.technical ? "fabric-work-context-item--technical" : "",
+              ),
+              title: String(item.value),
+            },
+              icon(item.icon, { size: 14 }),
+              h("span", null, String(item.value)),
+            );
+          }),
+        ),
+        h("div", { className: "fabric-work-header-controls" },
+          h("span", {
+            className: "fabric-work-freshness fabric-work-freshness--" + props.liveStatus,
+            role: "status",
+            "aria-live": "polite",
+          },
+            h("span", { className: "fabric-work-freshness-dot", "aria-hidden": true }),
+            `${liveLabel} · synced ${synced}`,
+          ),
+          h("div", { className: "fabric-work-view-switcher", role: "tablist", "aria-label": "Work view" },
+            views.map(function (view, index) {
+              const active = props.viewMode === view.id;
+              return h("button", {
+                key: view.id,
+                id: "fabric-work-tab-" + view.id,
+                type: "button",
+                role: "tab",
+                "aria-selected": active,
+                "aria-controls": "fabric-work-panel-" + view.id,
+                tabIndex: active ? 0 : -1,
+                className: cn("fabric-work-view-tab", active ? "is-active" : ""),
+                onClick: function () { props.onViewChange(view.id); },
+                onKeyDown: function (event) { handleViewKeyDown(event, index); },
+              }, icon(view.icon), view.label);
+            }),
+          ),
+        ),
+      ),
+    );
+  }
+
+  function buildWorkGraph(boardData, boardLabel) {
+    const tasks = flattenBoardTasks(boardData).slice().sort(function (a, b) {
+      const created = Number(a.created_at || 0) - Number(b.created_at || 0);
+      return created || String(a.id).localeCompare(String(b.id));
+    });
+    const taskIds = new Set(tasks.map(function (task) { return task.id; }));
+    const links = (boardData && boardData.links ? boardData.links : []).filter(function (link) {
+      return taskIds.has(link.parent_id) && taskIds.has(link.child_id);
+    });
+    const childIds = new Set(links.map(function (link) { return link.child_id; }));
+    const parentsByChild = {};
+    for (const link of links) {
+      (parentsByChild[link.child_id] = parentsByChild[link.child_id] || []).push(link.parent_id);
+    }
+    const depthByTask = {};
+    const depthFor = function (taskId, stack) {
+      if (depthByTask[taskId] != null) return depthByTask[taskId];
+      if (stack.has(taskId)) return 0;
+      const nextStack = new Set(stack); nextStack.add(taskId);
+      const parents = parentsByChild[taskId] || [];
+      const depth = parents.length === 0
+        ? 0
+        : 1 + Math.max.apply(null, parents.map(function (parentId) {
+            return depthFor(parentId, nextStack);
+          }));
+      depthByTask[taskId] = depth;
+      return depth;
+    };
+    for (const task of tasks) depthFor(task.id, new Set());
+
+    const nodes = [];
+    const edges = [];
+    const graphHeight = Math.max(520, tasks.length * 152 + 120);
+    const rootY = Math.max(64, Math.round(graphHeight / 2) - 56);
+    const goalId = "goal:board";
+    const completedCount = tasks.filter(function (task) { return task.status === "done"; }).length;
+    nodes.push({
+      id: goalId,
+      type: "goal",
+      label: boardLabel,
+      subtitle: tasks.length === 0
+        ? "No plan steps yet"
+        : `${completedCount} of ${tasks.length} steps complete`,
+      x: 24,
+      y: rootY,
+      width: 190,
+      height: 112,
+      level: 1,
+    });
+
+    let maxX = 950;
+    tasks.forEach(function (task, index) {
+      const depth = depthByTask[task.id] || 0;
+      // A compact 370px dependency rhythm keeps a useful three-level plan in
+      // view at a 1440px desktop viewport. Agent/result leaves occupy the gap
+      // before the next dependency level instead of forcing the canvas wider.
+      const x = 240 + depth * 370;
+      const y = 56 + index * 152;
+      const taskNodeId = "task:" + task.id;
+      nodes.push({
+        id: taskNodeId,
+        type: "task",
+        label: task.title || "Untitled task",
+        subtitle: task.id,
+        status: task.status,
+        task: task,
+        x: x,
+        y: y,
+        width: 190,
+        height: 104,
+        level: 2 + depth,
+      });
+      maxX = Math.max(maxX, x + 190);
+      if (!childIds.has(task.id)) {
+        edges.push({ id: "scope:" + task.id, from: goalId, to: taskNodeId, kind: "scope" });
+      }
+
+      const activeRun = task.active_run || null;
+      if (activeRun) {
+        const runNodeId = "run:" + activeRun.id;
+        nodes.push({
+          id: runNodeId,
+          type: "run",
+          label: activeRun.profile ? "@" + activeRun.profile : "Active agent",
+          subtitle: activeRun.summary || "Working on this step",
+          status: "running",
+          task: task,
+          run: activeRun,
+          x: x + 205,
+          y: y + 18,
+          width: 155,
+          height: 84,
+          level: 3 + depth,
+        });
+        edges.push({ id: "run-edge:" + activeRun.id, from: taskNodeId, to: runNodeId, kind: "spawn" });
+        maxX = Math.max(maxX, x + 360);
+      } else if ((task.status === "done" || task.status === "review") && (task.result || task.latest_summary)) {
+        const resultId = "result:" + task.id;
+        nodes.push({
+          id: resultId,
+          type: "result",
+          label: task.status === "review" ? "Ready to review" : "Result",
+          subtitle: task.result || task.latest_summary,
+          status: task.status,
+          task: task,
+          x: x + 205,
+          y: y + 18,
+          width: 155,
+          height: 84,
+          level: 3 + depth,
+        });
+        edges.push({ id: "result-edge:" + task.id, from: taskNodeId, to: resultId, kind: "result" });
+        maxX = Math.max(maxX, x + 360);
+      }
+    });
+
+    for (const link of links) {
+      edges.push({
+        id: "dependency:" + link.parent_id + ":" + link.child_id,
+        from: "task:" + link.parent_id,
+        to: "task:" + link.child_id,
+        kind: "dependency",
+      });
+    }
+
+    return {
+      nodes: nodes,
+      edges: edges,
+      width: Math.max(980, maxX + 40),
+      height: graphHeight,
+      tasks: tasks,
+    };
+  }
+
+  function workNodeTypeLabel(type) {
+    if (type === "goal") return "Goal";
+    if (type === "run") return "Agent run";
+    if (type === "result") return "Result";
+    return "Plan step";
+  }
+
+  function WorkNode(props) {
+    const node = props.node;
+    const selected = props.selected;
+    const handleKeyDown = function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        props.onSelect(node.id);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        props.onSelect(null);
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        props.onMoveFocus(0);
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        props.onMoveFocus(Number.MAX_SAFE_INTEGER);
+        return;
+      }
+      const delta = (event.key === "ArrowRight" || event.key === "ArrowDown")
+        ? 1
+        : (event.key === "ArrowLeft" || event.key === "ArrowUp") ? -1 : 0;
+      if (!delta) return;
+      event.preventDefault();
+      props.onMoveFocus(props.index + delta);
+    };
+    return h("button", {
+      type: "button",
+      "aria-pressed": selected,
+      "aria-label": `${workNodeTypeLabel(node.type)}: ${node.label}${node.status ? ", " + node.status : ""}`,
+      "data-work-node-id": node.id,
+      className: cn(
+        "fabric-work-node",
+        "fabric-work-node--" + node.type,
+        node.status ? "fabric-work-node--status-" + node.status : "",
+        selected ? "is-selected" : "",
+        props.dimmed ? "is-dimmed" : "",
+      ),
+      style: {
+        left: node.x + "px",
+        top: node.y + "px",
+        width: node.width + "px",
+        minHeight: node.height + "px",
+      },
+      tabIndex: selected || (!props.hasSelection && props.index === 0) ? 0 : -1,
+      onClick: function () { props.onSelect(node.id); },
+      onDoubleClick: function () {
+        if (node.task) props.onOpenTask(node.task.id);
+      },
+      onKeyDown: handleKeyDown,
+    },
+      h("span", { className: "fabric-work-node-type" },
+        node.type === "goal" ? icon("Target", { size: 14 })
+          : node.type === "run" ? icon("Bot", { size: 14 })
+            : node.type === "result" ? icon("FileText", { size: 14 })
+              : icon("Circle", { size: 12 }),
+        workNodeTypeLabel(node.type),
+      ),
+      h("span", { className: "fabric-work-node-title" }, node.label),
+      node.subtitle
+        ? h("span", {
+            className: cn(
+              "fabric-work-node-subtitle",
+              node.type === "task" ? "fabric-work-node-subtitle--technical" : "",
+            ),
+          }, node.subtitle)
+        : null,
+      node.status ? h(WorkStatusBadge, { status: node.status }) : null,
+    );
+  }
+
+  function WorkGraphEdges(props) {
+    const byId = {};
+    for (const node of props.nodes) byId[node.id] = node;
+    return h("svg", {
+      className: "fabric-work-edges",
+      width: props.width,
+      height: props.height,
+      viewBox: `0 0 ${props.width} ${props.height}`,
+      "aria-hidden": true,
+      focusable: false,
+    },
+      props.edges.map(function (edge) {
+        const from = byId[edge.from];
+        const to = byId[edge.to];
+        if (!from || !to) return null;
+        const x1 = from.x + from.width;
+        const y1 = from.y + from.height / 2;
+        const x2 = to.x;
+        const y2 = to.y + to.height / 2;
+        const bend = Math.max(48, Math.abs(x2 - x1) * 0.45);
+        const path = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+        return h("path", {
+          key: edge.id,
+          d: path,
+          className: cn(
+            "fabric-work-edge",
+            "fabric-work-edge--" + edge.kind,
+            props.dimmedEdges && !props.dimmedEdges.has(edge.id) ? "is-dimmed" : "",
+          ),
+        });
+      }),
+    );
+  }
+
+  function relatedGraphIds(model, selectedId) {
+    if (!selectedId) return null;
+    const related = new Set([selectedId]);
+    const edgeIds = new Set();
+    const upstream = function (nodeId) {
+      for (const edge of model.edges) {
+        if (edge.to !== nodeId) continue;
+        edgeIds.add(edge.id);
+        if (!related.has(edge.from)) {
+          related.add(edge.from);
+          upstream(edge.from);
+        }
+      }
+    };
+    const downstream = function (nodeId) {
+      for (const edge of model.edges) {
+        if (edge.from !== nodeId) continue;
+        edgeIds.add(edge.id);
+        if (!related.has(edge.to)) {
+          related.add(edge.to);
+          downstream(edge.to);
+        }
+      }
+    };
+    upstream(selectedId);
+    downstream(selectedId);
+
+    // A result or agent run belongs to its task. Include those leaves for
+    // every task already on the selected path without walking back through a
+    // shared downstream task and accidentally lighting up sibling branches.
+    for (const edge of model.edges) {
+      if ((edge.kind === "spawn" || edge.kind === "result") && related.has(edge.from)) {
+        related.add(edge.to);
+        edgeIds.add(edge.id);
+      }
+    }
+    return { nodes: related, edges: edgeIds };
+  }
+
+  function WorkGraphToolbar(props) {
+    return h("div", { className: "fabric-work-graph-toolbar" },
+      h("label", { className: "fabric-work-search" },
+        icon("Search"),
+        h("span", { className: "sr-only" }, "Filter work"),
+        h("input", {
+          type: "search",
+          value: props.search,
+          onChange: function (event) { props.setSearch(event.target.value); },
+          placeholder: "Filter work",
+        }),
+      ),
+      h("button", {
+        type: "button",
+        className: "fabric-work-button fabric-work-button--quiet",
+        onClick: props.onCenter,
+      }, icon("Maximize2"), props.centerLabel || "Center graph"),
+      props.showLegend === false ? null
+        : h("div", { className: "fabric-work-edge-legend", "aria-label": "Graph connections" },
+            h("span", null, h("i", { className: "is-solid" }), "Depends on"),
+            h("span", null, h("i", { className: "is-dashed" }), "Agent run"),
+          ),
+    );
+  }
+
+  function WorkGraphView(props) {
+    const model = useMemo(function () {
+      return buildWorkGraph(props.board, props.boardLabel);
+    }, [props.board, props.boardLabel]);
+    const canvasRef = useRef(null);
+    const selected = model.nodes.find(function (node) { return node.id === props.selectedNodeId; }) || null;
+    const related = relatedGraphIds(model, selected ? selected.id : null);
+
+    const moveFocus = function (nextIndex) {
+      if (model.nodes.length === 0) return;
+      const bounded = Math.max(0, Math.min(model.nodes.length - 1, nextIndex));
+      const next = model.nodes[bounded];
+      props.onSelectNode(next.id);
+      window.requestAnimationFrame(function () {
+        const element = document.querySelector(`[data-work-node-id="${next.id}"]`);
+        if (element && element.focus) element.focus();
+      });
+    };
+
+    if (model.tasks.length === 0) {
+      return h("div", {
+        className: "fabric-workbench-view fabric-workbench-view--graph",
+        id: "fabric-work-panel-graph",
+        role: "tabpanel",
+        "aria-labelledby": "fabric-work-tab-graph",
+      }, h(WorkEmptyState, { onCreateFirst: props.onCreateFirst }));
+    }
+
+    return h("div", {
+      className: "fabric-workbench-view fabric-workbench-view--graph",
+      id: "fabric-work-panel-graph",
+      role: "tabpanel",
+      "aria-labelledby": "fabric-work-tab-graph",
+    },
+      h(WorkGraphToolbar, {
+        search: props.search,
+        setSearch: props.setSearch,
+        onCenter: function () {
+          if (canvasRef.current && canvasRef.current.scrollTo) {
+            const centeredLeft = Math.max(
+              0,
+              (canvasRef.current.scrollWidth - canvasRef.current.clientWidth) / 2,
+            );
+            canvasRef.current.scrollTo({ left: centeredLeft, top: 0, behavior: "smooth" });
+          }
+        },
+      }),
+      h("div", { className: cn("fabric-work-graph-layout", selected ? "has-inspector" : "") },
+        h("div", {
+          ref: canvasRef,
+          className: "fabric-work-graph-scroll",
+          role: "region",
+          "aria-label": "Live work graph",
+        },
+          h("div", {
+            className: "fabric-work-graph-canvas",
+            role: "group",
+            "aria-label": `${props.boardLabel} interactive work graph nodes`,
+            style: { width: model.width + "px", height: model.height + "px" },
+          },
+            h(WorkGraphEdges, {
+              nodes: model.nodes,
+              edges: model.edges,
+              width: model.width,
+              height: model.height,
+              dimmedEdges: related ? related.edges : null,
+            }),
+            model.nodes.map(function (node, index) {
+              return h(WorkNode, {
+                key: node.id,
+                node: node,
+                index: index,
+                selected: !!selected && selected.id === node.id,
+                hasSelection: !!selected,
+                dimmed: related ? !related.nodes.has(node.id) : false,
+                onSelect: props.onSelectNode,
+                onMoveFocus: moveFocus,
+                onOpenTask: props.onOpenTask,
+              });
+            }),
+          ),
+        ),
+        selected ? h(WorkInspector, {
+          node: selected,
+          onClose: function () { props.onSelectNode(null); },
+          onOpenTask: props.onOpenTask,
+        }) : null,
+      ),
+      h(RecentWorkActivity, { events: props.recentEvents || [] }),
+    );
+  }
+
+  function WorkInspector(props) {
+    const node = props.node;
+    const task = node.task || null;
+    const run = node.run || (task && task.active_run) || null;
+    const needsAction = task && (task.status === "review" || task.status === "blocked");
+    const summary = task && (task.latest_summary || task.result || task.body);
+    const elapsed = run && run.started_at
+      ? Math.max(0, Math.floor(Date.now() / 1000) - Number(run.started_at))
+      : null;
+    const elapsedLabel = elapsed == null ? null
+      : elapsed < 60 ? elapsed + "s"
+        : elapsed < 3600 ? Math.floor(elapsed / 60) + "m"
+          : (elapsed / 3600).toFixed(1) + "h";
+
+    return h("aside", {
+      className: "fabric-work-inspector",
+      "aria-label": "Selected work details",
+    },
+      h("div", { className: "fabric-work-inspector-head" },
+        h("div", null,
+          h("span", { className: "fabric-work-node-type" }, workNodeTypeLabel(node.type)),
+          h("h2", null, node.label),
+        ),
+        h("button", {
+          type: "button",
+          className: "fabric-work-icon-button",
+          onClick: props.onClose,
+          "aria-label": "Close inspector",
+        }, icon("X")),
+      ),
+      node.status ? h(WorkStatusBadge, { status: node.status }) : null,
+      needsAction
+        ? h("div", { className: "fabric-work-action-callout", role: "status" },
+            icon("AlertTriangle"),
+            h("div", null,
+              h("strong", null, task.status === "review" ? "Your review is needed" : "This work is blocked"),
+              h("span", null, task.status === "review"
+                ? "Open the task to inspect the result and decide what happens next."
+                : "Open the task to read the blocker and choose a recovery action."),
+            ),
+          )
+        : null,
+      summary
+        ? h("div", { className: "fabric-work-inspector-section" },
+            h("h3", null, run ? "Latest meaningful update" : "About this work"),
+            h("p", null, String(summary).slice(0, 420)),
+          )
+        : null,
+      task ? h("dl", { className: "fabric-work-inspector-facts" },
+        task.assignee ? h(React.Fragment, null,
+          h("dt", null, "Owner"), h("dd", null, "@" + task.assignee)) : null,
+        elapsedLabel ? h(React.Fragment, null,
+          h("dt", null, "Elapsed"), h("dd", null, elapsedLabel)) : null,
+        task.progress ? h(React.Fragment, null,
+          h("dt", null, "Progress"),
+          h("dd", null, `${task.progress.done} of ${task.progress.total} steps complete`)) : null,
+      ) : null,
+      task ? h("button", {
+        type: "button",
+        className: "fabric-work-button fabric-work-button--primary fabric-work-inspector-open",
+        onClick: function () { props.onOpenTask(task.id); },
+      }, "Open task details") : null,
+      task ? h("details", { className: "fabric-work-technical" },
+        h("summary", null, "Technical details"),
+        h("dl", null,
+          h("dt", null, "Task ID"), h("dd", null, task.id),
+          task.branch_name ? h(React.Fragment, null,
+            h("dt", null, "Branch"), h("dd", null, task.branch_name)) : null,
+          task.workspace_path ? h(React.Fragment, null,
+            h("dt", null, "Workspace"), h("dd", null, task.workspace_path)) : null,
+          run && run.id ? h(React.Fragment, null,
+            h("dt", null, "Run ID"), h("dd", null, String(run.id))) : null,
+        ),
+      ) : null,
+    );
+  }
+
+  function WorkEmptyState(props) {
+    return h("div", { className: "fabric-work-empty" },
+      h("div", { className: "fabric-work-empty-icon", "aria-hidden": true }, icon("Workflow", { size: 24 })),
+      h("h2", null, "Nothing to map yet"),
+      h("p", null, "Create a goal or task and Fabric will show its plan, dependencies, and agent runs here."),
+      h("button", {
+        type: "button",
+        className: "fabric-work-button fabric-work-button--primary",
+        onClick: props.onCreateFirst,
+      }, icon("LayoutGrid"), "Open Board to create work"),
+    );
+  }
+
+  function WorkOutlineView(props) {
+    const model = useMemo(function () {
+      return buildWorkGraph(props.board, props.boardLabel);
+    }, [props.board, props.boardLabel]);
+    const selectedNode = model.nodes.find(function (node) {
+      return node.id === props.selectedNodeId;
+    }) || null;
+    const moveFocus = function (nextIndex) {
+      if (model.nodes.length === 0) return;
+      const bounded = Math.max(0, Math.min(model.nodes.length - 1, nextIndex));
+      const next = model.nodes[bounded];
+      props.onSelectNode(next.id);
+      window.requestAnimationFrame(function () {
+        const element = document.querySelector(`[data-work-outline-id="${next.id}"]`);
+        if (element && element.focus) element.focus();
+      });
+    };
+    if (model.tasks.length === 0) {
+      return h("div", {
+        className: "fabric-workbench-view fabric-workbench-view--outline",
+        id: "fabric-work-panel-outline",
+        role: "tabpanel",
+        "aria-labelledby": "fabric-work-tab-outline",
+      }, h(WorkEmptyState, { onCreateFirst: props.onCreateFirst }));
+    }
+    return h("div", {
+      className: "fabric-workbench-view fabric-workbench-view--outline",
+      id: "fabric-work-panel-outline",
+      role: "tabpanel",
+      "aria-labelledby": "fabric-work-tab-outline",
+    },
+      h(WorkGraphToolbar, {
+        search: props.search,
+        setSearch: props.setSearch,
+        onCenter: function () {
+          const first = document.querySelector(".fabric-work-outline-node");
+          if (first && first.scrollIntoView) first.scrollIntoView({ block: "start" });
+        },
+        centerLabel: "Back to top",
+        showLegend: false,
+      }),
+      h("div", { className: "fabric-work-outline-layout" },
+        h("div", { className: "fabric-work-outline", role: "group", "aria-label": `${props.boardLabel} interactive work outline` },
+          model.nodes.map(function (node, index) {
+            const selected = !!selectedNode && selectedNode.id === node.id;
+            return h("button", {
+              key: node.id,
+              type: "button",
+              "aria-pressed": selected,
+              "data-work-outline-id": node.id,
+              tabIndex: selected || (!selectedNode && index === 0) ? 0 : -1,
+              className: cn(
+                "fabric-work-outline-node",
+                "fabric-work-outline-node--" + node.type,
+                selected ? "is-selected" : "",
+              ),
+              style: { "--outline-depth": String(Math.max(0, node.level - 1)) },
+              onClick: function () { props.onSelectNode(node.id); },
+              onDoubleClick: function () { if (node.task) props.onOpenTask(node.task.id); },
+              onKeyDown: function (event) {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  props.onSelectNode(null);
+                  return;
+                }
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  props.onSelectNode(node.id);
+                  return;
+                }
+                let nextIndex = null;
+                if (event.key === "ArrowDown" || event.key === "ArrowRight") nextIndex = index + 1;
+                else if (event.key === "ArrowUp" || event.key === "ArrowLeft") nextIndex = index - 1;
+                else if (event.key === "Home") nextIndex = 0;
+                else if (event.key === "End") nextIndex = model.nodes.length - 1;
+                if (nextIndex == null) return;
+                event.preventDefault();
+                moveFocus(nextIndex);
+              },
+            },
+              h("span", { className: "fabric-work-outline-kind" }, workNodeTypeLabel(node.type)),
+              h("span", { className: "fabric-work-outline-title" }, node.label),
+              node.status ? h(WorkStatusBadge, { status: node.status }) : null,
+            );
+          }),
+        ),
+        selectedNode
+          ? h(WorkInspector, {
+              node: selectedNode,
+              onClose: function () { props.onSelectNode(null); },
+              onOpenTask: props.onOpenTask,
+            })
+          : null,
+      ),
+    );
+  }
+
+  function RecentWorkActivity(props) {
+    if (!props.events || props.events.length === 0) return null;
+    return h("div", { className: "fabric-work-activity", "aria-live": "polite" },
+      h("span", { className: "fabric-work-activity-label" }, "Latest activity"),
+      props.events.slice(0, 3).map(function (event) {
+        return h("div", {
+          key: event.id || event.task_id + event.kind,
+          className: "fabric-work-activity-row",
+        },
+          h("time", null, event.created_at && timeAgo ? timeAgo(event.created_at) : "now"),
+          h("span", null, String(event.kind || "Task updated").replace(/_/g, " ")),
+          event.task_id ? h("code", null, event.task_id) : null,
+        );
+      }),
     );
   }
 
@@ -1509,7 +2435,7 @@
   // Board switcher (multi-project)
   // -------------------------------------------------------------------------
 
-  // Small `?` affordance next to the board controls. Opens the kanban docs
+  // Small help affordance next to the board controls. Opens the kanban docs
   // page in a new tab so users can look up what any of the widgets mean
   // without losing the current board view.
   function DocsLink() {
@@ -1520,7 +2446,7 @@
       className: "hermes-kanban-docs-link",
       title: "Open Fabric Kanban docs in a new tab",
       "aria-label": "Fabric Kanban documentation",
-    }, "?");
+    }, icon("HelpCircle", { size: 17 }));
   }
 
   // ---------------------------------------------------------------------
@@ -1811,6 +2737,7 @@
     const currentName = current && current.name ? current.name : props.board;
     const currentTotal = current ? current.total : 0;
     const hasMultipleBoards = list.length > 1;
+    const newBoardLabel = tx(t, "newBoard", "+ New board").replace(/^\+\s*/, "");
 
     // Hide entirely when only the default board exists AND it's empty —
     // single-project users never see boards UI unless they ask for it.
@@ -1828,7 +2755,7 @@
           onClick: props.onNewClick,
           size: "sm",
           className: "h-7 text-xs",
-        }, tx(t, "newBoard", "+ New board")),
+        }, icon("Plus"), newBoardLabel),
         h(DocsLink, null),
       );
     }
@@ -1863,7 +2790,7 @@
           size: "sm",
           className: "h-8",
           title: "Create a new board. Useful when you want an unrelated work stream (different project, different team, isolated scratch area).",
-        }, tx(t, "newBoard", "+ New board")),
+        }, icon("Plus"), newBoardLabel),
         props.board !== "default"
           ? h(Button, {
             onClick: function () {
@@ -3882,7 +4809,7 @@
           },
           disabled: specifyBusy,
           size: "sm",
-        }, specifyBusy ? "Specifying…" : "✨ Specify")
+        }, specifyBusy ? "Specifying…" : h(React.Fragment, null, icon("FileText"), "Specify"))
       : null;
 
     // "Decompose" is the built-in decomposer fan-out. Like Specify, only
@@ -3929,15 +4856,17 @@
           },
           disabled: decomposeBusy,
           size: "sm",
-        }, decomposeBusy ? "Decomposing…" : "⚗ Decompose")
+        }, decomposeBusy ? "Decomposing…" : h(React.Fragment, null, icon("Workflow"), "Decompose"))
       : null;
 
     return h("div", null,
       h("div", { className: "hermes-kanban-actions" },
         specifyButton,
         decomposeButton,
-        b("→ triage",  { status: "triage" },   task.status !== "triage"),
-        b("→ ready",   { status: "ready" },    task.status !== "ready"),
+        b("Move to triage",  { status: "triage" }, task.status !== "triage"),
+        b("Schedule", { status: "scheduled" },
+          task.status !== "scheduled" && task.status !== "done" && task.status !== "archived"),
+        b("Mark ready", { status: "ready" }, task.status !== "ready" && task.status !== "done"),
         // No direct → running button: /tasks/:id PATCH rejects status=running
         // with 400 (issue #19535). Tasks enter running only through the
         // dispatcher's claim_task path, which atomically creates the run row,
@@ -3946,8 +4875,10 @@
           task.status === "running" || task.status === "ready",
           getDestructiveConfirm(t, "blocked")),
         b(tx(t, "unblock", "Unblock"),   { status: "ready" },    task.status === "blocked"),
+        b("Send to review", { status: "review" },
+          task.status === "running" || task.status === "ready" || task.status === "blocked"),
         b(tx(t, "complete", "Complete"),  { status: "done" },
-          task.status === "running" || task.status === "ready" || task.status === "blocked",
+          task.status === "running" || task.status === "ready" || task.status === "blocked" || task.status === "review",
           getDestructiveConfirm(t, "done")),
         b(tx(t, "archive", "Archive"),   { status: "archived" }, task.status !== "archived",
           getDestructiveConfirm(t, "archived")),
@@ -3982,7 +4913,9 @@
       h("div", { className: "hermes-kanban-home-subs" },
         channels.map(function (hc) {
           const isBusy = !!busy[hc.platform];
-          const label = hc.subscribed ? "✓ " + hc.platform : hc.platform;
+          const label = hc.subscribed
+            ? h(React.Fragment, null, icon("CheckCircle2"), hc.platform)
+            : hc.platform;
           const target = `${hc.name} (${hc.chat_id}${hc.thread_id ? " / " + hc.thread_id : ""})`;
           const title = hc.subscribed
             ? `${tx(t, "sendingUpdates", "Sending updates to")} ${target}. Click to stop.`
@@ -4008,7 +4941,8 @@
   // Register
   // -------------------------------------------------------------------------
 
-  if (window.__HERMES_PLUGINS__ && typeof window.__HERMES_PLUGINS__.register === "function") {
-    window.__HERMES_PLUGINS__.register("kanban", KanbanPage);
+  const pluginRegistry = window.__FABRIC_PLUGINS__ || window.__HERMES_PLUGINS__;
+  if (pluginRegistry && typeof pluginRegistry.register === "function") {
+    pluginRegistry.register("kanban", KanbanPage);
   }
 })();

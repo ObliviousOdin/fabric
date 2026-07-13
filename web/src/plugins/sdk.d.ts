@@ -134,9 +134,13 @@ export interface HermesPluginSDK {
    */
   components: Record<string, ComponentType<never>>;
 
+  /** Host-owned icon components. Plugins should use this set instead of
+   * bundling another icon library or drawing inline SVG/CSS approximations. */
+  icons?: Record<string, ComponentType<never>>;
+
   utils: {
     cn: (...classes: Array<string | false | null | undefined>) => string;
-    /** Relative-time formatter. Accepts an epoch-ms number. */
+    /** Relative-time formatter. Accepts a Unix epoch timestamp in seconds. */
     timeAgo: (ts: number) => string;
     /** Relative-time formatter for an ISO-8601 string. */
     isoTimeAgo: (iso: string) => string;
@@ -152,6 +156,8 @@ export interface HermesPluginSDK {
 
 declare global {
   interface Window {
+    __FABRIC_PLUGIN_SDK__?: HermesPluginSDK;
+    __FABRIC_PLUGINS__?: PluginRegistry;
     __HERMES_PLUGIN_SDK__?: HermesPluginSDK;
     __HERMES_PLUGINS__?: PluginRegistry;
   }

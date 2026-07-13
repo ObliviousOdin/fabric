@@ -42,10 +42,10 @@ const DEFAULT_LAYOUT: ThemeLayout = {
 // Themes
 // ---------------------------------------------------------------------------
 
-export const defaultTheme: DashboardTheme = {
-  name: "default",
-  label: "Fabric Teal",
-  description: "Classic dark teal — the canonical Fabric look",
+export const fabricTealTheme: DashboardTheme = {
+  name: "fabric-teal",
+  label: "Fabric Teal (Heritage)",
+  description: "The original dark teal Fabric dashboard skin",
   palette: {
     background: { hex: "#041c1c", alpha: 1 },
     midground: { hex: "#ffe6cb", alpha: 1 },
@@ -57,6 +57,9 @@ export const defaultTheme: DashboardTheme = {
   layout: DEFAULT_LAYOUT,
   terminalBackground: "#000000",
 };
+
+/** Canonical fallback for fresh installs and unknown theme ids. */
+export const defaultTheme: DashboardTheme = fabricLightTheme;
 
 export const midnightTheme: DashboardTheme = {
   name: "midnight",
@@ -218,9 +221,9 @@ export const fabricBlueTheme: DashboardTheme = {
  */
 export const defaultLargeTheme: DashboardTheme = {
   name: "default-large",
-  label: "Fabric Teal (Large)",
-  description: "Fabric Teal with bigger fonts and roomier spacing",
-  palette: defaultTheme.palette,
+  label: "Fabric Teal (Heritage, Large)",
+  description: "The original Fabric Teal skin with roomier spacing",
+  palette: fabricTealTheme.palette,
   typography: {
     ...DEFAULT_TYPOGRAPHY,
     baseSize: "18px",
@@ -233,12 +236,12 @@ export const defaultLargeTheme: DashboardTheme = {
 };
 
 export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
-  default: defaultTheme,
   "default-large": defaultLargeTheme,
   // Generated pair (normal-contrast variants; the provider swaps in the
   // high-contrast variants via the contrast preference).
   "fabric-dark": fabricDarkTheme,
   "fabric-light": fabricLightTheme,
+  "fabric-teal": fabricTealTheme,
   "fabric-blue": fabricBlueTheme,
   midnight: midnightTheme,
   ember: emberTheme,

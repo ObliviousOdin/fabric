@@ -651,6 +651,20 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key }),
     }),
+  /**
+   * E7 — live-probe a provider credential before it's saved
+   * (POST /api/providers/validate, token-gated). Only the keys in
+   * `fabric_cli/web_server.py::_CREDENTIAL_PROBES` (OpenRouter / OpenAI /
+   * xAI / Gemini) plus the `OPENAI_BASE_URL` compatibility branch have
+   * server-side probes; `apiKey` is only read by that base-URL branch so
+   * auth-gated `/v1/models` endpoints can still enumerate their catalog.
+   */
+  validateProviderKey: (key: string, value: string, apiKey = "") =>
+    fetchJSON<ProviderValidateResponse>("/api/providers/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value, api_key: apiKey }),
+    }),
 
   // Cron jobs
   getCronJobs: (profile = "all") =>
@@ -2151,6 +2165,21 @@ export interface EnvVarInfo {
   channel_managed?: boolean;
   /** True when this key is set in .env but not in any catalog (user-added custom key). */
   custom?: boolean;
+}
+
+/**
+ * `POST /api/providers/validate` result (E7). `ok` = the provider accepted
+ * the credential (or, for `OPENAI_BASE_URL`, the endpoint served a
+ * recognizable model catalog). `ok:false, reachable:true` = the value was
+ * rejected; `reachable:false` = the probe could not run (offline), so
+ * callers should warn rather than hard-block.
+ */
+export interface ProviderValidateResponse {
+  ok: boolean;
+  reachable: boolean;
+  message: string;
+  /** Model ids — only served by the `OPENAI_BASE_URL` catalog branch. */
+  models?: string[];
 }
 
 export interface TelegramOnboardingStartResponse {

@@ -26,6 +26,12 @@ export interface CapabilityRowProps {
    * genuinely human labels (toolset display labels).
    */
   mono?: boolean;
+  /**
+   * Truncation `title` override on the name span (defaults to `name`) —
+   * for rows whose display name is a human label over a technical id
+   * (channel platforms: name "Telegram", title "telegram" — H2).
+   */
+  nameTitle?: string;
   /** Monochrome glyph, muted (G11). */
   icon?: LucideIcon;
   /** State zone (CAP1.2): leading Switch where toggling is primary. */
@@ -63,6 +69,7 @@ export interface CapabilityRowProps {
 export function CapabilityRow({
   name,
   mono = true,
+  nameTitle,
   icon: Icon,
   switch: switchProps,
   badges,
@@ -146,7 +153,7 @@ export function CapabilityRow({
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             {/* Long ids truncate with the full value in `title` (CAP1.1). */}
             <span
-              title={name}
+              title={nameTitle ?? name}
               className={cn(
                 "min-w-0 truncate text-sm",
                 mono ? "font-mono-ui" : themedBody,

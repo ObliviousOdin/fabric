@@ -542,6 +542,45 @@ export interface Translations {
   channels?: {
     noChannelsTitle: string;
     noChannelsDescription: string;
+    /** Load-failure banner copy (CONNECT revamp H5). */
+    loadFailed?: string;
+    /** `title` on the sessions-count usage-evidence segment (H6). */
+    sessionsEvidenceTitle?: string;
+  };
+
+  // ── Webhooks page ──
+  /**
+   * Optional — the page is otherwise un-i18n'd; call sites fall back to
+   * the English literals until translated (O5 pattern, CN6).
+   */
+  webhooks?: {
+    noSubscriptionsTitle: string;
+    noSubscriptionsDescription: string;
+    loadFailed: string;
+  };
+
+  // ── Pairing page ──
+  /**
+   * Optional — call sites fall back to the English literals until
+   * translated (CN6, same O5 pattern as `channels`).
+   */
+  pairing?: {
+    pendingHeading: string;
+    approvedHeading: string;
+    noPendingTitle: string;
+    noPendingDescription: string;
+    noApprovedTitle: string;
+    noApprovedDescription: string;
+    loadFailed: string;
+    clearPending: string;
+    clearPendingConfirm: string;
+  };
+
+  // ── Files page ──
+  /** Optional — same CN6/O5 fallback pattern as `pairing`. */
+  files?: {
+    noFilesTitle: string;
+    noFilesDescription: string;
   };
 
   // ── Plugins page ──
@@ -662,6 +701,12 @@ export interface Translations {
     actions?: string;
     manageSkills?: string;
     activeSetHint?: string;
+    // CONNECT+SYSTEM revamp (PR1/PR7). Optional — English fallbacks at the
+    // call sites until translated (O5 pattern).
+    /** PR1 `title` copy: active = sticky default for new runs, current = this dashboard's scope. */
+    activeVsCurrentTitle?: string;
+    /** PR7 roster load-failure banner text. */
+    loadFailed?: string;
   };
 
   // ── Skills page ──
@@ -787,6 +832,20 @@ export interface Translations {
     customKeyNamePlaceholder: string;
     add: string;
     invalidKeyName: string;
+    // CONNECT+SYSTEM revamp (E3/E7/E8). Optional — English fallbacks at the
+    // call sites until translated (O5 pattern).
+    /** E7 probe action label ("Test"). */
+    testKey?: string;
+    /** E7 probe in-flight label ("Testing…"). */
+    testingKey?: string;
+    /** E7 success chip label for an accepted credential. */
+    keyAccepted?: string;
+    /** E7 warning chip label when the probe could not reach the provider. */
+    keyUnreachable?: string;
+    /** E3 specific 429 message for the reveal rate limit (§0.7). */
+    revealRateLimited?: string;
+    /** E8 load-failure banner text. */
+    loadFailed?: string;
   };
 
   // ── OAuth ──

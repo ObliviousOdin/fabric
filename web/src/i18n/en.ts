@@ -525,12 +525,44 @@ export const en: Translations = {
     modelSaved: "Model updated",
     modelSelect: "Select a model",
     actions: "Actions",
+    activeVsCurrentTitle:
+      "Active is the sticky default new CLI/gateway runs use; current is the profile this dashboard process is scoped to.",
+    loadFailed: "Could not load profiles",
   },
 
   channels: {
     noChannelsTitle: "No channels available",
     noChannelsDescription:
       "The gateway reported no messaging platforms. Refresh once it has finished starting, or check the logs.",
+    loadFailed: "Failed to load channels.",
+    sessionsEvidenceTitle: "sessions started from this channel (all time)",
+  },
+
+  webhooks: {
+    noSubscriptionsTitle: "No webhook subscriptions yet",
+    noSubscriptionsDescription:
+      "Create one with “New subscription” — each gets its own URL and signing secret.",
+    loadFailed: "Failed to load webhooks.",
+  },
+
+  pairing: {
+    pendingHeading: "Pending requests",
+    approvedHeading: "Approved users",
+    noPendingTitle: "No pending pairing requests",
+    noPendingDescription:
+      "Pairing codes appear here when an unapproved user messages the agent on a connected channel",
+    noApprovedTitle: "No approved users yet",
+    noApprovedDescription:
+      "Approve a pending request to grant a user access to the agent",
+    loadFailed: "Failed to load pairing requests",
+    clearPending: "Clear pending",
+    clearPendingConfirm: "Clear all pending pairing requests?",
+  },
+
+  files: {
+    noFilesTitle: "No files here",
+    noFilesDescription:
+      "Drop files here or upload to make them available to the agent",
   },
 
   pluginsPage: {
@@ -692,6 +724,12 @@ export const en: Translations = {
     customKeyNamePlaceholder: "e.g. MY_SERVICE_API_KEY",
     add: "Add",
     invalidKeyName: "Use letters, numbers and underscores only (must start with a letter or underscore).",
+    testKey: "Test",
+    testingKey: "Testing…",
+    keyAccepted: "key accepted",
+    keyUnreachable: "could not reach provider",
+    revealRateLimited: "Reveal rate-limited — try again in a moment",
+    loadFailed: "Could not load environment keys",
   },
 
   oauth: {

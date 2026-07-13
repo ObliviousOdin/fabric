@@ -38,6 +38,35 @@ class PublicReleaseAuditTests(unittest.TestCase):
     def _issues(self):
         return self.audit.audit_repository(self.root)
 
+    def _init_git(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+
+    def _commit_with_private_identity(self, message: str, marker: str) -> str:
+        private = "ra" + "bot"
+        (self.root / f"history-{marker}.txt").write_text(
+            f"public marker {marker}\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
+        env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "Example",
+            "GIT_AUTHOR_EMAIL": "channa" + f"@{private}.us",
+            "GIT_COMMITTER_NAME": "Example",
+            "GIT_COMMITTER_EMAIL": "channa" + f"@{private}.us",
+        }
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-q", "-m", message],
+            check=True,
+            env=env,
+        )
+        return subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
     def _docs_workflow_contract(self, text: str):
         return self.audit._audit_brand_workflow_contract(  # noqa: SLF001
             ".github/workflows/docs-pages.yml",
@@ -359,6 +388,69 @@ class PublicReleaseAuditTests(unittest.TestCase):
 
         self.assertTrue(issues)
         self.assertEqual({issue.rule for issue in issues}, {"git-history"})
+
+    def test_history_baseline_matches_only_the_exact_rule_pair(self) -> None:
+        self._init_git()
+        commit = self._commit_with_private_identity("Initial snapshot", "one")
+        self.audit.LEGACY_GIT_HISTORY_BASELINE = frozenset(
+            {(commit, "personal-email")}
+        )
+
+        issues = self.audit.audit_git_history(self.root)
+        messages = {issue.message for issue in issues}
+
+        self.assertNotIn(
+            "reachable commit metadata violates personal-email",
+            messages,
+        )
+        self.assertIn(
+            "reachable commit metadata violates private-brand",
+            messages,
+        )
+
+    def test_history_baseline_requires_the_full_commit_sha(self) -> None:
+        self._init_git()
+        commit = self._commit_with_private_identity("Initial snapshot", "one")
+        self.audit.LEGACY_GIT_HISTORY_BASELINE = frozenset(
+            {(commit[:12], "personal-email")}
+        )
+
+        issues = self.audit.audit_git_history(self.root)
+
+        self.assertTrue(
+            any(
+                issue.path == f"git:{commit[:12]}"
+                and issue.message.endswith("violates personal-email")
+                for issue in issues
+            ),
+            issues,
+        )
+
+    def test_history_baseline_does_not_cover_a_new_commit(self) -> None:
+        self._init_git()
+        baseline_commit = self._commit_with_private_identity(
+            "Initial snapshot",
+            "one",
+        )
+        self.audit.LEGACY_GIT_HISTORY_BASELINE = frozenset(
+            {
+                (baseline_commit, "personal-email"),
+                (baseline_commit, "private-brand"),
+            }
+        )
+        new_commit = self._commit_with_private_identity("Follow-up", "two")
+
+        issues = [
+            issue
+            for issue in self.audit.audit_git_history(self.root)
+            if issue.rule == "git-history"
+        ]
+
+        self.assertEqual({issue.path for issue in issues}, {f"git:{new_commit[:12]}"})
+        self.assertEqual(
+            {issue.message.rsplit(" ", 1)[-1] for issue in issues},
+            {"personal-email", "private-brand"},
+        )
 
     def test_rejects_noncanonical_origin(self) -> None:
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)

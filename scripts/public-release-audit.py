@@ -110,6 +110,18 @@ GLOBAL_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ),
 )
 
+# Immutable debt ledger for metadata already published on ``main``. This is
+# deliberately narrower than a commit allowlist: only the exact full SHA + rule
+# pairs below are acknowledged. Source findings, other rules on this commit,
+# and the same metadata on any new commit still fail. Remove these entries if
+# the public history is ever rewritten cleanly.
+LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("10bb49f8401dea1a981f172c8a0d331d0d47e533", "personal-email"),
+        ("10bb49f8401dea1a981f172c8a0d331d0d47e533", "private-brand"),
+    }
+)
+
 LEGACY_REPOSITORY_RE = re.compile(
     r"(?:github\.com|raw\.githubusercontent\.com)/NousResearch/"
     r"(?:hermes-agent|fabric-agent)(?:\.git)?|"
@@ -1137,7 +1149,7 @@ def audit_repository(root: Path = ROOT) -> list[Issue]:
 
 
 def audit_git_history(root: Path = ROOT) -> list[Issue]:
-    """Reject private identity in any locally reachable commit metadata."""
+    """Reject unacknowledged private identity in reachable commit metadata."""
 
     if not (root / ".git").exists():
         return []
@@ -1235,6 +1247,8 @@ def audit_git_history(root: Path = ROOT) -> list[Issue]:
             if pattern.search(metadata)
         }
         for matched_rule in sorted(matched_rules):
+            if (commit, matched_rule) in LEGACY_GIT_HISTORY_BASELINE:
+                continue
             issues.append(
                 Issue(
                     "git-history",

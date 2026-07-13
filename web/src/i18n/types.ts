@@ -64,8 +64,21 @@ export interface Translations {
     // component until translated, matching the enriched-profiles keys.
     gateway?: string;
     gatewayHint?: string;
+    copyId?: string;
     pluginLoadFailed: string;
     pluginNotRegistered: string;
+  };
+
+  // ── Shared agent-status vocabulary (WORK-section primitives) ──
+  // Optional group: `AgentStatusBadge` falls back to the raw status word
+  // for locales that haven't translated it yet.
+  agentStatus?: {
+    live: string;
+    idle: string;
+    scheduled: string;
+    paused: string;
+    failed: string;
+    done: string;
   };
 
   // ── App shell ──

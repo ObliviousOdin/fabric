@@ -2065,6 +2065,19 @@ export interface SessionInfo {
   output_tokens: number;
   preview: string | null;
   parent_session_id?: string | null;
+  // ── Fields already present in every list/detail payload (S3) ─────────
+  // ``GET /api/sessions`` serves ``SELECT s.*`` minus ``system_prompt`` /
+  // ``model_config`` (see ``_strip_session_list_rows`` +
+  // ``_compact_session_cols`` in the backend), so these ride along today —
+  // the TS type simply under-declared them. ``archived`` is coerced to a
+  // real JSON boolean server-side; the rest are nullable schema columns.
+  archived: boolean;
+  end_reason?: string | null;
+  cwd?: string | null;
+  git_branch?: string | null;
+  estimated_cost_usd?: number | null;
+  actual_cost_usd?: number | null;
+  api_call_count?: number;
 }
 
 export interface SessionLatestDescendantResponse {

@@ -44,12 +44,22 @@ export const en: Translations = {
     general: "General",
     messaging: "Messaging",
     gateway: "Gateway",
+    copyId: "Copy ID",
     gatewayHint:
       "Messaging platforms, the API server and webhooks are configured on the Channels page. These are gateway-wide settings (proxy/relay mode and the global allowlist).",
     pluginLoadFailed:
       "Could not load this plugin’s script. Check the Network tab (dashboard-plugins/…) and the server’s plugin path.",
     pluginNotRegistered:
       "The plugin’s script did not call register(), or the script errored. Open the browser console for details.",
+  },
+
+  agentStatus: {
+    live: "live",
+    idle: "idle",
+    scheduled: "scheduled",
+    paused: "paused",
+    failed: "failed",
+    done: "done",
   },
 
   app: {

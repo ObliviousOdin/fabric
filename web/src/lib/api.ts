@@ -368,20 +368,34 @@ export const api = {
     offset = 0,
     profile = getManagementProfile(),
     order: "created" | "recent" = "created",
+    /** Optional server-side source filter (`cli`, `telegram`, `cron`, …). */
+    source?: string,
   ) =>
     fetchJSON<PaginatedSessions>(
       appendProfileParam(
-        `/api/sessions?limit=${limit}&offset=${offset}&order=${order}`,
+        `/api/sessions?limit=${limit}&offset=${offset}&order=${order}${
+          source ? `&source=${encodeURIComponent(source)}` : ""
+        }`,
         profile,
       ),
     ),
-  getSessionMessages: (id: string, profile = getManagementProfile()) =>
-    fetchJSON<SessionMessagesResponse>(
+  getSessionMessages: (
+    id: string,
+    profile = getManagementProfile(),
+    /** Endpoint clamps `limit` to ≤500; omit both for the full default page. */
+    opts?: { limit?: number; offset?: number },
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts?.offset !== undefined) params.set("offset", String(opts.offset));
+    const qs = params.toString();
+    return fetchJSON<SessionMessagesResponse>(
       appendProfileParam(
-        `/api/sessions/${encodeURIComponent(id)}/messages`,
+        `/api/sessions/${encodeURIComponent(id)}/messages${qs ? `?${qs}` : ""}`,
         profile,
       ),
-    ),
+    );
+  },
   getSessionDetail: (id: string, profile = getManagementProfile()) =>
     fetchJSON<SessionInfo>(
       appendProfileParam(`/api/sessions/${encodeURIComponent(id)}`, profile),
@@ -678,6 +692,19 @@ export const api = {
     fetchJSON<{ ok: boolean }>(
       `/api/cron/jobs/${encodeURIComponent(id)}?profile=${encodeURIComponent(profile)}`,
       { method: "DELETE" },
+    ),
+  /**
+   * Run sessions spawned by a cron job, newest first (C6). The endpoint
+   * (`GET /api/cron/jobs/{id}/runs`) existed server-side but had no web
+   * binding until now. Rows share the `/api/sessions` shape (`SessionInfo`)
+   * with `profile` injected server-side; `limit` is clamped to 100 there.
+   * Always pass the job's own profile (`getJobProfile(job)`) — `profile=all`
+   * job listings fan out across profiles and a wrong profile hits the wrong
+   * `state.db` (R6).
+   */
+  getCronJobRuns: (id: string, profile = "default", limit = 10) =>
+    fetchJSON<CronJobRunsResponse>(
+      `/api/cron/jobs/${encodeURIComponent(id)}/runs?profile=${encodeURIComponent(profile)}&limit=${limit}`,
     ),
 
   // Automation Blueprints — parameterized automation blueprints
@@ -2184,6 +2211,8 @@ export interface SessionMessage {
 export interface SessionMessagesResponse {
   session_id: string;
   messages: SessionMessage[];
+  /** No total here — derive remaining pages from the row's `message_count`. */
+  pagination?: { limit: number; offset: number; returned: number };
 }
 
 export interface LogsResponse {
@@ -2415,6 +2444,17 @@ export interface CronDeliveryTarget {
   name: string;
   home_target_set: boolean;
   home_env_var: string | null;
+}
+
+/**
+ * `GET /api/cron/jobs/{id}/runs` — run sessions produced by a cron job,
+ * newest first. Same row shape as `/api/sessions` (verified server-side:
+ * `_list_cron_job_runs_sync` reuses the session row serialization and
+ * injects `profile` + a fresh `is_active`), so rows are plain `SessionInfo`.
+ */
+export interface CronJobRunsResponse {
+  runs: SessionInfo[];
+  limit: number;
 }
 
 export interface AutomationBlueprintField {

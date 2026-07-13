@@ -20,14 +20,14 @@
 
 import { Button } from "@nous-research/ui/ui/components/button";
 import { ListItem } from "@nous-research/ui/ui/components/list-item";
-import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { AlertCircle, MessageSquarePlus, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { RelativeTime, Skeleton } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { api, type SessionInfo } from "@/lib/api";
-import { cn, timeAgo } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 const SESSION_LIMIT = 30;
 interface ChatSessionListProps {
@@ -45,6 +45,12 @@ interface ChatSessionListProps {
    * omitted, we fall back to clearing the resume param ourselves.
    */
   onNewChat?: () => void;
+  /**
+   * CH8: external reload nonce. ChatPage bumps it when a PTY session ends
+   * (clean close / 4410) so the just-finished conversation appears here
+   * immediately, without waiting for a manual Refresh.
+   */
+  refreshSignal?: number;
 }
 
 function rowLabel(session: SessionInfo, untitled: string): string {
@@ -61,6 +67,7 @@ export function ChatSessionList({
   className,
   onPicked,
   onNewChat,
+  refreshSignal,
 }: ChatSessionListProps) {
   const { t } = useI18n();
   const [, setSearchParams] = useSearchParams();
@@ -105,8 +112,9 @@ export function ChatSessionList({
     // for async loaders (matches FilesPage).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
-    // `reloadNonce` is a manual refetch trigger (Refresh button / row pick).
-  }, [load, reloadNonce]);
+    // `reloadNonce` is a manual refetch trigger (Refresh button / row pick);
+    // `refreshSignal` is ChatPage's session-ended nonce (CH8).
+  }, [load, reloadNonce, refreshSignal]);
 
   const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
@@ -151,10 +159,10 @@ export function ChatSessionList({
 
   const content = useMemo(() => {
     if (loading && sessions === null) {
+      // First load only (CH11): layout-shaped skeleton instead of a spinner;
+      // later refreshes keep the current list visible (the header button spins).
       return (
-        <div className="flex items-center justify-center gap-2 px-2 py-6 text-xs text-text-secondary">
-          <Spinner /> {t.common.loading}
-        </div>
+        <Skeleton variant="row-list" rows={4} className="px-2 py-2" />
       );
     }
     if (error) {
@@ -194,15 +202,32 @@ export function ChatSessionList({
                   : "text-text-secondary hover:bg-midground/5 hover:text-foreground",
               )}
             >
-              <span className="w-full truncate text-sm font-medium">
-                {rowLabel(s, t.sessions.untitledSession)}
+              <span className="flex w-full min-w-0 items-center gap-1.5">
+                {/* CH6: 6px status dot — success-pulse while `is_active`
+                    (an "active in the last 5 min" heuristic, R2), a
+                    transparent placeholder otherwise so titles align. */}
+                <span
+                  aria-hidden="true"
+                  title={s.is_active ? "active in the last 5 min" : undefined}
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    s.is_active
+                      ? "animate-pulse bg-success motion-reduce:animate-none"
+                      : "bg-transparent",
+                  )}
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                  {rowLabel(s, t.sessions.untitledSession)}
+                </span>
               </span>
-              <span className="flex w-full items-center gap-1.5 text-[0.6875rem] text-text-tertiary">
-                <span>{timeAgo(s.last_active)}</span>
+              <span className="flex w-full items-center gap-1.5 pl-3 font-mono-ui text-[0.6875rem] tabular-nums text-text-tertiary">
+                <RelativeTime value={s.last_active} />
                 {s.message_count > 0 && (
                   <>
                     <span aria-hidden>·</span>
-                    <span>{s.message_count} msgs</span>
+                    <span>
+                      {s.message_count} {t.common.msgs}
+                    </span>
                   </>
                 )}
                 {s.source && s.source !== "cli" && (

@@ -15,18 +15,29 @@
  *   2. **Event subscriber** (/api/events?channel=…) — passive, receives
  *      every dispatcher emit from the PTY-side `tui_gateway.entry` that
  *      the dashboard fanned out.  The sidebar uses it for `session.info`
- *      (live chat title) and `dashboard.new_session_requested`.  The
- *      `channel` id ties this listener to the same chat tab's PTY child —
- *      see `ChatPage.tsx` for where the id is generated.
+ *      (live chat title + cwd), `dashboard.new_session_requested`, and the
+ *      Activity feed (CH3): `tool.start`/`tool.complete` rows,
+ *      `message.*`/`reasoning.delta`/`thinking.delta` state lines,
+ *      `approval.request` pin, `status.update` lines — all folded through
+ *      the pure reducer in `chat/activity-feed.ts` and throttle-flushed so
+ *      a delta storm never becomes a render storm. The `channel` id ties
+ *      this listener to the same chat tab's PTY child — see `ChatPage.tsx`
+ *      for where the id is generated.
  *
  * Best-effort throughout: WS failures show in the badge / banner, the
  * terminal pane keeps working unimpaired.
  */
 
 import { Button } from "@nous-research/ui/ui/components/button";
-import { Badge } from "@nous-research/ui/ui/components/badge";
 import { Card } from "@nous-research/ui/ui/components/card";
 
+import { ActivityFeed } from "@/components/chat/ActivityFeed";
+import { AgentCard } from "@/components/chat/AgentCard";
+import {
+  EMPTY_ACTIVITY_FEED,
+  reduceActivityEvent,
+  type ActivityFeedState,
+} from "@/components/chat/activity-feed";
 import { ModelPickerDialog } from "@/components/ModelPickerDialog";
 import { ModelReloadConfirm } from "@/components/ModelReloadConfirm";
 import { ReasoningPicker } from "@/components/ReasoningPicker";
@@ -35,7 +46,7 @@ import { api, buildWsUrl } from "@/lib/api";
 import { titleFromSessionInfoPayload } from "@/lib/chat-title";
 
 import { cn } from "@/lib/utils";
-import { AlertCircle, ChevronDown, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface SessionInfo {
@@ -51,24 +62,14 @@ interface RpcEnvelope {
   params?: { type?: string; payload?: unknown };
 }
 
-const STATE_LABEL: Record<ConnectionState, string> = {
-  idle: "idle",
-  connecting: "connecting",
-  open: "live",
-  closed: "closed",
-  error: "error",
-};
+/** Trailing-throttle window for Activity-feed state flushes (CH3). */
+const FEED_FLUSH_MS = 120;
 
-const STATE_TONE: Record<
-  ConnectionState,
-  "secondary" | "warning" | "success" | "destructive"
-> = {
-  idle: "secondary",
-  connecting: "warning",
-  open: "success",
-  closed: "secondary",
-  error: "destructive",
-};
+function cwdFromSessionInfoPayload(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const cwd = (payload as { cwd?: unknown }).cwd;
+  return typeof cwd === "string" && cwd.trim() ? cwd : null;
+}
 
 interface ChatSidebarProps {
   channel: string;
@@ -107,6 +108,8 @@ export function ChatSidebar({
   // this card stays scoped to the PTY even if the global dashboard switcher
   // changes while the chat is open.
   const [effectiveModel, setEffectiveModel] = useState("");
+  // CH2: read-only `ctx` line from the same /api/model/info fetch.
+  const [contextLength, setContextLength] = useState(0);
   // Whether the effective model supports reasoning effort — gates the
   // ReasoningPicker. Read from the same `/api/model/info` capabilities the
   // (currently unused) ModelInfoCard surfaces, so the dashboard exposes a
@@ -123,6 +126,43 @@ export function ChatSidebar({
   const [pendingReloadModel, setPendingReloadModel] = useState<string | null>(
     null,
   );
+  // CH4: the PTY session title mirrored into the Agent card (same
+  // `session.info` payload that feeds `onSessionTitleChange`).
+  const [railTitle, setRailTitle] = useState<string | null>(null);
+  // CH2: the PTY session cwd from the events channel (preferred over the
+  // sidecar's own cwd — the sidecar is a separate throwaway session).
+  const [ptyCwd, setPtyCwd] = useState<string | null>(null);
+
+  // ── Activity feed (CH3) ──────────────────────────────────────────────
+  // Events fold into a ref via the pure reducer; a trailing 120 ms timer
+  // flushes the ref into React state. reasoning.delta / message.delta
+  // storms therefore cost ref writes + at most ~8 renders/s — and the
+  // reducer returns the same reference for no-op events, so those flushes
+  // bail out of rendering entirely (Object.is).
+  const feedRef = useRef<ActivityFeedState>(EMPTY_ACTIVITY_FEED);
+  const [feed, setFeed] = useState<ActivityFeedState>(EMPTY_ACTIVITY_FEED);
+  const feedFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleFeedFlush = useCallback(() => {
+    if (feedFlushTimer.current !== null) return;
+    feedFlushTimer.current = setTimeout(() => {
+      feedFlushTimer.current = null;
+      setFeed(feedRef.current);
+    }, FEED_FLUSH_MS);
+  }, []);
+  const resetFeed = useCallback(() => {
+    if (feedFlushTimer.current !== null) {
+      clearTimeout(feedFlushTimer.current);
+      feedFlushTimer.current = null;
+    }
+    feedRef.current = EMPTY_ACTIVITY_FEED;
+    setFeed(EMPTY_ACTIVITY_FEED);
+  }, []);
+  useEffect(
+    () => () => {
+      if (feedFlushTimer.current !== null) clearTimeout(feedFlushTimer.current);
+    },
+    [],
+  );
 
   const refreshEffectiveModel = useCallback(() => {
     void api
@@ -130,6 +170,8 @@ export function ChatSidebar({
       .then((r) => {
         if (r?.model) setEffectiveModel(String(r.model));
         setSupportsReasoning(!!r?.capabilities?.supports_reasoning);
+        const ctx = Number(r?.effective_context_length);
+        setContextLength(Number.isFinite(ctx) && ctx > 0 ? ctx : 0);
         // Bump so ReasoningPicker re-reads the saved effort for the new model.
         setModelRefreshKey((k) => k + 1);
       })
@@ -161,6 +203,11 @@ export function ChatSidebar({
       if (cancelled) return;
       setInfo({});
       setError(null);
+      // Scope switch / reconnect: the rail identifies a new PTY run — drop
+      // the previous run's title, cwd, and activity (CH3 reset contract).
+      setRailTitle(null);
+      setPtyCwd(null);
+      resetFeed();
     });
     const offState = gw.onState(setState);
 
@@ -273,9 +320,29 @@ export function ChatSidebar({
           const title = titleFromSessionInfoPayload(payload);
           if (title !== undefined) {
             onSessionTitleChange?.(title);
+            setRailTitle(title);
+          }
+          const cwd = cwdFromSessionInfoPayload(payload);
+          if (cwd) {
+            setPtyCwd(cwd);
           }
         } else if (type === "dashboard.new_session_requested") {
           onDashboardNewSessionRequest?.();
+        }
+
+        // Activity feed (CH3): fold every event through the pure reducer.
+        // Own try/catch (R7) so a malformed frame can never break the
+        // title / new-session handlers above.
+        try {
+          if (type) {
+            const next = reduceActivityEvent(feedRef.current, type, payload);
+            if (next !== feedRef.current) {
+              feedRef.current = next;
+              scheduleFeedFlush();
+            }
+          }
+        } catch {
+          // Best-effort ticker — drop the frame, keep the feed alive.
         }
       });
     })();
@@ -284,7 +351,13 @@ export function ChatSidebar({
       unmounting = true;
       ws?.close();
     };
-  }, [channel, onDashboardNewSessionRequest, onSessionTitleChange, version]);
+  }, [
+    channel,
+    onDashboardNewSessionRequest,
+    onSessionTitleChange,
+    scheduleFeedFlush,
+    version,
+  ]);
 
   // Seed the badge on mount and re-read it whenever the sockets are rebuilt
   // (a profile/channel switch bumps `version`).
@@ -312,35 +385,16 @@ export function ChatSidebar({
         className,
       )}
     >
-      <Card className="flex items-center justify-between gap-2 px-3 py-2">
-        <div className="min-w-0 flex-1">
-          <div className="text-display text-xs tracking-wider text-text-tertiary">
-            model
-          </div>
-
-          <Button
-            ghost
-            size="sm"
-            onClick={() => setModelOpen(true)}
-            className={cn(
-              "max-w-full min-w-0 px-0 py-0",
-              "self-start normal-case tracking-normal text-sm font-medium",
-              "hover:underline disabled:no-underline",
-            )}
-            title={modelName === "—" ? "switch model" : modelName}
-          >
-            <span className="flex min-w-0 max-w-full items-center gap-1">
-              <span className="truncate">{modelLabel}</span>
-
-              <ChevronDown className="size-3.5 shrink-0 text-text-secondary" />
-            </span>
-          </Button>
-        </div>
-
-        <Badge tone={STATE_TONE[state]} className="shrink-0">
-          {STATE_LABEL[state]}
-        </Badge>
-      </Card>
+      {/* CH1 rail order: Agent card → Reasoning → Activity → notices. */}
+      <AgentCard
+        title={railTitle}
+        modelName={modelName}
+        modelLabel={modelLabel}
+        onOpenModelPicker={() => setModelOpen(true)}
+        contextLength={contextLength}
+        connection={state}
+        cwd={ptyCwd ?? info.cwd ?? null}
+      />
 
       {supportsReasoning && (
         <Card className="py-0">
@@ -356,6 +410,8 @@ export function ChatSidebar({
           />
         </Card>
       )}
+
+      <ActivityFeed feed={feed} />
 
       {modelNotice && (
         <Card className="flex items-start gap-2 border-warning/40 bg-warning/5 px-3 py-2 text-xs">

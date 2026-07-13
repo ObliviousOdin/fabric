@@ -22,6 +22,8 @@ export interface RunRowProps {
   meta?: ReactNode;
   /** last_active / started_at → `RelativeTime`. */
   timestamp: number | string;
+  /** Optional secondary line under the meta row (e.g. FTS snippet). */
+  subline?: ReactNode;
   /** Checkbox state (Sessions only). */
   selected?: boolean;
   /** Omit → no checkbox rendered. */
@@ -56,6 +58,7 @@ export function RunRow({
   model,
   meta,
   timestamp,
+  subline,
   selected,
   onSelectClick,
   expanded,
@@ -139,6 +142,7 @@ export function RunRow({
             {SEPARATOR}
             <RelativeTime value={timestamp} className="shrink-0" />
           </div>
+          {subline}
         </div>
         {actions && (
           <div className="flex shrink-0 items-center gap-2">{actions}</div>

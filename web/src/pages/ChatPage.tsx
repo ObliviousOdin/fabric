@@ -234,6 +234,13 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       : false,
   );
 
+  // CH8: refresh nonce for ChatSessionList, derived from `sessionEnded` so
+  // the connect effect stays untouched (N1). Each end→restart cycle changes
+  // the value twice (1 → 0), which just means one extra cheap list refetch
+  // when a fresh PTY spawns — and the freshly finalized conversation shows
+  // up in the switcher the moment the session ends.
+  const sessionListRefreshSignal = sessionEnded ? 1 : 0;
+
   const { theme } = useTheme();
   const terminalBg = theme.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND;
   const terminalFg = theme.terminalForeground ?? DEFAULT_TERMINAL_FOREGROUND;
@@ -1068,6 +1075,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
               profile={scopedProfile}
               onPicked={closeMobilePanel}
               onNewChat={startFreshDashboardChat}
+              refreshSignal={sessionListRefreshSignal}
             />
           </div>
         </div>
@@ -1169,6 +1177,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
                 activeSessionId={resumeParam}
                 profile={scopedProfile}
                 onNewChat={startFreshDashboardChat}
+                refreshSignal={sessionListRefreshSignal}
               />
             </div>
           </div>

@@ -81,6 +81,24 @@ export interface Translations {
     done: string;
   };
 
+  // ── Chat rail (Agent card + Activity feed, CH-requirements) ──
+  // Optional group: the chat rail falls back to English literals until
+  // locales translate it.
+  chatRail?: {
+    /** Chrome label of the Agent card. */
+    agent: string;
+    /** Chrome label of the Activity feed card. */
+    activity: string;
+    /** Trailing label on a tool row awaiting its tool.complete. */
+    running: string;
+    /** Transient state line while the agent streams reply text. */
+    responding: string;
+    /** Transient state line during reasoning/thinking deltas. */
+    reasoning: string;
+    /** Pinned row while an approval.request awaits a terminal response. */
+    waitingApproval: string;
+  };
+
   // ── App shell ──
   app: {
     brand: string;
@@ -214,6 +232,35 @@ export interface Translations {
     newChat: string;
     previousPage: string;
     nextPage: string;
+    /**
+     * WORK-section "run ledger" revamp keys (spec S1–S11). Optional —
+     * call sites fall back to the English literals until translated,
+     * matching the `agentStatus` / `channels` pattern.
+     */
+    ledger?: {
+      statsLabel: string;
+      statsSessions: string;
+      statsActiveNow: string;
+      statsInStore: string;
+      statsMessages: string;
+      statsArchived: string;
+      gatewayLabel: string;
+      toolbarLabel: string;
+      sourceFilterLabel: string;
+      allSources: string;
+      openChat: string;
+      clearSearch: string;
+      clearFilter: string;
+      noSourceTitle: string;
+      /** `{source}` placeholder = the active source filter. */
+      noSourceDescription: string;
+      loadFailed: string;
+      loadEarlier: string;
+      contextCwd: string;
+      contextBranch: string;
+      contextEndReason: string;
+      contextModel: string;
+    };
     roles: {
       user: string;
       assistant: string;
@@ -334,6 +381,21 @@ export interface Translations {
     pause: string;
     resume: string;
     triggerNow: string;
+    // Optional agentic-revamp strings (C2 summary strip, C6 run-history
+    // drawer, C12/C13 states). Non-English locales fall back to the English
+    // literals at the call sites until translated.
+    agents?: {
+      statJobs: string;
+      statNextRun: string;
+      statPaused: string;
+      statFailing: string;
+      runHistory: string;
+      jobsLoadFailed: string;
+      runsLoadFailed: string;
+      noRunsTitle: string;
+      noRunsDescription: string;
+      openInSessions: string;
+    };
     delivery: {
       local: string;
       telegram: string;

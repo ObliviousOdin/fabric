@@ -400,7 +400,7 @@ export interface Translations {
     toolsEnabledCount: string;
     promptsCount: string;
     resourcesCount: string;
-    installed: string;
+    // Installed-state chip label lives in the shared `capabilities` group.
     install: string;
     installing: string;
     installingBackground: string;
@@ -580,7 +580,7 @@ export interface Translations {
       noPluginsTitle: string;
       noPluginsDescription: string;
       installCta: string;
-      needsAuth: string;
+      // `needs auth` chip label lives in the shared `capabilities` group.
       stateEffectNote: string;
     };
   };

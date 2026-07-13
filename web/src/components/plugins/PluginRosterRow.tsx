@@ -79,7 +79,7 @@ export function PluginRosterRow({
             </Badge>
             {row.auth_required ? (
               <Badge tone={CAPABILITY_STATE_TONES["needs-setup"]}>
-                {t.pluginsPage.agents?.needsAuth ?? "needs auth"}
+                {t.capabilities?.needsAuth ?? "needs auth"}
               </Badge>
             ) : null}
           </>

@@ -135,6 +135,10 @@ export default function SkillsPage() {
     const profileKey = selectedProfile || "";
     if (toolCountsProfileRef.current === profileKey) return;
     toolCountsProfileRef.current = profileKey;
+    // Drop the previous profile's counts while the new join is in flight —
+    // otherwise a failed refetch would leave the wrong profile's numbers
+    // standing (rows omit the segment until counts resolve, R20).
+    setToolCallCounts(null);
     api
       .getAnalytics(30, selectedProfile || undefined)
       .then((r) => {

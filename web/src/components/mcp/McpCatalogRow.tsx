@@ -140,9 +140,10 @@ export function McpCatalogRow({
       description={entry.description || undefined}
       detail={detail}
       actions={
-        entry.installed ? (
-          <Badge tone="success">{M?.installed ?? "Installed"}</Badge>
-        ) : (
+        // Installed entries already carry the success `installed` state
+        // badge in the badges zone — no second badge in the actions zone
+        // (CAP1.2: never two badges saying the same thing).
+        entry.installed ? undefined : (
           <Button
             className="uppercase"
             size="sm"

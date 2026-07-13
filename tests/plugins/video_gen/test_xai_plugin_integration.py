@@ -115,6 +115,7 @@ class TestXAIPayload:
         payload = _last_post(captured)["json"]
         assert payload["model"] == "grok-imagine-video"
         assert payload["prompt"] == "a dog at sunset"
+        assert payload["storage_options"]["filename"].startswith("fabric-xai-video-")
         assert "image" not in payload
         assert "reference_images" not in payload
 

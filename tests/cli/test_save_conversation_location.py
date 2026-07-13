@@ -64,13 +64,16 @@ def test_save_conversation_writes_under_hermes_home(hermes_home, tmp_path, monke
     cli.HermesCLI.save_conversation(stub)
 
     # File must NOT be in CWD
-    cwd_leak = list(work.glob("hermes_conversation_*.json"))
+    cwd_leak = [
+        *work.glob("fabric_conversation_*.json"),
+        *work.glob("hermes_conversation_*.json"),
+    ]
     assert not cwd_leak, f"snapshot leaked to CWD: {cwd_leak}"
 
     # File MUST be under ~/.hermes/sessions/saved/
     saved_dir = hermes_home / "sessions" / "saved"
     assert saved_dir.is_dir(), "expected saved/ subdirectory to be created"
-    files = list(saved_dir.glob("hermes_conversation_*.json"))
+    files = list(saved_dir.glob("fabric_conversation_*.json"))
     assert len(files) == 1, files
 
     payload = json.loads(files[0].read_text())

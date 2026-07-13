@@ -3341,7 +3341,7 @@ def _gateway_subcommand(profile: Optional[str], verb: str) -> List[str]:
 
 
 def _gateway_display_command(profile: Optional[str], verb: str) -> str:
-    return " ".join(["hermes", *_gateway_subcommand(profile, verb)])
+    return " ".join(["fabric", *_gateway_subcommand(profile, verb)])
 
 
 # Slack member IDs (users U..., Enterprise Grid W...). Kept in sync with the
@@ -13205,7 +13205,7 @@ def _dashboard_backup_dir() -> Path:
 
 def _new_dashboard_backup_path() -> Path:
     stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    return _dashboard_backup_dir() / f"hermes-backup-{stamp}-{secrets.token_hex(4)}.zip"
+    return _dashboard_backup_dir() / f"fabric-backup-{stamp}-{secrets.token_hex(4)}.zip"
 
 
 @app.post("/api/ops/backup")
@@ -17474,6 +17474,10 @@ _DASHBOARD_THEME_NAME_ALIASES = {
     # theme names or labels.
     "lens-5i": "fabric-blue",
     "nous-blue": "fabric-blue",
+    # The inherited teal console theme used the generic `default` id. New
+    # installs and upgrades converge on Fabric Light; the old look remains
+    # selectable under the explicit `fabric-teal` id.
+    "default": "fabric-light",
 }
 
 
@@ -17482,8 +17486,10 @@ def _canonical_dashboard_theme_name(name: str) -> str:
 
 
 _BUILTIN_DASHBOARD_THEMES = [
-    {"name": "default",       "label": "Fabric Teal",         "description": "Classic dark teal — the canonical Fabric look"},
-    {"name": "default-large", "label": "Fabric Teal (Large)", "description": "Fabric Teal with bigger fonts and roomier spacing"},
+    {"name": "fabric-light",  "label": "Fabric Light",        "description": "Generated light — monochrome surfaces, single teal accent"},
+    {"name": "fabric-dark",   "label": "Fabric Dark",         "description": "Generated dark — monochrome surfaces, single teal accent"},
+    {"name": "fabric-teal",   "label": "Fabric Teal (Heritage)", "description": "The original dark teal Fabric dashboard skin"},
+    {"name": "default-large", "label": "Fabric Teal (Heritage, Large)", "description": "The original Fabric Teal skin with roomier spacing"},
     {"name": "fabric-blue",   "label": "Fabric Blue",         "description": "Light mode — vivid Fabric-blue accents on cream canvas"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
@@ -17740,8 +17746,8 @@ async def get_dashboard_themes():
     them without a stub.
     """
     config = load_config()
-    stored_active = cfg_get(config, "dashboard", "theme", default="default")
-    active = _canonical_dashboard_theme_name(str(stored_active or "default"))
+    stored_active = cfg_get(config, "dashboard", "theme", default="fabric-light")
+    active = _canonical_dashboard_theme_name(str(stored_active or "fabric-light"))
     if active != stored_active:
         config.setdefault("dashboard", {})["theme"] = active
         save_config(config)
@@ -17927,6 +17933,9 @@ def _discover_dashboard_plugins() -> list:
                     "path": raw_tab.get("path", f"/{name}"),
                     "position": raw_tab.get("position", "end"),
                 }
+                layout = raw_tab.get("layout")
+                if layout in {"page", "workspace"}:
+                    tab_info["layout"] = layout
                 override_path = raw_tab.get("override")
                 if isinstance(override_path, str) and override_path.startswith("/"):
                     tab_info["override"] = override_path

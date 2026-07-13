@@ -71,11 +71,15 @@ def test_board_empty(client):
     # All canonical columns present (triage + the rest), each empty.
     names = [c["name"] for c in data["columns"]]
     assert set(names) == kb.VALID_STATUSES - {"archived"}
-    for expected in ("triage", "todo", "scheduled", "ready", "running", "blocked", "done"):
+    for expected in (
+        "triage", "todo", "scheduled", "ready", "running", "blocked", "review", "done",
+    ):
         assert expected in names, f"missing column {expected}: {names}"
     assert all(len(c["tasks"]) == 0 for c in data["columns"])
     assert data["tenants"] == []
     assert data["assignees"] == []
+    assert data["links"] == []
+    assert data["open_runs"] == []
     assert data["latest_event_id"] == 0
 
 
@@ -137,6 +141,31 @@ def test_scheduled_tasks_have_their_own_column_not_todo(client):
     columns = {c["name"]: c["tasks"] for c in r.json()["columns"]}
     assert any(t["id"] == task["id"] for t in columns["scheduled"])
     assert not any(t["id"] == task["id"] for t in columns["todo"])
+
+
+def test_review_tasks_have_their_own_column(client):
+    """Human-review work remains visible as review, never as generic todo."""
+
+    task = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "verify the proposed changes", "assignee": "reviewer"},
+    ).json()["task"]
+
+    conn = kb.connect()
+    try:
+        with kb.write_txn(conn):
+            conn.execute(
+                "UPDATE tasks SET status = 'review' WHERE id = ?",
+                (task["id"],),
+            )
+    finally:
+        conn.close()
+
+    response = client.get("/api/plugins/kanban/board")
+    assert response.status_code == 200
+    columns = {column["name"]: column["tasks"] for column in response.json()["columns"]}
+    assert any(row["id"] == task["id"] for row in columns["review"])
+    assert not any(row["id"] == task["id"] for row in columns["todo"])
 
 
 def test_tenant_filter(client):
@@ -290,6 +319,60 @@ def test_task_detail_includes_links_and_events(client):
     assert len(data["events"]) >= 1
 
 
+def test_board_graph_links_are_exact_filtered_and_stable(client):
+    """The board graph gets real edges with no filter-created dangling nodes."""
+
+    parent = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "goal", "tenant": "visible"},
+    ).json()["task"]
+    child_b = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "step b", "tenant": "visible", "parents": [parent["id"]]},
+    ).json()["task"]
+    child_a = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "step a", "tenant": "visible", "parents": [parent["id"]]},
+    ).json()["task"]
+    hidden = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "other tenant", "tenant": "hidden", "parents": [parent["id"]]},
+    ).json()["task"]
+
+    response = client.get("/api/plugins/kanban/board", params={"tenant": "visible"})
+    assert response.status_code == 200
+    data = response.json()
+    visible_ids = {
+        task["id"]
+        for column in data["columns"]
+        for task in column["tasks"]
+    }
+    assert visible_ids == {parent["id"], child_a["id"], child_b["id"]}
+
+    expected = sorted(
+        [
+            {"parent_id": parent["id"], "child_id": child_a["id"]},
+            {"parent_id": parent["id"], "child_id": child_b["id"]},
+        ],
+        key=lambda edge: (edge["parent_id"], edge["child_id"]),
+    )
+    assert data["links"] == expected
+    assert all(
+        edge["parent_id"] in visible_ids and edge["child_id"] in visible_ids
+        for edge in data["links"]
+    )
+
+    unfiltered = client.get("/api/plugins/kanban/board").json()
+    assert {
+        (edge["parent_id"], edge["child_id"])
+        for edge in unfiltered["links"]
+    } == {
+        (parent["id"], child_a["id"]),
+        (parent["id"], child_b["id"]),
+        (parent["id"], hidden["id"]),
+    }
+
+
 def test_task_detail_404_on_unknown(client):
     r = client.get("/api/plugins/kanban/tasks/does-not-exist")
     assert r.status_code == 404
@@ -354,6 +437,279 @@ def test_patch_schedule_then_unblock(client):
     )
     assert r.status_code == 200
     assert r.json()["task"]["status"] == "ready"
+
+
+def test_patch_running_task_to_review_terminates_worker_and_closes_run(
+    client, monkeypatch,
+):
+    """Manual review handoff stops the builder before releasing its claim."""
+    task = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "prepare release", "assignee": "builder"},
+    ).json()["task"]
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, task["id"], claimer="dashboard-test")
+        assert claimed is not None
+        open_run_id = claimed.current_run_id
+        claim_lock = claimed.claim_lock
+        conn.execute(
+            "UPDATE tasks SET worker_pid = ? WHERE id = ?",
+            (424242, task["id"]),
+        )
+        conn.execute(
+            "UPDATE task_runs SET worker_pid = ? WHERE id = ?",
+            (424242, open_run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    stopped = []
+
+    def fake_terminate(pid, lock, **_kwargs):
+        stopped.append((pid, lock))
+        return {
+            "prev_pid": pid,
+            "host_local": True,
+            "termination_attempted": True,
+            "terminated": True,
+            "sigkill": False,
+        }
+
+    monkeypatch.setattr(kb, "_terminate_reclaimed_worker", fake_terminate)
+
+    response = client.patch(
+        f"/api/plugins/kanban/tasks/{task['id']}",
+        json={"status": "review", "confirm_stop_running": True},
+    )
+    assert response.status_code == 200
+    assert response.json()["task"]["status"] == "review"
+    assert stopped == [(424242, claim_lock)]
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{task['id']}").json()
+    assert detail["active_run"] is None
+    ended = next(run for run in detail["runs"] if run["id"] == open_run_id)
+    assert ended["ended_at"] is not None
+    assert ended["outcome"] == "review"
+    assert ended["metadata"]["terminated"] is True
+
+
+def test_patch_running_task_to_review_requires_worker_stop_confirmation(
+    client, monkeypatch,
+):
+    """A stale client cannot stop a newly-claimed worker without consent."""
+    task = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "prepare release", "assignee": "builder"},
+    ).json()["task"]
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, task["id"], claimer="dashboard-test")
+        assert claimed is not None
+        open_run_id = claimed.current_run_id
+        conn.execute(
+            "UPDATE tasks SET worker_pid = ? WHERE id = ?",
+            (424242, task["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    stopped = []
+    monkeypatch.setattr(
+        kb,
+        "_terminate_reclaimed_worker",
+        lambda *_args, **_kwargs: stopped.append(True) or {"terminated": True},
+    )
+
+    response = client.patch(
+        f"/api/plugins/kanban/tasks/{task['id']}",
+        json={"status": "review"},
+    )
+    assert response.status_code == 409
+    assert "confirm_stop_running=true" in response.json()["detail"]
+    assert stopped == []
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{task['id']}").json()
+    assert detail["task"]["status"] == "running"
+    assert detail["active_run"]["id"] == open_run_id
+
+
+def test_patch_running_task_to_review_keeps_claim_when_worker_survives(
+    client, monkeypatch,
+):
+    """A live builder must not overlap with a newly-dispatched reviewer."""
+    task = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "prepare release", "assignee": "builder"},
+    ).json()["task"]
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, task["id"], claimer="dashboard-test")
+        assert claimed is not None
+        open_run_id = claimed.current_run_id
+        conn.execute(
+            "UPDATE tasks SET worker_pid = ? WHERE id = ?",
+            (424242, task["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(
+        kb,
+        "_terminate_reclaimed_worker",
+        lambda *_args, **_kwargs: {
+            "prev_pid": 424242,
+            "host_local": True,
+            "termination_attempted": True,
+            "terminated": False,
+            "sigkill": True,
+        },
+    )
+
+    response = client.patch(
+        f"/api/plugins/kanban/tasks/{task['id']}",
+        json={"status": "review", "confirm_stop_running": True},
+    )
+    assert response.status_code == 409
+    assert "active worker" in response.json()["detail"]
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{task['id']}").json()
+    assert detail["task"]["status"] == "running"
+    assert detail["active_run"]["id"] == open_run_id
+
+
+def test_patch_running_task_to_ready_validates_dependencies_before_worker_stop(
+    client, monkeypatch,
+):
+    """A reopened parent must reject ready without touching the live worker."""
+    parent = client.post(
+        "/api/plugins/kanban/tasks", json={"title": "parent"},
+    ).json()["task"]
+    child = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "child", "assignee": "builder", "parents": [parent["id"]]},
+    ).json()["task"]
+    assert client.patch(
+        f"/api/plugins/kanban/tasks/{parent['id']}", json={"status": "done"},
+    ).status_code == 200
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, child["id"], claimer="dashboard-test")
+        assert claimed is not None
+        open_run_id = claimed.current_run_id
+        conn.execute(
+            "UPDATE tasks SET worker_pid = ? WHERE id = ?",
+            (424242, child["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Reopening the completed parent leaves an already-running child alone,
+    # but it must block a manual request to return that child to ready.
+    assert client.patch(
+        f"/api/plugins/kanban/tasks/{parent['id']}", json={"status": "todo"},
+    ).status_code == 200
+
+    stopped = []
+    monkeypatch.setattr(
+        kb,
+        "_terminate_reclaimed_worker",
+        lambda *_args, **_kwargs: stopped.append(True) or {"terminated": True},
+    )
+
+    response = client.patch(
+        f"/api/plugins/kanban/tasks/{child['id']}",
+        json={"status": "ready"},
+    )
+    assert response.status_code == 409
+    assert parent["id"] in response.json()["detail"]
+    assert stopped == []
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{child['id']}").json()
+    assert detail["task"]["status"] == "running"
+    assert detail["active_run"]["id"] == open_run_id
+
+
+def test_patch_running_task_to_ready_recovers_if_dependency_changes_after_stop(
+    client, monkeypatch,
+):
+    """A dependency race after termination closes the dead run atomically."""
+    parent = client.post(
+        "/api/plugins/kanban/tasks", json={"title": "parent"},
+    ).json()["task"]
+    child = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "child", "assignee": "builder", "parents": [parent["id"]]},
+    ).json()["task"]
+    assert client.patch(
+        f"/api/plugins/kanban/tasks/{parent['id']}", json={"status": "done"},
+    ).status_code == 200
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, child["id"], claimer="dashboard-test")
+        assert claimed is not None
+        open_run_id = claimed.current_run_id
+        claim_lock = claimed.claim_lock
+        conn.execute(
+            "UPDATE tasks SET worker_pid = ? WHERE id = ?",
+            (424242, child["id"]),
+        )
+        conn.execute(
+            "UPDATE task_runs SET worker_pid = ? WHERE id = ?",
+            (424242, open_run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    stopped = []
+
+    def terminate_then_reopen_parent(pid, lock, **_kwargs):
+        stopped.append((pid, lock))
+        race_conn = kb.connect()
+        try:
+            race_conn.execute(
+                "UPDATE tasks SET status = 'todo' WHERE id = ?",
+                (parent["id"],),
+            )
+            race_conn.commit()
+        finally:
+            race_conn.close()
+        return {
+            "prev_pid": pid,
+            "host_local": True,
+            "termination_attempted": True,
+            "terminated": True,
+            "sigkill": False,
+        }
+
+    monkeypatch.setattr(kb, "_terminate_reclaimed_worker", terminate_then_reopen_parent)
+
+    response = client.patch(
+        f"/api/plugins/kanban/tasks/{child['id']}",
+        json={"status": "ready"},
+    )
+    assert response.status_code == 409
+    assert stopped == [(424242, claim_lock)]
+
+    detail = client.get(f"/api/plugins/kanban/tasks/{child['id']}").json()
+    assert detail["task"]["status"] == "todo"
+    assert detail["active_run"] is None
+    ended = next(run for run in detail["runs"] if run["id"] == open_run_id)
+    assert ended["ended_at"] is not None
+    assert ended["outcome"] == "reclaimed"
+    assert ended["metadata"]["requested_status"] == "ready"
+    assert ended["metadata"]["fallback_status"] == "todo"
+    assert ended["metadata"]["reason"] == "dependency_changed_after_worker_stop"
 
 
 def test_patch_drag_drop_move_todo_to_ready(client):
@@ -1243,6 +1599,81 @@ def test_task_detail_runs_empty_before_claim(client):
     r = client.post("/api/plugins/kanban/tasks", json={"title": "fresh"}).json()
     d = client.get(f"/api/plugins/kanban/tasks/{r['task']['id']}").json()
     assert d["runs"] == []
+    assert d["active_run"] is None
+
+
+def test_board_and_detail_surface_pidless_open_runs(client):
+    """Live graph state follows unfinished runs, not local worker PIDs.
+
+    The latest open row is the task's compact ``active_run`` summary.  Older
+    unfinished rows remain in ``open_runs`` so an inconsistent legacy DB is
+    represented truthfully instead of silently dropping an agent attempt.
+    """
+    active_task = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "implement graph", "assignee": "builder"},
+    ).json()["task"]
+    completed_task = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "already finished", "assignee": "builder"},
+    ).json()["task"]
+
+    conn = kb.connect()
+    try:
+        claimed = kb.claim_task(conn, active_task["id"])
+        assert claimed is not None
+        first_run_id = claimed.current_run_id
+        assert first_run_id is not None
+
+        # Simulate a legacy/inconsistent database containing two open attempts
+        # for one task. The graph lists both; the compact summary chooses the
+        # latest by started_at then id.
+        with kb.write_txn(conn):
+            second = conn.execute(
+                "INSERT INTO task_runs (task_id, profile, status, started_at) "
+                "VALUES (?, ?, 'running', ?)",
+                (active_task["id"], "recovery-builder", int(time.time()) + 10),
+            )
+        second_run_id = int(second.lastrowid)
+
+        completed = kb.claim_task(conn, completed_task["id"])
+        assert completed is not None
+        completed_run_id = completed.current_run_id
+        assert completed_run_id is not None
+        assert kb.complete_task(conn, completed_task["id"], summary="done")
+    finally:
+        conn.close()
+
+    data = client.get("/api/plugins/kanban/board").json()
+    assert [run["id"] for run in data["open_runs"]] == [
+        first_run_id,
+        second_run_id,
+    ]
+    assert all(run["worker_pid"] is None for run in data["open_runs"])
+    assert completed_run_id not in {run["id"] for run in data["open_runs"]}
+
+    cards = {
+        task["id"]: task
+        for column in data["columns"]
+        for task in column["tasks"]
+    }
+    assert cards[active_task["id"]]["active_run"]["id"] == second_run_id
+    assert cards[completed_task["id"]]["active_run"] is None
+
+    active_detail = client.get(
+        f"/api/plugins/kanban/tasks/{active_task['id']}"
+    ).json()
+    assert active_detail["active_run"]["id"] == second_run_id
+    assert {run["id"] for run in active_detail["runs"]} == {
+        first_run_id,
+        second_run_id,
+    }
+
+    completed_detail = client.get(
+        f"/api/plugins/kanban/tasks/{completed_task['id']}"
+    ).json()
+    assert completed_detail["active_run"] is None
+    assert completed_run_id in {run["id"] for run in completed_detail["runs"]}
 
 
 def test_patch_status_done_with_summary_and_metadata(client):
@@ -2222,6 +2653,49 @@ def test_dashboard_search_includes_body_and_result():
     assert "t.body || \"\"" in dist
     assert "t.result || \"\"" in dist
     assert "t.latest_summary || \"\"" in dist
+
+
+def test_dashboard_work_graph_uses_dag_safe_accessibility_semantics():
+    """The multi-parent work graph must not claim to be a hierarchical ARIA tree."""
+    repo_root = Path(__file__).resolve().parents[2]
+    dist = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+
+    assert 'role: "tree"' not in dist
+    assert 'role: "treeitem"' not in dist
+    assert '`${props.boardLabel} interactive work graph nodes`' in dist
+    assert '`${props.boardLabel} interactive work outline`' in dist
+    assert 'event.key === "Home"' in dist
+    assert 'event.key === "End"' in dist
+
+
+def test_dashboard_pause_buffers_all_visible_websocket_updates():
+    """Pause must freeze activity, freshness, board, and drawer refresh state."""
+    repo_root = Path(__file__).resolve().parents[2]
+    dist = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+
+    assert "pausedRecentEventsRef" in dist
+    assert "pausedTaskEventCountsRef" in dist
+    assert "liveRefreshGenerationRef" in dist
+    assert "if (updatesPausedRef.current)" in dist
+    assert "loadBoard({ liveRefresh: true })" in dist
+    assert "updatesPausedRef.current = next" in dist
+    assert "clearTimeout(reloadTimerRef.current)" in dist
+    assert "props.liveRefreshGenerationRef.current" in dist
+    assert "load({ liveRefresh: true })" in dist
+    assert "if (props.eventTick === priorEventTickRef.current) return" in dist
+    assert "pendingRecent.concat(prev).slice(0, 8)" in dist
+    assert "merged[taskId] = (merged[taskId] || 0) + pendingCounts[taskId]" in dist
+
+
+def test_dashboard_confirms_before_running_agent_review_handoff():
+    """Review handoffs acknowledge agents that claim work after rendering."""
+    repo_root = Path(__file__).resolve().parents[2]
+    dist = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+
+    assert "function getReviewHandoffConfirm" in dist
+    assert "If an agent is active when the handoff is applied" in dist
+    assert "requestedPatch.confirm_stop_running = true" in dist
+    assert '{ status: "review", confirm_stop_running: true }' in dist
 
 
 def test_dashboard_bulk_actions_include_reclaim_first():

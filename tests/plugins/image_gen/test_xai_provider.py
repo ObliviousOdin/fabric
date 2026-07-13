@@ -309,7 +309,7 @@ class TestGenerate:
         call_args = mock_post.call_args
         headers = call_args.kwargs.get("headers") or call_args[1].get("headers")
         assert "Bearer test-key-12345" in headers["Authorization"]
-        assert "Hermes-Agent" in headers["User-Agent"]
+        assert "Fabric-Agent" in headers["User-Agent"]
 
     def test_payload_resolution_is_literal_1k_or_2k(self):
         """Regression: xAI API rejects numeric resolutions ("1024"/"2048") with 422.
@@ -427,6 +427,7 @@ class TestGenerate:
         payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
         assert payload["storage_options"]["public_url"] is True
         assert "expires_after" not in payload["storage_options"]
+        assert payload["storage_options"]["filename"].startswith("fabric-xai-image-")
         assert payload["storage_options"]["filename"].endswith(".png")
 
     def test_public_url_file_output_wins_over_temporary_url(self):

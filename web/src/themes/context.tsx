@@ -74,6 +74,10 @@ const THEME_NAME_ALIASES: Record<string, string> = {
   // the picker and API expose the canonical Fabric id below.
   "lens-5i": "fabric-blue",
   "nous-blue": "fabric-blue",
+  // The old `default` id was the inherited teal console skin. Fabric Light
+  // is now the canonical baseline; the old look remains available as
+  // `fabric-teal` for users who intentionally want it.
+  default: "fabric-light",
 };
 
 function migrateThemeName(name: string): string {
@@ -391,6 +395,8 @@ function applyFontOverride(fontId: string | undefined) {
 function applyTheme(theme: DashboardTheme) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
+  root.dataset.theme = theme.name;
+  root.dataset.appearance = themeAppearance(theme);
 
   // Clear any overrides from a previous theme before applying the new set.
   for (const cssVar of ALL_OVERRIDE_VARS) {
@@ -460,11 +466,11 @@ function applyTheme(theme: DashboardTheme) {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   /** Name of the currently active theme (built-in id or user YAML name). */
   const [themeName, setThemeName] = useState<string>(() => {
-    if (typeof window === "undefined") return "default";
+    if (typeof window === "undefined") return "fabric-light";
     const stored =
       window.localStorage.getItem(STORAGE_KEY) ??
       window.localStorage.getItem(LEGACY_STORAGE_KEY) ??
-      "default";
+      "fabric-light";
     const migrated = migrateThemeName(stored);
     // Converge on the Fabric key/id in one pass while preserving a seamless
     // upgrade for users with an older browser preference.
@@ -508,16 +514,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
    *  so the control reflects reality on first render (user YAML themes
    *  aren't loaded yet at init — they fall back to `dark` until then). */
   const [appearance, setAppearanceState] = useState<AppearancePref>(() => {
-    if (typeof window === "undefined") return "dark";
+    if (typeof window === "undefined") return "light";
     const stored = window.localStorage.getItem(APPEARANCE_STORAGE_KEY);
     if (stored === "dark" || stored === "light" || stored === "system") {
       return stored;
     }
     const initialTheme =
       BUILTIN_THEMES[
-        migrateThemeName(window.localStorage.getItem(STORAGE_KEY) ?? "default")
+        migrateThemeName(window.localStorage.getItem(STORAGE_KEY) ?? "fabric-light")
       ];
-    return initialTheme ? themeAppearance(initialTheme) : "dark";
+    return initialTheme ? themeAppearance(initialTheme) : "light";
   });
 
   /** Mirror for effects that must read the CURRENT preference without
@@ -703,7 +709,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         ...Object.keys(userThemeDefs),
       ]);
       const canonicalName = migrateThemeName(name);
-      const next = knownNames.has(canonicalName) ? canonicalName : "default";
+      const next = knownNames.has(canonicalName) ? canonicalName : "fabric-light";
       setThemeName(next);
       // Picking a theme pins the appearance preference to that theme's
       // native mode (leaves `system` mode) so the picker stays truthful.
@@ -793,7 +799,7 @@ export function useTheme(): ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue>({
   theme: defaultTheme,
-  themeName: "default",
+  themeName: "fabric-light",
   availableThemes: Object.values(BUILTIN_THEMES).map((t) => ({
     name: t.name,
     label: t.label,
@@ -803,7 +809,7 @@ const ThemeContext = createContext<ThemeContextValue>({
   fontId: THEME_DEFAULT_FONT_ID,
   fontChoices: FONT_CHOICES,
   setFont: () => {},
-  appearance: "dark",
+  appearance: "light",
   setAppearance: () => {},
   contrast: "normal",
   setContrast: () => {},

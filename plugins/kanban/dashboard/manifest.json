@@ -6,7 +6,8 @@
   "version": "1.0.0",
   "tab": {
     "path": "/kanban",
-    "position": "after:skills"
+    "layout": "workspace",
+    "position": "after:sessions"
   },
   "entry": "dist/index.js",
   "css": "dist/style.css",

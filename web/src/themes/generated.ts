@@ -8,10 +8,9 @@
  * share the SAME theme name — they're surfaced through the contrast
  * toggle in the theme picker, not as separate preset ids.
  *
- * These presets are client-side only: the backend's theme endpoint
- * persists arbitrary names, so no `_BUILTIN_DASHBOARD_THEMES` entry is
- * required (older backends simply won't list them in `GET /themes`;
- * the provider unions client built-ins back in).
+ * Current backends list this pair in the built-in catalog; the provider also
+ * unions client built-ins into the picker so the themes remain usable against
+ * older compatible backends.
  */
 
 import { generateTheme } from "./generate";

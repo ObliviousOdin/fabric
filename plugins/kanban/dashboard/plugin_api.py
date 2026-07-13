@@ -234,6 +234,32 @@ def _run_dict(r: kanban_db.Run) -> dict[str, Any]:
     }
 
 
+def _open_runs_for_task_ids(
+    conn: sqlite3.Connection,
+    task_ids: list[str],
+) -> list[kanban_db.Run]:
+    """Return every unfinished run for ``task_ids`` in stable start order.
+
+    ``ended_at IS NULL`` is the kernel's source of truth for an open run.  Do
+    not require a worker PID here: a claimed run exists before its subprocess
+    is attached, and remote/non-process workers may never have a local PID.
+    The live graph needs to show that real intermediate state instead of
+    briefly (or permanently) hiding the agent.
+    """
+    if not task_ids:
+        return []
+    wanted = set(task_ids)
+    rows = conn.execute(
+        "SELECT * FROM task_runs WHERE ended_at IS NULL "
+        "ORDER BY started_at ASC, id ASC"
+    ).fetchall()
+    return [
+        kanban_db.Run.from_row(row)
+        for row in rows
+        if row["task_id"] in wanted
+    ]
+
+
 # Hallucination-warning event kinds — see complete_task() in kanban_db.py.
 # completion_blocked_hallucination: kernel rejected created_cards with
 #   phantom ids; task stays in prior state.
@@ -406,11 +432,26 @@ def get_board(
             workflow_template_id=workflow_template_id,
             current_step_key=current_step_key,
         )
+        task_ids = [task.id for task in tasks]
+        visible_task_ids = set(task_ids)
+
+        # Exact dependency edges for the graph.  Restrict both endpoints to
+        # the tasks in this response so filters never produce dangling nodes.
+        # The stable ordering keeps layout/tests deterministic across reloads.
+        link_rows = conn.execute(
+            "SELECT parent_id, child_id FROM task_links "
+            "ORDER BY parent_id ASC, child_id ASC"
+        ).fetchall()
+        visible_links = [
+            {"parent_id": row["parent_id"], "child_id": row["child_id"]}
+            for row in link_rows
+            if row["parent_id"] in visible_task_ids
+            and row["child_id"] in visible_task_ids
+        ]
+
         # Pre-fetch link counts per task (cheap: one query).
         link_counts: dict[str, dict[str, int]] = {}
-        for row in conn.execute(
-            "SELECT parent_id, child_id FROM task_links"
-        ).fetchall():
+        for row in link_rows:
             link_counts.setdefault(row["parent_id"], {"parents": 0, "children": 0})[
                 "children"
             ] += 1
@@ -457,7 +498,17 @@ def get_board(
         # window-function query (avoids N+1 ``latest_summary`` calls
         # for boards with hundreds of tasks). Truncated to a card-size
         # preview here — the full text is available via /tasks/:id.
-        summary_map = kanban_db.latest_summaries(conn, [t.id for t in tasks])
+        summary_map = kanban_db.latest_summaries(conn, task_ids)
+
+        # Open attempts are an additive graph contract, separate from the
+        # PID-oriented /workers/active endpoint.  A run becomes visible as
+        # soon as it is claimed, including the period before a PID is attached.
+        open_runs = _open_runs_for_task_ids(conn, task_ids)
+        active_run_by_task: dict[str, kanban_db.Run] = {}
+        for run in open_runs:
+            # Runs are ordered oldest -> newest, so the last row wins if a
+            # legacy/inconsistent DB happens to contain multiple open rows.
+            active_run_by_task[run.task_id] = run
 
         for t in tasks:
             full = summary_map.get(t.id)
@@ -465,6 +516,8 @@ def get_board(
                 full[:_CARD_SUMMARY_PREVIEW_CHARS] if full else None
             )
             d = _task_dict(t, latest_summary=preview)
+            active_run = active_run_by_task.get(t.id)
+            d["active_run"] = _run_dict(active_run) if active_run else None
             d["link_counts"] = link_counts.get(t.id, {"parents": 0, "children": 0})
             d["comment_count"] = comment_counts.get(t.id, 0)
             d["progress"] = progress.get(t.id)  # None when the task has no children
@@ -503,6 +556,8 @@ def get_board(
             ],
             "tenants": tenants,
             "assignees": assignees,
+            "links": visible_links,
+            "open_runs": [_run_dict(run) for run in open_runs],
             "latest_event_id": int(latest_event_id),
             "now": int(time.time()),
         }
@@ -553,12 +608,15 @@ def get_task(
         if diag_list:
             task_d["diagnostics"] = diag_list
             task_d["warnings"] = _warnings_summary_from_diagnostics(diag_list)
+        open_runs = _open_runs_for_task_ids(conn, [task_id])
+        active_run = open_runs[-1] if open_runs else None
         return {
             "task": task_d,
             "comments": [_comment_dict(c) for c in kanban_db.list_comments(conn, task_id)],
             "events": [_event_dict(e) for e in kanban_db.list_events(conn, task_id)],
             "attachments": [_attachment_dict(a) for a in kanban_db.list_attachments(conn, task_id)],
             "links": _links_for(conn, task_id),
+            "active_run": _run_dict(active_run) if active_run else None,
             "runs": [
                 _run_dict(r)
                 for r in kanban_db.list_runs(
@@ -805,6 +863,10 @@ def remove_attachment(attachment_id: int, board: Optional[str] = Query(None)):
 
 class UpdateTaskBody(BaseModel):
     status: Optional[str] = None
+    # Explicit acknowledgement for the destructive running -> review path.
+    # Without it, a stale client cannot unknowingly terminate a worker that
+    # was claimed after the UI last rendered the task.
+    confirm_stop_running: bool = False
     assignee: Optional[str] = None
     priority: Optional[int] = None
     title: Optional[str] = None
@@ -868,11 +930,38 @@ def update_task(task_id: str, payload: UpdateTaskBody, board: Optional[str] = Qu
                     status_code=400,
                     detail="Cannot set status to 'running' directly; use the dispatcher/claim path",
                 )
-            elif s in ("todo", "triage", "scheduled"):
-                ok = _set_status_direct(conn, task_id, s)
+            elif s in ("todo", "triage", "scheduled", "review"):
+                ok = _set_status_direct(
+                    conn,
+                    task_id,
+                    s,
+                    allow_worker_stop=(
+                        s != "review" or payload.confirm_stop_running
+                    ),
+                )
             else:
                 raise HTTPException(status_code=400, detail=f"unknown status: {s}")
             if not ok:
+                if s == "review":
+                    current = kanban_db.get_task(conn, task_id)
+                    if current and current.status == "running":
+                        if not payload.confirm_stop_running:
+                            raise HTTPException(
+                                status_code=409,
+                                detail=(
+                                    "Review handoff would stop the active worker. "
+                                    "Confirm the stop and retry with "
+                                    "confirm_stop_running=true."
+                                ),
+                            )
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                "Cannot move to 'review' while the active worker "
+                                "is still running. Reclaim the task first or wait "
+                                "for the worker to hand it off."
+                            ),
+                        )
                 # For ``ready``, name the blocking parent(s) so the dashboard
                 # can render an actionable toast instead of a silent no-op.
                 # See #26744.
@@ -978,43 +1067,124 @@ def _parents_blocking_ready(
 
 
 def _set_status_direct(
-    conn: sqlite3.Connection, task_id: str, new_status: str,
+    conn: sqlite3.Connection,
+    task_id: str,
+    new_status: str,
+    *,
+    allow_worker_stop: bool = True,
 ) -> bool:
     """Direct status write for drag-drop moves that aren't covered by the
     structured complete/block/unblock/archive verbs (e.g. todo<->ready,
-    running<->ready). Appends a ``status`` event row for the live feed.
+    running->review). Appends a ``status`` event row for the live feed.
 
     When this transitions OFF ``running`` to anything other than the
-    terminal verbs above (which own their own run closing), we close the
-    active run with outcome='reclaimed' so attempt history isn't
-    orphaned. ``running -> ready`` via drag-drop is the common case
-    (user yanking a stuck worker back to the queue).
+    terminal verbs above (which own their own run closing), the active worker
+    must be stopped before its claim is released. Otherwise a review worker
+    could start while the original builder is still modifying the workspace.
+    The process stop happens outside the SQLite write transaction; the state
+    snapshot is then re-validated inside the transaction before committing.
     """
+    prev = conn.execute(
+        "SELECT status, current_run_id, claim_lock, worker_pid "
+        "FROM tasks WHERE id = ?",
+        (task_id,),
+    ).fetchone()
+    if prev is None:
+        return False
+
+    was_running = prev["status"] == "running"
+    if was_running and new_status == "review" and not allow_worker_stop:
+        return False
+
+    # Validate the dependency gate before touching the worker process. A
+    # parent may have been reopened while this child was running; killing the
+    # worker only to reject the requested ready transition would strand a
+    # dead run behind a live claim until its TTL expires.
+    if was_running and new_status == "ready" and _parents_blocking_ready(
+        conn, task_id,
+    ):
+        return False
+
+    termination = None
+    if was_running and new_status != "running":
+        termination = kanban_db._terminate_reclaimed_worker(
+            prev["worker_pid"], prev["claim_lock"],
+        )
+        has_active_worker_claim = (
+            prev["claim_lock"] is not None or prev["worker_pid"] is not None
+        )
+        if has_active_worker_claim and not termination.get("terminated"):
+            # A remote/unidentified worker, or a local worker that survived
+            # termination, must keep its claim. Releasing it would permit a
+            # duplicate builder/reviewer to start alongside it.
+            return False
+
     with kanban_db.write_txn(conn):
-        # Snapshot current state so we know whether to close a run.
-        prev = conn.execute(
-            "SELECT status, current_run_id FROM tasks WHERE id = ?",
+        current = conn.execute(
+            "SELECT status, current_run_id, claim_lock, worker_pid "
+            "FROM tasks WHERE id = ?",
             (task_id,),
         ).fetchone()
-        if prev is None:
+        state_keys = ("status", "current_run_id", "claim_lock", "worker_pid")
+        if current is None or any(current[key] != prev[key] for key in state_keys):
+            # The worker or another operator won the race while termination
+            # was in flight. Do not overwrite the newer state.
             return False
 
         # Guard: don't allow promoting to 'ready' unless all parents are done.
         # Prevents the dispatcher from spawning a child whose upstream work
         # hasn't completed (e.g. T4 dispatched while T3 is still blocked).
         if new_status == "ready":
-            parent_statuses = conn.execute(
-                "SELECT t.status FROM tasks t "
-                "JOIN task_links l ON l.parent_id = t.id "
-                "WHERE l.child_id = ?",
-                (task_id,),
-            ).fetchall()
-            if parent_statuses and not all(
-                p["status"] == "done" for p in parent_statuses
-            ):
+            blockers = _parents_blocking_ready(conn, task_id)
+            if blockers:
+                # A parent can reopen after the preflight check while worker
+                # termination is in flight. The worker is already gone, so
+                # returning with the task still marked running would leave a
+                # dead claim. Close the run and park the task in todo in this
+                # same transaction; the caller still receives a 409 naming
+                # the dependency that invalidated the requested transition.
+                if was_running and termination and termination.get("terminated"):
+                    recovery_metadata = dict(termination)
+                    recovery_metadata.update({
+                        "requested_status": "ready",
+                        "fallback_status": "todo",
+                        "reason": "dependency_changed_after_worker_stop",
+                    })
+                    conn.execute(
+                        "UPDATE tasks SET status = 'todo', claim_lock = NULL, "
+                        "claim_expires = NULL, worker_pid = NULL WHERE id = ?",
+                        (task_id,),
+                    )
+                    run_id = None
+                    if prev["current_run_id"]:
+                        run_id = kanban_db._end_run(
+                            conn,
+                            task_id,
+                            outcome="reclaimed",
+                            status="reclaimed",
+                            summary=(
+                                "ready transition aborted because a dependency "
+                                "changed after worker termination"
+                            ),
+                            metadata=recovery_metadata,
+                        )
+                    conn.execute(
+                        "INSERT INTO task_events "
+                        "(task_id, run_id, kind, payload, created_at) "
+                        "VALUES (?, ?, 'status', ?, ?)",
+                        (
+                            task_id,
+                            run_id,
+                            json.dumps({
+                                "status": "todo",
+                                "requested_status": "ready",
+                                "reason": "dependency_changed_after_worker_stop",
+                            }),
+                            int(time.time()),
+                        ),
+                    )
                 return False
 
-        was_running = prev["status"] == "running"
         reopening_satisfied_parent = (
             prev["status"] in {"done", "archived"}
             and new_status not in {"done", "archived"}
@@ -1032,10 +1202,12 @@ def _set_status_direct(
             return False
         run_id = None
         if was_running and new_status != "running" and prev["current_run_id"]:
+            outcome = "review" if new_status == "review" else "reclaimed"
             run_id = kanban_db._end_run(
                 conn, task_id,
-                outcome="reclaimed", status="reclaimed",
+                outcome=outcome, status=outcome,
                 summary=f"status changed to {new_status} (dashboard/direct)",
+                metadata=termination,
             )
         conn.execute(
             "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) "

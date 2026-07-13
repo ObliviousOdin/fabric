@@ -10,7 +10,7 @@ export function PageHeaderProvider({
   pluginTabs,
 }: {
   children: ReactNode;
-  pluginTabs: { path: string; label: string }[];
+  pluginTabs: { path: string; label: string; layout?: "page" | "workspace" }[];
 }) {
   const { pathname } = useLocation();
   const { t } = useI18n();
@@ -35,6 +35,12 @@ export function PageHeaderProvider({
   const displayTitle = titleOverride ?? defaultTitle;
 
   const isChatRoute = pathname === "/chat" || pathname === "/chat/";
+  const normalizedPath = pathname.replace(/\/$/, "") || "/";
+  const isWorkspaceRoute = pluginTabs.some(
+    (tab) =>
+      (tab.path.replace(/\/$/, "") || "/") === normalizedPath &&
+      tab.layout === "workspace",
+  );
   /** Env jump-nav is wide — stack below title on small screens so KEYS stays readable. */
   const isEnvRoute =
     pathname === "/env" || pathname.startsWith("/env/");
@@ -51,7 +57,7 @@ export function PageHeaderProvider({
   return (
     <PageHeaderContext.Provider value={value}>
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
-        <header
+        {!isWorkspaceRoute ? <header
           className={cn(
             "z-1 w-full shrink-0",
             "box-border border-b border-current/20",
@@ -81,7 +87,7 @@ export function PageHeaderProvider({
             >
               <h1
                 className={cn(
-                  "font-expanded min-w-0 text-sm font-bold tracking-[0.08em] text-midground",
+                  "font-sans min-w-0 text-lg font-semibold tracking-[-0.015em] text-midground",
                   afterTitle && isEnvRoute
                     ? "max-w-full sm:min-w-0 sm:shrink sm:truncate"
                     : afterTitle
@@ -118,14 +124,14 @@ export function PageHeaderProvider({
               </div>
             ) : null}
           </div>
-        </header>
+        </header> : null}
 
         <main
           className={cn(
             "min-h-0 w-full min-w-0 flex-1 flex flex-col",
             // Bottom inset for scrolled pages lives on the route outlet wrapper in
             // `App.tsx` (`w-full min-w-0`) so it pads scrollable content, not flex chrome.
-            isChatRoute
+            isChatRoute || isWorkspaceRoute
               ? "overflow-hidden"
               : "overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]",
           )}

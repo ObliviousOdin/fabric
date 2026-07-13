@@ -27,7 +27,7 @@ export function GatewayCard({ status, onVerb }: GatewayCardProps) {
 
   return (
     <Card>
-      <CardContent className="flex items-center justify-between py-4">
+      <CardContent className="flex flex-col items-stretch gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <AgentStatusBadge status={derived.status} label={derived.label} />
           <span className="font-mono-ui text-sm tabular-nums text-muted-foreground">
@@ -35,7 +35,7 @@ export function GatewayCard({ status, onVerb }: GatewayCardProps) {
             {status?.gateway_pid ? ` · pid ${status.gateway_pid}` : ""}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:items-center">
           <Button
             size="sm"
             className="uppercase"

@@ -43,26 +43,25 @@
 }
 
 /* ------------------------------------------------------------------ */
-/* Fabric's default teal palette, applied statically before ThemeProvider
+/* Fabric Light, applied statically before ThemeProvider
    mounts so the dashboard never flashes an unthemed canvas. */
 /* ------------------------------------------------------------------ */
 
 :root {
-  /* These are the defaults for the `default` (Fabric Teal) dashboard theme;
+  /* These are the defaults for the canonical Fabric Light dashboard theme;
      ThemeProvider rewrites them as inline styles when a user switches themes. */
 
-  /* Native form controls / scrollbars match the dark default canvas before
-     ThemeProvider mounts; applyTheme rewrites this per theme (light themes
-     — fabric-light, fabric-blue — flip it to `light`). */
-  color-scheme: dark;
+  /* Native form controls / scrollbars match the canonical light canvas before
+     ThemeProvider mounts; applyTheme rewrites this when another theme loads. */
+  color-scheme: light;
   --foreground: color-mix(in srgb, #ffffff 0%, transparent);
   --foreground-base: #ffffff;
   --foreground-alpha: 0;
-  --midground: color-mix(in srgb, #ffe6cb 100%, transparent);
-  --midground-base: #ffe6cb;
+  --midground: color-mix(in srgb, #1a2120 100%, transparent);
+  --midground-base: #1a2120;
   --midground-alpha: 1;
-  --background: color-mix(in srgb, #041c1c 100%, transparent);
-  --background-base: #041c1c;
+  --background: color-mix(in srgb, #f6fbfb 100%, transparent);
+  --background-base: #f6fbfb;
   --background-alpha: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
@@ -84,12 +83,18 @@
 
   /* Data-series accents — consumed by Analytics + Models pages for the
      input-vs-output token visualisations (chart bars, table values,
-     legend swatches). Defaults are tuned for the Fabric Teal
-     look: cream input + emerald-400 output read as warm/cool against
-     the dark canvas. Themes override via ThemeProvider, which emits
+     legend swatches). Defaults match Fabric Light's neutral input and
+     teal output accents. Themes override via ThemeProvider, which emits
      these as `--series-input-token` / `--series-output-token`. */
-  --series-input-token: #ffe6cb;
-  --series-output-token: #34d399;
+  --series-input-token: #1a2120;
+  --series-output-token: #00a292;
+
+  /* Workbench rail tokens: a low-chroma indigo neutral gives graph-heavy
+     workspaces a stable navigation anchor without becoming a second accent. */
+  --fabric-work-rail: #171a2e;
+  --fabric-work-rail-text: #f4f6f8;
+  --fabric-work-rail-muted: #b7bece;
+  --fabric-work-rail-accent: #56cdbc;
 }
 
 /* Theme tokens cascade into the document root so every descendant inherits
@@ -133,6 +138,20 @@ code, kbd, pre, samp, .font-mono, .font-mono-ui {
   overflow: hidden;
 }
 
+#app-sidebar[data-workspace-active="true"] {
+  --background-base: var(--fabric-work-rail);
+  --midground: var(--fabric-work-rail-text);
+  --midground-base: var(--fabric-work-rail-text);
+  --color-foreground: var(--fabric-work-rail-text);
+  --color-text-primary: var(--fabric-work-rail-text);
+  --color-text-secondary: var(--fabric-work-rail-muted);
+  --color-text-tertiary: color-mix(in srgb, var(--fabric-work-rail-muted) 80%, transparent);
+  --color-ring: var(--fabric-work-rail-accent);
+  --color-accent: color-mix(in srgb, var(--fabric-work-rail-text) 10%, transparent);
+  background: var(--fabric-work-rail) !important;
+  color: var(--fabric-work-rail-text);
+}
+
 @media (max-width: 768px) {
   html,
   body,
@@ -173,10 +192,10 @@ code { font-size: 0.875rem; }
   --color-muted-foreground: var(--color-text-secondary);
   --color-accent: color-mix(in srgb, var(--midground-base) 10%, var(--background-base));
   --color-accent-foreground: var(--midground);
-  --color-destructive: #fb2c36;
+  --color-destructive: #be2323;
   --color-destructive-foreground: #ffffff;
-  --color-success: #4ade80;
-  --color-warning: #ffbd38;
+  --color-success: #137d41;
+  --color-warning: #876200;
   --color-border: color-mix(in srgb, var(--midground-base) 15%, transparent);
   --color-input: color-mix(in srgb, var(--midground-base) 15%, transparent);
   --color-ring: var(--midground);

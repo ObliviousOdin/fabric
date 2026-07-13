@@ -40,6 +40,7 @@ export function AppSidebar({
   collapsed,
   isDesktopCollapsed,
   mobileOpen,
+  workspaceActive,
   closeMobile,
   toggleCollapsed,
   sections,
@@ -64,6 +65,7 @@ export function AppSidebar({
     <aside
       id="app-sidebar"
       aria-label={t.app.navigation}
+      data-workspace-active={workspaceActive ? "true" : "false"}
       className={cn(
         "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-64 min-h-0 flex-col font-sans",
         "border-r border-current/20",
@@ -75,7 +77,9 @@ export function AppSidebar({
         collapsed && "lg:w-14",
       )}
       style={{
-        background: "var(--component-sidebar-background)",
+        background: mobileOpen
+          ? "var(--background-base)"
+          : "var(--component-sidebar-background)",
         clipPath: "var(--component-sidebar-clip-path)",
         borderImage: "var(--component-sidebar-border-image)",
       }}
@@ -91,7 +95,7 @@ export function AppSidebar({
           <PluginSlot name="header-left" />
 
           <Typography
-            className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase"
+            className="font-sans text-[1.125rem] font-semibold leading-none tracking-[-0.015em] text-midground"
             style={isDarkAppearance ? { mixBlendMode: "plus-lighter" } : undefined}
           >
             Fabric
@@ -249,7 +253,7 @@ function SidebarNavGroup({
       <span
         className={cn(
           "px-5 pt-2.5 pb-1",
-          "font-sans text-display text-xs uppercase tracking-[0.12em] text-text-tertiary",
+          "font-sans text-xs font-medium tracking-normal text-text-tertiary",
           collapsed && "lg:hidden",
         )}
         id={headingId}
@@ -278,6 +282,7 @@ interface AppSidebarProps {
   collapsed: boolean;
   isDesktopCollapsed: boolean;
   mobileOpen: boolean;
+  workspaceActive: boolean;
   pluginItems: NavItem[];
   sections: NavSection[];
   status: StatusResponse | null;

@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "id": "team-home",
+      "nav_label": "Team home",
+      "blocks": [
+        {
+          "id": "welcome",
+          "type": "title",
+          "eyebrow": "Shared workspace",
+          "title": "Team home",
+          "body": "Keep the context your team needs to make progress in one calm, dependable place."
+        },
+        {
+          "id": "starter-status",
+          "type": "status",
+          "tone": "info",
+          "label": "Starter page",
+          "text": "Ready to personalize from dashboard.team_pages in config.yaml."
+        },
+        {
+          "id": "starter-kpis",
+          "type": "kpi",
+          "title": "Personalization at a glance",
+          "items": [
+            { "label": "Page source", "value": "Config-ready" },
+            { "label": "Block types", "value": "7" },
+            { "label": "Apply changes", "value": "Reload" }
+          ]
+        },
+        {
+          "id": "quick-links",
+          "type": "links",
+          "title": "Quick links",
+          "items": [
+            {
+              "label": "Work board",
+              "description": "Plan and review multi-agent work.",
+              "href": "/kanban"
+            },
+            {
+              "label": "Sessions",
+              "description": "Return to recent conversations and runs.",
+              "href": "/sessions"
+            },
+            {
+              "label": "System health",
+              "description": "Check services, runtime, and operations.",
+              "href": "/system"
+            }
+          ]
+        },
+        {
+          "id": "starter-table",
+          "type": "table",
+          "title": "Make this page yours",
+          "columns": ["Section", "What to add", "Owner"],
+          "rows": [
+            ["Priorities", "This week's outcomes", "Team lead"],
+            ["Links", "Runbooks and project resources", "Operations"],
+            ["Status", "Current health and decisions", "Project owner"]
+          ]
+        },
+        {
+          "id": "configuration-help",
+          "type": "markdown",
+          "content": "### How personalization works\nAdd `dashboard.team_pages.pages` to `~/.fabric/config.yaml`, then reload the dashboard. Each page can mix title, text, markdown, links, KPI, table, and status blocks.\n\n- Keep the page focused on decisions and shared context.\n- Link to the systems that own detailed work.\n- Use status color only when it communicates meaning."
+        }
+      ]
+    },
+    {
+      "id": "engineering",
+      "nav_label": "Engineering",
+      "blocks": [
+        {
+          "id": "engineering-title",
+          "type": "title",
+          "eyebrow": "Starter template",
+          "title": "Engineering",
+          "body": "A lightweight front door for delivery health, active work, and the links engineers use every day."
+        },
+        {
+          "id": "engineering-status",
+          "type": "status",
+          "tone": "neutral",
+          "label": "Template",
+          "text": "Replace these examples with the signals and resources your team already trusts."
+        },
+        {
+          "id": "engineering-guidance",
+          "type": "text",
+          "title": "What belongs here",
+          "body": "Use a small number of high-signal items: delivery health, active incidents, the current goal, and links to source-of-truth systems."
+        },
+        {
+          "id": "engineering-links",
+          "type": "links",
+          "title": "Engineering tools",
+          "items": [
+            {
+              "label": "Kanban",
+              "description": "See planned and in-flight work.",
+              "href": "/kanban"
+            },
+            {
+              "label": "Logs",
+              "description": "Investigate runtime activity.",
+              "href": "/logs"
+            },
+            {
+              "label": "Analytics",
+              "description": "Review usage and delivery signals.",
+              "href": "/analytics"
+            }
+          ]
+        },
+        {
+          "id": "engineering-checklist",
+          "type": "table",
+          "title": "Suggested operating view",
+          "columns": ["Signal", "Question", "Cadence"],
+          "rows": [
+            ["Delivery", "What is moving or blocked?", "Daily"],
+            ["Reliability", "Does anyone need to act?", "Live"],
+            ["Decisions", "What changed and why?", "Weekly"]
+          ]
+        }
+      ]
+    }
+  ]
+}

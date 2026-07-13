@@ -680,9 +680,9 @@ def managed_scope_check() -> None:
     """Report the active managed scope (resolved dir + pinned key counts).
 
     Silent when no managed scope is present. When the managed directory was
-    resolved from the HERMES_MANAGED_DIR override (rather than the system
-    default), that is surfaced too — a redirected scope is the documented
-    foot-gun (see docs/design/managed-scope.md §7) and an operator should see it.
+    resolved from a managed-directory override (rather than the system default),
+    that is surfaced too — a redirected scope is the documented foot-gun (see
+    docs/design/managed-scope.md §7) and an operator should see it.
     """
     try:
         from fabric_cli import managed_scope
@@ -697,8 +697,16 @@ def managed_scope_check() -> None:
         f"Managed scope active: {n_cfg} config key(s), {n_env} env key(s) "
         f"pinned by {managed_dir}"
     )
-    if os.environ.get("HERMES_MANAGED_DIR", "").strip():
-        check_info(f"managed dir set via HERMES_MANAGED_DIR={managed_dir}")
+    override_var = next(
+        (
+            var
+            for var in ("FABRIC_MANAGED_DIR", "HERMES_MANAGED_DIR")
+            if os.environ.get(var, "").strip()
+        ),
+        None,
+    )
+    if override_var:
+        check_info(f"managed dir set via {override_var}={managed_dir}")
 
 
 def run_doctor(args):

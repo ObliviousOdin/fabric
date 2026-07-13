@@ -119,6 +119,14 @@ _MARKDOWN_INLINE_LINK_RE = re.compile(
     r"\[(?P<label>[^\]\r\n]+)\]\([^\r\n)]*\)"
 )
 _HTML_TAG_RE = re.compile(r"<[^>\r\n]+>")
+_LEGACY_PUBLIC_MEDIA_IDS = (
+    "NoF-YajElIM",
+    "WNYe5mD4fY8",
+)
+_LEGACY_PUBLIC_MEDIA_RE = re.compile(
+    "|".join(re.escape(video_id) for video_id in _LEGACY_PUBLIC_MEDIA_IDS),
+    re.IGNORECASE,
+)
 
 _VENDOR_POSITIONING_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -305,6 +313,9 @@ def _positioning_issues(relative: str, text: str) -> list[str]:
     """Return upstream endorsement/ownership findings for public copy."""
 
     issues: list[str] = []
+    for match in _LEGACY_PUBLIC_MEDIA_RE.finditer(text):
+        line = text.count("\n", 0, match.start()) + 1
+        issues.append(f"{relative}:{line}: legacy upstream media in public content")
     normalized = _normalize_positioning_markup(text)
     for label, pattern in _VENDOR_POSITIONING_PATTERNS:
         for match in pattern.finditer(normalized):

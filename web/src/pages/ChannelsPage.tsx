@@ -13,6 +13,7 @@ import { TelegramOnboardingPanel } from "@/components/channels/TelegramOnboardin
 import { WhatsAppOnboardingPanel } from "@/components/channels/WhatsAppOnboardingPanel";
 import { useGatewayRestart } from "@/hooks/useGatewayRestart";
 import { api } from "@/lib/api";
+import { publicCliCommand } from "@/lib/public-identity";
 import type { MessagingPlatform } from "@/lib/api";
 import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
@@ -31,7 +32,7 @@ export default function ChannelsPage() {
   const [platforms, setPlatforms] = useState<MessagingPlatform[]>([]);
   const [envPath, setEnvPath] = useState("~/.fabric/.env");
   const [gatewayStartCommand, setGatewayStartCommand] = useState(
-    "Fabric gateway start",
+    "fabric gateway start",
   );
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -55,7 +56,9 @@ export default function ChannelsPage() {
       .then((res) => {
         setPlatforms(res.platforms);
         setEnvPath(res.env_path || "~/.fabric/.env");
-        setGatewayStartCommand(res.gateway_start_command || "Fabric gateway start");
+        setGatewayStartCommand(
+          publicCliCommand(res.gateway_start_command, "fabric gateway start"),
+        );
         setLoadError(null);
       })
       .catch((e) => {

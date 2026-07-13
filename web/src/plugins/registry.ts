@@ -4,8 +4,8 @@
  * Exposes React, UI components, hooks, and utilities on the window so
  * that plugin bundles can use them without bundling their own copies.
  *
- * Plugins call window.__HERMES_PLUGINS__.register(name, Component)
- * to register their tab component.
+ * Plugins call window.__FABRIC_PLUGINS__.register(name, Component) to register
+ * their tab component. The legacy Hermes global remains a compatibility alias.
  */
 
 import React, {
@@ -30,6 +30,33 @@ import { Separator } from "@nous-research/ui/ui/components/separator";
 import { Tabs, TabsList, TabsTrigger } from "@nous-research/ui/ui/components/tabs";
 import { useI18n } from "@/i18n";
 import { registerSlot, PluginSlot } from "./slots";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Bot,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  Clock3,
+  FileText,
+  Filter,
+  GitBranch,
+  HelpCircle,
+  LayoutGrid,
+  ListTree,
+  Maximize2,
+  PanelRightClose,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  Search,
+  Target,
+  Workflow,
+  X,
+  ExternalLink,
+} from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Plugin registry — plugins call register() to add their component.
@@ -92,8 +119,8 @@ export function getRegisteredCount(): number {
  * Version of the plugin SDK contract (see ``plugins/sdk.d.ts``). Bump the
  * major on any backwards-incompatible change to the exposed surface;
  * additive changes (new optional fields / helpers) don't require a bump.
- * Exposed at runtime as ``window.__HERMES_PLUGIN_SDK__.sdkVersion`` so a
- * plugin (or a future host-side compatibility gate) can read it.
+ * Exposed at runtime as ``window.__FABRIC_PLUGIN_SDK__.sdkVersion`` so a plugin
+ * (or a future host-side compatibility gate) can read it.
  */
 export const SDK_CONTRACT_VERSION = "1.1.0";
 
@@ -102,12 +129,12 @@ export const SDK_CONTRACT_VERSION = "1.1.0";
 // here (duplicate ambient declarations with differing modifiers conflict).
 
 export function exposePluginSDK() {
-  window.__HERMES_PLUGINS__ = {
+  const pluginRegistry = {
     register: registerPlugin,
     registerSlot,
   };
 
-  window.__HERMES_PLUGIN_SDK__ = {
+  const pluginSDK = {
     // Contract version of the plugin SDK surface (see plugins/sdk.d.ts).
     // Bump on backwards-incompatible changes; additive changes don't need it.
     sdkVersion: SDK_CONTRACT_VERSION,
@@ -159,10 +186,47 @@ export function exposePluginSDK() {
       PluginSlot,
     },
 
+    // Host-owned icon set. Plugins consume these rather than bundling a
+    // second icon library or drawing approximate inline SVG/CSS symbols.
+    icons: {
+      AlertTriangle,
+      ArrowRight,
+      Bot,
+      CheckCircle2,
+      ChevronDown,
+      ChevronRight,
+      Circle,
+      Clock3,
+      FileText,
+      Filter,
+      GitBranch,
+      HelpCircle,
+      LayoutGrid,
+      ListTree,
+      Maximize2,
+      PanelRightClose,
+      Pause,
+      Play,
+      Plus,
+      RotateCcw,
+      Search,
+      Target,
+      Workflow,
+      X,
+      ExternalLink,
+    },
+
     // Utilities
     utils: { cn, timeAgo, isoTimeAgo },
 
     // Hooks
     useI18n,
   };
+
+  // Fabric-owned names are canonical. The Hermes globals remain aliases so
+  // existing third-party plugin bundles keep working without a flag day.
+  window.__FABRIC_PLUGINS__ = pluginRegistry;
+  window.__FABRIC_PLUGIN_SDK__ = pluginSDK;
+  window.__HERMES_PLUGINS__ = pluginRegistry;
+  window.__HERMES_PLUGIN_SDK__ = pluginSDK;
 }

@@ -117,12 +117,15 @@ function LevelChips({
   counts,
   total,
   inViewHint,
+  groupLabel,
 }: {
   value: (typeof LEVELS)[number];
   onChange: (level: (typeof LEVELS)[number]) => void;
   counts: WindowCounts;
   total: number;
   inViewHint: string;
+  /** Accessible name for the radiogroup (the FilterGroup label is visual only). */
+  groupLabel: string;
 }) {
   const chipCount: Record<(typeof LEVELS)[number], number> = {
     ALL: total,
@@ -133,7 +136,11 @@ function LevelChips({
     ERROR: counts.error,
   };
   return (
-    <div role="radiogroup" className="flex w-fit max-w-full flex-wrap gap-1 self-start">
+    <div
+      role="radiogroup"
+      aria-label={groupLabel}
+      className="flex w-fit max-w-full flex-wrap gap-1 self-start"
+    >
       {LEVELS.map((chip) => {
         const active = chip === value;
         const belowThreshold =
@@ -524,6 +531,7 @@ export default function LogsPage() {
                 counts={counts}
                 total={lines.length}
                 inViewHint={inViewHint}
+                groupLabel={t.logs.level}
               />
             </FilterGroup>
 

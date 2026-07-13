@@ -268,7 +268,7 @@ export const en: Translations = {
         "token & cost estimates hidden — local counts diverge from provider billing",
       configLink: "Config",
       recentRuns: "Recent Runs",
-      lastRunsQualifier: "last 20",
+      lastRunsQualifier: "last {limit}",
       openInSessions: "Open in Sessions",
       noRunsYet: "No runs yet",
       noRunsHint: "Runs appear here once an agent has done work",

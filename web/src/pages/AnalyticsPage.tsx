@@ -23,12 +23,17 @@ import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Stats } from "@nous-research/ui/ui/components/stats";
 import { Card, CardContent, CardHeader, CardTitle } from "@nous-research/ui/ui/components/card";
-import { DataTable, EmptyState, PageToolbar, Skeleton } from "@/components/ui";
+import {
+  DataTable,
+  EmptyState,
+  PageToolbar,
+  Skeleton,
+  formatCost,
+} from "@/components/ui";
 import type { DataTableColumn } from "@/components/ui";
 import { RecentRunsCard } from "@/components/analytics/RecentRunsCard";
 import { RunsBySourceCard } from "@/components/analytics/RunsBySourceCard";
 import { ToolsTable } from "@/components/analytics/ToolsTable";
-import { formatCost } from "@/components/analytics/source-icons";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { PluginSlot } from "@/plugins";
@@ -684,8 +689,13 @@ export default function AnalyticsPage() {
                         key: "api-calls",
                         node: (
                           <span className={VALUE_CN}>
+                            {/* SQL SUM over zero rows yields null — fall
+                                back to the per-day api_calls (not sessions). */}
                             {data.totals.total_api_calls ??
-                              data.daily.reduce((sum, d) => sum + d.sessions, 0)}
+                              data.daily.reduce(
+                                (sum, d) => sum + d.api_calls,
+                                0,
+                              )}
                           </span>
                         ),
                       },

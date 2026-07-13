@@ -94,6 +94,19 @@ export { RunRow } from "./RunRow";
 export type { RunRowProps } from "./RunRow";
 
 /**
+ * Run-row metadata vocabulary (`./source-icons`): the monochrome source
+ * glyph mapping (G11) plus the compact token (`12.5k`) and cost (`$0.0123`)
+ * formatters shared by the Sessions ledger and the Analytics workload
+ * report — one mapping so a run reads the same on every page.
+ */
+export {
+  SOURCE_ICONS,
+  formatCompact,
+  formatCost,
+  sourceIcon,
+} from "./source-icons";
+
+/**
  * Chronology node for session transcripts: left rail with role-toned dot,
  * `[dot] [label] [time]` header, indented body; keeps the FTS
  * `data-search-hit` anchor contract.

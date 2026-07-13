@@ -6,8 +6,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@nous-research/ui/ui/components/card";
+import { sourceIcon } from "@/components/ui";
 import { useI18n } from "@/i18n";
-import { sourceIcon } from "./source-icons";
 
 export interface RunsBySourceCardProps {
   stats: SessionStoreStats;

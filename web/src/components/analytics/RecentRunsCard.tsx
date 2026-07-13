@@ -10,9 +10,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@nous-research/ui/ui/components/card";
-import { EmptyState, RunRow, Skeleton, sessionAgentStatus } from "@/components/ui";
+import {
+  EmptyState,
+  RunRow,
+  Skeleton,
+  formatCompact,
+  formatCost,
+  sessionAgentStatus,
+  sourceIcon,
+} from "@/components/ui";
 import { useI18n } from "@/i18n";
-import { formatCompact, formatCost, sourceIcon } from "./source-icons";
 
 export interface RecentRunsCardProps {
   /** `null` while the sessions fetch is in flight (A9 — own skeleton). */
@@ -48,7 +55,10 @@ export function RecentRunsCard({ sessions, limit }: RecentRunsCardProps) {
             {W?.recentRuns ?? "Recent Runs"}
           </CardTitle>
           <span className="font-mono-ui text-xs tabular-nums text-text-tertiary">
-            {W?.lastRunsQualifier ?? `last ${limit}`}
+            {(W?.lastRunsQualifier ?? "last {limit}").replace(
+              "{limit}",
+              String(limit),
+            )}
           </span>
         </div>
       </CardHeader>

@@ -308,6 +308,7 @@ export interface Translations {
       estimatesHiddenSummary: string;
       configLink: string;
       recentRuns: string;
+      /** `{limit}` placeholder = the recent-runs fetch bound (e.g. "last 20"). */
       lastRunsQualifier: string;
       openInSessions: string;
       noRunsYet: string;

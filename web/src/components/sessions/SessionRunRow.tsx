@@ -1,51 +1,21 @@
 import { Fragment, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Check,
-  Clock,
-  Download,
-  Globe,
-  Hash,
-  MessageCircle,
-  MessageSquare,
-  Pencil,
-  Play,
-  Terminal,
-  Trash2,
-  X,
-} from "lucide-react";
+import { Check, Download, Pencil, Play, Trash2, X } from "lucide-react";
 import type { SessionInfo } from "@/lib/api";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Input } from "@nous-research/ui/ui/components/input";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
-import { RunRow, sessionAgentStatus } from "@/components/ui";
+import {
+  RunRow,
+  formatCompact,
+  formatCost,
+  sessionAgentStatus,
+  sourceIcon,
+} from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { SnippetHighlight } from "./SnippetHighlight";
 import { SessionTimeline } from "./SessionTimeline";
-
-// Monochrome source glyphs (G11): the glyph carries the distinction —
-// RunRow renders it muted, so no per-source color column here.
-const SOURCE_CONFIG: Record<string, typeof Terminal> = {
-  cli: Terminal,
-  telegram: MessageCircle,
-  discord: Hash,
-  slack: MessageSquare,
-  whatsapp: Globe,
-  cron: Clock,
-};
-
-/** `12456` → `12.5k` (R4 — token counters render compact, never raw). */
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-  return String(n);
-}
-
-/** `$0.0123` under a dollar, `$1.23` above (S2). */
-function formatCost(cost: number): string {
-  return `$${cost >= 1 ? cost.toFixed(2) : cost.toFixed(4)}`;
-}
 
 export interface SessionRunRowProps {
   session: SessionInfo;
@@ -86,7 +56,6 @@ export function SessionRunRow({
   const navigate = useNavigate();
 
   const hasTitle = session.title && session.title !== "Untitled";
-  const sourceIcon = (session.source && SOURCE_CONFIG[session.source]) || Globe;
 
   const submitRename = async () => {
     const value = renameValue.trim();
@@ -252,7 +221,7 @@ export function SessionRunRow({
       title={title}
       status={sessionAgentStatus(session)}
       id={session.id}
-      sourceIcon={sourceIcon}
+      sourceIcon={sourceIcon(session.source)}
       model={(session.model ?? t.common.unknown).split("/").pop()}
       meta={metaParts.map((node, i) => (
         <Fragment key={i}>

@@ -14,7 +14,7 @@ export interface RunRowProps {
   statusLabel?: string;
   /** Technical id → `MonoId`. */
   id: string;
-  /** SOURCE_CONFIG glyph; rendered monochrome (G11). */
+  /** SOURCE_ICONS glyph; rendered monochrome (G11). */
   sourceIcon?: LucideIcon;
   /** Model short name, mono chip in the meta line. */
   model?: string | null;

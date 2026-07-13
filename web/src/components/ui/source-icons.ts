@@ -9,10 +9,10 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 /**
- * Monochrome source glyphs (G11) for the Observe workload report — same
- * mapping as the Sessions ledger's `SessionRunRow` so a run keeps its
- * glyph across pages. The glyph carries the distinction; callers render
- * it muted (no per-source color).
+ * Monochrome source glyphs (G11), shared by the Sessions ledger and the
+ * Observe workload report so a run keeps its glyph across pages. The
+ * glyph carries the distinction; callers render it muted (no per-source
+ * color).
  */
 export const SOURCE_ICONS: Record<string, LucideIcon> = {
   cli: Terminal,

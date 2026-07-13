@@ -44,7 +44,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric gateway` | Run or manage the messaging gateway service. |
 | `fabric proxy` | Local OpenAI-compatible proxy that attaches OAuth provider credentials. See [Subscription Proxy](../user-guide/features/subscription-proxy.md). |
 | `fabric lsp` | Manage Language Server Protocol integration (semantic diagnostics for write_file/patch). |
-| `fabric setup` | Interactive setup wizard for all or part of the configuration. |
+| `fabric setup` | Interactive setup wizard for all or one section (`model`, `tts`, `terminal`, `gateway`, `tools`, `agent`, or opt-in `tailscale`). |
 | `fabric whatsapp` | Configure and pair the WhatsApp bridge. |
 | `fabric whatsapp-cloud` | Configure the official Meta WhatsApp Business Cloud API adapter (Business account + public webhook required). Distinct from `fabric whatsapp` (Baileys personal-account bridge). |
 | `fabric slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |

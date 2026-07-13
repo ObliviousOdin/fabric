@@ -106,6 +106,7 @@ def test_completed_default_guided_setup_transcript_is_customer_clean(
     monkeypatch.setattr("fabric_cli.auth.get_active_provider", lambda: None)
     monkeypatch.setattr(setup_mod, "_offer_openclaw_migration", lambda _home: False)
     monkeypatch.setattr(setup_mod, "prompt_choice", lambda *_a, **_k: 0)
+    monkeypatch.setattr(setup_mod, "prompt_yes_no", lambda *_a, **_k: False)
     monkeypatch.setattr(setup_mod, "prompt_checklist", lambda *_a, **_k: [])
 
     def leave_model_unchanged(choices, default=0, **_kwargs):

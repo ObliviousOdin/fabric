@@ -68,7 +68,7 @@ def test_lazy_installable_extras_excluded_from_all():
         "anthropic", "bedrock",
         "exa", "firecrawl", "parallel-web",
         "fal",
-        "edge-tts", "tts-premium",
+        "edge-tts", "piper", "tts-premium",
         "voice",  # faster-whisper / sounddevice / numpy
         "modal", "daytona",
         "messaging", "slack", "matrix", "dingtalk", "feishu",

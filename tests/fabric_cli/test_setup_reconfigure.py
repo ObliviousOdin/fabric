@@ -89,6 +89,7 @@ def _enter_fresh_install_patches(stack, **extra):
         ("fabric_cli.auth.get_active_provider", {"return_value": None}),
         ("fabric_cli.setup.get_env_value", {"return_value": None}),
         ("fabric_cli.setup._offer_openclaw_migration", {"return_value": False}),
+        ("fabric_cli.setup.prompt_yes_no", {"return_value": False}),
     ]:
         stack.enter_context(patch(target, **kwargs))
 
@@ -201,6 +202,7 @@ class TestFreshInstall:
             defaults="fabric_cli.setup._apply_default_agent_settings",
             gateway="fabric_cli.setup.setup_gateway",
             tools="fabric_cli.setup.setup_tools",
+            tailscale="fabric_cli.setup._setup_tailscale_section",
         )
 
     @staticmethod
@@ -211,6 +213,7 @@ class TestFreshInstall:
         m["defaults"].assert_called_once()
         m["gateway"].assert_called_once()
         m["tools"].assert_called_once()
+        m["tailscale"].assert_not_called()
 
     def test_bare_setup_runs_first_time_flow(self, fresh_install):
         args = _make_setup_args()
@@ -241,6 +244,33 @@ class TestFreshInstall:
             run_setup_wizard(args)
 
         self._assert_guided_flow(m)
+
+    def test_first_time_tailscale_offer_is_explicit_opt_in(self, fresh_install):
+        args = _make_setup_args()
+
+        with ExitStack() as stack:
+            m = _enter_fresh_install_patches(
+                stack,
+                prompt=("fabric_cli.setup.prompt_choice", {"return_value": 0}),
+                tailscale_prompt=(
+                    "fabric_cli.setup.prompt_yes_no",
+                    {"return_value": True},
+                ),
+                model="fabric_cli.setup.setup_model_provider",
+                defaults="fabric_cli.setup._apply_default_agent_settings",
+                gateway="fabric_cli.setup.setup_gateway",
+                tools="fabric_cli.setup.setup_tools",
+                tailscale="fabric_cli.setup._setup_tailscale_section",
+            )
+            from fabric_cli.setup import run_setup_wizard
+
+            run_setup_wizard(args)
+
+        m["tailscale_prompt"].assert_called_once_with(
+            "Connect this machine with Tailscale now?",
+            False,
+        )
+        m["tailscale"].assert_called_once()
 
     def test_full_setup_runs_terminal_configuration(self, fresh_install):
         args = _make_setup_args()

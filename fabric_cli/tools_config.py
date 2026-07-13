@@ -9,6 +9,7 @@ Saves per-platform tool configuration to ~/.fabric/config.yaml under
 the `platform_toolsets` key.
 """
 
+import importlib.util
 import json as _json
 import logging
 import os
@@ -279,6 +280,7 @@ TOOL_CATEGORIES = {
                 "env_vars": [],
                 "tts_provider": "xai",
                 "post_setup": "xai_grok",
+                "post_setup_required": True,
             },
             {
                 "name": "ElevenLabs",
@@ -288,6 +290,19 @@ TOOL_CATEGORIES = {
                     {"key": "ELEVENLABS_API_KEY", "prompt": "ElevenLabs API key", "url": "https://elevenlabs.io/app/settings/api-keys"},
                 ],
                 "tts_provider": "elevenlabs",
+            },
+            {
+                "name": "MiniMax TTS",
+                "badge": "paid",
+                "tag": "High-quality multilingual speech and voice cloning",
+                "env_vars": [
+                    {
+                        "key": "MINIMAX_API_KEY",
+                        "prompt": "MiniMax API key",
+                        "url": "https://platform.minimax.io/user-center/basic-information/interface-key",
+                    },
+                ],
+                "tts_provider": "minimax",
             },
             # Mistral Voxtral TTS — `mistralai` SDK lazy-installs on first use.
             {
@@ -309,6 +324,15 @@ TOOL_CATEGORIES = {
                 "tts_provider": "gemini",
             },
             {
+                "name": "NeuTTS",
+                "badge": "local · free",
+                "tag": "Local voice cloning (~300MB model), no API key",
+                "env_vars": [],
+                "tts_provider": "neutts",
+                "post_setup": "neutts",
+                "post_setup_required": True,
+            },
+            {
                 "name": "KittenTTS",
                 "badge": "local · free",
                 "tag": "Lightweight local ONNX TTS (~25MB), no API key",
@@ -323,24 +347,34 @@ TOOL_CATEGORIES = {
                 "env_vars": [],
                 "tts_provider": "piper",
                 "post_setup": "piper",
+                "post_setup_required": True,
             },
         ],
     },
     "web": {
         "name": "Web Search & Extract",
         "setup_title": "Select Search Provider",
-        "setup_note": "A free DuckDuckGo search skill is also included — skip this if you don't need a premium provider.",
+        "setup_note": "Automatic uses the best configured provider and falls back to free search when available.",
         "icon": "🔍",
         # Per-provider rows are injected at runtime from
         # plugins.web.<vendor>.provider via _plugin_web_search_providers()
         # in _visible_providers(). Only non-provider UX setup-flow rows
-        # for the firecrawl backend are listed here:
+        # for the web/firecrawl backend are listed here:
+        #   - "Automatic (recommended)" — leaves web backend pins unset so
+        #     runtime provider resolution can choose the best available row.
         #   - "Nous Subscription" — managed Firecrawl billed via Nous
         #     subscription (requires_nous_auth + override_env_vars).
         #   - "Firecrawl Self-Hosted" — points firecrawl at a private
         #     Docker instance via FIRECRAWL_API_URL only.
         # See PR #25182 for the migration rationale.
         "providers": [
+            {
+                "name": "Automatic (recommended)",
+                "badge": "★ recommended · free fallback",
+                "tag": "Use the best configured provider automatically",
+                "web_auto": True,
+                "env_vars": [],
+            },
             {
                 "name": "Nous Subscription",
                 "badge": "subscription",
@@ -1141,8 +1175,13 @@ def _run_cua_driver_installer(label: str = "Installing", verbose: bool = True) -
                 pass
 
 
-def _run_post_setup(post_setup_key: str):
-    """Run post-setup hooks for tools that need extra installation steps."""
+def _run_post_setup(post_setup_key: str) -> Optional[bool]:
+    """Run an optional provider setup hook.
+
+    Most legacy hooks are informational and return ``None``. Credential or
+    install hooks used by providers marked ``post_setup_required`` return a
+    boolean so the caller can avoid activating an unusable provider.
+    """
     import shutil
     if post_setup_key in {"agent_browser", "browserbase"}:
         node_modules = PROJECT_ROOT / "node_modules" / "agent-browser"
@@ -1319,21 +1358,40 @@ def _run_post_setup(post_setup_key: str):
         except ImportError:
             _print_info("    Installing piper-tts (~14MB wheel, voices downloaded on first use)...")
             try:
-                result = _pip_install(["-U", "piper-tts", "--quiet"], timeout=300)
+                result = _pip_install(["-U", "piper-tts==1.4.2", "--quiet"], timeout=300)
                 if result.returncode == 0:
                     _print_success("    piper-tts installed")
                 else:
                     _print_warning("    piper-tts install failed:")
                     _print_info(f"      {(result.stderr or '').strip()[:300]}")
-                    _print_info("    Run manually: uv pip install -U piper-tts")
-                    return
+                    _print_info("    Run manually: uv pip install -U piper-tts==1.4.2")
+                    return False
             except subprocess.TimeoutExpired:
                 _print_warning("    piper-tts install timed out (>5min)")
-                _print_info("    Run manually: uv pip install -U piper-tts")
-                return
+                _print_info("    Run manually: uv pip install -U piper-tts==1.4.2")
+                return False
         _print_info("    Default voice: en_US-lessac-medium (downloaded on first TTS call)")
         _print_info("    Full voice list: https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/VOICES.md")
         _print_info("    Switch voices by setting tts.piper.voice in ~/.fabric/config.yaml")
+        return True
+
+    elif post_setup_key == "neutts":
+        try:
+            if importlib.util.find_spec("neutts") is not None:
+                _print_success("    NeuTTS is already installed")
+                return True
+        except (ImportError, AttributeError, ValueError):
+            pass
+
+        _print_info("    Installing NeuTTS and its local speech dependencies...")
+        try:
+            from fabric_cli.setup import _install_neutts_deps
+
+            return bool(_install_neutts_deps())
+        except Exception as exc:
+            _print_warning(f"    NeuTTS setup failed: {exc}")
+            _print_info("    Run `fabric setup tts` later to retry")
+            return False
 
     elif post_setup_key == "ddgs":
         try:
@@ -1434,10 +1492,10 @@ def _run_post_setup(post_setup_key: str):
             _print_success(
                 "    xAI will use your xAI Grok OAuth (SuperGrok / Premium+) credentials"
             )
-            return
+            return True
         if existing_api_key:
             _print_success("    xAI will use your existing XAI_API_KEY")
-            return
+            return True
 
         _print_info("    xAI needs credentials. Choose one:")
         try:
@@ -1457,7 +1515,7 @@ def _run_post_setup(post_setup_key: str):
                 "    xAI setup is unavailable (setup_helpers_unavailable)."
             )
             _print_info("    Run later: fabric auth add xai-oauth   (or set XAI_API_KEY)")
-            return
+            return False
 
         idx = prompt_choice(
             "    How do you want xAI to authenticate?",
@@ -1473,22 +1531,36 @@ def _run_post_setup(post_setup_key: str):
                 _print_success(
                     "    Logged in — xAI will use these OAuth credentials"
                 )
+                return True
             else:
                 _print_warning(
                     "    xAI Grok OAuth login did not complete. "
                     "Run later: fabric auth add xai-oauth"
                 )
+                return False
         elif idx == 1:
             api_key = _setup_prompt("    xAI API key", password=True)
             if api_key:
                 save_env_value("XAI_API_KEY", api_key)
                 _print_success("    XAI_API_KEY saved")
+                return True
             else:
                 _print_warning(
                     "    No API key provided. Run later: fabric auth add xai-oauth"
                 )
+                return False
         else:
             _print_info("    xAI will remain inactive until credentials are configured.")
+            return False
+
+
+def _run_provider_post_setup(provider: dict) -> bool:
+    """Run a provider hook and enforce success only when metadata requires it."""
+    post_setup = provider.get("post_setup")
+    if not post_setup:
+        return True
+    result = _run_post_setup(post_setup)
+    return result is True if provider.get("post_setup_required") else True
 
 
 def valid_post_setup_keys() -> Set[str]:
@@ -1530,7 +1602,7 @@ def run_post_setup_command(args) -> int:
     browser/Camofox, pip install for kittentts/piper/ddgs, cua-driver fetch,
     etc.). This is the stable, scriptable target the dashboard spawns so the
     GUI can drive backend setup without re-implementing the install logic.
-    Returns a process exit code (0 ok, 2 unknown key).
+    Returns a process exit code (0 ok, 1 failed/incomplete, 2 unknown key).
     """
     key = getattr(args, "post_setup_key", None)
     if not key:
@@ -1545,9 +1617,12 @@ def run_post_setup_command(args) -> int:
         return 2
     _print_info(f"Running post-setup hook: {key}")
     try:
-        _run_post_setup(key)
+        result = _run_post_setup(key)
     except Exception as exc:  # pragma: no cover — defensive
         _print_error(f"Post-setup failed: {exc}")
+        return 1
+    if result is False:
+        _print_error(f"Post-setup '{key}' did not complete")
         return 1
     _print_success(f"Post-setup '{key}' complete")
     return 0
@@ -2209,6 +2284,7 @@ def _prompt_toolset_checklist(
 # built-in + plugin catalog policy to evaluate it.
 _PROVIDER_SCHEMA_PASSTHROUGH_FIELDS = (
     "post_setup",
+    "setup_flow",
     "requires_nous_auth",
     "managed_nous_feature",
     "override_env_vars",
@@ -2757,6 +2833,17 @@ def _toolset_needs_configuration_prompt(
         # provider choice before the toolset can be considered configured.
         return True
 
+    if ts_key == "web":
+        automatic = next((row for row in visible_rows if row.get("web_auto")), None)
+        if automatic and _is_provider_active(
+            automatic,
+            config,
+            force_fresh=force_fresh,
+        ):
+            # Automatic is already a complete selection. Do not let optional
+            # install hooks on unrelated web-provider rows reprompt forever.
+            return False
+
     # If any visible provider has a registered post_setup install-state
     # check that hasn't been satisfied (e.g. cua-driver binary not on
     # PATH yet), force the configuration flow so `_configure_provider`
@@ -2772,10 +2859,12 @@ def _toolset_needs_configuration_prompt(
             return True
         return not isinstance(tts_cfg, dict) or "provider" not in tts_cfg
     if ts_key == "web":
-        web_cfg = config.get("web", {})
         if _section_uses_hidden_legacy_gateway(config, "web"):
             return True
-        return not isinstance(web_cfg, dict) or "backend" not in web_cfg
+        # An omitted backend is the supported automatic-resolution mode, not
+        # an incomplete configuration. Provider install hooks above may still
+        # require setup, but Automatic itself must not reprompt forever.
+        return False
     if ts_key == "browser":
         browser_cfg = config.get("browser", {})
         if _section_uses_hidden_legacy_gateway(config, "browser"):
@@ -2950,6 +3039,15 @@ def _is_provider_active(
     force_fresh: bool = False,
 ) -> bool:
     """Check if a provider entry matches the currently active config."""
+    if provider.get("web_auto"):
+        web_cfg = config.get("web", {})
+        if not isinstance(web_cfg, dict):
+            return True
+        return not any(
+            str(web_cfg.get(key) or "").strip()
+            for key in ("backend", "search_backend", "extract_backend")
+        ) and not is_truthy_value(web_cfg.get("use_gateway"), default=False)
+
     plugin_name = provider.get("image_gen_plugin_name")
     if plugin_name:
         image_cfg = config.get("image_gen", {})
@@ -3406,8 +3504,24 @@ def _write_provider_config(provider: dict, config: dict, *, managed_feature) -> 
     # Set TTS provider in config if applicable
     if provider.get("tts_provider"):
         tts_cfg = config.setdefault("tts", {})
+        if not isinstance(tts_cfg, dict):
+            tts_cfg = {}
+            config["tts"] = tts_cfg
         tts_cfg["provider"] = provider["tts_provider"]
         tts_cfg["use_gateway"] = bool(managed_feature)
+        if provider["tts_provider"] == "piper":
+            from tools.tts_tool import piper_cuda_available
+
+            use_cuda = piper_cuda_available()
+            piper_cfg = tts_cfg.setdefault("piper", {})
+            if not isinstance(piper_cfg, dict):
+                piper_cfg = {}
+                tts_cfg["piper"] = piper_cfg
+            piper_cfg["use_cuda"] = use_cuda
+            if use_cuda:
+                _print_success("  Piper will use the detected NVIDIA CUDA provider")
+            else:
+                _print_info("  Piper will use CPU (no CUDAExecutionProvider detected)")
 
     # Set browser cloud provider in config if applicable
     if "browser_provider" in provider:
@@ -3417,8 +3531,19 @@ def _write_provider_config(provider: dict, config: dict, *, managed_feature) -> 
             browser_cfg["cloud_provider"] = bp
         browser_cfg["use_gateway"] = bool(managed_feature)
 
-    # Set web search backend in config if applicable
-    if provider.get("web_backend"):
+    # Automatic web resolution is represented by the absence of backend pins.
+    # Clear only routing keys, preserving unrelated web settings such as limits
+    # and timeouts.
+    if provider.get("web_auto"):
+        web_cfg = config.get("web")
+        if not isinstance(web_cfg, dict):
+            web_cfg = {}
+            config["web"] = web_cfg
+        for key in ("backend", "search_backend", "extract_backend", "use_gateway"):
+            web_cfg.pop(key, None)
+
+    # Set web search backend in config if applicable.
+    elif provider.get("web_backend"):
         web_cfg = config.setdefault("web", {})
         web_cfg["backend"] = provider["web_backend"]
         web_cfg["use_gateway"] = bool(managed_feature)
@@ -3494,15 +3619,117 @@ def apply_provider_selection(ts_key: str, provider_name: str, config: dict) -> N
             img_cfg["provider"] = "fal"
 
 
+def _present_provider_url(url: str, *, presented_urls: Optional[Set[str]] = None) -> None:
+    """Show a provider setup URL through the shared QR/link presenter.
+
+    Provider catalog URLs are instructional rather than auth callbacks, so the
+    generic path deliberately never opens a browser. A visible exact URL is
+    always retained as the fallback when QR rendering is unavailable or the
+    shared helper rejects malformed third-party metadata.
+    """
+    exact_url = str(url or "").strip()
+    if not exact_url:
+        return
+    if presented_urls is not None:
+        if exact_url in presented_urls:
+            return
+        presented_urls.add(exact_url)
+
+    try:
+        from fabric_cli.setup_links import present_setup_link
+
+        present_setup_link(
+            exact_url,
+            label="Get your credential",
+            open_browser=False,
+        )
+    except Exception as exc:
+        logger.debug("provider setup-link presentation failed for %s: %s", exact_url, exc)
+        _print_info(f"  Get yours at: {exact_url}")
+
+
+def _run_provider_setup_flow(setup_flow: str) -> bool:
+    """Run an allowlisted provider-owned credential setup flow."""
+    if setup_flow == "firecrawl":
+        try:
+            from plugins.web.firecrawl.setup import connect_firecrawl
+
+            return bool(connect_firecrawl())
+        except KeyboardInterrupt:
+            _print_warning("    Firecrawl setup cancelled")
+            return False
+        except Exception as exc:
+            logger.warning("Firecrawl setup flow failed: %s", exc)
+            _print_warning(f"    Firecrawl setup failed: {exc}")
+            return False
+
+    logger.warning("Unknown provider setup flow requested: %s", setup_flow)
+    _print_warning(f"    Unknown provider setup flow: {setup_flow}")
+    return False
+
+
+def _collect_provider_env_values(
+    env_vars: list[dict],
+    *,
+    reconfigure: bool,
+) -> Optional[Dict[str, str]]:
+    """Collect a provider's env values without writing partial secrets.
+
+    ``None`` means a required value was cancelled. Existing values and
+    defaulted/optional settings satisfy the transaction without a write.
+    """
+    pending: Dict[str, str] = {}
+    presented_urls: Set[str] = set()
+
+    for var in env_vars:
+        key = var["key"]
+        existing = get_env_value(key)
+
+        if not reconfigure and existing:
+            _print_success(f"  {key}: already configured")
+            continue
+
+        if reconfigure and existing:
+            _print_info(f"  {key}: configured ({existing[:8]}...)")
+
+        _present_provider_url(var.get("url", ""), presented_urls=presented_urls)
+        default_val = var.get("default", "")
+
+        if reconfigure:
+            value = _prompt(
+                f"    {var.get('prompt', key)} (Enter to keep current)",
+                password=not bool(default_val),
+            )
+        elif default_val:
+            value = _prompt(f"    {var.get('prompt', key)}", default_val)
+        else:
+            value = _prompt(f"    {var.get('prompt', key)}", password=True)
+
+        value = str(value or "").strip()
+        if value:
+            pending[key] = value
+            continue
+
+        if reconfigure and (existing or default_val or var.get("optional")):
+            _print_info("    Kept current")
+            continue
+
+        _print_warning("    Cancelled — provider selection was not changed")
+        return None
+
+    return pending
+
+
 def _configure_provider(
     provider: dict,
     config: dict,
     *,
     force_fresh: bool = True,
 ):
-    """Configure a single provider - prompt for API keys and set config."""
+    """Configure a provider and activate it only after requirements succeed."""
     env_vars = provider.get("env_vars", [])
     managed_feature = provider.get("managed_nous_feature")
+    setup_flow = provider.get("setup_flow")
 
     # Nous-managed Tool Gateway backends are always listed (see
     # _visible_providers), but only *activate* once the user has paid Nous
@@ -3522,7 +3749,7 @@ def _configure_provider(
             _print_warning(
                 "  Not enabled — Nous Portal access is required for this backend."
             )
-            return
+            return False
 
     # Pure pre-auth UX rows (requires_nous_auth without a managed gateway
     # feature) keep the old gate. Managed rows are handled by the inline
@@ -3540,34 +3767,23 @@ def _configure_provider(
             _print_warning(
                 f"  {message or 'Nous Subscription is only available after logging into Nous Portal.'}"
             )
-            return
+            return False
 
-    # Set TTS provider in config if applicable
-    if provider.get("tts_provider"):
-        tts_cfg = config.setdefault("tts", {})
-        tts_cfg["provider"] = provider["tts_provider"]
-        tts_cfg["use_gateway"] = bool(managed_feature)
-
-    # Set browser cloud provider in config if applicable
-    if "browser_provider" in provider:
-        bp = provider["browser_provider"]
-        if bp == "local":
-            _print_success("  Browser set to local mode")
-        elif bp:
-            _print_success(f"  Browser cloud provider set to: {bp}")
-
-    # Set web search backend in config if applicable
-    if provider.get("web_backend"):
-        _print_success(f"  Web backend set to: {provider['web_backend']}")
-
-    # Persist the provider/backend config keys + use_gateway flags. Shared
-    # with the GUI provider-select endpoint via apply_provider_selection so
-    # there is a single source of truth for these writes.
-    _write_provider_config(provider, config, managed_feature=managed_feature)
-
-    if not env_vars:
-        if provider.get("post_setup"):
-            _run_post_setup(provider["post_setup"])
+    if not env_vars and not setup_flow:
+        if not _run_provider_post_setup(provider):
+            _print_warning("  Setup did not complete — provider selection was not changed")
+            return False
+        _write_provider_config(provider, config, managed_feature=managed_feature)
+        if "browser_provider" in provider:
+            bp = provider["browser_provider"]
+            if bp == "local":
+                _print_success("  Browser set to local mode")
+            elif bp:
+                _print_success(f"  Browser cloud provider set to: {bp}")
+        if provider.get("web_auto"):
+            _print_success("  Web backend set to automatic resolution")
+        elif provider.get("web_backend"):
+            _print_success(f"  Web backend set to: {provider['web_backend']}")
         _print_success(f"  {provider['name']} - no configuration needed!")
         if managed_feature:
             _print_info("  Requests for this tool will be billed to your Nous subscription.")
@@ -3576,13 +3792,13 @@ def _configure_provider(
         plugin_name = provider.get("image_gen_plugin_name")
         if plugin_name:
             _select_plugin_image_gen_provider(plugin_name, config)
-            return
+            return True
         # Plugin-registered video_gen provider — same flow, different
         # registry.
         video_plugin = provider.get("video_gen_plugin_name")
         if video_plugin:
             _select_plugin_video_gen_provider(video_plugin, config, use_gateway=bool(managed_feature))
-            return
+            return True
         # Imagegen backends prompt for model selection after backend pick.
         backend = provider.get("imagegen_backend")
         if backend:
@@ -3593,10 +3809,8 @@ def _configure_provider(
             img_cfg = config.setdefault("image_gen", {})
             if isinstance(img_cfg, dict) and img_cfg.get("provider") not in {None, "", "fal"}:
                 img_cfg["provider"] = "fal"
-        return
+        return True
 
-    # Prompt for each required env var
-    all_configured = True
     # If this BYOK provider lives in a category that ALSO has a
     # Nous-managed sibling, show a single dim hint so users know
     # they can avoid the key entirely via a Portal subscription.
@@ -3629,51 +3843,64 @@ def _configure_provider(
     if _show_portal_hint:
         _print_info("  Available through Nous Portal subscription.")
 
-    for var in env_vars:
-        existing = get_env_value(var["key"])
-        if existing:
-            _print_success(f"  {var['key']}: already configured")
-            # Don't ask to update - this is a new enable flow.
-            # Reconfigure is handled separately.
-        else:
-            url = var.get("url", "")
-            if url:
-                _print_info(f"  Get yours at: {url}")
+    if setup_flow:
+        already_ready = bool(env_vars) and all(
+            get_env_value(var["key"]) for var in env_vars
+        )
+        if already_ready:
+            for var in env_vars:
+                _print_success(f"  {var['key']}: already configured")
+        elif not _run_provider_setup_flow(setup_flow):
+            _print_warning("  Cancelled — provider selection was not changed")
+            return False
+        pending_values: Dict[str, str] = {}
+    else:
+        pending_values = _collect_provider_env_values(
+            env_vars,
+            reconfigure=False,
+        )
+        if pending_values is None:
+            return False
 
-            default_val = var.get("default", "")
-            if default_val:
-                value = _prompt(f"    {var.get('prompt', var['key'])}", default_val)
-            else:
-                value = _prompt(f"    {var.get('prompt', var['key'])}", password=True)
+    # Commit secrets only after every prompt has completed. Provider selection
+    # is written last so cancellation cannot leave an unusable explicit route.
+    for key, value in pending_values.items():
+        save_env_value(key, value)
+        _print_success(f"    {key} saved")
 
-            if value:
-                save_env_value(var["key"], value)
-                _print_success("    Saved")
-            else:
-                _print_warning("    Skipped")
-                all_configured = False
+    if not _run_provider_post_setup(provider):
+        _print_warning("  Setup did not complete — provider selection was not changed")
+        return False
 
-    # Run post-setup hooks if needed
-    if provider.get("post_setup") and all_configured:
-        _run_post_setup(provider["post_setup"])
+    _write_provider_config(provider, config, managed_feature=managed_feature)
+    if "browser_provider" in provider:
+        bp = provider["browser_provider"]
+        if bp == "local":
+            _print_success("  Browser set to local mode")
+        elif bp:
+            _print_success(f"  Browser cloud provider set to: {bp}")
+    if provider.get("web_auto"):
+        _print_success("  Web backend set to automatic resolution")
+    elif provider.get("web_backend"):
+        _print_success(f"  Web backend set to: {provider['web_backend']}")
 
-    if all_configured:
-        _print_success(f"  {provider['name']} configured!")
-        plugin_name = provider.get("image_gen_plugin_name")
-        if plugin_name:
-            _select_plugin_image_gen_provider(plugin_name, config)
-            return
-        video_plugin = provider.get("video_gen_plugin_name")
-        if video_plugin:
-            _select_plugin_video_gen_provider(video_plugin, config, use_gateway=bool(managed_feature))
-            return
-        # Imagegen backends prompt for model selection after env vars are in.
-        backend = provider.get("imagegen_backend")
-        if backend:
-            _configure_imagegen_model(backend, config)
-            img_cfg = config.setdefault("image_gen", {})
-            if isinstance(img_cfg, dict) and img_cfg.get("provider") not in {None, "", "fal"}:
-                img_cfg["provider"] = "fal"
+    _print_success(f"  {provider['name']} configured!")
+    plugin_name = provider.get("image_gen_plugin_name")
+    if plugin_name:
+        _select_plugin_image_gen_provider(plugin_name, config)
+        return True
+    video_plugin = provider.get("video_gen_plugin_name")
+    if video_plugin:
+        _select_plugin_video_gen_provider(video_plugin, config, use_gateway=bool(managed_feature))
+        return True
+    # Imagegen backends prompt for model selection after env vars are in.
+    backend = provider.get("imagegen_backend")
+    if backend:
+        _configure_imagegen_model(backend, config)
+        img_cfg = config.setdefault("image_gen", {})
+        if isinstance(img_cfg, dict) and img_cfg.get("provider") not in {None, "", "fal"}:
+            img_cfg["provider"] = "fal"
+    return True
 
 
 def _configure_vision_backend() -> None:
@@ -3886,7 +4113,7 @@ def _reconfigure_tool(
     cat = TOOL_CATEGORIES.get(ts_key)
 
     if cat:
-        _configure_tool_category_for_reconfig(
+        completed = _configure_tool_category_for_reconfig(
             ts_key,
             cat,
             config,
@@ -3894,8 +4121,12 @@ def _reconfigure_tool(
         )
     else:
         _reconfigure_simple_requirements(ts_key)
+        completed = True
 
+    if completed is False:
+        return False
     save_config(config)
+    return True
 
 
 def _toolset_enabled_for_reconfigure(ts_key: str, config: dict) -> bool:
@@ -3945,7 +4176,7 @@ def _configure_tool_category_for_reconfig(
         if hidden_nous_message:
             for line in hidden_nous_message.splitlines():
                 _print_warning(f"  {line}")
-        _reconfigure_provider(provider, config, force_fresh=force_fresh)
+        return _reconfigure_provider(provider, config, force_fresh=force_fresh)
     else:
         print()
         print(color(f"  --- {icon} {name} - Choose a provider ---", Colors.CYAN))
@@ -3976,7 +4207,7 @@ def _configure_tool_category_for_reconfig(
         )
 
         provider_idx = _prompt_choice("  Select provider:", provider_choices, default_idx)
-        _reconfigure_provider(
+        return _reconfigure_provider(
             providers[provider_idx],
             config,
             force_fresh=force_fresh,
@@ -3989,9 +4220,10 @@ def _reconfigure_provider(
     *,
     force_fresh: bool = True,
 ):
-    """Reconfigure a provider - update API keys."""
+    """Reconfigure a provider without activating partial credentials."""
     env_vars = provider.get("env_vars", [])
     managed_feature = provider.get("managed_nous_feature")
+    setup_flow = provider.get("setup_flow")
 
     # Same inline Nous Portal login + entitlement gate as _configure_provider:
     # managed Tool Gateway backends only activate with paid Portal access.
@@ -4008,7 +4240,7 @@ def _reconfigure_provider(
             _print_warning(
                 "  Not enabled — Nous Portal access is required for this backend."
             )
-            return
+            return False
 
     # Pure pre-auth UX rows keep the old gate; managed rows already handled
     # by the inline login above.
@@ -4025,61 +4257,37 @@ def _reconfigure_provider(
             _print_warning(
                 f"  {message or 'Nous Subscription is only available after logging into Nous Portal.'}"
             )
-            return
+            return False
 
-    if provider.get("tts_provider"):
-        tts_cfg = config.setdefault("tts", {})
-        tts_cfg["provider"] = provider["tts_provider"]
-        tts_cfg["use_gateway"] = bool(managed_feature)
-        _print_success(f"  TTS provider set to: {provider['tts_provider']}")
-
-    if "browser_provider" in provider:
-        bp = provider["browser_provider"]
-        browser_cfg = config.setdefault("browser", {})
-        if bp == "local":
-            browser_cfg["cloud_provider"] = "local"
-            _print_success("  Browser set to local mode")
-        elif bp:
-            browser_cfg["cloud_provider"] = bp
-            _print_success(f"  Browser cloud provider set to: {bp}")
-        browser_cfg["use_gateway"] = bool(managed_feature)
-
-    # Set web search backend in config if applicable
-    if provider.get("web_backend"):
-        web_cfg = config.setdefault("web", {})
-        web_cfg["backend"] = provider["web_backend"]
-        web_cfg["use_gateway"] = bool(managed_feature)
-        _print_success(f"  Web backend set to: {provider['web_backend']}")
-
-    if managed_feature and managed_feature not in {"web", "tts", "browser"}:
-        section = config.setdefault(managed_feature, {})
-        if not isinstance(section, dict):
-            section = {}
-            config[managed_feature] = section
-        section["use_gateway"] = True
-    elif not managed_feature:
-        for cat_key, cat in TOOL_CATEGORIES.items():
-            if provider in cat.get("providers", []):
-                section = config.get(cat_key)
-                if isinstance(section, dict) and section.get("use_gateway"):
-                    section["use_gateway"] = False
-                break
-
-    if not env_vars:
-        if provider.get("post_setup"):
-            _run_post_setup(provider["post_setup"])
+    if not env_vars and not setup_flow:
+        if not _run_provider_post_setup(provider):
+            _print_warning("  Setup did not complete — provider selection was not changed")
+            return False
+        _write_provider_config(provider, config, managed_feature=managed_feature)
+        if provider.get("tts_provider"):
+            _print_success(f"  TTS provider set to: {provider['tts_provider']}")
+        if "browser_provider" in provider:
+            bp = provider["browser_provider"]
+            if bp == "local":
+                _print_success("  Browser set to local mode")
+            elif bp:
+                _print_success(f"  Browser cloud provider set to: {bp}")
+        if provider.get("web_auto"):
+            _print_success("  Web backend set to automatic resolution")
+        elif provider.get("web_backend"):
+            _print_success(f"  Web backend set to: {provider['web_backend']}")
         _print_success(f"  {provider['name']} - no configuration needed!")
         if managed_feature:
             _print_info("  Requests for this tool will be billed to your Nous subscription.")
         plugin_name = provider.get("image_gen_plugin_name")
         if plugin_name:
             _select_plugin_image_gen_provider(plugin_name, config)
-            return
+            return True
         # Plugin-registered video_gen provider — same flow, different registry.
         video_plugin = provider.get("video_gen_plugin_name")
         if video_plugin:
             _select_plugin_video_gen_provider(video_plugin, config, use_gateway=bool(managed_feature))
-            return
+            return True
         # Imagegen backends prompt for model selection on reconfig too.
         backend = provider.get("imagegen_backend")
         if backend:
@@ -4089,37 +4297,60 @@ def _reconfigure_provider(
                 if isinstance(img_cfg, dict):
                     img_cfg["provider"] = "fal"
                     img_cfg["use_gateway"] = False
-        return
+        return True
 
-    for var in env_vars:
-        existing = get_env_value(var["key"])
-        if existing:
-            _print_info(f"  {var['key']}: configured ({existing[:8]}...)")
-        url = var.get("url", "")
-        if url:
-            _print_info(f"  Get yours at: {url}")
-        default_val = var.get("default", "")
-        value = _prompt(f"    {var.get('prompt', var['key'])} (Enter to keep current)", password=not default_val)
-        if value and value.strip():
-            save_env_value(var["key"], value.strip())
-            _print_success("    Updated")
-        else:
-            _print_info("    Kept current")
+    if setup_flow:
+        already_ready = bool(env_vars) and all(
+            get_env_value(var["key"]) for var in env_vars
+        )
+        if already_ready:
+            for var in env_vars:
+                _print_info(f"  {var['key']}: keeping existing credential")
+        elif not _run_provider_setup_flow(setup_flow):
+            _print_warning("  Cancelled — provider selection was not changed")
+            return False
+        pending_values: Dict[str, str] = {}
+    else:
+        pending_values = _collect_provider_env_values(
+            env_vars,
+            reconfigure=True,
+        )
+        if pending_values is None:
+            return False
 
-    if provider.get("post_setup"):
-        _run_post_setup(provider["post_setup"])
+    for key, value in pending_values.items():
+        save_env_value(key, value)
+        _print_success(f"    {key} updated")
+
+    if not _run_provider_post_setup(provider):
+        _print_warning("  Setup did not complete — provider selection was not changed")
+        return False
+
+    _write_provider_config(provider, config, managed_feature=managed_feature)
+    if provider.get("tts_provider"):
+        _print_success(f"  TTS provider set to: {provider['tts_provider']}")
+    if "browser_provider" in provider:
+        bp = provider["browser_provider"]
+        if bp == "local":
+            _print_success("  Browser set to local mode")
+        elif bp:
+            _print_success(f"  Browser cloud provider set to: {bp}")
+    if provider.get("web_auto"):
+        _print_success("  Web backend set to automatic resolution")
+    elif provider.get("web_backend"):
+        _print_success(f"  Web backend set to: {provider['web_backend']}")
 
     # Imagegen backends prompt for model selection on reconfig too.
     plugin_name = provider.get("image_gen_plugin_name")
     if plugin_name:
         _select_plugin_image_gen_provider(plugin_name, config)
-        return
+        return True
 
     # Plugin-registered video_gen provider — same flow, different registry.
     video_plugin = provider.get("video_gen_plugin_name")
     if video_plugin:
         _select_plugin_video_gen_provider(video_plugin, config, use_gateway=bool(managed_feature))
-        return
+        return True
 
     backend = provider.get("imagegen_backend")
     if backend:
@@ -4129,6 +4360,7 @@ def _reconfigure_provider(
             if isinstance(img_cfg, dict):
                 img_cfg["provider"] = "fal"
                 img_cfg["use_gateway"] = False
+    return True
 
 
 def _reconfigure_simple_requirements(ts_key: str):

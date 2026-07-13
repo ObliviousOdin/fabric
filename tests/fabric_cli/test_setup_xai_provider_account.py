@@ -222,6 +222,34 @@ def test_tts_xai_choice_routes_through_shared_account_login(
     assert config["tts"]["provider"] == "xai"
 
 
+def test_standalone_tts_setup_uses_canonical_tools_catalog(monkeypatch):
+    from fabric_cli import setup, tools_config
+
+    calls = []
+    config = {"tts": {"provider": "edge"}}
+    monkeypatch.setattr(
+        tools_config,
+        "_configure_tool_category_for_reconfig",
+        lambda key, category, received: calls.append((key, category, received)),
+    )
+
+    setup.setup_tts(config)
+
+    assert calls == [("tts", tools_config.TOOL_CATEGORIES["tts"], config)]
+
+
+def test_standalone_tts_setup_propagates_cancelled_provider(monkeypatch):
+    from fabric_cli import setup, tools_config
+
+    monkeypatch.setattr(
+        tools_config,
+        "_configure_tool_category_for_reconfig",
+        lambda *_args, **_kwargs: False,
+    )
+
+    assert setup.setup_tts({"tts": {"provider": "edge"}}) is False
+
+
 def test_tools_config_xai_post_setup_routes_through_shared_account_login(
     monkeypatch,
 ):

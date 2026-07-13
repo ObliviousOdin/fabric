@@ -1265,8 +1265,24 @@ def _setup_tts_provider(config: dict):
 
 
 def setup_tts(config: dict):
-    """Standalone TTS setup (for 'fabric setup tts')."""
-    _setup_tts_provider(config)
+    """Standalone TTS setup using the canonical tools provider catalog.
+
+    ``fabric tools`` is the source of truth for provider rows and setup hooks;
+    routing the section command through that same catalog prevents local
+    providers such as Piper from disappearing from one of the two pickers.
+    ``_setup_tts_provider`` remains temporarily as a compatibility entry point
+    for callers importing the old private helper.
+    """
+    from fabric_cli.tools_config import (
+        TOOL_CATEGORIES,
+        _configure_tool_category_for_reconfig,
+    )
+
+    return _configure_tool_category_for_reconfig(
+        "tts",
+        TOOL_CATEGORIES["tts"],
+        config,
+    )
 
 
 # =============================================================================
@@ -2697,12 +2713,21 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
 # Main Wizard Orchestrator
 # =============================================================================
 
+
+def _setup_tailscale_section(config: dict) -> bool:
+    """Run optional Tailscale enrollment without adding import-time weight."""
+    from fabric_cli.tailscale_setup import setup_tailscale
+
+    return setup_tailscale(config)
+
+
 SETUP_SECTIONS = [
     ("model", "Model & Provider", setup_model_provider),
     ("tts", "Text-to-Speech", setup_tts),
     ("terminal", "Terminal Backend", setup_terminal_backend),
     ("gateway", "Messaging Platforms (Gateway)", setup_gateway),
     ("tools", "Tools", setup_tools),
+    ("tailscale", "Tailscale Private Access", _setup_tailscale_section),
     ("agent", "Agent Settings", setup_agent_settings),
 ]
 
@@ -2801,6 +2826,7 @@ def run_setup_wizard(args):
       fabric setup terminal  — just terminal backend
       fabric setup gateway   — just messaging platforms
       fabric setup tools     — just tool configuration
+      fabric setup tailscale — connect this machine with Tailscale's QR login
       fabric setup agent     — just agent settings
     """
     from fabric_cli.config import is_managed, managed_error
@@ -2876,7 +2902,11 @@ def run_setup_wizard(args):
                         Colors.MAGENTA,
                     )
                 )
-                func(config)
+                section_result = func(config)
+                if section_result is False:
+                    print()
+                    print_info(f"{label} setup was not completed.")
+                    return
                 save_config(config)
                 print()
                 print_success(f"{label} configuration complete!")
@@ -2950,8 +2980,8 @@ def run_setup_wizard(args):
         print_info("Running the full wizard — each prompt shows your current value.")
         print_info("Press Enter to keep it, or type a new value to change it.")
         print_info("")
-        print_info("Tip: jump straight to a section with 'fabric setup model|terminal|")
-        print_info("     gateway|tools|agent', or fill only missing items with --quick.")
+        print_info("Tip: jump straight to a section with 'fabric setup model|tts|terminal|")
+        print_info("     gateway|tools|tailscale|agent', or fill only missing items with --quick.")
         # Fall through to the "Full Setup — run all sections" block below.
         # --reconfigure is now the default on existing installs; the flag
         # is preserved for backwards compatibility but is a no-op here.
@@ -3034,6 +3064,19 @@ def run_setup_wizard(args):
     # Section 5: Tools
     if not (migration_ran and _skip_configured_section(config, "tools", "Tools")):
         setup_tools(config, first_install=not is_existing)
+
+    # Optional private remote access belongs to the first-run edge of setup,
+    # not Fabric's persistent config. Tailscale owns the node credential and
+    # network policy; Fabric only delegates to its official QR login when the
+    # user explicitly opts in. Existing installs can run the same idempotent
+    # flow at any time with `fabric setup tailscale`.
+    if not is_existing:
+        print()
+        print_header("Private Remote Access (optional)")
+        print_info("Tailscale can connect this machine to your private tailnet.")
+        print_info("Fabric will not enable SSH, routes, exit nodes, Serve, or Funnel.")
+        if prompt_yes_no("Connect this machine with Tailscale now?", False):
+            _setup_tailscale_section(config)
 
     # Save and show summary
     save_config(config)

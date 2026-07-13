@@ -843,10 +843,10 @@ export default function SessionsPage() {
 
             <FilterGroup
               label={L?.sourceFilterLabel ?? "source"}
-              className="min-w-0"
+              className="flex min-w-0 w-full flex-col items-start gap-1.5 sm:w-auto sm:max-w-full sm:flex-row sm:items-center"
             >
               <Segmented
-                className="w-fit shrink-0"
+                className="w-fit max-w-full flex-wrap justify-start self-start"
                 size="sm"
                 value={sourceFilter}
                 onChange={updateSourceFilter}

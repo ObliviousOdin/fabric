@@ -9157,10 +9157,12 @@ def test_session_save_writes_under_hermes_home_with_system_prompt(monkeypatch, t
     saved_file = Path(resp["result"]["file"])
 
     # Must NOT leak into the workspace/project CWD.
+    assert not list(work.glob("fabric_conversation_*.json"))
     assert not list(work.glob("hermes_conversation_*.json"))
 
     saved_dir = home / "sessions" / "saved"
     assert saved_file.parent == saved_dir
+    assert saved_file.name.startswith("fabric_conversation_")
     assert saved_file.exists()
 
     payload = json.loads(saved_file.read_text())

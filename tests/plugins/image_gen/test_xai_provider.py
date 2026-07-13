@@ -427,6 +427,7 @@ class TestGenerate:
         payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
         assert payload["storage_options"]["public_url"] is True
         assert "expires_after" not in payload["storage_options"]
+        assert payload["storage_options"]["filename"].startswith("fabric-xai-image-")
         assert payload["storage_options"]["filename"].endswith(".png")
 
     def test_public_url_file_output_wins_over_temporary_url(self):

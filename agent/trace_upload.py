@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DATASET_NAME = "hermes-traces"
+DEFAULT_DATASET_NAME = "fabric-traces"
 _HERMES_VERSION = "fabric-agent"
 _REDACTION_BLOCKED_MESSAGE = (
     "Trace upload blocked: secret redaction failed, so the transcript may "
@@ -356,7 +356,7 @@ def upload_session_trace(
     """Top-level entry point used by the CLI/gateway/subcommand.
 
     Loads the session, converts it to Claude Code JSONL, and uploads it to
-    the user's private ``{user}/hermes-traces`` dataset. Returns a
+    the user's private ``{user}/fabric-traces`` dataset. Returns a
     user-facing status string and never raises.
     """
     if not session_id:

@@ -2240,7 +2240,7 @@ class TestWebServerEndpoints:
         assert captured["name"] == "backup"
         assert captured["args"] == ["backup", str(archive)]
         assert archive.parent == get_fabric_home() / "backups"
-        assert archive.name.startswith("hermes-backup-")
+        assert archive.name.startswith("fabric-backup-")
         assert archive.suffix == ".zip"
 
     def test_ops_backup_uses_hosted_hermes_home(self, tmp_path, monkeypatch):

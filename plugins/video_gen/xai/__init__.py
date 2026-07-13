@@ -799,7 +799,7 @@ async def _submit_xai_video_payload(
 
         storage_options = build_xai_storage_options(
             "video_gen",
-            filename_prefix="hermes-xai-video",
+            filename_prefix="fabric-xai-video",
             extension="mp4",
         )
         storage_notice = maybe_mark_xai_storage_notice_seen("video_gen")

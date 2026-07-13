@@ -626,7 +626,12 @@ def _login_personal_provider_scoped(
 
     try:
         if provider_id == "openai-codex":
-            credentials = auth_mod._codex_device_code_login()
+            if no_browser:
+                credentials = auth_mod._codex_device_code_login(
+                    open_browser=False,
+                )
+            else:
+                credentials = auth_mod._codex_device_code_login()
             pool = _load_local_credential_pool(provider_id)
             writer, written = _codex_credential_writer(
                 pool=pool,

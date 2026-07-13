@@ -159,8 +159,31 @@ def _import_piper():
     wheels (Linux / macOS / Windows, x86_64 + ARM64) with embedded espeak-ng.
     Voice models (.onnx + .onnx.json) are downloaded on first use.
     """
+    try:
+        from tools.lazy_deps import FeatureUnavailable, ensure
+
+        ensure("tts.piper", prompt=False)
+    except FeatureUnavailable as exc:
+        raise ImportError(str(exc)) from exc
+
     from piper import PiperVoice
     return PiperVoice
+
+
+def piper_cuda_available() -> bool:
+    """Return whether the installed ONNX Runtime can execute Piper on CUDA.
+
+    A physical GPU or CUDA driver alone is not sufficient: Piper's
+    ``use_cuda=True`` path requires an ONNX Runtime build that advertises the
+    ``CUDAExecutionProvider``.  Setup uses this probe instead of installing or
+    replacing an ONNX Runtime package behind the user's back.
+    """
+    try:
+        import onnxruntime
+
+        return "CUDAExecutionProvider" in onnxruntime.get_available_providers()
+    except Exception:
+        return False
 
 
 # ===========================================================================
@@ -2349,7 +2372,7 @@ def text_to_speech_tool(
                     "success": False,
                     "error": "Piper provider selected but 'piper-tts' package not installed. "
                              "Run 'fabric tools' and select Piper under TTS, or install manually: "
-                             "pip install piper-tts",
+                             "pip install piper-tts==1.4.2",
                 }, ensure_ascii=False)
             logger.info("Generating speech with Piper (local)...")
             _generate_piper_tts(text, file_str, tts_config)

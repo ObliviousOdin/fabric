@@ -1196,6 +1196,118 @@ def test_fresh_install_tts_default_is_free_edge_not_paid_nous():
     assert _detect_active_provider_index(providers, {}) == 0
 
 
+def test_canonical_tts_catalog_includes_all_supported_setup_paths():
+    providers = {
+        row.get("tts_provider")
+        for row in TOOL_CATEGORIES["tts"]["providers"]
+    }
+
+    assert {
+        "edge",
+        "elevenlabs",
+        "openai",
+        "xai",
+        "minimax",
+        "mistral",
+        "gemini",
+        "neutts",
+        "kittentts",
+        "piper",
+    } <= providers
+
+
+def test_configure_piper_enables_cuda_only_after_successful_setup(monkeypatch):
+    provider = next(
+        row
+        for row in TOOL_CATEGORIES["tts"]["providers"]
+        if row.get("tts_provider") == "piper"
+    )
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._run_post_setup",
+        lambda key: key == "piper",
+    )
+    monkeypatch.setattr(
+        "tools.tts_tool.piper_cuda_available",
+        lambda: True,
+    )
+    config = {"tts": {"provider": "edge"}}
+
+    assert _configure_provider(provider, config) is True
+    assert config["tts"]["provider"] == "piper"
+    assert config["tts"]["piper"]["use_cuda"] is True
+
+
+def test_failed_piper_setup_does_not_change_provider(monkeypatch):
+    provider = next(
+        row
+        for row in TOOL_CATEGORIES["tts"]["providers"]
+        if row.get("tts_provider") == "piper"
+    )
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._run_post_setup",
+        lambda _key: False,
+    )
+    config = {"tts": {"provider": "edge"}}
+
+    assert _configure_provider(provider, config) is False
+    assert config == {"tts": {"provider": "edge"}}
+
+
+def test_piper_setup_installs_reviewed_exact_version(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+    install_args = []
+
+    def missing_piper(name, *args, **kwargs):
+        if name == "piper":
+            raise ImportError("not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", missing_piper)
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._pip_install",
+        lambda args, **kwargs: install_args.append(args)
+        or SimpleNamespace(returncode=0, stderr=""),
+    )
+
+    assert _run_post_setup("piper") is True
+    assert install_args == [["-U", "piper-tts==1.4.2", "--quiet"]]
+
+
+def test_post_setup_command_returns_failure_when_required_hook_fails(monkeypatch):
+    from fabric_cli.tools_config import run_post_setup_command
+
+    monkeypatch.setattr(
+        "fabric_cli.tools_config.valid_post_setup_keys",
+        lambda: {"piper"},
+    )
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._run_post_setup",
+        lambda _key: False,
+    )
+
+    assert run_post_setup_command(SimpleNamespace(post_setup_key="piper")) == 1
+
+
+def test_fresh_install_web_default_is_automatic_not_self_hosted():
+    """Pressing Enter on fresh Web setup must keep automatic resolution."""
+    from fabric_cli.tools_config import _detect_active_provider_index
+
+    providers = _visible_providers(TOOL_CATEGORIES["web"], {}, force_fresh=True)
+    assert providers[0]["name"] == "Automatic (recommended)"
+    assert providers[0]["web_auto"] is True
+    assert _detect_active_provider_index(providers, {}) == 0
+    firecrawl = next(row for row in providers if row["name"] == "Firecrawl")
+    assert firecrawl["setup_flow"] == "firecrawl"
+
+
+def test_web_automatic_mode_does_not_require_configuration_prompt():
+    """An omitted backend is a stable automatic mode, not partial setup."""
+    assert _toolset_needs_configuration_prompt("web", {"web": {}}) is False
+    assert _toolset_needs_configuration_prompt("web", {}) is False
+
+
 def test_reconfigure_lists_enabled_web_without_existing_provider_config(monkeypatch):
     config = {"platform_toolsets": {"cli": ["web"]}}
     seen = {}
@@ -1946,6 +2058,151 @@ def test_apply_provider_selection_web_sets_backend():
 
     assert config["web"]["backend"] == "firecrawl"
     assert config["web"]["use_gateway"] is False
+
+
+def test_apply_provider_selection_web_automatic_clears_routing_pins():
+    """The GUI-safe selection helper shares Automatic's clear semantics."""
+    from fabric_cli.tools_config import apply_provider_selection
+
+    config = {
+        "web": {
+            "backend": "firecrawl",
+            "search_backend": "exa",
+            "extract_backend": "tavily",
+            "use_gateway": True,
+            "timeout": 45,
+        }
+    }
+
+    apply_provider_selection("web", "Automatic (recommended)", config)
+
+    assert config == {"web": {"timeout": 45}}
+
+
+def test_configure_keyed_provider_cancel_is_non_mutating(monkeypatch):
+    """A missing required key cannot activate a newly selected backend."""
+    config = {"web": {"backend": "ddgs", "use_gateway": False}}
+    provider = {
+        "name": "Example",
+        "web_backend": "example",
+        "env_vars": [
+            {"key": "EXAMPLE_API_KEY", "prompt": "Example API key"},
+            {"key": "EXAMPLE_SECOND_KEY", "prompt": "Second key"},
+        ],
+    }
+    answers = iter(["first-value", ""])
+    monkeypatch.setattr("fabric_cli.tools_config.get_env_value", lambda key: None)
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._prompt",
+        lambda *args, **kwargs: next(answers),
+    )
+    monkeypatch.setattr(
+        "fabric_cli.tools_config.save_env_value",
+        lambda *args, **kwargs: pytest.fail("partial secrets must not be saved"),
+    )
+
+    assert _configure_provider(provider, config) is False
+    assert config == {"web": {"backend": "ddgs", "use_gateway": False}}
+
+
+def test_reconfigure_keyed_provider_cancel_is_non_mutating(monkeypatch):
+    config = {"web": {"backend": "ddgs", "use_gateway": False}}
+    provider = {
+        "name": "Example",
+        "web_backend": "example",
+        "env_vars": [{"key": "EXAMPLE_API_KEY", "prompt": "Example API key"}],
+    }
+    monkeypatch.setattr("fabric_cli.tools_config.get_env_value", lambda key: None)
+    monkeypatch.setattr("fabric_cli.tools_config._prompt", lambda *args, **kwargs: "")
+    monkeypatch.setattr(
+        "fabric_cli.tools_config.save_env_value",
+        lambda *args, **kwargs: pytest.fail("cancelled secret must not be saved"),
+    )
+
+    assert _reconfigure_provider(provider, config) is False
+    assert config == {"web": {"backend": "ddgs", "use_gateway": False}}
+
+
+def test_firecrawl_setup_flow_activates_only_after_success(monkeypatch):
+    provider = {
+        "name": "Firecrawl",
+        "web_backend": "firecrawl",
+        "env_vars": [{"key": "FIRECRAWL_API_KEY", "prompt": "Firecrawl key"}],
+        "setup_flow": "firecrawl",
+    }
+    monkeypatch.setattr("fabric_cli.tools_config.get_env_value", lambda key: None)
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._run_provider_setup_flow",
+        lambda flow: flow == "firecrawl",
+    )
+    config = {"web": {"backend": "ddgs", "use_gateway": False}}
+
+    assert _configure_provider(provider, config) is True
+    assert config["web"] == {"backend": "firecrawl", "use_gateway": False}
+
+
+def test_firecrawl_setup_flow_failure_preserves_backend(monkeypatch):
+    provider = {
+        "name": "Firecrawl",
+        "web_backend": "firecrawl",
+        "env_vars": [{"key": "FIRECRAWL_API_KEY", "prompt": "Firecrawl key"}],
+        "setup_flow": "firecrawl",
+    }
+    monkeypatch.setattr("fabric_cli.tools_config.get_env_value", lambda key: None)
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._run_provider_setup_flow",
+        lambda flow: False,
+    )
+    config = {"web": {"backend": "ddgs", "use_gateway": False}}
+
+    assert _configure_provider(provider, config) is False
+    assert config == {"web": {"backend": "ddgs", "use_gateway": False}}
+
+
+def test_firecrawl_reconfigure_keeps_existing_key_without_login(monkeypatch):
+    provider = {
+        "name": "Firecrawl",
+        "web_backend": "firecrawl",
+        "env_vars": [{"key": "FIRECRAWL_API_KEY", "prompt": "Firecrawl key"}],
+        "setup_flow": "firecrawl",
+    }
+    monkeypatch.setattr(
+        "fabric_cli.tools_config.get_env_value",
+        lambda key: "fc-existing" if key == "FIRECRAWL_API_KEY" else None,
+    )
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._run_provider_setup_flow",
+        lambda flow: pytest.fail("existing Firecrawl key must be reused"),
+    )
+    config = {"web": {"backend": "ddgs", "use_gateway": False}}
+
+    assert _reconfigure_provider(provider, config) is True
+    assert config["web"] == {"backend": "firecrawl", "use_gateway": False}
+
+
+def test_provider_urls_use_shared_link_presenter_without_opening_browser(
+    monkeypatch,
+):
+    """Every provider URL gets the QR/link path, deduped per transaction."""
+    import sys
+    from types import ModuleType
+    from fabric_cli import tools_config
+
+    calls = []
+    fake_module = ModuleType("fabric_cli.setup_links")
+    fake_module.present_setup_link = lambda url, **kwargs: calls.append((url, kwargs))
+    monkeypatch.setitem(sys.modules, "fabric_cli.setup_links", fake_module)
+    seen = set()
+
+    tools_config._present_provider_url("https://example.com/key", presented_urls=seen)
+    tools_config._present_provider_url("https://example.com/key", presented_urls=seen)
+
+    assert calls == [
+        (
+            "https://example.com/key",
+            {"label": "Get your credential", "open_browser": False},
+        )
+    ]
 
 
 def test_apply_provider_selection_tts_sets_provider():

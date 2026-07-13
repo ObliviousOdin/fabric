@@ -1,10 +1,16 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $desktopOnboarding, type OnboardingContext, type OnboardingFlow } from '@/store/onboarding'
 import type { OAuthProvider } from '@/types/hermes'
 
 import { FlowPanel } from './flow'
+
+const qrToDataURL = vi.hoisted(() => vi.fn())
+
+vi.mock('qrcode', () => ({
+  toDataURL: qrToDataURL
+}))
 
 const ctx: OnboardingContext = { requestGateway: async () => undefined as never }
 
@@ -22,6 +28,11 @@ function provider(id: string, name: string): OAuthProvider {
 function renderFlow(flow: OnboardingFlow) {
   render(<FlowPanel ctx={ctx} flow={flow} leaving={false} onBegin={vi.fn()} />)
 }
+
+beforeEach(() => {
+  qrToDataURL.mockReset()
+  qrToDataURL.mockResolvedValue('data:image/png;base64,desktop-verification-qr')
+})
 
 afterEach(() => {
   cleanup()
@@ -68,6 +79,62 @@ describe('desktop onboarding account routing', () => {
     })
 
     expect(screen.getByText(/Never forward this device code by email or chat/)).toBeTruthy()
+  })
+
+  it('renders the exact device verification URL as a QR code', async () => {
+    const verificationUrl = 'https://accounts.x.ai/device?user_code=GROK-1234#continue'
+    renderFlow({
+      status: 'polling',
+      profile: 'default',
+      provider: provider('xai-oauth', 'xAI Grok'),
+      copied: false,
+      start: {
+        expires_in: 900,
+        flow: 'device_code',
+        poll_interval: 5,
+        session_id: 'desktop-qr-session',
+        user_code: 'GROK-1234',
+        verification_url: verificationUrl
+      }
+    })
+
+    const qr = await screen.findByRole('img', {
+      name: 'Scan QR code to open Grok subscription (xAI) verification'
+    })
+
+    expect(qrToDataURL).toHaveBeenCalledWith(verificationUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 208
+    })
+    expect(qr.getAttribute('src')).toBe('data:image/png;base64,desktop-verification-qr')
+    expect(screen.getByRole('link', { name: /Re-open verification page/ }).getAttribute('href')).toBe(verificationUrl)
+    expect(screen.getByText('G')).toBeTruthy()
+  })
+
+  it('keeps the code and plain link when QR generation fails', async () => {
+    const verificationUrl = 'https://auth.openai.com/codex/device'
+    qrToDataURL.mockRejectedValueOnce(new Error('QR unavailable'))
+    renderFlow({
+      status: 'polling',
+      profile: 'default',
+      provider: provider('openai-codex', 'OpenAI Codex'),
+      copied: false,
+      start: {
+        expires_in: 900,
+        flow: 'device_code',
+        poll_interval: 5,
+        session_id: 'desktop-qr-fallback',
+        user_code: 'OPEN-AI1',
+        verification_url: verificationUrl
+      }
+    })
+
+    await waitFor(() => expect(qrToDataURL).toHaveBeenCalledWith(verificationUrl, expect.any(Object)))
+
+    expect(screen.queryByRole('img', { name: /Scan QR code/ })).toBeNull()
+    expect(screen.getByRole('link', { name: /Re-open verification page/ }).getAttribute('href')).toBe(verificationUrl)
+    expect(screen.getByText('O')).toBeTruthy()
   })
 
   it('requires an explicit choice when a local endpoint advertises multiple models', () => {

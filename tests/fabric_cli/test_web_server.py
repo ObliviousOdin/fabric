@@ -4607,6 +4607,26 @@ class TestNewEndpoints:
         cfg = load_config()
         assert cfg["web"]["backend"] == "firecrawl"
 
+    def test_select_automatic_web_provider_clears_backend_pin(self):
+        """Dashboard provider selection can return Web to automatic mode."""
+        first = self.client.put(
+            "/api/tools/toolsets/web/provider",
+            json={"provider": "Firecrawl Self-Hosted"},
+        )
+        assert first.status_code == 200
+
+        automatic = self.client.put(
+            "/api/tools/toolsets/web/provider",
+            json={"provider": "Automatic (recommended)"},
+        )
+        assert automatic.status_code == 200
+
+        from fabric_cli.config import load_config
+
+        assert not load_config()["web"]["backend"]
+        refreshed = self.client.get("/api/tools/toolsets/web/config").json()
+        assert refreshed["active_provider"] == "Automatic (recommended)"
+
     def test_select_toolset_provider_unknown_provider_returns_400(self):
         resp = self.client.put(
             "/api/tools/toolsets/web/provider",

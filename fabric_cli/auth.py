@@ -61,6 +61,7 @@ from fabric_cli.config import (
     read_raw_config,
     require_readable_config_before_write,
 )
+from fabric_cli.setup_links import present_setup_link
 from fabric_constants import OPENROUTER_BASE_URL, secure_parent_dir
 from agent.credential_persistence import sanitize_borrowed_credential_payload
 from utils import atomic_replace, atomic_yaml_write, env_float, is_truthy_value
@@ -7125,7 +7126,7 @@ def _login_openai_codex(
 ) -> None:
     """OpenAI Codex login via device code flow. Tokens stored in ~/.fabric/auth.json."""
 
-    del args, pconfig  # kept for parity with other provider login helpers
+    del pconfig  # kept for parity with other provider login helpers
 
     # Check for existing Hermes-owned credentials
     if not force_new_login:
@@ -7179,7 +7180,10 @@ def _login_openai_codex(
     print("(Fabric creates its own session — won't affect Codex CLI or VS Code)")
     print()
 
-    creds = _codex_device_code_login()
+    if getattr(args, "no_browser", False):
+        creds = _codex_device_code_login(open_browser=False)
+    else:
+        creds = _codex_device_code_login()
 
     # Save tokens to Hermes auth store
     _save_codex_tokens(creds["tokens"], creds.get("last_refresh"))
@@ -7559,16 +7563,21 @@ def _xai_oauth_device_code_login(
         user_code = device_data["user_code"]
         interval = device_data["interval"]
 
+        should_open_browser = (
+            open_browser
+            and not _is_remote_session()
+            and _can_open_graphical_browser()
+        )
         print()
         print("To continue:")
-        print(f"  1. Open: {verification_url}")
-        print(f"  2. If prompted, enter code: {user_code}")
-        if open_browser and not _is_remote_session() and _can_open_graphical_browser():
-            try:
-                opened = webbrowser.open(verification_url)
-            except Exception:
-                opened = False
-            if opened:
+        presentation = present_setup_link(
+            verification_url,
+            label="Scan with your phone or open this link",
+            open_browser=should_open_browser,
+        )
+        print(f"  If prompted, enter code: {user_code}")
+        if should_open_browser:
+            if presentation.browser_opened:
                 print("  (Opened browser for verification)")
             else:
                 print("  Could not open browser automatically -- use the URL above.")
@@ -7611,7 +7620,7 @@ def _xai_oauth_device_code_login(
     }
 
 
-def _codex_device_code_login() -> Dict[str, Any]:
+def _codex_device_code_login(*, open_browser: bool = True) -> Dict[str, Any]:
     """Run the OpenAI device code login flow and return credentials dict."""
     import time as _time
 
@@ -7688,11 +7697,25 @@ def _codex_device_code_login() -> Dict[str, Any]:
         )
 
     # Step 2: Show user the code
+    verification_url = f"{issuer}/codex/device"
+    should_open_browser = (
+        open_browser
+        and not _is_remote_session()
+        and _can_open_graphical_browser()
+    )
     print("To continue, follow these steps:\n")
-    print("  1. Open this URL in your browser:")
-    print(f"     \033[94m{issuer}/codex/device\033[0m\n")
-    print("  2. Enter this code:")
+    presentation = present_setup_link(
+        verification_url,
+        label="Scan with your phone or open this link",
+        open_browser=should_open_browser,
+    )
+    print("  If prompted, enter this code:")
     print(f"     \033[94m{user_code}\033[0m\n")
+    if should_open_browser:
+        if presentation.browser_opened:
+            print("  (Opened browser for verification)")
+        else:
+            print("  Could not open browser automatically -- use the URL above.")
     print("Waiting for sign-in... (press Ctrl+C to cancel)")
 
     # Step 3: Poll for authorization code

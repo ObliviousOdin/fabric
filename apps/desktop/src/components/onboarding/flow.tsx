@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import * as QRCode from 'qrcode'
+import { useEffect, useState } from 'react'
 
 import { ModelPickerDialog } from '@/components/model-picker'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -195,6 +196,7 @@ export function FlowPanel({
 
   return (
     <Step title={t.onboarding.signInWith(title)}>
+      <VerificationQrCode providerName={title} url={flow.start.verification_url} />
       <p className="text-sm text-muted-foreground">{t.onboarding.deviceCodeOpened(title)}</p>
       <DeviceCode code={flow.start.user_code} copied={flow.copied} onCopy={() => void copyDeviceCode()} />
       <Alert className="px-3 py-2 text-xs" variant="warning">
@@ -331,6 +333,52 @@ function DeviceCode({ code, copied, onCopy }: { code: string; copied: boolean; o
         )
       )}
     </button>
+  )
+}
+
+function VerificationQrCode({ providerName, url }: { providerName: string; url: string }) {
+  const [qr, setQr] = useState<{ dataUrl: string; url: string } | null>(null)
+
+  useEffect(() => {
+    let current = true
+    void QRCode.toDataURL(url, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 208
+    })
+      .then(value => {
+        if (current) {
+          setQr({ dataUrl: value, url })
+        }
+      })
+      .catch(() => {
+        if (current) {
+          setQr(null)
+        }
+      })
+
+    return () => {
+      current = false
+    }
+  }, [url])
+
+  const dataUrl = qr?.url === url ? qr.dataUrl : null
+
+  if (!dataUrl) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <img
+        alt={`Scan QR code to open ${providerName} verification`}
+        className="size-52 rounded-md border border-(--stroke-nous) bg-white p-2"
+        height={208}
+        src={dataUrl}
+        width={208}
+      />
+      <span className="text-xs text-muted-foreground">Scan with your phone</span>
+    </div>
   )
 }
 

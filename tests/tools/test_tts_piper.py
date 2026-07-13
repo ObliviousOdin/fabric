@@ -15,6 +15,41 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tools import tts_tool
+
+
+class TestPiperCudaAvailable:
+    def test_true_only_when_cuda_execution_provider_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_ort = types.SimpleNamespace(
+            get_available_providers=lambda: [
+                "CUDAExecutionProvider",
+                "CPUExecutionProvider",
+            ]
+        )
+        monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+
+        assert tts_tool.piper_cuda_available() is True
+
+    def test_false_for_cpu_only_runtime(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_ort = types.SimpleNamespace(
+            get_available_providers=lambda: ["CPUExecutionProvider"]
+        )
+        monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+
+        assert tts_tool.piper_cuda_available() is False
+
+    def test_false_when_runtime_probe_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_ort = types.SimpleNamespace(
+            get_available_providers=lambda: (_ for _ in ()).throw(OSError("driver"))
+        )
+        monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+
+        assert tts_tool.piper_cuda_available() is False
 from tools.tts_tool import (
     BUILTIN_TTS_PROVIDERS,
     DEFAULT_PIPER_VOICE,

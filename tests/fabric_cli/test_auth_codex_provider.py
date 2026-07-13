@@ -20,6 +20,7 @@ from fabric_cli.auth import (
     resolve_codex_runtime_credentials,
     resolve_provider,
 )
+from fabric_cli.setup_links import LinkPresentation
 
 
 def _setup_hermes_auth(hermes_home: Path, *, access_token: str = "access", refresh_token: str = "refresh"):
@@ -1043,7 +1044,16 @@ def test_device_code_login_retries_on_429_then_succeeds(monkeypatch):
     from fabric_cli import auth as auth_mod
 
     sleeps = []
+    presentations = []
     monkeypatch.setattr("time.sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(auth_mod, "_is_remote_session", lambda: False)
+    monkeypatch.setattr(auth_mod, "_can_open_graphical_browser", lambda: True)
+
+    def _present(url, *, label, open_browser):
+        presentations.append((url, label, open_browser))
+        return LinkPresentation(True, True)
+
+    monkeypatch.setattr(auth_mod, "present_setup_link", _present)
 
     # First call 429 (with Retry-After), second call succeeds. The polling
     # loop then returns the authorization code, and token exchange succeeds.
@@ -1061,8 +1071,62 @@ def test_device_code_login_retries_on_429_then_succeeds(monkeypatch):
     creds = auth_mod._codex_device_code_login()
 
     assert creds["tokens"]["access_token"] == "at"
+    assert presentations == [
+        (
+            "https://auth.openai.com/codex/device",
+            "Scan with your phone or open this link",
+            True,
+        )
+    ]
     # The 429 caused exactly one backoff sleep before the retry succeeded.
     assert 1 in sleeps
+
+
+def test_device_code_login_remote_presents_qr_without_opening_browser(monkeypatch):
+    """Remote Codex login keeps the exact challenge URL but never opens it."""
+    from fabric_cli import auth as auth_mod
+
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    _patch_httpx_post(
+        monkeypatch,
+        [
+            _FakeResp(
+                200,
+                {"user_code": "ABCD", "device_auth_id": "dev-1", "interval": "5"},
+            ),
+            _FakeResp(
+                200,
+                {"authorization_code": "auth-code", "code_verifier": "verifier"},
+            ),
+            _FakeResp(
+                200,
+                {"access_token": "at", "refresh_token": "rt", "expires_in": 3600},
+            ),
+        ],
+    )
+    monkeypatch.setattr(auth_mod, "_is_remote_session", lambda: True)
+    monkeypatch.setattr(
+        auth_mod,
+        "_can_open_graphical_browser",
+        lambda: pytest.fail("graphical browser probe must be skipped remotely"),
+    )
+    presentations = []
+
+    def _present(url, *, label, open_browser):
+        presentations.append((url, label, open_browser))
+        return LinkPresentation(True, False)
+
+    monkeypatch.setattr(auth_mod, "present_setup_link", _present)
+
+    auth_mod._codex_device_code_login(open_browser=True)
+
+    assert presentations == [
+        (
+            "https://auth.openai.com/codex/device",
+            "Scan with your phone or open this link",
+            False,
+        )
+    ]
 
 
 def test_device_code_login_persistent_429_raises_rate_limited(monkeypatch):

@@ -602,7 +602,7 @@ class FirecrawlWebSearchProvider(WebSearchProvider):
     def get_setup_schema(self) -> Dict[str, Any]:
         return {
             "name": "Firecrawl",
-            "badge": "paid · optional gateway",
+            "badge": "free tier · paid upgrades",
             "tag": (
                 "Full search + extract; supports direct API and "
                 "Nous tool-gateway routing."
@@ -611,8 +611,9 @@ class FirecrawlWebSearchProvider(WebSearchProvider):
             "env_vars": [
                 {
                     "key": "FIRECRAWL_API_KEY",
-                    "prompt": "Firecrawl API key (or leave blank for self-hosted)",
-                    "url": "https://docs.firecrawl.dev/introduction",
+                    "prompt": "Firecrawl API key",
+                    "url": "https://firecrawl.dev/app/api-keys",
                 },
             ],
+            "setup_flow": "firecrawl",
         }

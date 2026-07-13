@@ -3341,7 +3341,7 @@ def _gateway_subcommand(profile: Optional[str], verb: str) -> List[str]:
 
 
 def _gateway_display_command(profile: Optional[str], verb: str) -> str:
-    return " ".join(["hermes", *_gateway_subcommand(profile, verb)])
+    return " ".join(["fabric", *_gateway_subcommand(profile, verb)])
 
 
 # Slack member IDs (users U..., Enterprise Grid W...). Kept in sync with the

@@ -99,6 +99,18 @@ export interface Translations {
     unreachable: string;
   };
 
+  // ── Shared gateway-restart lifecycle (CONNECT-section primitives, CN3) ──
+  // Optional group: `RestartBanner` falls back to the English literals for
+  // locales that haven't translated it yet.
+  gatewayRestart?: {
+    /** Action label on the restart-needed banner. */
+    restartNow: string;
+    /** Action label while the restart POST is in flight. */
+    restarting: string;
+    /** Default restart-needed copy when the page supplies none. */
+    needed: string;
+  };
+
   // ── Chat rail (Agent card + Activity feed, CH-requirements) ──
   // Optional group: the chat rail falls back to English literals until
   // locales translate it.

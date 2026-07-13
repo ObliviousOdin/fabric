@@ -46,6 +46,7 @@ export {
   AGENT_STATUS_TONES,
   chatConnectionAgentStatus,
   cronJobAgentStatus,
+  gatewayAgentStatus,
   sessionAgentStatus,
 } from "./agent-status";
 export type { AgentStatus, DerivedAgentStatus } from "./agent-status";
@@ -73,6 +74,21 @@ export type {
   DerivedCapabilityState,
   ProbeOutcome,
 } from "./capability-state";
+
+/**
+ * The CN1/CN2 two-axis mapping for the messaging-platform `state` overlay
+ * (Channels, SessionsPage GatewayStrip): runtime states (`connected |
+ * disconnected | fatal` + gateway-level overlays) → the G1 agent-status
+ * vocabulary; configuration overlays (`disabled | not_configured |
+ * pending_restart`) → the CAP2 capability-state vocabulary. Exactly one
+ * mapper claims each known state; unknown states return null from both and
+ * render raw (R18).
+ */
+export {
+  channelConfigState,
+  channelRuntimeStatus,
+  KNOWN_CHANNEL_STATES,
+} from "./channel-state";
 
 /**
  * Shared capability row (CAP3) — the five-zone grammar (identity / state /

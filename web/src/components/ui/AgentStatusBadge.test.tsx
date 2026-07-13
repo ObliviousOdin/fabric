@@ -8,6 +8,7 @@ import {
   AGENT_STATUS_TONES,
   chatConnectionAgentStatus,
   cronJobAgentStatus,
+  gatewayAgentStatus,
   sessionAgentStatus,
 } from "@/components/ui/agent-status";
 import { AgentStatusBadge } from "@/components/ui/AgentStatusBadge";
@@ -66,6 +67,42 @@ describe("G1 status mapping", () => {
     });
     expect(chatConnectionAgentStatus("idle")).toEqual({ status: "idle" });
     expect(chatConnectionAgentStatus("closed")).toEqual({ status: "idle" });
+  });
+
+  it("maps the gateway process lifecycle (Y2), incl. draining/degraded", () => {
+    expect(gatewayAgentStatus("running", true)).toEqual({ status: "live" });
+    // `running` beats a stale/odd state string, and vice versa.
+    expect(gatewayAgentStatus(null, true)).toEqual({ status: "live" });
+    expect(gatewayAgentStatus("running", false)).toEqual({ status: "live" });
+    expect(gatewayAgentStatus("starting", false)).toEqual({
+      status: "idle",
+      label: "starting…",
+    });
+    expect(gatewayAgentStatus("startup_failed", false)).toEqual({
+      status: "failed",
+      label: "start failed",
+    });
+    expect(gatewayAgentStatus("draining", false)).toEqual({
+      status: "paused",
+      label: "draining",
+    });
+    expect(gatewayAgentStatus("degraded", false)).toEqual({
+      status: "paused",
+      label: "degraded",
+    });
+    expect(gatewayAgentStatus("stopped", false)).toEqual({
+      status: "idle",
+      label: "stopped",
+    });
+    expect(gatewayAgentStatus(null, false)).toEqual({
+      status: "idle",
+      label: "stopped",
+    });
+    // Unknown value from a newer backend — raw label, never crash (R18).
+    expect(gatewayAgentStatus("hibernating", false)).toEqual({
+      status: "idle",
+      label: "hibernating",
+    });
   });
 
   it("assigns the G1 tone column", () => {

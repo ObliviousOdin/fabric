@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import type { StatusResponse } from "@/lib/api";
-import { AgentStatusBadge } from "@/components/ui";
+import { AgentStatusBadge, channelRuntimeStatus } from "@/components/ui";
 import { themedChrome } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 
@@ -82,18 +82,29 @@ export function GatewayStrip({ status }: GatewayStripProps) {
           >
             {L?.gatewayLabel ?? "gateway"}
           </span>
-          {healthyEntries.map(([name, info]) => (
-            <span key={name} className="flex shrink-0 items-center gap-1.5">
-              <span className="font-mono-ui text-xs">{name}</span>
-              {info.state === "connected" ? (
-                <AgentStatusBadge status="live" />
-              ) : info.state === "disabled" ? (
-                <AgentStatusBadge status="paused" label={t.common.disabled} />
-              ) : (
-                <AgentStatusBadge status="idle" label={info.state} />
-              )}
-            </span>
-          ))}
+          {healthyEntries.map(([name, info]) => {
+            // Healthy-chip vocabulary comes from the shared CN2 runtime
+            // mapper so a channel wears the same words here and on the
+            // Channels page. The `disabled` branch is kept as dead-code
+            // insurance: `/api/status` only relays gateway-persisted
+            // runtime states, so it is unreachable from this payload (R24).
+            const derived =
+              info.state === "disabled"
+                ? null
+                : channelRuntimeStatus(info.state);
+            return (
+              <span key={name} className="flex shrink-0 items-center gap-1.5">
+                <span className="font-mono-ui text-xs">{name}</span>
+                {derived ? (
+                  <AgentStatusBadge status={derived.status} label={derived.label} />
+                ) : info.state === "disabled" ? (
+                  <AgentStatusBadge status="paused" label={t.common.disabled} />
+                ) : (
+                  <AgentStatusBadge status="idle" label={info.state} />
+                )}
+              </span>
+            );
+          })}
         </div>
       )}
     </>

@@ -77,6 +77,12 @@ export const en: Translations = {
     unreachable: "unreachable",
   },
 
+  gatewayRestart: {
+    restartNow: "Restart now",
+    restarting: "Restarting…",
+    needed: "Changes are saved. Restart the gateway for them to take effect.",
+  },
+
   chatRail: {
     agent: "agent",
     activity: "activity",

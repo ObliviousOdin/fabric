@@ -75,6 +75,40 @@ export function cronJobAgentStatus(job: {
 }
 
 /**
+ * Gateway process lifecycle (Y2): the served `gateway_state` enum
+ * (`starting | running | draining | degraded | startup_failed | stopped |
+ * null`, `/api/status` §0.1) plus the `gateway_running` boolean other
+ * payloads carry (SystemPage, per-profile gateways on ProfilesPage).
+ *
+ * `draining`/`degraded` ride the warning-toned `paused` status with
+ * truthful labels — they are real states served today, not inventions.
+ * Unknown values from a newer backend render raw on the idle tone, never
+ * crash (R18).
+ */
+export function gatewayAgentStatus(
+  state: string | null,
+  running: boolean,
+): DerivedAgentStatus {
+  if (running || state === "running") return { status: "live" };
+  switch (state) {
+    case "starting":
+      return { status: "idle", label: "starting…" };
+    case "startup_failed":
+      return { status: "failed", label: "start failed" };
+    case "draining":
+      return { status: "paused", label: "draining" };
+    case "degraded":
+      return { status: "paused", label: "degraded" };
+    case "stopped":
+    case null:
+      return { status: "idle", label: "stopped" };
+    default:
+      // Unknown value from a newer backend — raw label, idle tone (R18).
+      return { status: "idle", label: state };
+  }
+}
+
+/**
  * Chat sidecar connection: `open` → live, `error` → failed, `connecting` →
  * idle tone with a "connecting…" label override, `idle`/`closed` → idle.
  */

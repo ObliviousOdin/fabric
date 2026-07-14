@@ -1,13 +1,13 @@
 /** Fabric public site — shared documentation and navigation tokens. */
 
 :root {
-  --ifm-color-primary: #4e3bc2;
-  --ifm-color-primary-dark: #4432ae;
-  --ifm-color-primary-darker: #3f2fa5;
-  --ifm-color-primary-darkest: #332588;
-  --ifm-color-primary-light: #604bd0;
-  --ifm-color-primary-lighter: #6a56d4;
-  --ifm-color-primary-lightest: #8c7ce0;
+  --ifm-color-primary: #4628cc;
+  --ifm-color-primary-dark: #4025ba;
+  --ifm-color-primary-darker: #3b22ad;
+  --ifm-color-primary-darkest: #25156b;
+  --ifm-color-primary-light: #654adc;
+  --ifm-color-primary-lighter: #7c66e1;
+  --ifm-color-primary-lightest: #c5baf5;
 
   --ifm-font-family-base:
     -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -17,18 +17,18 @@
   --ifm-code-font-size: 90%;
   --ifm-heading-font-weight: 600;
 
-  --ifm-link-color: #4432ae;
-  --ifm-link-hover-color: #332588;
+  --ifm-link-color: #4025ba;
+  --ifm-link-hover-color: #25156b;
 }
 
 [data-theme="dark"] {
-  --ifm-color-primary: #b8adff;
-  --ifm-color-primary-dark: #a598ff;
-  --ifm-color-primary-darker: #9b8dff;
-  --ifm-color-primary-darkest: #7766ee;
-  --ifm-color-primary-light: #cbc3ff;
-  --ifm-color-primary-lighter: #d4cdff;
-  --ifm-color-primary-lightest: #eeeaff;
+  --ifm-color-primary: #c5baf5;
+  --ifm-color-primary-dark: #9481e6;
+  --ifm-color-primary-darker: #7c66e1;
+  --ifm-color-primary-darkest: #654adc;
+  --ifm-color-primary-light: #d8d2f4;
+  --ifm-color-primary-lighter: #f0edfb;
+  --ifm-color-primary-lightest: #ffffff;
 
   --ifm-background-color: #07070d;
   --ifm-background-surface-color: #0f0f18;
@@ -40,15 +40,15 @@
   --ifm-font-color-base: #e8e4dc;
   --ifm-font-color-secondary: #9a968e;
 
-  --ifm-link-color: #b8adff;
-  --ifm-link-hover-color: #d5ceff;
+  --ifm-link-color: #c5baf5;
+  --ifm-link-hover-color: #f0edfb;
 
   --ifm-code-background: #0f0f18;
 
-  --ifm-toc-border-color: rgba(184, 173, 255, 0.12);
-  --ifm-hr-border-color: rgba(184, 173, 255, 0.12);
+  --ifm-toc-border-color: rgba(197, 186, 245, 0.12);
+  --ifm-hr-border-color: rgba(197, 186, 245, 0.12);
 
-  --docusaurus-highlighted-code-line-bg: rgba(184, 173, 255, 0.1);
+  --docusaurus-highlighted-code-line-bg: rgba(197, 186, 245, 0.1);
 }
 
 [data-theme="dark"] .main-wrapper {
@@ -58,7 +58,7 @@
 /* Navbar styling */
 .navbar {
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(78, 59, 194, 0.14);
+  border-bottom: 1px solid rgba(70, 40, 204, 0.14);
 }
 
 /* backdrop-filter creates a stacking context that hides
@@ -114,22 +114,22 @@
 }
 
 [data-theme="dark"] .menu__link--active:not(.menu__link--sublist) {
-  background-color: rgba(184, 173, 255, 0.1);
-  border-left: 3px solid #b8adff;
+  background-color: rgba(197, 186, 245, 0.1);
+  border-left: 3px solid #c5baf5;
   padding-left: calc(var(--ifm-menu-link-padding-horizontal) - 3px);
 }
 
 /* Light mode sidebar active */
 [data-theme="light"] .menu__link--active:not(.menu__link--sublist) {
-  background-color: rgba(78, 59, 194, 0.08);
-  border-left: 3px solid #4e3bc2;
+  background-color: rgba(70, 40, 204, 0.08);
+  border-left: 3px solid #4628cc;
   padding-left: calc(var(--ifm-menu-link-padding-horizontal) - 3px);
 }
 
 /* Code blocks */
 [data-theme="dark"] .prism-code {
   background-color: #0a0a12 !important;
-  border: 1px solid rgba(184, 173, 255, 0.1);
+  border: 1px solid rgba(197, 186, 245, 0.1);
 }
 
 /* Text diagrams: preserve spacing, disable ligatures, and prefer box-drawing-safe fonts */
@@ -176,7 +176,7 @@ pre.prism-code.language-ascii code {
   width: 100%;
   max-width: 900px;
   margin: 1.25rem auto 0.5rem;
-  border: 1px solid rgba(184, 173, 255, 0.12);
+  border: 1px solid rgba(197, 186, 245, 0.12);
   border-radius: 12px;
   background: #0a0a12;
 }
@@ -189,8 +189,8 @@ pre.prism-code.language-ascii code {
 }
 
 [data-theme="dark"] .alert--info {
-  --ifm-alert-background-color: rgba(184, 173, 255, 0.07);
-  --ifm-alert-border-color: rgba(184, 173, 255, 0.2);
+  --ifm-alert-background-color: rgba(197, 186, 245, 0.07);
+  --ifm-alert-border-color: rgba(197, 186, 245, 0.2);
 }
 
 /* Table styling */
@@ -199,27 +199,27 @@ pre.prism-code.language-ascii code {
 }
 
 [data-theme="dark"] table th {
-  background-color: rgba(184, 173, 255, 0.07);
-  border-color: rgba(184, 173, 255, 0.15);
+  background-color: rgba(197, 186, 245, 0.07);
+  border-color: rgba(197, 186, 245, 0.15);
 }
 
 [data-theme="dark"] table td {
-  border-color: rgba(184, 173, 255, 0.08);
+  border-color: rgba(197, 186, 245, 0.08);
 }
 
 /* Light mode table styling */
 [data-theme="light"] table th {
-  background-color: rgba(78, 59, 194, 0.06);
-  border-color: rgba(78, 59, 194, 0.15);
+  background-color: rgba(70, 40, 204, 0.06);
+  border-color: rgba(70, 40, 204, 0.15);
 }
 
 [data-theme="light"] table td {
-  border-color: rgba(78, 59, 194, 0.1);
+  border-color: rgba(70, 40, 204, 0.1);
 }
 
 /* Footer */
 .footer {
-  border-top: 1px solid rgba(184, 173, 255, 0.12);
+  border-top: 1px solid rgba(197, 186, 245, 0.12);
 }
 
 .footer a {
@@ -270,7 +270,7 @@ pre.prism-code.language-ascii code {
 /* Search bar */
 [data-theme="dark"] .DocSearch-Button {
   background-color: #0f0f18;
-  border: 1px solid rgba(184, 173, 255, 0.12);
+  border: 1px solid rgba(197, 186, 245, 0.12);
 }
 
 /* ─── Mobile sidebar improvements ─────────────────────────────────────────── */
@@ -286,7 +286,7 @@ pre.prism-code.language-ascii code {
     font-weight: 600;
     font-size: 1rem;
     padding: 0.75rem 0.75rem;
-    border-bottom: 1px solid rgba(184, 173, 255, 0.08);
+    border-bottom: 1px solid rgba(197, 186, 245, 0.08);
   }
 
   /* Category caret — more visible */
@@ -297,7 +297,7 @@ pre.prism-code.language-ascii code {
   /* Indent subcategories clearly */
   .menu__list .menu__list {
     padding-left: 0.75rem;
-    border-left: 1px solid rgba(184, 173, 255, 0.08);
+    border-left: 1px solid rgba(197, 186, 245, 0.08);
     margin-left: 0.5rem;
   }
 
@@ -741,13 +741,13 @@ main[class*="docMainContainer"] > .container {
 .docs-hub-strip {
   margin: 1.5rem 0 2.5rem;
   padding: 26px 28px;
-  border: 1px solid rgba(184, 173, 255, 0.28);
+  border: 1px solid rgba(197, 186, 245, 0.28);
   color: #f5f2ea;
   background: #0b0a0f;
 }
 
 .docs-hub-strip a {
-  color: #c7beff;
+  color: #c5baf5;
 }
 
 .docs-hub-steps {

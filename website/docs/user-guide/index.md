@@ -12,7 +12,7 @@ sidebar_position: 0
 
 <div className="docs-hub__lede">
 Every Fabric interface uses the same profile-scoped agent core. Pick the surface
-that fits today’s task; your model routes, memory, skills, approvals, and
+that fits today's task; model routes, memory, skills, approval policy, and
 sessions stay with the profile.
 </div>
 
@@ -32,9 +32,10 @@ sessions stay with the profile.
 
 ### See the work as it happens
 
-Use the native app for focused chat and project work, or open the dashboard for browser-based administration.
+Use the native app for focused chat and project work, or open Fabric Workspace
+and Admin for browser-based operations and runtime control.
 
-[Use Desktop →](/user-guide/desktop) · [Open the web dashboard guide →](/user-guide/features/web-dashboard)
+[Use Desktop →](/user-guide/desktop) · [Understand Workspace and Admin →](/user-guide/workspace-admin) · [Run the web experience →](/user-guide/features/web-dashboard)
 
 </section>
 
@@ -63,6 +64,21 @@ Connect a supported channel for long-running conversations, scheduled delivery, 
 </section>
 
 </div>
+
+## Understand the two web surfaces
+
+- **Workspace** is where business users follow conversations, agents,
+  automations, evidence, and outcomes.
+- **Admin** is where operators configure integrations, channels, models,
+  credentials, and the Fabric runtime.
+- **Profiles** remain independent agent configuration and memory islands. They
+  are not tenant, team workspace, site, or human-role scopes.
+
+The shell and its first critical screens are available now. Enterprise tenancy,
+server-enforced roles, and the durable Work Board, approvals, activity, and
+typed Memory services are staged backend contracts. See the
+[Workspace and Admin guide](/user-guide/workspace-admin) for the route map and
+current delivery status.
 
 ## Shape the agent around your work
 

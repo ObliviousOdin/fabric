@@ -1,5 +1,14 @@
 # Dashboard UI/UX Revamp — Research & Design Direction
 
+> **Historical implementation record — superseded for current design decisions.**
+> Use [`web/DESIGN.md`](../../web/DESIGN.md) and the
+> [Workspace/Admin redesign plan](../plans/2026-07-14-fabric-enterprise-workspace-admin-redesign.md)
+> as the active contract. Route names and component details below remain useful
+> archaeology, but the inherited “agentic/terminal-grade” visual direction,
+> teal identity, pervasive display typography, and legacy nav grouping are not
+> current Fabric guidance.
+
+
 Deep research into best-in-class minimalistic agent dashboard systems, combined with an
 audit of the current Fabric web dashboard (`web/`), to define a design direction, IA
 restructure, component strategy, and prioritized revamp roadmap.

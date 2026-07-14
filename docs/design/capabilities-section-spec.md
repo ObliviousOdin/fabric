@@ -1,5 +1,14 @@
 # CAPABILITIES Section Revamp — Implementation Spec ("Agentic Look")
 
+> **Historical implementation record — superseded for current design decisions.**
+> Use [`web/DESIGN.md`](../../web/DESIGN.md) and the
+> [Workspace/Admin redesign plan](../plans/2026-07-14-fabric-enterprise-workspace-admin-redesign.md)
+> as the active contract. Route names and component details below remain useful
+> archaeology, but the inherited “agentic/terminal-grade” visual direction,
+> teal identity, pervasive display typography, and legacy nav grouping are not
+> current Fabric guidance.
+
+
 Scope: the four pages in the **Capabilities** nav group — Models, Skills, Plugins,
 MCP — per the design direction in `docs/design/dashboard-revamp-research.md`
 ("terminal-grade minimalism", single accent, mono for technical readouts,

@@ -53,7 +53,7 @@ Themes and plugins are independent but synergistic. A theme can stand alone (jus
 
 ## Themes
 
-Themes are YAML files stored in `~/.fabric/dashboard-themes/`. The file name doesn't matter (the theme's `name:` field is what the system uses), but convention is `<name>.yaml`. Every field is optional — missing keys fall back to the built-in `default` theme, so a theme can be as small as one color.
+Themes are YAML files stored in `~/.fabric/dashboard-themes/`. The file name doesn't matter (the theme's `name:` field is what the system uses), but convention is `<name>.yaml`. Every field is optional — missing keys fall back to the canonical Fabric Light foundation, so a theme can be as small as one color.
 
 ### Quick start — your first theme
 
@@ -279,15 +279,19 @@ Each built-in ships its own palette, typography, and layout — switching produc
 
 | Theme | Palette | Typography | Layout |
 |-------|---------|------------|--------|
-| **Fabric Teal** (`default`) | Dark teal + cream | System stack, 15px | 0.5rem radius, comfortable |
-| **Fabric Teal (Large)** (`default-large`) | Same as default | System stack, 18px, line-height 1.65 | 0.5rem radius, spacious |
+| **Fabric Light** (`fabric-light`) | Warm neutral + Fabric purple | System stack, 15px | 0.5rem radius, comfortable |
+| **Fabric Dark** (`fabric-dark`) | Violet charcoal + Fabric purple | System stack, 15px | 0.5rem radius, comfortable |
 | **Midnight** (`midnight`) | Deep blue-violet | Inter + JetBrains Mono, 14px | 0.75rem radius, comfortable |
 | **Ember** (`ember`) | Warm crimson + bronze | Spectral (serif) + IBM Plex Mono, 15px | 0.25rem radius, comfortable |
 | **Mono** (`mono`) | Grayscale | IBM Plex Sans + IBM Plex Mono, 13px | 0 radius, compact |
 | **Cyberpunk** (`cyberpunk`) | Neon green on black | Share Tech Mono everywhere, 14px | 0 radius, compact |
 | **Rosé** (`rose`) | Pink + ivory | Fraunces (serif) + DM Mono, 16px | 1rem radius, spacious |
 
-Themes that reference Google Fonts (all except Fabric Teal) load the stylesheet on demand — the first time you switch to them a `<link>` tag is injected into `<head>`.
+Expressive presets that reference Google Fonts load the stylesheet on demand —
+the first time you switch to one, a `<link>` tag is injected into `<head>`.
+The canonical Light/Dark pair uses the system stack. Retired `default`, Teal,
+Blue, Lens, and Nous IDs migrate to the generated pair and are not selectable
+themes.
 
 ### Full theme YAML reference
 
@@ -472,7 +476,7 @@ None of them are required; include only the layers you need.
 | `version` | No | Semver string. Defaults to `0.0.0`. |
 | `tab.path` | Yes | URL path for the tab (e.g. `/my-plugin`). |
 | `tab.position` | No | Where to insert the tab. `"end"` (default), `"after:<path>"`, or `"before:<path>"` — value after the colon is the **path segment** of the target tab (no leading slash). Examples: `"after:skills"`, `"before:config"`. |
-| `tab.override` | No | Set to a built-in route path (`"/"`, `"/sessions"`, `"/config"`, ...) to **replace** that page instead of adding a new tab. See [Replacing built-in pages](#replacing-built-in-pages-taboverride). |
+| `tab.override` | No | Set to a canonical built-in route path (`"/workspace/home"`, `"/workspace/conversations"`, `"/admin/advanced"`, ...) to **replace** that page instead of adding a new tab. Legacy paths remain accepted for compatibility. See [Replacing built-in pages](#replacing-built-in-pages-taboverride). |
 | `tab.hidden` | No | When true, register the component and any slots without adding a tab to the nav. Used by slot-only plugins. See [Slot-only plugins](#slot-only-plugins-tabhidden). |
 | `slots` | No | Named shell slots this plugin populates. **Documentation aid only** — actual registration happens from the JS bundle via `registerSlot()`. Listing slots here makes discovery surfaces more informative. |
 | `entry` | Yes | Path to the JS bundle relative to `dashboard/`. Defaults to `dist/index.js`. |
@@ -584,19 +588,19 @@ window.__HERMES_PLUGINS__.registerSlot("my-plugin", "header-left", MyCrest);
 | `footer-right` | Footer cell content (replaces default). |
 | `overlay` | Fixed-position layer above everything else. Useful for chrome (scanlines, vignettes) `customCSS` can't achieve alone. |
 
-**Page-scoped slots** (render only on the named built-in page — use these to inject widgets, cards, or toolbars into an existing page without overriding the whole route):
+**Page-scoped slots** (render only on the named built-in page — use these to inject widgets, cards, or toolbars into an existing page without overriding the whole route). Slot IDs retain their legacy names for plugin compatibility even though the visible routes now use Workspace/Admin URLs:
 
 | Slot | Where it renders |
 |------|------------------|
-| `sessions:top` / `sessions:bottom` | Top / bottom of the `/sessions` page. |
-| `analytics:top` / `analytics:bottom` | Top / bottom of the `/analytics` page. |
-| `logs:top` / `logs:bottom` | Top (above filter toolbar) / bottom (below log viewer) of `/logs`. |
-| `cron:top` / `cron:bottom` | Top / bottom of the `/cron` page. |
-| `skills:top` / `skills:bottom` | Top / bottom of the `/skills` page. |
-| `config:top` / `config:bottom` | Top / bottom of the `/config` page. |
-| `env:top` / `env:bottom` | Top / bottom of the `/env` (Keys) page. |
-| `docs:top` / `docs:bottom` | Top (above the iframe) / bottom of `/docs`. |
-| `chat:top` / `chat:bottom` | Top / bottom of `/chat` (only active when embedded chat is enabled). |
+| `sessions:top` / `sessions:bottom` | Top / bottom of Workspace Conversations (`/workspace/conversations`). |
+| `analytics:top` / `analytics:bottom` | Top / bottom of Workspace Insights (`/workspace/insights`). |
+| `logs:top` / `logs:bottom` | Top (above filter toolbar) / bottom (below log viewer) of Admin Logs (`/admin/advanced/logs`). |
+| `cron:top` / `cron:bottom` | Top / bottom of Workspace Automations (`/workspace/automations`). |
+| `skills:top` / `skills:bottom` | Top / bottom of Admin Skills (`/admin/integrations/skills`). |
+| `config:top` / `config:bottom` | Top / bottom of Admin Advanced (`/admin/advanced`). |
+| `env:top` / `env:bottom` | Top / bottom of Admin Secrets (`/admin/security-access/secrets`). |
+| `docs:top` / `docs:bottom` | Top / bottom of Admin Help (`/admin/help`). |
+| `chat:top` / `chat:bottom` | Top / bottom of Workspace Chat (`/workspace/chat`). |
 
 Example — add a banner card to the top of the Sessions page:
 

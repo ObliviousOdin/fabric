@@ -1,5 +1,14 @@
 # CONNECT + SYSTEM Sections Revamp — Implementation Spec ("Agentic Look")
 
+> **Historical implementation record — superseded for current design decisions.**
+> Use [`web/DESIGN.md`](../../web/DESIGN.md) and the
+> [Workspace/Admin redesign plan](../plans/2026-07-14-fabric-enterprise-workspace-admin-redesign.md)
+> as the active contract. Route names and component details below remain useful
+> archaeology, but the inherited “agentic/terminal-grade” visual direction,
+> teal identity, pervasive display typography, and legacy nav grouping are not
+> current Fabric guidance.
+
+
 Scope: the four pages in the **Connect** nav group — Channels, Webhooks, Pairing,
 Files — and the four in the **System** bottom cluster — Profiles, Config, Keys (Env),
 System — per the design direction in `docs/design/dashboard-revamp-research.md`

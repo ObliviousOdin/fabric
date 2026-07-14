@@ -8,6 +8,8 @@ lives in ``scripts/public-release-audit.py``.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import re
 import sys
@@ -393,63 +395,161 @@ def audit_built_public_site(build_dir: Path) -> list[str]:
 
 # ── Brand color system ──────────────────────────────────────────────────
 #
-# The canonical Fabric accent is blue #0053fd (desktop --theme-primary /
-# --ui-blue, dashboard generated pair) with the purple family as the
-# identity/secondary hue. The inherited teal console palette survives only
-# inside the explicitly labeled "Fabric Teal (Heritage)" preset.
+# The canonical Fabric accent is Rabot purple #4628CC. Status colors stay
+# semantic; the inherited teal console palette and former blue brand theme
+# survive only in explicitly labeled historical presets and color-math tests.
 
-BRAND_PRIMARY_ACCENT = "#0053fd"
+BRAND_PRIMARY_ACCENT = "#4628CC"
 
-#: Legacy teal hexes that must not reappear outside the heritage preset:
-#: the old generated-pair accent, its light-canvas derivative, and the old
-#: workbench rail accent.
-LEGACY_TEAL_HEXES = ("#14b8a6", "#00a292", "#56cdbc")
-
-#: Dashboard sources where the legacy teal is still legitimate: the opt-in
-#: heritage preset and color-math test fixtures.
-LEGACY_TEAL_ALLOWED = (
-    "web/src/themes/presets.ts",
-    "web/src/themes/generate.test.ts",
+#: Former brand accents that must not reappear as canonical application color.
+LEGACY_BRAND_ACCENT_HEXES = (
+    "#0053fd",
+    "#14b8a6",
+    "#00a292",
+    "#56cdbc",
 )
 
-BRAND_COLOR_SCAN_ROOTS = ("web/src",)
+BRAND_PRIMARY_REQUIRED_PATHS = (
+    "apps/design-system/src/tokens/tokens.json",
+    "apps/desktop/src/styles.css",
+    "web/src/index.css",
+    "web/src/themes/generated.ts",
+)
+
+BRAND_ASSET_MANIFEST = "apps/design-system/dist/brand/brand-assets.json"
+BRAND_ASSET_REQUIRED = (
+    "fabric-mark.svg",
+    "fabric-mark-mono.svg",
+    "fabric-wordmark.svg",
+    "fabric-wordmark-on-dark.svg",
+    "fabric-mark-16.png",
+    "fabric-mark-192.png",
+    "fabric-mark-512.png",
+    "fabric-app-icon-180.png",
+    "fabric-app-icon-192.png",
+    "fabric-app-icon-1024.png",
+    "fabric-maskable-512.png",
+    "fabric-favicon.ico",
+    "fabric-app-icon.icns",
+)
+BRAND_SOURCE_REQUIRED = (
+    "mark.svg",
+    "mark-mono.svg",
+    "wordmark.svg",
+    "wordmark-on-dark.svg",
+    "reference-wordmark.png",
+)
 
 
 def audit_brand_colors(root: Path = ROOT) -> list[str]:
-    """Enforce the blue/purple color system in dashboard sources."""
+    """Enforce the canonical Rabot-purple color system in product sources."""
 
     issues: list[str] = []
 
-    generated = root / "web/src/themes/generated.ts"
-    if generated.exists():
-        text = generated.read_text(encoding="utf-8", errors="replace")
-        if BRAND_PRIMARY_ACCENT not in text.lower():
-            issues.append(
-                "web/src/themes/generated.ts: generated theme pair no longer "
-                f"uses the canonical Fabric-blue accent {BRAND_PRIMARY_ACCENT}"
-            )
-    else:
-        issues.append("web/src/themes/generated.ts: missing")
-
-    for scan_root in BRAND_COLOR_SCAN_ROOTS:
-        base = root / scan_root
-        if not base.exists():
-            issues.append(f"{scan_root}: missing")
+    for relative in BRAND_PRIMARY_REQUIRED_PATHS:
+        required = root / relative
+        if not required.exists():
+            issues.append(f"{relative}: missing")
             continue
-        for path in sorted(base.rglob("*")):
-            if path.suffix not in {".ts", ".tsx", ".css"} or not path.is_file():
-                continue
-            relative = path.relative_to(root).as_posix()
-            if relative in LEGACY_TEAL_ALLOWED:
-                continue
-            text = path.read_text(encoding="utf-8", errors="replace").lower()
-            for hexcode in LEGACY_TEAL_HEXES:
-                if hexcode in text:
-                    issues.append(
-                        f"{relative}: legacy teal {hexcode} outside the "
-                        "heritage preset (canonical accent is "
-                        f"{BRAND_PRIMARY_ACCENT})"
-                    )
+
+        text = required.read_text(encoding="utf-8", errors="replace").lower()
+        if BRAND_PRIMARY_ACCENT.lower() not in text:
+            issues.append(
+                f"{relative}: missing canonical Fabric primary "
+                f"{BRAND_PRIMARY_ACCENT}"
+            )
+        for hexcode in LEGACY_BRAND_ACCENT_HEXES:
+            if hexcode in text:
+                issues.append(
+                    f"{relative}: legacy brand accent {hexcode} in a canonical "
+                    f"integration point (canonical accent is "
+                    f"{BRAND_PRIMARY_ACCENT})"
+                )
+    return issues
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def audit_brand_assets(root: Path = ROOT) -> list[str]:
+    """Verify canonical vectors and generated assets against one manifest."""
+
+    relative_manifest = Path(BRAND_ASSET_MANIFEST)
+    manifest_path = root / relative_manifest
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [f"{BRAND_ASSET_MANIFEST}: missing"]
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        return [f"{BRAND_ASSET_MANIFEST}: invalid ({exc})"]
+
+    issues: list[str] = []
+    if manifest.get("schemaVersion") != 1:
+        issues.append(f"{BRAND_ASSET_MANIFEST}: unsupported schemaVersion")
+    if manifest.get("canonicalPrimary", "").lower() != BRAND_PRIMARY_ACCENT.lower():
+        issues.append(
+            f"{BRAND_ASSET_MANIFEST}: canonicalPrimary must be "
+            f"{BRAND_PRIMARY_ACCENT}"
+        )
+
+    assets = manifest.get("assets")
+    if not isinstance(assets, dict):
+        return [*issues, f"{BRAND_ASSET_MANIFEST}: assets must be an object"]
+
+    for name in BRAND_ASSET_REQUIRED:
+        if name not in assets:
+            issues.append(f"{BRAND_ASSET_MANIFEST}: missing asset record {name}")
+
+    asset_root = manifest_path.parent
+    for name, record in assets.items():
+        if not isinstance(name, str) or Path(name).name != name:
+            issues.append(f"{BRAND_ASSET_MANIFEST}: unsafe asset path {name!r}")
+            continue
+        if not isinstance(record, dict):
+            issues.append(f"{BRAND_ASSET_MANIFEST}: invalid asset record {name}")
+            continue
+        target = asset_root / name
+        if not target.is_file():
+            issues.append(f"{target.relative_to(root).as_posix()}: missing")
+            continue
+        expected = record.get("sha256")
+        actual = _sha256(target)
+        if expected != actual:
+            issues.append(
+                f"{target.relative_to(root).as_posix()}: sha256 mismatch"
+            )
+
+    sources = manifest.get("sources")
+    if not isinstance(sources, dict):
+        issues.append(f"{BRAND_ASSET_MANIFEST}: sources must be an object")
+        return issues
+
+    for name in BRAND_SOURCE_REQUIRED:
+        if name not in sources:
+            issues.append(f"{BRAND_ASSET_MANIFEST}: missing source record {name}")
+
+    root_resolved = root.resolve()
+    for name, record in sources.items():
+        if not isinstance(record, dict) or not isinstance(record.get("path"), str):
+            issues.append(f"{BRAND_ASSET_MANIFEST}: invalid source record {name}")
+            continue
+        source = (root / record["path"]).resolve()
+        try:
+            source.relative_to(root_resolved)
+        except ValueError:
+            issues.append(f"{BRAND_ASSET_MANIFEST}: source escapes root {name}")
+            continue
+        if not source.is_file():
+            issues.append(f"{record['path']}: missing")
+            continue
+        if record.get("sha256") != _sha256(source):
+            issues.append(f"{record['path']}: sha256 mismatch")
+
     return issues
 
 
@@ -469,6 +569,7 @@ def main() -> int:
         *audit_public_site_sources(),
         *audit_public_positioning_sources(),
         *audit_brand_colors(),
+        *audit_brand_assets(),
     ]
     if args.build_dir is not None:
         build_dir = args.build_dir.resolve()
@@ -482,7 +583,7 @@ def main() -> int:
 
     print(
         "fabric-brand-audit: OK (public identity, discovery surfaces, "
-        "first-run guides, and brand color system)"
+        "first-run guides, brand color system, and brand asset integrity)"
     )
     return 0
 

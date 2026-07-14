@@ -60,24 +60,57 @@ def _skin_color(key: str, fallback: str) -> str:
 
 from fabric_cli import __version__ as VERSION, __release_date__ as RELEASE_DATE
 
-HERMES_AGENT_LOGO = """[bold #7C66E1] ▄████████▄   ███████╗ █████╗ ██████╗ ██████╗ ██╗ ██████╗[/]
-[bold #7C66E1]██   ██   ██  ██╔════╝██╔══██╗██╔══██╗██╔══██╗██║██╔════╝[/]
-[bold #7C66E1]██▄▄▄██▄▄▄█▀  █████╗  ███████║██████╔╝██████╔╝██║██║[/]
-[bold #7C66E1]██▀▀▀██▀▀▀█▄  ██╔══╝  ██╔══██║██╔══██╗██╔══██╗██║██║[/]
-[bold #7C66E1]██   ██   ██  ██║     ██║  ██║██████╔╝██║  ██║██║╚██████╗[/]
-[bold #7C66E1] ▀███▀▀███▀   ╚═╝     ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝ ╚═════╝[/]"""
+_BANNER_COLOR_TOKENS = {
+    "primary": ("banner_title", "#9481E6"),
+    "accent": ("banner_accent", "#7C66E1"),
+    "border": ("banner_border", "#4628CC"),
+    "text": ("banner_text", "#F0EDFB"),
+    "muted": ("banner_dim", "#667085"),
+}
 
-HERMES_CADUCEUS = """[bold #7C66E1] ▄████████▄ [/]
-[bold #7C66E1]██   ██   ██[/]
-[bold #7C66E1]██▄▄▄██▄▄▄█▀[/]
-[bold #7C66E1]██▀▀▀██▀▀▀█▄[/]
-[bold #7C66E1]██   ██   ██[/]
-[bold #7C66E1] ▀███▀▀███▀ [/]"""
+FABRIC_AGENT_LOGO_TEMPLATE = """[bold {primary}]     ╭─[/]
+[bold {accent}]  ───fabric[/]
+[bold {primary}]     │[/]
+[dim {muted}]     ╰──────────╮[/]"""
 
-# Public Fabric names for new code. Keep the legacy aliases above because
-# plugins and the image-branding overlay still match those technical names.
-FABRIC_AGENT_LOGO = HERMES_AGENT_LOGO
-FABRIC_MARK = HERMES_CADUCEUS
+FABRIC_MARK_TEMPLATE = """[bold {primary}]    ╭─[/]
+[bold {accent}]  ──f[/]
+[bold {primary}]    │[/]
+[dim {muted}]    ╰────╮[/]"""
+
+
+def _resolve_fallback_banner_art(markup: str) -> str:
+    """Resolve semantic art with stable default colors for public exports."""
+    resolved = markup
+    for token, (_, fallback) in _BANNER_COLOR_TOKENS.items():
+        resolved = resolved.replace(f"{{{token}}}", fallback)
+    return resolved
+
+
+# Public constants remain directly printable for plugins and legacy imports.
+# Internal default-skin rendering uses the semantic templates below so active
+# skin colors still apply at render time.
+FABRIC_AGENT_LOGO = _resolve_fallback_banner_art(FABRIC_AGENT_LOGO_TEMPLATE)
+FABRIC_MARK = _resolve_fallback_banner_art(FABRIC_MARK_TEMPLATE)
+
+# Legacy export names remain for plugin compatibility; both now resolve to
+# the canonical Fabric lockups above.
+HERMES_AGENT_LOGO = FABRIC_AGENT_LOGO
+HERMES_CADUCEUS = FABRIC_MARK
+
+def _resolve_banner_art(markup: str) -> str:
+    """Resolve semantic art colors against the active skin.
+
+    Existing user skin art with literal Rich colors is left unchanged. The
+    built-in Fabric lockup uses semantic tokens so it follows every skin and
+    remains plain-text safe when Rich color output is disabled.
+    """
+    resolved = markup
+    for token, (skin_key, fallback) in _BANNER_COLOR_TOKENS.items():
+        placeholder = f"{{{token}}}"
+        if placeholder in resolved:
+            resolved = resolved.replace(placeholder, _skin_color(skin_key, fallback))
+    return resolved
 
 
 
@@ -636,11 +669,11 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     try:
         from fabric_cli.skin_engine import get_active_skin
         _bskin = get_active_skin()
-        _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else FABRIC_MARK
+        _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else FABRIC_MARK_TEMPLATE
     except Exception:
         _bskin = None
-        _hero = FABRIC_MARK
-    left_lines = ["", _hero, ""]
+        _hero = FABRIC_MARK_TEMPLATE
+    left_lines = ["", _resolve_banner_art(_hero), ""]
     try:
         from fabric_cli.fabric_brand import vendor_label
 
@@ -924,7 +957,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
     console.print()
     term_width = shutil.get_terminal_size().columns
     if term_width >= 95:
-        _logo = _bskin.banner_logo if _bskin and hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else FABRIC_AGENT_LOGO
-        console.print(_logo)
+        _logo = _bskin.banner_logo if _bskin and hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else FABRIC_AGENT_LOGO_TEMPLATE
+        console.print(_resolve_banner_art(_logo))
         console.print()
     console.print(outer_panel)

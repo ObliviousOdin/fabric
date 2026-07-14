@@ -1,0 +1,33 @@
+{
+  "id": "./",
+  "name": "Fabric",
+  "short_name": "Fabric",
+  "description": "A personal AI agent for chat, automation, tools, and connected workflows.",
+  "start_url": "./chat",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8fafe",
+  "theme_color": "#f8fafe",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "icons/fabric-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/fabric-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/fabric-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

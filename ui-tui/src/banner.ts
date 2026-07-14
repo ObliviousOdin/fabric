@@ -1,8 +1,19 @@
 import type { ThemeColors } from './theme.js'
 
-const RICH_RE = /\[(?:bold\s+)?(?:dim\s+)?(#(?:[0-9a-fA-F]{3,8}))\]([\s\S]*?)(\[\/\])/g
+const RICH_RE =
+  /\[(?:bold\s+)?(?:dim\s+)?(#(?:[0-9a-fA-F]{3,8})|\{(?:primary|accent|border|text|muted)\})\]([\s\S]*?)(\[\/\])/g
 
-export function parseRichMarkup(markup: string): Line[] {
+const semanticColor = (token: string, colors?: ThemeColors): string => {
+  if (!token.startsWith('{')) {
+    return token
+  }
+
+  const key = token.slice(1, -1) as 'primary' | 'accent' | 'border' | 'text' | 'muted'
+
+  return colors?.[key] ?? ''
+}
+
+export function parseRichMarkup(markup: string, colors?: ThemeColors): Line[] {
   const lines: Line[] = []
 
   for (const raw of markup.split('\n')) {
@@ -31,7 +42,7 @@ export function parseRichMarkup(markup: string): Line[] {
         lines.push(['', before])
       }
 
-      lines.push([m[1]!, m[2]!])
+      lines.push([semanticColor(m[1]!, colors), m[2]!])
       cursor = m.index! + m[0].length
     }
 
@@ -44,25 +55,21 @@ export function parseRichMarkup(markup: string): Line[] {
 }
 
 const LOGO_ART = [
-  ' ▄████████▄   ███████╗ █████╗ ██████╗ ██████╗ ██╗ ██████╗',
-  '██   ██   ██  ██╔════╝██╔══██╗██╔══██╗██╔══██╗██║██╔════╝',
-  '██▄▄▄██▄▄▄█▀  █████╗  ███████║██████╔╝██████╔╝██║██║',
-  '██▀▀▀██▀▀▀█▄  ██╔══╝  ██╔══██║██╔══██╗██╔══██╗██║██║',
-  '██   ██   ██  ██║     ██║  ██║██████╔╝██║  ██║██║╚██████╗',
-  ' ▀███▀▀███▀   ╚═╝     ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚═╝ ╚═════╝'
+  '     ╭─',
+  '  ───fabric',
+  '     │',
+  '     ╰──────────╮'
 ]
 
 const FABRIC_MARK_ART = [
-  ' ▄████████▄ ',
-  '██   ██   ██',
-  '██▄▄▄██▄▄▄█▀',
-  '██▀▀▀██▀▀▀█▄',
-  '██   ██   ██',
-  ' ▀███▀▀███▀ '
+  '    ╭─',
+  '  ──f',
+  '    │',
+  '    ╰────╮'
 ]
 
-const LOGO_GRADIENT = [0, 0, 0, 0, 0, 0] as const
-const FABRIC_MARK_GRADIENT = [0, 0, 0, 0, 0, 0] as const
+const LOGO_GRADIENT = [0, 1, 0, 3] as const
+const FABRIC_MARK_GRADIENT = [0, 1, 0, 3] as const
 
 const colorize = (art: string[], gradient: readonly number[], c: ThemeColors): Line[] => {
   const p = [c.primary, c.accent, c.border, c.muted]
@@ -74,10 +81,10 @@ export const LOGO_WIDTH = Math.max(...LOGO_ART.map(line => line.length))
 export const FABRIC_MARK_WIDTH = Math.max(...FABRIC_MARK_ART.map(line => line.length))
 
 export const logo = (c: ThemeColors, customLogo?: string): Line[] =>
-  customLogo ? parseRichMarkup(customLogo) : colorize(LOGO_ART, LOGO_GRADIENT, c)
+  customLogo ? parseRichMarkup(customLogo, c) : colorize(LOGO_ART, LOGO_GRADIENT, c)
 
 export const fabricMark = (c: ThemeColors, customHero?: string): Line[] =>
-  customHero ? parseRichMarkup(customHero) : colorize(FABRIC_MARK_ART, FABRIC_MARK_GRADIENT, c)
+  customHero ? parseRichMarkup(customHero, c) : colorize(FABRIC_MARK_ART, FABRIC_MARK_GRADIENT, c)
 
 export const artWidth = (lines: Line[]) => lines.reduce((m, [, t]) => Math.max(m, t.length), 0)
 

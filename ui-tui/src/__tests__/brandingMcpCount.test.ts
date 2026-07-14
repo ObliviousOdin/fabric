@@ -4,6 +4,7 @@ import { renderSync } from '@fabric/ink'
 import React from 'react'
 import { describe, expect, it } from 'vitest'
 
+import { fabricMark, logo } from '../banner.js'
 import { Banner, SessionPanel } from '../components/branding.js'
 import { DEFAULT_THEME } from '../theme.js'
 import type { McpServerStatus, SessionInfo } from '../types.js'
@@ -97,17 +98,44 @@ describe('Fabric banner branding', () => {
   it('renders the official Fabric mark with the Fabric wordmark at full width', async () => {
     const frame = await renderBanner(100)
 
-    expect(frame).toContain('▄████████▄')
-    expect(frame).toContain('███████╗ █████╗ ██████╗ ██████╗ ██╗ ██████╗')
+    expect(frame).toContain('───fabric')
+    expect(frame).toContain('╰──────────╮')
     expect(frame).toContain('Fabric · agentic operations engine')
+    expect(frame).not.toContain('█')
     expect(frame).not.toMatch(/Hermes|Nous Research/i)
   })
 
-  it('keeps compact widths text-only and Fabric-branded', async () => {
+  it('maps the built-in lockups and semantic skin art to theme colors', () => {
+    const full = logo(DEFAULT_THEME.color)
+    const mark = fabricMark(DEFAULT_THEME.color)
+
+    const semantic = logo(
+      DEFAULT_THEME.color,
+      '[bold {accent}]──fabric[/]\n[dim {muted}]╰───╮[/]'
+    )
+
+    expect(full.map(([color]) => color)).toEqual([
+      DEFAULT_THEME.color.primary,
+      DEFAULT_THEME.color.accent,
+      DEFAULT_THEME.color.primary,
+      DEFAULT_THEME.color.muted
+    ])
+    expect(mark.map(([, text]) => text).join('\n')).toContain('──f')
+    expect(semantic).toEqual([
+      [DEFAULT_THEME.color.accent, '──fabric'],
+      [DEFAULT_THEME.color.muted, '╰───╮']
+    ])
+  })
+
+  it('preserves literal Rich colors in custom skin art', () => {
+    expect(logo(DEFAULT_THEME.color, '[bold #AABBCC]custom[/]')).toEqual([['#AABBCC', 'custom']])
+  })
+
+  it('keeps compact widths legible and Fabric-branded', async () => {
     const frame = await renderBanner(50)
 
     expect(frame).toContain('Fabric')
-    expect(frame).toContain('Agentic operations engine')
+    expect(frame).toContain('agentic operations engine')
     expect(frame).not.toMatch(/Hermes|Nous Research/i)
   })
 

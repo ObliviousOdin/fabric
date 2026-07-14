@@ -117,7 +117,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from fabric_cli.banner import FABRIC_AGENT_LOGO, FABRIC_MARK
+from fabric_cli.banner import FABRIC_AGENT_LOGO_TEMPLATE, FABRIC_MARK_TEMPLATE
 from fabric_constants import get_fabric_home
 
 logger = logging.getLogger(__name__)
@@ -203,8 +203,8 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
             "help_header": "Fabric commands",
         },
         "tool_prefix": "┊",
-        "banner_logo": FABRIC_AGENT_LOGO,
-        "banner_hero": FABRIC_MARK,
+        "banner_logo": FABRIC_AGENT_LOGO_TEMPLATE,
+        "banner_hero": FABRIC_MARK_TEMPLATE,
     },
     "ares": {
         "name": "ares",

@@ -11,6 +11,9 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "acp_registry" / "agent.json"
 ICON = ROOT / "acp_registry" / "icon.svg"
+CANONICAL_MONO_MARK = (
+    ROOT / "apps" / "design-system" / "dist" / "brand" / "fabric-mark-mono.svg"
+)
 FORBIDDEN_MANIFEST_KEYS = {"schema_version", "display_name"}
 ALLOWED_DISTRIBUTIONS = {"binary", "npx", "uvx"}
 
@@ -66,12 +69,18 @@ def test_agent_json_pins_uvx_package_to_pyproject_version():
     )
 
 
-def test_icon_svg_is_16x16_current_color():
+def test_icon_svg_is_canonical_compact_current_color_mark():
     root = ET.fromstring(ICON.read_text(encoding="utf-8"))
 
-    assert root.attrib["viewBox"] == "0 0 16 16"
-    assert root.attrib["width"] == "16"
-    assert root.attrib["height"] == "16"
+    assert ICON.read_bytes() == CANONICAL_MONO_MARK.read_bytes()
+    assert root.attrib["viewBox"] == "0 0 128 128"
+    assert root.attrib["width"] == "128"
+    assert root.attrib["height"] == "128"
+    mark = next(
+        element for element in root.iter() if element.attrib.get("data-fabric-mark")
+    )
+    assert mark.attrib["fill"] == "currentColor"
+    assert not any("bracket" in element.attrib.get("id", "") for element in root.iter())
 
 
 def test_icon_svg_has_no_hardcoded_colors_or_gradients():

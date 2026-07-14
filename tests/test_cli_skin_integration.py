@@ -145,9 +145,10 @@ class TestDefaultFabricBannerIntegration:
         assert skin.get_branding("agent_name") == "Fabric"
         assert skin.get_branding("response_label") == " Fabric "
         assert "Fabric" in skin.get_branding("welcome")
-        assert "▄████████▄" in skin.banner_logo
-        assert "███████╗ █████╗ ██████╗ ██████╗ ██╗ ██████╗" in skin.banner_logo
-        assert "▄████████▄" in skin.banner_hero
+        assert "───fabric" in skin.banner_logo
+        assert "╰──────────╮" in skin.banner_logo
+        assert "──f" in skin.banner_hero
+        assert "█" not in skin.banner_logo
         assert "HERMES" not in skin.banner_logo.upper()
         assert "NOUS" not in skin.banner_logo.upper()
 
@@ -190,8 +191,9 @@ class TestDefaultFabricBannerIntegration:
             )
 
         rendered = console.export_text()
-        assert "▄████████▄" in rendered
-        assert "███████╗ █████╗ ██████╗ ██████╗ ██╗ ██████╗" in rendered
+        assert "───fabric" in rendered
+        assert "╰──────────╮" in rendered
+        assert "█" not in rendered
         assert "Fabric v" in rendered
         assert "Fabric" in rendered
         assert "HERMES" not in rendered.upper()

@@ -145,13 +145,18 @@ def test_packaging_workflow_derives_names_and_checks_all_native_formats() -> Non
     )
 
 
-def test_upstream_mit_notice_and_desktop_developer_attribution_are_preserved() -> None:
+def test_apache_license_and_upstream_mit_attribution_are_preserved() -> None:
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+    upstream_license_text = (ROOT / "LICENSES/MIT-hermes-agent.txt").read_text(
+        encoding="utf-8"
+    )
     notice_text = (ROOT / "NOTICE").read_text(encoding="utf-8")
     desktop_readme = (DESKTOP_ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "MIT License" in license_text
-    assert "Copyright (c) 2025 Nous Research" in license_text
+    assert "Apache License" in license_text
+    assert "MIT License" in upstream_license_text
+    assert "Copyright (c) 2025 Nous Research" in upstream_license_text
     assert "Hermes Agent by Nous Research" in notice_text
-    assert "upstream" in desktop_readme
+    assert "Apache License 2.0" in desktop_readme
+    assert "upstream MIT notice" in desktop_readme
     assert "[`NOTICE`](../../NOTICE)" in desktop_readme

@@ -395,7 +395,7 @@ def audit_built_public_site(build_dir: Path) -> list[str]:
 
 # ── Brand color system ──────────────────────────────────────────────────
 #
-# The canonical Fabric accent is Rabot purple #4628CC. Status colors stay
+# The canonical Fabric accent is Fabric violet #4628CC. Status colors stay
 # semantic; the inherited teal console palette and former blue brand theme
 # survive only in explicitly labeled historical presets and color-math tests.
 
@@ -442,7 +442,7 @@ BRAND_SOURCE_REQUIRED = (
 
 
 def audit_brand_colors(root: Path = ROOT) -> list[str]:
-    """Enforce the canonical Rabot-purple color system in product sources."""
+    """Enforce the canonical Fabric-violet color system in product sources."""
 
     issues: list[str] = []
 

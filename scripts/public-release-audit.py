@@ -136,6 +136,12 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
         # updates via rebase-merge, which preserves the clean PR author.
         ("da19b8dbafc2c47181bca9e664940f9e4a979222", "personal-email"),
         ("da19b8dbafc2c47181bca9e664940f9e4a979222", "private-brand"),
+        # PR #7 and PR #8 were also squash-merged before the account-level
+        # email privacy fix. These exact commits are already immutable on main.
+        ("eb769ff38be6c7ce2b2a4c69e8741b15cb702e38", "personal-email"),
+        ("eb769ff38be6c7ce2b2a4c69e8741b15cb702e38", "private-brand"),
+        ("58bc651c5c067e02f6330aeadfc469c74d686b0a", "personal-email"),
+        ("58bc651c5c067e02f6330aeadfc469c74d686b0a", "private-brand"),
     }
 )
 

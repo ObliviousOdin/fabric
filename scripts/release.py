@@ -26,6 +26,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
+import zipfile
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -250,6 +252,101 @@ def build_release_artifacts(semver: str) -> list[Path]:
         print("  ⚠ Built artifacts did not match the expected release version.")
         return []
     return matching
+
+
+def _release_artifact_metadata_version(path: Path) -> str:
+    """Read the package version embedded in a wheel or source distribution."""
+    if path.name.endswith(".whl"):
+        with zipfile.ZipFile(path) as archive:
+            corrupt_member = archive.testzip()
+            if corrupt_member is not None:
+                raise ValueError(f"corrupt wheel member: {corrupt_member}")
+            metadata_files = [
+                name
+                for name in archive.namelist()
+                if name.endswith(".dist-info/METADATA")
+            ]
+            if len(metadata_files) != 1:
+                raise ValueError(
+                    f"expected one wheel METADATA file, found {len(metadata_files)}"
+                )
+            metadata = archive.read(metadata_files[0]).decode("utf-8")
+    elif path.name.endswith(".tar.gz"):
+        with tarfile.open(path, mode="r:gz") as archive:
+            metadata_files = [
+                member
+                for member in archive.getmembers()
+                if (
+                    member.isfile()
+                    and member.name.endswith("/PKG-INFO")
+                    and member.name.count("/") == 1
+                )
+            ]
+            if len(metadata_files) != 1:
+                raise ValueError(
+                    f"expected one sdist PKG-INFO file, found {len(metadata_files)}"
+                )
+            extracted = archive.extractfile(metadata_files[0])
+            if extracted is None:
+                raise ValueError("could not read sdist PKG-INFO")
+            metadata = extracted.read().decode("utf-8")
+    else:
+        raise ValueError("unexpected release artifact type")
+
+    match = re.search(r"^Version:\s*(\S+)\s*$", metadata, flags=re.MULTILINE)
+    if match is None:
+        raise ValueError("package metadata has no Version field")
+    return match.group(1)
+
+
+def validate_release_artifacts(artifacts: list[Path], semver: str) -> bool:
+    """Fail closed unless one valid wheel and one valid sdist match ``semver``."""
+    paths = [Path(path) for path in artifacts]
+    wheels = [path for path in paths if path.name.endswith(".whl")]
+    sdists = [path for path in paths if path.name.endswith(".tar.gz")]
+    unexpected = [path for path in paths if path not in wheels and path not in sdists]
+
+    errors: list[str] = []
+    if len(wheels) != 1:
+        errors.append(f"expected one wheel, found {len(wheels)}")
+    if len(sdists) != 1:
+        errors.append(f"expected one source distribution, found {len(sdists)}")
+    if unexpected:
+        errors.append(
+            "unexpected artifact types: " + ", ".join(path.name for path in unexpected)
+        )
+
+    for path in paths:
+        try:
+            if not path.is_file() or path.stat().st_size == 0:
+                errors.append(f"missing or empty artifact: {path}")
+                continue
+            if semver not in path.name:
+                errors.append(
+                    f"artifact filename does not contain {semver}: {path.name}"
+                )
+                continue
+            embedded_version = _release_artifact_metadata_version(path)
+            if embedded_version != semver:
+                errors.append(
+                    f"{path.name} embeds version {embedded_version}, expected {semver}"
+                )
+        except (
+            OSError,
+            UnicodeDecodeError,
+            ValueError,
+            tarfile.TarError,
+            zipfile.BadZipFile,
+        ) as exc:
+            errors.append(f"could not validate {path.name}: {exc}")
+
+    if errors:
+        print("  ✗ Release artifact validation failed:")
+        for error in errors:
+            print(f"    - {error}")
+        return False
+
+    return True
 
 
 def resolve_author(name: str, email: str) -> str:
@@ -612,7 +709,21 @@ def main():
                 return
             print("  ✓ Committed version bump")
 
-        # Create annotated tag
+        # Build and validate semver-named Python artifacts before creating any
+        # tag. A release without both valid package formats must not become a
+        # published git/GitHub release that downstream installers can observe.
+        artifacts = build_release_artifacts(new_version)
+        if not artifacts:
+            print("  ✗ Release aborted: Python artifacts could not be built.")
+            raise SystemExit(1)
+        if not validate_release_artifacts(artifacts, new_version):
+            print("  ✗ Release aborted: Python artifacts did not validate.")
+            raise SystemExit(1)
+        print("  ✓ Built and validated release artifacts:")
+        for artifact in artifacts:
+            print(f"    - {artifact.relative_to(REPO_ROOT)}")
+
+        # Create annotated tag only after the release payload is known-good.
         tag_result = git_result(
             "tag", "-a", tag_name, "-m",
             f"Fabric v{new_version} ({calver_date})\n\nWeekly release"
@@ -630,14 +741,8 @@ def main():
             print(f"  ✗ Failed to push to origin: {push_result.stderr.strip()}")
             print("    Continue manually after fixing access:")
             print("    git push origin HEAD --tags")
-
-        # Build semver-named Python artifacts so downstream packagers
-        # (e.g. Homebrew) can target them without relying on CalVer tag names.
-        artifacts = build_release_artifacts(new_version)
-        if artifacts:
-            print("  ✓ Built release artifacts:")
-            for artifact in artifacts:
-                print(f"    - {artifact.relative_to(REPO_ROOT)}")
+            # Never create a GitHub release whose tag failed to reach origin.
+            raise SystemExit(1)
 
         # Create GitHub release
         changelog_file = REPO_ROOT / ".release_notes.md"

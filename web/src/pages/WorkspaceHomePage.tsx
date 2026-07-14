@@ -20,6 +20,7 @@ import {
 import { useProfileScope } from "@/contexts/useProfileScope";
 import { api } from "@/lib/api";
 import type { CronSummary, SessionInfo, StatusResponse } from "@/lib/api";
+import { freshChatPath } from "@/components/chat/usePersistentChatIdentity";
 
 interface HomeProjection {
   status: StatusResponse | null;
@@ -86,6 +87,21 @@ function PanelLink({
       {children}
       <ArrowRight aria-hidden="true" className="h-3.5 w-3.5" />
     </Link>
+  );
+}
+
+function FreshChatLink({
+  children,
+  primary = false,
+}: {
+  children: string;
+  primary?: boolean;
+}) {
+  const [to] = useState(freshChatPath);
+  return (
+    <PanelLink primary={primary} to={to}>
+      {children}
+    </PanelLink>
   );
 }
 
@@ -249,9 +265,9 @@ export default function WorkspaceHomePage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <PanelLink primary to="/workspace/chat">
+            <FreshChatLink primary>
               Start a conversation
-            </PanelLink>
+            </FreshChatLink>
             <PanelLink to="/workspace/work">Open Work Board</PanelLink>
           </div>
         </header>
@@ -319,9 +335,9 @@ export default function WorkspaceHomePage() {
                   title="No conversations yet"
                   description="Start in Chat. Fabric will keep the resulting session in the conversation ledger."
                   primaryAction={
-                    <PanelLink to="/workspace/chat">
+                    <FreshChatLink>
                       Start a conversation
-                    </PanelLink>
+                    </FreshChatLink>
                   }
                 />
               ) : (

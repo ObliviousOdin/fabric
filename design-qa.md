@@ -2,6 +2,10 @@
 
 Date: 2026-07-13
 
+> Historical QA record for the first Work/Team delivery. The current canonical
+> Workspace/Admin visual contract is [Woven Operations](web/DESIGN.md); later
+> screenshots and token decisions supersede the colors and shell described here.
+
 ## Comparison setup
 
 - Source visual truth: `/tmp/fabric-design-qa-20260713/reference.png`

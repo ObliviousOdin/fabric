@@ -29,7 +29,7 @@ capabilities that Fabric cannot yet enforce:
 - a persistent three-panel Chat built around the real `fabric --tui`;
 - existing management pages regrouped under the new information architecture;
 - lazy route loading, shared screen states, canonical Fabric Light/Dark
-  themes, and the Rabot purple token family;
+  themes, and the Fabric violet token family;
 - compatibility aliases for existing dashboard bookmarks and plugin routes.
 
 The following capabilities remain staged backend work:
@@ -163,7 +163,7 @@ success, failure, conflict, and destructive-confirmation states. Existing live
 screens adopt these states as their data contracts are updated.
 
 Fabric Light and Fabric Dark are the canonical generated themes. Both use
-neutral woven surfaces and one restrained action color derived from the Rabot
+neutral woven surfaces and one restrained action color derived from the Fabric
 primary `#4628CC`; status colors retain their semantic meaning. Compact and
 comfortable density, high contrast, and optional expressive themes remain
 available through the theme controls.

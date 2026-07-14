@@ -273,8 +273,15 @@ fabric-agent/
 │
 ├── skills/                   # Bundled skills (copied to ~/.fabric/skills/ on install)
 ├── optional-skills/          # Official optional skills (discoverable via hub, not activated by default)
+├── apps/
+│   ├── design-system/        # Canonical tokens and Fabric brand assets
+│   ├── desktop/              # Electron + React desktop app
+│   └── shared/               # Shared desktop/web gateway transport
+├── ui-tui/                   # Ink terminal UI
+├── tui_gateway/              # Python JSON-RPC backend for the TUI
+├── web/                      # React Workspace/Admin dashboard
 ├── tests/                    # Test suite
-├── website/                  # Fabric documentation site
+├── website/                  # Docusaurus documentation site
 │
 ├── cli-config.yaml.example   # Example configuration (copied to ~/.fabric/config.yaml)
 └── AGENTS.md                 # Development guide for AI coding assistants

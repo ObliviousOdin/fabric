@@ -136,8 +136,8 @@ and rejects artifact names that drift from the manifest.
 ## Troubleshooting
 
 Desktop boot logs are written to `FABRIC_HOME/logs/desktop.log`. The legacy
-`FABRIC_HOME` variable is still accepted as an input, but new Fabric installs use
-`FABRIC_HOME` and `~/.fabric`.
+`HERMES_HOME` variable is still accepted as an input, but new Fabric installs
+use `FABRIC_HOME` and `~/.fabric`.
 
 On macOS, reset a stuck microphone permission for the Fabric bundle with:
 
@@ -151,6 +151,6 @@ For product issues, use the
 ## License and upstream attribution
 
 Fabric is distributed under the repository's Apache License 2.0. The complete
-upstream MIT notice for Hermes Agent by Nous Research is preserved in
+upstream MIT notice is preserved in
 [`LICENSES/MIT-hermes-agent.txt`](../../LICENSES/MIT-hermes-agent.txt), with
 the required attribution summarized in [`NOTICE`](../../NOTICE).

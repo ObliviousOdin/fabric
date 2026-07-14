@@ -274,7 +274,7 @@ export default function ModelsPage() {
                   {L?.tokensHiddenSummary ??
                     "token & cost estimates hidden — local counts diverge from provider billing"}{" "}
                   &#183;{" "}
-                  <Link to="/config" className="underline">
+                  <Link to="/admin/advanced" className="underline">
                     {L?.configLink ?? "Config"}
                   </Link>
                 </span>

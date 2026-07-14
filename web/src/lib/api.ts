@@ -328,9 +328,31 @@ function appendProfileParam(url: string, profile?: string): string {
   return `${url}${url.includes("?") ? "&" : "?"}profile=${encodeURIComponent(profile)}`;
 }
 
+// The shell and Workspace Home mount together and both need the same status
+// projection. Coalesce only concurrent reads (no stale TTL cache) so callers
+// retain their existing refresh semantics without issuing duplicate requests.
+let statusRequestInFlight: {
+  profile: string;
+  request: Promise<StatusResponse>;
+} | null = null;
+
+function getStatus(): Promise<StatusResponse> {
+  const profile = getManagementProfile();
+  if (statusRequestInFlight?.profile === profile) {
+    return statusRequestInFlight.request;
+  }
+  const request = fetchJSON<StatusResponse>("/api/status");
+  statusRequestInFlight = { profile, request };
+  const clear = () => {
+    if (statusRequestInFlight?.request === request) statusRequestInFlight = null;
+  };
+  void request.then(clear, clear);
+  return request;
+}
+
 export const api = {
   buildWsUrl,
-  getStatus: () => fetchJSON<StatusResponse>("/api/status"),
+  getStatus,
   /**
    * Identity probe for the dashboard auth gate (Phase 7).
    *
@@ -670,6 +692,10 @@ export const api = {
   getCronJobs: (profile = "all") =>
     fetchJSON<CronJob[]>(
       `/api/cron/jobs?profile=${encodeURIComponent(profile)}`,
+    ),
+  getCronSummary: (profile = "default") =>
+    fetchJSON<CronSummary>(
+      `/api/cron/summary?profile=${encodeURIComponent(profile)}`,
     ),
   getCronDeliveryTargets: () =>
     fetchJSON<{ targets: CronDeliveryTarget[] }>("/api/cron/delivery-targets"),
@@ -2495,6 +2521,13 @@ export interface CronJob {
   last_status?: string | null;
   last_error?: string | null;
   last_delivery_error?: string | null;
+}
+
+export interface CronSummary {
+  enabled: number;
+  failed: number;
+  profile: string;
+  total: number;
 }
 
 export interface CronDeliveryTarget {

@@ -1,6 +1,6 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { Plus, Terminal, Trash2, X } from "lucide-react";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Checkbox } from "@nous-research/ui/ui/components/checkbox";
 import { Input } from "@nous-research/ui/ui/components/input";

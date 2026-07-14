@@ -5,12 +5,28 @@ import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Input } from "@nous-research/ui/ui/components/input";
 import { Label } from "@nous-research/ui/ui/components/label";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import type { GatewayClient } from "@/lib/gatewayClient";
 import { Check, RefreshCw, Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { cn, themedBody } from "@/lib/utils";
 import { fuzzyRank } from "@/lib/fuzzy";
+
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "a[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
 
 /**
  * Two-stage model picker modal.
@@ -115,6 +131,16 @@ export function ModelPickerDialog(props: Props) {
   const [pendingConfirm, setPendingConfirm] =
     useState<PendingExpensiveConfirm | null>(null);
   const closedRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  // Capture before the portal commits: the autoFocus search input owns focus
+  // by the time effects run, which is too late to remember the opener.
+  const restoreFocusRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" &&
+      document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
+  useBodyScrollLock();
 
   const applyOptions = (r: ModelOptionsResponse) => {
     const next = r?.providers ?? [];
@@ -189,17 +215,56 @@ export function ModelPickerDialog(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Esc closes.
+  // Return keyboard users to the control that opened the picker.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
+    const restoreFocusTarget = restoreFocusRef.current;
+
+    return () => {
+      restoreFocusTarget?.focus();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    // Isolate this portaled modal from React ancestors such as ChatSideSheet.
+    // If a child portal (the expensive-model confirmation) emitted the key,
+    // let that child own it without also closing or retrapping this picker.
+    event.stopPropagation();
+    if (
+      event.target instanceof Node &&
+      !dialogRef.current?.contains(event.target)
+    ) {
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ??
+        [],
+    );
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialogRef.current?.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !dialogRef.current?.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   const selectedProvider = useMemo(
     () => providers.find((p) => p.slug === selectedSlug) ?? null,
@@ -319,17 +384,20 @@ export function ModelPickerDialog(props: Props) {
   // Portal to document.body: the main dashboard column in App.tsx is
   // `relative z-2`, which creates a stacking context that traps fixed
   // descendants below the app sidebar (z-50). Without the portal this
-  // modal's z-[100] is scoped to z-2 and the sidebar covers its left
+  // modal's z-[300] is scoped to z-2 and the sidebar covers its left
   // edge — visible especially in the Large theme variants where the
   // larger root font widens the dialog into the sidebar's column. See
   // Toast.tsx for the same pattern.
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-background/85 p-4"
+      ref={dialogRef}
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-background/85 p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={handleDialogKeyDown}
       role="dialog"
       aria-modal="true"
       aria-labelledby="model-picker-title"
+      tabIndex={-1}
     >
       <div className={cn(themedBody, "relative w-full max-w-3xl max-h-[80vh] border border-border bg-card shadow-2xl flex flex-col")}>
         <Button

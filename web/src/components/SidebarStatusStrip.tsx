@@ -3,52 +3,59 @@ import { gatewayLine } from "@/components/gateway-line";
 import type { StatusResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
+import {
+  StatusSignal,
+  type FabricStatusTone,
+} from "@/components/fabric/StatusSignal";
 
 /** Gateway + session summary for the System sidebar block (no separate strip chrome). */
-export function SidebarStatusStrip({ status }: SidebarStatusStripProps) {
+export function SidebarStatusStrip({
+  collapsed = false,
+  status,
+}: SidebarStatusStripProps) {
   const { t } = useI18n();
 
   if (status === null) {
     return (
-      <div className="px-5 py-1.5" aria-hidden>
-        <div className="h-2 w-[80%] max-w-full animate-pulse rounded-sm bg-midground/10" />
+      <div className={cn("px-4 py-3", collapsed && "lg:px-0")} aria-hidden>
+        <div className="h-2 w-[70%] max-w-full animate-pulse rounded-sm bg-muted" />
       </div>
     );
   }
 
   const gw = gatewayLine(status, t);
-  const { activeSessionsLabel, gatewayStatusLabel } = t.app;
+  const toneMap: Record<string, FabricStatusTone> = {
+    "text-success": "success",
+    "text-warning": "warning",
+    "text-destructive": "danger",
+    "text-muted-foreground": "neutral",
+  };
+  const tone = toneMap[gw.tone] ?? "neutral";
+  const detail = `${status.active_sessions} active`;
 
   return (
     <Link
-      to="/sessions"
+      to="/admin/system"
       title={t.app.statusOverview}
       className={cn(
-        "block text-left",
-        "px-5 pb-2 pt-0.5",
-        "text-text-secondary",
-        "transition-colors hover:text-midground",
-        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground/40",
-        "focus-visible:ring-inset",
+        "flex min-h-11 min-w-0 items-center px-4 text-left",
+        "transition-colors hover:bg-muted/55",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        collapsed && "lg:justify-center lg:px-0",
       )}
     >
-      <div className="flex flex-col gap-1 font-sans text-xs leading-snug tracking-[0.08em]">
-        <p className="break-words">
-          <span className="text-text-tertiary">{gatewayStatusLabel}</span>{" "}
-          <span className={cn("font-medium", gw.tone)}>{gw.label}</span>
-        </p>
-
-        <p className="break-words">
-          <span className="text-text-tertiary">{activeSessionsLabel}</span>{" "}
-          <span className="tabular-nums text-text-secondary">
-            {status.active_sessions}
-          </span>
-        </p>
-      </div>
+      <StatusSignal
+        compact={collapsed}
+        detail={detail}
+        label={`System ${gw.label}`}
+        pulse={tone === "success"}
+        tone={tone}
+      />
     </Link>
   );
 }
 
 interface SidebarStatusStripProps {
+  collapsed?: boolean;
   status: StatusResponse | null;
 }

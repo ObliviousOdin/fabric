@@ -25,7 +25,7 @@ import type {
   SkillHubScan,
   SkillHubSource,
 } from "@/lib/api";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import {

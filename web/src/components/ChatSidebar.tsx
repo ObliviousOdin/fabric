@@ -386,7 +386,7 @@ export function ChatSidebar({
   const banner = error ?? info.credential_warning ?? null;
 
   return (
-    <aside
+    <div
       className={cn(
         "flex h-full w-full min-w-0 shrink-0 flex-col gap-3 overflow-y-auto overflow-x-hidden pr-1",
         className,
@@ -505,6 +505,6 @@ export function ChatSidebar({
           );
         }}
       />
-    </aside>
+    </div>
   );
 }

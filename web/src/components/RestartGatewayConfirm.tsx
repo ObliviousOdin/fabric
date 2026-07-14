@@ -31,7 +31,7 @@ export function RestartGatewayConfirm({
       onConfirm={() => {
         onClose();
         void runAction("restart");
-        navigate("/sessions");
+        navigate("/workspace/conversations");
         onConfirmed?.();
       }}
       open={open}

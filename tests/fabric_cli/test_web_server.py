@@ -949,8 +949,14 @@ class TestWebServerEndpoints:
         themes = {theme["name"]: theme for theme in payload["themes"]}
         assert themes["fabric-light"]["label"] == "Fabric Light"
         assert themes["fabric-dark"]["label"] == "Fabric Dark"
-        assert themes["fabric-teal"]["label"] == "Fabric Teal (Heritage)"
-        assert "default" not in themes
+        assert not {
+            "default",
+            "default-large",
+            "fabric-blue",
+            "fabric-teal",
+            "lens-5i",
+            "nous-blue",
+        } & themes.keys()
 
     def test_dashboard_theme_migrates_legacy_default_id(self):
         from fabric_cli.config import load_config, save_config
@@ -964,37 +970,56 @@ class TestWebServerEndpoints:
         assert resp.json()["active"] == "fabric-light"
         assert load_config()["dashboard"]["theme"] == "fabric-light"
 
-    def test_dashboard_theme_catalog_uses_fabric_blue_identity(self):
+    def test_dashboard_theme_catalog_excludes_heritage_identities(self):
         resp = self.client.get("/api/dashboard/themes")
         assert resp.status_code == 200
 
-        themes = resp.json()["themes"]
-        assert any(
-            theme["name"] == "fabric-blue" and theme["label"] == "Fabric Blue"
-            for theme in themes
-        )
-        assert all(theme["name"] not in {"lens-5i", "nous-blue"} for theme in themes)
-        assert all("Nous Blue" not in theme["label"] for theme in themes)
+        names = {theme["name"] for theme in resp.json()["themes"]}
+        assert {"fabric-light", "fabric-dark"} <= names
+        assert not {
+            "default-large",
+            "fabric-blue",
+            "fabric-teal",
+            "lens-5i",
+            "nous-blue",
+        } & names
 
-    def test_dashboard_theme_migrates_legacy_blue_id(self):
+    def test_dashboard_theme_migrates_heritage_ids_to_fabric_light(self):
         from fabric_cli.config import load_config, save_config
 
-        config = load_config()
-        config.setdefault("dashboard", {})["theme"] = "nous-blue"
-        save_config(config)
+        for legacy_name in (
+            "lens-5i",
+            "nous-blue",
+            "fabric-blue",
+            "fabric-teal",
+            "default-large",
+        ):
+            config = load_config()
+            config.setdefault("dashboard", {})["theme"] = legacy_name
+            save_config(config)
 
-        resp = self.client.get("/api/dashboard/themes")
-        assert resp.status_code == 200
-        assert resp.json()["active"] == "fabric-blue"
-        assert load_config()["dashboard"]["theme"] == "fabric-blue"
+            resp = self.client.get("/api/dashboard/themes")
+            assert resp.status_code == 200
+            assert resp.json()["active"] == "fabric-light"
+            assert load_config()["dashboard"]["theme"] == "fabric-light"
 
-    def test_set_dashboard_theme_canonicalizes_legacy_blue_id(self):
+    def test_set_dashboard_theme_canonicalizes_heritage_ids(self):
         from fabric_cli.config import load_config
 
-        resp = self.client.put("/api/dashboard/theme", json={"name": "lens-5i"})
-        assert resp.status_code == 200
-        assert resp.json() == {"ok": True, "theme": "fabric-blue"}
-        assert load_config()["dashboard"]["theme"] == "fabric-blue"
+        for legacy_name in (
+            "lens-5i",
+            "nous-blue",
+            "fabric-blue",
+            "fabric-teal",
+            "default-large",
+        ):
+            resp = self.client.put(
+                "/api/dashboard/theme",
+                json={"name": legacy_name},
+            )
+            assert resp.status_code == 200
+            assert resp.json() == {"ok": True, "theme": "fabric-light"}
+            assert load_config()["dashboard"]["theme"] == "fabric-light"
 
     # ── Dashboard font override ─────────────────────────────────────────
 
@@ -3108,6 +3133,47 @@ class TestWebServerEndpoints:
 
         assert seen_encodings == {"index": "utf-8", "css": "utf-8"}
 
+    def test_spa_pwa_assets_honor_forwarded_prefix(self, monkeypatch, tmp_path):
+        from fastapi import FastAPI
+        from starlette.testclient import TestClient
+        import fabric_cli.web_server as ws
+
+        dist = tmp_path / "web_dist"
+        (dist / "assets").mkdir(parents=True)
+        (dist / "icons").mkdir()
+        (dist / "index.html").write_text(
+            '<html><head><link rel="manifest" href="/manifest.webmanifest">'
+            '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">'
+            '</head><body></body></html>',
+            encoding="utf-8",
+        )
+        (dist / "manifest.webmanifest").write_text(
+            '{"name":"Fabric"}', encoding="utf-8"
+        )
+        (dist / "icons" / "apple-touch-icon.png").write_bytes(b"fabric-icon")
+
+        monkeypatch.setattr(ws, "WEB_DIST", dist)
+        spa_app = FastAPI()
+        ws.mount_spa(spa_app)
+        spa_client = TestClient(spa_app)
+
+        response = spa_client.get(
+            "/workspace/home",
+            headers={"x-forwarded-prefix": "/fabric"},
+        )
+        assert response.status_code == 200
+        assert 'href="/fabric/manifest.webmanifest"' in response.text
+        assert 'href="/fabric/icons/apple-touch-icon.png"' in response.text
+
+        # The prefix proxy strips `/fabric` before forwarding these requests;
+        # the backend must still serve the resulting concrete static files.
+        assert spa_client.get("/manifest.webmanifest").json() == {
+            "name": "Fabric"
+        }
+        icon = spa_client.get("/icons/apple-touch-icon.png")
+        assert icon.status_code == 200
+        assert icon.content == b"fabric-icon"
+
     def test_headless_serve_disables_spa_even_with_a_dist(self, monkeypatch, tmp_path):
         """`fabric serve` (HERMES_SERVE_HEADLESS) must NOT serve the SPA even
         when a built dist is present — only the API/WS surface is reachable."""
@@ -3843,6 +3909,38 @@ class TestNewEndpoints:
         resp = self.client.get("/api/cron/jobs")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
+
+    def test_cron_summary_is_bounded_and_profile_scoped(self, monkeypatch):
+        import fabric_cli.web_server as ws
+
+        seen = []
+
+        def fake_list(profile):
+            seen.append(profile)
+            return [
+                {"id": "enabled", "enabled": True, "state": "scheduled"},
+                {"id": "paused", "enabled": False, "state": "paused"},
+                {
+                    "id": "failed",
+                    "enabled": True,
+                    "state": "scheduled",
+                    "last_status": "error",
+                    "prompt": "large fields are not returned",
+                },
+            ]
+
+        monkeypatch.setattr(ws, "_list_cron_jobs_sync", fake_list)
+        resp = self.client.get("/api/cron/summary?profile=ops")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "profile": "ops",
+            "total": 3,
+            "enabled": 2,
+            "failed": 1,
+        }
+        assert seen == ["ops"]
+        assert "prompt" not in resp.text
 
     def test_cron_job_not_found(self):
         resp = self.client.get("/api/cron/jobs/nonexistent-id")

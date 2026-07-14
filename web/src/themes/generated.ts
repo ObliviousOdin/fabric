@@ -2,11 +2,11 @@
  * Shipped generated presets — the designated dark/light pair the
  * appearance preference (dark | light | system) swaps between.
  *
- * Both are produced by `generateTheme` from the same two inputs: a
- * blue-cast neutral base (hue source for the monochrome surfaces) and the
- * Fabric blue accent (the single chromatic accent). High-contrast variants
- * share the SAME theme name — they're surfaced through the contrast
- * toggle in the theme picker, not as separate preset ids.
+ * Both are produced by `generateTheme` from Fabric-specific foundations:
+ * a warm woven-paper neutral for light mode, a violet-charcoal neutral for
+ * dark mode, and the canonical Fabric purple as the single action accent.
+ * High-contrast variants share the SAME theme name — they're surfaced
+ * through the contrast toggle in the theme picker, not as separate preset ids.
  *
  * Current backends list this pair in the built-in catalog; the provider also
  * unions client built-ins into the picker so the themes remain usable against
@@ -17,16 +17,16 @@ import { generateTheme } from "./generate";
 import type { ThemeAppearance, ThemeContrast } from "./generate";
 import type { DashboardTheme } from "./types";
 
-/** Near-black with a whisper of blue — contributes hue only; the
- *  generator clamps chroma and re-derives lightness per appearance.
- *  Hue-matched to the Fabric-blue accent (OKLCH H≈263) so even the
- *  monochrome surfaces read as the brand family. */
-const FABRIC_BASE = "#101828";
-/** Fabric blue — the single chromatic accent. Canonical brand primary,
- *  shared with the desktop app (--theme-primary / --ui-blue) and the
- *  fabric-blue preset. Carries white text at 5.74:1 and holds ≥3:1
- *  non-text on both generated canvases without generator nudging. */
-const FABRIC_ACCENT = "#0053fd";
+/** Warm flax/stone hue source for the light canvas. The generator clamps its
+ *  chroma, leaving a paper-like warmth rather than a beige product tint. */
+const FABRIC_LIGHT_BASE = "#8C8372";
+/** Violet-charcoal hue source for dark surfaces. This is deliberately not the
+ *  inherited blue/teal console neutral. */
+const FABRIC_DARK_BASE = "#29242E";
+/** Canonical Fabric purple — the single chromatic brand/action accent.
+ *  Accessibility remains derived by generateTheme for each appearance
+ *  and contrast mode rather than by hard-coded shade swaps. */
+const FABRIC_ACCENT = "#4628CC";
 
 export const GENERATED_DARK_THEME = "fabric-dark";
 export const GENERATED_LIGHT_THEME = "fabric-light";
@@ -34,8 +34,9 @@ export const GENERATED_LIGHT_THEME = "fabric-light";
 export const fabricDarkTheme = generateTheme({
   name: GENERATED_DARK_THEME,
   label: "Fabric Dark",
-  description: "Generated dark — monochrome surfaces, single Fabric-blue accent",
-  base: FABRIC_BASE,
+  description:
+    "Violet-charcoal workspace with a restrained Fabric-purple action thread",
+  base: FABRIC_DARK_BASE,
   accent: FABRIC_ACCENT,
   appearance: "dark",
 });
@@ -43,8 +44,9 @@ export const fabricDarkTheme = generateTheme({
 export const fabricDarkHighContrastTheme = generateTheme({
   name: GENERATED_DARK_THEME,
   label: "Fabric Dark",
-  description: "Generated dark — monochrome surfaces, single Fabric-blue accent",
-  base: FABRIC_BASE,
+  description:
+    "Violet-charcoal workspace with a restrained Fabric-purple action thread",
+  base: FABRIC_DARK_BASE,
   accent: FABRIC_ACCENT,
   appearance: "dark",
   contrast: "high",
@@ -53,8 +55,9 @@ export const fabricDarkHighContrastTheme = generateTheme({
 export const fabricLightTheme = generateTheme({
   name: GENERATED_LIGHT_THEME,
   label: "Fabric Light",
-  description: "Generated light — monochrome surfaces, single Fabric-blue accent",
-  base: FABRIC_BASE,
+  description:
+    "Warm woven-paper workspace with a restrained Fabric-purple action thread",
+  base: FABRIC_LIGHT_BASE,
   accent: FABRIC_ACCENT,
   appearance: "light",
 });
@@ -62,8 +65,9 @@ export const fabricLightTheme = generateTheme({
 export const fabricLightHighContrastTheme = generateTheme({
   name: GENERATED_LIGHT_THEME,
   label: "Fabric Light",
-  description: "Generated light — monochrome surfaces, single Fabric-blue accent",
-  base: FABRIC_BASE,
+  description:
+    "Warm woven-paper workspace with a restrained Fabric-purple action thread",
+  base: FABRIC_LIGHT_BASE,
   accent: FABRIC_ACCENT,
   appearance: "light",
   contrast: "high",

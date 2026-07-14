@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import type { Badge } from "@nous-research/ui/ui/components/badge";
+import type { Badge } from "@/components/fabric/Badge";
 
 /**
  * One canonical status vocabulary for every WORK surface (Sessions, Cron,

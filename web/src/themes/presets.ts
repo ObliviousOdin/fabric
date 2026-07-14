@@ -8,11 +8,11 @@ import { fabricDarkTheme, fabricLightTheme } from "./generated";
  * themes produces visible changes beyond just color — fonts, density, and
  * corner-radius all shift to match the theme's personality.
  *
- * Hand-authored theme names must stay in sync with the backend's
- * `_BUILTIN_DASHBOARD_THEMES` list in `fabric_cli/web_server.py`. The
- * generated pair (`fabric-dark` / `fabric-light`, from `generated.ts`) is
- * client-side only — the backend persists arbitrary theme names, and the
- * provider unions client built-ins into the picker list.
+ * Selectable hand-authored theme names must stay in sync with the backend's
+ * `_BUILTIN_DASHBOARD_THEMES` list in `fabric_cli/web_server.py`. The legacy
+ * Fabric Blue/Teal definitions remain below solely as compatibility data for
+ * old persisted ids; they are intentionally absent from `BUILTIN_THEMES`,
+ * which is the primary theme-picker catalog.
  */
 
 // ---------------------------------------------------------------------------
@@ -236,13 +236,10 @@ export const defaultLargeTheme: DashboardTheme = {
 };
 
 export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
-  "default-large": defaultLargeTheme,
   // Generated pair (normal-contrast variants; the provider swaps in the
   // high-contrast variants via the contrast preference).
   "fabric-dark": fabricDarkTheme,
   "fabric-light": fabricLightTheme,
-  "fabric-teal": fabricTealTheme,
-  "fabric-blue": fabricBlueTheme,
   midnight: midnightTheme,
   ember: emberTheme,
   mono: monoTheme,

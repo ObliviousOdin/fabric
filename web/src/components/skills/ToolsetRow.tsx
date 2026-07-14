@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Wrench } from "lucide-react";
 import type { ToolsetInfo } from "@/lib/api";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import {
   CAPABILITY_STATE_TONES,

@@ -64,24 +64,45 @@ export const APPEARANCE_STORAGE_KEY = "fabric-appearance";
  *  hand-authored presets are unaffected. */
 export const CONTRAST_STORAGE_KEY = "fabric-contrast";
 
-/** Renames of built-in theme keys we've shipped previously. Without this,
- *  users who saved one of the old names in localStorage (or had it
- *  persisted server-side) would silently fall back to `defaultTheme`
- *  because the lookup in `resolveTheme` no longer finds the stale key.
- *  Keep entries here until enough release cycles have passed that we can
- *  reasonably assume nobody still has the old value persisted. */
+/** Legacy visual identities that now converge on the canonical generated
+ *  Fabric pair. They remain accepted as migration inputs, but never appear
+ *  in the picker or survive as the persisted active id. */
+const HERITAGE_THEME_NAMES = new Set([
+  "lens-5i",
+  "nous-blue",
+  "fabric-blue",
+  "fabric-teal",
+  "default-large",
+]);
+
+/** Renames of other built-in theme keys we've shipped previously. */
 const THEME_NAME_ALIASES: Record<string, string> = {
-  // Persisted ids from earlier releases. These are migration inputs only;
-  // the picker and API expose the canonical Fabric id below.
-  "lens-5i": "fabric-blue",
-  "nous-blue": "fabric-blue",
-  // The old `default` id was the inherited teal console skin. Fabric Light
-  // is now the canonical baseline; the old look remains available as
-  // `fabric-teal` for users who intentionally want it.
+  // The old generic id also converges on the canonical light baseline.
   default: "fabric-light",
 };
 
-export function migrateThemeName(name: string): string {
+export type ThemeMigrationAppearance = "dark" | "light";
+
+/** Resolve a stored appearance preference to the generated pair member used
+ *  during legacy-theme migration. Light is the safe default; system only
+ *  selects dark when the current OS preference explicitly does. */
+export function appearanceForThemeMigration(
+  preference: string | null,
+  systemPrefersDark = false,
+): ThemeMigrationAppearance {
+  return preference === "dark" ||
+    (preference === "system" && systemPrefersDark)
+    ? "dark"
+    : "light";
+}
+
+export function migrateThemeName(
+  name: string,
+  appearance: ThemeMigrationAppearance = "light",
+): string {
+  if (HERITAGE_THEME_NAMES.has(name)) {
+    return generatedThemeNameForAppearance(appearance);
+  }
   return THEME_NAME_ALIASES[name] ?? name;
 }
 
@@ -448,8 +469,8 @@ export function applyTheme(theme: DashboardTheme) {
     root.style.removeProperty(cssVar);
   }
   // Same clear-then-set for series colors so a theme that defines them
-  // (e.g. Fabric Blue) doesn't leave its values behind when the user
-  // switches to a theme that inherits the `:root` defaults.
+  // doesn't leave its values behind when the user switches to a theme that
+  // inherits the `:root` defaults.
   for (const cssVar of ALL_SERIES_VARS) {
     root.style.removeProperty(cssVar);
   }
@@ -485,9 +506,9 @@ export function applyTheme(theme: DashboardTheme) {
   applyCustomCSS(theme.customCSS);
   applyLayoutVariant(theme.layoutVariant);
 
-  // Keep native form controls / scrollbars in step with the canvas —
-  // light themes (fabric-blue, fabric-light, light YAML themes) would
-  // otherwise render dark scrollbars against a light page.
+  // Keep native form controls / scrollbars in step with the canvas — light
+  // themes (Fabric Light and light YAML themes) would otherwise render dark
+  // scrollbars against a light page.
   root.style.setProperty("color-scheme", themeAppearance(theme));
 
   // Terminal colors — read by ChatPage via useTheme(); also available as CSS vars.
@@ -517,20 +538,25 @@ export function applyTheme(theme: DashboardTheme) {
 export function applyPersistedThemeEarly(): void {
   if (typeof document === "undefined") return;
   try {
+    const appearancePref = window.localStorage.getItem(
+      APPEARANCE_STORAGE_KEY,
+    );
+    const systemPrefersDark =
+      appearancePref === "system" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const migrationAppearance = appearanceForThemeMigration(
+      appearancePref,
+      systemPrefersDark,
+    );
     let name = migrateThemeName(
       window.localStorage.getItem(STORAGE_KEY) ??
         window.localStorage.getItem(LEGACY_STORAGE_KEY) ??
         "fabric-light",
-    );
-    const appearancePref = window.localStorage.getItem(
-      APPEARANCE_STORAGE_KEY,
+      migrationAppearance,
     );
     if (appearancePref === "system" && typeof window.matchMedia === "function") {
-      name = generatedThemeNameForAppearance(
-        window.matchMedia("(prefers-color-scheme: dark)").matches
-          ? "dark"
-          : "light",
-      );
+      name = generatedThemeNameForAppearance(migrationAppearance);
     }
     const contrast =
       window.localStorage.getItem(CONTRAST_STORAGE_KEY) === "high"

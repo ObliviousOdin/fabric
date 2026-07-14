@@ -3,7 +3,7 @@ import { Check, Cpu, Loader2, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import type { LocalModelProvider } from "@/lib/api";
 import { useToast } from "@nous-research/ui/hooks/use-toast";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import {
   Card,

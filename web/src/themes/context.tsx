@@ -33,6 +33,7 @@ import {
   LEGACY_FONT_STORAGE_KEY,
   LEGACY_STORAGE_KEY,
   STORAGE_KEY,
+  appearanceForThemeMigration,
   applyTheme,
   canonicalizeThemeEntry,
   migrateThemeName,
@@ -53,7 +54,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       window.localStorage.getItem(STORAGE_KEY) ??
       window.localStorage.getItem(LEGACY_STORAGE_KEY) ??
       "fabric-light";
-    const migrated = migrateThemeName(stored);
+    const appearancePreference = window.localStorage.getItem(
+      APPEARANCE_STORAGE_KEY,
+    );
+    const systemPrefersDark =
+      appearancePreference === "system" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const migrated = migrateThemeName(
+      stored,
+      appearanceForThemeMigration(appearancePreference, systemPrefersDark),
+    );
     // Converge on the Fabric key/id in one pass while preserving a seamless
     // upgrade for users with an older browser preference.
     window.localStorage.setItem(STORAGE_KEY, migrated);
@@ -143,7 +154,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // only holds their normal-contrast definitions for the picker).
   const resolveTheme = useCallback(
     (name: string): DashboardTheme => {
-      const canonicalName = migrateThemeName(name);
+      const systemPrefersDark =
+        appearance === "system" &&
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const migrationAppearance = appearanceForThemeMigration(
+        appearance,
+        systemPrefersDark,
+      );
+      const canonicalName = migrateThemeName(name, migrationAppearance);
       const generated = GENERATED_THEME_VARIANTS[canonicalName];
       if (generated) return generated[contrast];
       return (
@@ -152,7 +172,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         defaultTheme
       );
     },
-    [userThemeDefs, contrast],
+    [appearance, userThemeDefs, contrast],
   );
 
   // `system` appearance: follow prefers-color-scheme, swapping between the
@@ -226,7 +246,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           !userPickedRef.current &&
           appearanceRef.current !== "system"
         ) {
-          const migratedActive = migrateThemeName(resp.active);
+          const migrationAppearance = appearanceForThemeMigration(
+            appearanceRef.current,
+          );
+          let migratedActive = migrateThemeName(
+            resp.active,
+            migrationAppearance,
+          );
+          // The explicit light/dark preference owns which member of the
+          // canonical pair is active. This also protects a local dark choice
+          // when an older backend has already rewritten a heritage id to
+          // `fabric-light` before returning the catalog.
+          if (GENERATED_THEME_VARIANTS[migratedActive]) {
+            migratedActive = generatedThemeNameForAppearance(
+              migrationAppearance,
+            );
+          }
           if (migratedActive !== themeNameRef.current) {
             setThemeName(migratedActive);
             window.localStorage.setItem(STORAGE_KEY, migratedActive);
@@ -290,7 +325,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         ...availableThemes.map((t) => t.name),
         ...Object.keys(userThemeDefs),
       ]);
-      const canonicalName = migrateThemeName(name);
+      const canonicalName = migrateThemeName(
+        name,
+        appearanceForThemeMigration(appearance),
+      );
       const next = knownNames.has(canonicalName) ? canonicalName : "fabric-light";
       setThemeName(next);
       // Picking a theme pins the appearance preference to that theme's
@@ -303,7 +341,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       }
       api.setTheme(next).catch(() => {});
     },
-    [availableThemes, userThemeDefs, resolveTheme],
+    [appearance, availableThemes, userThemeDefs, resolveTheme],
   );
 
   const setAppearance = useCallback(
@@ -374,5 +412,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
-
 

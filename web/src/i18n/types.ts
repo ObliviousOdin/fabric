@@ -152,6 +152,20 @@ export interface Translations {
     waitingApproval: string;
   };
 
+  /** New three-panel Chat chrome; locales fall back to English incrementally. */
+  chatWorkspace?: {
+    agentChat: string;
+    chooseSecondaryPanel: string;
+    context: string;
+    conversations: string;
+    newConversation: string;
+    openContext: string;
+    openConversations: string;
+    panels: string;
+    secondaryPanel: string;
+    taskAndAgentContext: string;
+  };
+
   // ── App shell ──
   app: {
     brand: string;
@@ -183,6 +197,29 @@ export interface Translations {
       plugins: string;
       sessions: string;
       skills: string;
+    };
+    /** Workspace/Admin IA labels; optional while locale packs catch up. */
+    enterpriseNav?: {
+      activity: string;
+      admin: string;
+      advanced: string;
+      agents: string;
+      aiRuntime: string;
+      approvals: string;
+      automations: string;
+      channelsEvents: string;
+      conversations: string;
+      experience: string;
+      help: string;
+      home: string;
+      insights: string;
+      integrations: string;
+      knowledge: string;
+      memory: string;
+      securityAccess: string;
+      system: string;
+      workBoard: string;
+      workspace: string;
     };
     /**
      * Sidebar nav section labels. Optional — non-English locales fall back

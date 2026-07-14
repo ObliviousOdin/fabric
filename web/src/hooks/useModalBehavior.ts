@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import { useBodyScrollLock } from "./useBodyScrollLock";
+
 /**
  * Hook that adds standard modal behaviors when `open` is true:
  * - Escape key calls `onClose`
@@ -16,6 +18,7 @@ export function useModalBehavior({
   onClose: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (!open) return;
@@ -30,12 +33,9 @@ export function useModalBehavior({
     };
 
     document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
 
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
       prevActive?.focus?.();
     };
   }, [open, onClose]);

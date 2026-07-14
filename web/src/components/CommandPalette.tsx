@@ -109,9 +109,9 @@ export function CommandPalette({
         id: "action:new-chat",
         label: t.sessions.newChat,
         perform: () => {
-          // A bare /chat clears any ?resume= target, spawning a fresh
+          // A bare canonical Chat route clears any ?resume= target, spawning a fresh
           // session (same fallback ChatSessionList uses).
-          navigate("/chat");
+          navigate("/workspace/chat");
           onClose();
         },
         searchText: `${t.sessions.newChat} chat session`,

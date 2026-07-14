@@ -23,17 +23,25 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@nous-research/ui/ui/components/button";
-import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { cn } from "@/lib/utils";
-import { Copy, PanelRight, RotateCcw, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Copy, MessagesSquare, PanelRight, RotateCcw } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { ChatSidebar } from "@/components/ChatSidebar";
 import { ChatSessionList } from "@/components/ChatSessionList";
+import { ChatContextPanel } from "@/components/chat/ChatContextPanel";
+import { ChatSideSheet } from "@/components/chat/ChatSideSheet";
+import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
+import { useChatViewportMode } from "@/components/chat/useChatViewportMode";
+import { usePersistentChatIdentity } from "@/components/chat/usePersistentChatIdentity";
 import { usePageHeader } from "@/contexts/usePageHeader";
-import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
 import { normalizeSessionTitle } from "@/lib/chat-title";
 import {
@@ -44,6 +52,7 @@ import {
 import { PluginSlot } from "@/plugins";
 import { useTheme } from "@/themes";
 import { useProfileScope } from "@/contexts/useProfileScope";
+import { useI18n } from "@/i18n";
 
 // Stable per-browser token identifying THIS chat tab's keep-alive PTY session.
 // Sent as ?attach=; lets a refresh/disconnect reattach to the same live process
@@ -80,20 +89,6 @@ function ptyAttachToken(rotate = false): string {
     }
   }
   return t;
-}
-
-// Channel id ties this chat tab's PTY child (publisher) to its sidebar
-// (subscriber).  Generated once per mount so a tab refresh starts a fresh
-// channel — the previous PTY child terminates with the old WS, and its
-// channel auto-evicts when no subscribers remain.
-function generateChannelId(scope?: string): string {
-  const prefix = scope ? "chat" : "chat-fresh";
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `${prefix}-${crypto.randomUUID()}`;
-  }
-  return `${prefix}-${Math.random().toString(36).slice(2)}-${Date.now().toString(
-    36,
-  )}`;
 }
 
 // Terminal body colors come from the active theme via the shared
@@ -135,7 +130,15 @@ function terminalLineHeightForWidth(layoutWidthPx: number): number {
   return layoutWidthPx < 1024 ? 1.02 : 1.15;
 }
 
-export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
+export default function ChatPage({
+  isActive = true,
+  onActiveMount,
+}: {
+  isActive?: boolean;
+  onActiveMount?: () => void;
+}) {
+  const { t } = useI18n();
+  const chatLabels = t.chatWorkspace;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -146,6 +149,13 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   const syncMetricsRef = useRef<(() => void) | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const isActiveRef = useRef(isActive);
+  useLayoutEffect(() => {
+    isActiveRef.current = isActive;
+  }, [isActive]);
+  useEffect(() => {
+    if (isActive) onActiveMount?.();
+  }, [isActive, onActiveMount]);
   // Lazy-init: the missing-token check happens at construction so the effect
   // body doesn't have to setState (React 19's set-state-in-effect rule).
   // In gated (OAuth) mode the server intentionally omits the session token —
@@ -198,41 +208,27 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     setBanner(null);
     setReconnectNonce((n) => n + 1);
   }, [clearReconnectTimer, searchParams, setSearchParams]);
-  // Raw state for the mobile side-sheet + a derived value that force-
-  // closes whenever the chat tab isn't active.  The *derived* value is
-  // what side-effects (body-scroll lock, keydown listener, portal render)
-  // key on — that way switching to another tab triggers the effect's
-  // cleanup, releasing the scroll-lock on /sessions etc.  Returning to
-  // /chat re-runs the effect (derived flips back to true) and re-locks.
-  // Keying on the raw state would leak the body.overflow="hidden" across
-  // tabs because the dep wouldn't change on tab switch.
-  const [mobilePanelOpenRaw, setMobilePanelOpenRaw] = useState(false);
-  const mobilePanelOpen = isActive && mobilePanelOpenRaw;
+  const viewportMode = useChatViewportMode();
+  const [compactPanelRaw, setCompactPanelRaw] = useState<
+    "conversations" | "context" | null
+  >(null);
+  // ChatPage stays mounted while another dashboard route is active. Derive
+  // compact-panel visibility from `isActive` so a sheet can never retain the
+  // body scroll lock or keep a data rail connected behind another page.
+  const compactPanel =
+    isActive && viewportMode === "compact" ? compactPanelRaw : null;
   const { setEnd, setTitle } = usePageHeader();
   const [sessionTitleState, setSessionTitleState] = useState<{
     scope: string;
     title: string | null;
   }>({ scope: "", title: null });
-  const { t } = useI18n();
-  const closeMobilePanel = useCallback(() => setMobilePanelOpenRaw(false), []);
+  const closeCompactPanel = useCallback(() => setCompactPanelRaw(null), []);
   const navigateFromChatRail = useCallback(
     (path: string) => {
-      closeMobilePanel();
+      closeCompactPanel();
       navigate(path);
     },
-    [closeMobilePanel, navigate],
-  );
-  const modelToolsLabel = useMemo(
-    () => `${t.app.modelToolsSheetTitle} ${t.app.modelToolsSheetSubtitle}`,
-    [t.app.modelToolsSheetSubtitle, t.app.modelToolsSheetTitle],
-  );
-  const [portalRoot] = useState<HTMLElement | null>(() =>
-    typeof document !== "undefined" ? document.body : null,
-  );
-  const [narrow, setNarrow] = useState(() =>
-    typeof window !== "undefined"
-      ? window.matchMedia("(max-width: 1023px)").matches
-      : false,
+    [closeCompactPanel, navigate],
   );
 
   // CH8: refresh nonce for ChatSessionList, derived from `sessionEnded` so
@@ -263,15 +259,21 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // Sessions page relies on `/chat?resume=<id>` changing at runtime, so we must
   // treat the current resume target as part of the PTY identity and rebuild the
   // terminal session when it changes.
-  const resumeParam = searchParams.get("resume");
+  const routeResumeParam = searchParams.get("resume");
   // Profile-scoped chat: spawn the PTY under the globally selected
   // management profile. Changing it remounts the terminal (key below /
   // effect dep) so the user explicitly starts a fresh scoped session.
   const { profile: scopedProfile } = useProfileScope();
-  const channel = useMemo(
-    () => generateChannelId(`${resumeParam ?? ""}\0${scopedProfile}`),
-    [resumeParam, scopedProfile],
+  const chatIdentity = usePersistentChatIdentity(
+    isActive,
+    routeResumeParam,
+    scopedProfile,
   );
+  const {
+    channel,
+    profile: chatProfile,
+    resumeParam,
+  } = chatIdentity;
   const titleScope = `${channel}\0${reconnectNonce}`;
   const sessionTitle =
     sessionTitleState.scope === titleScope ? sessionTitleState.title : null;
@@ -281,13 +283,12 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   );
 
   useEffect(() => {
-    if (!isActive) {
-      setTitle(null);
-      return;
-    }
+    if (!isActive) return;
 
     setTitle(sessionTitle);
-    return () => setTitle(null);
+    return () => {
+      if (isActiveRef.current) setTitle(null);
+    };
   }, [isActive, sessionTitle, setTitle]);
 
   useEffect(() => {
@@ -296,7 +297,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     let cancelled = false;
 
     api
-      .getSessionDetail(resumeParam, scopedProfile)
+      .getSessionDetail(resumeParam, chatProfile)
       .then((session) => {
         if (cancelled) return;
         handleSessionTitleChange(normalizeSessionTitle(session.title));
@@ -308,15 +309,15 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [resumeParam, scopedProfile, handleSessionTitleChange]);
+  }, [resumeParam, chatProfile, handleSessionTitleChange]);
 
   useEffect(() => {
-    if (!resumeParam) return;
+    if (!isActive || !resumeParam) return;
 
     let cancelled = false;
 
     api
-      .getSessionLatestDescendant(resumeParam, scopedProfile)
+      .getSessionLatestDescendant(resumeParam, chatProfile)
       .then((res) => {
         if (cancelled || !res.session_id || res.session_id === resumeParam) {
           return;
@@ -333,70 +334,61 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [resumeParam, scopedProfile, searchParams, setSearchParams]);
+  }, [isActive, resumeParam, chatProfile, searchParams, setSearchParams]);
 
   useEffect(() => {
-    const mql = window.matchMedia("(max-width: 1023px)");
-    const sync = () => setNarrow(mql.matches);
-    sync();
-    mql.addEventListener("change", sync);
-    return () => mql.removeEventListener("change", sync);
-  }, []);
-
-  useEffect(() => {
-    if (!mobilePanelOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeMobilePanel();
-    };
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [mobilePanelOpen, closeMobilePanel]);
-
-  useEffect(() => {
-    const mql = window.matchMedia("(min-width: 1024px)");
-    const onChange = (e: MediaQueryListEvent) => {
-      if (e.matches) setMobilePanelOpenRaw(false);
-    };
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, []);
-
-  useEffect(() => {
-    // When hidden (non-chat tab) we must not register the header button —
-    // another page owns the header's end slot at that point.
-    if (!isActive) {
-      setEnd(null);
-      return;
-    }
-    if (!narrow) {
+    // Compact chat keeps the terminal first and opens its two independent
+    // data rails on demand. Hidden routes and wider layouts own no header end
+    // controls, so they cannot leave a stale sheet trigger behind.
+    if (!isActive) return;
+    if (viewportMode !== "compact") {
       setEnd(null);
       return;
     }
     setEnd(
-      <Button
-        ghost
-        onClick={() => setMobilePanelOpenRaw(true)}
-        aria-expanded={mobilePanelOpen}
-        aria-controls="chat-side-panel"
-        className={cn(
-          "shrink-0 rounded border border-current/20",
-          "px-2 py-1 text-xs font-medium tracking-wide",
-          "text-text-secondary hover:text-midground hover:bg-midground/5",
-        )}
+      <div
+        aria-label={chatLabels?.panels ?? "Chat panels"}
+        className="flex shrink-0 items-center gap-1"
+        role="group"
       >
-        <span className="inline-flex items-center gap-1.5">
-          <PanelRight className="h-3 w-3 shrink-0" />
-          {modelToolsLabel}
-        </span>
-      </Button>,
+        <Button
+          ghost
+          aria-controls="chat-conversations-sheet"
+          aria-expanded={compactPanel === "conversations"}
+          aria-label={chatLabels?.openConversations ?? "Open conversations"}
+          className="min-h-11 min-w-11 px-2 text-text-secondary hover:text-foreground"
+          onClick={() => setCompactPanelRaw("conversations")}
+          title={chatLabels?.conversations ?? "Conversations"}
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <MessagesSquare aria-hidden="true" className="h-4 w-4 shrink-0" />
+            <span className="hidden min-[720px]:inline">
+              {chatLabels?.conversations ?? "Conversations"}
+            </span>
+          </span>
+        </Button>
+        <Button
+          ghost
+          aria-controls="chat-context-sheet"
+          aria-expanded={compactPanel === "context"}
+          aria-label={chatLabels?.openContext ?? "Open context"}
+          className="min-h-11 min-w-11 px-2 text-text-secondary hover:text-foreground"
+          onClick={() => setCompactPanelRaw("context")}
+          title={chatLabels?.context ?? "Context"}
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <PanelRight aria-hidden="true" className="h-4 w-4 shrink-0" />
+            <span className="hidden min-[720px]:inline">
+              {chatLabels?.context ?? "Context"}
+            </span>
+          </span>
+        </Button>
+      </div>,
     );
-    return () => setEnd(null);
-  }, [isActive, narrow, mobilePanelOpen, modelToolsLabel, setEnd]);
+    return () => {
+      if (isActiveRef.current) setEnd(null);
+    };
+  }, [chatLabels, compactPanel, isActive, setEnd, viewportMode]);
 
   const handleCopyLast = () => {
     const ws = wsRef.current;
@@ -738,7 +730,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       // Profile-scoped chat: the PTY child gets HERMES_HOME pointed at the
       // selected profile, so the conversation runs with that profile's model,
       // skills, memory, and sessions (see web_server._resolve_chat_argv).
-      if (scopedProfile) params.profile = scopedProfile;
+      if (chatProfile) params.profile = chatProfile;
       // Terminal canvas hint: the server forwards this as
       // HERMES_TUI_BACKGROUND so the TUI child picks the light/dark
       // palette matching the xterm canvas it will actually render on.
@@ -748,140 +740,140 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
 
-    ws.onopen = () => {
-      clearReconnectTimer();
-      reconnectAttemptRef.current = 0;
-      setBanner(null);
-      setSessionEnded(false);
-      // Connected — cancel any pending reconnect from a prior transient drop.
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      // Send the initial RESIZE immediately so Ink has *a* size to lay
-      // out against on its first paint.  The double-rAF block above will
-      // follow up with the authoritative measurement — at worst Ink
-      // reflows once after the PTY boots, which is imperceptible.
-      ws.send(`\x1b[RESIZE:${term.cols};${term.rows}]`);
-      // One-shot: a ?learn=<text> param (set by the Skills page "Learn a
-      // skill" panel) is typed into the composer as a /learn command once the
-      // PTY is up. /learn resolves via command.dispatch → a normal agent turn,
-      // so this reuses the existing composer path — no special PTY protocol.
-      const learnSeed = searchParams.get("learn");
-      if (learnSeed) {
-        const next = new URLSearchParams(searchParams);
-        next.delete("learn");
-        setSearchParams(next, { replace: true });
-        const cmd = `/learn ${learnSeed}`.trim();
-        // Delay so Ink's composer has mounted and grabbed focus before input.
-        setTimeout(() => {
-          try {
-            wsRef.current?.send(cmd + "\r");
-          } catch {
-            /* PTY not ready / closed — user can retype */
-          }
-        }, 800);
-      }
-    };
+      ws.onopen = () => {
+        clearReconnectTimer();
+        reconnectAttemptRef.current = 0;
+        setBanner(null);
+        setSessionEnded(false);
+        // Connected — cancel any pending reconnect from a prior transient drop.
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
+        // Send the initial RESIZE immediately so Ink has *a* size to lay
+        // out against on its first paint.  The double-rAF block above will
+        // follow up with the authoritative measurement — at worst Ink
+        // reflows once after the PTY boots, which is imperceptible.
+        ws.send(`\x1b[RESIZE:${term.cols};${term.rows}]`);
+        // One-shot: a ?learn=<text> param (set by the Skills page "Learn a
+        // skill" panel) is typed into the composer as a /learn command once the
+        // PTY is up. /learn resolves via command.dispatch → a normal agent turn,
+        // so this reuses the existing composer path — no special PTY protocol.
+        const learnSeed = searchParams.get("learn");
+        if (learnSeed) {
+          const next = new URLSearchParams(searchParams);
+          next.delete("learn");
+          setSearchParams(next, { replace: true });
+          const cmd = `/learn ${learnSeed}`.trim();
+          // Delay so Ink's composer has mounted and grabbed focus before input.
+          setTimeout(() => {
+            try {
+              wsRef.current?.send(cmd + "\r");
+            } catch {
+              /* PTY not ready / closed — user can retype */
+            }
+          }, 800);
+        }
+      };
 
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") {
-        term.write(ev.data);
-      } else {
-        term.write(new Uint8Array(ev.data as ArrayBuffer));
-      }
-    };
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === "string") {
+          term.write(ev.data);
+        } else {
+          term.write(new Uint8Array(ev.data as ArrayBuffer));
+        }
+      };
 
-    ws.onclose = (ev) => {
-      wsRef.current = null;
-      if (unmounting) {
-        return;
-      }
-      // Surface the real cause to the browser console on every close so a
-      // "chat won't connect" report can be diagnosed without server access.
-      // The server sends a machine-parseable reason on every rejection (see
-      // pty_ws in web_server.py); echo it verbatim alongside the close code.
-      const why = ev.reason ? ` reason=${ev.reason}` : "";
-      console.warn(`[chat] PTY WebSocket closed code=${ev.code}${why}`);
-      if (ev.code === 4401) {
-        setBanner(
-          ev.reason
-            ? `Auth failed (${ev.reason}). Reload to refresh the session.`
-            : "Auth failed. Reload the page to refresh the session token.",
-        );
-        return;
-      }
-      if (ev.code === 4403) {
-        // Host/Origin mismatch (DNS-rebinding guard).
-        setBanner(
-          ev.reason
-            ? `Refused: ${ev.reason}.`
-            : "Refused: request host/origin doesn't match the dashboard.",
-        );
-        return;
-      }
-      if (ev.code === 4404) {
-        setBanner(
-          ev.reason
-            ? `Chat websocket unavailable: ${ev.reason}.`
-            : "Chat websocket unavailable on this server.",
-        );
-        return;
-      }
-      if (ev.code === 4408) {
-        setBanner(
-          ev.reason
-            ? `Refused: ${ev.reason}.`
-            : "Refused: your client isn't permitted (server bound to localhost only).",
-        );
-        return;
-      }
-      if (ev.code === 1011) {
-        // Server already wrote an ANSI error frame.
-        return;
-      }
-      // Keep-alive close-code contract (web_server.pty_ws + pty_session):
-      //   4410 = the agent PROCESS exited (real end) → restart affordance.
-      //   4409 = superseded by a newer tab attaching the same token → stay quiet.
-      if (ev.code === 4410) {
-        term.write(`\r\n\x1b[90m[session ended]\x1b[0m\r\n`);
-        setSessionEnded(true);
-        return;
-      }
-      if (ev.code === 4409) {
-        return;
-      }
-      if (!ev.wasClean || ev.code === 1001 || ev.code === 1006) {
-        // Transient transport drop (refresh, sleep/wake, signal loss).
-        // Reconnect with backoff; the same ?attach= token reattaches to
-        // the still-living PTY, so the conversation continues in place.
-        scheduleReconnect(ev.code);
-        return;
-      }
-      // Normal/clean exit: the agent process ended (e.g. the user typed
-      // `/exit`, or started a new session). NS-504: surface an explicit
-      // restart affordance instead of leaving a dead terminal that only a
-      // full page refresh could recover.
+      ws.onclose = (ev) => {
+        wsRef.current = null;
+        if (unmounting) {
+          return;
+        }
+        // Surface the real cause to the browser console on every close so a
+        // "chat won't connect" report can be diagnosed without server access.
+        // The server sends a machine-parseable reason on every rejection (see
+        // pty_ws in web_server.py); echo it verbatim alongside the close code.
+        const why = ev.reason ? ` reason=${ev.reason}` : "";
+        console.warn(`[chat] PTY WebSocket closed code=${ev.code}${why}`);
+        if (ev.code === 4401) {
+          setBanner(
+            ev.reason
+              ? `Auth failed (${ev.reason}). Reload to refresh the session.`
+              : "Auth failed. Reload the page to refresh the session token.",
+          );
+          return;
+        }
+        if (ev.code === 4403) {
+          // Host/Origin mismatch (DNS-rebinding guard).
+          setBanner(
+            ev.reason
+              ? `Refused: ${ev.reason}.`
+              : "Refused: request host/origin doesn't match the dashboard.",
+          );
+          return;
+        }
+        if (ev.code === 4404) {
+          setBanner(
+            ev.reason
+              ? `Chat websocket unavailable: ${ev.reason}.`
+              : "Chat websocket unavailable on this server.",
+          );
+          return;
+        }
+        if (ev.code === 4408) {
+          setBanner(
+            ev.reason
+              ? `Refused: ${ev.reason}.`
+              : "Refused: your client isn't permitted (server bound to localhost only).",
+          );
+          return;
+        }
+        if (ev.code === 1011) {
+          // Server already wrote an ANSI error frame.
+          return;
+        }
+        // Keep-alive close-code contract (web_server.pty_ws + pty_session):
+        //   4410 = the agent PROCESS exited (real end) → restart affordance.
+        //   4409 = superseded by a newer tab attaching the same token → stay quiet.
+        if (ev.code === 4410) {
+          term.write(`\r\n\x1b[90m[session ended]\x1b[0m\r\n`);
+          setSessionEnded(true);
+          return;
+        }
+        if (ev.code === 4409) {
+          return;
+        }
+        if (!ev.wasClean || ev.code === 1001 || ev.code === 1006) {
+          // Transient transport drop (refresh, sleep/wake, signal loss).
+          // Reconnect with backoff; the same ?attach= token reattaches to
+          // the still-living PTY, so the conversation continues in place.
+          scheduleReconnect(ev.code);
+          return;
+        }
+        // Normal/clean exit: the agent process ended (e.g. the user typed
+        // `/exit`, or started a new session). NS-504: surface an explicit
+        // restart affordance instead of leaving a dead terminal that only a
+        // full page refresh could recover.
       term.write(
         `\r\n\x1b[90m[session ended (code ${ev.code})]\x1b[0m\r\n`,
       );
-      setSessionEnded(true);
-    };
+        setSessionEnded(true);
+      };
 
-    // Keystrokes → PTY.
-    //
-    // IMPORTANT:
-    // The embedded web chat has occasionally surfaced stray letters/digits
-    // in the input line after a turn completes. The most likely culprit is
-    // browser-side terminal control traffic being forwarded back into the
-    // PTY as if it were user text. SGR mouse tracking is the highest-risk
-    // path here: xterm.js emits raw CSI reports (`\x1b[<...`) that look like
-    // ordinary bytes to the backend.
-    //
-    // For the browser embed we prefer input stability over terminal-style
-    // mouse reporting, so we drop SGR mouse reports entirely instead of
-    // forwarding them into Fabric. Keyboard input, paste, and resize still
-    // behave normally.
+      // Keystrokes → PTY.
+      //
+      // IMPORTANT:
+      // The embedded web chat has occasionally surfaced stray letters/digits
+      // in the input line after a turn completes. The most likely culprit is
+      // browser-side terminal control traffic being forwarded back into the
+      // PTY as if it were user text. SGR mouse tracking is the highest-risk
+      // path here: xterm.js emits raw CSI reports (`\x1b[<...`) that look like
+      // ordinary bytes to the backend.
+      //
+      // For the browser embed we prefer input stability over terminal-style
+      // mouse reporting, so we drop SGR mouse reports entirely instead of
+      // forwarding them into Fabric. Keyboard input, paste, and resize still
+      // behave normally.
       // eslint-disable-next-line no-control-regex -- intentional ESC byte in xterm SGR mouse report parser
       const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/;
       onDataDisposable = term.onData((data) => {
@@ -938,7 +930,12 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         reconnectTimerRef.current = null;
       }
     };
-  }, [channel, clearReconnectTimer, resumeParam, scopedProfile, reconnectNonce]);
+    // Theme updates are applied to the live terminal by the focused effect
+    // below. `searchParams` is read only for one-shot directives and may be
+    // rewritten inside this effect; either dependency would respawn the PTY
+    // and break the persistent Chat contract.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel, clearReconnectTimer, resumeParam, chatProfile, reconnectNonce]);
 
   // When the user returns to the chat tab (isActive: false → true), the
   // terminal host just transitioned from display:none to display:flex.
@@ -993,114 +990,115 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     term.options.theme = terminalTheme;
   }, [terminalTheme]);
 
-  // Layout:
-  //   outer flex column — sits inside the dashboard's content area
-  //   row split — terminal pane (flex-1) + sidebar (fixed width, lg+)
-  //   terminal wrapper — rounded, dark, padded — the "terminal window"
-  //   floating copy button — bottom-right corner, transparent with a
-  //     subtle border; stays out of the way until hovered.  Sends
-  //     `/copy\n` to Ink, which emits OSC 52 → our clipboard handler.
-  //   sidebar — ChatSidebar opens its own JSON-RPC sidecar; renders
-  //     model badge, tool-call list, model picker. Best-effort: if the
-  //     sidecar fails to connect the terminal pane keeps working.
-  //
-  // Mobile model/tools sheet is portaled to `document.body` so it stacks
-  // above the app sidebar (`z-50`) and mobile chrome (`z-40`).  The main
-  // dashboard column uses `relative z-2`, which traps `position:fixed`
-  // descendants below those layers (see Toast.tsx).
-  const mobileModelToolsPortal =
-    isActive &&
-    narrow &&
-    portalRoot &&
-    createPortal(
-      <>
-        {mobilePanelOpen && (
+  // Each rail is represented once. ChatWorkspaceLayout mounts only the rail
+  // visible at the current breakpoint; compact sheets mount their content
+  // only while open. This keeps session REST and context WebSocket traffic
+  // proportional to what the user can actually see.
+  const conversationsPanel = (
+    <ChatSessionList
+      activeSessionId={resumeParam}
+      profile={chatProfile}
+      onPicked={closeCompactPanel}
+      onNewChat={startFreshDashboardChat}
+      refreshSignal={sessionListRefreshSignal}
+    />
+  );
+  const contextPanel = (
+    <ChatContextPanel
+      channel={channel}
+      isActive={isActive}
+      profile={chatProfile}
+      onDashboardNewSessionRequest={startFreshDashboardChat}
+      onNavigate={navigateFromChatRail}
+      onSessionTitleChange={handleSessionTitleChange}
+    />
+  );
+
+  const terminalPane = (
+    <div
+      className={cn(
+        "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+        "p-2 sm:p-3 lg:p-4",
+      )}
+      style={{
+        backgroundColor: terminalBg,
+      }}
+    >
+      <div
+        ref={hostRef}
+        className="hermes-chat-xterm-host min-h-0 min-w-0 flex-1"
+      />
+
+      {/* NS-504: the agent process exited (e.g. `/exit` or a new session).
+          Offer an in-place restart so the user never has to refresh the
+          whole page to get a working chat back. */}
+      {sessionEnded && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/60">
+          <div className="text-sm tracking-wide text-white/80">
+            Session ended.
+          </div>
           <Button
-            ghost
-            aria-label={t.app.closeModelTools}
-            onClick={closeMobilePanel}
-            className={cn(
-              "fixed inset-0 z-[55] p-0 block",
-              "bg-black/60",
-            )}
-          />
-        )}
-
-        <div
-          id="chat-side-panel"
-          role="complementary"
-          aria-label={modelToolsLabel}
-          className={cn(
-            "font-mondwest fixed top-0 right-0 z-[60] flex h-dvh max-h-dvh w-64 min-w-0 flex-col antialiased",
-            "border-l border-current/20 text-midground",
-            "bg-background-base/95",
-            "transition-transform duration-200 ease-out",
-            "[background:var(--component-sidebar-background)]",
-            "[clip-path:var(--component-sidebar-clip-path)]",
-            "[border-image:var(--component-sidebar-border-image)]",
-            mobilePanelOpen
-              ? "translate-x-0"
-              : "pointer-events-none translate-x-full",
-          )}
-        >
-          <div
-            className={cn(
-              "flex h-14 shrink-0 items-center justify-between gap-2 border-b border-current/20 px-5",
-            )}
+            onClick={reconnect}
+            prefix={<RotateCcw className="h-4 w-4" />}
+            aria-label="Start a new chat session"
           >
-            <Typography
-              mondwest
-              className="text-display font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground"
-            >
-              {t.app.modelToolsSheetTitle}
-              <br />
-              {t.app.modelToolsSheetSubtitle}
-            </Typography>
-
-            <Button
-              ghost
-              size="icon"
-              onClick={closeMobilePanel}
-              aria-label={t.app.closeModelTools}
-              className="text-text-secondary hover:text-midground"
-            >
-              <X />
-            </Button>
-          </div>
-
-          <div
-            className={cn(
-              "min-h-0 flex-1 overflow-y-auto overflow-x-hidden",
-              "border-t border-current/10",
-            )}
-          >
-            <div className="border-b border-current/10 px-1 py-2">
-              <ChatSidebar
-                channel={channel}
-                profile={scopedProfile}
-                isActive={isActive}
-                onDashboardNewSessionRequest={startFreshDashboardChat}
-                onSessionTitleChange={handleSessionTitleChange}
-                onNavigate={navigateFromChatRail}
-              />
-            </div>
-            <ChatSessionList
-              activeSessionId={resumeParam}
-              profile={scopedProfile}
-              onPicked={closeMobilePanel}
-              onNewChat={startFreshDashboardChat}
-              refreshSignal={sessionListRefreshSignal}
-            />
-          </div>
+            Start new session
+          </Button>
         </div>
-      </>,
-      portalRoot,
-    );
+      )}
+
+      <Button
+        ghost
+        onClick={handleCopyLast}
+        title="Copy last assistant response as raw markdown"
+        aria-label="Copy last assistant response"
+        className={cn(
+          "absolute z-10",
+          "normal-case tracking-normal font-normal",
+          "rounded border border-current/30",
+          "bg-black/20",
+          "opacity-70 hover:opacity-100 hover:border-current/60",
+          "transition-opacity duration-150",
+          "bottom-2 right-2 px-2 py-1 text-xs sm:bottom-3 sm:right-3 sm:px-2.5 sm:py-1.5",
+          "lg:bottom-4 lg:right-4",
+        )}
+        style={{ color: terminalFg }}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Copy className="h-3 w-3 shrink-0" />
+          <span className="hidden min-[400px]:inline tracking-wide">
+            {copyState === "copied" ? "copied" : "copy last response"}
+          </span>
+        </span>
+      </Button>
+    </div>
+  );
+
+  const compactSheet =
+    compactPanel === "conversations" ? (
+      <ChatSideSheet
+        id="chat-conversations-sheet"
+        onClose={closeCompactPanel}
+        side="left"
+        title={chatLabels?.conversations ?? "Conversations"}
+      >
+        {conversationsPanel}
+      </ChatSideSheet>
+    ) : compactPanel === "context" ? (
+      <ChatSideSheet
+        id="chat-context-sheet"
+        onClose={closeCompactPanel}
+        side="right"
+        title={chatLabels?.context ?? "Context"}
+      >
+        {contextPanel}
+      </ChatSideSheet>
+    ) : null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
+    <div className="flex min-h-0 flex-1 flex-col">
       <PluginSlot name="chat:top" />
-      {mobileModelToolsPortal}
+      {compactSheet}
 
       {banner && (
         <div className="border border-warning/50 bg-warning/10 text-warning px-3 py-2 text-xs tracking-wide">
@@ -1108,97 +1106,13 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row lg:gap-3">
-        <div
-          className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg",
-            "p-2 sm:p-3",
-          )}
-          style={{
-            backgroundColor: terminalBg,
-            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.4)",
-          }}
-        >
-          <div
-            ref={hostRef}
-            className="hermes-chat-xterm-host min-h-0 min-w-0 flex-1"
-          />
-
-          {/* NS-504: the agent process exited (e.g. `/exit` or a new session).
-              Offer an in-place restart so the user never has to refresh the
-              whole page to get a working chat back. */}
-          {sessionEnded && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/60">
-              <div className="text-sm tracking-wide text-white/80">
-                Session ended.
-              </div>
-              <Button
-                onClick={reconnect}
-                prefix={<RotateCcw className="h-4 w-4" />}
-                aria-label="Start a new chat session"
-              >
-                Start new session
-              </Button>
-            </div>
-          )}
-
-          <Button
-            ghost
-            onClick={handleCopyLast}
-            title="Copy last assistant response as raw markdown"
-            aria-label="Copy last assistant response"
-            className={cn(
-              "absolute z-10",
-              "normal-case tracking-normal font-normal",
-              "rounded border border-current/30",
-              "bg-black/20",
-              "opacity-70 hover:opacity-100 hover:border-current/60",
-              "transition-opacity duration-150",
-              "bottom-2 right-2 px-2 py-1 text-xs sm:bottom-3 sm:right-3 sm:px-2.5 sm:py-1.5",
-              "lg:bottom-4 lg:right-4",
-            )}
-            style={{ color: terminalFg }}
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Copy className="h-3 w-3 shrink-0" />
-              <span className="hidden min-[400px]:inline tracking-wide">
-                {copyState === "copied" ? "copied" : "copy last response"}
-              </span>
-            </span>
-          </Button>
-        </div>
-
-        {!narrow && (
-          <div
-            id="chat-side-panel"
-            role="complementary"
-            aria-label={modelToolsLabel}
-            className="flex min-h-0 shrink-0 flex-col gap-3 overflow-hidden lg:h-full lg:w-60"
-          >
-            {/* Model picker — keeps the rail thin. */}
-            <div className="shrink-0">
-              <ChatSidebar
-                channel={channel}
-                profile={scopedProfile}
-                isActive={isActive}
-                onDashboardNewSessionRequest={startFreshDashboardChat}
-                onSessionTitleChange={handleSessionTitleChange}
-                onNavigate={navigateFromChatRail}
-              />
-            </div>
-
-            {/* Session switcher fills the remaining height below the model box. */}
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ChatSessionList
-                activeSessionId={resumeParam}
-                profile={scopedProfile}
-                onNewChat={startFreshDashboardChat}
-                refreshSignal={sessionListRefreshSignal}
-              />
-            </div>
-          </div>
-        )}
-      </div>
+      <ChatWorkspaceLayout
+        active={isActive}
+        context={contextPanel}
+        conversations={conversationsPanel}
+        mode={viewportMode}
+        terminal={terminalPane}
+      />
       <PluginSlot name="chat:bottom" />
     </div>
   );

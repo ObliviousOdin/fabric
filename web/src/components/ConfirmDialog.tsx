@@ -1,7 +1,12 @@
 import { Button } from "@nous-research/ui/ui/components/button";
 import { AlertTriangle } from "lucide-react";
-import { useEffect, useRef } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useRef,
+} from "react";
 import { createPortal } from "react-dom";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { cn, themedBody } from "@/lib/utils";
 
 interface ConfirmDialogProps {
@@ -16,6 +21,15 @@ interface ConfirmDialogProps {
   title: string;
 }
 
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "a[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
 export function ConfirmDialog({
   cancelLabel = "Cancel",
   confirmLabel = "Confirm",
@@ -28,6 +42,7 @@ export function ConfirmDialog({
   title,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  useBodyScrollLock(open);
 
   useEffect(() => {
     if (!open) return;
@@ -37,23 +52,46 @@ export function ConfirmDialog({
       ?.querySelector<HTMLButtonElement>("[data-confirm]")
       ?.focus();
 
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    };
-
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
     return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
       prevActive?.focus?.();
     };
   }, [open, onCancel]);
+
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    // A confirmation can itself be portaled from another dialog. Keep its
+    // Escape and focus-trap events inside this topmost layer.
+    event.stopPropagation();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusable = Array.from(
+      dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ??
+        [],
+    );
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialogRef.current?.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !dialogRef.current?.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   if (!open) return null;
 
@@ -63,13 +101,15 @@ export function ConfirmDialog({
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
       aria-describedby={description ? "confirm-dialog-desc" : undefined}
+      onKeyDown={handleKeyDown}
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-background/85 p-4"
+      className="fixed inset-0 z-[400] flex items-center justify-center bg-background/85 p-4"
     >
       <div
         ref={dialogRef}
+        tabIndex={-1}
         className={cn(
           themedBody,
           "relative w-full max-w-md border border-border bg-card shadow-2xl",

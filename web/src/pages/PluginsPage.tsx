@@ -47,15 +47,17 @@ export default function PluginsPage() {
   const { setAfterTitle } = usePageHeader();
 
   const loadHub = useCallback(() => {
-    return api
-      .getPluginsHub()
-      .then((h) => {
-        setHub(h);
-        setLoadError(null);
-      })
-      // P8: load failures render as a destructive banner + Retry (was a
-      // mislabeled `t.common.loading` toast). Mutation error toasts stay.
-      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)));
+    return (
+      api
+        .getPluginsHub()
+        .then((h) => {
+          setHub(h);
+          setLoadError(null);
+        })
+        // P8: load failures render as a destructive banner + Retry (was a
+        // mislabeled `t.common.loading` toast). Mutation error toasts stay.
+        .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
+    );
   }, []);
 
   useEffect(() => {
@@ -89,9 +91,18 @@ export default function PluginsPage() {
       </Button>,
     );
     return () => setAfterTitle(null);
-  }, [loading, onRescan, rescanBusy, setAfterTitle, t.pluginsPage.refreshDashboard]);
+  }, [
+    loading,
+    onRescan,
+    rescanBusy,
+    setAfterTitle,
+    t.pluginsPage.refreshDashboard,
+  ]);
 
-  const setRuntimeLoading = async (name: string, fn: () => Promise<unknown>) => {
+  const setRuntimeLoading = async (
+    name: string,
+    fn: () => Promise<unknown>,
+  ) => {
     setRowBusy(name);
     try {
       await fn();
@@ -143,7 +154,12 @@ export default function PluginsPage() {
             <span className="min-w-0 flex-1 truncate" title={loadError}>
               {t.pluginsPage.agents?.hubLoadFailed ?? "Could not load plugins"}
             </span>
-            <Button ghost size="sm" className="uppercase" onClick={() => void loadHub()}>
+            <Button
+              ghost
+              size="sm"
+              className="uppercase"
+              onClick={() => void loadHub()}
+            >
               {t.common.retry}
             </Button>
           </div>
@@ -153,7 +169,7 @@ export default function PluginsPage() {
           // P6: layout-shaped skeletons instead of the inline spinner.
           <div aria-busy="true" className="flex flex-col gap-8">
             <div className="flex flex-col gap-3">
-              <h3 className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary">
+              <h3 className="text-sm font-semibold text-foreground">
                 {t.pluginsPage.pluginListHeading}
               </h3>
               <Skeleton variant="row-list" rows={4} />
@@ -164,30 +180,43 @@ export default function PluginsPage() {
           <>
             {/* P1/P2 — the roster is the loadout; it leads the page. */}
             <div className="flex flex-col gap-3">
-              <h3 className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary">
-                {t.pluginsPage.pluginListHeading}
-              </h3>
+              <div className="flex items-center gap-3">
+                <span aria-hidden className="h-px w-6 bg-primary" />
+                <h3 className="text-sm font-semibold text-foreground">
+                  {t.pluginsPage.pluginListHeading}
+                </h3>
+              </div>
 
               {rows.length === 0 ? (
                 !loadError && (
                   <EmptyState
                     icon={Blocks}
-                    title={t.pluginsPage.agents?.noPluginsTitle ?? "No plugins installed"}
+                    title={
+                      t.pluginsPage.agents?.noPluginsTitle ??
+                      "No plugins installed"
+                    }
                     description={
                       t.pluginsPage.agents?.noPluginsDescription ??
                       "Install one from a Git repository with the install card below."
                     }
                     action={
-                      <Button size="sm" className="uppercase" onClick={focusInstallInput}>
+                      <Button
+                        size="sm"
+                        className="uppercase"
+                        onClick={focusInstallInput}
+                      >
                         {t.pluginsPage.agents?.installCta ?? "Install a plugin"}
                       </Button>
                     }
                   />
                 )
               ) : (
-                <ul className="flex flex-col gap-2">
+                <ul className="divide-y divide-border/75 border-y border-border/80">
                   {rows.map((row: HubAgentPluginRow) => (
-                    <li key={row.name} ref={row.name === flashName ? flashRef : undefined}>
+                    <li
+                      key={row.name}
+                      ref={row.name === flashName ? flashRef : undefined}
+                    >
                       <PluginRosterRow
                         busy={rowBusy === row.name}
                         flash={row.name === flashName}
@@ -205,7 +234,7 @@ export default function PluginsPage() {
             {/* P5 — dashboard-only manifests, muted, 1px-box idiom. */}
             {orphans.length > 0 ? (
               <div className="flex flex-col gap-3 opacity-95">
-                <h3 className="font-mondwest text-display text-xs tracking-[0.12em] text-text-secondary">
+                <h3 className="text-sm font-semibold text-foreground">
                   {t.pluginsPage.orphanHeading}
                 </h3>
 
@@ -239,7 +268,11 @@ export default function PluginsPage() {
             )}
 
             {/* P4 — install last: the loadout answers first, forms follow. */}
-            <PluginInstallCard onInstalled={onInstalled} showToast={showToast} t={t} />
+            <PluginInstallCard
+              onInstalled={onInstalled}
+              showToast={showToast}
+              t={t}
+            />
           </>
         )}
       </div>

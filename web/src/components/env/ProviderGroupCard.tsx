@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import type { EnvVarInfo } from "@/lib/api";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { ListItem } from "@nous-research/ui/ui/components/list-item";
 import { useI18n } from "@/i18n";
 import { CAPABILITY_STATE_TONES } from "@/components/ui";

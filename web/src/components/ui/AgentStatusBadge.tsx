@@ -1,4 +1,4 @@
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 import { AGENT_STATUS_TONES, type AgentStatus } from "./agent-status";

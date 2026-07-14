@@ -1,45 +1,48 @@
 import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { type KeyboardEvent, useEffect, useRef } from "react";
 import { Button } from "@nous-research/ui/ui/components/button";
-import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { AuthWidget } from "@/components/AuthWidget";
+import { FabricBrand } from "@/components/brand/FabricBrand";
+import { ExperienceSwitcher } from "@/components/experience/ExperienceSwitcher";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { ProfileSwitcher } from "@/components/ProfileSwitcher";
-import { SidebarFooter } from "@/components/SidebarFooter";
+import { SidebarStatusStrip } from "@/components/SidebarStatusStrip";
 import { ThemeSwitcher } from "@/components/ThemeSwitcher";
 import { useI18n } from "@/i18n";
 import type { Translations } from "@/i18n/types";
 import type { StatusResponse } from "@/lib/api";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { cn } from "@/lib/utils";
 import { PluginSlot } from "@/plugins";
 import { themeAppearance, useTheme } from "@/themes";
+import type { AppSurface } from "@/app/routes";
 import { SidebarIconWithTooltip } from "./SidebarIconWithTooltip";
 import { SidebarNavLink } from "./SidebarNavLink";
-import { SidebarSystemActions } from "./SidebarSystemActions";
 import type { TooltipWarmRef } from "./SidebarTooltip";
 import type { NavItem, NavSection, NavSectionId } from "./nav-model";
 
 const PLUGIN_NAV_HEADING_ID = "hermes-sidebar-plugin-nav-heading";
+const FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "a[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
 
 function sectionLabel(id: NavSectionId, t: Translations): string {
-  const s = t.app.navSections;
-  switch (id) {
-    case "work":
-      return s?.work ?? "Work";
-    case "observe":
-      return s?.observe ?? "Observe";
-    case "capabilities":
-      return s?.capabilities ?? "Capabilities";
-    case "connect":
-      return s?.connect ?? "Connect";
-    case "system":
-      return s?.system ?? t.app.system;
-  }
+  return id === "workspace"
+    ? (t.app.enterpriseNav?.workspace ?? "Workspace")
+    : (t.app.enterpriseNav?.admin ?? "Admin");
 }
 
 export function AppSidebar({
   collapsed,
   isDesktopCollapsed,
+  isMobile,
   mobileOpen,
+  surface,
   closeMobile,
   toggleCollapsed,
   sections,
@@ -49,24 +52,92 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const { t } = useI18n();
   const { theme } = useTheme();
-  // plus-lighter is additive: on light canvases it clamps the wordmark to
-  // near-white, so only blend when the active theme is actually dark.
-  const isDarkAppearance = themeAppearance(theme) === "dark";
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const brandAppearance = themeAppearance(theme);
 
-  const primarySections = sections.filter((s) => s.id !== "system");
-  const systemSection = sections.find((s) => s.id === "system");
-  // Hairline rules replace section labels in collapsed mode; the first
-  // group needs none — the nav's own border-t already separates it.
-  const pluginGroupHasRule = primarySections.length > 0;
-  const systemHasRule = pluginGroupHasRule || pluginItems.length > 0;
+  const pluginGroupHasRule = sections.length > 0;
+  const mobileDrawerOpen = isMobile && mobileOpen;
+  const mobileDrawerHidden = isMobile && !mobileOpen;
+  useBodyScrollLock(mobileDrawerOpen);
+
+  useEffect(() => {
+    if (!mobileDrawerOpen) return;
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const first =
+        sidebarRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+      (first ?? sidebarRef.current)?.focus();
+    });
+
+    return () => {
+      cancelled = true;
+      const target = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      if (target?.isConnected) target.focus();
+    };
+  }, [mobileDrawerOpen]);
+
+  const handleDrawerKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!mobileDrawerOpen) return;
+    // A portaled nested modal is outside the aside DOM even though React
+    // bubbles it through this component tree. That modal owns its own keys.
+    if (
+      event.target instanceof Node &&
+      !sidebarRef.current?.contains(event.target)
+    ) {
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMobile();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusable = Array.from(
+      sidebarRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ??
+        [],
+    );
+    if (focusable.length === 0) {
+      event.preventDefault();
+      sidebarRef.current?.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !sidebarRef.current?.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <aside
+      ref={sidebarRef}
       id="app-sidebar"
       aria-label={t.app.navigation}
+      aria-hidden={mobileDrawerHidden ? true : undefined}
+      aria-modal={mobileDrawerOpen ? true : undefined}
+      inert={mobileDrawerHidden ? true : undefined}
+      onKeyDown={handleDrawerKeyDown}
+      role={isMobile ? "dialog" : undefined}
+      tabIndex={mobileDrawerOpen ? -1 : undefined}
       className={cn(
         "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-64 min-h-0 flex-col font-sans",
-        "border-r border-current/20",
+        "border-r border-border/80",
         "bg-background-base",
         "transition-[transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)]",
         mobileOpen ? "translate-x-0" : "-translate-x-full",
@@ -75,32 +146,37 @@ export function AppSidebar({
         collapsed && "lg:w-14",
       )}
       style={{
-        background: mobileOpen
-          ? "var(--background-base)"
-          : "var(--component-sidebar-background)",
-        clipPath: "var(--component-sidebar-clip-path)",
-        borderImage: "var(--component-sidebar-border-image)",
+        background:
+          "color-mix(in srgb, var(--midground-base) 2%, var(--background-base))",
       }}
     >
       <div
         className={cn(
-          "flex h-14 shrink-0 items-center gap-2",
-          "border-b border-current/20",
-          collapsed ? "lg:justify-center lg:px-0" : "px-4 justify-between",
+          "flex h-16 shrink-0 items-center gap-2",
+          "border-b border-border/70",
+          isDesktopCollapsed
+            ? "lg:justify-center lg:gap-0 lg:px-0"
+            : "justify-between px-4",
         )}
       >
-        <div className={cn("flex items-center gap-2", collapsed && "lg:hidden")}>
-          <PluginSlot name="header-left" />
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-2",
+            isDesktopCollapsed && "lg:gap-0",
+          )}
+        >
+          <div className={cn("contents", isDesktopCollapsed && "lg:hidden")}>
+            <PluginSlot name="header-left" />
+          </div>
 
-          <Typography
-            className="font-sans text-[1.125rem] font-semibold leading-none tracking-[-0.015em] text-midground"
-            style={isDarkAppearance ? { mixBlendMode: "plus-lighter" } : undefined}
-          >
-            Fabric
-          </Typography>
+          <FabricBrand
+            appearance={brandAppearance}
+            compact={isDesktopCollapsed}
+          />
         </div>
 
         <Button
+          data-mobile-drawer-close="true"
           ghost
           size="icon"
           onClick={closeMobile}
@@ -125,13 +201,23 @@ export function AppSidebar({
         </Button>
       </div>
 
-      <ProfileSwitcher collapsed={isDesktopCollapsed} />
+      <ExperienceSwitcher
+        collapsed={isDesktopCollapsed}
+        onNavigate={closeMobile}
+        surface={surface}
+      />
+
+      {/* Profiles scope agent configuration and memory. They intentionally do
+          not stand in for the tenant/workspace/site scope of the app shell. */}
+      <div data-scope-kind="agent-profile">
+        <ProfileSwitcher collapsed={isDesktopCollapsed} />
+      </div>
 
       <nav
-        className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden border-t border-current/10 py-2"
+        className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden py-2"
         aria-label={t.app.navigation}
       >
-        {primarySections.map((section, index) => (
+        {sections.map((section, index) => (
           <SidebarNavGroup
             key={section.id}
             closeMobile={closeMobile}
@@ -157,69 +243,52 @@ export function AppSidebar({
             tooltipWarmRef={tooltipWarmRef}
           />
         )}
-
-        {systemSection && (
-          <SidebarNavGroup
-            closeMobile={closeMobile}
-            collapsed={isDesktopCollapsed}
-            headingId="fabric-sidebar-nav-system-heading"
-            items={systemSection.items}
-            label={sectionLabel("system", t)}
-            showRule={systemHasRule}
-            t={t}
-            tooltipWarmRef={tooltipWarmRef}
-          />
-        )}
       </nav>
-
-      <SidebarSystemActions
-        collapsed={isDesktopCollapsed}
-        onNavigate={closeMobile}
-        status={status}
-        tooltipWarmRef={tooltipWarmRef}
-      />
 
       <div
         className={cn(
-          "flex shrink-0 items-center gap-2",
-          "px-3 py-2",
-          "border-t border-current/20",
+          "flex shrink-0 items-center gap-1",
+          "border-t border-border/70 px-2 py-1.5",
           isDesktopCollapsed
-            ? "lg:flex-col lg:items-start lg:gap-3 lg:py-3"
+            ? "lg:flex-col lg:px-1 lg:py-2"
             : "justify-between",
         )}
       >
+        <SidebarStatusStrip collapsed={isDesktopCollapsed} status={status} />
+
         <div
           className={cn(
-            "flex min-w-0 items-center gap-2",
-            isDesktopCollapsed && "lg:flex-col lg:items-start",
+            "flex min-w-0 items-center gap-1",
+            isDesktopCollapsed && "lg:flex-col",
           )}
         >
           <PluginSlot name="header-right" />
 
           <SidebarIconWithTooltip
-            collapsed={isDesktopCollapsed}
+            collapsed
             label={t.theme?.switchTheme ?? "Switch theme"}
             tooltipWarmRef={tooltipWarmRef}
           >
-            <ThemeSwitcher collapsed={isDesktopCollapsed} dropUp />
+            <ThemeSwitcher collapsed dropUp />
           </SidebarIconWithTooltip>
 
           <SidebarIconWithTooltip
-            collapsed={isDesktopCollapsed}
+            collapsed
             label={t.language.switchTo}
             tooltipWarmRef={tooltipWarmRef}
           >
-            <LanguageSwitcher collapsed={isDesktopCollapsed} dropUp />
+            <LanguageSwitcher collapsed dropUp />
           </SidebarIconWithTooltip>
         </div>
       </div>
 
       <div
-        className={cn("flex shrink-0 flex-col", isDesktopCollapsed && "lg:hidden")}
+        className={cn(
+          "flex shrink-0 flex-col",
+          isDesktopCollapsed && "lg:hidden",
+        )}
       >
         <AuthWidget />
-        <SidebarFooter status={status} />
       </div>
     </aside>
   );
@@ -279,7 +348,9 @@ interface AppSidebarProps {
   closeMobile: () => void;
   collapsed: boolean;
   isDesktopCollapsed: boolean;
+  isMobile: boolean;
   mobileOpen: boolean;
+  surface: AppSurface;
   pluginItems: NavItem[];
   sections: NavSection[];
   status: StatusResponse | null;

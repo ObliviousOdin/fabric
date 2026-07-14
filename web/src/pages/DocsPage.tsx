@@ -55,6 +55,9 @@ export default function DocsPage() {
   // HEAD probe distinguishes "site reachable" (opaque success) from
   // "unreachable" (network rejection / timeout) and drives the fallback.
   useEffect(() => {
+    // `cancelled` distinguishes the cleanup's own abort (unmount/retry —
+    // must not touch state) from a genuine timeout/network failure.
+    let cancelled = false;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
     fetch(FABRIC_DOCS_URL, {
@@ -63,10 +66,17 @@ export default function DocsPage() {
       cache: "no-store",
       signal: controller.signal,
     })
-      .then(() => setState((prev) => (prev === "loading" ? "ready" : prev)))
-      .catch(() => setState("failed"))
+      .then(() => {
+        if (!cancelled) {
+          setState((prev) => (prev === "loading" ? "ready" : prev));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setState("failed");
+      })
       .finally(() => clearTimeout(timeout));
     return () => {
+      cancelled = true;
       clearTimeout(timeout);
       controller.abort();
     };

@@ -1475,18 +1475,14 @@ def test_curator_slot_is_canonical_aux_task():
     #    array and this tuple share a ``Must match _AUX_TASK_SLOTS`` comment.
 
 
-def test_review_fork_runs_under_background_review_origin(curator_env, monkeypatch):
-    """The curator LLM fork must tag itself as background_review.
+def test_review_fork_runs_under_distinct_curator_origin(curator_env, monkeypatch):
+    """The curator LLM fork must tag itself as snapshot-governed curation.
 
     This is the keystone that makes skill_manager_tool's
-    ``_background_review_write_guard`` fire during a curation pass. Without
-    ``_memory_write_origin = "background_review"`` on the fork, the agent
-    inherits the default ``assistant_tool`` origin, ``is_background_review()``
-    stays False, and the external/bundled/hub-installed skill_manage guards
-    never trigger — leaving the LLM agent free to mutate skills.external_dirs
-    skills (GH-47688). turn_context.py binds this attribute onto the
-    write-origin ContextVar at turn start, so asserting it is set is the
-    enforceable invariant linking the fork to the guard.
+    autonomous write guard fire during a curation pass without coupling the
+    curator to background review's draft-only lifecycle. turn_context.py binds
+    this attribute onto the write-origin ContextVar at turn start, so asserting
+    it is set is the enforceable invariant linking the fork to the guard.
     """
     curator = curator_env["curator"]
 
@@ -1525,9 +1521,9 @@ def test_review_fork_runs_under_background_review_origin(curator_env, monkeypatc
     meta = curator._run_llm_review("review prompt")
 
     assert meta.get("error") is None, meta.get("error")
-    assert captured.get("write_origin") == "background_review", (
+    assert captured.get("write_origin") == "curator", (
         "curator review fork did not set _memory_write_origin to "
-        "'background_review' — the skill_manage background-review write "
+        "'curator' — the skill_manage autonomous write "
         "guard would not fire (GH-47688 regression)"
     )
     assert captured.get("sequential_tools") is True

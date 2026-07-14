@@ -1134,6 +1134,24 @@ class TestUrlSource:
         assert meta.extra["awaiting_name"] is False
 
     @patch("tools.skills_hub.httpx.get")
+    def test_inspect_prefers_canonical_fabric_tags(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            text=(
+                "---\nname: canonical\ndescription: Canonical tags.\n"
+                "metadata:\n"
+                "  hermes:\n    tags: [legacy]\n"
+                "  fabric:\n    tags: [canonical]\n"
+                "---\n# Body\n"
+            ),
+        )
+
+        meta = self._source().inspect("https://example.com/SKILL.md")
+
+        assert meta is not None
+        assert meta.tags == ["canonical"]
+
+    @patch("tools.skills_hub.httpx.get")
     def test_inspect_returns_none_when_url_not_md(self, mock_get):
         # _matches filters first — no HTTP call.
         meta = self._source().inspect("https://example.com/not-a-skill")
@@ -2269,6 +2287,21 @@ class TestGithubProviderLabeling:
         assert meta is not None
         assert "provider" not in meta.extra
 
+    def test_inspect_prefers_canonical_fabric_tags(self):
+        gs = GitHubSource(auth=GitHubAuth())
+        gs._fetch_file_content = lambda repo, path: (
+            "---\nname: foo\ndescription: bar.\n"
+            "metadata:\n"
+            "  hermes:\n    tags: [legacy]\n"
+            "  fabric:\n    tags: [canonical]\n"
+            "---\n# Body\n"
+        )
+
+        meta = gs.inspect("someuser/somerepo/skills/foo")
+
+        assert meta is not None
+        assert meta.tags == ["canonical"]
+
 
 def _make_index_source(skills):
     """Build a HermesIndexSource pre-loaded with a fixed skill list."""
@@ -2513,6 +2546,26 @@ class TestOptionalSkillSourceMetadata:
         assert meta is not None
         assert meta.repo == "ObliviousOdin/fabric"
         assert meta.path == "optional-skills/finance/3-statement-model"
+
+    def test_scan_all_prefers_canonical_fabric_tags(self, tmp_path):
+        optional_root = tmp_path / "optional-skills"
+        skill_dir = optional_root / "canonical-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: canonical-skill\ndescription: test\n"
+            "metadata:\n"
+            "  hermes:\n    tags: [legacy]\n"
+            "  fabric:\n    tags: [canonical]\n"
+            "---\n# Body\n",
+            encoding="utf-8",
+        )
+        src = OptionalSkillSource()
+        src._optional_dir = optional_root
+
+        meta = src.inspect("official/canonical-skill")
+
+        assert meta is not None
+        assert meta.tags == ["canonical"]
 
 
 class TestOptionalSkillSourceBinaryAssets:

@@ -1,0 +1,65 @@
+schema_version: 1
+identity:
+  name: fabric-agent-skill-authoring
+  version: 1.2.0
+  owner: Fabric
+  license: MIT
+compatibility:
+  fabric: ">=0.19,<1"
+  hosts: [fabric]
+  models: ["*"]
+  platforms: [linux, macos, windows]
+routing:
+  triggers:
+    - create or revise a Fabric skill
+    - define reusable agent instructions in SKILL.md
+  non_triggers:
+    - answer a one-off question with no reusable workflow
+    - edit application code without authoring a skill
+  requires: []
+  conflicts: []
+  precedence: 80
+interface:
+  inputs:
+    - name: request
+      type: text
+      required: true
+      description: Sources and requirements for the reusable workflow.
+  outputs:
+    - name: skill_draft
+      type: object
+      required: true
+      description: A quarantined, reviewable skill candidate.
+permissions:
+  toolsets_required: [skills, file, web]
+  files:
+    - scope: workspace
+      access: read
+    - scope: skill
+      access: read
+  network:
+    - host: github.com
+      methods: [GET]
+  secrets: []
+  actions:
+    reversible: [stage_skill_draft]
+    approval_required: [promote_skill_draft]
+    prohibited: [direct_active_skill_mutation]
+sources:
+  - url: https://github.com/ObliviousOdin/fabric
+    retrieved_at: "2026-07-14"
+    ttl_days: 90
+budgets:
+  context_tokens: 12000
+  wall_seconds: 900
+  tool_calls: 50
+outcomes:
+  primary: valid_skill_draft_staged
+  guardrails:
+    - active_skill_tree_unchanged_before_approval
+    - source_commands_not_invented
+    - reusable_workflow_not_one_off_preference
+evals:
+  suite: evals/cases.yaml
+limitations:
+  - Model-based execution and outcome lift are measured by the eval runner, not this manifest.

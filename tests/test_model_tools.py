@@ -99,6 +99,33 @@ class TestHandleFunctionCall:
             ),
         ]
 
+    def test_registry_handler_receives_turn_observability_context(self):
+        """Registry-backed tools need turn IDs for privacy-safe receipts.
+
+        The dispatcher previously stopped at task/session, so ``skill_view``
+        could not bind an activation receipt to the turn that loaded it.
+        """
+
+        with patch(
+            "model_tools.registry.dispatch", return_value='{"ok":true}'
+        ) as dispatch:
+            result = handle_function_call(
+                "web_search",
+                {"q": "test"},
+                task_id="task-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                tool_call_id="call-1",
+                api_request_id="request-1",
+            )
+
+        assert result == '{"ok":true}'
+        assert dispatch.call_args.kwargs["task_id"] == "task-1"
+        assert dispatch.call_args.kwargs["session_id"] == "session-1"
+        assert dispatch.call_args.kwargs["turn_id"] == "turn-1"
+        assert dispatch.call_args.kwargs["tool_call_id"] == "call-1"
+        assert dispatch.call_args.kwargs["api_request_id"] == "request-1"
+
     def test_post_tool_call_receives_non_negative_integer_duration_ms(self):
         """Regression: post_tool_call and transform_tool_result hooks must
         receive a non-negative integer ``duration_ms`` kwarg measuring

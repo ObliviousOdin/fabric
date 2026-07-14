@@ -20,6 +20,8 @@ Delegate coding tasks to Blackbox AI CLI agent. Multi-model agent with built-in 
 | Author | Fabric (Nous Research) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Coding-Agent`, `Blackbox`, `Multi-Agent`, `Judge`, `Multi-Model` |
+| Related skills | [`claude-code`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code), [`codex`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex), [`fabric-agent`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-fabric-agent) |
 
 ## Reference: full SKILL.md
 

@@ -20,6 +20,8 @@ TDD: enforce RED-GREEN-REFACTOR, tests before code.
 | Author | Fabric (adapted from obra/superpowers) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `testing`, `tdd`, `development`, `quality`, `red-green-refactor` |
+| Related skills | [`systematic-debugging`](/user-guide/skills/bundled/software-development/software-development-systematic-debugging), [`plan`](/user-guide/skills/bundled/software-development/software-development-plan), [`subagent-driven-development`](/user-guide/skills/optional/software-development/software-development-subagent-driven-development) |
 
 ## Reference: full SKILL.md
 

@@ -20,6 +20,7 @@ Send and receive iMessages/SMS via the imsg CLI on macOS.
 | Author | Fabric |
 | License | MIT |
 | Platforms | macos |
+| Tags | `iMessage`, `SMS`, `messaging`, `macOS`, `Apple` |
 
 ## Reference: full SKILL.md
 

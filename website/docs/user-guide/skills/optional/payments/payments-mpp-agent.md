@@ -20,6 +20,8 @@ Pay HTTP 402 APIs via Machine Payments Protocol (MPP).
 | Author | Teknium (teknium1), Fabric |
 | License | MIT |
 | Platforms | linux, macos |
+| Tags | `Payments`, `MPP`, `HTTP-402`, `Tempo`, `Stripe` |
+| Related skills | [`stripe-link-cli`](/user-guide/skills/optional/payments/payments-stripe-link-cli), [`stripe-projects`](/user-guide/skills/optional/payments/payments-stripe-projects) |
 
 ## Reference: full SKILL.md
 

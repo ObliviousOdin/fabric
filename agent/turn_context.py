@@ -167,8 +167,58 @@ def build_turn_context(
     # Tag log records on this thread with the session ID for ``fabric logs``.
     set_session_context(agent.session_id)
 
-    # Bind the skill write-origin ContextVar for this thread.
-    set_current_write_origin(getattr(agent, "_memory_write_origin", "assistant_tool"))
+    # Bind the skill write-origin ContextVar for this thread. ``/learn`` is a
+    # normal user turn carrying a stable marker; classify it here so every
+    # surface (CLI, gateway, TUI, desktop) gets the same quarantined skill
+    # write behavior without changing the model tool schema. This binding is
+    # refreshed at the start of every turn; only the explicit one-turn
+    # follow-up quarantine below survives, and it restores the normal tool
+    # surface while keeping skill writes out of the active tree.
+    from tools.skill_provenance import (
+        AUTONOMOUS_SKILL_ORIGINS,
+        LEARN_FOLLOWUP,
+        LEARN_REQUEST,
+        is_learn_request_message,
+        origin_for_turn,
+    )
+
+    turn_write_origin = origin_for_turn(
+        getattr(agent, "_memory_write_origin", "assistant_tool"),
+        user_message,
+    )
+    if turn_write_origin == LEARN_REQUEST:
+        # A model can ignore the prompt and ask for more detail in prose even
+        # though ``clarify`` is denied. Keep the immediately following turn's
+        # skill writes quarantined as defense in depth; ordinary tools remain
+        # available, so an unrelated next request is not trapped in /learn's
+        # read-only tool sandbox.
+        agent._learn_followup_quarantine = True
+    elif turn_write_origin not in AUTONOMOUS_SKILL_ORIGINS:
+        previous_user_was_learn = False
+        if isinstance(conversation_history, list):
+            for previous in reversed(conversation_history):
+                if not isinstance(previous, dict) or previous.get("role") != "user":
+                    continue
+                previous_user_was_learn = is_learn_request_message(
+                    previous.get("content")
+                )
+                break
+        if getattr(agent, "_learn_followup_quarantine", False) or previous_user_was_learn:
+            turn_write_origin = LEARN_FOLLOWUP
+        # One follow-up is the complete supported continuation window. The
+        # /learn prompt forbids clarification and tells the user to issue a
+        # fresh /learn request when sources are missing.
+        agent._learn_followup_quarantine = False
+    set_current_write_origin(turn_write_origin)
+
+    # ``/learn`` keeps the model-visible tool schema byte-stable for prompt
+    # caching and enforces its narrower authority at dispatch time.  Rebind on
+    # every turn so a reused gateway/CLI thread cannot retain the prior turn's
+    # authoring sandbox. Background review installs its own stricter policy
+    # before entering this prologue; the configurator preserves that binding.
+    from agent.skill_authoring_policy import configure_turn_tool_policy
+
+    configure_turn_tool_policy(turn_write_origin)
 
     # Restore the primary runtime if the previous turn activated fallback.
     agent._restore_primary_runtime()
@@ -218,6 +268,49 @@ def build_turn_context(
     turn_id = f"{agent.session_id or 'session'}:{effective_task_id}:{uuid.uuid4().hex[:8]}"
     agent._current_turn_id = turn_id
     agent._current_api_request_id = ""
+
+    # Slash commands, bundles, and session preloads resolve their skill files
+    # before a concrete turn id exists. Bind those already-validated volatile
+    # permission templates now, before this turn can dispatch its first tool.
+    # This changes neither the system prompt nor the model tool schema.
+    try:
+        from agent.skill_permissions import bind_staged_skill_permission_leases
+
+        bind_staged_skill_permission_leases(
+            turn_id=turn_id,
+            task_id=effective_task_id,
+            session_id=agent.session_id,
+        )
+    except Exception:
+        logger.error("Could not bind staged skill permission leases")
+        try:
+            from agent.skill_permissions import OBSERVE, load_permission_settings
+
+            if load_permission_settings().mode != OBSERVE:
+                raise
+        except Exception:
+            # An enforced turn must not continue without the leases that
+            # authorize its preloaded or explicitly invoked skills. If policy
+            # mode itself cannot be resolved, fail closed as well.
+            raise
+
+    # Activation receipts use the same exact pre-turn -> concrete-turn seam.
+    # Keep the no-skills hot path import-free: a staged activation necessarily
+    # loaded ``agent.skill_receipts`` before this prologue began. Receipt
+    # correlation is observability-only and must never block the user's turn.
+    try:
+        import sys as _sys
+
+        if "agent.skill_receipts" in _sys.modules:
+            from agent.skill_receipts import bind_pending_activation_receipts
+
+            bind_pending_activation_receipts(
+                turn_id=turn_id,
+                task_id=effective_task_id,
+                session_id=agent.session_id,
+            )
+    except Exception:
+        logger.debug("Could not bind pending skill activation receipts")
 
     # Reset retry counters and iteration budget at the start of each turn.
     agent._invalid_tool_retries = 0

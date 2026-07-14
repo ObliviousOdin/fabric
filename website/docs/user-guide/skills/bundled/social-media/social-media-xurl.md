@@ -20,6 +20,7 @@ X/Twitter via xurl CLI: post, search, DM, media, v2 API.
 | Author | xdevplatform + openclaw + Fabric |
 | License | MIT |
 | Platforms | linux, macos |
+| Tags | `twitter`, `x`, `social-media`, `xurl`, `official-api` |
 
 ## Reference: full SKILL.md
 

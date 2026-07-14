@@ -20,6 +20,7 @@ Deploy a Worker live, no account, via wrangler --temporary.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `cloudflare`, `workers`, `wrangler`, `deploy`, `temporary`, `agent`, `serverless`, `web-development` |
 
 ## Reference: full SKILL.md
 

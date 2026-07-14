@@ -20,6 +20,8 @@ Roleplay the most difficult, tech-resistant user for your product. Browse the ap
 | Author | Omni @ Comelse |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `qa`, `ux`, `testing`, `adversarial`, `dogfood`, `personas`, `user-testing` |
+| Related skills | [`dogfood`](/user-guide/skills/bundled/dogfood/dogfood-dogfood) |
 
 ## Reference: full SKILL.md
 

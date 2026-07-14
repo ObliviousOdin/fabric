@@ -20,6 +20,8 @@ Throwaway experiments to validate an idea before build.
 | Author | Fabric (adapted from gsd-build/get-shit-done) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `spike`, `prototype`, `experiment`, `feasibility`, `throwaway`, `exploration`, `research`, `planning`, `mvp`, `proof-of-concept` |
+| Related skills | [`sketch`](/user-guide/skills/bundled/creative/creative-sketch), [`subagent-driven-development`](/user-guide/skills/optional/software-development/software-development-subagent-driven-development), [`plan`](/user-guide/skills/bundled/software-development/software-development-plan) |
 
 ## Reference: full SKILL.md
 

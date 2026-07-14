@@ -21,6 +21,7 @@ Optimizes LLM inference with NVIDIA TensorRT for maximum throughput and lowest l
 | License | MIT |
 | Dependencies | `tensorrt-llm`, `torch` |
 | Platforms | linux, macos |
+| Tags | `Inference Serving`, `TensorRT-LLM`, `NVIDIA`, `Inference Optimization`, `High Throughput`, `Low Latency`, `Production`, `FP8`, `INT4`, `In-Flight Batching`, `Multi-GPU` |
 
 ## Reference: full SKILL.md
 

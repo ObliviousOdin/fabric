@@ -20,6 +20,7 @@ OSINT username search across 400+ social networks. Hunt down social media accoun
 | Author | unmodeled-tyler |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `osint`, `security`, `username`, `social-media`, `reconnaissance` |
 
 ## Reference: full SKILL.md
 

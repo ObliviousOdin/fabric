@@ -20,6 +20,8 @@ Execute plans via delegate_task subagents (2-stage review).
 | Author | Fabric (adapted from obra/superpowers) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `delegation`, `subagent`, `implementation`, `workflow`, `parallel` |
+| Related skills | [`plan`](/user-guide/skills/bundled/software-development/software-development-plan), [`requesting-code-review`](/user-guide/skills/bundled/software-development/software-development-requesting-code-review), [`test-driven-development`](/user-guide/skills/bundled/software-development/software-development-test-driven-development) |
 
 ## Reference: full SKILL.md
 

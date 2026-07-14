@@ -21,6 +21,7 @@ Axolotl: YAML LLM fine-tuning (LoRA, DPO, GRPO).
 | License | MIT |
 | Dependencies | `axolotl`, `torch`, `transformers`, `datasets`, `peft`, `accelerate`, `deepspeed` |
 | Platforms | linux, macos |
+| Tags | `Fine-Tuning`, `Axolotl`, `LLM`, `LoRA`, `QLoRA`, `DPO`, `KTO`, `ORPO`, `GRPO`, `YAML`, `HuggingFace`, `DeepSpeed`, `Multimodal` |
 
 ## Reference: full SKILL.md
 

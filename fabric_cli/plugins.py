@@ -34,6 +34,7 @@ so plugin-defined tools appear alongside the built-in tools.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import importlib.metadata
 import importlib.util
 import inspect
@@ -2082,7 +2083,15 @@ def has_hook(hook_name: str) -> bool:
     return get_plugin_manager().has_hook(hook_name)
 
 
-_thread_tool_whitelist = threading.local()
+_DEFAULT_TOOL_WHITELIST_DENY = (
+    "Tool '{tool_name}' denied: not in this thread's tool whitelist"
+)
+_thread_tool_whitelist: contextvars.ContextVar[
+    tuple[Optional[frozenset[str]], str]
+] = contextvars.ContextVar(
+    "thread_tool_whitelist",
+    default=(None, _DEFAULT_TOOL_WHITELIST_DENY),
+)
 
 
 @dataclass(frozen=True)
@@ -2094,14 +2103,38 @@ class _PreToolCallDirective:
 
 def set_thread_tool_whitelist(
     allowed: Optional[Set[str]],
-    deny_msg_fmt: str = "Tool '{tool_name}' denied: not in this thread's tool whitelist",
+    deny_msg_fmt: str = _DEFAULT_TOOL_WHITELIST_DENY,
 ) -> None:
-    _thread_tool_whitelist.allowed = allowed
-    _thread_tool_whitelist.fmt = deny_msg_fmt
+    """Bind a dispatch allowlist to the current execution context.
+
+    The historical name remains for API compatibility, but the storage is a
+    ``ContextVar`` rather than ``threading.local``.  Fabric's concurrent tool
+    executor already copies ContextVars into each worker, so a policy applied
+    to an agent turn now follows every tool call instead of disappearing at
+    the thread-pool boundary.  A bare new thread still starts unrestricted.
+    """
+    normalized = None if allowed is None else frozenset(allowed)
+    _thread_tool_whitelist.set((normalized, deny_msg_fmt))
 
 
 def clear_thread_tool_whitelist() -> None:
-    _thread_tool_whitelist.allowed = None
+    _thread_tool_whitelist.set((None, _DEFAULT_TOOL_WHITELIST_DENY))
+
+
+def get_thread_tool_whitelist_block_message(tool_name: str) -> Optional[str]:
+    """Return the active context-policy denial for *tool_name*, if any.
+
+    This low-level check is intentionally separate from plugin hook dispatch.
+    Tool Search uses it before unwrapping ``tool_call`` so the bridge cannot
+    turn a denied dynamic call into an apparently allowed underlying tool.
+    """
+    allowed, deny_msg_fmt = _thread_tool_whitelist.get()
+    if allowed is None or tool_name in allowed:
+        return None
+    try:
+        return deny_msg_fmt.format(tool_name=tool_name)
+    except Exception:
+        return _DEFAULT_TOOL_WHITELIST_DENY.format(tool_name=tool_name)
 
 
 def _get_pre_tool_call_directive_details(
@@ -2140,12 +2173,11 @@ def _get_pre_tool_call_directive_details(
     The first valid directive wins. Invalid or irrelevant hook return values
     are silently ignored so existing observer-only hooks are unaffected.
     """
-    allowed = getattr(_thread_tool_whitelist, "allowed", None)
-    if allowed is not None and tool_name not in allowed:
-        fmt = getattr(_thread_tool_whitelist, "fmt", "Tool '{tool_name}' denied")
+    whitelist_block = get_thread_tool_whitelist_block_message(tool_name)
+    if whitelist_block is not None:
         return _PreToolCallDirective(
             action="block",
-            message=fmt.format(tool_name=tool_name),
+            message=whitelist_block,
         )
 
     hook_results = invoke_hook(

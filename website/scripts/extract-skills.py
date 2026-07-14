@@ -102,6 +102,21 @@ GITHUB_TAP_LABELS = {
     "MiniMax-AI/cli": "MiniMax",
 }
 
+
+def _skill_metadata(frontmatter):
+    """Merge legacy skill metadata with canonical Fabric keys per field."""
+    metadata = frontmatter.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    merged = {}
+    legacy = metadata.get("hermes")
+    if isinstance(legacy, dict):
+        merged.update(legacy)
+    canonical = metadata.get("fabric")
+    if isinstance(canonical, dict):
+        merged.update(canonical)
+    return merged
+
 # Legacy filename -> label mapping for the deprecated skills/index-cache/
 # fallback. Used only when website/static/api/skills-index.json is absent.
 LEGACY_SOURCE_LABELS = {
@@ -256,7 +271,8 @@ def extract_local_skills():
         if not os.path.isdir(base_path):
             continue
 
-        for root, _dirs, files in os.walk(base_path):
+        for root, dirs, files in os.walk(base_path):
+            dirs[:] = [directory for directory in dirs if directory != ".governance"]
             if "SKILL.md" not in files:
                 continue
 
@@ -285,12 +301,7 @@ def extract_local_skills():
             rel = os.path.relpath(root, base_path)
             category = rel.split(os.sep)[0]
 
-            tags = []
-            metadata = fm.get("metadata")
-            if isinstance(metadata, dict):
-                fabric_meta = metadata.get("fabric") or metadata.get("hermes", {})
-                if isinstance(fabric_meta, dict):
-                    tags = fabric_meta.get("tags", [])
+            tags = _skill_metadata(fm).get("tags", [])
             if not tags:
                 tags = fm.get("tags", [])
             if isinstance(tags, str):

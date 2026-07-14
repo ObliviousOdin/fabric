@@ -106,10 +106,70 @@ def test_malformed_frontmatter_metadata_does_not_crash(tmp_path):
     assert node.related == []
 
 
-def test_hermes_meta_tolerates_non_dict():
+def test_skill_metadata_tolerates_non_dict_and_prefers_fabric():
     assert learning_graph._hermes_meta({"metadata": "junk"}) == {}
     assert learning_graph._hermes_meta({"metadata": {"hermes": "junk"}}) == {}
     assert learning_graph._hermes_meta({"metadata": {"hermes": {"category": "x"}}}) == {"category": "x"}
+    assert learning_graph._hermes_meta(
+        {
+            "metadata": {
+                "hermes": {"category": "legacy", "related_skills": ["one"]},
+                "fabric": {"category": "canonical"},
+            }
+        }
+    ) == {"category": "canonical", "related_skills": ["one"]}
+
+
+def test_learning_graph_reads_canonical_fabric_metadata(tmp_path):
+    skill_dir = tmp_path / "skills" / "misc" / "canonical-skill"
+    skill_dir.mkdir(parents=True)
+    skill_dir.joinpath("SKILL.md").write_text(
+        """---
+name: canonical-skill
+description: Canonical metadata skill.
+metadata:
+  fabric:
+    category: canonical-category
+    related_skills: [peer-skill]
+---
+# Canonical
+""",
+        encoding="utf-8",
+    )
+
+    node = learning_graph.build_skill_nodes(
+        [("profile", tmp_path / "skills")]
+    )["canonical-skill"]
+
+    assert node.category == "canonical-category"
+    assert node.related == ["peer-skill"]
+
+
+def test_canonical_metadata_precedes_conflicting_top_level_fields(tmp_path):
+    skill_dir = tmp_path / "skills" / "misc" / "precedence-skill"
+    skill_dir.mkdir(parents=True)
+    skill_dir.joinpath("SKILL.md").write_text(
+        """---
+name: precedence-skill
+description: Metadata precedence test.
+category: top-level-category
+related_skills: [top-level-peer]
+metadata:
+  fabric:
+    category: canonical-category
+    related_skills: [canonical-peer]
+---
+# Precedence
+""",
+        encoding="utf-8",
+    )
+
+    node = learning_graph.build_skill_nodes(
+        [("profile", tmp_path / "skills")]
+    )["precedence-skill"]
+
+    assert node.category == "canonical-category"
+    assert node.related == ["canonical-peer"]
 
 
 def test_full_payload_shape_and_edge_integrity(tmp_path):

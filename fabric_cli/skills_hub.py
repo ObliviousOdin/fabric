@@ -1093,8 +1093,9 @@ def do_install(identifier: str, category: str = "", force: bool = False,
         )
 
     # Blueprint detection: if the installed skill declares a
-    # metadata.hermes.blueprint block, it is a runnable automation. Register it as
-    # a Suggested Cron Job rather than auto-scheduling — installing never
+    # metadata.fabric.blueprint block (or its legacy metadata.hermes fallback),
+    # it is a runnable automation. Register it as a Suggested Cron Job rather
+    # than auto-scheduling — installing never
     # silently creates a recurring job; the user accepts it via /suggestions.
     # This is the single surface every automation proposal flows through.
     try:
@@ -2444,6 +2445,67 @@ def skills_command(args) -> None:
             source_filter=args.source,
             enabled_only=getattr(args, "enabled_only", False),
         )
+    elif action == "validate":
+        from fabric_cli.skill_contracts import do_validate
+
+        do_validate(
+            target=getattr(args, "target", None),
+            require_contract=getattr(args, "require_contract", False),
+            as_json=getattr(args, "json", False),
+        )
+    elif action == "evaluate":
+        from tools.skill_manager_tool import evaluate_skill_pending_batch
+
+        result = evaluate_skill_pending_batch(
+            args.pending_id, Path(args.observations)
+        )
+        if getattr(args, "json", False):
+            _console.print(
+                json.dumps(result, sort_keys=True, separators=(",", ":")),
+                markup=False,
+            )
+        elif result.get("success"):
+            names = ", ".join(result.get("skills", [])) or "deletion-only batch"
+            _console.print(
+                "Evaluation passed and was durably attested for "
+                f"{names}.\nBatch: {result.get('batch_id')}\n"
+                "Review the full pending diff, then explicitly approve that exact batch.",
+                markup=False,
+            )
+        else:
+            _console.print(
+                f"Evaluation failed: {result.get('error', 'unknown error')}",
+                markup=False,
+            )
+            raise SystemExit(1)
+    elif action == "rollback":
+        from tools.skill_manager_tool import rollback_committed_skill_transaction
+
+        result = rollback_committed_skill_transaction(
+            args.transaction_id, activate_now=bool(getattr(args, "now", False))
+        )
+        if getattr(args, "json", False):
+            _console.print(
+                json.dumps(result, sort_keys=True, separators=(",", ":")),
+                markup=False,
+            )
+        elif result.get("success"):
+            _console.print(
+                "Rolled back skill promotion transaction "
+                f"{args.transaction_id}. "
+                + (
+                    "Skill routing was refreshed immediately."
+                    if getattr(args, "now", False)
+                    else "The restored routing will activate in the next session; use --now to refresh immediately."
+                ),
+                markup=False,
+            )
+        else:
+            _console.print(
+                f"Rollback refused: {result.get('error', 'unknown error')}",
+                markup=False,
+            )
+            raise SystemExit(1)
     elif action == "check":
         do_check(name=getattr(args, "name", None))
     elif action == "update":
@@ -2493,7 +2555,7 @@ def skills_command(args) -> None:
         do_tap(tap_action, repo=repo)
     else:
         _console.print(
-            "Usage: fabric skills [browse|search|install|inspect|list|list-modified|diff|check|update|audit|gc|uninstall|reset|opt-out|opt-in|publish|snapshot|tap]\n",
+            "Usage: fabric skills [browse|search|install|inspect|list|validate|evaluate|rollback|list-modified|diff|check|update|audit|gc|uninstall|reset|opt-out|opt-in|publish|snapshot|tap]\n",
             markup=False,
         )
         _console.print("Run 'fabric skills <command> --help' for details.\n")

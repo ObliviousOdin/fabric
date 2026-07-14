@@ -12935,7 +12935,30 @@ def _try_termux_fast_tui_launch() -> bool:
 
 def cmd_memory(args):
     sub = getattr(args, "memory_command", None)
-    if sub == "off":
+    if sub == "audit":
+        from agent.memory_governance import audit_memory, format_audit_report
+
+        report = audit_memory()
+        if getattr(args, "json_output", False):
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            print(f"\n{format_audit_report(report)}\n")
+    elif sub == "revalidate":
+        from agent.memory_governance import revalidate_record
+
+        result = revalidate_record(getattr(args, "record_id", ""))
+        if result.get("success"):
+            print(f"\n  ✓ Revalidated governed memory record {result['record_id']}")
+            print(f"  Next review: {result['review_after']}")
+            if result.get("expires_at"):
+                print(f"  Expires: {result['expires_at']}")
+            print("  The refreshed lifecycle applies to new sessions.\n")
+        else:
+            print(
+                f"\n  Could not revalidate memory record: {result.get('error', 'unknown_error')}\n",
+                file=sys.stderr,
+            )
+    elif sub == "off":
         from fabric_cli.config import load_config, save_config
 
         config = load_config()
@@ -12949,6 +12972,7 @@ def cmd_memory(args):
         print("  Saved to config.yaml\n")
     elif sub == "reset":
         from fabric_constants import get_fabric_home, display_fabric_home
+        from agent.memory_governance import has_governance_state, reset_governance
 
         mem_dir = get_fabric_home() / "memories"
         target = getattr(args, "target", "all")
@@ -12962,7 +12986,8 @@ def cmd_memory(args):
         existing = [
             (f, desc) for f, desc in files_to_reset if (mem_dir / f).exists()
         ]
-        if not existing:
+        governance_exists = has_governance_state(target)
+        if not existing and not governance_exists:
             print(
                 f"\n  Nothing to reset — no memory files found in {display_fabric_home()}/memories/\n"
             )
@@ -12973,6 +12998,9 @@ def cmd_memory(args):
             path = mem_dir / f
             size = path.stat().st_size
             print(f"    ◆ {f} ({desc}) — {size:,} bytes")
+        if governance_exists:
+            scope = "all records" if target == "all" else f"{target} records only"
+            print(f"    ◆ memory governance sidecar ({scope})")
 
         if not getattr(args, "yes", False):
             try:
@@ -12987,6 +13015,15 @@ def cmd_memory(args):
         for f, desc in existing:
             (mem_dir / f).unlink()
             print(f"  ✓ Deleted {f} ({desc})")
+
+        if governance_exists:
+            if reset_governance(target):
+                print("  ✓ Reset matching memory governance state")
+            else:
+                print(
+                    "  ! Governance state was not changed because it could not be pruned safely; "
+                    "run `fabric memory audit` for details."
+                )
 
         print(
             "\n  Memory reset complete. New sessions will start with a blank slate."

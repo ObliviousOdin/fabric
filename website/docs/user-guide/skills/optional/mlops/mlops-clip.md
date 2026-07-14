@@ -21,6 +21,7 @@ OpenAI's model connecting vision and language. Enables zero-shot image classific
 | License | MIT |
 | Dependencies | `transformers`, `torch`, `pillow` |
 | Platforms | linux, macos, windows |
+| Tags | `Multimodal`, `CLIP`, `Vision-Language`, `Zero-Shot`, `Image Classification`, `OpenAI`, `Image Search`, `Cross-Modal Retrieval`, `Content Moderation` |
 
 ## Reference: full SKILL.md
 

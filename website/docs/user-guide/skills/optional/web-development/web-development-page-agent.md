@@ -20,6 +20,7 @@ Embed alibaba/page-agent into your own web application — a pure-JavaScript in-
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `web`, `javascript`, `agent`, `browser`, `gui`, `alibaba`, `embed`, `copilot`, `saas` |
 
 ## Reference: full SKILL.md
 

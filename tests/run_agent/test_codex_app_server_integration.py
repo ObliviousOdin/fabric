@@ -85,6 +85,30 @@ class TestRunConversationCodexPath:
         assert result["codex_thread_id"] == "thread-stub-1"
         assert result["codex_turn_id"] == "turn-stub-1"
 
+    def test_learn_fails_closed_before_unisolated_subprocess(self, monkeypatch):
+        from agent.learn_prompt import build_learn_prompt
+
+        called = False
+
+        def forbidden_run_turn(self, user_input, **kwargs):
+            nonlocal called
+            called = True
+            raise AssertionError("unisolated subprocess must not receive /learn")
+
+        monkeypatch.setattr(
+            CodexAppServerSession,
+            "run_turn",
+            forbidden_run_turn,
+        )
+        agent = _make_codex_agent()
+        with patch.object(agent, "_spawn_background_review", return_value=None):
+            result = agent.run_conversation(build_learn_prompt("this workflow"))
+
+        assert called is False
+        assert result["completed"] is False
+        assert result["error"] == "learn_tool_policy_unavailable"
+        assert "No skill was changed" in result["final_response"]
+
     def test_codex_app_server_token_usage_updates_session_accounting(self, monkeypatch):
         def fake_run_turn(self, user_input: str, **kwargs):
             return TurnResult(
@@ -759,4 +783,3 @@ class TestCodexToolProgressBridge:
 
         assert "on_event" in captured_init and captured_init["on_event"] is not None
         assert ("tool.started", "exec_command", "pytest") in events
-

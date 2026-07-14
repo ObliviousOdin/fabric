@@ -20,6 +20,8 @@ Clone/create/fork repos; manage remotes, releases.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `GitHub`, `Repositories`, `Git`, `Releases`, `Secrets`, `Configuration` |
+| Related skills | [`github-auth`](/user-guide/skills/bundled/github/github-github-auth), [`github-pr-workflow`](/user-guide/skills/bundled/github/github-github-pr-workflow), [`github-issues`](/user-guide/skills/bundled/github/github-github-issues) |
 
 ## Reference: full SKILL.md
 

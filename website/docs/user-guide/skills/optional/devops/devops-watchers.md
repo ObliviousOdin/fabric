@@ -20,6 +20,7 @@ Poll RSS, JSON APIs, and GitHub with watermark dedup.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos |
+| Tags | `cron`, `polling`, `rss`, `github`, `http`, `automation`, `monitoring` |
 
 ## Reference: full SKILL.md
 

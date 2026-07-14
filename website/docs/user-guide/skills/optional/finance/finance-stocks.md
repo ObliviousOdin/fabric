@@ -20,6 +20,8 @@ Stock quotes, history, search, compare, crypto via Yahoo.
 | Author | Mibay (Mibayy), Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Stocks`, `Finance`, `Market`, `Crypto`, `Investing` |
+| Related skills | [`dcf-model`](/user-guide/skills/optional/finance/finance-dcf-model), [`comps-analysis`](/user-guide/skills/optional/finance/finance-comps-analysis), [`lbo-model`](/user-guide/skills/optional/finance/finance-lbo-model) |
 
 ## Reference: full SKILL.md
 

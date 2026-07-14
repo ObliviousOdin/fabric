@@ -20,6 +20,8 @@ Build comparable company analysis in Excel — operating metrics, valuation mult
 | Author | Anthropic (adapted by Nous Research) |
 | License | Apache-2.0 |
 | Platforms | linux, macos, windows |
+| Tags | `finance`, `valuation`, `comps`, `excel`, `openpyxl`, `modeling`, `investment-banking` |
+| Related skills | [`excel-author`](/user-guide/skills/optional/finance/finance-excel-author), [`pptx-author`](/user-guide/skills/optional/finance/finance-pptx-author), [`dcf-model`](/user-guide/skills/optional/finance/finance-dcf-model), [`lbo-model`](/user-guide/skills/optional/finance/finance-lbo-model) |
 
 ## Reference: full SKILL.md
 

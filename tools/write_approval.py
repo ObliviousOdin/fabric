@@ -8,17 +8,19 @@ The agent writes to two persistent stores that survive across sessions:
   * **memory** — MEMORY.md / USER.md, small (~200 char) declarative entries
   * **skills** — SKILL.md + supporting files, potentially huge (10-100 KB)
 
-Both stores are written from two origins:
+The stores can be written from three relevant origins:
 
   * **foreground** — a normal agent turn (user is present / chatting)
   * **background_review** — the self-improvement review fork that runs after a
     turn and autonomously decides what to save (the source of the
     "wrong assumptions" users complained about)
+  * **learn_request / learn_followup** — an explicit ``/learn`` turn and its
+    immediate continuation, both authoring quarantined reusable-skill drafts
 
 This module lets the user gate those writes per-subsystem with a boolean
 ``write_approval``:
 
-  * ``false`` (default) — write freely (the pre-gate behaviour)
+  * ``false`` (default) — foreground writes freely (the pre-gate behaviour)
   * ``true``            — require approval: do not commit the write; either
     prompt inline (memory, interactive CLI only) or **stage** it to a pending
     store and surface it for the user to approve or reject out-of-band
@@ -29,11 +31,14 @@ the gate stages BOTH to disk, but review affordances differ by subsystem
 (see ``fabric_cli`` slash handlers): memory shows full content, skills show
 metadata + a one-line gist + a ``diff`` escape hatch (CLI/dashboard/file).
 
-Staging is mandatory for background-origin writes (a daemon thread cannot
-block on an interactive prompt) and for gateway sessions (no inline prompt
-channel — review happens via ``/memory pending``). Foreground CLI memory
-writes prompt inline via the dangerous-command approval callback; skill
-writes always stage (too big to eyeball mid-loop).
+Staging is mandatory for background-review and ``/learn`` skill writes,
+regardless of the legacy opt-in gate: these are authored candidates, not
+active-library mutations. It is also mandatory for gated background memory
+writes (a daemon thread cannot block on an interactive prompt) and for gated
+gateway sessions (no inline prompt channel — review happens via
+``/memory pending``). Foreground CLI memory writes prompt inline via the
+dangerous-command approval callback; gated foreground skill writes always
+stage (too big to eyeball mid-loop).
 
 Pending records live under ``<HERMES_HOME>/pending/{memory,skills}/<id>.json``
 so they survive process restarts and can be reviewed from CLI, gateway, or the
@@ -45,10 +50,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import stat
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 from fabric_constants import get_fabric_home
 
@@ -58,11 +66,15 @@ logger = logging.getLogger(__name__)
 MEMORY = "memory"
 SKILLS = "skills"
 _SUBSYSTEMS = (MEMORY, SKILLS)
+_PENDING_ID_RE = re.compile(r"^(?:[0-9a-f]{8}|[0-9a-f]{32})$")
+_PENDING_BATCH_ID_RE = re.compile(r"^(?:[0-9a-f]{32}|[0-9a-f]{64})$")
+_MAX_PENDING_RECORD_BYTES = 2 * 1024 * 1024
 
-# Config key (per subsystem). A single boolean: the approval gate is OFF by
-# default (writes flow freely, the pre-gate behaviour), and ON means stage /
-# prompt every write for the user's approval. There is intentionally no third
-# "block all writes" state — to disable a subsystem entirely use its own
+# Config key (per subsystem). A single boolean: the optional approval gate is
+# OFF by default for ordinary foreground writes, and ON means stage / prompt
+# every write for the user's approval. Governed skill-authoring origins are
+# quarantined independently of this preference. There is intentionally no
+# third "block all writes" state — to disable a subsystem entirely use its own
 # enable flag (e.g. ``memory.memory_enabled: false``).
 CONFIG_KEY = "write_approval"
 
@@ -107,12 +119,178 @@ def _normalize_enabled(value: Any) -> bool:
 # Pending store (file-backed)
 # ---------------------------------------------------------------------------
 
+def _validate_subsystem(subsystem: str) -> str:
+    """Return a canonical pending subsystem or raise ``ValueError``.
+
+    Pending paths are an authority boundary: accepting an arbitrary directory
+    component here turns every get/discard operation into a profile-relative
+    file primitive.  Keep the accepted universe deliberately closed.
+    """
+    if subsystem not in _SUBSYSTEMS:
+        raise ValueError(f"Unsupported pending subsystem: {subsystem!r}")
+    return subsystem
+
+
+def is_valid_pending_id(pending_id: object) -> bool:
+    """Whether *pending_id* is a current 128-bit id or legacy 8-hex id."""
+    return isinstance(pending_id, str) and _PENDING_ID_RE.fullmatch(pending_id) is not None
+
+
+def is_valid_pending_batch_id(batch_id: object) -> bool:
+    """Whether *batch_id* is a supported UUID/hash batch identifier."""
+    return (
+        isinstance(batch_id, str)
+        and _PENDING_BATCH_ID_RE.fullmatch(batch_id) is not None
+    )
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist directory-entry changes where the platform exposes directory fsync."""
+    if os.name == "nt":  # Windows does not support opening directories via os.open.
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _pending_dir(subsystem: str) -> Path:
-    return get_fabric_home() / "pending" / subsystem
+    return get_fabric_home() / "pending" / _validate_subsystem(subsystem)
 
 
-def stage_write(subsystem: str, payload: Dict[str, Any],
-                *, summary: str, origin: str) -> Dict[str, Any]:
+def _safe_pending_dir(subsystem: str, *, create: bool) -> Optional[Path]:
+    """Return the canonical pending directory, refusing redirected components."""
+    directory = _pending_dir(subsystem)
+    home = get_fabric_home().resolve(strict=False)
+    pending_root = home / "pending"
+    try:
+        if create:
+            home_existed = home.exists()
+            pending_root_existed = pending_root.exists()
+            directory_existed = directory.exists()
+            pending_root.mkdir(parents=True, exist_ok=True)
+            directory.mkdir(parents=True, exist_ok=True)
+            if not home_existed:
+                _fsync_directory(home.parent)
+            if not pending_root_existed:
+                _fsync_directory(pending_root.parent)
+            if not directory_existed:
+                _fsync_directory(directory.parent)
+        for component in (pending_root, directory):
+            if component.exists():
+                info = component.lstat()
+                if not stat.S_ISDIR(info.st_mode) or component.is_symlink():
+                    return None
+        resolved = directory.resolve(strict=False)
+    except OSError:
+        return None
+    if resolved != pending_root / subsystem:
+        return None
+    return directory
+
+
+def _pending_path(subsystem: str, pending_id: object) -> Optional[Path]:
+    """Resolve one pending JSON path without permitting traversal/redirects."""
+    if not is_valid_pending_id(pending_id):
+        return None
+    directory = _safe_pending_dir(subsystem, create=False)
+    if directory is None:
+        return None
+    try:
+        resolved_dir = directory.resolve(strict=False)
+        candidate = (directory / f"{pending_id}.json").resolve(strict=False)
+    except OSError:
+        return None
+    if candidate.parent != resolved_dir:
+        return None
+    return candidate
+
+
+@contextmanager
+def _pending_operation(subsystem: str) -> Iterator[None]:
+    """Serialize skill-draft operations and recover interrupted promotions.
+
+    Memory approvals retain their existing lightweight store. Skill drafts,
+    however, participate in the same writer lock as active skill mutations so
+    membership cannot change between review, claim, approval, and rejection.
+    The manager import is deliberately lazy to keep this low-level module free
+    of an import cycle during process startup.
+    """
+    _validate_subsystem(subsystem)
+    if subsystem != SKILLS:
+        yield
+        return
+
+    from tools.skill_mutation import skill_mutation_lock
+    from tools.skill_manager_tool import (
+        _skills_dir,
+        recover_skill_pending_transactions,
+    )
+
+    with skill_mutation_lock(_skills_dir().parent):
+        if _safe_pending_dir(SKILLS, create=False) is None:
+            # The raw CRUD helpers will fail closed without following the
+            # redirected store. Recovery cannot safely inspect it either.
+            yield
+            return
+        recover_skill_pending_transactions(_lock_held=True)
+        yield
+
+
+def _is_regular_pending_file(path: Path) -> bool:
+    """Require an existing, non-symlink regular file for pending reads/deletes."""
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISREG(info.st_mode) and not path.is_symlink()
+
+
+def _read_pending_record(
+    path: Path,
+    *,
+    subsystem: str,
+    pending_id: str,
+) -> Optional[Dict[str, Any]]:
+    try:
+        before = path.lstat()
+    except OSError:
+        return None
+    if not stat.S_ISREG(before.st_mode) or path.is_symlink():
+        return None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+        try:
+            opened = os.fstat(fd)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)
+                or opened.st_size > _MAX_PENDING_RECORD_BYTES
+            ):
+                return None
+            with os.fdopen(fd, "r", encoding="utf-8") as handle:
+                fd = -1
+                record = json.load(handle)
+        finally:
+            if fd >= 0:
+                os.close(fd)
+    except Exception:
+        return None
+    if not isinstance(record, dict):
+        return None
+    if record.get("id") != pending_id or record.get("subsystem") != subsystem:
+        return None
+    return record
+
+
+def _stage_write_unlocked(subsystem: str, payload: Dict[str, Any],
+                          *, summary: str, origin: str,
+                          batch_id: Optional[str] = None,
+                          ordinal: Optional[int] = None,
+                          precondition: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Persist a pending write and return a short record describing it.
 
     Args:
@@ -123,13 +301,19 @@ def stage_write(subsystem: str, payload: Dict[str, Any],
         summary: a one-line human-readable description shown in pending lists.
             For skills this is the LLM/heuristic gist; for memory it can be the
             entry text itself.
-        origin: ``foreground`` or ``background_review`` — recorded for audit.
+        origin: ``foreground``, ``background_review``, ``learn_request``, or
+            ``learn_followup`` — recorded for audit.
 
-    Returns a dict with ``id`` and metadata. Best-effort: on disk failure it
-    logs and still returns a record (the write is simply lost, which is the
-    safe failure for an approval gate — nothing is silently committed).
+    Returns a dict with ``id`` and metadata plus the internal ``_persisted``
+    result flag. On disk failure it logs and returns ``_persisted=False`` so a
+    governed caller can fail closed; nothing is silently committed.
     """
-    pid = uuid.uuid4().hex[:8]
+    _validate_subsystem(subsystem)
+    if not isinstance(payload, dict):
+        raise ValueError("Pending payload must be a mapping")
+    if subsystem == SKILLS and batch_id is not None and not is_valid_pending_batch_id(batch_id):
+        raise ValueError("Invalid pending skill batch id")
+    pid = uuid.uuid4().hex
     record = {
         "id": pid,
         "subsystem": subsystem,
@@ -139,84 +323,221 @@ def stage_write(subsystem: str, payload: Dict[str, Any],
         "created_at": time.time(),
         "payload": payload,
     }
+    if subsystem == SKILLS:
+        # Pending skill records are the on-disk quarantine. They deliberately
+        # live outside ``skills/`` so discovery and the cached skill index can
+        # never treat an unapproved candidate as active guidance.
+        record["lifecycle"] = "draft"
+        if batch_id:
+            record["batch_id"] = batch_id
+        if ordinal is not None:
+            record["ordinal"] = ordinal
+        if precondition is not None:
+            record["precondition"] = precondition
+    tmp: Optional[Path] = None
+    linked_path: Optional[Path] = None
     try:
-        d = _pending_dir(subsystem)
-        d.mkdir(parents=True, exist_ok=True)
-        path = d / f"{pid}.json"
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(tmp, path)
+        d = _safe_pending_dir(subsystem, create=True)
+        if d is None:
+            raise OSError("pending directory is redirected or unsafe")
+        serialized = json.dumps(record, ensure_ascii=False, indent=2)
+        # Creation is exclusive: even a forced RNG collision can never
+        # overwrite another pending decision or its audit context. Readers
+        # continue to accept the historical 8-hex ids.
+        for _attempt in range(32):
+            path = d / f"{pid}.json"
+            if path.exists() or path.is_symlink():
+                pid = uuid.uuid4().hex
+                record["id"] = pid
+                serialized = json.dumps(record, ensure_ascii=False, indent=2)
+                continue
+            tmp = d / f".{pid}.{uuid.uuid4().hex}.tmp"
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+            fd = os.open(tmp, flags, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(serialized)
+                handle.flush()
+                os.fsync(handle.fileno())
+            publish_flags = (
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0)
+            )
+            try:
+                publish_fd = os.open(path, publish_flags, 0o600)
+            except FileExistsError:
+                tmp.unlink(missing_ok=True)
+                pid = uuid.uuid4().hex
+                record["id"] = pid
+                serialized = json.dumps(record, ensure_ascii=False, indent=2)
+                continue
+            else:
+                os.close(publish_fd)
+            linked_path = path
+            # The O_EXCL reservation is the collision-safe publish claim;
+            # replace atomically swaps the complete temp record into that
+            # uniquely owned name on filesystems without hard-link support.
+            os.replace(tmp, path)
+            _fsync_directory(d)
+            tmp.unlink(missing_ok=True)
+            linked_path = None
+            break
+        else:  # pragma: no cover - requires a broken/colliding RNG
+            raise OSError("could not allocate a unique pending id")
+        record["_persisted"] = True
     except Exception as e:  # pragma: no cover - disk failure path
         logger.error("Failed to stage pending %s write: %s", subsystem, e, exc_info=True)
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+        if linked_path is not None:
+            try:
+                linked_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        record["_persisted"] = False
+        record["_persistence_error"] = str(e)
     return record
 
 
-def list_pending(subsystem: str) -> List[Dict[str, Any]]:
+def stage_write(subsystem: str, payload: Dict[str, Any],
+                *, summary: str, origin: str,
+                batch_id: Optional[str] = None,
+                ordinal: Optional[int] = None,
+                precondition: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Persist a pending write under the subsystem's serialization boundary."""
+    with _pending_operation(subsystem):
+        record = _stage_write_unlocked(
+            subsystem,
+            payload,
+            summary=summary,
+            origin=origin,
+            batch_id=batch_id,
+            ordinal=ordinal,
+            precondition=precondition,
+        )
+        if (
+            subsystem == SKILLS
+            and record.get("_persisted") is True
+            and isinstance(batch_id, str)
+        ):
+            try:
+                from tools.skill_manager_tool import _invalidate_skill_batch_review
+
+                _invalidate_skill_batch_review(batch_id)
+            except Exception as exc:
+                # A newly appended action must never leave an older review
+                # attestation valid. If invalidation cannot be made durable,
+                # retract the append and fail closed.
+                _discard_pending_unlocked(subsystem, str(record["id"]))
+                record["_persisted"] = False
+                record["_persistence_error"] = (
+                    f"could not invalidate prior batch review: {exc}"
+                )
+        return record
+
+
+def _list_pending_unlocked(subsystem: str) -> List[Dict[str, Any]]:
     """Return all pending records for ``subsystem``, oldest first."""
-    d = _pending_dir(subsystem)
-    if not d.exists():
+    d = _safe_pending_dir(subsystem, create=False)
+    if d is None or not d.exists():
         return []
     records: List[Dict[str, Any]] = []
     for p in d.glob("*.json"):
-        try:
-            records.append(json.loads(p.read_text(encoding="utf-8")))
-        except Exception:
-            logger.warning("Skipping unreadable pending record: %s", p)
+        pending_id = p.stem
+        if not is_valid_pending_id(pending_id):
+            logger.warning("Skipping invalid pending filename: %s", p)
+            continue
+        record = _read_pending_record(
+            p,
+            subsystem=subsystem,
+            pending_id=pending_id,
+        )
+        if record is None:
+            logger.warning("Skipping unsafe or unreadable pending record: %s", p)
+            continue
+        records.append(record)
     records.sort(key=lambda r: r.get("created_at", 0))
     return records
 
 
-def get_pending(subsystem: str, pending_id: str) -> Optional[Dict[str, Any]]:
+def list_pending(subsystem: str) -> List[Dict[str, Any]]:
+    """Return pending records after recovering any interrupted skill promotion."""
+    with _pending_operation(subsystem):
+        return _list_pending_unlocked(subsystem)
+
+
+def _get_pending_unlocked(subsystem: str, pending_id: str) -> Optional[Dict[str, Any]]:
     """Return a single pending record by id, or None."""
-    path = _pending_dir(subsystem) / f"{pending_id}.json"
-    if not path.exists():
+    path = _pending_path(subsystem, pending_id)
+    if path is None:
         return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    return _read_pending_record(path, subsystem=subsystem, pending_id=pending_id)
 
 
-def discard_pending(subsystem: str, pending_id: str) -> bool:
+def get_pending(subsystem: str, pending_id: str) -> Optional[Dict[str, Any]]:
+    """Return one pending record after interrupted skill work is recovered."""
+    with _pending_operation(subsystem):
+        return _get_pending_unlocked(subsystem, pending_id)
+
+
+def _discard_pending_unlocked(subsystem: str, pending_id: str) -> bool:
     """Delete a pending record. Returns True if it existed."""
-    path = _pending_dir(subsystem) / f"{pending_id}.json"
+    path = _pending_path(subsystem, pending_id)
+    if path is None or not _is_regular_pending_file(path):
+        return False
     try:
-        if path.exists():
-            path.unlink()
-            return True
+        path.unlink()
+        _fsync_directory(path.parent)
+        return True
     except Exception as e:  # pragma: no cover
         logger.error("Failed to discard pending %s/%s: %s", subsystem, pending_id, e)
     return False
 
 
+def discard_pending(subsystem: str, pending_id: str) -> bool:
+    """Delete one pending record under the subsystem serialization boundary."""
+    with _pending_operation(subsystem):
+        record = _get_pending_unlocked(subsystem, pending_id)
+        removed = _discard_pending_unlocked(subsystem, pending_id)
+        if removed and subsystem == SKILLS and record is not None:
+            batch_id = record.get("batch_id")
+            if is_valid_pending_batch_id(batch_id):
+                from tools.skill_manager_tool import _invalidate_skill_batch_review
+
+                _invalidate_skill_batch_review(batch_id)
+        return removed
+
+
 def pending_count(subsystem: str) -> int:
     """Cheap count of pending records (for notification badges)."""
-    d = _pending_dir(subsystem)
-    if not d.exists():
-        return 0
-    try:
-        return sum(1 for _ in d.glob("*.json"))
-    except Exception:
-        return 0
+    return len(list_pending(subsystem))
 
 
 # ---------------------------------------------------------------------------
 # Write origin
 # ---------------------------------------------------------------------------
 
-def current_origin() -> str:
-    """Return the active write origin: ``foreground`` or ``background_review``.
+def current_origin(*, fail_closed: bool = False) -> str:
+    """Return the active provenance label for the current write.
 
-    Reuses the skill-provenance ContextVar, which the background review fork
-    already sets (see ``agent.background_review`` /
-    ``AIAgent._spawn_background_review``). Foreground agent turns leave it at
-    the default ``foreground``.
+    Reuses the skill-provenance ContextVar. Autonomous review/curation and
+    explicit ``/learn`` turns set governed origins there; ordinary agent turns
+    leave it at the default ``foreground``.
     """
     try:
         from tools.skill_provenance import get_current_write_origin
         return get_current_write_origin()
     except Exception:
-        return "foreground"
+        # Most legacy memory callers retain the historical foreground fallback.
+        # Skill mutation passes ``fail_closed=True`` because provenance is an
+        # authority boundary: a partial install must never downgrade a
+        # quarantined /learn or background-review write to foreground.
+        return "__provenance_unavailable__" if fail_closed else "foreground"
 
 
 def is_background() -> bool:
@@ -236,9 +557,9 @@ class GateDecision:
       * ``blocked`` — refuse the write (the user denied an inline approval
         prompt). ``message`` explains why; surface it to the agent.
       * ``stage``  — do not write; the caller should stage the payload via
-        ``stage_write`` (gate on, and no inline prompt is available — gateway,
-        background review, script, or any skill write). ``message`` is the
-        user-facing "staged for approval" note.
+        ``stage_write`` (a governed skill-authoring origin, or the gate is on
+        and no inline prompt is available). ``message`` is the user-facing
+        "staged for approval" note.
     """
 
     __slots__ = ("allow", "blocked", "stage", "message")
@@ -262,7 +583,8 @@ def evaluate_gate(subsystem: str, *, inline_summary: str = "",
             are small; skills never take the inline path).
 
     Decision matrix:
-        gate off (default)                    → allow (writes flow freely)
+        background-review or /learn skill     → stage (gate-independent)
+        gate off, other origin (default)      → allow (writes flow freely)
         gate on, memory + interactive CLI     → inline approve/deny prompt
         gate on, memory + gateway/script/bg   → stage
         gate on, skills (any origin)          → stage (too big to review inline)
@@ -271,10 +593,36 @@ def evaluate_gate(subsystem: str, *, inline_summary: str = "",
     delays a write for approval, never silently refuses it. ``blocked`` is
     still produced when the user *actively denies* an inline prompt.
     """
+    origin = current_origin()
+
+    # Autonomous reviews and explicit /learn turns always author quarantined
+    # candidates. This safety boundary is independent of the legacy
+    # ``skills.write_approval`` opt-in so neither path can mutate the active
+    # tree before a user reviews and promotes the draft.
+    if subsystem == SKILLS:
+        try:
+            from tools.skill_provenance import is_quarantined_skill_origin
+
+            quarantined = is_quarantined_skill_origin(origin)
+        except Exception:
+            # Provenance is an authority boundary. A partial install/upgrade
+            # must stage, not silently grant active-library mutation.
+            quarantined = True
+        if quarantined:
+            return GateDecision(
+                stage=True,
+                message=(
+                    "Saved as a quarantined skill draft. The active skill "
+                    "library was not changed — review with /skills diff <id>, "
+                    "then promote with /skills approve <id> or reject with "
+                    "/skills reject <id>."
+                ),
+            )
+
     if not write_approval_enabled(subsystem):
         return GateDecision(allow=True)
 
-    background = is_background()
+    background = origin == "background_review"
 
     # Skills always stage — a SKILL.md is too large to review inline, and a
     # background skill write happens in a daemon thread with no user present.
@@ -434,60 +782,15 @@ def skill_pending_diff(record: Dict[str, Any]) -> str:
     file content; for edit/patch it is a unified diff against the current
     on-disk skill.
     """
-    import difflib
-    payload = record.get("payload", {})
-    action = payload.get("action", "")
-    name = payload.get("name", "")
+    from tools.skill_manager_tool import preview_skill_pending_record
 
-    if action == "create":
-        return (payload.get("content") or "")
-
-    # Resolve current on-disk content for diffable actions.
-    try:
-        from tools.skill_manager_tool import _find_skill
-    except Exception:
-        _find_skill = None  # type: ignore
-
-    current = ""
-    target_label = "SKILL.md"
-    if _find_skill is not None:
-        found = _find_skill(name)
-        if found:
-            base = found["path"]
-            if action == "edit":
-                p = base / "SKILL.md"
-            elif action in {"patch", "write_file"}:
-                rel = payload.get("file_path") or "SKILL.md"
-                p = base / rel
-                target_label = rel
-            else:
-                p = base / "SKILL.md"
-            try:
-                if p.exists():
-                    current = p.read_text(encoding="utf-8")
-            except Exception:
-                current = ""
-
-    if action == "edit":
-        new = payload.get("content") or ""
-    elif action == "patch":
-        old_s = payload.get("old_string") or ""
-        new_s = payload.get("new_string") or ""
-        new = current.replace(old_s, new_s) if current else f"(patch {old_s!r} → {new_s!r})"
-    elif action == "write_file":
-        new = payload.get("file_content") or ""
-    elif action == "remove_file":
-        return f"remove file: {payload.get('file_path')} from skill '{name}'"
-    elif action == "delete":
-        return f"delete skill '{name}'"
+    batch_id = record.get("batch_id")
+    if batch_id:
+        related = [
+            candidate
+            for candidate in list_pending(SKILLS)
+            if candidate.get("batch_id") == batch_id
+        ]
     else:
-        return f"({action} on '{name}')"
-
-    diff = difflib.unified_diff(
-        current.splitlines(keepends=True),
-        new.splitlines(keepends=True),
-        fromfile=f"a/{target_label}",
-        tofile=f"b/{target_label}",
-    )
-    text = "".join(diff)
-    return text or "(no textual change)"
+        related = [record]
+    return preview_skill_pending_record(record, related)

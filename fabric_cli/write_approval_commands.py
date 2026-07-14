@@ -37,9 +37,16 @@ def _fmt_pending_list(subsystem: str) -> str:
     lines = [f"Pending {subsystem} writes ({len(records)}):"]
     for r in records:
         origin = r.get("origin", "foreground")
-        tag = " [auto]" if origin == "background_review" else ""
+        if origin == "background_review":
+            tag = " [auto draft]"
+        elif origin in {"learn_request", "learn_followup"}:
+            tag = " [/learn draft]"
+        else:
+            tag = ""
         lines.append(f"  {r['id']}{tag}  {r.get('summary', '')}")
     where = "/{s} approve <id>".format(s=subsystem)
+    if subsystem == wa.SKILLS:
+        where += " [--now]"
     lines.append("")
     lines.append(f"Apply: {where}   Reject: /{subsystem} reject <id>")
     if subsystem == wa.SKILLS:
@@ -74,6 +81,8 @@ def handle_pending_subcommand(
     a write-approval subcommand (caller falls through to its other handling,
     e.g. /skills search).
     """
+    if subsystem not in {wa.MEMORY, wa.SKILLS}:
+        return f"Unsupported pending subsystem '{subsystem}'."
     if not args:
         # Bare /memory or /skills with no sub → show pending + gate state.
         return f"{_fmt_state(subsystem)}\n\n" + _fmt_pending_list(subsystem)
@@ -93,6 +102,31 @@ def handle_pending_subcommand(
     if sub == "diff" and subsystem == wa.SKILLS:
         return _diff(rest)
 
+    if sub == "evaluate" and subsystem == wa.SKILLS:
+        return (
+            "Evaluation observations are accepted only by the local bounded CLI. "
+            "Run: fabric skills evaluate <pending-id> --observations <path> [--json]"
+        )
+
+    if sub == "rollback" and subsystem == wa.SKILLS:
+        activate_now = "--now" in rest
+        transaction_ids = [arg for arg in rest if arg != "--now"]
+        if len(transaction_ids) != 1:
+            return "Usage: /skills rollback <32-hex-transaction-id> [--now]"
+        from tools.skill_manager_tool import rollback_committed_skill_transaction
+
+        result = rollback_committed_skill_transaction(
+            transaction_ids[0], activate_now=activate_now
+        )
+        if not result.get("success"):
+            return f"Rollback refused: {result.get('error', 'unknown error')}"
+        suffix = (
+            " Active skill routing was refreshed immediately."
+            if activate_now
+            else " The restored routing will activate in the next session; use --now to refresh immediately."
+        )
+        return f"Rolled back skill promotion transaction {transaction_ids[0]}." + suffix
+
     if sub in {"approval", "mode"}:  # 'mode' kept as a back-compat alias
         return _set_approval(subsystem, rest, set_mode_fn)
 
@@ -106,21 +140,78 @@ def _resolve_one(subsystem: str, rest: List[str]):
 
 
 def _approve(subsystem: str, rest: List[str], memory_store) -> str:
-    target, err = _resolve_one(subsystem, rest)
+    activate_now = subsystem == wa.SKILLS and "--now" in rest
+    positional = (
+        [arg for arg in rest if arg != "--now"]
+        if subsystem == wa.SKILLS
+        else rest
+    )
+    target, err = _resolve_one(subsystem, positional)
     if err or target is None:
         return err or f"Usage: /{subsystem} approve <id>"
 
+    if target.lower() != "all" and not wa.is_valid_pending_id(target):
+        return (
+            f"Invalid pending {subsystem} id '{target}'. Expected 32 lowercase "
+            "hex characters (legacy 8-character ids are also accepted)."
+        )
+
     records = wa.list_pending(subsystem)
-    if not records:
+    if not records and subsystem != wa.SKILLS:
         return f"No pending {subsystem} writes."
+    if not records and subsystem == wa.SKILLS and target.lower() == "all":
+        return "No pending skills writes."
 
     if target.lower() == "all":
         targets = list(records)
     else:
         rec = wa.get_pending(subsystem, target)
         if not rec:
+            if subsystem == wa.SKILLS:
+                from tools.skill_manager_tool import find_skill_pending_receipt
+
+                receipt = find_skill_pending_receipt(target)
+                if receipt and receipt.get("decision") == "promoted":
+                    return (
+                        "This reviewed skill batch was already promoted "
+                        f"(transaction {receipt.get('transaction_id')})."
+                    )
+                if receipt and receipt.get("decision") == "rejected":
+                    return "This skill draft was already rejected."
             return f"No pending {subsystem} write with id '{target}'."
-        targets = [rec]
+        if subsystem == wa.SKILLS and rec.get("batch_id"):
+            targets = [
+                candidate
+                for candidate in records
+                if candidate.get("batch_id") == rec.get("batch_id")
+            ]
+        else:
+            targets = [rec]
+
+    if subsystem == wa.SKILLS:
+        from tools.skill_manager_tool import apply_skill_pending_batch
+
+        result = apply_skill_pending_batch(targets, activate_now=activate_now)
+        if not result.get("success"):
+            return (
+                "Promoted 0 approved skill draft(s).\nFailed:\n  "
+                f"{result.get('error', 'promotion failed')}\n"
+                "All selected drafts were retained; no partial promotion was committed."
+            )
+        if result.get("already_promoted"):
+            return (
+                "This reviewed skill batch was already promoted "
+                f"(transaction {result.get('transaction_id')})."
+            )
+        activation = (
+            " Skill routing was refreshed immediately."
+            if activate_now
+            else " The promoted skill will activate in the next session; use --now to refresh immediately."
+        )
+        return (
+            f"Promoted {result.get('applied', 0)} approved skill draft(s) "
+            f"in transaction {result.get('transaction_id')}." + activation
+        )
 
     applied, failed = 0, []
     for rec in targets:
@@ -149,8 +240,11 @@ def _apply_one(subsystem: str, rec, memory_store):
             return bool(result.get("success")), result.get("error", "")
         else:
             from tools.skill_manager_tool import apply_skill_pending
-            result = json.loads(apply_skill_pending(payload))
-            return bool(result.get("success")), result.get("error", "")
+            result = json.loads(
+                apply_skill_pending(payload, origin=rec.get("origin"))
+            )
+            ok = bool(result.get("success"))
+            return ok, result.get("error", "")
     except Exception as e:
         return False, str(e)
 
@@ -159,13 +253,36 @@ def _reject(subsystem: str, rest: List[str]) -> str:
     target, err = _resolve_one(subsystem, rest)
     if err or target is None:
         return err or f"Usage: /{subsystem} reject <id>"
+    if subsystem == wa.SKILLS:
+        if target.lower() != "all" and not wa.is_valid_pending_id(target):
+            return (
+                f"Invalid pending {subsystem} id '{target}'. Expected 32 "
+                "lowercase hex characters (legacy 8-character ids are also accepted)."
+            )
+        from tools.skill_manager_tool import reject_skill_pending
+
+        result = reject_skill_pending(
+            None if target.lower() == "all" else target,
+            reject_all=target.lower() == "all",
+        )
+        if not result.get("success"):
+            return str(result.get("error") or "Skill draft rejection failed.")
+        if result.get("already_rejected"):
+            return "This skill draft batch was already rejected."
+        return f"Rejected {result.get('rejected', 0)} pending skill draft action(s)."
     if target.lower() == "all":
         n = 0
         for rec in wa.list_pending(subsystem):
             if wa.discard_pending(subsystem, rec["id"]):
                 n += 1
         return f"Rejected {n} pending {subsystem} write(s)."
-    if wa.discard_pending(subsystem, target):
+    if not wa.is_valid_pending_id(target):
+        return (
+            f"Invalid pending {subsystem} id '{target}'. Expected 32 lowercase "
+            "hex characters (legacy 8-character ids are also accepted)."
+        )
+    rec = wa.get_pending(subsystem, target)
+    if rec and wa.discard_pending(subsystem, target):
         return f"Rejected pending {subsystem} write '{target}'."
     return f"No pending {subsystem} write with id '{target}'."
 
@@ -173,11 +290,16 @@ def _reject(subsystem: str, rest: List[str]) -> str:
 def _diff(rest: List[str]) -> str:
     if not rest:
         return "Usage: /skills diff <id>"
+    if not wa.is_valid_pending_id(rest[0]):
+        return (
+            f"Invalid pending skills id '{rest[0]}'. Expected 32 lowercase hex "
+            "characters (legacy 8-character ids are also accepted)."
+        )
     rec = wa.get_pending(wa.SKILLS, rest[0])
     if not rec:
         return f"No pending skill write with id '{rest[0]}'."
     diff = wa.skill_pending_diff(rec)
-    header = f"# Pending skill write {rec['id']}: {rec.get('summary', '')}\n"
+    header = f"# Reviewed skill draft batch containing {rec['id']}\n"
     return header + "\n" + diff
 
 

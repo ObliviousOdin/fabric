@@ -19,6 +19,7 @@ Operate the Teams meeting summary pipeline via Fabric CLI — summarize meetings
 | Version | `1.1.0` |
 | Author | Fabric + Teknium |
 | License | MIT |
+| Tags | `Teams`, `Microsoft Graph`, `Meetings`, `Productivity`, `Operations` |
 
 ## Reference: full SKILL.md
 

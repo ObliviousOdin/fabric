@@ -124,6 +124,75 @@ def build_skills_parser(subparsers, *, cmd_skills: Callable) -> None:
         "which skills will load for that profile.",
     )
 
+    skills_validate = skills_subparsers.add_parser(
+        "validate",
+        help="Validate skill contracts and legacy skill structure",
+        description=(
+            "Validate one installed skill, a skill directory, or every skill in "
+            "the active profile. Legacy skills without a contract remain valid "
+            "unless --require-contract is set."
+        ),
+    )
+    skills_validate.add_argument(
+        "target",
+        nargs="?",
+        help=(
+            "Installed skill name or path to a skill/directory "
+            "(default: active profile skills directory)"
+        ),
+    )
+    skills_validate.add_argument(
+        "--require-contract",
+        action="store_true",
+        help="Treat a missing skill.contract.yaml as an error",
+    )
+    skills_validate.add_argument(
+        "--json",
+        action="store_true",
+        help="Output deterministic JSON for automation",
+    )
+
+    skills_evaluate = skills_subparsers.add_parser(
+        "evaluate",
+        help="Attest deterministic observations for a pending governed skill batch",
+        description=(
+            "Run the data-only evaluation manifest against a bounded JSON "
+            "observations file and persist a passing attestation bound to the "
+            "exact pending candidate. No model, hook, command, or skill code is executed."
+        ),
+    )
+    skills_evaluate.add_argument(
+        "pending_id", help="Pending skill draft id from /skills pending"
+    )
+    skills_evaluate.add_argument(
+        "--observations",
+        required=True,
+        help="Regular non-symlink JSON observations file",
+    )
+    skills_evaluate.add_argument(
+        "--json", action="store_true", help="Output the bounded evaluation report as JSON"
+    )
+
+    skills_rollback = skills_subparsers.add_parser(
+        "rollback",
+        help="Roll back the latest eligible committed skill promotion",
+        description=(
+            "Restore a retained promotion snapshot only when no newer "
+            "transaction or active-tree edit touches the same skills."
+        ),
+    )
+    skills_rollback.add_argument(
+        "transaction_id", help="Exact 32-character promotion transaction id"
+    )
+    skills_rollback.add_argument(
+        "--now",
+        action="store_true",
+        help="Refresh skill routing immediately (invalidates the prompt cache)",
+    )
+    skills_rollback.add_argument(
+        "--json", action="store_true", help="Output deterministic JSON"
+    )
+
     skills_check = skills_subparsers.add_parser(
         "check", help="Check installed hub skills for updates"
     )

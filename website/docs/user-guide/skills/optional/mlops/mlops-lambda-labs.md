@@ -21,6 +21,7 @@ Reserved and on-demand GPU cloud instances for ML training and inference. Use wh
 | License | MIT |
 | Dependencies | `lambda-cloud-client>=1.0.0` |
 | Platforms | linux, macos, windows |
+| Tags | `Infrastructure`, `GPU Cloud`, `Training`, `Inference`, `Lambda Labs` |
 
 ## Reference: full SKILL.md
 

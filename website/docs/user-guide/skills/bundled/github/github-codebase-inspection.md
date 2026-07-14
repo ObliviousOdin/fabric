@@ -20,6 +20,8 @@ Inspect codebases w/ pygount: LOC, languages, ratios.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `LOC`, `Code Analysis`, `pygount`, `Codebase`, `Metrics`, `Repository` |
+| Related skills | [`github-repo-management`](/user-guide/skills/bundled/github/github-github-repo-management) |
 
 ## Reference: full SKILL.md
 

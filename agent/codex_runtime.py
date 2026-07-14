@@ -319,6 +319,46 @@ def run_codex_app_server_turn(
         _ServerRequestRouting,
     )
 
+    # The subprocess owns command/file/MCP dispatch and cannot consume
+    # Fabric's per-turn ContextVar tool policy. Sending /learn into it would
+    # therefore bypass the quarantine isolation even though the normal
+    # chat-completions path is locked down. Fail closed before the subprocess
+    # sees the prompt; the user can switch to the standard Fabric runtime and
+    # retry without losing any active-library state.
+    try:
+        from tools.skill_provenance import (
+            LEARN_REQUEST,
+            get_current_write_origin,
+        )
+
+        _isolated_learn = get_current_write_origin() == LEARN_REQUEST
+    except Exception:
+        _isolated_learn = False
+    if _isolated_learn:
+        message = (
+            "Governed /learn authoring is unavailable in the Codex app-server "
+            "runtime because that subprocess cannot enforce Fabric's per-turn "
+            "tool allowlist. Run `/codex-runtime auto`, start the next session, "
+            "and retry the same `/learn ...` request. No skill was changed."
+        )
+        messages.append({"role": "assistant", "content": message})
+        try:
+            agent._flush_messages_to_session_db(messages)
+        except Exception:
+            logger.debug(
+                "codex app-server /learn refusal persistence failed",
+                exc_info=True,
+            )
+        return {
+            "final_response": message,
+            "messages": messages,
+            "api_calls": 0,
+            "completed": False,
+            "partial": False,
+            "error": "learn_tool_policy_unavailable",
+            "agent_persisted": True,
+        }
+
     # Lazy session: one CodexAppServerSession per AIAgent instance.
     # Spawned on first turn, reused across turns, closed at AIAgent
     # shutdown (see _cleanup hook).

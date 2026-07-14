@@ -71,6 +71,30 @@ def agent_runtime_owns_post_tool_hook(agent: Any, function_name: str) -> bool:
     return bool(memory_manager and memory_manager.has_tool(function_name))
 
 
+def agent_runtime_permission_toolset(
+    agent: Any, function_name: str
+) -> str | None:
+    """Resolve the contract toolset for a directly dispatched agent tool."""
+
+    try:
+        from tools.registry import registry
+
+        registered = registry.get_toolset_for_tool(function_name)
+        if registered:
+            return registered
+    except Exception:
+        pass
+    if (
+        getattr(agent, "_context_engine_tool_names", None)
+        and function_name in agent._context_engine_tool_names
+    ):
+        return "context_engine"
+    memory_manager = getattr(agent, "_memory_manager", None)
+    if memory_manager and memory_manager.has_tool(function_name):
+        return "memory"
+    return None
+
+
 def convert_to_trajectory_format(agent, messages: List[Dict[str, Any]], user_query: str, completed: bool) -> List[Dict[str, Any]]:
     """
     Convert internal message format to trajectory format for saving.
@@ -2450,6 +2474,57 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
             pass
         return result
 
+    if agent_runtime_owns_post_tool_hook(agent, function_name):
+        try:
+            from agent.skill_permissions import authorize_skill_tool_call
+
+            permission_payload = authorize_skill_tool_call(
+                tool_name=function_name,
+                function_args=function_args,
+                task_id=effective_task_id,
+                session_id=getattr(agent, "session_id", "") or "",
+                turn_id=getattr(agent, "_current_turn_id", "") or "",
+                toolset=agent_runtime_permission_toolset(agent, function_name),
+            )
+        except Exception:
+            try:
+                from agent.skill_permissions import load_permission_settings
+
+                _permission_mode = load_permission_settings().mode
+            except Exception:
+                _permission_mode = "enforce_all"
+            permission_payload = None
+            if _permission_mode != "observe":
+                permission_payload = {
+                    "error": (
+                        "Skill permission policy denied this tool because its "
+                        "enforcement decision could not be evaluated."
+                    ),
+                    "permission_code": "policy_evaluation_failed",
+                }
+        if permission_payload is not None:
+            result = json.dumps(permission_payload, ensure_ascii=False)
+            try:
+                from model_tools import _emit_post_tool_call_hook
+
+                _emit_post_tool_call_hook(
+                    function_name=function_name,
+                    function_args={},
+                    result=result,
+                    task_id=effective_task_id or "",
+                    session_id=getattr(agent, "session_id", "") or "",
+                    tool_call_id=tool_call_id or "",
+                    turn_id=getattr(agent, "_current_turn_id", "") or "",
+                    api_request_id=getattr(agent, "_current_api_request_id", "") or "",
+                    status="blocked",
+                    error_type="skill_permission_block",
+                    error_message=str(permission_payload["error"]),
+                    middleware_trace=list(_tool_middleware_trace),
+                )
+            except Exception:
+                pass
+            return result
+
     tool_start_time = time.monotonic()
 
     def _finish_agent_tool(result: Any, observed_args: Optional[dict] = None) -> Any:
@@ -2509,6 +2584,14 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
             target = next_args.get("target", "memory")
             operations = next_args.get("operations")
             from tools.memory_tool import memory_tool as _memory_tool
+            try:
+                before_entries = (
+                    list(agent._memory_store._entries_for(target))
+                    if agent._memory_store is not None and target in {"memory", "user"}
+                    else []
+                )
+            except Exception:
+                before_entries = []
             result = _memory_tool(
                 action=next_args.get("action"),
                 target=target,
@@ -2517,6 +2600,34 @@ def invoke_tool(agent, function_name: str, function_args: dict, effective_task_i
                 operations=operations,
                 store=agent._memory_store,
             )
+            # Provenance is profile-local and best-effort.  It records only
+            # digests/opaque ids and must never turn a committed memory write
+            # into a failed tool call.
+            try:
+                from agent.memory_governance import record_committed_write_best_effort
+
+                metadata = agent._build_memory_write_metadata(
+                    task_id=effective_task_id,
+                    tool_call_id=tool_call_id,
+                )
+                try:
+                    after_entries = (
+                        list(agent._memory_store._entries_for(target))
+                        if agent._memory_store is not None and target in {"memory", "user"}
+                        else []
+                    )
+                except Exception:
+                    after_entries = []
+                record_committed_write_best_effort(
+                    target=target,
+                    before_entries=before_entries,
+                    after_entries=after_entries,
+                    tool_args=next_args,
+                    tool_result=result,
+                    metadata=metadata,
+                )
+            except Exception:
+                logger.debug("Memory governance recording unavailable", exc_info=True)
             # Mirror successful built-in memory writes to external providers.
             # All gating/op-expansion lives behind the manager interface
             # (MemoryManager.notify_memory_tool_write).

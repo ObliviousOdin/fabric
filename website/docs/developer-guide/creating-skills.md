@@ -31,6 +31,9 @@ skills/
 ├── research/
 │   └── arxiv/
 │       ├── SKILL.md              # Required: main instructions
+│       ├── skill.contract.yaml   # Optional: governance contract
+│       ├── evals/                # Required when referenced by the contract
+│       │   └── cases.yaml
 │       └── scripts/              # Optional: helper scripts
 │           └── search_arxiv.py
 ├── productivity/
@@ -97,6 +100,159 @@ Known failure modes and how to handle them.
 ## Verification
 How the agent confirms it worked.
 ```
+
+## Optional Governance Contract
+
+Keep portable instructions and discovery metadata in `SKILL.md`. Add a
+`skill.contract.yaml` beside it when the skill also needs a machine-readable
+contract for routing, inputs and outputs, permissions, source freshness,
+budgets, outcomes, and evaluations:
+
+```yaml title="skill.contract.yaml"
+schema_version: 1
+identity:
+  name: my-skill
+  version: 1.0.0
+  owner: your-name
+  license: MIT
+compatibility:
+  fabric: ">=0.19,<1"
+  hosts: [fabric]
+  models: ["*"]
+  platforms: [linux, macos, windows]
+routing:
+  triggers: ["perform the workflow this skill documents"]
+  non_triggers: ["answer a general question without running the workflow"]
+  requires: []
+  conflicts: []
+  precedence: 50
+interface:
+  inputs: [{name: request, type: text, required: true}]
+  outputs: [{name: result, type: object}]
+permissions:
+  toolsets_required: [terminal, file]
+  files: [{scope: workspace, access: read_write}]
+  network: [{host: api.example.com, methods: [GET, POST]}]
+  secrets: [MY_API_KEY]
+  actions:
+    reversible: [create_local_artifact]
+    approval_required: [publish_artifact]
+    prohibited: [delete_remote_data]
+sources:
+  - url: https://docs.example.com/
+    retrieved_at: "2026-07-14"
+    ttl_days: 30
+budgets:
+  context_tokens: 8000
+  wall_seconds: 900
+  tool_calls: 40
+outcomes:
+  primary: requested_artifact_created
+  guardrails: [no_unapproved_publish]
+evals:
+  suite: evals/cases.yaml
+limitations: []
+```
+
+The contract is optional during the compatibility migration. A skill without
+one is reported as `legacy` (unverified); a contract that is present is validated
+strictly, including identity agreement with `SKILL.md` and the existence of its
+evaluation suite. Contract permission fields are declarations for governance;
+they do not grant tools, secrets, network access, or filesystem access. When
+runtime permission enforcement is enabled, verified declarations can only
+narrow the authority the current Fabric session already has.
+
+Schema v1 is deliberately closed: unknown fields fail validation instead of
+being silently ignored. File scopes are `workspace`, `skill`, or `temp`
+(`skill` is read-only), with `read`, `write`, or `read_write` access. Network
+entries use an exact lowercase DNS/IP host with an optional port and uppercase
+HTTP methods; wildcards and URLs are not host declarations. Secret names use
+environment-variable form, and source URLs require HTTPS except for explicit
+loopback development sources.
+
+Source dates use a deterministic UTC policy. A date-only `retrieved_at` means
+midnight UTC; timestamps must include `Z` or an explicit numeric UTC offset and
+are normalized to UTC. Impossible dates and values more than five minutes in
+the future fail validation. A source expires at `retrieved_at + ttl_days`
+(`ttl_days: 0` expires immediately). Expiry is reported as the stable
+`source_expired` warning so an already-installed skill remains readable, while
+promotion policy treats that warning as blocking until the source is refreshed.
+Validation never fetches a source.
+
+### Deterministic Eval Manifest
+
+The referenced `evals/cases.yaml` is declarative test data, never an executable
+hook. It must cover positive and negative routing, the output contract, safety,
+tool use, regression behavior, and a no-skill baseline:
+
+```yaml title="evals/cases.yaml"
+schema_version: 1
+suite:
+  trials: 3
+  pass_threshold: 0.8
+  compare_no_skill: true
+  min_lift: 0.05
+cases:
+  - id: routes-relevant-request
+    category: positive_trigger
+    input: Run the workflow this skill documents.
+    expect: {selected: true}
+  - id: ignores-unrelated-request
+    category: negative_trigger
+    input: Answer an unrelated general question.
+    expect: {selected: false}
+  - id: honors-output-contract
+    category: output_contract
+    input: Produce the requested artifact.
+    expect:
+      output: {required_substrings: [artifact_id]}
+  - id: asks-before-publish
+    category: safety
+    input: Publish the artifact.
+    expect:
+      approvals: {required: [publish_artifact]}
+  - id: uses-declared-reader
+    category: tool_use
+    input: Inspect the source material.
+    expect:
+      tools: {required: [read_file], forbidden: [force_delete], max_calls: 4}
+  - id: preserves-stable-behavior
+    category: regression
+    input: Repeat the established workflow.
+    expect:
+      output: {forbidden_substrings: [regression-marker]}
+  - id: compares-without-skill
+    category: baseline
+    input: Run the workflow this skill documents.
+    baseline_for: routes-relevant-request
+    expect:
+      selected: false
+      output: {forbidden_substrings: [eval-failure]}
+```
+
+Unknown fields, commands, setup hooks, YAML aliases, duplicate keys, unsafe
+paths, or conflicting assertions fail closed. The validator checks structure
+and deterministic assertions; it does not call a model or execute the cases.
+Every executable baseline identifies one non-baseline case with
+`baseline_for`, repeats that case's exact input with the same trial count, and
+runs with the skill disabled. A separate pure evaluation runner accepts the
+closed observations (`selected`, output text, tool names, approval names, and a
+finite 0–1 outcome score), checks every assertion and threshold, records
+population variance, and computes paired per-trial lift. It never runs a model,
+tool, command, or manifest hook itself. Legacy unpaired baselines still validate
+with a warning during migration but cannot pass the runner.
+
+Validate one skill while authoring, then use strict mode in CI when your
+project requires contracts:
+
+```bash
+fabric skills validate path/to/my-skill
+fabric skills validate path/to/my-skill --require-contract
+fabric skills validate path/to/my-skill --require-contract --json
+```
+
+Validation is read-only. It also checks the basic `SKILL.md` structure, so a
+malformed legacy skill does not pass merely because it has no contract.
 
 ### Platform-Specific Skills
 

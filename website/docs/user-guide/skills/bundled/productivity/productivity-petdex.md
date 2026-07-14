@@ -20,6 +20,7 @@ Install and select animated petdex mascots for Fabric.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `petdex`, `mascot`, `display`, `cli`, `tui`, `desktop` |
 
 ## Reference: full SKILL.md
 

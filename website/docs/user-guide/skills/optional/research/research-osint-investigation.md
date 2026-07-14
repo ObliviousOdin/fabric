@@ -19,6 +19,8 @@ Public-records OSINT investigation framework — SEC EDGAR filings, USAspending 
 | Version | `0.1.0` |
 | Author | Fabric (adapted from ShinMegamiBoson/OpenPlanter, MIT) |
 | Platforms | linux, macos, windows |
+| Tags | `osint`, `investigation`, `public-records`, `sec`, `sanctions`, `corporate-registry`, `property`, `courts`, `due-diligence`, `journalism` |
+| Related skills | [`domain-intel`](/user-guide/skills/optional/research/research-domain-intel), [`arxiv`](/user-guide/skills/bundled/research/research-arxiv) |
 
 ## Reference: full SKILL.md
 

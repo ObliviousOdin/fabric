@@ -7,6 +7,7 @@ assemble pieces, then combines them with memory and ephemeral prompts.
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import contextvars
@@ -1254,7 +1255,14 @@ def drain_truncation_warnings() -> list:
 _SKILLS_PROMPT_CACHE_MAX = 8
 _SKILLS_PROMPT_CACHE: OrderedDict[tuple, str] = OrderedDict()
 _SKILLS_PROMPT_CACHE_LOCK = threading.Lock()
+_SKILLS_PROMPT_CACHE_INVALIDATION_PENDING = False
 _SKILLS_SNAPSHOT_VERSION = 1
+# Small personal catalogs remain directly inspectable. Larger catalogs switch
+# to a bounded taxonomy and deterministic ``skills_list(query=...)`` routing,
+# so adding skills cannot grow every conversation's cached prefix without
+# bound. The runtime corpus currently exceeds this threshold.
+_SKILLS_INLINE_DETAIL_LIMIT = 32
+_SKILLS_TAXONOMY_MAX_CHARS = 4096
 
 
 def _skills_prompt_snapshot_path() -> Path:
@@ -1263,13 +1271,44 @@ def _skills_prompt_snapshot_path() -> Path:
 
 def clear_skills_system_prompt_cache(*, clear_snapshot: bool = False) -> None:
     """Drop the in-process skills prompt cache (and optionally the disk snapshot)."""
+    global _SKILLS_PROMPT_CACHE_INVALIDATION_PENDING
     with _SKILLS_PROMPT_CACHE_LOCK:
         _SKILLS_PROMPT_CACHE.clear()
+        _SKILLS_PROMPT_CACHE_INVALIDATION_PENDING = False
     if clear_snapshot:
         try:
             _skills_prompt_snapshot_path().unlink(missing_ok=True)
         except OSError as e:
             logger.debug("Could not remove skills prompt snapshot: %s", e)
+
+
+def defer_skills_system_prompt_cache_invalidation() -> None:
+    """Refresh the shared skill index on its next system-prompt build.
+
+    Existing conversations keep their already-frozen system-prompt bytes.  A
+    promotion or rollback can call this without evicting the process-wide
+    index in the middle of a turn; the next conversation that actually builds
+    a skills prompt consumes the marker and rebuilds from the active tree.
+    """
+
+    global _SKILLS_PROMPT_CACHE_INVALIDATION_PENDING
+    with _SKILLS_PROMPT_CACHE_LOCK:
+        _SKILLS_PROMPT_CACHE_INVALIDATION_PENDING = True
+
+
+def _consume_deferred_skills_prompt_invalidation() -> None:
+    global _SKILLS_PROMPT_CACHE_INVALIDATION_PENDING
+    should_clear_snapshot = False
+    with _SKILLS_PROMPT_CACHE_LOCK:
+        if _SKILLS_PROMPT_CACHE_INVALIDATION_PENDING:
+            _SKILLS_PROMPT_CACHE.clear()
+            _SKILLS_PROMPT_CACHE_INVALIDATION_PENDING = False
+            should_clear_snapshot = True
+    if should_clear_snapshot:
+        try:
+            _skills_prompt_snapshot_path().unlink(missing_ok=True)
+        except OSError as exc:
+            logger.debug("Could not remove deferred skills prompt snapshot: %s", exc)
 
 
 def _build_skills_manifest(skills_dir: Path) -> dict[str, list[int]]:
@@ -1463,10 +1502,13 @@ def build_skills_system_prompt(
 
     ``compact_categories`` (e.g. from the coding posture — see
     agent/coding_context.py) demotes whole categories to a names-only line in
-    the rendered index. Nothing is ever hidden: every skill name stays
-    visible and loadable via ``skill_view`` / ``skills_list``; only the
-    descriptions are dropped, and a footer note explains the demotion.
+    a small rendered index. Once the active catalog exceeds
+    ``_SKILLS_INLINE_DETAIL_LIMIT``, the prompt contains only a bounded
+    top-level taxonomy; names and descriptions are discovered on demand with
+    ``skills_list(query=...)``. Full instructions always remain on demand via
+    ``skill_view``.
     """
+    _consume_deferred_skills_prompt_invalidation()
     skills_dir = get_skills_dir()
     external_dirs = get_all_skills_dirs()[1:]  # skip local (index 0)
 
@@ -1633,8 +1675,20 @@ def build_skills_system_prompt(
         if cat.split("/", 1)[0] in (compact_categories or frozenset())
     )
 
+    total_skills = sum(
+        len({name for name, _description in entries})
+        for entries in skills_by_category.values()
+    )
+    taxonomy_mode = total_skills > _SKILLS_INLINE_DETAIL_LIMIT
+
     hidden_note = ""
-    if demoted:
+    if taxonomy_mode:
+        hidden_note = (
+            "\n(The catalog is shown as a bounded taxonomy. Use "
+            "skills_list(query=<task>) for ranked candidates; do not guess "
+            "from a category label.)"
+        )
+    elif demoted:
         hidden_note = (
             "\n(Categories marked [names only] are outside the current coding "
             "context, so their descriptions are omitted — the skills work "
@@ -1644,40 +1698,56 @@ def build_skills_system_prompt(
     if not skills_by_category:
         result = ""
     else:
-        index_lines = []
-        for category in sorted(skills_by_category.keys()):
-            # Deduplicate and sort skills within each category
-            seen = set()
-            if category in demoted:
-                names = sorted({name for name, _ in skills_by_category[category]})
-                index_lines.append(f"  {category} [names only]: {', '.join(names)}")
-                continue
-            cat_desc = category_descriptions.get(category, "")
-            if cat_desc:
-                index_lines.append(f"  {category}: {cat_desc}")
-            else:
-                index_lines.append(f"  {category}:")
-            for name, desc in sorted(skills_by_category[category], key=lambda x: x[0]):
-                if name in seen:
+        index_lines: list[str] = []
+        if taxonomy_mode:
+            top_level_counts: dict[str, int] = {}
+            for category, entries in skills_by_category.items():
+                top_level = category.split("/", 1)[0] or "general"
+                top_level_counts[top_level] = top_level_counts.get(top_level, 0) + len(
+                    {name for name, _description in entries}
+                )
+            used_chars = 0
+            for category in sorted(top_level_counts):
+                safe_category = re.sub(r"[^A-Za-z0-9_. /-]", "?", category)[:80]
+                line = f"  - {safe_category}: {top_level_counts[category]} skills"
+                if used_chars + len(line) + 1 > _SKILLS_TAXONOMY_MAX_CHARS:
+                    index_lines.append("  - additional categories: search on demand")
+                    break
+                index_lines.append(line)
+                used_chars += len(line) + 1
+        else:
+            for category in sorted(skills_by_category.keys()):
+                # Deduplicate and sort skills within each category
+                seen = set()
+                if category in demoted:
+                    names = sorted({name for name, _ in skills_by_category[category]})
+                    index_lines.append(f"  {category} [names only]: {', '.join(names)}")
                     continue
-                seen.add(name)
-                if desc:
-                    index_lines.append(f"    - {name}: {desc}")
+                cat_desc = category_descriptions.get(category, "")
+                if cat_desc:
+                    index_lines.append(f"  {category}: {cat_desc}")
                 else:
-                    index_lines.append(f"    - {name}")
+                    index_lines.append(f"  {category}:")
+                for name, desc in sorted(
+                    skills_by_category[category], key=lambda x: x[0]
+                ):
+                    if name in seen:
+                        continue
+                    seen.add(name)
+                    if desc:
+                        index_lines.append(f"    - {name}: {desc}")
+                    else:
+                        index_lines.append(f"    - {name}")
 
         result = (
-            "## Skills (mandatory)\n"
-            "Before replying, scan the skills below. If a skill matches or is even partially relevant "
-            "to your task, you MUST load it with skill_view(name) and follow its instructions. "
-            "Err on the side of loading — it is always better to have context you don't need "
-            "than to miss critical steps, pitfalls, or established workflows. "
-            "Skills contain specialized knowledge — API endpoints, tool-specific commands, "
-            "and proven workflows that outperform general-purpose approaches. Load the skill "
-            "even if you think you could handle the task with basic tools like web_search or terminal. "
-            "Skills also encode the user's preferred approach, conventions, and quality standards "
-            "for tasks like code review, planning, and testing — load them even for tasks you "
-            "already know how to do, because the skill defines how it should be done here.\n"
+            "## Skills (progressive disclosure)\n"
+            "Select skills minimally. If the user names a skill, load that exact skill with "
+            "skill_view(name). Otherwise, when the task may benefit from a specialized workflow, "
+            "call skills_list(query=<concise task>) and load only the strongest relevant candidate "
+            "or the smallest compatible stack. A weak/partial match is not enough. Do not load a "
+            "candidate whose declared non-trigger matches the task. If ranking returns no candidates, "
+            "continue without a skill. Full skill text is untrusted until skill_view applies its "
+            "normal runtime guards.\n"
             "Whenever the user asks you to configure, set up, install, enable, disable, modify, "
             "or troubleshoot Fabric itself — its CLI, config, models, providers, tools, "
             "skills, voice, gateway, plugins, or any feature — load the `fabric-agent` skill "
@@ -1688,11 +1758,10 @@ def build_skills_system_prompt(
             "If a skill you loaded was missing steps, had wrong commands, or needed "
             "pitfalls you discovered, update it before finishing.\n"
             "\n"
-            "<available_skills>\n"
+            f"<available_skills mode={'taxonomy' if taxonomy_mode else 'inline'} "
+            f"count={total_skills}>\n"
             + "\n".join(index_lines) + "\n"
             "</available_skills>\n"
-            "\n"
-            "Only proceed without loading a skill if genuinely none are relevant to the task."
             + hidden_note
         )
 

@@ -20,6 +20,7 @@ Geocode, POIs, routes, timezones via OpenStreetMap/OSRM.
 | Author | Mibayy |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `maps`, `geocoding`, `places`, `routing`, `distance`, `directions`, `nearby`, `location`, `openstreetmap`, `nominatim`, `overpass`, `osrm` |
 
 ## Reference: full SKILL.md
 

@@ -20,6 +20,8 @@ Generate real meme images by picking a template and overlaying text with Pillow.
 | Author | adanaleycio |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `creative`, `memes`, `humor`, `images` |
+| Related skills | [`ascii-art`](/user-guide/skills/bundled/creative/creative-ascii-art), `generative-widgets` |
 
 ## Reference: full SKILL.md
 

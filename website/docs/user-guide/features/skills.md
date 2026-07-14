@@ -17,6 +17,28 @@ See also:
 - [Bundled Skills Catalog](/reference/skills-catalog)
 - [Official Optional Skills Catalog](/reference/optional-skills-catalog)
 
+## Validating Skills and Contracts
+
+`fabric skills validate` performs a read-only check of `SKILL.md` and the
+optional `skill.contract.yaml` governance contract. Pass an installed skill
+name, a skill directory, a directory containing multiple skills, or no target
+to check every skill in the active profile:
+
+```bash
+fabric skills validate github-pr-workflow
+fabric skills validate ./skills/my-category/my-skill
+fabric skills validate                         # active profile
+fabric skills validate --require-contract      # reject missing contracts
+fabric skills validate --json                  # deterministic automation output
+```
+
+Results are classified as `verified`, `legacy`, or `invalid`. Legacy skills
+without a contract remain usable during migration unless
+`--require-contract` is set. A present contract is always checked strictly;
+invalid YAML, conflicting identity, unsafe evaluation paths, or a missing evaluation
+suite produces a non-zero exit status. See [Creating Skills](/developer-guide/creating-skills#optional-governance-contract)
+for the canonical contract format.
+
 ## Starting with a blank slate
 
 By default every profile is seeded with the bundled skill catalog, and each `fabric update` adds any newly bundled skills. If you want a profile with **no bundled skills** — and that stays empty across updates — you have two paths:
@@ -96,7 +118,7 @@ fabric chat --toolsets skills -q "Show me the axolotl skill"
 `/learn` is the fast way to turn something you already know — or a pile of
 reference material — into a reusable skill, without hand-writing the
 `SKILL.md`. It is open-ended: point it at *anything you can describe* and the
-agent gathers the material with the tools it already has, then authors a skill
+agent gathers the material with a source-reading tool allowlist, then authors a skill
 that follows the [house authoring standards](#skillmd-format) (≤60-char
 description, the standard section order, Fabric-tool framing, no invented
 commands).
@@ -123,21 +145,100 @@ with a directory field, a URL field, and an open-ended text box; it composes a
 `/learn` request and runs it in chat.
 
 There is no model-tool footprint: `/learn` builds a standards-guided prompt and
-hands it to the agent as a normal turn. The agent saves the result with the
-`skill_manage` tool, so the [write-approval gate](#gating-agent-skill-writes-skillswrite_approval)
-applies if you have it on.
+hands it to the agent as a normal turn. The agent submits the result with the
+`skill_manage` tool as a quarantined draft outside the active skill tree. Review
+it with `/skills diff <id>`, promote it with `/skills approve <id>`, or discard
+it with `/skills reject <id>`. This review boundary always applies to `/learn`,
+even when the optional foreground [write-approval gate](#gating-agent-skill-writes-skillswrite_approval)
+is off.
+
+`/learn` authoring is intentionally a single-turn sandbox. It can read files,
+search/extract web sources, inspect conversations and existing skills, and use
+`skill_manage`; terminal commands, generic file writers, code execution,
+delegation, memory writes, MCP/plugin tools, and dynamic Tool Search execution
+are denied at dispatch. If a required source is missing, the run stops without
+writing and asks you to start a fresh `/learn ...` request containing that
+source instead of carrying authoring authority into an ordinary follow-up turn.
+As defense in depth, any `skill_manage` write attempted in the immediately
+following chat turn is still routed to quarantine rather than the active tree.
 
 ## Progressive Disclosure
 
 Skills use a token-efficient loading pattern:
 
 ```
-Level 0: skills_list()           → [{name, description, category}, ...]   (~3k tokens)
-Level 1: skill_view(name)        → Full content + metadata       (varies)
-Level 2: skill_view(name, path)  → Specific reference file       (varies)
+Level 0: prompt taxonomy              → category counts only (bounded)
+Level 1: skills_list(query="task")    → ranked candidates (default max 8)
+Level 2: skill_view(name)             → full content + metadata (varies)
+Level 3: skill_view(name, path)       → one supporting file (varies)
 ```
 
-The agent only loads the full skill content when it actually needs it.
+For catalogs of 32 skills or fewer, Fabric keeps the compact name/description
+index inline. Larger catalogs automatically switch to a top-level taxonomy;
+the current 72-skill bundled catalog renders to about 372 bytes
+instead of embedding every description. `skills_list(query=...)` ranks locally
+and deterministically, gives verified contract triggers extra weight, and
+removes a candidate when its declared non-trigger matches. The agent only
+loads the strongest relevant candidate or smallest compatible stack.
+
+## Runtime permission leases
+
+A verified `skill.contract.yaml` can constrain the existing tools while that
+skill is active. Leases are process-local and turn-scoped; they never add tools
+or change the cached system prompt. Slash commands and bundles bind to the next
+turn, while session preloads receive a fresh lease and budget on every turn.
+
+Roll enforcement out from `config.yaml`:
+
+```yaml
+skills:
+  permissions:
+    mode: observe # observe | enforce_learned | enforce_all
+```
+
+- `observe` (default) records privacy-safe decision/gap codes but never blocks.
+- `enforce_learned` enforces learned and unknown-provenance skills while
+  observing distributed/external skills.
+- `enforce_all` enforces verified contracts for every skill provenance.
+
+In an enforced population, legacy or invalid contracts fail closed at load.
+Verified leases enforce declared toolsets, tool-call and wall-clock budgets,
+resolved `workspace`/`skill`/`temp` file containment, and exact hosts/methods
+for inspectable `web_extract` and `browser_navigate` calls. Stacked approvals
+use Fabric's normal approval UI; a prohibition always wins.
+
+Raw terminal commands, arbitrary `execute_code`, `web_search` targets, and
+navigation caused indirectly by browser clicks/typing cannot be safely inferred
+from structured arguments. When their toolset is declared, these calls are
+allowed and marked with stable observation-gap codes; existing sandbox,
+network, and approval controls still apply. Context-token and secret-use
+declarations are recorded for inspection, but runtime attribution is not
+claimed as enforced.
+
+## Local skill receipts
+
+Fabric records bounded, profile-local activation metadata so skill quality can
+be measured without collecting conversation content. The journal lives at
+`~/.fabric/skills/.governance/skill-receipts.jsonl`; it contains skill/version/
+digest identity, selection source, governance lane, and HMAC-pseudonymous
+session/task/turn references. Prompts, responses, tool arguments, file content,
+error text, and secrets are not valid receipt fields, and nothing is sent over
+the network.
+
+```yaml
+skills:
+  receipts:
+    enabled: true
+    max_bytes: 1048576
+    max_files: 4
+```
+
+Slash commands, stacks, bundles, preloads, scheduled skills, and `skill_view`
+write activation receipts. Terminal outcomes are recorded only through the
+explicit structured outcome API; Fabric does not guess that a preloaded or
+multi-skill turn belongs to one activation. This keeps completion coverage
+separate from routing precision until an evaluator supplies an explicit
+`routing_relevant` label.
 
 ## SKILL.md Format
 
@@ -437,9 +538,10 @@ The agent can create, update, and delete its own skills via the `skill_manage` t
 
 Skills and memory work together in the self-improvement loop: memory stores
 small durable facts that should always be in context, while skills store longer
-procedures that should load only when relevant. The background review can
-suggest or stage skill changes after a session, but the write-approval gate
-below lets you require human review before those changes land.
+procedures that should load only when relevant. Background review and `/learn`
+changes always enter quarantine as drafts and require explicit promotion. The
+optional write-approval gate below extends that review boundary to ordinary
+foreground skill edits as well.
 
 ### When the Agent Creates Skills
 
@@ -465,31 +567,42 @@ The `patch` action is preferred for updates — it's more token-efficient than `
 
 ### Gating agent skill writes (`skills.write_approval`)
 
-By default the agent writes skills freely — including from the [background
-self-improvement review](/user-guide/features/memory#controlling-memory-writes-write_approval)
-that runs after a turn. If you'd rather approve every skill write first
-(small models that misjudge what they learned, secure environments, or just
-wanting eyes on the self-improvement loop), turn on the write-approval gate:
+By default, ordinary foreground `skill_manage` writes land immediately.
+Background self-improvement review and `/learn` writes are different: they
+always stage outside the active tree until you explicitly promote them. To
+require the same approval step for every foreground skill write, turn on the
+write-approval gate:
 
 ```yaml
 skills:
-  write_approval: false     # false = write freely (default) | true = require approval
+  write_approval: false     # false = foreground writes directly | true = stage all writes
 ```
 
 When `write_approval: true`, every `skill_manage` write (create / edit /
 patch / delete / write_file / remove_file) is **staged** instead of committed —
 a SKILL.md is too large to review inline, so staging applies regardless of
-whether the write came from a foreground turn or the background review.
+origin. With the setting off, background-review and `/learn` writes still stage;
+only ordinary foreground writes bypass review.
 Staged writes survive restarts under `~/.fabric/pending/skills/` and are
 reviewed with the same familiar approve/deny flow as dangerous commands:
 
 ```
 /skills pending             # list staged skill writes + a one-line gist each
 /skills diff <id>           # full unified diff (best viewed in CLI or dashboard)
-/skills approve <id>        # apply it (or 'all')
+/skills approve <id>        # promote it (or 'all'); activates next session
+/skills approve <id> --now  # promote + refresh shared skill routing immediately
 /skills reject <id>         # drop it (or 'all')
+/skills rollback <tx-id>    # exact retained rollback; activates next session
+/skills rollback <tx-id> --now # rollback + refresh routing immediately
 /skills approval on         # turn the gate on (or 'off') and persist it
 ```
+
+Promotion is one crash-safe transaction bound to the reviewed records,
+contract, evaluation, and active-tree preconditions. If a manual edit lands
+after review but before replay, Fabric preserves that edit, retains the draft,
+and asks you to review again. The default activation boundary preserves the
+current conversation's cached system prompt; `--now` is explicit because the
+next request can lose its prompt-cache hit.
 
 The review surface works in the interactive CLI and on messaging platforms
 (diff output is truncated for chat bubbles — read the full diff on the CLI or
@@ -514,6 +627,7 @@ fabric skills search react --source skills-sh     # Search the skills.sh directo
 fabric skills search https://mintlify.com/docs --source well-known
 fabric skills inspect openai/skills/k8s           # Preview before installing
 fabric skills install openai/skills/k8s           # Install with security scan
+fabric skills validate k8s                        # Validate SKILL.md and optional contract
 fabric skills install official/security/1password
 fabric skills install skills-sh/vercel-labs/json-render/json-render-react --force
 fabric skills install well-known:https://mintlify.com/docs/.well-known/skills/mintlify

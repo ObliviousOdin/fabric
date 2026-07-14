@@ -20,6 +20,7 @@ Use the mcporter CLI to list, configure, auth, and call MCP servers/tools direct
 | Author | community |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `MCP`, `Tools`, `API`, `Integrations`, `Interop` |
 
 ## Reference: full SKILL.md
 

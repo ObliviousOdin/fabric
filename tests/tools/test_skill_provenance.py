@@ -93,3 +93,57 @@ def test_context_isolation_between_copies():
     assert inside == BACKGROUND_REVIEW
     # Parent context unaffected.
     assert get_current_write_origin() == original
+
+
+def test_learn_marker_resolves_to_quarantined_turn_origin():
+    from tools.skill_provenance import LEARN_REQUEST, origin_for_turn
+
+    assert origin_for_turn("assistant_tool", "[/learn] learn this workflow") == LEARN_REQUEST
+    assert origin_for_turn("assistant_tool", "  [/learn] learn this workflow") == LEARN_REQUEST
+
+
+def test_learn_marker_is_prefix_only_and_background_origin_wins():
+    from tools.skill_provenance import (
+        BACKGROUND_REVIEW,
+        CURATOR,
+        origin_for_turn,
+    )
+
+    assert origin_for_turn("assistant_tool", "please quote [/learn] literally") == "assistant_tool"
+    assert origin_for_turn("assistant_tool", "[/learn]ing is a word") == "assistant_tool"
+    assert origin_for_turn(BACKGROUND_REVIEW, "[/learn] nested prompt") == BACKGROUND_REVIEW
+    assert origin_for_turn(CURATOR, "[/learn] nested prompt") == CURATOR
+
+
+def test_quarantined_origin_set_is_explicit():
+    from tools.skill_provenance import (
+        BACKGROUND_REVIEW,
+        LEARN_FOLLOWUP,
+        LEARN_REQUEST,
+        is_quarantined_skill_origin,
+    )
+
+    assert is_quarantined_skill_origin(BACKGROUND_REVIEW) is True
+    assert is_quarantined_skill_origin(LEARN_REQUEST) is True
+    assert is_quarantined_skill_origin(LEARN_FOLLOWUP) is True
+    assert is_quarantined_skill_origin("curator") is False
+    assert is_quarantined_skill_origin("assistant_tool") is False
+
+
+def test_curator_is_distinct_but_uses_autonomous_guards():
+    from tools.skill_provenance import (
+        CURATOR,
+        is_autonomous_skill_writer,
+        is_background_review,
+        is_curator,
+        reset_current_write_origin,
+        set_current_write_origin,
+    )
+
+    token = set_current_write_origin(CURATOR)
+    try:
+        assert is_curator() is True
+        assert is_autonomous_skill_writer() is True
+        assert is_background_review() is False
+    finally:
+        reset_current_write_origin(token)

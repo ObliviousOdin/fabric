@@ -20,6 +20,7 @@ Search/download GIFs from Tenor via curl + jq.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `GIF`, `Media`, `Search`, `Tenor`, `API` |
 
 ## Reference: full SKILL.md
 

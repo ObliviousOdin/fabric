@@ -13,9 +13,9 @@ def build_memory_parser(subparsers, *, cmd_memory: Callable) -> None:
     """Attach the ``memory`` subcommand to ``subparsers``."""
     memory_parser = subparsers.add_parser(
         "memory",
-        help="Configure external memory provider",
+        help="Configure and audit persistent memory",
         description=(
-            "Set up and manage external memory provider plugins.\n\n"
+            "Set up and manage built-in memory governance and external provider plugins.\n\n"
             "Available providers: honcho, openviking, mem0, hindsight,\n"
             "holographic, retaindb, byterover, supermemory.\n\n"
             "Only one external provider can be active at a time.\n"
@@ -38,6 +38,24 @@ def build_memory_parser(subparsers, *, cmd_memory: Callable) -> None:
     memory_sub.add_parser(
         "off",
         help="Disable external provider (built-in tier settings unchanged)",
+    )
+    _audit_parser = memory_sub.add_parser(
+        "audit",
+        help="Audit MEMORY.md/USER.md provenance, lifecycle, and consistency",
+    )
+    _audit_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_output",
+        help="Print the privacy-safe machine-readable audit",
+    )
+    _revalidate_parser = memory_sub.add_parser(
+        "revalidate",
+        help="Revalidate one governed memory record by opaque id",
+    )
+    _revalidate_parser.add_argument(
+        "record_id",
+        help="Opaque record id from `fabric memory audit --json`",
     )
     _reset_parser = memory_sub.add_parser(
         "reset",

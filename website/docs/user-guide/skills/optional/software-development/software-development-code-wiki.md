@@ -20,6 +20,8 @@ Generate wiki docs + Mermaid diagrams for any codebase.
 | Author | Teknium (teknium1), Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Documentation`, `Mermaid`, `Architecture`, `Diagrams`, `Wiki`, `Code-Analysis` |
+| Related skills | [`codebase-inspection`](/user-guide/skills/bundled/github/github-codebase-inspection), [`github-repo-management`](/user-guide/skills/bundled/github/github-github-repo-management) |
 
 ## Reference: full SKILL.md
 

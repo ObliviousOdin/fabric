@@ -40,7 +40,7 @@ SKILL.md Format (YAML Frontmatter, agentskills.io compatible):
       commands: [curl, jq]        #   Command checks remain advisory only.
     compatibility: Requires X     # Optional (agentskills.io)
     metadata:                     # Optional, arbitrary key-value (agentskills.io)
-      hermes:
+      fabric:
         tags: [fine-tuning, llm]
         related_skills: [peft, lora]
     ---
@@ -81,6 +81,7 @@ from fabric_cli.config import cfg_get
 from utils import env_var_enabled
 from agent.skill_utils import (
     EXCLUDED_SKILL_DIRS as _EXCLUDED_SKILL_DIRS,
+    extract_skill_metadata,
     is_skill_support_path as _is_skill_support_path,
 )
 
@@ -617,13 +618,20 @@ def _is_skill_disabled(name: str, platform: str = None) -> bool:
         return False
 
 
-def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
+def _find_all_skills(
+    *,
+    skip_disabled: bool = False,
+    include_internal_path: bool = False,
+) -> List[Dict[str, Any]]:
     """Recursively find all skills in ~/.fabric/skills/ and external dirs.
 
     Args:
         skip_disabled: If True, return ALL skills regardless of disabled
             state (used by ``fabric skills`` config UI). Default False
             filters out disabled skills.
+        include_internal_path: Attach the resolved skill directory for local
+            deterministic routing. The private field is never returned by the
+            unfiltered public listing path.
 
     Returns:
         List of skill metadata dicts (name, description, category).
@@ -680,11 +688,14 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
                 category = _get_category_from_path(skill_md)
 
                 seen_names.add(name)
-                skills.append({
+                entry = {
                     "name": name,
                     "description": description,
                     "category": category,
-                })
+                }
+                if include_internal_path:
+                    entry["_skill_dir"] = str(skill_dir)
+                skills.append(entry)
 
             except (UnicodeDecodeError, PermissionError) as e:
                 logger.debug("Failed to read skill file %s: %s", skill_md, e)
@@ -703,15 +714,24 @@ def _sort_skills(skills: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(skills, key=lambda s: (s.get("category") or "", s["name"]))
 
 
-def skills_list(category: str = None, task_id: str = None) -> str:
+def skills_list(
+    category: str = None,
+    query: str = None,
+    limit: int = 8,
+    task_id: str = None,
+) -> str:
     """
     List all available skills (progressive disclosure tier 1 - minimal metadata).
 
-    Returns only name + description to minimize token usage. Use skill_view() to
-    load full content, tags, related files, etc.
+    With no query, returns name + description for backward compatibility. With
+    a query, deterministically ranks a bounded candidate set using names,
+    descriptions, categories, and verified contract triggers/non-triggers.
+    Use skill_view() to load full content, tags, related files, etc.
 
     Args:
         category: Optional category filter (e.g., "mlops")
+        query: Optional task description used for bounded local routing
+        limit: Maximum ranked results when query is present (1-20)
         task_id: Optional task identifier used to probe the active backend
 
     Returns:
@@ -732,7 +752,7 @@ def skills_list(category: str = None, task_id: str = None) -> str:
             )
 
         # Find all skills
-        all_skills = _find_all_skills()
+        all_skills = _find_all_skills(include_internal_path=bool(query))
 
         if not all_skills:
             return json.dumps(
@@ -749,8 +769,25 @@ def skills_list(category: str = None, task_id: str = None) -> str:
         if category:
             all_skills = [s for s in all_skills if s.get("category") == category]
 
-        # Sort by category then name
-        all_skills = _sort_skills(all_skills)
+        selection_mode = "catalog"
+        if query:
+            from agent.skill_routing import rank_skill_candidates
+
+            all_skills = [
+                candidate.to_public_dict()
+                for candidate in rank_skill_candidates(query, all_skills, limit=limit)
+            ]
+            selection_mode = "ranked"
+        else:
+            # Defense in depth if an internal caller ever starts requesting
+            # paths on the catalog branch: local paths are not public metadata.
+            for skill in all_skills:
+                skill.pop("_skill_dir", None)
+
+        # Ranked results are already ordered by score with stable tie-breaks.
+        # Catalog browsing keeps the historical category/name order.
+        if selection_mode == "catalog":
+            all_skills = _sort_skills(all_skills)
 
         # Extract unique categories
         categories = sorted(
@@ -763,6 +800,7 @@ def skills_list(category: str = None, task_id: str = None) -> str:
                 "skills": all_skills,
                 "categories": categories,
                 "count": len(all_skills),
+                "selection_mode": selection_mode,
                 "hint": "Use skill_view(name) to see full content, tags, and linked files",
             },
             ensure_ascii=False,
@@ -873,6 +911,7 @@ def _serve_plugin_skill(
             "content": f"{banner}{rendered_content}" if banner else rendered_content,
             "description": description,
             "linked_files": None,
+            "skill_dir": str(skill_md.parent),
             "readiness_status": SkillReadinessStatus.AVAILABLE.value,
         },
         ensure_ascii=False,
@@ -1370,16 +1409,16 @@ def skill_view(
                         [str(f.relative_to(skill_dir)) for f in scripts_dir.glob(ext)]
                     )
 
-        # Read tags/related_skills with backward compat:
-        # Check metadata.hermes.* first (agentskills.io convention), fall back to top-level
-        hermes_meta = {}
-        metadata = frontmatter.get("metadata")
-        if isinstance(metadata, dict):
-            hermes_meta = metadata.get("hermes", {}) or {}
-
-        tags = _parse_tags(hermes_meta.get("tags") or frontmatter.get("tags", ""))
+        # Canonical metadata.fabric values override legacy metadata.hermes
+        # values. Top-level fields remain a compatibility fallback.
+        raw_metadata = frontmatter.get("metadata")
+        skill_metadata = extract_skill_metadata(frontmatter)
+        tags = _parse_tags(
+            skill_metadata.get("tags") or frontmatter.get("tags", "")
+        )
         related_skills = _parse_tags(
-            hermes_meta.get("related_skills") or frontmatter.get("related_skills", "")
+            skill_metadata.get("related_skills")
+            or frontmatter.get("related_skills", "")
         )
 
         # Build linked files structure for clear discovery
@@ -1544,8 +1583,8 @@ def skill_view(
         # Surface agentskills.io optional fields when present
         if frontmatter.get("compatibility"):
             result["compatibility"] = frontmatter["compatibility"]
-        if isinstance(metadata, dict):
-            result["metadata"] = metadata
+        if isinstance(raw_metadata, dict):
+            result["metadata"] = raw_metadata
 
         return json.dumps(result, ensure_ascii=False)
 
@@ -1604,14 +1643,25 @@ if __name__ == "__main__":
 
 SKILLS_LIST_SCHEMA = {
     "name": "skills_list",
-    "description": "List available skills (name + description). Use skill_view(name) to load full content.",
+    "description": "Discover skills with bounded local ranking. Pass query to find the most relevant candidates, then use skill_view(name) to load one. Omit query only when browsing a category.",
     "parameters": {
         "type": "object",
         "properties": {
             "category": {
                 "type": "string",
                 "description": "Optional category filter to narrow results",
-            }
+            },
+            "query": {
+                "type": "string",
+                "description": "Task or capability to match against skill names, descriptions, and verified trigger/non-trigger declarations",
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20,
+                "default": 8,
+                "description": "Maximum ranked candidates returned when query is provided",
+            },
         },
         "required": [],
     },
@@ -1641,7 +1691,10 @@ registry.register(
     toolset="skills",
     schema=SKILLS_LIST_SCHEMA,
     handler=lambda args, **kw: skills_list(
-        category=args.get("category"), task_id=kw.get("task_id")
+        category=args.get("category"),
+        query=args.get("query"),
+        limit=args.get("limit", 8),
+        task_id=kw.get("task_id"),
     ),
     check_fn=check_skills_requirements,
     emoji="📚",
@@ -1655,19 +1708,101 @@ def _skill_view_with_bump(args, **kw):
     )
     try:
         parsed = json.loads(result)
-        if isinstance(parsed, dict) and parsed.get("success"):
-            # Use the resolved skill name from the payload when present —
-            # qualified forms ("plugin:skill") return with the canonical name.
-            resolved = parsed.get("name") or name
-            if resolved:
+    except Exception:
+        return result
+    if isinstance(parsed, dict) and parsed.get("success"):
+        # Use the resolved skill name from the payload when present —
+        # qualified forms ("plugin:skill") return with the canonical name.
+        resolved = parsed.get("name") or name
+        # A main-document load establishes the turn's permission lease before
+        # any usage/receipt side effects. Enforcement failures replace the
+        # content-bearing result with a closed, path-free error; observe mode
+        # preserves legacy behavior byte-for-byte.
+        skill_dir = parsed.get("skill_dir")
+        if not args.get("file_path") and resolved and skill_dir:
+            try:
+                from agent.skill_permissions import (
+                    activate_skill_permission_lease,
+                    skill_activation_denial_payload,
+                    stage_skill_permission_lease,
+                )
+
+                if kw.get("turn_id"):
+                    activation = activate_skill_permission_lease(
+                        skill_dir=Path(str(skill_dir)),
+                        canonical_name=str(resolved),
+                        turn_id=kw.get("turn_id"),
+                        task_id=kw.get("task_id"),
+                        session_id=kw.get("session_id"),
+                    )
+                else:
+                    # Slash/bundle/preload expansion reads the main skill file
+                    # before the turn prologue allocates a concrete turn id.
+                    # Stage against its existing task/session scope; the
+                    # prologue binds this lease before any tool can dispatch.
+                    activation = stage_skill_permission_lease(
+                        skill_dir=Path(str(skill_dir)),
+                        canonical_name=str(resolved),
+                        scope_id=kw.get("task_id") or kw.get("session_id"),
+                    )
+                if not activation.allowed:
+                    return json.dumps(
+                        skill_activation_denial_payload(str(resolved), activation),
+                        ensure_ascii=False,
+                    )
+            except Exception:
+                # Do not log the exception: validation may have inspected a
+                # user-owned path, which is outside the policy audit schema.
+                logger.debug("Could not establish skill permission lease")
+                try:
+                    from agent.skill_permissions import load_permission_settings
+
+                    _permission_mode = load_permission_settings().mode
+                except Exception:
+                    _permission_mode = "observe"
+                # Preserve the historical reader in the default observation
+                # rollout, but never silently bypass a configured enforcement
+                # boundary when policy evaluation itself fails.
+                if _permission_mode != "observe":
+                    return json.dumps(
+                        {
+                            "success": False,
+                            "error": (
+                                f"Skill '{resolved}' was not activated because "
+                                "runtime permission policy could not be evaluated."
+                            ),
+                            "permission_code": "policy_evaluation_failed",
+                        },
+                        ensure_ascii=False,
+                    )
+        if resolved:
+            try:
                 from tools.skill_usage import bump_use, bump_view
                 bump_view(str(resolved))
                 # A skill_view tool call is the agent actively loading the skill
                 # to act on it — that counts as use, not just a browse/view.
                 # Curator's stale timer keys off last_used_at (see agent/curator.py).
                 bump_use(str(resolved))
-    except Exception:
-        pass
+            except Exception:
+                pass
+        # Only the main SKILL.md load is an activation. Supporting-file reads
+        # belong to that activation and must not inflate selection metrics.
+        # Usage-counter failure above cannot suppress the independent receipt.
+        if not args.get("file_path") and skill_dir:
+            try:
+                from agent.skill_receipts import record_activation_best_effort
+
+                record_activation_best_effort(
+                    skill_dir=Path(str(skill_dir)),
+                    canonical_name=str(resolved),
+                    source="skill_view",
+                    reason="agent_selected",
+                    session_id=kw.get("session_id"),
+                    task_id=kw.get("task_id"),
+                    turn_id=kw.get("turn_id"),
+                )
+            except Exception:
+                pass
     return result
 
 

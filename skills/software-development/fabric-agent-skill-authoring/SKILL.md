@@ -1,12 +1,12 @@
 ---
 name: fabric-agent-skill-authoring
-description: "Author in-repo SKILL.md: frontmatter, validator, structure, and writing-quality principles."
-version: 1.1.0
+description: Author governed Fabric skills and evaluation contracts.
+version: 1.2.0
 author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [skills, authoring, fabric, conventions, skill-md]
     related_skills: [plan, requesting-code-review]
 ---
@@ -43,23 +43,77 @@ Peer-matched shape used by every skill under `skills/software-development/`:
 ---
 name: my-skill-name               # lowercase, hyphens, ≤64 chars (MAX_NAME_LENGTH)
 description: Use when <trigger>. <one-line behavior>.
-version: 1.1.0
+version: 1.2.0
 author: Fabric
 license: MIT
 metadata:
-  hermes:
+  fabric:
     tags: [short, descriptive, tags]
     related_skills: [other-skill, another-skill]
 ---
 ```
 
-`version` / `author` / `license` / `metadata` are NOT enforced by the validator, but every peer has them — omit and your skill sticks out.
+`version` / `author` / `license` / `metadata` are NOT enforced by the legacy
+frontmatter validator, but governed contract validation requires `name` and
+`version` to agree with `skill.contract.yaml`. Every peer has these fields —
+omit them and the skill sticks out.
 
 ## Size Limits
 
 - Description: ≤ 1024 chars (enforced).
 - Full SKILL.md: ≤ 100,000 chars (enforced as `MAX_SKILL_CONTENT_CHARS`, ~36k tokens).
 - Peer skills in `software-development/` sit at **8-14k chars**. Aim for that range. If you're pushing past 20k, split into `references/*.md` and reference them from SKILL.md.
+
+## Governance Contract and Evaluations
+
+New first-party skills should add `skill.contract.yaml` and
+`evals/cases.yaml`. Existing skills without them remain readable during the
+migration, but are reported as `legacy_unverified`, never `verified`.
+
+The contract declares identity, routing triggers and counter-triggers,
+compatibility, inputs and outputs, permissions, sources, budgets, outcomes,
+and the eval-suite path. It is a declaration, not an authority grant: listing
+a tool, file scope, network host, or secret does not make it available at
+runtime. Schema v1 is closed, so unknown policy-looking fields fail validation.
+
+The eval manifest is data-only. It must cover all seven behavior classes:
+
+1. `positive_trigger`
+2. `negative_trigger`
+3. `output_contract`
+4. `safety`
+5. `tool_use`
+6. `regression`
+7. `baseline`
+
+Use the governed canary beside this file as the current peer shape. Keep eval
+inputs representative but free of secrets; assertions may name required or
+forbidden substrings, tools, approvals, and maximum tool calls. Every suite
+must compare against a no-skill baseline. Each executable baseline declares a
+unique `baseline_for`, repeats the paired case's exact input and effective
+trial count, and expects `selected: false`. The manifest validator does not run
+models or commands; a pure runner consumes closed observations, enforces case
+and suite thresholds, records variance, and computes paired outcome lift.
+
+Quarantined `/learn` and background-review drafts cannot promote on schema
+validity alone. Their exact final tree is materialized privately, scanned
+independently of `skills.guard_agent_created`, checked for fresh sources and
+permission expansion, and bound to the full-batch review token. Supply closed
+observations with:
+
+```bash
+fabric skills evaluate <pending-id> --observations observations.json
+```
+
+Then inspect `/skills diff <pending-id>` and explicitly approve that exact
+reviewed batch. Appending any action invalidates both review and evaluation
+attestations. `skill_manage` accepts root `skill.contract.yaml` and
+`evals/**` for governed drafts; both path classes still reject traversal and
+symlink redirects.
+
+Every declared source needs an HTTPS URL, quoted ISO `retrieved_at`, and
+nonnegative `ttl_days`. Expired sources leave an installed skill readable but
+block governed promotion until refreshed.
 
 ## Writing Quality Principles
 
@@ -68,7 +122,7 @@ A skill exists to make the agent's process more predictable. Predictability does
 Use these quality checks when writing or editing any skill:
 
 1. **Optimize for process predictability.** Ask: what behavior should change when this skill loads? If a line does not change behavior, cut it.
-2. **Choose the right context load.** A model-invoked Fabric skill pays for its description every turn. Keep descriptions focused on trigger classes and the skill's distinctive behavior. Put details in the body or linked references.
+2. **Choose the right context load.** Small catalogs place descriptions in the cached prompt; larger catalogs route them on demand. Either way, keep descriptions focused on trigger classes and distinctive behavior. Put details in the body or linked references.
 3. **Use an information hierarchy.** Put always-needed steps in `SKILL.md`; put branch-specific or bulky reference material in `references/`, `templates/`, or `scripts/` and point to it only when needed.
 4. **End steps with completion criteria.** Each ordered step should say how the agent knows it is done. Good criteria are checkable and, when it matters, exhaustive: "every modified file accounted for" beats "summarize changes."
 5. **Co-locate rules with the concept they govern.** Avoid scattering one idea across the file. Keep definition, caveats, examples, and verification near each other.
@@ -132,25 +186,26 @@ Pick the closest existing category. Don't invent new top-level categories casual
    ls skills/<category>/
    ```
    Read 2-3 peer SKILL.md files to match tone and structure.
-2. **Check validator constraints** in `tools/skill_manager_tool.py` if unsure.
-3. **Draft** with `write_file` to `skills/<category>/<name>/SKILL.md`.
+2. **Check validator constraints** in `agent/skill_contract.py` and
+   `agent/skill_evals.py` if unsure.
+3. **Draft** `SKILL.md`, `skill.contract.yaml`, and `evals/cases.yaml` with
+   `write_file` under `skills/<category>/<name>/`.
 4. **Validate locally**:
-   ```python
-   import yaml, re, pathlib
-   content = pathlib.Path("skills/<category>/<name>/SKILL.md").read_text()
-   assert content.startswith("---")
-   m = re.search(r'\n---\s*\n', content[3:])
-   fm = yaml.safe_load(content[3:m.start()+3])
-   assert "name" in fm and "description" in fm
-   assert len(fm["description"]) <= 1024
-   assert len(content) <= 100_000
+   ```bash
+   fabric skills validate ./skills/<category>/<name> --require-contract
    ```
-5. **Git add + commit** on the active branch.
-6. **Note:** the CURRENT session's skill loader is cached — `skill_view` / `skills_list` will not see the new skill until a new session. This is expected, not a bug.
+5. **Run the repository governance audit**:
+   ```bash
+   python scripts/skills-governance-audit.py
+   ```
+6. **Git add + commit** on the active branch.
+7. **Note:** the CURRENT session's skill loader is cached — `skill_view` /
+   `skills_list` will not see the new skill until a new session. This is
+   expected, not a bug.
 
 ## Cross-Referencing Other Skills
 
-`metadata.hermes.related_skills` unions both trees (`skills/` in-repo and `~/.fabric/skills/`) at load time. You CAN reference a user-local skill from an in-repo skill, but it won't resolve for other users who clone the repo fresh. Prefer referencing only in-repo skills from in-repo skills. If a frequently-referenced skill lives only in `~/.fabric/skills/`, consider promoting it to the repo.
+`metadata.fabric.related_skills` unions both trees (`skills/` in-repo and `~/.fabric/skills/`) at load time. Legacy `metadata.hermes` values still load as fallbacks, but new and edited skills should use the canonical `metadata.fabric` namespace. You CAN reference a user-local skill from an in-repo skill, but it won't resolve for other users who clone the repo fresh. Prefer referencing only in-repo skills from in-repo skills. If a frequently-referenced skill lives only in `~/.fabric/skills/`, consider promoting it to the repo.
 
 ## Editing Existing In-Repo Skills
 
@@ -179,14 +234,22 @@ Pick the closest existing category. Don't invent new top-level categories casual
 
 9. **Linking to skills that don't exist in-repo.** `related_skills: [some-user-local-skill]` works for you but breaks for other clones. Prefer only in-repo links.
 
+10. **Adding a contract without representative evals.** A schema-valid empty
+    gesture is not governance. Include both routing directions, safety/tool
+    assertions, regression behavior, and the no-skill baseline.
+
 ## Verification Checklist
 
 - [ ] File is at `skills/<category>/<name>/SKILL.md` (not in `~/.fabric/skills/`)
 - [ ] Frontmatter starts at byte 0 with `---`, closes with `\n---\n`
-- [ ] `name`, `description`, `version`, `author`, `license`, `metadata.hermes.{tags, related_skills}` all present
+- [ ] `name`, `description`, `version`, `author`, `license`, `metadata.fabric.{tags, related_skills}` all present
 - [ ] Name ≤ 64 chars, lowercase + hyphens
-- [ ] Description ≤ 1024 chars and starts with "Use when ..."
+- [ ] Description ≤ 60 chars for routing quality (hard parser ceiling: 1024)
 - [ ] Total file ≤ 100,000 chars (aim for 8-15k)
+- [ ] `skill.contract.yaml` identity matches SKILL.md and declares closed permissions, sources, budgets, and outcomes
+- [ ] `evals/cases.yaml` covers all seven categories and pairs a same-input, same-trial no-skill baseline with `baseline_for`
+- [ ] `fabric skills validate ./skills/<category>/<name> --require-contract` passes
+- [ ] `python scripts/skills-governance-audit.py` stays within the cached-index budget
 - [ ] Structure: `# Title` → `## Overview` → `## When to Use` → body → `## Common Pitfalls` → `## Verification Checklist`
 - [ ] Each ordered step has a checkable completion criterion
 - [ ] Description is trigger-focused and avoids duplicated body content

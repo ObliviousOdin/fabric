@@ -20,6 +20,7 @@ Apple Reminders via remindctl: add, list, complete.
 | Author | Fabric |
 | License | MIT |
 | Platforms | macos |
+| Tags | `Reminders`, `tasks`, `todo`, `macOS`, `Apple` |
 
 ## Reference: full SKILL.md
 

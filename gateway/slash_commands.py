@@ -3116,8 +3116,12 @@ class GatewaySlashCommandsMixin:
         config_path = _fabric_home / "config.yaml"
 
         gate_on = wa.write_approval_enabled(wa.SKILLS)
-        wants_toggle = bool(args) and args[0].lower() in {"approval", "mode"}
-        if not gate_on and not wants_toggle and wa.pending_count(wa.SKILLS) == 0:
+        wants_control = bool(args) and args[0].lower() in {
+            "approval",
+            "mode",
+            "rollback",
+        }
+        if not gate_on and not wants_control and wa.pending_count(wa.SKILLS) == 0:
             return ("Skill write approval is off (skills.write_approval). "
                     "Enable it with /skills approval on, then review staged "
                     "writes here with /skills pending.")
@@ -3138,7 +3142,8 @@ class GatewaySlashCommandsMixin:
         )
         if out is None:
             return ("Unknown /skills subcommand on this platform. Use: pending, "
-                    "approve <id>, reject <id>, diff <id>, approval <on|off>. "
+                    "approve <id>, reject <id>, diff <id>, rollback <transaction-id>, "
+                    "approval <on|off>. "
                     "(Search/install are CLI-only.)")
 
         # Chat bubbles can't hold a full skill diff — truncate and point at

@@ -20,6 +20,7 @@ Generate ideas via named methods from creative practice.
 | Author | SHL0MS |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Creative`, `Ideation`, `Brainstorming`, `Methods`, `Inspiration` |
 
 ## Reference: full SKILL.md
 

@@ -1062,6 +1062,43 @@ def handle_function_call(
         function_args = {}
     _tool_middleware_trace = list(tool_request_middleware_trace or [])
 
+    # A context-local tool allowlist is an authority boundary, not an
+    # observer hook. Enforce it for every direct dispatcher entry before
+    # middleware, bridge unwrapping, or the optional pre-hook skip. Most
+    # callers already check the policy in ``ToolExecutor``; this second gate
+    # makes library callers and future dispatch paths fail closed too.
+    try:
+        from fabric_cli.plugins import (
+            get_thread_tool_whitelist_block_message,
+        )
+
+        _scope_policy_block = get_thread_tool_whitelist_block_message(
+            function_name
+        )
+    except Exception as _scope_error:
+        logger.error("Runtime tool-scope evaluation failed: %s", _scope_error)
+        _scope_policy_block = (
+            "Tool dispatch denied because the runtime tool scope could not "
+            "be evaluated."
+        )
+    if _scope_policy_block is not None:
+        result = json.dumps({"error": _scope_policy_block}, ensure_ascii=False)
+        _emit_post_tool_call_hook(
+            function_name=function_name,
+            function_args=function_args,
+            result=result,
+            task_id=task_id,
+            session_id=session_id,
+            tool_call_id=tool_call_id,
+            turn_id=turn_id,
+            api_request_id=api_request_id,
+            status="blocked",
+            error_type="tool_scope_block",
+            error_message=_scope_policy_block,
+            middleware_trace=list(_tool_middleware_trace),
+        )
+        return result
+
     # ── Tool Search bridge dispatch ──────────────────────────────────
     # tool_search and tool_describe are pure catalog reads — handle them
     # inline. tool_call is unwrapped to the underlying tool so that every
@@ -1128,6 +1165,8 @@ def handle_function_call(
                 task_id=task_id,
                 tool_call_id=tool_call_id,
                 session_id=session_id,
+                turn_id=turn_id,
+                api_request_id=api_request_id,
                 user_task=user_task,
                 enabled_tools=enabled_tools,
                 skip_pre_tool_call_hook=skip_pre_tool_call_hook,
@@ -1160,6 +1199,62 @@ def handle_function_call(
     try:
         if function_name in _AGENT_LOOP_TOOLS:
             return json.dumps({"error": f"{function_name} must be handled by the agent loop"})
+
+        # Governed skill permission leases are an authority boundary, not an
+        # observer hook. They run after request middleware (so the checked
+        # arguments are exactly what dispatch will receive) and independently
+        # of skip_pre_tool_call_hook. No tool definitions or prompt bytes are
+        # changed: enforcement is entirely inside this existing dispatcher.
+        _skill_permission_payload: Optional[dict[str, Any]] = None
+        try:
+            from agent.skill_permissions import authorize_skill_tool_call
+
+            _skill_permission_payload = authorize_skill_tool_call(
+                tool_name=function_name,
+                function_args=function_args,
+                task_id=task_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                toolset=registry.get_toolset_for_tool(function_name),
+            )
+        except Exception:
+            # Deliberately omit exception text/traceback: policy evaluation
+            # sees raw tool arguments, and those values must never reach logs.
+            logger.error("Runtime skill permission evaluation failed")
+            try:
+                from agent.skill_permissions import load_permission_settings
+
+                _policy_mode = load_permission_settings().mode
+            except Exception:
+                _policy_mode = "enforce_all"
+            if _policy_mode != "observe":
+                _skill_permission_payload = {
+                    "error": (
+                        "Skill permission policy denied this tool because its "
+                        "enforcement decision could not be evaluated."
+                    ),
+                    "permission_code": "policy_evaluation_failed",
+                }
+
+        if _skill_permission_payload is not None:
+            _permission_message = str(_skill_permission_payload["error"])
+            result = json.dumps(_skill_permission_payload, ensure_ascii=False)
+            _emit_post_tool_call_hook(
+                function_name=function_name,
+                # Permission audit events are deliberately argument-free.
+                function_args={},
+                result=result,
+                task_id=task_id,
+                session_id=session_id,
+                tool_call_id=tool_call_id,
+                turn_id=turn_id,
+                api_request_id=api_request_id,
+                status="blocked",
+                error_type="skill_permission_block",
+                error_message=_permission_message,
+                middleware_trace=list(_tool_middleware_trace),
+            )
+            return result
 
         # Check plugin hooks for a block/approve directive (unless caller
         # already checked — e.g. run_agent._invoke_tool passes skip=True to
@@ -1260,6 +1355,9 @@ def handle_function_call(
                         function_name, next_args,
                         task_id=task_id,
                         session_id=session_id,
+                        turn_id=turn_id,
+                        tool_call_id=tool_call_id,
+                        api_request_id=api_request_id,
                         enabled_tools=sandbox_enabled,
                     )
             else:
@@ -1268,6 +1366,9 @@ def handle_function_call(
                         function_name, next_args,
                         task_id=task_id,
                         session_id=session_id,
+                        turn_id=turn_id,
+                        tool_call_id=tool_call_id,
+                        api_request_id=api_request_id,
                         user_task=user_task,
                     )
             from fabric_cli.middleware import run_tool_execution_middleware

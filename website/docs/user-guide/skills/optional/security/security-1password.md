@@ -20,6 +20,7 @@ Set up and use 1Password CLI (op). Use when installing the CLI, enabling desktop
 | Author | arceus77-7, enhanced by Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `security`, `secrets`, `1password`, `op`, `cli` |
 
 ## Reference: full SKILL.md
 

@@ -368,6 +368,9 @@ class TestParseSkillFile:
 class TestPromptBuilderImports:
     def test_module_import_does_not_eagerly_import_skills_tool(self, monkeypatch):
         original_import = builtins.__import__
+        original_module = sys.modules["agent.prompt_builder"]
+        agent_package = sys.modules["agent"]
+        original_package_attribute = getattr(agent_package, "prompt_builder")
 
         def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
             if name == "tools.skills_tool" or (
@@ -379,9 +382,16 @@ class TestPromptBuilderImports:
         monkeypatch.delitem(sys.modules, "agent.prompt_builder", raising=False)
         monkeypatch.setattr(builtins, "__import__", guarded_import)
 
-        module = importlib.import_module("agent.prompt_builder")
-
-        assert hasattr(module, "build_skills_system_prompt")
+        try:
+            module = importlib.import_module("agent.prompt_builder")
+            assert hasattr(module, "build_skills_system_prompt")
+        finally:
+            # ``monkeypatch.delitem`` restores sys.modules, but Python's import
+            # machinery also replaces the parent package attribute and that is
+            # not tracked by monkeypatch. Restore both identities so later tests
+            # and string-based patches cannot target different module objects.
+            sys.modules["agent.prompt_builder"] = original_module
+            setattr(agent_package, "prompt_builder", original_package_attribute)
 
 
 # =========================================================================
@@ -414,6 +424,36 @@ class TestBuildSkillsSystemPrompt:
         assert "python-debug" in result
         assert "Debug Python scripts" in result
         assert "available_skills" in result
+
+    def test_deferred_invalidation_preserves_cache_until_next_build(
+        self, monkeypatch, tmp_path
+    ):
+        # A preceding import-isolation regression deliberately reloads this
+        # module. Resolve all cache/build symbols from the currently registered
+        # module so this test never mixes an old imported function with a new
+        # module-global cache.
+        import agent.prompt_builder as prompt_builder
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        skill_file = tmp_path / "skills" / "coding" / "deferred" / "SKILL.md"
+        skill_file.parent.mkdir(parents=True)
+        skill_file.write_text(
+            "---\nname: deferred\ndescription: Old description\n---\n",
+            encoding="utf-8",
+        )
+        assert "Old description" in prompt_builder.build_skills_system_prompt()
+
+        cached_before = dict(prompt_builder._SKILLS_PROMPT_CACHE)
+        skill_file.write_text(
+            "---\nname: deferred\ndescription: New description\n---\n",
+            encoding="utf-8",
+        )
+        prompt_builder.defer_skills_system_prompt_cache_invalidation()
+
+        assert dict(prompt_builder._SKILLS_PROMPT_CACHE) == cached_before
+        rebuilt = prompt_builder.build_skills_system_prompt()
+        assert "New description" in rebuilt
+        assert "Old description" not in rebuilt
 
     def test_deduplicates_skills(self, monkeypatch, tmp_path):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -473,6 +513,29 @@ class TestBuildSkillsSystemPrompt:
         # Unfiltered call must not be served from the compacted cache entry.
         full = build_skills_system_prompt()
         assert "Write threads" in full
+
+    def test_large_catalog_switches_to_bounded_taxonomy(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        for index in range(40):
+            category = "development" if index % 2 == 0 else "operations"
+            skill = tmp_path / "skills" / category / f"skill-{index:02d}"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                f"---\nname: skill-{index:02d}\n"
+                f"description: Unique detail {index:02d}\n---\n"
+            )
+
+        result = build_skills_system_prompt()
+
+        assert "mode=taxonomy" in result
+        assert "count=40" in result
+        assert "development: 20 skills" in result
+        assert "operations: 20 skills" in result
+        assert "Unique detail" not in result
+        assert "skills_list(query=<task>)" in result
+        assert len(result) < 6000
 
     def test_excludes_incompatible_platform_skills(self, monkeypatch, tmp_path):
         """Skills with platforms: [macos] should not appear on Linux."""
@@ -1644,5 +1707,3 @@ class TestParallelToolCallGuidance:
 # =========================================================================
 # Budget warning history stripping
 # =========================================================================
-
-

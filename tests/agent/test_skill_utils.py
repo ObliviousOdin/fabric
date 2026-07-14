@@ -3,7 +3,9 @@
 from unittest.mock import patch
 
 from agent.skill_utils import (
+    extract_skill_config_vars,
     extract_skill_conditions,
+    extract_skill_metadata,
     get_disabled_skill_names,
     get_external_skills_dirs,
     is_excluded_skill_path,
@@ -14,6 +16,37 @@ from agent.skill_utils import (
     skill_matches_platform,
     skill_matches_platform_list,
 )
+
+
+def test_extract_skill_metadata_merges_legacy_and_canonical_namespaces():
+    frontmatter = {
+        "metadata": {
+            "hermes": {
+                "tags": ["legacy"],
+                "related_skills": ["legacy-peer"],
+            },
+            "fabric": {
+                "tags": ["canonical"],
+                "category": "testing",
+            },
+        }
+    }
+
+    assert extract_skill_metadata(frontmatter) == {
+        "tags": ["canonical"],
+        "related_skills": ["legacy-peer"],
+        "category": "testing",
+    }
+
+
+def test_extract_skill_metadata_ignores_non_mapping_values():
+    assert extract_skill_metadata({"metadata": "junk"}) == {}
+    assert extract_skill_metadata(
+        {"metadata": {"hermes": "junk", "fabric": {"tags": ["valid"]}}}
+    ) == {"tags": ["valid"]}
+    assert extract_skill_metadata(
+        {"metadata": {"hermes": {"tags": ["legacy"]}, "fabric": "junk"}}
+    ) == {"tags": ["legacy"]}
 
 
 def test_metadata_as_dict_with_hermes():
@@ -33,6 +66,69 @@ def test_metadata_as_dict_with_hermes():
     assert result["requires_toolsets"] == ["toolset_b"]
     assert result["fallback_for_tools"] == ["tool_x"]
     assert result["requires_tools"] == ["tool_y"]
+
+
+def test_canonical_metadata_overrides_legacy_conditions_per_key():
+    frontmatter = {
+        "metadata": {
+            "hermes": {
+                "requires_toolsets": ["legacy-toolset"],
+                "requires_tools": ["legacy-tool"],
+            },
+            "fabric": {"requires_toolsets": ["canonical-toolset"]},
+        }
+    }
+
+    result = extract_skill_conditions(frontmatter)
+
+    assert result["requires_toolsets"] == ["canonical-toolset"]
+    assert result["requires_tools"] == ["legacy-tool"]
+
+
+def test_malformed_condition_values_fail_closed_to_lists():
+    frontmatter = {
+        "metadata": {
+            "fabric": {
+                "requires_tools": None,
+                "requires_toolsets": "terminal",
+                "fallback_for_tools": ["web_search", None, 3, ""],
+            }
+        }
+    }
+
+    assert extract_skill_conditions(frontmatter) == {
+        "fallback_for_toolsets": [],
+        "requires_toolsets": [],
+        "fallback_for_tools": ["web_search"],
+        "requires_tools": [],
+    }
+
+
+def test_canonical_metadata_config_overrides_legacy_config():
+    frontmatter = {
+        "metadata": {
+            "hermes": {
+                "config": {
+                    "key": "legacy.path",
+                    "description": "Legacy path",
+                }
+            },
+            "fabric": {
+                "config": {
+                    "key": "canonical.path",
+                    "description": "Canonical path",
+                }
+            },
+        }
+    }
+
+    assert extract_skill_config_vars(frontmatter) == [
+        {
+            "key": "canonical.path",
+            "description": "Canonical path",
+            "prompt": "Canonical path",
+        }
+    ]
 
 
 def test_metadata_as_string_does_not_crash():

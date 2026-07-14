@@ -20,6 +20,7 @@ Article illustrations: type × style × palette consistency.
 | Author | 宝玉 (JimLiu) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `article-illustration`, `creative`, `image-generation` |
 
 ## Reference: full SKILL.md
 

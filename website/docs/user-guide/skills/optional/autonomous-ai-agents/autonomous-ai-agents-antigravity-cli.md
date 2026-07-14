@@ -20,6 +20,8 @@ Operate the Antigravity CLI (agy): plugins, auth, sandbox.
 | Author | Tony Simons (asimons81), Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Coding-Agent`, `Antigravity`, `CLI`, `Auth`, `Plugins`, `Sandbox` |
+| Related skills | [`grok`](/user-guide/skills/optional/autonomous-ai-agents/autonomous-ai-agents-grok), [`codex`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex), [`claude-code`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code), [`fabric-agent`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-fabric-agent) |
 
 ## Reference: full SKILL.md
 

@@ -20,6 +20,7 @@ Spaced-repetition flashcard system. Create cards from facts or text, chat with f
 | Author | Memento AI |
 | License | MIT |
 | Platforms | macos, linux |
+| Tags | `Education`, `Flashcards`, `Spaced Repetition`, `Learning`, `Quiz`, `YouTube` |
 
 ## Reference: full SKILL.md
 

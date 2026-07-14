@@ -43,6 +43,10 @@ export interface ProfileEditorDialogProps {
   // SOUL editor (PR5): lazy fetch + stale-request guard live in the page.
   soulText: string;
   onSoulTextChange: (value: string) => void;
+  /** True while the SOUL content fetch is in flight — editing and Save are
+   *  blocked so a not-yet-loaded (empty) buffer can't be saved over the
+   *  profile's real SOUL file. */
+  soulLoading: boolean;
   soulSaving: boolean;
   onSaveSoul: (name: string) => void;
 }
@@ -70,6 +74,7 @@ export function ProfileEditorDialog({
   onAutoDescribe,
   soulText,
   onSoulTextChange,
+  soulLoading,
   soulSaving,
   onSaveSoul,
 }: ProfileEditorDialogProps) {
@@ -222,10 +227,13 @@ export function ProfileEditorDialog({
 
               <textarea
                 id="profile-soul-editor"
-                className="flex min-h-[280px] w-full border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                placeholder={t.profiles.soulPlaceholder}
+                className="flex min-h-[280px] w-full border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+                placeholder={
+                  soulLoading ? t.common.loading : t.profiles.soulPlaceholder
+                }
                 value={soulText}
                 onChange={(e) => onSoulTextChange(e.target.value)}
+                disabled={soulLoading}
               />
 
               <div className="flex justify-end">
@@ -233,7 +241,7 @@ export function ProfileEditorDialog({
                   size="sm"
                   className="uppercase"
                   onClick={() => onSaveSoul(editorName)}
-                  disabled={soulSaving}
+                  disabled={soulSaving || soulLoading}
                 >
                   {soulSaving ? t.common.saving : t.common.save}
                 </Button>

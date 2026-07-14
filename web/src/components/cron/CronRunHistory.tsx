@@ -77,10 +77,10 @@ function RunToolCall({
             {toolCall.function.name}
           </span>
         </button>
-        <MonoId id={toolCall.id} className="shrink-0 text-warning/60" />
+        <MonoId id={toolCall.id} className="shrink-0 text-muted-foreground" />
       </div>
       {open && (
-        <pre className="overflow-x-auto whitespace-pre-wrap border-t border-warning/20 px-2 py-1.5 font-mono text-xs text-warning/80">
+        <pre className="overflow-x-auto whitespace-pre-wrap border-t border-warning/20 px-2 py-1.5 font-mono text-xs text-muted-foreground">
           {args}
         </pre>
       )}

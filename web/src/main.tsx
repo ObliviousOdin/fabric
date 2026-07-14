@@ -5,8 +5,14 @@ import App from "./App";
 import { SystemActionsProvider } from "./contexts/SystemActions";
 import { I18nProvider } from "./i18n";
 import { exposePluginSDK } from "./plugins";
+import { applyPersistedThemeEarly } from "./themes/apply";
 import { ThemeProvider } from "./themes";
 import { HERMES_BASE_PATH } from "./lib/api";
+
+// Apply the persisted theme before the first paint so theme-overridden
+// installs never flash the default palette; ThemeProvider re-applies and
+// owns the theme from mount onward.
+applyPersistedThemeEarly();
 
 // Expose the plugin SDK before rendering so plugins loaded via <script>
 // can access React, components, etc. immediately.

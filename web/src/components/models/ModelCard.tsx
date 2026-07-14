@@ -98,14 +98,14 @@ export function ModelCard({
                   {provider}
                 </Badge>
               )}
-              {caps.context_window && caps.context_window > 0 && (
+              {(caps.context_window ?? 0) > 0 && (
                 <span className="text-xs text-text-secondary">
-                  {formatTokenCount(caps.context_window)} ctx
+                  {formatTokenCount(caps.context_window!)} ctx
                 </span>
               )}
-              {caps.max_output_tokens && caps.max_output_tokens > 0 && (
+              {(caps.max_output_tokens ?? 0) > 0 && (
                 <span className="text-xs text-text-secondary">
-                  {formatTokenCount(caps.max_output_tokens)} out
+                  {formatTokenCount(caps.max_output_tokens!)} out
                 </span>
               )}
             </div>

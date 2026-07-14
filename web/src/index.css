@@ -12,6 +12,13 @@
    Tailwind's JIT purge. */
 @source '../node_modules/@nous-research/ui/dist';
 
+/* Runtime-injected dashboard plugin bundles live outside src/, so their
+   utility classes are invisible to the JIT unless scanned here — without
+   these lines the kanban workbench's pills/focus rings silently lose
+   their styles. */
+@source '../../plugins/kanban/dashboard/dist';
+@source '../../plugins/team-pages/dashboard/dist';
+
 /* ------------------------------------------------------------------ */
 /* JetBrains Mono — bundled for the embedded TUI (/chat tab).          */
 /* Gives the terminal a proper monospace font even on systems where    */
@@ -57,11 +64,11 @@
   --foreground: color-mix(in srgb, #ffffff 0%, transparent);
   --foreground-base: #ffffff;
   --foreground-alpha: 0;
-  --midground: color-mix(in srgb, #1a2120 100%, transparent);
-  --midground-base: #1a2120;
+  --midground: color-mix(in srgb, #1d1f24 100%, transparent);
+  --midground-base: #1d1f24;
   --midground-alpha: 1;
-  --background: color-mix(in srgb, #f6fbfb 100%, transparent);
-  --background-base: #f6fbfb;
+  --background: color-mix(in srgb, #f8fafe 100%, transparent);
+  --background-base: #f8fafe;
   --background-alpha: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
@@ -83,18 +90,27 @@
 
   /* Data-series accents — consumed by Analytics + Models pages for the
      input-vs-output token visualisations (chart bars, table values,
-     legend swatches). Defaults match Fabric Light's neutral input and
-     teal output accents. Themes override via ThemeProvider, which emits
-     these as `--series-input-token` / `--series-output-token`. */
-  --series-input-token: #1a2120;
-  --series-output-token: #00a292;
+     legend swatches). Defaults follow the active theme: neutral text tone
+     for input, the theme's primary accent (Fabric blue when unset) for
+     output — so hand-authored presets that omit seriesColors stay legible
+     on their own canvas instead of inheriting light-tuned literals.
+     Themes override via ThemeProvider, which emits these as
+     `--series-input-token` / `--series-output-token`. */
+  --series-input-token: var(--midground-base);
+  --series-output-token: var(--theme-color-primary, #0053fd);
 
   /* Workbench rail tokens: a low-chroma indigo neutral gives graph-heavy
-     workspaces a stable navigation anchor without becoming a second accent. */
+     workspaces a stable navigation anchor without becoming a second accent.
+     The rail accent is a light Fabric blue (8.9:1 on the indigo rail). */
   --fabric-work-rail: #171a2e;
   --fabric-work-rail-text: #f4f6f8;
   --fabric-work-rail-muted: #b7bece;
-  --fabric-work-rail-accent: #56cdbc;
+  --fabric-work-rail-accent: #9dbaff;
+
+  /* Subtle raised-surface tint consumed by dashboard plugin CSS
+     (var(--color-card-subtle, …)); redefined inside the workspace rail
+     scope below so it tracks the rail canvas there. */
+  --color-card-subtle: color-mix(in srgb, var(--midground-base) 3%, var(--background-base));
 }
 
 /* Theme tokens cascade into the document root so every descendant inherits
@@ -148,6 +164,11 @@ code, kbd, pre, samp, .font-mono, .font-mono-ui {
   --color-text-tertiary: color-mix(in srgb, var(--fabric-work-rail-muted) 80%, transparent);
   --color-ring: var(--fabric-work-rail-accent);
   --color-accent: color-mix(in srgb, var(--fabric-work-rail-text) 10%, transparent);
+  /* The bridge utilities inline `var(--theme-color-*, …)` chains, so the
+     rail must override those slots too, not just the --color-* copies. */
+  --theme-color-ring: var(--fabric-work-rail-accent);
+  --theme-color-accent: color-mix(in srgb, var(--fabric-work-rail-text) 10%, transparent);
+  --color-card-subtle: color-mix(in srgb, var(--fabric-work-rail-text) 4%, var(--fabric-work-rail));
   background: var(--fabric-work-rail) !important;
   color: var(--fabric-work-rail-text);
 }
@@ -178,29 +199,38 @@ code { font-size: 0.875rem; }
      stay visible — in LENS_0, `--foreground` itself has alpha 0. */
   --color-foreground: var(--midground);
 
-  --color-card: color-mix(in srgb, var(--midground-base) 4%, var(--background-base));
-  --color-card-foreground: var(--midground);
-  --color-primary: var(--midground);
-  --color-primary-foreground: var(--background-base);
-  --color-secondary: color-mix(in srgb, var(--midground-base) 6%, var(--background-base));
-  --color-secondary-foreground: var(--midground);
-  --color-muted: color-mix(in srgb, var(--midground-base) 8%, var(--background-base));
+  /* Every overridable slot is a `var(--theme-color-*, <derived default>)`
+     chain. `@theme inline` bakes the *declared value* into each compiled
+     utility, so a bare literal (or a var(--midground) remap) here would be
+     frozen at build time and ThemeProvider's per-theme colorOverrides —
+     including the generated pair's Fabric-blue primary and its AA-computed
+     status tones — could never reach `text-primary`, `text-destructive`,
+     etc. ThemeProvider writes both `--theme-color-*` (for these inlined
+     chains) and `--color-*` (for DS dist styles and plugin CSS that read
+     the vars directly). */
+  --color-card: var(--theme-color-card, color-mix(in srgb, var(--midground-base) 4%, var(--background-base)));
+  --color-card-foreground: var(--theme-color-card-foreground, var(--midground));
+  --color-primary: var(--theme-color-primary, var(--midground));
+  --color-primary-foreground: var(--theme-color-primary-foreground, var(--background-base));
+  --color-secondary: var(--theme-color-secondary, color-mix(in srgb, var(--midground-base) 6%, var(--background-base)));
+  --color-secondary-foreground: var(--theme-color-secondary-foreground, var(--midground));
+  --color-muted: var(--theme-color-muted, color-mix(in srgb, var(--midground-base) 8%, var(--background-base)));
   /* Routes the shadcn `muted-foreground` slot through the DS semantic
      text-secondary token (defaults to midground 80%) so legacy call
      sites that use `text-muted-foreground` get a readable color
      instead of the old 55%-transparent default. */
-  --color-muted-foreground: var(--color-text-secondary);
-  --color-accent: color-mix(in srgb, var(--midground-base) 10%, var(--background-base));
-  --color-accent-foreground: var(--midground);
-  --color-destructive: #be2323;
-  --color-destructive-foreground: #ffffff;
-  --color-success: #137d41;
-  --color-warning: #876200;
-  --color-border: color-mix(in srgb, var(--midground-base) 15%, transparent);
-  --color-input: color-mix(in srgb, var(--midground-base) 15%, transparent);
-  --color-ring: var(--midground);
-  --color-popover: color-mix(in srgb, var(--midground-base) 4%, var(--background-base));
-  --color-popover-foreground: var(--midground);
+  --color-muted-foreground: var(--theme-color-muted-foreground, var(--color-text-secondary));
+  --color-accent: var(--theme-color-accent, color-mix(in srgb, var(--midground-base) 10%, var(--background-base)));
+  --color-accent-foreground: var(--theme-color-accent-foreground, var(--midground));
+  --color-destructive: var(--theme-color-destructive, #be2323);
+  --color-destructive-foreground: var(--theme-color-destructive-foreground, #ffffff);
+  --color-success: var(--theme-color-success, #137d41);
+  --color-warning: var(--theme-color-warning, #876200);
+  --color-border: var(--theme-color-border, color-mix(in srgb, var(--midground-base) 15%, transparent));
+  --color-input: var(--theme-color-input, color-mix(in srgb, var(--midground-base) 15%, transparent));
+  --color-ring: var(--theme-color-ring, var(--midground));
+  --color-popover: var(--theme-color-popover, color-mix(in srgb, var(--midground-base) 4%, var(--background-base)));
+  --color-popover-foreground: var(--theme-color-popover-foreground, var(--midground));
 
   --radius-sm: calc(var(--theme-radius) - 4px);
   --radius-md: calc(var(--theme-radius) - 2px);

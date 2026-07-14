@@ -97,6 +97,7 @@ export const en: Translations = {
     noHooksTitle: "No shell hooks configured",
     noHooksDescription:
       "Hooks run trusted scripts on gateway and session events.",
+    sectionsFailed: "Some system data failed to load",
   },
 
   chatRail: {
@@ -149,6 +150,9 @@ export const en: Translations = {
     modelToolsSheetSubtitle: "& tools",
     modelToolsSheetTitle: "Model",
     navigation: "Navigation",
+    docsUnreachableTitle: "Documentation unreachable",
+    docsUnreachableDescription:
+      "The docs site could not be reached. Fabric keeps working offline — reconnect to browse the documentation, or open it in a new tab to retry there.",
     openDocumentation: "Open documentation in a new tab",
     openNavigation: "Open navigation",
     pluginNavSection: "Plugins",
@@ -761,6 +765,7 @@ export const en: Translations = {
     notConnected: "Not connected. Use Login when available, or run {command} in a terminal.",
     runInTerminal: "in a terminal.",
     noProviders: "No OAuth-capable providers detected.",
+    loadFailed: "Couldn't load providers.",
     login: "Login",
     disconnect: "Disconnect",
     managedExternally: "Managed externally",

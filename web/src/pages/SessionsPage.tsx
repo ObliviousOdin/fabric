@@ -263,11 +263,22 @@ export default function SessionsPage() {
   // redundant reload (mount already loads).
   const newestSeenRef = useRef<string | null>(null);
   const pageRef = useRef(page);
-  pageRef.current = page;
+  useEffect(() => {
+    // Ref writes are not allowed during render; the poll callbacks that
+    // read pageRef fire from timers, so an effect-timed sync is early
+    // enough.
+    pageRef.current = page;
+  }, [page]);
 
   useEffect(() => {
-    loadSessions(page);
-    refreshEmptyCount();
+    // Next-frame hop: loadSessions flips loading state synchronously,
+    // which inside an effect body forces a cascading render. `loading`
+    // already starts true, so the initial paint is unaffected.
+    const frame = requestAnimationFrame(() => {
+      loadSessions(page);
+      refreshEmptyCount();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [loadSessions, page, refreshEmptyCount]);
 
   useEffect(() => {
@@ -341,17 +352,21 @@ export default function SessionsPage() {
     [clearSelection],
   );
 
-  // Debounced FTS search
+  // Debounced FTS search. The immediate state flips (reset on clear, the
+  // spinner while the debounce runs) hop to the next frame — synchronous
+  // setState in an effect body forces a cascading render.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     if (!search.trim()) {
-      setSearchResults(null);
-      setSearching(false);
-      return;
+      const frame = requestAnimationFrame(() => {
+        setSearchResults(null);
+        setSearching(false);
+      });
+      return () => cancelAnimationFrame(frame);
     }
 
-    setSearching(true);
+    const frame = requestAnimationFrame(() => setSearching(true));
     debounceRef.current = setTimeout(() => {
       api
         .searchSessions(search.trim())
@@ -361,6 +376,7 @@ export default function SessionsPage() {
     }, 300);
 
     return () => {
+      cancelAnimationFrame(frame);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [search]);

@@ -212,27 +212,34 @@ export default function ConfigPage() {
     load();
   }, [load]);
 
-  // Set active category when categories load
-  useEffect(() => {
-    if (categoryOrder.length > 0 && !activeCategory) {
-      setActiveCategory(categoryOrder[0]);
-    }
-  }, [categoryOrder, activeCategory]);
+  // Adopt the first category once categories load — adjust-during-render
+  // (guarded, settles in one pass) instead of an effect, which would commit
+  // a category-less frame and cascade a second render.
+  if (categoryOrder.length > 0 && !activeCategory) {
+    setActiveCategory(categoryOrder[0]);
+  }
 
-  // Load YAML when switching to YAML mode
+  // Load YAML when switching to YAML mode. The kick hops to the next
+  // frame — setYamlLoading is a synchronous state flip, which inside an
+  // effect body forces a cascading render.
   useEffect(() => {
-    if (yamlMode) {
+    if (!yamlMode) return;
+    const frame = requestAnimationFrame(() => {
       setYamlLoading(true);
       api
         .getConfigRaw()
         .then((resp) => setYamlText(resp.yaml))
         .catch(() => showToast(t.config.failedToLoadRaw, "error"))
         .finally(() => setYamlLoading(false));
-    }
-  }, [yamlMode]);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [yamlMode, showToast, t.config.failedToLoadRaw]);
 
   /* ---- Categories ---- */
-  const categories = useMemo(() => {
+  // Plain derivation (no manual useMemo): the computation is cheap, nothing
+  // depends on the array's identity, and the manual memo was un-preservable
+  // for React Compiler — which skipped optimizing the whole page over it.
+  const categories = (() => {
     if (!schema) return [];
     const allCats = [
       ...new Set(
@@ -242,7 +249,7 @@ export default function ConfigPage() {
     const ordered = categoryOrder.filter((c) => allCats.includes(c));
     const extra = allCats.filter((c) => !categoryOrder.includes(c)).sort();
     return [...ordered, ...extra];
-  }, [schema, categoryOrder]);
+  })();
 
   /* ---- Category field counts ---- */
   const categoryCounts = useMemo(() => {
@@ -378,9 +385,10 @@ export default function ConfigPage() {
 
   /* ---- Loading / load failure (CF4) ---- */
   if (!config || !schema) {
-    // Only a full outage (both core loads failed) gets the banner —
-    // partial failures degrade as before.
-    if (configLoadFailed && schemaLoadFailed) {
+    // Any failed core load that leaves us without renderable data gets the
+    // banner — a single-sided failure (config XOR schema) previously fell
+    // through to the skeleton branch below and spun forever.
+    if (configLoadFailed || schemaLoadFailed) {
       return (
         <div className="flex flex-col gap-4">
           <Toast toast={toast} />

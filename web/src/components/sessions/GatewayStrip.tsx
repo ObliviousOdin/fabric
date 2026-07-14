@@ -60,7 +60,7 @@ export function GatewayStrip({ status }: GatewayStripProps) {
                     {alert.message}
                   </p>
                   {alert.detail && (
-                    <p className="text-xs text-destructive/70 mt-0.5">
+                    <p className="text-xs text-destructive mt-0.5">
                       {alert.detail}
                     </p>
                   )}

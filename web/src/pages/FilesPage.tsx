@@ -101,12 +101,20 @@ export default function FilesPage() {
   const canUpload = Boolean(activePath) && !uploading;
   const headerPath = displayPath(listing?.locked_root ?? listing?.path ?? currentPath);
 
+  // Path the latest successful listing came back with. The server
+  // normalizes the requested path (e.g. "" resolves to the managed root),
+  // and load() writes that normalized value back into currentPath — the
+  // ref lets the effect below skip the redundant second fetch that write
+  // used to trigger on every mount and Go-button navigation.
+  const lastLoadedPathRef = useRef<string | null>(null);
+
   const load = useCallback(
     async (path = currentPath) => {
       setLoading(true);
       setError(null);
       try {
         const result = await api.listFiles(path);
+        lastLoadedPathRef.current = result.path;
         setListing(result);
         setCurrentPath(result.path);
         setPathInput(result.path);
@@ -120,9 +128,7 @@ export default function FilesPage() {
   );
 
   useEffect(() => {
-    // Existing dashboard data pages fetch from effects; keep this local and explicit
-    // until the shared lint profile is updated for async page loaders.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (currentPath === lastLoadedPathRef.current) return;
     void load(currentPath);
   }, [currentPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -373,7 +379,7 @@ export default function FilesPage() {
           {error && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
               <span className="min-w-0 break-words">{error}</span>
-              <Button outlined size="xs" type="button" onClick={() => void load()}>
+              <Button outlined size="sm" type="button" onClick={() => void load()}>
                 {t.common.retry}
               </Button>
             </div>

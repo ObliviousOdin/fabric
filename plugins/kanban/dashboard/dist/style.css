@@ -173,11 +173,11 @@
 .hermes-kanban-dot-triage   { background: #b47dd6; }  /* lilac — fresh/unspecified */
 .hermes-kanban-dot-todo     { background: var(--color-muted-foreground); }
 .hermes-kanban-dot-scheduled { background: var(--color-warning, #d4b348); }
-.hermes-kanban-dot-ready    { background: #d4b348; }  /* amber */
-.hermes-kanban-dot-running  { background: #3fb97d; }  /* green */
+.hermes-kanban-dot-ready    { background: var(--color-warning, #d4b348); }  /* amber */
+.hermes-kanban-dot-running  { background: var(--color-success, #3fb97d); }  /* green */
 .hermes-kanban-dot-blocked  { background: var(--color-destructive, #d14a4a); }
 .hermes-kanban-dot-review   { background: var(--color-warning, #d97706); }
-.hermes-kanban-dot-done     { background: #4a8cd1; }  /* blue */
+.hermes-kanban-dot-done     { background: var(--color-primary, #4a8cd1); }  /* blue */
 .hermes-kanban-dot-archived { background: var(--color-border); }
 
 /* ---- Progress pill (N/M child tasks done) --------------------------- */
@@ -193,8 +193,8 @@
   letter-spacing: 0.02em;
 }
 .hermes-kanban-progress--full {
-  background: color-mix(in srgb, #3fb97d 22%, transparent);
-  border-color: color-mix(in srgb, #3fb97d 45%, transparent);
+  background: color-mix(in srgb, var(--color-success, #3fb97d) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-success, #3fb97d) 45%, transparent);
   color: var(--color-foreground);
 }
 
@@ -477,14 +477,14 @@
   line-height: 1.3;
 }
 .hermes-kanban-msg-ok {
-  background: rgba(46, 160, 67, 0.12);
-  color: #2ea043;
-  border: 1px solid rgba(46, 160, 67, 0.35);
+  background: color-mix(in srgb, var(--color-success, #2ea043) 12%, transparent);
+  color: var(--color-success, #2ea043);
+  border: 1px solid color-mix(in srgb, var(--color-success, #2ea043) 35%, transparent);
 }
 .hermes-kanban-msg-err {
-  background: rgba(248, 81, 73, 0.12);
-  color: #f85149;
-  border: 1px solid rgba(248, 81, 73, 0.35);
+  background: color-mix(in srgb, var(--color-destructive, #f85149) 12%, transparent);
+  color: var(--color-destructive, #f85149);
+  border: 1px solid color-mix(in srgb, var(--color-destructive, #f85149) 35%, transparent);
 }
 
 /* ---- Home channel subscription toggles (per-platform, per-task) ----- */
@@ -868,10 +868,10 @@
 /* ---- Staleness tiers ------------------------------------------------ */
 
 .hermes-kanban-card--stale-amber :where(.hermes-kanban-card-content) {
-  box-shadow: 0 0 0 1px #d4b34888 inset;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning, #d4b348) 53%, transparent) inset;
 }
 .hermes-kanban-card--stale-amber:hover :where(.hermes-kanban-card-content) {
-  box-shadow: 0 0 0 2px #d4b348 inset;
+  box-shadow: 0 0 0 2px var(--color-warning, #d4b348) inset;
 }
 .hermes-kanban-card--stale-red :where(.hermes-kanban-card-content) {
   box-shadow: 0 0 0 1px var(--color-destructive, #d14a4a) inset,
@@ -902,9 +902,9 @@
   background: color-mix(in srgb, var(--color-foreground) 3%, transparent);
   border-radius: var(--radius-sm, 0.25rem);
 }
-.hermes-kanban-run--active  { border-left-color: #3fb97d; }
-.hermes-kanban-run--completed { border-left-color: #4a8cd1; }
-.hermes-kanban-run--ended { border-left-color: #6b7280; }  /* generic fallback when outcome is unset */
+.hermes-kanban-run--active  { border-left-color: var(--color-success, #3fb97d); }
+.hermes-kanban-run--completed { border-left-color: var(--color-primary, #4a8cd1); }
+.hermes-kanban-run--ended { border-left-color: var(--color-muted-foreground, #6b7280); }  /* generic fallback when outcome is unset */
 .hermes-kanban-run--blocked { border-left-color: var(--color-destructive, #d14a4a); }
 .hermes-kanban-run--crashed,
 .hermes-kanban-run--timed_out,
@@ -913,7 +913,7 @@
   border-left-color: var(--color-destructive, #d14a4a);
   background: color-mix(in srgb, var(--color-destructive, #d14a4a) 6%, transparent);
 }
-.hermes-kanban-run--reclaimed { border-left-color: #d4b348; }
+.hermes-kanban-run--reclaimed { border-left-color: var(--color-warning, #d4b348); }
 
 .hermes-kanban-run-head {
   display: flex;
@@ -1050,7 +1050,7 @@
 .hermes-kanban-dialog-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(8, 10, 16, 0.55);
+  background: color-mix(in srgb, var(--background-base, #080a10) 55%, transparent);
   backdrop-filter: blur(2px);
   z-index: 60;
   display: flex;
@@ -1091,15 +1091,15 @@
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;
-  color: #ff9e3b;
+  color: var(--color-warning, #ff9e3b);
   margin-left: 0.25rem;
   cursor: help;
 }
 
 /* Attention strip — collapsed state is a thin bar. */
 .hermes-kanban-attention {
-  border: 1px solid rgba(255, 158, 59, 0.35);
-  background: rgba(255, 158, 59, 0.06);
+  border: 1px solid color-mix(in srgb, var(--color-warning, #ff9e3b) 35%, transparent);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 6%, transparent);
   border-radius: 0.5rem;
   overflow: hidden;
 }
@@ -1110,7 +1110,7 @@
   padding: 0.4rem 0.75rem;
   font-size: 0.8125rem;
 }
-.hermes-kanban-attention-icon { color: #ff9e3b; font-size: 1rem; }
+.hermes-kanban-attention-icon { color: var(--color-warning, #ff9e3b); font-size: 1rem; }
 .hermes-kanban-attention-text { flex: 1; }
 .hermes-kanban-attention-toggle,
 .hermes-kanban-attention-dismiss,
@@ -1126,10 +1126,10 @@
 .hermes-kanban-attention-toggle:hover,
 .hermes-kanban-attention-dismiss:hover,
 .hermes-kanban-attention-row-btn:hover {
-  background: rgba(255, 158, 59, 0.12);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 12%, transparent);
 }
 .hermes-kanban-attention-list {
-  border-top: 1px solid rgba(255, 158, 59, 0.2);
+  border-top: 1px solid color-mix(in srgb, var(--color-warning, #ff9e3b) 20%, transparent);
   padding: 0.25rem 0;
 }
 .hermes-kanban-attention-row {
@@ -1140,7 +1140,7 @@
   font-size: 0.8125rem;
 }
 .hermes-kanban-attention-row:hover {
-  background: rgba(255, 158, 59, 0.08);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 8%, transparent);
 }
 .hermes-kanban-attention-row-id {
   font-family: ui-monospace, SFMono-Regular, monospace;
@@ -1161,8 +1161,8 @@
 
 /* Events tab — callout style for hallucination events. */
 .hermes-kanban-event--hallucination {
-  border-left: 3px solid #ff6b6b;
-  background: rgba(255, 107, 107, 0.08);
+  border-left: 3px solid var(--color-destructive, #ff6b6b);
+  background: color-mix(in srgb, var(--color-destructive, #ff6b6b) 8%, transparent);
   padding: 0.5rem 0.65rem;
   border-radius: 0.35rem;
   margin: 0.25rem 0;
@@ -1173,9 +1173,9 @@
   align-items: center;
   gap: 0.5rem;
 }
-.hermes-kanban-event-warning-icon { color: #ff6b6b; font-size: 1rem; }
+.hermes-kanban-event-warning-icon { color: var(--color-destructive, #ff6b6b); font-size: 1rem; }
 .hermes-kanban-event-warning-label {
-  color: #ff6b6b;
+  color: var(--color-destructive, #ff6b6b);
   font-weight: 600;
   font-size: 0.8125rem;
 }
@@ -1195,13 +1195,13 @@
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.75rem;
   padding: 0.1rem 0.4rem;
-  background: rgba(255, 107, 107, 0.15);
-  border: 1px solid rgba(255, 107, 107, 0.3);
+  background: color-mix(in srgb, var(--color-destructive, #ff6b6b) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-destructive, #ff6b6b) 30%, transparent);
   border-radius: 0.3rem;
 }
 
 /* Recovery section header — amber accent when the task has warnings. */
-.hermes-kanban-section-head-warning { color: #ff9e3b; }
+.hermes-kanban-section-head-warning { color: var(--color-warning, #ff9e3b); }
 .hermes-kanban-section-head-row {
   display: flex;
   align-items: center;
@@ -1221,7 +1221,7 @@
 /* Recovery popover body. */
 .hermes-kanban-recovery {
   border: 1px solid rgba(120, 120, 140, 0.25);
-  background: rgba(255, 158, 59, 0.04);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 4%, transparent);
   border-radius: 0.5rem;
   padding: 0.75rem;
   display: flex;
@@ -1275,14 +1275,14 @@
 .hermes-kanban-recovery-btn {
   padding: 0.25rem 0.7rem;
   font-size: 0.75rem;
-  background: rgba(255, 158, 59, 0.15);
-  border: 1px solid rgba(255, 158, 59, 0.4);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning, #ff9e3b) 40%, transparent);
   border-radius: 0.3rem;
   color: inherit;
   cursor: pointer;
 }
 .hermes-kanban-recovery-btn:hover:not(:disabled) {
-  background: rgba(255, 158, 59, 0.25);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 25%, transparent);
 }
 .hermes-kanban-recovery-btn:disabled {
   opacity: 0.4;
@@ -1324,14 +1324,14 @@
   border-radius: 0.3rem;
 }
 .hermes-kanban-recovery-msg--ok {
-  background: rgba(120, 200, 120, 0.12);
-  color: #6bc46b;
-  border: 1px solid rgba(120, 200, 120, 0.3);
+  background: color-mix(in srgb, var(--color-success, #78c878) 12%, transparent);
+  color: var(--color-success, #6bc46b);
+  border: 1px solid color-mix(in srgb, var(--color-success, #78c878) 30%, transparent);
 }
 .hermes-kanban-recovery-msg--err {
-  background: rgba(255, 107, 107, 0.12);
-  color: #ff8b8b;
-  border: 1px solid rgba(255, 107, 107, 0.3);
+  background: color-mix(in srgb, var(--color-destructive, #ff6b6b) 12%, transparent);
+  color: var(--color-destructive, #ff8b8b);
+  border: 1px solid color-mix(in srgb, var(--color-destructive, #ff6b6b) 30%, transparent);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1345,9 +1345,9 @@
 .hermes-kanban-attention,
 .hermes-kanban-warning-badge,
 .hermes-kanban-attention-row {
-  --hermes-diag-warning: #ff9e3b;
-  --hermes-diag-error:   #ff6b3d;
-  --hermes-diag-critical: #ff4d4d;
+  --hermes-diag-warning: var(--color-warning, #ff9e3b);
+  --hermes-diag-error:   var(--color-destructive, #ff6b3d);
+  --hermes-diag-critical: color-mix(in srgb, var(--color-destructive, #ff4d4d) 80%, var(--color-foreground, currentColor));
 }
 
 /* Warning-badge severity variants (overrides the base colour). */
@@ -1357,16 +1357,16 @@
 
 /* Attention-strip severity variants. */
 .hermes-kanban-attention--warning {
-  border-color: rgba(255, 158, 59, 0.35);
-  background: rgba(255, 158, 59, 0.06);
+  border-color: color-mix(in srgb, var(--hermes-diag-warning) 35%, transparent);
+  background: color-mix(in srgb, var(--hermes-diag-warning) 6%, transparent);
 }
 .hermes-kanban-attention--error {
-  border-color: rgba(255, 107, 61, 0.45);
-  background: rgba(255, 107, 61, 0.08);
+  border-color: color-mix(in srgb, var(--hermes-diag-error) 45%, transparent);
+  background: color-mix(in srgb, var(--hermes-diag-error) 8%, transparent);
 }
 .hermes-kanban-attention--critical {
-  border-color: rgba(255, 77, 77, 0.55);
-  background: rgba(255, 77, 77, 0.10);
+  border-color: color-mix(in srgb, var(--hermes-diag-critical) 55%, transparent);
+  background: color-mix(in srgb, var(--hermes-diag-critical) 10%, transparent);
 }
 .hermes-kanban-attention--error .hermes-kanban-attention-icon { color: var(--hermes-diag-error); }
 .hermes-kanban-attention--critical .hermes-kanban-attention-icon { color: var(--hermes-diag-critical); }
@@ -1389,7 +1389,7 @@
 }
 .hermes-kanban-diag {
   border-left: 3px solid var(--hermes-diag-warning);
-  background: rgba(255, 158, 59, 0.05);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 5%, transparent);
   border-radius: 0.35rem;
   padding: 0.6rem 0.75rem;
   display: flex;
@@ -1398,7 +1398,7 @@
 }
 .hermes-kanban-diag--error {
   border-left-color: var(--hermes-diag-error);
-  background: rgba(255, 107, 61, 0.06);
+  background: color-mix(in srgb, var(--color-destructive, #ff6b3d) 6%, transparent);
 }
 .hermes-kanban-diag--critical {
   border-left-color: var(--hermes-diag-critical);
@@ -1477,12 +1477,12 @@
   cursor: not-allowed;
 }
 .hermes-kanban-diag-action-btn--suggested {
-  background: rgba(255, 158, 59, 0.15);
-  border-color: rgba(255, 158, 59, 0.4);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 15%, transparent);
+  border-color: color-mix(in srgb, var(--color-warning, #ff9e3b) 40%, transparent);
   font-weight: 600;
 }
 .hermes-kanban-diag-action-btn--suggested:hover:not(:disabled) {
-  background: rgba(255, 158, 59, 0.25);
+  background: color-mix(in srgb, var(--color-warning, #ff9e3b) 25%, transparent);
 }
 .hermes-kanban-diag-action-btn--unknown {
   opacity: 0.6;
@@ -1494,14 +1494,14 @@
   border-radius: 0.3rem;
 }
 .hermes-kanban-diag-msg--ok {
-  background: rgba(120, 200, 120, 0.12);
-  color: #6bc46b;
-  border: 1px solid rgba(120, 200, 120, 0.3);
+  background: color-mix(in srgb, var(--color-success, #78c878) 12%, transparent);
+  color: var(--color-success, #6bc46b);
+  border: 1px solid color-mix(in srgb, var(--color-success, #78c878) 30%, transparent);
 }
 .hermes-kanban-diag-msg--err {
-  background: rgba(255, 107, 61, 0.12);
-  color: #ff8b6b;
-  border: 1px solid rgba(255, 107, 61, 0.3);
+  background: color-mix(in srgb, var(--color-destructive, #ff6b3d) 12%, transparent);
+  color: var(--color-destructive, #ff8b6b);
+  border: 1px solid color-mix(in srgb, var(--color-destructive, #ff6b3d) 30%, transparent);
 }
 /* ---- Partial failure highlight --------------------------------------- */
 .hermes-kanban-card--failed :where(.hermes-kanban-card-content) {

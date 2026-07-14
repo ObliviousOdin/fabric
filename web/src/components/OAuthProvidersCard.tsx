@@ -70,12 +70,22 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
     onErrorRef.current = onError;
   }, [onError]);
 
+  const [loadFailed, setLoadFailed] = useState(false);
+
   const refresh = useCallback(() => {
     setLoading(true);
     api
       .getOAuthProviders()
-      .then((resp) => setProviders(resp.providers))
-      .catch((e) => onErrorRef.current?.(`Failed to load providers: ${e}`))
+      .then((resp) => {
+        setProviders(resp.providers);
+        setLoadFailed(false);
+      })
+      .catch((e) => {
+        // The toast is transient; the persistent flag keeps the card from
+        // rendering an empty body forever after a failed load.
+        setLoadFailed(true);
+        onErrorRef.current?.(`Failed to load providers: ${e}`);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -144,6 +154,16 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
         {loading && providers === null && (
           <div className="flex items-center justify-center py-8">
             <Spinner className="text-xl text-primary" />
+          </div>
+        )}
+        {!loading && providers === null && loadFailed && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+            <span className="min-w-0 break-words">
+              {t.oauth.loadFailed ?? "Couldn't load providers."}
+            </span>
+            <Button outlined size="sm" className="uppercase" onClick={refresh}>
+              {t.common.retry}
+            </Button>
           </div>
         )}
         {providers && providers.length === 0 && (
@@ -243,16 +263,18 @@ export function OAuthProvidersCard({ onError, onSuccess }: Props) {
 
                 <div className="flex items-center gap-1.5 shrink-0">
                   {p.docs_url && (
+                    // Plain styled anchor — a Button inside an anchor is
+                    // invalid interactive nesting (double tab stop, ambiguous
+                    // role for screen readers).
                     <a
                       href={p.docs_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex"
+                      aria-label={`Open ${p.name} docs`}
                       title={`Open ${p.name} docs`}
+                      className="inline-flex items-center justify-center p-1.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <Button ghost size="icon">
-                        <ExternalLink />
-                      </Button>
+                      <ExternalLink className="h-4 w-4" />
                     </a>
                   )}
                   {!p.status.logged_in && p.flow !== "external" && (

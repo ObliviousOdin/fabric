@@ -1,5 +1,6 @@
-export { ThemeProvider, useTheme } from "./context";
-export type { AppearancePref, ContrastPref } from "./context";
+export { ThemeProvider } from "./context";
+export { useTheme } from "./use-theme";
+export type { AppearancePref, ContrastPref } from "./use-theme";
 export { BUILTIN_THEMES, defaultTheme } from "./presets";
 export { themeAppearance } from "./generate";
 export {

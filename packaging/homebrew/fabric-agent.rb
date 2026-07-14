@@ -7,7 +7,7 @@ class FabricAgent < Formula
   # source-only formula. Install with `brew install --HEAD ./fabric-agent.rb`.
   # A release workflow can add a versioned URL and checksum atomically later.
   head "https://github.com/ObliviousOdin/fabric.git", branch: "main"
-  license "MIT"
+  license "Apache-2.0"
 
   depends_on "certifi" => :no_linkage
   depends_on "cryptography" => :no_linkage

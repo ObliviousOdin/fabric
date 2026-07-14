@@ -163,7 +163,10 @@
     --ui-green: #1f8a65;
     --ui-cyan: #4c7f8c;
     --ui-blue: #0053fd;
-    --ui-purple: #9e94d5;
+    /* Light-surface purple: same hue family as the dark-mode #9e94d5 but
+       darkened to hold AA-adjacent contrast on light chrome (the pastel
+       reads at ~2.6:1 there); :root.dark restores the pastel. */
+    --ui-purple: #695e9b;
     --context-usage-system: color-mix(in srgb, var(--ui-base) 55%, transparent);
     --context-usage-tools: var(--ui-purple);
     --context-usage-rules: var(--ui-green);
@@ -423,6 +426,7 @@
     --ui-red: #e75e78;
     --ui-green: #55a583;
     --ui-cyan: #6f9ba6;
+    --ui-purple: #9e94d5;
 
     --sidebar-edge-border: color-mix(in srgb, var(--ui-base) 12%, transparent);
     --composer-ring-strength: 1.3;
@@ -787,9 +791,11 @@ code {
 
 /* Arc-style multicolor action surface (static, not animated). Reusable on any
    Button via className. Unlayered so it beats Tailwind background/text variant
-   utilities. */
+   utilities. Gradient stays inside the brand family (Fabric blue → violet →
+   docs lavender) — the old ramp exited into rose/orange, the one off-brand
+   action surface in the product. */
 .btn-arc {
-  background-image: linear-gradient(110deg, #5b6cff 0%, #8b5cf6 28%, #d946ef 58%, #fb7185 82%, #fb923c 100%);
+  background-image: linear-gradient(110deg, #0053fd 0%, #5b6cff 34%, #8b5cf6 68%, #b8adff 100%);
   color: #fff;
   border-color: transparent;
 }

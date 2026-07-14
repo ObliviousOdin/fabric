@@ -130,6 +130,8 @@ export interface Translations {
     /** Y14 empty-hooks EmptyState. */
     noHooksTitle: string;
     noHooksDescription: string;
+    /** Fetch-failure banner prefix (optional — English fallback inline). */
+    sectionsFailed?: string;
   };
 
   // ── Chat rail (Agent card + Activity feed, CH-requirements) ──
@@ -196,6 +198,9 @@ export interface Translations {
     modelToolsSheetSubtitle: string;
     modelToolsSheetTitle: string;
     navigation: string;
+    /** Docs-iframe offline fallback (optional — English fallback inline). */
+    docsUnreachableTitle?: string;
+    docsUnreachableDescription?: string;
     openDocumentation: string;
     openNavigation: string;
     pluginNavSection: string;
@@ -887,6 +892,8 @@ export interface Translations {
     notConnected: string;
     runInTerminal: string;
     noProviders: string;
+    /** Persistent load-failure banner (optional — English fallback inline). */
+    loadFailed?: string;
     login: string;
     disconnect: string;
     managedExternally: string;

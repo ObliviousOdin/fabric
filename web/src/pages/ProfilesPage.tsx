@@ -105,6 +105,7 @@ export default function ProfilesPage() {
   // Inline SOUL editor state
   const [editingSoulFor, setEditingSoulFor] = useState<string | null>(null);
   const [soulText, setSoulText] = useState("");
+  const [soulLoading, setSoulLoading] = useState(false);
   const [soulSaving, setSoulSaving] = useState(false);
   // Tracks the latest SOUL request so out-of-order responses don't overwrite
   // newer state when the user switches profiles or closes the editor.
@@ -256,14 +257,20 @@ export default function ProfilesPage() {
       setEditingModelFor(null);
       setEditingSoulFor(name);
       setSoulText("");
+      setSoulLoading(true);
       activeSoulRequest.current = name;
       try {
         const soul = await api.getProfileSoul(name);
         if (activeSoulRequest.current === name) {
           setSoulText(soul.content);
+          setSoulLoading(false);
         }
       } catch (e) {
         if (activeSoulRequest.current === name) {
+          // Close rather than leave an empty editable buffer — saving it
+          // would overwrite the profile's real SOUL file with "".
+          setEditingSoulFor(null);
+          setSoulLoading(false);
           showToast(`${t.status.error}: ${e}`, "error");
         }
       }
@@ -688,6 +695,7 @@ export default function ProfilesPage() {
         onAutoDescribe={handleAutoDescribe}
         soulText={soulText}
         onSoulTextChange={setSoulText}
+        soulLoading={soulLoading}
         soulSaving={soulSaving}
         onSaveSoul={handleSaveSoul}
       />

@@ -1,4 +1,4 @@
-# PEP 639 SPDX license expression (`license = "MIT"` below) requires
+# PEP 639 SPDX license expression (`license = "Apache-2.0"` below) requires
 # setuptools>=77. Keep this floor in lockstep with the `license` form in
 # [project]; an older build backend rejects the string form.
 [build-system]
@@ -19,8 +19,8 @@ readme = "README.md"
 # build. Raise the ceiling once our Rust transitives ship cp314 wheels.
 requires-python = ">=3.11,<3.14"
 authors = [{ name = "Fabric" }]
-license = "MIT"
-license-files = ["LICENSE"]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "LICENSES/*"]
 dependencies = [
   # Core — every direct dep is exact-pinned to ==X.Y.Z (no ranges).
   # Rationale: ranges allow PyPI to ship a fresh version of a transitive

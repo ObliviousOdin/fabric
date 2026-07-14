@@ -12,7 +12,7 @@ Date: 2026-07-13
 - Theme: Fabric Light
 - State: populated isolated QA board, Graph selected, one review-ready plan step selected, one parallel agent run active, inspector open
 
-The final side-by-side comparison preserves the approved composition: a dark indigo work rail, calm light canvas, graph-first hierarchy, clear Goal → Plan step → Agent run / Result relationships, live status, and a focused inspector. The implementation intentionally uses Fabric's quieter teal primary action and flatter token system instead of the reference's orange action and warmer decorative treatment.
+The final side-by-side comparison preserves the approved composition: a dark indigo work rail, calm light canvas, graph-first hierarchy, clear Goal → Plan step → Agent run / Result relationships, live status, and a focused inspector. The implementation intentionally uses Fabric's blue primary action and flatter token system instead of the reference's orange action and warmer decorative treatment.
 
 ## Focused evidence
 

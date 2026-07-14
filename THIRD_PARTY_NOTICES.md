@@ -4,12 +4,15 @@ Fabric contains third-party software and documentation. Each component keeps
 its applicable `LICENSE`, `NOTICE`, copyright header, or attribution file in
 the source tree.
 
-The root [LICENSE](LICENSE) covers the Fabric distribution and preserves the
-MIT notice required by the software on which Fabric is built. Component-level
-terms remain controlling for their respective components.
+The root [LICENSE](LICENSE) (Apache License 2.0) covers the Fabric
+distribution. The MIT notice required by the Hermes Agent software on which
+Fabric is built is preserved unmodified at
+[LICENSES/MIT-hermes-agent.txt](LICENSES/MIT-hermes-agent.txt).
+Component-level terms remain controlling for their respective components.
 
 When redistributing Fabric, include the root `LICENSE`, root `NOTICE`, this
-file, and all component-level license and notice files.
+file, the `LICENSES/` directory, and all component-level license and notice
+files.
 
 ## Fabric Achievements
 

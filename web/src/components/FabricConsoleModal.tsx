@@ -12,6 +12,11 @@ import { useModalBehavior } from "@/hooks/useModalBehavior";
 import { useProfileScope } from "@/contexts/useProfileScope";
 import { api } from "@/lib/api";
 import { publicConsolePrompt } from "@/lib/public-identity";
+import {
+  buildTerminalTheme,
+  DEFAULT_TERMINAL_BACKGROUND,
+  DEFAULT_TERMINAL_FOREGROUND,
+} from "@/lib/terminal-theme";
 import { cn, themedBody } from "@/lib/utils";
 import { useTheme } from "@/themes";
 
@@ -56,32 +61,6 @@ interface FabricConsoleModalProps {
   onClose: () => void;
 }
 
-function buildTerminalTheme(background: string, foreground: string) {
-  return {
-    background,
-    foreground,
-    cursor: foreground,
-    cursorAccent: background,
-    selectionBackground: "rgba(255, 255, 255, 0.25)",
-    black: "#000000",
-    red: "#ff5f67",
-    green: "#5fffb0",
-    yellow: "#ffd166",
-    blue: "#7aa2ff",
-    magenta: "#d597ff",
-    cyan: "#58e6ff",
-    white: foreground,
-    brightBlack: "#666666",
-    brightRed: "#ff8b90",
-    brightGreen: "#8dffc8",
-    brightYellow: "#ffe08a",
-    brightBlue: "#9dbaff",
-    brightMagenta: "#e4b7ff",
-    brightCyan: "#8ef0ff",
-    brightWhite: "#ffffff",
-  };
-}
-
 function normalizeTerminalText(text: string): string {
   return text.replace(/\r?\n/g, "\r\n");
 }
@@ -118,6 +97,13 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
   const [consoleProfile, setConsoleProfile] = useState("current");
   const { profile } = useProfileScope();
   const { theme } = useTheme();
+  // Construct-time copy so the mount effect doesn't depend on `theme` —
+  // a theme switch must restyle the live terminal (the effect below sets
+  // term.options.theme), not dispose it and kill the console WebSocket.
+  const themeRef = useRef(theme);
+  useEffect(() => {
+    themeRef.current = theme;
+  }, [theme]);
 
   const redrawInput = useCallback((line = lineRef.current) => {
     const term = termRef.current;
@@ -358,8 +344,8 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
       macOptionIsMeta: true,
       scrollback: 3000,
       theme: buildTerminalTheme(
-        theme.terminalBackground ?? "#000000",
-        theme.terminalForeground ?? "#f0e6d2",
+        themeRef.current.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND,
+        themeRef.current.terminalForeground ?? DEFAULT_TERMINAL_FOREGROUND,
       ),
     });
     termRef.current = term;
@@ -461,15 +447,15 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
       activeCommandRef.current = false;
       hasReadyFrameRef.current = false;
     };
-  }, [handleFrame, handleInputData, open, profile, theme]);
+  }, [handleFrame, handleInputData, open, profile]);
 
   useEffect(() => {
     if (!open) return;
     const term = termRef.current;
     if (!term) return;
     term.options.theme = buildTerminalTheme(
-      theme.terminalBackground ?? "#000000",
-      theme.terminalForeground ?? "#f0e6d2",
+      theme.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND,
+      theme.terminalForeground ?? DEFAULT_TERMINAL_FOREGROUND,
     );
   }, [open, theme]);
 
@@ -526,7 +512,12 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
             <X />
           </Button>
         </header>
-        <div className="min-h-0 flex-1 bg-black">
+        <div
+          className="min-h-0 flex-1"
+          style={{
+            background: theme.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND,
+          }}
+        >
           <div
             ref={hostRef}
             className="h-full min-h-0 w-full overflow-hidden p-2 [&_.xterm]:h-full [&_.xterm-viewport]:!bg-transparent"

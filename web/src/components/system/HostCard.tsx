@@ -113,15 +113,15 @@ export function HostCard({
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-3 gap-x-6 text-sm">
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">OS</div>
-            <div>{stats?.os} {stats?.os_release}</div>
+            <div>{stats ? `${stats.os} ${stats.os_release}` : "—"}</div>
           </div>
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">Arch</div>
-            <div>{stats?.arch}</div>
+            <div>{stats?.arch ?? "—"}</div>
           </div>
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">Host</div>
-            <div className="truncate">{stats?.hostname}</div>
+            <div className="truncate">{stats?.hostname ?? "—"}</div>
           </div>
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">Python</div>
@@ -133,7 +133,9 @@ export function HostCard({
           <div>
             <div className="text-xs uppercase tracking-wider text-muted-foreground">Fabric</div>
             <div className="flex items-center gap-2">
-              <span className={NUM_CN}>v{stats?.hermes_version}</span>
+              <span className={NUM_CN}>
+                {stats?.hermes_version ? `v${stats.hermes_version}` : "—"}
+              </span>
               {canUpdateHermes &&
                 updateInfo &&
                 (updateInfo.update_available ? (

@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
+import { Checkbox } from "@nous-research/ui/ui/components/checkbox";
 import { Input } from "@nous-research/ui/ui/components/input";
 import { Label } from "@nous-research/ui/ui/components/label";
 import { Select, SelectOption } from "@nous-research/ui/ui/components/select";
@@ -210,15 +211,21 @@ export function WebhookCreateModal({
 
               <div className="grid gap-2">
                 <Label htmlFor="webhook-deliver-only">Deliver only</Label>
-                <label className="flex items-center gap-2 text-sm text-muted-foreground h-9">
-                  <input
+                <div className="flex h-9 items-center gap-2.5">
+                  <Checkbox
                     id="webhook-deliver-only"
-                    type="checkbox"
                     checked={deliverOnly}
-                    onChange={(e) => setDeliverOnly(e.target.checked)}
+                    onCheckedChange={(checked) =>
+                      setDeliverOnly(checked === true)
+                    }
                   />
-                  Skip the agent, deliver payload directly
-                </label>
+                  <Label
+                    className="cursor-pointer text-sm font-normal normal-case tracking-normal text-muted-foreground"
+                    htmlFor="webhook-deliver-only"
+                  >
+                    Skip the agent, deliver payload directly
+                  </Label>
+                </div>
               </div>
             </div>
 

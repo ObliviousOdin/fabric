@@ -36,6 +36,11 @@ import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
 import { normalizeSessionTitle } from "@/lib/chat-title";
+import {
+  buildTerminalTheme,
+  DEFAULT_TERMINAL_BACKGROUND,
+  DEFAULT_TERMINAL_FOREGROUND,
+} from "@/lib/terminal-theme";
 import { PluginSlot } from "@/plugins";
 import { useTheme } from "@/themes";
 import { useProfileScope } from "@/contexts/useProfileScope";
@@ -91,23 +96,11 @@ function generateChannelId(scope?: string): string {
   )}`;
 }
 
-// Colors for the terminal body.  Matches the dashboard's dark teal canvas
-// with cream foreground — we intentionally don't pick monokai or a loud
-// theme, because the TUI's skin engine already paints the content; the
-// terminal chrome just needs to sit quietly inside the dashboard.
-const DEFAULT_TERMINAL_BACKGROUND = "#000000";
-const DEFAULT_TERMINAL_FOREGROUND = "#f0e6d2";
-
-function buildTerminalTheme(background: string, foreground: string) {
-  return {
-    background,
-    foreground,
-    cursor: foreground,
-    cursorAccent: background,
-    selectionBackground:
-      foreground.length === 7 ? `${foreground}44` : foreground,
-  };
-}
+// Terminal body colors come from the active theme via the shared
+// theme-aware builder — it derives the full 16-color ANSI ramp (AA-legible
+// on light and dark canvases) rather than leaving xterm's dark-tuned
+// defaults to wash out on light themes. The TUI's skin engine paints the
+// content; the ramp is what SGR-colored output resolves against.
 
 /**
  * CSS width for xterm font tiers.
@@ -248,6 +241,13 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     () => buildTerminalTheme(terminalBg, terminalFg),
     [terminalBg, terminalFg],
   );
+  // Spawn-time copy for the PTY connect effect: the child env can only be
+  // set once, so the effect reads the ref instead of depending on
+  // `terminalBg` (a theme switch must not respawn the PTY).
+  const terminalBgRef = useRef(terminalBg);
+  useEffect(() => {
+    terminalBgRef.current = terminalBg;
+  }, [terminalBg]);
 
   // The dashboard keeps ChatPage mounted persistently so the PTY survives tab
   // switches. That is great for ordinary /chat navigation, but it means query
@@ -731,6 +731,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       // selected profile, so the conversation runs with that profile's model,
       // skills, memory, and sessions (see web_server._resolve_chat_argv).
       if (scopedProfile) params.profile = scopedProfile;
+      // Terminal canvas hint: the server forwards this as
+      // HERMES_TUI_BACKGROUND so the TUI child picks the light/dark
+      // palette matching the xterm canvas it will actually render on.
+      params.bg = terminalBgRef.current;
       const url = await api.buildWsUrl("/api/pty", params);
       const ws = new WebSocket(url);
       ws.binaryType = "arraybuffer";

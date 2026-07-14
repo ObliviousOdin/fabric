@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'user-guide/index',
+        'user-guide/workspace-admin',
         'user-guide/cli',
         'user-guide/tui',
         'user-guide/desktop',

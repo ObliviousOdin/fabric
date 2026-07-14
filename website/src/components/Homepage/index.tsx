@@ -25,7 +25,7 @@ const surfaces = [
   {
     index: "04",
     name: "Web",
-    copy: "A browser dashboard for configuration, sessions, providers, and remote administration.",
+    copy: "A coordinated Workspace for agent operations and Admin console for runtime control.",
     href: "/user-guide/features/web-dashboard",
   },
   {
@@ -86,8 +86,8 @@ const productViews = [
   },
   {
     label: "Web dashboard",
-    title: "Local control from the browser.",
-    copy: "Inspect models, manage skills, review sessions, and operate profiles from localhost.",
+    title: "Operations and control, coordinated.",
+    copy: "Move between Workspace operations and Admin controls without leaving the local runtime.",
     image: "/img/product/fabric-web-models.png",
     width: 1280,
     height: 720,
@@ -147,15 +147,16 @@ export default function Homepage(): React.JSX.Element {
             <div className={styles.heroCopy}>
               <p className={styles.eyebrow}>
                 <span aria-hidden="true" className={styles.eyebrowRule} />
-                Local-first agent runtime
+                Local-first multi-agent runtime
               </p>
               <h1 id="fabric-hero-title">
-                One agent, woven through every surface.
+                One runtime, every agent operation in context.
               </h1>
               <p className={styles.heroLead}>
-                Fabric keeps your model routes, memory, skills, approvals, and
-                sessions together in one profile—whether you work from desktop,
-                terminal, web, messaging, or your IDE.
+                Fabric connects conversations, agents, memory, automations,
+                and runtime controls across desktop, terminal, web, messaging,
+                and IDE workflows. Profiles keep each agent&apos;s configuration
+                and memory isolated.
               </p>
               <div className={styles.heroActions}>
                 <Link
@@ -174,7 +175,7 @@ export default function Homepage(): React.JSX.Element {
               <ul className={styles.heroProof} aria-label="Fabric highlights">
                 <li>macOS · Windows · Linux</li>
                 <li>Subscriptions · APIs · Ollama</li>
-                <li>MIT licensed</li>
+                <li>Apache-2.0 licensed</li>
               </ul>
             </div>
 
@@ -202,8 +203,8 @@ export default function Homepage(): React.JSX.Element {
                   <dd>Loaded on demand</dd>
                 </div>
                 <div>
-                  <dt>Approvals</dt>
-                  <dd>Dangerous work gated</dd>
+                  <dt>Control</dt>
+                  <dd>Explicit local policy</dd>
                 </div>
               </dl>
               <div className={styles.fabricCore}>
@@ -265,8 +266,9 @@ export default function Homepage(): React.JSX.Element {
             <p className={styles.sectionLabel}>One core / every surface</p>
             <h2 id="surfaces-title">Start anywhere. Keep the same agent.</h2>
             <p>
-              Every surface reads the selected Fabric profile, so credentials,
-              memory, skills, and session history stay aligned.
+              Every surface can use the selected Fabric profile, so model
+              routes, memory, skills, and session history stay aligned without
+              turning profiles into team or tenant boundaries.
             </p>
           </div>
           <ol className={styles.surfaceList}>
@@ -322,7 +324,11 @@ export default function Homepage(): React.JSX.Element {
             <h2 id="product-title">One profile. Three ways to work.</h2>
             <p>
               These are live Fabric surfaces running against the same local
-              profile—not concept art or staged mockups.
+              profile—not concept art or staged mockups. The web
+              Workspace/Admin foundation is available now; hosted tenancy,
+              enforced role access, and durable enterprise ledgers remain
+              staged backend work.{" "}
+              <Link to="/user-guide/workspace-admin">See the delivery map.</Link>
             </p>
           </div>
           <div className={styles.productGrid}>

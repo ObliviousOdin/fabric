@@ -1,6 +1,14 @@
 # Fabric — Web UI
 
-Browser-based dashboard for managing Fabric configuration, API keys, and monitoring active sessions.
+The browser experience for Fabric's local-first runtime. It coordinates a
+business-facing **Workspace** and a technical **Admin** console while keeping
+the real `fabric --tui` process as the browser Chat transcript and composer.
+
+Phase 1 includes the responsive shell, canonical routes, Home, persistent
+three-panel Chat, shared state language, and regrouped management pages. Real
+tenant/workspace/site membership, capability enforcement, durable approvals,
+unified activity, and the typed Memory ledger are backend contracts for a later
+delivery; the UI must not simulate them.
 
 ## Stack
 
@@ -11,9 +19,9 @@ Browser-based dashboard for managing Fabric configuration, API keys, and monitor
 ## Development
 
 ```bash
-# Start the backend API server
+# Start the backend API server and built SPA host
 cd ../
-python -m fabric_cli.main web --no-open
+python -m fabric_cli.main dashboard --no-open
 
 # In another terminal, start the Vite dev server (with HMR + API proxy)
 cd web/
@@ -23,7 +31,10 @@ npm run dev
 
 Open the **Vite URL** printed in the terminal (usually `http://localhost:5173`). That is the live-reload UI.
 
-`fabric dashboard` on port 9119 serves the **built** bundle from `fabric_cli/web_dist/`, not the Vite dev server — changes in `web/src/` will not appear there until you run `npm run build` and restart the dashboard (or use `web --no-open` + Vite as above).
+`fabric dashboard` on port 9119 serves the **built** bundle from
+`fabric_cli/web_dist/`, not the Vite dev server. Changes in `web/src/` will not
+appear there until you run `npm run build` and restart the dashboard (or run
+the dashboard backend alongside Vite as above).
 
 The Vite dev server proxies `/api` requests to `http://127.0.0.1:9119` (the FastAPI backend).
 
@@ -39,28 +50,58 @@ This outputs to `../fabric_cli/web_dist/`, which the FastAPI server serves as a 
 
 ```
 src/
-├── components/ui/   # Reusable UI primitives (Card, Badge, Button, Input, etc.)
+├── app/
+│   └── routes.tsx   # Canonical lazy Workspace/Admin route and alias catalog
+├── components/
+│   ├── chat/        # Three-panel presentation around the persistent TUI
+│   ├── experience/  # Shared screen-state components
+│   ├── sidebar/     # Responsive Workspace/Admin navigation shell
+│   └── ui/          # Fabric-owned reusable UI wrappers
+├── contexts/        # Profile, page-header, and system-action state
 ├── lib/
 │   ├── api.ts       # API client — typed fetch wrappers for all backend endpoints
 │   └── utils.ts     # cn() helper for Tailwind class merging
 ├── pages/
-│   ├── StatusPage   # Agent status, active/recent sessions
-│   ├── ConfigPage   # Dynamic config editor (reads schema from backend)
-│   └── EnvPage      # API key management with save/clear
-├── App.tsx          # Main layout and navigation
+│   ├── WorkspaceHomePage.tsx        # Live operational projections
+│   ├── ChatPage.tsx                 # Persistent PTY/xterm host
+│   ├── WorkspacePlaceholderPage.tsx # Honest deferred-service states
+│   └── *Page.tsx                    # Reused Workspace/Admin capabilities
+├── plugins/          # Generic route, slot, and extension contracts
+├── themes/           # Generated canonical pair + optional presets
+├── App.tsx           # Shell composition and persistent Chat lifecycle
 ├── main.tsx         # React entry point
 └── index.css        # Tailwind imports and theme variables
 ```
 
+## Route contract
+
+`src/app/routes.tsx` is the source of truth for route identity, lazy component
+loading, navigation order, Workspace/Admin ownership, and legacy aliases. Do
+not add a parallel path/title/nav table elsewhere.
+
+Chat is a persistent route. Its PTY, WebSocket, and xterm instance must stay
+mounted while users navigate. React may provide conversations, agent status,
+context, evidence, memory, and artifact rails around it, but must not implement
+a second transcript or composer.
+
+Machine profiles remain independent configuration/memory islands. Never label
+a profile as a tenant, team workspace, site, user, or role. Navigation
+visibility is presentational until matching server-side capability guards
+exist.
+
 ## Design system
 
-Read [DESIGN.md](./DESIGN.md) before adding or editing dashboard UI. Its
-Fabric-owned contract supersedes the inherited upstream visual conventions.
+Read [DESIGN.md](./DESIGN.md) and the generated foundation in
+[`apps/design-system`](../apps/design-system/README.md) before adding or editing
+the web UI. The Fabric-owned contract supersedes inherited dashboard visual
+conventions.
 
 The short version:
 
-- Generated Fabric Light/Dark are the canonical theme pair. Historical themes
-  remain optional skins.
+- Generated Fabric Light/Dark are the canonical theme pair, built from neutral
+  woven surfaces and `#4628CC` as the single brand/action accent. Expressive
+  themes remain optional presets; old teal/blue identities migrate to the
+  canonical pair.
 - Product language uses sentence case and the theme's system-humanist sans.
   Monospace is only for technical values such as IDs, branches, paths, and logs.
 - Body copy is at least 14px and interactive targets are at least 44×44px.

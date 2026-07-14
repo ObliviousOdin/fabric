@@ -4,8 +4,18 @@ import type * as Preset from "@docusaurus/preset-classic";
 
 const config: Config = {
   title: "Fabric",
-  tagline: "One agent, woven through every surface",
+  tagline: "One runtime, woven through every surface",
   favicon: "img/favicon.ico",
+  headTags: [
+    {
+      tagName: "link",
+      attributes: {
+        rel: "apple-touch-icon",
+        sizes: "180x180",
+        href: "/fabric/img/apple-touch-icon.png",
+      },
+    },
+  ],
 
   url: "https://obliviousodin.github.io",
   baseUrl: "/fabric/",
@@ -191,13 +201,17 @@ const config: Config = {
               href: "https://github.com/ObliviousOdin/fabric",
             },
             {
-              label: "License and attribution",
+              label: "Apache-2.0 license",
+              href: "https://github.com/ObliviousOdin/fabric/blob/main/LICENSE",
+            },
+            {
+              label: "Attribution notices",
               href: "https://github.com/ObliviousOdin/fabric/blob/main/NOTICE",
             },
           ],
         },
       ],
-      copyright: `Fabric contributors · MIT License · ${new Date().getFullYear()}`,
+      copyright: `Fabric contributors · Apache License 2.0 · ${new Date().getFullYear()}`,
     },
     prism: {
       theme: prismThemes.github,

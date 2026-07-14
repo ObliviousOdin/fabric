@@ -5,13 +5,13 @@
   --page-muted: #676170;
   --page-line: rgba(24, 21, 31, 0.15);
   --page-line-strong: rgba(24, 21, 31, 0.28);
-  --page-accent: #4e3bc2;
-  --page-accent-strong: #39269f;
-  --page-accent-soft: #e7e1ff;
+  --page-accent: #4628cc;
+  --page-accent-strong: #25156b;
+  --page-accent-soft: #f0edfb;
   --page-terminal: #0b0a0f;
   --page-terminal-ink: #f5f2ea;
   --page-terminal-muted: #aaa4b3;
-  --page-terminal-accent: #b8adff;
+  --page-terminal-accent: #c5baf5;
   --display-font:
     "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
 
@@ -27,9 +27,9 @@
   --page-muted: #aaa4b3;
   --page-line: rgba(245, 242, 234, 0.16);
   --page-line-strong: rgba(245, 242, 234, 0.3);
-  --page-accent: #b8adff;
-  --page-accent-strong: #d5ceff;
-  --page-accent-soft: #241d45;
+  --page-accent: #c5baf5;
+  --page-accent-strong: #f0edfb;
+  --page-accent-soft: #25156b;
   --page-terminal: #050408;
 }
 
@@ -238,7 +238,7 @@
 .profileMap {
   position: relative;
   margin: 0;
-  border: 1px solid rgba(184, 173, 255, 0.24);
+  border: 1px solid rgba(197, 186, 245, 0.24);
   color: var(--page-terminal-ink);
   background: var(--page-terminal);
   box-shadow: 20px 24px 0 var(--page-accent-soft);
@@ -250,7 +250,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  border-bottom: 1px solid rgba(184, 173, 255, 0.18);
+  border-bottom: 1px solid rgba(197, 186, 245, 0.18);
   color: var(--page-terminal-muted);
   font-family: var(--ifm-font-family-monospace);
   font-size: 0.72rem;
@@ -280,8 +280,8 @@
 .profileInputs > div {
   min-height: 106px;
   padding: 24px 22px;
-  border-right: 1px solid rgba(184, 173, 255, 0.14);
-  border-bottom: 1px solid rgba(184, 173, 255, 0.14);
+  border-right: 1px solid rgba(197, 186, 245, 0.14);
+  border-bottom: 1px solid rgba(197, 186, 245, 0.14);
 }
 
 .profileInputs > div:nth-child(2n) {
@@ -308,7 +308,7 @@
   min-height: 104px;
   align-items: center;
   padding: 20px 24px;
-  border-bottom: 1px solid rgba(184, 173, 255, 0.18);
+  border-bottom: 1px solid rgba(197, 186, 245, 0.18);
   color: #17131f;
   background: var(--page-terminal-accent);
   grid-template-columns: auto 1fr;
@@ -342,7 +342,7 @@
   min-height: 48px;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(184, 173, 255, 0.17);
+  border: 1px solid rgba(197, 186, 245, 0.17);
   color: var(--page-terminal-muted);
   font-family: var(--ifm-font-family-monospace);
   font-size: 0.62rem;
@@ -512,7 +512,7 @@
 }
 
 .routeList {
-  border-top: 1px solid rgba(184, 173, 255, 0.28);
+  border-top: 1px solid rgba(197, 186, 245, 0.28);
 }
 
 .routeRow {
@@ -520,7 +520,7 @@
   min-height: 112px;
   align-items: center;
   gap: 24px;
-  border-bottom: 1px solid rgba(184, 173, 255, 0.18);
+  border-bottom: 1px solid rgba(197, 186, 245, 0.18);
   color: var(--page-terminal-ink);
   grid-template-columns: minmax(165px, 0.34fr) minmax(180px, 0.35fr) minmax(
       300px,
@@ -536,7 +536,7 @@
   padding-right: 16px;
   padding-left: 16px;
   color: var(--page-terminal-ink);
-  background: rgba(184, 173, 255, 0.07);
+  background: rgba(197, 186, 245, 0.07);
   text-decoration: none;
 }
 

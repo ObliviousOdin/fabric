@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://github.com/ObliviousOdin/fabric/releases"><img src="https://img.shields.io/badge/Releases-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-6F4BF2?style=for-the-badge" alt="Fabric releases"></a>
   <a href="https://obliviousodin.github.io/fabric/"><img src="https://img.shields.io/badge/Docs-Fabric-6F4BF2?style=for-the-badge" alt="Fabric documentation"></a>
-  <a href="https://github.com/ObliviousOdin/fabric/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
+  <a href="https://github.com/ObliviousOdin/fabric/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache--2.0-green?style=for-the-badge" alt="License: Apache-2.0"></a>
 </p>
 
 **Fabric Desktop is the native macOS, Windows, and Linux interface for
@@ -150,6 +150,7 @@ For product issues, use the
 
 ## License and upstream attribution
 
-Fabric is distributed under the repository's MIT license. Required upstream
-copyright, permission, and provenance notices remain preserved in
-[`LICENSE`](../../LICENSE) and [`NOTICE`](../../NOTICE).
+Fabric is distributed under the repository's Apache License 2.0. The complete
+upstream MIT notice for Hermes Agent by Nous Research is preserved in
+[`LICENSES/MIT-hermes-agent.txt`](../../LICENSES/MIT-hermes-agent.txt), with
+the required attribution summarized in [`NOTICE`](../../NOTICE).

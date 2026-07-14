@@ -14,9 +14,9 @@ displayed_sidebar: docs
 # Put Fabric to work
 
 <div className="docs-hub__lede">
-Fabric is a local-first agent engine for terminal, desktop, web, messaging, API,
-and IDE workflows. Start with one useful task, then add memory, skills, and
-automation as you need them.
+Fabric is a local-first multi-agent runtime for terminal, desktop, web,
+messaging, API, and IDE workflows. Start with one useful task, then add memory,
+skills, automation, and operational views as you need them.
 </div>
 
 <div className="docs-hub__actions">
@@ -71,9 +71,10 @@ Run a keyless Ollama model and understand the boundary between local inference a
 
 ### Work where you are
 
-Choose the native desktop app, CLI, full-screen TUI, web dashboard, or a messaging channel.
+Choose the native desktop app, CLI, full-screen TUI, a messaging channel, or
+the web experience's coordinated Workspace and Admin surfaces.
 
-[Choose an interface →](/user-guide/)
+[Choose an interface →](/user-guide/) · [Understand Workspace and Admin →](/user-guide/workspace-admin)
 
 </section>
 
@@ -118,19 +119,31 @@ Then run `fabric` and ask it to complete a small, observable task in a non-secre
 workspace. A model appearing in a picker is not the same as a successful request;
 the [Quickstart](/getting-started/quickstart) shows the complete verification loop.
 
-## One profile, every surface
+## Profiles and the web experience
 
-Your selected profile owns the model routes, credentials, memory, skills,
-approvals, and sessions used across supported interfaces.
+Your selected profile owns an agent's model routes, credentials, memory,
+skills, approval policy, and sessions across supported interfaces. In the web
+experience, **Workspace** organizes agent work and **Admin** exposes runtime
+controls. A profile remains an isolated agent configuration; it is not a
+tenant, team workspace, site, or human role.
 
 <div className="docs-hub-strip">
 
-- **See and compose work:** [Desktop](/user-guide/desktop) or [web dashboard](/user-guide/features/web-dashboard)
+- **See and compose work:** [Desktop](/user-guide/desktop) or [Fabric Workspace](/user-guide/workspace-admin)
 - **Stay in the terminal:** [CLI](/user-guide/cli) or [TUI](/user-guide/tui)
 - **Keep a conversation running:** [Messaging gateway](/user-guide/messaging/)
 - **Connect applications and editors:** [API server](/user-guide/features/api-server), [ACP](/user-guide/features/acp), or [MCP](/user-guide/features/mcp)
 
 </div>
+
+:::info Current web delivery
+The responsive Workspace/Admin shell, route structure, Home, and three-panel
+Chat are available now. Server-enforced enterprise tenancy and roles, a durable
+Work Board service, durable approvals, unified activity, and the typed Memory
+ledger remain staged backend contracts. The
+[delivery map](/user-guide/workspace-admin#what-is-available-now) keeps this
+boundary explicit.
+:::
 
 :::tip Verify public builds
 Install from this repository or from a release published on the

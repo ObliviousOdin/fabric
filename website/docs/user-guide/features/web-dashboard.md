@@ -1,23 +1,27 @@
 ---
 sidebar_position: 15
-title: "Web Dashboard"
-description: "Browser-based administration panel for managing configuration, API keys, MCP servers, messaging pairing, webhooks, the gateway, memory, credentials, sessions, logs, analytics, cron jobs, and skills"
+title: "Web Workspace and Admin"
+description: "Run Fabric's browser Workspace for agent operations and Admin console for runtime configuration, security, integrations, and maintenance."
 ---
 
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
-# Web Dashboard
+# Web Workspace and Admin
 
-The web dashboard is a browser-based UI for managing your Fabric installation. Instead of editing YAML files or running CLI commands, you can configure settings, manage API keys, and monitor sessions from a clean web interface.
+Fabric's web experience coordinates two surfaces on the same local-first
+runtime. **Workspace** is for conversations, agents, automations, evidence, and
+outcomes. **Admin** is for integrations, channels, models, credentials,
+configuration, and system maintenance. It does not replace the CLI, TUI, or
+Desktop with a second agent core.
 
 <div className="docs-product-grid">
   <figure>
-    <img src={useBaseUrl('/img/product/fabric-web-models.png')} width="1280" height="720" alt="Fabric web dashboard Models page showing a connected local Ollama model." />
-    <figcaption>Models: verify the active route and local Ollama connection.</figcaption>
+    <img src={useBaseUrl('/img/product/fabric-web-models.png')} width="1280" height="720" alt="Fabric Admin AI Runtime page showing the active model loadout and local Ollama configuration." />
+    <figcaption>AI Runtime: verify the active route and local Ollama connection.</figcaption>
   </figure>
   <figure>
-    <img src={useBaseUrl('/img/product/fabric-web-skills.png')} width="1280" height="720" alt="Fabric web dashboard Skills page showing installed and available skill packages." loading="lazy" />
-    <figcaption>Skills: inspect installed capabilities and add trusted workflows.</figcaption>
+    <img src={useBaseUrl('/img/product/fabric-web-skills.png')} width="1280" height="720" alt="Fabric Admin Integrations area showing installed skills and category filters." loading="lazy" />
+    <figcaption>Integrations: inspect installed skills and add trusted workflows.</figcaption>
   </figure>
 </div>
 
@@ -27,17 +31,20 @@ The web dashboard is a browser-based UI for managing your Fabric installation. I
 fabric dashboard
 ```
 
-This starts a local web server and opens `http://127.0.0.1:9119` in your browser. The dashboard runs entirely on your machine — no data leaves localhost.
+This starts a local web server and opens `http://127.0.0.1:9119` in your
+browser. The server and management state stay on the machine. Agent requests,
+tool calls, messaging events, and integration traffic still follow the model
+providers and services configured for the selected profile.
 
 ### Options
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--port` | `9119` | Port to run the web server on |
-| `--host` | `127.0.0.1` | Bind address |
-| `--no-open` | — | Don't auto-open the browser |
-| `--insecure` | off | Deprecated compatibility flag. It no longer bypasses authentication; every non-loopback bind still requires an auth provider. |
-| `--isolated` | off | When launched from a named profile (`worker dashboard`), run a dedicated per-profile server instead of routing to the machine dashboard |
+| Flag         | Default     | Description                                                                                                                             |
+| ------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `--port`     | `9119`      | Port to run the web server on                                                                                                           |
+| `--host`     | `127.0.0.1` | Bind address                                                                                                                            |
+| `--no-open`  | —           | Don't auto-open the browser                                                                                                             |
+| `--insecure` | off         | Deprecated compatibility flag. It no longer bypasses authentication; every non-loopback bind still requires an auth provider.           |
+| `--isolated` | off         | When launched from a named profile (`worker dashboard`), run a dedicated per-profile server instead of routing to the machine dashboard |
 
 ```bash
 # Custom port
@@ -52,16 +59,16 @@ fabric dashboard --no-open
 
 ## Managing multiple profiles
 
-The dashboard is a **machine-level** management surface: one server manages
+The web experience is a **machine-level** management surface: one server manages
 every [profile](../profiles.md) on the machine. A profile switcher in the
 sidebar (visible whenever more than one profile exists) decides which
-profile the management pages read and write — Config, API Keys, Skills,
-MCP, Models, and the Chat tab all follow it. While a profile other than
+profile the management pages read and write — Advanced, Secrets, Skills,
+MCP, AI Runtime, and Chat all follow it. While a profile other than
 the dashboard's own is selected, an amber banner names the managed profile
 so the write target is never ambiguous.
 
 The selection lives in the URL (`?profile=<name>`), so deep links like
-`http://127.0.0.1:9119/skills?profile=worker` land with the switcher
+`http://127.0.0.1:9119/admin/integrations/skills?profile=worker` land with the switcher
 preselected and survive refresh.
 
 Launching the dashboard from a profile alias routes to the machine
@@ -82,10 +89,17 @@ child with the selected profile's `FABRIC_HOME`, so the conversation runs
 with that profile's model, skills, memory, and session history. Switching
 profiles starts a fresh terminal session.
 
-What stays per-profile and is *not* absorbed by the switcher: gateway
+What stays per-profile and is _not_ absorbed by the switcher: gateway
 processes (manage them via `fabric -p <name> gateway …`), each profile's
-session database, and cron schedulers (the Cron page already aggregates
+session database, and cron schedulers (Automations already aggregates
 across profiles with its own filter).
+
+:::important Profile is not workspace scope
+A Fabric profile is an independent agent configuration and memory island. It
+is not a tenant, team workspace, site, human identity, or role. Enterprise
+scope and capability enforcement are staged backend contracts; hiding a link
+in the current shell is not an authorization boundary.
+:::
 
 ## Prerequisites
 
@@ -99,42 +113,76 @@ The `web` extra pulls in FastAPI/Uvicorn; `pty` pulls in `ptyprocess` (POSIX) or
 
 When you run `fabric dashboard` without the dependencies, it will tell you what to install. If the frontend hasn't been built yet and `npm` is available, it builds automatically on first launch.
 
-The Chat tab is part of every `fabric dashboard` launch — the embedded browser chat pane (running the TUI over PTY/WebSocket) is always available, with no extra flag required.
+Chat is part of every `fabric dashboard` launch — the embedded browser pane
+(running the TUI over PTY/WebSocket) is available with no extra flag.
 
-## Pages
+## Experience map
 
-### Status
+The responsive shell and canonical routes are available now. Existing live
+management pages have moved under Workspace or Admin, while screens without a
+truthful durable backend show explicit empty, degraded, or read-only states.
+See [Fabric Workspace and Admin](/user-guide/workspace-admin) for the complete route
+map and delivery boundary.
 
-The landing page shows a live overview of your installation:
+### Home
 
-- **Agent version** and release date
+`/workspace/home` shows a live, profile-scoped overview:
+
 - **Gateway status** — running/stopped, PID, connected platforms and their state
-- **Active sessions** — count of sessions active in the last 5 minutes
-- **Recent sessions** — list of the 20 most recent sessions with model, message count, token usage, and a preview of the conversation
+- **Active conversations** — current activity reported by the runtime
+- **Recent conversations** — real sessions for the selected agent profile
+- **Automations** — configured, enabled, and failed job summaries
+- **Operational readiness** — access mode and gateway health without synthetic work or approval counts
 
-The status page auto-refreshes every 5 seconds.
+Status, conversations, and automations settle independently. If one source
+fails, the available sections remain usable and the page presents a degraded
+state with a retry action.
 
 ### Chat
 
-The **Chat** tab embeds the full Fabric TUI (the same interface you get from `fabric --tui`) directly in the browser. Everything you can do in the terminal TUI — slash commands, model picker, tool-call cards, markdown streaming, clarify/sudo/approval prompts, skin theming — works identically here, because the dashboard is running the real TUI binary and rendering its ANSI output through [xterm.js](https://xtermjs.org/) with its WebGL renderer for pixel-perfect cell layout.
+`/workspace/chat` embeds the full Fabric TUI (the same interface you get from
+`fabric --tui`) in the center of a responsive three-panel workspace. Slash
+commands, tool-call cards, markdown streaming, clarify/sudo/approval prompts,
+and terminal theming remain TUI behavior because the browser is rendering the
+real process through [xterm.js](https://xtermjs.org/), not recreating Chat in
+React.
+
+- **Left:** recent conversations and session switching
+- **Center:** the persistent TUI transcript and composer
+- **Right:** agent activity plus Task, Evidence, Memory, and Artifacts tabs
+
+The context tabs state when their backend contracts are unavailable. Tool
+output remains visible in the center transcript; Fabric does not fabricate
+linked tasks, evidence, memory provenance, or artifact previews.
 
 **How it works:**
 
 - `/api/pty` opens a WebSocket authenticated with the dashboard's session token
 - The server spawns `fabric --tui` behind a POSIX pseudo-terminal
 - Keystrokes travel to the PTY; ANSI output streams back to the browser
-- xterm.js's WebGL renderer paints each cell to an integer-pixel grid; mouse tracking (SGR 1006), wide characters (Unicode 11), and box-drawing glyphs all render natively
+- xterm.js uses WebGL on suitable wide hosts and a compatible fallback on constrained hosts; mouse tracking (SGR 1006), wide characters (Unicode 11), and box-drawing glyphs remain terminal-native
 - Resizing the browser window resizes the TUI via the `@xterm/addon-fit` addon
 
-**Resume an existing session:** from the **Sessions** tab, click the play icon (▶) next to any session. That jumps to `/chat?resume=<id>` and launches the TUI with `--resume`, loading the full history.
+**Resume an existing conversation:** from **Conversations**, click the play
+icon (▶). That opens `/workspace/chat?resume=<id>` and launches the TUI with
+`--resume`, loading the full history. The legacy `/chat?resume=<id>` URL remains
+an alias.
 
-**Session switcher (right rail):** the Chat tab carries its own ChatGPT-style conversation list in a thin right rail beside the terminal, so you can swap conversations without leaving the page. The rail stacks the model picker on top and the session list directly below it; the terminal takes up most of the screen. The list shows your most recent sessions for the active profile — title (falling back to a message preview), relative last-active time, message count, and the source channel for non-CLI sessions. Click any row to resume it in place (the terminal respawns with that conversation's history); the active session is highlighted. **New chat** starts a fresh session, and a refresh control re-pulls the list. The rail is read-only for switching — delete, rename, export, and bulk cleanup still live on the **Sessions** tab. On narrow screens it folds into a slide-over panel.
+**Responsive layout:** at 1440px and above both supporting rails are visible. At
+1024–1439px, choose Conversations or Context in one secondary rail. Below
+1024px, the TUI remains center-first and each rail opens as a separate
+accessible sheet. Rename, export, archive, delete, and bulk cleanup remain in
+**Conversations**.
+
+The Chat host remains mounted while you navigate elsewhere in the web app, so
+route changes do not restart a live PTY. Supporting rails load only while
+visible and fail independently from the terminal.
 
 **Prerequisites:**
 
 - Node.js (same requirement as `fabric --tui`; the TUI bundle is built on first launch)
 - `ptyprocess` — installed by the `pty` extra (`cd ~/.fabric/fabric-agent && uv pip install -e ".[web,pty]"`, or `[all]` covers both)
-- POSIX kernel (Linux, macOS, or WSL2).  The `/chat` terminal pane specifically needs a POSIX PTY — native Windows Python has no equivalent, so on a native Windows install the rest of the dashboard (sessions, jobs, metrics, config editor) works but the `/chat` tab will show a banner telling you to use WSL2 for that feature.
+- POSIX kernel (Linux, macOS, or WSL2). The `/chat` terminal pane specifically needs a POSIX PTY — native Windows Python has no equivalent, so on a native Windows install the rest of the dashboard (sessions, jobs, metrics, config editor) works but the `/chat` tab will show a banner telling you to use WSL2 for that feature.
 
 Close the browser tab and the PTY is reaped cleanly on the server. Re-opening spawns a fresh session.
 
@@ -145,10 +193,10 @@ To point [Fabric](#connecting-fabric-desktop-to-a-remote-backend) at a dashboard
 Fabric normally launches its own local backend, but it can also attach to a dashboard running on a remote machine (a VM, a homelab box, etc.) via **Settings → Gateway → Remote gateway**. This is the most common source of "Desktop says the backend is ready but chat never works" reports, because Desktop's readiness check verifies less than the live chat connection actually needs.
 
 :::info Prerequisite: a `fabric dashboard` must be running on the remote host
-The "remote backend" Desktop connects to **is** a `fabric dashboard` process running on the remote machine — the same server this page documents. It has to be up and reachable before any of the steps below matter; Desktop attaches to it, it doesn't start it for you. Keep it running under `systemd`/`tmux`/etc. so it survives logout and reboots. The **gateway** (Telegram/Discord/Slack/etc.) is a *separate* long-running process — start it independently if you rely on messaging channels; it is not the thing the desktop app connects to.
+The "remote backend" Desktop connects to **is** a `fabric dashboard` process running on the remote machine — the same server this page documents. It has to be up and reachable before any of the steps below matter; Desktop attaches to it, it doesn't start it for you. Keep it running under `systemd`/`tmux`/etc. so it survives logout and reboots. The **gateway** (Telegram/Discord/Slack/etc.) is a _separate_ long-running process — start it independently if you rely on messaging channels; it is not the thing the desktop app connects to.
 :::
 
-Desktop's "remote backend is ready" probe only hits `GET /api/status`, which is a public endpoint — it answers as soon as *any* dashboard is running on the host. The live chat connection is a **separate** WebSocket to `/api/ws` (and `/api/pty`), and that socket is gated by two more checks the status probe never touches:
+Desktop's "remote backend is ready" probe only hits `GET /api/status`, which is a public endpoint — it answers as soon as _any_ dashboard is running on the host. The live chat connection is a **separate** WebSocket to `/api/ws` (and `/api/pty`), and that socket is gated by two more checks the status probe never touches:
 
 1. **You must be authenticated.** When the dashboard is bound to a non-loopback address it engages its auth gate. Protect it with a username and password (the bundled [username/password provider](#usernamepassword-provider-no-oauth-idp)); Desktop signs in once and reuses the resulting session for the WebSocket via a single-use ticket. Without a configured provider, a non-loopback dashboard **fails closed at startup**.
 2. **The bind host must allow the client and match the Host header.** A loopback bind (`127.0.0.1`) only accepts loopback clients, so a remote machine is rejected at the socket layer regardless of credentials. Bind to a non-loopback address (`--host 0.0.0.0`) so the peer-IP guard lets the remote client through. The remote URL you enter in Desktop must reach the dashboard by the same host it bound to — the DNS-rebinding guard requires the Host header to match.
@@ -186,15 +234,15 @@ curl -s http://VM_IP:9119/api/status | jq '.auth_required, .auth_providers'
 - `auth_required: true` and `"basic"` in the providers list → Desktop's **Sign in** flow will work.
 - `auth_required: false` → the bind is loopback, or the gate didn't engage. Bind to a non-loopback address.
 - `auth_required: true` but no `"basic"` provider → the username/password env vars aren't loaded. Fix those first.
-:::
+  :::
 
-If `/api/status` shows the gate is on with the `"basic"` provider and Desktop *still* fails to connect after signing in, the issue is past basic setup — grab a fresh `desktop.log` (Settings → Gateway → Open logs) plus the dashboard's logs from the same retry window and look for the `/api/ws` close code (4403 = chat WS rejected by the request guard, e.g. Host/peer mismatch; 4401 = the WS ticket didn't authenticate).
+If `/api/status` shows the gate is on with the `"basic"` provider and Desktop _still_ fails to connect after signing in, the issue is past basic setup — grab a fresh `desktop.log` (Settings → Gateway → Open logs) plus the dashboard's logs from the same retry window and look for the `/api/ws` close code (4403 = chat WS rejected by the request guard, e.g. Host/peer mismatch; 4401 = the WS ticket didn't authenticate).
 
-### Config
+### Admin / Advanced
 
-A form-based editor for `config.yaml`. All 150+ configuration fields are auto-discovered from `DEFAULT_CONFIG` and organized into tabbed categories:
-
-
+`/admin/advanced` is a form-based editor for `config.yaml`. Configuration
+fields are auto-discovered from `DEFAULT_CONFIG` and organized into tabbed
+categories:
 
 - **model** — default model, provider, base URL, reasoning settings
 - **terminal** — backend (local/docker/ssh/modal), timeout, shell preferences
@@ -218,16 +266,19 @@ Fields with known valid values (terminal backend, skin, approval mode, etc.) ren
 Config changes take effect on the next agent session or gateway restart. The web dashboard edits the same `config.yaml` file that `fabric config set` and the gateway read from.
 :::
 
-### API Keys
+### Admin / Security and Access / Secrets
 
-Manage the `.env` file where API keys and credentials are stored. Keys are grouped by category:
+`/admin/security-access/secrets` manages the profile's `.env` file, where API
+keys and credentials are stored. Behavioral settings belong in `config.yaml`
+and are managed under Advanced. Credentials are grouped by category:
 
 - **LLM Providers** — OpenRouter, Anthropic, OpenAI, DeepSeek, etc.
 - **Tool API Keys** — Browserbase, Firecrawl, Tavily, ElevenLabs, etc.
 - **Messaging Platforms** — Telegram, Discord, Slack bot tokens, etc.
-- **Agent Settings** — non-secret env vars like `API_SERVER_ENABLED`
+- **Service credentials** — tokens and secrets required by configured services
 
 Each key shows:
+
 - Whether it's currently set (with a redacted preview of the value)
 - A description of what it's for
 - A link to the provider's signup/key page
@@ -236,9 +287,11 @@ Each key shows:
 
 Advanced/rarely-used keys are hidden by default behind a toggle.
 
-### Sessions
+### Workspace / Conversations
 
-Browse and inspect all agent sessions. Each row shows the session title, source platform icon (CLI, Telegram, Discord, Slack, cron), model name, message count, tool call count, and how long ago it was active. Live sessions are marked with a pulsing badge.
+`/workspace/conversations` browses and inspects agent sessions. Each row shows
+the conversation title, source platform, model, message and tool-call counts,
+and recent activity. Live conversations are marked with a pulsing badge.
 
 - **Search** — full-text search across all message content using FTS5. Results show highlighted snippets and auto-scroll to the first matching message when expanded.
 - **Stats** — a summary bar shows total sessions, how many are active in the store, archived count, total messages, and a per-source breakdown.
@@ -249,8 +302,7 @@ Browse and inspect all agent sessions. Each row shows the session title, source 
 - **Prune** — the header "Prune old sessions" button deletes ended sessions older than N days.
 - **Delete** — remove a session and its message history with the trash icon.
 
-
-### Logs
+### Admin / Advanced / Logs
 
 View agent, gateway, and error log files with filtering and live tailing.
 
@@ -261,7 +313,7 @@ View agent, gateway, and error log files with filtering and live tailing.
 - **Auto-refresh** — toggle live tailing that polls for new log lines every 5 seconds
 - **Color-coded** — log lines are colored by severity (red for errors, yellow for warnings, dim for debug)
 
-### Analytics
+### Workspace / Insights
 
 Usage and cost analytics computed from session history. Select a time period (7, 30, or 90 days) to see:
 
@@ -270,7 +322,7 @@ Usage and cost analytics computed from session history. Select a time period (7,
 - **Daily breakdown table** — date, session count, input tokens, output tokens, cache hit rate, and cost for each day
 - **Per-model breakdown** — table showing each model used, its session count, token usage, and estimated cost
 
-### Cron
+### Workspace / Automations
 
 Create and manage scheduled cron jobs that run agent prompts on a recurring schedule.
 
@@ -281,18 +333,26 @@ Create and manage scheduled cron jobs that run agent prompts on a recurring sche
 - **Trigger now** — immediately execute a job outside its normal schedule
 - **Delete** — permanently remove a cron job
 
-### Profiles
+### Workspace / Agents
 
-Create and manage [profiles](../profiles.md) — isolated Fabric instances with their own config, skills, and sessions.
+`/workspace/agents` creates and manages [profiles](../profiles.md) — isolated
+agent runtimes with their own config, skills, memory, and sessions. The label
+**Agents** does not turn profiles into people, enterprise members, or roles.
 
 - **Profile cards** — each shows its model/provider, skill count, gateway state, description, and badges (active, default, alias)
-- **Create** — name + optional clone-from-default / clone-everything / no-bundled-skills, description, and model; the dedicated Profile Builder page (`/profiles/new`) offers the full flow (model, MCPs, skills)
+- **Create** — name + optional clone-from-default / clone-everything / no-bundled-skills, description, and model; the dedicated builder at `/workspace/agents/new` offers the full flow (model, MCPs, skills)
 - **Manage skills & tools** — jumps to the Skills page scoped to that profile (sets the sidebar profile switcher)
-- **Set as active** — flips the sticky default that **future CLI/gateway runs** pick up (same as `fabric profile use`). This does *not* change what the dashboard manages — that's the profile switcher's job
+- **Set as active** — flips the sticky default that **future CLI/gateway runs** pick up (same as `fabric profile use`). This does _not_ change what the dashboard manages — that's the profile switcher's job
 - **Edit model / description / SOUL** — inline editors writing into that profile
 - **Rename / Delete** — named profiles only
 
-### Skills
+### Admin / Integrations / Plugins
+
+`/admin/integrations` shows installed plugins, their runtime state, provider
+assignments, exposed surfaces, and available actions. Plugin pages and route
+aliases continue to use the generic dashboard extension contract.
+
+### Admin / Integrations / Skills
 
 Browse, search, and toggle installed skills and toolsets, and install new ones from the hub. Skills are loaded from `~/.fabric/skills/` and grouped by category.
 
@@ -302,8 +362,7 @@ Browse, search, and toggle installed skills and toolsets, and install new ones f
 - **Toolsets** — a separate view shows built-in toolsets (file operations, web browsing, etc.) with their active/inactive status, setup requirements, and list of included tools
 - **Browse hub** — a third view searches the skill hub across all sources (the same as `fabric skills search`), installs any result by identifier with a live install log, and offers an "Update all" button to refresh installed skills.
 
-
-### MCP
+### Admin / Integrations / MCP
 
 Manage [MCP](./mcp.md) servers without the CLI. The same `mcp_servers`
 block in `config.yaml` that `fabric mcp` reads from.
@@ -321,8 +380,7 @@ catalog) and install any of them with one click. Entries that need API keys
 prompt for them inline; the values go to `.env`. This is the same catalog
 `fabric mcp catalog` / `fabric mcp install` use.
 
-
-### Webhooks
+### Admin / Channels and Events / Webhooks
 
 Manage dynamic [webhook subscriptions](/user-guide/messaging/webhooks). The
 webhook platform must be enabled in messaging settings first; the page shows a
@@ -333,8 +391,7 @@ hint when it isn't.
 - **List** — each subscription shows its URL, events, and delivery target
 - **Delete** — remove a subscription
 
-
-### Pairing
+### Admin / Security and Access / Pairing
 
 Approve and revoke messaging users without the CLI — how a remote admin
 onboards Telegram/Discord/etc. users to a paired gateway. Full parity with
@@ -344,8 +401,7 @@ onboards Telegram/Discord/etc. users to a paired gateway. Full parity with
 - **Approved users** — each shows platform and user, with a Revoke button
 - **Clear pending** — drop all outstanding pairing codes
 
-
-### Channels
+### Admin / Channels and Events / Channels
 
 Connect Fabric to any messaging platform from the browser — full parity with
 `fabric setup gateway`. The page lists every supported channel (Telegram,
@@ -358,8 +414,7 @@ the API server and webhook endpoints) with its live connection status.
 - **Test** — check whether the channel is configured, enabled, and reporting a live connection from the gateway.
 - **Restart gateway** — credentials are written to `~/.fabric/.env` and the enabled flag to `config.yaml`; the gateway connects each enabled channel on its next restart, which you can trigger right from the page.
 
-
-### System
+### Admin / System
 
 A consolidated administration panel for installation-wide operations:
 
@@ -373,19 +428,21 @@ A consolidated administration panel for installation-wide operations:
 - **Checkpoints** — see the `/rollback` shadow store size and prune it
 - **Shell hooks** — list configured hooks with their consent + executable status, **create** a hook (event, command, matcher, timeout, with an opt-in consent grant), and remove one. Hooks run arbitrary commands, so the create form carries a security warning and the hook only fires after consent is granted.
 
-
-
-
 Creating a shell hook (note the consent checkbox and the run-arbitrary-commands warning):
 
-
 :::warning Security
-The web dashboard reads and writes your `.env` file, which contains API keys and secrets. It binds to `127.0.0.1` by default — only accessible from your local machine. If you bind to `0.0.0.0`, anyone on your network can view and modify your credentials. The dashboard has no authentication of its own.
+The web experience can read and write the selected profile's `.env` file,
+which contains API keys and secrets. It binds to `127.0.0.1` by default. Every
+non-loopback bind engages Fabric's authentication gate and fails closed when no
+provider is configured. Authentication is not a substitute for TLS, network
+controls, or the future resource-level enterprise authorization model.
 :::
 
 ## `/reload` Slash Command
 
-The dashboard PR also adds a `/reload` slash command to the interactive CLI. After changing API keys via the web dashboard (or by editing `.env` directly), use `/reload` in an active CLI session to pick up the changes without restarting:
+Fabric also provides a `/reload` slash command in the interactive CLI. After
+changing API keys in Admin (or editing `.env` directly), use `/reload` in an
+active CLI session to pick up the changes without restarting:
 
 ```
 You → /reload
@@ -509,49 +566,49 @@ Returns all toolsets with their label, description, tools list, and active/confi
 These power the MCP, Channels, Webhooks, Pairing, and System pages. All sit behind the
 same auth gate as the rest of `/api/`.
 
-| Method & path | Purpose |
-|---------------|---------|
-| `GET /api/mcp/servers` | List configured MCP servers (env values redacted) |
-| `POST /api/mcp/servers` | Add a server. Body: `{name, url?, command?, args?, env?, auth?}` |
-| `POST /api/mcp/servers/{name}/test` | Connect, list tools, disconnect |
-| `PUT /api/mcp/servers/{name}/enabled` | Enable / disable a server |
-| `DELETE /api/mcp/servers/{name}` | Remove a server |
-| `GET /api/mcp/catalog` | Browse the Fabric-curated MCP catalog |
-| `POST /api/mcp/catalog/install` | Install a catalog entry (with required env) |
-| `GET /api/messaging/platforms` | List every messaging channel with status + per-platform setup fields |
-| `PUT /api/messaging/platforms/{id}` | Configure a channel. Body: `{enabled?, env?, clear_env?}` (env writes to `.env`, enabled to `config.yaml`) |
-| `POST /api/messaging/platforms/{id}/test` | Report whether a channel is configured, enabled, and connected |
-| `GET /api/pairing` | List pending + approved messaging users |
-| `POST /api/pairing/approve` | Approve a code. Body: `{platform, code}` |
-| `POST /api/pairing/revoke` | Revoke a user. Body: `{platform, user_id}` |
-| `POST /api/pairing/clear-pending` | Drop all pending codes |
-| `GET /api/webhooks` | List subscriptions + platform-enabled status |
-| `POST /api/webhooks` | Create a subscription (returns one-time secret) |
-| `DELETE /api/webhooks/{name}` | Remove a subscription |
-| `GET /api/credentials/pool` | List pooled rotation keys (redacted) |
-| `POST /api/credentials/pool` | Add a key. Body: `{provider, api_key, label?}` |
-| `DELETE /api/credentials/pool/{provider}/{index}` | Remove a key (1-based index) |
-| `GET /api/memory` | Active provider + available providers + built-in file sizes |
-| `PUT /api/memory/provider` | Select a provider (empty = built-in only) |
-| `POST /api/memory/reset` | Reset built-in memory. Body: `{target: all\|memory\|user}` |
-| `POST /api/gateway/start` · `/stop` · `/restart` | Gateway lifecycle (backgrounded) |
-| `POST /api/ops/doctor` · `/security-audit` · `/backup` · `/import` | Diagnostics & maintenance (backgrounded; tail via `/api/actions/{name}/status`) |
-| `GET /api/ops/hooks` | Configured shell hooks + allowlist status |
-| `GET /api/ops/checkpoints` · `POST .../prune` | Inspect / prune the `/rollback` store |
-| `POST /api/ops/hooks` · `DELETE /api/ops/hooks` | Create / remove a shell hook (consent-gated) |
-| `GET /api/system/stats` | Host stats — OS, CPU, memory, disk, uptime |
-| `GET /api/fabric/update/check` | Report update availability (commits behind, install method) without applying. For git/pip installs that are behind, also returns a `commits` list (`sha`, `summary`, `author`, `at`) of what's changed. `?force=1` busts the 6h cache |
-| `GET /api/curator` · `PUT .../paused` · `POST .../run` | Skill-curator status + pause/resume + run |
-| `GET /api/portal` | Nous Portal auth + Tool Gateway routing (read-only) |
-| `POST /api/ops/prompt-size` · `/dump` · `/config-migrate` | Diagnostics (backgrounded) |
-| `PUT /api/webhooks/{name}/enabled` | Enable / disable a webhook route |
-| `POST /api/skills/hub/install` · `/uninstall` · `/update` | Skills hub actions (backgrounded) |
-| `GET /api/skills/hub/search` | Search the skill hub across all sources |
-| `GET /api/sessions/stats` | Session-store statistics |
-| `PATCH /api/sessions/{id}` | Rename / archive a session |
-| `GET /api/sessions/{id}/export` | Export a session (metadata + messages) as JSON |
-| `POST /api/sessions/prune` | Delete ended sessions older than N days |
-| `PUT /api/cron/jobs/{id}` | Edit a cron job's prompt / schedule / name / deliver |
+| Method & path                                                      | Purpose                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/mcp/servers`                                             | List configured MCP servers (env values redacted)                                                                                                                                                                                     |
+| `POST /api/mcp/servers`                                            | Add a server. Body: `{name, url?, command?, args?, env?, auth?}`                                                                                                                                                                      |
+| `POST /api/mcp/servers/{name}/test`                                | Connect, list tools, disconnect                                                                                                                                                                                                       |
+| `PUT /api/mcp/servers/{name}/enabled`                              | Enable / disable a server                                                                                                                                                                                                             |
+| `DELETE /api/mcp/servers/{name}`                                   | Remove a server                                                                                                                                                                                                                       |
+| `GET /api/mcp/catalog`                                             | Browse the Fabric-curated MCP catalog                                                                                                                                                                                                 |
+| `POST /api/mcp/catalog/install`                                    | Install a catalog entry (with required env)                                                                                                                                                                                           |
+| `GET /api/messaging/platforms`                                     | List every messaging channel with status + per-platform setup fields                                                                                                                                                                  |
+| `PUT /api/messaging/platforms/{id}`                                | Configure a channel. Body: `{enabled?, env?, clear_env?}` (env writes to `.env`, enabled to `config.yaml`)                                                                                                                            |
+| `POST /api/messaging/platforms/{id}/test`                          | Report whether a channel is configured, enabled, and connected                                                                                                                                                                        |
+| `GET /api/pairing`                                                 | List pending + approved messaging users                                                                                                                                                                                               |
+| `POST /api/pairing/approve`                                        | Approve a code. Body: `{platform, code}`                                                                                                                                                                                              |
+| `POST /api/pairing/revoke`                                         | Revoke a user. Body: `{platform, user_id}`                                                                                                                                                                                            |
+| `POST /api/pairing/clear-pending`                                  | Drop all pending codes                                                                                                                                                                                                                |
+| `GET /api/webhooks`                                                | List subscriptions + platform-enabled status                                                                                                                                                                                          |
+| `POST /api/webhooks`                                               | Create a subscription (returns one-time secret)                                                                                                                                                                                       |
+| `DELETE /api/webhooks/{name}`                                      | Remove a subscription                                                                                                                                                                                                                 |
+| `GET /api/credentials/pool`                                        | List pooled rotation keys (redacted)                                                                                                                                                                                                  |
+| `POST /api/credentials/pool`                                       | Add a key. Body: `{provider, api_key, label?}`                                                                                                                                                                                        |
+| `DELETE /api/credentials/pool/{provider}/{index}`                  | Remove a key (1-based index)                                                                                                                                                                                                          |
+| `GET /api/memory`                                                  | Active provider + available providers + built-in file sizes                                                                                                                                                                           |
+| `PUT /api/memory/provider`                                         | Select a provider (empty = built-in only)                                                                                                                                                                                             |
+| `POST /api/memory/reset`                                           | Reset built-in memory. Body: `{target: all\|memory\|user}`                                                                                                                                                                            |
+| `POST /api/gateway/start` · `/stop` · `/restart`                   | Gateway lifecycle (backgrounded)                                                                                                                                                                                                      |
+| `POST /api/ops/doctor` · `/security-audit` · `/backup` · `/import` | Diagnostics & maintenance (backgrounded; tail via `/api/actions/{name}/status`)                                                                                                                                                       |
+| `GET /api/ops/hooks`                                               | Configured shell hooks + allowlist status                                                                                                                                                                                             |
+| `GET /api/ops/checkpoints` · `POST .../prune`                      | Inspect / prune the `/rollback` store                                                                                                                                                                                                 |
+| `POST /api/ops/hooks` · `DELETE /api/ops/hooks`                    | Create / remove a shell hook (consent-gated)                                                                                                                                                                                          |
+| `GET /api/system/stats`                                            | Host stats — OS, CPU, memory, disk, uptime                                                                                                                                                                                            |
+| `GET /api/fabric/update/check`                                     | Report update availability (commits behind, install method) without applying. For git/pip installs that are behind, also returns a `commits` list (`sha`, `summary`, `author`, `at`) of what's changed. `?force=1` busts the 6h cache |
+| `GET /api/curator` · `PUT .../paused` · `POST .../run`             | Skill-curator status + pause/resume + run                                                                                                                                                                                             |
+| `GET /api/portal`                                                  | Nous Portal auth + Tool Gateway routing (read-only)                                                                                                                                                                                   |
+| `POST /api/ops/prompt-size` · `/dump` · `/config-migrate`          | Diagnostics (backgrounded)                                                                                                                                                                                                            |
+| `PUT /api/webhooks/{name}/enabled`                                 | Enable / disable a webhook route                                                                                                                                                                                                      |
+| `POST /api/skills/hub/install` · `/uninstall` · `/update`          | Skills hub actions (backgrounded)                                                                                                                                                                                                     |
+| `GET /api/skills/hub/search`                                       | Search the skill hub across all sources                                                                                                                                                                                               |
+| `GET /api/sessions/stats`                                          | Session-store statistics                                                                                                                                                                                                              |
+| `PATCH /api/sessions/{id}`                                         | Rename / archive a session                                                                                                                                                                                                            |
+| `GET /api/sessions/{id}/export`                                    | Export a session (metadata + messages) as JSON                                                                                                                                                                                        |
+| `POST /api/sessions/prune`                                         | Delete ended sessions older than N days                                                                                                                                                                                               |
+| `PUT /api/cron/jobs/{id}`                                          | Edit a cron job's prompt / schedule / name / deliver                                                                                                                                                                                  |
 
 ## Authentication (gated mode)
 
@@ -565,10 +622,10 @@ Operator-owned dashboards bound to loopback are unaffected — no auth, no login
 
 ### When the gate engages
 
-| Flags | Auth gate | Use case |
-|-------|-----------|----------|
-| `fabric dashboard` (default — binds to `127.0.0.1`) | OFF | Local development |
-| `fabric dashboard --host 0.0.0.0` | **ON** | Remote / production — protect with the username/password provider or OAuth |
+| Flags                                               | Auth gate | Use case                                                                   |
+| --------------------------------------------------- | --------- | -------------------------------------------------------------------------- |
+| `fabric dashboard` (default — binds to `127.0.0.1`) | OFF       | Local development                                                          |
+| `fabric dashboard --host 0.0.0.0`                   | **ON**    | Remote / production — protect with the username/password provider or OAuth |
 
 The gate is on whenever the bind host is not `127.0.0.1`, `::1`, or
 `localhost`. Wildcard binds such as `0.0.0.0` are non-loopback and always
@@ -617,13 +674,13 @@ The plugin reads from two surfaces, with the environment variable winning when s
 ```yaml
 dashboard:
   oauth:
-    client_id: agent:01HXYZ…             # required to engage the gate
+    client_id: agent:01HXYZ… # required to engage the gate
 ```
 
 **Environment variables** — operator overrides:
 
-| Env var | Overrides | Format | Provisioned by |
-|---------|-----------|--------|----------------|
+| Env var                            | Overrides                   | Format                | Provisioned by              |
+| ---------------------------------- | --------------------------- | --------------------- | --------------------------- |
 | `HERMES_DASHBOARD_OAUTH_CLIENT_ID` | `dashboard.oauth.client_id` | `agent:{instance_id}` | `fabric dashboard register` |
 
 Per the Fabric convention (`~/.fabric/.env` is for API keys / secrets only), **`config.yaml` is the recommended place to set these values** for local dev, on-prem, and any deployment you control directly. The environment-variable path exists so a hosting platform's secret injection can push per-deploy `client_id`s without anyone having to edit `config.yaml` inside the image — that's its primary purpose.
@@ -709,19 +766,19 @@ dashboard:
     password_hash: "scrypt$16384$8$1$…$…"
     # ...or a plaintext password (hashed in-memory at load; less safe at rest):
     # password: "s3cret"
-    secret: "<32+ random bytes, base64 or hex>"  # token-signing key
-    session_ttl_seconds: 43200                    # optional; access-token lifetime (default 12h)
+    secret: "<32+ random bytes, base64 or hex>" # token-signing key
+    session_ttl_seconds: 43200 # optional; access-token lifetime (default 12h)
 ```
 
 **Environment overrides:**
 
-| Env var | Overrides | Notes |
-|---------|-----------|-------|
-| `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` | `dashboard.basic_auth.username` | required to activate |
-| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` | `dashboard.basic_auth.password_hash` | preferred (no plaintext at rest) |
-| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` | `dashboard.basic_auth.password` | plaintext; **wins over a config `password_hash`** so you can rotate via env |
-| `HERMES_DASHBOARD_BASIC_AUTH_SECRET` | `dashboard.basic_auth.secret` | token-signing key |
-| `HERMES_DASHBOARD_BASIC_AUTH_TTL_SECONDS` | `dashboard.basic_auth.session_ttl_seconds` | access-token lifetime |
+| Env var                                     | Overrides                                  | Notes                                                                       |
+| ------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------- |
+| `HERMES_DASHBOARD_BASIC_AUTH_USERNAME`      | `dashboard.basic_auth.username`            | required to activate                                                        |
+| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH` | `dashboard.basic_auth.password_hash`       | preferred (no plaintext at rest)                                            |
+| `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD`      | `dashboard.basic_auth.password`            | plaintext; **wins over a config `password_hash`** so you can rotate via env |
+| `HERMES_DASHBOARD_BASIC_AUTH_SECRET`        | `dashboard.basic_auth.secret`              | token-signing key                                                           |
+| `HERMES_DASHBOARD_BASIC_AUTH_TTL_SECONDS`   | `dashboard.basic_auth.session_ttl_seconds` | access-token lifetime                                                       |
 
 :::caution Set an explicit `secret` for stable sessions
 When `secret` is empty, a random per-process signing key is generated. That's fine for a single process, but it means **every session is invalidated on restart** and sessions **don't span multiple workers**. Set an explicit `secret` for restart-surviving / multi-worker deployments.
@@ -788,18 +845,18 @@ dashboard:
   oauth:
     provider: self-hosted
     self_hosted:
-      issuer: https://auth.example.com/application/o/fabric/   # required
-      client_id: fabric-dashboard                              # required
-      scopes: "openid profile email"                           # optional (this is the default)
+      issuer: https://auth.example.com/application/o/fabric/ # required
+      client_id: fabric-dashboard # required
+      scopes: "openid profile email" # optional (this is the default)
 ```
 
 **Environment variables** — operator overrides (env wins over `config.yaml` when set non-empty; an empty value is treated as unset):
 
-| Env var | Overrides | Notes |
-|---------|-----------|-------|
-| `HERMES_DASHBOARD_OIDC_ISSUER` | `dashboard.oauth.self_hosted.issuer` | OIDC issuer URL — required |
-| `HERMES_DASHBOARD_OIDC_CLIENT_ID` | `dashboard.oauth.self_hosted.client_id` | Public client id — required |
-| `HERMES_DASHBOARD_OIDC_SCOPES` | `dashboard.oauth.self_hosted.scopes` | Defaults to `openid profile email` |
+| Env var                           | Overrides                               | Notes                              |
+| --------------------------------- | --------------------------------------- | ---------------------------------- |
+| `HERMES_DASHBOARD_OIDC_ISSUER`    | `dashboard.oauth.self_hosted.issuer`    | OIDC issuer URL — required         |
+| `HERMES_DASHBOARD_OIDC_CLIENT_ID` | `dashboard.oauth.self_hosted.client_id` | Public client id — required        |
+| `HERMES_DASHBOARD_OIDC_SCOPES`    | `dashboard.oauth.self_hosted.scopes`    | Defaults to `openid profile email` |
 
 In your IDP, register a **public** application/client with the authorization-code + PKCE (S256) grant and add the dashboard's callback as an allowed redirect URI. The callback is `<dashboard public URL>/auth/callback` (see [Public URL override](#public-url-override) for how the dashboard derives its public URL behind a proxy).
 
@@ -807,12 +864,12 @@ In your IDP, register a **public** application/client with the authorization-cod
 
 The provider verifies the OpenID Connect **ID token** (RS256/ES256) against the discovered `jwks_uri`, with the `iss` and `aud` claims pinned to your configured `issuer` and `client_id`. Standard OIDC claims map onto the dashboard session:
 
-| Session field | Claim(s) |
-|---------------|----------|
-| `user_id` | `sub` (required) |
-| `email` | `email` |
+| Session field  | Claim(s)                                             |
+| -------------- | ---------------------------------------------------- |
+| `user_id`      | `sub` (required)                                     |
+| `email`        | `email`                                              |
 | `display_name` | `name` → `preferred_username` → `nickname` → `email` |
-| `org_id` | `org_id` / `organization`, else joined `groups` |
+| `org_id`       | `org_id` / `organization`, else joined `groups`      |
 
 The ID token is what establishes identity — the access token is treated as opaque (the OIDC spec does not require it to be a JWT). Endpoint URLs are required to be HTTPS (loopback `http://` is allowed for local-dev IDPs), and the discovery document's advertised `issuer` must match your configured one (a trailing-slash difference is tolerated). Refresh tokens, when the IDP issues them, are used for silent re-auth via the standard `refresh_token` grant; logout calls the IDP's RFC 7009 `revocation_endpoint` when advertised.
 
@@ -910,11 +967,11 @@ When set, the OAuth callback URL becomes `<public_url>/auth/callback` verbatim �
 
 Same precedence as the other dashboard settings — env wins over `config.yaml`:
 
-| Surface | Override path | When to use |
-|---------|---------------|-------------|
-| `dashboard.public_url` in `config.yaml` | `HERMES_DASHBOARD_PUBLIC_URL` | Local dev / on-prem (canonical) |
-| `HERMES_DASHBOARD_PUBLIC_URL` env var | — | Hosting-platform secrets / CI |
-| (unset) | — | Default — reconstruct from `X-Forwarded-*` headers |
+| Surface                                 | Override path                 | When to use                                        |
+| --------------------------------------- | ----------------------------- | -------------------------------------------------- |
+| `dashboard.public_url` in `config.yaml` | `HERMES_DASHBOARD_PUBLIC_URL` | Local dev / on-prem (canonical)                    |
+| `HERMES_DASHBOARD_PUBLIC_URL` env var   | —                             | Hosting-platform secrets / CI                      |
+| (unset)                                 | —                             | Default — reconstruct from `X-Forwarded-*` headers |
 
 Validation rejects values without `http://` / `https://` scheme, without a host, or containing quote / angle / whitespace / control characters. A malformed value silently falls through to header reconstruction so the login flow keeps working rather than dispatching the user to a hostile URL.
 
@@ -937,11 +994,11 @@ no longer possible, the SPA returns to `/login` to run the flow again.
 
 ### Cookies set
 
-| Name | Lifetime | Notes |
-|------|----------|-------|
-| `hermes_session_at` | Token TTL (15 min) | HttpOnly, SameSite=Lax, Secure-when-HTTPS |
-| `hermes_session_pkce` | 10 min | HttpOnly; holds the PKCE verifier + provider hint during the round trip |
-| `hermes_session_rt` | unused in v1 | Reserved for forward-compat; not written when `refresh_token` is empty |
+| Name                  | Lifetime           | Notes                                                                   |
+| --------------------- | ------------------ | ----------------------------------------------------------------------- |
+| `hermes_session_at`   | Token TTL (15 min) | HttpOnly, SameSite=Lax, Secure-when-HTTPS                               |
+| `hermes_session_pkce` | 10 min             | HttpOnly; holds the PKCE verifier + provider hint during the round trip |
+| `hermes_session_rt`   | unused in v1       | Reserved for forward-compat; not written when `refresh_token` is empty  |
 
 All three are `Path=/` and `SameSite=Lax`. The `Secure` flag is set when the dashboard is reached over HTTPS (detected via the request URL scheme — honours `X-Forwarded-Proto` from an upstream TLS terminator under `proxy_headers=True`).
 
@@ -1061,8 +1118,8 @@ The session refreshes automatically and survives restarts when `HERMES_DASHBOARD
 
 Instead of the in-app setting, you can point the desktop at a backend with an env var before launching it. When `HERMES_DESKTOP_REMOTE_URL` is set, it overrides the saved in-app URL (the Gateway settings panel shows an "env override" badge and disables editing); you still **Sign in** with your username and password from the panel.
 
-| Env var | Value |
-|---------|-------|
+| Env var                     | Value                        |
+| --------------------------- | ---------------------------- |
 | `HERMES_DESKTOP_REMOTE_URL` | `http://<backend-host>:9119` |
 
 ### Troubleshooting
@@ -1107,7 +1164,9 @@ When you run `fabric update`, the web frontend is automatically rebuilt if `npm`
 
 ## Themes & plugins
 
-The dashboard ships with six built-in themes and can be extended with user-defined themes, plugin tabs, and backend API routes — all drop-in, no repo clone needed.
+The web experience ships with two canonical generated themes and five
+expressive presets. It can also be extended with user-defined themes, plugin
+tabs, shell slots, and backend API routes without cloning the repository.
 
 **Switch themes live** from the header bar — click the palette icon next to the language switcher. Selection persists to `config.yaml` under `dashboard.theme` and is restored on page load.
 
@@ -1115,15 +1174,21 @@ The dashboard ships with six built-in themes and can be extended with user-defin
 
 Built-in themes:
 
-| Theme | Character |
-|-------|-----------|
-| **Fabric Teal** (`default`) | Dark teal + cream, system fonts, comfortable spacing |
-| **Fabric Teal (Large)** (`default-large`) | Same as default with 18px text and roomier spacing |
-| **Midnight** (`midnight`) | Deep blue-violet, Inter + JetBrains Mono |
-| **Ember** (`ember`) | Warm crimson + bronze, Spectral serif + IBM Plex Mono |
-| **Mono** (`mono`) | Grayscale, IBM Plex, compact |
-| **Cyberpunk** (`cyberpunk`) | Neon green on black, Share Tech Mono |
-| **Rosé** (`rose`) | Pink + ivory, Fraunces serif, spacious |
+| Theme                             | Character                                                         |
+| --------------------------------- | ----------------------------------------------------------------- |
+| **Fabric Light** (`fabric-light`) | Default warm neutral canvas with restrained Fabric-purple actions |
+| **Fabric Dark** (`fabric-dark`)   | Violet-charcoal canvas with restrained Fabric-purple actions      |
+| **Midnight** (`midnight`)         | Deep blue-violet, Inter + JetBrains Mono                          |
+| **Ember** (`ember`)               | Warm crimson + bronze, Spectral serif + IBM Plex Mono             |
+| **Mono** (`mono`)                 | Grayscale, IBM Plex, compact                                      |
+| **Cyberpunk** (`cyberpunk`)       | Neon green on black, Share Tech Mono                              |
+| **Rosé** (`rose`)                 | Pink + ivory, Fraunces serif, spacious                            |
+
+Fabric Light is the fresh-install default. The appearance control swaps the
+canonical Light/Dark pair, and the contrast preference selects their generated
+high-contrast variants. Old `default`, Fabric Teal, Fabric Blue, Lens, and Nous
+theme IDs are migration inputs only; they resolve to the canonical pair and no
+longer appear as selectable product identities.
 
 To build your own theme, add a plugin tab, inject into shell slots, or expose plugin-specific REST endpoints, see **[Extending the Dashboard](./extending-the-dashboard)** — the complete guide covers:
 

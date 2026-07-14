@@ -1,5 +1,14 @@
 # OBSERVE Section Revamp — Implementation Spec ("Agentic Look")
 
+> **Historical implementation record — superseded for current design decisions.**
+> Use [`web/DESIGN.md`](../../web/DESIGN.md) and the
+> [Workspace/Admin redesign plan](../plans/2026-07-14-fabric-enterprise-workspace-admin-redesign.md)
+> as the active contract. Route names and component details below remain useful
+> archaeology, but the inherited “agentic/terminal-grade” visual direction,
+> teal identity, pervasive display typography, and legacy nav grouping are not
+> current Fabric guidance.
+
+
 Scope: the two pages in the **Observe** nav group — Logs, Analytics — per the design
 direction in `docs/design/dashboard-revamp-research.md` ("terminal-grade minimalism",
 value-density metric, monitoring-room framing) and the shared vocabulary shipped by

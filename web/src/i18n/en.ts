@@ -990,6 +990,73 @@ export const en: Translations = {
         "Clipboard image copy not supported in this browser — use Download instead.",
       tweet_text: "Just unlocked {tier_part}\"{name}\" in Fabric",
     },
+    nav: {
+      achievements: "Achievements",
+      leaderboard: "Team Leaderboard",
+    },
+    team: {
+      kicker: "Shared Leaderboard",
+      hero_title: "Team Leaderboard",
+      hero_subtitle:
+        "Compare achievements with other Fabric users. Create a team or join one with an invite. Only aggregate stats you opt into leave your machine — never session content.",
+      loading: "Loading team…",
+      working: "Working…",
+      generic_error: "Something went wrong.",
+      create_title: "Create a team",
+      create_lead:
+        "Start a leaderboard and invite people with a link. You choose which relay hosts it.",
+      create_button: "Create team",
+      join_title: "Join a team",
+      join_lead:
+        "Paste an invite you received. Only join teams from people you trust — the relay it names is contacted from your machine.",
+      join_button: "Join team",
+      relay_label: "Relay URL",
+      relay_hint:
+        "The address of a running leaderboard relay (see the plugin docs to host one). Use http://127.0.0.1:9137 to try it locally.",
+      team_name_label: "Team name",
+      team_name_placeholder: "Rabot Crew",
+      display_name_label: "Your display name",
+      display_name_placeholder: "How you appear on the board",
+      invite_label: "Invite code",
+      share_consent:
+        "Share my achievement stats (score, unlock and tier counts, and a display name — never session content).",
+      privacy_header: "What is shared",
+      privacy_body:
+        "Your score, unlock and tier counts, per-category tallies, and up to five unlocked badge names — plus a display name you pick. Session titles, transcripts, file paths, and raw metrics are never sent.",
+      hosting_header: "Hosting a relay",
+      hosting_body:
+        "A relay is a small self-hostable service (no Fabric account). One teammate runs it with `python -m relay`; see the plugin docs. Put it behind a TLS proxy or Tailscale to share beyond your LAN.",
+      member_summary: "You are {name} · {role}",
+      role_owner: "owner",
+      role_member: "member",
+      roster_age: "board updated {age}",
+      refresh: "Refresh",
+      leave: "Leave team",
+      sharing_on: "Sharing on — your stats appear on the board.",
+      sharing_off:
+        "Sharing off — you are viewing but not appearing on the board.",
+      publish_now: "Publish now",
+      published_age: "shared {age}",
+      rename: "Rename",
+      invite_header: "Invite link",
+      rotate: "Reset invite",
+      rotate_title: "Generate a new invite and invalidate the old one",
+      copy_invite: "Copy invite",
+      copied: "Copied ✓",
+      invite_note:
+        "Anyone with this code can view the board and join. Share it only with people you want on your team.",
+      board_empty:
+        "No one has shared stats yet. Turn on sharing above to appear on the board.",
+      col_member: "Member",
+      col_score: "Score",
+      col_unlocked: "Unlocked",
+      col_tier: "Top tier",
+      owner_badge: "owner",
+      you_badge: "you",
+      not_shared: "not shared",
+      kick: "Remove",
+      kick_title: "Remove this member",
+    },
   },
 
   kanban: {

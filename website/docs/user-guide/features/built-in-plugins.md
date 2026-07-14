@@ -65,7 +65,7 @@ The repo ships these bundled plugins under `plugins/`. All are opt-in — enable
 | `image_gen/openai` | image backend | OpenAI `gpt-image-2` image generation backend (alternative to FAL) |
 | `image_gen/openai-codex` | image backend | OpenAI image generation via Codex OAuth |
 | `image_gen/xai` | image backend | xAI `grok-2-image` backend |
-| `fabric-achievements` | dashboard tab | Steam-style collectible badges generated from your real Fabric session history |
+| `fabric-achievements` | dashboard tab | Steam-style collectible badges generated from your real Fabric session history, plus an opt-in team leaderboard |
 | `kanban/dashboard` | dashboard tab | Kanban board UI for the multi-agent dispatcher — tasks, comments, fan-out, board switching. See [Kanban Multi-Agent](./kanban.md). |
 
 Memory providers (`plugins/memory/*`) and context engines (`plugins/context_engine/*`) are listed separately on [Memory Providers](./memory-providers.md) — they're managed through `fabric memory` and `fabric plugins` respectively. The full per-plugin detail for the two long-running hooks-based plugins follows.
@@ -264,6 +264,12 @@ Adds a **Steam-style achievements tab to the dashboard** — 60+ collectible, ti
 | `GET /sessions/{id}/badges` | Badges earned primarily in one specific session |
 | `POST /rescan` | Manual synchronous rescan (blocks; use when the user clicks the rescan button) |
 | `POST /reset-state` | Clear unlock history and cached snapshot |
+| `GET /team`, `GET /team/leaderboard` | Team leaderboard state / ranked roster (opt-in; see below) |
+| `POST /team/create`, `/team/join`, `/team/leave`, `/team/settings`, `/team/publish`, `/team/rotate`, `/team/kick` | Team lifecycle, sharing toggle, and owner controls |
+
+**Team leaderboard (opt-in cross-user sharing):** A second **Team Leaderboard** tab lets several Fabric users compare achievements. It keeps the local-first promise — the achievement scanner still never sends session history anywhere. When you opt into a team, the *only* data that leaves your machine is an **aggregate profile**: a tier-weighted score, unlock/tier/category counts, up to five unlocked-badge names from the static catalogue, and a display name you choose. Session titles, transcripts, file paths, and raw metrics are never sent — enforced by `build_leaderboard_profile`, re-validated by the relay's `sanitize_profile`, and pinned by a golden test (`tests/plugins/test_leaderboard_privacy.py`).
+
+Members connect through a small **relay** — a stdlib-only, self-hostable service (`python -m relay` from `plugins/fabric-achievements/`; see its [README](https://github.com/ObliviousOdin/fabric/tree/main/plugins/fabric-achievements/relay)). Creating a team returns a shareable invite code (`fbl1_…`) that others paste to join. The browser never contacts the relay directly — each dashboard proxies server-to-server through the routes above, so the loopback/OAuth auth model is untouched. Sharing is a toggle; the team owner can reset the invite (rotate) or remove members. Scores are self-reported, so it's a friendly board for teams that trust each other, not an adversarial ranking. The `/team/*` routes stay behind the dashboard auth gate (they carry secrets and write state) and are deliberately **not** in the public-paths allowlist.
 
 **State files** — live under `$FABRIC_HOME/plugins/fabric-achievements/`:
 
@@ -272,6 +278,7 @@ Adds a **Steam-style achievements tab to the dashboard** — 60+ collectible, ti
 | `state.json` | Unlock history: which badges you've earned and when. Stable across Fabric updates. |
 | `scan_snapshot.json` | Last completed scan payload (served immediately on dashboard load) |
 | `scan_checkpoint.json` | Per-session stats cache keyed by fingerprint (makes warm rescans fast) |
+| `team.json` | Team leaderboard membership (relay URL, team/member ids, per-member token, sharing toggle). Only present if you join a team. |
 
 **Performance notes:**
 

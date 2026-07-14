@@ -4,13 +4,17 @@ Mounted at /api/plugins/fabric-achievements/ by the Fabric dashboard.
 """
 from __future__ import annotations
 
+import base64
 import json
 import math
 import re
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 try:
     from fabric_constants import get_fabric_home
@@ -21,13 +25,21 @@ except ImportError:
         return Path(val) if val else Path.home() / ".fabric"
 
 try:
-    from fastapi import APIRouter
+    from fastapi import APIRouter, Request
 except Exception:  # Allows local unit tests without dashboard dependencies.
     class APIRouter:  # type: ignore
         def get(self, *_args, **_kwargs):
             return lambda fn: fn
         def post(self, *_args, **_kwargs):
             return lambda fn: fn
+
+    class Request:  # type: ignore
+        """Minimal stand-in so signatures import without FastAPI installed."""
+
+try:
+    from fastapi.concurrency import run_in_threadpool
+except Exception:  # pragma: no cover - exercised only without FastAPI
+    run_in_threadpool = None  # type: ignore[assignment]
 
 router = APIRouter()
 
@@ -1059,3 +1071,639 @@ async def reset_state():
     except Exception:
         pass
     return {"ok": True}
+
+
+# =====================================================================
+# Team leaderboard — opt-in, aggregate-only, cross-user sharing
+# =====================================================================
+#
+# The achievements engine above is strictly local: it reads your session
+# history and never phones home (see the plugin README). A leaderboard needs
+# to compare people, which means *something* has to leave each machine. The
+# design keeps that surface as small and as consent-driven as possible:
+#
+#   * Nothing is sent unless you explicitly create or join a team and leave
+#     the "share my stats" toggle on. There is no background sync tied to the
+#     scan.
+#   * Only an AGGREGATE PROFILE leaves the machine — a score, unlock/tier
+#     tallies, per-category counts, and up to five unlocked-badge names from
+#     the static public catalogue, plus a display name you choose. Session
+#     ids, titles, transcripts, file paths, and raw metrics never do (see
+#     ``build_leaderboard_profile``).
+#   * Members talk to a "relay" (see ../relay/) — a small self-hostable
+#     service, not a Fabric cloud. You point at one via an invite link. The
+#     browser never talks to the relay directly; these backend routes proxy,
+#     so the relay only ever sees server-to-server calls.
+#
+# Trust note: joining a team means trusting whoever gave you the invite about
+# which relay URL you contact — the request originates from your machine. Only
+# join teams from people you trust, exactly as you would with any webhook URL.
+
+INVITE_PREFIX = "fbl1_"  # fabric-leaderboard v1
+
+# Points model. Each unlocked tier is worth progressively more; a
+# multi-condition ("full send") unlock has no tier and is scored as a
+# Gold-equivalent feat. Summing these across unlocked achievements yields a
+# single comparable "Fabric Score" (gamerscore-style magnitudes).
+TIER_POINTS = {"Copper": 10, "Silver": 25, "Gold": 60, "Diamond": 150, "Olympian": 400}
+POINTS_PER_UNLOCK_NO_TIER = 60
+
+TEAM_HTTP_TIMEOUT = 10
+
+
+class RelayClientError(Exception):
+    """Raised when a relay call fails. ``status`` is the HTTP code (0 if the
+    relay was unreachable)."""
+
+    def __init__(self, message: str, status: int = 0) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
+def team_config_path() -> Path:
+    return get_fabric_home() / "plugins" / "fabric-achievements" / "team.json"
+
+
+def _default_team_config() -> Dict[str, Any]:
+    return {
+        "membership": None,
+        "publish_opt_in": False,
+        "last_published_at": None,
+        "last_error": None,
+    }
+
+
+def load_team_config() -> Dict[str, Any]:
+    path = team_config_path()
+    config = _default_team_config()
+    if not path.exists():
+        return config
+    try:
+        data = json.loads(path.read_text())
+    except Exception:
+        return config
+    if isinstance(data, dict):
+        for key in config:
+            if key in data:
+                config[key] = data[key]
+    return config
+
+
+def save_team_config(config: Dict[str, Any]) -> None:
+    path = team_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2, sort_keys=True))
+
+
+def _validate_relay_url(url: Any) -> str:
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("Relay URL is required.")
+    cleaned = url.strip()
+    parsed = urllib.parse.urlparse(cleaned)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError("Relay URL must be an http(s) URL, e.g. http://host:9137.")
+    return cleaned.rstrip("/")
+
+
+def encode_invite(relay_url: str, team_id: str, team_name: str, join_secret: str) -> str:
+    payload = {"v": 1, "relay": relay_url, "team_id": team_id, "team_name": team_name, "secret": join_secret}
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    token = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return INVITE_PREFIX + token
+
+
+def decode_invite(code: Any) -> Dict[str, Any]:
+    if not isinstance(code, str) or not code.strip():
+        raise ValueError("Invite code is required.")
+    text = code.strip().strip('"').strip("'")
+    if INVITE_PREFIX not in text:
+        raise ValueError("That does not look like a Fabric leaderboard invite.")
+    token = text[text.index(INVITE_PREFIX) + len(INVITE_PREFIX):].strip()
+    # Tolerate anything appended after the token (a trailing URL fragment, a
+    # stray word) by keeping only the first whitespace-delimited chunk.
+    token = token.split()[0] if token.split() else ""
+    if not token:
+        raise ValueError("Invite code is empty.")
+    padding = "=" * (-len(token) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(token + padding)
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Malformed invite code: {exc}")
+    if not isinstance(payload, dict):
+        raise ValueError("Invite code payload is invalid.")
+    if not payload.get("team_id") or not payload.get("relay") or not payload.get("secret"):
+        raise ValueError("Invite code is missing required fields.")
+    return {
+        "relay_url": _validate_relay_url(payload.get("relay")),
+        "team_id": str(payload.get("team_id")),
+        "team_name": str(payload.get("team_name") or "Team"),
+        "join_secret": str(payload.get("secret")),
+    }
+
+
+def score_for_achievement(achievement: Dict[str, Any]) -> int:
+    if not achievement.get("unlocked"):
+        return 0
+    tier = achievement.get("tier")
+    if tier in TIER_POINTS:
+        return TIER_POINTS[tier]
+    return POINTS_PER_UNLOCK_NO_TIER
+
+
+def _tier_rank(tier: Any) -> int:
+    try:
+        return TIER_NAMES.index(tier)
+    except (ValueError, TypeError):
+        return -1
+
+
+def build_leaderboard_profile(achievements: List[Dict[str, Any]], display_name: str) -> Dict[str, Any]:
+    """Derive the aggregate, privacy-safe profile that gets published.
+
+    Deliberately excludes evidence, session ids/titles, ``unlocked_at``, and
+    raw metric values — only counts, tallies, and static catalogue metadata
+    for unlocked badges leave the machine.
+    """
+    unlocked = [a for a in achievements if a.get("unlocked")]
+    score = sum(score_for_achievement(a) for a in achievements)
+    tier_counts = {tier: 0 for tier in TIER_NAMES}
+    category_counts: Dict[str, int] = {}
+    for a in unlocked:
+        tier = a.get("tier")
+        if tier in tier_counts:
+            tier_counts[tier] += 1
+        category = a.get("category")
+        if category:
+            category_counts[category] = category_counts.get(category, 0) + 1
+    highest = None
+    for tier in reversed(TIER_NAMES):
+        if tier_counts.get(tier):
+            highest = tier
+            break
+    top_sorted = sorted(unlocked, key=lambda a: (-_tier_rank(a.get("tier")), str(a.get("name") or "")))
+    top = [
+        {
+            "id": a.get("id"),
+            "name": a.get("name"),
+            "tier": a.get("tier"),
+            "category": a.get("category"),
+            "icon": a.get("icon"),
+        }
+        for a in top_sorted[:5]
+    ]
+    discovered = sum(1 for a in achievements if a.get("state") == "discovered")
+    secret = sum(1 for a in achievements if a.get("state") == "secret")
+    return {
+        "display_name": display_name,
+        "score": score,
+        "unlocked_count": len(unlocked),
+        "discovered_count": discovered,
+        "secret_count": secret,
+        "total_count": len(achievements),
+        "tier_counts": tier_counts,
+        "highest_tier": highest,
+        "category_counts": category_counts,
+        "top_achievements": top,
+        "generated_at": int(time.time()),
+    }
+
+
+# Transport is injectable so tests can bind the client to an in-process relay
+# store without a socket. Shape: (method, url, headers, body_bytes|None) ->
+# (status_code, parsed_json_dict).
+Transport = Callable[[str, str, Dict[str, str], Optional[bytes]], Tuple[int, Dict[str, Any]]]
+
+
+def _default_transport(method: str, url: str, headers: Dict[str, str], body: Optional[bytes]) -> Tuple[int, Dict[str, Any]]:
+    request = urllib.request.Request(url, data=body, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=TEAM_HTTP_TIMEOUT) as response:
+            status = response.getcode()
+            raw = response.read()
+    except urllib.error.HTTPError as exc:  # 4xx/5xx still carry a JSON body
+        status = exc.code
+        try:
+            raw = exc.read()
+        except Exception:
+            raw = b""
+    except urllib.error.URLError as exc:
+        raise RelayClientError(f"Could not reach the relay: {exc.reason}", status=0)
+    except Exception as exc:  # noqa: BLE001
+        raise RelayClientError(f"Relay request failed: {exc}", status=0)
+    try:
+        data = json.loads(raw.decode("utf-8")) if raw else {}
+    except Exception:
+        data = {}
+    return status, data if isinstance(data, dict) else {}
+
+
+class RelayClient:
+    def __init__(self, base_url: str, transport: Optional[Transport] = None) -> None:
+        self.base_url = _validate_relay_url(base_url)
+        self._transport = transport or _default_transport
+
+    def _call(self, method: str, path: str, body: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        url = self.base_url + path
+        request_headers = {"Accept": "application/json"}
+        data: Optional[bytes] = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            request_headers["Content-Type"] = "application/json"
+        if headers:
+            request_headers.update(headers)
+        status, payload = self._transport(method, url, request_headers, data)
+        if status < 200 or status >= 300:
+            message = payload.get("error") if isinstance(payload, dict) else None
+            raise RelayClientError(message or f"Relay returned HTTP {status}.", status=status)
+        return payload if isinstance(payload, dict) else {}
+
+    def create_team(self, name: str, display_name: str) -> Dict[str, Any]:
+        return self._call("POST", "/api/teams", {"name": name, "display_name": display_name})
+
+    def join_team(self, team_id: str, join_secret: str, display_name: str) -> Dict[str, Any]:
+        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/join",
+                          {"join_secret": join_secret, "display_name": display_name})
+
+    def publish(self, team_id: str, member_id: str, member_token: str, profile: Dict[str, Any], display_name: Optional[str] = None) -> Dict[str, Any]:
+        body = {"member_id": member_id, "member_token": member_token, "profile": profile}
+        if display_name is not None:
+            body["display_name"] = display_name
+        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/publish", body)
+
+    def leave(self, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
+        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/leave",
+                          {"member_id": member_id, "member_token": member_token})
+
+    def rotate(self, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
+        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/rotate",
+                          {"member_id": member_id, "member_token": member_token})
+
+    def kick(self, team_id: str, member_id: str, member_token: str, target_member_id: str) -> Dict[str, Any]:
+        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/kick",
+                          {"member_id": member_id, "member_token": member_token, "target_member_id": target_member_id})
+
+    def leaderboard(self, team_id: str, join_secret: Optional[str] = None, member_id: Optional[str] = None, member_token: Optional[str] = None) -> Dict[str, Any]:
+        headers: Dict[str, str] = {}
+        if join_secret:
+            headers["X-Join-Secret"] = join_secret
+        if member_id and member_token:
+            headers["X-Member-Id"] = member_id
+            headers["X-Member-Token"] = member_token
+        return self._call("GET", f"/api/teams/{urllib.parse.quote(team_id)}/leaderboard", None, headers)
+
+
+def _current_achievements() -> List[Dict[str, Any]]:
+    """The evaluated achievement list used to build a publish profile.
+
+    Uses the same cached snapshot the dashboard shows, so a published profile
+    matches what the user sees on the Achievements tab.
+    """
+    data = evaluate_all()
+    if isinstance(data, dict):
+        return data.get("achievements", []) or []
+    return []
+
+
+def _membership_summary(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    membership = config.get("membership")
+    if not isinstance(membership, dict):
+        return None
+    summary = {
+        "team_id": membership.get("team_id"),
+        "team_name": membership.get("team_name"),
+        "role": membership.get("role"),
+        "display_name": membership.get("display_name"),
+        "relay_url": membership.get("relay_url"),
+        "member_id": membership.get("member_id"),
+        "joined_at": membership.get("joined_at"),
+    }
+    # The invite code is safe to return to the plugin's own frontend (it runs
+    # on the user's dashboard). Any member can re-share it.
+    if membership.get("relay_url") and membership.get("team_id") and membership.get("join_secret"):
+        try:
+            summary["invite_code"] = encode_invite(
+                membership["relay_url"], membership["team_id"],
+                membership.get("team_name") or "Team", membership["join_secret"],
+            )
+        except Exception:
+            summary["invite_code"] = None
+    return summary
+
+
+def _team_state_payload(config: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    payload = {
+        "ok": True,
+        "membership": _membership_summary(config),
+        "publish_opt_in": bool(config.get("publish_opt_in")),
+        "last_published_at": config.get("last_published_at"),
+        "last_error": config.get("last_error"),
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _publish_now(config: Dict[str, Any], transport: Optional[Transport] = None) -> Dict[str, Any]:
+    membership = config.get("membership")
+    if not isinstance(membership, dict):
+        raise RelayClientError("You are not in a team.", status=0)
+    profile = build_leaderboard_profile(_current_achievements(), membership.get("display_name") or "Member")
+    client = RelayClient(membership["relay_url"], transport=transport)
+    result = client.publish(
+        membership["team_id"], membership["member_id"], membership["member_token"],
+        profile, display_name=membership.get("display_name"),
+    )
+    config["last_published_at"] = int(time.time())
+    config["last_error"] = None
+    save_team_config(config)
+    return result
+
+
+def team_create(relay_url: str, team_name: str, display_name: str, publish_opt_in: bool = True, transport: Optional[Transport] = None) -> Dict[str, Any]:
+    relay_url = _validate_relay_url(relay_url)
+    display_name = (display_name or "").strip() or "Owner"
+    client = RelayClient(relay_url, transport=transport)
+    result = client.create_team(team_name, display_name)
+    config = load_team_config()
+    config["membership"] = {
+        "team_id": result["team_id"],
+        "team_name": result.get("team_name") or team_name or "Team",
+        "relay_url": relay_url,
+        "member_id": result["member_id"],
+        "member_token": result["member_token"],
+        "join_secret": result["join_secret"],
+        "display_name": display_name,
+        "role": result.get("role", "owner"),
+        "joined_at": int(time.time()),
+    }
+    config["publish_opt_in"] = bool(publish_opt_in)
+    config["last_error"] = None
+    save_team_config(config)
+    if config["publish_opt_in"]:
+        try:
+            _publish_now(config, transport=transport)
+        except RelayClientError as exc:
+            config["last_error"] = exc.message
+            save_team_config(config)
+    return _team_state_payload(config)
+
+
+def team_join(invite_code: str, display_name: str, publish_opt_in: bool = True, transport: Optional[Transport] = None) -> Dict[str, Any]:
+    invite = decode_invite(invite_code)
+    display_name = (display_name or "").strip() or "Member"
+    client = RelayClient(invite["relay_url"], transport=transport)
+    result = client.join_team(invite["team_id"], invite["join_secret"], display_name)
+    config = load_team_config()
+    config["membership"] = {
+        "team_id": result["team_id"],
+        "team_name": result.get("team_name") or invite["team_name"],
+        "relay_url": invite["relay_url"],
+        "member_id": result["member_id"],
+        "member_token": result["member_token"],
+        "join_secret": invite["join_secret"],
+        "display_name": display_name,
+        "role": result.get("role", "member"),
+        "joined_at": int(time.time()),
+    }
+    config["publish_opt_in"] = bool(publish_opt_in)
+    config["last_error"] = None
+    save_team_config(config)
+    if config["publish_opt_in"]:
+        try:
+            _publish_now(config, transport=transport)
+        except RelayClientError as exc:
+            config["last_error"] = exc.message
+            save_team_config(config)
+    return _team_state_payload(config)
+
+
+def team_leave(transport: Optional[Transport] = None) -> Dict[str, Any]:
+    config = load_team_config()
+    membership = config.get("membership")
+    if isinstance(membership, dict):
+        # Best-effort removal from the relay; a dead relay must not trap the
+        # user in a team they can't leave locally.
+        try:
+            client = RelayClient(membership["relay_url"], transport=transport)
+            client.leave(membership["team_id"], membership["member_id"], membership["member_token"])
+        except Exception:
+            pass
+    config = _default_team_config()
+    save_team_config(config)
+    return _team_state_payload(config)
+
+
+def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[str] = None, transport: Optional[Transport] = None) -> Dict[str, Any]:
+    config = load_team_config()
+    membership = config.get("membership")
+    changed_name = False
+    if display_name is not None:
+        cleaned = display_name.strip()
+        if cleaned and isinstance(membership, dict):
+            membership["display_name"] = cleaned
+            changed_name = True
+    if publish_opt_in is not None:
+        config["publish_opt_in"] = bool(publish_opt_in)
+    save_team_config(config)
+    # Re-publish so the change (new name, or newly-enabled sharing) is
+    # reflected on the board immediately.
+    if isinstance(membership, dict) and config.get("publish_opt_in") and (changed_name or publish_opt_in):
+        try:
+            _publish_now(config, transport=transport)
+        except RelayClientError as exc:
+            config["last_error"] = exc.message
+            save_team_config(config)
+    return _team_state_payload(config)
+
+
+def team_publish(transport: Optional[Transport] = None) -> Dict[str, Any]:
+    config = load_team_config()
+    if not isinstance(config.get("membership"), dict):
+        return _team_state_payload(config, {"ok": False, "error": "You are not in a team."})
+    try:
+        _publish_now(config, transport=transport)
+    except RelayClientError as exc:
+        config["last_error"] = exc.message
+        save_team_config(config)
+        return _team_state_payload(config, {"ok": False, "error": exc.message})
+    return _team_state_payload(config)
+
+
+def team_leaderboard(transport: Optional[Transport] = None) -> Dict[str, Any]:
+    config = load_team_config()
+    membership = config.get("membership")
+    if not isinstance(membership, dict):
+        return _team_state_payload(config, {"leaderboard": [], "member_count": 0})
+    # If sharing is on, refresh our own row before reading so the board is
+    # current. A publish failure is non-fatal — we still show the roster.
+    if config.get("publish_opt_in"):
+        try:
+            _publish_now(config, transport=transport)
+        except RelayClientError as exc:
+            config["last_error"] = exc.message
+            save_team_config(config)
+    try:
+        client = RelayClient(membership["relay_url"], transport=transport)
+        roster = client.leaderboard(
+            membership["team_id"],
+            join_secret=membership.get("join_secret"),
+            member_id=membership.get("member_id"),
+            member_token=membership.get("member_token"),
+        )
+    except RelayClientError as exc:
+        config["last_error"] = exc.message
+        save_team_config(config)
+        return _team_state_payload(config, {"ok": False, "error": exc.message, "leaderboard": []})
+    return _team_state_payload(config, {
+        "team_name": roster.get("team_name"),
+        "member_count": roster.get("member_count", 0),
+        "my_member_id": membership.get("member_id"),
+        "leaderboard": roster.get("leaderboard", []),
+        "roster_generated_at": roster.get("generated_at"),
+    })
+
+
+def team_rotate(transport: Optional[Transport] = None) -> Dict[str, Any]:
+    config = load_team_config()
+    membership = config.get("membership")
+    if not isinstance(membership, dict):
+        return _team_state_payload(config, {"ok": False, "error": "You are not in a team."})
+    try:
+        client = RelayClient(membership["relay_url"], transport=transport)
+        result = client.rotate(membership["team_id"], membership["member_id"], membership["member_token"])
+    except RelayClientError as exc:
+        return _team_state_payload(config, {"ok": False, "error": exc.message})
+    new_secret = result.get("join_secret")
+    if new_secret:
+        membership["join_secret"] = new_secret
+        config["last_error"] = None
+        save_team_config(config)
+    return _team_state_payload(config)
+
+
+def team_kick(target_member_id: str, transport: Optional[Transport] = None) -> Dict[str, Any]:
+    config = load_team_config()
+    membership = config.get("membership")
+    if not isinstance(membership, dict):
+        return _team_state_payload(config, {"ok": False, "error": "You are not in a team."})
+    if not target_member_id:
+        return _team_state_payload(config, {"ok": False, "error": "A member is required."})
+    try:
+        client = RelayClient(membership["relay_url"], transport=transport)
+        client.kick(membership["team_id"], membership["member_id"], membership["member_token"], target_member_id)
+    except RelayClientError as exc:
+        return _team_state_payload(config, {"ok": False, "error": exc.message})
+    # Re-read the board so the caller sees the roster without the kicked member.
+    return team_leaderboard(transport=transport)
+
+
+async def _json_body(request: Any) -> Dict[str, Any]:
+    try:
+        data = await request.json()
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+async def _run(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run a blocking helper off the event loop when FastAPI is available."""
+    if run_in_threadpool is not None:
+        return await run_in_threadpool(lambda: fn(*args, **kwargs))
+    return fn(*args, **kwargs)
+
+
+def _error_payload(exc: Exception) -> Dict[str, Any]:
+    message = getattr(exc, "message", None) or str(exc)
+    return {"ok": False, "error": message}
+
+
+@router.get("/team")
+async def get_team():
+    return _team_state_payload(load_team_config())
+
+
+@router.post("/team/create")
+async def post_team_create(request: Request):
+    body = await _json_body(request)
+    try:
+        return await _run(
+            team_create,
+            body.get("relay_url", ""),
+            body.get("team_name", ""),
+            body.get("display_name", ""),
+            bool(body.get("publish_opt_in", True)),
+        )
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/join")
+async def post_team_join(request: Request):
+    body = await _json_body(request)
+    try:
+        return await _run(
+            team_join,
+            body.get("invite_code", ""),
+            body.get("display_name", ""),
+            bool(body.get("publish_opt_in", True)),
+        )
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/leave")
+async def post_team_leave():
+    try:
+        return await _run(team_leave)
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/settings")
+async def post_team_settings(request: Request):
+    body = await _json_body(request)
+    opt_in = body.get("publish_opt_in")
+    name = body.get("display_name")
+    try:
+        return await _run(
+            team_settings,
+            None if opt_in is None else bool(opt_in),
+            None if name is None else str(name),
+        )
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/publish")
+async def post_team_publish():
+    try:
+        return await _run(team_publish)
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.get("/team/leaderboard")
+async def get_team_leaderboard():
+    try:
+        return await _run(team_leaderboard)
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/rotate")
+async def post_team_rotate():
+    try:
+        return await _run(team_rotate)
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/kick")
+async def post_team_kick(request: Request):
+    body = await _json_body(request)
+    try:
+        return await _run(team_kick, str(body.get("target_member_id", "")))
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)

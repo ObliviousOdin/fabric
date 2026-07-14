@@ -61,6 +61,32 @@
     return SDK.fetchJSON(url, options);
   }
 
+  // POST helper for the team/leaderboard endpoints. Same auth handling as
+  // api() (delegates to SDK.fetchJSON), just with a JSON body.
+  function apiPost(path, body) {
+    return api(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+  }
+
+  // Local alias — the leaderboard views below build a lot of elements and
+  // read far better with the short form. Existing components keep using the
+  // fully-qualified React.createElement.
+  const h = React.createElement;
+
+  function timeAgo(unixSeconds) {
+    if (!unixSeconds) return null;
+    const secs = Math.max(0, Math.floor(Date.now() / 1000 - unixSeconds));
+    if (secs < 45) return "just now";
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return mins + "m ago";
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + "h ago";
+    return Math.floor(hours / 24) + "d ago";
+  }
+
   function AchievementIcon({ icon }) {
     const svg = LUCIDE[icon] || LUCIDE.secret;
     const ref = React.useRef(null);
@@ -723,5 +749,349 @@
     );
   }
 
-  window.__HERMES_PLUGINS__.register("fabric-achievements", AchievementsPage);
+  // ===================================================================
+  // Team leaderboard — opt-in, aggregate-only, cross-user sharing.
+  // Talks to the plugin backend (/api/plugins/fabric-achievements/team/*),
+  // which proxies to a self-hosted relay. The browser never contacts the
+  // relay directly.
+  // ===================================================================
+
+  function LabelledInput(props) {
+    return h("label", { className: "ha-field" },
+      h("span", { className: "ha-field-label" }, props.label),
+      h("input", {
+        className: "ha-input",
+        type: props.type || "text",
+        value: props.value,
+        placeholder: props.placeholder || "",
+        spellCheck: false,
+        autoComplete: "off",
+        disabled: props.disabled,
+        onChange: function (e) { props.onChange(e.target.value); },
+        onKeyDown: props.onEnter ? function (e) { if (e.key === "Enter") props.onEnter(); } : undefined,
+      }),
+      props.hint && h("span", { className: "ha-field-hint" }, props.hint)
+    );
+  }
+
+  function ShareToggle(props) {
+    return h("label", { className: "ha-share-consent" },
+      h("input", {
+        type: "checkbox",
+        checked: props.checked,
+        disabled: props.disabled,
+        onChange: function (e) { props.onChange(e.target.checked); },
+      }),
+      h("span", null, props.label)
+    );
+  }
+
+  function CreateTeamCard({ busy, onAction, t }) {
+    const [relay, setRelay] = hooks.useState("");
+    const [name, setName] = hooks.useState("");
+    const [display, setDisplay] = hooks.useState("");
+    const [share, setShare] = hooks.useState(true);
+    function submit() {
+      onAction("/team/create", {
+        relay_url: relay.trim(),
+        team_name: name.trim(),
+        display_name: display.trim(),
+        publish_opt_in: share,
+      });
+    }
+    const ready = relay.trim() && name.trim() && display.trim() && !busy;
+    return h(C.Card, { className: "ha-team-card" },
+      h(C.CardContent, { className: "ha-team-card-content" },
+        h("h3", null, tx(t, "team.create_title", "Create a team")),
+        h("p", { className: "ha-team-lead" }, tx(t, "team.create_lead", "Start a leaderboard and invite people with a link. You choose which relay hosts it.")),
+        h(LabelledInput, {
+          label: tx(t, "team.relay_label", "Relay URL"),
+          placeholder: "http://your-host:9137",
+          value: relay, onChange: setRelay, disabled: busy,
+          hint: tx(t, "team.relay_hint", "The address of a running leaderboard relay (see the plugin docs to host one). Use http://127.0.0.1:9137 to try it locally."),
+        }),
+        h(LabelledInput, {
+          label: tx(t, "team.team_name_label", "Team name"),
+          placeholder: tx(t, "team.team_name_placeholder", "Rabot Crew"),
+          value: name, onChange: setName, disabled: busy,
+        }),
+        h(LabelledInput, {
+          label: tx(t, "team.display_name_label", "Your display name"),
+          placeholder: tx(t, "team.display_name_placeholder", "How you appear on the board"),
+          value: display, onChange: setDisplay, disabled: busy, onEnter: ready ? submit : undefined,
+        }),
+        h(ShareToggle, {
+          checked: share, disabled: busy, onChange: setShare,
+          label: tx(t, "team.share_consent", "Share my achievement stats (score, unlock and tier counts, and a display name — never session content)."),
+        }),
+        h(C.Button, { onClick: submit, disabled: !ready, className: "ha-team-primary" },
+          busy ? tx(t, "team.working", "Working…") : tx(t, "team.create_button", "Create team"))
+      )
+    );
+  }
+
+  function JoinTeamCard({ busy, onAction, t }) {
+    const [code, setCode] = hooks.useState("");
+    const [display, setDisplay] = hooks.useState("");
+    const [share, setShare] = hooks.useState(true);
+    function submit() {
+      onAction("/team/join", {
+        invite_code: code.trim(),
+        display_name: display.trim(),
+        publish_opt_in: share,
+      });
+    }
+    const ready = code.trim() && display.trim() && !busy;
+    return h(C.Card, { className: "ha-team-card" },
+      h(C.CardContent, { className: "ha-team-card-content" },
+        h("h3", null, tx(t, "team.join_title", "Join a team")),
+        h("p", { className: "ha-team-lead" }, tx(t, "team.join_lead", "Paste an invite you received. Only join teams from people you trust — the relay it names is contacted from your machine.")),
+        h(LabelledInput, {
+          label: tx(t, "team.invite_label", "Invite code"),
+          placeholder: "fbl1_…",
+          value: code, onChange: setCode, disabled: busy,
+        }),
+        h(LabelledInput, {
+          label: tx(t, "team.display_name_label", "Your display name"),
+          placeholder: tx(t, "team.display_name_placeholder", "How you appear on the board"),
+          value: display, onChange: setDisplay, disabled: busy, onEnter: ready ? submit : undefined,
+        }),
+        h(ShareToggle, {
+          checked: share, disabled: busy, onChange: setShare,
+          label: tx(t, "team.share_consent", "Share my achievement stats (score, unlock and tier counts, and a display name — never session content)."),
+        }),
+        h(C.Button, { onClick: submit, disabled: !ready, className: "ha-team-primary" },
+          busy ? tx(t, "team.working", "Working…") : tx(t, "team.join_button", "Join team"))
+      )
+    );
+  }
+
+  function InviteRow({ code, t }) {
+    const [copied, setCopied] = hooks.useState(false);
+    function copy() {
+      const done = function () { setCopied(true); setTimeout(function () { setCopied(false); }, 1600); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(done).catch(function () {});
+      } else {
+        try {
+          const ta = document.createElement("textarea");
+          ta.value = code; document.body.appendChild(ta); ta.select();
+          document.execCommand("copy"); ta.remove(); done();
+        } catch (_) {}
+      }
+    }
+    return h("div", { className: "ha-invite-row" },
+      h("input", { className: "ha-input ha-invite-input", readOnly: true, value: code, onFocus: function (e) { e.target.select(); } }),
+      h("button", { className: "ha-team-btn", onClick: copy },
+        copied ? tx(t, "team.copied", "Copied ✓") : tx(t, "team.copy_invite", "Copy invite"))
+    );
+  }
+
+  function LeaderboardTable({ rows, myId, isOwner, busy, onKick, t }) {
+    if (!rows || rows.length === 0) {
+      return h("div", { className: "ha-board-empty" },
+        tx(t, "team.board_empty", "No one has shared stats yet. Turn on sharing above to appear on the board."));
+    }
+    return h("div", { className: "ha-board" },
+      h("div", { className: "ha-board-head" },
+        h("span", { className: "ha-board-rank" }, "#"),
+        h("span", { className: "ha-board-name" }, tx(t, "team.col_member", "Member")),
+        h("span", { className: "ha-board-score" }, tx(t, "team.col_score", "Score")),
+        h("span", { className: "ha-board-unlocked" }, tx(t, "team.col_unlocked", "Unlocked")),
+        h("span", { className: "ha-board-tier" }, tx(t, "team.col_tier", "Top tier")),
+        isOwner && h("span", { className: "ha-board-actions" }, "")
+      ),
+      rows.map(function (row) {
+        const isMe = row.member_id === myId;
+        return h("div", { key: row.member_id, className: cn("ha-board-row", tierClass(row.highest_tier), isMe && "ha-board-me") },
+          h("span", { className: "ha-board-rank" }, row.rank),
+          h("span", { className: "ha-board-name" },
+            row.display_name,
+            row.role === "owner" && h("span", { className: "ha-role-badge" }, tx(t, "team.owner_badge", "owner")),
+            isMe && h("span", { className: "ha-you-badge" }, tx(t, "team.you_badge", "you")),
+            !row.has_published && h("span", { className: "ha-pending-badge" }, tx(t, "team.not_shared", "not shared"))
+          ),
+          h("span", { className: "ha-board-score" }, (row.score || 0).toLocaleString()),
+          h("span", { className: "ha-board-unlocked" }, (row.unlocked_count || 0) + (row.total_count ? " / " + row.total_count : "")),
+          h("span", { className: "ha-board-tier" },
+            row.highest_tier
+              ? h("span", { className: cn("ha-tier-badge", tierClass(row.highest_tier)) }, row.highest_tier)
+              : h("span", { className: "ha-board-dash" }, "—")
+          ),
+          isOwner && h("span", { className: "ha-board-actions" },
+            !isMe && h("button", {
+              className: "ha-team-btn ha-team-btn-danger", disabled: busy,
+              title: tx(t, "team.kick_title", "Remove this member"),
+              onClick: function () { onKick(row.member_id, row.display_name); },
+            }, tx(t, "team.kick", "Remove"))
+          )
+        );
+      })
+    );
+  }
+
+  function LeaderboardPage() {
+    const { t } = useI18n();
+    const [data, setData] = hooks.useState(null);
+    const [loading, setLoading] = hooks.useState(true);
+    const [busy, setBusy] = hooks.useState(false);
+    const [actionError, setActionError] = hooks.useState(null);
+    const [nameDraft, setNameDraft] = hooks.useState("");
+
+    function reload(spinner) {
+      if (spinner) setLoading(true);
+      return api("/team/leaderboard")
+        .then(function (payload) {
+          setData(payload);
+          if (payload && payload.membership && payload.membership.display_name) {
+            setNameDraft(payload.membership.display_name);
+          }
+        })
+        .catch(function (err) { setActionError(String(err)); })
+        .finally(function () { setLoading(false); });
+    }
+    hooks.useEffect(function () { reload(true); }, []);
+
+    // Run a POST action, surface its inline error, then refresh the board.
+    function runAction(path, body) {
+      setBusy(true); setActionError(null);
+      return apiPost(path, body)
+        .then(function (res) {
+          if (res && res.ok === false) { setActionError(res.error || tx(t, "team.generic_error", "Something went wrong.")); return res; }
+          return reload(false).then(function () { return res; });
+        })
+        .catch(function (err) { setActionError(String(err)); })
+        .finally(function () { setBusy(false); });
+    }
+
+    if (loading) {
+      return h("div", { className: "ha-page" },
+        h("div", { className: "ha-loading" }, tx(t, "team.loading", "Loading team…")));
+    }
+
+    const membership = data && data.membership;
+    const errorBanner = actionError && h(C.Card, { className: "ha-error" }, h(C.CardContent, null, String(actionError)));
+
+    // --- Not in a team: create / join ---
+    if (!membership) {
+      return h("div", { className: "ha-page" },
+        h("section", { className: "ha-hero" },
+          h("div", null,
+            h("div", { className: "ha-kicker" }, tx(t, "team.kicker", "Shared Leaderboard")),
+            h("h1", null, tx(t, "team.hero_title", "Team Leaderboard")),
+            h("p", null, tx(t, "team.hero_subtitle", "Compare achievements with other Fabric users. Create a team or join one with an invite. Only aggregate stats you opt into leave your machine — never session content."))
+          )
+        ),
+        errorBanner,
+        h("section", { className: "ha-team-setup" },
+          h(CreateTeamCard, { busy: busy, onAction: runAction, t: t }),
+          h(JoinTeamCard, { busy: busy, onAction: runAction, t: t })
+        ),
+        h("section", { className: "ha-guide" },
+          h("div", null,
+            h("strong", null, tx(t, "team.privacy_header", "What is shared")),
+            h("p", null, tx(t, "team.privacy_body", "Your score, unlock and tier counts, per-category tallies, and up to five unlocked badge names — plus a display name you pick. Session titles, transcripts, file paths, and raw metrics are never sent."))
+          ),
+          h("div", null,
+            h("strong", null, tx(t, "team.hosting_header", "Hosting a relay")),
+            h("p", null, tx(t, "team.hosting_body", "A relay is a small self-hostable service (no Fabric account). One teammate runs it with `python -m relay`; see the plugin docs. Put it behind a TLS proxy or Tailscale to share beyond your LAN."))
+          )
+        )
+      );
+    }
+
+    // --- In a team: board + controls ---
+    const optIn = !!(data && data.publish_opt_in);
+    const isOwner = membership.role === "owner";
+    const rows = (data && data.leaderboard) || [];
+    const invite = membership.invite_code;
+    const published = timeAgo(data && data.last_published_at);
+    const rosterAge = timeAgo(data && data.roster_generated_at);
+
+    return h("div", { className: "ha-page" },
+      h("section", { className: "ha-hero" },
+        h("div", null,
+          h("div", { className: "ha-kicker" }, tx(t, "team.kicker", "Shared Leaderboard")),
+          h("h1", null, membership.team_name || tx(t, "team.hero_title", "Team Leaderboard")),
+          h("p", null,
+            tx(t, "team.member_summary", "You are {name} · {role}", {
+              name: membership.display_name || "—",
+              role: isOwner ? tx(t, "team.role_owner", "owner") : tx(t, "team.role_member", "member"),
+            }),
+            rosterAge ? " · " + tx(t, "team.roster_age", "board updated {age}", { age: rosterAge }) : ""
+          )
+        ),
+        h("div", { className: "ha-team-hero-actions" },
+          h(C.Button, { onClick: function () { reload(false); }, disabled: busy, className: "ha-refresh" }, tx(t, "team.refresh", "Refresh")),
+          h("button", { className: "ha-team-btn ha-team-btn-danger", disabled: busy, onClick: function () { runAction("/team/leave", {}); } }, tx(t, "team.leave", "Leave team"))
+        )
+      ),
+      errorBanner,
+      h("section", { className: "ha-team-controls" },
+        h("div", { className: "ha-control-block" },
+          h(ShareToggle, {
+            checked: optIn, disabled: busy,
+            onChange: function (val) { runAction("/team/settings", { publish_opt_in: val }); },
+            label: optIn
+              ? tx(t, "team.sharing_on", "Sharing on — your stats appear on the board.")
+              : tx(t, "team.sharing_off", "Sharing off — you are viewing but not appearing on the board."),
+          }),
+          optIn && h("button", { className: "ha-team-btn", disabled: busy, onClick: function () { runAction("/team/publish", {}); } },
+            tx(t, "team.publish_now", "Publish now")),
+          published && optIn && h("span", { className: "ha-control-hint" }, tx(t, "team.published_age", "shared {age}", { age: published }))
+        ),
+        h("div", { className: "ha-control-block" },
+          h("input", {
+            className: "ha-input ha-name-input", value: nameDraft, disabled: busy,
+            "aria-label": tx(t, "team.display_name_label", "Your display name"),
+            onChange: function (e) { setNameDraft(e.target.value); },
+          }),
+          h("button", {
+            className: "ha-team-btn",
+            disabled: busy || !nameDraft.trim() || nameDraft.trim() === membership.display_name,
+            onClick: function () { runAction("/team/settings", { display_name: nameDraft.trim() }); },
+          }, tx(t, "team.rename", "Rename"))
+        )
+      ),
+      invite && h("section", { className: "ha-invite-section" },
+        h("div", { className: "ha-invite-head" },
+          h("strong", null, tx(t, "team.invite_header", "Invite link")),
+          isOwner && h("button", {
+            className: "ha-team-btn", disabled: busy,
+            title: tx(t, "team.rotate_title", "Generate a new invite and invalidate the old one"),
+            onClick: function () { runAction("/team/rotate", {}); },
+          }, tx(t, "team.rotate", "Reset invite"))
+        ),
+        h(InviteRow, { code: invite, t: t }),
+        h("p", { className: "ha-invite-note" }, tx(t, "team.invite_note", "Anyone with this code can view the board and join. Share it only with people you want on your team."))
+      ),
+      h("section", null,
+        h(LeaderboardTable, {
+          rows: rows, myId: membership.member_id, isOwner: isOwner, busy: busy,
+          onKick: function (id) { runAction("/team/kick", { target_member_id: id }); },
+          t: t,
+        })
+      )
+    );
+  }
+
+  function Root() {
+    const { t } = useI18n();
+    const [view, setView] = hooks.useState("achievements");
+    return h("div", { className: "ha-root" },
+      h("div", { className: "ha-viewnav" },
+        h("button", {
+          className: cn("ha-viewnav-btn", view === "achievements" && "active"),
+          onClick: function () { setView("achievements"); },
+        }, tx(t, "nav.achievements", "Achievements")),
+        h("button", {
+          className: cn("ha-viewnav-btn", view === "leaderboard" && "active"),
+          onClick: function () { setView("leaderboard"); },
+        }, tx(t, "nav.leaderboard", "Team Leaderboard"))
+      ),
+      view === "achievements" ? h(AchievementsPage, null) : h(LeaderboardPage, null)
+    );
+  }
+
+  window.__HERMES_PLUGINS__.register("fabric-achievements", Root);
 })();

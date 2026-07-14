@@ -1,5 +1,5 @@
 /**
- * Fabric Kanban — Dashboard Plugin
+ * Fabric Work — Dashboard Plugin
  *
  * Board view for the multi-agent collaboration board backed by
  * ~/.fabric/kanban.db. Calls the plugin's backend at /api/plugins/kanban/
@@ -235,6 +235,80 @@
   const LS_BOARD_KEY = "fabric.kanban.selectedBoard";
   const LEGACY_LS_BOARD_KEY = "hermes.kanban.selectedBoard";
   const LS_VIEW_KEY = "fabric.kanban.view";
+  const PENDING_TASK_CREATE_PREFIX = "fabric.kanban.pendingTaskCreate.v1.";
+  const PENDING_TASK_CREATE_TTL_MS = 24 * 60 * 60 * 1000;
+  const pendingTaskCreateMemory = new Map();
+  const pendingTaskCreateRequests = new Map();
+  const WORK_VIEWS = new Set(["board", "graph", "outline"]);
+
+  function stableCreateJson(value) {
+    if (Array.isArray(value)) {
+      return "[" + value.map(stableCreateJson).join(",") + "]";
+    }
+    if (value && typeof value === "object") {
+      return "{" + Object.keys(value).filter(function (key) {
+        return value[key] !== undefined;
+      }).sort().map(function (key) {
+        return JSON.stringify(key) + ":" + stableCreateJson(value[key]);
+      }).join(",") + "}";
+    }
+    return JSON.stringify(value);
+  }
+
+  function taskCreateFingerprint(board, body) {
+    const logicalBody = Object.assign({}, body);
+    delete logicalBody.idempotency_key;
+    const value = String(board || "default") + "\u0000" + stableCreateJson(logicalBody);
+    // Two independent 32-bit accumulators keep storage keys compact without
+    // persisting task titles/details in localStorage.
+    let first = 2166136261;
+    let second = 2654435769;
+    for (let i = 0; i < value.length; i += 1) {
+      const code = value.charCodeAt(i);
+      first = Math.imul(first ^ code, 16777619);
+      second = Math.imul(second ^ code, 2246822519);
+    }
+    return (first >>> 0).toString(16).padStart(8, "0") +
+      (second >>> 0).toString(16).padStart(8, "0");
+  }
+
+  function newTaskCreateIdempotencyKey() {
+    try {
+      if (window.crypto && typeof window.crypto.randomUUID === "function") {
+        return "dashboard-" + window.crypto.randomUUID();
+      }
+    } catch (_e) { /* fall through to a non-security-sensitive unique key */ }
+    return "dashboard-" + Date.now().toString(36) + "-" +
+      Math.random().toString(36).slice(2);
+  }
+
+  function getTaskCreateIdempotency(board, body) {
+    if (body && body.idempotency_key) {
+      return { key: body.idempotency_key, storageKey: null };
+    }
+    const storageKey = PENDING_TASK_CREATE_PREFIX + taskCreateFingerprint(board, body);
+    const now = Date.now();
+    let pending = pendingTaskCreateMemory.get(storageKey) || null;
+    if (!pending) {
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        pending = raw ? JSON.parse(raw) : null;
+      } catch (_e) { pending = null; }
+    }
+    if (!pending || typeof pending.key !== "string" ||
+      !Number.isFinite(pending.createdAt) || now - pending.createdAt > PENDING_TASK_CREATE_TTL_MS) {
+      pending = { key: newTaskCreateIdempotencyKey(), createdAt: now };
+      try { window.localStorage.setItem(storageKey, JSON.stringify(pending)); } catch (_e) { /* noop */ }
+    }
+    pendingTaskCreateMemory.set(storageKey, pending);
+    return { key: pending.key, storageKey: storageKey };
+  }
+
+  function clearTaskCreateIdempotency(idempotency) {
+    if (!idempotency || !idempotency.storageKey) return;
+    pendingTaskCreateMemory.delete(idempotency.storageKey);
+    try { window.localStorage.removeItem(idempotency.storageKey); } catch (_e) { /* noop */ }
+  }
 
   function readSelectedBoard() {
     try {
@@ -280,6 +354,67 @@
 
   function writeWorkView(value) {
     try { window.localStorage.setItem(LS_VIEW_KEY, value); } catch (_e) { /* noop */ }
+  }
+
+  function readWorkRoute() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const board = (params.get("board") || "").trim();
+      const rawView = (params.get("view") || "").trim();
+      const task = (params.get("task") || "").trim();
+      return {
+        board: board || null,
+        view: WORK_VIEWS.has(rawView) ? rawView : null,
+        task: task || null,
+      };
+    } catch (_e) {
+      return { board: null, view: null, task: null };
+    }
+  }
+
+  // Work owns only board/view/task. Profile scope, unrelated query params,
+  // pathname, and hash remain untouched so links stay composable with the
+  // dashboard shell and future extensions.
+  function writeWorkRoute(route, mode, navigate, routedLocation) {
+    try {
+      // React Router strips the dashboard basename from `location.pathname`,
+      // while window.location keeps the physical prefix. Build logical paths
+      // from the host location whenever we call useNavigate; otherwise a
+      // reverse-proxied /fabric/work route becomes /fabric/fabric/work.
+      const basePath = routedLocation && typeof navigate === "function"
+        ? routedLocation.pathname
+        : window.location.pathname;
+      const baseSearch = routedLocation && typeof navigate === "function"
+        ? routedLocation.search
+        : window.location.search;
+      const baseHash = routedLocation && typeof navigate === "function"
+        ? routedLocation.hash
+        : window.location.hash;
+      const params = new URLSearchParams(baseSearch || "");
+      const writeParam = function (key, value) {
+        if (value) params.set(key, value);
+        else params.delete(key);
+      };
+      writeParam("board", route.board);
+      writeParam("view", WORK_VIEWS.has(route.view) ? route.view : null);
+      writeParam("task", route.task);
+      const query = params.toString();
+      const next = basePath + (query ? "?" + query : "") + (baseHash || "");
+      const current = routedLocation && typeof navigate === "function"
+        ? routedLocation.pathname + routedLocation.search + routedLocation.hash
+        : window.location.pathname + window.location.search + window.location.hash;
+      if (next === current) return;
+      if (typeof navigate === "function") {
+        navigate(next, { replace: mode !== "push" });
+        return;
+      }
+      const method = mode === "push" ? "pushState" : "replaceState";
+      const currentState = window.history.state;
+      const state = currentState && typeof currentState === "object"
+        ? Object.assign({}, currentState)
+        : {};
+      window.history[method](state, "", next);
+    } catch (_e) { /* history can be unavailable in embedded/private contexts */ }
   }
 
   function withBoard(url, board) {
@@ -521,7 +656,7 @@
     return h(Card, null,
       h(CardContent, { className: "p-6 text-sm" },
         h("div", { className: "text-destructive font-semibold mb-1" },
-          tx(t, "renderingError", "Kanban tab hit a rendering error")),
+          tx(t, "renderingError", "Work view hit a rendering error")),
         h("div", { className: "text-muted-foreground text-xs mb-3" },
           props.message),
         h(Button, {
@@ -554,17 +689,30 @@
   // Root page
   // -------------------------------------------------------------------------
 
-  function KanbanPage() {
+  function KanbanPage(hostProps) {
     const { t } = useI18n();
-    const [board, setBoard] = useState(() => readSelectedBoard() || null);
+    const hostNavigate = hostProps && typeof hostProps.navigate === "function"
+      ? hostProps.navigate
+      : null;
+    const hostLocation = hostProps && hostProps.location
+      ? hostProps.location
+      : null;
+    const hostLocationKey = hostLocation
+      ? `${hostLocation.pathname}${hostLocation.search}${hostLocation.hash}`
+      : null;
+    const initialRoute = useMemo(readWorkRoute, []);
+    const [board, setBoard] = useState(() => initialRoute.board || readSelectedBoard() || null);
     const [boardList, setBoardList] = useState([]);      // [{slug, name, counts, ...}]
     const [showNewBoard, setShowNewBoard] = useState(false);
-    const [viewMode, setViewMode] = useState(readWorkView);
+    const [showNewTask, setShowNewTask] = useState(false);
+    const [viewMode, setViewMode] = useState(() => initialRoute.view || readWorkView());
     const [liveStatus, setLiveStatus] = useState("connecting");
     const [lastUpdateAt, setLastUpdateAt] = useState(Date.now());
     const [updatesPaused, setUpdatesPaused] = useState(false);
     const [recentEvents, setRecentEvents] = useState([]);
-    const [selectedGraphNodeId, setSelectedGraphNodeId] = useState(null);
+    const [selectedGraphNodeId, setSelectedGraphNodeId] = useState(
+      () => initialRoute.task ? "task:" + initialRoute.task : null,
+    );
 
     const [kanbanBoard, setKanbanBoard] = useState(null);  // the grid data
     // Alias so the rest of the function can keep using `board` semantically
@@ -586,7 +734,7 @@
     const [laneByProfile, setLaneByProfile] = useState(true);
     const [configApplied, setConfigApplied] = useState(false);
 
-    const [selectedTaskId, setSelectedTaskId] = useState(null);
+    const [selectedTaskId, setSelectedTaskId] = useState(() => initialRoute.task);
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [lastSelectedId, setLastSelectedId] = useState(null);
     const [failedIds, setFailedIds] = useState(() => new Set());
@@ -608,6 +756,79 @@
     const liveRefreshGenerationRef = useRef(0);
     const pausedRecentEventsRef = useRef([]);
     const pausedTaskEventCountsRef = useRef({});
+    const boardRef = useRef(board);
+    const boardRequestGenerationRef = useRef(0);
+    const boardRequestSequenceRef = useRef(0);
+    const latestAppliedBoardRequestRef = useRef(0);
+    const createWorkOpenerRef = useRef(null);
+    const taskOpenedInAppRef = useRef(false);
+    const syncedHostLocationRef = useRef(hostLocationKey);
+
+    const resetBoardScopedState = useCallback(function () {
+      boardRequestGenerationRef.current += 1;
+      setBoardData(null);
+      cursorRef.current = 0;
+      setLoading(true);
+      setSearch("");
+      setTenantFilter("");
+      setAssigneeFilter("");
+      setIncludeArchived(false);
+      setSelectedTaskId(null);
+      setSelectedGraphNodeId(null);
+      setSelectedIds(new Set());
+      setLastSelectedId(null);
+      setFailedIds(new Set());
+      setRecentEvents([]);
+      setShowNewTask(false);
+      pausedRecentEventsRef.current = [];
+      pausedTaskEventCountsRef.current = {};
+    }, []);
+
+    useEffect(function () {
+      boardRef.current = board;
+    }, [board]);
+
+    // Canonicalize fallback/default state with replaceState. User actions push
+    // their own entries below; this effect only makes the current entry fully
+    // shareable and preserves all non-Work query parameters.
+    useEffect(function () {
+      // React Router location changes arrive before this plugin's local state
+      // has synchronized. Do not write the stale local snapshot back over a
+      // Back/Forward navigation; the route-sync effect below owns that pass.
+      if (hostLocationKey && syncedHostLocationRef.current !== hostLocationKey) return;
+      writeWorkRoute(
+        { board, view: viewMode, task: selectedTaskId },
+        "replace",
+        hostNavigate,
+        hostLocation,
+      );
+    }, [board, viewMode, selectedTaskId, hostNavigate, hostLocationKey]);
+
+    useEffect(function () {
+      function syncRoute() {
+        const route = readWorkRoute();
+        const nextBoard = route.board || readSelectedBoard() || null;
+        const nextView = route.view || readWorkView();
+        if (nextBoard !== boardRef.current) {
+          resetBoardScopedState();
+          boardRef.current = nextBoard;
+        }
+        setBoard(nextBoard);
+        setViewMode(nextView);
+        setSelectedTaskId(route.task);
+        setSelectedGraphNodeId(route.task ? "task:" + route.task : null);
+        if (!route.task) taskOpenedInAppRef.current = false;
+        if (nextBoard) writeSelectedBoard(nextBoard);
+        writeWorkView(nextView);
+      }
+      if (hostLocationKey) {
+        syncedHostLocationRef.current = hostLocationKey;
+        syncRoute();
+        return undefined;
+      }
+      window.addEventListener("popstate", syncRoute);
+      return function () { window.removeEventListener("popstate", syncRoute); };
+    }, [hostLocationKey, resetBoardScopedState]);
 
     useEffect(function () {
       updatesPausedRef.current = updatesPaused;
@@ -636,14 +857,31 @@
     }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
     // --- fetch full board ---------------------------------------------------
+    useEffect(function () {
+      // Invalidate only when the requested board/filter scope changes. Live
+      // refreshes inside the same scope may overlap; each completed response
+      // can still repaint unless a newer response has already landed.
+      boardRequestGenerationRef.current += 1;
+    }, [board, tenantFilter, includeArchived]);
+
     const loadBoard = useCallback((options) => {
       const isLiveRefresh = !!(options && options.liveRefresh === true);
+      const propagateError = !!(options && options.propagateError === true);
       const refreshGeneration = liveRefreshGenerationRef.current;
+      const requestGeneration = boardRequestGenerationRef.current;
+      const requestId = ++boardRequestSequenceRef.current;
       const canApply = function () {
+        if (requestGeneration !== boardRequestGenerationRef.current) return false;
         return !isLiveRefresh || (
           !updatesPausedRef.current &&
           refreshGeneration === liveRefreshGenerationRef.current
         );
+      };
+      const claimResult = function () {
+        if (!canApply()) return false;
+        if (requestId <= latestAppliedBoardRequestRef.current) return false;
+        latestAppliedBoardRequestRef.current = requestId;
+        return true;
       };
       const qs = new URLSearchParams();
       if (tenantFilter) qs.set("tenant", tenantFilter);
@@ -651,15 +889,17 @@
       const url = qs.toString() ? `${API}/board?${qs}` : `${API}/board`;
       return SDK.fetchJSON(withBoard(url, board))
         .then(function (data) {
-          if (!canApply()) return;
+          if (!claimResult()) return;
           setBoardData(data);
           cursorRef.current = data.latest_event_id || 0;
           setLastUpdateAt(Date.now());
           setError(null);
         })
         .catch(function (err) {
-          if (!canApply()) return;
-          setError(String(err && err.message ? err.message : err));
+          if (claimResult()) {
+            setError(String(err && err.message ? err.message : err));
+          }
+          if (propagateError) throw err;
         })
         .finally(function () {
           if (canApply()) setLoading(false);
@@ -667,7 +907,8 @@
     }, [tenantFilter, includeArchived, board]);
 
     // --- load list of boards for the switcher ------------------------------
-    const loadBoardList = useCallback(function () {
+    const loadBoardList = useCallback(function (options) {
+      const propagateError = !!(options && options.propagateError === true);
       return SDK.fetchJSON(withBoard(`${API}/boards`, board))
         .then(function (data) {
           const boards = (data && data.boards) || [];
@@ -681,12 +922,22 @@
           // deleted in the CLI while dashboard was open), fall back to
           // default so the UI doesn't hang on a 404.
           if (board && board !== "default" && !boards.find(function (b) { return b.slug === board; })) {
+            resetBoardScopedState();
             setBoard("default");
             writeSelectedBoard("default");
+            writeWorkRoute(
+              { board: "default", view: viewMode, task: null },
+              "replace",
+              hostNavigate,
+              hostLocation,
+            );
           }
         })
-        .catch(function () { /* non-fatal */ });
-    }, [board]);
+        .catch(function (error) {
+          if (propagateError) throw error;
+          // Board-list refresh is non-fatal outside explicit create flows.
+        });
+    }, [board, resetBoardScopedState, viewMode, hostNavigate, hostLocationKey]);
 
     useEffect(function () { loadBoardList(); }, [loadBoardList]);
 
@@ -864,10 +1115,14 @@
       setFailedIds(new Set());
     }, []);
     const moveSelected = useCallback(function (newStatus) {
-      const confirmMsg = DESTRUCTIVE_TRANSITIONS[newStatus];
+      const confirmMsg = newStatus === "review"
+        ? getReviewHandoffConfirm(t)
+        : getDestructiveConfirm(t, newStatus);
       if (confirmMsg && !window.confirm(confirmMsg)) return;
       if (selectedIds.size === 0) return;
-      const patch = withCompletionSummary({ status: newStatus }, selectedIds.size);
+      const requestedPatch = { status: newStatus };
+      if (newStatus === "review") requestedPatch.confirm_stop_running = true;
+      const patch = withCompletionSummary(requestedPatch, selectedIds.size, t);
       if (!patch) return;
       const ids = Array.from(selectedIds);
       // Optimistic UI: remove selected from all columns and prepend to target.
@@ -906,14 +1161,42 @@
         setFailedIds(new Set(selectedIds));
         loadBoard();
       });
-    }, [selectedIds, loadBoard, board]);
+    }, [selectedIds, loadBoard, board, t]);
 
-    const createTask = useCallback(function (body) {
-      return SDK.fetchJSON(withBoard(`${API}/tasks`, board), {
+    const createTask = useCallback(function (body, options) {
+      const idempotency = getTaskCreateIdempotency(board, body);
+      const requestBody = Object.assign({}, body, {
+        idempotency_key: idempotency.key,
+      });
+      const request = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      }).then(function (res) {
+        body: JSON.stringify(requestBody),
+      };
+      if (options && options.signal) request.signal = options.signal;
+      let createRequest = null;
+      if (idempotency.storageKey && !(options && options.signal)) {
+        createRequest = pendingTaskCreateRequests.get(idempotency.storageKey) || null;
+      }
+      if (!createRequest) {
+        createRequest = SDK.fetchJSON(withBoard(`${API}/tasks`, board), request);
+        if (idempotency.storageKey && !(options && options.signal)) {
+          pendingTaskCreateRequests.set(idempotency.storageKey, createRequest);
+          createRequest.then(function () {
+            pendingTaskCreateRequests.delete(idempotency.storageKey);
+          }, function () {
+            pendingTaskCreateRequests.delete(idempotency.storageKey);
+          });
+        }
+      }
+      return createRequest.then(function (res) {
+        // The POST has crossed the commit boundary. From here on, cancelling
+        // may dismiss the dialog, but it must not claim the task was aborted
+        // or prevent the completed refresh from becoming visible.
+        if (options) {
+          options.committed = true;
+          if (typeof options.onCommitted === "function") options.onCommitted(res);
+        }
         // Surface dispatcher-presence warnings (e.g. "no gateway is
         // running") via the existing error banner channel. Not fatal —
         // the task was created successfully — but the user should know
@@ -921,9 +1204,19 @@
         if (res && res.warning) {
           setError(tx(t, "taskCreatedWarning", "Task created, but: ") + res.warning);
         }
-        loadBoard();
-        loadBoardList();  // refresh counts in the switcher
-        return res;
+        return Promise.all([
+          loadBoard({ propagateError: true }),
+          loadBoardList({ propagateError: true }),  // refresh counts in the switcher
+        ]).then(function () {
+          clearTaskCreateIdempotency(idempotency);
+          return res;
+        }).catch(function (refreshError) {
+          setError("Work was created, but the view could not refresh: " +
+            parseApiErrorMessage(refreshError));
+          // Keep the idempotency key: retrying the same form should recover
+          // the committed task instead of creating another hidden duplicate.
+          return res;
+        });
       });
     }, [loadBoard, loadBoardList, board, t]);
 
@@ -1001,6 +1294,13 @@
       if (col.tasks && col.tasks.length > 0) setLastSelectedId(col.tasks[0].id);
     }, [filteredBoard, selectedIds]);
 
+    // A selection must never outlive the filter state that made it visible.
+    // Otherwise a bulk action can silently mutate cards the user can no longer
+    // see after changing search, tenant, assignee, or archived visibility.
+    useEffect(function () {
+      clearSelected();
+    }, [tenantFilter, assigneeFilter, search, includeArchived, clearSelected]);
+
     const applyBulk = useCallback(function (patch, confirmMsg) {
       if (selectedIds.size === 0) return;
       if (confirmMsg && !window.confirm(confirmMsg)) return;
@@ -1054,21 +1354,17 @@
     // --- board switching ----------------------------------------------------
     const switchBoard = useCallback(function (nextSlug) {
       if (!nextSlug || nextSlug === board) return;
-      // Optimistic UI: clear the current grid + show loading, reset the
-      // event cursor so the WS reopens aligned to the new board's
-      // latest_event_id on the next loadBoard.
-      setBoardData(null);
-      cursorRef.current = 0;
-      setLoading(true);
+      writeWorkRoute(
+        { board: nextSlug, view: viewMode, task: null },
+        "push",
+        hostNavigate,
+        hostLocation,
+      );
+      resetBoardScopedState();
+      boardRef.current = nextSlug;
       setBoard(nextSlug);
       writeSelectedBoard(nextSlug);
-      // Reset filters so stale search/tenant/assignee don't persist across boards.
-      setSearch("");
-      setTenantFilter("");
-      setAssigneeFilter("");
-      setIncludeArchived(false);
-      clearSelected();
-    }, [board, clearSelected]);
+    }, [board, resetBoardScopedState, viewMode, hostNavigate, hostLocationKey]);
 
     const createNewBoard = useCallback(function (payload) {
       return SDK.fetchJSON(`${API}/boards`, {
@@ -1093,19 +1389,19 @@
       });
     }, [board, loadBoardList, switchBoard]);
 
-   const deleteTask = useCallback(function (taskId) {
-     if (!window.confirm(tx(t, "trash.confirm", FALLBACK_TRASH.confirm))) return Promise.resolve();
-     return SDK.fetchJSON(`${API}/tasks/${encodeURIComponent(taskId)}`, {
-       method: "DELETE",
-     }).then(function () {
-       loadBoard();
-       setSelectedIds(function (prev) {
-         const next = new Set(prev);
-         next.delete(taskId);
-         return next;
-       });
-     }).catch(function (e) { setError(String(e.message || e)); });
-   }, [board, loadBoard, t]);
+    const deleteTask = useCallback(function (taskId) {
+      if (!window.confirm(tx(t, "trash.confirm", FALLBACK_TRASH.confirm))) return Promise.resolve();
+      return SDK.fetchJSON(withBoard(`${API}/tasks/${encodeURIComponent(taskId)}`, board), {
+        method: "DELETE",
+      }).then(function () {
+        loadBoard();
+        setSelectedIds(function (prev) {
+          const next = new Set(prev);
+          next.delete(taskId);
+          return next;
+        });
+      }).catch(function (e) { setError(String(e.message || e)); });
+    }, [board, loadBoard, t]);
 
     const deleteSelected = useCallback(function (count) {
       if (selectedIds.size === 0) return Promise.resolve();
@@ -1113,7 +1409,7 @@
       const ids = Array.from(selectedIds);
       setSelectedIds(new Set());
       return Promise.all(ids.map(function (id) {
-        return SDK.fetchJSON(`${API}/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+        return SDK.fetchJSON(withBoard(`${API}/tasks/${encodeURIComponent(id)}`, board), { method: "DELETE" });
       })).then(function () {
         loadBoard();
       }).catch(function (e) { setError(String(e.message || e)); });
@@ -1122,16 +1418,26 @@
     // --- render -------------------------------------------------------------
     if (loading && !boardData) {
       return h("div", { className: "p-8 text-sm text-muted-foreground" },
-        tx(t, "loading", "Loading Kanban board…"));
+        tx(t, "loading", "Loading work…"));
     }
     if (error && !boardData) {
       return h(Card, null,
         h(CardContent, { className: "p-6" },
           h("div", { className: "text-sm text-destructive" },
-            tx(t, "loadFailed", "Failed to load Kanban board: "), error),
+            tx(t, "loadFailed", "Failed to load work: "), error),
           h("div", { className: "text-xs text-muted-foreground mt-2" },
             tx(t, "loadFailedHint",
               "The backend auto-creates kanban.db on first read. If this persists, check the dashboard logs.")),
+          h(Button, {
+            type: "button",
+            size: "sm",
+            className: "mt-4",
+            onClick: function () {
+              setLoading(true);
+              loadBoard();
+              loadBoardList();
+            },
+          }, "Retry"),
         ),
       );
     }
@@ -1147,8 +1453,83 @@
     const workContext = deriveWorkContext(allTasks, boardLabel);
 
     const changeView = function (nextView) {
+      if (!WORK_VIEWS.has(nextView) || nextView === viewMode) return;
+      writeWorkRoute(
+        { board, view: nextView, task: selectedTaskId },
+        "push",
+        hostNavigate,
+        hostLocation,
+      );
       setViewMode(nextView);
       writeWorkView(nextView);
+    };
+
+    const openTask = function (taskId) {
+      if (!taskId) return;
+      writeWorkRoute(
+        { board, view: viewMode, task: taskId },
+        "push",
+        hostNavigate,
+        hostLocation,
+      );
+      taskOpenedInAppRef.current = true;
+      setSelectedTaskId(taskId);
+      setSelectedGraphNodeId("task:" + taskId);
+    };
+
+    const closeTask = function () {
+      if (taskOpenedInAppRef.current && hostNavigate) {
+        taskOpenedInAppRef.current = false;
+        hostNavigate(-1);
+        return;
+      }
+      taskOpenedInAppRef.current = false;
+      writeWorkRoute(
+        { board, view: viewMode, task: null },
+        "replace",
+        hostNavigate,
+        hostLocation,
+      );
+      setSelectedTaskId(null);
+    };
+
+    const openCreateWork = function (event) {
+      createWorkOpenerRef.current = event && event.currentTarget
+        ? event.currentTarget
+        : document.activeElement;
+      setShowNewTask(true);
+    };
+
+    const closeCreateWork = function () {
+      setShowNewTask(false);
+      const opener = createWorkOpenerRef.current;
+      createWorkOpenerRef.current = null;
+      window.requestAnimationFrame(function () {
+        if (opener && opener.focus) opener.focus();
+      });
+    };
+
+    const createWork = function (payload, requestOptions) {
+      return createTask(payload, requestOptions).then(function (res) {
+        if (requestOptions && (requestOptions.dismissed ||
+          (requestOptions.signal && requestOptions.signal.aborted))) {
+          return res;
+        }
+        // A newly-created node should be visible in the projection the user
+        // chose. Clear filters that could hide it, but never switch views.
+        setSearch("");
+        setTenantFilter("");
+        setAssigneeFilter("");
+        setIncludeArchived(false);
+        const taskId = res && res.task && res.task.id;
+        if (taskId) {
+          openTask(taskId);
+        } else {
+          setError("Work was created, but its task id was missing from the response. Refresh to select it.");
+        }
+        closeCreateWork();
+        return res;
+      });
     };
 
     const toggleUpdates = function () {
@@ -1210,6 +1591,7 @@
           onToggleUpdates: toggleUpdates,
           reviewCount: reviewTasks.length,
           onReview: reviewFirst,
+          onCreate: openCreateWork,
         }),
         h("div", { className: "fabric-workbench-board-row" },
           h(BoardSwitcher, {
@@ -1226,6 +1608,11 @@
             return createNewBoard(payload).then(function () { setShowNewBoard(false); });
           },
         }) : null,
+        showNewTask ? h(NewTaskDialog, {
+          allTasks: allTasks,
+          onCancel: closeCreateWork,
+          onCreate: createWork,
+        }) : null,
         error ? h("div", { className: "fabric-workbench-error", role: "alert" }, error) : null,
         viewMode === "board"
           ? h("div", {
@@ -1237,7 +1624,7 @@
               h(OrchestrationPanel, null),
               h(AttentionStrip, {
                 boardData,
-                onOpen: setSelectedTaskId,
+                onOpen: openTask,
               }),
               h(BoardToolbar, {
                 board: boardData,
@@ -1275,7 +1662,7 @@
                 onMove: moveTask,
                 onMoveSelected: moveSelected,
                 onDelete: deleteTask,
-                onOpen: setSelectedTaskId,
+                onOpen: openTask,
                 onCreate: createTask,
                 allTasks: allTasks,
               }),
@@ -1288,8 +1675,8 @@
                 setSearch: setSearch,
                 selectedNodeId: selectedGraphNodeId,
                 onSelectNode: setSelectedGraphNodeId,
-                onOpenTask: setSelectedTaskId,
-                onCreateFirst: function () { changeView("board"); },
+                onOpenTask: openTask,
+                onCreate: openCreateWork,
               })
             : h(WorkGraphView, {
                 board: filteredBoard,
@@ -1298,8 +1685,8 @@
                 setSearch: setSearch,
                 selectedNodeId: selectedGraphNodeId,
                 onSelectNode: setSelectedGraphNodeId,
-                onOpenTask: setSelectedTaskId,
-                onCreateFirst: function () { changeView("board"); },
+                onOpenTask: openTask,
+                onCreate: openCreateWork,
                 recentEvents: recentEvents,
               }),
         selectedTaskId ? h(TaskDrawer, {
@@ -1307,7 +1694,7 @@
           boardSlug: board,
           updatesPausedRef: updatesPausedRef,
           liveRefreshGenerationRef: liveRefreshGenerationRef,
-          onClose: function () { setSelectedTaskId(null); },
+          onClose: closeTask,
           onRefresh: loadBoard,
           renderMarkdown: renderMd,
           allTasks: allTasks,
@@ -1319,7 +1706,7 @@
   }
 
   // -------------------------------------------------------------------------
-  // Live Work — shared Board / Graph / Outline projection
+  // Work — shared Board / Graph / Outline projection
   // -------------------------------------------------------------------------
 
   const WORK_STATUS = {
@@ -1418,20 +1805,25 @@
     return h("header", { className: "fabric-work-header" },
       h("div", { className: "fabric-work-header-main" },
         h("div", { className: "fabric-work-title-group" },
-          h("div", { className: "fabric-work-eyebrow" }, "Work"),
-          h("h1", { className: "fabric-work-title" }, "Live work"),
+          h("div", { className: "fabric-work-eyebrow" }, "Live coordination"),
+          h("h1", { className: "fabric-work-title" }, "Work"),
           h("p", { className: "fabric-work-subtitle" },
             "Follow goals, plan steps, and parallel agent runs as they change."),
         ),
         h("div", { className: "fabric-work-header-actions" },
+          h("button", {
+            type: "button",
+            className: "fabric-work-button fabric-work-button--primary",
+            onClick: props.onCreate,
+          }, icon("Plus"), "Create work"),
           props.reviewCount > 0
             ? h("button", {
                 type: "button",
-                className: "fabric-work-button fabric-work-button--primary",
+                className: "fabric-work-button fabric-work-button--quiet",
                 onClick: props.onReview,
               },
                 icon("CheckCircle2"),
-                `Review ${props.reviewCount} ready ${props.reviewCount === 1 ? "item" : "items"}`,
+                `Review ${props.reviewCount} ${props.reviewCount === 1 ? "item" : "items"}`,
               )
             : null,
           h("button", {
@@ -1800,6 +2192,11 @@
       h("button", {
         type: "button",
         className: "fabric-work-button fabric-work-button--quiet",
+        onClick: props.onCreate,
+      }, icon("Plus"), "Create work"),
+      h("button", {
+        type: "button",
+        className: "fabric-work-button fabric-work-button--quiet",
         onClick: props.onCenter,
       }, icon("Maximize2"), props.centerLabel || "Center graph"),
       props.showLegend === false ? null
@@ -1835,7 +2232,7 @@
         id: "fabric-work-panel-graph",
         role: "tabpanel",
         "aria-labelledby": "fabric-work-tab-graph",
-      }, h(WorkEmptyState, { onCreateFirst: props.onCreateFirst }));
+      }, h(WorkEmptyState, { onCreate: props.onCreate }));
     }
 
     return h("div", {
@@ -1847,6 +2244,7 @@
       h(WorkGraphToolbar, {
         search: props.search,
         setSearch: props.setSearch,
+        onCreate: props.onCreate,
         onCenter: function () {
           if (canvasRef.current && canvasRef.current.scrollTo) {
             const centeredLeft = Math.max(
@@ -1862,7 +2260,7 @@
           ref: canvasRef,
           className: "fabric-work-graph-scroll",
           role: "region",
-          "aria-label": "Live work graph",
+          "aria-label": "Work graph",
         },
           h("div", {
             className: "fabric-work-graph-canvas",
@@ -1987,8 +2385,8 @@
       h("button", {
         type: "button",
         className: "fabric-work-button fabric-work-button--primary",
-        onClick: props.onCreateFirst,
-      }, icon("LayoutGrid"), "Open Board to create work"),
+        onClick: props.onCreate,
+      }, icon("Plus"), "Create work"),
     );
   }
 
@@ -2015,7 +2413,7 @@
         id: "fabric-work-panel-outline",
         role: "tabpanel",
         "aria-labelledby": "fabric-work-tab-outline",
-      }, h(WorkEmptyState, { onCreateFirst: props.onCreateFirst }));
+      }, h(WorkEmptyState, { onCreate: props.onCreate }));
     }
     return h("div", {
       className: "fabric-workbench-view fabric-workbench-view--outline",
@@ -2026,6 +2424,7 @@
       h(WorkGraphToolbar, {
         search: props.search,
         setSearch: props.setSearch,
+        onCreate: props.onCreate,
         onCenter: function () {
           const first = document.querySelector(".fabric-work-outline-node");
           if (first && first.scrollIntoView) first.scrollIntoView({ block: "start" });
@@ -2513,7 +2912,7 @@
   // Board switcher (multi-project)
   // -------------------------------------------------------------------------
 
-  // Small help affordance next to the board controls. Opens the kanban docs
+  // Small help affordance next to the board controls. Opens the Work docs
   // page in a new tab so users can look up what any of the widgets mean
   // without losing the current board view.
   function DocsLink() {
@@ -2522,8 +2921,8 @@
       target: "_blank",
       rel: "noopener noreferrer",
       className: "hermes-kanban-docs-link",
-      title: "Open Fabric Kanban docs in a new tab",
-      "aria-label": "Fabric Kanban documentation",
+      title: "Open Fabric Work docs in a new tab",
+      "aria-label": "Fabric Work documentation",
     }, icon("HelpCircle", { size: 17 }));
   }
 
@@ -2659,7 +3058,7 @@
           type: "button",
           onClick: function () { setExpanded(true); },
           className: "underline text-muted-foreground hover:text-foreground",
-          title: "Configure the kanban orchestrator (profile picker, default assignee, auto-decompose, profile descriptions)",
+          title: "Configure Work orchestration (profile picker, default assignee, auto-decompose, profile descriptions)",
         }, headerLabel),
       );
     }
@@ -2847,7 +3246,7 @@
             h(Select, Object.assign({
               value: props.board,
               className: "h-8 min-w-[220px]",
-              "aria-label": "Switch kanban board",
+              "aria-label": "Switch Work board",
               title: "Boards are independent work streams. Each board has its own tasks, tenants, and assignees.",
             }, selectChangeHandler(function (v) { if (v) props.onSwitch(v); })),
               list.map(function (b) {
@@ -2882,6 +3281,225 @@
             title: tx(t, "archiveBoardTitle", "Archive this board"),
           }, tx(t, "archive", "Archive"))
           : null,
+      ),
+    );
+  }
+
+  function NewTaskDialog(props) {
+    const { t } = useI18n();
+    const [title, setTitle] = useState("");
+    const [body, setBody] = useState("");
+    const [assignee, setAssignee] = useState("");
+    const [priority, setPriority] = useState(0);
+    const [parent, setParent] = useState("");
+    const [triage, setTriage] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [committed, setCommitted] = useState(false);
+    const [err, setErr] = useState(null);
+    const dialogRef = useRef(null);
+    const requestRef = useRef(null);
+    const onCancelRef = useRef(props.onCancel);
+
+    useEffect(function () {
+      onCancelRef.current = props.onCancel;
+    }, [props.onCancel]);
+
+    function dismissActiveRequest() {
+      const active = requestRef.current;
+      if (!active) return;
+      // A browser cannot prove that aborting a POST prevented the local
+      // server from committing it. Dismiss the UI while the idempotent
+      // request finishes in the background; a retry reuses the same key.
+      active.dismissed = true;
+    }
+
+    function cancelDialog() {
+      dismissActiveRequest();
+      onCancelRef.current();
+    }
+
+    useEffect(function () {
+      const priorOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      function onKeyDown(event) {
+        if (event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault();
+          dismissActiveRequest();
+          onCancelRef.current();
+          return;
+        }
+        if (event.key !== "Tab" || !dialogRef.current) return;
+        const focusable = dialogRef.current.querySelectorAll(
+          'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [role="combobox"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+      window.addEventListener("keydown", onKeyDown);
+      return function () {
+        dismissActiveRequest();
+        window.removeEventListener("keydown", onKeyDown);
+        document.body.style.overflow = priorOverflow;
+      };
+    }, []);
+
+    function onSubmit(event) {
+      if (event) event.preventDefault();
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle || submitting) return;
+      const payload = {
+        title: trimmedTitle,
+        body: body.trim() || null,
+        assignee: assignee.trim() || null,
+        priority: Number(priority) || 0,
+        triage: triage,
+      };
+      if (parent) payload.parents = [parent];
+      const requestOptions = {
+        committed: false,
+        dismissed: false,
+        onCommitted: function () {
+          requestOptions.committed = true;
+          if (!requestOptions.dismissed) setCommitted(true);
+        },
+      };
+      requestRef.current = requestOptions;
+      setSubmitting(true);
+      setCommitted(false);
+      setErr(null);
+      Promise.resolve(props.onCreate(payload, requestOptions))
+        .catch(function (error) {
+          if (requestOptions.committed) {
+            setErr("Work was created, but the view could not finish refreshing.");
+            return;
+          }
+          setErr(parseApiErrorMessage(error));
+          setSubmitting(false);
+        })
+        .finally(function () {
+          if (requestRef.current === requestOptions) {
+            requestRef.current = null;
+          }
+        });
+    }
+
+    return h("div", {
+      className: "hermes-kanban-dialog-backdrop",
+      onClick: function (event) {
+        if (event.target === event.currentTarget) cancelDialog();
+      },
+    },
+      h("form", {
+        ref: dialogRef,
+        className: "hermes-kanban-dialog fabric-work-create-dialog",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "fabric-work-create-title",
+        "aria-describedby": "fabric-work-create-description",
+        onSubmit: onSubmit,
+      },
+        h("div", {
+          id: "fabric-work-create-title",
+          className: "hermes-kanban-dialog-title",
+        }, "Create work"),
+        h("p", {
+          id: "fabric-work-create-description",
+          className: "fabric-work-create-description",
+        }, "Add a task without leaving this view. Work with no parent starts ready; dependent work waits for its parent."),
+        h("div", { className: "fabric-work-create-fields" },
+          h("label", { className: "fabric-work-create-field" },
+            h("span", null, "Title"),
+            h("textarea", {
+              value: title,
+              onChange: function (event) { setTitle(event.target.value); },
+              placeholder: "What needs to happen?",
+              autoFocus: true,
+              rows: 2,
+              disabled: submitting,
+            }),
+          ),
+          h("label", { className: "fabric-work-create-field" },
+            h("span", null, "Details ", h("small", null, "optional")),
+            h("textarea", {
+              value: body,
+              onChange: function (event) { setBody(event.target.value); },
+              placeholder: "Context, constraints, or a clear completion condition",
+              rows: 4,
+              disabled: submitting,
+            }),
+          ),
+          h("div", { className: "fabric-work-create-row" },
+            h("label", { className: "fabric-work-create-field" },
+              h("span", null, "Assignee ", h("small", null, "optional")),
+              h(Input, {
+                value: assignee,
+                onChange: function (event) { setAssignee(event.target.value); },
+                placeholder: "Fabric profile",
+                disabled: submitting,
+                autoCapitalize: "none",
+                autoCorrect: "off",
+                spellCheck: false,
+              }),
+            ),
+            h("label", { className: "fabric-work-create-field fabric-work-create-priority" },
+              h("span", null, "Priority"),
+              h(Input, {
+                type: "number",
+                value: priority,
+                min: 0,
+                onChange: function (event) { setPriority(event.target.value); },
+                disabled: submitting,
+              }),
+            ),
+          ),
+          h("label", { className: "fabric-work-create-field" },
+            h("span", null, "Depends on ", h("small", null, "optional")),
+            h(Select, Object.assign({
+              value: parent,
+              disabled: submitting,
+            }, selectChangeHandler(setParent)),
+              h(SelectOption, { value: "" }, "No parent"),
+              (props.allTasks || []).map(function (task) {
+                return h(SelectOption, { key: task.id, value: task.id },
+                  `${task.id} — ${(task.title || "").slice(0, 64)}`);
+              }),
+            ),
+          ),
+          h("label", { className: "fabric-work-create-triage" },
+            h(Checkbox, {
+              checked: triage,
+              disabled: submitting,
+              onCheckedChange: function (checked) { setTriage(checked === true); },
+            }),
+            h("span", null,
+              h("strong", null, "Send to triage"),
+              h("small", null, "Let a specifier refine a rough idea before it is ready."),
+            ),
+          ),
+        ),
+        err ? h("div", { className: "fabric-work-create-error", role: "alert" }, err) : null,
+        h("div", { className: "hermes-kanban-dialog-actions" },
+          h(Button, {
+            type: "button",
+            onClick: cancelDialog,
+            size: "sm",
+          }, submitting && committed
+            ? "Close"
+            : submitting ? "Dismiss" : tx(t, "cancel", "Cancel")),
+          h(Button, {
+            type: "submit",
+            size: "sm",
+            disabled: submitting || !title.trim(),
+          }, submitting ? tx(t, "creating", "Creating…") : "Create work"),
+        ),
       ),
     );
   }
@@ -3467,6 +4085,10 @@
 
     const colHelp = getColumnHelp(t, props.column.name);
     const colLabel = getColumnLabel(t, props.column.name);
+    // The create API can place a new task directly only in Triage or Ready.
+    // Other statuses require a real transition, so do not offer a control
+    // that promises "create here" and silently drops the task in Ready.
+    const canCreateInColumn = props.column.name === "triage" || props.column.name === "ready";
 
     return h("div", {
       ref: colRef,
@@ -3497,12 +4119,14 @@
         h("span", { className: "hermes-kanban-column-count",
                     title: `${props.column.tasks.length} task${props.column.tasks.length === 1 ? "" : "s"} in this column` },
           props.column.tasks.length),
-        h("button", {
-          type: "button",
-          className: "hermes-kanban-column-add",
-          title: tx(t, "createTask", "Create task in this column"),
-          onClick: function () { setShowCreate(function (v) { return !v; }); },
-        }, showCreate ? "×" : "+"),
+        canCreateInColumn
+          ? h("button", {
+            type: "button",
+            className: "hermes-kanban-column-add",
+            title: tx(t, "createTask", "Create task in this column"),
+            onClick: function () { setShowCreate(function (v) { return !v; }); },
+          }, showCreate ? "×" : "+")
+          : null,
       ),
       h("div", { className: "hermes-kanban-column-sub" },
         colHelp || ""),
@@ -3510,7 +4134,7 @@
         columnName: props.column.name,
         allTasks: props.allTasks,
         onSubmit: function (body) {
-          props.onCreate(body).then(function () { setShowCreate(false); });
+          return props.onCreate(body).then(function () { setShowCreate(false); });
         },
         onCancel: function () { setShowCreate(false); },
       }) : null,
@@ -3624,7 +4248,7 @@
         props.onOpen(t.id);
       }
       if (e.key === "Escape") {
-        if (props.toggleSelected) props.toggleSelected(t.id, false);
+        if (props.selected && props.toggleSelected) props.toggleSelected(t.id, false);
       }
     };
     const handleCheckedChange = function () {
@@ -3763,10 +4387,12 @@
     // = backend default.
     const [goalMode, setGoalMode] = useState(false);
     const [goalMaxTurns, setGoalMaxTurns] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState(null);
 
     const submit = function () {
       const trimmed = title.trim();
-      if (!trimmed) return;
+      if (!trimmed || submitting) return;
       const body = {
         title: trimmed,
         assignee: assignee.trim() || null,
@@ -3796,10 +4422,16 @@
         const gmt = parseInt(goalMaxTurns, 10);
         if (Number.isFinite(gmt) && gmt > 0) body.goal_max_turns = gmt;
       }
-      props.onSubmit(body);
-      setTitle(""); setAssignee(""); setPriority(0); setParent(""); setSkills("");
-      setWorkspaceKind("scratch"); setWorkspacePath("");
-      setGoalMode(false); setGoalMaxTurns("");
+      setSubmitting(true);
+      setSubmitError(null);
+      Promise.resolve(props.onSubmit(body)).then(function () {
+        setTitle(""); setAssignee(""); setPriority(0); setParent(""); setSkills("");
+        setWorkspaceKind("scratch"); setWorkspacePath("");
+        setGoalMode(false); setGoalMaxTurns("");
+      }).catch(function (error) {
+        setSubmitError(parseApiErrorMessage(error));
+        setSubmitting(false);
+      });
     };
 
     const showPathInput = workspaceKind !== "scratch";
@@ -3814,7 +4446,7 @@
         onChange: function (e) { setTitle(e.target.value); },
         onKeyDown: function (e) {
           if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
-          if (e.key === "Escape") props.onCancel();
+          if (e.key === "Escape" && !submitting) props.onCancel();
         },
         placeholder: props.columnName === "triage"
           ? tx(t, "triagePlaceholder", "Rough idea — AI will spec it…")
@@ -3822,6 +4454,7 @@
         autoFocus: true,
         className: "text-sm min-h-[2rem] max-h-32 resize-y w-full border border-input bg-transparent px-2 py-1 rounded-md focus:outline-none focus:ring-2 focus:ring-ring",
         rows: 2,
+        disabled: submitting,
       }),
       h("div", { className: "flex gap-2" },
         h(Input, {
@@ -3838,6 +4471,7 @@
           autoCapitalize: "none",
           autoCorrect: "off",
           spellCheck: false,
+          disabled: submitting,
         }),
         h(Input, {
           type: "number",
@@ -3846,6 +4480,7 @@
           placeholder: "pri",
           className: "h-7 text-xs w-16",
           title: "Priority. Higher-priority tasks are claimed first by the dispatcher. 0 = default.",
+          disabled: submitting,
         }),
       ),
       h(Input, {
@@ -3855,6 +4490,7 @@
           "skills (optional, comma-separated): translation, github-code-review"),
         title: "Force-load these skills into the worker (in addition to the built-in kanban-worker).",
         className: "h-7 text-xs",
+        disabled: submitting,
       }),
       h("div", { className: "flex gap-2 items-center" },
         h("label", {
@@ -3866,6 +4502,7 @@
             checked: goalMode,
             onChange: function (e) { setGoalMode(!!e.target.checked); },
             className: "h-3.5 w-3.5 accent-current",
+            disabled: submitting,
           }),
           tx(t, "goalMode", "goal mode"),
         ),
@@ -3877,6 +4514,7 @@
           className: "h-7 text-xs w-40",
           title: "Turn budget for the goal loop. Blank = backend default (20).",
           min: 1,
+          disabled: submitting,
         }) : null,
       ),
       h("div", { className: "flex gap-2" },
@@ -3884,6 +4522,7 @@
           value: workspaceKind,
           title: "scratch: isolated temp dir (default). worktree: git worktree on the assignee profile. dir: exact path (required below).",
           className: "h-7 text-xs w-28",
+          disabled: submitting,
         }, selectChangeHandler(setWorkspaceKind)),
           h(SelectOption, { value: "scratch" }, "scratch"),
           h(SelectOption, { value: "worktree" }, "worktree"),
@@ -3894,12 +4533,14 @@
           onChange: function (e) { setWorkspacePath(e.target.value); },
           placeholder: pathPlaceholder,
           className: "h-7 text-xs flex-1",
+          disabled: submitting,
         }) : null,
       ),
       h(Select, Object.assign({
         value: parent,
         className: "h-7 text-xs",
         title: "Optional parent task. A child stays blocked in its current column until the parent is marked done.",
+        disabled: submitting,
       }, selectChangeHandler(setParent)),
         h(SelectOption, { value: "" }, tx(t, "noParent", "— no parent —")),
         (props.allTasks || []).map(function (task) {
@@ -3911,12 +4552,18 @@
         h(Button, {
           onClick: submit,
           size: "sm",
-        }, "Create"),
+          disabled: submitting || !title.trim(),
+        }, submitting ? tx(t, "creating", "Creating…") : "Create"),
         h(Button, {
           onClick: props.onCancel,
           size: "sm",
+          disabled: submitting,
         }, tx(t, "cancel", "Cancel")),
       ),
+      submitError ? h("div", {
+        className: "text-xs text-destructive",
+        role: "alert",
+      }, submitError) : null,
     );
   }
 
@@ -3938,6 +4585,8 @@
     const [uploadBusy, setUploadBusy] = useState(false);
     const [uploadErr, setUploadErr] = useState(null);
     const [editing, setEditing] = useState(false);
+    const drawerRef = useRef(null);
+    const priorFocusRef = useRef(null);
     // Home-channel notification toggles. homeChannels is the list of platforms
     // the user has a /sethome on; each entry has a `subscribed` bool telling
     // us whether this task is currently subscribed via that platform's home.
@@ -4000,7 +4649,38 @@
     }, [load, props.eventTick]);
     useEffect(function () { loadHomeChannels(); }, [loadHomeChannels]);
     useEffect(function () {
-      function onKey(e) { if (e.key === "Escape" && !editing) props.onClose(); }
+      priorFocusRef.current = document.activeElement;
+      window.requestAnimationFrame(function () {
+        const close = drawerRef.current && drawerRef.current.querySelector(".hermes-kanban-drawer-close");
+        if (close && close.focus) close.focus();
+      });
+      return function () {
+        const prior = priorFocusRef.current;
+        if (prior && prior.focus) prior.focus();
+      };
+    }, []);
+    useEffect(function () {
+      function onKey(e) {
+        if (e.key === "Escape" && !editing) {
+          e.preventDefault();
+          props.onClose();
+          return;
+        }
+        if (e.key !== "Tab" || !drawerRef.current) return;
+        const focusable = drawerRef.current.querySelectorAll(
+          'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [role="combobox"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusable.length) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
       window.addEventListener("keydown", onKey);
       return function () { window.removeEventListener("keydown", onKey); };
     }, [props.onClose, editing]);
@@ -4068,7 +4748,7 @@
       if (opts && opts.confirm && !window.confirm(opts.confirm)) {
         return Promise.resolve();
       }
-      const finalPatch = withCompletionSummary(patch, 1);
+      const finalPatch = withCompletionSummary(patch, 1, t);
       if (!finalPatch) return Promise.resolve();
       setPatchErr(null);
       return SDK.fetchJSON(withBoard(`${API}/tasks/${encodeURIComponent(props.taskId)}`, boardSlug), {
@@ -4189,7 +4869,11 @@
 
     return h("div", { className: "hermes-kanban-drawer-shade", onClick: props.onClose },
       h("div", {
+        ref: drawerRef,
         className: "hermes-kanban-drawer",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": "Task " + props.taskId,
         onClick: function (e) { e.stopPropagation(); },
       },
         h("div", { className: "hermes-kanban-drawer-head" },
@@ -4225,6 +4909,7 @@
           onDeleteAttachment: handleDeleteAttachment,
           uploadBusy: uploadBusy,
           uploadErr: uploadErr,
+          patchErr: patchErr,
         }) : null,
         data ? h("div", { className: "hermes-kanban-drawer-comment-row" },
           h(Input, {
@@ -4406,6 +5091,12 @@
         onSpecify: props.onSpecify,
         onDecompose: props.onDecompose,
       }),
+      props.patchErr
+        ? h("div", {
+          className: "hermes-kanban-msg-err",
+          role: "alert",
+        }, props.patchErr)
+        : null,
       h(DiagnosticsSection, {
         task: t,
         boardSlug: props.boardSlug,
@@ -5051,11 +5742,303 @@
   }
 
   // -------------------------------------------------------------------------
+  // Chat rail — a small Work control surface beside the live conversation.
+  // It lists board metadata only; opening a full projection remains explicit.
+  // -------------------------------------------------------------------------
+
+  function slugifyBoardName(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^[-_]+/, "")
+      .replace(/-+/g, "-")
+      .slice(0, 64);
+  }
+
+  function activeBoardCount(counts) {
+    const statusCounts = counts || {};
+    return Object.keys(statusCounts).reduce(function (total, status) {
+      return status === "done" || status === "archived"
+        ? total
+        : total + (Number(statusCounts[status]) || 0);
+    }, 0);
+  }
+
+  function workViewPath(board, view) {
+    const params = new URLSearchParams();
+    try {
+      const current = new URLSearchParams(window.location.search);
+      const profile = current.get("profile");
+      if (profile) params.set("profile", profile);
+    } catch (_e) { /* location can be unavailable in isolated previews */ }
+    params.set("board", board || "default");
+    params.set("view", WORK_VIEWS.has(view) ? view : "graph");
+    return "/work?" + params.toString();
+  }
+
+  function WorkRailCard(props) {
+    const [boards, setBoards] = useState([]);
+    const [selectedBoard, setSelectedBoard] = useState(function () {
+      return readSelectedBoard() || "default";
+    });
+    const [loadingBoards, setLoadingBoards] = useState(true);
+    const [loadError, setLoadError] = useState(null);
+    const [showCreate, setShowCreate] = useState(false);
+    const [newBoardName, setNewBoardName] = useState("");
+    const [newBoardSlug, setNewBoardSlug] = useState("");
+    const [slugTouched, setSlugTouched] = useState(false);
+    const [creatingBoard, setCreatingBoard] = useState(false);
+    const [createError, setCreateError] = useState(null);
+    const requestRef = useRef(0);
+
+    const loadBoards = useCallback(function (preferredSlug) {
+      const requestId = ++requestRef.current;
+      setLoadingBoards(true);
+      setLoadError(null);
+      return SDK.fetchJSON(`${API}/boards`)
+        .then(function (data) {
+          if (requestId !== requestRef.current) return null;
+          const nextBoards = (data && data.boards) || [];
+          const storedBoard = readSelectedBoard();
+          const candidates = [preferredSlug, storedBoard, data && data.current, "default"];
+          const resolved = candidates.find(function (slug) {
+            return slug && nextBoards.some(function (item) { return item.slug === slug; });
+          }) || (nextBoards[0] && nextBoards[0].slug) || "default";
+          setBoards(nextBoards);
+          setSelectedBoard(resolved);
+          return data;
+        })
+        .catch(function (error) {
+          if (requestId === requestRef.current) {
+            setLoadError(parseApiErrorMessage(error));
+          }
+          return null;
+        })
+        .finally(function () {
+          if (requestId === requestRef.current) setLoadingBoards(false);
+        });
+    }, []);
+
+    // Chat is intentionally kept mounted while other dashboard routes are
+    // active. Reload whenever it becomes visible again so board choices and
+    // counts changed on /work do not leave this supporting card stale.
+    useEffect(function () {
+      if (props.active === false) return undefined;
+      loadBoards();
+      return undefined;
+    }, [props.active, loadBoards]);
+
+    useEffect(function () {
+      return function () { requestRef.current += 1; };
+    }, []);
+
+    const currentBoard = boards.find(function (item) {
+      return item.slug === selectedBoard;
+    }) || null;
+    const counts = (currentBoard && currentBoard.counts) || {};
+
+    function chooseBoard(slug) {
+      if (!slug) return;
+      setSelectedBoard(slug);
+      writeSelectedBoard(slug);
+    }
+
+    function openView(view) {
+      const path = workViewPath(selectedBoard, view);
+      if (typeof props.navigate === "function") props.navigate(path);
+      else window.location.assign(path);
+    }
+
+    function updateBoardName(event) {
+      const value = event.target.value;
+      setNewBoardName(value);
+      if (!slugTouched) setNewBoardSlug(slugifyBoardName(value));
+    }
+
+    function updateBoardSlug(event) {
+      setSlugTouched(true);
+      setNewBoardSlug(slugifyBoardName(event.target.value));
+    }
+
+    function closeCreate() {
+      if (creatingBoard) return;
+      setShowCreate(false);
+      setCreateError(null);
+    }
+
+    function createBoard(event) {
+      event.preventDefault();
+      const slug = slugifyBoardName(newBoardSlug || newBoardName);
+      const name = newBoardName.trim();
+      if (!slug || !name || creatingBoard) {
+        if (!name) setCreateError("Add a board name.");
+        else if (!slug) setCreateError("Add a valid board key.");
+        return;
+      }
+      if (boards.some(function (item) { return item.slug === slug; })) {
+        setCreateError("This board key already exists. Choose it above or use a different key.");
+        return;
+      }
+      setCreatingBoard(true);
+      setCreateError(null);
+      SDK.fetchJSON(`${API}/boards`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: slug, name: name, switch: false }),
+      })
+        .then(function (result) {
+          const createdSlug = result && result.board && result.board.slug;
+          if (!createdSlug) throw new Error("The board was created but could not be selected.");
+          chooseBoard(createdSlug);
+          setNewBoardName("");
+          setNewBoardSlug("");
+          setSlugTouched(false);
+          setShowCreate(false);
+          return loadBoards(createdSlug);
+        })
+        .catch(function (error) {
+          setCreateError(parseApiErrorMessage(error));
+        })
+        .finally(function () { setCreatingBoard(false); });
+    }
+
+    const boardOptions = boards.length
+      ? boards
+      : [{ slug: "default", name: "Default", counts: {} }];
+
+    return h(Card, {
+      className: "fabric-work-rail-card",
+      "aria-busy": loadingBoards ? "true" : undefined,
+    },
+      h("div", { className: "fabric-work-rail-header" },
+        h("div", null,
+          h("div", { className: "fabric-work-rail-eyebrow" }, "Work"),
+          h("div", { className: "fabric-work-rail-board-name" },
+            (currentBoard && currentBoard.name) || selectedBoard || "Default"),
+        ),
+        h(Button, {
+          type: "button",
+          ghost: true,
+          size: "icon",
+          className: "fabric-work-rail-icon-button",
+          title: "Refresh Work boards",
+          "aria-label": "Refresh Work boards",
+          disabled: loadingBoards,
+          onClick: function () { loadBoards(); },
+        }, icon("RotateCcw")),
+      ),
+      loadError
+        ? h("div", { className: "fabric-work-rail-error", role: "alert" },
+          h("span", null, "Work is unavailable. ", loadError),
+          h(Button, {
+            type: "button",
+            size: "sm",
+            outlined: true,
+            onClick: function () { loadBoards(); },
+          }, "Retry"),
+        )
+        : h(React.Fragment, null,
+          h("label", { className: "fabric-work-rail-field" },
+            h("span", null, "Board"),
+            h(Select, Object.assign({
+              value: selectedBoard,
+              disabled: loadingBoards,
+              "aria-label": "Work board",
+            }, selectChangeHandler(chooseBoard)),
+              boardOptions.map(function (board) {
+                return h(SelectOption, { key: board.slug, value: board.slug },
+                  board.name || board.slug);
+              }),
+            ),
+          ),
+          h("div", { className: "fabric-work-rail-counts", "aria-label": "Board status counts" },
+            [["Active", activeBoardCount(counts)], ["Running", counts.running || 0],
+              ["Blocked", counts.blocked || 0], ["Review", counts.review || 0]]
+              .map(function (entry) {
+                return h("div", { key: entry[0], className: "fabric-work-rail-count" },
+                  h("strong", null, String(entry[1])),
+                  h("span", null, entry[0]),
+                );
+              }),
+          ),
+          h("div", { className: "fabric-work-rail-view-actions", "aria-label": "Open Work view" },
+            [["graph", "Workflow", "Graph"], ["board", "LayoutGrid", "Board"],
+              ["outline", "ListTree", "Outline"]].map(function (entry) {
+                return h(Button, {
+                  key: entry[0],
+                  type: "button",
+                  size: "sm",
+                  outlined: true,
+                  onClick: function () { openView(entry[0]); },
+                }, icon(entry[1], { size: 14 }), h("span", null, entry[2]));
+              }),
+          ),
+          showCreate
+            ? h("form", { className: "fabric-work-rail-create", onSubmit: createBoard },
+              h("div", { className: "fabric-work-rail-create-heading" },
+                h("strong", null, "New board"),
+                h(Button, {
+                  type: "button",
+                  ghost: true,
+                  size: "sm",
+                  disabled: creatingBoard,
+                  onClick: closeCreate,
+                }, "Cancel"),
+              ),
+              h("label", { className: "fabric-work-rail-field" },
+                h("span", null, "Name"),
+                h(Input, {
+                  value: newBoardName,
+                  placeholder: "Launch plan",
+                  autoFocus: true,
+                  disabled: creatingBoard,
+                  onChange: updateBoardName,
+                }),
+              ),
+              h("label", { className: "fabric-work-rail-field" },
+                h("span", null, "Board key"),
+                h(Input, {
+                  value: newBoardSlug,
+                  placeholder: "launch-plan",
+                  autoCapitalize: "none",
+                  autoCorrect: "off",
+                  spellCheck: false,
+                  disabled: creatingBoard,
+                  onChange: updateBoardSlug,
+                }),
+              ),
+              createError
+                ? h("div", { className: "fabric-work-rail-form-error", role: "alert" }, createError)
+                : null,
+              h(Button, {
+                type: "submit",
+                size: "sm",
+                disabled: creatingBoard || !newBoardName.trim() || !newBoardSlug,
+              }, creatingBoard ? "Creating…" : "Create board"),
+            )
+            : h(Button, {
+              type: "button",
+              size: "sm",
+              className: "fabric-work-rail-new-button",
+              onClick: function () {
+                setCreateError(null);
+                setShowCreate(true);
+              },
+            }, icon("Plus"), h("span", null, "New board")),
+        ),
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Register
   // -------------------------------------------------------------------------
 
   const pluginRegistry = window.__FABRIC_PLUGINS__ || window.__HERMES_PLUGINS__;
   if (pluginRegistry && typeof pluginRegistry.register === "function") {
     pluginRegistry.register("kanban", KanbanPage);
+  }
+  if (pluginRegistry && typeof pluginRegistry.registerSlot === "function") {
+    pluginRegistry.registerSlot("kanban", "chat:rail", WorkRailCard);
   }
 })();

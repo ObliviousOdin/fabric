@@ -51,6 +51,7 @@ import ChatPage from "@/pages/ChatPage";
 import DocsPage from "@/pages/DocsPage";
 import { useI18n } from "@/i18n";
 import { PluginPage, PluginSlot, usePlugins } from "@/plugins";
+import { PluginAliasRedirect } from "@/plugins/PluginAliasRedirect";
 import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
 import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
@@ -168,6 +169,26 @@ function buildRoutes(
       path: m.tab.path,
       element: <PluginPage name={m.name} />,
     });
+  }
+
+  // Aliases are compatibility-only routes. Canonical plugin paths, built-in
+  // pages, and earlier aliases always win so a plugin cannot shadow another
+  // product surface by declaring an alias for it.
+  const claimedPaths = new Set(Object.keys(builtinRoutes));
+  for (const m of manifests) {
+    claimedPaths.add(m.tab.override ?? m.tab.path);
+  }
+  for (const m of manifests) {
+    const canonicalPath = m.tab.override ?? m.tab.path;
+    for (const alias of m.tab.aliases ?? []) {
+      if (!alias.startsWith("/") || claimedPaths.has(alias)) continue;
+      claimedPaths.add(alias);
+      routes.push({
+        key: `plugin-alias:${m.name}:${alias}`,
+        path: alias,
+        element: <PluginAliasRedirect to={canonicalPath} />,
+      });
+    }
   }
 
   return routes;
@@ -398,7 +419,6 @@ export default function App() {
             collapsed={collapsed}
             isDesktopCollapsed={isDesktopCollapsed}
             mobileOpen={mobileOpen}
-            workspaceActive={isWorkspaceRoute}
             pluginItems={sidebarNav.pluginItems}
             sections={sidebarNav.sections}
             status={sidebarStatus}

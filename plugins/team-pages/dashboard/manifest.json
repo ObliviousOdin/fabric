@@ -7,7 +7,7 @@
   "tab": {
     "path": "/team",
     "layout": "workspace",
-    "position": "after:kanban"
+    "position": "after:work"
   },
   "entry": "dist/index.js",
   "css": "dist/style.css"

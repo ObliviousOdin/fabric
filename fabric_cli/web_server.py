@@ -17943,9 +17943,10 @@ def _discover_dashboard_plugins() -> list:
                     continue
                 seen_names.add(name)
                 # Tab options: ``path`` + ``position`` for a new tab, optional
-                # ``override`` to replace a built-in route, and ``hidden`` to
-                # register the plugin component/slots without adding a tab
-                # (useful for slot-only plugins like a header-crest injector).
+                # ``aliases`` for compatibility redirects, ``override`` to
+                # replace a built-in route, and ``hidden`` to register the
+                # plugin component/slots without adding a tab (useful for
+                # slot-only plugins like a header-crest injector).
                 raw_tab = data.get("tab", {}) if isinstance(data.get("tab"), dict) else {}
                 tab_info = {
                     "path": raw_tab.get("path", f"/{name}"),
@@ -17954,6 +17955,17 @@ def _discover_dashboard_plugins() -> list:
                 layout = raw_tab.get("layout")
                 if layout in {"page", "workspace"}:
                     tab_info["layout"] = layout
+                aliases = raw_tab.get("aliases")
+                if isinstance(aliases, list):
+                    valid_aliases = list(dict.fromkeys(
+                        alias
+                        for alias in aliases
+                        if isinstance(alias, str)
+                        and alias.startswith("/")
+                        and alias != tab_info["path"]
+                    ))
+                    if valid_aliases:
+                        tab_info["aliases"] = valid_aliases
                 override_path = raw_tab.get("override")
                 if isinstance(override_path, str) and override_path.startswith("/"):
                     tab_info["override"] = override_path

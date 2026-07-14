@@ -40,7 +40,6 @@ export function AppSidebar({
   collapsed,
   isDesktopCollapsed,
   mobileOpen,
-  workspaceActive,
   closeMobile,
   toggleCollapsed,
   sections,
@@ -65,7 +64,6 @@ export function AppSidebar({
     <aside
       id="app-sidebar"
       aria-label={t.app.navigation}
-      data-workspace-active={workspaceActive ? "true" : "false"}
       className={cn(
         "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-64 min-h-0 flex-col font-sans",
         "border-r border-current/20",
@@ -282,7 +280,6 @@ interface AppSidebarProps {
   collapsed: boolean;
   isDesktopCollapsed: boolean;
   mobileOpen: boolean;
-  workspaceActive: boolean;
   pluginItems: NavItem[];
   sections: NavSection[];
   status: StatusResponse | null;

@@ -12,6 +12,8 @@ export interface PluginManifest {
     path: string;
     /** Workspace routes own their header, padding, and internal scroll areas. */
     layout?: "page" | "workspace";
+    /** Legacy or compatibility paths that redirect to the canonical plugin route. */
+    aliases?: string[];
     /** "end", "after:<pathSegment>", "before:<pathSegment>" (e.g. "after:skills" → after `/skills`) */
     position?: string;
     /** When set to a built-in route path, this plugin replaces that page instead of adding a new tab. */

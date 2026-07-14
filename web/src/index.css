@@ -99,17 +99,8 @@
   --series-input-token: var(--midground-base);
   --series-output-token: var(--theme-color-primary, #0053fd);
 
-  /* Workbench rail tokens: a low-chroma indigo neutral gives graph-heavy
-     workspaces a stable navigation anchor without becoming a second accent.
-     The rail accent is a light Fabric blue (8.9:1 on the indigo rail). */
-  --fabric-work-rail: #171a2e;
-  --fabric-work-rail-text: #f4f6f8;
-  --fabric-work-rail-muted: #b7bece;
-  --fabric-work-rail-accent: #9dbaff;
-
   /* Subtle raised-surface tint consumed by dashboard plugin CSS
-     (var(--color-card-subtle, …)); redefined inside the workspace rail
-     scope below so it tracks the rail canvas there. */
+     (var(--color-card-subtle, …)). */
   --color-card-subtle: color-mix(in srgb, var(--midground-base) 3%, var(--background-base));
 }
 
@@ -152,25 +143,6 @@ code, kbd, pre, samp, .font-mono, .font-mono-ui {
   height: 100%;
   max-height: 100%;
   overflow: hidden;
-}
-
-#app-sidebar[data-workspace-active="true"] {
-  --background-base: var(--fabric-work-rail);
-  --midground: var(--fabric-work-rail-text);
-  --midground-base: var(--fabric-work-rail-text);
-  --color-foreground: var(--fabric-work-rail-text);
-  --color-text-primary: var(--fabric-work-rail-text);
-  --color-text-secondary: var(--fabric-work-rail-muted);
-  --color-text-tertiary: color-mix(in srgb, var(--fabric-work-rail-muted) 80%, transparent);
-  --color-ring: var(--fabric-work-rail-accent);
-  --color-accent: color-mix(in srgb, var(--fabric-work-rail-text) 10%, transparent);
-  /* The bridge utilities inline `var(--theme-color-*, …)` chains, so the
-     rail must override those slots too, not just the --color-* copies. */
-  --theme-color-ring: var(--fabric-work-rail-accent);
-  --theme-color-accent: color-mix(in srgb, var(--fabric-work-rail-text) 10%, transparent);
-  --color-card-subtle: color-mix(in srgb, var(--fabric-work-rail-text) 4%, var(--fabric-work-rail));
-  background: var(--fabric-work-rail) !important;
-  color: var(--fabric-work-rail-text);
 }
 
 @media (max-width: 768px) {

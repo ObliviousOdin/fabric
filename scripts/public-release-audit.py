@@ -119,6 +119,15 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
     {
         ("10bb49f8401dea1a981f172c8a0d331d0d47e533", "personal-email"),
         ("10bb49f8401dea1a981f172c8a0d331d0d47e533", "private-brand"),
+        # PR #4 / PR #5 merge commits and the PR #5 work branch landed with
+        # the same personal-email author identity before this ledger could
+        # gate them; they are published, immutable history now.
+        ("fb7319d247965a583d1d116d7bff067489c0629b", "personal-email"),
+        ("fb7319d247965a583d1d116d7bff067489c0629b", "private-brand"),
+        ("cf3ccd51edbd89b2e314ff0d4e62a0894e05ee21", "personal-email"),
+        ("cf3ccd51edbd89b2e314ff0d4e62a0894e05ee21", "private-brand"),
+        ("7f0961359fd8697d1fe7af23b80a6b0c1176305b", "personal-email"),
+        ("7f0961359fd8697d1fe7af23b80a6b0c1176305b", "private-brand"),
     }
 )
 
@@ -298,13 +307,20 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e",
     ),
     "LICENSE": (
-        "MIT License",
-        "Copyright (c) 2025 Nous Research",
-        "Copyright (c) 2026 ObliviousOdin and Fabric contributors",
+        "Apache License",
+        "Version 2.0, January 2004",
     ),
     "NOTICE": (
-        "Fabric includes modified software from Hermes Agent by Nous Research.",
-        "preserved in the root LICENSE file",
+        "Copyright (c) 2026 ObliviousOdin and Fabric contributors",
+        "Apache License, Version 2.0",
+        "Hermes Agent by Nous Research",
+        "LICENSES/MIT-hermes-agent.txt",
+    ),
+    # The upstream MIT notice must ship verbatim alongside the Apache-2.0
+    # distribution license — its terms require preservation.
+    "LICENSES/MIT-hermes-agent.txt": (
+        "MIT License",
+        "Copyright (c) 2025 Nous Research",
     ),
     "THIRD_PARTY_NOTICES.md": (
         "# Third-Party Notices",

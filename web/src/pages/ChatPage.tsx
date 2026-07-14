@@ -33,14 +33,20 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { ChatSessionList } from "@/components/ChatSessionList";
 import { ChatContextPanel } from "@/components/chat/ChatContextPanel";
 import { ChatSideSheet } from "@/components/chat/ChatSideSheet";
 import { ChatWorkspaceLayout } from "@/components/chat/ChatWorkspaceLayout";
 import { useChatViewportMode } from "@/components/chat/useChatViewportMode";
-import { usePersistentChatIdentity } from "@/components/chat/usePersistentChatIdentity";
+import {
+  chatLocationWithSearch,
+  createFreshChatRequestId,
+  FRESH_CHAT_QUERY_PARAM,
+  reconcilePersistentChatLocation,
+  usePersistentChatIdentity,
+} from "@/components/chat/usePersistentChatIdentity";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { api } from "@/lib/api";
 import { normalizeSessionTitle } from "@/lib/chat-title";
@@ -148,6 +154,7 @@ export default function ChatPage({
   // collapses the host's box, so ResizeObserver never fires on return).
   const syncMetricsRef = useRef<(() => void) | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const isActiveRef = useRef(isActive);
   useLayoutEffect(() => {
@@ -173,6 +180,7 @@ export default function ChatPage({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const forceFreshPtyRef = useRef(false);
+  const handledFreshRequestRef = useRef<string | null>(null);
   // NS-504: when the agent process exits cleanly (the user typed `/exit`, or
   // started a new session that ended the current PTY child), the PTY socket
   // closes with a normal code. Before this fix the terminal just printed
@@ -200,14 +208,13 @@ export default function ChatPage({
     const next = new URLSearchParams(searchParams);
 
     next.delete("resume");
-    forceFreshPtyRef.current = true;
+    next.set(FRESH_CHAT_QUERY_PARAM, createFreshChatRequestId());
     reconnectAttemptRef.current = 0;
     clearReconnectTimer();
-    setSearchParams(next, { replace: true });
+    navigate(chatLocationWithSearch(location, next), { replace: true });
     setSessionEnded(false);
     setBanner(null);
-    setReconnectNonce((n) => n + 1);
-  }, [clearReconnectTimer, searchParams, setSearchParams]);
+  }, [clearReconnectTimer, location, navigate, searchParams]);
   const viewportMode = useChatViewportMode();
   const [compactPanelRaw, setCompactPanelRaw] = useState<
     "conversations" | "context" | null
@@ -260,6 +267,7 @@ export default function ChatPage({
   // treat the current resume target as part of the PTY identity and rebuild the
   // terminal session when it changes.
   const routeResumeParam = searchParams.get("resume");
+  const routeFreshRequest = searchParams.get(FRESH_CHAT_QUERY_PARAM);
   // Profile-scoped chat: spawn the PTY under the globally selected
   // management profile. Changing it remounts the terminal (key below /
   // effect dep) so the user explicitly starts a fresh scoped session.
@@ -268,12 +276,28 @@ export default function ChatPage({
     isActive,
     routeResumeParam,
     scopedProfile,
+    routeFreshRequest,
   );
   const {
     channel,
     profile: chatProfile,
     resumeParam,
   } = chatIdentity;
+  useLayoutEffect(() => {
+    if (
+      !isActive ||
+      !routeFreshRequest ||
+      handledFreshRequestRef.current === routeFreshRequest
+    ) {
+      return;
+    }
+
+    // Mark the one-shot intent before the passive PTY connection effect runs,
+    // so this channel rotates its attach token and cannot reattach the prior
+    // process. Reconciliation below then removes the directive from the URL.
+    handledFreshRequestRef.current = routeFreshRequest;
+    forceFreshPtyRef.current = true;
+  }, [isActive, routeFreshRequest]);
   const titleScope = `${channel}\0${reconnectNonce}`;
   const sessionTitle =
     sessionTitleState.scope === titleScope ? sessionTitleState.title : null;
@@ -281,6 +305,13 @@ export default function ChatPage({
     (title: string | null) => setSessionTitleState({ scope: titleScope, title }),
     [titleScope],
   );
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const replacement = reconcilePersistentChatLocation(location, resumeParam);
+    if (replacement) navigate(replacement, { replace: true });
+  }, [isActive, location, navigate, resumeParam]);
 
   useEffect(() => {
     if (!isActive) return;

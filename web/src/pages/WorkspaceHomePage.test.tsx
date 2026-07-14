@@ -76,5 +76,12 @@ describe("WorkspaceHomePage projection loading", () => {
     expect(container.textContent).toContain("Quarterly operations review");
     expect(container.textContent).toContain("Loading runtime state");
     expect(getCronSummary).toHaveBeenCalledWith("ops");
+    const startLinks = Array.from(container.querySelectorAll("a")).filter(
+      (link) => link.textContent?.includes("Start a conversation"),
+    );
+    expect(startLinks).toHaveLength(1);
+    expect(startLinks[0].getAttribute("href")).toMatch(
+      /^\/workspace\/chat\?fresh=[^&]+$/,
+    );
   });
 });

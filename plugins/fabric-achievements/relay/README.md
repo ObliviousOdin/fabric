@@ -72,6 +72,7 @@ only their hashes are retained.
 | `POST /api/teams` | `{name, display_name}` | Create a team; returns `team_id`, `join_secret`, owner `member_id` + `member_token` |
 | `POST /api/teams/{id}/join` | `{join_secret, display_name}` | Join; returns `member_id` + `member_token` |
 | `POST /api/teams/{id}/publish` | `{member_id, member_token, profile, display_name?}` | Store this member's aggregate profile |
+| `POST /api/teams/{id}/unpublish` | `{member_id, member_token}` | Retract your profile (stay a member, show as not-shared) |
 | `POST /api/teams/{id}/leave` | `{member_id, member_token}` | Remove yourself |
 | `POST /api/teams/{id}/rotate` | `{member_id, member_token}` | Owner-only: mint a fresh invite secret |
 | `POST /api/teams/{id}/kick` | `{member_id, member_token, target_member_id}` | Owner-only: remove a member |
@@ -92,6 +93,10 @@ is no CORS surface here.
   board is for friends/teams who trust each other, not an adversarial ranking.
   Cryptographic attestation is noted as future work.
 - No accounts, no global discovery: a team is reachable only with its secret.
+- `create_team` is unauthenticated (that's how invites work), so the relay caps
+  total teams (`MAX_TEAMS`, default 1000) to bound a create-spam DoS. This is a
+  backstop, not a substitute for running the relay on a trusted network or
+  behind an authenticating proxy.
 
 ## Testing
 

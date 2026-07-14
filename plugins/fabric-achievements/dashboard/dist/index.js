@@ -946,6 +946,14 @@
           if (payload && payload.membership && payload.membership.display_name) {
             setNameDraft(payload.membership.display_name);
           }
+          // Surface a relay failure on load/refresh (e.g. relay unreachable)
+          // instead of a misleading empty board; clear any stale banner when
+          // the fetch succeeds.
+          if (payload && payload.ok === false) {
+            setActionError(payload.error || tx(t, "team.generic_error", "Something went wrong."));
+          } else {
+            setActionError(null);
+          }
         })
         .catch(function (err) { setActionError(String(err)); })
         .finally(function () { setLoading(false); });

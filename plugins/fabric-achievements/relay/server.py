@@ -41,6 +41,7 @@ MAX_BODY_BYTES = 256 * 1024  # generous for a bounded aggregate profile
 _TEAM_JOIN_RE = re.compile(r"^/api/teams/([^/]+)/join$")
 _TEAM_PUBLISH_RE = re.compile(r"^/api/teams/([^/]+)/publish$")
 _TEAM_LEAVE_RE = re.compile(r"^/api/teams/([^/]+)/leave$")
+_TEAM_UNPUBLISH_RE = re.compile(r"^/api/teams/([^/]+)/unpublish$")
 _TEAM_ROTATE_RE = re.compile(r"^/api/teams/([^/]+)/rotate$")
 _TEAM_KICK_RE = re.compile(r"^/api/teams/([^/]+)/kick$")
 _TEAM_LEADERBOARD_RE = re.compile(r"^/api/teams/([^/]+)/leaderboard$")
@@ -123,6 +124,15 @@ class _Handler(BaseHTTPRequestHandler):
                 member_token=str(body.get("member_token", "")),
             )
 
+        m = _TEAM_UNPUBLISH_RE.match(path)
+        if m and method == "POST":
+            body = self._read_json_body()
+            return 200, self.store.unpublish(
+                team_id=m.group(1),
+                member_id=str(body.get("member_id", "")),
+                member_token=str(body.get("member_token", "")),
+            )
+
         m = _TEAM_ROTATE_RE.match(path)
         if m and method == "POST":
             body = self._read_json_body()
@@ -159,9 +169,13 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
         except RelayError as exc:
             self._send_json(exc.status, {"error": exc.message})
-        except Exception as exc:  # noqa: BLE001 - never leak a traceback to clients
+        except Exception:  # noqa: BLE001 - never leak internals to clients
+            # The full exception + traceback is logged server-side only. The
+            # response body stays generic: an exception message can embed the
+            # absolute state-file path (OSError from persistence) or internal
+            # identifiers, which we must not disclose to a remote caller.
             _log.exception("relay request failed")
-            self._send_json(500, {"error": "internal error", "detail": str(exc)})
+            self._send_json(500, {"error": "internal error"})
 
     # BaseHTTPRequestHandler dispatches by method name.
     def do_GET(self) -> None:  # noqa: N802

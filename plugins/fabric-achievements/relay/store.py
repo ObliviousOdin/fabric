@@ -47,6 +47,11 @@ MAX_TOP_ACHIEVEMENTS = 8
 MAX_CATEGORY_KEYS = 40
 MAX_MEMBERS_PER_TEAM = 500
 MAX_STRING_FIELD = 80
+# Global cap on team count. create_team is unauthenticated (anyone who can
+# reach the relay can create a team), and every write re-serializes the whole
+# store, so an uncapped relay is a memory/disk DoS with O(N^2) persistence
+# amplification. This bounds it; run the relay on a trusted network regardless.
+MAX_TEAMS = 1000
 
 
 class RelayError(Exception):
@@ -229,6 +234,8 @@ class LeaderboardStore:
         salt = secrets.token_hex(8)
         now = _now()
         with self._lock:
+            if len(self._teams) >= MAX_TEAMS:
+                raise ValidationError("relay is at team capacity", status=429)
             self._teams[team_id] = {
                 "id": team_id,
                 "name": clean_name,
@@ -320,6 +327,20 @@ class LeaderboardStore:
                     member["display_name"] = new_name
             self._persist_locked()
             return {"ok": True, "updated_at": member["updated_at"]}
+
+    def unpublish(self, *, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
+        """Retract a member's published profile without leaving the team.
+
+        Used when a member turns off "share my stats": their row stays (they're
+        still a member) but shows as not-shared with an empty score.
+        """
+        with self._lock:
+            team = self._get_team(team_id)
+            member = self._auth_member(team, member_id, member_token)
+            member["profile"] = None
+            member["updated_at"] = _now()
+            self._persist_locked()
+            return {"ok": True}
 
     def leave(self, *, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
         """Remove a member from a team (authenticated by the member token)."""

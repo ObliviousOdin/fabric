@@ -156,6 +156,39 @@ class OwnerControlTests(unittest.TestCase):
         self.assertEqual(board["member_count"], 1)
 
 
+class RetractAndCapTests(unittest.TestCase):
+    def test_unpublish_blanks_profile_but_keeps_membership(self):
+        store = LeaderboardStore()
+        owner = store.create_team(name="Crew", display_name="Owner")
+        store.publish(team_id=owner["team_id"], member_id=owner["member_id"],
+                     member_token=owner["member_token"], profile={"score": 500, "unlocked_count": 10})
+        store.unpublish(team_id=owner["team_id"], member_id=owner["member_id"], member_token=owner["member_token"])
+        board = store.leaderboard(team_id=owner["team_id"], join_secret=owner["join_secret"])
+        self.assertEqual(board["member_count"], 1)  # still a member
+        row = board["leaderboard"][0]
+        self.assertFalse(row["has_published"])
+        self.assertEqual(row["score"], 0)
+
+    def test_unpublish_requires_valid_token(self):
+        store = LeaderboardStore()
+        owner = store.create_team(name="Crew", display_name="Owner")
+        with self.assertRaises(AuthError):
+            store.unpublish(team_id=owner["team_id"], member_id=owner["member_id"], member_token="nope")
+
+    def test_max_teams_cap(self):
+        store = LeaderboardStore()
+        store_mod.MAX_TEAMS  # ensure attribute exists
+        original = store_mod.MAX_TEAMS
+        try:
+            store_mod.MAX_TEAMS = 2
+            store.create_team(name="A", display_name="o")
+            store.create_team(name="B", display_name="o")
+            with self.assertRaises(ValidationError):
+                store.create_team(name="C", display_name="o")
+        finally:
+            store_mod.MAX_TEAMS = original
+
+
 class SanitizeProfileTests(unittest.TestCase):
     def test_sanitize_drops_unknown_and_bounds_fields(self):
         raw = {

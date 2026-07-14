@@ -5,6 +5,7 @@ Mounted at /api/plugins/fabric-achievements/ by the Fabric dashboard.
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import math
 import re
@@ -1110,6 +1111,21 @@ POINTS_PER_UNLOCK_NO_TIER = 60
 
 TEAM_HTTP_TIMEOUT = 10
 
+# Serializes the load-mutate-save sequence in the team_* helpers. They run in
+# a threadpool (see _run), so concurrent dashboard requests could otherwise
+# interleave a read-modify-write on team.json and lose a member_token. RLock
+# is reentrant so helpers that call each other (e.g. team_kick -> team_leaderboard
+# -> _publish_now) don't deadlock.
+_TEAM_CONFIG_LOCK = threading.RLock()
+
+
+def _synchronized(fn: Callable[..., Any]) -> Callable[..., Any]:
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with _TEAM_CONFIG_LOCK:
+            return fn(*args, **kwargs)
+    return wrapper
+
 
 class RelayClientError(Exception):
     """Raised when a relay call fails. ``status`` is the HTTP code (0 if the
@@ -1153,7 +1169,12 @@ def load_team_config() -> Dict[str, Any]:
 def save_team_config(config: Dict[str, Any]) -> None:
     path = team_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(config, indent=2, sort_keys=True))
+    # Write-then-rename so an interrupted or concurrent write can never leave a
+    # half-written team.json (which would orphan the member: member_token is
+    # only stored here and is unrecoverable if lost).
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(config, indent=2, sort_keys=True))
+    tmp.replace(path)
 
 
 def _validate_relay_url(url: Any) -> str:
@@ -1344,6 +1365,10 @@ class RelayClient:
         return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/kick",
                           {"member_id": member_id, "member_token": member_token, "target_member_id": target_member_id})
 
+    def unpublish(self, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
+        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/unpublish",
+                          {"member_id": member_id, "member_token": member_token})
+
     def leaderboard(self, team_id: str, join_secret: Optional[str] = None, member_id: Optional[str] = None, member_token: Optional[str] = None) -> Dict[str, Any]:
         headers: Dict[str, str] = {}
         if join_secret:
@@ -1352,6 +1377,23 @@ class RelayClient:
             headers["X-Member-Id"] = member_id
             headers["X-Member-Token"] = member_token
         return self._call("GET", f"/api/teams/{urllib.parse.quote(team_id)}/leaderboard", None, headers)
+
+
+def _require_fields(result: Dict[str, Any], keys: Tuple[str, ...]) -> None:
+    """Guard against a 2xx response from a URL that isn't actually a relay.
+
+    ``_validate_relay_url`` only checks scheme/netloc, so a typo'd homepage or
+    an incompatible build can return HTTP 200 with a body that parses to ``{}``.
+    Turn the resulting missing-key case into a RelayClientError so the routes'
+    ``{ok: false}`` contract holds instead of a bare KeyError -> HTTP 500.
+    """
+    missing = [k for k in keys if not (isinstance(result, dict) and result.get(k))]
+    if missing:
+        raise RelayClientError(
+            "Relay returned an unexpected response (missing: " + ", ".join(missing) + "). "
+            "Is that URL a Fabric leaderboard relay?",
+            status=502,
+        )
 
 
 def _current_achievements() -> List[Dict[str, Any]]:
@@ -1405,6 +1447,7 @@ def _team_state_payload(config: Dict[str, Any], extra: Optional[Dict[str, Any]] 
     return payload
 
 
+@_synchronized
 def _publish_now(config: Dict[str, Any], transport: Optional[Transport] = None) -> Dict[str, Any]:
     membership = config.get("membership")
     if not isinstance(membership, dict):
@@ -1421,11 +1464,13 @@ def _publish_now(config: Dict[str, Any], transport: Optional[Transport] = None) 
     return result
 
 
+@_synchronized
 def team_create(relay_url: str, team_name: str, display_name: str, publish_opt_in: bool = True, transport: Optional[Transport] = None) -> Dict[str, Any]:
     relay_url = _validate_relay_url(relay_url)
     display_name = (display_name or "").strip() or "Owner"
     client = RelayClient(relay_url, transport=transport)
     result = client.create_team(team_name, display_name)
+    _require_fields(result, ("team_id", "member_id", "member_token", "join_secret"))
     config = load_team_config()
     config["membership"] = {
         "team_id": result["team_id"],
@@ -1450,11 +1495,13 @@ def team_create(relay_url: str, team_name: str, display_name: str, publish_opt_i
     return _team_state_payload(config)
 
 
+@_synchronized
 def team_join(invite_code: str, display_name: str, publish_opt_in: bool = True, transport: Optional[Transport] = None) -> Dict[str, Any]:
     invite = decode_invite(invite_code)
     display_name = (display_name or "").strip() or "Member"
     client = RelayClient(invite["relay_url"], transport=transport)
     result = client.join_team(invite["team_id"], invite["join_secret"], display_name)
+    _require_fields(result, ("team_id", "member_id", "member_token"))
     config = load_team_config()
     config["membership"] = {
         "team_id": result["team_id"],
@@ -1479,6 +1526,7 @@ def team_join(invite_code: str, display_name: str, publish_opt_in: bool = True, 
     return _team_state_payload(config)
 
 
+@_synchronized
 def team_leave(transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
     membership = config.get("membership")
@@ -1495,9 +1543,11 @@ def team_leave(transport: Optional[Transport] = None) -> Dict[str, Any]:
     return _team_state_payload(config)
 
 
+@_synchronized
 def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[str] = None, transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
     membership = config.get("membership")
+    was_opt_in = bool(config.get("publish_opt_in"))
     changed_name = False
     if display_name is not None:
         cleaned = display_name.strip()
@@ -1507,17 +1557,33 @@ def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[
     if publish_opt_in is not None:
         config["publish_opt_in"] = bool(publish_opt_in)
     save_team_config(config)
-    # Re-publish so the change (new name, or newly-enabled sharing) is
-    # reflected on the board immediately.
-    if isinstance(membership, dict) and config.get("publish_opt_in") and (changed_name or publish_opt_in):
-        try:
-            _publish_now(config, transport=transport)
-        except RelayClientError as exc:
-            config["last_error"] = exc.message
-            save_team_config(config)
+    now_opt_in = bool(config.get("publish_opt_in"))
+    turned_off = publish_opt_in is False and was_opt_in
+
+    if isinstance(membership, dict):
+        if turned_off:
+            # Opting out must actively RETRACT the already-published row from
+            # the relay, not just stop future publishes.
+            try:
+                client = RelayClient(membership["relay_url"], transport=transport)
+                client.unpublish(membership["team_id"], membership["member_id"], membership["member_token"])
+                config["last_published_at"] = None
+                config["last_error"] = None
+                save_team_config(config)
+            except RelayClientError as exc:
+                config["last_error"] = exc.message
+                save_team_config(config)
+        elif now_opt_in and (changed_name or (publish_opt_in and not was_opt_in)):
+            # Re-publish so a new name or newly-enabled sharing shows up now.
+            try:
+                _publish_now(config, transport=transport)
+            except RelayClientError as exc:
+                config["last_error"] = exc.message
+                save_team_config(config)
     return _team_state_payload(config)
 
 
+@_synchronized
 def team_publish(transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
     if not isinstance(config.get("membership"), dict):
@@ -1531,6 +1597,7 @@ def team_publish(transport: Optional[Transport] = None) -> Dict[str, Any]:
     return _team_state_payload(config)
 
 
+@_synchronized
 def team_leaderboard(transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
     membership = config.get("membership")
@@ -1565,6 +1632,7 @@ def team_leaderboard(transport: Optional[Transport] = None) -> Dict[str, Any]:
     })
 
 
+@_synchronized
 def team_rotate(transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
     membership = config.get("membership")
@@ -1583,6 +1651,7 @@ def team_rotate(transport: Optional[Transport] = None) -> Dict[str, Any]:
     return _team_state_payload(config)
 
 
+@_synchronized
 def team_kick(target_member_id: str, transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
     membership = config.get("membership")

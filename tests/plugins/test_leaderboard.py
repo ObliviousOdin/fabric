@@ -43,6 +43,8 @@ def _make_transport(store, store_mod):
                 return 200, store.publish(team_id=team_id, member_id=data["member_id"], member_token=data["member_token"], profile=data.get("profile"), display_name=data.get("display_name"))
             if action == "leave":
                 return 200, store.leave(team_id=team_id, member_id=data["member_id"], member_token=data["member_token"])
+            if action == "unpublish":
+                return 200, store.unpublish(team_id=team_id, member_id=data["member_id"], member_token=data["member_token"])
             if action == "rotate":
                 return 200, store.rotate_join_secret(team_id=team_id, member_id=data["member_id"], member_token=data["member_token"])
             if action == "kick":
@@ -242,3 +244,44 @@ def test_leaderboard_without_membership_is_empty(api):
     state = api.team_leaderboard()
     assert state["membership"] is None
     assert state["leaderboard"] == []
+
+
+def test_create_against_non_relay_2xx_raises_clean_error(api):
+    # A URL that returns HTTP 200 but isn't a relay (typo'd homepage) parses to
+    # {} — team_create must raise a RelayClientError, not a bare KeyError.
+    def not_a_relay(method, url, headers, body):
+        return 200, {}  # empty/non-relay body
+
+    with pytest.raises(api.RelayClientError) as exc:
+        api.team_create("http://example.com", "Crew", "Channa", transport=not_a_relay)
+    assert "unexpected response" in str(exc.value)
+
+
+def test_opt_out_retracts_published_row(api, store):
+    st, store_mod = store
+    transport = _make_transport(st, store_mod)
+    api.team_create("http://relay.test", "Crew", "Channa", publish_opt_in=True, transport=transport)
+    board = api.team_leaderboard(transport=transport)
+    assert board["leaderboard"][0]["has_published"] is True
+    assert board["leaderboard"][0]["score"] == 270
+
+    # Turning sharing off must actively retract the row from the relay.
+    state = api.team_settings(publish_opt_in=False, transport=transport)
+    assert state["publish_opt_in"] is False
+    board2 = api.team_leaderboard(transport=transport)
+    row = board2["leaderboard"][0]
+    assert row["has_published"] is False
+    assert row["score"] == 0
+
+
+def test_save_team_config_is_atomic(api):
+    # A crash mid-write must not leave a partial team.json; the writer renames a
+    # temp file into place, so no stray .tmp remains after a successful save.
+    api.save_team_config({"membership": {"team_id": "tm_x"}, "publish_opt_in": True,
+                          "last_published_at": None, "last_error": None})
+    cfg_path = api.team_config_path()
+    assert cfg_path.exists()
+    assert not cfg_path.with_suffix(cfg_path.suffix + ".tmp").exists()
+    reloaded = api.load_team_config()
+    assert reloaded["membership"]["team_id"] == "tm_x"
+    assert reloaded["publish_opt_in"] is True

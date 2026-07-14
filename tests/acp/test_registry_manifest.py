@@ -38,7 +38,7 @@ def test_agent_json_matches_official_registry_required_fields():
     assert data["repository"] == "https://github.com/ObliviousOdin/fabric"
     assert data["website"].startswith("https://obliviousodin.github.io/fabric/")
     assert data["authors"] == ["Fabric contributors"]
-    assert data["license"] == "MIT"
+    assert data["license"] == "Apache-2.0"
     assert set(data["distribution"]) <= ALLOWED_DISTRIBUTIONS
 
 

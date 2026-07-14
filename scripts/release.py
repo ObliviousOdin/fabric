@@ -162,6 +162,31 @@ def update_version_files(semver: str, calver_date: str):
         )
         desktop_pkg.write_text(pkg_text, encoding="utf-8")
 
+    # Keep workspace lock metadata synchronized with the desktop package.
+    # npm records workspace versions under packages["apps/desktop"], while
+    # uv records the editable Fabric package in its own package stanza.
+    npm_lock = REPO_ROOT / "package-lock.json"
+    if npm_lock.exists():
+        lock_data = json.loads(npm_lock.read_text(encoding="utf-8"))
+        desktop_lock = lock_data.get("packages", {}).get("apps/desktop")
+        if isinstance(desktop_lock, dict):
+            desktop_lock["version"] = semver
+            npm_lock.write_text(
+                json.dumps(lock_data, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+    uv_lock = REPO_ROOT / "uv.lock"
+    if uv_lock.exists():
+        uv_text = uv_lock.read_text(encoding="utf-8")
+        uv_text = re.sub(
+            r'(\[\[package\]\]\nname = "fabric-agent"\nversion = ")[^"]+',
+            rf'\g<1>{semver}',
+            uv_text,
+            count=1,
+        )
+        uv_lock.write_text(uv_text, encoding="utf-8")
+
     # Update ACP Registry manifest + npm launcher (must stay version-locked
     # with pyproject — enforced by tests/acp/test_registry_manifest.py).
     _update_acp_registry_versions(semver)
@@ -565,6 +590,13 @@ def main():
 
             # Commit version bump
             add_files = [str(VERSION_FILE), str(PYPROJECT_FILE)]
+            for release_path in (
+                REPO_ROOT / "apps" / "desktop" / "package.json",
+                REPO_ROOT / "package-lock.json",
+                REPO_ROOT / "uv.lock",
+            ):
+                if release_path.exists():
+                    add_files.append(str(release_path))
             if ACP_REGISTRY_MANIFEST.exists():
                 add_files.append(str(ACP_REGISTRY_MANIFEST))
             add_result = git_result("add", *add_files)

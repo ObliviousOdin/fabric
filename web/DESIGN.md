@@ -2,7 +2,7 @@
 
 This document is the source of truth for Fabric-owned Workspace and Admin
 surfaces, dashboard plugins, and future engineering handoff. It replaces the
-inherited Hermes/Nous console language as the canonical product experience.
+inherited upstream console language as the canonical product experience.
 Historical skins remain compatibility seams; they do not define Fabric.
 
 ## Product character
@@ -35,14 +35,14 @@ gradient actions.
 
 Tokens have four distinct responsibilities:
 
-1. **Foundation** — Rabot family purple, neutral ramps, spacing, type, and
+1. **Foundation** — Fabric violet, neutral ramps, spacing, type, and
    motion.
 2. **Product semantics** — canvas, surfaces, text, border, status, thread, and
    bracket roles.
 3. **Components** — control- and pattern-specific aliases.
 4. **Tenant brand** — logo and action accent only.
 
-A white-label tenant accent may affect primary actions, focus, selection
+A tenant-specific accent may affect primary actions, focus, selection
 markers, charts that explicitly represent the tenant, and active thread
 segments. It must not replace default text, structural borders, all icons, all
 status colors, or the whole canvas.

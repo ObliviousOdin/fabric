@@ -1,5 +1,5 @@
 import { useState, type FocusEvent, type MouseEvent } from "react";
-import { gatewayLine } from "@/components/SidebarStatusStrip";
+import { gatewayLine } from "@/components/gateway-line";
 import { useI18n } from "@/i18n";
 import type { StatusResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";

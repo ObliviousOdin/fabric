@@ -414,8 +414,14 @@ export default function LogsPage() {
   useEffect(() => {
     // Filter change (or mount): re-engage follow so the view pins to the
     // tail of the newly selected slice (this also resets the pause pin).
-    setFollowing(true);
-    fetchLogs();
+    // The whole kick hops to the next frame — both setFollowing and
+    // fetchLogs flip state synchronously, which inside an effect body
+    // forces a cascading render.
+    const frame = requestAnimationFrame(() => {
+      setFollowing(true);
+      fetchLogs();
+    });
+    return () => cancelAnimationFrame(frame);
   }, [fetchLogs, setFollowing]);
 
   useEffect(() => {

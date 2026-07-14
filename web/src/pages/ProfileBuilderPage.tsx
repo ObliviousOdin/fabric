@@ -263,10 +263,13 @@ export default function ProfileBuilderPage() {
             // Identity must be valid before jumping ahead.
             disabled={i > 0 && !nameValid}
             onClick={() => setStep(s.id)}
+            // Current step is conveyed non-visually (aria-current) and by
+            // weight + underline, not color alone (WCAG 1.4.1).
+            aria-current={s.id === step ? "step" : undefined}
             className={cn(
               "rounded-full px-3 py-1 transition-colors",
               s.id === step
-                ? "bg-primary text-primary-foreground"
+                ? "bg-primary text-primary-foreground font-semibold underline underline-offset-4"
                 : i <= stepIndex
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground",

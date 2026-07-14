@@ -35,6 +35,10 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
   const { themeName, availableThemes, setTheme, fontId, fontChoices, setFont } = useTheme();
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
+  // Anchor rect for the drop-up placement, captured in the toggle handler —
+  // refs must not be read during render, and the rect only needs to be
+  // fresh as of the moment the menu opens.
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const narrowViewport = useBelowBreakpoint(640);
@@ -72,7 +76,10 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
       <Button
         ghost
         size={collapsed ? "icon" : undefined}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          setAnchorRect(wrapperRef.current?.getBoundingClientRect() ?? null);
+          setOpen((o) => !o);
+        }}
         className={cn(
           collapsed
             ? "text-text-secondary hover:text-foreground hover:bg-transparent"
@@ -125,7 +132,7 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
       )}
 
       {open && !useMobileSheet && (() => {
-        const rect = wrapperRef.current?.getBoundingClientRect();
+        const rect = anchorRect;
         const dropdown = (
           <div
             ref={dropdownRef}

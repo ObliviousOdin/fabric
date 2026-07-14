@@ -51,15 +51,19 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   // A profile param arriving via in-app navigation (e.g. the Profiles
   // page's "Manage skills & tools" linking to /skills?profile=X) must win
-  // over current state — it's an explicit scope request.
+  // over current state — it's an explicit scope request. Adopted via the
+  // adjust-state-during-render pattern (guarded compare + immediate
+  // re-render) instead of an effect, which would commit a frame with the
+  // stale scope and cascade a second render.
   const urlProfile = searchParams.get("profile");
-  useEffect(() => {
+  const [adoptedUrlProfile, setAdoptedUrlProfile] = useState(urlProfile);
+  if (urlProfile !== adoptedUrlProfile) {
+    setAdoptedUrlProfile(urlProfile);
     if (urlProfile !== null && urlProfile !== profile) {
       setManagementProfile(urlProfile);
       setProfileState(urlProfile);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlProfile]);
+  }
 
   // Re-assert ?profile= after navigations that dropped it (bare nav links).
   // Runs on every pathname/profile change; no-ops when already in sync.

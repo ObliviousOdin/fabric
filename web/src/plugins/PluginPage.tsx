@@ -26,6 +26,11 @@ export function PluginPage({ name }: { name: string }) {
   );
 
   if (Component) {
+    // Not a component created during render: `Component` is retrieved from
+    // the plugin registry (stable per plugin name), so its identity doesn't
+    // change across renders and React never remounts it spuriously. The
+    // static rule can't see through useSyncExternalStore.
+    // eslint-disable-next-line react-hooks/static-components
     return <Component />;
   }
 

@@ -173,13 +173,29 @@ function TokenBarChart({ daily }: { daily: AnalyticsDailyEntry[] }) {
             const outputH = Math.round(
               (d.output_tokens / maxTokens) * CHART_HEIGHT_PX,
             );
+            const dayLabel = [
+              formatDate(d.day),
+              `${t.analytics.input}: ${formatTokens(d.input_tokens)}`,
+              `${t.analytics.output}: ${formatTokens(d.output_tokens)}`,
+              `${t.analytics.total}: ${formatTokens(total)}`,
+              `${W?.runs ?? "runs"}: ${d.sessions}`,
+            ].join(", ");
             return (
               <div
                 key={d.day}
-                className="flex-1 min-w-0 group relative flex flex-col justify-end"
+                // Focusable with an accessible day summary so the per-day
+                // breakdown is reachable by keyboard, touch (tap focuses),
+                // and screen readers — not mouse-hover only.
+                tabIndex={0}
+                role="img"
+                aria-label={dayLabel}
+                className="flex-1 min-w-0 group relative flex flex-col justify-end focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
                 style={{ height: CHART_HEIGHT_PX }}
               >
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 pointer-events-none">
+                <div
+                  aria-hidden="true"
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block group-focus:block z-10 pointer-events-none"
+                >
                   <div className="font-mondwest normal-case bg-card border border-border px-2.5 py-1.5 text-xs text-foreground shadow-lg whitespace-nowrap">
                     <div className="font-medium">{formatDate(d.day)}</div>
                     <div>

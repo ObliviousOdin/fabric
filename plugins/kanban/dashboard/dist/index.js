@@ -2644,7 +2644,7 @@
       className: "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 "
                  + "text-xs font-medium "
                  + (autoOn
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    ? "border-success/40 bg-success/10 text-success"
                     : "border-muted-foreground/30 bg-muted/30 text-muted-foreground"),
     },
       "Orchestration: ",
@@ -2779,10 +2779,10 @@
         h("span", { className: "font-medium" }, p.name),
         p.is_default ? h("span", { className: "text-[10px] text-muted-foreground" }, "(default)") : null,
         p.description_auto && p.description
-          ? h("span", { className: "text-[10px] text-yellow-600" }, "auto — review")
+          ? h("span", { className: "text-[10px] text-warning" }, "auto — review")
           : null,
         !p.description
-          ? h("span", { className: "text-[10px] text-yellow-600" }, "⚠ no description")
+          ? h("span", { className: "text-[10px] text-warning" }, "⚠ no description")
           : null,
       ),
       h("div", { className: "flex items-center gap-2" },

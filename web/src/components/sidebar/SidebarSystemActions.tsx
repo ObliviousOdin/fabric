@@ -1,6 +1,6 @@
 import {
-  useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type FocusEvent,
@@ -39,28 +39,30 @@ export function SidebarSystemActions({
     useState<UpdateCheckResponse | null>(null);
   const [updateConfirmChecking, setUpdateConfirmChecking] = useState(false);
 
-  useEffect(() => {
-    if (!updateConfirmOpen) {
-      setUpdateConfirmInfo(null);
-      return;
-    }
-    let cancelled = false;
+  // The update check kicks off from the click that opens the dialog —
+  // opening is a user event, so fetching in an effect (with its sync
+  // "checking" setState and cascading render) isn't needed. The sequence
+  // counter invalidates in-flight responses once the dialog closes or a
+  // newer check starts.
+  const updateCheckSeq = useRef(0);
+
+  const openUpdateConfirm = () => {
+    const seq = ++updateCheckSeq.current;
+    setUpdateConfirmOpen(true);
+    setUpdateConfirmInfo(null);
     setUpdateConfirmChecking(true);
     api
       .checkHermesUpdate(false)
       .then((info) => {
-        if (!cancelled) setUpdateConfirmInfo(info);
+        if (updateCheckSeq.current === seq) setUpdateConfirmInfo(info);
       })
       .catch(() => {
-        if (!cancelled) setUpdateConfirmInfo(null);
+        if (updateCheckSeq.current === seq) setUpdateConfirmInfo(null);
       })
       .finally(() => {
-        if (!cancelled) setUpdateConfirmChecking(false);
+        if (updateCheckSeq.current === seq) setUpdateConfirmChecking(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [updateConfirmOpen]);
+  };
 
   const updateConfirmDescription = useMemo(() => {
     if (updateConfirmInfo?.behind && updateConfirmInfo.behind > 0) {
@@ -101,7 +103,7 @@ export function SidebarSystemActions({
       return;
     }
     if (action === "update") {
-      setUpdateConfirmOpen(true);
+      openUpdateConfirm();
       return;
     }
     void runAction(action);
@@ -109,8 +111,15 @@ export function SidebarSystemActions({
     onNavigate();
   };
 
-  const confirmUpdate = () => {
+  const closeUpdateConfirm = () => {
+    updateCheckSeq.current++;
     setUpdateConfirmOpen(false);
+    setUpdateConfirmInfo(null);
+    setUpdateConfirmChecking(false);
+  };
+
+  const confirmUpdate = () => {
+    closeUpdateConfirm();
     void runAction("update");
     navigate("/sessions");
     onNavigate();
@@ -180,7 +189,7 @@ export function SidebarSystemActions({
           updateConfirmChecking ? t.common.loading : updateConfirmDescription
         }
         loading={pendingAction === "update" || updateConfirmChecking}
-        onCancel={() => setUpdateConfirmOpen(false)}
+        onCancel={closeUpdateConfirm}
         onConfirm={confirmUpdate}
         open={updateConfirmOpen}
         title={t.status.updateHermesConfirmTitle ?? `${t.status.updateHermes}?`}

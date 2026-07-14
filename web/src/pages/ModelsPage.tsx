@@ -150,7 +150,11 @@ export default function ModelsPage() {
   }, [days, loading, load, setAfterTitle, setEnd, t.common.refresh]);
 
   useEffect(() => {
-    load();
+    // Next-frame hop: load() flips the loading/error flags synchronously,
+    // which inside an effect body forces a cascading render. `loading`
+    // already starts true, so the initial paint is unaffected.
+    const frame = requestAnimationFrame(load);
+    return () => cancelAnimationFrame(frame);
   }, [load]);
 
   // Model assignments can change outside this page (config editor, chat

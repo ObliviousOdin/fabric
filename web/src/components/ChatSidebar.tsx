@@ -44,6 +44,7 @@ import { ReasoningPicker } from "@/components/ReasoningPicker";
 import { GatewayClient, type ConnectionState } from "@/lib/gatewayClient";
 import { api, buildWsUrl } from "@/lib/api";
 import { titleFromSessionInfoPayload } from "@/lib/chat-title";
+import { PluginSlot } from "@/plugins";
 
 import { cn } from "@/lib/utils";
 import { AlertCircle, RefreshCw } from "lucide-react";
@@ -75,17 +76,23 @@ interface ChatSidebarProps {
   channel: string;
   /** Chat profile from the dashboard switcher / URL scope. */
   profile?: string;
+  /** Whether the persistently-mounted Chat route is currently visible. */
+  isActive?: boolean;
   className?: string;
   onDashboardNewSessionRequest?: () => void;
   onSessionTitleChange?: (title: string | null) => void;
+  /** Navigate from a supporting Chat-rail card without replacing Chat itself. */
+  onNavigate?: (path: string) => void;
 }
 
 export function ChatSidebar({
   channel,
   profile,
+  isActive = true,
   className,
   onDashboardNewSessionRequest,
   onSessionTitleChange,
+  onNavigate,
 }: ChatSidebarProps) {
   // `version` bumps on reconnect; gw is derived so we never call setState
   // for it inside an effect (React 19's set-state-in-effect rule). The
@@ -385,7 +392,7 @@ export function ChatSidebar({
         className,
       )}
     >
-      {/* CH1 rail order: Agent card → Reasoning → Activity → notices. */}
+      {/* CH1 rail order: Agent → Work actions → Reasoning → Activity → notices. */}
       <AgentCard
         title={railTitle}
         modelName={modelName}
@@ -394,6 +401,14 @@ export function ChatSidebar({
         contextLength={contextLength}
         connection={state}
         cwd={ptyCwd ?? info.cwd ?? null}
+      />
+
+      <PluginSlot
+        name="chat:rail"
+        slotProps={{
+          active: isActive,
+          ...(onNavigate ? { navigate: onNavigate } : {}),
+        }}
       />
 
       {supportsReasoning && (

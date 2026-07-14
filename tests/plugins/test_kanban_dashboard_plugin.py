@@ -8,6 +8,7 @@ REST surface without spinning up the whole dashboard.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 import time
@@ -18,6 +19,25 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from fabric_cli import kanban_db as kb
+
+
+def test_dashboard_manifest_exposes_work_without_breaking_kanban_internals():
+    repo_root = Path(__file__).resolve().parents[2]
+    dashboard_dir = repo_root / "plugins" / "kanban" / "dashboard"
+    manifest = json.loads((dashboard_dir / "manifest.json").read_text())
+
+    assert manifest["name"] == "kanban"
+    assert manifest["label"] == "Work"
+    assert manifest["tab"]["path"] == "/work"
+    assert manifest["tab"]["aliases"] == ["/kanban"]
+    assert manifest["slots"] == ["chat:rail"]
+    assert manifest["api"] == "plugin_api.py"
+
+    bundle = (dashboard_dir / "dist" / "index.js").read_text()
+    assert 'h("h1", { className: "fabric-work-title" }, "Work")' in bundle
+    assert '"aria-label": "Work graph"' in bundle
+    assert 'pluginRegistry.register("kanban", KanbanPage)' in bundle
+    assert 'pluginRegistry.registerSlot("kanban", "chat:rail", WorkRailCard)' in bundle
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +136,24 @@ def test_create_task_appears_on_board(client):
     assert ready["tasks"][0]["id"] == task_id
     assert "acme" in data["tenants"]
     assert "researcher" in data["assignees"]
+
+
+def test_dashboard_task_retry_reuses_idempotency_key(client):
+    payload = {
+        "title": "Create only once",
+        "body": "The first response may be lost.",
+        "idempotency_key": "dashboard-retry-1",
+    }
+
+    first = client.post("/api/plugins/kanban/tasks", json=payload)
+    second = client.post("/api/plugins/kanban/tasks", json=payload)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["task"]["id"] == second.json()["task"]["id"]
+    board = client.get("/api/plugins/kanban/board").json()
+    tasks = [task for column in board["columns"] for task in column["tasks"]]
+    assert [task["title"] for task in tasks] == ["Create only once"]
 
 
 def test_scheduled_tasks_have_their_own_column_not_todo(client):
@@ -269,11 +307,190 @@ def test_dashboard_initial_board_uses_backend_current_when_unpinned():
     bundle = repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js"
     js = bundle.read_text()
 
-    assert 'useState(() => readSelectedBoard() || null)' in js
+    assert "const [board, setBoard] = useState(() => initialRoute.board || readSelectedBoard() || null)" in js
     assert "const storedBoard = readSelectedBoard();" in js
     assert "if (!storedBoard && !board && data && data.current)" in js
     assert "setBoard(data.current);" in js
-    assert 'readSelectedBoard() || "default"' not in js
+
+
+def test_dashboard_work_route_owns_shareable_board_view_and_task_state():
+    """Work deep links must outrank preferences without clobbering other params."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    bundle = repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js"
+    js = bundle.read_text()
+
+    assert "function readWorkRoute()" in js
+    assert 'params.get("board")' in js
+    assert 'params.get("view")' in js
+    assert 'params.get("task")' in js
+    assert "initialRoute.board || readSelectedBoard()" in js
+    assert "initialRoute.view || readWorkView()" in js
+    assert 'window.addEventListener("popstate", syncRoute)' in js
+    assert '{ board: nextSlug, view: viewMode, task: null }' in js
+    assert '{ board, view: nextView, task: selectedTaskId }' in js
+    assert '{ board, view: viewMode, task: taskId }' in js
+    assert 'navigate(next, { replace: mode !== "push" })' in js
+    assert "hostLocationKey" in js
+    assert "syncedHostLocationRef.current !== hostLocationKey" in js
+    assert 'new URLSearchParams(baseSearch || "")' in js
+    assert '(baseHash || "")' in js
+    assert "boardRequestGenerationRef.current" in js
+
+
+def test_dashboard_creates_work_without_forcing_graph_or_outline_to_board():
+    """Every projection shares one async-safe composer and keeps its view."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    bundle = repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js"
+    js = bundle.read_text()
+
+    assert "function NewTaskDialog(props)" in js
+    assert '"aria-modal": "true"' in js
+    assert '}, icon("Plus"), "Create work")' in js
+    assert "onCreate: openCreateWork" in js
+    assert 'onCreateFirst: function () { changeView("board"); }' not in js
+    assert 'setSelectedGraphNodeId("task:" + taskId)' in js
+    assert "Promise.resolve(props.onCreate(payload, requestOptions))" in js
+    assert 'typeof options.onCommitted === "function"' in js
+    assert "requestOptions.dismissed" in js
+    assert "Promise.resolve(props.onSubmit(body)).then" in js
+    assert "setSubmitError(parseApiErrorMessage(error))" in js
+
+
+def test_chat_work_rail_lists_and_creates_boards_without_switching_cli_default():
+    """Chat can manage its browser-local board choice without mutating CLI state."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    bundle = repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js"
+    js = bundle.read_text()
+
+    assert "function WorkRailCard(props)" in js
+    assert "return SDK.fetchJSON(`${API}/boards`)" in js
+    assert 'body: JSON.stringify({ slug: slug, name: name, switch: false })' in js
+    assert 'pluginRegistry.registerSlot("kanban", "chat:rail", WorkRailCard)' in js
+    assert 'return "/work?" + params.toString();' in js
+    assert 'props.navigate(path)' in js
+    assert "if (props.active === false) return undefined;" in js
+    assert "[props.active, loadBoards]" in js
+    assert "loadBoards(selectedBoard)" not in js
+    assert "This board key already exists" in js
+    assert 'SDK.fetchJSON(`${API}/boards/${encodeURIComponent(slug)}/switch`' not in js
+
+
+def test_create_board_for_chat_does_not_change_server_current_board(client):
+    kb.create_board("alpha")
+    kb.set_current_board("alpha")
+
+    response = client.post(
+        "/api/plugins/kanban/boards",
+        json={"slug": "Beta", "name": "Beta board", "switch": False},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["board"]["slug"] == "beta"
+    assert response.json()["current"] == "alpha"
+    assert kb.get_current_board() == "alpha"
+
+    listed = client.get("/api/plugins/kanban/boards").json()
+    beta = next(board for board in listed["boards"] if board["slug"] == "beta")
+    assert beta["counts"] == {}
+    assert beta["total"] == 0
+
+
+def test_work_route_uses_the_dashboard_router_bridge():
+    """Plugin route writes must update React Router, not only window.history."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    plugin_page = (repo_root / "web" / "src" / "plugins" / "PluginPage.tsx").read_text()
+    bundle = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+
+    assert "const navigate = useNavigate();" in plugin_page
+    assert "navigate={navigatePlugin}" in plugin_page
+    assert "location={{" in plugin_page
+    assert "function writeWorkRoute(route, mode, navigate, routedLocation)" in bundle
+    assert "? routedLocation.pathname" in bundle
+    assert "hostLocation," in bundle
+    assert 'navigate(next, { replace: mode !== "push" })' in bundle
+    assert "hostNavigate(-1)" in bundle
+
+
+def test_dashboard_board_actions_remain_scoped_and_visible():
+    """Bulk/destructive actions cannot leak across boards or hidden filters."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    bundle = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+
+    assert "DESTRUCTIVE_TRANSITIONS" not in bundle
+    assert 'getDestructiveConfirm(t, newStatus)' in bundle
+    assert 'withBoard(`${API}/tasks/${encodeURIComponent(taskId)}`, board)' in bundle
+    assert 'withBoard(`${API}/tasks/${encodeURIComponent(id)}`, board)' in bundle
+    assert "clearSelected();" in bundle
+    assert "[tenantFilter, assigneeFilter, search, includeArchived, clearSelected]" in bundle
+    assert 'props.selected && props.toggleSelected' in bundle
+
+
+def test_dashboard_create_flow_is_dismissible_idempotent_and_awaits_refresh():
+    repo_root = Path(__file__).resolve().parents[2]
+    bundle = (repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js").read_text()
+
+    assert "const onCancelRef = useRef(props.onCancel);" in bundle
+    assert "active.dismissed = true;" in bundle
+    assert 'submitting ? "Dismiss"' in bundle
+    assert "getTaskCreateIdempotency(board, body)" in bundle
+    assert "idempotency_key: idempotency.key" in bundle
+    assert "pendingTaskCreateRequests.get(idempotency.storageKey)" in bundle
+    assert "clearTaskCreateIdempotency(idempotency);" in bundle
+    assert "loadBoard({ propagateError: true })" in bundle
+    assert "loadBoardList({ propagateError: true })" in bundle
+    assert "if (propagateError) throw err;" in bundle
+    assert "onCommitted: function ()" in bundle
+    assert 'event.key === "Escape" && !event.defaultPrevented' in bundle
+    assert "return Promise.all([" in bundle
+    assert "openTask(taskId);" in bundle
+    assert 'const canCreateInColumn = props.column.name === "triage" || props.column.name === "ready";' in bundle
+
+
+def test_delete_task_isolated_to_explicit_non_current_board(client):
+    kb.create_board("other")
+    task = client.post(
+        "/api/plugins/kanban/tasks?board=other",
+        json={"title": "remove only from other"},
+    ).json()["task"]
+    kb.set_current_board("default")
+
+    response = client.delete(
+        f"/api/plugins/kanban/tasks/{task['id']}?board=other"
+    )
+
+    assert response.status_code == 200, response.text
+    assert client.get(
+        f"/api/plugins/kanban/tasks/{task['id']}?board=other"
+    ).status_code == 404
+
+
+def test_create_task_isolated_to_explicit_dashboard_board(client):
+    kb.create_board("other")
+
+    response = client.post(
+        "/api/plugins/kanban/tasks?board=other",
+        json={"title": "Only on the other board"},
+    )
+    assert response.status_code == 200
+    task_id = response.json()["task"]["id"]
+
+    default_ids = {
+        task["id"]
+        for column in client.get("/api/plugins/kanban/board?board=default").json()["columns"]
+        for task in column["tasks"]
+    }
+    other_ids = {
+        task["id"]
+        for column in client.get("/api/plugins/kanban/board?board=other").json()["columns"]
+        for task in column["tasks"]
+    }
+    assert task_id not in default_ids
+    assert task_id in other_ids
 
 
 def test_dashboard_markdown_html_is_sanitized_before_render():
@@ -1431,6 +1648,8 @@ def test_dashboard_surfaces_ready_blocked_error_inline():
     assert "const [patchErr, setPatchErr] = useState(null);" in bundle
     assert "setPatchErr(parseApiErrorMessage(e))" in bundle
     assert "setPatchErr(null)" in bundle
+    assert "patchErr: patchErr" in bundle
+    assert 'role: "alert"' in bundle
 
 
 def test_dashboard_dependency_selects_use_value_change_handler():

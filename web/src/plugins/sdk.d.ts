@@ -76,15 +76,35 @@ export type BuildWsUrl = (
 /** Lower-level: just the ``[authParamName, authParamValue]`` pair. */
 export type BuildWsAuthParam = () => Promise<[string, string]>;
 
+/** Host props supplied to every registered dashboard plugin page. */
+export interface DashboardPluginPageProps {
+  navigate: (
+    to: string | number,
+    options?: { replace?: boolean; state?: unknown },
+  ) => void;
+  location: {
+    pathname: string;
+    search: string;
+    hash: string;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Registry surface (window.__HERMES_PLUGINS__)
 // ---------------------------------------------------------------------------
 
 export interface PluginRegistry {
   /** Register the plugin's main tab component by manifest name. */
-  register(name: string, component: ComponentType<Record<string, never>>): void;
+  register<Props extends object>(
+    name: string,
+    component: ComponentType<Props>,
+  ): void;
   /** Register a component into a named host slot. */
-  registerSlot(slot: string, name: string, component: ComponentType): void;
+  registerSlot<Props extends object>(
+    plugin: string,
+    slot: string,
+    component: ComponentType<Props>,
+  ): void;
 }
 
 // ---------------------------------------------------------------------------

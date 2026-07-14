@@ -80,9 +80,12 @@ export function notifyPluginRegistry() {
 }
 
 /** Register a plugin component. Called by plugin JS bundles. */
-function registerPlugin(name: string, component: React.ComponentType) {
+function registerPlugin<Props extends object>(
+  name: string,
+  component: React.ComponentType<Props>,
+) {
   _loadErrors.delete(name);
-  _registered.set(name, component);
+  _registered.set(name, component as unknown as React.ComponentType);
   _notify();
 }
 

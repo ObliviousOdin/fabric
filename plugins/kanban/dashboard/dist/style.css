@@ -1065,7 +1065,7 @@
   padding: 1.1rem 1.2rem 1rem;
   width: 28rem;
   max-width: calc(100vw - 2rem);
-  max-height: calc(100vh - 3rem);
+  max-height: calc(100dvh - 3rem);
   overflow: auto;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
 }
@@ -1079,6 +1079,99 @@
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 1rem;
+}
+
+.fabric-work-create-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.fabric-work-create-description {
+  margin: 0 0 16px;
+  color: var(--color-text-secondary, var(--color-muted-foreground));
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.fabric-work-create-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.fabric-work-create-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 12px;
+}
+.fabric-work-create-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--color-foreground);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.fabric-work-create-field small {
+  color: var(--color-text-secondary, var(--color-muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.fabric-work-create-field textarea {
+  width: 100%;
+  min-height: 48px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--color-input, var(--color-border));
+  border-radius: 8px;
+  outline: 0;
+  background: var(--color-card);
+  color: var(--color-foreground);
+  font: inherit;
+  font-weight: 400;
+  line-height: 1.45;
+}
+.fabric-work-create-field textarea:focus-visible {
+  border-color: var(--color-ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-ring) 28%, transparent);
+}
+.fabric-work-create-field input,
+.fabric-work-create-field [role="combobox"] { min-height: 44px; }
+.fabric-work-create-triage {
+  display: flex;
+  min-height: 52px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-card-subtle, var(--color-card));
+  cursor: pointer;
+}
+.fabric-work-create-triage > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.fabric-work-create-triage strong { font-size: 0.8125rem; }
+.fabric-work-create-triage small {
+  color: var(--color-text-secondary, var(--color-muted-foreground));
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.fabric-work-create-error {
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-destructive) 7%, transparent);
+  color: var(--color-destructive);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 560px) {
+  .fabric-work-create-row { grid-template-columns: minmax(0, 1fr); }
+  .fabric-work-create-priority { max-width: 128px; }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1594,7 +1687,7 @@
 }
 
 /* ======================================================================
- * Fabric Live Work workbench
+ * Fabric Work workbench
  * ====================================================================== */
 
 .fabric-workbench {
@@ -2141,6 +2234,129 @@
 .fabric-work-outline-node--run { border-style: dashed; }
 .fabric-work-outline-kind { color: var(--color-text-secondary); font-size: 0.75rem; font-weight: 600; }
 .fabric-work-outline-title { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Compact Work controls injected beside Chat. This is a supporting card,
+   never a second chat surface: opening a full projection is always explicit. */
+.fabric-work-rail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+}
+.fabric-work-rail-header,
+.fabric-work-rail-create-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fabric-work-rail-header > div { min-width: 0; }
+.fabric-work-rail-eyebrow {
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.fabric-work-rail-board-name {
+  overflow: hidden;
+  margin-top: 4px;
+  color: var(--color-foreground);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fabric-work-rail-icon-button {
+  min-width: 44px;
+  min-height: 44px;
+  flex: 0 0 auto;
+}
+.fabric-work-rail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.fabric-work-rail-field [role="combobox"],
+.fabric-work-rail-field input { min-height: 44px; }
+.fabric-work-rail-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+  border-radius: 8px;
+}
+.fabric-work-rail-count {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 2px;
+  border-left: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+.fabric-work-rail-count:first-child { border-left: 0; }
+.fabric-work-rail-count strong {
+  color: var(--color-foreground);
+  font-size: 0.9375rem;
+  line-height: 1;
+}
+.fabric-work-rail-count span {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--color-text-secondary);
+  font-size: 0.625rem;
+  text-overflow: ellipsis;
+}
+.fabric-work-rail-view-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.fabric-work-rail-view-actions button {
+  min-width: 0;
+  min-height: 44px;
+  flex-direction: column;
+  gap: 2px;
+  padding-inline: 3px;
+  font-size: 0.6875rem;
+}
+.fabric-work-rail-new-button {
+  width: 100%;
+  min-height: 44px;
+}
+.fabric-work-rail-create {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+}
+.fabric-work-rail-create-heading strong {
+  color: var(--color-foreground);
+  font-size: 0.8125rem;
+}
+.fabric-work-rail-create-heading button,
+.fabric-work-rail-create > button { min-height: 44px; }
+.fabric-work-rail-form-error,
+.fabric-work-rail-error {
+  color: var(--color-destructive, #ef4444);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+.fabric-work-rail-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fabric-work-rail-error button { min-height: 44px; }
 
 /* Bring the legacy Board projection up to the same legibility/target floor. */
 .fabric-workbench .hermes-kanban-column-add,

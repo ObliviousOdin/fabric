@@ -1,15 +1,17 @@
 {
   "name": "kanban",
-  "label": "Kanban",
-  "description": "Multi-agent collaboration board — drag-drop cards across columns, read comment threads, see which profile is running what",
-  "icon": "Package",
+  "label": "Work",
+  "description": "Plan, coordinate, and inspect goals, tasks, dependencies, and live agent runs.",
+  "icon": "Activity",
   "version": "1.0.0",
   "tab": {
-    "path": "/kanban",
+    "path": "/work",
+    "aliases": ["/kanban"],
     "layout": "workspace",
     "position": "after:sessions"
   },
   "entry": "dist/index.js",
   "css": "dist/style.css",
+  "slots": ["chat:rail"],
   "api": "plugin_api.py"
 }

@@ -20,7 +20,7 @@ def test_team_pages_manifest_registers_a_fabric_team_route() -> None:
     assert manifest["tab"] == {
         "path": "/team",
         "layout": "workspace",
-        "position": "after:kanban",
+        "position": "after:work",
     }
     assert manifest["entry"] == "dist/index.js"
     assert manifest["css"] == "dist/style.css"
@@ -58,6 +58,8 @@ def test_starter_pages_cover_the_declarative_block_contract() -> None:
 
     visible_copy = json.dumps(payload).lower()
     assert "hermes" not in visible_copy
+    assert '"href": "/work"' in visible_copy
+    assert '"href": "/kanban"' not in visible_copy
 
 
 def test_bundle_uses_config_and_sanctioned_plugin_sdk_surfaces() -> None:

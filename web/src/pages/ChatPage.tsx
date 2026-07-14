@@ -28,7 +28,7 @@ import { cn } from "@/lib/utils";
 import { Copy, PanelRight, RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { ChatSessionList } from "@/components/ChatSessionList";
@@ -145,6 +145,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // collapses the host's box, so ResizeObserver never fires on return).
   const syncMetricsRef = useRef<(() => void) | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   // Lazy-init: the missing-token check happens at construction so the effect
   // body doesn't have to setState (React 19's set-state-in-effect rule).
   // In gated (OAuth) mode the server intentionally omits the session token —
@@ -214,6 +215,13 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   }>({ scope: "", title: null });
   const { t } = useI18n();
   const closeMobilePanel = useCallback(() => setMobilePanelOpenRaw(false), []);
+  const navigateFromChatRail = useCallback(
+    (path: string) => {
+      closeMobilePanel();
+      navigate(path);
+    },
+    [closeMobilePanel, navigate],
+  );
   const modelToolsLabel = useMemo(
     () => `${t.app.modelToolsSheetTitle} ${t.app.modelToolsSheetSubtitle}`,
     [t.app.modelToolsSheetSubtitle, t.app.modelToolsSheetTitle],
@@ -1070,8 +1078,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
               <ChatSidebar
                 channel={channel}
                 profile={scopedProfile}
+                isActive={isActive}
                 onDashboardNewSessionRequest={startFreshDashboardChat}
                 onSessionTitleChange={handleSessionTitleChange}
+                onNavigate={navigateFromChatRail}
               />
             </div>
             <ChatSessionList
@@ -1170,8 +1180,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
               <ChatSidebar
                 channel={channel}
                 profile={scopedProfile}
+                isActive={isActive}
                 onDashboardNewSessionRequest={startFreshDashboardChat}
                 onSessionTitleChange={handleSessionTitleChange}
+                onNavigate={navigateFromChatRail}
               />
             </div>
 

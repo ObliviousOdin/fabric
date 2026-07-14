@@ -37,7 +37,7 @@
             {
               "label": "Work board",
               "description": "Plan and review multi-agent work.",
-              "href": "/kanban"
+              "href": "/work"
             },
             {
               "label": "Sessions",
@@ -99,9 +99,9 @@
           "title": "Engineering tools",
           "items": [
             {
-              "label": "Kanban",
+              "label": "Work",
               "description": "See planned and in-flight work.",
-              "href": "/kanban"
+              "href": "/work"
             },
             {
               "label": "Logs",

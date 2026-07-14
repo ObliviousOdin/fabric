@@ -56,6 +56,7 @@ import React, { Fragment, useEffect, useState } from "react";
  *  - `docs:top`         — top of /docs page (above the docs iframe)
  *  - `docs:bottom`      — bottom of /docs page
  *  - `chat:top`         — top of /chat page (above the composer, when embedded chat is on)
+ *  - `chat:rail`        — supporting cards in Chat's model/activity rail
  *  - `chat:bottom`      — bottom of /chat page
  */
 export const KNOWN_SLOT_NAMES = [
@@ -90,6 +91,7 @@ export const KNOWN_SLOT_NAMES = [
   "docs:top",
   "docs:bottom",
   "chat:top",
+  "chat:rail",
   "chat:bottom",
 ] as const;
 
@@ -99,7 +101,7 @@ type SlotListener = () => void;
 
 interface SlotEntry {
   plugin: string;
-  component: React.ComponentType;
+  component: React.ComponentType<Record<string, unknown>>;
 }
 
 /** Map<slotName, SlotEntry[]>. Entries are appended in registration order. */
@@ -122,14 +124,18 @@ function _notifySlots() {
  *  If the same (plugin, slot) pair is registered twice, the later call
  *  replaces the earlier one — this matches how React HMR expects plugin
  *  re-mounts to behave. */
-export function registerSlot(
+export function registerSlot<Props extends object>(
   plugin: string,
   slot: string,
-  component: React.ComponentType,
+  component: React.ComponentType<Props>,
 ): void {
   const existing = _slotRegistry.get(slot) ?? [];
   const filtered = existing.filter((e) => e.plugin !== plugin);
-  filtered.push({ plugin, component });
+  filtered.push({
+    plugin,
+    component:
+      component as unknown as React.ComponentType<Record<string, unknown>>,
+  });
   _slotRegistry.set(slot, filtered);
   _notifySlots();
 }
@@ -169,13 +175,15 @@ interface PluginSlotProps {
   /** Optional content rendered when no plugins have claimed the slot.
    *  Useful for built-in defaults the plugin would replace. */
   fallback?: React.ReactNode;
+  /** Props supplied by the host surface to every component in this slot. */
+  slotProps?: Record<string, unknown>;
 }
 
 /** Render all components registered for a given slot, stacked in order.
  *
  *  Component re-renders when the slot registry changes so plugins that
  *  arrive after initial mount show up without a manual refresh. */
-export function PluginSlot({ name, fallback }: PluginSlotProps) {
+export function PluginSlot({ name, fallback, slotProps }: PluginSlotProps) {
   const [entries, setEntries] = useState<SlotEntry[]>(() => getSlotEntries(name));
 
   useEffect(() => {
@@ -194,7 +202,10 @@ export function PluginSlot({ name, fallback }: PluginSlotProps) {
     Fragment,
     null,
     ...entries.map((entry) =>
-      React.createElement(entry.component, { key: entry.plugin }),
+      React.createElement(entry.component, {
+        ...slotProps,
+        key: entry.plugin,
+      }),
     ),
   );
 }

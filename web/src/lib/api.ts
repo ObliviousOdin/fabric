@@ -2867,6 +2867,8 @@ export interface PluginManifestResponse {
   tab: {
     path: string;
     position?: string;
+    layout?: "page" | "workspace";
+    aliases?: string[];
     override?: string;
     hidden?: boolean;
   };

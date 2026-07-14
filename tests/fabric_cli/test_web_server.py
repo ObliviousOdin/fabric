@@ -6360,7 +6360,7 @@ class TestDashboardPluginManifestExtensions:
         (plug_dir / "manifest.json").write_text(json.dumps(manifest))
         return plug_dir
 
-    def test_override_hidden_and_layout_carried_through(self, tmp_path, monkeypatch):
+    def test_override_hidden_layout_and_aliases_carried_through(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         self._write_plugin(tmp_path, "skin-home", {
             "name": "skin-home",
@@ -6370,6 +6370,7 @@ class TestDashboardPluginManifestExtensions:
                 "override": "/",
                 "hidden": True,
                 "layout": "workspace",
+                "aliases": ["/legacy-home", "/legacy-home", "bad", 42],
             },
             "slots": ["sidebar", "header-left"],
             "entry": "dist/index.js",
@@ -6382,6 +6383,7 @@ class TestDashboardPluginManifestExtensions:
         assert entry["tab"]["override"] == "/"
         assert entry["tab"]["hidden"] is True
         assert entry["tab"]["layout"] == "workspace"
+        assert entry["tab"]["aliases"] == ["/legacy-home"]
         assert entry["slots"] == ["sidebar", "header-left"]
 
     def test_layout_rejects_unknown_value(self, tmp_path, monkeypatch):

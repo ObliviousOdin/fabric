@@ -68,6 +68,52 @@ def test_idempotency_key_returns_existing_task(kanban_home):
         conn.close()
 
 
+def test_idempotency_key_is_atomic_across_connections(kanban_home):
+    barrier = threading.Barrier(2)
+    results: list[str] = []
+    errors: list[Exception] = []
+
+    def create(title: str) -> None:
+        conn = kb.connect()
+        try:
+            barrier.wait(timeout=5)
+            results.append(
+                kb.create_task(
+                    conn,
+                    title=title,
+                    idempotency_key="concurrent-dashboard-retry",
+                )
+            )
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            conn.close()
+
+    threads = [
+        threading.Thread(target=create, args=("first",)),
+        threading.Thread(target=create, args=("second",)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert not errors
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert len(set(results)) == 1
+
+    conn = kb.connect()
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE idempotency_key = ?",
+            ("concurrent-dashboard-retry",),
+        ).fetchone()[0]
+        assert count == 1
+    finally:
+        conn.close()
+
+
 def test_idempotency_key_ignored_for_archived(kanban_home):
     conn = kb.connect()
     try:

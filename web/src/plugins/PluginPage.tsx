@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore, type ComponentType } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import {
   getPluginComponent,
@@ -8,10 +9,23 @@ import {
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { Translations } from "@/i18n/types";
+import type { DashboardPluginPageProps } from "./sdk";
 
 /** Renders a plugin tab once its bundle has called `register()`. */
 export function PluginPage({ name }: { name: string }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const navigatePlugin = useCallback(
+    (
+      to: string | number,
+      options?: { replace?: boolean; state?: unknown },
+    ) => {
+      if (typeof to === "number") navigate(to);
+      else navigate(to, { replace: options?.replace, state: options?.state });
+    },
+    [navigate],
+  );
   // Subscribe in render (via useSyncExternalStore) so we never miss
   // `register()` if the script loads before a useEffect would run.
   const Component = useSyncExternalStore(
@@ -26,12 +40,19 @@ export function PluginPage({ name }: { name: string }) {
   );
 
   if (Component) {
-    // Not a component created during render: `Component` is retrieved from
-    // the plugin registry (stable per plugin name), so its identity doesn't
-    // change across renders and React never remounts it spuriously. The
-    // static rule can't see through useSyncExternalStore.
-    // eslint-disable-next-line react-hooks/static-components
-    return <Component />;
+    // Retrieved from the registry (stable per plugin name), so the component
+    // identity does not change across renders or remount spuriously.
+    const RoutedComponent = Component as ComponentType<DashboardPluginPageProps>;
+    return (
+      <RoutedComponent
+        navigate={navigatePlugin}
+        location={{
+          pathname: location.pathname,
+          search: location.search,
+          hash: location.hash,
+        }}
+      />
+    );
   }
 
   if (loadError) {

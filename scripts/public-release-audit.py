@@ -128,6 +128,14 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
         ("cf3ccd51edbd89b2e314ff0d4e62a0894e05ee21", "private-brand"),
         ("7f0961359fd8697d1fe7af23b80a6b0c1176305b", "personal-email"),
         ("7f0961359fd8697d1fe7af23b80a6b0c1176305b", "private-brand"),
+        # GitHub authors squash-merge commits with the account's primary
+        # commit email, so PR #6's merge landed with the same identity the
+        # ledger already acknowledges. Durable fix: enable GitHub's
+        # keep-email-private setting (or a noreply commit email) so future
+        # squash merges author as the users.noreply address; land ledger
+        # updates via rebase-merge, which preserves the clean PR author.
+        ("da19b8dbafc2c47181bca9e664940f9e4a979222", "personal-email"),
+        ("da19b8dbafc2c47181bca9e664940f9e4a979222", "private-brand"),
     }
 )
 

@@ -1138,7 +1138,7 @@ wheels = [
 
 [[package]]
 name = "fabric-agent"
-version = "0.18.2"
+version = "0.19.0"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },

@@ -96,6 +96,33 @@ def test_update_version_files_bumps_manifest_alongside_pyproject(
         '__version__ = "0.13.0"\n__release_date__ = "2026-05-14"\n',
         encoding="utf-8",
     )
+    desktop_dir = tmp_path / "apps" / "desktop"
+    desktop_dir.mkdir(parents=True)
+    (desktop_dir / "package.json").write_text(
+        '{\n  "name": "fabric-desktop",\n  "version": "0.12.0"\n}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "name": "fabric-agent",
+                "packages": {
+                    "": {"name": "fabric-agent", "version": "1.0.0"},
+                    "apps/desktop": {
+                        "name": "fabric-desktop",
+                        "version": "0.12.0",
+                    },
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "uv.lock").write_text(
+        'version = 1\n\n[[package]]\nname = "fabric-agent"\nversion = "0.13.0"\nsource = { editable = "." }\n',
+        encoding="utf-8",
+    )
 
     module = _load_release_module(monkeypatch, tmp_path)
     monkeypatch.setattr(module, "VERSION_FILE", version_dir / "__init__.py")
@@ -105,6 +132,20 @@ def test_update_version_files_bumps_manifest_alongside_pyproject(
 
     pyproject_text = (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "0.14.0"' in pyproject_text
+
+    desktop = json.loads(
+        (desktop_dir / "package.json").read_text(encoding="utf-8")
+    )
+    assert desktop["version"] == "0.14.0"
+
+    npm_lock = json.loads(
+        (tmp_path / "package-lock.json").read_text(encoding="utf-8")
+    )
+    assert npm_lock["packages"][""]["version"] == "1.0.0"
+    assert npm_lock["packages"]["apps/desktop"]["version"] == "0.14.0"
+    assert 'name = "fabric-agent"\nversion = "0.14.0"' in (
+        tmp_path / "uv.lock"
+    ).read_text(encoding="utf-8")
 
     manifest = json.loads(
         (tmp_path / "acp_registry" / "agent.json").read_text(encoding="utf-8")

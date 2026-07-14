@@ -12,16 +12,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
-from agent.skill_contract import (
+# Allow importing the runtime validators from the repository root when this
+# audit is invoked directly (e.g. ``python3 scripts/skills-governance-audit.py``).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from agent.skill_contract import (  # noqa: E402
     discover_skill_directories,
     source_freshness_blockers,
     validate_skill_directory,
 )
-from agent.skill_utils import (
+from agent.skill_utils import (  # noqa: E402
     extract_skill_description,
     iter_skill_index_files,
     parse_frontmatter,

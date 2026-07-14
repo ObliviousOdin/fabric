@@ -1954,8 +1954,9 @@ DEFAULT_CONFIG = {
 
     # Web dashboard settings
     "dashboard": {
-        # Fabric Light is the canonical workbench baseline. The inherited teal
-        # dashboard remains available explicitly as ``fabric-teal``.
+        # Fabric Light is the canonical workbench baseline. Retired blue/teal
+        # ids are migrated to the generated Fabric Light/Dark pair by the
+        # dashboard theme boundary.
         "theme": "fabric-light",
         # Hide the token/cost analytics surfaces (Analytics page, token bars and
         # cost figures on the Models page) by default.  The numbers shown there

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import json
 import sys
 import tempfile
 import unittest
@@ -40,6 +42,40 @@ class FabricBrandAuditTests(unittest.TestCase):
             self._write(relative, "Fabric")
         for relative in self.audit.BUILT_POSITIONING_ARTIFACT_PATHS:
             self._write(relative, '{"product":"Fabric"}')
+
+    def _write_clean_brand_colors(self) -> None:
+        for relative in self.audit.BRAND_PRIMARY_REQUIRED_PATHS:
+            self._write(relative, "/* #4628CC */\n")
+
+    def _write_clean_brand_assets(self) -> Path:
+        assets = {}
+        for name in self.audit.BRAND_ASSET_REQUIRED:
+            path = self._write(
+                f"apps/design-system/dist/brand/{name}",
+                "asset:" + name,
+            )
+            assets[name] = {"sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+
+        sources = {}
+        for name in self.audit.BRAND_SOURCE_REQUIRED:
+            relative = f"apps/design-system/src/brand/fabric/{name}"
+            path = self._write(relative, "source:" + name)
+            sources[name] = {
+                "path": relative,
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            }
+
+        return self._write(
+            self.audit.BRAND_ASSET_MANIFEST,
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "canonicalPrimary": "#4628CC",
+                    "assets": assets,
+                    "sources": sources,
+                }
+            ),
+        )
 
     def test_discovery_audit_rejects_joined_and_structured_brand_variants(self) -> None:
         variants = (
@@ -197,6 +233,58 @@ class FabricBrandAuditTests(unittest.TestCase):
 
         self.assertEqual(self.audit.audit_built_public_site(self.root), [])
         self.assertEqual(self.audit.audit_built_positioning_artifacts(self.root), [])
+
+    def test_brand_color_contract_accepts_canonical_rabot_purple(self) -> None:
+        self._write_clean_brand_colors()
+
+        self.assertEqual(self.audit.audit_brand_colors(self.root), [])
+
+    def test_brand_color_contract_rejects_former_blue_accent(self) -> None:
+        self._write_clean_brand_colors()
+        self._write(
+            "apps/desktop/src/styles.css",
+            ":root { --brand: #4628CC; --legacy: #0053fd; }\n",
+        )
+
+        issues = self.audit.audit_brand_colors(self.root)
+
+        self.assertTrue(
+            any(
+                issue.startswith("apps/desktop/src/styles.css:")
+                and "legacy brand accent #0053fd" in issue
+                for issue in issues
+            )
+        )
+
+    def test_historical_blue_preset_remains_allowed(self) -> None:
+        self._write_clean_brand_colors()
+        self._write(
+            "web/src/themes/presets.ts",
+            "export const historical = '#0053fd';\n",
+        )
+
+        self.assertEqual(self.audit.audit_brand_colors(self.root), [])
+
+    def test_brand_asset_manifest_accepts_matching_hashes(self) -> None:
+        self._write_clean_brand_assets()
+
+        self.assertEqual(self.audit.audit_brand_assets(self.root), [])
+
+    def test_brand_asset_manifest_rejects_modified_asset(self) -> None:
+        self._write_clean_brand_assets()
+        self._write(
+            "apps/design-system/dist/brand/fabric-mark.svg",
+            "modified",
+        )
+
+        issues = self.audit.audit_brand_assets(self.root)
+
+        self.assertTrue(
+            any(
+                issue.endswith("fabric-mark.svg: sha256 mismatch")
+                for issue in issues
+            )
+        )
 
 
 if __name__ == "__main__":

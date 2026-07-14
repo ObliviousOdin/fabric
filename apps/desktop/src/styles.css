@@ -120,17 +120,23 @@
   :root {
     color-scheme: light;
 
+    /* Canonical Phase 1 brand tokens. Runtime themes may override the semantic
+       slots below, while the boot paint remains on-brand before React mounts. */
+    --fabric-brand-primary: #4628cc;
+    --fabric-brand-primary-hover: #3b22ad;
+    --fabric-brand-primary-soft: #f0edfb;
+
     --theme-foreground: #17171a;
-    --theme-primary: #0053fd;
-    --theme-secondary: color-mix(in srgb, #0053fd 7%, #ffffff);
-    --theme-accent-soft: color-mix(in srgb, #0053fd 10%, #ffffff);
-    --theme-midground: #0053fd;
+    --theme-primary: var(--fabric-brand-primary);
+    --theme-secondary: color-mix(in srgb, var(--fabric-brand-primary) 7%, #ffffff);
+    --theme-accent-soft: color-mix(in srgb, var(--fabric-brand-primary) 10%, #ffffff);
+    --theme-midground: var(--fabric-brand-primary);
     --theme-warm: #cf806d;
-    --theme-background-seed: #f8faff;
-    --theme-sidebar-seed: #f3f7ff;
+    --theme-background-seed: #f5f5f5;
+    --theme-sidebar-seed: #f0edfb;
     --theme-card-seed: #ffffff;
     --theme-elevated-seed: #ffffff;
-    --theme-bubble-seed: color-mix(in srgb, #0053fd 6%, #ffffff);
+    --theme-bubble-seed: color-mix(in srgb, var(--fabric-brand-primary) 6%, #ffffff);
     --theme-neutral-chrome: #f3f3f3;
     --theme-neutral-sidebar: #f3f3f3;
     --theme-neutral-card: #fcfcfc;
@@ -162,7 +168,7 @@
     --ui-yellow: #c08532;
     --ui-green: #1f8a65;
     --ui-cyan: #4c7f8c;
-    --ui-blue: #0053fd;
+    --ui-blue: #4689ee;
     /* Light-surface purple: same hue family as the dark-mode #9e94d5 but
        darkened to hold AA-adjacent contrast on light chrome (the pastel
        reads at ~2.6:1 there); :root.dark restores the pastel. */
@@ -791,11 +797,9 @@ code {
 
 /* Arc-style multicolor action surface (static, not animated). Reusable on any
    Button via className. Unlayered so it beats Tailwind background/text variant
-   utilities. Gradient stays inside the brand family (Fabric blue → violet →
-   docs lavender) — the old ramp exited into rose/orange, the one off-brand
-   action surface in the product. */
+   utilities. The ramp stays entirely inside the Rabot primary scale. */
 .btn-arc {
-  background-image: linear-gradient(110deg, #0053fd 0%, #5b6cff 34%, #8b5cf6 68%, #b8adff 100%);
+  background-image: linear-gradient(110deg, #4628cc 0%, #654adc 34%, #7c66e1 68%, #c5baf5 100%);
   color: #fff;
   border-color: transparent;
 }

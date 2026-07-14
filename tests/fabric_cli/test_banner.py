@@ -26,6 +26,54 @@ def test_display_toolset_name_handles_empty():
     assert banner._display_toolset_name(None) == "unknown"
 
 
+def test_default_fabric_art_resolves_skin_colors_and_renders_without_color():
+    colors = {
+        "banner_title": "#111111",
+        "banner_accent": "#222222",
+        "banner_border": "#333333",
+        "banner_text": "#444444",
+        "banner_dim": "#555555",
+    }
+
+    with patch.object(
+        banner,
+        "_skin_color",
+        side_effect=lambda key, fallback: colors.get(key, fallback),
+    ):
+        resolved = banner._resolve_banner_art(banner.FABRIC_AGENT_LOGO_TEMPLATE)
+
+    assert "[bold #111111]" in resolved
+    assert "[bold #222222]" in resolved
+    assert "[dim #555555]" in resolved
+    assert "{" not in resolved
+
+    console = Console(record=True, force_terminal=False, color_system=None)
+    console.print(resolved)
+    output = console.export_text()
+
+    assert "───fabric" in output
+    assert "╰──────────╮" in output
+    assert "█" not in output
+
+
+def test_public_fabric_art_exports_are_directly_printable_for_plugins():
+    assert "{" not in banner.FABRIC_AGENT_LOGO
+    assert "{" not in banner.FABRIC_MARK
+    assert banner.HERMES_AGENT_LOGO == banner.FABRIC_AGENT_LOGO
+    assert banner.HERMES_CADUCEUS == banner.FABRIC_MARK
+
+    console = Console(record=True, force_terminal=True, color_system="truecolor")
+    console.print(banner.HERMES_AGENT_LOGO)
+
+    assert "\x1b[" in console.export_text(styles=True)
+
+
+def test_custom_banner_art_keeps_literal_rich_colors():
+    custom = "[bold #AABBCC]custom[/]"
+
+    assert banner._resolve_banner_art(custom) == custom
+
+
 def test_build_welcome_banner_uses_normalized_toolset_names():
     """Unavailable toolsets should not have '_tools' appended in banner output."""
     with (

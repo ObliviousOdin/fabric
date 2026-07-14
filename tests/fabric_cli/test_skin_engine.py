@@ -161,7 +161,7 @@ class TestSkinManagement:
         init_skin_from_config({})
         assert get_active_skin_name() == "default"
         assert get_active_skin().get_branding("agent_name") == "Fabric"
-        assert "▄████████▄" in get_active_skin().banner_logo
+        assert "───fabric" in get_active_skin().banner_logo
 
     def test_init_skin_from_null_display(self):
         """display: null should fall back to default, not crash."""
@@ -203,7 +203,7 @@ banner_hero: OLD-CADUCEUS
 
         assert skin.name == "fabric"
         assert skin.get_branding("agent_name") == "Fabric"
-        assert "▄████████▄" in skin.banner_logo
+        assert "───fabric" in skin.banner_logo
         assert "OLD-HERMES-ART" not in skin.banner_logo
         assert "OLD-CADUCEUS" not in skin.banner_hero
 

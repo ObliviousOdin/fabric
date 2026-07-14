@@ -795,11 +795,10 @@ code {
   -moz-tab-size: 2;
 }
 
-/* Arc-style multicolor action surface (static, not animated). Reusable on any
-   Button via className. Unlayered so it beats Tailwind background/text variant
-   utilities. The ramp stays entirely inside the Fabric primary scale. */
+/* Reusable emphasized action surface. Unlayered so it beats Tailwind
+   background/text variant utilities without introducing a decorative gradient. */
 .btn-arc {
-  background-image: linear-gradient(110deg, #4628cc 0%, #654adc 34%, #7c66e1 68%, #c5baf5 100%);
+  background: var(--theme-primary);
   color: #fff;
   border-color: transparent;
 }

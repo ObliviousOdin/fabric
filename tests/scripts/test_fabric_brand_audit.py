@@ -234,7 +234,7 @@ class FabricBrandAuditTests(unittest.TestCase):
         self.assertEqual(self.audit.audit_built_public_site(self.root), [])
         self.assertEqual(self.audit.audit_built_positioning_artifacts(self.root), [])
 
-    def test_brand_color_contract_accepts_canonical_rabot_purple(self) -> None:
+    def test_brand_color_contract_accepts_canonical_fabric_violet(self) -> None:
         self._write_clean_brand_colors()
 
         self.assertEqual(self.audit.audit_brand_colors(self.root), [])

@@ -46,3 +46,70 @@ jobs:
 
       - name: Validate installer syntax
         run: bash -n scripts/install.sh
+
+  web-workspace:
+    name: Web workspace
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Type-check web workspace
+        run: npm run --prefix web typecheck
+
+      - name: Lint web workspace
+        run: npm run --prefix web lint
+
+      - name: Test web workspace
+        run: npm test --prefix web -- --run
+
+      - name: Build web workspace
+        run: npm run --prefix web build
+
+  documentation:
+    name: Documentation build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install skills-index dependency
+        run: python3 -m pip install --disable-pip-version-check pyyaml==6.0.3
+
+      - name: Install documentation dependencies
+        run: npm ci --prefix website
+
+      - name: Type-check documentation
+        run: npm run --prefix website typecheck
+
+      - name: Build documentation
+        run: npm run --prefix website build
+
+      - name: Audit rendered public site identity
+        run: python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build

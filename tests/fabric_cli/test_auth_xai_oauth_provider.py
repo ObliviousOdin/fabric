@@ -28,6 +28,7 @@ from fabric_cli.auth import (
     resolve_provider,
     resolve_xai_oauth_runtime_credentials,
 )
+from fabric_cli.setup_links import LinkPresentation
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +231,73 @@ def test_xai_oauth_request_device_code_rejects_missing_fields():
         )
 
     assert exc.value.code == "device_code_invalid"
+
+
+@pytest.mark.parametrize(
+    ("remote", "expected_open_browser"),
+    [(False, True), (True, False)],
+)
+def test_xai_device_login_presents_complete_verification_url_with_browser_guard(
+    monkeypatch,
+    remote,
+    expected_open_browser,
+):
+    from fabric_cli import auth as auth_mod
+
+    complete_url = (
+        "https://accounts.x.ai/oauth2/device?user_code=ABCD-EFGH#continue"
+    )
+    monkeypatch.setattr(
+        auth_mod,
+        "_xai_oauth_discovery",
+        lambda _timeout: {"token_endpoint": "https://auth.x.ai/oauth2/token"},
+    )
+    monkeypatch.setattr(
+        auth_mod,
+        "_xai_oauth_request_device_code",
+        lambda _client: {
+            "device_code": "device-code",
+            "user_code": "ABCD-EFGH",
+            "verification_uri": "https://accounts.x.ai/oauth2/device",
+            "verification_uri_complete": complete_url,
+            "expires_in": 1800,
+            "interval": 5,
+        },
+    )
+    monkeypatch.setattr(
+        auth_mod,
+        "_xai_oauth_poll_device_token",
+        lambda *_args, **_kwargs: {
+            "access_token": "xai-access",
+            "refresh_token": "xai-refresh",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        auth_mod.httpx,
+        "Client",
+        lambda *_args, **_kwargs: _StubHTTPClient(_StubHTTPResponse(200, {})),
+    )
+    monkeypatch.setattr(auth_mod, "_is_remote_session", lambda: remote)
+    monkeypatch.setattr(auth_mod, "_can_open_graphical_browser", lambda: True)
+    presentations = []
+
+    def _present(url, *, label, open_browser):
+        presentations.append((url, label, open_browser))
+        return LinkPresentation(True, open_browser)
+
+    monkeypatch.setattr(auth_mod, "present_setup_link", _present)
+
+    credentials = auth_mod._xai_oauth_device_code_login(open_browser=True)
+
+    assert credentials["tokens"]["access_token"] == "xai-access"
+    assert presentations == [
+        (
+            complete_url,
+            "Scan with your phone or open this link",
+            expected_open_browser,
+        )
+    ]
 
 
 def test_xai_oauth_poll_device_token_waits_until_authorized(monkeypatch):

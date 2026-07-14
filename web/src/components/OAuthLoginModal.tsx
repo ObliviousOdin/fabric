@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ExternalLink, X, Check, Copy } from "lucide-react";
+import * as QRCode from "qrcode";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { H2 } from "@nous-research/ui/ui/components/typography/h2";
@@ -48,6 +49,10 @@ export function OAuthLoginModal({
     hasAccountChoice ? "choosing_account" : "starting",
   );
   const [start, setStart] = useState<OAuthStartResponse | null>(null);
+  const [verificationQr, setVerificationQr] = useState<{
+    dataUrl: string;
+    verificationUrl: string;
+  } | null>(null);
   const [pkceCode, setPkceCode] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">(
@@ -382,6 +387,39 @@ export function OAuthLoginModal({
   const deviceCode = start?.flow === "device_code" ? start.user_code : "";
   const verificationUrl =
     start?.flow === "device_code" ? start.verification_url : "";
+
+  useEffect(() => {
+    let current = true;
+    if (!verificationUrl) {
+      return () => {
+        current = false;
+      };
+    }
+
+    void QRCode.toDataURL(verificationUrl, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 208,
+    })
+      .then((dataUrl) => {
+        if (current && isMounted.current) {
+          setVerificationQr({ dataUrl, verificationUrl });
+        }
+      })
+      .catch(() => {
+        if (current && isMounted.current) setVerificationQr(null);
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [verificationUrl]);
+
+  const verificationQrDataUrl =
+    verificationQr?.verificationUrl === verificationUrl
+      ? verificationQr.dataUrl
+      : null;
+
   const managedInstructions =
     provider.id === "openai-codex"
       ? t.oauth.managedOpenAIInstructions
@@ -695,6 +733,20 @@ export function OAuthLoginModal({
 
           {start?.flow === "device_code" && phase === "polling" && (
             <>
+              {verificationQrDataUrl && (
+                <div className="flex flex-col items-center gap-2">
+                  <img
+                    alt={`Scan QR code to open ${provider.name} verification`}
+                    className="size-52 border border-border bg-white p-2"
+                    height={208}
+                    src={verificationQrDataUrl}
+                    width={208}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    Scan with your phone
+                  </span>
+                </div>
+              )}
               <p className="text-sm text-muted-foreground">
                 {t.oauth.enterCodePrompt}
               </p>

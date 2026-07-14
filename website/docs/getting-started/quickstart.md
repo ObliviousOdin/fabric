@@ -61,8 +61,8 @@ fabric -p work model
 
 | Route | Setup or selection | What to know |
 |---|---|---|
-| ChatGPT subscription | `fabric -p work auth account openai-codex personal` | Uses a profile-owned device-code sign-in; it is separate from OpenAI API billing |
-| xAI/Grok subscription | `fabric -p work auth account xai-oauth personal` | Browser approval and model entitlement are separate checks |
+| ChatGPT subscription | `fabric -p work auth account openai-codex personal` | Scan the device QR or open its link; this profile-owned sign-in is separate from OpenAI API billing |
+| xAI/Grok subscription | `fabric -p work auth account xai-oauth personal` | Scan the device QR or open its link; browser approval and model entitlement are separate checks |
 | Fabric-managed request | `fabric -p work auth account openai-codex request --device-label "work fabric"` | Records a durable local request; it does not send email, provision an account, or make the route ready |
 | Local Ollama | `fabric -p work ollama pull MODEL`, then choose **Ollama (Local)** in `fabric -p work model` | Keyless local inference; distinct from Ollama Cloud |
 | API key or compatible endpoint | Choose it in `fabric -p work model` | Secrets belong in the profile auth store or `.env`; behavior belongs in `config.yaml` |
@@ -108,6 +108,30 @@ can complete the task.
 
 Once the four-step path works, add one capability at a time so failures remain
 easy to isolate.
+
+### Connect web, voice, or private remote access
+
+Each optional setup surface is independently rerunnable:
+
+```bash
+fabric -p work setup tools       # Web providers, browser automation, and more
+fabric -p work setup tts         # Cloud voices or local Piper/NeuTTS/KittenTTS
+fabric -p work setup tailscale   # Enroll this machine through Tailscale's QR login
+```
+
+Firecrawl offers its official browser connection first and a manual API-key
+fallback. Choosing **Automatic (recommended)** leaves Web resolution unpinned,
+so Fabric can use an available configured provider or its keyless fallback;
+self-hosted Firecrawl is never selected just because you pressed Enter.
+
+Tailscale setup is opt-in and delegates enrollment to the installed official
+Tailscale client. Fabric does not store a Tailscale auth key or enable SSH,
+routes, exit nodes, Serve, or Funnel. If the client is not installed, setup
+shows the official platform install link and leaves the machine unchanged.
+
+Piper remains local and works on CPU. Setup enables its CUDA path only when the
+installed ONNX Runtime explicitly reports `CUDAExecutionProvider`; it does not
+replace ONNX Runtime or install GPU drivers.
 
 ### Inspect memory
 

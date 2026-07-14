@@ -12,6 +12,12 @@ import {
   type ProviderAccountResult,
 } from "@/lib/api";
 
+const qrToDataURL = vi.hoisted(() => vi.fn());
+
+vi.mock("qrcode", () => ({
+  toDataURL: qrToDataURL,
+}));
+
 const provider: OAuthProvider = {
   id: "nous",
   name: "Nous Portal",
@@ -77,6 +83,8 @@ describe("OAuthLoginModal device polling", () => {
   beforeEach(() => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers();
+    qrToDataURL.mockReset();
+    qrToDataURL.mockResolvedValue("data:image/png;base64,verification-qr");
     vi.spyOn(window, "open").mockReturnValue({
       closed: false,
       close: vi.fn(),
@@ -155,6 +163,100 @@ describe("OAuthLoginModal device polling", () => {
     });
 
     expect(pollSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders the exact device verification URL as a QR code", async () => {
+    const verificationUrl =
+      "https://accounts.x.ai/device?user_code=CODE-1234#continue";
+    vi.spyOn(api, "startOAuthLogin").mockResolvedValue({
+      expires_in: 900,
+      flow: "device_code",
+      poll_interval: 5,
+      session_id: "web-qr-session",
+      user_code: "CODE-1234",
+      verification_url: verificationUrl,
+    });
+    vi.spyOn(api, "pollOAuthSession").mockResolvedValue({
+      session_id: "web-qr-session",
+      status: "pending",
+    });
+    vi.spyOn(api, "cancelOAuthSession").mockResolvedValue({ ok: true });
+
+    await act(async () => {
+      root.render(
+        <OAuthLoginModal
+          provider={provider}
+          onClose={vi.fn()}
+          onError={vi.fn()}
+          onSuccess={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(qrToDataURL).toHaveBeenCalledWith(verificationUrl, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 208,
+    });
+    const qr = document.body.querySelector<HTMLImageElement>(
+      'img[alt="Scan QR code to open Nous Portal verification"]',
+    );
+    expect(qr?.src).toBe("data:image/png;base64,verification-qr");
+    expect(
+      document.body.querySelector<HTMLAnchorElement>(
+        `a[href="${verificationUrl}"]`,
+      ),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain("CODE-1234");
+  });
+
+  it("keeps the code and plain link when QR generation fails", async () => {
+    const verificationUrl = "https://auth.openai.com/codex/device";
+    qrToDataURL.mockRejectedValueOnce(new Error("QR unavailable"));
+    vi.spyOn(api, "startOAuthLogin").mockResolvedValue({
+      expires_in: 900,
+      flow: "device_code",
+      poll_interval: 5,
+      session_id: "web-qr-fallback",
+      user_code: "OPEN-AI1",
+      verification_url: verificationUrl,
+    });
+    vi.spyOn(api, "pollOAuthSession").mockResolvedValue({
+      session_id: "web-qr-fallback",
+      status: "pending",
+    });
+    vi.spyOn(api, "cancelOAuthSession").mockResolvedValue({ ok: true });
+
+    await act(async () => {
+      root.render(
+        <OAuthLoginModal
+          provider={provider}
+          onClose={vi.fn()}
+          onError={vi.fn()}
+          onSuccess={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(document.body.querySelector("img[alt^='Scan QR code']")).toBeNull();
+    expect(
+      document.body.querySelector<HTMLAnchorElement>(
+        `a[href="${verificationUrl}"]`,
+      ),
+    ).not.toBeNull();
+    expect(document.body.textContent).toContain("OPEN-AI1");
   });
 
   it("ignores a late approval after the visible session has expired", async () => {
@@ -414,9 +516,9 @@ describe("OAuthLoginModal device polling", () => {
       await Promise.resolve();
     });
 
-    const takeover = Array.from(
-      document.body.querySelectorAll("button"),
-    ).find((button) => button.textContent?.includes("Take over sign-in"));
+    const takeover = Array.from(document.body.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Take over sign-in"),
+    );
     expect(takeover).toBeDefined();
     await act(async () => {
       takeover?.click();
@@ -425,18 +527,13 @@ describe("OAuthLoginModal device polling", () => {
       await Promise.resolve();
     });
 
-    expect(startLogin).toHaveBeenNthCalledWith(
-      1,
-      "openai-codex",
-      "current",
-      { expectedRevision: 7 },
-    );
-    expect(startLogin).toHaveBeenNthCalledWith(
-      2,
-      "openai-codex",
-      "current",
-      { expectedRevision: 8, takeover: true },
-    );
+    expect(startLogin).toHaveBeenNthCalledWith(1, "openai-codex", "current", {
+      expectedRevision: 7,
+    });
+    expect(startLogin).toHaveBeenNthCalledWith(2, "openai-codex", "current", {
+      expectedRevision: 8,
+      takeover: true,
+    });
     expect(document.body.textContent).toContain("CODE-1234");
   });
 

@@ -19,7 +19,7 @@ Config keys this provider responds to::
 
 Auth env vars::
 
-    FIRECRAWL_API_KEY=...           # https://firecrawl.dev
+    FIRECRAWL_API_KEY=...           # https://firecrawl.dev/app/api-keys
     FIRECRAWL_API_URL=...           # optional override (default https://api.firecrawl.dev)
     FIRECRAWL_BROWSER_TTL=...       # optional, default 300 seconds
 """
@@ -70,7 +70,7 @@ class FirecrawlBrowserProvider(BrowserProvider):
         if not api_key:
             raise ValueError(
                 "FIRECRAWL_API_KEY environment variable is required. "
-                "Get your key at https://firecrawl.dev"
+                "Get your key at https://firecrawl.dev/app/api-keys"
             )
         return {
             "Content-Type": "application/json",
@@ -158,14 +158,15 @@ class FirecrawlBrowserProvider(BrowserProvider):
     def get_setup_schema(self) -> Dict[str, Any]:
         return {
             "name": "Firecrawl",
-            "badge": "paid",
+            "badge": "free tier · paid upgrades",
             "tag": "Cloud browser with remote execution",
             "env_vars": [
                 {
                     "key": "FIRECRAWL_API_KEY",
                     "prompt": "Firecrawl API key",
-                    "url": "https://firecrawl.dev",
+                    "url": "https://firecrawl.dev/app/api-keys",
                 },
             ],
+            "setup_flow": "firecrawl",
             "post_setup": "agent_browser",
         }

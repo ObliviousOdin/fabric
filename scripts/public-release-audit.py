@@ -142,6 +142,34 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
         ("eb769ff38be6c7ce2b2a4c69e8741b15cb702e38", "private-brand"),
         ("58bc651c5c067e02f6330aeadfc469c74d686b0a", "personal-email"),
         ("58bc651c5c067e02f6330aeadfc469c74d686b0a", "private-brand"),
+        # PR #9 was rebase-merged after its branch commits were authored with
+        # a users.noreply address. GitHub rewrote each commit with the merging
+        # account's personal committer identity, making these exact published
+        # SHAs immutable history. Land this ledger repair by direct fast-forward
+        # with a noreply committer so it does not create another contaminated
+        # GitHub-generated merge commit.
+        ("ea82bfd5c2eae9174c557dd20ecb68f19798e503", "personal-email"),
+        ("ea82bfd5c2eae9174c557dd20ecb68f19798e503", "private-brand"),
+        ("97a77e4b56f7b23dfcecbd471628f0099d315d31", "personal-email"),
+        ("97a77e4b56f7b23dfcecbd471628f0099d315d31", "private-brand"),
+        ("be4fa66573264ca3a1a9509606a2c8e8bbbad653", "personal-email"),
+        ("be4fa66573264ca3a1a9509606a2c8e8bbbad653", "private-brand"),
+        ("c2733f0460427c1a3ef59f7c520cc593c2609c65", "personal-email"),
+        ("c2733f0460427c1a3ef59f7c520cc593c2609c65", "private-brand"),
+        ("e4c216e51af826a025b702438a82eb128d1a0415", "personal-email"),
+        ("e4c216e51af826a025b702438a82eb128d1a0415", "private-brand"),
+        ("42f8c7274b0ed387befc832017f3c7a4f11fec96", "personal-email"),
+        ("42f8c7274b0ed387befc832017f3c7a4f11fec96", "private-brand"),
+        ("fb29b9ad808d91c25c6a7187c05c178b6fb50313", "personal-email"),
+        ("fb29b9ad808d91c25c6a7187c05c178b6fb50313", "private-brand"),
+        ("41497e216805da1a83591455eff6a3fcd89ba052", "personal-email"),
+        ("41497e216805da1a83591455eff6a3fcd89ba052", "private-brand"),
+        ("b4f41cacc4c0a2dc29edd46278fb969ede1fb62a", "personal-email"),
+        ("b4f41cacc4c0a2dc29edd46278fb969ede1fb62a", "private-brand"),
+        ("d1cef66e3d288773bd8aeebf3a0ebcd6b4eea321", "personal-email"),
+        ("d1cef66e3d288773bd8aeebf3a0ebcd6b4eea321", "private-brand"),
+        ("65f3eac4a36fcd83eb65aab29054ed85909d3756", "personal-email"),
+        ("65f3eac4a36fcd83eb65aab29054ed85909d3756", "private-brand"),
     }
 )
 

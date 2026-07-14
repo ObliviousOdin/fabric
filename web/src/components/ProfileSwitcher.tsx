@@ -37,7 +37,7 @@ export function ProfileSwitcher({ collapsed }: ProfileSwitcherProps) {
   return (
     <div
       className={cn(
-        "flex items-center gap-2 border-b border-current/10 px-3 py-2",
+        "flex items-center gap-2 border-b border-border/70 px-4 py-2.5",
         collapsed && "lg:justify-center lg:px-0",
       )}
       title={managingLabel}
@@ -53,8 +53,9 @@ export function ProfileSwitcher({ collapsed }: ProfileSwitcherProps) {
         className={cn(
           "min-w-0 flex-1",
           collapsed && "lg:hidden",
-          "[&_button]:h-7 [&_button]:border-border [&_button]:bg-background [&_button]:px-2 [&_button]:text-xs",
+          "[&_button]:h-8 [&_button]:border-0 [&_button]:bg-transparent [&_button]:px-2 [&_button]:text-xs",
           "[&_button]:font-sans [&_button]:normal-case [&_button]:tracking-normal",
+          "[&_button]:shadow-none [&_button:hover]:bg-muted/60",
           "[&_[role=listbox]>div]:font-sans [&_[role=listbox]>div]:text-xs",
           "[&_[role=listbox]>div]:normal-case [&_[role=listbox]>div]:tracking-normal",
           isOther &&

@@ -1,10 +1,11 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type ComponentType,
   type ReactNode,
 } from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
@@ -20,35 +21,19 @@ import { PageHeaderProvider } from "@/contexts/PageHeaderProvider";
 import { ProfileProvider } from "@/contexts/ProfileProvider";
 import { useProfileScope } from "@/contexts/useProfileScope";
 import { ProfileScopeBanner } from "@/components/ProfileScopeBanner";
+import {
+  shouldRenderPersistentChat,
+  usePersistentActiveMount,
+} from "@/components/chat/persistent-chat-host";
 import { AppSidebar } from "@/components/sidebar/AppSidebar";
 import {
-  BUILTIN_NAV_REST,
-  CHAT_NAV_ITEM,
+  BUILTIN_NAV_ITEMS,
   buildSidebarSections,
 } from "@/components/sidebar/nav-model";
 import type { NavItem, NavSection } from "@/components/sidebar/nav-model";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ShortcutHelp } from "@/components/ShortcutHelp";
 import { matchesCombo, useShortcut } from "@/hooks/useShortcutRegistry";
-import ConfigPage from "@/pages/ConfigPage";
-import EnvPage from "@/pages/EnvPage";
-import FilesPage from "@/pages/FilesPage";
-import SessionsPage from "@/pages/SessionsPage";
-import LogsPage from "@/pages/LogsPage";
-import AnalyticsPage from "@/pages/AnalyticsPage";
-import ModelsPage from "@/pages/ModelsPage";
-import CronPage from "@/pages/CronPage";
-import ProfilesPage from "@/pages/ProfilesPage";
-import ProfileBuilderPage from "@/pages/ProfileBuilderPage";
-import SkillsPage from "@/pages/SkillsPage";
-import PluginsPage from "@/pages/PluginsPage";
-import McpPage from "@/pages/McpPage";
-import PairingPage from "@/pages/PairingPage";
-import ChannelsPage from "@/pages/ChannelsPage";
-import WebhooksPage from "@/pages/WebhooksPage";
-import SystemPage from "@/pages/SystemPage";
-import ChatPage from "@/pages/ChatPage";
-import DocsPage from "@/pages/DocsPage";
 import { useI18n } from "@/i18n";
 import { PluginPage, PluginSlot, usePlugins } from "@/plugins";
 import { PluginAliasRedirect } from "@/plugins/PluginAliasRedirect";
@@ -56,9 +41,31 @@ import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
 import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 import { api } from "@/lib/api";
+import {
+  APP_ROUTES,
+  DEFAULT_ROUTE,
+  canonicalPathForPath,
+  canonicalPluginTargetPath,
+  isBuiltinPath,
+  isChatPath,
+  overrideForPath,
+  overrideForRoute,
+  pluginRouteMetadata,
+  routeForPath,
+  routeLayoutForPath,
+  routeSurfaceForPath,
+} from "@/app/routes";
+
+const ChatPage = lazy(() => import("@/pages/ChatPage"));
+const CHAT_ROUTE = APP_ROUTES.find((route) => route.id === "chat")!;
+
+function PreservingRedirect({ to }: { to: string }) {
+  const { hash, search } = useLocation();
+  return <Navigate replace to={{ pathname: to, search, hash }} />;
+}
 
 function RootRedirect() {
-  return <Navigate to="/sessions" replace />;
+  return <PreservingRedirect to={DEFAULT_ROUTE} />;
 }
 
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
@@ -66,93 +73,97 @@ function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
     // Render nothing during the plugin-load window — a spinner here would just flash.
     return null;
   }
-  return <Navigate to="/sessions" replace />;
+  // Unknown URLs may contain sensitive query/hash material. Do not carry it
+  // onto Home; preservation is reserved for cataloged legacy aliases.
+  return <Navigate replace to={DEFAULT_ROUTE} />;
 }
 
 /**
- * Built-in routes except /chat.  Chat is rendered persistently (outside
- * <Routes>) when embedded — see the persistent chat host block rendered
- * inline near the bottom of this file — so the PTY child, WebSocket,
- * and xterm instance survive when the user visits another tab and comes
- * back.  A `display:none` toggle hides the terminal without unmounting.
- * Routing still owns the URL so /chat deep-links, browser back/forward,
- * and nav highlight keep working.
- *
- * /docs has a route but intentionally no nav entry — it is reachable by
- * URL only (linked from help surfaces).
+ * Chat is hosted persistently outside `<Routes>` after its first visit so its
+ * PTY, WebSocket and xterm instance survive navigation. This sink claims both
+ * the canonical route and its legacy alias without creating a second chat UI.
  */
-const BUILTIN_ROUTES_CORE: Record<string, ComponentType> = {
-  "/": RootRedirect,
-  "/sessions": SessionsPage,
-  "/files": FilesPage,
-  "/analytics": AnalyticsPage,
-  "/models": ModelsPage,
-  "/logs": LogsPage,
-  "/cron": CronPage,
-  "/skills": SkillsPage,
-  "/plugins": PluginsPage,
-  "/mcp": McpPage,
-  "/pairing": PairingPage,
-  "/channels": ChannelsPage,
-  "/webhooks": WebhooksPage,
-  "/system": SystemPage,
-  "/profiles": ProfilesPage,
-  "/profiles/new": ProfileBuilderPage,
-  "/config": ConfigPage,
-  "/env": EnvPage,
-  "/docs": DocsPage,
-};
-
-// Route placeholder for /chat.  The persistent ChatPage host (rendered
-// outside <Routes> when embedded chat is on) paints on top; this empty
-// element just claims the path so the `*` catch-all redirect doesn't
-// fire when the user navigates to /chat.
 function ChatRouteSink() {
   return null;
 }
 
+function RouteLoading() {
+  return (
+    <div
+      aria-busy="true"
+      aria-live="polite"
+      className="flex min-h-40 min-w-0 flex-1 items-center justify-center"
+    >
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner />
+        <span>Loading…</span>
+      </div>
+    </div>
+  );
+}
+
 function buildRoutes(
-  builtinRoutes: Record<string, ComponentType>,
-  manifests: PluginManifest[],
+  manifests: readonly PluginManifest[],
+  embeddedChat: boolean,
 ): Array<{
   key: string;
   path: string;
   element: ReactNode;
 }> {
-  const byOverride = new Map<string, PluginManifest>();
-  const addons: PluginManifest[] = [];
-
-  for (const m of manifests) {
-    if (m.tab.override) {
-      byOverride.set(m.tab.override, m);
-    } else {
-      addons.push(m);
-    }
-  }
-
   const routes: Array<{
     key: string;
     path: string;
     element: ReactNode;
   }> = [];
 
-  for (const [path, Component] of Object.entries(builtinRoutes)) {
-    const om = byOverride.get(path);
-    if (om) {
-      routes.push({
-        key: `override:${om.name}`,
-        path,
-        element: <PluginPage name={om.name} />,
-      });
+  const rootOverride = overrideForPath("/", manifests);
+  routes.push({
+    key: rootOverride ? `override:${rootOverride.name}:root` : "root",
+    path: "/",
+    element: rootOverride ? (
+      <PluginPage name={rootOverride.name} />
+    ) : (
+      <RootRedirect />
+    ),
+  });
+
+  for (const route of APP_ROUTES) {
+    const override = overrideForRoute(route, manifests);
+    let element: ReactNode;
+    if (override) {
+      element = <PluginPage name={override.name} />;
+    } else if (route.persistent) {
+      element = embeddedChat ? <ChatRouteSink /> : <RootRedirect />;
+    } else if (route.component) {
+      const Component = route.component;
+      element = (
+        <Suspense fallback={<RouteLoading />}>
+          <Component />
+        </Suspense>
+      );
     } else {
-      routes.push({ key: `builtin:${path}`, path, element: <Component /> });
+      element = <RootRedirect />;
+    }
+
+    routes.push({
+      key: `builtin:${route.id}`,
+      path: route.path,
+      element,
+    });
+
+    for (const alias of route.aliases ?? []) {
+      routes.push({
+        key: `alias:${route.id}:${alias}`,
+        path: alias,
+        element: <PreservingRedirect to={route.path} />,
+      });
     }
   }
 
-  for (const m of addons) {
+  for (const m of manifests) {
+    if (m.tab.override) continue;
     if (m.tab.hidden) continue;
-    if (m.tab.path === "/plugins") continue;
-    if (builtinRoutes[m.tab.path]) continue;
+    if (m.tab.path === "/" || isBuiltinPath(m.tab.path)) continue;
     routes.push({
       key: `plugin:${m.name}`,
       path: m.tab.path,
@@ -162,8 +173,9 @@ function buildRoutes(
 
   for (const m of manifests) {
     if (!m.tab.hidden) continue;
-    if (m.tab.path === "/plugins") continue;
-    if (builtinRoutes[m.tab.path] || m.tab.override) continue;
+    if (m.tab.path === "/" || isBuiltinPath(m.tab.path) || m.tab.override) {
+      continue;
+    }
     routes.push({
       key: `plugin:hidden:${m.name}`,
       path: m.tab.path,
@@ -174,12 +186,19 @@ function buildRoutes(
   // Aliases are compatibility-only routes. Canonical plugin paths, built-in
   // pages, and earlier aliases always win so a plugin cannot shadow another
   // product surface by declaring an alias for it.
-  const claimedPaths = new Set(Object.keys(builtinRoutes));
+  const claimedPaths = new Set([
+    "/",
+    ...APP_ROUTES.flatMap((route) => [route.path, ...(route.aliases ?? [])]),
+  ]);
   for (const m of manifests) {
-    claimedPaths.add(m.tab.override ?? m.tab.path);
+    claimedPaths.add(
+      canonicalPluginTargetPath(m.tab.override ?? m.tab.path),
+    );
   }
   for (const m of manifests) {
-    const canonicalPath = m.tab.override ?? m.tab.path;
+    const canonicalPath = canonicalPluginTargetPath(
+      m.tab.override ?? m.tab.path,
+    );
     for (const alias of m.tab.aliases ?? []) {
       if (!alias.startsWith("/") || claimedPaths.has(alias)) continue;
       claimedPaths.add(alias);
@@ -198,7 +217,16 @@ const SIDEBAR_COLLAPSED_KEY = "fabric-sidebar-collapsed";
 const LEGACY_SIDEBAR_COLLAPSED_KEY = "hermes-sidebar-collapsed";
 
 export default function App() {
+  return (
+    <ProfileProvider>
+      <AppShell />
+    </ProfileProvider>
+  );
+}
+
+function AppShell() {
   const { t } = useI18n();
+  const { profile } = useProfileScope();
   const { pathname } = useLocation();
   const { manifests, loading: pluginsLoading } = usePlugins();
   const { theme } = useTheme();
@@ -232,11 +260,18 @@ export default function App() {
   const isMobile = useBelowBreakpoint(1024);
   const isDesktopCollapsed = collapsed && !isMobile;
   const tooltipWarmRef = useRef(0);
-  const sidebarStatus = useSidebarStatus();
-  const isDocsRoute = pathname === "/docs" || pathname === "/docs/";
+  const sidebarStatus = useSidebarStatus(profile);
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
-  const isChatRoute = normalizedPath === "/chat";
+  const activeRoute = routeForPath(pathname);
+  const currentCanonicalPath =
+    canonicalPathForPath(pathname) ?? normalizedPath;
+  const isDocsRoute = activeRoute?.id === "help";
+  const isChatRoute = isChatPath(pathname);
   const embeddedChat = isDashboardEmbeddedChatEnabled();
+  const {
+    hasMountedActiveChat: chatMountedActive,
+    markActiveChatMounted,
+  } = usePersistentActiveMount();
 
   // `dashboard.show_token_analytics` gates the Analytics nav item.  The
   // page itself remains reachable by URL (it renders an explanation when
@@ -273,71 +308,85 @@ export default function App() {
   // plugin-load window (typically <50ms, worst case 2s safety timeout)
   // is the cheaper trade-off.
   const chatOverriddenByPlugin = useMemo(
-    () => manifests.some((m) => m.tab.override === "/chat"),
+    () => overrideForRoute(CHAT_ROUTE, manifests) !== undefined,
     [manifests],
   );
 
-  const builtinRoutes = useMemo(
-    () => ({
-      ...BUILTIN_ROUTES_CORE,
-      ...(embeddedChat ? { "/chat": ChatRouteSink } : {}),
-    }),
-    [embeddedChat],
+  const builtinNav = useMemo(
+    () =>
+      BUILTIN_NAV_ITEMS.filter(
+        (item) =>
+          (embeddedChat || item.path !== CHAT_ROUTE.path) &&
+          (showTokenAnalytics || item.path !== "/workspace/insights"),
+      ),
+    [embeddedChat, showTokenAnalytics],
   );
 
-  const builtinNav = useMemo(() => {
-    const base = embeddedChat
-      ? [CHAT_NAV_ITEM, ...BUILTIN_NAV_REST]
-      : BUILTIN_NAV_REST;
-    return showTokenAnalytics
-      ? base
-      : base.filter((n) => n.path !== "/analytics");
-  }, [embeddedChat, showTokenAnalytics]);
-
-  const sidebarNav = useMemo(
-    () => buildSidebarSections(builtinNav, manifests),
+  const sidebarNavBySurface = useMemo(
+    () => ({
+      workspace: buildSidebarSections(builtinNav, manifests, "workspace"),
+      admin: buildSidebarSections(builtinNav, manifests, "admin"),
+    }),
     [builtinNav, manifests],
   );
+  const navPathsForSurface = (surface: "workspace" | "admin") => {
+    const nav = sidebarNavBySurface[surface];
+    return [...nav.sections.flatMap((section) => section.items), ...nav.pluginItems]
+      .map((item) => item.path.replace(/\/$/, "") || "/")
+      .includes(normalizedPath);
+  };
+  const directPlugin = manifests.find(
+    (manifest) =>
+      (manifest.tab.path.replace(/\/$/, "") || "/") === normalizedPath,
+  );
+  const activeSurface = activeRoute
+    ? routeSurfaceForPath(pathname)
+    : navPathsForSurface("admin")
+      ? "admin"
+      : navPathsForSurface("workspace")
+        ? "workspace"
+        : directPlugin
+          ? directPlugin.tab.layout === "workspace"
+            ? "workspace"
+            : "admin"
+          : routeSurfaceForPath(pathname);
+  const sidebarNav = sidebarNavBySurface[activeSurface];
+  const commandNav = useMemo(
+    () => ({
+      sections: [
+        ...sidebarNavBySurface.workspace.sections,
+        ...sidebarNavBySurface.admin.sections,
+      ],
+      pluginItems: [
+        ...sidebarNavBySurface.workspace.pluginItems,
+        ...sidebarNavBySurface.admin.pluginItems,
+      ],
+    }),
+    [sidebarNavBySurface],
+  );
   const routes = useMemo(
-    () => buildRoutes(builtinRoutes, manifests),
-    [builtinRoutes, manifests],
+    () => buildRoutes(manifests, embeddedChat),
+    [embeddedChat, manifests],
   );
   // Hidden plugin routes still need their layout metadata when opened by URL;
   // visibility only controls navigation discovery, not workspace chrome.
   const pluginTabMeta = useMemo(
-    () =>
-      manifests.map((m) => ({
-        path: m.tab.override ?? m.tab.path,
-        label: m.label,
-        layout: m.tab.layout,
-      })),
+    () => pluginRouteMetadata(manifests),
     [manifests],
   );
 
   const layoutVariant = theme.layoutVariant ?? "standard";
   const isWorkspaceRoute = useMemo(
-    () =>
-      manifests.some(
-        (m) =>
-          m.tab.layout === "workspace" &&
-          (m.tab.override ?? m.tab.path).replace(/\/$/, "") === normalizedPath,
-      ),
-    [manifests, normalizedPath],
+    () => {
+      if (routeLayoutForPath(pathname) === "workspace") return true;
+      return pluginTabMeta.some(
+        (tab) =>
+          tab.layout === "workspace" &&
+          (tab.path.replace(/\/+$/, "") || "/") === currentCanonicalPath,
+      );
+    },
+    [currentCanonicalPath, pathname, pluginTabMeta],
   );
-
-  useEffect(() => {
-    if (!mobileOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMobileOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [mobileOpen]);
 
   useEffect(() => {
     const mql = window.matchMedia("(min-width: 1024px)");
@@ -349,7 +398,6 @@ export default function App() {
   }, []);
 
   return (
-    <ProfileProvider>
     <div
       data-layout-variant={layoutVariant}
       className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-background-base text-text-primary antialiased"
@@ -364,6 +412,8 @@ export default function App() {
       </div>
 
       <header
+        aria-hidden={mobileOpen ? true : undefined}
+        inert={mobileOpen ? true : undefined}
         className={cn(
           "lg:hidden fixed top-0 left-0 right-0 z-40 min-h-14",
           "flex items-center gap-2 px-4 py-2",
@@ -400,7 +450,8 @@ export default function App() {
       {mobileOpen && (
         <Button
           ghost
-          aria-label={t.app.closeNavigation}
+          aria-hidden="true"
+          tabIndex={-1}
           onClick={closeMobile}
           className={cn(
             "lg:hidden fixed inset-0 z-40 p-0 block",
@@ -418,7 +469,9 @@ export default function App() {
             closeMobile={closeMobile}
             collapsed={collapsed}
             isDesktopCollapsed={isDesktopCollapsed}
+            isMobile={isMobile}
             mobileOpen={mobileOpen}
+            surface={activeSurface}
             pluginItems={sidebarNav.pluginItems}
             sections={sidebarNav.sections}
             status={sidebarStatus}
@@ -465,6 +518,7 @@ export default function App() {
 
                 {embeddedChat &&
                   !chatOverriddenByPlugin &&
+                  (chatMountedActive || isChatRoute) &&
                   (pluginsLoading ? (
                     isChatRoute ? (
                       <div
@@ -478,7 +532,11 @@ export default function App() {
                         </div>
                       </div>
                     ) : null
-                  ) : (
+                  ) : shouldRenderPersistentChat(
+                      isChatRoute,
+                      chatMountedActive,
+                      pluginsLoading,
+                    ) ? (
                     <div
                       data-chat-active={isChatRoute ? "true" : "false"}
                       className={cn(
@@ -487,9 +545,14 @@ export default function App() {
                       )}
                       aria-hidden={!isChatRoute}
                     >
-                      <ChatPage isActive={isChatRoute} />
+                      <Suspense fallback={<RouteLoading />}>
+                        <ChatPage
+                          isActive={isChatRoute}
+                          onActiveMount={markActiveChatMounted}
+                        />
+                      </Suspense>
                     </div>
-                  ))}
+                  ) : null)}
               </div>
               <PluginSlot name="post-main" />
             </div>
@@ -499,14 +562,13 @@ export default function App() {
 
       <AppCommandLayer
         embeddedChat={embeddedChat}
-        pluginItems={sidebarNav.pluginItems}
-        sections={sidebarNav.sections}
+        pluginItems={commandNav.pluginItems}
+        sections={commandNav.sections}
         toggleCollapsed={toggleCollapsed}
       />
 
       <PluginSlot name="overlay" />
     </div>
-    </ProfileProvider>
   );
 }
 

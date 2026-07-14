@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 import { RelativeTime } from "./RelativeTime";

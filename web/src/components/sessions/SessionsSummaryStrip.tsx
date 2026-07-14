@@ -1,5 +1,5 @@
 import type { SessionStoreStats } from "@/lib/api";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Stats } from "@nous-research/ui/ui/components/stats";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";

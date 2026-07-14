@@ -1,4 +1,5 @@
 import type { Translations } from "@/i18n/types";
+import { appNavLabel } from "@/lib/app-nav-label";
 import type { NavItem } from "./nav-model";
 
 /**
@@ -8,7 +9,5 @@ import type { NavItem } from "./nav-model";
  * so the lookup (and its type-erasing cast) lives in one place.
  */
 export function navItemLabel(item: NavItem, t: Translations): string {
-  return item.labelKey
-    ? ((t.app.nav as Record<string, string>)[item.labelKey] ?? item.label)
-    : item.label;
+  return appNavLabel(item.labelKey, item.label, t);
 }

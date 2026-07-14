@@ -33,7 +33,7 @@ import {
   Segmented,
 } from "@nous-research/ui/ui/components/segmented";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { useConfirmDelete } from "@nous-research/ui/hooks/use-confirm-delete";
 import { Input } from "@nous-research/ui/ui/components/input";
@@ -1022,7 +1022,7 @@ export default function SessionsPage() {
             title={t.sessions.noSessions}
             description={t.sessions.startConversation}
             action={
-              <Button outlined size="sm" onClick={() => navigate("/chat")}>
+              <Button outlined size="sm" onClick={() => navigate("/workspace/chat")}>
                 {L?.openChat ?? "Open chat"}
               </Button>
             }

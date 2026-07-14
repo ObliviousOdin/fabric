@@ -84,7 +84,7 @@ function TokenEstimateNotice() {
           {W?.estimatesHiddenSummary ??
             "token & cost estimates hidden — local counts diverge from provider billing"}{" "}
           &#183;{" "}
-          <Link to="/config" className="underline">
+          <Link to="/admin/advanced" className="underline">
             {W?.configLink ?? "Config"}
           </Link>
         </span>
@@ -117,7 +117,7 @@ function TokenEstimateNotice() {
           <span className="font-mono">
             dashboard.show_token_analytics: true
           </span>{" "}
-          in <Link to="/config" className="underline">Config</Link>.
+          in <Link to="/admin/advanced" className="underline">Config</Link>.
         </p>
       </div>
     </details>
@@ -818,7 +818,7 @@ export default function AnalyticsPage() {
                   type="button"
                   outlined
                   size="sm"
-                  onClick={() => navigate("/chat")}
+                  onClick={() => navigate("/workspace/chat")}
                 >
                   {W?.openChat ?? "Open chat"}
                 </Button>

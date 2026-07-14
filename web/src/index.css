@@ -1,12 +1,11 @@
 @import 'tailwindcss';
-/* `fonts.css` must come BEFORE `globals.css`: as of @nous-research/ui 0.14.x,
-   `globals.css` only declares the `--font-*` CSS variables (Collapse, Rules
-   Compressed/Expanded, Mondwest). The `@font-face` registrations live in
-   `fonts.css`, so without this import the DS variables resolve to font
-   families the browser never loads and components fall back to a system
-   stack (Tabs, Segmented, Typography, Buttons, etc. all look unstyled). */
-@import '@nous-research/ui/styles/fonts.css';
 @import '@nous-research/ui/styles/globals.css';
+@import '../../apps/design-system/dist/tokens.css';
+
+/* The upstream component package still provides interaction behavior, but
+   its Collapse/Mondwest/Rules font payload and uppercase display language are
+   not part of Fabric. The compatibility variables below keep those classes
+   readable while the owned Fabric primitives replace them incrementally. */
 
 /* Scan the published design-system bundle so its utility classes survive
    Tailwind's JIT purge. */
@@ -58,17 +57,31 @@
   /* These are the defaults for the canonical Fabric Light dashboard theme;
      ThemeProvider rewrites them as inline styles when a user switches themes. */
 
+  /* Canonical Phase 1 brand tokens. The shared generated source lives in
+     apps/design-system; these boot values prevent a pre-provider color flash. */
+  --fabric-brand-primary: var(--fabric-ds-brand-primary, #4628cc);
+  --fabric-brand-primary-hover: var(--fabric-ds-color-primary-800, #3b22ad);
+  --fabric-brand-primary-soft: var(--fabric-ds-color-primary-25, #f0edfb);
+
   /* Native form controls / scrollbars match the canonical light canvas before
      ThemeProvider mounts; applyTheme rewrites this when another theme loads. */
   color-scheme: light;
   --foreground: color-mix(in srgb, #ffffff 0%, transparent);
   --foreground-base: #ffffff;
   --foreground-alpha: 0;
-  --midground: color-mix(in srgb, #1d1f24 100%, transparent);
-  --midground-base: #1d1f24;
+  --midground: color-mix(
+    in srgb,
+    var(--fabric-ds-semantic-text, #221f1a) 100%,
+    transparent
+  );
+  --midground-base: var(--fabric-ds-semantic-text, #221f1a);
   --midground-alpha: 1;
-  --background: color-mix(in srgb, #f8fafe 100%, transparent);
-  --background-base: #f8fafe;
+  --background: color-mix(
+    in srgb,
+    var(--fabric-ds-semantic-canvas, #fcfaf6) 100%,
+    transparent
+  );
+  --background-base: var(--fabric-ds-semantic-canvas, #fcfaf6);
   --background-alpha: 1;
 
   /* Typography tokens — rewritten by ThemeProvider. Defaults match the
@@ -78,6 +91,10 @@
   --theme-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo,
     Consolas, monospace;
   --theme-font-display: var(--theme-font-sans);
+  --font-sans: var(--theme-font-sans);
+  --font-mondwest: var(--theme-font-sans);
+  --font-rules-compressed: var(--theme-font-sans);
+  --font-rules-expanded: var(--theme-font-sans);
   --theme-base-size: 15px;
   --theme-line-height: 1.55;
   --theme-letter-spacing: 0;
@@ -91,17 +108,41 @@
   /* Data-series accents — consumed by Analytics + Models pages for the
      input-vs-output token visualisations (chart bars, table values,
      legend swatches). Defaults follow the active theme: neutral text tone
-     for input, the theme's primary accent (Fabric blue when unset) for
+     for input, the theme's primary accent (Fabric violet when unset) for
      output — so hand-authored presets that omit seriesColors stay legible
      on their own canvas instead of inheriting light-tuned literals.
      Themes override via ThemeProvider, which emits these as
      `--series-input-token` / `--series-output-token`. */
   --series-input-token: var(--midground-base);
-  --series-output-token: var(--theme-color-primary, #0053fd);
+  --series-output-token: var(
+    --theme-color-primary,
+    var(--fabric-brand-primary)
+  );
+
+  /* Fabric's signature motifs are quiet structural cues. Purple marks the
+     active thread or bracket; neutral lines carry provenance and topology. */
+  --fabric-woven-grid-line: var(--fabric-ds-semantic-woven-grid, #e5e1da);
+  --fabric-thread-line: var(--fabric-ds-semantic-thread, #8174b0);
+  --fabric-thread-active: var(
+    --theme-color-primary,
+    var(--fabric-ds-semantic-thread-active, #4628cc)
+  );
+  --fabric-bracket-color: var(
+    --theme-color-primary,
+    var(--fabric-ds-semantic-bracket, #4628cc)
+  );
+  --fabric-woven-grid-size: 48px;
+  --fabric-thread-gutter: 16px;
+  --fabric-motif-stroke: 1px;
 
   /* Subtle raised-surface tint consumed by dashboard plugin CSS
      (var(--color-card-subtle, …)). */
   --color-card-subtle: color-mix(in srgb, var(--midground-base) 3%, var(--background-base));
+}
+
+:root[data-appearance='dark'] {
+  --fabric-woven-grid-line: var(--fabric-ds-color-violet-charcoal-grid, #211e24);
+  --fabric-thread-line: var(--fabric-ds-color-violet-charcoal-thread, #9481e6);
 }
 
 /* Theme tokens cascade into the document root so every descendant inherits
@@ -126,6 +167,20 @@ body {
 
 code, kbd, pre, samp, .font-mono, .font-mono-ui {
   font-family: var(--theme-font-mono);
+}
+
+/* Compatibility reset for upstream display utilities. Fabric uses sentence
+   case and the same accessible sans family for headings, labels, and chrome. */
+.font-mondwest,
+.font-expanded,
+.font-compressed,
+.text-display {
+  font-family: var(--theme-font-sans);
+}
+
+.text-display {
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 /* Density: scale the shadcn spacing utilities via a multiplier. The DS
@@ -175,7 +230,7 @@ code { font-size: 0.875rem; }
      chain. `@theme inline` bakes the *declared value* into each compiled
      utility, so a bare literal (or a var(--midground) remap) here would be
      frozen at build time and ThemeProvider's per-theme colorOverrides —
-     including the generated pair's Fabric-blue primary and its AA-computed
+     including the generated pair's Fabric-violet primary and its AA-computed
      status tones — could never reach `text-primary`, `text-destructive`,
      etc. ThemeProvider writes both `--theme-color-*` (for these inlined
      chains) and `--color-*` (for DS dist styles and plugin CSS that read
@@ -255,16 +310,61 @@ code { font-size: 0.875rem; }
   font-family: var(--theme-font-mono);
 }
 
-/* Subtle grain overlay for badges. */
-.grain {
+/* Woven Operations motifs. These utilities are intentionally low contrast:
+   they describe work relationships without becoming decorative wallpaper. */
+.fabric-woven-canvas {
+  position: relative;
+  background-color: var(--background-base);
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--fabric-woven-grid-line) 48%, transparent) var(--fabric-motif-stroke),
+      transparent var(--fabric-motif-stroke)
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--fabric-woven-grid-line) 48%, transparent) var(--fabric-motif-stroke),
+      transparent var(--fabric-motif-stroke)
+    );
+  background-size:
+    var(--fabric-woven-grid-size) var(--fabric-woven-grid-size),
+    var(--fabric-woven-grid-size) var(--fabric-woven-grid-size);
+}
+
+.fabric-thread {
+  position: relative;
+  padding-inline-start: calc(var(--fabric-thread-gutter) + 4px);
+}
+
+.fabric-thread::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--fabric-thread-gutter);
+  width: var(--fabric-motif-stroke);
+  background: var(--fabric-thread-line);
+  content: "";
+}
+
+.fabric-thread[data-active='true']::before {
+  width: 2px;
+  background: var(--fabric-thread-active);
+}
+
+.fabric-bracket {
   position: relative;
 }
-.grain::after {
-  content: '';
+
+.fabric-bracket::after {
   position: absolute;
-  inset: 0;
-  opacity: 0.12;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 8px;
+  border-right: var(--fabric-motif-stroke) solid var(--fabric-bracket-color);
+  border-bottom: var(--fabric-motif-stroke) solid var(--fabric-bracket-color);
+  border-left: var(--fabric-motif-stroke) solid var(--fabric-bracket-color);
+  content: "";
+  opacity: 0.72;
   pointer-events: none;
-  background: repeating-conic-gradient(currentColor 0% 25%, #0000 0% 50%) 0 0 /
-    2px 2px;
 }

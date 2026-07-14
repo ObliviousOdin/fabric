@@ -158,7 +158,7 @@ export function RecentRunsCard({ sessions, limit }: RecentRunsCardProps) {
                       title={W?.openInSessions ?? "Open in Sessions"}
                       onClick={(e) => {
                         e.stopPropagation();
-                        navigate("/sessions");
+                        navigate("/workspace/conversations");
                       }}
                     >
                       <ArrowUpRight />

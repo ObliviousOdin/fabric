@@ -730,9 +730,8 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
         "type": "select",
         "description": "Web dashboard visual theme",
         "options": [
-            "default",
-            "default-large",
-            "fabric-blue",
+            "fabric-light",
+            "fabric-dark",
             "midnight",
             "ember",
             "mono",
@@ -11881,6 +11880,26 @@ async def list_cron_jobs(profile: str = "all"):
     return await _run_cron_dashboard_io(_list_cron_jobs_sync, profile)
 
 
+def _summarize_cron_jobs_sync(profile: str = "default"):
+    """Return the bounded automation projection used by Workspace Home."""
+    jobs = _list_cron_jobs_sync(profile)
+    return {
+        "profile": profile,
+        "total": len(jobs),
+        "enabled": sum(1 for job in jobs if job.get("enabled", True)),
+        "failed": sum(
+            1
+            for job in jobs
+            if job.get("state") == "error" or job.get("last_status") == "error"
+        ),
+    }
+
+
+@app.get("/api/cron/summary")
+async def summarize_cron_jobs(profile: str = "default"):
+    return await _run_cron_dashboard_io(_summarize_cron_jobs_sync, profile)
+
+
 def _get_cron_job_sync(job_id: str, profile: Optional[str] = None):
     selected = profile or _find_cron_job_profile(job_id)
     if not selected:
@@ -17421,6 +17440,11 @@ def mount_spa(application: FastAPI):
             html = html.replace('href="/assets/', f'href="{prefix}/assets/')
             html = html.replace('src="/assets/', f'src="{prefix}/assets/')
             html = html.replace('href="/favicon.ico"', f'href="{prefix}/favicon.ico"')
+            html = html.replace(
+                'href="/manifest.webmanifest"',
+                f'href="{prefix}/manifest.webmanifest"',
+            )
+            html = html.replace('href="/icons/', f'href="{prefix}/icons/')
             html = html.replace('href="/fonts/', f'href="{prefix}/fonts/')
             html = html.replace('href="/ds-assets/', f'href="{prefix}/ds-assets/')
             html = html.replace('src="/ds-assets/', f'src="{prefix}/ds-assets/')
@@ -17488,13 +17512,15 @@ def mount_spa(application: FastAPI):
 # Built-in dashboard themes — label + description only.  The actual color
 # definitions live in the frontend (web/src/themes/presets.ts).
 _DASHBOARD_THEME_NAME_ALIASES = {
-    # Migration-only ids from earlier releases. Never return these as public
-    # theme names or labels.
-    "lens-5i": "fabric-blue",
-    "nous-blue": "fabric-blue",
-    # The inherited teal console theme used the generic `default` id. New
-    # installs and upgrades converge on Fabric Light; the old look remains
-    # selectable under the explicit `fabric-teal` id.
+    # Migration-only identities from earlier releases. The server has no OS
+    # appearance context, so it converges them on Fabric Light; the client
+    # upgrades that to Fabric Dark when an explicit dark/system preference is
+    # active. Never return these ids as public theme names or labels.
+    "lens-5i": "fabric-light",
+    "nous-blue": "fabric-light",
+    "fabric-blue": "fabric-light",
+    "fabric-teal": "fabric-light",
+    "default-large": "fabric-light",
     "default": "fabric-light",
 }
 
@@ -17504,11 +17530,8 @@ def _canonical_dashboard_theme_name(name: str) -> str:
 
 
 _BUILTIN_DASHBOARD_THEMES = [
-    {"name": "fabric-light",  "label": "Fabric Light",        "description": "Generated light — monochrome surfaces, single Fabric-blue accent"},
-    {"name": "fabric-dark",   "label": "Fabric Dark",         "description": "Generated dark — monochrome surfaces, single Fabric-blue accent"},
-    {"name": "fabric-teal",   "label": "Fabric Teal (Heritage)", "description": "The original dark teal Fabric dashboard skin"},
-    {"name": "default-large", "label": "Fabric Teal (Heritage, Large)", "description": "The original Fabric Teal skin with roomier spacing"},
-    {"name": "fabric-blue",   "label": "Fabric Blue",         "description": "Light mode — vivid Fabric-blue accents on cream canvas"},
+    {"name": "fabric-light",  "label": "Fabric Light",        "description": "Generated light — neutral surfaces, single Fabric-purple accent"},
+    {"name": "fabric-dark",   "label": "Fabric Dark",         "description": "Generated dark — neutral surfaces, single Fabric-purple accent"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
     {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},
@@ -17776,7 +17799,11 @@ async def get_dashboard_themes():
         seen.add(t["name"])
         themes.append(t)
     for t in user_themes:
-        if t["name"] in seen:
+        # Retired built-in ids are reserved migration inputs. A user YAML with
+        # one of those names must not reintroduce the heritage identity into
+        # the primary catalog or shadow the canonical generated pair.
+        canonical_name = _canonical_dashboard_theme_name(t["name"])
+        if canonical_name != t["name"] or canonical_name in seen:
             continue
         themes.append({
             "name": t["name"],

@@ -54,6 +54,11 @@ export interface CapabilityRowProps {
   onToggle?: () => void;
   /** Expansion body, rendered under a top border when `expanded`. */
   children?: ReactNode;
+  /**
+   * `ledger` removes per-item card chrome so inventories can read as one
+   * continuous operational register inside a caller-owned ruled list.
+   */
+  variant?: "boxed" | "ledger";
   className?: string;
 }
 
@@ -81,18 +86,21 @@ export function CapabilityRow({
   expanded,
   onToggle,
   children,
+  variant = "boxed",
   className,
 }: CapabilityRowProps) {
   return (
     <div
       className={cn(
-        "max-w-full min-w-0 overflow-hidden border border-border transition-colors",
+        "max-w-full min-w-0 overflow-hidden transition-colors",
+        variant === "boxed" ? "border border-border" : "border-0",
         className,
       )}
     >
       <div
         className={cn(
-          "flex flex-wrap items-start gap-3 p-3 transition-colors hover:bg-secondary/30 sm:flex-nowrap",
+          "flex flex-wrap items-start gap-3 transition-colors hover:bg-secondary/30 sm:flex-nowrap",
+          variant === "ledger" ? "px-1 py-4 sm:px-2" : "p-3",
           onToggle &&
             "cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30",
         )}
@@ -182,7 +190,14 @@ export function CapabilityRow({
         )}
       </div>
       {expanded && children != null && (
-        <div className="border-t border-border">{children}</div>
+        <div
+          className={cn(
+            "border-t border-border",
+            variant === "ledger" && "px-2",
+          )}
+        >
+          {children}
+        </div>
       )}
     </div>
   );

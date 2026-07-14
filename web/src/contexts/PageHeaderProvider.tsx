@@ -4,6 +4,11 @@ import { PageHeaderContext } from "./page-header-context";
 import { resolvePageTitle } from "@/lib/resolve-page-title";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
+import {
+  isChatPath,
+  routeForPath,
+  routeLayoutForPath,
+} from "@/app/routes";
 
 export function PageHeaderProvider({
   children,
@@ -34,16 +39,17 @@ export function PageHeaderProvider({
   );
   const displayTitle = titleOverride ?? defaultTitle;
 
-  const isChatRoute = pathname === "/chat" || pathname === "/chat/";
+  const isChatRoute = isChatPath(pathname);
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
-  const isWorkspaceRoute = pluginTabs.some(
-    (tab) =>
-      (tab.path.replace(/\/$/, "") || "/") === normalizedPath &&
-      tab.layout === "workspace",
-  );
+  const isWorkspaceRoute =
+    routeLayoutForPath(pathname) === "workspace" ||
+    pluginTabs.some(
+      (tab) =>
+        (tab.path.replace(/\/$/, "") || "/") === normalizedPath &&
+        tab.layout === "workspace",
+    );
   /** Env jump-nav is wide — stack below title on small screens so KEYS stays readable. */
-  const isEnvRoute =
-    pathname === "/env" || pathname.startsWith("/env/");
+  const isEnvRoute = routeForPath(pathname)?.id === "security-secrets";
 
   const value = useMemo(
     () => ({

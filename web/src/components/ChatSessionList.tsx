@@ -161,9 +161,7 @@ export function ChatSessionList({
     if (loading && sessions === null) {
       // First load only (CH11): layout-shaped skeleton instead of a spinner;
       // later refreshes keep the current list visible (the header button spins).
-      return (
-        <Skeleton variant="row-list" rows={4} className="px-2 py-2" />
-      );
+      return <Skeleton variant="row-list" rows={4} className="px-2 py-2" />;
     }
     if (error) {
       return (
@@ -194,12 +192,13 @@ export function ChatSessionList({
               key={s.id}
               onClick={() => pick(s.id)}
               aria-current={isActive ? "true" : undefined}
+              style={{ fontFamily: "var(--theme-font-sans)" }}
               className={cn(
-                "flex-col items-start gap-0.5 rounded px-2 py-1.5",
-                "normal-case tracking-normal",
+                "relative flex-col items-start gap-0.5 px-3 py-2.5",
+                "font-sans normal-case tracking-normal",
                 isActive
-                  ? "bg-primary/10 text-foreground border-l-2 border-primary"
-                  : "text-text-secondary hover:bg-midground/5 hover:text-foreground",
+                  ? "bg-primary/[0.07] text-foreground before:absolute before:bottom-2 before:left-0 before:top-2 before:w-0.5 before:bg-primary after:absolute after:bottom-2 after:left-0 after:h-0.5 after:w-3 after:bg-primary"
+                  : "text-text-secondary hover:bg-muted/55 hover:text-foreground",
               )}
             >
               <span className="flex w-full min-w-0 items-center gap-1.5">
@@ -220,7 +219,7 @@ export function ChatSessionList({
                   {rowLabel(s, t.sessions.untitledSession)}
                 </span>
               </span>
-              <span className="flex w-full items-center gap-1.5 pl-3 font-mono-ui text-[0.6875rem] tabular-nums text-text-tertiary">
+              <span className="flex w-full items-center gap-1.5 pl-3 text-xs tabular-nums text-text-tertiary">
                 <RelativeTime value={s.last_active} />
                 {s.message_count > 0 && (
                   <>
@@ -245,15 +244,15 @@ export function ChatSessionList({
   }, [activeSessionId, error, loading, pick, reload, sessions, t]);
 
   return (
-    <aside
+    <div
       className={cn(
         "flex h-full w-full min-w-0 shrink-0 flex-col overflow-hidden",
         className,
       )}
     >
       <div className="flex items-center justify-between gap-2 px-2 pb-2">
-        <span className="text-display text-xs tracking-wider text-text-tertiary">
-          {t.sessions.title}
+        <span className="text-xs font-medium text-text-tertiary">
+          {t.chatWorkspace?.conversations ?? "Conversations"}
         </span>
         <Button
           ghost
@@ -272,14 +271,15 @@ export function ChatSessionList({
         size="sm"
         onClick={startNew}
         prefix={<MessageSquarePlus />}
-        className="mx-2 mb-2 justify-center"
+        className="mx-2 mb-2 justify-center font-sans normal-case tracking-normal"
+        style={{ fontFamily: "var(--theme-font-sans)" }}
       >
-        {t.sessions.newChat}
+        {t.chatWorkspace?.newConversation ?? "New conversation"}
       </Button>
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1 pb-1">
         {content}
       </div>
-    </aside>
+    </div>
   );
 }

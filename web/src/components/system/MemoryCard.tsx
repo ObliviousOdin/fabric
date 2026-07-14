@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { useConfirmDelete } from "@nous-research/ui/hooks/use-confirm-delete";
@@ -101,12 +101,12 @@ export function MemoryCard({ memory, showToast, reload }: MemoryCardProps) {
           <Badge tone={MEMORY_SELECTION_TONE[memorySelectionState]}>
             {MEMORY_SELECTION_LABEL[memorySelectionState]}
           </Badge>
-          <Link to="/plugins" className="underline">
+          <Link to="/admin/integrations" className="underline">
             Change in Plugins →
           </Link>
           <span className="ml-auto">
             Provider setup:{" "}
-            <Link to="/plugins" className="underline">
+            <Link to="/admin/integrations" className="underline">
               configure in Plugins
             </Link>
           </span>

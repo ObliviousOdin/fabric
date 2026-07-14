@@ -16,7 +16,7 @@ import {
   type LineClassification,
 } from "@/lib/log-lines";
 import { cn } from "@/lib/utils";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { FilterGroup, Segmented } from "@nous-research/ui/ui/components/segmented";
 import { Input } from "@nous-research/ui/ui/components/input";

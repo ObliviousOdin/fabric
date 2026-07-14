@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ChevronDown, ChevronRight, Pause, Pencil, Play, Trash2, Zap } from "lucide-react";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import type { CronJob } from "@/lib/api";

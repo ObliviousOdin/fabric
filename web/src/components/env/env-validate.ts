@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import type { Badge } from "@nous-research/ui/ui/components/badge";
+import type { Badge } from "@/components/fabric/Badge";
 import type { ProviderValidateResponse } from "@/lib/api";
 
 type BadgeTone = NonNullable<ComponentProps<typeof Badge>["tone"]>;

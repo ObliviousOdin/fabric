@@ -1,4 +1,4 @@
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import type { PortalStatus } from "@/lib/api";
 

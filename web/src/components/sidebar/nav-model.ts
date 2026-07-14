@@ -14,110 +14,61 @@ import {
   KeyRound,
   MessageSquare,
   Package,
-  Plug,
   Puzzle,
-  Radio,
   Settings,
   Shield,
-  ShieldCheck,
   Sparkles,
   Star,
   Terminal,
   Users,
-  Webhook,
   Wrench,
   Zap,
 } from "lucide-react";
+
+import { APP_ROUTES, type AppSurface } from "@/app/routes";
 import type { PluginManifest } from "@/plugins";
 
 export interface NavItem {
+  /** Path-segment aliases retained for third-party plugin position anchors. */
+  anchorAliases?: readonly string[];
   icon: ComponentType<{ className?: string }>;
   label: string;
   labelKey?: string;
   path: string;
+  surface: AppSurface;
 }
 
-export type NavSectionId =
-  | "work"
-  | "observe"
-  | "capabilities"
-  | "connect"
-  | "system";
+export type NavSectionId = AppSurface;
 
 export interface NavSection {
   id: NavSectionId;
   items: NavItem[];
 }
 
-export const CHAT_NAV_ITEM: NavItem = {
-  path: "/chat",
-  labelKey: "chat",
-  label: "Chat",
-  icon: Terminal,
-};
+/** Built-in navigation is a projection of the route catalog, preserving order. */
+export const BUILTIN_NAV_ITEMS: NavItem[] = APP_ROUTES.flatMap((route) =>
+  route.nav
+    ? [
+        {
+          anchorAliases: route.nav.anchorAliases,
+          icon: route.nav.icon,
+          label: route.nav.label,
+          labelKey: route.nav.labelKey,
+          path: route.path,
+          surface: route.surface,
+        },
+      ]
+    : [],
+);
 
-/** Built-in nav entries (minus /chat), ordered so each IA section is contiguous. */
-export const BUILTIN_NAV_REST: NavItem[] = [
-  // WORK
-  {
-    path: "/sessions",
-    labelKey: "sessions",
-    label: "Sessions",
-    icon: MessageSquare,
-  },
-  { path: "/cron", labelKey: "cron", label: "Cron", icon: Clock },
-  // OBSERVE
-  { path: "/logs", labelKey: "logs", label: "Logs", icon: FileText },
-  {
-    path: "/analytics",
-    labelKey: "analytics",
-    label: "Analytics",
-    icon: BarChart3,
-  },
-  // CAPABILITIES
-  { path: "/models", labelKey: "models", label: "Models", icon: Cpu },
-  { path: "/skills", labelKey: "skills", label: "Skills", icon: Package },
-  { path: "/plugins", labelKey: "plugins", label: "Plugins", icon: Puzzle },
-  { path: "/mcp", label: "MCP", icon: Plug },
-  // CONNECT
-  { path: "/channels", label: "Channels", icon: Radio },
-  { path: "/webhooks", label: "Webhooks", icon: Webhook },
-  { path: "/pairing", label: "Pairing", icon: ShieldCheck },
-  { path: "/files", label: "Files", icon: FolderOpen },
-  // SYSTEM (bottom cluster)
-  { path: "/profiles", labelKey: "profiles", label: "Profiles", icon: Users },
-  { path: "/config", labelKey: "config", label: "Config", icon: Settings },
-  { path: "/env", labelKey: "keys", label: "Keys", icon: KeyRound },
-  { path: "/system", label: "System", icon: Wrench },
-];
-
-const SECTION_OF_PATH: Record<string, NavSectionId> = {
-  "/chat": "work",
-  "/sessions": "work",
-  "/cron": "work",
-  "/logs": "observe",
-  "/analytics": "observe",
-  "/models": "capabilities",
-  "/skills": "capabilities",
-  "/plugins": "capabilities",
-  "/mcp": "capabilities",
-  "/channels": "connect",
-  "/webhooks": "connect",
-  "/pairing": "connect",
-  "/files": "connect",
-  "/profiles": "system",
-  "/config": "system",
-  "/env": "system",
-  "/system": "system",
-};
-
-const SECTION_ORDER: NavSectionId[] = [
-  "work",
-  "observe",
-  "capabilities",
-  "connect",
-  "system",
-];
+// Compatibility exports for callers/plugins that still think in the old
+// flat-chat-plus-rest shape. Their paths are canonical, not legacy aliases.
+export const CHAT_NAV_ITEM = BUILTIN_NAV_ITEMS.find(
+  (item) => item.path === "/workspace/chat",
+)!;
+export const BUILTIN_NAV_REST = BUILTIN_NAV_ITEMS.filter(
+  (item) => item !== CHAT_NAV_ITEM,
+);
 
 const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Activity,
@@ -151,68 +102,102 @@ function resolveIcon(
   return ICON_MAP[name] ?? Puzzle;
 }
 
+function pathSegment(path: string): string {
+  const clean = path.replace(/\/+$/, "");
+  return clean.slice(clean.lastIndexOf("/") + 1);
+}
+
+function anchorKeys(item: NavItem): Set<string> {
+  return new Set([pathSegment(item.path), ...(item.anchorAliases ?? [])]);
+}
+
+function knownAnchorSurface(target: string): AppSurface | undefined {
+  for (const route of APP_ROUTES) {
+    if (!route.nav) continue;
+    const keys = new Set([
+      pathSegment(route.path),
+      ...(route.nav.anchorAliases ?? []),
+    ]);
+    if (keys.has(target)) return route.surface;
+  }
+  return undefined;
+}
+
 /**
- * Merge plugin nav entries into the built-in list (honoring the manifest
- * `tab.position` contract: "end" | "after:<seg>" | "before:<seg>"), then
- * group the result into labeled sidebar sections.
- *
- * Section membership rules:
- * - built-ins map through SECTION_OF_PATH;
- * - a plugin item anchored via after:/before: joins its anchor's section
- *   (including the dynamic plugins group when anchored to another
- *   unanchored plugin);
- * - unanchored plugin items — and anchors whose target is absent (hidden
- *   built-in, unknown path) — fall back to the dynamic plugins group,
- *   matching the old flat-list behavior of appending at the end.
+ * Merge plugin navigation into the catalog projection while honoring the
+ * established `tab.position` contract. Anchors match canonical segments and
+ * legacy aliases (`after:sessions` still follows Conversations), and anchored
+ * plugins inherit the target surface. Unanchored page plugins live under
+ * Admin; full-workspace plugins live under Workspace.
  */
 export function buildSidebarSections(
   builtIn: NavItem[],
   manifests: PluginManifest[],
+  activeSurface: AppSurface = "workspace",
 ): { sections: NavSection[]; pluginItems: NavItem[] } {
   type Tag = NavSectionId | "plugins";
-  // "system" fallback keeps a future built-in without a section mapping
-  // visible in the sidebar instead of misfiling it under Plugins.
   const tagged: Array<{ item: NavItem; tag: Tag }> = builtIn.map((item) => ({
     item,
-    tag: SECTION_OF_PATH[item.path] ?? "system",
+    tag: item.surface,
   }));
 
   for (const manifest of manifests) {
-    if (manifest.tab.override) continue;
-    if (manifest.tab.hidden) continue;
+    if (manifest.tab.override || manifest.tab.hidden) continue;
 
+    const baseSurface: AppSurface =
+      manifest.tab.layout === "workspace" ? "workspace" : "admin";
     const pluginItem: NavItem = {
+      anchorAliases: [manifest.name],
       path: manifest.tab.path,
       label: manifest.label,
       icon: resolveIcon(manifest.icon),
+      surface: baseSurface,
     };
 
     const pos = manifest.tab.position ?? "end";
     let placed = false;
     if (pos.startsWith("after:") || pos.startsWith("before:")) {
       const after = pos.startsWith("after:");
-      const target = "/" + pos.slice(after ? 6 : 7);
-      const idx = tagged.findIndex((e) => e.item.path === target);
+      const target = pos.slice(after ? 6 : 7);
+      // Prefer the most recently inserted match. Compatibility aliases can
+      // intentionally duplicate a plugin's own name (Work Board accepts the
+      // old `kanban` anchor); when that plugin is present, chained anchors
+      // should follow the concrete plugin rather than the fallback alias.
+      let idx = -1;
+      for (let i = tagged.length - 1; i >= 0; i -= 1) {
+        if (anchorKeys(tagged[i].item).has(target)) {
+          idx = i;
+          break;
+        }
+      }
       if (idx >= 0) {
+        const inheritedSurface = tagged[idx].item.surface;
         tagged.splice(after ? idx + 1 : idx, 0, {
-          item: pluginItem,
+          item: { ...pluginItem, surface: inheritedSurface },
           tag: tagged[idx].tag,
         });
         placed = true;
+      } else {
+        // If a feature gate hid the anchor, keep the plugin discoverable on
+        // that anchor's surface, matching the former dynamic-plugin fallback.
+        pluginItem.surface = knownAnchorSurface(target) ?? baseSurface;
       }
     }
-    if (!placed) {
-      tagged.push({ item: pluginItem, tag: "plugins" });
-    }
+    if (!placed) tagged.push({ item: pluginItem, tag: "plugins" });
   }
 
-  const sections = SECTION_ORDER.map((id) => ({
-    id,
-    items: tagged.filter((e) => e.tag === id).map((e) => e.item),
-  })).filter((s) => s.items.length > 0);
+  const surfaceItems = tagged
+    .filter((entry) => entry.tag === activeSurface)
+    .map((entry) => entry.item);
+  const sections: NavSection[] = surfaceItems.length
+    ? [{ id: activeSurface, items: surfaceItems }]
+    : [];
   const pluginItems = tagged
-    .filter((e) => e.tag === "plugins")
-    .map((e) => e.item);
+    .filter(
+      (entry) =>
+        entry.tag === "plugins" && entry.item.surface === activeSurface,
+    )
+    .map((entry) => entry.item);
 
   return { sections, pluginItems };
 }

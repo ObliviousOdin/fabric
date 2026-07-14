@@ -5,7 +5,7 @@ import type { Translations } from "@/i18n/types";
 import { api } from "@/lib/api";
 import type { HubAgentPluginRow } from "@/lib/api";
 import { Button } from "@nous-research/ui/ui/components/button";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { CommandBlock } from "@nous-research/ui/ui/components/command-block";
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
@@ -47,28 +47,36 @@ export function PluginRosterRow({
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const dm = row.dashboard_manifest;
-  const tabPath = dm?.tab && !dm.tab.hidden ? dm.tab.override ?? dm.tab.path : null;
+  const tabPath =
+    dm?.tab && !dm.tab.hidden ? (dm.tab.override ?? dm.tab.path) : null;
   const state = pluginCapabilityState(row);
   // R16: enabled ≠ running — plugin toggles apply when the agent reloads
   // its plugins, so the state badge carries the "takes effect…" copy.
   const effectNote =
-    t.pluginsPage.agents?.stateEffectNote ?? "Takes effect when the agent next loads plugins";
+    t.pluginsPage.agents?.stateEffectNote ??
+    "Takes effect when the agent next loads plugins";
 
   const hasDetail = Boolean(
-    dm?.slots?.length || row.auth_required || (!row.has_dashboard_manifest && !dm),
+    dm?.slots?.length ||
+    row.auth_required ||
+    (!row.has_dashboard_manifest && !dm),
   );
 
   return (
     <>
       <CapabilityRow
         name={row.name}
+        variant="ledger"
         dimmed={busy}
         className={cn(
-          flash && "bg-primary/5 ring-1 ring-primary/40",
+          flash && "bg-primary/5 ring-1 ring-inset ring-primary/40",
         )}
         badges={
           <>
-            <Badge tone={CAPABILITY_STATE_TONES[state.state]} title={effectNote}>
+            <Badge
+              tone={CAPABILITY_STATE_TONES[state.state]}
+              title={effectNote}
+            >
               {state.label}
             </Badge>
             <Badge className="font-mono-ui tabular-nums" tone="outline">
@@ -146,7 +154,7 @@ export function PluginRosterRow({
                 className={cn(
                   "inline-flex items-center rounded-none px-3 py-1.5",
                   "border border-current/25 hover:bg-current/10",
-                  "font-mondwest text-display text-xs tracking-[0.1em]",
+                  "text-xs font-medium",
                 )}
                 to={tabPath}
               >
@@ -176,7 +184,11 @@ export function PluginRosterRow({
                 disabled={busy}
                 ghost
                 size="sm"
-                title={row.user_hidden ? t.pluginsPage.showInSidebar : t.pluginsPage.hideFromSidebar}
+                title={
+                  row.user_hidden
+                    ? t.pluginsPage.showInSidebar
+                    : t.pluginsPage.hideFromSidebar
+                }
                 onClick={() => {
                   void runAction(row.name, async () => {
                     await api.setPluginVisibility(row.name, !row.user_hidden);
@@ -188,7 +200,9 @@ export function PluginRosterRow({
                 ) : (
                   <Eye className="h-3.5 w-3.5" />
                 )}
-                {row.user_hidden ? t.pluginsPage.showInSidebar : t.pluginsPage.hideFromSidebar}
+                {row.user_hidden
+                  ? t.pluginsPage.showInSidebar
+                  : t.pluginsPage.hideFromSidebar}
               </Button>
             ) : null}
 

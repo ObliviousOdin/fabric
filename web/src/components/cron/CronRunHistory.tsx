@@ -251,7 +251,7 @@ function CronRunItem({ run, profile }: { run: SessionInfo; profile: string }) {
           aria-label={t.cron.agents?.openInSessions ?? "Open in Sessions"}
           onClick={(e) => {
             e.stopPropagation();
-            navigate("/sessions");
+            navigate("/workspace/conversations");
           }}
         >
           <ExternalLink />

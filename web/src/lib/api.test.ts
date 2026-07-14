@@ -20,6 +20,50 @@ function jsonFetchMock(body: unknown = { ok: true }) {
   );
 }
 
+describe("api.getStatus", () => {
+  it("coalesces concurrent shell and Home reads for the same profile", async () => {
+    vi.stubGlobal("window", {});
+    let resolveFetch: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const shellRequest = api.getStatus();
+    const homeRequest = api.getStatus();
+
+    expect(homeRequest).toBe(shellRequest);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    resolveFetch?.(
+      new Response(JSON.stringify({ active_sessions: 0 }), {
+        headers: { "Content-Type": "application/json" },
+        status: 200,
+      }),
+    );
+    await Promise.all([shellRequest, homeRequest]);
+  });
+
+  it("never coalesces status reads across machine profiles", async () => {
+    vi.stubGlobal("window", {});
+    const fetchMock = jsonFetchMock({ active_sessions: 0 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    setManagementProfile("operator-a");
+    const first = api.getStatus();
+    setManagementProfile("operator-b");
+    const second = api.getStatus();
+    await Promise.all([first, second]);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/status?profile=operator-a",
+      "/api/status?profile=operator-b",
+    ]);
+  });
+});
+
 describe("api.getModelOptions", () => {
   it("requests a live model refresh when asked", async () => {
     vi.stubGlobal("window", {});

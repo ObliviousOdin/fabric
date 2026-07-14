@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { Check, Clock, Copy, Link2, Share2 } from "lucide-react";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { Checkbox } from "@nous-research/ui/ui/components/checkbox";

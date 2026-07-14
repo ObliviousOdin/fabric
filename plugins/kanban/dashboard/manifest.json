@@ -8,7 +8,8 @@
     "path": "/work",
     "aliases": ["/kanban"],
     "layout": "workspace",
-    "position": "after:sessions"
+    "position": "after:sessions",
+    "override": "/workspace/work"
   },
   "entry": "dist/index.js",
   "css": "dist/style.css",

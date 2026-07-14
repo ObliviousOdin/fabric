@@ -479,7 +479,7 @@ export default function ProfilesPage() {
           className="uppercase"
           size="sm"
           outlined
-          onClick={() => navigate("/profiles/new")}
+          onClick={() => navigate("/workspace/agents/new")}
         >
           Build
         </Button>

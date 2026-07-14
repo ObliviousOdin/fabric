@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { H2 } from "@nous-research/ui/ui/components/typography/h2";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { Input } from "@nous-research/ui/ui/components/input";
 import { Label } from "@nous-research/ui/ui/components/label";
@@ -235,7 +235,7 @@ export default function ProfileBuilderPage() {
           : `Profile "${n}" created`,
         "success",
       );
-      navigate("/profiles");
+      navigate("/workspace/agents");
     } catch (e) {
       showToast(`Create failed: ${e}`, "error");
     } finally {
@@ -250,7 +250,7 @@ export default function ProfileBuilderPage() {
     <div className="mx-auto w-full max-w-3xl space-y-6 p-4">
       <div className="flex items-center justify-between">
         <H2>New profile</H2>
-        <Button ghost onClick={() => navigate("/profiles")}>
+        <Button ghost onClick={() => navigate("/workspace/agents")}>
           Cancel
         </Button>
       </div>

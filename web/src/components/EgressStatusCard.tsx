@@ -1,5 +1,5 @@
 import { ShieldCheck } from "lucide-react";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import { Card, CardContent } from "@nous-research/ui/ui/components/card";
 import { H2 } from "@nous-research/ui/ui/components/typography/h2";
 

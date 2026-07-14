@@ -5,7 +5,7 @@ import type {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatCost, formatTokenCount, formatTokens } from "@/lib/format";
-import { Badge } from "@nous-research/ui/ui/components/badge";
+import { Badge } from "@/components/fabric/Badge";
 import {
   Card,
   CardContent,

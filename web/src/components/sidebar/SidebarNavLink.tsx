@@ -36,7 +36,7 @@ export function SidebarNavLink({
     >
       <NavLink
         to={path}
-        end={path === "/sessions"}
+        end={path === "/workspace/conversations"}
         onClick={closeMobile}
         aria-label={collapsed ? navLabel : undefined}
         onFocus={collapsed ? showTooltip : undefined}
@@ -46,10 +46,10 @@ export function SidebarNavLink({
             "relative flex h-11 min-h-11 items-center gap-3 px-5",
             "font-sans text-sm",
             "whitespace-nowrap transition-colors cursor-pointer",
-            "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             isActive
-              ? "bg-midground/10 text-midground"
-              : "text-text-secondary hover:bg-midground/5 hover:text-midground",
+              ? "bg-primary/[0.07] text-foreground"
+              : "text-text-secondary hover:bg-muted/55 hover:text-foreground",
           )
         }
         style={{
@@ -58,7 +58,12 @@ export function SidebarNavLink({
       >
         {({ isActive }) => (
           <>
-            <Icon className="h-4 w-4 shrink-0" />
+            <Icon
+              className={cn(
+                "h-4 w-4 shrink-0",
+                isActive && "text-primary",
+              )}
+            />
 
             <span
               className={cn(
@@ -70,10 +75,16 @@ export function SidebarNavLink({
             </span>
 
             {isActive && (
-              <span
-                aria-hidden
-                className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-midground"
-              />
+              <>
+                <span
+                  aria-hidden
+                  className="absolute bottom-2 left-3 top-2 w-0.5 bg-primary"
+                />
+                <span
+                  aria-hidden
+                  className="absolute bottom-2 left-3 h-0.5 w-3 bg-primary"
+                />
+              </>
             )}
           </>
         )}

@@ -107,7 +107,7 @@ export function SidebarSystemActions({
       return;
     }
     void runAction(action);
-    navigate("/sessions");
+    navigate("/workspace/conversations");
     onNavigate();
   };
 
@@ -121,7 +121,7 @@ export function SidebarSystemActions({
   const confirmUpdate = () => {
     closeUpdateConfirm();
     void runAction("update");
-    navigate("/sessions");
+    navigate("/workspace/conversations");
     onNavigate();
   };
 
@@ -133,7 +133,7 @@ export function SidebarSystemActions({
         <span
           className={cn(
             "px-5 pt-1 pb-0.5",
-            "font-sans text-display text-xs uppercase tracking-[0.12em] text-text-tertiary",
+            "font-sans text-xs font-medium tracking-normal text-text-tertiary",
             collapsed && "lg:hidden",
           )}
         >

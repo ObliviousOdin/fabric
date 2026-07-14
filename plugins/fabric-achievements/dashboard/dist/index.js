@@ -812,7 +812,7 @@
         }),
         h(LabelledInput, {
           label: tx(t, "team.team_name_label", "Team name"),
-          placeholder: tx(t, "team.team_name_placeholder", "Rabot Crew"),
+          placeholder: tx(t, "team.team_name_placeholder", "Acme Crew"),
           value: name, onChange: setName, disabled: busy,
         }),
         h(LabelledInput, {

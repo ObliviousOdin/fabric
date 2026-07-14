@@ -1014,7 +1014,7 @@ export const en: Translations = {
       relay_hint:
         "The address of a running leaderboard relay (see the plugin docs to host one). Use http://127.0.0.1:9137 to try it locally.",
       team_name_label: "Team name",
-      team_name_placeholder: "Rabot Crew",
+      team_name_placeholder: "Acme Crew",
       display_name_label: "Your display name",
       display_name_placeholder: "How you appear on the board",
       invite_label: "Invite code",

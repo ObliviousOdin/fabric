@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none" role="img" aria-label="Fabric">
+  <title>Fabric compact mark, monochrome</title>
+  <path
+    id="fabric-mark-mono"
+    data-fabric-mark="true"
+    fill="currentColor"
+    d="M 101 18 H 84 C 60 18 49 31 49 54 V 61 H 24 V 87 H 49 V 112 H 77 V 87 H 102 V 61 H 77 V 55 C 77 47 81 43 89 43 H 101 Z"
+  />
+</svg>

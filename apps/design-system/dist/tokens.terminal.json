@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "brand": {
+    "primary": "#4628CC",
+    "accent": "#7C66E1",
+    "muted": "#C5BAF5"
+  },
+  "light": {
+    "background": "#FCFAF6",
+    "surface": "#F6F4F0",
+    "foreground": "#221F1A",
+    "muted": "#5B5852",
+    "accent": "#4628CC",
+    "success": "#137D41",
+    "warning": "#876200",
+    "danger": "#BE2323"
+  },
+  "dark": {
+    "background": "#0E0C11",
+    "surface": "#151318",
+    "foreground": "#EAE6EE",
+    "muted": "#ADA9B1",
+    "accent": "#5542E3",
+    "success": "#5EBC7B",
+    "warning": "#CF9B20",
+    "danger": "#FF7266"
+  }
+}

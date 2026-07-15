@@ -80,6 +80,20 @@ function resolveValue(value) {
   return resolved;
 }
 
+function resolveSemanticThemes() {
+  return Object.fromEntries(
+    Object.entries(tokens.semantic).map(([appearance, values]) => [
+      appearance,
+      Object.fromEntries(
+        Object.entries(values).map(([name, value]) => [
+          name,
+          resolveValue(value),
+        ]),
+      ),
+    ]),
+  );
+}
+
 function cssDeclarations(object, prefix, semantic = false) {
   return flatten(object).map(([parts, value]) => {
     const variableParts = semantic ? ["semantic", ...parts] : [...prefix, ...parts];
@@ -139,6 +153,9 @@ function buildJavaScript() {
     "export const semanticThemes = Object.freeze(" +
       JSON.stringify(tokens.semantic, null, 2) +
       ");",
+    "export const resolvedSemanticThemes = Object.freeze(" +
+      JSON.stringify(resolveSemanticThemes(), null, 2) +
+      ");",
     "export const typography = Object.freeze(" +
       JSON.stringify(tokens.typography, null, 2) +
       ");",
@@ -166,6 +183,7 @@ function buildTypes() {
     "export declare const FABRIC_PRIMARY: \"#4628CC\";",
     "export declare const colors: Readonly<Record<string, Readonly<Record<string, string>>>>;",
     "export declare const semanticThemes: Readonly<Record<\"light\" | \"dark\", Readonly<Record<string, string>>>>;",
+    "export declare const resolvedSemanticThemes: Readonly<Record<\"light\" | \"dark\", Readonly<Record<string, string>>>>;",
     "export declare const typography: Readonly<Record<string, unknown>>;",
     "export declare const spacing: Readonly<Record<string, string>>;",
     "export declare const radius: Readonly<Record<string, string>>;",

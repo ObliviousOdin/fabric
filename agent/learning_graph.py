@@ -49,15 +49,18 @@ def _frontmatter(text: str) -> dict[str, Any]:
 
 
 def _hermes_meta(fm: dict[str, Any]) -> dict[str, Any]:
-    """``metadata.hermes`` as a dict, tolerant of the string-valued frontmatter
-    that ``parse_frontmatter``'s malformed-YAML fallback produces."""
-    meta = fm.get("metadata")
-    hermes = meta.get("hermes") if isinstance(meta, dict) else None
-    return hermes if isinstance(hermes, dict) else {}
+    """Return merged skill metadata (legacy helper name kept internally).
+
+    Canonical ``metadata.fabric`` keys override ``metadata.hermes`` fallbacks;
+    malformed namespace values are ignored by the shared extractor.
+    """
+    from agent.skill_utils import extract_skill_metadata
+
+    return extract_skill_metadata(fm)
 
 
 def _related(fm: dict[str, Any]) -> list[str]:
-    raw = fm.get("related_skills") or _hermes_meta(fm).get("related_skills")
+    raw = _hermes_meta(fm).get("related_skills") or fm.get("related_skills")
     if isinstance(raw, list):
         return [str(r).strip() for r in raw if str(r).strip()]
     if isinstance(raw, str):
@@ -66,7 +69,7 @@ def _related(fm: dict[str, Any]) -> list[str]:
 
 
 def _category(fm: dict[str, Any], skill_md: Path) -> str:
-    cat = fm.get("category") or _hermes_meta(fm).get("category")
+    cat = _hermes_meta(fm).get("category") or fm.get("category")
     if cat:
         return str(cat)
     # …/skills/<category>/<skill>/SKILL.md
@@ -75,9 +78,13 @@ def _category(fm: dict[str, Any], skill_md: Path) -> str:
 
 
 def _iter_skill_files(roots: list[tuple[str, Path]]):
+    from agent.skill_utils import is_excluded_skill_path
+
     for source, root in roots:
         if root.exists():
             for path in root.rglob("SKILL.md"):
+                if is_excluded_skill_path(path):
+                    continue
                 yield source, path
 
 
@@ -127,8 +134,6 @@ def build_skill_nodes(skill_roots: list[tuple[str, Path]]) -> dict[str, SkillNod
     nodes: dict[str, SkillNode] = {}
 
     for source, skill_md in _iter_skill_files(skill_roots):
-        if any(p in {".archive", ".hub", "node_modules", ".git"} for p in skill_md.parts):
-            continue
         try:
             fm = _frontmatter(skill_md.read_text(encoding="utf-8")[:4000])
         except OSError:

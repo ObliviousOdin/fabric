@@ -90,6 +90,7 @@ _SKILL_EXCLUDED_DIRS = frozenset(
         ".git",
         ".github",
         ".hub",
+        ".governance",
         ".mypy_cache",
         ".nox",
         ".pytest_cache",

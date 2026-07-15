@@ -20,6 +20,8 @@ Generate flat, minimal light/dark-aware SVG diagrams as standalone HTML files, u
 | Author | v1k22 (original PR), ported into fabric-agent |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `diagrams`, `svg`, `visualization`, `education`, `physics`, `chemistry`, `engineering` |
+| Related skills | [`architecture-diagram`](/user-guide/skills/bundled/creative/creative-architecture-diagram), [`excalidraw`](/user-guide/skills/bundled/creative/creative-excalidraw), `generative-widgets` |
 
 ## Reference: full SKILL.md
 

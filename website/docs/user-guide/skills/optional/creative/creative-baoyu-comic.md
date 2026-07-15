@@ -20,6 +20,7 @@ Knowledge comics (知识漫画): educational, biography, tutorial.
 | Author | 宝玉 (JimLiu) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `comic`, `knowledge-comic`, `creative`, `image-generation` |
 
 ## Reference: full SKILL.md
 

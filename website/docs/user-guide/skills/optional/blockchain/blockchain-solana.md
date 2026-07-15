@@ -20,6 +20,7 @@ Query Solana blockchain data with USD pricing — wallet balances, token portfol
 | Author | Deniz Alagoz (gizdusum), enhanced by Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Solana`, `Blockchain`, `Crypto`, `Web3`, `RPC`, `DeFi`, `NFT` |
 
 ## Reference: full SKILL.md
 

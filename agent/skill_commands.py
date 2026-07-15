@@ -9,6 +9,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 from fabric_constants import display_fabric_home
@@ -175,11 +176,72 @@ def _load_skill_payload(skill_identifier: str, task_id: str | None = None) -> tu
     return loaded_skill, skill_dir, skill_name
 
 
+def _record_skill_activation(
+    loaded_skill: dict[str, Any],
+    skill_dir: Path | None,
+    *,
+    source: str,
+    reason: str,
+    task_id: str | None,
+) -> Any:
+    """Stage runtime authority, then append a best-effort local receipt.
+
+    Slash expansion precedes turn-id allocation. The permission template is
+    therefore keyed to the already-known session/task id and bound by the turn
+    prologue. A blocked activation is returned to the caller so governed
+    enforcement never injects the skill content into model context.
+    """
+
+    if skill_dir is None:
+        return None
+    try:
+        from agent.skill_permissions import stage_skill_permission_lease
+
+        activation = stage_skill_permission_lease(
+            skill_dir=skill_dir,
+            canonical_name=str(loaded_skill.get("name") or skill_dir.name),
+            scope_id=task_id,
+            session_wide=source == "preload",
+        )
+        if not activation.allowed:
+            return activation
+    except Exception:
+        try:
+            from agent.skill_permissions import load_permission_settings
+
+            mode = load_permission_settings().mode
+        except Exception:
+            mode = "enforce_all"
+        if mode != "observe":
+            # If policy evaluation or even mode resolution fails, do not
+            # inject ungoverned instructions into the next model turn.
+            return SimpleNamespace(
+                allowed=False,
+                code="policy_evaluation_failed",
+                mode=mode,
+            )
+    try:
+        from agent.skill_receipts import record_activation_best_effort
+
+        record_activation_best_effort(
+            skill_dir=skill_dir,
+            canonical_name=str(loaded_skill.get("name") or skill_dir.name),
+            source=source,
+            reason=reason,
+            session_id=task_id,
+            task_id=task_id,
+        )
+    except Exception:
+        pass
+    return activation if "activation" in locals() else None
+
+
 def _inject_skill_config(loaded_skill: dict[str, Any], parts: list[str]) -> None:
     """Resolve and inject skill-declared config values into the message parts.
 
-    If the loaded skill's frontmatter declares ``metadata.hermes.config``
-    entries, their current values (from config.yaml or defaults) are appended
+    If the loaded skill's frontmatter declares ``metadata.fabric.config``
+    entries (or the legacy ``metadata.hermes.config`` fallback), their current
+    values (from config.yaml or defaults) are appended
     as a ``[Skill config: ...]`` block so the agent knows the configured values
     without needing to read config.yaml itself.
     """
@@ -328,7 +390,11 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
     _skill_commands = {}
     try:
         from tools.skills_tool import SKILLS_DIR, _parse_frontmatter, skill_matches_platform, skill_matches_environment, _get_disabled_skill_names
-        from agent.skill_utils import get_external_skills_dirs, iter_skill_index_files
+        from agent.skill_utils import (
+            get_external_skills_dirs,
+            is_excluded_skill_path,
+            iter_skill_index_files,
+        )
         disabled = _get_disabled_skill_names()
         seen_names: set = set()
 
@@ -340,7 +406,7 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
 
         for scan_dir in dirs_to_scan:
             for skill_md in iter_skill_index_files(scan_dir, "SKILL.md"):
-                if any(part in {'.git', '.github', '.hub', '.archive'} for part in skill_md.parts):
+                if is_excluded_skill_path(skill_md):
                     continue
                 try:
                     content = skill_md.read_text(encoding='utf-8')
@@ -512,6 +578,16 @@ def build_skill_invocation_message(
 
     loaded_skill, skill_dir, skill_name = loaded
 
+    activation = _record_skill_activation(
+        loaded_skill,
+        skill_dir,
+        source="explicit_slash",
+        reason="user_invoked",
+        task_id=task_id,
+    )
+    if activation is not None and not activation.allowed:
+        return None
+
     # Track active usage for Curator lifecycle management (#17782)
     try:
         from tools.skill_usage import bump_use
@@ -620,6 +696,17 @@ def build_stacked_skill_invocation_message(
             continue
         loaded_skill, skill_dir, skill_name = loaded
 
+        activation = _record_skill_activation(
+            loaded_skill,
+            skill_dir,
+            source="stack",
+            reason="stack_member",
+            task_id=task_id,
+        )
+        if activation is not None and not activation.allowed:
+            missing.append(skill_name)
+            continue
+
         # Track active usage for Curator lifecycle management (#17782)
         try:
             from tools.skill_usage import bump_use
@@ -704,6 +791,17 @@ def build_preloaded_skills_prompt(
         loaded_skill, skill_dir, skill_name = loaded
 
         if skill_name in disabled_names or identifier in disabled_names:
+            missing.append(identifier)
+            continue
+
+        activation = _record_skill_activation(
+            loaded_skill,
+            skill_dir,
+            source="preload",
+            reason="session_preload",
+            task_id=task_id,
+        )
+        if activation is not None and not activation.allowed:
             missing.append(identifier)
             continue
 

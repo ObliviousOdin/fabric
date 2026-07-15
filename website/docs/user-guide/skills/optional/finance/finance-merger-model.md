@@ -20,6 +20,8 @@ Build accretion/dilution (merger) models in Excel — pro-forma P&L, synergies, 
 | Author | Anthropic (adapted by Nous Research) |
 | License | Apache-2.0 |
 | Platforms | linux, macos, windows |
+| Tags | `finance`, `m-and-a`, `merger`, `accretion-dilution`, `excel`, `openpyxl`, `modeling`, `investment-banking` |
+| Related skills | [`excel-author`](/user-guide/skills/optional/finance/finance-excel-author), [`pptx-author`](/user-guide/skills/optional/finance/finance-pptx-author), [`dcf-model`](/user-guide/skills/optional/finance/finance-dcf-model), [`3-statement-model`](/user-guide/skills/optional/finance/finance-3-statement-model) |
 
 ## Reference: full SKILL.md
 

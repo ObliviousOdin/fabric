@@ -44,6 +44,21 @@ _FENCE_RE = re.compile(r"^(?P<indent>\s*)(?P<fence>```+|~~~+)", re.MULTILINE)
 _BOX_DRAWING_CHARS = frozenset("┌┐└┘─│═║╔╗╚╝╠╣╦╩╬├┤┬┴┼╭╮╯╰▶◀▲▼")
 
 
+def _skill_metadata(frontmatter: dict[str, Any]) -> dict[str, Any]:
+    """Merge legacy skill metadata with canonical Fabric keys per field."""
+    metadata = frontmatter.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    merged: dict[str, Any] = {}
+    legacy = metadata.get("hermes")
+    if isinstance(legacy, dict):
+        merged.update(legacy)
+    canonical = metadata.get("fabric")
+    if isinstance(canonical, dict):
+        merged.update(canonical)
+    return merged
+
+
 def _wrap_ascii_art_code_blocks(code_segment: str) -> str:
     """Wrap a fenced code segment in ascii-guard-ignore markers if it contains
     box-drawing characters. No-op otherwise, so plain bash/python code blocks
@@ -341,9 +356,9 @@ def render_skill_page(
     # Heuristic nicer title from name
     display_name = name.replace("-", " ").replace("_", " ").title()
 
-    hermes_meta = (fm.get("metadata") or {}).get("fabric") or {}
-    tags = hermes_meta.get("tags") or []
-    related = hermes_meta.get("related_skills") or []
+    skill_meta = _skill_metadata(fm)
+    tags = skill_meta.get("tags") or []
+    related = skill_meta.get("related_skills") or []
     platforms = fm.get("platforms")
     version = fm.get("version")
     author = fm.get("author")
@@ -453,6 +468,8 @@ def discover_skills() -> list[tuple[dict[str, Any], dict[str, Any]]]:
     results: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for kind, source_dir in SKILL_SOURCES:
         for skill_md in sorted(source_dir.rglob("SKILL.md")):
+            if ".governance" in skill_md.parts:
+                continue
             meta = derive_skill_meta(skill_md, source_dir, kind)
             parsed = parse_skill_md(skill_md)
             results.append((meta, parsed))

@@ -25,12 +25,44 @@ class TestBuildLearnPrompt:
         prompt = build_learn_prompt("learn the thing")
         assert "skill_manage" in prompt
 
+    def test_submits_a_quarantined_draft_with_explicit_promotion(self):
+        prompt = build_learn_prompt("learn the thing")
+        low = prompt.lower()
+        assert "quarantined" in low
+        assert "/skills diff <id>" in prompt
+        assert "/skills approve <id>" in prompt
+        assert "do not claim the skill is active" in low
+
+    def test_requires_contract_eval_and_external_attestation_artifacts(self):
+        prompt = build_learn_prompt("learn the thing")
+        assert "skill.contract.yaml" in prompt
+        assert "evals/cases.yaml" in prompt
+        assert "SAME pending batch" in prompt
+        assert "fabric skills evaluate <id> --observations <path>" in prompt
+        assert "hooks, commands, Python, or provider configuration" in prompt
+
     def test_references_gather_tools_for_open_ended_sourcing(self):
         # Open-ended sourcing relies on the agent's own tools, named so it
         # knows dirs/URLs/conversation/paste all route through existing tools.
         prompt = build_learn_prompt("learn from somewhere")
         for tool in ("read_file", "search_files", "web_extract"):
             assert tool in prompt
+
+    def test_declares_single_turn_isolation_and_fresh_retry(self):
+        prompt = build_learn_prompt("learn from somewhere")
+        low = prompt.lower()
+        assert "isolated single-turn lifecycle" in low
+        assert "do not ask a `clarify` question" in low
+        assert "fresh `/learn ...`" in prompt
+        for denied in (
+            "terminal",
+            "write_file",
+            "execute_code",
+            "delegate_task",
+            "memory",
+            "tool_call",
+        ):
+            assert f"`{denied}`" in prompt
 
     def test_separates_sources_from_requirements(self):
         # The reported bug (@GrenFX, Jun 2026): when a request leads with a

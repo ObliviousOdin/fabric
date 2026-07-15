@@ -20,6 +20,8 @@ Autonomously remove your info from data-broker sites.
 | Author | SHL0MS (github.com/SHL0MS) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `privacy`, `data-broker`, `opt-out`, `ccpa`, `gdpr`, `security`, `doxxing` |
+| Related skills | [`google-workspace`](/user-guide/skills/bundled/productivity/productivity-google-workspace), [`agentmail`](/user-guide/skills/optional/email/email-agentmail), [`himalaya`](/user-guide/skills/bundled/email/email-himalaya), [`scrapling`](/user-guide/skills/optional/research/research-scrapling), [`osint-investigation`](/user-guide/skills/optional/research/research-osint-investigation) |
 
 ## Reference: full SKILL.md
 

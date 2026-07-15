@@ -30,6 +30,7 @@ EXCLUDED_SKILL_DIRS = frozenset(
         ".github",
         ".hub",
         ".archive",
+        ".governance",
         ".venv",
         "venv",
         "node_modules",
@@ -155,6 +156,31 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
             frontmatter[key.strip()] = value.strip()
 
     return frontmatter, body
+
+
+def extract_skill_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
+    """Return Fabric skill metadata with legacy namespace compatibility.
+
+    ``metadata.fabric`` is the canonical namespace. Existing skills may still
+    declare ``metadata.hermes``; those keys remain valid as fallbacks while a
+    canonical Fabric value wins when both namespaces declare the same key.
+    Malformed namespace values are ignored rather than leaking non-mappings to
+    runtime readers.
+    """
+    if not isinstance(frontmatter, dict):
+        return {}
+    metadata = frontmatter.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+
+    merged: Dict[str, Any] = {}
+    legacy = metadata.get("hermes")
+    if isinstance(legacy, dict):
+        merged.update(legacy)
+    canonical = metadata.get("fabric")
+    if isinstance(canonical, dict):
+        merged.update(canonical)
+    return merged
 
 
 # ── Platform matching ─────────────────────────────────────────────────────
@@ -601,18 +627,19 @@ def is_external_skill_path(path) -> bool:
 
 def extract_skill_conditions(frontmatter: Dict[str, Any]) -> Dict[str, List]:
     """Extract conditional activation fields from parsed frontmatter."""
-    metadata = frontmatter.get("metadata")
-    # Handle cases where metadata is not a dict (e.g., a string from malformed YAML)
-    if not isinstance(metadata, dict):
-        metadata = {}
-    hermes = metadata.get("hermes") or {}
-    if not isinstance(hermes, dict):
-        hermes = {}
+    skill_metadata = extract_skill_metadata(frontmatter)
+
+    def _string_list(key: str) -> List[str]:
+        value = skill_metadata.get(key)
+        if not isinstance(value, list):
+            return []
+        return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
     return {
-        "fallback_for_toolsets": hermes.get("fallback_for_toolsets", []),
-        "requires_toolsets": hermes.get("requires_toolsets", []),
-        "fallback_for_tools": hermes.get("fallback_for_tools", []),
-        "requires_tools": hermes.get("requires_tools", []),
+        "fallback_for_toolsets": _string_list("fallback_for_toolsets"),
+        "requires_toolsets": _string_list("requires_toolsets"),
+        "fallback_for_tools": _string_list("fallback_for_tools"),
+        "requires_tools": _string_list("requires_tools"),
     }
 
 
@@ -625,7 +652,7 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     Skills declare config.yaml settings they need via::
 
         metadata:
-          hermes:
+          fabric:
             config:
               - key: wiki.path
                 description: Path to the LLM Wiki knowledge base directory
@@ -635,13 +662,7 @@ def extract_skill_config_vars(frontmatter: Dict[str, Any]) -> List[Dict[str, Any
     Returns a list of dicts with keys: ``key``, ``description``, ``default``,
     ``prompt``.  Invalid or incomplete entries are silently skipped.
     """
-    metadata = frontmatter.get("metadata")
-    if not isinstance(metadata, dict):
-        return []
-    hermes = metadata.get("hermes")
-    if not isinstance(hermes, dict):
-        return []
-    raw = hermes.get("config")
+    raw = extract_skill_metadata(frontmatter).get("config")
     if not raw:
         return []
     if isinstance(raw, dict):

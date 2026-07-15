@@ -20,6 +20,7 @@ Hyperliquid market data, account history, trade review.
 | Author | Hugo Sequier (Hugo-SEQUIER), Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Hyperliquid`, `Blockchain`, `Crypto`, `Trading`, `Perpetuals`, `Spot`, `DeFi` |
 
 ## Reference: full SKILL.md
 

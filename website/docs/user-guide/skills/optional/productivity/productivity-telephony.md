@@ -20,6 +20,8 @@ Give Fabric phone capabilities without core tool changes. Provision and persist 
 | Author | Nous Research |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `telephony`, `phone`, `sms`, `mms`, `voice`, `twilio`, `bland.ai`, `vapi`, `calling`, `texting` |
+| Related skills | [`maps`](/user-guide/skills/bundled/productivity/productivity-maps), [`google-workspace`](/user-guide/skills/bundled/productivity/productivity-google-workspace), [`agentmail`](/user-guide/skills/optional/email/email-agentmail) |
 
 ## Reference: full SKILL.md
 

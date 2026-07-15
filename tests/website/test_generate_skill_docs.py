@@ -114,3 +114,32 @@ def test_bundled_catalog_explains_missing_local_skills(gen_module):
     result = gen_module.build_catalog_md_bundled([])
     assert "respects local deletions and user edits" in result
     assert "fabric skills reset <name> --restore" in result
+
+
+def test_skill_metadata_merges_legacy_fallbacks_per_key(gen_module):
+    frontmatter = {
+        "metadata": {
+            "hermes": {
+                "tags": ["legacy-tag"],
+                "related_skills": ["legacy-peer"],
+            },
+            "fabric": {"category": "canonical-category"},
+        }
+    }
+
+    assert gen_module._skill_metadata(frontmatter) == {
+        "tags": ["legacy-tag"],
+        "related_skills": ["legacy-peer"],
+        "category": "canonical-category",
+    }
+
+
+def test_skill_metadata_canonical_key_overrides_legacy_key(gen_module):
+    frontmatter = {
+        "metadata": {
+            "hermes": {"tags": ["legacy"]},
+            "fabric": {"tags": ["canonical"]},
+        }
+    }
+
+    assert gen_module._skill_metadata(frontmatter)["tags"] == ["canonical"]

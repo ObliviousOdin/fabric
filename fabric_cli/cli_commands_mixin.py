@@ -1522,7 +1522,8 @@ class CLICommandsMixin:
         parts = cmd.strip().split()
         args = parts[1:] if len(parts) > 1 else []
         if args and args[0].lower() in {"pending", "approve", "apply", "reject",
-                                        "deny", "drop", "diff", "approval", "mode"}:
+                                        "deny", "drop", "diff", "evaluate", "rollback",
+                                        "approval", "mode"}:
             from fabric_cli.write_approval_commands import handle_pending_subcommand
             from tools import write_approval as wa
             out = handle_pending_subcommand(

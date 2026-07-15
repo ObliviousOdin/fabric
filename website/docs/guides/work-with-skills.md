@@ -76,11 +76,14 @@ You can also trigger skills through natural conversation — ask Fabric to use a
 
 Skills use a token-efficient loading pattern. The agent doesn't load everything at once:
 
-1. **`skills_list()`** — compact list of all skills (~3k tokens). Loaded at session start.
-2. **`skill_view(name)`** — full SKILL.md content for one skill. Loaded when the agent decides it needs that skill.
-3. **`skill_view(name, file_path)`** — a specific reference file within the skill. Only loaded if needed.
+1. **Prompt taxonomy** — large catalogs contribute only category counts to the cached system prompt (372 bytes for the current bundled catalog), not every description.
+2. **`skills_list(query="task")`** — deterministically ranks up to eight candidates from names, descriptions, and verified trigger/non-trigger declarations. It does not call a model.
+3. **`skill_view(name)`** — loads the full `SKILL.md` for the selected skill.
+4. **`skill_view(name, file_path)`** — loads one supporting reference only when needed.
 
-This means skills don't cost tokens until they're actually used.
+Catalogs with 32 or fewer skills stay inline for convenient browsing. Larger
+catalogs switch automatically to the bounded taxonomy. This keeps prompt cost
+bounded while preserving exact-name slash commands and on-demand discovery.
 
 ---
 
@@ -230,7 +233,28 @@ Reference these in your SKILL.md:
 For API details, load the reference: `skill_view("my-skill", "references/api-docs.md")`
 ```
 
-### 4. Test It
+### 4. Validate It
+
+Check the skill's `SKILL.md` and, when present, its optional governance
+contract:
+
+```bash
+fabric skills validate ~/.fabric/skills/my-category/my-skill
+```
+
+Skills without `skill.contract.yaml` remain valid during migration and are
+reported as `legacy`. Use strict mode when a team or CI policy requires every
+skill to carry a contract:
+
+```bash
+fabric skills validate ~/.fabric/skills/my-category/my-skill --require-contract
+fabric skills validate ~/.fabric/skills/my-category/my-skill --require-contract --json
+```
+
+See [Creating Skills](/developer-guide/creating-skills#optional-governance-contract)
+for the contract schema.
+
+### 5. Test It
 
 Start a new session and try your skill:
 
@@ -241,7 +265,12 @@ fabric chat -q "/my-skill help me with the thing"
 The skill appears automatically — no registration needed. Drop it in `~/.fabric/skills/` and it's live.
 
 :::info
-The agent can also create and update skills itself using `skill_manage`. After solving a complex problem, Fabric may offer to save the approach as a skill for next time.
+The agent can also propose skill changes using `skill_manage`. `/learn` and
+background-review changes are saved as quarantined drafts, not activated
+immediately. Inspect with `/skills diff <id>`, then use `/skills approve <id>`
+or `/skills reject <id>`. Promotion activates on the next session by default;
+add `--now` only when immediate shared-index refresh is worth invalidating the
+prompt cache.
 :::
 
 ---
@@ -279,7 +308,10 @@ Both are persistent across sessions, but they serve different purposes:
 
 **Keep skills focused.** A skill that tries to cover "all of DevOps" will be too long and too vague. A skill that covers "deploy a Python app to Fly.io" is specific enough to be genuinely useful.
 
-**Let the agent create skills.** After a complex multi-step task, Fabric will often offer to save the approach as a skill. Say yes — these agent-authored skills capture the exact workflow including pitfalls that were discovered along the way.
+**Review agent-authored drafts.** After a complex multi-step task, Fabric may
+offer a reusable skill change. Check the diff before promotion so durable
+workflow evidence is preserved without turning one-off behavior into active
+guidance.
 
 **Use categories.** Organize skills into subdirectories (`~/.fabric/skills/devops/`, `~/.fabric/skills/research/`, etc.). This keeps the list manageable and helps the agent find relevant skills faster.
 

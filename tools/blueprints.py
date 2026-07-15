@@ -5,7 +5,7 @@ agent loads) that additionally declares an automation schedule in its
 frontmatter:
 
     metadata:
-      hermes:
+      fabric:
         blueprint:
           schedule: "0 9 * * *"     # presence of `blueprint:` marks it runnable
           deliver: origin            # optional (default "origin")
@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from agent.skill_utils import extract_skill_metadata
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -56,7 +58,7 @@ class BlueprintError(ValueError):
 
 @dataclass
 class BlueprintSpec:
-    """Parsed ``metadata.hermes.blueprint`` automation spec for a skill."""
+    """Parsed ``metadata.fabric.blueprint`` automation spec for a skill."""
 
     skill_name: str
     schedule: str
@@ -95,9 +97,11 @@ def _split_frontmatter(text: str) -> Optional[Dict[str, Any]]:
 def parse_blueprint(skill_md_text: str) -> Optional[BlueprintSpec]:
     """Extract a BlueprintSpec from a SKILL.md string, or None if not a blueprint.
 
-    A skill is a blueprint iff ``metadata.hermes.blueprint`` is a mapping containing
-    a non-empty ``schedule``. Raises BlueprintError if the block exists but is
-    structurally invalid (so a typo surfaces instead of silently no-op'ing).
+    A skill is a blueprint iff its merged Fabric metadata has a ``blueprint``
+    mapping containing a non-empty ``schedule``. ``metadata.fabric`` is
+    canonical and ``metadata.hermes`` remains a fallback. Raises BlueprintError
+    if the effective block exists but is structurally invalid (so a typo
+    surfaces instead of silently no-op'ing).
     """
     fm = _split_frontmatter(skill_md_text)
     if not fm:
@@ -105,13 +109,11 @@ def parse_blueprint(skill_md_text: str) -> Optional[BlueprintSpec]:
 
     name = str(fm.get("name", "")).strip()
 
-    meta = fm.get("metadata")
-    hermes = meta.get("hermes") if isinstance(meta, dict) else None
-    blueprint = hermes.get("blueprint") if isinstance(hermes, dict) else None
+    blueprint = extract_skill_metadata(fm).get("blueprint")
     if blueprint is None:
         return None
     if not isinstance(blueprint, dict):
-        raise BlueprintError("metadata.hermes.blueprint must be a mapping")
+        raise BlueprintError("metadata.fabric.blueprint must be a mapping")
 
     schedule = str(blueprint.get("schedule", "")).strip()
     if not schedule:
@@ -247,7 +249,7 @@ def export_blueprint(job: Dict[str, Any], body: str, *, blueprint_name: Optional
     """Render a shareable blueprint SKILL.md from an existing cron job dict.
 
     The inverse of ``create_blueprint_job``: take a cron job a user already built
-    and emit a SKILL.md (with a ``metadata.hermes.blueprint`` block) they can hand
+    and emit a SKILL.md (with a ``metadata.fabric.blueprint`` block) they can hand
     to ``Fabric skills publish`` to share. ``body`` is the plain-language
     description / instructions that become the SKILL.md body.
     """
@@ -288,7 +290,7 @@ def export_blueprint(job: Dict[str, Any], body: str, *, blueprint_name: Optional
         "version": "1.0.0",
         "license": "MIT",
         "metadata": {
-            "hermes": {
+            "fabric": {
                 "tags": ["blueprint", "automation"],
                 "blueprint": blueprint_block,
             }

@@ -197,6 +197,56 @@ def test_task_id_passthrough():
     assert agent._current_task_id == "fixed-task"
 
 
+def test_learn_turn_binds_quarantined_skill_origin():
+    agent = _FakeAgent()
+    seen = []
+
+    _build(
+        agent,
+        user_message="[/learn] distill this conversation",
+        set_current_write_origin=seen.append,
+    )
+
+    assert seen == ["learn_request"]
+
+
+def test_learn_turn_policy_resets_on_next_ordinary_turn(monkeypatch):
+    from fabric_cli.plugins import (
+        clear_thread_tool_whitelist,
+        get_pre_tool_call_block_message,
+    )
+
+    monkeypatch.setattr("fabric_cli.plugins.invoke_hook", lambda *_a, **_k: [])
+    clear_thread_tool_whitelist()
+    agent = _FakeAgent()
+
+    origins = []
+    _build(
+        agent,
+        user_message="[/learn] distill this conversation",
+        set_current_write_origin=origins.append,
+    )
+    assert get_pre_tool_call_block_message("terminal", {}) is not None
+    assert get_pre_tool_call_block_message("skill_manage", {}) is None
+
+    _build(
+        agent,
+        user_message="ordinary next turn",
+        set_current_write_origin=origins.append,
+    )
+    assert get_pre_tool_call_block_message("terminal", {}) is None
+    assert origins == ["learn_request", "learn_followup"]
+
+    # The one-turn continuation window is consumed; later unrelated turns
+    # return to the ordinary foreground origin.
+    _build(
+        agent,
+        user_message="another ordinary turn",
+        set_current_write_origin=origins.append,
+    )
+    assert origins[-1] == "assistant_tool"
+
+
 def test_persist_user_message_becomes_original():
     agent = _FakeAgent()
     ctx = _build(agent, user_message="api-prefixed", persist_user_message="clean")
@@ -363,4 +413,3 @@ def test_expired_cooldown_allows_preflight(tmp_path):
     assert isinstance(ctx, TurnContext)
     agent._emit_status.assert_called_once()
     agent._compress_context.assert_called()
-

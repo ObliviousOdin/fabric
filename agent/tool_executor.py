@@ -282,6 +282,37 @@ def _run_agent_tool_execution_middleware(
 ) -> tuple[Any, dict]:
     observed_args = function_args
 
+    try:
+        from agent.agent_runtime_helpers import agent_runtime_permission_toolset
+        from agent.skill_permissions import authorize_skill_tool_call
+
+        permission_payload = authorize_skill_tool_call(
+            tool_name=function_name,
+            function_args=function_args,
+            task_id=effective_task_id,
+            session_id=getattr(agent, "session_id", "") or "",
+            turn_id=getattr(agent, "_current_turn_id", "") or "",
+            toolset=agent_runtime_permission_toolset(agent, function_name),
+        )
+    except Exception:
+        try:
+            from agent.skill_permissions import load_permission_settings
+
+            _permission_mode = load_permission_settings().mode
+        except Exception:
+            _permission_mode = "enforce_all"
+        permission_payload = None
+        if _permission_mode != "observe":
+            permission_payload = {
+                "error": (
+                    "Skill permission policy denied this tool because its "
+                    "enforcement decision could not be evaluated."
+                ),
+                "permission_code": "policy_evaluation_failed",
+            }
+    if permission_payload is not None:
+        return json.dumps(permission_payload, ensure_ascii=False), observed_args
+
     def _execute(next_args: dict) -> Any:
         nonlocal observed_args
         observed_args = next_args if isinstance(next_args, dict) else function_args
@@ -370,18 +401,36 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
         try:
             from tools import tool_search as _ts
             if function_name == _ts.TOOL_CALL_NAME:
-                _underlying, _underlying_args, _err = _ts.resolve_underlying_call(function_args)
-                if not _err and _underlying:
-                    if _underlying in _tool_search_scoped_names(agent):
-                        function_name = _underlying
-                        function_args = _underlying_args
-                    else:
-                        _ts_scope_block = json.dumps({
-                            "error": (
-                                f"'{_underlying}' is not available in this session. "
-                                "Use tool_search to find tools you can call."
-                            ),
-                        }, ensure_ascii=False)
+                # Check the bridge name BEFORE unwrapping. A closed runtime
+                # policy (notably /learn) deliberately denies dynamic calls;
+                # checking only the resolved name would let ``tool_call``
+                # erase that decision before the pre-tool gate sees it.
+                from fabric_cli.plugins import (
+                    get_thread_tool_whitelist_block_message,
+                )
+
+                _bridge_block = get_thread_tool_whitelist_block_message(
+                    function_name
+                )
+                if _bridge_block is not None:
+                    _ts_scope_block = json.dumps(
+                        {"error": _bridge_block}, ensure_ascii=False
+                    )
+                else:
+                    _underlying, _underlying_args, _err = (
+                        _ts.resolve_underlying_call(function_args)
+                    )
+                    if not _err and _underlying:
+                        if _underlying in _tool_search_scoped_names(agent):
+                            function_name = _underlying
+                            function_args = _underlying_args
+                        else:
+                            _ts_scope_block = json.dumps({
+                                "error": (
+                                    f"'{_underlying}' is not available in this session. "
+                                    "Use tool_search to find tools you can call."
+                                ),
+                            }, ensure_ascii=False)
         except Exception:
             pass
 
@@ -1005,16 +1054,28 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
         try:
             from tools import tool_search as _ts
             if function_name == _ts.TOOL_CALL_NAME:
-                _underlying, _underlying_args, _err = _ts.resolve_underlying_call(function_args)
-                if not _err and _underlying:
-                    if _underlying in _tool_search_scoped_names(agent):
-                        function_name = _underlying
-                        function_args = _underlying_args
-                    else:
-                        _ts_scope_block = (
-                            f"'{_underlying}' is not available in this session. "
-                            "Use tool_search to find tools you can call."
-                        )
+                from fabric_cli.plugins import (
+                    get_thread_tool_whitelist_block_message,
+                )
+
+                _bridge_block = get_thread_tool_whitelist_block_message(
+                    function_name
+                )
+                if _bridge_block is not None:
+                    _ts_scope_block = _bridge_block
+                else:
+                    _underlying, _underlying_args, _err = (
+                        _ts.resolve_underlying_call(function_args)
+                    )
+                    if not _err and _underlying:
+                        if _underlying in _tool_search_scoped_names(agent):
+                            function_name = _underlying
+                            function_args = _underlying_args
+                        else:
+                            _ts_scope_block = (
+                                f"'{_underlying}' is not available in this session. "
+                                "Use tool_search to find tools you can call."
+                            )
         except Exception:
             pass
 
@@ -1217,6 +1278,14 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                 target = next_args.get("target", "memory")
                 operations = next_args.get("operations")
                 from tools.memory_tool import memory_tool as _memory_tool
+                try:
+                    before_entries = (
+                        list(agent._memory_store._entries_for(target))
+                        if agent._memory_store is not None and target in {"memory", "user"}
+                        else []
+                    )
+                except Exception:
+                    before_entries = []
                 result = _memory_tool(
                     action=next_args.get("action"),
                     target=target,
@@ -1225,6 +1294,33 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
                     operations=operations,
                     store=agent._memory_store,
                 )
+                # Record the committed lifecycle locally without ever making
+                # provenance a prerequisite for the memory write itself.
+                try:
+                    from agent.memory_governance import record_committed_write_best_effort
+
+                    metadata = agent._build_memory_write_metadata(
+                        task_id=effective_task_id,
+                        tool_call_id=getattr(tool_call, "id", None),
+                    )
+                    try:
+                        after_entries = (
+                            list(agent._memory_store._entries_for(target))
+                            if agent._memory_store is not None and target in {"memory", "user"}
+                            else []
+                        )
+                    except Exception:
+                        after_entries = []
+                    record_committed_write_best_effort(
+                        target=target,
+                        before_entries=before_entries,
+                        after_entries=after_entries,
+                        tool_args=next_args,
+                        tool_result=result,
+                        metadata=metadata,
+                    )
+                except Exception:
+                    logger.debug("Memory governance recording unavailable", exc_info=True)
                 # Mirror successful built-in memory writes to external
                 # providers. All gating/op-expansion lives behind the manager
                 # interface (MemoryManager.notify_memory_tool_write).

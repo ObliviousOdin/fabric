@@ -20,6 +20,7 @@ Hand-drawn Excalidraw JSON diagrams (arch, flow, seq).
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Excalidraw`, `Diagrams`, `Flowcharts`, `Architecture`, `Visualization`, `JSON` |
 
 ## Reference: full SKILL.md
 

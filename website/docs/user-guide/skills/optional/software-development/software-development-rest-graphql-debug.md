@@ -19,6 +19,8 @@ Debug REST/GraphQL APIs: status codes, auth, schemas, repro.
 | Version | `1.2.0` |
 | Author | eren-karakus0 |
 | License | MIT |
+| Tags | `api`, `rest`, `graphql`, `http`, `debugging`, `testing`, `curl`, `integration` |
+| Related skills | [`systematic-debugging`](/user-guide/skills/bundled/software-development/software-development-systematic-debugging), [`test-driven-development`](/user-guide/skills/bundled/software-development/software-development-test-driven-development) |
 
 ## Reference: full SKILL.md
 

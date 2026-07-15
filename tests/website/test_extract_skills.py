@@ -148,3 +148,29 @@ def test_fallback_index_does_not_duplicate_local_skills(mod, monkeypatch, tmp_pa
 
     assert [skill["name"] for skill in skills] == ["community"]
     assert skills[0]["source"] == "LobeHub"
+
+
+def test_skill_metadata_merges_legacy_fallbacks_per_key(mod):
+    frontmatter = {
+        "metadata": {
+            "hermes": {"tags": ["legacy-tag"], "related_skills": ["peer"]},
+            "fabric": {"category": "canonical-category"},
+        }
+    }
+
+    assert mod._skill_metadata(frontmatter) == {
+        "tags": ["legacy-tag"],
+        "related_skills": ["peer"],
+        "category": "canonical-category",
+    }
+
+
+def test_skill_metadata_canonical_key_overrides_legacy_key(mod):
+    frontmatter = {
+        "metadata": {
+            "hermes": {"tags": ["legacy"]},
+            "fabric": {"tags": ["canonical"]},
+        }
+    }
+
+    assert mod._skill_metadata(frontmatter)["tags"] == ["canonical"]

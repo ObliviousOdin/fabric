@@ -13,16 +13,20 @@ that instructs the live agent to:
      material).
   2. Author a single ``SKILL.md`` via ``skill_manage`` that follows the Fabric
      skill-authoring standards (description <=60 chars, the modern section
-     order, Fabric-tool framing, no invented commands).
+     order, Fabric-tool framing, no invented commands). ``/learn`` writes are
+     quarantined as drafts until the user explicitly reviews and promotes
+     them; they never enter the active skill index directly.
 
 There is no separate distillation engine and no model-tool footprint: the
-agent does the work with its existing toolset, so this works identically on
-local, Docker, and remote terminal backends. Every surface (CLI ``/learn``,
+agent does the work through a cache-safe runtime allowlist, so this works
+identically on local, Docker, and remote terminal backends. Every surface (CLI ``/learn``,
 gateway ``/learn``, the dashboard "Learn a skill" panel) calls
 :func:`build_learn_prompt` and feeds the result to the agent as a normal turn.
 """
 
 from __future__ import annotations
+
+from tools.skill_provenance import LEARN_MARKER
 
 # The house-style rules, distilled from AGENTS.md "Skill authoring standards
 # (HARDLINE)" and the fabric-agent-dev new-skill salvage reference. Embedded in
@@ -57,7 +61,8 @@ Frontmatter:
   cross-platform first (tempfile.gettempdir(), pathlib.Path, psutil); gate only
   when the dependency is genuinely platform-bound. Omit the field for portable
   skills.
-- metadata.hermes.tags: a few Capitalized, Relevant, Tags.
+- metadata.fabric.tags: a few Capitalized, Relevant, Tags. Fabric is the
+  canonical namespace; do not author new metadata.hermes blocks.
 
 Body section order (omit a section only if it genuinely has no content):
 1. "# <Human Title>" then a 2-3 sentence intro: what it does, what it does NOT
@@ -69,6 +74,22 @@ Body section order (omit a section only if it genuinely has no content):
 6. "## Procedure" — numbered steps with copy-paste-exact commands.
 7. "## Pitfalls" — known limits, rate limits, things that look broken but aren't.
 8. "## Verification" — a single command/check that proves the skill worked.
+
+Governance artifacts (mandatory for /learn promotion):
+- Add root `skill.contract.yaml` with schema_version 1 and every required
+  closed section: identity, compatibility, routing, interface, permissions,
+  sources, budgets, outcomes, evals, and limitations. Contract identity.name
+  and identity.version MUST exactly match SKILL.md. Declare the smallest real
+  permissions; declarations do not grant authority.
+- Add `evals/cases.yaml` and point `evals.suite` at it. Cover positive trigger,
+  negative trigger, output contract, safety, tool use, regression, and a
+  same-input no-skill baseline with `baseline_for`. The manifest is data only:
+  never add hooks, commands, Python, or provider configuration.
+- Every source needs its exact HTTPS URL, a quoted current ISO `retrieved_at`,
+  and a nonnegative `ttl_days`. Do not invent a source or use an expired date.
+- Use `skill_manage` action="write_file" for both artifacts. The governed
+  path policy accepts exactly root `skill.contract.yaml` and `evals/**` in
+  addition to the normal supporting-file directories.
 
 Fabric-tool framing (this is what makes it a skill, not shell docs):
 - Frame running scripts as "invoke through the `terminal` tool".
@@ -116,8 +137,8 @@ def build_learn_prompt(user_request: str) -> str:
         )
 
     return (
-        "[/learn] The user wants you to learn a reusable skill from the "
-        "request below, and save it.\n\n"
+        f"{LEARN_MARKER} The user wants you to learn a reusable skill from the "
+        "request below, and submit it as a quarantined draft.\n\n"
         f"THE REQUEST:\n{req}\n\n"
         "The request is open-ended and may mix two kinds of content, in any "
         "order: SOURCES to gather (directories, file paths, URLs, \"what we "
@@ -130,6 +151,18 @@ def build_learn_prompt(user_request: str) -> str:
         "endpoints` means: gather the URL AND honor \"focus on auth, skip "
         "deprecated\" as authoring requirements. Never fetch the first source "
         "and ignore the rest.\n\n"
+        "ISOLATED SINGLE-TURN LIFECYCLE: this /learn run may call only "
+        "`read_file`, `search_files`, `web_extract`, `web_search`, "
+        "`vision_analyze`, `video_analyze`, `session_search`, `skills_list`, "
+        "`skill_view`, `skill_manage`, `todo`, `tool_search`, and "
+        "`tool_describe`. `skill_manage` is the only writer and every write "
+        "it makes is quarantined. Do not call `terminal`, `write_file`, "
+        "`patch`, `execute_code`, `delegate_task`, `memory`, MCP/plugin tools, "
+        "or the dynamic `tool_call` bridge. Do not ask a `clarify` question: "
+        "if required source material is missing, stop without writing and "
+        "tell the user exactly what to include in a fresh `/learn ...` "
+        "request. A later ordinary chat turn is not a continuation of this "
+        "authoring authority.\n\n"
         "Do this:\n"
         "1. Gather every source the user named, using the tools you already "
         "have — `read_file`/`search_files` for local files or directories, "
@@ -140,11 +173,23 @@ def build_learn_prompt(user_request: str) -> str:
         "1b. Apply every requirement, focus, and constraint in the request to "
         "the skill you author — these govern what the SKILL.md covers and "
         "emphasizes, not just which sources you read.\n"
-        "2. Author ONE SKILL.md and save it with the `skill_manage` tool "
-        "(action=\"create\"). Pick a sensible category. If the procedure needs "
+        "2. Author ONE SKILL.md and submit it with the `skill_manage` tool "
+        "(action=\"create\"). This /learn turn is quarantined automatically: "
+        "the tool returns a pending draft id and MUST NOT mutate the active "
+        "skill library. Pick a sensible category. If the procedure needs "
         "a non-trivial script, add it under the skill's `scripts/` with "
-        "`skill_manage` write_file and reference it by relative path.\n\n"
+        "`skill_manage` write_file and reference it by relative path.\n"
+        "3. In the SAME pending batch, add root `skill.contract.yaml` and "
+        "`evals/cases.yaml` with `skill_manage` action=\"write_file\". A "
+        "SKILL.md-only draft cannot be promoted. Validate identity, source "
+        "freshness, minimal permissions, and all seven eval categories before "
+        "you finish.\n\n"
         f"{_AUTHORING_STANDARDS}\n\n"
-        "When done, tell the user the skill name, its category, and a "
-        "one-line summary of what it captured."
+        "When done, tell the user the skill name, its category, the pending "
+        "draft id, and a one-line summary of what it captured. Explain that "
+        "they can inspect it with `/skills diff <id>`, attest closed eval "
+        "observations with `fabric skills evaluate <id> --observations "
+        "<path>`, promote it with `/skills approve <id>`, or reject it with "
+        "`/skills reject <id>`. "
+        "Do not claim the skill is active before promotion."
     )

@@ -357,6 +357,75 @@ class TestSkillsList:
         assert result["categories"] == ["linked"]
         assert result["skills"][0]["name"] == "knowledge-brain"
 
+    def test_query_returns_bounded_ranked_candidates_without_internal_paths(
+        self, tmp_path
+    ):
+        with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
+            _make_skill(
+                tmp_path,
+                "python-debug",
+                category="development",
+            )
+            _make_skill(
+                tmp_path,
+                "python-format",
+                category="development",
+            )
+            raw = skills_list(query="debug a failing Python process", limit=1)
+
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result["selection_mode"] == "ranked"
+        assert result["count"] == 1
+        assert result["skills"][0]["name"] == "python-debug"
+        assert result["skills"][0]["routing_reasons"]
+        assert "_skill_dir" not in result["skills"][0]
+
+    def test_catalog_listing_preserves_backward_compatible_shape(self, tmp_path):
+        with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
+            _make_skill(tmp_path, "alpha")
+            result = json.loads(skills_list())
+
+        assert result["selection_mode"] == "catalog"
+        assert set(result["skills"][0]) == {"name", "description", "category"}
+
+    def test_query_honors_category_before_ranking(self, tmp_path):
+        with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
+            _make_skill(
+                tmp_path,
+                "debug-dev",
+                category="development",
+            )
+            _make_skill(
+                tmp_path,
+                "debug-ops",
+                category="operations",
+            )
+            result = json.loads(
+                skills_list(category="operations", query="debug a service")
+            )
+
+        assert [skill["name"] for skill in result["skills"]] == ["debug-ops"]
+
+    def test_query_preserves_score_order_across_categories(self, tmp_path):
+        with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
+            _make_skill(
+                tmp_path,
+                "debug-helper",
+                category="aaa",
+            )
+            _make_skill(
+                tmp_path,
+                "exact-debug-service",
+                category="zzz",
+            )
+            result = json.loads(skills_list(query="exact debug service"))
+
+        assert [skill["name"] for skill in result["skills"][:2]] == [
+            "exact-debug-service",
+            "debug-helper",
+        ]
+
 
 # ---------------------------------------------------------------------------
 # skill_view
@@ -506,6 +575,26 @@ class TestSkillView:
         result = json.loads(raw)
         assert "fine-tuning" in result["tags"]
         assert "llm" in result["tags"]
+
+    def test_view_prefers_canonical_fabric_tags_and_related_skills(self, tmp_path):
+        with patch("tools.skills_tool.SKILLS_DIR", tmp_path):
+            _make_skill(
+                tmp_path,
+                "canonical-tagged",
+                frontmatter_extra=(
+                    "metadata:\n"
+                    "  hermes:\n"
+                    "    tags: [legacy]\n"
+                    "    related_skills: [legacy-peer]\n"
+                    "  fabric:\n"
+                    "    tags: [canonical]\n"
+                    "    related_skills: [canonical-peer]\n"
+                ),
+            )
+            raw = skill_view("canonical-tagged")
+        result = json.loads(raw)
+        assert result["tags"] == ["canonical"]
+        assert result["related_skills"] == ["canonical-peer"]
 
     def test_view_nonexistent_skills_dir(self, tmp_path):
         with patch("tools.skills_tool.SKILLS_DIR", tmp_path / "nope"):

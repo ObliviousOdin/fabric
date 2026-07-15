@@ -1077,6 +1077,9 @@ Subcommands:
 | `install` | Install a skill. |
 | `inspect` | Preview a skill without installing it. |
 | `list` | List installed skills. |
+| `validate [target]` | Read-only validation of `SKILL.md` and optional `skill.contract.yaml`. The target may be an installed skill name, a skill directory, or a directory containing skills; omit it to validate the active profile. |
+| `evaluate <pending-id> --observations <path>` | Run the data-only deterministic eval suite for an exact quarantined draft batch and persist a passing digest-bound attestation. |
+| `rollback <transaction-id> [--now]` | Restore a retained promotion snapshot only when the id is exact, active postdigests still match, and no newer promotion touches the same skills. Activation is deferred unless `--now` explicitly refreshes the shared skill index. |
 | `check` | Check installed hub skills for upstream updates. |
 | `update` | Reinstall hub skills with upstream changes when available. |
 | `audit` | Re-scan installed hub skills. |
@@ -1103,6 +1106,12 @@ fabric skills install official/migration/openclaw-migration
 fabric skills install skills-sh/anthropics/skills/pdf --force
 fabric skills install https://sharethis.chat/SKILL.md                     # Direct URL (single-file SKILL.md)
 fabric skills install https://example.com/SKILL.md --name my-skill        # Override name when frontmatter has none
+fabric skills validate github-pr-workflow
+fabric skills validate ./skills/my-skill --require-contract
+fabric skills validate --require-contract --json                          # Strict, deterministic CI output
+fabric skills evaluate 0123456789abcdef0123456789abcdef --observations observations.json
+fabric skills rollback 0123456789abcdef0123456789abcdef
+fabric skills rollback 0123456789abcdef0123456789abcdef --now
 fabric skills check
 fabric skills update
 fabric skills gc
@@ -1115,6 +1124,9 @@ fabric skills opt-in --sync            # undo: remove marker and re-seed now
 ```
 
 Notes:
+- `validate` accepts `--require-contract` to treat a missing `skill.contract.yaml` as an error and `--json` for deterministic machine-readable output. It exits non-zero for invalid skills, unmatched targets, or missing contracts in strict mode.
+- `evaluate` reads a bounded regular JSON file without following symlinks. Each observation has exactly `selected`, `output`, `tools`, `approvals`, and `outcome_score`; single-skill batches use the manifest case-id mapping directly, while multi-skill batches wrap exact skill names under `{"skills": {...}}`. It executes no model, provider, hook, command, or skill code; a failed or stale report cannot authorize promotion.
+- `rollback` accepts exactly the 32-hex transaction id printed after promotion. It refuses stale rollback after an active-tree edit or a newer promotion, and it never bypasses snapshot retention checks. Restored routing activates on the next session by default; `--now` refreshes the shared index immediately and may forfeit a prompt-cache hit on the next request.
 - `--force` can override non-dangerous policy blocks for third-party/community skills.
 - `--force` does not override a `dangerous` scan verdict.
 - `--source skills-sh` searches the public `skills.sh` directory.
@@ -1255,7 +1267,9 @@ Subcommands:
 | `setup` | Interactive provider selection and configuration. |
 | `status` | Show tier state, configured provider, static readiness, adapter-potential capabilities, and controlled issues. It performs no live health probe. |
 | `off` | Disable the external provider without changing built-in tier settings. |
-| `reset [--target all\|memory\|user] [--yes]` | Erase the selected built-in memory files. This does not delete external-provider data. |
+| `audit [--json]` | Reconcile MEMORY.md/USER.md with the local governance sidecar. Reports duplicate digest groups, conservative conflict candidates, untracked/orphaned records, and review/expiry state without echoing memory text. |
+| `revalidate <record-id>` | Refresh review and expiry policy clocks for one current governed record. The change applies to new session snapshots. |
+| `reset [--target all\|memory\|user] [--yes]` | Erase the selected built-in memory files and remove all governance state (`all`) or safely prune only matching governance records. This does not delete external-provider data. |
 
 :::info Provider-specific subcommands
 When an external memory provider is configured, it may register its own top-level `fabric <provider>` command for provider-specific management (for example, `fabric honcho`). Run `fabric --help` to see what is currently wired in.

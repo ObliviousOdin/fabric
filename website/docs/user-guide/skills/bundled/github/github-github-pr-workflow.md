@@ -20,6 +20,8 @@ GitHub PR lifecycle: branch, commit, open, CI, merge.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `GitHub`, `Pull-Requests`, `CI/CD`, `Git`, `Automation`, `Merge` |
+| Related skills | [`github-auth`](/user-guide/skills/bundled/github/github-github-auth), [`github-code-review`](/user-guide/skills/bundled/github/github-github-code-review) |
 
 ## Reference: full SKILL.md
 

@@ -18,6 +18,8 @@ p5.js sketches: gen art, shaders, interactive, 3D.
 | Path | `skills/creative/p5js` |
 | Version | `1.0.0` |
 | Platforms | linux, macos, windows |
+| Tags | `creative-coding`, `generative-art`, `p5js`, `canvas`, `interactive`, `visualization`, `webgl`, `shaders`, `animation` |
+| Related skills | [`ascii-video`](/user-guide/skills/bundled/creative/creative-ascii-video), [`manim-video`](/user-guide/skills/bundled/creative/creative-manim-video), [`excalidraw`](/user-guide/skills/bundled/creative/creative-excalidraw) |
 
 ## Reference: full SKILL.md
 

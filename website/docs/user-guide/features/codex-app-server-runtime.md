@@ -393,6 +393,7 @@ Known limitations:
 
 - **Fabric auth and codex auth are separate sessions.** You need both `codex login` AND `fabric auth login codex` for the cleanest UX (the runtime uses codex's session for the LLM call). This is a deliberate design choice in Fabric's `_import_codex_cli_tokens` — Fabric won't share OAuth state with codex CLI to avoid clobbering each other on token refresh.
 - **`delegate_task`, `memory`, `session_search`, `todo` are unavailable on this runtime.** They need the running AIAgent context which a stateless MCP callback can't provide. Use `/codex-runtime auto` when you need these.
+- **`/learn` fails closed on this runtime.** The Codex subprocess owns command, file, MCP, and dynamic-tool dispatch, so it cannot enforce Fabric's per-turn source-read/`skill_manage` allowlist. Fabric stops before sending the authoring prompt and leaves the active skill tree unchanged. Switch to `/codex-runtime auto`, start the next session, and retry `/learn`.
 - **No inline patch preview in approval prompts when codex doesn't track the changeset.** Codex's `fileChange` approval params don't always carry the changeset. Fabric caches the data from the corresponding `item/started` notification when possible, but if approval arrives before the item has streamed, the prompt falls back to whatever `reason` codex provides.
 - **Sub-second cancellation isn't guaranteed.** Mid-stream interrupts (Ctrl+C while codex is responding) are sent via `turn/interrupt`, but if codex has already flushed the final message, you get the response anyway.
 

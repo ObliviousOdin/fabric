@@ -2338,10 +2338,11 @@ DEFAULT_CONFIG = {
         # External hub installs (trusted/community sources) are always
         # scanned regardless of this setting.
         "guard_agent_created": False,
-        # Approval gate for skill_manage (create/edit/patch/write_file/delete/
-        # remove_file), applied to BOTH foreground agent turns and the
-        # background self-improvement review fork.
-        #   false (default) — write freely; the gate is off (pre-gate behaviour)
+        # Optional approval gate for ordinary foreground skill_manage writes
+        # (create/edit/patch/write_file/delete/remove_file). Background-review
+        # and /learn writes are always quarantined as drafts regardless of this
+        # preference, then require explicit /skills approve promotion.
+        #   false (default) — ordinary foreground writes flow freely
         #   true            — require approval: stage the write for review
         #                     instead of committing (a SKILL.md is too large to
         #                     review inline, so skills always stage rather than
@@ -2350,6 +2351,39 @@ DEFAULT_CONFIG = {
         #                     never crammed into a chat bubble), apply with
         #                     /skills approve <id> or drop with /skills reject <id>.
         "write_approval": False,
+        # Turn-scoped runtime enforcement for verified skill contracts. This
+        # changes dispatcher policy only; it never mutates the model tool
+        # schema or system prompt, so per-conversation prompt caches remain
+        # stable. Roll out progressively:
+        #   observe         — record safe decision codes, never block (default)
+        #   enforce_learned — enforce local/agent-learned skills; observe
+        #                     bundled, Hub, plugin, and external skills
+        #   enforce_all     — enforce every loaded skill provenance
+        # Invalid/legacy contracts remain readable in observe mode and fail
+        # closed only when their provenance belongs to an enforced population.
+        "permissions": {
+            "mode": "observe",
+        },
+        # Signed skill-release verification rollout. The default preserves
+        # existing public Hub installs while callers adopt the pinned-root
+        # metadata chain. ``enforce_all`` refuses an unsigned quarantine
+        # commit; no environment variable can weaken this profile setting.
+        #   observe         — verify when signed metadata is supplied
+        #   enforce_learned — reserved migration lane for learned skills
+        #   enforce_all     — require a verifier-issued release for Hub commit
+        "distribution": {
+            "mode": "observe",
+        },
+        # Privacy-safe, profile-local skill activation/outcome receipts. The
+        # bounded JSONL journal lives under skills/.governance/, records no
+        # prompts/responses/tool arguments/file contents, and is never sent
+        # anywhere. Disable locally or reduce retention here; environment
+        # variables are intentionally unsupported.
+        "receipts": {
+            "enabled": True,
+            "max_bytes": 1048576,  # per file (64 KiB..8 MiB)
+            "max_files": 4,        # current + rotated files (1..16)
+        },
     },
 
     # Curator — background skill maintenance.
@@ -4584,9 +4618,10 @@ def get_missing_config_fields() -> List[Dict[str, Any]]:
 def get_missing_skill_config_vars() -> List[Dict[str, Any]]:
     """Return skill-declared config vars that are missing or empty in config.yaml.
 
-    Scans all enabled skills for ``metadata.hermes.config`` entries, then checks
-    which ones are absent or empty under ``skills.config.<key>`` in the user's
-    config.yaml.  Returns a list of dicts suitable for prompting.
+    Scans all enabled skills for canonical ``metadata.fabric.config`` entries
+    (with ``metadata.hermes.config`` as a legacy fallback), then checks which
+    ones are absent or empty under ``skills.config.<key>`` in the user's
+    config.yaml. Returns a list of dicts suitable for prompting.
     """
     try:
         from agent.skill_utils import discover_all_skill_config_vars, SKILL_CONFIG_PREFIX
@@ -6240,7 +6275,8 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
 
     # ── Skill-declared config vars ──────────────────────────────────────
     # Skills can declare config.yaml settings they need via
-    # metadata.hermes.config in their SKILL.md frontmatter.
+    # metadata.fabric.config in their SKILL.md frontmatter (with the legacy
+    # metadata.hermes.config namespace accepted as a fallback).
     # Prompt for any that are missing/empty.
     missing_skill_config = get_missing_skill_config_vars()
     if missing_skill_config and interactive and not quiet:

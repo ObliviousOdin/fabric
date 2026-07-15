@@ -21,6 +21,7 @@ GPU-accelerated data curation for LLM training. Supports text/image/video/audio.
 | License | MIT |
 | Dependencies | `nemo-curator`, `cudf`, `dask`, `rapids` |
 | Platforms | linux, macos |
+| Tags | `Data Processing`, `NeMo Curator`, `Data Curation`, `GPU Acceleration`, `Deduplication`, `Quality Filtering`, `NVIDIA`, `RAPIDS`, `PII Redaction`, `Multimodal`, `LLM Training Data` |
 
 ## Reference: full SKILL.md
 

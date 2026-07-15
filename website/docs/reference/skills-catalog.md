@@ -153,7 +153,7 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 
 | Skill | Description | Path |
 |-------|-------------|------|
-| [`fabric-agent-skill-authoring`](/user-guide/skills/bundled/software-development/software-development-fabric-agent-skill-authoring) | Author in-repo SKILL.md: frontmatter, validator, structure, and writing-quality principles. | `software-development/fabric-agent-skill-authoring` |
+| [`fabric-agent-skill-authoring`](/user-guide/skills/bundled/software-development/software-development-fabric-agent-skill-authoring) | Author governed Fabric skills and evaluation contracts. | `software-development/fabric-agent-skill-authoring` |
 | [`node-inspect-debugger`](/user-guide/skills/bundled/software-development/software-development-node-inspect-debugger) | Debug Node.js via --inspect + Chrome DevTools Protocol CLI. | `software-development/node-inspect-debugger` |
 | [`plan`](/user-guide/skills/bundled/software-development/software-development-plan) | Plan mode: write an actionable markdown plan to .fabric/plans/, no execution. Bite-sized tasks, exact paths, complete code. | `software-development/plan` |
 | [`python-debugpy`](/user-guide/skills/bundled/software-development/software-development-python-debugpy) | Debug Python: pdb REPL + debugpy remote (DAP). | `software-development/python-debugpy` |

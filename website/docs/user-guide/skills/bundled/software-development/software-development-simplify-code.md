@@ -20,6 +20,8 @@ Parallel 3-agent cleanup of recent code changes.
 | Author | Fabric (inspired by Claude Code /simplify) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `code-review`, `cleanup`, `refactor`, `delegation`, `subagent`, `parallel`, `simplify` |
+| Related skills | [`requesting-code-review`](/user-guide/skills/bundled/software-development/software-development-requesting-code-review), [`test-driven-development`](/user-guide/skills/bundled/software-development/software-development-test-driven-development), [`plan`](/user-guide/skills/bundled/software-development/software-development-plan) |
 
 ## Reference: full SKILL.md
 

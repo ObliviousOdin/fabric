@@ -20,6 +20,8 @@ Index a codebase with GitNexus and serve an interactive knowledge graph via web 
 | Author | Fabric + Teknium |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `gitnexus`, `code-intelligence`, `knowledge-graph`, `visualization` |
+| Related skills | `native-mcp`, [`codebase-inspection`](/user-guide/skills/bundled/github/github-codebase-inspection) |
 
 ## Reference: full SKILL.md
 

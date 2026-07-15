@@ -21,6 +21,7 @@ Provides PyTorch-native distributed LLM pretraining using torchtitan with 4D par
 | License | MIT |
 | Dependencies | `torch>=2.6.0`, `torchtitan>=0.2.0`, `torchao>=0.5.0` |
 | Platforms | linux, macos |
+| Tags | `Model Architecture`, `Distributed Training`, `TorchTitan`, `FSDP2`, `Tensor Parallel`, `Pipeline Parallel`, `Context Parallel`, `Float8`, `Llama`, `Pretraining` |
 
 ## Reference: full SKILL.md
 

@@ -1,14 +1,15 @@
 """Behavior tests for the skill review / combined review prompts.
 
-The review prompts steer the background review agent toward actively updating
-the skill library after most sessions, with a strong bias toward:
+The review prompts steer the background review agent toward evidence-based
+learning, with a strong bias toward:
   1. Patching currently-loaded skills first,
   2. Patching existing umbrellas next,
   3. Adding references/ files under an existing umbrella,
   4. Creating a new class-level umbrella only when nothing else fits.
 
 User-preference corrections (style, format, verbosity, legibility) are
-first-class skill signals, not just memory signals.
+investigated, but only become skill guidance when they generalize to a task
+class; one-off personal preferences stay in memory.
 
 These tests assert behavioral *instructions* are present — they do NOT
 snapshot the full prompt text (change-detector).
@@ -21,30 +22,27 @@ from run_agent import AIAgent
 # _SKILL_REVIEW_PROMPT
 # ---------------------------------------------------------------------------
 
-def test_skill_review_prompt_biases_toward_active_updates():
-    """Prompt must frame updating as the default stance, not something rare."""
+def test_skill_review_prompt_requires_evidence_and_normalizes_noop():
+    """A review must not invent a change merely to avoid a no-op."""
     prompt = AIAgent._SKILL_REVIEW_PROMPT
-    assert "ACTIVE" in prompt or "active" in prompt.lower(), (
-        "must tell the reviewer to be active"
-    )
-    # "missed learning opportunity" or equivalent framing for not acting
-    assert "missed" in prompt.lower() or "opportunity" in prompt.lower(), (
-        "must frame inaction as a miss, not a neutral outcome"
-    )
+    lower = prompt.lower()
+    assert "concrete evidence" in lower
+    assert "no-op is normal and correct" in lower
+    assert "never speculate a skill into existence" in lower
+    assert "not a missed opportunity" in lower
 
 
-def test_skill_review_prompt_treats_user_corrections_as_skill_signal():
-    """Style/format/verbosity complaints must be FIRST-CLASS skill signals, not just memory."""
+def test_skill_review_prompt_routes_one_off_preferences_to_memory():
+    """Personal corrections become skills only when task-class reusable."""
     prompt = AIAgent._SKILL_REVIEW_PROMPT
     lower = prompt.lower()
     # Must mention style/format/verbosity-family corrections
     assert any(k in lower for k in ("style", "format", "verbos", "legib", "tone")), (
         "must name style/format/verbosity/legibility as signals"
     )
-    # Must frame these as first-class skill signals (not memory-only)
-    assert "FIRST-CLASS" in prompt or "first-class" in prompt, (
-        "must explicitly label user-preference corrections as first-class skill signals"
-    )
+    assert "one-off personal preference" in lower
+    assert "belongs in memory" in lower
+    assert "generalizes to that task class" in lower
     # Must mention the correction-type phrases to tune the model's ear
     assert "stop doing" in lower or "don't" in lower or "hate" in lower or "frustrat" in lower, (
         "must give concrete phrasing examples so the model recognizes corrections"
@@ -117,7 +115,7 @@ def test_skill_review_prompt_flags_overlap_and_defers_to_curator():
 
 
 def test_skill_review_prompt_still_has_opt_out_clause():
-    """'Nothing to save.' must remain as a real-but-not-default option."""
+    """'Nothing to save.' is a successful evidence-based outcome."""
     prompt = AIAgent._SKILL_REVIEW_PROMPT
     assert "Nothing to save." in prompt
 
@@ -133,20 +131,25 @@ def test_combined_review_prompt_has_memory_section():
     assert "memory tool" in prompt
 
 
-def test_combined_review_prompt_skills_biased_toward_active_updates():
-    """Skills half must carry the active-update bias."""
+def test_combined_review_prompt_skills_require_evidence_and_allow_noop():
+    """Skills half must carry the same evidence/no-op contract."""
     prompt = AIAgent._COMBINED_REVIEW_PROMPT
+    lower = prompt.lower()
     assert "**Skills**" in prompt
-    assert "ACTIVE" in prompt or "active" in prompt.lower()
-    assert "missed" in prompt.lower() or "opportunity" in prompt.lower()
+    assert "concrete evidence" in lower
+    assert "no-op is normal and correct" in lower
+    assert "never speculate a skill into existence" in lower
+    assert "not a missed opportunity" in lower
 
 
-def test_combined_review_prompt_treats_user_corrections_as_skill_signal():
-    """Combined prompt must carry the same user-preference-is-skill-signal rule."""
+def test_combined_review_prompt_routes_one_off_preferences_to_memory():
+    """Combined prompt must carry the same preference boundary."""
     prompt = AIAgent._COMBINED_REVIEW_PROMPT
     lower = prompt.lower()
     assert any(k in lower for k in ("style", "format", "verbos", "legib", "tone"))
-    assert "FIRST-CLASS" in prompt or "first-class" in prompt
+    assert "one-off personal" in lower
+    assert "belongs in memory" in lower
+    assert "generalizes to that task class" in lower
 
 
 def test_combined_review_prompt_prefers_loaded_skills_first():

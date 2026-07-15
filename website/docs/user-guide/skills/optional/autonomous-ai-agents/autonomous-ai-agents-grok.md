@@ -20,6 +20,8 @@ Delegate coding to xAI Grok Build CLI (features, PRs).
 | Author | Matt Maximo (MattMaximo), Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Coding-Agent`, `Grok`, `xAI`, `Code-Review`, `Refactoring`, `Automation` |
+| Related skills | [`codex`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex), [`claude-code`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code), [`fabric-agent`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-fabric-agent) |
 
 ## Reference: full SKILL.md
 

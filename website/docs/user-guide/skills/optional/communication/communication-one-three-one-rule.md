@@ -20,6 +20,7 @@ Structured decision-making framework for technical proposals and trade-off analy
 | Author | Willard Moore |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `communication`, `decision-making`, `proposals`, `trade-offs` |
 
 ## Reference: full SKILL.md
 

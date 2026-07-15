@@ -170,6 +170,14 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
         ("d1cef66e3d288773bd8aeebf3a0ebcd6b4eea321", "private-brand"),
         ("65f3eac4a36fcd83eb65aab29054ed85909d3756", "personal-email"),
         ("65f3eac4a36fcd83eb65aab29054ed85909d3756", "private-brand"),
+        # A squash merge landed on main authored with the account's personal
+        # commit email before the keep-email-private setting, so the
+        # reachable-history check flags it the same way it flags the prior
+        # squash merges above. It is published, immutable history now. This only
+        # acknowledges already-public commit metadata; no file-content rule is
+        # relaxed.
+        ("e58da05408de71b50902b7b17f2313843bdc535f", "personal-email"),
+        ("e58da05408de71b50902b7b17f2313843bdc535f", "private-brand"),
     }
 )
 

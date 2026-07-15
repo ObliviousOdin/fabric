@@ -20,6 +20,8 @@ Modify, debug, or extend the s6-overlay supervision tree inside the Fabric Docke
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux |
+| Tags | `docker`, `s6`, `supervision`, `gateway`, `profiles` |
+| Related skills | [`fabric-agent`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-fabric-agent), `fabric-agent-dev` |
 
 ## Reference: full SKILL.md
 

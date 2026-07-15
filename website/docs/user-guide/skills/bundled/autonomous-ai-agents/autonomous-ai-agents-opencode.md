@@ -20,6 +20,8 @@ Delegate coding to OpenCode CLI (features, PR review).
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Coding-Agent`, `OpenCode`, `Autonomous`, `Refactoring`, `Code-Review` |
+| Related skills | [`claude-code`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code), [`codex`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex), [`fabric-agent`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-fabric-agent) |
 
 ## Reference: full SKILL.md
 

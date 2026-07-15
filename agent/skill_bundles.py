@@ -255,6 +255,9 @@ def build_bundle_invocation_message(
     user_instruction: str = "",
     task_id: str | None = None,
     platform: str | None = None,
+    *,
+    receipt_source: str = "bundle",
+    receipt_reason: str = "bundle_member",
 ) -> Optional[Tuple[str, List[str], List[str]]]:
     """Build the user message content for a bundle slash command invocation.
 
@@ -283,7 +286,11 @@ def build_bundle_invocation_message(
 
     # Late import to avoid pulling tools/* at module import time and to
     # keep skill_bundles cheap to import in test environments.
-    from agent.skill_commands import _load_skill_payload, _build_skill_message
+    from agent.skill_commands import (
+        _build_skill_message,
+        _load_skill_payload,
+        _record_skill_activation,
+    )
 
     try:
         from agent.skill_utils import get_disabled_skill_names
@@ -317,6 +324,17 @@ def build_bundle_invocation_message(
         # skill's canonical name (identifiers may be paths or aliases).
         if skill_name in disabled_names or identifier in disabled_names:
             disabled.append(skill_name or identifier)
+            continue
+
+        activation = _record_skill_activation(
+            loaded_skill,
+            skill_dir,
+            source=receipt_source,
+            reason=receipt_reason,
+            task_id=task_id,
+        )
+        if activation is not None and not activation.allowed:
+            missing.append(skill_name)
             continue
 
         try:

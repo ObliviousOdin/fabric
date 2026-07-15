@@ -134,6 +134,10 @@ class MemoryStore:
         self.user_char_limit = user_char_limit
         # Frozen snapshot for system prompt -- set once at load_from_disk()
         self._system_prompt_snapshot: Dict[str, str] = {"memory": "", "user": ""}
+        # Governance expiry is classified once per MemoryStore/session.  A
+        # later revalidation or wall-clock boundary cannot mutate the frozen
+        # prompt classification mid-session; a new store captures fresh state.
+        self._governance_expiry_decisions: Optional[Dict[str, Dict[str, int]]] = None
         # Per-turn counter of failed at-capacity consolidation attempts; reset
         # at each turn boundary by reset_consolidation_failures() (#42405).
         self._consolidation_failures = 0
@@ -192,11 +196,36 @@ class MemoryStore:
         self.memory_entries = list(dict.fromkeys(self.memory_entries))
         self.user_entries = list(dict.fromkeys(self.user_entries))
 
+        # Capture governed expiry once for this store, then apply that frozen
+        # decision before threat scanning.  Legacy/untracked entries remain
+        # usable.  Corrupt governance fails open and is surfaced by
+        # ``fabric memory audit`` rather than breaking agent startup.
+        try:
+            from agent.memory_governance import (
+                apply_expiry_decisions,
+                capture_expiry_decisions,
+            )
+
+            if self._governance_expiry_decisions is None:
+                self._governance_expiry_decisions = capture_expiry_decisions(
+                    {"memory": self.memory_entries, "user": self.user_entries}
+                )
+            snapshot_memory = apply_expiry_decisions(
+                "memory", self.memory_entries, self._governance_expiry_decisions
+            )
+            snapshot_user = apply_expiry_decisions(
+                "user", self.user_entries, self._governance_expiry_decisions
+            )
+        except Exception:
+            logger.debug("Memory governance expiry filtering unavailable", exc_info=True)
+            snapshot_memory = list(self.memory_entries)
+            snapshot_user = list(self.user_entries)
+
         # Sanitize entries for the system-prompt snapshot only.  Live state
         # (memory_entries / user_entries) keeps the raw text so the user
         # can see + remove poisoned entries via the memory tool.
-        sanitized_memory = self._sanitize_entries_for_snapshot(self.memory_entries, "MEMORY.md")
-        sanitized_user = self._sanitize_entries_for_snapshot(self.user_entries, "USER.md")
+        sanitized_memory = self._sanitize_entries_for_snapshot(snapshot_memory, "MEMORY.md")
+        sanitized_user = self._sanitize_entries_for_snapshot(snapshot_user, "USER.md")
 
         # Capture frozen snapshot for system prompt injection
         self._system_prompt_snapshot = {
@@ -1049,15 +1078,42 @@ def apply_memory_pending(payload: Dict[str, Any], store: "MemoryStore") -> Dict[
     target = payload.get("target", "memory")
     content = payload.get("content") or ""
     old_text = payload.get("old_text") or ""
+    try:
+        before_entries = list(store._entries_for(target))
+    except Exception:
+        before_entries = []
     if action == "batch":
-        return store.apply_batch(target, payload.get("operations") or [])
-    if action == "add":
-        return store.add(target, content)
-    if action == "replace":
-        return store.replace(target, old_text, content)
-    if action == "remove":
-        return store.remove(target, old_text)
-    return {"success": False, "error": f"Unknown staged action '{action}'."}
+        result = store.apply_batch(target, payload.get("operations") or [])
+    elif action == "add":
+        result = store.add(target, content)
+    elif action == "replace":
+        result = store.replace(target, old_text, content)
+    elif action == "remove":
+        result = store.remove(target, old_text)
+    else:
+        return {"success": False, "error": f"Unknown staged action '{action}'."}
+
+    try:
+        from agent.memory_governance import record_committed_write_best_effort
+
+        after_entries = list(store._entries_for(target))
+        profile_home = store._path_for(target).parent.parent
+        record_committed_write_best_effort(
+            target=target,
+            before_entries=before_entries,
+            after_entries=after_entries,
+            tool_args=payload,
+            tool_result=result,
+            metadata={
+                "write_origin": "approved_write",
+                "execution_context": "foreground",
+                "platform": "other",
+            },
+            home=profile_home,
+        )
+    except Exception:
+        logger.debug("Approved memory governance recording unavailable", exc_info=True)
+    return result
 # OpenAI Function-Calling Schema
 # =============================================================================
 
@@ -1146,7 +1202,5 @@ registry.register(
     check_fn=check_memory_requirements,
     emoji="🧠",
 )
-
-
 
 

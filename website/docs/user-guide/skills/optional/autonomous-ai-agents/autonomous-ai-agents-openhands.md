@@ -20,6 +20,8 @@ Delegate coding to OpenHands CLI (model-agnostic, LiteLLM).
 | Author | Tim Koepsel (xzessmedia), Fabric |
 | License | MIT |
 | Platforms | linux, macos |
+| Tags | `Coding-Agent`, `OpenHands`, `Model-Agnostic`, `LiteLLM` |
+| Related skills | [`claude-code`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-claude-code), [`codex`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-codex), [`opencode`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-opencode), [`fabric-agent`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-fabric-agent) |
 
 ## Reference: full SKILL.md
 

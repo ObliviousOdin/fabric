@@ -2295,6 +2295,9 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
 
     parts = []
     skipped: list[str] = []
+    permission_scope = str(
+        job.get("_permission_scope") or job.get("id") or ""
+    ) or None
     for skill_name in skill_names:
         # Cron jobs historically accepted only skill names here, but the CLI/gateway
         # slash-command path lets bundles shadow skills with the same slug. Mirror
@@ -2305,7 +2308,9 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
             bundle_payload = build_bundle_invocation_message(
                 bundle_key,
                 user_instruction="",
-                task_id=str(job.get("id") or "") or None,
+                task_id=permission_scope,
+                receipt_source="scheduled",
+                receipt_reason="declared_job",
             )
             if bundle_payload:
                 bundle_message, _loaded_bundle_skills, _missing_bundle_skills = bundle_payload
@@ -2333,11 +2338,66 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
             skipped.append(skill_name)
             continue
 
+        skill_dir = loaded.get("skill_dir")
+        if skill_dir:
+            try:
+                from agent.skill_permissions import stage_skill_permission_lease
+
+                activation = stage_skill_permission_lease(
+                    skill_dir=Path(str(skill_dir)),
+                    canonical_name=str(loaded.get("name") or skill_name),
+                    scope_id=permission_scope,
+                )
+            except Exception:
+                try:
+                    from agent.skill_permissions import load_permission_settings
+
+                    _permission_mode = load_permission_settings().mode
+                except Exception:
+                    _permission_mode = "enforce_all"
+                if _permission_mode != "observe":
+                    logger.warning(
+                        "Cron job '%s': skill '%s' permission policy failed closed",
+                        job.get("name", job.get("id")),
+                        skill_name,
+                    )
+                    skipped.append(skill_name)
+                    continue
+                activation = None
+            if activation is not None and not activation.allowed:
+                logger.warning(
+                    "Cron job '%s': skill '%s' was denied by runtime policy",
+                    job.get("name", job.get("id")),
+                    skill_name,
+                )
+                skipped.append(skill_name)
+                continue
+
         # Bump usage so the curator sees this skill as actively used.
         try:
             bump_use(skill_name)
         except Exception:
             logger.debug("Cron job: failed to bump skill usage for '%s'", skill_name, exc_info=True)
+
+        if skill_dir:
+            try:
+                from agent.skill_receipts import record_activation_best_effort
+
+                job_id = str(job.get("id") or "") or None
+                record_activation_best_effort(
+                    skill_dir=Path(str(skill_dir)),
+                    canonical_name=str(loaded.get("name") or skill_name),
+                    source="scheduled",
+                    reason="declared_job",
+                    session_id=job_id,
+                    task_id=job_id,
+                )
+            except Exception:
+                logger.debug(
+                    "Cron job: failed to record skill activation for '%s'",
+                    skill_name,
+                    exc_info=True,
+                )
 
         content = str(loaded.get("content") or "").strip()
         if parts:
@@ -2644,9 +2704,18 @@ def run_job(
             )
             return True, silent_doc, SILENT_MARKER, None
 
+    _cron_session_id = f"cron_{job_id}_{_hermes_now().strftime('%Y%m%d_%H%M%S')}"
+    _prompt_job = dict(job)
+    _prompt_job["_permission_scope"] = _cron_session_id
     try:
-        prompt = _build_job_prompt(job, prerun_script=prerun_script)
+        prompt = _build_job_prompt(_prompt_job, prerun_script=prerun_script)
     except CronPromptInjectionBlocked as block_exc:
+        try:
+            from agent.skill_permissions import discard_staged_skill_permission_leases
+
+            discard_staged_skill_permission_leases(_cron_session_id)
+        except Exception:
+            pass
         # Assembled prompt (user prompt + loaded skill content) tripped the
         # injection scanner. Refuse to run the agent this tick and surface
         # a clear failure to the operator so they see WHY the scheduled job
@@ -2673,7 +2742,6 @@ def run_job(
         logger.info("Job '%s': script produced no output, skipping AI call.", job_name)
         return True, "", SILENT_MARKER, None
     origin = _resolve_origin(job)
-    _cron_session_id = f"cron_{job_id}_{_hermes_now().strftime('%Y%m%d_%H%M%S')}"
 
     logger.info("Running job '%s' (ID: %s)", job_name, job_id)
     logger.info("Prompt: %s", prompt[:100])

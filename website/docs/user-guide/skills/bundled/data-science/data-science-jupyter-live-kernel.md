@@ -20,6 +20,7 @@ Iterative Python via live Jupyter kernel (hamelnb).
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `jupyter`, `notebook`, `repl`, `data-science`, `exploration`, `iterative` |
 
 ## Reference: full SKILL.md
 

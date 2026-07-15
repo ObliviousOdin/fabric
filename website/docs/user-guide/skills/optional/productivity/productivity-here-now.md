@@ -20,6 +20,7 @@ Publish static sites to &#123;slug&#125;.here.now and store private files in clo
 | Author | here.now |
 | License | MIT |
 | Platforms | macos, linux |
+| Tags | `here.now`, `herenow`, `publish`, `deploy`, `hosting`, `static-site`, `web`, `share`, `URL`, `drive`, `storage` |
 
 ## Reference: full SKILL.md
 

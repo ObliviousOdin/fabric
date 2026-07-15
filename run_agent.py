@@ -5852,17 +5852,96 @@ class AIAgent:
     ) -> Dict[str, Any]:
         """Forwarder — see ``agent.conversation_loop.run_conversation``."""
         from agent.conversation_loop import run_conversation
-        return run_conversation(
-            self,
-            user_message,
-            system_message,
-            conversation_history,
-            task_id,
-            stream_callback,
-            persist_user_message,
-            persist_user_timestamp=persist_user_timestamp,
-            moa_config=moa_config,
-        )
+
+        try:
+            from agent.skill_permissions import get_current_permission_turn_id
+
+            _previous_permission_turn = get_current_permission_turn_id()
+        except Exception:
+            _previous_permission_turn = None
+        # Session counters are cumulative, so retain a tiny in-memory baseline
+        # for exact per-turn efficiency deltas. No prompt, response, argument,
+        # URL, path, or other content is captured here.
+        _skill_receipt_baseline = {
+            "previous_turn_id": _previous_permission_turn,
+            "started_at": time.monotonic(),
+            "session_input_tokens": getattr(self, "session_input_tokens", 0),
+            "session_output_tokens": getattr(self, "session_output_tokens", 0),
+            "session_prompt_tokens": getattr(self, "session_prompt_tokens", 0),
+            "session_completion_tokens": getattr(
+                self, "session_completion_tokens", 0
+            ),
+            "session_total_tokens": getattr(self, "session_total_tokens", 0),
+            "session_cache_read_tokens": getattr(
+                self, "session_cache_read_tokens", 0
+            ),
+            "session_cache_write_tokens": getattr(
+                self, "session_cache_write_tokens", 0
+            ),
+            "session_reasoning_tokens": getattr(
+                self, "session_reasoning_tokens", 0
+            ),
+            "session_estimated_cost_usd": getattr(
+                self, "session_estimated_cost_usd", 0.0
+            ),
+        }
+        _turn_result = None
+        _turn_raised = True
+        try:
+            _turn_result = run_conversation(
+                self,
+                user_message,
+                system_message,
+                conversation_history,
+                task_id,
+                stream_callback,
+                persist_user_message,
+                persist_user_timestamp=persist_user_timestamp,
+                moa_config=moa_config,
+            )
+            _turn_raised = False
+            return _turn_result
+        finally:
+            # The prologue pushes the concrete permission turn into a
+            # ContextVar stack. Clean it here, outside the conversation loop,
+            # so every return/exception path (including Codex adapters) is
+            # covered without clearing a concurrent or nested sibling turn.
+            try:
+                from agent.skill_permissions import (
+                    finalize_current_turn_permission_leases,
+                    get_current_permission_turn_id,
+                )
+
+                _receipt_turn_id = get_current_permission_turn_id()
+                _turn_was_pushed = (
+                    _receipt_turn_id is not None
+                    and _receipt_turn_id != _previous_permission_turn
+                )
+                # Keep the no-skills hot path free of receipt-module imports.
+                # Slash activation loaded it before the turn; skill_view loads
+                # it during the turn. Both therefore reach this branch.
+                if (
+                    _turn_was_pushed
+                    and "agent.skill_receipts" in sys.modules
+                ):
+                    try:
+                        from agent.skill_receipts import (
+                            finalize_agent_turn_receipts_best_effort,
+                        )
+
+                        finalize_agent_turn_receipts_best_effort(
+                            agent=self,
+                            result=_turn_result,
+                            baseline=_skill_receipt_baseline,
+                            turn_id=_receipt_turn_id,
+                            raised=_turn_raised,
+                        )
+                    except Exception:
+                        logger.debug("Could not finalize skill outcome receipts")
+                if _turn_was_pushed:
+                    finalize_current_turn_permission_leases()
+            except Exception:
+                logger.error("Could not finalize runtime skill permission leases")
 
     def chat(self, message: str, stream_callback: Optional[callable] = None) -> str:
         """

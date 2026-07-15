@@ -20,6 +20,8 @@ Migrate a user's OpenClaw customization footprint into Fabric. Imports Fabric-co
 | Author | Fabric (Nous Research) |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Migration`, `OpenClaw`, `Fabric`, `Memory`, `Persona`, `Import` |
+| Related skills | [`fabric-agent`](/user-guide/skills/bundled/autonomous-ai-agents/autonomous-ai-agents-fabric-agent) |
 
 ## Reference: full SKILL.md
 

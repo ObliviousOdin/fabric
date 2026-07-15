@@ -20,6 +20,8 @@ GitHub auth setup: HTTPS tokens, SSH keys, gh CLI login.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `GitHub`, `Authentication`, `Git`, `gh-cli`, `SSH`, `Setup` |
+| Related skills | [`github-pr-workflow`](/user-guide/skills/bundled/github/github-github-pr-workflow), [`github-code-review`](/user-guide/skills/bundled/github/github-github-code-review), [`github-issues`](/user-guide/skills/bundled/github/github-github-issues), [`github-repo-management`](/user-guide/skills/bundled/github/github-github-repo-management) |
 
 ## Reference: full SKILL.md
 

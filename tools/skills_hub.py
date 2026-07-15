@@ -35,7 +35,7 @@ from enum import Enum
 from pathlib import Path, PurePosixPath
 from fabric_constants import get_fabric_home
 from fabric_cli._subprocess_compat import windows_hide_flags
-from agent.skill_utils import is_excluded_skill_path
+from agent.skill_utils import extract_skill_metadata, is_excluded_skill_path
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple, Union
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -355,7 +355,11 @@ def _hub_list_directory(
 ) -> tuple[Path, ...]:
     """Enumerate one directory through its opened capability."""
 
-    if isinstance(max_entries, bool) or not isinstance(max_entries, int) or max_entries < 1:
+    if (
+        isinstance(max_entries, bool)
+        or not isinstance(max_entries, int)
+        or max_entries < 1
+    ):
         raise HubInstallError("Hub directory entry limit is invalid")
     descriptor: int | None = None
     if os.name == "nt":
@@ -403,7 +407,11 @@ def _hub_list_directory_batch(
     whether another entry remains.
     """
 
-    if isinstance(max_entries, bool) or not isinstance(max_entries, int) or max_entries < 1:
+    if (
+        isinstance(max_entries, bool)
+        or not isinstance(max_entries, int)
+        or max_entries < 1
+    ):
         raise HubInstallError("Hub GC batch limit is invalid")
     descriptor: int | None = None
     if os.name == "nt":
@@ -740,9 +748,7 @@ def _windows_cleanup_handle_information(
         return _windows_handle_information(handle)
     except SkillMutationLockError as exc:
         if "redirect" in str(exc):
-            raise HubInstallError(
-                "Unsafe Windows Hub cleanup reparse point"
-            ) from exc
+            raise HubInstallError("Unsafe Windows Hub cleanup reparse point") from exc
         raise HubInstallError("Unsafe Windows Hub cleanup handle") from exc
 
 
@@ -817,7 +823,9 @@ def _windows_reopen_cleanup_home(
     ]
     kernel32.ReOpenFile.restype = wintypes.HANDLE
     ctypes.set_last_error(0)
-    desired_access = file_list_directory | file_traverse | file_read_attributes | synchronize
+    desired_access = (
+        file_list_directory | file_traverse | file_read_attributes | synchronize
+    )
     if add_directory_access:
         desired_access |= file_add_subdirectory
     raw_handle = kernel32.ReOpenFile(
@@ -973,7 +981,9 @@ def _windows_open_cleanup_relative(
             None,
             0,
             file_share_read | (file_share_write if share_write else 0),
-            file_create if create_exclusive else (file_open_if if create else file_open),
+            file_create
+            if create_exclusive
+            else (file_open_if if create else file_open),
             create_options,
             None,
             0,
@@ -991,7 +1001,10 @@ def _windows_open_cleanup_relative(
         identity, links, attributes = _windows_cleanup_handle_information(handle)
         directory_flag = getattr(stat, "FILE_ATTRIBUTE_DIRECTORY", 0x10)
         reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-        if bool(attributes & directory_flag) is not directory or attributes & reparse_flag:
+        if (
+            bool(attributes & directory_flag) is not directory
+            or attributes & reparse_flag
+        ):
             raise HubInstallError("Windows cleanup entry changed type")
         return handle, identity, links, attributes
     except BaseException:
@@ -1256,7 +1269,9 @@ def _windows_cleanup_directory_entries(
                     raise HubInstallError("Hub cleanup tree exceeds the entry limit")
                 file_id = bytes(record.FileId)
                 if not any(file_id):
-                    raise HubInstallError("Windows cleanup entry has no stable identity")
+                    raise HubInstallError(
+                        "Windows cleanup entry has no stable identity"
+                    )
                 results.append(
                     _WindowsCleanupEntry(
                         name=name,
@@ -1319,8 +1334,7 @@ def _windows_mark_cleanup_deleted(handle: int) -> None:  # pragma: no cover - Wi
     # Fall back to exact-handle FileBasicInfo + legacy disposition for older
     # filesystems that reject FileDispositionInfoEx.
     extended = FILE_DISPOSITION_INFO_EX(
-        file_disposition_flag_delete
-        | file_disposition_flag_ignore_readonly_attribute
+        file_disposition_flag_delete | file_disposition_flag_ignore_readonly_attribute
     )
     ctypes.set_last_error(0)
     if kernel32.SetFileInformationByHandle(
@@ -1400,7 +1414,11 @@ def _windows_remove_hub_tree(
 ) -> None:  # pragma: no cover - Windows
     """Delete a profile-relative tree using only pinned native capabilities."""
 
-    if isinstance(max_entries, bool) or not isinstance(max_entries, int) or max_entries < 0:
+    if (
+        isinstance(max_entries, bool)
+        or not isinstance(max_entries, int)
+        or max_entries < 0
+    ):
         raise HubInstallError("Hub cleanup entry limit is invalid")
     binding = _ACTIVE_HUB_MUTATION.get()
     if binding is None:
@@ -1443,10 +1461,14 @@ def _windows_remove_hub_tree(
         named = canonical_target.lstat()
         if not stat.S_ISDIR(named.st_mode):
             raise HubInstallError("Hub cleanup target is not a directory")
-        if expected_identity is not None and (
-            named.st_dev,
-            named.st_ino,
-        ) != expected_identity:
+        if (
+            expected_identity is not None
+            and (
+                named.st_dev,
+                named.st_ino,
+            )
+            != expected_identity
+        ):
             raise HubInstallError("Hub cleanup target changed identity")
 
         root_handle = component_handles[-1]
@@ -1562,7 +1584,10 @@ def _hub_remove_tree(
     inspected = _hub_lstat(path)
     if not stat.S_ISDIR(inspected.st_mode):
         raise HubInstallError("Hub cleanup target is not a directory")
-    if expected_identity is not None and (inspected.st_dev, inspected.st_ino) != expected_identity:
+    if (
+        expected_identity is not None
+        and (inspected.st_dev, inspected.st_ino) != expected_identity
+    ):
         raise HubInstallError("Hub cleanup target changed identity")
 
     directory_flags = (
@@ -1585,9 +1610,7 @@ def _hub_remove_tree(
             for entry in entries:
                 seen += 1
                 if seen > max_entries:
-                    raise HubInstallError(
-                        "Hub cleanup tree exceeds the entry limit"
-                    )
+                    raise HubInstallError("Hub cleanup tree exceeds the entry limit")
                 names.append(entry.name)
         for name in names:
             current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
@@ -1595,7 +1618,10 @@ def _hub_remove_tree(
                 child_fd = os.open(name, directory_flags, dir_fd=directory_fd)
                 try:
                     opened = os.fstat(child_fd)
-                    if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+                    if (opened.st_dev, opened.st_ino) != (
+                        current.st_dev,
+                        current.st_ino,
+                    ):
                         raise HubInstallError("Hub cleanup directory changed identity")
                     remove_contents(child_fd)
                 finally:
@@ -1610,7 +1636,10 @@ def _hub_remove_tree(
     try:
         root_fd = os.open(path.name, directory_flags, dir_fd=parent_fd)
         opened = os.fstat(root_fd)
-        if expected_identity is not None and (opened.st_dev, opened.st_ino) != expected_identity:
+        if (
+            expected_identity is not None
+            and (opened.st_dev, opened.st_ino) != expected_identity
+        ):
             raise HubInstallError("Hub cleanup target changed identity")
         remove_contents(root_fd)
         os.close(root_fd)
@@ -1669,7 +1698,9 @@ def hub_mutation_scope(
     if _is_path_redirect(lexical_home):
         raise RuntimeError("Hub mutation profile home must not be redirected")
     lexical_skills = Path(
-        os.path.abspath(skills_dir if skills_dir is not None else lexical_home / "skills")
+        os.path.abspath(
+            skills_dir if skills_dir is not None else lexical_home / "skills"
+        )
     )
     try:
         relative_skills = lexical_skills.relative_to(lexical_home)
@@ -1777,13 +1808,11 @@ _AUTHORITY_BUNDLE_SOURCES = {
     HubSourceKind.LOBEHUB: "lobehub",
     HubSourceKind.BROWSE_SH: "browse-sh",
 }
-_AUTHORITY_REPO_ADAPTERS = frozenset(
-    {
-        HubSourceKind.GITHUB,
-        HubSourceKind.SKILLS_SH,
-        HubSourceKind.CLAUDE_MARKETPLACE,
-    }
-)
+_AUTHORITY_REPO_ADAPTERS = frozenset({
+    HubSourceKind.GITHUB,
+    HubSourceKind.SKILLS_SH,
+    HubSourceKind.CLAUDE_MARKETPLACE,
+})
 
 
 def _authority_repository(
@@ -1855,7 +1884,8 @@ class HubSourceAuthority:
                 )
         elif (
             self.adapter not in _AUTHORITY_REPO_ADAPTERS
-            and self.adapter not in {
+            and self.adapter
+            not in {
                 HubSourceKind.OFFICIAL_OPTIONAL,
                 HubSourceKind.UNVERIFIED,
             }
@@ -2618,7 +2648,10 @@ def _preflight_zip_directory(payload: bytes) -> int:
         or directory_offset == 0xFFFFFFFF
     ):
         locator_offset = eocd_offset - 20
-        if locator_offset < 0 or payload[locator_offset : locator_offset + 4] != b"PK\x06\x07":
+        if (
+            locator_offset < 0
+            or payload[locator_offset : locator_offset + 4] != b"PK\x06\x07"
+        ):
             raise ValueError("ZIP64 locator is missing")
         _locator, zip64_disk, zip64_offset, disk_count = struct.unpack_from(
             "<4sLQL",
@@ -2748,7 +2781,9 @@ def _guarded_http_get(
 
 
 def _validate_bundle_rel_path(rel_path: str) -> str:
-    return _normalize_bundle_path(rel_path, field_name="bundle file path", allow_nested=True)
+    return _normalize_bundle_path(
+        rel_path, field_name="bundle file path", allow_nested=True
+    )
 
 
 def _validated_effective_bundle_files(
@@ -2758,7 +2793,9 @@ def _validated_effective_bundle_files(
 
     raw_paths = tuple(bundle.files)
     if any(path != path.strip() for path in raw_paths):
-        raise UnsafePathError("Unsafe bundle file path: outer whitespace is not allowed")
+        raise UnsafePathError(
+            "Unsafe bundle file path: outer whitespace is not allowed"
+        )
     portable_paths = validate_portable_tree_paths(
         raw_paths,
         field="bundle file path",
@@ -2787,6 +2824,7 @@ def _validated_effective_bundle_files(
 # ---------------------------------------------------------------------------
 # GitHub Authentication
 # ---------------------------------------------------------------------------
+
 
 class GitHubAuth:
     """
@@ -2821,7 +2859,10 @@ class GitHubAuth:
     def _resolve_token(self) -> Optional[str]:
         # Return cached token if still valid
         if self._cached_token:
-            if self._cached_method != "github-app" or time.time() < self._app_token_expiry:
+            if (
+                self._cached_method != "github-app"
+                or time.time() < self._app_token_expiry
+            ):
                 return self._cached_token
 
         # 1. Environment variable
@@ -2854,7 +2895,9 @@ class GitHubAuth:
         try:
             result = subprocess.run(
                 ["gh", "auth", "token"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
                 stdin=subprocess.DEVNULL,
                 creationflags=windows_hide_flags(),
             )
@@ -2912,6 +2955,7 @@ class GitHubAuth:
 # ---------------------------------------------------------------------------
 # Source adapter interface
 # ---------------------------------------------------------------------------
+
 
 class SkillSource(ABC):
     """Abstract base for all skill registry adapters."""
@@ -3127,12 +3171,7 @@ class GitHubSource(SkillSource):
         skill_name = fm.get("name", skill_path.split("/")[-1])
         description = fm.get("description", "")
 
-        tags = []
-        metadata = fm.get("metadata", {})
-        if isinstance(metadata, dict):
-            hermes_meta = metadata.get("hermes", {})
-            if isinstance(hermes_meta, dict):
-                tags = hermes_meta.get("tags", [])
+        tags = extract_skill_metadata(fm).get("tags", [])
         if not tags:
             raw_tags = fm.get("tags", [])
             tags = raw_tags if isinstance(raw_tags, list) else []
@@ -3705,10 +3744,10 @@ class GitHubSource(SkillSource):
         """Parse YAML frontmatter from SKILL.md content."""
         if not content.startswith("---"):
             return {}
-        match = re.search(r'\n---\s*\n', content[3:])
+        match = re.search(r"\n---\s*\n", content[3:])
         if not match:
             return {}
-        yaml_text = content[3:match.start() + 3]
+        yaml_text = content[3 : match.start() + 3]
         try:
             parsed = yaml.safe_load(yaml_text)
             return parsed if isinstance(parsed, dict) else {}
@@ -3719,6 +3758,7 @@ class GitHubSource(SkillSource):
 # ---------------------------------------------------------------------------
 # Well-known Agent Skills endpoint source adapter
 # ---------------------------------------------------------------------------
+
 
 class WellKnownSkillSource(SkillSource):
     """Read skills from a domain exposing /.well-known/skills/index.json."""
@@ -3747,19 +3787,21 @@ class WellKnownSkillSource(SkillSource):
                 continue
             description = entry.get("description", "")
             files = entry.get("files", ["SKILL.md"])
-            results.append(SkillMeta(
-                name=name,
-                description=str(description),
-                source="well-known",
-                identifier=self._wrap_identifier(parsed["base_url"], name),
-                trust_level="community",
-                path=name,
-                extra={
-                    "index_url": parsed["index_url"],
-                    "base_url": parsed["base_url"],
-                    "files": files if isinstance(files, list) else ["SKILL.md"],
-                },
-            ))
+            results.append(
+                SkillMeta(
+                    name=name,
+                    description=str(description),
+                    source="well-known",
+                    identifier=self._wrap_identifier(parsed["base_url"], name),
+                    trust_level="community",
+                    path=name,
+                    extra={
+                        "index_url": parsed["index_url"],
+                        "base_url": parsed["base_url"],
+                        "files": files if isinstance(files, list) else ["SKILL.md"],
+                    },
+                )
+            )
         return results
 
     def inspect(self, identifier: str) -> Optional[SkillMeta]:
@@ -3801,7 +3843,10 @@ class WellKnownSkillSource(SkillSource):
         try:
             skill_name = _validate_skill_name(parsed["skill_name"])
         except ValueError:
-            logger.warning("Well-known skill identifier contained unsafe skill name: %s", identifier)
+            logger.warning(
+                "Well-known skill identifier contained unsafe skill name: %s",
+                identifier,
+            )
             return None
 
         entry = self._index_entry(parsed["index_url"], parsed["skill_name"])
@@ -3859,7 +3904,11 @@ class WellKnownSkillSource(SkillSource):
         return query.rstrip("/") + f"{self.BASE_PATH}/index.json"
 
     def _parse_identifier(self, identifier: str) -> Optional[dict]:
-        raw = identifier[len("well-known:"):] if identifier.startswith("well-known:") else identifier
+        raw = (
+            identifier[len("well-known:") :]
+            if identifier.startswith("well-known:")
+            else identifier
+        )
         if not raw.startswith(("http://", "https://")):
             return None
 
@@ -3870,7 +3919,7 @@ class WellKnownSkillSource(SkillSource):
         if clean_url.endswith("/index.json"):
             if not fragment:
                 return None
-            base_url = clean_url[:-len("/index.json")]
+            base_url = clean_url[: -len("/index.json")]
             skill_name = fragment
             skill_url = f"{base_url}/{skill_name}"
             return {
@@ -3881,7 +3930,7 @@ class WellKnownSkillSource(SkillSource):
             }
 
         if clean_url.endswith("/SKILL.md"):
-            skill_url = clean_url[:-len("/SKILL.md")]
+            skill_url = clean_url[: -len("/SKILL.md")]
         else:
             skill_url = clean_url.rstrip("/")
 
@@ -3916,7 +3965,7 @@ class WellKnownSkillSource(SkillSource):
 
         parsed = {
             "index_url": index_url,
-            "base_url": index_url[:-len("/index.json")],
+            "base_url": index_url[: -len("/index.json")],
             "skills": skills,
         }
         _write_index_cache(cache_key, parsed)
@@ -3933,9 +3982,7 @@ class WellKnownSkillSource(SkillSource):
 
     @staticmethod
     def _fetch_text(url: str) -> Optional[str]:
-        resp = _guarded_http_get(
-            url, timeout=20, max_bytes=MAX_SKILL_FILE_BYTES
-        )
+        resp = _guarded_http_get(url, timeout=20, max_bytes=MAX_SKILL_FILE_BYTES)
         if resp is not None and resp.status_code == 200:
             return _bounded_response_text(resp)
         return None
@@ -3948,6 +3995,7 @@ class WellKnownSkillSource(SkillSource):
 # ---------------------------------------------------------------------------
 # Direct URL source adapter
 # ---------------------------------------------------------------------------
+
 
 class UrlSource(SkillSource):
     """Fetch a single-file SKILL.md skill directly from an HTTP(S) URL.
@@ -4005,14 +4053,10 @@ class UrlSource(SkillSource):
         fm = GitHubSource._parse_frontmatter_quick(text)
         name = self._resolve_skill_name(fm, url)
         description = str(fm.get("description") or "")
-        tags: List[str] = []
-        metadata = fm.get("metadata", {})
-        if isinstance(metadata, dict):
-            hermes_meta = metadata.get("hermes", {})
-            if isinstance(hermes_meta, dict):
-                raw_tags = hermes_meta.get("tags", [])
-                if isinstance(raw_tags, list):
-                    tags = [str(t) for t in raw_tags]
+        raw_tags = extract_skill_metadata(fm).get("tags", [])
+        tags: List[str] = (
+            [str(t) for t in raw_tags] if isinstance(raw_tags, list) else []
+        )
         return SkillMeta(
             name=name or "",
             description=description,
@@ -4402,7 +4446,9 @@ class SkillsShSource(SkillSource):
         repo = f"{parts[0]}/{parts[1]}"
         skill_path = parts[2]
         installs = item.get("installs")
-        installs_label = f" · {int(installs):,} installs" if isinstance(installs, int) else ""
+        installs_label = (
+            f" · {int(installs):,} installs" if isinstance(installs, int) else ""
+        )
 
         return SkillMeta(
             name=str(item.get("name") or skill_path.split("/")[-1]),
@@ -4479,15 +4525,21 @@ class SkillsShSource(SkillSource):
             "security_audits": security_audits,
         }
 
-    def _discover_identifier(self, identifier: str, detail: Optional[dict] = None) -> Optional[str]:
+    def _discover_identifier(
+        self, identifier: str, detail: Optional[dict] = None
+    ) -> Optional[str]:
         parts = identifier.split("/", 2)
         if len(parts) < 3:
             return None
 
         default_repo = f"{parts[0]}/{parts[1]}"
-        repo = detail.get("repo", default_repo) if isinstance(detail, dict) else default_repo
-        skill_token=parts[2].split("/")[-1]
-        tokens=[skill_token]
+        repo = (
+            detail.get("repo", default_repo)
+            if isinstance(detail, dict)
+            else default_repo
+        )
+        skill_token = parts[2].split("/")[-1]
+        tokens = [skill_token]
         if isinstance(detail, dict):
             tokens.extend([
                 detail.get("install_skill", ""),
@@ -4540,7 +4592,9 @@ class SkillsShSource(SkillSource):
                             return meta.identifier
                         # Try listing skills in this directory
                         try:
-                            skills = self.github._list_skills_in_repo(repo, dir_name + "/")
+                            skills = self.github._list_skills_in_repo(
+                                repo, dir_name + "/"
+                            )
                         except Exception:
                             continue
                         for meta in skills:
@@ -4551,7 +4605,9 @@ class SkillsShSource(SkillSource):
 
         return None
 
-    def _resolve_github_meta(self, identifier: str, detail: Optional[dict] = None) -> Optional[SkillMeta]:
+    def _resolve_github_meta(
+        self, identifier: str, detail: Optional[dict] = None
+    ) -> Optional[SkillMeta]:
         for candidate in self._candidate_identifiers(identifier):
             meta = self.github.inspect(candidate)
             if meta:
@@ -4562,7 +4618,9 @@ class SkillsShSource(SkillSource):
             return self.github.inspect(resolved)
         return None
 
-    def _finalize_inspect_meta(self, meta: SkillMeta, canonical: str, detail: Optional[dict]) -> SkillMeta:
+    def _finalize_inspect_meta(
+        self, meta: SkillMeta, canonical: str, detail: Optional[dict]
+    ) -> SkillMeta:
         meta.source = "skills.sh"
         meta.identifier = self._wrap_identifier(canonical)
         meta.trust_level = self.trust_level_for(canonical)
@@ -4584,7 +4642,11 @@ class SkillsShSource(SkillSource):
         candidates = set()
         candidates.update(cls._token_variants(meta.name))
         candidates.update(cls._token_variants(meta.path))
-        candidates.update(cls._token_variants(meta.identifier.split("/", 2)[-1] if meta.identifier else None))
+        candidates.update(
+            cls._token_variants(
+                meta.identifier.split("/", 2)[-1] if meta.identifier else None
+            )
+        )
 
         for token in skill_tokens:
             variants = cls._token_variants(token)
@@ -4602,11 +4664,11 @@ class SkillsShSource(SkillSource):
             return set()
 
         base = plain.split("/")[-1]
-        sanitized = re.sub(r'[^a-z0-9/_-]+', '-', plain).strip('-')
+        sanitized = re.sub(r"[^a-z0-9/_-]+", "-", plain).strip("-")
         sanitized_base = sanitized.split("/")[-1] if sanitized else ""
         slash_tail = plain.split("/")[-1]
-        slash_tail_clean = slash_tail.lstrip('@')
-        slash_tail_clean = slash_tail_clean.split('/')[-1]
+        slash_tail_clean = slash_tail.lstrip("@")
+        slash_tail_clean = slash_tail_clean.split("/")[-1]
 
         variants = {
             plain,
@@ -4627,7 +4689,7 @@ class SkillsShSource(SkillSource):
     def _extract_repo_slug(repo_value: str) -> Optional[str]:
         repo_value = repo_value.strip()
         if repo_value.startswith("https://github.com/"):
-            repo_value = repo_value[len("https://github.com/"):]
+            repo_value = repo_value[len("https://github.com/") :]
         repo_value = repo_value.strip("/")
         parts = repo_value.split("/")
         if len(parts) >= 2:
@@ -4644,7 +4706,9 @@ class SkillsShSource(SkillSource):
             return None
         return SkillsShSource._strip_html(value).strip() or None
 
-    def _detail_to_metadata(self, canonical: str, detail: Optional[dict]) -> Dict[str, Any]:
+    def _detail_to_metadata(
+        self, canonical: str, detail: Optional[dict]
+    ) -> Dict[str, Any]:
         parts = canonical.split("/", 2)
         repo = f"{parts[0]}/{parts[1]}" if len(parts) >= 2 else ""
         metadata = {
@@ -4653,7 +4717,13 @@ class SkillsShSource(SkillSource):
         if repo:
             metadata["repo_url"] = f"https://github.com/{repo}"
         if isinstance(detail, dict):
-            for key in ("weekly_installs", "install_command", "repo_url", "detail_url", "security_audits"):
+            for key in (
+                "weekly_installs",
+                "install_command",
+                "repo_url",
+                "detail_url",
+                "security_audits",
+            ):
                 value = detail.get(key)
                 if value:
                     metadata[key] = value
@@ -4673,15 +4743,15 @@ class SkillsShSource(SkillSource):
             idx = html.find(f"/security/{audit}")
             if idx == -1:
                 continue
-            window = html[idx:idx + 500]
-            match = re.search(r'(Pass|Warn|Fail)', window, re.IGNORECASE)
+            window = html[idx : idx + 500]
+            match = re.search(r"(Pass|Warn|Fail)", window, re.IGNORECASE)
             if match:
                 audits[audit] = match.group(1).title()
         return audits
 
     @staticmethod
     def _strip_html(value: str) -> str:
-        return re.sub(r'<[^>]+>', '', value)
+        return re.sub(r"<[^>]+>", "", value)
 
     @staticmethod
     def _normalize_identifier(identifier: str) -> str:
@@ -5154,14 +5224,16 @@ class ClawHubSource(SkillSource):
                 display_name = item.get("displayName") or item.get("name") or slug
                 summary = item.get("summary") or item.get("description") or ""
                 tags = self._normalize_tags(item.get("tags", []))
-                results.append(SkillMeta(
-                    name=display_name,
-                    description=summary,
-                    source="clawhub",
-                    identifier=slug,
-                    trust_level="community",
-                    tags=tags,
-                ))
+                results.append(
+                    SkillMeta(
+                        name=display_name,
+                        description=summary,
+                        source="clawhub",
+                        identifier=slug,
+                        trust_level="community",
+                        tags=tags,
+                    )
+                )
 
             cursor = data.get("nextCursor") if isinstance(data, dict) else None
             if not isinstance(cursor, str) or not cursor:
@@ -5205,7 +5277,9 @@ class ClawHubSource(SkillSource):
         ):
             return None
 
-    def _resolve_latest_version(self, slug: str, skill_data: Dict[str, Any]) -> Optional[str]:
+    def _resolve_latest_version(
+        self, slug: str, skill_data: Dict[str, Any]
+    ) -> Optional[str]:
         latest = skill_data.get("latestVersion")
         if isinstance(latest, dict):
             version = latest.get("version")
@@ -5257,7 +5331,11 @@ class ClawHubSource(SkillSource):
                 builder.add(fname, inline_content)
                 continue
 
-            raw_url = file_meta.get("rawUrl") or file_meta.get("downloadUrl") or file_meta.get("url")
+            raw_url = (
+                file_meta.get("rawUrl")
+                or file_meta.get("downloadUrl")
+                or file_meta.get("url")
+            )
             if isinstance(raw_url, str) and raw_url.startswith("http"):
                 content = self._fetch_text(raw_url)
                 if content is not None:
@@ -5289,12 +5367,20 @@ class ClawHubSource(SkillSource):
                     retry_after = min(retry_after, 15)  # Cap wait time
                     logger.debug(
                         "ClawHub download rate-limited for %s, retrying in %ds (attempt %d/%d)",
-                        slug, retry_after, attempt + 1, max_retries,
+                        slug,
+                        retry_after,
+                        attempt + 1,
+                        max_retries,
                     )
                     time.sleep(retry_after)
                     continue
                 if resp.status_code != 200:
-                    logger.debug("ClawHub ZIP download for %s v%s returned %s", slug, version, resp.status_code)
+                    logger.debug(
+                        "ClawHub ZIP download for %s v%s returned %s",
+                        slug,
+                        version,
+                        resp.status_code,
+                    )
                     return files
 
                 expected_entries = _preflight_zip_directory(resp.content)
@@ -5897,13 +5983,14 @@ class BrowseShSource(SkillSource):
     def _slug_from_identifier(self, identifier: str) -> str:
         """Extract slug from identifier like 'browse-sh/airbnb.com/search-listings-abc'."""
         if identifier.startswith("browse-sh/"):
-            return identifier[len("browse-sh/"):]
+            return identifier[len("browse-sh/") :]
         return identifier
 
 
 # ---------------------------------------------------------------------------
 # Official optional skills source adapter
 # ---------------------------------------------------------------------------
+
 
 class OptionalSkillSource(SkillSource):
     """
@@ -6066,12 +6153,7 @@ class OptionalSkillSource(SkillSource):
             fm = self._parse_frontmatter(content)
             name = fm.get("name", parent.name)
             desc = fm.get("description", "")
-            tags = []
-            meta_block = fm.get("metadata", {})
-            if isinstance(meta_block, dict):
-                hermes_meta = meta_block.get("hermes", {})
-                if isinstance(hermes_meta, dict):
-                    tags = hermes_meta.get("tags", [])
+            tags = extract_skill_metadata(fm).get("tags", [])
 
             rel_path = parent.relative_to(self._optional_dir).as_posix()
 
@@ -6649,10 +6731,10 @@ def append_audit_log(
     parts = [timestamp, action, skill_name, f"{source}:{trust_level}", verdict]
     if extra:
         parts.append(extra)
-    line = " ".join(
-        str(part).replace("\r", "\\r").replace("\n", "\\n")
-        for part in parts
-    ) + "\n"
+    line = (
+        " ".join(str(part).replace("\r", "\\r").replace("\n", "\\n") for part in parts)
+        + "\n"
+    )
     try:
         _validate_hub_mutation_binding()
         flags = (
@@ -7033,14 +7115,12 @@ def _windows_atomic_move_directory(
         if destination_parent_handle is None:
             destination_parent_handle = home_handle
             for index, component in enumerate(destination_parent_parts):
-                handle, _identity, _links, _attributes = (
-                    _windows_open_cleanup_relative(
-                        destination_parent_handle,
-                        component,
-                        directory=True,
-                        delete_access=False,
-                        share_write=index == len(destination_parent_parts) - 1,
-                    )
+                handle, _identity, _links, _attributes = _windows_open_cleanup_relative(
+                    destination_parent_handle,
+                    component,
+                    directory=True,
+                    delete_access=False,
+                    share_write=index == len(destination_parent_parts) - 1,
                 )
                 destination_parent_handles.append(handle)
                 destination_parent_handle = handle
@@ -7075,8 +7155,7 @@ def _windows_atomic_move_directory(
         destination_name = destination_parts[-1]
         destination_folded = destination_name.casefold()
         if any(
-            entry.name.casefold() == destination_folded
-            for entry in destination_entries
+            entry.name.casefold() == destination_folded for entry in destination_entries
         ):
             raise HubInstallError("Transaction destination appeared concurrently")
 
@@ -7206,9 +7285,7 @@ def _atomic_move_directory(
             expected_native_identity=expected_native_identity,
         )
 
-    if all(
-        hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")
-    ):
+    if all(hasattr(os, name) for name in ("O_DIRECTORY", "O_NOFOLLOW")):
         directory_flags = (
             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
         )
@@ -7301,12 +7378,11 @@ def _write_hub_preparation(
             ("old_lock_sha256", old_lock_sha256),
             ("new_lock_sha256", new_lock_sha256),
         ):
-            if not isinstance(digest, str) or re.fullmatch(
-                r"[0-9a-f]{64}", digest
-            ) is None:
-                raise HubInstallError(
-                    "Hub transaction preparation proof is invalid"
-                )
+            if (
+                not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            ):
+                raise HubInstallError("Hub transaction preparation proof is invalid")
             record[label] = digest
     HubLockFile(path=transaction_root / _HUB_PREPARATION_FILE)._save_atomic(record)
 
@@ -7332,8 +7408,7 @@ def _load_hub_preparation(transaction_root: Path) -> dict | None:
         raise HubInstallError("Hub transaction preparation is invalid")
     if record["state"] == "effects_may_start" and (
         re.fullmatch(r"[0-9a-f]{64}", record.get("old_lock_sha256", "")) is None
-        or re.fullmatch(r"[0-9a-f]{64}", record.get("new_lock_sha256", ""))
-        is None
+        or re.fullmatch(r"[0-9a-f]{64}", record.get("new_lock_sha256", "")) is None
     ):
         raise HubInstallError("Hub transaction preparation proof is invalid")
     return record
@@ -7460,13 +7535,10 @@ def _recover_hub_transaction_locked(
     )
     if operation == "install" and source_identity is None:
         raise HubInstallError("Hub transaction source identity is invalid")
-    source_authority = HubSourceAuthority.from_dict(
-        journal.get("source_authority")
-    )
+    source_authority = HubSourceAuthority.from_dict(journal.get("source_authority"))
     source_content_sha256 = journal.get("source_content_sha256")
     if operation == "install" and (
-        not isinstance(source_content_sha256, str)
-        or len(source_content_sha256) != 64
+        not isinstance(source_content_sha256, str) or len(source_content_sha256) != 64
     ):
         raise HubInstallError("Hub transaction content digest is invalid")
     old_lock_data = journal.get("old_lock_data")
@@ -7523,10 +7595,7 @@ def _recover_hub_transaction_locked(
             and new_entry.get("files") == source_files
             and new_entry.get("content_hash") == expected_content_hash
         )
-        if (
-            schema_version == _HUB_TRANSACTION_SCHEMA_VERSION
-            and phase == "committed"
-        ):
+        if schema_version == _HUB_TRANSACTION_SCHEMA_VERSION and phase == "committed":
             new_entry_sha256 = journal.get("new_entry_sha256")
             if (
                 not isinstance(new_entry_sha256, str)
@@ -7562,8 +7631,7 @@ def _recover_hub_transaction_locked(
         schema_version == _HUB_TRANSACTION_SCHEMA_VERSION
         and preparation is not None
         and preparation["state"] == "effects_may_start"
-        and preparation["new_lock_sha256"]
-        != _canonical_json_sha256(expected_new_lock)
+        and preparation["new_lock_sha256"] != _canonical_json_sha256(expected_new_lock)
     ):
         if phase == "committed":
             raise HubInstallError("Hub transaction preparation proof disagrees")
@@ -7576,25 +7644,22 @@ def _recover_hub_transaction_locked(
         legacy_terminal_entry = current_lock["installed"].get(skill_name)
         if (
             isinstance(legacy_terminal_entry, dict)
-            and legacy_terminal_entry.get("transaction_id")
-            == transaction_root.name
+            and legacy_terminal_entry.get("transaction_id") == transaction_root.name
             and legacy_terminal_entry != new_entry
         ):
             raise HubInstallError(
                 "Legacy committed Hub transaction disagrees with its lock post-image"
             )
 
-    if (
-        phase == "rolled_back"
-        and not _hub_exists(backup_path)
-    ):
+    if phase == "rolled_back" and not _hub_exists(backup_path):
         old_skill_entry = old_lock_data["installed"].get(skill_name)
         current_skill_entry = current_lock["installed"].get(skill_name)
-        later_owner_superseded = (
-            isinstance(current_skill_entry, dict)
-            and current_skill_entry.get("transaction_id")
-            not in {None, transaction_root.name}
-        )
+        later_owner_superseded = isinstance(
+            current_skill_entry, dict
+        ) and current_skill_entry.get("transaction_id") not in {
+            None,
+            transaction_root.name,
+        }
         later_removal_superseded = (
             old_skill_entry is not None
             and current_skill_entry is None
@@ -7617,8 +7682,7 @@ def _recover_hub_transaction_locked(
         )
         if operation == "install":
             active_is_promoted_candidate = (
-                install_exists
-                and _directory_identity(install_dir) == source_identity
+                install_exists and _directory_identity(install_dir) == source_identity
             )
             rolled_back_state_is_terminal = (
                 transaction_ownership_is_rolled_back_or_superseded
@@ -7633,9 +7697,7 @@ def _recover_hub_transaction_locked(
             rolled_back_state_is_terminal = (
                 transaction_ownership_is_rolled_back_or_superseded
                 and (
-                    install_exists
-                    or later_removal_superseded
-                    or later_external_removal
+                    install_exists or later_removal_superseded or later_external_removal
                 )
             )
         if rolled_back_state_is_terminal:
@@ -7736,9 +7798,7 @@ def _recover_hub_transaction_locked(
         # record. Do not reinterpret that newer state, but also do not let GC
         # discard this transaction's private recovery material automatically.
         safe_cleanup_pending = [
-            marker
-            for marker in raw_cleanup_pending
-            if marker.startswith("quarantine:")
+            marker for marker in raw_cleanup_pending if marker.startswith("quarantine:")
         ]
         if safe_cleanup_pending != raw_cleanup_pending:
             journal["cleanup_pending"] = safe_cleanup_pending
@@ -7765,9 +7825,7 @@ def _recover_hub_transaction_locked(
     if current_lock not in (old_lock_data, expected_new_lock) and not (
         recoverable_unproven_install_postimage
     ):
-        raise HubInstallError(
-            "Hub lock changed outside the transaction pre/post-image"
-        )
+        raise HubInstallError("Hub lock changed outside the transaction pre/post-image")
     if install_snapshot_error is not None or backup_snapshot_error is not None:
         raise HubInstallError(
             "Hub transaction tree exceeds safe recovery bounds"
@@ -7954,8 +8012,7 @@ def _ensure_hub_transaction_capacity() -> None:
         ) from exc
     if len(existing) >= MAX_HUB_TRANSACTIONS:
         raise HubInstallError(
-            "Hub transaction capacity is full; run `Fabric skills gc` "
-            "before retrying"
+            "Hub transaction capacity is full; run `Fabric skills gc` before retrying"
         )
 
 
@@ -8006,7 +8063,9 @@ def gc_hub_transaction_artifacts() -> dict[str, int]:
             max_entries=MAX_HUB_GC_BATCH,
         )
         for transaction_root in transaction_roots:
-            if len(transaction_root.name) != 36 or not _hub_is_directory(transaction_root):
+            if len(transaction_root.name) != 36 or not _hub_is_directory(
+                transaction_root
+            ):
                 raise HubInstallError("Invalid Hub transaction entry during GC")
             try:
                 uuid.UUID(transaction_root.name)
@@ -8304,6 +8363,9 @@ def install_from_quarantine(
     expected_installed_entry: Mapping[str, Any] | None = None,
     force: bool = False,
     adopt_identical_untracked: bool = False,
+    verified_release: Any | None = None,
+    distribution_name: str | None = None,
+    distribution_store: Any | None = None,
 ) -> HubMutationOutcome:
     """Commit only a private candidate rebuilt from authoritative scan bytes."""
     if not isinstance(adopt_identical_untracked, bool):
@@ -8314,6 +8376,27 @@ def install_from_quarantine(
         scan_result,
     )
     authority.validate_bundle(bundle)
+    from agent.skill_distribution_policy import load_distribution_policy
+
+    distribution_policy = load_distribution_policy()
+    if (
+        distribution_policy.requires_signed_release(provenance="hub")
+        and verified_release is None
+    ):
+        raise HubInstallError(
+            "Signed-skill distribution enforcement blocked an unsigned Hub install"
+        )
+    if verified_release is not None and not distribution_name:
+        raise HubInstallError(
+            "A verified Hub release requires its canonical distribution name"
+        )
+    if verified_release is not None:
+        from agent.skill_distribution_state import SkillDistributionStateStore
+
+        if not isinstance(distribution_store, SkillDistributionStateStore):
+            raise HubInstallError(
+                "A verified Hub release requires its trust-state store"
+            )
     safe_skill_name = _validate_skill_name(skill_name)
     safe_category = _validate_install_parent_path(category) if category else ""
     quarantine_name = normalize_relative_path(
@@ -8398,14 +8481,104 @@ def install_from_quarantine(
                 f"Authoritative security scan blocked install: {reason}"
             )
 
+        signed_release_metadata: dict[str, Any] | None = None
+        if verified_release is not None:
+            from agent.skill_contract import (
+                source_freshness_blockers,
+                validate_skill_directory,
+            )
+            from agent.skill_distribution import (
+                SkillDistributionError,
+                bind_verified_release_to_artifact,
+            )
+            from agent.skill_evals import validate_eval_manifest
+
+            contract_validation = validate_skill_directory(
+                quarantine_resolved,
+                require_contract=True,
+            )
+            if (
+                not contract_validation.ok
+                or contract_validation.status != "verified"
+                or contract_validation.contract is None
+                or contract_validation.digest is None
+            ):
+                codes = ", ".join(
+                    sorted({issue.code for issue in contract_validation.errors})
+                )
+                raise HubInstallError(
+                    "Signed skill has no valid contract"
+                    + (f" ({codes})" if codes else "")
+                )
+            freshness = source_freshness_blockers(contract_validation)
+            if freshness:
+                raise HubInstallError(
+                    "Signed skill contract sources require refresh before install"
+                )
+            suite = contract_validation.contract.get("evals", {}).get("suite")
+            eval_validation = validate_eval_manifest(
+                quarantine_resolved,
+                suite,
+            )
+            if (
+                not eval_validation.ok
+                or eval_validation.digest is None
+                or eval_validation.manifest is None
+            ):
+                codes = ", ".join(
+                    sorted({issue.code for issue in eval_validation.errors})
+                )
+                raise HubInstallError(
+                    "Signed skill has no valid evaluation manifest"
+                    + (f" ({codes})" if codes else "")
+                )
+            try:
+                bind_verified_release_to_artifact(
+                    verified_release,
+                    name=str(distribution_name),
+                    tree_sha256=source_sha256,
+                    contract_sha256=contract_validation.digest,
+                    eval_sha256=eval_validation.digest,
+                )
+            except SkillDistributionError as exc:
+                raise HubInstallError(
+                    f"Signed skill artifact verification failed: {exc.code}"
+                ) from exc
+            try:
+                installed_proof = distribution_store.issue_installed_proof(
+                    verified_release,
+                    installed_tree_sha256=source_sha256,
+                    now=verified_release.verified_at,
+                )
+            except Exception as exc:
+                raise HubInstallError(
+                    "Could not issue the authenticated installed-release proof"
+                ) from exc
+            signed_release_metadata = {
+                "spec_version": "fabric-distribution-1",
+                "name": verified_release.name,
+                "version": verified_release.version,
+                "tree_sha256": verified_release.tree_sha256,
+                "contract_sha256": verified_release.contract_sha256,
+                "eval_sha256": verified_release.eval_sha256,
+                "channel": verified_release.channel,
+                "publisher": verified_release.publisher,
+                "root_version": verified_release.root_version,
+                "timestamp_version": verified_release.timestamp_version,
+                "snapshot_version": verified_release.snapshot_version,
+                "targets_version": verified_release.targets_version,
+                "revocations_version": verified_release.revocations_version,
+                "verified_at": verified_release.verified_at.isoformat(),
+                "offline_grace_used": verified_release.offline_grace_used,
+                "installed_proof": installed_proof.decode("utf-8"),
+            }
+
         old_lock_data = lock.load(strict=True)
         old_entry = old_lock_data["installed"].get(safe_skill_name)
         if expected_installed_entry is not None and old_entry != dict(
             expected_installed_entry
         ):
-            raise HubInstallError(
-                "Installed Hub state changed after the update check"
-            )
+            raise HubInstallError("Installed Hub state changed after the update check")
         if old_entry is not None:
             if not isinstance(old_entry, dict):
                 raise HubInstallError("Existing Hub ownership record is invalid")
@@ -8446,11 +8619,9 @@ def install_from_quarantine(
                     adopt_identical_untracked
                     and authority.adapter is HubSourceKind.OFFICIAL_OPTIONAL
                     and old_snapshot.tree_sha256 == scanned_snapshot.tree_sha256
-                    and old_snapshot.content_sha256
-                    == scanned_snapshot.content_sha256
+                    and old_snapshot.content_sha256 == scanned_snapshot.content_sha256
                     and tuple(
-                        item.relative_path.as_posix()
-                        for item in old_snapshot.files
+                        item.relative_path.as_posix() for item in old_snapshot.files
                     )
                     == tuple(promoted_files)
                     and tuple(
@@ -8490,9 +8661,7 @@ def install_from_quarantine(
         except BaseException as exc:
             with contextlib.suppress(OSError, HubInstallError):
                 _hub_remove_empty_directory(transaction_root)
-            raise HubInstallError(
-                "Could not prepare Hub install transaction"
-            ) from exc
+            raise HubInstallError("Could not prepare Hub install transaction") from exc
         candidate_path = transaction_root / "candidate"
         try:
             candidate_snapshot = _materialize_snapshot_candidate(
@@ -8512,6 +8681,8 @@ def install_from_quarantine(
         install_metadata = dict(bundle.metadata)
         install_metadata["source_name"] = bundle.name
         install_metadata["source_revision"] = bundle_source_revision(bundle)
+        if signed_release_metadata is not None:
+            install_metadata["signed_release"] = signed_release_metadata
         new_entry = lock._install_entry(
             source=bundle.source,
             identifier=bundle.identifier,
@@ -9336,7 +9507,7 @@ class HermesIndexSource(SkillSource):
         normalized = identifier
         for prefix in ("skills-sh/", "skills.sh/", "official/", "github/", "clawhub/"):
             if identifier.startswith(prefix):
-                normalized = identifier[len(prefix):]
+                normalized = identifier[len(prefix) :]
                 break
 
         # Match on normalized identifier or name
@@ -9344,9 +9515,15 @@ class HermesIndexSource(SkillSource):
             sid = s.get("identifier", "")
             # Strip prefix from stored identifier too
             stored_normalized = sid
-            for prefix in ("skills-sh/", "skills.sh/", "official/", "github/", "clawhub/"):
+            for prefix in (
+                "skills-sh/",
+                "skills.sh/",
+                "official/",
+                "github/",
+                "clawhub/",
+            ):
                 if sid.startswith(prefix):
-                    stored_normalized = sid[len(prefix):]
+                    stored_normalized = sid[len(prefix) :]
                     break
             if stored_normalized == normalized:
                 return s
@@ -9380,16 +9557,18 @@ def create_source_router(auth: Optional[GitHubAuth] = None) -> List[SkillSource]
     extra_taps = taps_mgr.list_taps()
 
     sources: List[SkillSource] = [
-        OptionalSkillSource(),        # Official optional skills (highest priority)
-        HermesIndexSource(auth=auth), # Centralized index (search + resolved install paths)
+        OptionalSkillSource(),  # Official optional skills (highest priority)
+        HermesIndexSource(
+            auth=auth
+        ),  # Centralized index (search + resolved install paths)
         SkillsShSource(auth=auth),
         WellKnownSkillSource(),
-        UrlSource(),                  # Direct HTTP(S) URL to a SKILL.md file
+        UrlSource(),  # Direct HTTP(S) URL to a SKILL.md file
         GitHubSource(auth=auth, extra_taps=extra_taps),
         ClawHubSource(),
         ClaudeMarketplaceSource(auth=auth),
         LobeHubSource(),
-        BrowseShSource(),   # browse.sh: 169+ site-specific browser automation skills
+        BrowseShSource(),  # browse.sh: 169+ site-specific browser automation skills
     ]
 
     return sources
@@ -9440,18 +9619,29 @@ def parallel_search_sources(
     # clawhub, etc.) — the index already has their data.  This avoids
     # ~70 GitHub API calls per search for unauthenticated users.
     _index_available = False
-    _api_source_ids = frozenset({"github", "skills-sh", "clawhub",
-                                  "claude-marketplace", "lobehub", "well-known"})
+    _api_source_ids = frozenset({
+        "github",
+        "skills-sh",
+        "clawhub",
+        "claude-marketplace",
+        "lobehub",
+        "well-known",
+    })
     if _effective_filter == "all":
         for src in sources:
-            if (src.source_id() == "hermes-index"
-                    and getattr(src, "is_available", False)):
+            if src.source_id() == "hermes-index" and getattr(
+                src, "is_available", False
+            ):
                 _index_available = True
                 break
 
     for src in sources:
         sid = src.source_id()
-        if _effective_filter != "all" and sid != _effective_filter and sid != "official":
+        if (
+            _effective_filter != "all"
+            and sid != _effective_filter
+            and sid != "official"
+        ):
             continue
         # Skip external API sources when the index covers them
         if _index_available and sid in _api_source_ids:
@@ -9474,6 +9664,7 @@ def parallel_search_sources(
     # an abandoned slow source must not block interpreter exit either —
     # stdlib workers are joined unconditionally by the atexit hook.
     from tools.daemon_pool import DaemonThreadPoolExecutor
+
     pool = DaemonThreadPoolExecutor(max_workers=min(len(active), 8))
     futures = {}
     for src in active:
@@ -9493,9 +9684,7 @@ def parallel_search_sources(
                 except Exception:
                     pass
         except TimeoutError:
-            timed_out_ids = [
-                futures[f] for f in futures if not f.done()
-            ]
+            timed_out_ids = [futures[f] for f in futures if not f.done()]
             if timed_out_ids:
                 logger.debug(
                     "Skills browse timed out waiting for: %s",
@@ -9509,8 +9698,9 @@ def parallel_search_sources(
     return all_results, source_counts, timed_out_ids
 
 
-def unified_search(query: str, sources: List[SkillSource],
-                   source_filter: str = "all", limit: int = 10) -> List[SkillMeta]:
+def unified_search(
+    query: str, sources: List[SkillSource], source_filter: str = "all", limit: int = 10
+) -> List[SkillMeta]:
     """Search all sources (in parallel) and merge results."""
     all_results, _, _ = parallel_search_sources(
         sources,
@@ -9534,7 +9724,9 @@ def unified_search(query: str, sources: List[SkillSource],
     for r in all_results:
         if r.identifier not in seen:
             seen[r.identifier] = r
-        elif _TRUST_RANK.get(r.trust_level, 0) > _TRUST_RANK.get(seen[r.identifier].trust_level, 0):
+        elif _TRUST_RANK.get(r.trust_level, 0) > _TRUST_RANK.get(
+            seen[r.identifier].trust_level, 0
+        ):
             seen[r.identifier] = r
     deduped = list(seen.values())
 

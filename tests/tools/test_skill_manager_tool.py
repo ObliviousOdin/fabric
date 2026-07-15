@@ -177,6 +177,8 @@ class TestValidateFilePath:
         assert _validate_file_path("templates/config.yaml") is None
         assert _validate_file_path("scripts/train.py") is None
         assert _validate_file_path("assets/image.png") is None
+        assert _validate_file_path("evals/cases.yaml") is None
+        assert _validate_file_path("skill.contract.yaml") is None
 
     def test_empty_path(self):
         assert _validate_file_path("") == "file_path is required."
@@ -217,6 +219,12 @@ class TestValidateFilePath:
         # Only SKILL.md gets the root-level exception, not arbitrary files.
         err = _validate_file_path("README.md")
         assert "File must be under one of:" in err
+
+    def test_governed_paths_reject_redirects_and_traversal(self):
+        assert _validate_file_path("evals/../skill.contract.yaml") == (
+            "Path traversal ('..') is not allowed."
+        )
+        assert _validate_file_path("nested/skill.contract.yaml") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +479,20 @@ class TestWriteFile:
         assert result["success"] is True
         assert (tmp_path / "my-skill" / "references" / "api.md").exists()
 
+    def test_write_governance_contract_and_eval_manifest(self, tmp_path):
+        with _skill_dir(tmp_path):
+            _create_skill("my-skill", VALID_SKILL_CONTENT)
+            contract = _write_file(
+                "my-skill", "skill.contract.yaml", "schema_version: 1\n"
+            )
+            evals = _write_file(
+                "my-skill", "evals/cases.yaml", "schema_version: 1\n"
+            )
+        assert contract["success"] is True
+        assert evals["success"] is True
+        assert (tmp_path / "my-skill" / "skill.contract.yaml").is_file()
+        assert (tmp_path / "my-skill" / "evals" / "cases.yaml").is_file()
+
     def test_write_to_nonexistent_skill(self, tmp_path):
         with _skill_dir(tmp_path):
             result = _write_file("nonexistent", "references/doc.md", "content")
@@ -500,6 +522,25 @@ class TestWriteFile:
         assert result["success"] is False
         assert "escapes" in result["error"].lower()
         assert not (outside_dir / "owned.md").exists()
+
+    def test_write_governed_eval_symlink_escape_blocked(self, tmp_path):
+        outside_dir = tmp_path / "outside-evals"
+        outside_dir.mkdir()
+
+        with _skill_dir(tmp_path):
+            _create_skill("my-skill", VALID_SKILL_CONTENT)
+            link = tmp_path / "my-skill" / "evals"
+            try:
+                link.symlink_to(outside_dir, target_is_directory=True)
+            except OSError:
+                pytest.skip("Symlinks not supported")
+            result = _write_file(
+                "my-skill", "evals/cases.yaml", "schema_version: 1\n"
+            )
+
+        assert result["success"] is False
+        assert "escapes" in result["error"].lower()
+        assert not (outside_dir / "cases.yaml").exists()
 
 
 class TestRemoveFile:
@@ -584,9 +625,12 @@ class TestSkillManageDispatcher:
         rec = usage.get("test-skill") or {}
         assert rec.get("created_by") in {None, "", False}
 
-    def test_create_from_background_review_marks_agent_created(self, tmp_path):
-        """Background-review fork creates ARE marked as agent-created."""
+    def test_create_from_background_review_stages_before_marking(
+        self, tmp_path, monkeypatch
+    ):
+        """Background creates become drafts; promotion owns provenance."""
         from tools.skill_provenance import set_current_write_origin, BACKGROUND_REVIEW
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
         token = set_current_write_origin(BACKGROUND_REVIEW)
         try:
             with _skill_dir(tmp_path):
@@ -600,7 +644,64 @@ class TestSkillManageDispatcher:
             reset_current_write_origin(token)
         result = json.loads(raw)
         assert result["success"] is True
-        assert usage["review-sediment"]["created_by"] == "agent"
+        assert result.get("staged") is True
+        assert "review-sediment" not in usage
+        assert not (tmp_path / "review-sediment").exists()
+
+    def test_curator_create_uses_snapshot_lifecycle_not_pending_gate(
+        self, tmp_path, monkeypatch
+    ):
+        from tools.skill_provenance import (
+            CURATOR,
+            reset_current_write_origin,
+            set_current_write_origin,
+        )
+
+        monkeypatch.setattr(
+            "tools.write_approval.write_approval_enabled",
+            lambda _subsystem: True,
+        )
+        token = set_current_write_origin(CURATOR)
+        try:
+            with _skill_dir(tmp_path):
+                raw = skill_manage(
+                    action="create",
+                    name="curator-umbrella",
+                    content=VALID_SKILL_CONTENT,
+                )
+        finally:
+            reset_current_write_origin(token)
+
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result.get("staged") is not True
+        assert (tmp_path / "curator-umbrella" / "SKILL.md").exists()
+
+    def test_immediate_learn_followup_still_stages_skill_write(
+        self, tmp_path, monkeypatch
+    ):
+        from tools.skill_provenance import (
+            LEARN_FOLLOWUP,
+            reset_current_write_origin,
+            set_current_write_origin,
+        )
+
+        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        token = set_current_write_origin(LEARN_FOLLOWUP)
+        try:
+            with _skill_dir(tmp_path):
+                raw = skill_manage(
+                    action="create",
+                    name="followup-draft",
+                    content=VALID_SKILL_CONTENT,
+                )
+        finally:
+            reset_current_write_origin(token)
+
+        result = json.loads(raw)
+        assert result["success"] is True
+        assert result.get("staged") is True
+        assert not (tmp_path / "followup-draft").exists()
 
     def test_delete_via_dispatcher_threads_absorbed_into(self, tmp_path):
         # Dispatcher must plumb absorbed_into through to _delete_skill so the
@@ -628,22 +729,24 @@ class TestSkillManageDispatcher:
             set_current_write_origin,
         )
 
-        token = set_current_write_origin(BACKGROUND_REVIEW)
-        try:
-            with _skill_dir(tmp_path), \
-                 patch("tools.skill_usage.is_protected_builtin", return_value=False), \
-                 patch("tools.skill_usage.is_hub_installed", return_value=False), \
-                 patch("tools.skill_usage.is_bundled",
-                       side_effect=lambda skill_name: skill_name == "bundled"):
-                skill_manage(action="create", name="umbrella", content=VALID_SKILL_CONTENT)
-                skill_manage(action="create", name="bundled", content=VALID_SKILL_CONTENT)
+        with _skill_dir(tmp_path), \
+             patch("tools.skill_usage.is_protected_builtin", return_value=False), \
+             patch("tools.skill_usage.is_hub_installed", return_value=False), \
+             patch("tools.skill_usage.is_bundled",
+                   side_effect=lambda skill_name: skill_name == "bundled"):
+            # Arrange active skills in the foreground. Only the autonomous
+            # delete attempt is governed by the background ownership guard.
+            skill_manage(action="create", name="umbrella", content=VALID_SKILL_CONTENT)
+            skill_manage(action="create", name="bundled", content=VALID_SKILL_CONTENT)
+            token = set_current_write_origin(BACKGROUND_REVIEW)
+            try:
                 raw = skill_manage(
                     action="delete",
                     name="bundled",
                     absorbed_into="umbrella",
                 )
-        finally:
-            reset_current_write_origin(token)
+            finally:
+                reset_current_write_origin(token)
 
         result = json.loads(raw)
         assert result["success"] is False
@@ -1189,7 +1292,7 @@ def _curator_pass(tmp_path, *, monkeypatch):
 
     Points HERMES_HOME at ``tmp_path/.hermes`` so skill_usage's archive path
     (``get_fabric_home()``) resolves into the same tree the skill manager
-    searches, and flips ``is_background_review()`` → True so the consolidation
+    searches, and flips ``is_autonomous_skill_writer()`` → True so the consolidation
     guard fires.
     """
     hermes_home = tmp_path / ".hermes"
@@ -1199,7 +1302,7 @@ def _curator_pass(tmp_path, *, monkeypatch):
     with patch("tools.skill_manager_tool.SKILLS_DIR", skills_root), \
          patch("tools.skills_tool.SKILLS_DIR", skills_root), \
          patch("agent.skill_utils.get_all_skills_dirs", return_value=[skills_root]), \
-         patch("tools.skill_provenance.is_background_review", return_value=True):
+         patch("tools.skill_provenance.is_autonomous_skill_writer", return_value=True):
         yield skills_root
 
 

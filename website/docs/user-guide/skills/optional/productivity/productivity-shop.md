@@ -20,6 +20,8 @@ Shop catalog search, checkout, order tracking, returns.
 | Author | Joe Rinaldi Johnson (joerj123), Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `Shopping`, `E-commerce`, `Shop`, `Products`, `Orders`, `Returns`, `Checkout`, `Reorder` |
+| Related skills | [`shopify`](/user-guide/skills/optional/productivity/productivity-shopify), [`maps`](/user-guide/skills/bundled/productivity/productivity-maps) |
 
 ## Reference: full SKILL.md
 

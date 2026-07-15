@@ -20,6 +20,8 @@ Karpathy's LLM Wiki: build/query interlinked markdown KB.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `wiki`, `knowledge-base`, `research`, `notes`, `markdown`, `rag-alternative` |
+| Related skills | [`obsidian`](/user-guide/skills/bundled/note-taking/note-taking-obsidian), [`arxiv`](/user-guide/skills/bundled/research/research-arxiv) |
 
 ## Reference: full SKILL.md
 

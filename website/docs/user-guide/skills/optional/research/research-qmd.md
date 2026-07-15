@@ -20,6 +20,8 @@ Search personal knowledge bases, notes, docs, and meeting transcripts locally us
 | Author | Fabric + Teknium |
 | License | MIT |
 | Platforms | macos, linux |
+| Tags | `Search`, `Knowledge-Base`, `RAG`, `Notes`, `MCP`, `Local-AI` |
+| Related skills | [`obsidian`](/user-guide/skills/bundled/note-taking/note-taking-obsidian), `native-mcp`, [`arxiv`](/user-guide/skills/bundled/research/research-arxiv) |
 
 ## Reference: full SKILL.md
 

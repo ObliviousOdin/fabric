@@ -2118,14 +2118,15 @@ def _run_llm_review(prompt: str) -> Dict[str, Any]:
             review_agent,
         )
         review_agent._parallel_tool_call_guidance = False
-        # Tag this fork as autonomous background curation so skill_manage's
-        # background-review write guard fires. Without this the fork inherits
-        # the default "assistant_tool" origin, is_background_review() is False,
-        # and the external/bundled/hub-installed skill_manage guards never
-        # trigger during the curation pass they exist to protect against.
+        # Give the snapshot-governed curator its own origin.  It shares the
+        # autonomous ownership/read-before-write guards with background review,
+        # but not background review's draft-only lifecycle: curator mutations
+        # are applied directly under the pre-run backup/rollback boundary.
         # turn_context.py binds this onto the write-origin ContextVar at turn
         # start (see agent/turn_context.py).
-        review_agent._memory_write_origin = "background_review"
+        from tools.skill_provenance import CURATOR
+
+        review_agent._memory_write_origin = CURATOR
 
         # Redirect the forked agent's stdout/stderr to /dev/null while it
         # runs so its tool-call chatter doesn't pollute the foreground

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, useEffect } from "react";
+import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
   MemoryRouter,
@@ -14,6 +14,7 @@ import { isChatPath } from "@/app/routes";
 import {
   reconcilePersistentChatLocation,
   usePersistentChatIdentity,
+  useValueForChatIdentity,
 } from "./usePersistentChatIdentity";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
@@ -65,6 +66,20 @@ function Probe() {
       >
         Fresh Chat
       </button>
+    </>
+  );
+}
+
+function IdentityValueProbe() {
+  const [channel, setChannel] = useState("chat-a");
+  const [appearance, setAppearance] = useState("dark");
+  const sessionAppearance = useValueForChatIdentity(channel, appearance);
+
+  return (
+    <>
+      <output data-channel={channel}>{sessionAppearance}</output>
+      <button onClick={() => setAppearance("light")}>Light</button>
+      <button onClick={() => setChannel("chat-b")}>Fresh chat</button>
     </>
   );
 }
@@ -145,5 +160,19 @@ describe("usePersistentChatIdentity", () => {
     expect(output().dataset.location).toBe(
       "/workspace/chat?panel=evidence#activity",
     );
+  });
+
+  it("keeps spawn-time values stable until the PTY identity rotates", async () => {
+    await act(async () => root.render(<IdentityValueProbe />));
+
+    const output = () => container.querySelector("output")!;
+    expect(output().textContent).toBe("dark");
+
+    await act(async () => container.querySelectorAll("button")[0].click());
+    expect(output().textContent).toBe("dark");
+
+    await act(async () => container.querySelectorAll("button")[1].click());
+    expect(output().dataset.channel).toBe("chat-b");
+    expect(output().textContent).toBe("light");
   });
 });

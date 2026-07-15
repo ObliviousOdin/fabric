@@ -375,6 +375,9 @@ def test_chat_work_rail_lists_and_creates_boards_without_switching_cli_default()
     assert "[props.active, loadBoards]" in js
     assert "loadBoards(selectedBoard)" not in js
     assert "This board key already exists" in js
+    assert '"aria-label": "Current chat work status"' in js
+    assert 'props.currentChat || {}' in js
+    assert '"The counters below include durable tasks on this board only; ordinary chat work is shown separately here."' in js
     assert 'SDK.fetchJSON(`${API}/boards/${encodeURIComponent(slug)}/switch`' not in js
 
 

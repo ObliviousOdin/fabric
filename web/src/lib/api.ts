@@ -1369,7 +1369,8 @@ export const api = {
     ),
 
   // ── Admin: Memory provider ──────────────────────────────────────────
-  getMemory: () => fetchJSON<MemoryStatus>("/api/memory"),
+  getMemory: (profile = getManagementProfile()) =>
+    fetchJSON<MemoryStatus>(appendProfileParam("/api/memory", profile)),
   getMemoryProviderConfig: (provider: string) =>
     fetchJSON<MemoryProviderConfig>(
       `/api/memory/providers/${encodeURIComponent(provider)}/config`,

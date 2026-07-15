@@ -2274,6 +2274,39 @@
   min-height: 44px;
   flex: 0 0 auto;
 }
+.fabric-work-rail-current-chat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+.fabric-work-rail-current-chat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.fabric-work-rail-current-chat strong {
+  overflow: hidden;
+  color: var(--color-foreground);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fabric-work-rail-current-chat p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
 .fabric-work-rail-field {
   display: flex;
   flex-direction: column;

@@ -30,6 +30,7 @@
     "react-router-dom": "^7.17.0",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
+    "three": "^0.180.0",
     "unicode-animations": "^1.0.3"
   },
   "devDependencies": {

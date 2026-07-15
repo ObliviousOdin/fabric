@@ -46,6 +46,7 @@ import {
   FRESH_CHAT_QUERY_PARAM,
   reconcilePersistentChatLocation,
   usePersistentChatIdentity,
+  useValueForChatIdentity,
 } from "@/components/chat/usePersistentChatIdentity";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { api } from "@/lib/api";
@@ -277,13 +278,6 @@ export default function ChatPage({
     () => buildTerminalTheme(terminalBg, terminalFg),
     [terminalBg, terminalFg],
   );
-  // Spawn-time copy for the PTY connect effect: the child env can only be
-  // set once, so the effect reads the ref instead of depending on
-  // `terminalBg` (a theme switch must not respawn the PTY).
-  const terminalBgRef = useRef(terminalBg);
-  useEffect(() => {
-    terminalBgRef.current = terminalBg;
-  }, [terminalBg]);
 
   // The dashboard keeps ChatPage mounted persistently so the PTY survives tab
   // switches. That is great for ordinary /chat navigation, but it means query
@@ -308,6 +302,12 @@ export default function ChatPage({
     profile: chatProfile,
     resumeParam,
   } = chatIdentity;
+  // The TUI chooses its light/dark true-color palette at process spawn. Keep
+  // xterm on that same canvas/palette for the life of the PTY; recoloring only
+  // the browser mid-session makes dark muted text disappear on a light canvas.
+  // A fresh/resumed/profile-switched Chat rotates `channel` and captures the
+  // then-current dashboard theme without discarding a running conversation.
+  const terminalSessionTheme = useValueForChatIdentity(channel, terminalTheme);
   useLayoutEffect(() => {
     if (
       !isActive ||
@@ -504,7 +504,7 @@ export default function ChatPage({
       // Browser-embedded chat runs the TUI in inline mode. Keep transcript
       // history in xterm.js so the browser wheel can scroll it directly.
       scrollback: 5000,
-      theme: terminalTheme,
+      theme: terminalSessionTheme,
     });
     termRef.current = term;
 
@@ -790,7 +790,7 @@ export default function ChatPage({
       // Terminal canvas hint: the server forwards this as
       // HERMES_TUI_BACKGROUND so the TUI child picks the light/dark
       // palette matching the xterm canvas it will actually render on.
-      params.bg = terminalBgRef.current;
+      params.bg = terminalSessionTheme.background;
       const url = await api.buildWsUrl("/api/pty", params);
       const ws = new WebSocket(url);
       ws.binaryType = "arraybuffer";
@@ -1005,12 +1005,19 @@ export default function ChatPage({
         reconnectTimerRef.current = null;
       }
     };
-    // Theme updates are applied to the live terminal by the focused effect
-    // below. `searchParams` is read only for one-shot directives and may be
-    // rewritten inside this effect; either dependency would respawn the PTY
-    // and break the persistent Chat contract.
+    // Dashboard theme changes intentionally do not replace
+    // `terminalSessionTheme` until `channel` rotates. `searchParams` is read
+    // only for one-shot directives and may be rewritten inside this effect;
+    // depending on it would respawn the PTY and break persistent Chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel, clearReconnectTimer, resumeParam, chatProfile, reconnectNonce]);
+  }, [
+    channel,
+    clearReconnectTimer,
+    resumeParam,
+    chatProfile,
+    reconnectNonce,
+    terminalSessionTheme,
+  ]);
 
   // When the user returns to the chat tab (isActive: false → true), the
   // terminal host just transitioned from display:none to display:flex.
@@ -1057,14 +1064,6 @@ export default function ChatPage({
     };
   }, [isActive]);
 
-  // Keep the live xterm theme in sync when the active theme's terminal
-  // colors change (e.g. user switches to a custom YAML theme mid-session).
-  useEffect(() => {
-    const term = termRef.current;
-    if (!term) return;
-    term.options.theme = terminalTheme;
-  }, [terminalTheme]);
-
   // Each rail is represented once. ChatWorkspaceLayout mounts only the rail
   // visible at the current breakpoint; compact sheets mount their content
   // only while open. This keeps session REST and context WebSocket traffic
@@ -1096,7 +1095,7 @@ export default function ChatPage({
         "p-2 sm:p-3 lg:p-4",
       )}
       style={{
-        backgroundColor: terminalBg,
+        backgroundColor: terminalSessionTheme.background,
       }}
     >
       <div

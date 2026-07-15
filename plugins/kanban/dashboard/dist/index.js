@@ -5837,6 +5837,11 @@
       return item.slug === selectedBoard;
     }) || null;
     const counts = (currentBoard && currentBoard.counts) || {};
+    const currentChat = props.currentChat || {};
+    const currentChatStatus = currentChat.status || "connecting";
+    const currentChatLabel = currentChatStatus === "working"
+      ? "working"
+      : currentChatStatus === "ready" ? "ready" : "connecting";
 
     function chooseBoard(slug) {
       if (!slug) return;
@@ -5913,7 +5918,7 @@
     },
       h("div", { className: "fabric-work-rail-header" },
         h("div", null,
-          h("div", { className: "fabric-work-rail-eyebrow" }, "Work"),
+          h("div", { className: "fabric-work-rail-eyebrow" }, "Board work"),
           h("div", { className: "fabric-work-rail-board-name" },
             (currentBoard && currentBoard.name) || selectedBoard || "Default"),
         ),
@@ -5927,6 +5932,19 @@
           disabled: loadingBoards,
           onClick: function () { loadBoards(); },
         }, icon("RotateCcw")),
+      ),
+      h("div", {
+        className: "fabric-work-rail-current-chat",
+        "aria-label": "Current chat work status",
+      },
+        h("div", { className: "fabric-work-rail-current-chat-row" },
+          h("span", null, "Current chat"),
+          h(Badge, {
+            tone: currentChatStatus === "working" ? "success" : "secondary",
+          }, currentChatLabel),
+        ),
+        h("strong", null, currentChat.title || "Terminal-backed chat"),
+        h("p", null, "The counters below include durable tasks on this board only; ordinary chat work is shown separately here."),
       ),
       loadError
         ? h("div", { className: "fabric-work-rail-error", role: "alert" },

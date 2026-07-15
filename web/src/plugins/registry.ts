@@ -17,6 +17,7 @@ import React, {
   useContext,
   createContext,
 } from "react";
+import * as ReactDOM from "react-dom";
 import { api, fetchJSON, authedFetch, buildWsUrl, buildWsAuthParam } from "@/lib/api";
 import { cn, timeAgo, isoTimeAgo } from "@/lib/utils";
 import { Badge } from "@/components/fabric/Badge";
@@ -40,6 +41,7 @@ import {
   Circle,
   Clock3,
   FileText,
+  Film,
   Filter,
   GitBranch,
   HelpCircle,
@@ -143,6 +145,9 @@ export function exposePluginSDK() {
     sdkVersion: SDK_CONTRACT_VERSION,
     // React core — plugins use these instead of importing react
     React,
+    // React DOM helpers (notably createPortal/flushSync). Plugin pages are
+    // rendered by the host and must not create a second application root.
+    ReactDOM,
     hooks: {
       useState,
       useEffect,
@@ -201,6 +206,7 @@ export function exposePluginSDK() {
       Circle,
       Clock3,
       FileText,
+      Film,
       Filter,
       GitBranch,
       HelpCircle,

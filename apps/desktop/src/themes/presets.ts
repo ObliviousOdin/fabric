@@ -3,6 +3,8 @@
  * Add new themes here — no code changes needed elsewhere.
  */
 
+import { resolvedSemanticThemes } from '../../../design-system/dist/tokens.js'
+
 import type { DesktopTheme, DesktopThemeTypography } from './types'
 
 // Color-emoji fonts to append to every stack as a last resort. None of the UI
@@ -20,81 +22,73 @@ const SYSTEM_MONO =
 
 export const DEFAULT_TYPOGRAPHY: DesktopThemeTypography = { fontSans: SYSTEM_SANS, fontMono: SYSTEM_MONO }
 
-const FABRIC_PURPLE = '#4628CC'
-const FABRIC_PURPLE_DARK = '#2B187F'
-const FABRIC_LAVENDER = '#E6E1FF'
-
-const fabricTint = (pct: number) => `color-mix(in srgb, ${FABRIC_PURPLE} ${pct}%, #FFFFFF)`
-const fabricTintTransparent = (pct: number) => `color-mix(in srgb, ${FABRIC_PURPLE} ${pct}%, transparent)`
+const FABRIC_LIGHT = resolvedSemanticThemes.light
+const FABRIC_DARK = resolvedSemanticThemes.dark
 
 /**
- * Fabric — canonical Fabric desktop identity. The palette mirrors the Fabric
- * CLI skin and Fabric product surfaces while retaining the desktop's neutral
- * glass geometry.
+ * Fabric — canonical Fabric desktop identity. Every default color comes from
+ * the shared design-system semantic themes; desktop-specific theme plumbing
+ * maps those roles onto the existing shell without inventing another palette.
  */
 export const fabricTheme: DesktopTheme = {
   name: 'fabric',
   label: 'Fabric',
-  description: 'Fabric purple with focused glass neutrals',
+  description: 'Fabric violet on woven warm neutrals',
   colors: {
-    background: '#F9F8FF',
-    foreground: '#17171A',
-    card: '#FFFFFF',
-    cardForeground: '#17171A',
-    muted: fabricTint(5),
-    mutedForeground: '#666678',
-    popover: '#FFFFFF',
-    popoverForeground: '#17171A',
-    primary: FABRIC_PURPLE,
-    primaryForeground: '#FCFCFC',
-    secondary: fabricTint(7),
-    secondaryForeground: '#242432',
-    accent: fabricTint(10),
-    accentForeground: '#202030',
-    border: fabricTintTransparent(22),
-    input: fabricTintTransparent(30),
-    ring: FABRIC_PURPLE,
-    midground: FABRIC_PURPLE,
-    composerRing: FABRIC_PURPLE,
-    destructive: '#C72E4D',
-    destructiveForeground: '#FFFFFF',
-    sidebarBackground: '#F5F2FF',
-    sidebarBorder: fabricTintTransparent(18),
-    userBubble: fabricTint(6),
-    userBubbleBorder: fabricTintTransparent(24)
+    background: FABRIC_LIGHT.canvas,
+    foreground: FABRIC_LIGHT.text,
+    card: FABRIC_LIGHT.surface,
+    cardForeground: FABRIC_LIGHT.text,
+    muted: FABRIC_LIGHT.surfaceRaised,
+    mutedForeground: FABRIC_LIGHT.textMuted,
+    popover: FABRIC_LIGHT.surfaceRaised,
+    popoverForeground: FABRIC_LIGHT.text,
+    primary: FABRIC_LIGHT.action,
+    primaryForeground: FABRIC_LIGHT.actionForeground,
+    secondary: FABRIC_LIGHT.surfaceInset,
+    secondaryForeground: FABRIC_LIGHT.text,
+    accent: FABRIC_LIGHT.surfaceBrand,
+    accentForeground: FABRIC_LIGHT.text,
+    border: FABRIC_LIGHT.border,
+    input: FABRIC_LIGHT.borderStrong,
+    ring: FABRIC_LIGHT.focus,
+    midground: FABRIC_LIGHT.threadActive,
+    composerRing: FABRIC_LIGHT.focus,
+    destructive: FABRIC_LIGHT.danger,
+    destructiveForeground: FABRIC_LIGHT.actionForeground,
+    sidebarBackground: FABRIC_LIGHT.surface,
+    sidebarBorder: FABRIC_LIGHT.border,
+    userBubble: FABRIC_LIGHT.surfaceBrand,
+    userBubbleBorder: FABRIC_LIGHT.border
   },
   darkColors: {
-    background: '#120E24',
-    foreground: FABRIC_LAVENDER,
-    card: '#1A1433',
-    cardForeground: FABRIC_LAVENDER,
-    muted: '#251B48',
-    mutedForeground: '#BDB3E8',
-    popover: '#211840',
-    popoverForeground: FABRIC_LAVENDER,
-    primary: '#B6A9FF',
-    primaryForeground: '#160F31',
-    secondary: '#2B2052',
-    secondaryForeground: '#E6E1FF',
-    accent: FABRIC_PURPLE_DARK,
-    accentForeground: '#F3F0FF',
-    border: '#3B2D69',
-    input: '#21183E',
-    ring: '#A99CF8',
-    midground: '#6E59E0',
-    composerRing: '#A99CF8',
-    destructive: '#C0473A',
-    destructiveForeground: '#FEF2F2',
-    sidebarBackground: '#0E0A1E',
-    sidebarBorder: '#30245A',
-    userBubble: '#241A49',
-    userBubbleBorder: '#4C3A82'
+    background: FABRIC_DARK.canvas,
+    foreground: FABRIC_DARK.text,
+    card: FABRIC_DARK.surface,
+    cardForeground: FABRIC_DARK.text,
+    muted: FABRIC_DARK.surfaceRaised,
+    mutedForeground: FABRIC_DARK.textMuted,
+    popover: FABRIC_DARK.surfaceRaised,
+    popoverForeground: FABRIC_DARK.text,
+    primary: FABRIC_DARK.action,
+    primaryForeground: FABRIC_DARK.actionForeground,
+    secondary: FABRIC_DARK.surfaceInset,
+    secondaryForeground: FABRIC_DARK.text,
+    accent: FABRIC_DARK.surfaceBrand,
+    accentForeground: FABRIC_DARK.text,
+    border: FABRIC_DARK.border,
+    input: FABRIC_DARK.borderStrong,
+    ring: FABRIC_DARK.focus,
+    midground: FABRIC_DARK.threadActive,
+    composerRing: FABRIC_DARK.focus,
+    destructive: FABRIC_DARK.danger,
+    destructiveForeground: FABRIC_DARK.actionForeground,
+    sidebarBackground: FABRIC_DARK.surface,
+    sidebarBorder: FABRIC_DARK.border,
+    userBubble: FABRIC_DARK.surfaceBrand,
+    userBubbleBorder: FABRIC_DARK.border
   },
-  typography: {
-    fontSans: SYSTEM_SANS,
-    fontMono: `"Courier Prime", ${SYSTEM_MONO}`,
-    fontUrl: 'https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap'
-  }
+  typography: DEFAULT_TYPOGRAPHY
 }
 
 /** @deprecated Internal compatibility export for pre-Fabric imports. */

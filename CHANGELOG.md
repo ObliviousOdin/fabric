@@ -6,11 +6,11 @@ All notable changes to Fabric are documented in this file.
 
 ### Added
 
-- Dashboard plugins can load WebAssembly modules with the browser-correct MIME type and use the host's `Film` icon and ReactDOM helpers without bundling a second React renderer.
+- Media-heavy dashboard plugins can now load WebAssembly modules with the browser-correct MIME type and use the host's `Film` icon and ReactDOM helpers without bundling a second React renderer.
 
 ### Changed
 
-- The OpenCut capability audit now defines Studio as a standalone, explicitly enabled plugin instead of embedding a third-party product or permanent model tools in Fabric core.
+- Studio and other OpenCut integrations now have a documented standalone-plugin path that preserves Fabric's narrow core and explicit plugin enablement model.
 
 ## [0.20.1] - 2026-07-15
 

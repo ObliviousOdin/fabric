@@ -182,6 +182,64 @@ export const semanticThemes = Object.freeze({
     "bracket": "{color.primary.200}"
   }
 });
+export const resolvedSemanticThemes = Object.freeze({
+  "light": {
+    "canvas": "#FCFAF6",
+    "surface": "#F6F4F0",
+    "surfaceRaised": "#F0EEEA",
+    "surfaceInset": "#EDEBE7",
+    "surfaceSubtle": "#F6F4F0",
+    "surfaceCool": "#EDEBE7",
+    "surfaceBrand": "#F0EDFB",
+    "text": "#221F1A",
+    "textMuted": "#5B5852",
+    "textDisabled": "#8F8A82",
+    "textOnBrand": "#FFFFFF",
+    "border": "#D1CFCB",
+    "borderStrong": "#B6B1A8",
+    "action": "#4628CC",
+    "actionForeground": "#FFFFFF",
+    "actionHover": "#3B22AD",
+    "actionActive": "#4025BA",
+    "focus": "#4628CC",
+    "info": "#3E63A7",
+    "success": "#137D41",
+    "warning": "#876200",
+    "danger": "#BE2323",
+    "wovenGrid": "#E5E1DA",
+    "thread": "#8174B0",
+    "threadActive": "#4628CC",
+    "bracket": "#4628CC"
+  },
+  "dark": {
+    "canvas": "#0E0C11",
+    "surface": "#151318",
+    "surfaceRaised": "#1D1A1F",
+    "surfaceInset": "#201E23",
+    "surfaceSubtle": "#151318",
+    "surfaceCool": "#201E23",
+    "surfaceBrand": "#25156B",
+    "text": "#EAE6EE",
+    "textMuted": "#ADA9B1",
+    "textDisabled": "#77717D",
+    "textOnBrand": "#FFFFFF",
+    "border": "#28252A",
+    "borderStrong": "#4B4550",
+    "action": "#5542E3",
+    "actionForeground": "#FFFFFF",
+    "actionHover": "#9481E6",
+    "actionActive": "#654ADC",
+    "focus": "#9481E6",
+    "info": "#7BA7E8",
+    "success": "#5EBC7B",
+    "warning": "#CF9B20",
+    "danger": "#FF7266",
+    "wovenGrid": "#211E24",
+    "thread": "#9481E6",
+    "threadActive": "#9481E6",
+    "bracket": "#9481E6"
+  }
+});
 export const typography = Object.freeze({
   "family": {
     "sans": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",

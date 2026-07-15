@@ -33,6 +33,10 @@ import { Card } from "@nous-research/ui/ui/components/card";
 
 import { ActivityFeed } from "@/components/chat/ActivityFeed";
 import { AgentCard } from "@/components/chat/AgentCard";
+import type {
+  ChatContextEvent,
+  ChatContextState,
+} from "@/components/chat/chat-context-state";
 import {
   EMPTY_ACTIVITY_FEED,
   reduceActivityEvent,
@@ -60,7 +64,7 @@ interface SessionInfo {
 
 interface RpcEnvelope {
   method?: string;
-  params?: { type?: string; payload?: unknown };
+  params?: { type?: string; payload?: unknown; session_id?: string };
 }
 
 /** Trailing-throttle window for Activity-feed state flushes (CH3). */
@@ -74,6 +78,8 @@ function cwdFromSessionInfoPayload(payload: unknown): string | null {
 
 interface ChatSidebarProps {
   channel: string;
+  /** Live PTY read model projected by the parent context rail. */
+  contextSnapshot?: ChatContextState;
   /** Chat profile from the dashboard switcher / URL scope. */
   profile?: string;
   /** Whether the persistently-mounted Chat route is currently visible. */
@@ -81,17 +87,20 @@ interface ChatSidebarProps {
   className?: string;
   onDashboardNewSessionRequest?: () => void;
   onSessionTitleChange?: (title: string | null) => void;
+  onContextEvent?: (event: ChatContextEvent) => void;
   /** Navigate from a supporting Chat-rail card without replacing Chat itself. */
   onNavigate?: (path: string) => void;
 }
 
 export function ChatSidebar({
   channel,
+  contextSnapshot,
   profile,
   isActive = true,
   className,
   onDashboardNewSessionRequest,
   onSessionTitleChange,
+  onContextEvent,
   onNavigate,
 }: ChatSidebarProps) {
   // `version` bumps on reconnect; gw is derived so we never call setState
@@ -264,7 +273,7 @@ export function ChatSidebar({
     };
     // `profile` is read from render; scope changes bump `version` → new `gw`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gw]);
+  }, [gw, resetFeed]);
 
   // Event subscriber WebSocket — receives the rebroadcast of every
   // dispatcher emit from the PTY child's gateway.  See /api/pub +
@@ -323,6 +332,14 @@ export function ChatSidebar({
 
         const { type, payload } = frame.params;
 
+        if (type) {
+          onContextEvent?.({
+            payload,
+            sessionId: frame.params.session_id,
+            type,
+          });
+        }
+
         if (type === "session.info") {
           const title = titleFromSessionInfoPayload(payload);
           if (title !== undefined) {
@@ -361,6 +378,7 @@ export function ChatSidebar({
   }, [
     channel,
     onDashboardNewSessionRequest,
+    onContextEvent,
     onSessionTitleChange,
     scheduleFeedFlush,
     version,
@@ -407,6 +425,17 @@ export function ChatSidebar({
         name="chat:rail"
         slotProps={{
           active: isActive,
+          currentChat: contextSnapshot
+            ? {
+                id: contextSnapshot.sessionId,
+                status: contextSnapshot.connected
+                  ? contextSnapshot.running
+                    ? "working"
+                    : "ready"
+                  : "connecting",
+                title: contextSnapshot.title,
+              }
+            : undefined,
           ...(onNavigate ? { navigate: onNavigate } : {}),
         }}
       />

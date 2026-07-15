@@ -2,6 +2,13 @@
 
 All notable changes to Fabric are documented in this file.
 
+## [0.20.1] - 2026-07-15
+
+### Fixed
+
+- Packaged Fabric releases now include the compiled dashboard, so `fabric dashboard` from a wheel or source distribution serves the same Design workspace verified in web CI.
+- Release promotion now rejects candidates that omit the dashboard index, JavaScript, or CSS instead of publishing an incomplete package.
+
 ## [0.20.0] - 2026-07-15
 
 ### Added
@@ -56,6 +63,7 @@ All notable changes to Fabric are documented in this file.
 
 - Removed unused legacy display fonts and the inherited dashboard styling paths that made Fabric resemble the upstream Hermes interface.
 
-[0.20.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...HEAD
+[0.20.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15...HEAD
+[0.20.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...v2026.7.15
 [0.19.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...HEAD
 [0.19.0]: https://github.com/ObliviousOdin/fabric/releases/tag/v2026.7.14

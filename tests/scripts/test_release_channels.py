@@ -34,7 +34,13 @@ def _write_project(root: Path, version: str = VERSION) -> None:
     )
 
 
-def _write_artifacts(dist: Path, version: str = VERSION) -> None:
+def _write_artifacts(
+    dist: Path,
+    version: str = VERSION,
+    *,
+    include_web_dist: bool = True,
+    web_asset_extensions: tuple[str, ...] = (".js", ".css"),
+) -> None:
     dist.mkdir()
     wheel = dist / f"fabric_agent-{version}-py3-none-any.whl"
     with zipfile.ZipFile(wheel, mode="w") as archive:
@@ -42,6 +48,13 @@ def _write_artifacts(dist: Path, version: str = VERSION) -> None:
             f"fabric_agent-{version}.dist-info/METADATA",
             f"Metadata-Version: 2.4\nName: fabric-agent\nVersion: {version}\n",
         )
+        if include_web_dist:
+            archive.writestr("fabric_cli/web_dist/index.html", "<main>Fabric</main>")
+            for extension in web_asset_extensions:
+                archive.writestr(
+                    f"fabric_cli/web_dist/assets/app{extension}",
+                    "asset",
+                )
 
     source = dist / f"fabric_agent-{version}.tar.gz"
     payload = (
@@ -56,6 +69,16 @@ def _write_artifacts(dist: Path, version: str = VERSION) -> None:
         )
         egg_info.size = len(payload)
         archive.addfile(egg_info, io.BytesIO(payload))
+        if include_web_dist:
+            web_files = [("fabric_cli/web_dist/index.html", b"<main>Fabric</main>")]
+            web_files.extend(
+                (f"fabric_cli/web_dist/assets/app{extension}", b"asset")
+                for extension in web_asset_extensions
+            )
+            for name, content in web_files:
+                asset = tarfile.TarInfo(f"fabric_agent-{version}/{name}")
+                asset.size = len(content)
+                archive.addfile(asset, io.BytesIO(content))
 
 
 def _candidate(tmp_path: Path) -> Path:
@@ -164,6 +187,49 @@ def test_candidate_rejects_package_version_drift(tmp_path):
             source_sha=SOURCE_SHA,
             repository=REPOSITORY,
         )
+
+
+@pytest.mark.parametrize(
+    ("include_web_dist", "web_asset_extensions", "message"),
+    [
+        (False, (".js", ".css"), "packaged dashboard index is missing"),
+        (True, (".css",), "packaged dashboard JavaScript is missing"),
+        (True, (".js",), "packaged dashboard CSS is missing"),
+    ],
+)
+def test_candidate_rejects_incomplete_dashboard_packages(
+    tmp_path,
+    include_web_dist,
+    web_asset_extensions,
+    message,
+):
+    _write_project(tmp_path)
+    dist = tmp_path / "dist"
+    _write_artifacts(
+        dist,
+        include_web_dist=include_web_dist,
+        web_asset_extensions=web_asset_extensions,
+    )
+
+    with pytest.raises(CandidateError, match=message):
+        create_candidate(
+            dist,
+            project_root=tmp_path,
+            source_sha=SOURCE_SHA,
+            repository=REPOSITORY,
+        )
+
+
+def test_release_workflow_builds_dashboard_before_python_packages():
+    workflow = Path(".github/workflows/release-channels.yml").read_text(
+        encoding="utf-8"
+    )
+
+    web_build = workflow.index("npm run --prefix web build")
+    package_build = workflow.index("uv build --sdist --wheel --out-dir dist")
+    candidate_check = workflow.index("python3 scripts/ci/release_candidate.py create")
+
+    assert web_build < package_build < candidate_check
 
 
 def test_only_successful_main_push_run_can_feed_production():

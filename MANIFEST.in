@@ -7,6 +7,9 @@ graft skills
 graft optional-skills
 graft optional-mcps
 graft locales
+# The release workflow builds the dashboard before packaging. Keep the compiled
+# SPA in source distributions so downstream wheel builds preserve web parity.
+graft fabric_cli/web_dist
 # Bundled plugin manifests (plugin.yaml / plugin.yml). Without these the
 # PluginManager scan (fabric_cli/plugins.py) finds zero plugins on installs
 # built from the sdist (e.g. Homebrew, downstream packagers). package-data

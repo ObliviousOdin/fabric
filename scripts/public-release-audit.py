@@ -186,6 +186,15 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
         # these exact metadata findings are acknowledged.
         ("c805aa24307da0edbde1c2ea4a58288186dda215", "personal-email"),
         ("c805aa24307da0edbde1c2ea4a58288186dda215", "private-brand"),
+        # The setup-onboarding and staged-release commits were subsequently
+        # published to main with GitHub-generated committer metadata matching
+        # the private identity rules. Acknowledge only these exact immutable
+        # SHA/rule pairs; new commits and every source-content finding remain
+        # subject to the full audit.
+        ("316ed6a87d08c510ab720d9e44d46b717ffcdc2b", "personal-email"),
+        ("316ed6a87d08c510ab720d9e44d46b717ffcdc2b", "private-brand"),
+        ("68cba300a536585157b33dfe57b257af38919be1", "personal-email"),
+        ("68cba300a536585157b33dfe57b257af38919be1", "private-brand"),
     }
 )
 

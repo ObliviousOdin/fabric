@@ -1,0 +1,310 @@
+name: Fabric release channels
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release action to run from the selected ref
+        required: true
+        default: alpha
+        type: choice
+        options:
+          - alpha
+          - production
+      source_run_id:
+        description: Successful main-branch beta workflow run to promote
+        required: false
+        type: string
+      release_tag:
+        description: New production CalVer tag, for example v2026.7.15
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-channels-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-candidate:
+    name: Build immutable candidate
+    if: github.event_name != 'workflow_dispatch' || inputs.channel == 'alpha'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      source_sha: ${{ steps.manifest.outputs.source_sha }}
+      version: ${{ steps.manifest.outputs.version }}
+    steps:
+      - name: Check out the exact source revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Install locked development dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Test onboarding and release contracts
+        run: >-
+          scripts/run_tests.sh
+          tests/fabric_cli/test_setup.py
+          tests/fabric_cli/test_tools_config.py
+          tests/scripts/test_release_channels.py
+          tests/scripts/test_public_release_audit.py
+          -q
+
+      - name: Build wheel and source distribution
+        run: uv build --sdist --wheel --out-dir dist
+
+      - name: Create provenance manifest
+        id: manifest
+        run: >-
+          python3 scripts/ci/release_candidate.py create
+          --dist dist
+          --project-root .
+          --source-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          --repository "${{ github.repository }}"
+
+      - name: Upload candidate for smoke testing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-candidate-${{ steps.manifest.outputs.source_sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  smoke-candidate:
+    name: Smoke ${{ matrix.os }} package
+    if: github.event_name != 'workflow_dispatch' || inputs.channel == 'alpha'
+    needs: build-candidate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - name: Check out verification code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Download the candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fabric-candidate-${{ needs.build-candidate.outputs.source_sha }}
+          path: dist
+
+      - name: Verify candidate provenance
+        run: >-
+          python scripts/ci/release_candidate.py verify
+          --dist dist
+          --source-sha "${{ needs.build-candidate.outputs.source_sha }}"
+          --repository "${{ github.repository }}"
+
+      - name: Install the built wheel
+        env:
+          CANDIDATE_DIR: ${{ github.workspace }}/dist
+        working-directory: ${{ runner.temp }}
+        run: >-
+          python -c "import glob, os, subprocess, sys;
+          wheels = glob.glob(os.path.join(os.environ['CANDIDATE_DIR'], '*.whl'));
+          assert len(wheels) == 1, wheels;
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install',
+          '--disable-pip-version-check', wheels[0]])"
+
+      - name: Smoke the installed command and onboarding imports
+        working-directory: ${{ runner.temp }}
+        run: >-
+          python -c "import subprocess;
+          import fabric_cli.setup;
+          import fabric_cli.tools_config;
+          subprocess.check_call(['fabric', '--version'])"
+
+  deploy-alpha:
+    name: Deploy alpha candidate
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.channel == 'alpha')
+    needs: [build-candidate, smoke-candidate]
+    runs-on: ubuntu-24.04
+    environment:
+      name: alpha
+    steps:
+      - name: Download the verified candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fabric-candidate-${{ needs.build-candidate.outputs.source_sha }}
+          path: dist
+
+      - name: Publish the alpha artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-alpha-${{ needs.build-candidate.outputs.source_sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  deploy-beta:
+    name: Deploy beta candidate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [build-candidate, smoke-candidate]
+    runs-on: ubuntu-24.04
+    environment:
+      name: beta
+    steps:
+      - name: Download the verified candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fabric-candidate-${{ needs.build-candidate.outputs.source_sha }}
+          path: dist
+
+      - name: Publish the beta artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-beta-${{ needs.build-candidate.outputs.source_sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  validate-production-source:
+    name: Validate beta promotion source
+    if: github.event_name == 'workflow_dispatch' && inputs.channel == 'production'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      version: ${{ steps.candidate.outputs.version }}
+    steps:
+      - name: Require a main-branch production dispatch
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          test "$WORKFLOW_REF" = "refs/heads/main" || {
+            echo "Production must be dispatched from main." >&2
+            exit 1
+          }
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "source_run_id must be a numeric beta workflow run." >&2
+            exit 1
+          }
+          [[ "$RELEASE_TAG" =~ ^v20[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}(\.[2-9][0-9]*)?$ ]] || {
+            echo "release_tag must use vYYYY.M.D or vYYYY.M.D.N." >&2
+            exit 1
+          }
+
+      - name: Check out trusted promotion code from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+
+      - name: Read the beta workflow run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN_ID" > source-run.json
+
+      - name: Validate beta workflow provenance
+        id: source
+        run: >-
+          python3 scripts/ci/validate_release_run.py
+          --run-json source-run.json
+          --repository "${{ github.repository }}"
+
+      - name: Download the exact beta artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: fabric-beta-*
+          path: dist
+          merge-multiple: true
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+
+      - name: Verify the promoted beta bytes
+        id: candidate
+        run: >-
+          python3 scripts/ci/release_candidate.py verify
+          --dist dist
+          --source-sha "${{ steps.source.outputs.source_sha }}"
+          --repository "${{ github.repository }}"
+
+      - name: Seal the production candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-production-candidate-${{ steps.source.outputs.source_sha }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  promote-production:
+    name: Promote approved production release
+    if: github.event_name == 'workflow_dispatch' && inputs.channel == 'production'
+    needs: validate-production-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    environment:
+      name: production
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ inputs.release_tag }}
+    steps:
+      - name: Check out trusted publishing code from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+
+      - name: Download the sealed production candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fabric-production-candidate-${{ needs.validate-production-source.outputs.source_sha }}
+          path: dist
+
+      - name: Re-verify production candidate
+        run: >-
+          python3 scripts/ci/release_candidate.py verify
+          --dist dist
+          --source-sha "${{ needs.validate-production-source.outputs.source_sha }}"
+          --repository "${{ github.repository }}"
+
+      - name: Publish approved production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          python3 scripts/ci/publish_release.py
+          --dist dist
+          --repository "${{ github.repository }}"
+          --source-sha "${{ needs.validate-production-source.outputs.source_sha }}"
+          --tag "${{ inputs.release_tag }}"

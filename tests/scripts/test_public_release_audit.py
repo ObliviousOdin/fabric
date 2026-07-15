@@ -31,6 +31,10 @@ class PublicReleaseAuditTests(unittest.TestCase):
             path = self.root / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("\n".join(fragments), encoding="utf-8")
+        (self.root / ".github/workflows/release-channels.yml").write_text(
+            self._valid_release_workflow(),
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -76,6 +80,12 @@ class PublicReleaseAuditTests(unittest.TestCase):
     def _workflow_safety(self, relative: str, text: str):
         return self.audit._audit_workflow_safety(relative, text)  # noqa: SLF001
 
+    def _release_workflow_contract(self, text: str):
+        return self.audit._audit_release_workflow_contract(  # noqa: SLF001
+            ".github/workflows/release-channels.yml",
+            text,
+        )
+
     def _valid_docs_workflow(self) -> str:
         return """jobs:
   build:
@@ -90,6 +100,40 @@ class PublicReleaseAuditTests(unittest.TestCase):
         run: python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+"""
+
+    def _valid_release_workflow(self) -> str:
+        return """name: Fabric release channels
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy-alpha:
+    environment:
+      name: alpha
+    steps:
+      - run: python3 scripts/ci/release_candidate.py
+  deploy-beta:
+    environment:
+      name: beta
+    steps:
+      - run: python3 scripts/ci/validate_release_run.py
+  validate-production-source:
+    steps:
+      - run: python3 scripts/ci/release_candidate.py
+  promote-production:
+    if: github.event_name == 'workflow_dispatch' && inputs.channel == 'production'
+    needs: validate-production-source
+    permissions:
+      contents: write
+    environment:
+      name: production
+    steps:
+      - run: python3 scripts/ci/publish_release.py
 """
 
     def test_clean_public_snapshot_passes(self) -> None:
@@ -505,6 +549,35 @@ class PublicReleaseAuditTests(unittest.TestCase):
         )
 
         self.assertIn("workflow-surface", {issue.rule for issue in self._issues()})
+
+    def test_release_publication_is_confined_to_production_gate(self) -> None:
+        workflow = self._valid_release_workflow()
+
+        self.assertEqual(self._release_workflow_contract(workflow), [])
+        self.assertEqual(
+            self._workflow_safety(
+                ".github/workflows/release-channels.yml",
+                workflow,
+            ),
+            [],
+        )
+
+    def test_release_workflow_rejects_unguarded_publish_or_write(self) -> None:
+        workflow = self._valid_release_workflow()
+        workflow = workflow.replace(
+            "if: github.event_name == 'workflow_dispatch' && inputs.channel == 'production'",
+            "if: github.event_name == 'push'",
+        )
+        workflow += "\njobs-write:\n  permissions:\n    contents: write\n"
+        issues = self._release_workflow_contract(workflow)
+
+        self.assertTrue(issues)
+        self.assertTrue(
+            any("required gate" in issue.message for issue in issues)
+        )
+        self.assertTrue(
+            any("confined" in issue.message for issue in issues)
+        )
 
     def test_pages_workflow_cannot_write_repository_contents(self) -> None:
         workflow = self.root / ".github/workflows/docs-pages.yml"

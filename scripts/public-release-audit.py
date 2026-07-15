@@ -364,6 +364,16 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa",
         "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e",
     ),
+    ".github/workflows/release-channels.yml": (
+        "name: Fabric release channels",
+        "permissions:\n  contents: read",
+        "name: alpha",
+        "name: beta",
+        "name: production",
+        "python3 scripts/ci/release_candidate.py",
+        "python3 scripts/ci/validate_release_run.py",
+        "python3 scripts/ci/publish_release.py",
+    ),
     "LICENSE": (
         "Apache License",
         "Version 2.0, January 2004",
@@ -403,7 +413,12 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
 }
 
 EXPECTED_PUBLIC_WORKFLOWS = frozenset(
-    {"desktop-packaging.yml", "docs-pages.yml", "public-ci.yml"}
+    {
+        "desktop-packaging.yml",
+        "docs-pages.yml",
+        "public-ci.yml",
+        "release-channels.yml",
+    }
 )
 PRIVATE_REPOSITORY_PREFIXES = (
     ".hermes/",
@@ -424,6 +439,7 @@ WORKFLOW_WRITE_PERMISSION_RE = re.compile(
 )
 ALLOWED_WRITE_PERMISSIONS = {
     "docs-pages.yml": frozenset({"id-token", "pages"}),
+    "release-channels.yml": frozenset({"contents"}),
 }
 WORKFLOW_USES_RE = re.compile(r"(?m)^\s*(?:-\s*)?uses:\s*([^\s#]+)")
 PINNED_ACTION_RE = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")
@@ -951,6 +967,76 @@ def _audit_brand_workflow_contract(relative: str, text: str) -> list[Issue]:
     return issues
 
 
+def _audit_release_workflow_contract(relative: str, text: str) -> list[Issue]:
+    """Keep release publication isolated behind production promotion gates."""
+    if Path(relative).name != "release-channels.yml":
+        return []
+
+    issues: list[Issue] = []
+    match = re.search(
+        r"(?ms)^  promote-production:\s*\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*\n|\Z)",
+        text,
+    )
+    if match is None:
+        return [
+            Issue(
+                "workflow-release-gate",
+                relative,
+                0,
+                "promote-production job is missing",
+            )
+        ]
+
+    body = match.group("body")
+    required_fragments = (
+        "if: github.event_name == 'workflow_dispatch' && inputs.channel == 'production'",
+        "needs: validate-production-source",
+        "contents: write",
+        "name: production",
+        "python3 scripts/ci/publish_release.py",
+    )
+    for fragment in required_fragments:
+        if fragment not in body:
+            issues.append(
+                Issue(
+                    "workflow-release-gate",
+                    relative,
+                    _line_number(text, match.start()),
+                    f"production promotion is missing required gate {fragment!r}",
+                )
+            )
+
+    outside = text[: match.start()] + text[match.end() :]
+    if WORKFLOW_WRITE_PERMISSION_RE.search(outside):
+        issues.append(
+            Issue(
+                "workflow-release-gate",
+                relative,
+                0,
+                "write permission must be confined to promote-production",
+            )
+        )
+    if "python3 scripts/ci/publish_release.py" in outside:
+        issues.append(
+            Issue(
+                "workflow-release-gate",
+                relative,
+                0,
+                "release publication must be confined to promote-production",
+            )
+        )
+    if text.count("python3 scripts/ci/publish_release.py") != 1:
+        issues.append(
+            Issue(
+                "workflow-release-gate",
+                relative,
+                0,
+                "release workflow must contain exactly one publication step",
+            )
+        )
+    return issues
+
+
 def _audit_workflow_safety(relative: str, text: str) -> list[Issue]:
     issues: list[Issue] = []
     for match in UNSAFE_WORKFLOW_RE.finditer(text):
@@ -1042,6 +1128,7 @@ def _audit_workflow_safety(relative: str, text: str) -> list[Issue]:
         )
     if Path(relative).name in {"docs-pages.yml", "public-ci.yml"}:
         issues.extend(_audit_brand_workflow_contract(relative, text))
+    issues.extend(_audit_release_workflow_contract(relative, text))
     return issues
 
 

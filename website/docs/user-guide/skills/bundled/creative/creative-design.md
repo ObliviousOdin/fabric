@@ -1,14 +1,14 @@
 ---
-title: "Design — Design prototypes, product surfaces, and persistent DESIGN"
+title: "Design — Design product surfaces and persistent systems"
 sidebar_label: "Design"
-description: "Design prototypes, product surfaces, and persistent DESIGN"
+description: "Design product surfaces and persistent systems"
 ---
 
 {/* This page is auto-generated from the skill's SKILL.md by website/scripts/generate-skill-docs.py. Edit the source SKILL.md, not this page. */}
 
 # Design
 
-Design prototypes, product surfaces, and persistent DESIGN.md systems.
+Design product surfaces and persistent systems.
 
 ## Skill metadata
 
@@ -20,6 +20,8 @@ Design prototypes, product surfaces, and persistent DESIGN.md systems.
 | Author | Fabric |
 | License | MIT |
 | Platforms | linux, macos, windows |
+| Tags | `design`, `ui`, `ux`, `prototype`, `artifact`, `design-system`, `design-md` |
+| Related skills | [`claude-design`](/user-guide/skills/bundled/creative/creative-claude-design), [`design-md`](/user-guide/skills/bundled/creative/creative-design-md), [`popular-web-designs`](/user-guide/skills/bundled/creative/creative-popular-web-designs) |
 
 ## Reference: full SKILL.md
 

@@ -2,6 +2,19 @@
 
 All notable changes to Fabric are documented in this file.
 
+## [0.19.1] - 2026-07-15
+
+### Added
+
+- Added fully resolved semantic light/dark theme exports so desktop surfaces can consume the canonical Fabric design-system roles without duplicating palette values.
+- Added the official responsive Fabric wordmark to the desktop chat introduction, with distinct assets for light and dark appearances.
+
+### Changed
+
+- Refactored the default desktop theme onto Fabric's warm neutral canvas, restrained violet actions, system typography, and shared semantic surface hierarchy while preserving existing alternate themes.
+- Standardized desktop dialogs, onboarding, recovery, update, notification, and picker surfaces on the shared overlay background, stroke, and shadow tokens without changing their layout.
+- Removed the inherited display-font treatment from the chat introduction in favor of Fabric-owned brand assets.
+
 ## [0.19.0] - 2026-07-14
 
 ### Added
@@ -27,4 +40,5 @@ All notable changes to Fabric are documented in this file.
 
 - Removed unused legacy display fonts and the inherited dashboard styling paths that made Fabric resemble the upstream Hermes interface.
 
+[0.19.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...HEAD
 [0.19.0]: https://github.com/ObliviousOdin/fabric/releases/tag/v2026.7.14

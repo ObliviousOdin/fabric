@@ -81,7 +81,7 @@ const productViews = [
     image: "/img/product/fabric-tui-help.png",
     width: 1280,
     height: 720,
-    alt: "Fabric TUI showing its command help, active local model, and session status",
+    alt: "Fabric TUI showing command help and session status inside the Fabric Light dashboard",
     href: "/user-guide/tui",
   },
   {

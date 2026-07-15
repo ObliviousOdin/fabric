@@ -32,7 +32,7 @@ display:
 
 | Skin | Description | Agent branding | Visual character |
 |------|-------------|----------------|------------------|
-| `default` | Classic Fabric — gold and kawaii | `Fabric` | Warm gold borders, cornsilk text, kawaii faces in spinners. The familiar caduceus banner. Clean and inviting. |
+| `default` | Fabric — primary violet and kawaii | `Fabric` | Violet borders, lavender accents, the Fabric mark, and kawaii faces in spinners. |
 | `ares` | War-god theme — crimson and bronze | `Ares Agent` | Deep crimson borders with bronze accents. Aggressive spinner verbs ("forging", "marching", "tempering steel"). Custom sword-and-shield ASCII art banner. |
 | `mono` | Monochrome — clean grayscale | `Fabric` | All grays — no color. Borders are `#555555`, text is `#c9d1d9`. Ideal for minimal terminal setups or screen recordings. |
 | `slate` | Cool blue — developer-focused | `Fabric` | Royal blue borders (`#4169e1`), soft blue text. Calm and professional. No custom spinner — uses default faces. |
@@ -50,28 +50,28 @@ Controls all color values throughout the CLI. Values are hex color strings.
 
 | Key | Description | Default (`default` skin) |
 |-----|-------------|--------------------------|
-| `banner_border` | Panel border around the startup banner | `#CD7F32` (bronze) |
-| `banner_title` | Title text color in the banner | `#FFD700` (gold) |
-| `banner_accent` | Section headers in the banner (Available Tools, etc.) | `#FFBF00` (amber) |
-| `banner_dim` | Muted text in the banner (separators, secondary labels) | `#B8860B` (dark goldenrod) |
-| `banner_text` | Body text in the banner (tool names, skill names) | `#FFF8DC` (cornsilk) |
-| `ui_accent` | General UI accent color (highlights, active elements) | `#FFBF00` |
-| `ui_label` | UI labels and tags | `#4dd0e1` (teal) |
-| `ui_ok` | Success indicators (checkmarks, completion) | `#4caf50` (green) |
-| `ui_error` | Error indicators (failures, blocked) | `#ef5350` (red) |
-| `ui_warn` | Warning indicators (caution, approval prompts) | `#ffa726` (orange) |
-| `prompt` | Interactive prompt text color | `#FFF8DC` |
-| `input_rule` | Horizontal rule above the input area | `#CD7F32` |
-| `response_border` | Border around the agent's response box (ANSI escape) | `#FFD700` |
-| `session_label` | Session label color | `#DAA520` |
-| `session_border` | Session ID dim border color | `#8B8682` |
-| `status_bar_bg` | Background color for the TUI status / usage bar | `#1a1a2e` |
-| `voice_status_bg` | Background color for the voice-mode status badge | `#1a1a2e` |
-| `selection_bg` | Background color for the TUI mouse-selection highlighter. Falls back to `completion_menu_current_bg` when unset. | `#333355` |
-| `completion_menu_bg` | Background color for the completion menu list | `#1a1a2e` |
-| `completion_menu_current_bg` | Background color for the active completion row | `#333355` |
-| `completion_menu_meta_bg` | Background color for the completion meta column | `#1a1a2e` |
-| `completion_menu_meta_current_bg` | Background color for the active completion meta column | `#333355` |
+| `banner_border` | Panel border around the startup banner | `#4628CC` (Fabric violet) |
+| `banner_title` | Title text color in the banner | `#9481E6` (lavender) |
+| `banner_accent` | Section headers in the banner (Available Tools, etc.) | `#7C66E1` |
+| `banner_dim` | Muted text in the banner (separators, secondary labels) | `#667085` |
+| `banner_text` | Body text in the banner (tool names, skill names) | `#F0EDFB` |
+| `ui_accent` | General UI accent color (highlights, active elements) | `#7C66E1` |
+| `ui_label` | UI labels and tags | `#9481E6` |
+| `ui_ok` | Success indicators (checkmarks, completion) | `#0F9545` (green) |
+| `ui_error` | Error indicators (failures, blocked) | `#EA2A37` (red) |
+| `ui_warn` | Warning indicators (caution, approval prompts) | `#E09818` (amber) |
+| `prompt` | Interactive prompt text color | `#F0EDFB` |
+| `input_rule` | Horizontal rule above the input area | `#4628CC` |
+| `response_border` | Border around the agent's response box (ANSI escape) | `#4628CC` |
+| `session_label` | Session label color | `#9481E6` |
+| `session_border` | Session ID dim border color | `#667085` |
+| `status_bar_bg` | Background color for the TUI status / usage bar | `#19294D` |
+| `voice_status_bg` | Background color for the voice-mode status badge | `#19294D` |
+| `selection_bg` | Background color for the TUI mouse-selection highlighter. Falls back to `completion_menu_current_bg` when unset. | `#25156B` |
+| `completion_menu_bg` | Background color for the completion menu list | `#19294D` |
+| `completion_menu_current_bg` | Background color for the active completion row | `#25156B` |
+| `completion_menu_meta_bg` | Background color for the completion meta column | `#19294D` |
+| `completion_menu_meta_current_bg` | Background color for the active completion meta column | `#25156B` |
 
 ### Spinner (`spinner:`)
 
@@ -93,11 +93,11 @@ Text strings used throughout the CLI interface.
 | Key | Description | Default |
 |-----|-------------|---------|
 | `agent_name` | Name shown in banner title and status display | `Fabric` |
-| `welcome` | Welcome message shown at CLI startup | `Welcome to Fabric! Type your message or /help for commands.` |
-| `goodbye` | Message shown on exit | `Goodbye! ⚕` |
-| `response_label` | Label on the response box header | ` ⚕ Fabric ` |
+| `welcome` | Welcome message shown at CLI startup | `Fabric. Type a message or /help for commands.` |
+| `goodbye` | Message shown on exit | `Fabric session closed.` |
+| `response_label` | Label on the response box header | ` Fabric ` |
 | `prompt_symbol` | Symbol before the user input prompt (bare token, renderers add a trailing space) | `❯` |
-| `help_header` | Header text for the `/help` command output | `(^_^)? Available Commands` |
+| `help_header` | Header text for the `/help` command output | `Fabric commands` |
 
 ### Other top-level keys
 
@@ -105,8 +105,8 @@ Text strings used throughout the CLI interface.
 |-----|------|-------------|---------|
 | `tool_prefix` | string | Character prefixed to tool output lines in the CLI | `┊` |
 | `tool_emojis` | dict | Per-tool emoji overrides for spinners and progress (`{tool_name: emoji}`) | `{}` |
-| `banner_logo` | string | Rich-markup ASCII art logo (replaces the default HERMES_AGENT banner) | `""` |
-| `banner_hero` | string | Rich-markup hero art (replaces the default caduceus art) | `""` |
+| `banner_logo` | string | Rich-markup ASCII art logo (replaces the default Fabric wordmark) | Fabric wordmark |
+| `banner_hero` | string | Rich-markup hero art (replaces the default Fabric mark) | Fabric mark |
 
 ## Custom skins
 
@@ -123,28 +123,28 @@ name: mytheme
 description: My custom theme
 
 colors:
-  banner_border: "#CD7F32"
-  banner_title: "#FFD700"
-  banner_accent: "#FFBF00"
-  banner_dim: "#B8860B"
-  banner_text: "#FFF8DC"
-  ui_accent: "#FFBF00"
-  ui_label: "#4dd0e1"
-  ui_ok: "#4caf50"
-  ui_error: "#ef5350"
-  ui_warn: "#ffa726"
-  prompt: "#FFF8DC"
-  input_rule: "#CD7F32"
-  response_border: "#FFD700"
-  session_label: "#DAA520"
-  session_border: "#8B8682"
-  status_bar_bg: "#1a1a2e"
-  voice_status_bg: "#1a1a2e"
-  selection_bg: "#333355"
-  completion_menu_bg: "#1a1a2e"
-  completion_menu_current_bg: "#333355"
-  completion_menu_meta_bg: "#1a1a2e"
-  completion_menu_meta_current_bg: "#333355"
+  banner_border: "#4628CC"
+  banner_title: "#9481E6"
+  banner_accent: "#7C66E1"
+  banner_dim: "#667085"
+  banner_text: "#F0EDFB"
+  ui_accent: "#7C66E1"
+  ui_label: "#9481E6"
+  ui_ok: "#0F9545"
+  ui_error: "#EA2A37"
+  ui_warn: "#E09818"
+  prompt: "#F0EDFB"
+  input_rule: "#4628CC"
+  response_border: "#4628CC"
+  session_label: "#9481E6"
+  session_border: "#667085"
+  status_bar_bg: "#19294D"
+  voice_status_bg: "#19294D"
+  selection_bg: "#25156B"
+  completion_menu_bg: "#19294D"
+  completion_menu_current_bg: "#25156B"
+  completion_menu_meta_bg: "#19294D"
+  completion_menu_meta_current_bg: "#25156B"
 
 spinner:
   waiting_faces:

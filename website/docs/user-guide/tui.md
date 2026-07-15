@@ -12,8 +12,8 @@ The TUI is the modern front-end for Fabric — a terminal UI backed by the same 
 
 It's the recommended way to run Fabric interactively.
 
-<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-tui-help.png')} width="1280" height="720" alt="Fabric TUI showing command help, installed skill commands, an active local Ollama model, and session status." />
-<p className="docs-figure-caption">The real TUI running inside Fabric's browser dashboard. The terminal and dashboard use the same TUI binary.</p>
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-tui-help.png')} width="1280" height="720" alt="Fabric TUI showing command help, installed skill commands, and session status inside the Fabric Light dashboard." />
+<p className="docs-figure-caption">The real TUI running inside Fabric's browser dashboard, shown with Fabric Light. The terminal and dashboard use the same TUI binary.</p>
 
 ## Launch
 

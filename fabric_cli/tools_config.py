@@ -27,6 +27,7 @@ from fabric_cli.config import (
 )
 from fabric_cli.colors import Colors, color
 from fabric_cli.fabric_capabilities import fabric_model_provider_visible
+from fabric_cli.fallback_config import get_fallback_chain
 from fabric_cli.nous_subscription import (
     apply_nous_managed_defaults,
     get_nous_subscription_features,
@@ -145,6 +146,21 @@ def _xai_credentials_present() -> bool:
     except Exception:
         pass
     return bool(str(os.environ.get("XAI_API_KEY") or "").strip())
+
+
+def _configured_model_providers(config: dict) -> list[str]:
+    """Return the primary and fallback inference providers in runtime order."""
+    providers: list[str] = []
+    model_cfg = config.get("model")
+    if isinstance(model_cfg, dict):
+        primary = str(model_cfg.get("provider") or "").strip()
+        if primary:
+            providers.append(primary)
+    for entry in get_fallback_chain(config):
+        provider = str(entry.get("provider") or "").strip()
+        if provider and provider not in providers:
+            providers.append(provider)
+    return providers
 
 # Platform-scoped toolsets: only appear in the `fabric tools` checklist for
 # these platforms, and only resolve/save for these platforms.  A toolset
@@ -2662,6 +2678,8 @@ def _visible_providers(
     # cannot trigger an account probe merely by opening a direct-provider
     # picker. Explicit legacy mode continues through the upstream entitlement
     # filtering below.
+    providers = _apply_subscription_provider_recommendations(cat, providers, config)
+
     if not fabric_model_provider_visible("nous"):
         return _apply_fabric_provider_policy(providers)
 
@@ -2701,6 +2719,28 @@ def _visible_providers(
         visible.append(provider)
 
     return _apply_fabric_provider_policy(visible)
+
+
+def _apply_subscription_provider_recommendations(
+    cat: dict,
+    providers: list[dict],
+    config: dict,
+) -> list[dict]:
+    """Recommend subscription-backed voice when Grok is already connected."""
+    if cat.get("name") != "Text-to-Speech":
+        return providers
+    if "xai-oauth" not in _configured_model_providers(config):
+        return providers
+
+    recommended: list[dict] = []
+    for provider in providers:
+        row = dict(provider)
+        if row.get("tts_provider") == "xai":
+            row["badge"] = "★ recommended · included with Grok subscription"
+        elif row.get("tts_provider") == "edge":
+            row["badge"] = "free fallback"
+        recommended.append(row)
+    return recommended
 
 
 def _hidden_nous_gateway_message(
@@ -4394,6 +4434,69 @@ def _reconfigure_simple_requirements(ts_key: str):
             _print_info("    Kept current")
 
 
+def _apply_model_aware_first_install_defaults(
+    config: dict,
+    enabled_toolsets: Set[str],
+) -> Set[str]:
+    """Configure image and voice from subscriptions chosen earlier in setup.
+
+    These providers are global, not platform-specific. An explicit existing
+    choice always wins (important for migrations); otherwise image generation
+    follows the primary language provider and Grok voice is preferred whenever
+    xAI OAuth is present anywhere in the primary/fallback chain.
+    """
+    configured: Set[str] = set()
+    model_providers = _configured_model_providers(config)
+
+    if "image_gen" in enabled_toolsets:
+        image_cfg = config.get("image_gen")
+        if not isinstance(image_cfg, dict):
+            image_cfg = {}
+            config["image_gen"] = image_cfg
+
+        if str(image_cfg.get("provider") or "").strip():
+            configured.add("image_gen")
+        elif model_providers:
+            image_provider = {
+                "openai-codex": ("openai-codex", "ChatGPT subscription"),
+                "xai-oauth": ("xai", "Grok subscription"),
+            }.get(model_providers[0])
+            if image_provider:
+                plugin_name, label = image_provider
+                catalog, default_model = _plugin_image_gen_catalog(plugin_name)
+                if catalog and default_model:
+                    image_cfg["provider"] = plugin_name
+                    image_cfg["model"] = default_model
+                    image_cfg["use_gateway"] = False
+                    configured.add("image_gen")
+                    _print_success(
+                        f"  Image Generation: using {label} ({default_model})"
+                    )
+
+    if "tts" in enabled_toolsets:
+        tts_cfg = config.get("tts")
+        if not isinstance(tts_cfg, dict):
+            tts_cfg = {}
+            config["tts"] = tts_cfg
+
+        if str(tts_cfg.get("provider") or "").strip():
+            configured.add("tts")
+        elif "xai-oauth" in model_providers:
+            tts_cfg["provider"] = "xai"
+            tts_cfg["use_gateway"] = False
+            configured.add("tts")
+            _print_success(
+                "  Text-to-Speech: using Grok subscription (recommended)"
+            )
+        else:
+            tts_cfg["provider"] = "edge"
+            tts_cfg["use_gateway"] = False
+            configured.add("tts")
+            _print_success("  Text-to-Speech: using Microsoft Edge TTS (free default)")
+
+    return configured
+
+
 # ─── Main Entry Point ─────────────────────────────────────────────────────────
 
 def tools_command(args=None, first_install: bool = False, config: dict = None):
@@ -4440,6 +4543,7 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
 
     # ── First-time install: linear flow, no platform menu ──
     if first_install:
+        configured_toolsets: Set[str] = set()
         for pkey in enabled_platforms:
             pinfo = PLATFORMS[pkey]
             current_enabled = _get_platform_tools(config, pkey, include_default_mcp_servers=False)
@@ -4468,16 +4572,21 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
                     label = next((l for k, l, _ in _get_effective_configurable_toolsets() if k == ts), ts)
                     print(color(f"  - {label}", Colors.RED))
 
-            auto_configured = set()
+            nous_auto_configured = set()
             if fabric_model_provider_visible("nous"):
-                auto_configured = apply_nous_managed_defaults(
+                nous_auto_configured = apply_nous_managed_defaults(
                     config,
                     enabled_toolsets=new_enabled,
                     force_fresh=True,
                 )
-            for ts_key in sorted(auto_configured):
+            for ts_key in sorted(nous_auto_configured):
                 label = next((l for k, l, _ in CONFIGURABLE_TOOLSETS if k == ts_key), ts_key)
                 print(color(f"  ✓ {label}: using your Nous subscription defaults", Colors.GREEN))
+
+            auto_configured = nous_auto_configured | _apply_model_aware_first_install_defaults(
+                config,
+                new_enabled,
+            )
 
             # Walk through ALL selected tools that have provider options or
             # need API keys.  This ensures browser (Local vs Browserbase),
@@ -4487,6 +4596,7 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
                 ts_key for ts_key in sorted(new_enabled)
                 if (TOOL_CATEGORIES.get(ts_key) or TOOLSET_ENV_REQUIREMENTS.get(ts_key))
                 and ts_key not in auto_configured
+                and ts_key not in configured_toolsets
             ]
 
             if to_configure:
@@ -4499,6 +4609,12 @@ def tools_command(args=None, first_install: bool = False, config: dict = None):
                 print()
                 for ts_key in to_configure:
                     _configure_toolset(ts_key, config)
+
+            # Provider credentials/config are global. If several messaging
+            # platforms are already enabled (for example after migration), do
+            # not ask for the same provider again for each platform checklist.
+            configured_toolsets.update(auto_configured)
+            configured_toolsets.update(to_configure)
 
             _save_platform_tools(config, pkey, new_enabled)
             save_config(config)

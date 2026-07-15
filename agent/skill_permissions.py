@@ -299,6 +299,30 @@ def _prepare_skill_permission_lease(
     )
 
 
+def _resolve_task_workspace_root(scope_id: str | None) -> Path | None:
+    """Resolve the workspace root the file tools resolve relative paths against.
+
+    A skill's ``workspace`` file grant authorizes relative ``write_file`` /
+    ``patch`` / ``search_files`` paths, but those tools resolve the same relative
+    paths against the task's authoritative workspace root (a registered
+    TUI/Desktop/ACP workspace, or the live terminal cwd), which can differ from
+    the Python process cwd. Binding the lease to that same anchor keeps an
+    enforced ``workspace`` grant aligned with where paths actually land, instead
+    of authorizing/denying against an unrelated process cwd. Returns ``None`` when
+    no anchor is known, so ``_lease_from_contract`` keeps its process-cwd default.
+    """
+
+    if not scope_id:
+        return None
+    try:
+        from tools.file_tools import _authoritative_workspace_root
+
+        anchor = _authoritative_workspace_root(str(scope_id))
+    except Exception:
+        return None
+    return Path(anchor) if anchor else None
+
+
 def activate_skill_permission_lease(
     *,
     skill_dir: Path,
@@ -316,6 +340,8 @@ def activate_skill_permission_lease(
     that mode's enforced population.
     """
 
+    if workspace_root is None:
+        workspace_root = _resolve_task_workspace_root(task_id or session_id)
     decision, lease = _prepare_skill_permission_lease(
         skill_dir=skill_dir,
         canonical_name=canonical_name,
@@ -382,6 +408,8 @@ def stage_skill_permission_lease(
     into every later turn; ordinary slash/bundle activations are consumed once.
     """
 
+    if workspace_root is None:
+        workspace_root = _resolve_task_workspace_root(scope_id)
     decision, lease = _prepare_skill_permission_lease(
         skill_dir=skill_dir,
         canonical_name=canonical_name,

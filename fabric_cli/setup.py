@@ -799,13 +799,192 @@ def _prompt_container_resources(config: dict):
 
 
 
-def setup_model_provider(config: dict, *, quick: bool = False):
+_GUIDED_SUBSCRIPTION_PROVIDERS = (
+    (
+        "openai-codex",
+        "ChatGPT subscription",
+        "Sign in with ChatGPT and choose an OpenAI Codex model",
+    ),
+    (
+        "xai-oauth",
+        "Grok subscription",
+        "Sign in with SuperGrok / Premium+ and choose a Grok model",
+    ),
+)
+
+
+def _guided_subscription_preselected(config: dict) -> list[int]:
+    """Choose sensible defaults for the guided subscription checklist."""
+    from fabric_cli.auth import get_codex_auth_status, get_xai_oauth_auth_status
+    from fabric_cli.fallback_config import get_fallback_chain
+
+    configured = set()
+    model_cfg = config.get("model")
+    if isinstance(model_cfg, dict) and model_cfg.get("provider"):
+        configured.add(str(model_cfg["provider"]).strip())
+    configured.update(entry["provider"] for entry in get_fallback_chain(config))
+
+    status_checks = {
+        "openai-codex": get_codex_auth_status,
+        "xai-oauth": get_xai_oauth_auth_status,
+    }
+    for provider, check in status_checks.items():
+        try:
+            if check().get("logged_in"):
+                configured.add(provider)
+        except Exception:
+            pass
+
+    selected = [
+        index
+        for index, (provider, _label, _description) in enumerate(
+            _GUIDED_SUBSCRIPTION_PROVIDERS
+        )
+        if provider in configured
+    ]
+    return selected or [0]
+
+
+def _guided_model_route(model_cfg: object) -> tuple[dict, dict] | None:
+    """Return normalized primary/fallback snapshots for a selected model."""
+    from fabric_cli.fallback_cmd import _extract_fallback_from_model_cfg
+
+    fallback = _extract_fallback_from_model_cfg(model_cfg)
+    if not fallback:
+        return None
+    primary = {
+        "provider": fallback["provider"],
+        "default": fallback["model"],
+    }
+    for key in ("base_url", "api_mode"):
+        if fallback.get(key):
+            primary[key] = fallback[key]
+    return primary, fallback
+
+
+def _setup_guided_subscription_models(config: dict) -> None:
+    """Connect one or both first-party subscriptions in a single model step.
+
+    Fabric already models multiple inference routes as one primary plus an
+    ordered fallback chain. Guided setup uses that existing contract: each
+    selected subscription owns its normal login/model picker, then the chosen
+    primary is restored after the second picker temporarily makes itself
+    active.
+    """
+    from fabric_cli.config import load_config, save_config
+    from fabric_cli.fallback_cmd import (
+        _restore_auth_active_provider,
+        _write_chain,
+    )
+    from fabric_cli.fallback_config import get_fallback_chain
+    from fabric_cli import main as main_cli
+
+    items = [
+        f"{label} — {description}"
+        for _provider, label, description in _GUIDED_SUBSCRIPTION_PROVIDERS
+    ]
+    selected_indices = prompt_checklist(
+        "Choose the model subscriptions you want to connect:",
+        items,
+        _guided_subscription_preselected(config),
+    )
+    selected = [
+        _GUIDED_SUBSCRIPTION_PROVIDERS[index]
+        for index in selected_indices
+        if 0 <= index < len(_GUIDED_SUBSCRIPTION_PROVIDERS)
+    ]
+    if not selected:
+        print_info(
+            "No model subscription selected. Configure one later with 'fabric model'."
+        )
+        return
+
+    if len(selected) > 1:
+        primary_index = prompt_choice(
+            "Which subscription should be your primary chat model?",
+            [
+                f"{label} (use the other as fallback)"
+                for _provider, label, _desc in selected
+            ],
+            0,
+        )
+        selected.insert(0, selected.pop(primary_index))
+
+    successful: list[tuple[str, str, dict, dict]] = []
+    for provider, label, _description in selected:
+        print()
+        print_header(f"Connect {label}")
+        try:
+            if provider == "openai-codex":
+                main_cli._model_flow_openai_codex(load_config(), "")
+            else:
+                main_cli._model_flow_xai_oauth(load_config(), "", args=None)
+        except (SystemExit, KeyboardInterrupt):
+            print()
+            print_info(f"{label} setup skipped.")
+            continue
+        except Exception as exc:
+            logger.debug("%s guided setup error: %s", provider, exc)
+            print_warning(f"{label} setup encountered an error: {exc}")
+            continue
+
+        refreshed = load_config()
+        route = _guided_model_route(refreshed.get("model"))
+        if route and route[0]["provider"] == provider:
+            successful.append((provider, label, route[0], route[1]))
+        else:
+            print_warning(
+                f"{label} setup did not complete; continuing with other selections."
+            )
+
+    if not successful:
+        config.clear()
+        config.update(load_config())
+        return
+
+    final_config = load_config()
+    selected_providers = {
+        provider for provider, _label, _primary, _fallback in successful
+    }
+    existing_chain = [
+        entry
+        for entry in get_fallback_chain(final_config)
+        if entry.get("provider") not in selected_providers
+    ]
+    chain = [
+        fallback for _provider, _label, _primary, fallback in successful[1:]
+    ]
+    chain.extend(existing_chain)
+
+    primary_provider, primary_label, primary_model, _primary_fallback = successful[0]
+    final_config["model"] = primary_model
+    _write_chain(final_config, chain)
+    save_config(final_config)
+    _restore_auth_active_provider(primary_provider)
+
+    config.clear()
+    config.update(final_config)
+
+    print()
+    print_success(
+        f"Primary chat model: {primary_model['default']} via {primary_label}"
+    )
+    for _provider, label, _model, fallback in successful[1:]:
+        print_success(f"Fallback model: {fallback['model']} via {label}")
+
+
+def setup_model_provider(
+    config: dict,
+    *,
+    quick: bool = False,
+    guided: bool = False,
+):
     """Configure the inference provider and default model.
 
-    Delegates to ``cmd_model()`` (the same flow used by ``fabric model``)
-    for provider selection, credential prompting, and model picking.
-    This ensures a single code path for all provider setup — any new
-    provider added to ``fabric model`` is automatically available here.
+    Guided onboarding composes the existing ChatGPT and Grok model flows so
+    either or both subscriptions can be connected in one section. Standalone
+    and advanced setup delegate to ``cmd_model()`` (the same flow used by
+    ``fabric model``), keeping the full provider catalog available there.
 
     When *quick* is True, skips credential rotation, vision, and TTS
     configuration — used by the streamlined first-time quick setup.
@@ -817,18 +996,21 @@ def setup_model_provider(config: dict, *, quick: bool = False):
     print_info(f"   Guide: {_DOCS_BASE}/integrations/providers")
     print()
 
-    # Delegate to the shared fabric model flow — handles provider picker,
-    # credential prompting, model selection, and config persistence.
-    from fabric_cli.main import select_provider_and_model
-    try:
-        select_provider_and_model()
-    except (SystemExit, KeyboardInterrupt):
-        print()
-        print_info("Provider setup skipped.")
-    except Exception as exc:
-        logger.debug("select_provider_and_model error during setup: %s", exc)
-        print_warning(f"Provider setup encountered an error: {exc}")
-        print_info("You can try again later with: fabric model")
+    if guided:
+        _setup_guided_subscription_models(config)
+    else:
+        # Delegate to the shared fabric model flow — handles provider picker,
+        # credential prompting, model selection, and config persistence.
+        from fabric_cli.main import select_provider_and_model
+        try:
+            select_provider_and_model()
+        except (SystemExit, KeyboardInterrupt):
+            print()
+            print_info("Provider setup skipped.")
+        except Exception as exc:
+            logger.debug("select_provider_and_model error during setup: %s", exc)
+            print_warning(f"Provider setup encountered an error: {exc}")
+            print_info("You can try again later with: fabric model")
 
     # Re-sync the wizard's config dict from what cmd_model saved to disk.
     # This is critical: cmd_model writes to disk via its own load/save cycle,
@@ -2056,34 +2238,45 @@ def _setup_webhooks():
     print_info("   Open config in your editor:  fabric config edit")
 
 
-def setup_gateway(config: dict):
-    """Configure messaging platform integrations."""
+def setup_gateway(
+    config: dict,
+    *,
+    defer_service_setup: bool = False,
+    service_only: bool = False,
+):
+    """Configure messaging integrations and their background service.
+
+    First-time onboarding defers service setup until after tool configuration,
+    so newly connected platforms still get their tool checklists while the
+    gateway is started or restarted only once with the completed config.
+    """
     from fabric_cli.gateway import _all_platforms, _platform_status, _configure_platform
 
-    print_header("Messaging Platforms")
-    print_info("Connect to messaging platforms to chat with Fabric from anywhere.")
-    print_info("Toggle with Space, confirm with Enter.")
-    print()
+    if not service_only:
+        print_header("Messaging Platforms")
+        print_info("Connect to messaging platforms to chat with Fabric from anywhere.")
+        print_info("Toggle with Space, confirm with Enter.")
+        print()
 
-    platforms = _all_platforms()
+        platforms = _all_platforms()
 
-    # Build checklist, pre-selecting already-configured platforms.
-    items = []
-    pre_selected = []
-    for i, plat in enumerate(platforms):
-        status = _platform_status(plat)
-        items.append(f"{plat['emoji']} {plat['label']}  ({status})")
-        if status == "configured":
-            pre_selected.append(i)
+        # Build checklist, pre-selecting already-configured platforms.
+        items = []
+        pre_selected = []
+        for i, plat in enumerate(platforms):
+            status = _platform_status(plat)
+            items.append(f"{plat['emoji']} {plat['label']}  ({status})")
+            if status == "configured":
+                pre_selected.append(i)
 
-    selected = prompt_checklist("Select platforms to configure:", items, pre_selected)
+        selected = prompt_checklist("Select platforms to configure:", items, pre_selected)
 
-    if not selected:
-        print_info("No platforms selected. Run 'fabric setup gateway' later to configure.")
-        return
+        if not selected:
+            print_info("No platforms selected. Run 'fabric setup gateway' later to configure.")
+            return False
 
-    for idx in selected:
-        _configure_platform(platforms[idx])
+        for idx in selected:
+            _configure_platform(platforms[idx])
 
     # ── Gateway Service Setup ──
     # Count any platform (built-in or plugin) the user configured during this
@@ -2100,6 +2293,9 @@ def setup_gateway(config: dict):
     any_messaging = any(
         _is_progress(_platform_status(p)) for p in _all_platforms()
     )
+    if defer_service_setup:
+        return any_messaging
+
     if any_messaging:
         print()
         print_info("━" * 50)
@@ -2289,6 +2485,8 @@ def setup_gateway(config: dict):
                 print_info("   fabric gateway              # Run in foreground")
 
         print_info("━" * 50)
+
+    return any_messaging
 
 
 # =============================================================================
@@ -3003,7 +3201,7 @@ def run_setup_wizard(args):
         setup_mode = prompt_choice(
             "How would you like to set up Fabric?",
             [
-                "Guided setup — choose GPT or Grok, then configure tools and messaging (recommended)",
+                "Guided setup — connect ChatGPT, Grok, or both; then configure tools and messaging (recommended)",
                 "Full setup — configure GPT or Grok, tools, and every advanced option",
                 "Blank Slate — everything off except the bare minimum; opt in to each capability",
             ],
@@ -3032,7 +3230,10 @@ def run_setup_wizard(args):
 
     # Section 1: Model & Provider
     if not (migration_ran and _skip_configured_section(config, "model", "Model & Provider")):
-        setup_model_provider(config)
+        if guided_setup:
+            setup_model_provider(config, guided=True)
+        else:
+            setup_model_provider(config)
 
     # Section 2: Terminal Backend. Guided first-run setup keeps the safe local
     # default and leaves advanced execution backends to `fabric setup terminal`.
@@ -3057,13 +3258,35 @@ def run_setup_wizard(args):
     if not is_existing:
         _apply_default_agent_settings(config)
 
-    # Section 4: Messaging Platforms
-    if not (migration_ran and _skip_configured_section(config, "gateway", "Messaging Platforms")):
-        setup_gateway(config)
+    skip_gateway = migration_ran and _skip_configured_section(
+        config, "gateway", "Messaging Platforms"
+    )
+    skip_tools = migration_ran and _skip_configured_section(config, "tools", "Tools")
 
-    # Section 5: Tools
-    if not (migration_ran and _skip_configured_section(config, "tools", "Tools")):
-        setup_tools(config, first_install=not is_existing)
+    if not is_existing:
+        # Section 4: Messaging Platforms. Save credentials first so the tools
+        # section sees every newly connected platform, but defer service setup
+        # until all configuration writes are complete.
+        gateway_service_pending = False
+        if not skip_gateway:
+            gateway_service_pending = (
+                setup_gateway(config, defer_service_setup=True) is True
+            )
+
+        # Section 5: Tools
+        if not skip_tools:
+            setup_tools(config, first_install=True)
+
+        if gateway_service_pending:
+            setup_gateway(config, service_only=True)
+    else:
+        # Existing installs already expose their configured platforms to the
+        # tools section. Keep the gateway last so its one restart picks up all
+        # changes made during this reconfiguration pass.
+        if not skip_tools:
+            setup_tools(config, first_install=False)
+        if not skip_gateway:
+            setup_gateway(config)
 
     # Optional private remote access belongs to the first-run edge of setup,
     # not Fabric's persistent config. Tailscale owns the node credential and

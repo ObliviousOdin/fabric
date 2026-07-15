@@ -9,6 +9,7 @@ import pytest
 from fabric_cli.nous_account import NousPortalAccountInfo
 from fabric_cli.tools_config import (
     _DEFAULT_OFF_TOOLSETS,
+    _apply_model_aware_first_install_defaults,
     _apply_toolset_change,
     _checklist_toolset_keys,
     _configure_provider,
@@ -1451,6 +1452,130 @@ def test_first_install_nous_auto_configures_video_gen(monkeypatch):
     assert config["video_gen"]["use_gateway"] is True
     # video_gen should NOT appear in the manual configure list — it's auto-configured
     assert "video_gen" not in configured
+
+
+def test_first_install_uses_primary_chatgpt_for_images_and_grok_for_voice(
+    monkeypatch,
+):
+    """Image follows the primary model while voice can use any Grok fallback."""
+    config = {
+        "model": {"provider": "openai-codex", "default": "gpt-5.4"},
+        "fallback_providers": [
+            {"provider": "xai-oauth", "model": "grok-4.1"},
+        ],
+    }
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._plugin_image_gen_catalog",
+        lambda provider: (
+            ({"gpt-image-test": {"id": "gpt-image-test"}}, "gpt-image-test")
+            if provider == "openai-codex"
+            else ({}, None)
+        ),
+    )
+
+    configured = _apply_model_aware_first_install_defaults(
+        config,
+        {"image_gen", "tts"},
+    )
+
+    assert configured == {"image_gen", "tts"}
+    assert config["image_gen"] == {
+        "provider": "openai-codex",
+        "model": "gpt-image-test",
+        "use_gateway": False,
+    }
+    assert config["tts"] == {"provider": "xai", "use_gateway": False}
+
+
+def test_first_install_uses_primary_grok_for_images(monkeypatch):
+    config = {
+        "model": {"provider": "xai-oauth", "default": "grok-4.1"},
+        "fallback_providers": [
+            {"provider": "openai-codex", "model": "gpt-5.4"},
+        ],
+    }
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._plugin_image_gen_catalog",
+        lambda provider: (
+            ({"grok-image-test": {"id": "grok-image-test"}}, "grok-image-test")
+            if provider == "xai"
+            else ({}, None)
+        ),
+    )
+
+    _apply_model_aware_first_install_defaults(config, {"image_gen", "tts"})
+
+    assert config["image_gen"]["provider"] == "xai"
+    assert config["image_gen"]["model"] == "grok-image-test"
+    assert config["tts"]["provider"] == "xai"
+
+
+def test_first_install_preserves_explicit_image_and_voice_providers(monkeypatch):
+    config = {
+        "model": {"provider": "xai-oauth", "default": "grok-4.1"},
+        "image_gen": {"provider": "krea", "model": "custom-image"},
+        "tts": {"provider": "elevenlabs"},
+    }
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._plugin_image_gen_catalog",
+        lambda _provider: pytest.fail("explicit image provider must not be replaced"),
+    )
+
+    configured = _apply_model_aware_first_install_defaults(
+        config,
+        {"image_gen", "tts"},
+    )
+
+    assert configured == {"image_gen", "tts"}
+    assert config["image_gen"] == {
+        "provider": "krea",
+        "model": "custom-image",
+    }
+    assert config["tts"] == {"provider": "elevenlabs"}
+
+
+def test_grok_subscription_is_recommended_in_voice_picker(monkeypatch):
+    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    config = {
+        "model": {"provider": "openai-codex", "default": "gpt-5.4"},
+        "fallback_providers": [
+            {"provider": "xai-oauth", "model": "grok-4.1"},
+        ],
+    }
+
+    providers = _visible_providers(TOOL_CATEGORIES["tts"], config)
+    grok = next(row for row in providers if row.get("tts_provider") == "xai")
+    edge = next(row for row in providers if row.get("tts_provider") == "edge")
+
+    assert "recommended" in grok["badge"]
+    assert "Grok subscription" in grok["badge"]
+    assert "recommended" not in edge["badge"]
+
+
+def test_first_install_configures_global_provider_only_once_across_platforms(
+    monkeypatch,
+):
+    """Platform checklists must not repeat global provider setup prompts."""
+    config = {"platform_toolsets": {"cli": [], "discord": []}}
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._get_enabled_platforms",
+        lambda: ["cli", "discord"],
+    )
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._prompt_toolset_checklist",
+        lambda *_a, **_k: {"browser"},
+    )
+    monkeypatch.setattr("fabric_cli.tools_config.save_config", lambda _config: None)
+
+    configured = []
+    monkeypatch.setattr(
+        "fabric_cli.tools_config._configure_toolset",
+        lambda ts_key, _config: configured.append(ts_key),
+    )
+
+    tools_command(first_install=True, config=config)
+
+    assert configured == ["browser"]
 
 # ── Platform / toolset consistency ────────────────────────────────────────────
 

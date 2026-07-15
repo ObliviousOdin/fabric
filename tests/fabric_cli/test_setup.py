@@ -7,6 +7,7 @@ import pytest
 
 
 from fabric_cli.config import load_config, save_config
+from fabric_cli.fallback_config import get_fallback_chain
 from fabric_cli import setup as setup_mod
 from fabric_cli.setup import setup_model_provider
 
@@ -84,7 +85,7 @@ def test_first_time_setup_is_fabric_branded_and_offers_gpt_or_grok(
 
     assert "Fabric Setup Wizard" in output
     assert captured["question"] == "How would you like to set up Fabric?"
-    assert any("GPT or Grok" in choice for choice in captured["choices"])
+    assert any("ChatGPT, Grok, or both" in choice for choice in captured["choices"])
     assert captured["default"] == 0
     assert "Hermes" not in rendered
     assert "Nous" not in rendered
@@ -136,6 +137,171 @@ def test_completed_default_guided_setup_transcript_is_customer_clean(
     assert "nousresearch" not in rendered.lower()
     assert "OpenRouter" not in rendered
     assert "Anthropic" not in rendered
+
+
+def test_guided_setup_connects_chatgpt_then_grok_as_fallback(
+    tmp_path, monkeypatch
+):
+    """Both subscription logins run once and preserve the chosen primary."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    config = load_config()
+    calls = []
+    active = []
+
+    monkeypatch.setattr(setup_mod, "prompt_checklist", lambda *_a, **_k: [0, 1])
+    monkeypatch.setattr(setup_mod, "prompt_choice", lambda *_a, **_k: 0)
+    monkeypatch.setattr(
+        "fabric_cli.auth.get_codex_auth_status",
+        lambda: {"logged_in": False},
+    )
+    monkeypatch.setattr(
+        "fabric_cli.auth.get_xai_oauth_auth_status",
+        lambda: {"logged_in": False},
+    )
+
+    def connect_chatgpt(_config, _current_model=""):
+        calls.append("openai-codex")
+        _write_model_config(
+            tmp_path,
+            "openai-codex",
+            "https://chatgpt.example/v1",
+            "gpt-5.4",
+        )
+
+    def connect_grok(_config, _current_model="", *, args=None):
+        assert args is None
+        calls.append("xai-oauth")
+        _write_model_config(
+            tmp_path,
+            "xai-oauth",
+            "https://grok.example/v1",
+            "grok-4.1",
+        )
+
+    monkeypatch.setattr(
+        "fabric_cli.main._model_flow_openai_codex",
+        connect_chatgpt,
+    )
+    monkeypatch.setattr("fabric_cli.main._model_flow_xai_oauth", connect_grok)
+    monkeypatch.setattr(
+        "fabric_cli.fallback_cmd._restore_auth_active_provider",
+        active.append,
+    )
+
+    setup_mod._setup_guided_subscription_models(config)
+
+    reloaded = load_config()
+    assert calls == ["openai-codex", "xai-oauth"]
+    assert active == ["openai-codex"]
+    assert reloaded["model"]["provider"] == "openai-codex"
+    assert reloaded["model"]["default"] == "gpt-5.4"
+    assert get_fallback_chain(reloaded) == [
+        {
+            "provider": "xai-oauth",
+            "model": "grok-4.1",
+            "base_url": "https://grok.example/v1",
+        }
+    ]
+    assert config == reloaded
+
+
+def test_guided_setup_can_make_grok_primary_and_chatgpt_fallback(
+    tmp_path, monkeypatch
+):
+    """Primary selection controls sign-in order and the persisted route order."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    config = load_config()
+    calls = []
+
+    monkeypatch.setattr(setup_mod, "prompt_checklist", lambda *_a, **_k: [0, 1])
+    monkeypatch.setattr(setup_mod, "prompt_choice", lambda *_a, **_k: 1)
+    monkeypatch.setattr(
+        "fabric_cli.auth.get_codex_auth_status",
+        lambda: {"logged_in": False},
+    )
+    monkeypatch.setattr(
+        "fabric_cli.auth.get_xai_oauth_auth_status",
+        lambda: {"logged_in": False},
+    )
+
+    def connect_chatgpt(_config, _current_model=""):
+        calls.append("openai-codex")
+        _write_model_config(tmp_path, "openai-codex", model_name="gpt-5.4")
+
+    def connect_grok(_config, _current_model="", *, args=None):
+        calls.append("xai-oauth")
+        _write_model_config(tmp_path, "xai-oauth", model_name="grok-4.1")
+
+    monkeypatch.setattr(
+        "fabric_cli.main._model_flow_openai_codex",
+        connect_chatgpt,
+    )
+    monkeypatch.setattr("fabric_cli.main._model_flow_xai_oauth", connect_grok)
+    monkeypatch.setattr(
+        "fabric_cli.fallback_cmd._restore_auth_active_provider",
+        lambda _provider: None,
+    )
+
+    setup_mod._setup_guided_subscription_models(config)
+
+    reloaded = load_config()
+    assert calls == ["xai-oauth", "openai-codex"]
+    assert reloaded["model"]["provider"] == "xai-oauth"
+    assert get_fallback_chain(reloaded)[0]["provider"] == "openai-codex"
+
+
+def test_full_setup_defers_gateway_service_until_after_tools(
+    tmp_path, monkeypatch
+):
+    """Platforms are known to tools, but service restart happens afterward."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    _clear_provider_env(monkeypatch)
+    monkeypatch.setattr(setup_mod, "is_interactive_stdin", lambda: True)
+    monkeypatch.setattr("fabric_cli.auth.get_active_provider", lambda: None)
+    monkeypatch.setattr(setup_mod, "_offer_openclaw_migration", lambda _home: False)
+    monkeypatch.setattr(setup_mod, "prompt_choice", lambda *_a, **_k: 1)
+    monkeypatch.setattr(setup_mod, "prompt_yes_no", lambda *_a, **_k: False)
+    monkeypatch.setattr(setup_mod, "_print_setup_summary", lambda *_a, **_k: None)
+
+    calls = []
+    monkeypatch.setattr(
+        setup_mod,
+        "setup_model_provider",
+        lambda _config, **_kwargs: calls.append("model"),
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "setup_terminal_backend",
+        lambda _config: calls.append("terminal"),
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "_apply_default_agent_settings",
+        lambda _config: calls.append("agent"),
+    )
+    monkeypatch.setattr(
+        setup_mod,
+        "setup_tools",
+        lambda _config, **_kwargs: calls.append("tools"),
+    )
+
+    def setup_gateway(_config, **kwargs):
+        if kwargs.get("defer_service_setup"):
+            calls.append("gateway-platforms")
+            return True
+        if kwargs.get("service_only"):
+            calls.append("gateway-service")
+            return True
+        calls.append("gateway")
+        return True
+
+    monkeypatch.setattr(setup_mod, "setup_gateway", setup_gateway)
+
+    setup_mod.run_setup_wizard(SimpleNamespace())
+
+    assert calls.index("gateway-platforms") < calls.index("tools")
+    assert calls.index("tools") < calls.index("gateway-service")
+    assert "gateway" not in calls
 
 
 def test_quick_setup_tool_labels_do_not_expose_upstream_branding(
@@ -322,6 +488,32 @@ def test_setup_custom_providers_synced(tmp_path, monkeypatch):
 
     reloaded = load_config()
     assert reloaded.get("custom_providers") == [{"name": "Local", "base_url": "http://localhost:8080/v1"}]
+
+
+def test_setup_gateway_can_defer_service_restart(monkeypatch):
+    """Platform credentials are configured without touching service lifecycle."""
+    import fabric_cli.gateway as gateway_mod
+
+    platform = {"emoji": "💬", "label": "Test", "key": "test"}
+    configured = []
+    monkeypatch.setattr(gateway_mod, "_all_platforms", lambda: [platform])
+    monkeypatch.setattr(gateway_mod, "_platform_status", lambda _platform: "configured")
+    monkeypatch.setattr(
+        gateway_mod,
+        "_configure_platform",
+        lambda selected: configured.append(selected["key"]),
+    )
+    monkeypatch.setattr(setup_mod, "prompt_checklist", lambda *_a, **_k: [0])
+    monkeypatch.setattr(
+        setup_mod,
+        "prompt_yes_no",
+        lambda *_a, **_k: pytest.fail("service prompt must be deferred"),
+    )
+
+    result = setup_mod.setup_gateway({}, defer_service_setup=True)
+
+    assert result is True
+    assert configured == ["test"]
 
 
 def test_setup_gateway_skips_service_install_when_systemctl_missing(monkeypatch, capsys):

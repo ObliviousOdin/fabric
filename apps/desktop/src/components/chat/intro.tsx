@@ -1,6 +1,7 @@
-import { type CSSProperties, useState } from 'react'
+import { useState } from 'react'
 
-import { brandText, desktopBrand } from '@/brand'
+import { brandText } from '@/brand'
+import { BrandWordmark } from '@/components/brand-mark'
 import { capitalize, normalize } from '@/lib/text'
 
 import introCopyJsonl from './intro-copy.jsonl?raw'
@@ -145,8 +146,6 @@ function pickCopy(copies: IntroCopy[], seed = 0): IntroCopy {
   return copies[Math.abs(seed) % copies.length] || FALLBACK_COPY[0]
 }
 
-const WORDMARK = desktopBrand.productName.toUpperCase()
-
 function resolveCopy(personality?: string, seed?: number): IntroCopy {
   const personalityKey = normalizeKey(personality)
 
@@ -169,16 +168,7 @@ export function Intro({ personality, seed }: IntroProps) {
       data-slot="aui_intro"
     >
       <div className="w-full min-w-0">
-        <p
-          aria-label={WORDMARK}
-          className="fit-text mx-auto mb-1 w-[calc(100%-1rem)] font-['Collapse'] font-bold uppercase leading-[0.9] tracking-[0.08em] text-midground mix-blend-plus-lighter dark:text-foreground/90"
-          style={{ '--fit-min': '2.75rem' } as CSSProperties}
-        >
-          <span>
-            <span>{WORDMARK}</span>
-          </span>
-          <span aria-hidden="true">{WORDMARK}</span>
-        </p>
+        <BrandWordmark className="mx-auto mb-2 w-[min(20rem,calc(100%-2rem))]" />
 
         <p className="m-0 text-center leading-normal tracking-tight">{copy.body}</p>
       </div>

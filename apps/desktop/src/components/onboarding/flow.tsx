@@ -227,7 +227,7 @@ function AccountChoiceRow({
 }) {
   return (
     <RowButton
-      className="group flex w-full items-center justify-between gap-3 rounded-md border border-(--stroke-nous) bg-(--ui-bg-tertiary)/30 px-3 py-3 text-left transition-colors hover:bg-(--ui-control-hover-background) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex w-full items-center justify-between gap-3 rounded-md border border-(--ui-stroke-tertiary) bg-(--ui-bg-tertiary)/30 px-3 py-3 text-left transition-colors hover:bg-(--ui-control-hover-background) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onClick={onClick}
     >
       <span className="min-w-0">
@@ -250,7 +250,7 @@ function ConfirmingLocalModelPanel({
 
   return (
     <Step title={t.onboarding.defaultModel}>
-      <code className="truncate rounded-md border border-(--stroke-nous) px-3 py-2 font-mono text-xs text-muted-foreground">
+      <code className="truncate rounded-md border border-(--ui-stroke-tertiary) px-3 py-2 font-mono text-xs text-muted-foreground">
         {flow.baseUrl}
       </code>
       <div className="grid max-h-[40dvh] gap-2 overflow-y-auto" role="listbox">
@@ -264,7 +264,7 @@ function ConfirmingLocalModelPanel({
                 'flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2.5 text-left font-mono text-sm transition-colors',
                 selected
                   ? 'border-primary bg-primary/10 text-foreground'
-                  : 'border-(--stroke-nous) hover:bg-(--ui-control-hover-background)'
+                  : 'border-(--ui-stroke-tertiary) hover:bg-(--ui-control-hover-background)'
               )}
               disabled={flow.saving}
               key={model}
@@ -324,7 +324,7 @@ function DeviceCode({ code, copied, onCopy }: { code: string; copied: boolean; o
               'flex size-10 items-center justify-center rounded-md border font-mono text-xl font-semibold uppercase transition-colors',
               copied
                 ? 'border-primary/50 text-primary'
-                : 'border-(--stroke-nous) text-foreground group-hover:border-(--ui-stroke-secondary)'
+                : 'border-(--ui-stroke-tertiary) text-foreground group-hover:border-(--ui-stroke-secondary)'
             )}
             key={i}
           >
@@ -372,7 +372,7 @@ function VerificationQrCode({ providerName, url }: { providerName: string; url: 
     <div className="flex flex-col items-center gap-2">
       <img
         alt={`Scan QR code to open ${providerName} verification`}
-        className="size-52 rounded-md border border-(--stroke-nous) bg-white p-2"
+        className="size-52 rounded-md border border-(--ui-stroke-tertiary) bg-white p-2"
         height={208}
         src={dataUrl}
         width={208}
@@ -386,7 +386,7 @@ function CodeBlock({ copied, onCopy, text }: { copied: boolean; onCopy: () => vo
   const { t } = useI18n()
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-(--stroke-nous) px-3 py-2">
+    <div className="flex items-center justify-between gap-3 rounded-md border border-(--ui-stroke-tertiary) px-3 py-2">
       <code className="min-w-0 flex-1 truncate font-mono text-sm">
         <span className="mr-2 select-none text-muted-foreground">$</span>
         {text}

@@ -295,7 +295,7 @@ export function DesktopOnboardingOverlay({ enabled, onCompleted, requestGateway 
           'relative w-full max-w-[45rem] transition-all duration-500 ease-out',
           bare
             ? ''
-            : 'overflow-hidden rounded-xl border border-(--stroke-nous) bg-(--ui-chat-bubble-background) shadow-nous',
+            : 'overflow-hidden rounded-xl border border-(--stroke-overlay) bg-(--ui-overlay-surface-background) shadow-overlay',
           // Bare confirm screen orchestrates its own per-element exit; the
           // carded states use the simple lift/blur dissolve.
           leaving && !bare
@@ -376,7 +376,7 @@ function Header() {
   const { t } = useI18n()
 
   return (
-    <div className="bg-(--ui-chat-bubble-background) px-5 pt-5 pb-1">
+    <div className="bg-(--ui-overlay-surface-background) px-5 pt-5 pb-1">
       <h2 className="text-[0.9375rem] font-semibold tracking-tight">{t.onboarding.headerTitle}</h2>
       <p className="mt-1 max-w-xl text-[0.8125rem] leading-5 text-(--ui-text-tertiary)">{t.onboarding.headerDesc}</p>
     </div>

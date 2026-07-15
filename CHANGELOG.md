@@ -2,6 +2,22 @@
 
 All notable changes to Fabric are documented in this file.
 
+## [0.20.0] - 2026-07-15
+
+### Added
+
+- Added Design workspaces to the desktop and web apps for turning product intent into structured briefs, choosing deliverables and fidelity, and applying reusable design-system presets.
+- Added a bundled `/design` skill that coordinates Fabric's existing product-design specialists while keeping the core agent tool surface unchanged.
+
+### Changed
+
+- Design workspaces hand a reviewable prompt into each app's existing chat experience, preserving desktop session behavior and the dashboard's PTY-backed TUI boundary.
+- The dashboard now exposes Design at `/workspace/design`, with `/design` retained as a compatibility route.
+
+### Fixed
+
+- Sanitized dashboard chat drafts before writing them to the embedded terminal, including bracketed-paste handling for multiline design briefs.
+
 ## [0.19.1] - 2026-07-15
 
 ### Added
@@ -40,5 +56,6 @@ All notable changes to Fabric are documented in this file.
 
 - Removed unused legacy display fonts and the inherited dashboard styling paths that made Fabric resemble the upstream Hermes interface.
 
+[0.20.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...HEAD
 [0.19.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...HEAD
 [0.19.0]: https://github.com/ObliviousOdin/fabric/releases/tag/v2026.7.14

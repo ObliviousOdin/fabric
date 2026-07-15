@@ -1116,6 +1116,67 @@ export interface Translations {
       clipboard_unsupported: string;
       tweet_text: string;
     };
+    // Team leaderboard views. Optional so the other locales keep compiling
+    // and fall back to the English strings baked into the plugin bundle (see
+    // tx() in plugins/fabric-achievements/dashboard/dist/index.js). Translate
+    // these per-locale as a follow-up.
+    nav?: {
+      achievements: string;
+      leaderboard: string;
+    };
+    team?: {
+      kicker: string;
+      hero_title: string;
+      hero_subtitle: string;
+      loading: string;
+      working: string;
+      generic_error: string;
+      create_title: string;
+      create_lead: string;
+      create_button: string;
+      join_title: string;
+      join_lead: string;
+      join_button: string;
+      relay_label: string;
+      relay_hint: string;
+      team_name_label: string;
+      team_name_placeholder: string;
+      display_name_label: string;
+      display_name_placeholder: string;
+      invite_label: string;
+      share_consent: string;
+      privacy_header: string;
+      privacy_body: string;
+      hosting_header: string;
+      hosting_body: string;
+      member_summary: string;
+      role_owner: string;
+      role_member: string;
+      roster_age: string;
+      refresh: string;
+      leave: string;
+      sharing_on: string;
+      sharing_off: string;
+      publish_now: string;
+      published_age: string;
+      rename: string;
+      invite_header: string;
+      rotate: string;
+      rotate_title: string;
+      copy_invite: string;
+      copied: string;
+      invite_note: string;
+      board_empty: string;
+      col_member: string;
+      col_score: string;
+      col_unlocked: string;
+      col_tier: string;
+      owner_badge: string;
+      you_badge: string;
+      not_shared: string;
+      kick: string;
+      kick_title: string;
+    };
   };
 
   // ── Kanban ──

@@ -144,3 +144,76 @@
 .ha-share-btn-primary { border-color: #ffffff; color: #ffffff; background: #000000; }
 .ha-share-btn-primary:hover:not(:disabled) { background: #1a1a1a; border-color: #67e8f9; color: #67e8f9; }
 .ha-share-hint { margin: 0; color: var(--color-muted-foreground); font-size: .76rem; line-height: 1.45; }
+
+/* ---------------------------------------------------------------------
+ * Team leaderboard views (view nav, team setup, board, invite, controls).
+ * Reuses the same design tokens and .ha-tier-* classes as the badge grid.
+ * ------------------------------------------------------------------- */
+.ha-root { display: flex; flex-direction: column; gap: 1rem; }
+.ha-viewnav { display: inline-flex; gap: .25rem; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 72%, transparent); padding: .25rem; align-self: flex-start; }
+.ha-viewnav-btn { border: 1px solid transparent; background: transparent; color: var(--color-muted-foreground); padding: .4rem .85rem; font-size: .8rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .08em; cursor: pointer; transition: color .12s ease, background .12s ease, border-color .12s ease; }
+.ha-viewnav-btn:hover { color: var(--color-foreground); }
+.ha-viewnav-btn.active { color: var(--color-foreground); border-color: var(--color-ring); background: color-mix(in srgb, var(--color-primary) 16%, var(--color-card)); }
+
+.ha-team-setup { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: .9rem; }
+.ha-team-card-content { padding: 1.1rem !important; display: flex; flex-direction: column; gap: .8rem; }
+.ha-team-card-content h3 { margin: 0; font-size: 1.05rem; letter-spacing: -0.02em; }
+.ha-team-lead { margin: 0; color: var(--color-muted-foreground); font-size: .84rem; line-height: 1.45; }
+
+.ha-field { display: flex; flex-direction: column; gap: .3rem; }
+.ha-field-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; font-family: var(--font-mono, ui-monospace, monospace); color: var(--color-muted-foreground); }
+.ha-field-hint { color: var(--color-muted-foreground); font-size: .72rem; line-height: 1.4; }
+.ha-input { width: 100%; box-sizing: border-box; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 80%, #000); color: var(--color-foreground); padding: .5rem .6rem; font-size: .85rem; font-family: var(--font-mono, ui-monospace, monospace); }
+.ha-input:focus { outline: none; border-color: var(--color-ring); }
+.ha-input:disabled { opacity: .55; }
+
+.ha-share-consent { display: flex; gap: .55rem; align-items: flex-start; color: color-mix(in srgb, var(--color-foreground) 82%, var(--color-muted-foreground)); font-size: .8rem; line-height: 1.4; cursor: pointer; }
+.ha-share-consent input { margin-top: .18rem; flex: 0 0 auto; }
+.ha-team-primary { align-self: flex-start; }
+
+.ha-team-hero-actions { position: relative; display: flex; gap: .5rem; align-items: center; }
+.ha-team-btn { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 72%, transparent); color: var(--color-foreground); padding: .45rem .7rem; font-size: .76rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .06em; cursor: pointer; white-space: nowrap; transition: border-color .12s ease, background .12s ease; }
+.ha-team-btn:hover:not(:disabled) { border-color: var(--color-ring); background: color-mix(in srgb, var(--color-primary) 16%, var(--color-card)); }
+.ha-team-btn:disabled { opacity: .5; cursor: not-allowed; }
+.ha-team-btn-danger { color: #fecaca; border-color: color-mix(in srgb, #ef4444 55%, var(--color-border)); }
+.ha-team-btn-danger:hover:not(:disabled) { border-color: #ef4444; background: color-mix(in srgb, #ef4444 14%, transparent); }
+
+.ha-team-controls { display: flex; gap: .9rem; flex-wrap: wrap; align-items: center; justify-content: space-between; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 80%, transparent); padding: .8rem 1rem; }
+.ha-control-block { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.ha-control-hint { color: var(--color-muted-foreground); font-size: .74rem; font-family: var(--font-mono, ui-monospace, monospace); }
+.ha-name-input { width: 14rem; max-width: 60vw; }
+
+.ha-invite-section { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 80%, transparent); padding: .85rem 1rem; display: flex; flex-direction: column; gap: .6rem; }
+.ha-invite-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.ha-invite-head strong { font-size: .74rem; text-transform: uppercase; letter-spacing: .12em; font-family: var(--font-mono, ui-monospace, monospace); color: var(--color-muted-foreground); }
+.ha-invite-row { display: flex; gap: .5rem; align-items: center; }
+.ha-invite-input { flex: 1; min-width: 0; color: var(--color-muted-foreground); }
+.ha-invite-note { margin: 0; color: var(--color-muted-foreground); font-size: .74rem; line-height: 1.4; }
+
+.ha-board { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 82%, transparent); overflow: hidden; }
+.ha-board-head, .ha-board-row { display: grid; grid-template-columns: 3rem minmax(0, 1fr) 6rem 6.5rem 6rem; align-items: center; gap: .5rem; padding: .6rem .85rem; }
+.ha-board-head { color: var(--color-muted-foreground); font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; font-family: var(--font-mono, ui-monospace, monospace); border-bottom: 1px solid var(--color-border); }
+.ha-board-row { --ha-tier: color-mix(in srgb, var(--color-muted-foreground) 60%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent); border-left: 3px solid var(--ha-tier); transition: background .12s ease; }
+.ha-board-row:last-child { border-bottom: none; }
+.ha-board-row:hover { background: color-mix(in srgb, var(--ha-tier) 8%, transparent); }
+.ha-board-me { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.ha-board-rank { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 750; color: var(--ha-tier); }
+.ha-board-name { min-width: 0; display: flex; align-items: center; gap: .45rem; font-weight: 650; overflow: hidden; }
+.ha-board-name > :first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ha-board-score { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 750; letter-spacing: -0.02em; }
+.ha-board-unlocked { font-family: var(--font-mono, ui-monospace, monospace); color: var(--color-muted-foreground); font-size: .82rem; }
+.ha-board-tier .ha-tier-badge { border-color: var(--ha-tier); color: var(--ha-tier); }
+.ha-board-dash { color: var(--color-muted-foreground); }
+.ha-board-actions { display: flex; justify-content: flex-end; }
+.ha-board-empty { border: 1px dashed var(--color-border); color: var(--color-muted-foreground); padding: 1.5rem; text-align: center; font-size: .85rem; }
+
+.ha-role-badge, .ha-you-badge, .ha-pending-badge { flex: 0 0 auto; font-size: .6rem; text-transform: uppercase; letter-spacing: .08em; font-family: var(--font-mono, ui-monospace, monospace); padding: .1rem .3rem; border: 1px solid var(--color-border); color: var(--color-muted-foreground); }
+.ha-you-badge { color: var(--color-primary, #67e8f9); border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); }
+.ha-role-badge { color: #f2c94c; border-color: color-mix(in srgb, #f2c94c 55%, var(--color-border)); }
+.ha-pending-badge { opacity: .8; }
+
+@media (max-width: 640px) {
+  .ha-board-head { display: none; }
+  .ha-board-row { grid-template-columns: 2.2rem minmax(0, 1fr) auto; grid-auto-rows: min-content; }
+  .ha-board-unlocked, .ha-board-actions { grid-column: 2 / -1; justify-self: start; }
+}

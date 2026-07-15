@@ -4,119 +4,119 @@
       "height": 1024,
       "kind": "app-icon",
       "mediaType": "image/png",
-      "sha256": "863c6c788dcea5f0e2e96ed1c0fa6b487b0333396521970003fcd0e7f227f895",
+      "sha256": "9cbf642a8d20cf985810fd4093a8550371f997640b9b657f77b218d9cd8d85a3",
       "width": 1024
     },
     "fabric-app-icon-180.png": {
       "height": 180,
       "kind": "app-icon",
       "mediaType": "image/png",
-      "sha256": "6a90854b54ec53dfccdb7ba9130d83ff6c439079cb70cb0bcc3b128e7a3d042a",
+      "sha256": "20b9edcee72718aa7755d9ac48312cb9b4c6a7a099c47cf12fa33952faf0726e",
       "width": 180
     },
     "fabric-app-icon-192.png": {
       "height": 192,
       "kind": "app-icon",
       "mediaType": "image/png",
-      "sha256": "74fc7e170d927363fe4ec19f77f65efa13ec75ebbb4965585b98801ca811df19",
+      "sha256": "76c02a5316147b47961e96e5e920f83236021fb0a4c0909f38b29db364dd4685",
       "width": 192
     },
     "fabric-app-icon-512.png": {
       "height": 512,
       "kind": "app-icon",
       "mediaType": "image/png",
-      "sha256": "2a40fe90fd2f9fdbe8194487779d85208e095cd2a9378acf4df720d9336f3dff",
+      "sha256": "e1d489c5159a86a55cbc250946b2fd84a739c734e06c6eacef4e049b37ecec1d",
       "width": 512
     },
     "fabric-app-icon.icns": {
       "height": 1024,
       "kind": "multi-size-app-icon",
       "mediaType": "image/icns",
-      "sha256": "e42ecf7a919ba0875fcf84b6fd8c7ea3698071dd528bba9b5a49bf42343b415d",
+      "sha256": "cc6da6b33353db87ca8503fad34302c351afa0c7862a9533e97289b275d3554b",
       "width": 1024
     },
     "fabric-favicon.ico": {
       "height": 256,
       "kind": "multi-size-favicon",
       "mediaType": "image/x-icon",
-      "sha256": "d051bc76c855d330562b24776b9e02c72a45c9867913323dd62be82d7629eaed",
+      "sha256": "ffcb36f641215feab1ca7fb9bf93a8d2d2743b70d9f062cd894bf6b99210b20a",
       "width": 256
     },
     "fabric-mark-1024.png": {
       "height": 1024,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "01854c1c52473dd1e3add080fef8ce7b5572ecfe9a28a8f3181c2b29ecc27262",
+      "sha256": "c61f39d20fd759312064c9b04819c01be7f2bb644a6809fb256fa56040d68794",
       "width": 1024
     },
     "fabric-mark-128.png": {
       "height": 128,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "e496526ffce7ad2e64cac689ff40b407266f73d7df5382a98689b513fc1a0854",
+      "sha256": "4d296cce0a69be13a9b8fb170fd4023c2cd4e744d4c3ec6fa2acda51cbeed9b7",
       "width": 128
     },
     "fabric-mark-16.png": {
       "height": 16,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "b00e544e992e9f0faff9983ae9be68c487d4e7b7582aa403692fac3c0dfbeca7",
+      "sha256": "dde39add3819b19d382bc5254800f267fb30819443916ce28046ef4642737625",
       "width": 16
     },
     "fabric-mark-180.png": {
       "height": 180,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "7027eba4849e24d7071911aea2fcd10f4d7d0024786ed88d53b83321dd65b5eb",
+      "sha256": "ce77d7ec3e3df402d8e6520d65739ad651ead36986e1db71f8151c14a05bde23",
       "width": 180
     },
     "fabric-mark-192.png": {
       "height": 192,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "7eb1cc84a2d74a6de931485814921ded37f2b8b109625d988c0eba459f5d6f7c",
+      "sha256": "37c40791a64a39461dc914cdf83c2e8d41db5e5faa8cccb163662e2a0451599e",
       "width": 192
     },
     "fabric-mark-32.png": {
       "height": 32,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "a4dcb6847809df705e186202e28bdeb2a1a557b127863b4921cbba0aeb000fe0",
+      "sha256": "0305a640816889c540cd237155e8f37dfdf23faddb06853c040dbcd3c915c3b0",
       "width": 32
     },
     "fabric-mark-512.png": {
       "height": 512,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "7c27720fde5a812998c24aab0a7be50b9f49ed704e45e11da1c748d6c6dede17",
+      "sha256": "784925e0ca32cd8827b000dca494581c588af820e2854313897f751199aa65d1",
       "width": 512
     },
     "fabric-mark-64.png": {
       "height": 64,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "e9dd39908fa92934b6369462808c1fd7a4cee2ce8af671ff177566dd9650f769",
+      "sha256": "998a3a421d567c9a4761032d82cc6b004890d4cb3eaa8e98e5a07af9670147cb",
       "width": 64
     },
     "fabric-mark-mono.svg": {
       "height": 128,
       "kind": "vector-source",
       "mediaType": "image/svg+xml",
-      "sha256": "8de6df07b39339b5a6468688539a9db5723a5f56e5a4a77bd137ae6bdbe74105",
+      "sha256": "df5ff42382e97d04c9f08b177403a37cab6657601352347e95ebc236779ba9ec",
       "width": 128
     },
     "fabric-mark.svg": {
       "height": 128,
       "kind": "vector-source",
       "mediaType": "image/svg+xml",
-      "sha256": "ae1da2c4cc7258c82114d657219ef73ecfe1a997c91ae6b2d03644f6b76e760c",
+      "sha256": "a909d205034ea0262127a709a041f0ca321562847af35e492328e761e013e383",
       "width": 128
     },
     "fabric-maskable-512.png": {
       "height": 512,
       "kind": "maskable-app-icon",
       "mediaType": "image/png",
-      "sha256": "b18f286117b7096870cb1f71cbbfda30c5def4e5e58af552616513e681cfa541",
+      "sha256": "1993d03c5cd60ffefcf530d72495a35b59d9c22f8660b0f03147b44a40303dbb",
       "width": 512
     },
     "fabric-wordmark-on-dark.svg": {
@@ -150,11 +150,11 @@
   "sources": {
     "mark-mono.svg": {
       "path": "apps/design-system/src/brand/fabric/mark-mono.svg",
-      "sha256": "8de6df07b39339b5a6468688539a9db5723a5f56e5a4a77bd137ae6bdbe74105"
+      "sha256": "df5ff42382e97d04c9f08b177403a37cab6657601352347e95ebc236779ba9ec"
     },
     "mark.svg": {
       "path": "apps/design-system/src/brand/fabric/mark.svg",
-      "sha256": "ae1da2c4cc7258c82114d657219ef73ecfe1a997c91ae6b2d03644f6b76e760c"
+      "sha256": "a909d205034ea0262127a709a041f0ca321562847af35e492328e761e013e383"
     },
     "reference-wordmark.png": {
       "height": 1008,

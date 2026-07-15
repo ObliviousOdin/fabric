@@ -9,6 +9,7 @@ Fabric is a local-first AI agent runtime for terminal, desktop, web, and messagi
 - Run cloud providers, subscription-backed providers, or local Ollama models.
 - Keep persistent memory across sessions with explicit privacy and write controls.
 - Install and compose skills, with authored Compound Engineering and Product Design capability packs included for continued integration work.
+- Turn product intent into structured design briefs from the desktop or dashboard, then continue through the existing agent conversation.
 - Use the same agent core from the CLI, Ink TUI, desktop app, dashboard, cron, and messaging gateways.
 - Delegate work to subagents and connect terminal, browser, MCP, media, and remote execution tools.
 - Store state locally by default under `~/.fabric` (`%LOCALAPPDATA%\fabric` on Windows).

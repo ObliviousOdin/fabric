@@ -14,6 +14,7 @@ with a purpose-built chat, preview, file-browser, voice, and settings experience
 | Capability        | Desktop experience                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------- |
 | Agent chat        | Streaming responses, live tool activity, structured results, and shared session history |
+| Design            | Structured briefs, deliverable and fidelity choices, and reusable system presets         |
 | Workspaces        | File browsing, side-by-side previews, multiple projects, and coding rails               |
 | Providers         | Personal OAuth/subscriptions, API keys, native Ollama, and per-profile model selection  |
 | Memory and skills | The same profile-scoped memory and Skills Hub state used by every Fabric surface        |

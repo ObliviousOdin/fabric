@@ -178,6 +178,8 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
         # relaxed.
         ("e58da05408de71b50902b7b17f2313843bdc535f", "personal-email"),
         ("e58da05408de71b50902b7b17f2313843bdc535f", "private-brand"),
+        ("9d2f715c44d059f01c2610cf3545d7bc14165efa", "personal-email"),
+        ("9d2f715c44d059f01c2610cf3545d7bc14165efa", "private-brand"),
     }
 )
 

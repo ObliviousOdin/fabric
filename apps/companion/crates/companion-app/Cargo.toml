@@ -1,0 +1,43 @@
+[package]
+name = "fabric-companion"
+description = "Always-on-top desktop pet overlay for Fabric (Bevy)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "fabric-companion"
+path = "src/main.rs"
+
+[dependencies]
+fabric-companion-core = { path = "../companion-core" }
+
+# Rendering/windowing. Deliberately default-features = false: the companion
+# is a sprite overlay, not a game — no audio, no gltf, no UI framework.
+bevy = { version = "0.19", default-features = false, features = [
+    "bevy_winit",
+    "bevy_sprite",
+    "bevy_core_pipeline",
+    "bevy_window",
+    "bevy_asset",
+    "bevy_image",
+    "multi_threaded",
+    "png",
+    "webp",
+    "x11",
+    "wayland",
+    "std",
+    "bevy_log",
+] }
+
+clap = { version = "4", features = ["derive"] }
+crossbeam-channel = "0.5"
+fastrand = "2"
+futures-util = "0.3"
+image.workspace = true
+log = "0.4"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt", "macros", "net", "time", "sync"] }
+tokio-tungstenite = "0.28"

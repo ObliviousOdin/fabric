@@ -2,6 +2,16 @@
 
 All notable changes to Fabric are documented in this file.
 
+## [0.20.2] - 2026-07-15
+
+### Added
+
+- Dashboard plugins can load WebAssembly modules with the browser-correct MIME type and use the host's `Film` icon and ReactDOM helpers without bundling a second React renderer.
+
+### Changed
+
+- The OpenCut capability audit now defines Studio as a standalone, explicitly enabled plugin instead of embedding a third-party product or permanent model tools in Fabric core.
+
 ## [0.20.1] - 2026-07-15
 
 ### Fixed
@@ -63,7 +73,8 @@ All notable changes to Fabric are documented in this file.
 
 - Removed unused legacy display fonts and the inherited dashboard styling paths that made Fabric resemble the upstream Hermes interface.
 
-[0.20.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15...HEAD
+[0.20.2]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15.2...HEAD
+[0.20.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15...v2026.7.15.2
 [0.20.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...v2026.7.15
 [0.19.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...HEAD
 [0.19.0]: https://github.com/ObliviousOdin/fabric/releases/tag/v2026.7.14

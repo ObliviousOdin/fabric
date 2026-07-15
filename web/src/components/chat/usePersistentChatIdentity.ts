@@ -35,6 +35,24 @@ export function createFreshChatRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * Freeze a render value for the lifetime of one PTY identity.
+ *
+ * The dashboard theme can change without replacing a long-lived Chat. Values
+ * that must also agree with the child process's spawn-time environment (most
+ * importantly xterm's color palette) therefore update only when Chat rotates
+ * to a new channel. A normal reconnect keeps the same channel and value.
+ */
+export function useValueForChatIdentity<T>(channel: string, value: T): T {
+  const [scoped, setScoped] = useState({ channel, value });
+  if (scoped.channel !== channel) {
+    const next = { channel, value };
+    setScoped(next);
+    return next.value;
+  }
+  return scoped.value;
+}
+
 export function freshChatPath(
   requestId = createFreshChatRequestId(),
 ): string {

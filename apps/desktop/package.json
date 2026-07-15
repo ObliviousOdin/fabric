@@ -3,7 +3,7 @@
   "productName": "Fabric",
   "desktopName": "Fabric",
   "private": true,
-  "version": "0.20.0",
+  "version": "0.20.1",
   "description": "Native desktop app for Fabric.",
   "author": "Fabric <11676741+ObliviousOdin@users.noreply.github.com>",
   "homepage": "https://github.com/ObliviousOdin/fabric/",

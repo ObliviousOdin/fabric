@@ -4,7 +4,7 @@ The browser experience for Fabric's local-first runtime. It coordinates a
 business-facing **Workspace** and a technical **Admin** console while keeping
 the real `fabric --tui` process as the browser Chat transcript and composer.
 
-Phase 1 includes the responsive shell, canonical routes, Home, persistent
+Phase 1 includes the responsive shell, canonical routes, Home, Design, persistent
 three-panel Chat, shared state language, and regrouped management pages. Real
 tenant/workspace/site membership, capability enforcement, durable approvals,
 unified activity, and the typed Memory ledger are backend contracts for a later
@@ -60,9 +60,11 @@ src/
 ├── contexts/        # Profile, page-header, and system-action state
 ├── lib/
 │   ├── api.ts       # API client — typed fetch wrappers for all backend endpoints
+│   ├── chat-draft.ts # Safe draft handoff to the embedded PTY-backed TUI
 │   └── utils.ts     # cn() helper for Tailwind class merging
 ├── pages/
 │   ├── WorkspaceHomePage.tsx        # Live operational projections
+│   ├── DesignPage.tsx                # Structured brief and system-preset workspace
 │   ├── ChatPage.tsx                 # Persistent PTY/xterm host
 │   ├── WorkspacePlaceholderPage.tsx # Honest deferred-service states
 │   └── *Page.tsx                    # Reused Workspace/Admin capabilities

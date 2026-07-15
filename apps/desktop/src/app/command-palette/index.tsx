@@ -68,6 +68,7 @@ import {
   ARTIFACTS_ROUTE,
   COMMAND_CENTER_ROUTE,
   CRON_ROUTE,
+  DESIGN_ROUTE,
   MESSAGING_ROUTE,
   NEW_CHAT_ROUTE,
   PROFILES_ROUTE,
@@ -430,6 +431,13 @@ export function CommandPalette() {
             keywords: ['skills', 'tools', 'toolsets', 'mcp', 'capabilities'],
             label: cc.nav.skills.title,
             run: go(SKILLS_ROUTE)
+          },
+          {
+            icon: Palette,
+            id: 'nav-design',
+            keywords: ['prototype', 'interface', 'design system'],
+            label: cc.nav.design.title,
+            run: go(DESIGN_ROUTE)
           },
           {
             action: 'nav.messaging',

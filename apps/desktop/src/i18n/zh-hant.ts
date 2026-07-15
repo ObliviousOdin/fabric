@@ -1028,7 +1028,8 @@ export const zhHant = defineLocale({
       settings: { title: '設定', detail: '設定 Fabric 桌面端' },
       skills: { title: '技能與工具', detail: '啟用技能、工具集和提供方' },
       messaging: { title: '訊息平台', detail: '設定 Telegram、Slack、Discord 等' },
-      artifacts: { title: '成品', detail: '瀏覽產生的輸出' }
+      artifacts: { title: '成品', detail: '瀏覽產生的輸出' },
+      design: { title: '設計', detail: '建立原型和設計系統' }
     },
     sectionEntries: {
       sessions: { title: '工作階段面板', detail: '搜尋、釘選和管理工作階段' },
@@ -1391,6 +1392,44 @@ export const zhHant = defineLocale({
     createAction: '建立排程工作'
   },
 
+  design: {
+    title: '設計',
+    subtitle: '把需求轉化為可運作的成品與可重用的視覺規範。',
+    briefLabel: '需求',
+    briefPlaceholder: '為協助團隊連接第一個程式碼儲存庫的開發者工具設計導覽流程…',
+    deliverableLabel: '交付內容',
+    fidelityLabel: '保真度',
+    systemLabel: '設計系統',
+    reviewHint: 'Fabric 會先把這份需求放進新聊天，確認後再執行。',
+    start: '在聊天中開始',
+    contractTitle: '設計規範',
+    contractDescription: '將產品情境、視覺規則與實作連結起來，不讓成果只留在聊天中。',
+    artifact: {
+      prototype: '互動原型',
+      'landing-page': '登陸頁',
+      dashboard: '儀表板',
+      'component-lab': '元件實驗室',
+      'design-system': '設計系統'
+    },
+    fidelity: { wireframe: '線框圖', high: '高保真' },
+    system: {
+      project: '目前專案',
+      fresh: '新方向',
+      fabric: 'Fabric',
+      linear: 'Linear',
+      stripe: 'Stripe',
+      vercel: 'Vercel',
+      claude: 'Claude'
+    },
+    phases: {
+      discover: '了解真實產品情境',
+      direction: '確定一致的設計方向',
+      build: '建立可運作的成品',
+      critique: '評審並驗證成果',
+      deliver: '交付檔案與 DESIGN.md'
+    }
+  },
+
   artifacts: {
     search: '搜尋成品…',
     refresh: '重新整理成品',
@@ -1431,7 +1470,8 @@ export const zhHant = defineLocale({
       'new-session': '新工作階段',
       skills: '技能與工具',
       messaging: '訊息平台',
-      artifacts: '成品'
+      artifacts: '成品',
+      design: '設計'
     },
     searchAria: '搜尋工作階段',
     searchPlaceholder: '搜尋工作階段…',

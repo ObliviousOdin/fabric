@@ -156,9 +156,9 @@ Workspace and Admin are coordinated experiences with different emphases.
 ### Workspace
 
 Workspace is objective-first and action-oriented. Its primary navigation is
-Home, Chat, Work Board, Conversations, Agents, Memory, Knowledge, Automations,
-Approvals, Activity, and Insights. Surfaces prioritize objectives, named
-agents, dependencies, handoffs, evidence, artifacts, and decisions.
+Home, Chat, Design, Work Board, Conversations, Agents, Memory, Knowledge,
+Automations, Approvals, Activity, and Insights. Surfaces prioritize objectives,
+named agents, dependencies, handoffs, evidence, artifacts, and decisions.
 
 Chat keeps the real PTY-backed transcript and composer. Supporting panels use
 the thread language to connect conversation, live agent activity, task context,

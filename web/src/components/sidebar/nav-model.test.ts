@@ -46,6 +46,7 @@ describe("sidebar navigation model", () => {
     const labels = BUILTIN_NAV_ITEMS.map((item) => navItemLabel(item, en));
 
     expect(labels).toContain("Conversations");
+    expect(labels).toContain("Design");
     expect(labels).toContain("Agents");
     expect(labels).toContain("Automations");
     expect(labels).toContain("Insights");

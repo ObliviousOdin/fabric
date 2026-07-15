@@ -1221,7 +1221,8 @@ export const zh: Translations = {
       settings: { title: '设置', detail: '配置 Fabric 桌面端' },
       skills: { title: '技能与工具', detail: '启用技能、工具集与提供方' },
       messaging: { title: '消息平台', detail: '配置 Telegram、Slack、Discord 等' },
-      artifacts: { title: '产物', detail: '浏览生成的输出' }
+      artifacts: { title: '产物', detail: '浏览生成的输出' },
+      design: { title: '设计', detail: '创建原型和设计系统' }
     },
     sectionEntries: {
       sessions: { title: '会话面板', detail: '搜索、置顶与管理会话' },
@@ -1639,6 +1640,44 @@ export const zh: Translations = {
     createAction: '创建定时任务'
   },
 
+  design: {
+    title: '设计',
+    subtitle: '把需求转化为可运行的产物和可复用的视觉规范。',
+    briefLabel: '需求',
+    briefPlaceholder: '为帮助团队连接第一个代码仓库的开发者工具设计引导流程…',
+    deliverableLabel: '交付物',
+    fidelityLabel: '保真度',
+    systemLabel: '设计系统',
+    reviewHint: 'Fabric 会先把这份需求放入新对话，确认后再运行。',
+    start: '在对话中开始',
+    contractTitle: '设计规范',
+    contractDescription: '将产品上下文、视觉规则和实现连接起来，不让成果只留在对话中。',
+    artifact: {
+      prototype: '交互原型',
+      'landing-page': '落地页',
+      dashboard: '仪表盘',
+      'component-lab': '组件实验室',
+      'design-system': '设计系统'
+    },
+    fidelity: { wireframe: '线框图', high: '高保真' },
+    system: {
+      project: '当前项目',
+      fresh: '新方向',
+      fabric: 'Fabric',
+      linear: 'Linear',
+      stripe: 'Stripe',
+      vercel: 'Vercel',
+      claude: 'Claude'
+    },
+    phases: {
+      discover: '了解真实产品上下文',
+      direction: '确定统一的设计方向',
+      build: '构建可运行的产物',
+      critique: '评审并验证结果',
+      deliver: '交付文件和 DESIGN.md'
+    }
+  },
+
   artifacts: {
     search: '搜索产物…',
     refresh: '刷新产物',
@@ -1679,7 +1718,8 @@ export const zh: Translations = {
       'new-session': '新建会话',
       skills: '技能与工具',
       messaging: '消息平台',
-      artifacts: '产物'
+      artifacts: '产物',
+      design: '设计'
     },
     searchAria: '搜索会话',
     searchPlaceholder: '搜索会话…',

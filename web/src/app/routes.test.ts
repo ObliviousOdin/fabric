@@ -49,6 +49,7 @@ describe("application route catalog", () => {
     ).toEqual([
       "Home",
       "Chat",
+      "Design",
       "Work Board",
       "Conversations",
       "Agents",
@@ -79,6 +80,7 @@ describe("application route catalog", () => {
 
   it("maps shipped legacy URLs to canonical Workspace and Admin routes", () => {
     expect(canonicalPathForPath("/chat")).toBe("/workspace/chat");
+    expect(canonicalPathForPath("/design")).toBe("/workspace/design");
     expect(canonicalPathForPath("/kanban")).toBe("/workspace/work");
     expect(canonicalPathForPath("/work")).toBe("/workspace/work");
     expect(canonicalPathForPath("/sessions/")).toBe(

@@ -910,7 +910,10 @@ export interface Translations {
     archivedChats: string
     sections: Record<'maintenance' | 'sessions' | 'system' | 'usage', string>
     sectionDescriptions: Record<'maintenance' | 'sessions' | 'system' | 'usage', string>
-    nav: Record<'newChat' | 'settings' | 'skills' | 'messaging' | 'artifacts', { title: string; detail: string }>
+    nav: Record<
+      'newChat' | 'settings' | 'skills' | 'messaging' | 'artifacts' | 'design',
+      { title: string; detail: string }
+    >
     sectionEntries: Record<'sessions' | 'system' | 'usage', { title: string; detail: string }>
     providerNavigate: string
     providerSessions: string
@@ -1193,6 +1196,24 @@ export interface Translations {
     promptScheduleRequired: string
     saveChanges: string
     createAction: string
+  }
+
+  design: {
+    title: string
+    subtitle: string
+    briefLabel: string
+    briefPlaceholder: string
+    deliverableLabel: string
+    fidelityLabel: string
+    systemLabel: string
+    reviewHint: string
+    start: string
+    contractTitle: string
+    contractDescription: string
+    artifact: Record<'prototype' | 'landing-page' | 'dashboard' | 'component-lab' | 'design-system', string>
+    fidelity: Record<'wireframe' | 'high', string>
+    system: Record<'project' | 'fresh' | 'fabric' | 'linear' | 'stripe' | 'vercel' | 'claude', string>
+    phases: Record<'discover' | 'direction' | 'build' | 'critique' | 'deliver', string>
   }
 
   artifacts: {

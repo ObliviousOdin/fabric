@@ -49,6 +49,7 @@ import {
 } from "@/components/chat/usePersistentChatIdentity";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { api } from "@/lib/api";
+import { composerDraftPayload, sanitizeComposerDraft } from "@/lib/chat-draft";
 import { normalizeSessionTitle } from "@/lib/chat-title";
 import {
   buildTerminalTheme,
@@ -149,6 +150,7 @@ export default function ChatPage({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const pendingComposerDraftRef = useRef<string | null>(null);
   // Exposed to the main metrics-sync effect so it can refit the terminal
   // the moment `isActive` flips back to true (display:none → display:flex
   // collapses the host's box, so ResizeObserver never fires on return).
@@ -224,6 +226,29 @@ export default function ChatPage({
   // body scroll lock or keep a data rail connected behind another page.
   const compactPanel =
     isActive && viewportMode === "compact" ? compactPanelRaw : null;
+
+  const draftSeed = searchParams.get("draft");
+  useEffect(() => {
+    if (!isActive || !draftSeed) return;
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("draft");
+    setSearchParams(next, { replace: true });
+
+    const draft = sanitizeComposerDraft(draftSeed);
+    if (!draft) return;
+
+    pendingComposerDraftRef.current = draft;
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(composerDraftPayload(draft));
+        pendingComposerDraftRef.current = null;
+      } catch {
+        /* keep the draft pending so the next successful reconnect can place it */
+      }
+    }
+  }, [draftSeed, isActive, searchParams, setSearchParams]);
   const { setEnd, setTitle } = usePageHeader();
   const [sessionTitleState, setSessionTitleState] = useState<{
     scope: string;
@@ -786,6 +811,25 @@ export default function ChatPage({
         // follow up with the authoritative measurement — at worst Ink
         // reflows once after the PTY boots, which is imperceptible.
         ws.send(`\x1b[RESIZE:${term.cols};${term.rows}]`);
+        const pendingDraft = pendingComposerDraftRef.current;
+        if (pendingDraft) {
+          // A cold /workspace/chat?draft= load reaches this branch before
+          // Ink's composer mounts. Bracketed paste fills the composer without
+          // submitting it so the user can review the generated brief.
+          setTimeout(() => {
+            try {
+              if (
+                wsRef.current?.readyState === WebSocket.OPEN &&
+                pendingComposerDraftRef.current === pendingDraft
+              ) {
+                wsRef.current.send(composerDraftPayload(pendingDraft));
+                pendingComposerDraftRef.current = null;
+              }
+            } catch {
+              /* PTY not ready / closed — leave the draft pending for reconnect */
+            }
+          }, 800);
+        }
         // One-shot: a ?learn=<text> param (set by the Skills page "Learn a
         // skill" panel) is typed into the composer as a /learn command once the
         // PTY is up. /learn resolves via command.dispatch → a normal agent turn,

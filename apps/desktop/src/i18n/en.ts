@@ -1039,7 +1039,8 @@ export const en: Translations = {
       settings: { title: 'Settings', detail: 'Configure Fabric desktop' },
       skills: { title: 'Capabilities', detail: 'Skills, tools, and MCP servers' },
       messaging: { title: 'Messaging', detail: 'Set up Telegram, Slack, Discord, and more' },
-      artifacts: { title: 'Artifacts', detail: 'Browse generated outputs' }
+      artifacts: { title: 'Artifacts', detail: 'Browse generated outputs' },
+      design: { title: 'Design', detail: 'Create prototypes and design systems' }
     },
     sectionEntries: {
       sessions: { title: 'Sessions panel', detail: 'Search, pin, and manage sessions' },
@@ -1461,6 +1462,45 @@ export const en: Translations = {
     createAction: 'Create cron'
   },
 
+  design: {
+    title: 'Design',
+    subtitle: 'Turn a brief into a working artifact and a reusable visual contract.',
+    briefLabel: 'Brief',
+    briefPlaceholder: 'Design an onboarding flow for a developer tool that helps a team connect its first repository…',
+    deliverableLabel: 'Deliverable',
+    fidelityLabel: 'Fidelity',
+    systemLabel: 'Design system',
+    reviewHint: 'Fabric will place this brief in a new chat for review before it runs.',
+    start: 'Start in chat',
+    contractTitle: 'Design contract',
+    contractDescription:
+      'The workflow keeps product context, visual rules, and implementation connected without hiding the result in chat.',
+    artifact: {
+      prototype: 'Interactive prototype',
+      'landing-page': 'Landing page',
+      dashboard: 'Dashboard',
+      'component-lab': 'Component lab',
+      'design-system': 'Design system'
+    },
+    fidelity: { wireframe: 'Wireframe', high: 'High fidelity' },
+    system: {
+      project: 'Current project',
+      fresh: 'New direction',
+      fabric: 'Fabric',
+      linear: 'Linear',
+      stripe: 'Stripe',
+      vercel: 'Vercel',
+      claude: 'Claude'
+    },
+    phases: {
+      discover: 'Discover the real product context',
+      direction: 'Lock one coherent direction',
+      build: 'Build the working artifact',
+      critique: 'Critique and verify the result',
+      deliver: 'Deliver files and DESIGN.md handoff'
+    }
+  },
+
   artifacts: {
     search: 'Search artifacts...',
     refresh: 'Refresh artifacts',
@@ -1501,7 +1541,8 @@ export const en: Translations = {
       'new-session': 'New session',
       skills: 'Capabilities',
       messaging: 'Messaging',
-      artifacts: 'Artifacts'
+      artifacts: 'Artifacts',
+      design: 'Design'
     },
     searchAria: 'Search sessions',
     searchPlaceholder: 'Search sessions…',

@@ -104,6 +104,22 @@ A well-built third-party-product plugin can clear automated review and still be 
 
 ## Development Setup
 
+### Maintainer commit identity
+
+Repository maintainers using the PrimeOdin identity can configure and verify
+the canonical GitHub noreply author at both the machine and repository scopes:
+
+```bash
+python3 scripts/configure-maintainer-git-identity.py --scope both
+python3 scripts/configure-maintainer-git-identity.py --scope both --check
+```
+
+The command also enables Git's `user.useConfigOnly` guard globally so Git does
+not silently invent an identity. PrimeOdin maintainers should also enable
+GitHub's **Keep my email addresses private** and **Block command line pushes
+that expose my email** settings. Other contributors must keep using their own
+Git identity and should not run this maintainer-specific command.
+
 ### Prerequisites
 
 | Requirement | Notes |

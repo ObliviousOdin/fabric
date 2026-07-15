@@ -195,6 +195,22 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
         ("316ed6a87d08c510ab720d9e44d46b717ffcdc2b", "private-brand"),
         ("68cba300a536585157b33dfe57b257af38919be1", "personal-email"),
         ("68cba300a536585157b33dfe57b257af38919be1", "private-brand"),
+        # These desktop/release commits and the previous ledger repair were
+        # already published before the repository owner enabled GitHub's
+        # keep-email-private and exposed-email push protections. Acknowledge
+        # only their exact immutable metadata findings. New commits remain
+        # fully gated, and the account plus local Git configuration now use a
+        # canonical users.noreply identity to stop this ledger from growing.
+        ("77c33d71e17edf3807f40ccb0f8c24351fefd9a4", "personal-email"),
+        ("77c33d71e17edf3807f40ccb0f8c24351fefd9a4", "private-brand"),
+        ("a9f5465ea6b3c7507611d292b36de4b5e7413227", "personal-email"),
+        ("a9f5465ea6b3c7507611d292b36de4b5e7413227", "private-brand"),
+        ("3f5c6889b4bb3964d74d152ff5b2a8954f6c91ae", "personal-email"),
+        ("3f5c6889b4bb3964d74d152ff5b2a8954f6c91ae", "private-brand"),
+        ("3baac5fe9e470122933ade5f9d0b77807a4f25ab", "personal-email"),
+        ("3baac5fe9e470122933ade5f9d0b77807a4f25ab", "private-brand"),
+        ("ac182053af857f33d2c030d0270ad989b3b231a9", "personal-email"),
+        ("ac182053af857f33d2c030d0270ad989b3b231a9", "private-brand"),
     }
 )
 

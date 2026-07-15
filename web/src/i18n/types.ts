@@ -209,6 +209,7 @@ export interface Translations {
       automations: string;
       channelsEvents: string;
       conversations: string;
+      design?: string;
       experience: string;
       help: string;
       home: string;
@@ -249,6 +250,24 @@ export interface Translations {
     managingProfile?: string;
     currentProfileOption?: string;
     managingProfileBanner?: string;
+  };
+
+  /** Design workspace; locales fall back to English until translated. */
+  design?: {
+    briefLabel: string;
+    briefPlaceholder: string;
+    contractDescription: string;
+    contractTitle: string;
+    deliverableLabel: string;
+    fidelity: string;
+    fidelityHigh: string;
+    fidelityWireframe: string;
+    phases: readonly [string, string, string, string, string];
+    reviewHint: string;
+    start: string;
+    subtitle: string;
+    systemLabel: string;
+    title: string;
   };
 
   // ── Status page ──

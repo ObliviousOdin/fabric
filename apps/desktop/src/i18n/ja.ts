@@ -1056,7 +1056,8 @@ export const ja = defineLocale({
       settings: { title: '設定', detail: 'Fabric デスクトップを設定' },
       skills: { title: 'スキルとツール', detail: 'スキル、ツールセット、プロバイダーを有効化' },
       messaging: { title: 'メッセージング', detail: 'Telegram、Slack、Discord などを設定' },
-      artifacts: { title: 'アーティファクト', detail: '生成された出力を閲覧' }
+      artifacts: { title: 'アーティファクト', detail: '生成された出力を閲覧' },
+      design: { title: 'デザイン', detail: 'プロトタイプとデザインシステムを作成' }
     },
     sectionEntries: {
       sessions: { title: 'セッションパネル', detail: 'セッションの検索、ピン留め、管理' },
@@ -1438,6 +1439,44 @@ export const ja = defineLocale({
     createAction: 'Cron を作成'
   },
 
+  design: {
+    title: 'デザイン',
+    subtitle: '概要から動作する成果物と再利用可能なビジュアル仕様を作成します。',
+    briefLabel: '概要',
+    briefPlaceholder: 'チームが最初のリポジトリを接続できる開発者ツールのオンボーディングフローをデザイン…',
+    deliverableLabel: '成果物',
+    fidelityLabel: '忠実度',
+    systemLabel: 'デザインシステム',
+    reviewHint: 'Fabric は実行前に確認できるよう、この概要を新しいチャットに入力します。',
+    start: 'チャットで開始',
+    contractTitle: 'デザイン仕様',
+    contractDescription: '製品コンテキスト、ビジュアルルール、実装をつなぎ、結果をチャット内だけに閉じ込めません。',
+    artifact: {
+      prototype: 'インタラクティブプロトタイプ',
+      'landing-page': 'ランディングページ',
+      dashboard: 'ダッシュボード',
+      'component-lab': 'コンポーネントラボ',
+      'design-system': 'デザインシステム'
+    },
+    fidelity: { wireframe: 'ワイヤーフレーム', high: '高忠実度' },
+    system: {
+      project: '現在のプロジェクト',
+      fresh: '新しい方向性',
+      fabric: 'Fabric',
+      linear: 'Linear',
+      stripe: 'Stripe',
+      vercel: 'Vercel',
+      claude: 'Claude'
+    },
+    phases: {
+      discover: '実際の製品コンテキストを把握',
+      direction: '一貫した方向性を決定',
+      build: '動作する成果物を構築',
+      critique: '結果を批評して検証',
+      deliver: 'ファイルと DESIGN.md を引き渡し'
+    }
+  },
+
   artifacts: {
     search: 'アーティファクトを検索...',
     refresh: 'アーティファクトを更新',
@@ -1478,7 +1517,8 @@ export const ja = defineLocale({
       'new-session': '新しいセッション',
       skills: 'スキルとツール',
       messaging: 'メッセージング',
-      artifacts: 'アーティファクト'
+      artifacts: 'アーティファクト',
+      design: 'デザイン'
     },
     searchAria: 'セッションを検索',
     searchPlaceholder: 'セッションを検索…',

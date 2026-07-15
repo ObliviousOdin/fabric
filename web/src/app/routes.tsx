@@ -11,6 +11,7 @@ import {
   HelpCircle,
   Home,
   MessageSquare,
+  Palette,
   Plug,
   Radio,
   Settings,
@@ -50,6 +51,7 @@ export interface AppRouteDef {
 }
 
 const WorkspaceHomePage = lazy(() => import("@/pages/WorkspaceHomePage"));
+const DesignPage = lazy(() => import("@/pages/DesignPage"));
 const WorkspacePlaceholderPage = lazy(
   () => import("@/pages/WorkspacePlaceholderPage"),
 );
@@ -95,6 +97,15 @@ export const APP_ROUTES: readonly AppRouteDef[] = [
     layout: "page",
     persistent: true,
     nav: { label: "Chat", labelKey: "chat", icon: MessageSquare },
+  },
+  {
+    id: "design",
+    path: "/workspace/design",
+    aliases: ["/design"],
+    surface: "workspace",
+    layout: "page",
+    component: DesignPage,
+    nav: { label: "Design", labelKey: "design", icon: Palette },
   },
   {
     id: "work-board",

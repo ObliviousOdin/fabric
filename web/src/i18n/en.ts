@@ -163,6 +163,7 @@ export const en: Translations = {
       automations: "Automations",
       channelsEvents: "Channels and Events",
       conversations: "Conversations",
+      design: "Design",
       experience: "Fabric experience",
       help: "Help",
       home: "Home",
@@ -199,6 +200,33 @@ export const en: Translations = {
     currentProfileOption: "this dashboard ({name})",
     managingProfileBanner:
       "Managing profile \u201c{name}\u201d \u2014 config, keys, skills, MCPs, model, and new chats apply to that profile.",
+  },
+
+  design: {
+    briefLabel: "Brief",
+    briefPlaceholder:
+      "Design an onboarding flow for a developer tool that helps a team connect its first repository…",
+    contractDescription:
+      "Product context, visual rules, and implementation stay connected without hiding the only copy of the result in chat.",
+    contractTitle: "Design contract",
+    deliverableLabel: "Deliverable",
+    fidelity: "Fidelity",
+    fidelityHigh: "High fidelity",
+    fidelityWireframe: "Wireframe",
+    phases: [
+      "Discover the real product context",
+      "Lock one coherent direction",
+      "Build the working artifact",
+      "Critique and verify the result",
+      "Deliver files and DESIGN.md handoff",
+    ],
+    reviewHint:
+      "Fabric places the prepared brief in Chat so you can review it before sending.",
+    start: "Start in chat",
+    subtitle:
+      "Turn a brief into a working artifact and a reusable visual contract. Fabric keeps the result in ordinary project files, ready to inspect and evolve.",
+    systemLabel: "Design system",
+    title: "Design with Fabric",
   },
 
   status: {

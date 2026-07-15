@@ -156,9 +156,15 @@
 .ha-viewnav-btn.active { color: var(--color-foreground); border-color: var(--color-ring); background: color-mix(in srgb, var(--color-primary) 16%, var(--color-card)); }
 
 .ha-team-setup { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: .9rem; }
+.ha-team-setup-simple { grid-template-columns: minmax(0, 720px); }
 .ha-team-card-content { padding: 1.1rem !important; display: flex; flex-direction: column; gap: .8rem; }
 .ha-team-card-content h3 { margin: 0; font-size: 1.05rem; letter-spacing: -0.02em; }
 .ha-team-lead { margin: 0; color: var(--color-muted-foreground); font-size: .84rem; line-height: 1.45; }
+.ha-join-card { border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border)); }
+.ha-join-privacy { border-left: 3px solid var(--color-primary, #67e8f9); background: color-mix(in srgb, var(--color-primary) 8%, var(--color-card)); padding: .7rem .8rem; }
+.ha-join-privacy strong { display: block; margin-bottom: .25rem; font-size: .74rem; text-transform: uppercase; letter-spacing: .1em; font-family: var(--font-mono, ui-monospace, monospace); }
+.ha-join-privacy p, .ha-consent-note, .ha-hosting-copy p, .ha-team-danger-zone p { margin: 0; color: var(--color-muted-foreground); font-size: .76rem; line-height: 1.45; }
+.ha-consent-note { max-width: 62ch; }
 
 .ha-field { display: flex; flex-direction: column; gap: .3rem; }
 .ha-field-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; font-family: var(--font-mono, ui-monospace, monospace); color: var(--color-muted-foreground); }
@@ -171,6 +177,24 @@
 .ha-share-consent input { margin-top: .18rem; flex: 0 0 auto; }
 .ha-team-primary { align-self: flex-start; }
 
+.ha-team-details { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 72%, transparent); }
+.ha-team-details > summary { list-style: none; cursor: pointer; padding: .72rem .9rem; color: var(--color-muted-foreground); font-size: .74rem; text-transform: uppercase; letter-spacing: .09em; font-family: var(--font-mono, ui-monospace, monospace); transition: color .12s ease, background .12s ease; }
+.ha-team-details > summary::-webkit-details-marker { display: none; }
+.ha-team-details > summary::after { content: "+"; float: right; color: var(--color-muted-foreground); font-size: 1rem; line-height: .8; }
+.ha-team-details[open] > summary { color: var(--color-foreground); border-bottom: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
+.ha-team-details[open] > summary::after { content: "−"; }
+.ha-team-details > summary:hover { color: var(--color-foreground); }
+.ha-team-details > summary:focus-visible { outline: 2px solid var(--color-ring); outline-offset: 2px; }
+.ha-team-details-body { padding: .9rem; display: flex; flex-direction: column; gap: .8rem; }
+.ha-join-options { border: 0; border-top: 1px solid var(--color-border); background: transparent; margin-top: .1rem; }
+.ha-join-options > summary { padding: .65rem 0 0; }
+.ha-join-options[open] > summary { padding-bottom: .65rem; background: transparent; }
+.ha-join-options .ha-team-details-body { padding: .8rem 0 0; }
+.ha-hosting-details { max-width: 920px; }
+.ha-hosting-body { padding: .95rem; display: grid; grid-template-columns: minmax(200px, .65fr) minmax(360px, 1.35fr); gap: 1rem; align-items: start; }
+.ha-hosting-copy { display: flex; flex-direction: column; gap: .35rem; }
+.ha-hosting-copy strong { font-size: .9rem; }
+
 .ha-team-hero-actions { position: relative; display: flex; gap: .5rem; align-items: center; }
 .ha-team-btn { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 72%, transparent); color: var(--color-foreground); padding: .45rem .7rem; font-size: .76rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .06em; cursor: pointer; white-space: nowrap; transition: border-color .12s ease, background .12s ease; }
 .ha-team-btn:hover:not(:disabled) { border-color: var(--color-ring); background: color-mix(in srgb, var(--color-primary) 16%, var(--color-card)); }
@@ -182,6 +206,18 @@
 .ha-control-block { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .ha-control-hint { color: var(--color-muted-foreground); font-size: .74rem; font-family: var(--font-mono, ui-monospace, monospace); }
 .ha-name-input { width: 14rem; max-width: 60vw; }
+
+.ha-sharing-status { display: flex; align-items: center; justify-content: space-between; gap: 1.2rem; border: 1px solid var(--color-border); border-left: 3px solid var(--color-muted-foreground); background: color-mix(in srgb, var(--color-card) 82%, transparent); padding: .9rem 1rem; }
+.ha-sharing-status.is-on { border-left-color: var(--color-primary, #67e8f9); background: color-mix(in srgb, var(--color-primary) 7%, var(--color-card)); }
+.ha-sharing-status-copy { display: flex; flex-direction: column; gap: .25rem; }
+.ha-sharing-eyebrow { color: var(--color-muted-foreground); font-size: .67rem; text-transform: uppercase; letter-spacing: .11em; font-family: var(--font-mono, ui-monospace, monospace); }
+.ha-sharing-status h2 { margin: 0; font-size: 1rem; letter-spacing: -0.01em; }
+.ha-sharing-status p { margin: 0; color: var(--color-muted-foreground); font-size: .8rem; line-height: 1.45; }
+.ha-manage-details { margin-top: .1rem; }
+.ha-manage-body { gap: 1rem; }
+.ha-team-danger-zone { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-top: 1px solid var(--color-border); padding-top: .85rem; }
+.ha-team-danger-zone > div { display: flex; flex-direction: column; gap: .25rem; }
+.ha-team-danger-zone strong { font-size: .82rem; }
 
 .ha-invite-section { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 80%, transparent); padding: .85rem 1rem; display: flex; flex-direction: column; gap: .6rem; }
 .ha-invite-head { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
@@ -213,6 +249,11 @@
 .ha-pending-badge { opacity: .8; }
 
 @media (max-width: 640px) {
+  .ha-team-setup { grid-template-columns: minmax(0, 1fr); }
+  .ha-hosting-body { grid-template-columns: minmax(0, 1fr); }
+  .ha-sharing-status, .ha-team-danger-zone { align-items: flex-start; flex-direction: column; }
+  .ha-sharing-status .ha-team-primary { width: 100%; }
+  .ha-name-input { width: 100%; max-width: none; }
   .ha-board-head { display: none; }
   .ha-board-row { grid-template-columns: 2.2rem minmax(0, 1fr) auto; grid-auto-rows: min-content; }
   .ha-board-unlocked, .ha-board-actions { grid-column: 2 / -1; justify-self: start; }

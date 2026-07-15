@@ -161,6 +161,33 @@ def test_create_without_optin_does_not_publish(api, store):
     assert row["score"] == 0
 
 
+def test_action_followup_can_read_board_without_duplicate_publish(api, store):
+    st, store_mod = store
+    base_transport = _make_transport(st, store_mod)
+    calls = []
+
+    def counting_transport(method, url, headers, body):
+        calls.append((method, urllib.parse.urlparse(url).path))
+        return base_transport(method, url, headers, body)
+
+    api.team_create(
+        "http://relay.test",
+        "Crew",
+        "Channa",
+        publish_opt_in=True,
+        transport=counting_transport,
+    )
+    calls.clear()
+
+    api.team_leaderboard(
+        transport=counting_transport,
+        refresh_profile=False,
+    )
+
+    team_id = api.load_team_config()["membership"]["team_id"]
+    assert calls == [("GET", f"/api/teams/{team_id}/leaderboard")]
+
+
 def test_join_flow_second_member(api, store):
     st, store_mod = store
     transport = _make_transport(st, store_mod)
@@ -176,6 +203,30 @@ def test_join_flow_second_member(api, store):
     names = {r["display_name"]: r for r in board["leaderboard"]}
     assert names["Owner"]["rank"] == 1  # higher score ranks first
     assert names["Channa"]["score"] == 270
+
+
+def test_join_can_opt_in_without_filling_a_display_name(api, store):
+    """The simple join action needs only an invite and affirmative consent."""
+    st, store_mod = store
+    transport = _make_transport(st, store_mod)
+    owner = st.create_team(name="Crew", display_name="Owner")
+    invite = api.encode_invite(
+        "http://relay.test", owner["team_id"], "Crew", owner["join_secret"]
+    )
+
+    state = api.team_join(invite, "", publish_opt_in=True, transport=transport)
+
+    assert state["publish_opt_in"] is True
+    assert state["membership"]["display_name"] == "Member"
+    board = api.team_leaderboard(transport=transport)
+    member = next(
+        row
+        for row in board["leaderboard"]
+        if row["member_id"] == board["my_member_id"]
+    )
+    assert member["display_name"] == "Member"
+    assert member["has_published"] is True
+    assert member["score"] == 270
 
 
 def test_settings_toggle_and_rename(api, store):

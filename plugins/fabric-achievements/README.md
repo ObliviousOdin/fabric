@@ -73,11 +73,16 @@ and pinned by `tests/plugins/test_leaderboard_privacy.py`).
 How it connects: one person runs a small **relay** (see
 [`relay/README.md`](relay/README.md) — a stdlib-only, self-hostable service,
 `python -m relay`). Creating a team returns a shareable **invite code**
-(`fbl1_…`); others paste it to join. Each member's dashboard talks to the relay
+(`fbl1_…`); others paste it and choose **Join and share my score**. The button
+is the explicit opt-in, so a display name and separate consent checkbox are not
+required; the member can choose a name or join without sharing from the
+secondary options. Relay hosting and team creation stay under **Advanced**.
+Once joined, sharing is a one-click status control and opting out actively
+retracts the member's published row. Each member's dashboard talks to the relay
 server-to-server through these backend routes — the browser never contacts the
-relay directly. Sharing is a toggle, publishing is aggregate-only, the team
-owner can reset the invite or remove members, and scores are self-reported
-(this is a friendly board, not an adversarial ranking).
+relay directly. Publishing is aggregate-only, the team owner can reset the
+invite or remove members, and scores are self-reported (this is a friendly
+board, not an adversarial ranking).
 
 ## Dashboard API
 

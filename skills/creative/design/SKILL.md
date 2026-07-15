@@ -1,6 +1,6 @@
 ---
 name: design
-description: Design prototypes, product surfaces, and persistent DESIGN.md systems.
+description: Design product surfaces and persistent systems.
 version: 1.0.0
 author: Fabric
 license: MIT

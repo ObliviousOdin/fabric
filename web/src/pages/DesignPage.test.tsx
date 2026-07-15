@@ -81,7 +81,9 @@ describe("DesignPage", () => {
       '[data-testid="chat-location"]',
     )?.textContent;
     const draft = new URLSearchParams(search ?? "").get("draft");
+    const fresh = new URLSearchParams(search ?? "").get("fresh");
 
+    expect(fresh).toBeTruthy();
     expect(draft).toContain("/design Design a repository onboarding flow");
     expect(draft).toContain("Fidelity: High fidelity.");
     expect(draft).toContain("current project's DESIGN.md");

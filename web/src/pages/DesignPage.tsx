@@ -17,6 +17,10 @@ import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { en } from "@/i18n/en";
 import { cn } from "@/lib/utils";
+import {
+  createFreshChatRequestId,
+  FRESH_CHAT_QUERY_PARAM,
+} from "@/components/chat/usePersistentChatIdentity";
 
 export default function DesignPage() {
   const navigate = useNavigate();
@@ -37,7 +41,10 @@ export default function DesignPage() {
     if (!brief.trim()) return;
 
     const draft = buildDesignPrompt({ artifact, brief, fidelity, system });
-    const params = new URLSearchParams({ draft });
+    const params = new URLSearchParams({
+      [FRESH_CHAT_QUERY_PARAM]: createFreshChatRequestId(),
+      draft,
+    });
     navigate(`/workspace/chat?${params.toString()}`);
   };
 

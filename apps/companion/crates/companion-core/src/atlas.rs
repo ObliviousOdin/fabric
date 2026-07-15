@@ -200,9 +200,13 @@ fn cell_is_blank(sheet: &RgbaImage, col: u32, top_px: u32) -> bool {
 }
 
 /// Count the animation frames in concrete *row*: walk the row's cells left
-/// to right, stopping at the first blank cell (sheets are left-packed;
-/// trailing columns of a short row are fully transparent padding). Mirrors
-/// `_raw_frames` in `agent/pet/render.py`.
+/// to right up to the sheet's full physical column count, stopping at the
+/// first blank cell (sheets are left-packed; trailing columns of a short row
+/// are fully transparent padding). Mirrors `_pet_row_frame_counts` in
+/// `tui_gateway/server.py` — concrete rows are NOT capped at
+/// [`FRAMES_PER_STATE`]; Codex sheets ship 8-frame directional walk cycles
+/// and the roam path plays all of them. The 6-frame cap belongs only to the
+/// state-driven display path ([`state_frame_count`]).
 ///
 /// Returns 0 when even the first cell is blank; callers should treat that as
 /// "row has no art" and fall back to the idle row rather than divide by zero
@@ -211,7 +215,7 @@ pub fn row_frame_count(sheet: &RgbaImage, row: u32) -> u32 {
     let grid = AtlasGrid::from_dimensions(sheet.width(), sheet.height());
     let top = grid.row_top(row);
     let mut count = 0;
-    for col in 0..grid.max_frames() {
+    for col in 0..grid.cols {
         if col * FRAME_W >= sheet.width() || cell_is_blank(sheet, col, top) {
             break;
         }
@@ -220,11 +224,12 @@ pub fn row_frame_count(sheet: &RgbaImage, row: u32) -> u32 {
     count
 }
 
-/// [`row_frame_count`] for the row *state* resolves to. Mirrors
+/// Frames the *state*-driven display path steps through: the resolved row's
+/// trimmed count, capped at [`FRAMES_PER_STATE`]. Mirrors `_raw_frames` /
 /// `state_frame_counts` in `agent/pet/render.py`.
 pub fn state_frame_count(sheet: &RgbaImage, state: PetState) -> u32 {
     let grid = AtlasGrid::from_dimensions(sheet.width(), sheet.height());
-    row_frame_count(sheet, grid.row_for_state(state))
+    row_frame_count(sheet, grid.row_for_state(state)).min(FRAMES_PER_STATE)
 }
 
 /// Per-state frame counts for a whole sheet (what the gateway ships to the
@@ -314,6 +319,11 @@ mod tests {
         assert_eq!(state_frame_count(&sheet, PetState::Jump), 5); // "jumping" row
                                                                   // 8-frame rows are capped by FRAMES_PER_STATE.
         assert_eq!(state_frame_count(&sheet, PetState::Failed), 6);
+        // ...but concrete rows report their full physical frame count — the
+        // directional walk cycles play all 8 frames (framesByRow parity).
+        assert_eq!(row_frame_count(&sheet, 1), 8); // running-right
+        assert_eq!(row_frame_count(&sheet, 2), 8); // running-left
+        assert_eq!(row_frame_count(&sheet, 3), 4); // waving
     }
 
     #[test]

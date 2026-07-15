@@ -39,9 +39,12 @@ pub enum SessionBinding {
     /// `session.create` — a fresh session owned by the companion.
     Create,
     /// `session.resume` of a stored session id, or the most recent session
-    /// when None. NOTE: resuming re-binds that session's event stream to
-    /// this socket — another attached surface (desktop, dashboard) stops
-    /// receiving its events. Deliberate opt-in only.
+    /// when None. Resumes are eager (never `lazy`): the server then follows
+    /// the compression-continuation chain to the live tip, so a rotated
+    /// session id binds the branch that actually carries new turns. NOTE:
+    /// resuming re-binds that session's event stream to this socket —
+    /// another attached surface (desktop, dashboard) stops receiving its
+    /// events. Deliberate opt-in only.
     Resume(Option<String>),
 }
 
@@ -71,12 +74,22 @@ pub fn spawn(config: BridgeConfig, tx: Sender<BridgeUpdate>) {
 
 async fn run(config: BridgeConfig, tx: Sender<BridgeUpdate>) {
     let mut attempt: u32 = 0;
+    // A side-effectful --prompt is submitted at most once per process, not
+    // once per (re)connection — resubmitting on reconnect would replay the
+    // instruction (and, on a resumed busy session, interrupt the live turn).
+    let mut prompt_submitted = false;
     loop {
-        match connect_once(&config, &tx).await {
-            Ok(()) => attempt = 0,
+        let mut bound = false;
+        match connect_once(&config, &tx, &mut prompt_submitted, &mut bound).await {
+            Ok(()) => {}
             Err(err) => {
                 log::warn!("bridge: connection failed: {err}");
             }
+        }
+        // A connection that successfully bound was healthy: restart the
+        // backoff ladder even if it later died with an error.
+        if bound {
+            attempt = 0;
         }
         if tx.send(BridgeUpdate::Disconnected).is_err() {
             return; // Bevy side is gone; stop retrying.
@@ -90,6 +103,8 @@ async fn run(config: BridgeConfig, tx: Sender<BridgeUpdate>) {
 async fn connect_once(
     config: &BridgeConfig,
     tx: &Sender<BridgeUpdate>,
+    prompt_submitted: &mut bool,
+    bound: &mut bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (ws, _resp) = tokio_tungstenite::connect_async(&config.url).await?;
     let (mut sink, mut stream) = ws.split();
@@ -104,11 +119,9 @@ async fn connect_once(
             "session.create",
             json!({"source": "companion", "close_on_disconnect": true}),
         ),
-        SessionBinding::Resume(Some(sid)) => request_frame(
-            bind_id,
-            "session.resume",
-            json!({"session_id": sid, "lazy": true}),
-        ),
+        SessionBinding::Resume(Some(sid)) => {
+            request_frame(bind_id, "session.resume", json!({"session_id": sid}))
+        }
         SessionBinding::Resume(None) => request_frame(bind_id, "session.most_recent", json!({})),
     };
     next_id += 1;
@@ -116,6 +129,11 @@ async fn connect_once(
 
     let mut session_id: Option<String> = None;
     let mut resume_id: Option<u64> = None;
+    // True while the bind_id response is a session.most_recent lookup rather
+    // than the session bind itself (Resume(None) does lookup → resume, and
+    // falls back to session.create when nothing is stored).
+    let mut lookup_pending = matches!(config.binding, SessionBinding::Resume(None));
+    let mut bind_id = bind_id;
 
     while let Some(message) = stream.next().await {
         let message = message?;
@@ -133,30 +151,53 @@ async fn connect_once(
         };
         match incoming {
             Incoming::Response { id, result, error } => {
-                if let Some(error) = error {
-                    return Err(format!("rpc error: {error}").into());
-                }
                 let rid = id.as_u64();
+                if let Some(error) = error {
+                    // Only a failed bind/lookup is fatal to the connection;
+                    // errors on other requests (e.g. prompt.submit) are
+                    // per-request outcomes, not transport failures.
+                    if rid == Some(bind_id) || (rid.is_some() && rid == resume_id) {
+                        return Err(format!("rpc error binding session: {error}").into());
+                    }
+                    log::warn!("bridge: rpc error on request {rid:?}: {error}");
+                    continue;
+                }
                 let result = result.unwrap_or_default();
-                if rid == Some(bind_id) && matches!(config.binding, SessionBinding::Resume(None)) {
-                    // session.most_recent answered — now resume that id.
+                if rid == Some(bind_id) && lookup_pending {
+                    lookup_pending = false;
+                    // session.most_recent answered — resume that id, or fall
+                    // back to a fresh session when nothing is stored
+                    // (session_id: null is the documented normal answer).
                     let stored = result
                         .get("session_id")
                         .or_else(|| result.get("stored_session_id"))
                         .and_then(|v| v.as_str())
-                        .ok_or("no session to resume — is there a stored session?")?;
+                        .map(str::to_owned);
                     let id = next_id;
                     next_id += 1;
-                    resume_id = Some(id);
-                    sink.send(Message::Text(
-                        request_frame(
-                            id,
-                            "session.resume",
-                            json!({"session_id": stored, "lazy": true}),
-                        )
-                        .into(),
-                    ))
-                    .await?;
+                    match stored {
+                        Some(stored) => {
+                            resume_id = Some(id);
+                            sink.send(Message::Text(
+                                request_frame(id, "session.resume", json!({"session_id": stored}))
+                                    .into(),
+                            ))
+                            .await?;
+                        }
+                        None => {
+                            log::warn!("bridge: no stored session to resume; creating a fresh one");
+                            bind_id = id;
+                            sink.send(Message::Text(
+                                request_frame(
+                                    id,
+                                    "session.create",
+                                    json!({"source": "companion", "close_on_disconnect": true}),
+                                )
+                                .into(),
+                            ))
+                            .await?;
+                        }
+                    }
                 } else if rid == Some(bind_id) || (rid.is_some() && rid == resume_id) {
                     let sid =
                         bound_session_id(&result).ok_or("bind response carried no session_id")?;
@@ -167,7 +208,17 @@ async fn connect_once(
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
                     session_id = Some(sid.clone());
-                    on_bound(&mut sink, &mut next_id, config, sid, running, tx).await?;
+                    *bound = true;
+                    on_bound(
+                        &mut sink,
+                        &mut next_id,
+                        config,
+                        sid,
+                        running,
+                        tx,
+                        prompt_submitted,
+                    )
+                    .await?;
                 }
             }
             Incoming::Event(event) => {
@@ -192,6 +243,7 @@ fn bound_session_id(result: &serde_json::Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn on_bound<S>(
     sink: &mut S,
     next_id: &mut u64,
@@ -199,6 +251,7 @@ async fn on_bound<S>(
     session_id: String,
     running: bool,
     tx: &Sender<BridgeUpdate>,
+    prompt_submitted: &mut bool,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     S: SinkExt<Message> + Unpin,
@@ -208,18 +261,23 @@ where
         session_id: session_id.clone(),
         running,
     });
+    // Submit --prompt once per process, and never into a turn already in
+    // flight (prompt.submit on a busy session interrupts it by default).
     if let Some(prompt) = &config.prompt {
-        let id = *next_id;
-        *next_id += 1;
-        sink.send(Message::Text(
-            request_frame(
-                id,
-                "prompt.submit",
-                json!({"session_id": session_id, "text": prompt}),
-            )
-            .into(),
-        ))
-        .await?;
+        if !*prompt_submitted && !running {
+            *prompt_submitted = true;
+            let id = *next_id;
+            *next_id += 1;
+            sink.send(Message::Text(
+                request_frame(
+                    id,
+                    "prompt.submit",
+                    json!({"session_id": session_id, "text": prompt}),
+                )
+                .into(),
+            ))
+            .await?;
+        }
     }
     Ok(())
 }

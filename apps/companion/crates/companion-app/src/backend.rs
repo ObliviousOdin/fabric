@@ -21,10 +21,20 @@ impl Drop for BackendGuard {
 }
 
 /// Generate a URL-safe random token (loopback session credential).
+///
+/// fastrand is not a CSPRNG, so mix in OS-level entropy sources the same way
+/// for each chunk: the token guards a loopback-only, per-process backend, but
+/// there is no reason to hand an attacker a guessable seed either.
 fn random_token() -> String {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
     let mut token = String::with_capacity(64);
-    for _ in 0..4 {
-        token.push_str(&format!("{:016x}", fastrand::u64(..)));
+    for i in 0..4u64 {
+        // RandomState draws its keys from the OS; hashing a rolling counter
+        // through it yields unpredictable 64-bit chunks.
+        let mut hasher = RandomState::new().build_hasher();
+        hasher.write_u64(fastrand::u64(..) ^ i);
+        token.push_str(&format!("{:016x}", hasher.finish()));
     }
     token
 }
@@ -43,38 +53,47 @@ pub fn spawn_backend(fabric_bin: &str) -> Result<(String, BackendGuard), String>
         .spawn()
         .map_err(|e| format!("failed to run `{fabric_bin} serve`: {e}"))?;
 
+    // Read stdout on a helper thread: `read_line` has no timeout, so the
+    // deadline below must not depend on the child ever producing output.
+    // After the ready line is found (receiver dropped), the same thread
+    // keeps draining stdout so the child never blocks on a full pipe.
     let stdout = child.stdout.take().expect("piped stdout");
-    let mut reader = BufReader::new(stdout);
-    let deadline = Instant::now() + READY_TIMEOUT;
-    let mut line = String::new();
-    loop {
-        if Instant::now() > deadline {
-            let _ = child.kill();
-            return Err("backend never announced readiness".into());
-        }
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) => {
-                let _ = child.kill();
-                return Err("backend exited before announcing readiness".into());
+    let (line_tx, line_rx) = std::sync::mpsc::channel::<String>();
+    std::thread::Builder::new()
+        .name("fabric-companion-backend-stdout".into())
+        .spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            while matches!(reader.read_line(&mut line), Ok(n) if n > 0) {
+                let _ = line_tx.send(std::mem::take(&mut line));
             }
-            Ok(_) => {
+        })
+        .expect("spawn backend stdout thread");
+
+    let deadline = Instant::now() + READY_TIMEOUT;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("backend never announced readiness within 60s".into());
+        }
+        match line_rx.recv_timeout(remaining) {
+            Ok(line) => {
                 if let Some(port) = parse_ready_line(line.trim()) {
-                    // Keep draining stdout so the child never blocks on a
-                    // full pipe.
-                    std::thread::spawn(move || {
-                        let mut sink = String::new();
-                        while matches!(reader.read_line(&mut sink), Ok(n) if n > 0) {
-                            sink.clear();
-                        }
-                    });
                     let url = format!("ws://127.0.0.1:{port}/api/ws?token={token}");
                     return Ok((url, BackendGuard(child)));
                 }
             }
-            Err(e) => {
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 let _ = child.kill();
-                return Err(format!("reading backend stdout: {e}"));
+                let _ = child.wait();
+                return Err("backend never announced readiness within 60s".into());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("backend exited before announcing readiness".into());
             }
         }
     }
@@ -113,9 +132,10 @@ mod tests {
     }
 
     #[test]
-    fn tokens_are_long_and_hex() {
-        let token = random_token();
-        assert_eq!(token.len(), 64);
-        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+    fn tokens_are_long_hex_and_distinct() {
+        let (a, b) = (random_token(), random_token());
+        assert_eq!(a.len(), 64);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a, b);
     }
 }

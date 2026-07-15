@@ -152,9 +152,9 @@ pub struct RoamLoop {
 }
 
 impl RoamLoop {
-    /// Start a roam loop with the pet dropping in from (`x`, `y`). The first
-    /// beat begins once the pet lands (or immediately if already grounded,
-    /// after an initial 400–1200 ms pause).
+    /// Start a roam loop at (`x`, `y`). Desktop parity: the loop always
+    /// parks first (400–1200 ms), and the pause-expiry planner is what
+    /// notices the pet is airborne and begins the drop.
     pub fn new(spec: RoamSpec, x: f32, y: f32, now_ms: f32, rng: &mut impl RoamRng) -> Self {
         let RoamSpec {
             floor,
@@ -164,14 +164,9 @@ impl RoamLoop {
         } = spec;
         let walk_speed = pet_w * STRIDE_PER_LOOP / (loop_ms / 1000.0);
         let x = x.clamp(floor.left, floor.right.max(floor.left));
-        let rest_y = floor.rest_y(pet_h);
-        let phase = if (y - rest_y).abs() > 2.0 {
-            Phase::Fall { vel: 0.0 }
-        } else {
-            let (lo, hi) = INITIAL_PAUSE_MS;
-            Phase::Pause {
-                until_ms: now_ms + lo + rng.next() * (hi - lo),
-            }
+        let (lo, hi) = INITIAL_PAUSE_MS;
+        let phase = Phase::Pause {
+            until_ms: now_ms + lo + rng.next() * (hi - lo),
         };
         RoamLoop {
             pet_h,
@@ -188,17 +183,14 @@ impl RoamLoop {
         (self.x, self.y)
     }
 
-    /// Move the pet (drag release, external reposition) and re-plan: it
-    /// falls back to the floor if airborne, else pauses briefly.
+    /// Move the pet (drag release, external reposition). Desktop parity:
+    /// settle for 90 ms first; the planner then drops the pet to the floor
+    /// if the new spot is airborne.
     pub fn place(&mut self, x: f32, y: f32, now_ms: f32) {
         self.x = x.clamp(self.floor.left, self.floor.right.max(self.floor.left));
         self.y = y;
-        self.phase = if (y - self.floor.rest_y(self.pet_h)).abs() > 2.0 {
-            Phase::Fall { vel: 0.0 }
-        } else {
-            Phase::Pause {
-                until_ms: now_ms + 90.0,
-            }
+        self.phase = Phase::Pause {
+            until_ms: now_ms + 90.0,
         };
     }
 
@@ -236,7 +228,12 @@ impl RoamLoop {
             }
             Phase::Pause { until_ms } => {
                 if now_ms >= until_ms {
-                    if rng.next() < REST_CHANCE {
+                    // Planner (mirrors planNext): fix vertical mismatch
+                    // before considering a move — a parked-then-airborne pet
+                    // drops to the floor first.
+                    if (self.y - self.floor.rest_y(self.pet_h)).abs() > 2.0 {
+                        self.phase = Phase::Fall { vel: 0.0 };
+                    } else if rng.next() < REST_CHANCE {
                         self.begin_pause(now_ms, rng);
                     } else {
                         let target = pick_stroll_target(&self.floor, self.x, rng);
@@ -350,21 +347,27 @@ mod tests {
     }
 
     #[test]
-    fn falls_land_and_settle() {
+    fn parks_then_falls_and_lands() {
         let mut rng = Seq::new(&[0.5]);
         let mut roam = RoamLoop::new(SPEC, 100.0, 0.0, 0.0, &mut rng);
         let mut now = 0.0;
+        let mut saw_fall = false;
         let mut landed = false;
         for _ in 0..600 {
             now += 16.0;
             let frame = roam.tick(now, 0.016, &mut rng);
             match frame.pose {
-                Some(MotionPose::Jump) => assert_eq!(frame.dir, 0),
-                None => {
+                Some(MotionPose::Jump) => {
+                    saw_fall = true;
+                    assert_eq!(frame.dir, 0);
+                }
+                None if saw_fall => {
                     landed = true;
                     assert_eq!(frame.y, FLOOR.rest_y(PET_H));
                     break;
                 }
+                // Initial park (400 + 0.5*800 = 800 ms) plus one planner tick.
+                None => assert!(now <= 820.0, "still parked at {now} ms"),
                 other => panic!("unexpected pose while falling: {other:?}"),
             }
         }
@@ -430,13 +433,22 @@ mod tests {
     }
 
     #[test]
-    fn place_replans() {
+    fn place_settles_then_replans() {
         let mut rng = Seq::new(&[0.5]);
         let rest_y = FLOOR.rest_y(PET_H);
         let mut roam = RoamLoop::new(SPEC, 200.0, rest_y, 0.0, &mut rng);
+
+        // Airborne placement: 90 ms settle, then the planner starts the drop.
         roam.place(300.0, 0.0, 0.0);
-        assert!(matches!(roam.phase, Phase::Fall { .. }));
-        roam.place(300.0, rest_y, 0.0);
+        assert!(matches!(roam.phase, Phase::Pause { .. }));
+        let frame = roam.tick(50.0, 0.016, &mut rng);
+        assert_eq!(frame.pose, None); // still settling
+        roam.tick(95.0, 0.016, &mut rng); // planner tick → fall begins
+        let frame = roam.tick(111.0, 0.016, &mut rng);
+        assert_eq!(frame.pose, Some(MotionPose::Jump));
+
+        // Grounded placement just settles back into a pause.
+        roam.place(300.0, rest_y, 1000.0);
         assert!(matches!(roam.phase, Phase::Pause { .. }));
     }
 }

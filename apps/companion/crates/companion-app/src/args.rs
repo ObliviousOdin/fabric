@@ -84,6 +84,11 @@ pub struct Args {
     /// Force demo mode even when connection flags are present.
     #[arg(long)]
     pub demo: bool,
+
+    /// Render on an opaque dark backdrop instead of a transparent window
+    /// (debugging aid for compositors where transparency misbehaves).
+    #[arg(long)]
+    pub opaque: bool,
 }
 
 impl Args {

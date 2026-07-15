@@ -18,6 +18,7 @@ fabric-companion-core = { path = "../companion-core" }
 bevy = { version = "0.19", default-features = false, features = [
     "bevy_winit",
     "bevy_sprite",
+    "bevy_sprite_render", # bevy_sprite alone is API-only — this is the renderer
     "bevy_core_pipeline",
     "bevy_window",
     "bevy_asset",

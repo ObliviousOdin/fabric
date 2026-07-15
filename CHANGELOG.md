@@ -6,14 +6,14 @@ All notable changes to Fabric are documented in this file.
 
 ### Added
 
-- Added fully resolved semantic light/dark theme exports so desktop surfaces can consume the canonical Fabric design-system roles without duplicating palette values.
-- Added the official responsive Fabric wordmark to the desktop chat introduction, with distinct assets for light and dark appearances.
+- Desktop surfaces can now consume fully resolved light and dark Fabric theme roles without duplicating palette values.
+- The desktop chat introduction now displays the official responsive Fabric wordmark, with distinct assets for light and dark appearances.
 
 ### Changed
 
-- Refactored the default desktop theme onto Fabric's warm neutral canvas, restrained violet actions, system typography, and shared semantic surface hierarchy while preserving existing alternate themes.
-- Standardized desktop dialogs, onboarding, recovery, update, notification, and picker surfaces on the shared overlay background, stroke, and shadow tokens without changing their layout.
-- Removed the inherited display-font treatment from the chat introduction in favor of Fabric-owned brand assets.
+- Fabric's default desktop theme now uses a warm neutral canvas, restrained violet actions, system typography, and a shared semantic surface hierarchy while preserving existing alternate themes.
+- Desktop dialogs, onboarding, recovery, update, notification, and picker surfaces now share consistent overlay backgrounds, strokes, and shadows without changing their layout.
+- The chat introduction now uses Fabric-owned brand assets instead of the inherited display-font treatment.
 
 ## [0.19.0] - 2026-07-14
 

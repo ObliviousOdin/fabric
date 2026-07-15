@@ -1,10 +1,11 @@
 # OpenCut design audit & Fabric embedding proposal
 
-> Status: research + proposal (2026-07-15). This document audits the design of
+> Status: reviewed proposal + host-readiness implementation (2026-07-15). This document audits the design of
 > every page of [OpenCut](https://github.com/OpenCut-app) and proposes how to
 > embed OpenCut into Fabric as a first-class **capability**. It is a decision
-> input, not an implementation spec — code sketches are illustrative starting
-> points, not a merged build.
+> input, not an implementation spec — OpenCut-specific code sketches are
+> illustrative starting points for a standalone plugin repository. The Fabric
+> host changes recorded in §5.7 are implemented by this release.
 
 ## 0. TL;DR
 
@@ -33,11 +34,12 @@
   layer**, where agent-generated clips, images, narration, and captions are
   composed into a finished video — all local-first, matching both products'
   ethos.
-- **The recommendation.** Ship OpenCut as a **bundled dashboard plugin
-  ("Studio")** — a `layout: workspace` tab that mounts the editor — reskinned to
-  the *Woven Operations* token contract, plus an **agent-facing capability**
-  (an `opencut` toolset and an optional `fabric.studio` capability-pack) that
-  lets agents drive edits through OpenCut's already-clean `EditorCore` store.
+- **The recommendation.** Ship OpenCut as a **standalone dashboard plugin
+  repository ("Studio")** installed with `fabric plugins install owner/repo`.
+  It contributes a `layout: workspace` tab, its own gated `opencut` toolset,
+  and bundled workflow skills while consuming Fabric's public plugin SDK. This
+  keeps the third-party product outside Fabric's core tree and preserves the
+  narrow-waist/tool-schema contract.
 - **Method note.** `opencut.app` is blocked by this environment's egress policy,
   so this audit is **source-driven** (reading the actual `.tsx`/CSS from GitHub)
   and corroborated by published reviews — not live screenshots. Findings cite
@@ -286,11 +288,11 @@ cloud.
 ```mermaid
 flowchart LR
   subgraph Agent["Agent plane (drives the edit)"]
-    SK["opencut toolset\n+ fabric.studio pack"]
+    SK["plugin-provided opencut toolset\n+ bundled studio skills"]
     GEN["image_gen · video_gen · tts\n(existing backends)"]
   end
   subgraph UI["UI plane (dashboard plugin)"]
-    TAB["Studio tab\nlayout: workspace"]
+    TAB["External Studio plugin tab\nlayout: workspace"]
     ED["OpenCut editor\n(assets · preview · props · timeline)"]
   end
   subgraph Backend["Backend plane (plugin_api.py)"]
@@ -305,35 +307,35 @@ flowchart LR
   TAB --> ED
 ```
 
-- **UI plane** — a **bundled dashboard plugin `studio`** whose
-  `manifest.json` declares a `layout: workspace` tab. Workspace layout is the
-  key: the shell strips all padding/scroll and hands the plugin a full-bleed
-  region (`App.tsx` `isWorkspaceRoute`) — exactly what OpenCut's
-  `ResizablePanelGroup` expects. The bundle calls
+- **UI plane** — a **standalone dashboard plugin `studio`** installed into the
+  user's plugin directory. Its `manifest.json` declares a `layout: workspace`
+  tab. Workspace layout is the key: the shell strips all padding/scroll and
+  hands the plugin a full-bleed region (`App.tsx` `isWorkspaceRoute`) — exactly
+  what OpenCut's `ResizablePanelGroup` expects. The bundle calls
   `window.__FABRIC_PLUGINS__.register("studio", StudioRoot)` and consumes host
   React/DS/icons from `window.__FABRIC_PLUGIN_SDK__`.
-- **Agent plane** — an **`opencut` toolset** (real, gated tools) plus an optional
-  **`fabric.studio` capability-pack** (router + phase members). A SKILL grants
-  *no* tools by design, so the driving verbs must be registered tools; the
-  skill/pack only sequences them.
-- **Backend plane** — an optional **`plugin_api.py`** (FastAPI `router` mounted
-  at `/api/plugins/studio/`) for cross-surface project persistence, media
-  streaming (video *cannot* be served from the static bundle route — suffix
-  allowlist excludes `.mp4`), an events WebSocket for live agent↔editor sync, and
-  an export-job worker shelling the org's **`ffmpeg-rust`** binary.
+- **Agent plane** — the external plugin registers an **`opencut` toolset** with
+  `ctx.register_tool(..., toolset="opencut", check_fn=...)` and namespaced
+  workflow skills with `ctx.register_skill()`. A SKILL grants *no* tools by
+  design, so the driving verbs remain gated tools; skills only sequence them.
+- **Backend plane** — the user-enabled plugin supplies **`plugin_api.py`**
+  (FastAPI `router` mounted at `/api/plugins/studio/`) for cross-surface project
+  persistence, media streaming (video *cannot* be served from the unauthenticated
+  static bundle route), an events WebSocket for live agent↔editor sync, and an
+  export-job worker shelling an explicitly configured encoder.
 
 ### 5.3 The hard tensions (and how to resolve them)
 
 | Tension | Why it's hard | Resolution |
 |---|---|---|
-| **Single React instance** | Plugin bundles run in the host DOM and must use `SDK.React`; OpenCut self-bundles React 19 + TanStack + Base UI + Tailwind v4. Two Reacts break hooks/context. | Both are React 19 → build OpenCut as **one IIFE** with `react`/`react-dom` externalised to `window.__FABRIC_PLUGIN_SDK__.React`. Drop TanStack Router (host owns routing; use injected `navigate`/`location`). |
+| **Single React instance** | Plugin bundles run in the host DOM and must use `SDK.React`; OpenCut self-bundles React 19 + TanStack + Base UI + Tailwind v4. Two Reacts break hooks/context. | Both are React 19 → build OpenCut as **one IIFE** with `react` externalised to `SDK.React` and `react-dom` to `SDK.ReactDOM`. Register a component instead of creating another root. Drop TanStack Router (host owns routing; use injected `navigate`/`location`). |
 | **Tailwind v4 preflight collision** | Plugin CSS is injected **globally** (no scoping); OpenCut's preflight/reset would fight host `index.css`. | Scope OpenCut styles under a `.fabric-studio` root and strip preflight, **or** remap OpenCut's theme onto host CSS vars so it inherits `#4628CC`/canvas/text automatically. |
-| **Asset allowlist** | `/dashboard-plugins/<name>/` refuses `.wasm`, `.mp4`, `.data`. | Extend the `web_server.py` suffix allowlist for `.wasm`, or inline; **stream media through an authed `plugin_api.py` route** (the attachment `FileResponse`+Range pattern), never the static route. |
+| **Asset allowlist** | `/dashboard-plugins/<name>/` historically refused `.wasm`, `.mp4`, `.data`. | This Fabric release allowlists `.wasm` as `application/wasm`. **Stream media and arbitrary binary data through an authed `plugin_api.py` route**, never the unauthenticated static route. |
 | **Cross-origin isolation** | ffmpeg.wasm / `SharedArrayBuffer` need COOP/COEP headers the dashboard likely doesn't send. | Verify/add COOP+COEP on the dashboard document, or run heavy encode as a **backend export worker** (see below) instead of in-browser. |
 | **Plugin pages unmount on nav** | Unlike Chat, plugin routes remount on navigation / profile switch → editor state lost. | Persist timeline/media to **OPFS/IndexedDB** (OpenCut already does) and/or a backend project store; optionally promote `/workspace/studio` to a persistent host later. |
 | **Desktop app ignores manifests** | `apps/desktop` runs its *own* renderer with hard-coded routes; the web plugin loader doesn't run there. | Web plugin gives web parity for free. For desktop, add a native `AppRoute` **or** load the served editor route in a hardened `<webview>` (`webviewTag` already enabled). A deliberate second deliverable. |
 | **Local cache isn't web-loadable** | `success_response` handles can be absolute `$FABRIC_HOME/cache` paths that a browser can't fetch. | Add an authed host endpoint that streams cache files; OpenCut reads them via `SDK.authedFetch` as blobs into its local store. On desktop, prefer the Range-aware `hermes-media://` protocol (no 16 MB data-URL cap). |
-| **Licensing / provenance** | Vendoring third-party (MIT) OpenCut into a capability-pack requires full provenance (pinned rev, SPDX, licence digest). The OpenCut *name/logo* are **not** covered by the code licence (per `/brand`). | Pin an immutable upstream rev; ship the MIT notice; use "powered by OpenCut" attribution within brand rules; keep the runtime bundle as a plugin, and reference (don't necessarily vendor) it from the pack. |
+| **Licensing / provenance** | Adapting third-party (MIT) OpenCut requires full provenance (pinned rev, SPDX, licence digest). The OpenCut *name/logo* are **not** covered by the code licence (per `/brand`). | Keep all derived runtime code and notices in the standalone plugin repository; pin an immutable upstream rev and follow OpenCut's brand rules. Fabric core contains no vendored OpenCut code. |
 
 **Same-DOM vs iframe** — the central fork. Same-DOM (IIFE using host React) gives
 free theme-token inheritance (all tokens are CSS vars on `:root`), a shared React
@@ -351,7 +353,7 @@ OpenCut styles scoped/retokenised. Spike it first (§6, Phase 0).
 | Export button gloss (hard hex) | standard `Button` on `--color-primary` | drop skeuomorphism; theme-aware |
 | Roadmap `bg-*-500!` badges | `constructive` / `caution` / `muted` chips | dependency-light ledger chip; fix AA contrast |
 | Inter (self-loaded) | host **system sans** | mono (`--font-mono`) *only* for timecodes, codecs, resolutions, IDs |
-| Hugeicons + lucide (bundled) | `SDK.icons` (host lucide subset) | add a Film/Studio glyph to `ICON_MAP` (unknown → `Puzzle` fallback) |
+| Hugeicons + lucide (bundled) | `SDK.icons` (host lucide subset) | `Film` is host-provided for the Studio glyph (unknown → `Puzzle` fallback) |
 | Timeline ruler grid | `--fabric-woven-grid-line` | motif as functional cue, not wallpaper |
 | 16px icon toggles | ≥44px hit targets | `aria-pressed`, hover/pressed bg |
 
@@ -361,8 +363,8 @@ default card-grid skin.
 
 ### 5.5 Agent-driven workflows
 
-The pipeline mirrors the existing `product-design` pack shape (router → phase
-members), which is the template to copy:
+The pipeline borrows the existing product-design workflow's phase boundaries
+without copying its core capability-pack packaging:
 
 1. **storyboard** — plan shots/copy, no edits.
 2. **generate** — call existing `image_gen` / `video_gen` / `tts`; collect media
@@ -376,14 +378,14 @@ members), which is the template to copy:
    (mirror `design-build`'s "do not deploy/publish without separate
    authorization"), and the finished mp4 re-enters `$FABRIC_HOME/cache/videos`.
 
-Packaging choice: a **`fabric.studio` capability-pack** (router + members) if the
-flow is genuinely multi-phase; a single `skills/media/opencut/SKILL.md` + the
-`opencut` toolset if it's linear (avoids the full provenance/catalog-compile
-burden).
+Packaging choice: namespaced skills bundled by the standalone plugin. Use one
+`studio-workflow` skill if the flow stays linear; split it into phase skills if
+the workflow genuinely needs routing. In both cases the plugin owns the
+`opencut` toolset, so Fabric adds no permanent core model-tool surface.
 
 ### 5.6 Concrete scaffolds (illustrative)
 
-**Plugin manifest** — `plugins/studio/dashboard/manifest.json`:
+**Plugin manifest** — `dashboard/manifest.json` in the standalone repository:
 
 ```json
 {
@@ -400,12 +402,12 @@ burden).
 }
 ```
 
-**Bundle entry (IIFE shape)** — `plugins/studio/dashboard/src/index.tsx`,
+**Bundle entry (IIFE shape)** — `dashboard/src/index.tsx`,
 Vite-built with `react`/`react-dom` externalised to the SDK:
 
 ```ts
 const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
-const { React } = SDK;
+const { React, ReactDOM } = SDK;
 
 function StudioRoot({ navigate, location }) {
   // OpenCut editor tree, mounted with host React; TanStack Router removed.
@@ -417,7 +419,8 @@ window.__FABRIC_PLUGINS__.register("studio", StudioRoot);
 window.__FABRIC_PLUGINS__.registerSlot("studio", "chat:rail", StudioRailCard);
 ```
 
-**Backend** — `plugins/studio/dashboard/plugin_api.py` (thin, mirrors kanban):
+**Backend** — `dashboard/plugin_api.py` in the standalone repository (thin,
+mirrors the public dashboard-plugin contract):
 
 ```python
 from fastapi import APIRouter
@@ -432,25 +435,46 @@ router = APIRouter()  # mounted at /api/plugins/studio/
 @router.websocket("/events")            # tail project_events; gate via _ws_auth_ok
 ```
 
-**Agent toolset** — `toolsets.py` + `tools/registry.py`:
+**Agent toolset** — the standalone plugin's `__init__.py`:
 
 ```python
-# toolsets.py: an opt-in leaf (not in core), name matches ^[a-z][a-z0-9_-]*$
-"opencut": Toolset(tools=[
-    "opencut_project_create", "opencut_import_media", "opencut_add_clip",
-    "opencut_trim", "opencut_arrange", "opencut_export",
-])
-# tools/registry.py: gate on the embedded runtime being reachable, like the
-# desktop-only `project` toolset — so these never surface on headless CLI sessions
-registry.register("opencut_add_clip", toolset="opencut", schema=..., handler=...,
-                  check_fn=lambda ctx: studio_runtime_present(ctx))
+def register(ctx):
+    ctx.register_tool(
+        name="opencut_add_clip",
+        toolset="opencut",
+        schema=OPENCUT_ADD_CLIP,
+        handler=opencut_add_clip,
+        check_fn=studio_runtime_present,
+    )
+    # Register the remaining project/import/trim/arrange/export tools and
+    # namespaced workflow skills from this plugin repository the same way.
 ```
 
-**Capability-pack** — clone `capability-packs/fabric.product-design/1.0.0`:
-`fabric.studio/1.0.0/{router,members/{studio-storyboard,studio-generate,studio-assemble,studio-export}}`,
-each a `SKILL.md` + `agents/openai.yaml`; `router.required_toolsets=[skills]`,
-members' `required_toolsets=[opencut]`, `optional_toolsets=[image_gen, video_gen,
-tts, file]`, `network: inherited`.
+**Bundled skills** — keep `skills/studio-workflow/SKILL.md` (or phase-specific
+siblings) in the plugin repository and register them with
+`ctx.register_skill()`. The skill can coordinate existing `image_gen`,
+`video_gen`, `tts`, and file tools without adding a Fabric capability pack.
+
+### 5.7 Host-readiness changes shipped in Fabric
+
+This release implements the generic, proven host gaps required by the external
+Studio plugin without embedding OpenCut or adding core model tools:
+
+- Dashboard plugin static assets now allow `.wasm` with the browser-correct
+  `application/wasm` MIME type. Python, media, and arbitrary data remain blocked
+  by the explicit suffix allowlist.
+- `Film` is available in dashboard sidebar manifest icon resolution and through
+  `window.__FABRIC_PLUGIN_SDK__.icons`, so the external plugin can use a
+  host-owned icon without bundling another icon library.
+- `SDK.ReactDOM` exposes the host renderer's portal/DOM helpers, allowing a
+  plugin to externalise both React packages without creating a second root.
+- Existing contracts provide the rest: GitHub plugin install/enablement,
+  `layout: workspace`, shared React 19, authenticated fetch/WebSocket helpers,
+  and enabled-user-plugin `plugin_api.py` mounting.
+
+The OpenCut editor fork, backend, tools, skills, licence notices, and upstream
+pin belong in a separate repository. Publishing that repository is the next
+deliverable; it does not require further speculative core scaffolding.
 
 ---
 
@@ -458,23 +482,23 @@ tts, file]`, `network: inherited`.
 
 | Phase | Goal | Work | Exit criteria |
 |---|---|---|---|
-| **0 — Spike** | Prove the editor runs as a workspace plugin (web) | Build OpenCut editor as one IIFE using host React; drop TanStack Router; minimal styling; keep OPFS/IndexedDB storage; extend `.wasm` allowlist / verify COOP-COEP | Editor loads in `/workspace/studio`, a clip plays, no dual-React/CSS-collision breakage |
+| **0 — Host + external spike** | Prove the editor runs as a user-installed workspace plugin (web) | Fabric: ship `.wasm` + `Film` host contracts. External repo: build OpenCut editor as one IIFE using host React; drop TanStack Router; minimal styling; keep OPFS/IndexedDB storage; verify whether COOP/COEP is needed | `fabric plugins install owner/repo` yields `/workspace/studio`; a clip plays; no dual-React/CSS-collision breakage |
 | **1 — Reskin & harden** | Look and behave like Fabric | Retokenise to Woven Operations (§5.4); add an **embedded mode** (relax mobile gate, hide standalone chrome/Exit/Discord/onboarding, programmatic export); fix the top-severity audit bugs (`renderingRef` `.finally`, Export token, `"...selected.0"`, empty/loading/error states) | Passes "recognisably Fabric with logo removed"; no blank/undefined states |
 | **2 — Agent bridge** | Agents drive edits | `opencut` toolset + handlers over `EditorCore`/backend; `plugin_api.py` project store + media streaming + `/events` WS; ingest `$FABRIC_HOME/cache` handles | Agent generates → imports → arranges; edits appear live in the panel |
-| **3 — Pack, export, desktop** | First-class capability | `fabric.studio` capability-pack; ffmpeg-rust export worker (approval-gated); desktop parity via native route or `<webview>` | Storyboard→export flow end-to-end; Studio present in desktop |
+| **3 — Skills, export, desktop** | First-class capability | Namespaced phase skills in the external plugin; ffmpeg-rust export worker (approval-gated); desktop parity via native route or `<webview>` | Storyboard→export flow end-to-end; Studio present in desktop |
 
-Ship Phase 0–1 as the "embed OpenCut" milestone; 2–3 turn it from an embedded app
-into an *agent capability*.
+Ship the Fabric half of Phase 0 in this release. Ship Phases 0–1 from the
+standalone plugin repository as the "embed OpenCut" milestone; 2–3 turn it from
+an embedded app into an *agent capability*.
 
 ---
 
 ## 7. Risks & open questions
 
 - **React singleton / SDK gaps.** Confirm host React 19 matches OpenCut's and
-  that externalising to `SDK.React` suffices (the SDK exposes React + a hooks
-  *subset*; `useReducer`/`useLayoutEffect`/`useSyncExternalStore`/`useTransition`
-  come off `SDK.React.*`, and **`ReactDOM.createRoot` is not exposed** — a
-  workspace plugin that mounts its own subtree may need it).
+  that externalising to `SDK.React` + `SDK.ReactDOM` suffices. Hooks outside the
+  convenience subset come from `SDK.React.*`; the host deliberately does not
+  expose `createRoot` because it mounts the registered plugin component.
 - **Bundle size & code-splitting.** Kanban's IIFE is 248 KB; OpenCut is far
   larger and the single-IIFE contract has no runtime `import`. The export/codec
   engine likely needs a second lazily-injected allowlisted script.
@@ -489,9 +513,10 @@ into an *agent capability*.
   continuity.
 - **Provenance/licence.** Vendoring MIT OpenCut into a pack needs pinned rev +
   SPDX + licence digest; the OpenCut name/logo are outside the code licence.
-- **Bundled vs user plugin.** Bundled = trusted, backend auto-mounts, simplest
-  for a first-class capability; confirm that's the intended path vs the external
-  `plugins.enabled` route.
+- **External plugin distribution.** The repository boundary is decided:
+  OpenCut-specific code ships standalone and is explicitly enabled through
+  `plugins.enabled`. The remaining question is which organization owns and
+  maintains that repository.
 
 ---
 

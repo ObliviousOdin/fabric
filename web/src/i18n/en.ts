@@ -992,13 +992,13 @@ export const en: Translations = {
     },
     nav: {
       achievements: "Achievements",
-      leaderboard: "Team Leaderboard",
+      leaderboard: "Leaderboard",
     },
     team: {
       kicker: "Shared Leaderboard",
-      hero_title: "Team Leaderboard",
+      hero_title: "Leaderboard",
       hero_subtitle:
-        "Compare achievements with other Fabric users. Create a team or join one with an invite. Only aggregate stats you opt into leave your machine — never session content.",
+        "Compare Fabric achievements with people you know. Joining and sharing is one explicit opt-in; your private session content always stays on this machine.",
       loading: "Loading team…",
       working: "Working…",
       generic_error: "Something went wrong.",
@@ -1006,10 +1006,18 @@ export const en: Translations = {
       create_lead:
         "Start a leaderboard and invite people with a link. You choose which relay hosts it.",
       create_button: "Create team",
-      join_title: "Join a team",
+      join_title: "Join a leaderboard",
       join_lead:
-        "Paste an invite you received. Only join teams from people you trust — the relay it names is contacted from your machine.",
+        "Paste an invite from someone you trust. Fabric will connect to the private leaderboard named in that invite.",
       join_button: "Join team",
+      join_and_share: "Join and share my score",
+      join_share_title: "Shared when you join",
+      join_share_body:
+        "Your Fabric Score, achievement and tier counts, category totals, top badges, and a display name. Never session titles, transcripts, file paths, prompts, or raw metrics.",
+      join_consent_note:
+        "This click opts you in. You can stop sharing at any time and Fabric will retract your score from the board.",
+      join_options: "Name and viewing options",
+      join_viewer: "Join without sharing",
       relay_label: "Relay URL",
       relay_hint:
         "The address of a running leaderboard relay (see the plugin docs to host one). Use http://127.0.0.1:9137 to try it locally.",
@@ -1017,34 +1025,48 @@ export const en: Translations = {
       team_name_placeholder: "Acme Crew",
       display_name_label: "Your display name",
       display_name_placeholder: "How you appear on the board",
+      display_name_optional: "Display name (optional)",
+      display_name_default: "Defaults to Member",
       invite_label: "Invite code",
       share_consent:
         "Share my achievement stats (score, unlock and tier counts, and a display name — never session content).",
       privacy_header: "What is shared",
       privacy_body:
         "Your score, unlock and tier counts, per-category tallies, and up to five unlocked badge names — plus a display name you pick. Session titles, transcripts, file paths, and raw metrics are never sent.",
-      hosting_header: "Hosting a relay",
+      hosting_summary: "Advanced: host a private leaderboard",
+      hosting_header: "Self-hosted and account-free",
       hosting_body:
-        "A relay is a small self-hostable service (no Fabric account). One teammate runs it with `python -m relay`; see the plugin docs. Put it behind a TLS proxy or Tailscale to share beyond your LAN.",
+        "Run the small leaderboard relay for your group, then create a team and share its invite. Use a TLS proxy or Tailscale outside your LAN.",
       member_summary: "You are {name} · {role}",
       role_owner: "owner",
       role_member: "member",
       roster_age: "board updated {age}",
       refresh: "Refresh",
       leave: "Leave team",
-      sharing_on: "Sharing on — your stats appear on the board.",
+      on_board: "On the leaderboard",
+      viewing_only: "Viewing only",
+      sharing_on_title: "Your score is being shared",
+      sharing_off_title: "Share your score when you are ready",
+      sharing_on:
+        "Fabric shares only your aggregate achievement profile. Your session content stays private.",
       sharing_off:
-        "Sharing off — you are viewing but not appearing on the board.",
+        "You can view this board without appearing in it. Opt in with one click.",
+      share_score: "Share my score",
+      stop_sharing: "Stop sharing",
       publish_now: "Publish now",
-      published_age: "shared {age}",
+      published_age: "Updated {age}",
+      manage_summary: "Team settings",
       rename: "Rename",
-      invite_header: "Invite link",
+      invite_header: "Invite code",
       rotate: "Reset invite",
       rotate_title: "Generate a new invite and invalidate the old one",
       copy_invite: "Copy invite",
       copied: "Copied ✓",
       invite_note:
         "Anyone with this code can view the board and join. Share it only with people you want on your team.",
+      leave_title: "Leave this leaderboard",
+      leave_body:
+        "Your shared score will be removed from the relay and this machine will forget the membership.",
       board_empty:
         "No one has shared stats yet. Turn on sharing above to appear on the board.",
       col_member: "Member",

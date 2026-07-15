@@ -1598,14 +1598,19 @@ def team_publish(transport: Optional[Transport] = None) -> Dict[str, Any]:
 
 
 @_synchronized
-def team_leaderboard(transport: Optional[Transport] = None) -> Dict[str, Any]:
+def team_leaderboard(
+    transport: Optional[Transport] = None,
+    refresh_profile: bool = True,
+) -> Dict[str, Any]:
     config = load_team_config()
     membership = config.get("membership")
     if not isinstance(membership, dict):
         return _team_state_payload(config, {"leaderboard": [], "member_count": 0})
-    # If sharing is on, refresh our own row before reading so the board is
-    # current. A publish failure is non-fatal — we still show the roster.
-    if config.get("publish_opt_in"):
+    # On an initial load or explicit refresh, update our row before reading so
+    # the board is current. Action follow-up reads pass ``refresh_profile=False``
+    # because create/join/settings already applied their profile change.
+    # A publish failure is non-fatal — we still show the roster.
+    if refresh_profile and config.get("publish_opt_in"):
         try:
             _publish_now(config, transport=transport)
         except RelayClientError as exc:
@@ -1754,9 +1759,9 @@ async def post_team_publish():
 
 
 @router.get("/team/leaderboard")
-async def get_team_leaderboard():
+async def get_team_leaderboard(refresh: bool = True):
     try:
-        return await _run(team_leaderboard)
+        return await _run(team_leaderboard, None, refresh)
     except (RelayClientError, ValueError) as exc:
         return _error_payload(exc)
 

@@ -180,6 +180,12 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
         ("e58da05408de71b50902b7b17f2313843bdc535f", "private-brand"),
         ("9d2f715c44d059f01c2610cf3545d7bc14165efa", "personal-email"),
         ("9d2f715c44d059f01c2610cf3545d7bc14165efa", "private-brand"),
+        # PR #14 passed its branch audit with a users.noreply author, then its
+        # GitHub squash merge recorded the merging account's personal committer
+        # identity. The resulting commit is already immutable on main, so only
+        # these exact metadata findings are acknowledged.
+        ("c805aa24307da0edbde1c2ea4a58288186dda215", "personal-email"),
+        ("c805aa24307da0edbde1c2ea4a58288186dda215", "private-brand"),
     }
 )
 

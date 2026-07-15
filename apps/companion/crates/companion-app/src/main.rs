@@ -94,29 +94,39 @@ fn main() {
     let pet_h = FRAME_H as f32 * scale;
     let floor_y = args.height as f32 - args.floor_offset;
 
+    let mut window = Window {
+        title: format!("Fabric Companion — {pet_name}"),
+        transparent: !args.opaque,
+        decorations: false,
+        resizable: false,
+        window_level: WindowLevel::AlwaysOnTop,
+        resolution: (args.width, args.height).into(),
+        position,
+        skip_taskbar: true,
+        // Spawn hidden; revealed after the first clean frames so the window
+        // never flashes an opaque backdrop.
+        visible: false,
+        ..default()
+    };
+    // Transparency needs these blend modes off-Windows — but only when the
+    // surface is actually transparent: requesting an alpha mode on an opaque
+    // surface fails wgpu surface validation.
+    if !args.opaque {
+        #[cfg(target_os = "macos")]
+        {
+            window.composite_alpha_mode = CompositeAlphaMode::PostMultiplied;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            window.composite_alpha_mode = CompositeAlphaMode::PreMultiplied;
+        }
+    }
+
     App::new()
         .add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: format!("Fabric Companion — {pet_name}"),
-                        transparent: true,
-                        decorations: false,
-                        resizable: false,
-                        window_level: WindowLevel::AlwaysOnTop,
-                        resolution: (args.width, args.height).into(),
-                        position,
-                        skip_taskbar: true,
-                        // Transparency needs these blend modes off-Windows.
-                        #[cfg(target_os = "macos")]
-                        composite_alpha_mode: CompositeAlphaMode::PostMultiplied,
-                        #[cfg(target_os = "linux")]
-                        composite_alpha_mode: CompositeAlphaMode::PreMultiplied,
-                        // Spawn hidden; revealed after the first clean frames
-                        // so the window never flashes an opaque backdrop.
-                        visible: false,
-                        ..default()
-                    }),
+                    primary_window: Some(window),
                     // Click-through by default: cursor input falls through to
                     // whatever is underneath (X11 doesn't support this — the
                     // overlay is interactive there regardless).
@@ -128,7 +138,11 @@ fn main() {
                 })
                 .set(ImagePlugin::default_nearest()),
         )
-        .insert_resource(ClearColor(Color::NONE))
+        .insert_resource(ClearColor(if args.opaque {
+            Color::srgb(0.098, 0.161, 0.302) // fabric status-bar navy #19294D
+        } else {
+            Color::NONE
+        }))
         .insert_resource(PetSpec {
             grid,
             row_frames,

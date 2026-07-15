@@ -57,6 +57,13 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
       - name: Install locked development dependencies
         run: uv sync --locked --extra dev
 
@@ -68,6 +75,12 @@ jobs:
           tests/scripts/test_release_channels.py
           tests/scripts/test_public_release_audit.py
           -q
+
+      - name: Install dashboard dependencies
+        run: npm ci --workspace web --include-workspace-root=false
+
+      - name: Build packaged dashboard
+        run: npm run --prefix web build
 
       - name: Build wheel and source distribution
         run: uv build --sdist --wheel --out-dir dist

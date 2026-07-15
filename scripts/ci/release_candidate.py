@@ -18,6 +18,8 @@ SCHEMA_VERSION = 1
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 IGNORED_BUILD_FILES = frozenset({".gitignore"})
+WEB_DIST_INDEX = "fabric_cli/web_dist/index.html"
+WEB_DIST_ASSET_PREFIX = "fabric_cli/web_dist/assets/"
 
 
 class CandidateError(ValueError):
@@ -106,6 +108,35 @@ def artifact_version(path: Path) -> str:
     return _metadata_version(metadata, artifact=path)
 
 
+def _validate_web_dist(path: Path) -> None:
+    """Require the prebuilt dashboard in every distributable archive."""
+    try:
+        if path.name.endswith(".whl"):
+            with zipfile.ZipFile(path) as archive:
+                names = archive.namelist()
+        elif path.name.endswith(".tar.gz"):
+            with tarfile.open(path, mode="r:gz") as archive:
+                names = [
+                    member.name.split("/", 1)[1]
+                    for member in archive.getmembers()
+                    if "/" in member.name
+                ]
+        else:
+            raise CandidateError(f"unsupported release artifact: {path.name}")
+    except CandidateError:
+        raise
+    except (OSError, tarfile.TarError, zipfile.BadZipFile) as exc:
+        raise CandidateError(f"could not inspect dashboard assets in {path.name}") from exc
+
+    if WEB_DIST_INDEX not in names:
+        raise CandidateError(f"{path.name}: packaged dashboard index is missing")
+    asset_names = [name for name in names if name.startswith(WEB_DIST_ASSET_PREFIX)]
+    if not any(name.endswith(".js") for name in asset_names):
+        raise CandidateError(f"{path.name}: packaged dashboard JavaScript is missing")
+    if not any(name.endswith(".css") for name in asset_names):
+        raise CandidateError(f"{path.name}: packaged dashboard CSS is missing")
+
+
 def _project_version(project_root: Path) -> str:
     pyproject = project_root / "pyproject.toml"
     try:
@@ -169,6 +200,7 @@ def create_candidate(
                 f"{artifact.name}: embedded version {embedded_version!r} "
                 f"does not match project version {version!r}"
             )
+        _validate_web_dist(artifact)
         rows.append({
             "name": artifact.name,
             "sha256": _sha256(artifact),
@@ -268,6 +300,7 @@ def verify_candidate(
             raise CandidateError(f"size mismatch for {name}")
         if artifact_version(artifact) != version:
             raise CandidateError(f"embedded version mismatch for {name}")
+        _validate_web_dist(artifact)
 
         described_files.add(name)
         expected_checksums.append(f"{digest}  {name}\n")

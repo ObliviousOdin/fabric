@@ -30,6 +30,11 @@ regenerate token outputs. Run
 SVG/PNG/ICO/ICNS brand bundle. Both generators have a `--check` mode for CI and
 do not write into product integration paths.
 
+`dist/tokens.js` exports the foundation and semantic token maps plus
+`resolvedSemanticThemes`, which provides complete light and dark semantic roles
+with every palette reference resolved to a CSS-ready value. Product surfaces
+should consume those resolved roles instead of duplicating palette values.
+
 The full wordmark keeps the supplied bracket underline. Compact icons use the
 simplified lowercase f only; the bracket is intentionally omitted below
 wordmark scale.

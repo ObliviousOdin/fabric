@@ -61,6 +61,10 @@ cd apps/desktop
 npm run dev
 ```
 
+Before changing desktop colors, typography, brand assets, overlays, or shared
+controls, read the [desktop design contract](DESIGN.md) and the canonical
+[Fabric design foundation](../design-system/README.md).
+
 Use a disposable profile while changing onboarding, authentication, or update
 code. The `HERMES_DESKTOP_*` environment names below are retained compatibility
 interfaces while the public distribution migration is in progress; they do not change the

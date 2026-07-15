@@ -49,7 +49,14 @@ pub fn fabric_home() -> PathBuf {
 
 #[cfg(windows)]
 fn default_home_candidates() -> (PathBuf, PathBuf) {
-    let base = dirs::data_local_dir()
+    // Canonical order (get_fabric_home): the %LOCALAPPDATA% environment
+    // variable first, then the known-folder/home fallbacks.
+    let base = std::env::var("LOCALAPPDATA")
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .or_else(dirs::data_local_dir)
         .or_else(|| dirs::home_dir().map(|h| h.join("AppData").join("Local")))
         .unwrap_or_else(|| PathBuf::from("."));
     // public-release-audit: allow-legacy-compat -- pre-rename state dir consulted read-only during the migration window
@@ -66,6 +73,18 @@ fn default_home_candidates() -> (PathBuf, PathBuf) {
 /// The pet store directory under *home* (not created — read-only access).
 pub fn pets_dir(home: &Path) -> PathBuf {
     home.join("pets")
+}
+
+/// Sanitize an externally-supplied slug, mirroring `_safe_slug`: keep only
+/// the final path component so a slug carrying separators (`pets/boba`,
+/// `../x`, absolute paths) can never escape the pets directory, and reject
+/// empty / `.` / `..` results outright.
+fn safe_slug(slug: &str) -> Option<&str> {
+    let name = Path::new(slug.trim()).file_name()?.to_str()?;
+    if name.is_empty() || name == "." || name == ".." {
+        return None;
+    }
+    Some(name)
 }
 
 /// One installed pet, resolved from `pets/<slug>/`.
@@ -162,8 +181,7 @@ pub fn installed_pets(home: &Path) -> Vec<InstalledPet> {
 /// installed with an existing spritesheet, else the first installed pet
 /// alphabetically, else None. Mirrors `resolve_active_pet`.
 pub fn resolve_active_pet(home: &Path, configured_slug: &str) -> Option<InstalledPet> {
-    let slug = configured_slug.trim();
-    if !slug.is_empty() {
+    if let Some(slug) = safe_slug(configured_slug) {
         if let Some(pet) = load_pet(&pets_dir(home).join(slug), slug) {
             return Some(pet);
         }

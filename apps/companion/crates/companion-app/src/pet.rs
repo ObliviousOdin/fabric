@@ -5,7 +5,9 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use crossbeam_channel::Receiver;
-use fabric_companion_core::atlas::{roam_walk_row, AtlasGrid, FRAME_H, FRAME_W, LOOP_MS};
+use fabric_companion_core::atlas::{
+    roam_walk_row, AtlasGrid, FRAMES_PER_STATE, FRAME_H, FRAME_W, LOOP_MS,
+};
 use fabric_companion_core::gateway::ActivityTracker;
 use fabric_companion_core::roam::{Floor, MotionPose, RoamFrame, RoamLoop, RoamSpec};
 use fabric_companion_core::state::{derive_pet_state, PetState};
@@ -27,15 +29,23 @@ impl PetSpec {
     }
 
     /// Frames in *row*, falling back to the idle row when the row is blank
-    /// (ragged sheets), and to 1 as the final floor.
-    fn frames_in(&self, row: u32) -> (u32, u32) {
+    /// (ragged sheets), and to 1 as the final floor. State-driven rows are
+    /// capped at [`FRAMES_PER_STATE`] (the canonical display-path cap);
+    /// directional walk rows play their full physical frame set, matching
+    /// the desktop's `framesByRow` pacing.
+    fn frames_in(&self, row: u32, state_capped: bool) -> (u32, u32) {
+        let cap = if state_capped {
+            FRAMES_PER_STATE
+        } else {
+            u32::MAX
+        };
         let count = self.row_frames.get(row as usize).copied().unwrap_or(0);
         if count > 0 {
-            return (row, count);
+            return (row, count.min(cap));
         }
         let idle = self.grid.row_for_state(PetState::Idle);
         let idle_count = self.row_frames.get(idle as usize).copied().unwrap_or(0);
-        (idle, idle_count.max(1))
+        (idle, idle_count.min(cap).max(1))
     }
 }
 
@@ -96,6 +106,10 @@ fn drain_feed(feed: Res<Feed>, mut activity: ResMut<Activity>, time: Res<Time>) 
             BridgeUpdate::Event(event) => activity.0.apply(&event, now),
             BridgeUpdate::Disconnected => {
                 warn!("backend disconnected; retrying");
+                // Whatever the dead connection left mid-flight is stale —
+                // without this the pet stays pinned in RUN/REVIEW/WAITING
+                // for as long as the backend is gone.
+                activity.0 = ActivityTracker::new();
             }
         }
     }
@@ -160,26 +174,38 @@ fn drive_pet(
         }
     }
 
-    // Row + mirror.
-    let (row, mirror) = match motion {
+    // Row + mirror. Directional walk rows pace at their full physical frame
+    // count; every state-driven row keeps the canonical 6-frame cap. While
+    // airborne (and at rest) the inward-facing rule applies, like the
+    // desktop's dir-0 fall handling.
+    let (row, mirror, walking) = match motion {
         Some(RoamFrame {
             pose: Some(MotionPose::Run),
             dir,
             ..
         }) => match roam_walk_row(&spec.grid, dir) {
-            Some(walk) => (walk.row, walk.mirror),
+            Some(walk) => (walk.row, walk.mirror, true),
             None => (
                 spec.grid.row_for_state(PetState::Idle),
                 rest_mirror(&roam, pet, win),
+                false,
             ),
         },
         Some(RoamFrame {
             pose: Some(MotionPose::Jump),
             ..
-        }) => (spec.grid.row_for_state(PetState::Jump), false),
-        _ => (spec.grid.row_for_state(state), rest_mirror(&roam, pet, win)),
+        }) => (
+            spec.grid.row_for_state(PetState::Jump),
+            rest_mirror(&roam, pet, win),
+            false,
+        ),
+        _ => (
+            spec.grid.row_for_state(state),
+            rest_mirror(&roam, pet, win),
+            false,
+        ),
     };
-    let (row, count) = spec.frames_in(row);
+    let (row, count) = spec.frames_in(row, !walking);
 
     // Frame clock: every row loops in ~LOOP_MS regardless of frame count.
     if row != tag.row {

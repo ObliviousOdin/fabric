@@ -117,6 +117,9 @@ export interface HermesPluginSDK {
 
   /** React core — use instead of importing/bundling react. */
   React: typeof import("react").default;
+  /** React DOM helpers such as ``createPortal`` and ``flushSync``. Plugin
+   * pages are mounted by the host and should not create their own root. */
+  ReactDOM: typeof import("react-dom");
   hooks: {
     useState: typeof import("react").useState;
     useEffect: typeof import("react").useEffect;

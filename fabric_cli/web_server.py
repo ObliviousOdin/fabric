@@ -18390,7 +18390,7 @@ async def serve_plugin_asset(plugin_name: str, file_path: str):
     Path traversal is blocked by checking ``resolve().is_relative_to()``.
 
     Restricted to a browser-fetchable suffix allowlist (JS/CSS/JSON/HTML/
-    SVG/PNG/JPG/WOFF). The dashboard loads plugin JS via ``<script src>``
+    SVG/PNG/JPG/WOFF/WASM). The dashboard loads plugin JS via ``<script src>``
     and CSS via ``<link href>``, neither of which can attach a custom
     auth header — so this route stays unauthenticated to keep the SPA
     working. But user-installed plugins ship a ``plugin_api.py``
@@ -18455,6 +18455,7 @@ async def serve_plugin_asset(plugin_name: str, file_path: str):
         ".woff": "font/woff",
         ".ttf": "font/ttf",
         ".otf": "font/otf",
+        ".wasm": "application/wasm",
         ".map": "application/json",
     }
     if suffix not in content_types:

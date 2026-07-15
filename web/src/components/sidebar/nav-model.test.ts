@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Film } from "lucide-react";
 
 import { en } from "@/i18n/en";
 import type { PluginManifest } from "@/plugins/types";
@@ -126,5 +127,15 @@ describe("sidebar navigation model", () => {
     expect(pathsFor(plugins, "workspace").plugins).toContain(
       "/workspace-plugin",
     );
+  });
+
+  it("resolves the Film icon for media workspace plugins", () => {
+    const studio = manifest("studio", { layout: "workspace" });
+    studio.icon = "Film";
+
+    const nav = buildSidebarSections(BUILTIN_NAV_ITEMS, [studio], "workspace");
+
+    expect(nav.pluginItems).toHaveLength(1);
+    expect(nav.pluginItems[0].icon).toBe(Film);
   });
 });

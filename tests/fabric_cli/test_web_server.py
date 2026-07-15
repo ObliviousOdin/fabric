@@ -7161,6 +7161,29 @@ class TestDashboardPluginStaticAssetAllowlist:
         body = resp.json()
         assert body.get("name") == "example"
 
+    def test_webassembly_asset_is_served_with_browser_mime_type(self):
+        """Media-heavy workspace plugins may ship browser codec modules.
+
+        WASM is executable browser content, not backend source, so it belongs
+        in the same explicit asset allowlist as JavaScript while Python and
+        arbitrary binary files remain blocked.
+        """
+        from fabric_cli import web_server
+
+        plugin = next(
+            p for p in web_server._get_dashboard_plugins() if p["name"] == "example"
+        )
+        wasm_path = Path(plugin["_dir"]) / "dist" / "codec.wasm"
+        wasm_path.parent.mkdir(parents=True, exist_ok=True)
+        wasm_bytes = b"\x00asm\x01\x00\x00\x00"
+        wasm_path.write_bytes(wasm_bytes)
+
+        resp = self.client.get("/dashboard-plugins/example/dist/codec.wasm")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/wasm")
+        assert resp.content == wasm_bytes
+
     def test_unknown_plugin_is_404(self):
         """Existing behaviour preserved: nonexistent plugin name → 404."""
         resp = self.client.get(

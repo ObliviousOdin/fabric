@@ -103,80 +103,85 @@ export function useVisualGatewayRequest({
     return () => closeGateway(state)
   }, [connectionKey, enabled])
 
-  const requestVisualGateway = useCallback(async <T,>(
-    method: string,
-    params: Record<string, unknown> = {},
-    timeoutMs?: number,
-    signal?: AbortSignal
-  ): Promise<T> => {
-    if (!VISUAL_METHODS.has(method)) {
-      throw new Error(`Unsupported visual gateway method: ${method}`)
-    }
-
-    if (signal?.aborted) {
-      throw aborted()
-    }
-
-    const state = stateRef.current
-    const desktop = window.hermesDesktop
-    const connection = state.connection
-
-    if (!state.enabled || connection?.mode !== 'local' || !desktop) {
-      throw new Error('Visual gateway unavailable')
-    }
-
-    let gateway = state.gateway
-
-    if (gateway?.connectionState !== 'open') {
-      if (!state.connecting) {
-        gateway?.close()
-        const nextGateway = new HermesGateway()
-        state.gateway = nextGateway
-        const epoch = state.epoch
-        const lifecycleSignal = state.lifecycle.signal
-
-        const connecting = (async () => {
-          const wsUrl = await waitWithSignal(resolveGatewayWsUrl(desktop, connection), lifecycleSignal)
-
-          if (state.epoch !== epoch || state.gateway !== nextGateway) {
-            throw aborted()
-          }
-
-          await waitWithSignal(nextGateway.connect(wsUrl), lifecycleSignal)
-
-          if (state.epoch !== epoch || state.gateway !== nextGateway) {
-            nextGateway.close()
-            throw aborted()
-          }
-
-          return nextGateway
-        })().catch(error => {
-          if (state.gateway === nextGateway) {
-            state.gateway = null
-          }
-
-          nextGateway.close()
-          throw error
-        })
-
-        state.connecting = connecting
-
-        void connecting.finally(() => {
-          if (state.connecting === connecting) {
-            state.connecting = null
-          }
-        }).catch(() => undefined)
+  const requestVisualGateway = useCallback(
+    async <T>(
+      method: string,
+      params: Record<string, unknown> = {},
+      timeoutMs?: number,
+      signal?: AbortSignal
+    ): Promise<T> => {
+      if (!VISUAL_METHODS.has(method)) {
+        throw new Error(`Unsupported visual gateway method: ${method}`)
       }
 
-      gateway = await waitWithSignal(state.connecting, signal)
-    }
+      if (signal?.aborted) {
+        throw aborted()
+      }
 
-    if (signal?.aborted) {
-      throw aborted()
-    }
+      const state = stateRef.current
+      const desktop = window.hermesDesktop
+      const connection = state.connection
 
-    return gateway.request<T>(method, params, timeoutMs, signal)
-  }, [])
+      if (!state.enabled || connection?.mode !== 'local' || !desktop) {
+        throw new Error('Visual gateway unavailable')
+      }
+
+      let gateway = state.gateway
+
+      if (gateway?.connectionState !== 'open') {
+        if (!state.connecting) {
+          gateway?.close()
+          const nextGateway = new HermesGateway()
+          state.gateway = nextGateway
+          const epoch = state.epoch
+          const lifecycleSignal = state.lifecycle.signal
+
+          const connecting = (async () => {
+            const wsUrl = await waitWithSignal(resolveGatewayWsUrl(desktop, connection), lifecycleSignal)
+
+            if (state.epoch !== epoch || state.gateway !== nextGateway) {
+              throw aborted()
+            }
+
+            await waitWithSignal(nextGateway.connect(wsUrl), lifecycleSignal)
+
+            if (state.epoch !== epoch || state.gateway !== nextGateway) {
+              nextGateway.close()
+              throw aborted()
+            }
+
+            return nextGateway
+          })().catch(error => {
+            if (state.gateway === nextGateway) {
+              state.gateway = null
+            }
+
+            nextGateway.close()
+            throw error
+          })
+
+          state.connecting = connecting
+
+          void connecting
+            .finally(() => {
+              if (state.connecting === connecting) {
+                state.connecting = null
+              }
+            })
+            .catch(() => undefined)
+        }
+
+        gateway = await waitWithSignal(state.connecting, signal)
+      }
+
+      if (signal?.aborted) {
+        throw aborted()
+      }
+
+      return gateway.request<T>(method, params, timeoutMs, signal)
+    },
+    []
+  )
 
   return { requestVisualGateway }
 }

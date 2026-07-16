@@ -195,11 +195,7 @@ function toolTarget(name: string, payload: GatewayEventPayload, current?: string
   const result = asRecord(parseMaybeJson(payload.result))
 
   if (name === 'computer_use') {
-    return (
-      firstBoundedString(args, ['app', 'window']) ??
-      firstBoundedString(result, ['app', 'window_title']) ??
-      current
-    )
+    return firstBoundedString(args, ['app', 'window']) ?? firstBoundedString(result, ['app', 'window_title']) ?? current
   }
 
   return firstBoundedString(result, ['title', 'url']) ?? firstBoundedString(args, ['url']) ?? current

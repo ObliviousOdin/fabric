@@ -53,6 +53,7 @@ import {
   isFileEditTool,
   isPreviewableTarget,
   looksRedundant,
+  prettyJson,
   type SearchResultRow,
   selectMessageRunning,
   stripInlineDiffChrome,
@@ -106,17 +107,7 @@ interface ToolStatusCopy {
 function rawTechnicalTrace(args: unknown, result: unknown): string {
   const parts = [args, result]
     .filter(value => value !== undefined && value !== null)
-    .map(value => {
-      if (typeof value === 'string') {
-        return value
-      }
-
-      try {
-        return JSON.stringify(value)
-      } catch {
-        return String(value)
-      }
-    })
+    .map(value => prettyJson(value))
     .filter(Boolean)
 
   return clampForDisplay(parts.join('\n'))

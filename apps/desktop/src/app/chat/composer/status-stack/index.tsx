@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { blurComposerInput } from '@/app/chat/composer/focus'
 import { AGENTS_ROUTE } from '@/app/routes'
 import { composerDockCard } from '@/components/chat/composer-dock'
+import { StatusRow } from '@/components/chat/status-row'
 import { StatusSection } from '@/components/chat/status-section'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
@@ -19,6 +20,7 @@ import {
   type StatusGroup,
   stopBackgroundProcess
 } from '@/store/composer-status'
+import { $liveViews, dockLiveView, type LiveViewState, popOutLiveView } from '@/store/live-view'
 import { $previewStatusBySession, dismissPreviewArtifact } from '@/store/preview-status'
 import { $threadScrolledUp } from '@/store/thread-scroll'
 import { openSessionInNewWindow } from '@/store/windows'
@@ -51,6 +53,25 @@ const groupLabel = (group: StatusGroup, s: Translations['statusStack']) => {
   return group.type === 'subagent' ? s.subagents(group.items.length) : s.background(group.items.length)
 }
 
+export function liveViewStatusLabel(
+  liveView: Pick<LiveViewState, 'kind' | 'paused' | 'status'>,
+  copy: Pick<Translations['liveView'], 'failed' | 'live' | 'paused' | 'ready' | 'working'>
+): string {
+  if (liveView.paused) {
+    return copy.paused
+  }
+
+  if (liveView.status === 'error') {
+    return copy.failed
+  }
+
+  if (liveView.status === 'running') {
+    return liveView.kind === 'desktop' ? copy.working : copy.live
+  }
+
+  return copy.ready
+}
+
 interface ComposerStatusStackProps {
   /** The queue, built by the composer (it owns the queue's callbacks). Rendered
    *  as the last group so it stays fused to the composer like before. */
@@ -68,6 +89,7 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
   const navigate = useNavigate()
   const itemsBySession = useStore($statusItemsBySession)
   const previewsBySession = useStore($previewStatusBySession)
+  const liveViews = useStore($liveViews)
   const scrolledUp = useStore($threadScrolledUp)
 
   const groups = useMemo(
@@ -76,6 +98,7 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
   )
 
   const previews = sessionId ? (previewsBySession[sessionId] ?? []) : []
+  const liveView = sessionId ? liveViews[sessionId] : undefined
 
   // Seed from the registry on session open; event-driven refreshes (terminal /
   // process tool completions) live in use-message-stream.
@@ -121,6 +144,63 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
   const previewBlock = <div className="px-1 py-0.5">{previewRows}</div>
 
   const sections: { key: string; node: ReactNode }[] = []
+
+  if (liveView && (liveView.status === 'running' || liveView.presentation !== 'hidden')) {
+    const title = liveView.kind === 'browser' ? t.liveView.browserTitle : t.liveView.desktopTitle
+    const status = liveViewStatusLabel(liveView, t.liveView)
+
+    const openLiveView = () => {
+      if (!sessionId) {
+        return
+      }
+
+      if (liveView.presentation === 'pip') {
+        popOutLiveView(sessionId)
+      } else {
+        dockLiveView(sessionId)
+      }
+    }
+
+    sections.push({
+      key: 'live-view',
+      node: (
+        <div className="px-1 py-0.5">
+          <StatusRow
+            leading={
+              <Codicon
+                className={liveView.status === 'running' && !liveView.paused ? 'text-emerald-500' : undefined}
+                name={liveView.kind === 'browser' ? 'globe' : 'device-desktop'}
+                size="0.78rem"
+              />
+            }
+            onActivate={openLiveView}
+            trailing={
+              <>
+                <span className="shrink-0 text-[0.63rem] text-muted-foreground/70">
+                  {liveView.presentation === 'pip' ? t.liveView.pictureInPicture : t.liveView.title}
+                </span>
+                <Codicon name="chevron-right" size="0.68rem" />
+              </>
+            }
+            trailingVisible
+          >
+            <span className="min-w-0 flex-1 truncate text-[0.7rem] text-muted-foreground">
+              <span
+                className={
+                  liveView.status === 'running' && !liveView.paused
+                    ? 'font-medium text-foreground/85'
+                    : 'font-medium text-foreground/75'
+                }
+              >
+                {title} {status}
+              </span>
+              {liveView.target ? <span className="text-muted-foreground/75"> · {liveView.target}</span> : null}
+            </span>
+          </StatusRow>
+        </div>
+      )
+    })
+  }
 
   for (const group of groups) {
     sections.push({

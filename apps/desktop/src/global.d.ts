@@ -1,3 +1,4 @@
+import type { LiveViewControl, LiveViewOpenRequest, LiveViewState } from './store/live-view'
 import type {
   PetOverlayBounds,
   PetOverlayControl,
@@ -33,6 +34,16 @@ declare global {
       openSessionWindow: (sessionId: string, opts?: { watch?: boolean }) => Promise<{ ok: boolean; error?: string }>
       // Open (or focus) a compact secondary window on the new-session draft.
       openNewSessionWindow: () => Promise<{ ok: boolean; error?: string }>
+      // One session-scoped visual stream rendered either in the docked rail or
+      // in a resizable always-on-top picture-in-picture window.
+      liveView: {
+        open: (request: LiveViewOpenRequest) => Promise<{ ok: boolean }>
+        close: (sessionId: string) => Promise<{ ok: boolean }>
+        pushState: (payload: LiveViewState) => void
+        control: (payload: LiveViewControl) => void
+        onState: (callback: (payload: LiveViewState) => void) => () => void
+        onControl: (callback: (payload: LiveViewControl) => void) => () => void
+      }
       // The pop-out pet overlay: a transparent always-on-top window hosting only
       // the mascot. The main renderer drives it (open/close/drag + state push);
       // the overlay sends control messages back (pop-in, composer submit).

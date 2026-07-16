@@ -96,6 +96,15 @@ import {
   TEXT_PREVIEW_SOURCE_MAX_BYTES
 } from './hardening'
 import { createLinkTitleWindow, guardLinkTitleSession, readLinkTitleWindowTitle } from './link-title-window'
+import { createLiveViewController } from './live-view-controller'
+import {
+  buildLiveViewWindowUrl,
+  createLiveViewWindowRegistry,
+  LIVE_VIEW_DEFAULT_HEIGHT,
+  LIVE_VIEW_DEFAULT_WIDTH,
+  LIVE_VIEW_MIN_HEIGHT,
+  LIVE_VIEW_MIN_WIDTH
+} from './live-view-windows'
 import { serializeJsonBody, setJsonRequestHeaders } from './oauth-net-request'
 import {
   buildSessionWindowUrl,
@@ -3537,7 +3546,10 @@ function resolveHermesBackend(backendArgs) {
             command: hermesCommand,
             args: backendArgs,
             bootstrap: false,
-            env: {},
+            // Finder/Dock launches do not inherit ~/.local/bin. Build the same
+            // sane PATH as managed runtimes so companion binaries installed
+            // beside a user CLI (notably cua-driver) remain discoverable.
+            env: buildDesktopBackendEnv({ hermesHome: HERMES_HOME }),
             kind: 'command',
             shell: shellForProbe
           }
@@ -3571,7 +3583,7 @@ function resolveHermesBackend(backendArgs) {
         command: python,
         args: ['-m', 'fabric_cli.main', ...backendArgs],
         bootstrap: false,
-        env: {},
+        env: buildDesktopBackendEnv({ hermesHome: HERMES_HOME }),
         shell: false
       }
     }
@@ -6646,6 +6658,17 @@ function wireCommonWindowHandlers(win) {
 // close. The primary mainWindow is never tracked here. Pure logic + the URL
 // builder live in session-windows.ts so they stay unit-testable.
 const sessionWindows = createSessionWindowRegistry()
+const liveViewWindows = createLiveViewWindowRegistry<BrowserWindow>()
+const liveViewController = createLiveViewController<BrowserWindow>({
+  focusWindow,
+  isSenderAttached: sender => {
+    const senderWindow = BrowserWindow.fromWebContents(sender)
+
+    return Boolean(senderWindow && !senderWindow.isDestroyed())
+  },
+  registry: liveViewWindows,
+  spawnWindow: spawnLiveViewWindow
+})
 
 function focusWindow(win) {
   if (!win || win.isDestroyed()) {
@@ -6659,6 +6682,7 @@ function focusWindow(win) {
   if (!win.isVisible()) {
     win.show()
   }
+
   win.focus()
 }
 
@@ -6729,6 +6753,72 @@ function createSessionWindow(sessionId, { watch = false } = {}) {
 // later converts to a real session must not get refocused as if it were blank.
 function createNewSessionWindow() {
   return spawnSecondaryWindow({ newSession: true })
+}
+
+// Browser/Computer Use live view — one window per chat, fed by the owning
+// renderer over IPC. The PiP never opens its own gateway or browser session;
+// it is a second presentation of the same bounded, in-memory visual state.
+function spawnLiveViewWindow(sessionId) {
+  const win = new BrowserWindow({
+    width: LIVE_VIEW_DEFAULT_WIDTH,
+    height: LIVE_VIEW_DEFAULT_HEIGHT,
+    minWidth: LIVE_VIEW_MIN_WIDTH,
+    minHeight: LIVE_VIEW_MIN_HEIGHT,
+    title: `${APP_NAME} Live View`,
+    frame: false,
+    roundedCorners: true,
+    resizable: true,
+    movable: true,
+    // A minimized PiP cannot be observed, so there is no reason to keep its
+    // browser stream alive. The dock/pause/close controls cover every intended
+    // state without a hidden always-on-top window consuming frames.
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: !IS_MAC,
+    alwaysOnTop: true,
+    type: IS_MAC ? 'panel' : undefined,
+    hiddenInMissionControl: IS_MAC,
+    show: false,
+    backgroundColor: getWindowBackgroundColor(),
+    webPreferences: {
+      preload: PRELOAD_PATH,
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      devTools: true
+    }
+  })
+
+  win.setAlwaysOnTop(true, IS_MAC ? 'floating' : 'screen-saver')
+  win.setHiddenInMissionControl?.(true)
+
+  try {
+    win.setVisibleOnAllWorkspaces(
+      true,
+      IS_MAC ? { visibleOnFullScreen: true, skipTransformProcessType: true } : undefined
+    )
+  } catch {
+    // Best effort on platforms that do not support cross-workspace panels.
+  }
+
+  wireCommonWindowHandlers(win)
+  liveViewController.bindWindow(sessionId, win)
+
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) {
+      win.show()
+    }
+  })
+
+  win.loadURL(
+    buildLiveViewWindowUrl(sessionId, {
+      devServer: DEV_SERVER,
+      rendererIndexPath: resolveRendererIndex()
+    })
+  )
+
+  return win
 }
 
 // The pet overlay: a single transparent, frameless, always-on-top window that
@@ -7094,6 +7184,23 @@ ipcMain.on('hermes:zoom:set-percent', (event, percent) => {
     return
   }
   setAndPersistZoomLevel(window, percentToZoomLevel(Number(percent)))
+})
+
+// --- Browser / Computer Use live view ------------------------------------
+ipcMain.handle('hermes:live-view:open', (event, request) => liveViewController.open(event.sender, request?.sessionId))
+
+ipcMain.handle('hermes:live-view:close', (event, rawSessionId) => liveViewController.close(event.sender, rawSessionId))
+
+// Owner renderer → PiP. Keep only the latest bounded state per session; frames
+// never enter persistence, logs, or the model conversation.
+ipcMain.on('hermes:live-view:state', (event, payload) => {
+  liveViewController.pushState(event.sender, payload)
+})
+
+// PiP → owner renderer. `ready` also gets an immediate latest-frame replay so
+// the floating window paints even if its first owner push raced navigation.
+ipcMain.on('hermes:live-view:control', (event, payload) => {
+  liveViewController.control(event.sender, payload)
 })
 
 // --- Pet overlay (pop-out mascot) -----------------------------------------
@@ -8669,6 +8776,7 @@ function configureSpellChecker() {
 app.on('before-quit', () => {
   // The always-on-top overlay isn't a "real" app window; close it so a stray
   // pet can't keep the process alive or float over a quit app.
+  liveViewWindows.closeAll()
   closePetOverlay()
 
   // Quitting mid-install should stop the installer, not orphan it.

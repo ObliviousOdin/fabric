@@ -2,6 +2,12 @@
 
 All notable changes to Fabric are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Added a bundled `venture-studio` skill category with 13 new skills covering the idea-to-market arc: brainstorming, build-something-people-want, product-taste, impeccable-craft, design-studio, proposal-writing, business-planning, website-building, webapp-development, rstack, ios-app-development, d2c-smart-products, and hardware-manufacturing. The default skills overview now answers venture questions — ideation, business plans, proposals, websites, web and iOS apps, D2C smart products, and manufacturing (CAD, PCB, EVT/DVT/PVT, production) — instead of only the classic tool-centric set.
+
 ## [0.20.2] - 2026-07-15
 
 ### Added

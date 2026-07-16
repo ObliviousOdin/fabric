@@ -62,16 +62,25 @@ RPC methods the v1 slice uses (of ~120 registered in
 - `session.create` — params `{cols, source: "mobile", cwd?, profile?, model?, provider?, reasoning_effort?, fast?}` → `{session_id, stored_session_id, info}`
 - `session.resume` — `{session_id, cols, profile?}`
 - `session.list` — → `{sessions: [{id, title, preview, started_at, message_count, source}]}`
+- `session.active_list` — live in-memory gateway sessions with runtime status (`working`/`waiting`/`starting`/`idle`)
 - `prompt.submit` — `{session_id, text}`
+- `prompt.background` — `{session_id, text}` → detached task; result returns as a `background.complete` event
+- `session.steer` — `{session_id, text}` → inject a mid-turn note without interrupting (`AIAgent.steer`)
 - `session.interrupt` — `{session_id}`
+- `slash.exec` / `commands.catalog` — the TUI's slash-command dispatch surface and its registry-backed catalog
+- `process.list` / `process.kill` — session-owned background processes (preview servers, watchers)
 - `approval.respond` — `{session_id, choice: "allow"|"deny", all?: bool}`
+- `clarify.respond` / `sudo.respond` / `secret.respond` — `{request_id, answer|password|value}`, unblocking the agent's blocking prompts
 
 Streaming events consumed (`GatewayEventName` in
 `apps/shared/src/json-rpc-gateway.ts` is the canonical list):
 `gateway.ready`, `session.info`, `message.start`, `message.delta`
 (`payload.text`), `message.complete`, `thinking.delta`, `status.update`
 (`payload.{kind,text}`), `tool.start` / `tool.progress` / `tool.complete`,
-`approval.request` (command pre-redacted server-side), `error`.
+`approval.request` (command pre-redacted server-side), `clarify.request`
+(`{question, choices, request_id}`), `sudo.request` / `secret.request`
+(`{prompt?, request_id}`), `background.complete` (`{task_id, text}`),
+`error`.
 
 ## Decision record: why fully native (and what was rejected)
 
@@ -104,10 +113,29 @@ The v1 vertical slice on both platforms:
 1. **Connect** — enter gateway URL + session token, probe `GET /api/status`,
    persist credentials (iOS Keychain; Android app-private prefs, Keystore
    encryption tracked as follow-up).
-2. **Sessions** — `session.list`, resume or start new.
+2. **Sessions** — `session.list` to resume or start new, plus an
+   **Active now** monitor (`session.active_list`) showing live runtime
+   status with interrupt control per session.
 3. **Chat** — `session.create`/`session.resume` → `prompt.submit` → live
    streamed transcript (`message.delta`), status/tool activity line,
    interrupt, and approval prompts (`approval.request` → `approval.respond`).
+
+Plus the dispatch/remote-control surface the TUI composer has, driven from
+the same chat screen:
+
+- **Slash commands** — a draft starting with `/` routes to `slash.exec`;
+  a searchable command picker (`commands.catalog`) inserts commands with
+  their registry descriptions (core commands, quick commands, skills).
+- **Steering** — while a turn is running the composer sends
+  `session.steer` notes instead of new prompts, without interrupting.
+- **Background tasks** — "Run draft in background" (`prompt.background`);
+  completion lands in the transcript via `background.complete`.
+- **Blocking prompts** — `clarify.request` choices render as buttons,
+  `sudo.request`/`secret.request` get a secure entry field; all resolve
+  through their `*.respond` RPCs so an agent blocked on a question can be
+  unblocked from the phone.
+- **Process control** — per-session background processes (`process.list`)
+  with output tails and kill (`process.kill`).
 
 ## Build & run
 

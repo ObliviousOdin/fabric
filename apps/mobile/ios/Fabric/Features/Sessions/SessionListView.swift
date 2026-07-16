@@ -1,11 +1,12 @@
 import SwiftUI
 
-/// Session picker backed by the `session.list` RPC: resume an existing
-/// conversation or start a new one.
+/// Session picker: live gateway sessions (`session.active_list`) with
+/// remote-control actions on top, the historical `session.list` below.
 struct SessionListView: View {
     @Environment(AppModel.self) private var appModel
 
     @State private var sessions: [SessionSummary] = []
+    @State private var activeSessions: [ActiveSession] = []
     @State private var loading = false
     @State private var loadError: String?
 
@@ -16,6 +17,17 @@ struct SessionListView: View {
                     ChatView(resumeStoredSessionId: nil, title: "New chat")
                 } label: {
                     Label("New chat", systemImage: "plus.bubble")
+                }
+            }
+
+            if !activeSessions.isEmpty {
+                Section("Active now") {
+                    ForEach(activeSessions) { session in
+                        ActiveSessionRow(session: session) {
+                            try? await appModel.api.interrupt(sessionId: session.id)
+                            await reload()
+                        }
+                    }
                 }
             }
 
@@ -74,9 +86,70 @@ struct SessionListView: View {
         defer { loading = false }
         do {
             sessions = try await appModel.api.listSessions()
+            // Live sessions are best-effort decoration; the historical list
+            // is the primary content.
+            activeSessions = (try? await appModel.api.activeSessions()) ?? []
             loadError = nil
         } catch {
             loadError = error.localizedDescription
         }
+    }
+}
+
+/// A live gateway session with its runtime status and an interrupt control —
+/// the "remote control" row: watch a working agent, stop it from the phone.
+private struct ActiveSessionRow: View {
+    let session: ActiveSession
+    let onInterrupt: () async -> Void
+
+    private var statusColor: Color {
+        switch session.status {
+        case "working": return .green
+        case "waiting": return .orange
+        case "starting": return .blue
+        default: return .gray
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+                    Text(session.title.isEmpty ? "Untitled session" : session.title)
+                        .lineLimit(1)
+                }
+                if !session.preview.isEmpty {
+                    Text(session.preview)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                HStack(spacing: 8) {
+                    Text(session.status)
+                    if !session.model.isEmpty {
+                        Text(session.model)
+                    }
+                    Text("\(session.messageCount) messages")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if session.status == "working" || session.status == "starting" {
+                Button {
+                    Task { await onInterrupt() }
+                } label: {
+                    Image(systemName: "stop.circle")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 2)
     }
 }

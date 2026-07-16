@@ -1,18 +1,23 @@
 package io.github.obliviousodin.fabric.mobile.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -29,27 +34,40 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.obliviousodin.fabric.mobile.AppViewModel
+import io.github.obliviousodin.fabric.mobile.core.ActiveSession
 import io.github.obliviousodin.fabric.mobile.core.SessionSummary
+import kotlinx.coroutines.launch
 
-/** Session picker backed by the `session.list` RPC. */
+/**
+ * Session picker: live gateway sessions (`session.active_list`) with
+ * remote-control actions on top, the historical `session.list` below.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsScreen(viewModel: AppViewModel) {
     var sessions by remember { mutableStateOf<List<SessionSummary>>(emptyList()) }
+    var activeSessions by remember { mutableStateOf<List<ActiveSession>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var reloadKey by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(reloadKey) {
         loading = true
         try {
             sessions = viewModel.api.listSessions()
+            // Live sessions are best-effort decoration; the historical list
+            // is the primary content.
+            activeSessions = runCatching { viewModel.api.activeSessions() }
+                .getOrDefault(emptyList())
             loadError = null
         } catch (e: Exception) {
             loadError = e.message ?: e.toString()
@@ -108,6 +126,33 @@ fun SessionsScreen(viewModel: AppViewModel) {
 
                 else -> {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        if (activeSessions.isNotEmpty()) {
+                            item(key = "active-header") {
+                                Text(
+                                    "Active now",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
+                            items(activeSessions, key = { "active-${it.id}" }) { session ->
+                                ActiveSessionRow(session) {
+                                    scope.launch {
+                                        runCatching { viewModel.api.interrupt(session.id) }
+                                        reloadKey++
+                                    }
+                                }
+                                HorizontalDivider()
+                            }
+                            item(key = "recent-header") {
+                                Text(
+                                    "Recent sessions",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                )
+                            }
+                        }
                         items(sessions, key = { it.id }) { session ->
                             SessionRow(session) {
                                 viewModel.openSession(session.id, session.displayTitle)
@@ -116,6 +161,71 @@ fun SessionsScreen(viewModel: AppViewModel) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * A live gateway session with its runtime status and an interrupt control —
+ * the "remote control" row: watch a working agent, stop it from the phone.
+ */
+@Composable
+private fun ActiveSessionRow(session: ActiveSession, onInterrupt: () -> Unit) {
+    val statusColor = when (session.status) {
+        "working" -> Color(0xFF2E9E5B)
+        "waiting" -> Color(0xFFCC8B28)
+        "starting" -> Color(0xFF2873CC)
+        else -> Color.Gray
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(statusColor, CircleShape),
+                )
+                Text(
+                    session.title.ifEmpty { "Untitled session" },
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (session.preview.isNotEmpty()) {
+                Text(
+                    session.preview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                listOf(session.status, session.model, "${session.messageCount} messages")
+                    .filter { it.isNotEmpty() }
+                    .joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (session.status == "working" || session.status == "starting") {
+            IconButton(onClick = onInterrupt) {
+                Icon(Icons.Filled.StopCircle, contentDescription = "Interrupt")
             }
         }
     }

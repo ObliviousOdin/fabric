@@ -6,7 +6,7 @@ author: Matt Maximo (MattMaximo), Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [Coding-Agent, Grok, xAI, Code-Review, Refactoring, Automation]
     related_skills: [codex, claude-code, fabric-agent]
 ---

@@ -724,6 +724,7 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'developer-guide/contributing',
+        'developer-guide/documentation-system',
         {
           type: 'category',
           label: 'Architecture',
@@ -783,6 +784,7 @@ const sidebars: SidebarsConfig = {
       label: 'Reference',
       items: [
         'reference/index',
+        'reference/runtime-surfaces',
         {
           type: 'category',
           label: 'Command Reference',

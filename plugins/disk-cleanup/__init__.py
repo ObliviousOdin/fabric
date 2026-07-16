@@ -205,7 +205,8 @@ Subcommands:
 
 Categories: temp | test | research | download | chrome-profile | cron-output | other
 
-All operations are scoped to HERMES_HOME and /tmp/hermes-*.
+All operations are scoped to FABRIC_HOME and /tmp/fabric-* (with the legacy
+/tmp/hermes-* prefix accepted for compatibility).
 Test files are auto-tracked on write_file / terminal and auto-cleaned at session end.
 """
 

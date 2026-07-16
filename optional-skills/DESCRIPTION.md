@@ -1,6 +1,7 @@
 # Optional Skills
 
-Official skills maintained by Nous Research that are **not activated by default**.
+Official Fabric skills maintained in this repository that are **not activated
+by default**.
 
 These skills ship with the fabric-agent repository but are not copied to
 `~/.fabric/skills/` during setup. They are discoverable via the Skills Hub:

@@ -6,7 +6,7 @@ author: Tim Koepsel (xzessmedia), Fabric
 license: MIT
 platforms: [linux, macos]
 metadata:
-  hermes:
+  fabric:
     tags: [Coding-Agent, OpenHands, Model-Agnostic, LiteLLM]
     related_skills: [claude-code, codex, opencode, fabric-agent]
 ---

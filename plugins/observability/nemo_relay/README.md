@@ -48,7 +48,7 @@ For isolated test homes, enable the plugin in the same `FABRIC_HOME` that the
 agent run will use:
 
 ```bash
-env FABRIC_HOME=/tmp/hermes-nemo-relay-test \
+env FABRIC_HOME=/tmp/fabric-nemo-relay-test \
   fabric plugins enable observability/nemo_relay
 ```
 
@@ -63,7 +63,7 @@ tests, choose any writable temporary directory and use the same value for every
 command in that test:
 
 ```bash
-export FABRIC_HOME=/tmp/hermes-nemo-relay-test
+export FABRIC_HOME=/tmp/fabric-nemo-relay-test
 fabric plugins enable observability/nemo_relay
 fabric chat --query 'Reply exactly ok' --provider custom --model qwen3.6:35b
 ```
@@ -200,7 +200,7 @@ distribution and a local Ollama model served through the OpenAI-compatible API.
 ```bash
 pip install "nemo-relay==0.3"
 
-export FABRIC_HOME=/tmp/hermes-nemo-relay-docs/hermes-home
+export FABRIC_HOME=/tmp/fabric-nemo-relay-docs/fabric-home
 mkdir -p "$FABRIC_HOME"
 
 cat > "$FABRIC_HOME/config.yaml" <<'YAML'
@@ -230,11 +230,11 @@ child call `terminal`, and writes both ATOF and ATIF.
 
 ```bash
 export HERMES_NEMO_RELAY_ATOF_ENABLED=1
-export HERMES_NEMO_RELAY_ATOF_OUTPUT_DIRECTORY=/tmp/hermes-nemo-relay-docs/subagent/atof
+export HERMES_NEMO_RELAY_ATOF_OUTPUT_DIRECTORY=/tmp/fabric-nemo-relay-docs/subagent/atof
 export HERMES_NEMO_RELAY_ATOF_FILENAME=nested-subagent-atof.jsonl
 export HERMES_NEMO_RELAY_ATOF_MODE=overwrite
 export HERMES_NEMO_RELAY_ATIF_ENABLED=1
-export HERMES_NEMO_RELAY_ATIF_OUTPUT_DIRECTORY=/tmp/hermes-nemo-relay-docs/subagent/atif
+export HERMES_NEMO_RELAY_ATIF_OUTPUT_DIRECTORY=/tmp/fabric-nemo-relay-docs/subagent/atif
 export HERMES_NEMO_RELAY_ATIF_FILENAME_TEMPLATE='nested-subagent-atif-{session_id}.json'
 export HERMES_NEMO_RELAY_ATIF_AGENT_NAME='Fabric E2E'
 export HERMES_NEMO_RELAY_ATIF_AGENT_VERSION=docs-example
@@ -310,17 +310,17 @@ message. Fabric dispatches the read-only tools as one batch, and NeMo Relay
 records both tool invocations.
 
 ```bash
-mkdir -p /tmp/hermes-nemo-relay-docs/workdir
-printf 'docs_parallel_alpha_function\n' > /tmp/hermes-nemo-relay-docs/workdir/alpha.txt
-printf 'docs_parallel_beta_function\n' > /tmp/hermes-nemo-relay-docs/workdir/beta.txt
-cd /tmp/hermes-nemo-relay-docs/workdir
+mkdir -p /tmp/fabric-nemo-relay-docs/workdir
+printf 'docs_parallel_alpha_function\n' > /tmp/fabric-nemo-relay-docs/workdir/alpha.txt
+printf 'docs_parallel_beta_function\n' > /tmp/fabric-nemo-relay-docs/workdir/beta.txt
+cd /tmp/fabric-nemo-relay-docs/workdir
 
 export HERMES_NEMO_RELAY_ATOF_ENABLED=1
-export HERMES_NEMO_RELAY_ATOF_OUTPUT_DIRECTORY=/tmp/hermes-nemo-relay-docs/parallel/atof
+export HERMES_NEMO_RELAY_ATOF_OUTPUT_DIRECTORY=/tmp/fabric-nemo-relay-docs/parallel/atof
 export HERMES_NEMO_RELAY_ATOF_FILENAME=parallel-tools-atof.jsonl
 export HERMES_NEMO_RELAY_ATOF_MODE=overwrite
 export HERMES_NEMO_RELAY_ATIF_ENABLED=1
-export HERMES_NEMO_RELAY_ATIF_OUTPUT_DIRECTORY=/tmp/hermes-nemo-relay-docs/parallel/atif
+export HERMES_NEMO_RELAY_ATIF_OUTPUT_DIRECTORY=/tmp/fabric-nemo-relay-docs/parallel/atif
 export HERMES_NEMO_RELAY_ATIF_FILENAME_TEMPLATE='parallel-tools-atif-{session_id}.json'
 export HERMES_NEMO_RELAY_ATIF_AGENT_NAME='Fabric E2E'
 export HERMES_NEMO_RELAY_ATIF_AGENT_VERSION=docs-example
@@ -416,7 +416,7 @@ mode = "observe_only"
 Enable it for Fabric:
 
 ```bash
-export HERMES_NEMO_RELAY_PLUGINS_TOML=/tmp/hermes-middleware-test/plugins.toml
+export HERMES_NEMO_RELAY_PLUGINS_TOML=/tmp/fabric-middleware-test/plugins.toml
 ```
 
 When the adaptive component is enabled and the installed NeMo Relay runtime
@@ -449,8 +449,8 @@ install used by the earlier observability-only examples does not support this
 adaptive config.
 
 ```bash
-export FABRIC_HOME=/tmp/hermes-middleware-test/hermes-home
-mkdir -p "$FABRIC_HOME" /tmp/hermes-middleware-test/nemo-relay
+export FABRIC_HOME=/tmp/fabric-middleware-test/fabric-home
+mkdir -p "$FABRIC_HOME" /tmp/fabric-middleware-test/nemo-relay
 
 cat > "$FABRIC_HOME/config.yaml" <<'YAML'
 model:
@@ -463,7 +463,7 @@ plugins:
     - observability/nemo_relay
 YAML
 
-cat > /tmp/hermes-middleware-test/nemo-relay/plugins.toml <<'TOML'
+cat > /tmp/fabric-middleware-test/nemo-relay/plugins.toml <<'TOML'
 version = 1
 
 [[components]]
@@ -475,13 +475,13 @@ version = 1
 
 [components.config.atof]
 enabled = true
-output_directory = "/tmp/hermes-middleware-test/atof"
+output_directory = "/tmp/fabric-middleware-test/atof"
 filename = "middleware-events.jsonl"
 mode = "overwrite"
 
 [components.config.atif]
 enabled = true
-output_directory = "/tmp/hermes-middleware-test/atif"
+output_directory = "/tmp/fabric-middleware-test/atif"
 filename_template = "middleware-trajectory-{session_id}.json"
 agent_name = "Fabric Middleware E2E"
 agent_version = "local"
@@ -494,7 +494,7 @@ enabled = true
 mode = "observe_only"
 TOML
 
-export HERMES_NEMO_RELAY_PLUGINS_TOML=/tmp/hermes-middleware-test/nemo-relay/plugins.toml
+export HERMES_NEMO_RELAY_PLUGINS_TOML=/tmp/fabric-middleware-test/nemo-relay/plugins.toml
 
 fabric chat \
   --query 'Use the terminal tool exactly once to run printf middleware_execution_ok. Then reply with exactly the command output.' \

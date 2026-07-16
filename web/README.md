@@ -4,11 +4,13 @@ The browser experience for Fabric's local-first runtime. It coordinates a
 business-facing **Workspace** and a technical **Admin** console while keeping
 the real `fabric --tui` process as the browser Chat transcript and composer.
 
-Phase 1 includes the responsive shell, canonical routes, Home, Design, persistent
-three-panel Chat, shared state language, and regrouped management pages. Real
-tenant/workspace/site membership, capability enforcement, durable approvals,
-unified activity, and the typed Memory ledger are backend contracts for a later
-delivery; the UI must not simulate them.
+The current product includes the responsive shell, canonical Workspace/Admin
+routes, live Home projections, Design, persistent three-panel Chat, management
+pages, and dashboard plugin routes. The bundled Work plugin replaces the
+`/workspace/work` placeholder with the persistent task board and contributes
+live task context to Chat. Surfaces without a runtime contract (including the
+typed Memory ledger, durable approvals, and unified activity) remain explicit
+unavailable states; the UI must not simulate them.
 
 ## Stack
 
@@ -66,7 +68,7 @@ src/
 │   ├── WorkspaceHomePage.tsx        # Live operational projections
 │   ├── DesignPage.tsx                # Structured brief and system-preset workspace
 │   ├── ChatPage.tsx                 # Persistent PTY/xterm host
-│   ├── WorkspacePlaceholderPage.tsx # Honest deferred-service states
+│   ├── WorkspacePlaceholderPage.tsx # Honest unavailable-runtime states
 │   └── *Page.tsx                    # Reused Workspace/Admin capabilities
 ├── plugins/          # Generic route, slot, and extension contracts
 ├── themes/           # Generated canonical pair + optional presets

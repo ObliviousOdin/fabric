@@ -6,9 +6,9 @@ author: kshitijk4poor
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [TouchDesigner, MCP, twozero, creative-coding, real-time-visuals, generative-art, audio-reactive, VJ, installation, GLSL]
-    related_skills: [native-mcp, ascii-video, manim-video, hermes-video]
+    related_skills: [native-mcp, ascii-video, manim-video]
 
 ---
 

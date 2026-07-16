@@ -67,6 +67,13 @@ You'll see a one-line breadcrumb in `docker logs` confirming the upgrade. To opt
 This behavior applies to the s6-based image only. Earlier (tini-based) images still run `gateway run` as the foreground main process.
 :::
 
+:::note Compatibility environment names
+The `HERMES_*` variables on this page are not stale product branding: they are
+the exact environment-variable ABI the current container code still reads.
+Keep using those names until a documented `FABRIC_*` alias exists; silently
+renaming a live variable in an example would disable the feature.
+:::
+
 :::note Where gateway logs go
 See the [Where the logs go](#where-the-logs-go) section below for the full routing map (per-profile gateways, dashboard, boot reconciler, container-wide `docker logs`).
 :::
@@ -142,7 +149,16 @@ If no provider is registered and the bind is non-loopback, the dashboard **fails
 An unauthenticated public dashboard was the entry point for the June 2026 MCP-config persistence campaign: internet scanners reached exposed dashboards (and OpenAI API servers) and drove the agent into planting an SSH-key backdoor. The auth gate is now mandatory on every non-loopback bind. For a trusted-LAN / homelab box, the bundled username/password provider (`HERMES_DASHBOARD_BASIC_AUTH_USERNAME` + `_PASSWORD`) is the zero-infra way to satisfy it.
 :::
 
-Running the dashboard as a separate container **is** supported when that container shares the host PID and network namespace (e.g. `network_mode: host`, as the repo's own `docker-compose.yml` does — see its `dashboard` service). Its gateway-liveness detection requires a shared PID namespace with the gateway process, so the limitation only applies to dashboards run in isolated bridge-network containers without a shared PID namespace.
+Running the dashboard as a separate container **is** supported. The repo's
+`docker-compose.yml` uses `network_mode: host` and mounts the same `/opt/data`
+directory into both containers; it does **not** share a PID namespace. The
+dashboard itself works in that layout, but local PID-based gateway status
+cannot see across the container boundary. If an operator needs an accurate
+gateway badge in a split-container deployment, either share the PID namespace
+explicitly or configure the currently supported (but deprecated)
+`GATEWAY_HEALTH_URL` probe while a first-class config replacement is being
+developed. `network_mode: host` shares networking only—it is not a substitute
+for PID sharing.
 
 ## Running interactively (CLI chat)
 
@@ -157,8 +173,13 @@ docker run -it --rm \
 Or if you have already opened a terminal in your running container (via Docker Desktop for instance), just run:
 
 ```sh
-/opt/fabric/.venv/bin/fabric
+/opt/hermes/.venv/bin/fabric
 ```
+
+The `/opt/hermes` path is a retained **internal compatibility identifier** in
+the published image. The product and executable are Fabric; the legacy install
+path remains stable so existing images, volume mounts, and orchestration
+wrappers do not break.
 
 ## Persistent volumes
 
@@ -180,11 +201,11 @@ The `/opt/data` volume is the single source of truth for all Fabric state. It ma
 
 ### Immutable install tree
 
-In hosted and published Docker images, `/opt/fabric` is the installed application tree. It is root-owned and read-only to the runtime `fabric` user, so agent turns, gateway sessions, dashboard actions, and normal `docker exec fabric fabric ...` commands cannot edit the core source, bundled `.venv`, `node_modules`, or TUI bundle in place.
+In hosted and published Docker images, `/opt/hermes` is the installed application tree. It is root-owned and read-only to the runtime **hermes** service account, so agent turns, gateway sessions, dashboard actions, and normal `docker exec fabric fabric ...` commands cannot edit the core source, bundled `.venv`, `node_modules`, or TUI bundle in place. The account name, like the install path, is retained only for container compatibility; users still invoke the `fabric` executable.
 
-All mutable Fabric state belongs under `/opt/data`: config, `.env`, profiles, skills, memories, sessions, logs, dashboard uploads, plugins, and other user-managed files. The image also disables runtime `.pyc` writes and Fabric lazy dependency installs into `/opt/fabric`; optional platform dependencies needed by the published image should be baked into the image or installed through a new image build.
+All mutable Fabric state belongs under `/opt/data`: config, `.env`, profiles, skills, memories, sessions, logs, dashboard uploads, plugins, and other user-managed files. The image disables runtime `.pyc` writes and prevents lazy dependencies from modifying `/opt/hermes`. Allow-listed optional dependencies may instead be installed into `/opt/data/lazy-packages`, which is appended after the sealed environment on `sys.path`; set `security.allow_lazy_installs: false` to disable those durable-target installs too.
 
-On hosted/published images, agent self-improvement is scoped to skills, memory, plugins, and config under `/opt/data`. The installed core source under `/opt/fabric` is immutable; core changes are made via PRs to the repo and shipped by updating the image, not by live-editing the running install.
+On hosted/published images, agent self-improvement is scoped to skills, memory, plugins, and config under `/opt/data`. The installed core source under `/opt/hermes` is immutable; core changes are made via PRs to the repo and shipped by updating the image, not by live-editing the running install.
 
 If an operator needs to repair or inspect files outside `/opt/data`, use a root shell intentionally. The `fabric` shim normally drops `docker exec fabric fabric ...` back to the runtime user; set `FABRIC_DOCKER_EXEC_AS_ROOT=1` for a one-off root invocation when you explicitly need root semantics.
 
@@ -255,13 +276,13 @@ Before the s6 migration, "one container per profile" was the recommended pattern
 | | One container, many profiles | One container per profile |
 |---|---|---|
 | Disk overhead | One image, one bundled venv, one Playwright cache | N images / N caches |
-| Memory overhead | Shared Python interpreter cache, shared node_modules | Duplicated per container |
+| Memory overhead | One image and one set of installed assets; each gateway still has its own process memory | Separate container runtimes around each gateway process |
 | Profile creation | `docker exec ... fabric profile create <name>` (seconds) | New `docker run` invocation + port allocation + bind-mount config |
-| Per-profile crash recovery | `s6-supervise` auto-restart | Docker's `--restart unless-stopped` (slower, kills sibling work) |
+| Per-profile crash recovery | `s6-supervise` restarts only the failed gateway process | Docker restarts the profile's whole container |
 | Logs | Per-profile rotated file via `s6-log`, plus container-boot audit log | `docker logs <name>` per container — no built-in rotation |
 | Backup | One `~/.fabric` directory | N directories to coordinate |
 
-The default profile (`default`) is always registered on first boot, so a fresh container ships with one supervised gateway out of the box. Additional profiles are pure runtime adds.
+The default profile (`default`) always gets a supervised service **slot** on first boot. A `gateway run` container starts that slot automatically; other container commands leave it registered but down until `fabric gateway start`. Additional profiles are runtime registrations.
 
 ### When you DO want a separate container
 
@@ -307,7 +328,7 @@ The s6 container has four distinct log surfaces, and "why isn't my gateway showi
 |---|---|---|
 | **Per-profile gateway** (`fabric gateway run` and per-profile gateways under s6) | Tee'd to two places: `docker logs <container>` (real time, no extra prefix) **and** `${FABRIC_HOME}/logs/gateways/<profile>/current` (rotated, ISO-8601 timestamped, 10 archives × 1 MB each) | `docker logs -f fabric` or `tail -F ~/.fabric/logs/gateways/default/current` on the host |
 | **Dashboard** (when `HERMES_DASHBOARD=1`) | `docker logs <container>` (no prefix) | `docker logs -f fabric` — interleaved with gateway lines |
-| **Boot reconciler** (records which profile gateways were restored on each container start) | `${FABRIC_HOME}/logs/container-boot.log` (append-only audit log) | `tail -F ~/.fabric/logs/container-boot.log` |
+| **Boot reconciler** (records which profile gateways were restored on each container start) | `${FABRIC_HOME}/logs/container-boot.log` (append log, rotated to `.1` at 256 KiB) | `tail -F ~/.fabric/logs/container-boot.log` |
 | **Generic Fabric logs** (`agent.log`, `errors.log`) | `${FABRIC_HOME}/logs/` (profile-aware) | `docker exec fabric fabric logs --follow [--level WARNING] [--session <id>]` |
 
 Two practical consequences worth knowing:
@@ -330,39 +351,53 @@ docker run -it --rm \
 Direct `-e` flags override values from `.env`. This is useful for CI/CD or secrets-manager integrations where you don't want keys on disk.
 
 :::note Looking for Docker as the **terminal backend**?
-This page covers running Fabric itself inside Docker. If you want Fabric to execute the agent's `terminal` / `execute_code` calls inside a Docker sandbox container (one long-lived container shared across Fabric processes — see [issue #20561](https://github.com/NousResearch/hermes-agent/issues/20561)), that's a separate config block — `terminal.backend: docker` plus `terminal.docker_image`, `terminal.docker_volumes`, `terminal.docker_forward_env`, `terminal.docker_env`, `terminal.docker_run_as_host_user`, `terminal.docker_extra_args`, `terminal.docker_persist_across_processes`, and `terminal.docker_orphan_reaper`. See [Configuration → Docker Backend](configuration.md#docker-backend) for the full set including container-lifecycle rules.
+This page covers running Fabric itself inside Docker. If you want Fabric to execute the agent's `terminal` / `execute_code` calls inside a Docker sandbox container (one long-lived container shared across Fabric processes), that's a separate config block — `terminal.backend: docker` plus `terminal.docker_image`, `terminal.docker_volumes`, `terminal.docker_forward_env`, `terminal.docker_env`, `terminal.docker_run_as_host_user`, `terminal.docker_extra_args`, `terminal.docker_persist_across_processes`, and `terminal.docker_orphan_reaper`. See [Configuration → Docker Backend](configuration.md#docker-backend) for the full set including container-lifecycle rules.
 :::
 
 ## Docker Compose example
 
-For persistent deployment with both the gateway and dashboard, a `docker-compose.yaml` is convenient:
+The repository's `docker-compose.yml` is a source-checkout example with
+separate gateway and dashboard containers. Both use host networking and the
+same data mount; the dashboard binds to loopback and therefore does not need an
+auth provider for local use:
 
 ```yaml
 services:
-  fabric:
-    image: ghcr.io/obliviousodin/fabric:latest
-    container_name: fabric
+  gateway:
+    build: .
+    image: fabric-agent
+    container_name: fabric-gateway
     restart: unless-stopped
+    network_mode: host
     command: gateway run
-    ports:
-      - "8642:8642"   # gateway API
-      - "9119:9119"   # dashboard (only reached when HERMES_DASHBOARD=1)
     volumes:
       - ~/.fabric:/opt/data
     environment:
-      - HERMES_DASHBOARD=1
-      # Uncomment to forward specific env vars instead of using .env file:
-      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: "2.0"
+      - FABRIC_UID=${FABRIC_UID:-10000}
+      - FABRIC_GID=${FABRIC_GID:-10000}
+
+  dashboard:
+    image: fabric-agent
+    container_name: fabric-dashboard
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - gateway
+    command: ["dashboard", "--host", "127.0.0.1", "--no-open"]
+    volumes:
+      - ~/.fabric:/opt/data
+    environment:
+      - FABRIC_UID=${FABRIC_UID:-10000}
+      - FABRIC_GID=${FABRIC_GID:-10000}
 ```
 
-Start with `docker compose up -d` and view logs with `docker compose logs -f`. The supervised gateway's stdout is also tee'd to `${FABRIC_HOME}/logs/gateways/<profile>/current` on the volume — see [Where the logs go](#where-the-logs-go) for the full routing map.
+Start with
+`FABRIC_UID=$(id -u) FABRIC_GID=$(id -g) docker compose up -d --build` and
+view logs with `docker compose logs -f`. The supervised gateway's stdout is
+also tee'd to `${FABRIC_HOME}/logs/gateways/<profile>/current` on the volume —
+see [Where the logs go](#where-the-logs-go) for the full routing map. Because
+the services use host networking, do not add `ports:` mappings; Docker ignores
+them in this mode.
 
 ## Optional: Linux desktop audio bridge
 
@@ -439,7 +474,7 @@ docker compose up -d --build
 To verify what PortAudio sees inside the container:
 
 ```sh
-docker exec fabric /opt/fabric/.venv/bin/python -c "import sounddevice as sd; print(sd.query_devices())"
+docker exec fabric /opt/hermes/.venv/bin/python -c "import sounddevice as sd; print(sd.query_devices())"
 ```
 
 ## Resource limits
@@ -470,7 +505,7 @@ docker run -d \
 The official image is based on `debian:13.4` and includes:
 
 - Python 3.13 with dependencies synced from the lockfile via `uv sync --frozen --no-install-project` for the baked extras (`all`, `messaging`, Anthropic/Bedrock/Azure identity, Hindsight, Matrix), followed by a no-dependency editable install of Fabric itself.
-- Node.js 22 + npm (for browser automation, WhatsApp bridge, TUI/Desktop bundles, and workspace build tooling)
+- Node.js 22 + npm (for browser automation, the WhatsApp bridge, the web dashboard and TUI bundles, and workspace build tooling)
 - Playwright with Chromium (`npx playwright install --with-deps chromium --only-shell`)
 - ripgrep, ffmpeg, git, and `xz-utils` as system utilities
 - **`docker-cli`** — so agents running inside the container can drive the host's Docker daemon (bind-mount `/var/run/docker.sock` to opt in) for `docker build`, `docker run`, container inspection, etc.
@@ -478,13 +513,13 @@ The official image is based on `debian:13.4` and includes:
 - The WhatsApp bridge (`scripts/whatsapp-bridge/`)
 - **[`s6-overlay`](https://github.com/just-containers/s6-overlay) v3** as PID 1 (replaces the older `tini`) — supervises the dashboard and per-profile gateways with auto-restart on crash, reaps zombie subprocesses, and forwards signals.
 
-The image treats `/opt/fabric` as an immutable install tree at runtime. Optional Python extras, Node workspaces, and TUI assets that must be available inside Docker need to be baked during the image build; runtime lazy installs are disabled so supervised gateways and `docker exec fabric …` commands do not try to write dependency artifacts back into the read-only source tree.
+The image treats `/opt/hermes` as an immutable install tree at runtime. Optional Python extras, Node workspaces, and TUI assets that must be available inside Docker need to be baked during the image build. The allow-listed lazy dependency path is redirected to `/opt/data/lazy-packages`; it never writes into the sealed venv.
 
 The container's `ENTRYPOINT` is s6-overlay's `/init`. On boot it:
 1. Runs `/etc/cont-init.d/01-fabric-setup` (= `docker/stage2-hook.sh`) as root: optional UID/GID remap, fixes volume ownership, seeds `.env` / `config.yaml` / `SOUL.md` on first boot, runs non-interactive config-schema migrations unless `HERMES_SKIP_CONFIG_MIGRATION=1`, syncs bundled skills.
-2. Runs `/etc/cont-init.d/02-reconcile-profiles` (= `fabric_cli.container_boot`): walks `$FABRIC_HOME/profiles/<name>/`, recreates the per-profile gateway s6 service slot under `/run/service/gateway-<profile>/`, and auto-starts only those whose last recorded state was `running` (see [Per-profile gateway supervision](#per-profile-gateway-supervision)).
+2. Runs `/etc/cont-init.d/02-reconcile-profiles` (= `fabric_cli.container_boot`): reconciles the default profile at `$FABRIC_HOME` plus named profiles under `$FABRIC_HOME/profiles/<name>/`, recreates their s6 service slots under `/run/service/gateway-<profile>/`, and auto-starts only those whose durable desired state was `running` (see [Per-profile gateway supervision](#per-profile-gateway-supervision)).
 3. Starts the static `main-fabric` and `dashboard` s6-rc services.
-4. Exec's the container's CMD as the main program (`/opt/fabric/docker/main-wrapper.sh`), which routes the arguments the user passed to `docker run`:
+4. Execs the container's CMD as the main program (`/opt/hermes/docker/main-wrapper.sh`), which routes the arguments the user passed to `docker run`:
    - no args → `fabric` (the default)
    - first arg is an executable on PATH (e.g. `sleep`, `bash`) → exec it directly
    - anything else → `fabric <args>` (subcommand passthrough)
@@ -495,12 +530,22 @@ The container ENTRYPOINT is now `/init` (s6-overlay), not `/usr/bin/tini`. All f
 :::
 
 :::warning Privilege model
-Do not override the image entrypoint unless you keep `/init` (or, equivalently, the legacy `docker/entrypoint.sh` shim that forwards to the stage2 hook) in the command chain. s6-overlay's `/init` runs as root so it can chown the volume on first boot, then drops to the `fabric` user via `s6-setuidgid` for every supervised service AND for the main program. Starting `fabric gateway run` as root inside the official image is refused by default because it can leave root-owned files in `/opt/data` and break later dashboard or gateway starts. Set `HERMES_ALLOW_ROOT_GATEWAY=1` only when you intentionally accept that risk.
+Do not override the image entrypoint: keep the image's `/init` +
+`/opt/hermes/docker/main-wrapper.sh` chain. s6-overlay's `/init` must start as
+root so it can remap the service UID/GID and repair the data volume; each real
+service and the main command then drops to the internal **hermes** account via
+`s6-setuidgid`. The retained `docker/entrypoint.sh` file is a deprecated
+bootstrap-only compatibility shim—it runs the stage2 hook but does **not** run
+the CMD, so it is not an equivalent replacement for `/init`. Starting `fabric
+gateway run` as root inside the official image is refused by default because it
+can leave root-owned files in `/opt/data` and break later dashboard or gateway
+starts. Set `HERMES_ALLOW_ROOT_GATEWAY=1` only when you intentionally accept
+that risk.
 :::
 
-### `docker exec` automatically drops to the `fabric` user
+### `docker exec` automatically drops to the service account
 
-`docker exec fabric <cmd>` defaults to running as root inside the container, but the image ships a thin shim at `/opt/fabric/bin/fabric` (earliest on PATH) that detects root callers and transparently re-execs through `s6-setuidgid fabric`. So `docker exec fabric login`, `docker exec fabric profile create …`, `docker exec fabric setup`, etc. all write files owned by UID 10000 — i.e. readable by the supervised gateway — with no extra `--user` flag needed. Non-root callers (the supervised processes themselves, `docker exec --user fabric`, kanban subagents inside the container) hit a short-circuit that exec's the venv binary directly, so there's no overhead on the hot paths.
+`docker exec fabric <cmd>` defaults to running as root inside the container, but the image ships a thin shim at `/opt/hermes/bin/fabric` (earliest on PATH) that detects root callers and transparently re-execs through `s6-setuidgid hermes`. So `docker exec fabric login`, `docker exec fabric profile create …`, `docker exec fabric setup`, etc. all write files owned by the service UID (10000 by default, or the remapped `FABRIC_UID`) and remain readable by the supervised gateway, with no extra `--user` flag needed. Non-root callers (the supervised processes themselves, `docker exec --user hermes`, kanban subagents inside the container) take a short path that execs the venv binary directly, so there is no extra privilege-drop hop on hot paths.
 
 If you specifically need a `docker exec` that retains root semantics (diagnostic sessions, inspecting root-only state, files outside `/opt/data` that root happens to own), opt out per invocation:
 
@@ -565,11 +610,20 @@ The official image ships with a curated set of utilities (see [What the Dockerfi
 
 For any tool published to npm or PyPI, instruct Fabric to run it via `npx` (npm) or `uvx` (Python) and to remember that command in its persistent memory. If the tool needs a config file or credentials, instruct it to drop those under `/opt/data` (e.g. `/opt/data/<tool>/config.yaml`).
 
-Dependencies are fetched on demand and cached for the life of the container. Configuration written under `/opt/data` survives container restarts because it lives on the bind-mounted host directory. The package cache itself is rebuilt after a `docker rm`, but `npx` and `uvx` re-fetch transparently the next time the tool runs.
+Dependencies are fetched on demand. The image sets `HOME=/opt/data` for runtime commands, so the normal npm and uv caches, along with tool configuration stored under that home, remain on the mounted data volume and can survive container recreation. Treat a tool's own cache location as tool-specific; point it under `/opt/data` explicitly if durability matters.
 
 ### Other tools (apt packages, binaries) — install and remember
 
-For anything outside npm or PyPI — `apt` packages, prebuilt binaries, language runtimes not already in the image — instruct Fabric how to install it (e.g. `apt-get update && apt-get install -y <package>`) and tell it to remember the install command. The tool persists for the rest of the container's lifetime, and Fabric will re-run the install command after a container restart when it next needs the tool.
+For a quick diagnostic, an operator can install an apt package into the
+running container's writable layer as root:
+
+```sh
+docker exec --user root fabric sh -lc 'apt-get update && apt-get install -y <package>'
+```
+
+That package survives a stop/start or restart of the **same** container, but it
+is lost when the container is removed or recreated during an image upgrade.
+Fabric does not automatically replay the install command.
 
 This is a good fit for tools that are quick to install and used occasionally. For tools used constantly, prefer the next approach.
 
@@ -584,8 +638,12 @@ USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends <your-package> \
     && rm -rf /var/lib/apt/lists/*
-USER fabric
 ```
+
+Leave the final image user as root. The `/init` bootstrap needs root at
+container start and drops runtime commands to the internal **hermes** account
+itself; ending a derived Dockerfile with `USER hermes` bypasses required volume
+and supervision setup.
 
 Build it and use it in place of the official image:
 
@@ -780,11 +838,14 @@ Check logs: `docker logs fabric`. Common causes:
 
 ### "Permission denied" errors
 
-The container's stage2 hook drops privileges to the non-root `fabric` user (UID 10000) via `s6-setuidgid` inside each supervised service. If your host `~/.fabric/` is owned by a different UID, set `FABRIC_UID`/`FABRIC_GID` — or their `PUID`/`PGID` aliases, for parity with LinuxServer.io and NAS images — to match your host user, or ensure the data directory is writable:
-
-```sh
-chmod -R 755 ~/.fabric
-```
+The container's stage2 hook drops privileges to the internal non-root **hermes**
+service account (UID 10000 by default) via `s6-setuidgid` inside each supervised
+service. If your host `~/.fabric/` is owned by a different UID, set
+`FABRIC_UID`/`FABRIC_GID` — or their `PUID`/`PGID` aliases, for parity with
+LinuxServer.io and NAS images — to match the host owner. Do not recursively
+`chmod 755` the data directory: it does not grant the service account write
+access and can expose secret-bearing files. The boot hook applies targeted
+ownership fixes and keeps `.env` at mode `0600`.
 
 On a NAS (UGOS, Synology, unRAID) the data directory is typically a **bind mount** owned by a host UID the container cannot `chown`. Set `PUID`/`PGID` (or `FABRIC_UID`/`FABRIC_GID`) to that host user so the runtime runs as the owner of the mount rather than UID 10000:
 
@@ -796,7 +857,10 @@ docker run -d \
   ghcr.io/obliviousodin/fabric gateway run
 ```
 
-`docker exec fabric <cmd>` automatically drops to UID 10000 too — see [`docker exec` automatically drops to the `fabric` user](#docker-exec-automatically-drops-to-the-fabric-user) for details and the per-invocation opt-out.
+`docker exec fabric <cmd>` automatically drops to the current service UID too
+(10000 unless remapped) — see [`docker exec` automatically drops to the service
+account](#docker-exec-automatically-drops-to-the-service-account) for details
+and the per-invocation opt-out.
 
 ### Browser tools not working
 

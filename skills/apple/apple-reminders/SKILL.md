@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [macos]
 metadata:
-  hermes:
+  fabric:
     tags: [Reminders, tasks, todo, macOS, Apple]
 prerequisites:
   commands: [remindctl]

@@ -2,7 +2,9 @@
 
 Auto-tracks and cleans up ephemeral files created during Fabric
 sessions — test scripts, temp outputs, cron logs, stale chrome profiles.
-Scoped strictly to `$FABRIC_HOME` and `/tmp/hermes-*`.
+Scoped strictly to `$FABRIC_HOME` and `/tmp/fabric-*`. The older
+`/tmp/hermes-*` prefix remains accepted only so existing tracked paths continue
+to work safely.
 
 Originally contributed by [@LVT382009](https://github.com/LVT382009) as a
 skill in PR #12212.  Ported to the plugin system so the behaviour runs
@@ -41,7 +43,8 @@ Deletion rules (same as the original PR):
 
 ## Safety
 
-- `is_safe_path()` rejects anything outside `FABRIC_HOME` or `/tmp/hermes-*`
+- `is_safe_path()` rejects anything outside `FABRIC_HOME`, `/tmp/fabric-*`, or
+  the legacy `/tmp/hermes-*` compatibility prefix
 - Windows mounts (`/mnt/c` etc.) are rejected
 - The state directory `$FABRIC_HOME/disk-cleanup/` is itself excluded
 - `$FABRIC_HOME/logs/`, `memories/`, `sessions/`, `skills/`, `plugins/`,

@@ -6,9 +6,9 @@ author: Fabric + Teknium
 license: MIT
 prerequisites:
   env_vars: [MSGRAPH_TENANT_ID, MSGRAPH_CLIENT_ID, MSGRAPH_CLIENT_SECRET]
-  commands: [hermes]
+  commands: [fabric]
 metadata:
-  hermes:
+  fabric:
     tags: [Teams, Microsoft Graph, Meetings, Productivity, Operations]
     related_docs:
       - /docs/guides/microsoft-graph-app-registration

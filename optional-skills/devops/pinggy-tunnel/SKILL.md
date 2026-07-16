@@ -6,7 +6,7 @@ author: Teknium (teknium1), Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [Pinggy, Tunnel, Networking, SSH, Webhook, Localhost]
     related_skills: [cloudflared-quick-tunnel, webhook-subscriptions]
 ---

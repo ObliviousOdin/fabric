@@ -67,13 +67,12 @@ controls, read the [desktop design contract](DESIGN.md) and the canonical
 [Fabric design foundation](../design-system/README.md).
 
 Use a disposable profile while changing onboarding, authentication, or update
-code. The `HERMES_DESKTOP_*` environment names below are retained compatibility
-interfaces while the public distribution migration is in progress; they do not change the
-displayed Fabric identity.
+code. Legacy `HERMES_DESKTOP_*` environment names remain readable compatibility
+interfaces; use the canonical Fabric names in new development instructions.
 
 ```bash
 FABRIC_HOME=/tmp/fabric-desktop-dev npm run dev
-HERMES_DESKTOP_HERMES_ROOT=/path/to/fabric npm run dev
+FABRIC_DESKTOP_ROOT=/path/to/fabric npm run dev
 npm run dev:fake-boot
 ```
 

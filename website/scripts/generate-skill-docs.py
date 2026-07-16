@@ -10,9 +10,12 @@ Also regenerates:
 (so their table rows link to the new dedicated pages)
 
 Sidebar is updated to nest all per-skill pages under Skills → Bundled / Optional.
+``--check`` compares every output without writing, and generation removes stale
+generated pages whose source SKILL.md no longer exists.
 """
 
 from __future__ import annotations
+import argparse
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -29,12 +32,7 @@ SKILL_SOURCES = [
     ("optional", REPO / "optional-skills"),
 ]
 
-# Pages the user had previously hand-written in user-guide/skills/.
-# We leave these alone (they get first-class sidebar treatment separately).
-HAND_WRITTEN = {"google-workspace.md"}
-
-
-_FENCE_RE = re.compile(r"^(?P<indent>\s*)(?P<fence>```+|~~~+)", re.MULTILINE)
+GENERATED_MARKER = "auto-generated from the skill's SKILL.md"
 
 # Unicode box-drawing characters. If a generated fenced code block contains any
 # of these, wrap it in `<!-- ascii-guard-ignore -->` so the docs-site-checks
@@ -352,7 +350,6 @@ def render_skill_page(
     if len(short_desc) > 160:
         short_desc = short_desc[:157] + "..."
 
-    title = f"{name}"
     # Heuristic nicer title from name
     display_name = name.replace("-", " ").replace("_", " ").title()
 
@@ -667,7 +664,7 @@ def _render_sidebar_item(item: Any, indent: int) -> list[str]:
     return lines
 
 
-def write_sidebar(entries):
+def render_sidebar(entries, text: str) -> str:
     # Sidebar layout:
     #   Skills
     #   ├── reference/skills-catalog
@@ -711,18 +708,7 @@ def write_sidebar(entries):
     }
     skills_subtree = "\n".join(_render_sidebar_item(skills_top, 8)) + "\n"
 
-    sidebar_path = REPO / "website" / "sidebars.ts"
-    text = sidebar_path.read_text(encoding="utf-8")
     # Replace the existing Skills block.
-    pattern = re.compile(
-        r"        \{\n"
-        r"          type: 'category',\n"
-        r"          label: 'Skills',\n"
-        r"(?:.*?\n)*?"
-        r"        \},\n",
-        re.DOTALL,
-    )
-    # Safer: match the exact current block shape.
     old_block_start = "        {\n          type: 'category',\n          label: 'Skills',\n"
     i = text.find(old_block_start)
     if i == -1:
@@ -744,47 +730,120 @@ def write_sidebar(entries):
     else:
         raise RuntimeError("Could not find end of Skills sidebar block")
 
-    new_text = text[:i] + skills_subtree + text[end:]
+    return text[:i] + skills_subtree + text[end:]
+
+
+def write_sidebar(entries):
+    sidebar_path = REPO / "website" / "sidebars.ts"
+    text = sidebar_path.read_text(encoding="utf-8")
+    new_text = render_sidebar(entries, text)
     sidebar_path.write_text(new_text, encoding="utf-8")
     print(f"Updated sidebar: {sidebar_path}")
 
 
-def main():
-    entries = discover_skills()
-    print(f"Discovered {len(entries)} skills")
+def build_expected_outputs(
+    entries: list[tuple[dict[str, Any], dict[str, Any]]],
+) -> dict[Path, str]:
+    """Render every committed skill-doc artifact without writing to disk."""
 
-    # Build name -> meta index for related-skill cross-linking
     skill_index: dict[str, dict[str, Any]] = {}
     for meta, parsed in entries:
         name = parsed["frontmatter"].get("name", meta["slug"])
-        # Prefer bundled over optional if a name collision exists
         if name not in skill_index or meta["source_kind"] == "bundled":
             skill_index[name] = meta
 
-    # Write per-skill pages
-    written = 0
+    outputs: dict[Path, str] = {}
     for meta, parsed in entries:
-        out_path = page_output_path(meta)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        content = render_skill_page(
-            meta, parsed["frontmatter"], parsed["body"], skill_index=skill_index
+        outputs[page_output_path(meta)] = render_skill_page(
+            meta,
+            parsed["frontmatter"],
+            parsed["body"],
+            skill_index=skill_index,
         )
-        out_path.write_text(content, encoding="utf-8")
-        written += 1
-    print(f"Wrote {written} per-skill pages under {SKILLS_PAGES}")
+    outputs[DOCS / "reference" / "skills-catalog.md"] = build_catalog_md_bundled(
+        entries
+    )
+    outputs[DOCS / "reference" / "optional-skills-catalog.md"] = (
+        build_catalog_md_optional(entries)
+    )
+    sidebar_path = REPO / "website" / "sidebars.ts"
+    outputs[sidebar_path] = render_sidebar(
+        entries, sidebar_path.read_text(encoding="utf-8")
+    )
+    return outputs
 
-    # Regenerate catalogs
-    bundled_catalog = build_catalog_md_bundled(entries)
-    (DOCS / "reference" / "skills-catalog.md").write_text(bundled_catalog, encoding="utf-8")
-    print("Updated reference/skills-catalog.md")
 
-    optional_catalog = build_catalog_md_optional(entries)
-    (DOCS / "reference" / "optional-skills-catalog.md").write_text(optional_catalog, encoding="utf-8")
-    print("Updated reference/optional-skills-catalog.md")
+def orphan_skill_pages(expected_paths: set[Path]) -> list[Path]:
+    """Return generated-tree pages that no longer have a source SKILL.md."""
 
-    # Update sidebar
-    write_sidebar(entries)
+    existing: set[Path] = set()
+    for source_kind in ("bundled", "optional"):
+        root = SKILLS_PAGES / source_kind
+        if root.is_dir():
+            existing.update(root.rglob("*.md"))
+    return sorted(existing - expected_paths)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="fail if generated skill docs, catalogs, sidebar, or orphans drift",
+    )
+    args = parser.parse_args(argv)
+    entries = discover_skills()
+    print(f"Discovered {len(entries)} skills")
+    outputs = build_expected_outputs(entries)
+    expected_skill_pages = {
+        path for path in outputs if SKILLS_PAGES in path.parents
+    }
+    orphans = orphan_skill_pages(expected_skill_pages)
+    protected_orphans = [
+        path
+        for path in orphans
+        if GENERATED_MARKER not in path.read_text(encoding="utf-8")
+    ]
+    stale = [
+        path
+        for path, expected in outputs.items()
+        if not path.is_file() or path.read_text(encoding="utf-8") != expected
+    ]
+
+    if args.check:
+        errors = [
+            f"stale generated artifact: {path.relative_to(REPO)}" for path in stale
+        ]
+        errors.extend(
+            f"orphan generated skill page: {path.relative_to(REPO)}"
+            for path in orphans
+        )
+        if errors:
+            print("Skill documentation drift detected:")
+            for error in errors:
+                print(f"  - {error}")
+            print("Run `python website/scripts/generate-skill-docs.py` and commit the result.")
+            return 1
+        print("Generated skill documentation is current.")
+        return 0
+
+    if protected_orphans:
+        formatted = ", ".join(str(path.relative_to(REPO)) for path in protected_orphans)
+        raise RuntimeError(
+            "Refusing to delete non-generated pages inside generated skill trees: "
+            + formatted
+        )
+    for path, content in outputs.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    for path in orphans:
+        path.unlink()
+    print(f"Wrote {len(expected_skill_pages)} per-skill pages under {SKILLS_PAGES}")
+    print("Updated reference skill catalogs and website sidebar")
+    if orphans:
+        print(f"Removed {len(orphans)} orphan generated skill page(s)")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -68,15 +68,18 @@ Connect a supported channel for long-running conversations, scheduled delivery, 
 ## Understand the two web surfaces
 
 - **Workspace** is where business users follow conversations, agents,
-  automations, evidence, and outcomes.
+  design briefs, persistent work, automations, evidence, and outcomes.
 - **Admin** is where operators configure integrations, channels, models,
   credentials, and the Fabric runtime.
 - **Profiles** remain independent agent configuration and memory islands. They
   are not tenant, team workspace, site, or human-role scopes.
 
-The shell and its first critical screens are available now. Enterprise tenancy,
-server-enforced roles, and the durable Work Board, approvals, activity, and
-typed Memory services are staged backend contracts. See the
+The shell, Home, Design, persistent Chat, and SQLite-backed Work surface are
+available now. Chat's Task, Evidence, and Artifacts tabs are best-effort views
+of the existing terminal event stream, while Memory reports provider and
+configuration status. Enterprise tenancy, server-enforced roles, durable
+approvals, unified activity, and a provider-neutral typed Memory service remain
+staged backend contracts. See the
 [Workspace and Admin guide](/user-guide/workspace-admin) for the route map and
 current delivery status.
 

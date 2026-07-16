@@ -149,11 +149,30 @@ React.
 
 - **Left:** recent conversations and session switching
 - **Center:** the persistent TUI transcript and composer
-- **Right:** agent activity plus Task, Evidence, Memory, and Artifacts tabs
+- **Right:** agent activity, the selected board's Work card, and live Task,
+  Evidence, Memory, and Artifacts tabs
 
-The context tabs state when their backend contracts are unavailable. Tool
-output remains visible in the center transcript; Fabric does not fabricate
-linked tasks, evidence, memory provenance, or artifact previews.
+Task, Evidence, and Artifacts are bounded, best-effort projections of semantic
+events the real TUI already emits. Task shows session identity and structured
+checklist items, Evidence follows recent tool starts/completions, and Artifacts
+detects file, image, and export paths reported in tool results. Memory reads the
+selected profile's provider/configuration status and built-in memory-file sizes
+from the existing management API. It does not claim that a provider is active,
+or show retrieval excerpts/provenance, unless the runtime reports them.
+
+This rail is passive dashboard state: it adds no model-visible tool, does not
+change the system prompt, and does not make an extra inference request. A
+malformed event, dropped subscriber connection, or failed Memory status request
+degrades only the rail; the terminal pane continues to work and reconnect
+independently. A new TUI session id clears the previous session's projected
+checklist, evidence, and artifacts so context is not misattributed.
+
+The Work card is independent of those session projections. It shows Active,
+Running, Blocked, and Review counts for the selected board, links directly to
+Board/Graph/Outline, and can create a board. A chat stays transient unless you
+choose **Track chat in Work**. That action creates one idempotent Triage task
+linked to the TUI session id; it writes directly to the board and does not
+invoke the model.
 
 **How it works:**
 
@@ -187,6 +206,44 @@ visible and fail independently from the terminal.
 Close the browser tab and the PTY is reaped cleanly on the server. Re-opening spawns a fresh session.
 
 To point [Fabric](#connecting-fabric-desktop-to-a-remote-backend) at a dashboard running on another machine instead of its own bundled backend, see the remote-backend section below.
+
+### Design
+
+`/workspace/design` turns a short brief into a structured design prompt. Choose
+the intended artifact, design-system source, and wireframe or high-fidelity
+output, then start the request in a fresh Chat. The page does not run a second
+agent or rendering pipeline: it composes the brief and hands it to the same
+terminal-backed Chat. `/design` remains a compatibility alias.
+
+### Work
+
+`/workspace/work` is the bundled, persistent work surface. It reads and writes
+the same per-board SQLite database as `fabric kanban`, `/kanban`, and
+task-scoped `kanban_*` model tools: `~/.fabric/kanban.db` for the default board
+and `~/.fabric/kanban/boards/<slug>/kanban.db` for named boards.
+
+Use the view switcher to inspect the same tasks in three projections:
+
+- **Board** — operational columns in this order: Triage, Todo, Scheduled,
+  Ready, In Progress, Blocked, Review, and Done; Archived appears when enabled.
+- **Graph** — goals, task dependencies, active agent runs, and completed/review
+  results, with related paths highlighted and an inspector for the selected node.
+- **Outline** — the graph's goal/task/run/result hierarchy in a linear,
+  keyboard-navigable view.
+
+Board, view, and selected task are URL state, so a link such as
+`/workspace/work?board=default&view=graph&task=t_abcd` reopens the same context.
+`/work` and `/kanban` are compatibility aliases. Live task events update all
+three views; pausing visual updates does not pause any worker.
+
+Work is a bundled dashboard-only integration. It is available without adding
+`kanban` to `plugins.enabled`, and it adds no tool to normal model calls. The
+`kanban_*` toolset is separately workflow-gated: dispatcher workers receive it
+for their assigned task, while an orchestrator profile must enable the
+`kanban` toolset explicitly. To disable the bundled Work UI/API, add `kanban`
+to `plugins.disabled` and restart the dashboard; the unsupported
+`dashboard.plugins.kanban.enabled` key has no effect. See
+[Kanban (Multi-Agent Board)](./kanban) for the worker and CLI contracts.
 
 ### Connecting Fabric to a remote backend
 
@@ -351,6 +408,21 @@ agent runtimes with their own config, skills, memory, and sessions. The label
 `/admin/integrations` shows installed plugins, their runtime state, provider
 assignments, exposed surfaces, and available actions. Plugin pages and route
 aliases continue to use the generic dashboard extension contract.
+
+Runtime activation and dashboard delivery are related but distinct. General
+plugins that register hooks or tools execute only when allowed by
+`plugins.enabled` (and never when denied by `plugins.disabled`). Bundled
+dashboard manifests are trusted release assets and are served without an
+allow-list entry unless explicitly denied. User-installed dashboard plugins
+must still be enabled before their JavaScript, CSS, or Python API is loaded.
+This separation lets a dashboard-only integration such as Work render without
+adding a model tool or lifecycle hook.
+
+The hidden bundled `team-pages` integration is a separate, static reference
+surface at `/admin/integrations/team-pages`. It renders config-defined title,
+text, Markdown, links, KPI, table, and status blocks. It is not the Agents page
+and it does not read or mutate Work tasks; `/team` now aliases
+`/workspace/agents`.
 
 ### Admin / Integrations / Skills
 

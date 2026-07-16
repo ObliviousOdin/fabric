@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [web, javascript, agent, browser, gui, alibaba, embed, copilot, saas]
     category: web-development
 ---

@@ -6,7 +6,7 @@ author: Bihruze (Asahi0x), Fabric
 license: MIT
 platforms: [linux, macos]
 metadata:
-  hermes:
+  fabric:
     tags: [evolution, optimization, prompt-engineering, research]
     related_skills: [arxiv, jupyter-live-kernel]
 ---

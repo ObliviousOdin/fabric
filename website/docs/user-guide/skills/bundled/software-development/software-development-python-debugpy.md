@@ -112,7 +112,7 @@ python -m pdb path/to/script.py arg1 arg2
 
 ## Recipe 3: Debug a pytest test
 
-The hermes test runner and pytest both support this:
+Fabric's test wrapper and pytest both support this:
 
 ```bash
 # Drop to pdb on failure (or on any raised exception):

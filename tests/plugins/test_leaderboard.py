@@ -590,17 +590,75 @@ def test_start_local_relay_surfaces_spawn_failure(api, monkeypatch):
     assert api.load_relay_state() == {}  # nothing recorded on failure
 
 
+def test_start_local_relay_binds_all_interfaces_by_default(api, monkeypatch):
+    # host unspecified -> 0.0.0.0, which the loopback health/adopt probes rely on
+    # AND which the Tailscale interface teammates use is a subset of.
+    state, spawned, spawn = _managed_relay_env(api, monkeypatch)
+    api.start_local_relay(9137, None, spawner=spawn, transport=_stateful_transport(state))
+    host_idx = spawned["argv"].index("--host") + 1
+    assert spawned["argv"][host_idx] == "0.0.0.0"
+
+
+def test_start_local_relay_honors_explicit_host(api, monkeypatch):
+    # An explicit bind host (advanced) is passed through verbatim.
+    state, spawned, spawn = _managed_relay_env(api, monkeypatch)
+    api.start_local_relay(9137, "127.0.0.1", spawner=spawn, transport=_stateful_transport(state))
+    host_idx = spawned["argv"].index("--host") + 1
+    assert spawned["argv"][host_idx] == "127.0.0.1"
+
+
+def test_start_local_relay_orphan_guard_on_save_failure(api, monkeypatch):
+    # If recording relay.json fails after a successful spawn, the spawned relay
+    # must be terminated (not orphaned) and the failure surfaced.
+    _no_tailscale(monkeypatch, api)
+    monkeypatch.setattr(api, "RELAY_START_HEALTH_ATTEMPTS", 0)
+    monkeypatch.setattr(api, "_process_start_time", lambda p: 7)
+    monkeypatch.setattr(api, "_pid_is_alive", lambda p, start_time=None: False)
+
+    def save_boom(state):
+        raise OSError("disk full")
+    monkeypatch.setattr(api, "save_relay_state", save_boom)
+    killed = {}
+    monkeypatch.setattr(api, "_terminate_relay_pid", lambda p: killed.setdefault("pid", p) or True)
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("refused", status=0)
+
+    result = api.start_local_relay(9137, "0.0.0.0", spawner=lambda a, c, l: 314, transport=dead)
+    assert killed["pid"] == 314  # orphan killed
+    assert "could not record it" in (result.get("note") or "")
+
+
 def test_stop_local_relay_terminates_and_clears(api, monkeypatch):
     state, spawned, spawn = _managed_relay_env(api, monkeypatch)
     transport = _stateful_transport(state)
     api.start_local_relay(9137, "0.0.0.0", spawner=spawn, transport=transport)
 
     terminated = {}
-    monkeypatch.setattr(api, "_terminate_relay_pid", lambda p: (terminated.setdefault("pid", p), state.update(up=False)))
+
+    def term(p):
+        terminated["pid"] = p
+        state["up"] = False
+        return True  # terminate succeeded
+    monkeypatch.setattr(api, "_terminate_relay_pid", term)
     result = api.stop_local_relay(transport=transport)
     assert terminated["pid"] == 424242
     assert api.relay_state_path().exists() is False
     assert result["managed_relay"]["managed"] is False
+
+
+def test_stop_local_relay_keeps_state_when_terminate_fails(api, monkeypatch):
+    # A failed terminate must KEEP the recorded state so Stop can be retried,
+    # rather than forgetting a relay we couldn't kill.
+    state, spawned, spawn = _managed_relay_env(api, monkeypatch)
+    transport = _stateful_transport(state)
+    api.start_local_relay(9137, "0.0.0.0", spawner=spawn, transport=transport)
+
+    monkeypatch.setattr(api, "_terminate_relay_pid", lambda p: False)  # kill failed
+    result = api.stop_local_relay(transport=transport)
+    assert "try again" in (result.get("note") or "")
+    assert api.relay_state_path().exists() is True  # state kept for retry
+    assert api.load_relay_state().get("pid") == 424242
 
 
 def test_stop_local_relay_when_nothing_managed(api, monkeypatch):
@@ -613,9 +671,9 @@ def test_stop_local_relay_when_nothing_managed(api, monkeypatch):
     assert "No dashboard-managed relay" in (result.get("note") or "")
 
 
-def test_relay_process_status_reaps_dead_pid(api, monkeypatch):
-    # A recorded PID that is no longer our live process must be reaped so the UI
-    # never shows a dead relay as managed.
+def test_relay_process_status_reports_dead_pid_read_only(api, monkeypatch):
+    # A recorded PID that is no longer our live process is reported as not-managed
+    # but the state file is NOT cleared here (read-only; avoids racing a start).
     api.save_relay_state({"pid": 555, "port": 9137, "start_time": 1, "log": "x.log"})
     monkeypatch.setattr(api, "_pid_is_alive", lambda p, start_time=None: False)
 
@@ -624,4 +682,4 @@ def test_relay_process_status_reaps_dead_pid(api, monkeypatch):
 
     status = api.relay_process_status(transport=dead)
     assert status["managed"] is False and status["running"] is False
-    assert api.relay_state_path().exists() is False  # stale state cleared
+    assert api.relay_state_path().exists() is True  # read-only: not cleared here

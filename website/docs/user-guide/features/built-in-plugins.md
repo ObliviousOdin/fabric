@@ -322,6 +322,8 @@ Members connect through a small **relay** — a stdlib-only, self-hostable servi
 
 **Hosting the board from the dashboard:** the tab's **Advanced: host a private leaderboard (Tailscale)** panel makes being the host one click. **Host on this machine** starts the relay for you (`POST /team/host/start`), supervises it (pid + start-time recorded in `relay.json`, so **Stop** and status survive a dashboard restart), and health-checks it — no copy-paste terminal command. The dashboard then **auto-fills the Relay URL**, preferring this machine's Tailscale MagicDNS name (`something.ts.net`, reachable across the tailnet with no port-forwarding) and falling back to `http://127.0.0.1:9137` for a same-machine trial. **Detect** re-checks read-only. Reading Tailscale identity and connecting reuse `fabric_cli.tailscale_setup` (the code behind `fabric setup tailscale`); the interactive QR login stays that CLI command, which the panel surfaces when Tailscale is installed but not connected. If a relay is already answering on the port, **Host** adopts it rather than starting a second one.
 
+The managed relay binds `0.0.0.0` (all interfaces) — this is what lets the loopback health checks and the Tailscale interface both reach it, but it also exposes the plain-HTTP relay on your LAN. Host it on a trusted network; the relay is designed to sit behind Tailscale (or a TLS proxy), never directly on the public internet (see the [relay README](https://github.com/ObliviousOdin/fabric/tree/main/plugins/fabric-achievements/relay)).
+
 **State files** — live under `$FABRIC_HOME/plugins/fabric-achievements/`:
 
 | File | Contents |

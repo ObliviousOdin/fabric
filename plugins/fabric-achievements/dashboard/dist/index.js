@@ -823,9 +823,12 @@
     const [error, setError] = hooks.useState(null);
 
     function apply(res) {
+      // An {ok:false} payload is an error, not a status snapshot — surface it
+      // and keep the previous host state rather than rendering a bogus panel.
+      if (res && res.ok === false) { setError(res.error || tx(t, "team.generic_error", "Something went wrong.")); return; }
       setHost(res);
       if (res && res.suggested_relay_url) setRelay(res.suggested_relay_url);
-      setError(res && res.ok === false && res.error ? res.error : null);
+      setError(null);
     }
     function run(promise) {
       setWorking(true); setError(null);
@@ -909,7 +912,9 @@
         h("span", { className: "ha-field-hint" },
           tx(t, "team.host_hint", "Starts the relay here and fills in a shareable URL. Detect re-checks without starting anything."))),
       status,
-      error && !host && h("p", { className: "ha-field-hint ha-detect-warn" }, String(error))
+      // Show errors whether or not a prior status snapshot is on screen — a
+      // failed Host/Stop after a successful Detect must not fail silently.
+      error && h("p", { className: "ha-field-hint ha-detect-warn ha-detect-error" }, String(error))
     );
   }
 

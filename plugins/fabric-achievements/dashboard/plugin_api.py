@@ -1551,7 +1551,8 @@ def detect_tailscale() -> Dict[str, Any]:
     ipv4 = next((ip for ip in ips if ":" not in ip), None)
     magicdns = (self_node.get("DNSName") or "").rstrip(".") or None
     backend = data.get("BackendState") if isinstance(data, dict) else None
-    running = backend == "Running" and bool(ips)
+    # Case-insensitive to match the reused path's TailscaleStatus.is_running.
+    running = isinstance(backend, str) and backend.casefold() == "running" and bool(ips)
     return {
         "installed": True,
         "running": running,
@@ -1717,18 +1718,25 @@ def _pid_is_alive(pid: Optional[int], start_time: Optional[int] = None) -> bool:
     return True
 
 
-def _terminate_relay_pid(pid: int) -> None:
+def _terminate_relay_pid(pid: int) -> bool:
+    """Ask ``pid`` to stop; return whether a terminate signal was delivered.
+
+    ``False`` (both the reused terminate and the SIGTERM fallback failed) tells
+    the caller to KEEP the relay's recorded state so Stop can be retried, rather
+    than forgetting a relay it couldn't kill.
+    """
     try:
         from gateway.status import terminate_pid  # reuse cross-platform terminate
         terminate_pid(int(pid))
-        return
+        return True
     except Exception:  # noqa: BLE001 - fall back to a plain SIGTERM
         pass
     try:
         import signal
         os.kill(int(pid), signal.SIGTERM)
+        return True
     except Exception:  # noqa: BLE001
-        pass
+        return False
 
 
 def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> int:
@@ -1776,7 +1784,10 @@ def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any
     if not pid:
         return {"managed": False, "running": False, "pid": None, "port": None, "healthy": False, "log": log}
     if not _pid_is_alive(pid, state.get("start_time")):
-        clear_relay_state()  # idempotent; safe without the lock
+        # Read-only: a stale pid is reported as not-managed but NOT cleared here.
+        # This runs without _RELAY_LOCK (via host_status/the GET route); clearing
+        # could race a concurrent start_local_relay and delete a freshly-written
+        # relay.json. start (overwrite) and stop (clear) own cleanup instead.
         return {"managed": False, "running": False, "pid": None, "port": None, "healthy": False, "log": log}
     healthy = False
     if port:
@@ -1805,20 +1816,24 @@ def _wait_relay_healthy(port: int, transport: Optional[Transport]) -> bool:
 
 def start_local_relay(
     port: int = DEFAULT_RELAY_PORT,
-    host: str = "0.0.0.0",
+    host: Optional[str] = None,
     spawner: Optional[Spawner] = None,
     transport: Optional[Transport] = None,
 ) -> Dict[str, Any]:
     """Start a dashboard-managed relay on this machine (idempotent).
 
     If a healthy relay already answers on ``port`` it is adopted rather than
-    double-started. On success the relay is recorded in relay.json (pid +
+    double-started. Binds ``0.0.0.0`` by default (the documented relay default):
+    that covers the loopback interface the health/adopt probes use AND the
+    Tailscale interface teammates connect over. It also exposes the plain-HTTP
+    relay on the LAN, so run it on a trusted network or bind an explicit ``host``
+    (see relay/README.md). On success the relay is recorded in relay.json (pid +
     start-time for PID-reuse-safe liveness) so status/stop keep working across a
     dashboard restart. Returns the same shape as ``host_status`` so the UI can
     update from a single call. Never spawns while holding a network call.
     """
     port = _coerce_port(port)
-    host = (host or "0.0.0.0").strip() or "0.0.0.0"
+    host = str(host).strip() if host and str(host).strip() else "0.0.0.0"
     note: Optional[str] = None
     do_healthcheck = False
     with _RELAY_LOCK:
@@ -1845,15 +1860,22 @@ def start_local_relay(
             except Exception as exc:  # noqa: BLE001
                 note = f"Could not start the relay: {exc}"
             else:
-                save_relay_state({
-                    "pid": int(pid),
-                    "port": port,
-                    "host": host,
-                    "started_at": int(time.time()),
-                    "start_time": _process_start_time(int(pid)),
-                    "log": str(relay_log_path()),
-                })
-                do_healthcheck = True
+                try:
+                    save_relay_state({
+                        "pid": int(pid),
+                        "port": port,
+                        "host": host,
+                        "started_at": int(time.time()),
+                        "start_time": _process_start_time(int(pid)),
+                        "log": str(relay_log_path()),
+                    })
+                except Exception as exc:  # noqa: BLE001
+                    # We spawned a relay but can't record it. Kill it rather than
+                    # leak an untracked process the dashboard could never stop.
+                    _terminate_relay_pid(int(pid))
+                    note = f"Started the relay but could not record it ({exc}); stopped it to avoid an orphan."
+                else:
+                    do_healthcheck = True
 
     if do_healthcheck and not _wait_relay_healthy(port, transport):
         state = load_relay_state()
@@ -1865,19 +1887,24 @@ def start_local_relay(
 
 
 def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
-    """Stop the dashboard-managed relay (if any) and forget it."""
+    """Stop the dashboard-managed relay (if any) and forget it.
+
+    On a failed terminate the recorded state is KEPT so Stop can be retried,
+    rather than orphaning a relay we couldn't kill.
+    """
     note: Optional[str] = None
     with _RELAY_LOCK:
         state = load_relay_state()
         pid = state.get("pid")
         if pid and _pid_is_alive(pid, state.get("start_time")):
-            try:
-                _terminate_relay_pid(int(pid))
-            except Exception as exc:  # noqa: BLE001
-                note = f"Could not stop the relay cleanly: {exc}"
-        elif not pid:
-            note = "No dashboard-managed relay is running."
-        clear_relay_state()
+            if _terminate_relay_pid(int(pid)):
+                clear_relay_state()
+            else:
+                note = "Could not stop the relay — it may still be running; try again."
+        else:
+            if not pid:
+                note = "No dashboard-managed relay is running."
+            clear_relay_state()  # dead or absent pid — forget it
     port = _coerce_port(state.get("port") or DEFAULT_RELAY_PORT)
     return host_status(port, transport=transport, extra_note=note)
 
@@ -2352,11 +2379,14 @@ async def post_team_host_start(request: Request):
     # user-initiated action that spawns a local listening server, so it stays
     # behind the dashboard auth gate like the rest of /team/*.
     body = await _json_body(request)
+    # host is optional: when omitted, start_local_relay binds the Tailscale IPv4
+    # (tailnet-only) if connected, else 0.0.0.0.
+    host = body.get("host")
     try:
         return await _run(
             start_local_relay,
             body.get("port", DEFAULT_RELAY_PORT),
-            str(body.get("host", "0.0.0.0") or "0.0.0.0"),
+            str(host) if host else None,
         )
     except (RelayClientError, ValueError) as exc:
         return _error_payload(exc)

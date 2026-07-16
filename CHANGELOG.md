@@ -11,7 +11,7 @@ All notable changes to Fabric are documented in this file.
 
 ### Changed
 
-- Browser Live View now pulls one bounded active-tab frame at a time over a dedicated authenticated visual connection, starts at most two captures per second for each browser session, and never shares the chat, model-output, tool-event, or approval socket.
+- On local Desktop backends, Browser Live View now pulls one bounded active-tab frame at a time over a dedicated authenticated visual connection, starts at most two captures per second for each browser session, and never shares the chat, model-output, tool-event, or approval socket.
 - Computer Use Live View reuses screenshots returned by existing actions instead of adding another screen-capture loop; neither viewer adds model tools, prompt text, context tokens, or model calls.
 - Computer Use documentation now uses the current CuaDriver permission flow, `PATH`-based local-build selection, and `config.yaml` telemetry setting instead of legacy Hermes environment overrides.
 - Documentation impact contracts now map Desktop, Browser automation, and Computer Use code to their narrative guides so CI requires those docs to evolve with future behavior changes.
@@ -92,7 +92,7 @@ All notable changes to Fabric are documented in this file.
 
 - Removed unused legacy display fonts and the inherited dashboard styling paths that made Fabric resemble the upstream Hermes interface.
 
-[0.21.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15.3...HEAD
+[0.21.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15.3...v2026.7.16
 [0.20.2]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15.2...v2026.7.15.3
 [0.20.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15...v2026.7.15.2
 [0.20.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...v2026.7.15

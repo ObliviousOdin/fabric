@@ -48,7 +48,7 @@ current app or window, the latest desktop frame, and a session-scoped timeline
 of the agent's actions.
 
 <img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-computer-use.png')} width="1172" height="742" alt="Fabric Desktop showing a Computer Use conversation with Agent Live View docked in the right side panel, including the target app screenshot and recent actions." />
-<p className="docs-figure-caption">Computer Use reuses the latest screenshot whenever an action returns one, following the target app without starting a second capture loop.</p>
+<p className="docs-figure-caption">While Live View is visible and unpaused, Computer Use can display one accepted screenshot already returned by an action without starting a second capture loop.</p>
 
 ### Use the docked view
 
@@ -63,7 +63,7 @@ of the agent's actions.
 4. Follow the latest returned screenshot and the session timeline while you keep
    working in another app.
 5. Select **Pause visual updates** to freeze only the preview. The agent keeps
-   working and later returned screenshots appear after you resume.
+   working; screenshots from subsequent actions appear after you resume.
 
 ### Move the same view into picture-in-picture
 
@@ -78,17 +78,21 @@ The view follows the same conversation and Computer Use session in either
 position. Popping it out, pausing it, or docking it does not restart the agent
 or its current turn.
 
-Computer Use Live View reuses the latest screenshot whenever a `computer_use`
-action returns one. It does not start a second screen-capture loop. **Pause
-visual updates** freezes the displayed frame while the agent keeps working;
-resume to show screenshots returned by subsequent actions.
+While the view is visible and unpaused, Computer Use Live View can reuse at
+most one accepted, bounded screenshot from a `computer_use` completion. It does
+not start a second screen-capture loop. **Pause visual updates** freezes the
+displayed frame while the agent keeps working; the action and status history
+still updates, and a subsequent action can update the frame after you resume.
 
 :::note Performance and model context
 The viewer itself does not add a model tool or tool schema, duplicate
 screenshots into the conversation, or consume extra model tokens. Computer Use
 screenshots remain normal tool results and retain their existing context cost.
-The only additional work is rendering the latest frame while the docked view or
-picture-in-picture window is visible.
+Desktop updates the action timeline from the existing completion path and may
+inspect or transport at most one accepted, bounded returned image. When tool
+progress is disabled, the gateway sends that data in a bounded visual-only
+event. A paused or hidden renderer keeps the action metadata but discards the
+frame. There is no second capture loop or additional model work.
 :::
 
 ## Enabling

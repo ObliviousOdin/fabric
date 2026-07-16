@@ -72,16 +72,18 @@ Both surfaces follow the same conversation and browser session. Popping the
 view out, pausing it, or docking it does not restart the browser, the agent, or
 the current turn.
 
-For compatible CDP-backed sessions, Desktop requests one bounded viewport frame
-through a dedicated authenticated visual connection only while the docked view
-or picture-in-picture window is visible and unpaused. Capture starts are
-limited to two per second for each browser session. A request that arrives
-during an agent browser action returns busy instead of queueing, and a capture
-already in progress does not hold the agent's browser-action lock. Preview
-frames do not share the socket that carries model output, tool events, or
-approvals. Fabric does not connect Desktop to `agent-browser`'s full-rate
-screencast. Camofox, Lightpanda, and providers that do not expose CDP still show
-the action timeline and any screenshots returned by browser tools.
+For compatible CDP-backed sessions on a **local Fabric backend**, Desktop
+requests one bounded viewport frame through a dedicated authenticated visual
+connection only while the docked view or picture-in-picture window is visible
+and unpaused. Capture starts are limited to two per second for each browser
+session. A request that arrives during an agent browser action returns busy
+instead of queueing, and a capture already in progress does not hold the
+agent's browser-action lock. Preview frames do not share the socket that carries
+model output, tool events, or approvals. Fabric does not connect Desktop to
+`agent-browser`'s full-rate screencast. Camofox, Lightpanda, providers that do
+not expose CDP, and Desktop sessions connected to a remote Fabric backend still
+show the action timeline and any screenshots returned by browser tools, but do
+not use the dedicated frame stream.
 
 **Pause visual updates** freezes the displayed frame; it does not pause the
 agent. Browser actions can continue in the background, and resuming reconnects

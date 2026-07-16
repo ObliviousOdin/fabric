@@ -62,8 +62,10 @@ Date: 2026-07-16
 
 ## Comparison setup
 
-- Source docked visual: `/Users/rabot-channa-mac/.codex/generated_images/019f69ae-595c-76b0-b7e5-4b9f0b314c5e/exec-22dc6bfc-aa68-4a3b-95c9-b32fc1e868c3.png`
-- Source PiP visual: `/Users/rabot-channa-mac/.codex/generated_images/019f69ae-595c-76b0-b7e5-4b9f0b314c5e/exec-f3d7b983-7353-43e0-9f9a-276e5e869357.png`
+- The approved exploratory source visuals were session-only artifacts and are
+  unavailable outside that Product Design session. This record does not claim
+  repo-only reproduction of the source comparison; the final implementation
+  captures below are the portable release evidence.
 - Final Browser docked implementation: `website/static/img/product/fabric-desktop-live-view-browser.png`
 - Final Browser PiP implementation: `website/static/img/product/fabric-desktop-live-view-browser-pip.png`
 - Final Computer Use docked state: `website/static/img/product/fabric-desktop-live-view-computer-use.png`
@@ -90,7 +92,7 @@ The source and implementation were placed in the same combined comparison images
 - Live View does not add model tools, prompt text, context tokens, or extra model calls.
 - Browser preview frames live in an isolated atom, so the desktop route and transcript do not rerender for each capture.
 - Browser capture is visible-only, pause-aware, server-gated to at most two starts per second for each browser session, sequential, and size-limited; frame requests never hold the model-action lock during CDP I/O or share the chat/model event socket.
-- Computer Use reuses screenshots whenever actions return them, so it does not add a second capture loop.
+- While visible and unpaused, Computer Use reuses at most one accepted, bounded screenshot from an action result, so it does not add a second capture loop.
 - The desktop retains at most 24 session views and four PiP windows; image and IPC payloads are bounded and sanitized.
 
 ## Automated verification

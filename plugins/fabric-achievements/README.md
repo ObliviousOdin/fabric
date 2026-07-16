@@ -52,7 +52,9 @@ $FABRIC_HOME/plugins/fabric-achievements/
 ├── state.json
 ├── scan_snapshot.json
 ├── scan_checkpoint.json
-└── team.json          # team leaderboard membership (only if you join a team)
+├── team.json          # team leaderboard membership (only if you join a team)
+├── relay.json         # dashboard-managed relay pid/port (only if you host one)
+└── roster.json        # relay's persisted team rosters (only if you host one)
 ```
 
 `FABRIC_HOME` defaults to `~/.fabric`. The snapshot and checkpoint make warm
@@ -70,21 +72,29 @@ transcripts, file paths, and raw metrics are never sent (enforced by
 `build_leaderboard_profile` and re-checked by the relay's `sanitize_profile`,
 and pinned by `tests/plugins/test_leaderboard_privacy.py`).
 
-How it connects: one person runs a small **relay** (see
-[`relay/README.md`](relay/README.md) — a stdlib-only, self-hostable service,
-`python -m relay`) and hosts the board. To avoid the "type in a Relay URL you
-don't know" problem, the hosting panel has a **Detect relay & Tailscale**
-button: it probes this machine for a running relay and reads its Tailscale
-name, then **auto-fills the Relay URL** — preferring a Tailscale MagicDNS
-address (ending in `.ts.net`) that teammates can reach from anywhere on the tailnet
-with no port-forwarding, and falling back to `http://127.0.0.1:9137` for a
-same-machine trial. Detection is read-only (`GET /team/host/status`); it never
-starts, stops, or manages the relay. Creating a team returns a shareable
-**invite code** (`fbl1_…`); others paste it and choose **Join and share my
-score**. The button is the explicit opt-in, so a display name and separate
-consent checkbox are not required; the member can choose a name or join without
-sharing from the secondary options. Relay hosting and team creation stay under
-**Advanced**.
+How it connects: one person **hosts the board** by running a small **relay**
+(see [`relay/README.md`](relay/README.md) — a stdlib-only, self-hostable
+service, `python -m relay`). The hosting panel makes this one click:
+
+- **Host on this machine** starts the relay for you (`POST /team/host/start`),
+  supervises it (pid + start-time recorded in `relay.json`, so status and
+  **Stop** keep working across a dashboard restart), and health-checks it. No
+  copy-paste terminal command required.
+- The dashboard then **auto-fills the Relay URL** — preferring a Tailscale
+  MagicDNS address (ending in `.ts.net`) that teammates can reach from anywhere
+  on the tailnet with no port-forwarding, and falling back to
+  `http://127.0.0.1:9137` for a same-machine trial. **Detect** re-checks
+  read-only without starting anything.
+- If Tailscale is installed but not connected, the panel surfaces Fabric's
+  built-in **`fabric setup tailscale`** command (the QR login). Both the read
+  side and that command reuse `fabric_cli.tailscale_setup` — the same code
+  behind `fabric setup tailscale` — rather than reimplementing Tailscale.
+
+Creating a team returns a shareable **invite code** (`fbl1_…`); others paste it
+and choose **Join and share my score**. The button is the explicit opt-in, so a
+display name and separate consent checkbox are not required; the member can
+choose a name or join without sharing from the secondary options. Relay hosting
+and team creation stay under **Advanced**.
 Once joined, sharing is a one-click status control and opting out actively
 retracts the member's published row. Each member's dashboard talks to the relay
 server-to-server through these backend routes — the browser never contacts the
@@ -122,6 +132,13 @@ POST /team/settings
 POST /team/publish
 POST /team/rotate     # owner only
 POST /team/kick       # owner only
+
+# Hosting (detect + host the relay from the dashboard). Same auth gate: these
+# read this machine's Tailscale identity and start/stop a local server.
+GET  /team/host/status   # running relay + managed relay + Tailscale identity
+POST /team/host/probe    # validate a candidate relay URL before create/join
+POST /team/host/start    # start (host) a dashboard-managed relay here
+POST /team/host/stop     # stop the dashboard-managed relay
 ```
 
 The dashboard host applies its normal authentication policy to these routes.

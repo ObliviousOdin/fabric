@@ -786,8 +786,8 @@
     );
   }
 
-  // Copy helper shared by the invite row and the "start the relay" command row.
-  // Resolves once the text is on the clipboard (best-effort; never throws).
+  // Copy helper shared by the invite row and the command rows. Resolves once
+  // the text is on the clipboard (best-effort; never throws).
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       return navigator.clipboard.writeText(text).catch(function () {});
@@ -800,78 +800,114 @@
     return Promise.resolve();
   }
 
-  // Detects a relay already answering on this machine plus this machine's own
-  // Tailscale identity, then AUTO-FILLS the relay URL so the host never has to
-  // guess "http://<what?>:9137". Read-only: GET /team/host/status only probes
-  // and reads — it never starts, stops, or manages the relay.
+  // A read-only command with a copy button (relay start command, `fabric setup
+  // tailscale`). Each instance owns its own "Copied ✓" state.
+  function CmdRow({ cmd, t }) {
+    const [copied, setCopied] = hooks.useState(false);
+    return h("div", { className: "ha-invite-row ha-detect-cmd" },
+      h("input", { className: "ha-input ha-invite-input", readOnly: true, value: cmd, onFocus: function (e) { e.target.select(); } }),
+      h("button", { type: "button", className: "ha-team-btn",
+        onClick: function () { copyText(cmd).then(function () { setCopied(true); setTimeout(function () { setCopied(false); }, 1600); }); } },
+        copied ? tx(t, "team.copied", "Copied ✓") : tx(t, "team.copy_cmd", "Copy command")));
+  }
+
+  // Hosting control: one click to START the relay on this machine (POST
+  // /team/host/start), one to STOP it, and a read-only Detect that re-checks.
+  // The backend auto-fills a shareable URL from this machine's Tailscale name,
+  // so the host never has to guess "http://<what?>:9137". Connecting Tailscale
+  // itself is an interactive QR login owned by the CLI, so we surface Fabric's
+  // built-in `fabric setup tailscale` command rather than duplicate it here.
   function HostingDetect({ t, busy, setRelay }) {
-    const [detecting, setDetecting] = hooks.useState(false);
+    const [working, setWorking] = hooks.useState(false);
     const [host, setHost] = hooks.useState(null);
     const [error, setError] = hooks.useState(null);
-    const [copied, setCopied] = hooks.useState(false);
 
-    function detect() {
-      setDetecting(true); setError(null);
-      api("/team/host/status")
-        .then(function (res) {
-          setHost(res);
-          if (res && res.suggested_relay_url) setRelay(res.suggested_relay_url);
-          if (res && res.ok === false && res.error) setError(res.error);
-        })
-        .catch(function (err) { setError(String(err)); })
-        .finally(function () { setDetecting(false); });
+    function apply(res) {
+      setHost(res);
+      if (res && res.suggested_relay_url) setRelay(res.suggested_relay_url);
+      setError(res && res.ok === false && res.error ? res.error : null);
     }
+    function run(promise) {
+      setWorking(true); setError(null);
+      return promise
+        .then(apply)
+        .catch(function (err) { setError(String(err)); })
+        .finally(function () { setWorking(false); });
+    }
+    function detect() { run(api("/team/host/status")); }
+    function startHost() { run(apiPost("/team/host/start", {})); }
+    function stopHost() { run(apiPost("/team/host/stop", {})); }
 
     const ts = host && host.tailscale;
     const local = host && host.local_relay;
-    const relayRunning = !!(local && local.ok);
-    const cmd = (host && host.run_command) ||
-      "cd plugins/fabric-achievements && python -m relay --host 0.0.0.0 --port 9137 --state ./roster.json";
+    const managed = host && host.managed_relay;
+    const hosted = !!(managed && managed.running);
+    const relayAnswering = !!(local && local.ok);
+    const busyAll = busy || working;
 
     let status = null;
     if (host) {
       const items = [];
+      // Tailscale line.
       if (ts && ts.running && ts.magicdns) {
         items.push(h("li", { key: "ts", className: "ha-detect-ok" },
           tx(t, "team.detect_ts_ok", "Tailscale: {name}", { name: ts.magicdns })));
       } else if (ts && ts.installed) {
         items.push(h("li", { key: "ts", className: "ha-detect-warn" },
-          tx(t, "team.detect_ts_down", "Tailscale is installed but not connected — run `tailscale up`, then detect again for a shareable address.")));
+          tx(t, "team.detect_ts_down", "Tailscale is installed but not connected — connect it below for a shareable address.")));
       } else {
         items.push(h("li", { key: "ts", className: "ha-detect-warn" },
           tx(t, "team.detect_ts_none", "Tailscale not found. Install it (tailscale.com/download) so teammates can reach this relay with no port-forwarding.")));
       }
-      items.push(relayRunning
-        ? h("li", { key: "relay", className: "ha-detect-ok" },
-            tx(t, "team.detect_relay_ok", "Relay is answering on this machine (port {port}).", { port: host.default_port }))
-        : h("li", { key: "relay", className: "ha-detect-warn" },
-            tx(t, "team.detect_relay_none", "No relay is running yet — start one in a terminal, then detect again:")));
+      // Relay line.
+      if (hosted) {
+        items.push(h("li", { key: "relay", className: "ha-detect-ok" },
+          tx(t, "team.host_running", "Relay hosted on this machine — PID {pid}, port {port}{state}.", {
+            pid: managed.pid, port: managed.port,
+            state: managed.healthy ? "" : tx(t, "team.host_starting", " (starting…)"),
+          }),
+          h("button", { type: "button", className: "ha-team-btn ha-team-btn-danger ha-detect-stop", disabled: busyAll, onClick: stopHost },
+            tx(t, "team.host_stop", "Stop"))));
+      } else if (relayAnswering) {
+        items.push(h("li", { key: "relay", className: "ha-detect-ok" },
+          tx(t, "team.detect_relay_external", "A relay is answering on this machine (port {port}) — not managed by the dashboard.", { port: host.default_port })));
+      } else {
+        items.push(h("li", { key: "relay", className: "ha-detect-warn" },
+          tx(t, "team.detect_relay_none", "No relay is running yet — click Host on this machine to start one.")));
+      }
 
-      const fillNote = host.suggested_relay_url
-        ? h("p", { className: cn("ha-field-hint", host.suggested_is_shareable ? "ha-detect-ok" : "ha-detect-warn") },
+      const blocks = [h("ul", { key: "list", className: "ha-detect-list" }, items)];
+
+      // Connect Tailscale by reusing Fabric's built-in setup (a QR login).
+      if (host.tailscale_needs_setup && host.tailscale_setup_command) {
+        blocks.push(h("div", { key: "tsconnect", className: "ha-detect-connect" },
+          h("span", { className: "ha-field-hint" },
+            tx(t, "team.tailscale_connect_hint", "Connect Tailscale with Fabric's built-in setup (it shows a QR to scan). Run this in a terminal:")),
+          h(CmdRow, { cmd: host.tailscale_setup_command, t: t })));
+      }
+
+      blocks.push(host.suggested_relay_url
+        ? h("p", { key: "fill", className: cn("ha-field-hint", host.suggested_is_shareable ? "ha-detect-ok" : "ha-detect-warn") },
             host.suggested_is_shareable
               ? tx(t, "team.detect_filled", "Filled in {url} below — anyone on your tailnet can reach it.", { url: host.suggested_relay_url })
-              : tx(t, "team.detect_filled_local", "Filled in {url} — this only works on this machine (fine for a solo trial). Set up Tailscale to share.", { url: host.suggested_relay_url }))
-        : h("p", { className: "ha-field-hint ha-detect-warn" },
-            tx(t, "team.detect_nofill", "Start the relay (and/or connect Tailscale), then detect again to auto-fill the URL."));
+              : tx(t, "team.detect_filled_local", "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.", { url: host.suggested_relay_url }))
+        : h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+            tx(t, "team.detect_nofill", "Host the relay (and connect Tailscale), then the URL fills in automatically.")));
 
-      status = h("div", { className: "ha-detect-result" },
-        h("ul", { className: "ha-detect-list" }, items),
-        !relayRunning && h("div", { className: "ha-invite-row ha-detect-cmd" },
-          h("input", { className: "ha-input ha-invite-input", readOnly: true, value: cmd, onFocus: function (e) { e.target.select(); } }),
-          h("button", { type: "button", className: "ha-team-btn",
-            onClick: function () { copyText(cmd).then(function () { setCopied(true); setTimeout(function () { setCopied(false); }, 1600); }); } },
-            copied ? tx(t, "team.copied", "Copied ✓") : tx(t, "team.copy_cmd", "Copy command"))),
-        fillNote
-      );
+      if (host.note) {
+        blocks.push(h("p", { key: "note", className: "ha-field-hint ha-detect-warn" }, host.note));
+      }
+      status = h("div", { className: "ha-detect-result" }, blocks);
     }
 
     return h("div", { className: "ha-detect" },
       h("div", { className: "ha-detect-head" },
-        h("button", { type: "button", className: "ha-team-btn", disabled: busy || detecting, onClick: detect },
-          detecting ? tx(t, "team.detecting", "Detecting…") : tx(t, "team.detect_button", "Detect relay & Tailscale")),
+        h(C.Button, { onClick: startHost, disabled: busyAll || hosted, className: "ha-detect-host" },
+          working ? tx(t, "team.working", "Working…") : tx(t, "team.host_button", "Host on this machine")),
+        h("button", { type: "button", className: "ha-team-btn", disabled: busyAll, onClick: detect },
+          tx(t, "team.detect_button", "Detect")),
         h("span", { className: "ha-field-hint" },
-          tx(t, "team.detect_hint", "Auto-fills the relay URL from this machine — no need to look up your address."))),
+          tx(t, "team.host_hint", "Starts the relay here and fills in a shareable URL. Detect re-checks without starting anything."))),
       status,
       error && !host && h("p", { className: "ha-field-hint ha-detect-warn" }, String(error))
     );

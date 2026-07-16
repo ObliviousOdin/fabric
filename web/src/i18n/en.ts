@@ -1064,25 +1064,35 @@ export const en: Translations = {
       hosting_summary: "Advanced: host a private leaderboard (Tailscale)",
       hosting_header: "Self-hosted and account-free",
       hosting_body:
-        "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) start the small relay here, 3) click Detect below to auto-fill its address, then create a team and share the invite. Detect fills in a Tailscale name that works from anywhere on your tailnet, so nobody has to figure out an IP or open a port.",
-      detect_button: "Detect relay & Tailscale",
+        "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) click Host on this machine to start the small relay here, 3) the dashboard auto-fills a Tailscale address that works from anywhere on your tailnet, then create a team and share the invite. Nobody has to figure out an IP or open a port.",
+      detect_button: "Detect",
       detecting: "Detecting…",
       detect_hint:
         "Auto-fills the relay URL from this machine — no need to look up your address.",
+      host_button: "Host on this machine",
+      host_hint:
+        "Starts the relay here and fills in a shareable URL. Detect re-checks without starting anything.",
+      host_running: "Relay hosted on this machine — PID {pid}, port {port}{state}.",
+      host_starting: " (starting…)",
+      host_stop: "Stop",
       detect_ts_ok: "Tailscale: {name}",
       detect_ts_down:
-        "Tailscale is installed but not connected — run `tailscale up`, then detect again for a shareable address.",
+        "Tailscale is installed but not connected — connect it below for a shareable address.",
       detect_ts_none:
         "Tailscale not found. Install it (tailscale.com/download) so teammates can reach this relay with no port-forwarding.",
       detect_relay_ok: "Relay is answering on this machine (port {port}).",
       detect_relay_none:
-        "No relay is running yet — start one in a terminal, then detect again:",
+        "No relay is running yet — click Host on this machine to start one.",
+      detect_relay_external:
+        "A relay is answering on this machine (port {port}) — not managed by the dashboard.",
       detect_filled:
         "Filled in {url} below — anyone on your tailnet can reach it.",
       detect_filled_local:
-        "Filled in {url} — this only works on this machine (fine for a solo trial). Set up Tailscale to share.",
+        "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.",
       detect_nofill:
-        "Start the relay (and/or connect Tailscale), then detect again to auto-fill the URL.",
+        "Host the relay (and connect Tailscale), then the URL fills in automatically.",
+      tailscale_connect_hint:
+        "Connect Tailscale with Fabric's built-in setup (it shows a QR to scan). Run this in a terminal:",
       copy_cmd: "Copy command",
       member_summary: "You are {name} · {role}",
       role_owner: "owner",

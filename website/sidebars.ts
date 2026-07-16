@@ -130,6 +130,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'reference/skills-catalog',
             'reference/optional-skills-catalog',
+            'reference/skills-ecosystem-directory',
             {
               type: 'category',
               label: 'Bundled',
@@ -830,6 +831,7 @@ const sidebars: SidebarsConfig = {
             'reference/toolsets-reference',
             'reference/skills-catalog',
             'reference/optional-skills-catalog',
+            'reference/skills-ecosystem-directory',
           ],
         },
         'reference/faq',

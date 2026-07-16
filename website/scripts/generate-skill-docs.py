@@ -701,6 +701,7 @@ def write_sidebar(entries):
     skills_items: list[Any] = [
         "reference/skills-catalog",
         "reference/optional-skills-catalog",
+        "reference/skills-ecosystem-directory",
         *skills_block,
     ]
 

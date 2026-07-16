@@ -7,6 +7,13 @@ All notable changes to Fabric are documented in this file.
 ### Added
 
 - Added a bundled `venture-studio` skill category with 13 new skills covering the idea-to-market arc: brainstorming, build-something-people-want, product-taste, impeccable-craft, design-studio, proposal-writing, business-planning, website-building, webapp-development, rstack, ios-app-development, d2c-smart-products, and hardware-manufacturing. The default skills overview now answers venture questions — ideation, business plans, proposals, websites, web and iOS apps, D2C smart products, and manufacturing (CAD, PCB, EVT/DVT/PVT, production) — instead of only the classic tool-centric set.
+- Added the Skills Ecosystem Directory: a curated, trust-tiered map of 224 external agent-skill sources (first-party vendor repos, expert packs, marketplaces, MCP registries, research references) published at `reference/skills-ecosystem-directory` with a machine-readable copy at `/api/skills-sources.json`.
+- Added a `skills-index` workflow that rebuilds the unified skills index twice daily and redeploys the docs site, so the Skills Hub page and `fabric skills search` stop serving a stale catalog. The index build now also crawls 177 curated, tree-verified skill-pack taps (~2,400 skills across 113 repos) from the ecosystem directory using rate-limit-cheap tree + raw fetches.
+- Added eight curated community skill packs to the default hub taps — superpowers, compound-engineering, marketing, startup-founder, product-management, taste, and impeccable packs — searchable via `fabric skills search`; installs still pass the skills guard scan and quarantine.
+
+### Fixed
+
+- The docs-site Skills Hub no longer falls back to a broken, near-empty legacy snapshot when the unified index is missing: the committed fallback caches were refreshed (OpenAI tap 0 → 44 skills after its `skills/.curated/` move) and the new `venture-studio` and `web-development` categories now render with proper labels and icons.
 
 ## [0.20.2] - 2026-07-15
 

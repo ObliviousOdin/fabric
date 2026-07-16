@@ -69,6 +69,8 @@ CATEGORY_LABELS = {
     "social-media": "Social Media",
     "software-development": "Software Dev",
     "translation": "Translation",
+    "venture-studio": "Venture Studio",
+    "web-development": "Web Dev",
     "other": "Other",
 }
 
@@ -100,6 +102,41 @@ GITHUB_TAP_LABELS = {
     "VoltAgent/awesome-agent-skills": "VoltAgent",
     "garrytan/gstack": "gstack",
     "MiniMax-AI/cli": "MiniMax",
+    # Runtime community taps (tools/skills_hub.py DEFAULT_TAPS)
+    "obra/superpowers": "Superpowers",
+    "EveryInc/compound-engineering-plugin": "Every",
+    "coreyhaines31/marketingskills": "MarketingSkills",
+    "shawnpang/startup-founder-skills": "FounderSkills",
+    "phuryn/pm-skills": "PMSkills",
+    "leonxlnx/taste-skill": "Taste",
+    "pbakaus/impeccable": "Impeccable",
+    # Notable curated build-time taps (scripts/build_skills_index.py
+    # CURATED_TAPS) — unlisted repos fall back to the generic GitHub pill.
+    "github/awesome-copilot": "GitHub",
+    "microsoft/azure-skills": "Azure",
+    "posthog/skills": "PostHog",
+    "cloudflare/skills": "Cloudflare",
+    "stripe/ai": "Stripe",
+    "shopify/shopify-ai-toolkit": "Shopify",
+    "getsentry/skills": "Sentry",
+    "flutter/skills": "Flutter",
+    "expo/skills": "Expo",
+    "remotion-dev/skills": "Remotion",
+    "elevenlabs/skills": "ElevenLabs",
+    "runwayml/skills": "Runway",
+    "supabase/agent-skills": "Supabase",
+    "firebase/agent-skills": "Firebase",
+    "redis/agent-skills": "Redis",
+    "prisma/skills": "Prisma",
+    "mapbox/mapbox-agent-skills": "Mapbox",
+    "K-Dense-AI/scientific-agent-skills": "K-Dense",
+    "hashicorp/agent-skills": "HashiCorp",
+    "webflow/webflow-skills": "Webflow",
+    "wix/skills": "Wix",
+    "wordpress/agent-skills": "WordPress",
+    "tldraw/tldraw": "tldraw",
+    "vercel-labs/agent-skills": "Vercel",
+    "vercel/ai": "Vercel",
 }
 
 

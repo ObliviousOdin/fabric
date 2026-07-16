@@ -91,6 +91,8 @@ const CATEGORY_ICONS: Record<string, string> = {
   "social-media": "\u{1F4F1}",
   "software-development": "\u{1F4BB}",
   translation: "\u{1F30D}",
+  "venture-studio": "\u{1F680}",
+  "web-development": "\u{1F578}",
   other: "\u{1F4E6}",
 };
 

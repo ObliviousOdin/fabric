@@ -3004,6 +3004,13 @@ GITHUB_TAP_PROVIDERS = {
     "voltagent/awesome-agent-skills": "VoltAgent",
     "garrytan/gstack": "gstack",
     "minimax-ai/cli": "MiniMax",
+    "obra/superpowers": "Superpowers",
+    "everyinc/compound-engineering-plugin": "Every",
+    "coreyhaines31/marketingskills": "MarketingSkills",
+    "shawnpang/startup-founder-skills": "FounderSkills",
+    "phuryn/pm-skills": "PMSkills",
+    "leonxlnx/taste-skill": "Taste",
+    "pbakaus/impeccable": "Impeccable",
 }
 
 
@@ -3060,6 +3067,21 @@ class GitHubSource(SkillSource):
         # https://github.com/NVIDIA/skills/tree/main/skills
         {"repo": "NVIDIA/skills", "path": "skills/"},
         {"repo": "garrytan/gstack", "path": ""},
+        # Curated community skill packs from the Skills Ecosystem Directory
+        # (website/docs/reference/skills-ecosystem-directory.md). All are
+        # community trust level — installs still pass the skills guard scan
+        # and quarantine. Paths verified against each repo's live tree; the
+        # full (much larger) curated catalog is crawled at index-build time
+        # by scripts/build_skills_index.py CURATED_TAPS instead of here, so
+        # runtime searches stay cheap.
+        {"repo": "obra/superpowers", "path": "skills/"},
+        {"repo": "EveryInc/compound-engineering-plugin", "path": "skills/"},
+        {"repo": "coreyhaines31/marketingskills", "path": "skills/"},
+        {"repo": "shawnpang/startup-founder-skills", "path": "skills/"},
+        {"repo": "phuryn/pm-skills", "path": "pm-product-discovery/skills/"},
+        {"repo": "phuryn/pm-skills", "path": "pm-execution/skills/"},
+        {"repo": "leonxlnx/taste-skill", "path": "skills/"},
+        {"repo": "pbakaus/impeccable", "path": ".claude/skills/"},
     ]
 
     def __init__(self, auth: GitHubAuth, extra_taps: Optional[List[Dict]] = None):

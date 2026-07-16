@@ -48,6 +48,198 @@ import httpx
 OUTPUT_PATH = os.path.join(REPO_ROOT, "website", "static", "api", "skills-index.json")
 INDEX_VERSION = 1
 
+# Curated GitHub skill-pack taps crawled at index-build time only. Sourced
+# from the Skills Ecosystem Directory research seed
+# (website/static/api/skills-sources.json, rendered at
+# website/docs/reference/skills-ecosystem-directory.md); every entry's path
+# was verified against the repo's live tree before inclusion. These stay out
+# of GitHubSource.DEFAULT_TAPS deliberately: runtime CLI searches enumerate
+# every tap on a cold cache, while this build-time crawl uses two GitHub API
+# calls per repo (branch + tree) and unauthenticated raw.githubusercontent
+# fetches for SKILL.md metadata, so the catalog can be large without
+# exhausting CI rate limits. Trust level remains "community" unless the repo
+# is in tools/skills_guard.py TRUSTED_REPOS — installs always pass the
+# skills guard scan and quarantine.
+CURATED_TAPS = [
+    {"repo": "alirezarezvani/claude-skills", "path": "c-level-advisor/skills/"},  # B, ~34 skills
+    {"repo": "alirezarezvani/claude-skills", "path": "engineering/skills/"},  # B, ~38 skills
+    {"repo": "alirezarezvani/claude-skills", "path": "marketing-skill/skills/"},  # B, ~47 skills
+    {"repo": "Aperivue/medsci-skills", "path": "skills/"},  # B, ~56 skills
+    {"repo": "apify/agent-skills", "path": "skills/"},  # A1, ~5 skills
+    {"repo": "apollographql/skills", "path": "skills/"},  # A1, ~14 skills
+    {"repo": "arvindrk/extract-design-system", "path": "skills/"},  # A2, ~1 skills
+    {"repo": "astronomer/agents", "path": "astro-airflow-mcp/.claude/skills/"},  # A1, ~1 skills
+    {"repo": "astronomer/agents", "path": "skills/"},  # A1, ~34 skills
+    {"repo": "auth0/agent-skills", "path": "plugins/auth0/skills/"},  # A1, ~1 skills
+    {"repo": "automattic/agent-skills", "path": "skills/"},  # A1, ~13 skills
+    {"repo": "axiomhq/skills", "path": "skills/"},  # A1, ~8 skills
+    {"repo": "base/skills", "path": ".claude/skills/"},  # A1, ~2 skills
+    {"repo": "base/skills", "path": "skills/"},  # A1, ~2 skills
+    {"repo": "better-auth/skills", "path": "better-auth/"},  # A1, ~5 skills
+    {"repo": "bevibing/tutor-skills", "path": "skills/"},  # A2, ~2 skills
+    {"repo": "bitwarden/ai-plugins", "path": "plugins/bitwarden-code-review/skills/"},  # A1, ~7 skills
+    {"repo": "bitwarden/ai-plugins", "path": "plugins/bitwarden-delivery-tools/skills/"},  # A1, ~10 skills
+    {"repo": "bitwarden/ai-plugins", "path": "plugins/bitwarden-security-engineer/skills/"},  # A1, ~9 skills
+    {"repo": "bitwarden/ai-plugins", "path": "plugins/bitwarden-shepherd/skills/"},  # A1, ~7 skills
+    {"repo": "box/box-for-ai", "path": "skills/"},  # A1, ~5 skills
+    {"repo": "brave/brave-search-skills", "path": "clawhub/"},  # A1, ~1 skills
+    {"repo": "brave/brave-search-skills", "path": "skills/"},  # A1, ~11 skills
+    {"repo": "BrianRWagner/ai-marketing-claude-code-skills", "path": ""},  # B, ~23 skills
+    {"repo": "browser-use/browser-use", "path": "browser_use/skills/"},  # A1, ~1 skills
+    {"repo": "browser-use/browser-use", "path": "skills/"},  # A1, ~6 skills
+    {"repo": "browserbase/skills", "path": "skills/"},  # A1, ~16 skills
+    {"repo": "callstackincubator/agent-skills", "path": ".claude/skills/"},  # A1, ~1 skills
+    {"repo": "callstackincubator/agent-skills", "path": "skills/"},  # A1, ~9 skills
+    {"repo": "clerk/skills", "path": "skills/core/"},  # A1, ~5 skills
+    {"repo": "clerk/skills", "path": "skills/features/"},  # A1, ~4 skills
+    {"repo": "clerk/skills", "path": "skills/frameworks/"},  # A1, ~8 skills
+    {"repo": "clerk/skills", "path": "skills/mobile/"},  # A1, ~3 skills
+    {"repo": "clickhouse/agent-skills", "path": "skills/"},  # A1, ~11 skills
+    {"repo": "cloudflare/skills", "path": "skills/"},  # A1, ~11 skills
+    {"repo": "coderabbitai/skills", "path": "skills/"},  # A1, ~2 skills
+    {"repo": "contentful/skills", "path": "skills/"},  # A1, ~5 skills
+    {"repo": "contentful/skills", "path": "skills/contentful-apps/"},  # A1, ~2 skills
+    {"repo": "contentstack/contentstack-agent-skills", "path": "skills/"},  # A1, ~21 skills
+    {"repo": "convex-dev/convex", "path": "skills/"},  # A1, ~9 skills
+    {"repo": "dagster-io/skills", "path": "skills/dagster-expert/skills/"},  # A1, ~1 skills
+    {"repo": "dagster-io/skills", "path": "skills/dignified-python/skills/"},  # A1, ~1 skills
+    {"repo": "dash0hq/agent-skills", "path": "skills/"},  # A1, ~4 skills
+    {"repo": "datadog-labs/agent-skills", "path": ""},  # A1, ~8 skills
+    {"repo": "datadog-labs/agent-skills", "path": "agent-observability/"},  # A1, ~6 skills
+    {"repo": "datadog-labs/agent-skills", "path": "dd-apm/k8s-ssi/"},  # A1, ~5 skills
+    {"repo": "datadog-labs/agent-skills", "path": "dd-apm/linux-ssi/"},  # A1, ~5 skills
+    {"repo": "dbt-labs/dbt-agent-skills", "path": ".claude/skills/"},  # A1, ~1 skills
+    {"repo": "dbt-labs/dbt-agent-skills", "path": "skills/dbt-extras/skills/"},  # A1, ~1 skills
+    {"repo": "dbt-labs/dbt-agent-skills", "path": "skills/dbt-migration/skills/"},  # A1, ~2 skills
+    {"repo": "dbt-labs/dbt-agent-skills", "path": "skills/dbt/skills/"},  # A1, ~10 skills
+    {"repo": "deepgram/skills", "path": "skills/"},  # A1, ~6 skills
+    {"repo": "denoland/skills", "path": "skills/"},  # A1, ~6 skills
+    {"repo": "DietrichGebert/ponytail", "path": "skills/"},  # A2, ~6 skills
+    {"repo": "elevenlabs/skills", "path": ""},  # A1, ~9 skills
+    {"repo": "emilkowalski/skills", "path": "skills/"},  # A2, ~6 skills
+    {"repo": "encoredev/skills", "path": "encore/"},  # A1, ~28 skills
+    {"repo": "exploreomni/omni-agent-skills", "path": "skills/"},  # A1, ~9 skills
+    {"repo": "exploreomni/omni-agent-skills", "path": "skills/omni-integrations/skills/"},  # A1, ~2 skills
+    {"repo": "expo/skills", "path": ".claude/skills/"},  # A1, ~1 skills
+    {"repo": "expo/skills", "path": "plugins/expo/skills/"},  # A1, ~21 skills
+    {"repo": "facebook/react", "path": ".claude/skills/"},  # A1, ~7 skills
+    {"repo": "factory-ai/factory-plugins", "path": "plugins/core/skills/"},  # A1, ~4 skills
+    {"repo": "factory-ai/factory-plugins", "path": "plugins/droid-control/skills/"},  # A1, ~11 skills
+    {"repo": "factory-ai/factory-plugins", "path": "plugins/droid-evolved/skills/"},  # A1, ~6 skills
+    {"repo": "factory-ai/factory-plugins", "path": "plugins/security-engineer/skills/"},  # A1, ~4 skills
+    {"repo": "figma/mcp-server-guide", "path": "skills/"},  # A1, ~12 skills
+    {"repo": "figma/mcp-server-guide", "path": "workflow-skills/"},  # A1, ~2 skills
+    {"repo": "firebase/agent-skills", "path": "skills/"},  # A1, ~11 skills
+    {"repo": "firecrawl/cli", "path": "skills/"},  # A1, ~10 skills
+    {"repo": "flutter/skills", "path": "skills/"},  # A1, ~22 skills
+    {"repo": "garrytan/gstack", "path": "browser-skills/"},  # A2, ~1 skills
+    {"repo": "getsentry/skills", "path": "skills/"},  # A1, ~28 skills
+    {"repo": "github/awesome-copilot", "path": "skills/"},  # A1, ~376 skills
+    {"repo": "google-gemini/gemini-skills", "path": "skills/"},  # A1, ~4 skills
+    {"repo": "google-labs-code/stitch-skills", "path": "plugins/stitch-build/skills/"},  # A1, ~5 skills
+    {"repo": "google-labs-code/stitch-skills", "path": "plugins/stitch-design/skills/"},  # A1, ~6 skills
+    {"repo": "google-labs-code/stitch-skills", "path": "plugins/stitch-utilities/skills/"},  # A1, ~4 skills
+    {"repo": "harvard-lil/lawskills-hub", "path": "skills/cle/"},  # A2, ~4 skills
+    {"repo": "harvard-lil/lawskills-hub", "path": "skills/professor/"},  # A2, ~4 skills
+    {"repo": "harvard-lil/lawskills-hub", "path": "skills/skill-developer/"},  # A2, ~4 skills
+    {"repo": "harvard-lil/lawskills-hub", "path": "skills/student/"},  # A2, ~4 skills
+    {"repo": "hashicorp/agent-skills", "path": "packer/builders/skills/"},  # A1, ~3 skills
+    {"repo": "hashicorp/agent-skills", "path": "terraform/code-generation/skills/"},  # A1, ~4 skills
+    {"repo": "hashicorp/agent-skills", "path": "terraform/module-generation/skills/"},  # A1, ~2 skills
+    {"repo": "hashicorp/agent-skills", "path": "terraform/provider-development/skills/"},  # A1, ~6 skills
+    {"repo": "heygen-com/hyperframes", "path": "skills/"},  # A2, ~19 skills
+    {"repo": "higgsfield-ai/skills", "path": ""},  # A2, ~7 skills
+    {"repo": "huggingface/skills", "path": "hf-mcp/skills/"},  # A1, ~1 skills
+    {"repo": "K-Dense-AI/claude-scientific-writer", "path": "skills/"},  # A2, ~24 skills
+    {"repo": "K-Dense-AI/scientific-agent-skills", "path": "skills/"},  # A2, ~149 skills
+    {"repo": "kotlin/kotlin-agent-skills", "path": "skills/"},  # A1, ~6 skills
+    {"repo": "KuangshiAi/SciVisAgentSkills", "path": ""},  # B, ~4 skills
+    {"repo": "langchain-ai/langchain-skills", "path": "config/skills/"},  # A1, ~14 skills
+    {"repo": "langfuse/skills", "path": "skills/"},  # A1, ~1 skills
+    {"repo": "launchdarkly/agent-skills", "path": "skills/agentcontrol/"},  # A1, ~24 skills
+    {"repo": "launchdarkly/agent-skills", "path": "skills/feature-flags/"},  # A1, ~6 skills
+    {"repo": "launchdarkly/agent-skills", "path": "skills/metrics/"},  # A1, ~3 skills
+    {"repo": "launchdarkly/agent-skills", "path": "skills/observability/"},  # A1, ~4 skills
+    {"repo": "lawve-ai/awesome-legal-skills", "path": "skills/"},  # B, ~139 skills
+    {"repo": "LeadMagic/gtm-skills", "path": "skills/analytics/"},  # B, ~13 skills
+    {"repo": "LeadMagic/gtm-skills", "path": "skills/automation/"},  # B, ~12 skills
+    {"repo": "LeadMagic/gtm-skills", "path": "skills/founder-led/"},  # B, ~41 skills
+    {"repo": "LeadMagic/gtm-skills", "path": "skills/tools/"},  # B, ~15 skills
+    {"repo": "LegalQuants/lq-skills", "path": "skills/"},  # B, ~47 skills
+    {"repo": "LegalQuants/lq-skills", "path": "skills/coquill/"},  # B, ~3 skills
+    {"repo": "livekit/agent-skills", "path": "skills/"},  # A1, ~2 skills
+    {"repo": "makenotion/skills", "path": "skills/"},  # A1, ~1 skills
+    {"repo": "mapbox/mapbox-agent-skills", "path": "skills/"},  # A1, ~19 skills
+    {"repo": "mastra-ai/skills", "path": "skills/"},  # A1, ~1 skills
+    {"repo": "mattpocock/skills", "path": "skills/engineering/"},  # A2, ~17 skills
+    {"repo": "mattpocock/skills", "path": "skills/productivity/"},  # A2, ~5 skills
+    {"repo": "mcp-use/mcp-use", "path": "skills/"},  # A1, ~4 skills
+    {"repo": "medusajs/medusa-agent-skills", "path": "plugins/ecommerce-storefront/skills/"},  # A1, ~1 skills
+    {"repo": "medusajs/medusa-agent-skills", "path": "plugins/learn-medusa/skills/"},  # A1, ~1 skills
+    {"repo": "medusajs/medusa-agent-skills", "path": "plugins/medusa-cloud/skills/"},  # A1, ~9 skills
+    {"repo": "medusajs/medusa-agent-skills", "path": "plugins/medusa-dev/skills/"},  # A1, ~7 skills
+    {"repo": "microsoft/azure-skills", "path": "skills/"},  # A1, ~27 skills
+    {"repo": "microsoft/azure-skills", "path": "skills/microsoft-foundry/models/deploy-model/"},  # A1, ~3 skills
+    {"repo": "n8n-io/n8n", "path": "packages/@n8n/instance-ai/skills/"},  # A1, ~10 skills
+    {"repo": "neondatabase/agent-skills", "path": "skills/"},  # A1, ~8 skills
+    {"repo": "nextlevelbuilder/ui-ux-pro-max-skill", "path": ".claude/skills/"},  # B, ~7 skills
+    {"repo": "nextlevelbuilder/ui-ux-pro-max-skill", "path": "cli/assets/skills/"},  # B, ~6 skills
+    {"repo": "nuxt/ui", "path": "skills/"},  # A1, ~1 skills
+    {"repo": "nvidia/skills", "path": "plugins/nvidia-skills/skills/"},  # A1, ~12 skills
+    {"repo": "OpenBB-finance/OpenBB", "path": "openbb_platform/extensions/mcp_server/openbb_mcp_server/skills/"},  # A2, ~4 skills
+    {"repo": "openclaw/openclaw", "path": "extensions/feishu/skills/"},  # B, ~4 skills
+    {"repo": "openclaw/openclaw", "path": "extensions/qqbot/skills/"},  # B, ~3 skills
+    {"repo": "openclaw/openclaw", "path": "skills/"},  # B, ~51 skills
+    {"repo": "openshift/hypershift", "path": ".claude/skills/"},  # A1, ~8 skills
+    {"repo": "openshift/hypershift", "path": ".claude/skills/dev/"},  # A1, ~7 skills
+    {"repo": "parallel-web/parallel-agent-skills", "path": "skills/"},  # A1, ~10 skills
+    {"repo": "phuryn/pm-skills", "path": "pm-market-research/skills/"},  # A2, ~7 skills
+    {"repo": "phuryn/pm-skills", "path": "pm-product-strategy/skills/"},  # A2, ~12 skills
+    {"repo": "pinecone-io/skills", "path": "skills/"},  # A1, ~9 skills
+    {"repo": "planetscale/database-skills", "path": "skills/"},  # A1, ~4 skills
+    {"repo": "posthog/skills", "path": "skills/posthog/all/skills/"},  # A1, ~79 skills
+    {"repo": "posthog/skills", "path": "skills/posthog/feature-flags/skills/"},  # A1, ~18 skills
+    {"repo": "posthog/skills", "path": "skills/posthog/integration/skills/"},  # A1, ~33 skills
+    {"repo": "prisma/skills", "path": ""},  # A1, ~9 skills
+    {"repo": "projectopensea/opensea-skill", "path": ""},  # A1, ~6 skills
+    {"repo": "pulumi/agent-skills", "path": "delegation/skills/"},  # A1, ~1 skills
+    {"repo": "pulumi/agent-skills", "path": "migration/skills/"},  # A1, ~4 skills
+    {"repo": "pulumi/agent-skills", "path": "package-maintenance/skills/"},  # A1, ~2 skills
+    {"repo": "pulumi/agent-skills", "path": "pulumi/skills/"},  # A1, ~8 skills
+    {"repo": "pytorch/pytorch", "path": ".claude/skills/"},  # A1, ~16 skills
+    {"repo": "redis/agent-skills", "path": "skills/"},  # A1, ~8 skills
+    {"repo": "remotion-dev/skills", "path": "skills/"},  # A1, ~9 skills
+    {"repo": "remotion-dev/skills", "path": "skills/remotion-best-practices/"},  # A1, ~8 skills
+    {"repo": "resend/resend-skills", "path": "skills/"},  # A1, ~5 skills
+    {"repo": "rivet-dev/skills", "path": ""},  # A1, ~15 skills
+    {"repo": "rivet-dev/skills", "path": "skills/"},  # A1, ~1 skills
+    {"repo": "runwayml/skills", "path": "skills/"},  # A1, ~17 skills
+    {"repo": "sanity-io/agent-toolkit", "path": "skills/"},  # A1, ~7 skills
+    {"repo": "semgrep/skills", "path": "skills/"},  # A1, ~3 skills
+    {"repo": "shopify/shopify-ai-toolkit", "path": "skills/"},  # A1, ~20 skills
+    {"repo": "signoz/agent-skills", "path": "plugins/signoz/skills/"},  # A1, ~13 skills
+    {"repo": "stripe/ai", "path": "providers/claude/plugin/skills/"},  # A1, ~5 skills
+    {"repo": "supabase/agent-skills", "path": "skills/"},  # A1, ~2 skills
+    {"repo": "sveltejs/ai-tools", "path": "plugins/claude/svelte/skills/"},  # A1, ~2 skills
+    {"repo": "tavily-ai/skills", "path": "skills/"},  # A1, ~8 skills
+    {"repo": "tinybirdco/tinybird-agent-skills", "path": "skills/"},  # A1, ~4 skills
+    {"repo": "tldraw/tldraw", "path": "apps/mcp-app/.claude/skills/"},  # A1, ~4 skills
+    {"repo": "tldraw/tldraw", "path": "skills/"},  # A1, ~22 skills
+    {"repo": "triggerdotdev/skills", "path": ""},  # A1, ~6 skills
+    {"repo": "upstash/context7", "path": "skills/"},  # A1, ~3 skills
+    {"repo": "vercel-labs/agent-skills", "path": "skills/"},  # A1, ~9 skills
+    {"repo": "vercel-labs/skills", "path": "skills/"},  # A1, ~1 skills
+    {"repo": "vercel/ai", "path": "skills/"},  # A1, ~11 skills
+    {"repo": "webflow/webflow-skills", "path": "plugins/webflow-skills/skills/"},  # A1, ~27 skills
+    {"repo": "wix/skills", "path": "replatform/"},  # A1, ~9 skills
+    {"repo": "wix/skills", "path": "skills/"},  # A1, ~7 skills
+    {"repo": "wordpress/agent-skills", "path": "skills/"},  # A1, ~18 skills
+    {"repo": "wshobson/agents", "path": "plugins/backend-development/skills/"},  # B, ~9 skills
+    {"repo": "wshobson/agents", "path": "plugins/developer-essentials/skills/"},  # B, ~11 skills
+    {"repo": "wshobson/agents", "path": "plugins/llm-finetuning/skills/"},  # B, ~10 skills
+    {"repo": "wshobson/agents", "path": "plugins/python-development/skills/"},  # B, ~16 skills
+]
+
 
 def _meta_to_dict(meta: SkillMeta) -> dict:
     """Convert a SkillMeta to a serializable dict."""
@@ -108,8 +300,8 @@ def crawl_skills_sh(source: SkillsShSource) -> list:
     return list(all_skills.values())
 
 
-def _fetch_repo_tree(repo: str, auth: GitHubAuth) -> list:
-    """Fetch the recursive tree for a repo. Returns list of tree entries."""
+def _fetch_repo_branch_and_tree(repo: str, auth: GitHubAuth) -> tuple:
+    """Fetch (default_branch, recursive tree entries) for a repo."""
     headers = auth.get_headers()
     try:
         resp = httpx.get(
@@ -117,7 +309,7 @@ def _fetch_repo_tree(repo: str, auth: GitHubAuth) -> list:
             headers=headers, timeout=15, follow_redirects=True,
         )
         if resp.status_code != 200:
-            return []
+            return "main", []
         branch = resp.json().get("default_branch", "main")
 
         resp = httpx.get(
@@ -126,13 +318,124 @@ def _fetch_repo_tree(repo: str, auth: GitHubAuth) -> list:
             headers=headers, timeout=30, follow_redirects=True,
         )
         if resp.status_code != 200:
-            return []
+            return branch, []
         data = resp.json()
         if data.get("truncated"):
-            return []
-        return data.get("tree", [])
+            return branch, []
+        return branch, data.get("tree", [])
     except Exception:
-        return []
+        return "main", []
+
+
+def _fetch_repo_tree(repo: str, auth: GitHubAuth) -> list:
+    """Fetch the recursive tree for a repo. Returns list of tree entries."""
+    _branch, tree = _fetch_repo_branch_and_tree(repo, auth)
+    return tree
+
+
+def crawl_curated_taps(auth: GitHubAuth, github_source: GitHubSource) -> list:
+    """Crawl CURATED_TAPS using tree lookups + raw.githubusercontent fetches.
+
+    Cost model: two GitHub API calls per repo (branch + recursive tree),
+    then one unauthenticated raw.githubusercontent request per SKILL.md —
+    raw fetches don't count against the API rate limit, so a multi-thousand
+    skill catalog stays within CI's GITHUB_TOKEN budget. Mirrors the
+    runtime tap semantics: a skill is a direct child directory of the tap
+    path containing a SKILL.md.
+    """
+    print(f"  Crawling {len(CURATED_TAPS)} curated taps...", flush=True)
+    start = time.time()
+
+    by_repo: dict[str, list] = defaultdict(list)
+    for tap in CURATED_TAPS:
+        by_repo[tap["repo"]].append(tap.get("path", ""))
+
+    def _fetch_skill_md(repo: str, branch: str, skill_dir: str) -> dict | None:
+        url = (
+            f"https://raw.githubusercontent.com/{repo}/{branch}/"
+            f"{skill_dir}/SKILL.md"
+        )
+        try:
+            resp = httpx.get(url, timeout=15, follow_redirects=True)
+        except Exception:
+            return None
+        if resp.status_code != 200:
+            return None
+        try:
+            fm = GitHubSource._parse_frontmatter_quick(resp.text)
+        except Exception:
+            fm = {}
+        identifier = f"{repo}/{skill_dir}"
+        name = str(fm.get("name") or skill_dir.split("/")[-1])
+        description = str(fm.get("description") or "")
+        raw_tags = fm.get("tags", [])
+        tags = [str(t) for t in raw_tags] if isinstance(raw_tags, list) else []
+        return {
+            "name": name,
+            "description": description,
+            "source": "github",
+            "identifier": identifier,
+            "trust_level": github_source.trust_level_for(identifier),
+            "repo": repo,
+            "path": skill_dir,
+            "tags": tags,
+            "extra": {"curated": True},
+        }
+
+    def _crawl_repo(repo: str, tap_paths: list) -> list:
+        branch, tree = _fetch_repo_branch_and_tree(repo, auth)
+        if not tree:
+            return []
+        blob_paths = {
+            item.get("path", "")
+            for item in tree
+            if item.get("type") == "blob"
+        }
+        skill_dirs: list[str] = []
+        for tap_path in tap_paths:
+            prefix = tap_path.rstrip("/")
+            prefix = f"{prefix}/" if prefix else ""
+            seen: set[str] = set()
+            for path in blob_paths:
+                if not path.startswith(prefix) or not path.endswith("/SKILL.md"):
+                    continue
+                rest = path[len(prefix):]
+                parts = rest.split("/")
+                # Direct child dir only — matches _list_skills_in_repo, and
+                # skip dot/underscore dirs the runtime lister also skips.
+                if len(parts) != 2 or parts[0].startswith((".", "_")):
+                    continue
+                skill_dir = f"{prefix}{parts[0]}"
+                if skill_dir not in seen:
+                    seen.add(skill_dir)
+                    skill_dirs.append(skill_dir)
+        results = []
+        for skill_dir in skill_dirs:
+            entry = _fetch_skill_md(repo, branch, skill_dir)
+            if entry:
+                results.append(entry)
+        return results
+
+    all_entries: list = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {
+            pool.submit(_crawl_repo, repo, paths): repo
+            for repo, paths in by_repo.items()
+        }
+        for future in as_completed(futures):
+            repo = futures[future]
+            try:
+                all_entries.extend(future.result())
+            except Exception as e:
+                print(f"    Warning: curated tap {repo}: {e}", file=sys.stderr)
+
+    elapsed = time.time() - start
+    print(
+        f"  curated taps: {len(all_entries)} skills from {len(by_repo)} repos "
+        f"({elapsed:.1f}s)",
+        flush=True,
+    )
+    return all_entries
 
 
 def batch_resolve_paths(skills: list, auth: GitHubAuth) -> list:
@@ -295,6 +598,9 @@ def main():
             except Exception as e:
                 print(f"  Error: {e}", file=sys.stderr)
 
+    # Curated ecosystem taps — tree-based crawl, cheap on API quota
+    all_skills.extend(crawl_curated_taps(auth, sources["github"]))
+
     # Batch resolve GitHub paths for skills.sh entries
     all_skills = batch_resolve_paths(all_skills, auth)
 
@@ -354,7 +660,11 @@ def main():
         # weeks because the floor was 50).
         "clawhub": 20000,
         "official": 50,
-        "github": 30,        # collapsed across all GitHub taps
+        # Collapsed across all GitHub taps: the default runtime taps alone
+        # historically return 300+, and the curated ecosystem taps
+        # (CURATED_TAPS) add ~2,000 more. Anything under 500 means the tap
+        # crawl or the curated tree walk broke.
+        "github": 500,
         "browse-sh": 50,
     }
     health_errors = []

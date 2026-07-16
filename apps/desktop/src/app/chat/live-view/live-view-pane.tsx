@@ -114,7 +114,7 @@ export function LiveViewSurface({ onClose, onDock, onPause, state, variant }: Li
         )}
       >
         <Codicon
-          className={cn(live ? 'text-emerald-500' : 'text-(--ui-text-tertiary)')}
+          className={cn(live ? 'text-(--fabric-ds-semantic-success)' : 'text-(--ui-text-tertiary)')}
           name={live ? 'circle-filled' : state.status === 'error' ? 'error' : 'circle-outline'}
           size="0.62rem"
         />
@@ -192,7 +192,7 @@ export function LiveViewSurface({ onClose, onDock, onPause, state, variant }: Li
                         ? 'text-destructive'
                         : action.status === 'running'
                           ? 'text-primary'
-                          : 'text-emerald-500'
+                          : 'text-(--fabric-ds-semantic-success)'
                     )}
                     name={statusIcon(action)}
                     size="0.68rem"

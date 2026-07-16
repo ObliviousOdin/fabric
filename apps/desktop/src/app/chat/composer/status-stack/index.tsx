@@ -168,7 +168,9 @@ export function ComposerStatusStack({ queue, sessionId }: ComposerStatusStackPro
           <StatusRow
             leading={
               <Codicon
-                className={liveView.status === 'running' && !liveView.paused ? 'text-emerald-500' : undefined}
+                className={
+                  liveView.status === 'running' && !liveView.paused ? 'text-(--fabric-ds-semantic-success)' : undefined
+                }
                 name={liveView.kind === 'browser' ? 'globe' : 'device-desktop'}
                 size="0.78rem"
               />

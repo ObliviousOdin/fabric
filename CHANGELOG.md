@@ -18,6 +18,7 @@ All notable changes to Fabric are documented in this file.
 
 ### Fixed
 
+- Raised the optional MCP Python SDK floor to 1.28.1, which includes upstream fixes for cross-principal HTTP sessions, cross-session experimental task access, and WebSocket Host/Origin validation (CVE-2026-52869, CVE-2026-52870, and CVE-2026-59950).
 - Finder and Dock launches now include user-local executable directories so Desktop can discover `cua-driver` consistently.
 - Browser preview work now yields to agent-driven browser actions without queueing them, securely bounds visual payloads, and cleans up stale CDP supervisors, pending connections, and PiP ownership across timeout, reload, crash, minimize, and backend-switch paths.
 

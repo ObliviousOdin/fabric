@@ -40,7 +40,7 @@ import time
 import pytest
 
 
-pytest.importorskip("mcp.client.auth.oauth2", reason="MCP SDK 1.26.0+ required")
+pytest.importorskip("mcp.client.auth.oauth2", reason="MCP SDK 1.28.1+ required")
 
 
 # ---------------------------------------------------------------------------

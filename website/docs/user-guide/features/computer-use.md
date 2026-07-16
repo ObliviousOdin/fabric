@@ -3,6 +3,8 @@ title: Computer Use
 sidebar_position: 16
 ---
 
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
 # Computer Use
 
 Fabric can drive your desktop — clicking, typing, scrolling,
@@ -38,6 +40,57 @@ For the underlying contract — *why* background mode matters, the
 no-foreground invariant, click-dispatch internals — see
 **[cua.ai/docs/explanation/the-no-foreground-contract](https://cua.ai/docs/explanation/the-no-foreground-contract)**.
 
+## Desktop Live View
+
+When a conversation in the Fabric Desktop app starts using Computer Use,
+**Agent live view** opens automatically in the right-hand rail. It shows the
+current app or window, the latest desktop frame, and a session-scoped timeline
+of the agent's actions.
+
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-computer-use.png')} width="1172" height="742" alt="Fabric Desktop showing a Computer Use conversation with Agent Live View docked in the right side panel, including the target app screenshot and recent actions." />
+<p className="docs-figure-caption">Computer Use reuses the latest screenshot whenever an action returns one, following the target app without starting a second capture loop.</p>
+
+### Use the docked view
+
+1. Complete the [Computer Use setup](#enabling), then start Fabric Desktop.
+2. Ask the agent to use Computer Use. For example:
+
+   > Use Computer Use to calculate 12 × 8 in Calculator without moving my
+   > cursor.
+
+3. Agent Live View opens automatically in the right side panel when the first
+   Computer Use action starts.
+4. Follow the latest returned screenshot and the session timeline while you keep
+   working in another app.
+5. Select **Pause visual updates** to freeze only the preview. The agent keeps
+   working and later returned screenshots appear after you resume.
+
+### Move the same view into picture-in-picture
+
+1. Select **Pop out picture-in-picture** in the Live View title bar.
+2. Move or resize the always-on-top window as needed.
+3. Select **Return to side panel** to dock the same session again.
+
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-computer-use-pip.png')} width="520" height="420" alt="Fabric Computer Use Agent Live View in a compact always-on-top picture-in-picture window with pause, dock, and close controls." loading="lazy" />
+<p className="docs-figure-caption">Pause visual updates freezes only the preview; the agent continues working.</p>
+
+The view follows the same conversation and Computer Use session in either
+position. Popping it out, pausing it, or docking it does not restart the agent
+or its current turn.
+
+Computer Use Live View reuses the latest screenshot whenever a `computer_use`
+action returns one. It does not start a second screen-capture loop. **Pause
+visual updates** freezes the displayed frame while the agent keeps working;
+resume to show screenshots returned by subsequent actions.
+
+:::note Performance and model context
+The viewer itself does not add a model tool or tool schema, duplicate
+screenshots into the conversation, or consume extra model tokens. Computer Use
+screenshots remain normal tool results and retain their existing context cost.
+The only additional work is rendering the latest frame while the docked view or
+picture-in-picture window is visible.
+:::
+
 ## Enabling
 
 Pick whichever path is most convenient — both run the same upstream
@@ -63,7 +116,7 @@ platform-appropriate prereqs:
 
 | Platform | Prereqs |
 |---|---|
-| **macOS** | System Settings → Privacy & Security → **Accessibility** + **Screen Recording** → allow your terminal (or Fabric app). `fabric computer-use doctor` will tell you which permission is missing. |
+| **macOS** | Run `fabric computer-use permissions grant`, then approve **Accessibility** + **Screen Recording** for CuaDriver (`com.trycua.driver`). The grants belong to the helper that performs the work, not your terminal or the Fabric app. `fabric computer-use doctor` will tell you which permission is missing. |
 | **Windows** | None at install time. If you're driving over SSH (not RDP / console), you need the autostart pattern — see [cua.ai/docs/how-to-guides/driver/windows-ssh](https://cua.ai/docs/how-to-guides/driver/windows-ssh) for the Session 0 ↔ Session 1+ proxy. |
 | **Linux** | A reachable display server: `DISPLAY` set for X11, or `XDG_SESSION_TYPE=wayland`. Wayland sessions need an XWayland bridge for capture. AT-SPI must be on (default on GNOME/KDE/Xfce). |
 
@@ -287,21 +340,7 @@ For cross-platform GUI automation without the desktop overhead (and
 without TCC / Session 0 / X11 setup), the `browser` toolset uses a
 real headless Chromium and is the right answer for web-only tasks.
 
-## Configuration
-
-Override the driver binary path (tests / CI / local builds):
-
-```
-HERMES_CUA_DRIVER_CMD=/path/to/your/cua-driver
-```
-
-Swap the backend entirely (for testing):
-
-```
-HERMES_COMPUTER_USE_BACKEND=noop   # records calls, no side effects
-```
-
-### Telemetry
+## Telemetry
 
 cua-driver ships with anonymous usage telemetry (PostHog) enabled by default
 upstream. **Fabric disables it for you** — on every cua-driver invocation
@@ -324,10 +363,9 @@ CUA_DRIVER_RS_TELEMETRY_ENABLED`.
 
 When you're developing cua-driver itself — or want to test an
 unreleased fix — point Fabric at a binary you built from source instead
-of the published release. Fabric resolves the driver with
-`shutil.which("cua-driver")` and **does not enforce
-`HERMES_CUA_DRIVER_VERSION`**, so a local build (reported as
-`0.0.0-local-*`) is accepted as-is. Two approaches:
+of the published release. Fabric resolves `cua-driver` from your `PATH`,
+and a local build reported as `0.0.0-local-*` is accepted as-is. Two
+approaches:
 
 ### Option A — `install-local` (build + put it on PATH)
 
@@ -362,21 +400,27 @@ cua-driver --version                 # local builds report 0.0.0-local-release
 # macOS/Linux:  which cua-driver
 ```
 
-### Option B — point Fabric straight at the built binary (fastest loop)
+### Option B — put the build directory first on PATH (fastest loop)
 
-Skip the install ceremony entirely: `cargo build` and set
-`HERMES_CUA_DRIVER_CMD` to the resulting binary. Best for rapid
-edit/build/test.
+Skip the install ceremony entirely: build the driver, then temporarily put its
+output directory first on `PATH` in the shell where you start Fabric. This is
+best for a rapid edit/build/test loop and does not change your saved Fabric
+configuration.
 
 ```bash
 cargo build -p cua-driver            # add --release for a release build; run from libs/cua-driver/rust
 ```
 
+```powershell
+# Windows (PowerShell)
+$env:Path = "C:\path\to\cua\libs\cua-driver\rust\target\debug;$env:Path"
+fabric computer-use status
 ```
-# Windows (.env)
-HERMES_CUA_DRIVER_CMD=C:\path\to\cua\libs\cua-driver\rust\target\debug\cua-driver.exe
-# macOS / Linux (.env)
-HERMES_CUA_DRIVER_CMD=/path/to/cua/libs/cua-driver/rust/target/debug/cua-driver
+
+```bash
+# macOS / Linux
+export PATH="/path/to/cua/libs/cua-driver/rust/target/debug:$PATH"
+fabric computer-use status
 ```
 
 ### Confirm Fabric is using your build

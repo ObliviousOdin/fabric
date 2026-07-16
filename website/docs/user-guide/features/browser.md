@@ -5,6 +5,8 @@ sidebar_label: Browser
 sidebar_position: 5
 ---
 
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
 # Browser Automation
 
 Fabric includes a full browser automation toolset with multiple backend options:
@@ -30,6 +32,68 @@ Key capabilities:
 - **Session isolation** — each task gets its own browser session
 - **Automatic cleanup** — inactive sessions are closed after a timeout
 - **Vision analysis** — screenshot + AI analysis for visual understanding
+
+## Desktop Live View
+
+When a conversation in the Fabric Desktop app starts using a browser tool,
+**Agent live view** opens automatically in the right-hand rail. It shows the
+current target, the latest browser frame, and a session-scoped timeline of the
+agent's browser actions.
+
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-browser.png')} width="1172" height="640" alt="Fabric Desktop showing a browser conversation with Agent Live View docked in the right side panel, including the current page and recent browser actions." />
+<p className="docs-figure-caption">The Browser tool opens Agent Live View automatically beside the conversation, with the current page and recent actions.</p>
+
+### Use the docked view
+
+1. Start Fabric Desktop and ask the agent to use the Browser tool. For example:
+
+   > Open https://example.com in the browser, inspect it visually, and tell me
+   > the page title.
+
+2. Agent Live View opens automatically in the right side panel when the first
+   browser action starts.
+3. Follow the current page and action timeline without leaving the
+   conversation.
+4. Select **Pause visual updates** to freeze the preview. This does not pause
+   the agent or its browser actions.
+5. Select **Close live view** when you no longer need the preview. The
+   browser task can continue in the conversation.
+
+### Move the same view into picture-in-picture
+
+1. Select **Pop out picture-in-picture** in the Live View title bar.
+2. Move or resize the always-on-top window while the agent works.
+3. Select **Return to side panel** to dock it again.
+
+<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-browser-pip.png')} width="520" height="420" alt="Fabric Browser Agent Live View in a compact always-on-top picture-in-picture window with pause, dock, and close controls." loading="lazy" />
+<p className="docs-figure-caption">Pop out picture-in-picture keeps the same browser session visible above other windows; Return to side panel docks it again.</p>
+
+Both surfaces follow the same conversation and browser session. Popping the
+view out, pausing it, or docking it does not restart the browser, the agent, or
+the current turn.
+
+For compatible CDP-backed sessions, Desktop requests one bounded viewport frame
+through a dedicated authenticated visual connection only while the docked view
+or picture-in-picture window is visible and unpaused. Capture starts are
+limited to two per second for each browser session. A request that arrives
+during an agent browser action returns busy instead of queueing, and a capture
+already in progress does not hold the agent's browser-action lock. Preview
+frames do not share the socket that carries model output, tool events, or
+approvals. Fabric does not connect Desktop to `agent-browser`'s full-rate
+screencast. Camofox, Lightpanda, and providers that do not expose CDP still show
+the action timeline and any screenshots returned by browser tools.
+
+**Pause visual updates** freezes the displayed frame; it does not pause the
+agent. Browser actions can continue in the background, and resuming reconnects
+the bounded frame requests.
+
+:::note Performance and model context
+Live View runs outside the model conversation. It does not add a model tool or
+tool schema, send its preview frames to the model, or consume extra model
+tokens. Existing screenshots explicitly produced by browser tools keep their
+normal context cost. The live preview adds only bounded capture, transport, and
+rendering work while it is visible.
+:::
 
 ## Setup
 
@@ -304,11 +368,15 @@ When Camofox runs in headed mode (with a visible browser window), it exposes a V
 
 Instead of a cloud provider, you can attach Fabric browser tools to your own running Chrome, Brave, Chromium, or Edge instance via the Chrome DevTools Protocol (CDP). This is useful when you want to see what the agent is doing in real-time, interact with pages that require your own cookies/sessions, or avoid cloud browser costs.
 
-:::note
-`/browser connect` is an **interactive-CLI slash command** — it is not dispatched by the gateway. If you try to run it inside a WebUI, Telegram, Discord, or other gateway chat, the message will be sent to the agent as plain text and the command will not execute. Start Fabric from the terminal (`fabric` or `fabric chat`) and issue `/browser connect` there.
+:::note Where `/browser` works
+`/browser` is available in the classic interactive CLI, the TUI (including the
+dashboard chat), and the Desktop app when it is using a local Fabric backend.
+It is not a messaging-platform command for Telegram, Discord, or other gateway
+channels. Desktop also disables it for a remote backend because the command
+would otherwise manage a browser on the remote host instead of your computer.
 :::
 
-In the CLI, use:
+In the CLI, TUI, or locally connected Desktop app, use:
 
 ```
 /browser connect                 # Auto-launch/connect to a local Chromium-family browser at http://127.0.0.1:9222
@@ -352,7 +420,8 @@ google-chrome \
   --no-default-browser-check &
 ```
 
-Then launch the Fabric CLI and run `/browser connect`.
+Then launch Fabric in the CLI, TUI, or locally connected Desktop app and run
+`/browser connect`.
 
 **Why `--user-data-dir`?** Without it, launching a Chromium-family browser while a regular instance is already running typically opens a new window on the existing process — and that existing process was not started with `--remote-debugging-port`, so port 9222 never opens. A dedicated user-data-dir forces a fresh browser process where the debug port actually listens. `--no-first-run --no-default-browser-check` skips the first-launch wizard for the fresh profile.
 :::

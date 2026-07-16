@@ -78,6 +78,34 @@
     },
     {
       "code_paths": [
+        "apps/desktop/**"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/desktop.md"
+      ],
+      "id": "desktop-app"
+    },
+    {
+      "code_paths": [
+        "tools/browser_*.py",
+        "tools/browser/**"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/features/browser.md"
+      ],
+      "id": "browser-automation"
+    },
+    {
+      "code_paths": [
+        "tools/computer_use/**"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/features/computer-use.md"
+      ],
+      "id": "computer-use"
+    },
+    {
+      "code_paths": [
         "fabric_cli/pty_bridge.py",
         "tui_gateway/**",
         "ui-tui/src/**",

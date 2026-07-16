@@ -53,3 +53,54 @@ The final side-by-side comparison preserves the approved composition: a dark ind
 - Full repository lint still reports existing issues outside this change; the changed workbench behavior passed syntax, type, build, browser, and targeted integration checks.
 
 final result: passed
+
+---
+
+# Design QA — Desktop Agent Live View
+
+Date: 2026-07-16
+
+## Comparison setup
+
+- Source docked visual: `/Users/rabot-channa-mac/.codex/generated_images/019f69ae-595c-76b0-b7e5-4b9f0b314c5e/exec-22dc6bfc-aa68-4a3b-95c9-b32fc1e868c3.png`
+- Source PiP visual: `/Users/rabot-channa-mac/.codex/generated_images/019f69ae-595c-76b0-b7e5-4b9f0b314c5e/exec-f3d7b983-7353-43e0-9f9a-276e5e869357.png`
+- Final Browser docked implementation: `website/static/img/product/fabric-desktop-live-view-browser.png`
+- Final Browser PiP implementation: `website/static/img/product/fabric-desktop-live-view-browser-pip.png`
+- Final Computer Use docked state: `website/static/img/product/fabric-desktop-live-view-computer-use.png`
+- Final Computer Use PiP state: `website/static/img/product/fabric-desktop-live-view-computer-use-pip.png`
+- Theme: Fabric Light
+- State: real Browser frame from Example Domain plus a real Computer Use capture of Calculator
+
+The source and implementation were placed in the same combined comparison images and inspected together. The implementation preserves the approved docked-right-rail and compact always-on-top PiP hierarchy while using Fabric's existing titlebar controls, flatter surfaces, spacing, and color tokens. No clipping, control overlap, broken radius, or horizontal overflow was observed.
+
+## Interaction verification
+
+- Browser and Computer Use both open in the docked Live View without creating a second chat surface.
+- One Pop out button moves the same session into a resizable always-on-top PiP; Dock returns it without restarting the work or losing the action history.
+- Pause and Resume update both the docked view and PiP state.
+- Browser requests one bounded viewport frame through the existing CDP supervisor and otherwise retains the latest visual-tool frame.
+- Computer Use truthfully displays the latest desktop screenshot returned by an action rather than implying a continuous stream.
+- Failed Computer Use actions remain visible without presenting an old image as a new successful capture.
+- Hidden, minimized, paused, and closed views stop requesting or forwarding Browser frames.
+- PiP load failure, renderer failure, readiness timeout, owner reload, and owner crash all return or close the view safely.
+- No application-origin console errors were observed during live Electron QA.
+
+## Performance contract
+
+- Live View does not add model tools, prompt text, context tokens, or extra model calls.
+- Browser preview frames live in an isolated atom, so the desktop route and transcript do not rerender for each capture.
+- Browser capture is visible-only, pause-aware, server-gated to at most two starts per second for each browser session, sequential, and size-limited; frame requests never hold the model-action lock during CDP I/O or share the chat/model event socket.
+- Computer Use reuses screenshots whenever actions return them, so it does not add a second capture loop.
+- The desktop retains at most 24 session views and four PiP windows; image and IPC payloads are bounded and sanitized.
+
+## Automated verification
+
+- Desktop production build and TypeScript checks passed.
+- Focused Desktop Live View renderer tests: 53 passed.
+- Desktop platform/Electron tests: 340 passed, 1 skipped.
+- Browser and gateway lifecycle/status/cleanup tests: 56 passed.
+- Changed Python files passed Ruff; changed Live View TypeScript files passed Prettier and ESLint with no errors.
+- Documentation generation, audit, impact-contract checks, and 13 documentation-sync tests passed.
+- Website documentation production build passed.
+
+final result: passed

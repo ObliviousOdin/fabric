@@ -1,18 +1,20 @@
-"""Bobbin v3 "The Spoolkin" — the set's exemplar character.
+"""Bobbin v4 "The Thread Mouse" — Skein's sibling (avatar style contract v2).
 
-Bobbin is no longer a spool with a face: it is a small porcelain-cream
-gumdrop critter that WEARS a spool — top flange as a flat cap (axle hole,
-gold rim stitches), a violet band of wound thread hugging its middle like a
-cozy jumper, the body flaring into a cream skirt-hem (the bottom flange),
-stubby mitten nubs, rounded navy feet — and a springy thread AHOGE curling
-from the cap's axle hole. The ahoge is Bobbin's soul: it perks, streams,
-wilts, and curls into question marks, carrying emotion in every row. A
-second loose end exits the wrap as a thread tail, Bobbin's tool arm.
+Bobbin is an ANIMAL FIRST: a round porcelain-cream mouse — a soft ramp-shaded
+pear of cream (light cap high-left, indigo-lavender shadow low-right, dithered
+seams) with two BIG round ears set high (cream outer, rose inner pads), hero
+eyes low on the face, a 1px rose nose, whisker dots, and permanent blush. Its
+fiber-craft trait is carried, not worn: a tiny wound spool (cream flanges,
+violet thread band) hugged to its chest like a plushie in every frame, and a
+long curly thread TAIL (violet strand, cream tip) that is Bobbin's emotion
+appendage — it drifts, streams, hooks into question marks, and goes limp.
 
-Built to the research-driven redesign brief: infant-schema face low on the
-head, one signature gag per row, cap that lags and floats at motion apexes
-("gap of sky"), a high-drama unravel on failed, and loops that land back on
-frame 0.
+Row gags: idle squeezes the spool on the exhale; running-right scurries with
+the spool tucked underarm; waving flags one paw with the spool in the other;
+jumping thrusts the spool triumphantly overhead at the apex; failed drops the
+spool and watches it roll away trailing thread; waiting hugs it tighter under
+the gold dot; running winds its own tail-thread onto the spool; review reads
+the thread held taut off the spool, ears perked forward.
 """
 
 from __future__ import annotations
@@ -32,7 +34,6 @@ from avatar_kit import (
     blush,
     bob,
     canvas,
-    dither_shade,
     ease_in_out,
     ease_out,
     follow,
@@ -47,381 +48,517 @@ from avatar_kit import (
 
 NAME = "Bobbin"
 SLUG = "bobbin"
-DESCRIPTION = "A porcelain spoolkin with a thread ahoge and a cozy wound-thread jumper."
+DESCRIPTION = "A porcelain thread mouse that hugs its little wound spool like a plushie."
 
 V = RAMPS["violet"]
-N = RAMPS["navy"]
 C = RAMPS["cream"]
 G = RAMPS["gold"]
+ROSE = RAMPS["rose"]
 
-# Rest-pose landmarks (half-res px). Cap top y=38, foot bottoms y=100.
-CAP_W, CAP_H = 36, 8
-CAP_TOP = 38
-CROWN_Y = 44  # body starts under the cap
-WRAP_TOP, WRAP_BOT = 68, 88
-HEM_BOT = 96  # feet fill 95..100
-
-
-def _widths(y: float) -> float:
-    """Gumdrop silhouette half-width at rest-pose *y* (no waist pinch)."""
-    pts = [(42.0, 14.0), (52.0, 17.0), (68.0, 19.0), (78.0, 20.0), (88.0, 21.0), (93.0, 22.0), (96.0, 20.0)]
-    if y <= pts[0][0]:
-        return pts[0][1]
-    for (y0, w0), (y1, w1) in zip(pts, pts[1:]):
-        if y <= y1:
-            f = ease_in_out((y - y0) / (y1 - y0))
-            return w0 + (w1 - w0) * f
-    return pts[-1][1]
+RX = 15.0  # body half-width before the pear widening (half-res px)
+RY = 19.0  # body half-height
+PEAR = 0.16  # extra width toward the bottom (the mouse tummy)
+EAR_R = 7.0
 
 
-class Pose:
-    """Per-frame body transform: lift (dy<0 = airborne), squash, lean."""
-
-    def __init__(self, dy: float = 0.0, squash: float = 1.0, lean: float = 0.0, wrap_h: float = WRAP_BOT - WRAP_TOP):
-        self.dy = dy
-        self.squash = squash
-        self.lean = lean
-        self.wrap_h = wrap_h
-
-    def map_y(self, y: float) -> float:
-        """Map a rest-pose y to the posed y (anchored at the hem bottom)."""
-        return HEM_BOT + self.dy - (HEM_BOT - y) / self.squash
-
-    def width(self, y_rest: float) -> float:
-        return _widths(y_rest) * self.squash
-
-    # Landmark helpers (posed coordinates).
-    @property
-    def crown(self) -> float:
-        return self.map_y(CROWN_Y)
-
-    @property
-    def cap_top(self) -> float:
-        return self.map_y(CAP_TOP)
-
-    @property
-    def wrap_top(self) -> float:
-        return self.map_y(WRAP_BOT - self.wrap_h)
-
-    @property
-    def wrap_bot(self) -> float:
-        return self.map_y(WRAP_BOT)
-
-    @property
-    def hem_bot(self) -> float:
-        return self.map_y(HEM_BOT)
+# ── body ─────────────────────────────────────────────────────────────────
+def _pear_w(u: float, rx: float) -> float:
+    """Silhouette half-width at normalized height u in [-1, 1] (1 = bottom)."""
+    return rx * (1.0 + PEAR * max(0.0, u)) * math.sqrt(max(0.0, 1.0 - u * u))
 
 
-def _silhouette(img, p: Pose, *, feet_phase: float | None = None, cap_float: float = 0.0, cap_dx: float = 0.0, arms: bool = True):
-    """Pre-outline color mass: body, hem, feet, mitts, and the floating cap."""
+def _in_pear(x: float, y: float, cx: float, cy: float, rx: float, ry: float) -> bool:
+    u = (y - cy) / ry
+    if u < -1.0 or u > 1.0:
+        return False
+    return abs(x - cx) <= _pear_w(u, rx)
+
+
+def _ear_geo(cx, top, squash, mode="up", amt=1.0, twitch=(0, 0), tw_side=-1):
+    """Two big round ear circles set high; *amt* lerps upright -> mode target."""
+    ears = []
+    for side in (-1, 1):
+        ux, uy = cx + side * 10.0 * squash, top + 2.0
+        r = EAR_R
+        if mode == "back":  # pressed back/down (crouch, sprint)
+            tx, ty = cx + side * 12.5 * squash, top + 6.5
+        elif mode == "droop":  # dejection: slid low on the sides
+            tx, ty = cx + side * 13.5 * squash, top + 10.0
+            r = EAR_R - 1.0 * amt
+        elif mode == "trail":  # airborne: floating up
+            tx, ty = cx + side * 9.0 * squash, top - 2.5
+        elif mode == "perk":  # attentive forward tilt (reading)
+            tx, ty = cx + side * 8.0 * squash, top + 0.5
+        else:
+            tx, ty = ux, uy
+        ex, ey = ux + (tx - ux) * amt, uy + (ty - uy) * amt
+        if side == tw_side and twitch != (0, 0):
+            ex, ey = ex + twitch[0], ey + twitch[1]
+        ears.append((ex, ey, r))
+    return ears
+
+
+def _body(img, dy, squash, *, lean=0.0, ear_mode="up", ear_amt=1.0, ear_twitch=(0, 0), tw_side=-1):
+    """Ramp-shaded cream pear anchored to the ground (bottom = GROUND + dy).
+
+    Ears are laid first so the head dome overlaps their roots; the pear is
+    painted per-pixel with sphere shading (warm cap high-left, lavender
+    shadow low-right, deep rim at the bottom) and dithered seams.
+    """
     d = ImageDraw.Draw(img)
-    cx = CX + p.lean
+    rx, ry = RX * squash, RY / squash
+    cx = CX + lean
+    bot = GROUND + dy
+    cy = bot - ry
+    top = cy - ry
+    ears = _ear_geo(cx, top, squash, ear_mode, ear_amt, ear_twitch, tw_side)
+    for ex, ey, r in ears:
+        d.ellipse((ex - r, ey - r, ex + r, ey + r), fill=C[3])
+    px = img.load()
+    for yi in range(int(math.floor(top)), int(math.ceil(bot)) + 1):
+        u = (yi - cy) / ry
+        if u < -1.0 or u > 1.0:
+            continue
+        w = _pear_w(u, rx)
+        if w < 0.6:
+            continue
+        for xi in range(int(round(cx - w)), int(round(cx + w)) + 1):
+            if not (0 <= xi < img.width and 0 <= yi < img.height):
+                continue
+            nx = (xi - cx) / w * math.sqrt(max(0.0, 1.0 - u * u))
+            tsh = 0.50 * nx + 0.84 * u + (0.045 if (xi + yi) % 2 else -0.045)
+            if tsh > 0.68:
+                col = C[1]
+            elif tsh > 0.32:
+                col = C[2]
+            elif tsh > -0.62:
+                col = C[3]
+            else:
+                col = C[4]
+            px[xi, yi] = col
+    return cx, cy, rx, ry, ears
 
-    # Feet: rounded navy pads, planted at the (possibly lifted) ground line.
-    if feet_phase is None:
-        lifts = (0.0, 0.0)
+
+# ── details (post-outline) ───────────────────────────────────────────────
+def _ear_detail(img, ears, cx, cy, rx, ry):
+    """Shade each ear as a mini sphere with a rose inner pad, clipped to the
+    part of the ear that is not hidden behind the head dome."""
+    px = img.load()
+    for ex, ey, r in ears:
+        for yi in range(int(ey - r) - 1, int(ey + r) + 2):
+            for xi in range(int(ex - r) - 1, int(ex + r) + 2):
+                if not (0 <= xi < img.width and 0 <= yi < img.height):
+                    continue
+                dx, dyy = (xi - ex) / r, (yi - ey) / r
+                if dx * dx + dyy * dyy > 1.0:
+                    continue
+                if _in_pear(xi, yi, cx, cy, rx, ry):
+                    continue  # head in front of the ear root
+                cur = px[xi, yi]
+                if cur[3] == 0 or cur[:3] == INK[:3]:
+                    continue  # keep the outline crisp
+                pdx, pdy = dx / 0.52, (dyy - 0.10) / 0.60
+                if pdx * pdx + pdy * pdy <= 1.0:  # rose inner pad
+                    col = ROSE[2] if (0.5 * dx + 0.8 * dyy) > 0.15 else ROSE[3]
+                else:
+                    tsh = 0.60 * dx + 0.78 * dyy + (0.05 if (xi + yi) % 2 else -0.05)
+                    if tsh > 0.55:
+                        col = C[1]
+                    elif tsh > 0.20:
+                        col = C[2]
+                    elif tsh < -0.62:
+                        col = C[4]
+                    else:
+                        col = C[3]
+                px[xi, yi] = col
+
+
+def _spool(img, sx, sy, *, phase=0, tipped=False):
+    """The signature prop: a tiny wound spool, ink-rimmed so it always reads.
+
+    Upright 6x8 (two cream flange lines, violet thread band); *tipped* lays it
+    on its side 8x6 for rolling, with the band lines turned vertical and
+    scrolled by *phase* so it visibly spins.
+    """
+    d = ImageDraw.Draw(img)
+    sx, sy = int(round(sx)), int(round(sy))
+    if not tipped:
+        x0, y0, x1, y1 = sx - 3, sy - 4, sx + 2, sy + 3
+        d.rectangle((x0 - 1, y0 - 1, x1 + 1, y1 + 1), fill=INK)
+        d.rectangle((x0, y0 + 1, x1, y1 - 1), fill=V[2])
+        for k, yy in enumerate(range(y0 + 1, y1)):
+            if (k + phase) % 2 == 0:
+                d.line((x0 + 1, yy, x1 - 1, yy), fill=V[1])
+        d.line((x0, y0 + 1, x0, y1 - 1), fill=V[3])  # lit left of the band
+        d.line((x1, y0 + 1, x1, y1 - 1), fill=V[1])
+        d.line((x0, y0, x1, y0), fill=C[3])  # flanges
+        put(img, x0, y0, C[4])
+        put(img, x0 + 1, y0, C[4])
+        d.line((x0, y1, x1, y1), fill=C[2])
+        put(img, x1, y1, C[1])
     else:
-        step = math.sin(2 * math.pi * feet_phase)
-        lifts = (max(0.0, step) * 3, max(0.0, -step) * 3)
-    ground = GROUND + min(p.dy, 0)
-    for side, lift in zip((-1, 1), lifts):
-        fx = cx + side * 9
-        d.rounded_rectangle((fx - 4, ground - 5 - lift, fx + 4, ground - lift), radius=2, fill=N[1])
-
-    # Gumdrop body: per-row spans following the width curve.
-    y = p.crown
-    while y <= p.hem_bot:
-        y_rest = HEM_BOT - (HEM_BOT + p.dy - y) * p.squash
-        w = p.width(y_rest)
-        d.line((cx - w, y, cx + w, y), fill=C[3])
-        y += 1.0
-    # Rounded crown dome above the crown line, tucked under the cap.
-    dome_w = p.width(46.0)
-    d.ellipse((cx - dome_w, p.cap_top + CAP_H / 2, cx + dome_w, p.crown + 8), fill=C[3])
-
-    # Mitten nubs just above the wrap.
-    if arms:
-        ay = p.map_y(65.0)
-        aw = p.width(66.0)
-        for side in (-1, 1):
-            axx = cx + side * (aw + 1)
-            d.rounded_rectangle((axx - 2, ay, axx + 2, ay + 6), radius=2, fill=C[3])
-
-    # The cap — a separate mass so it can lag, tilt, and float (gap of sky).
-    cap_y = p.cap_top - cap_float
-    d.ellipse(
-        (cx + cap_dx - CAP_W / 2, cap_y, cx + cap_dx + CAP_W / 2, cap_y + CAP_H),
-        fill=C[2],
-    )
-    return cap_y
+        x0, y0, x1, y1 = sx - 4, sy - 3, sx + 3, sy + 2
+        d.rectangle((x0 - 1, y0 - 1, x1 + 1, y1 + 1), fill=INK)
+        d.rectangle((x0 + 1, y0, x1 - 1, y1), fill=V[2])
+        for k, xx in enumerate(range(x0 + 1, x1)):
+            if (k + phase) % 2 == 0:
+                d.line((xx, y0 + 1, xx, y1 - 1), fill=V[1])
+        d.line((x0 + 1, y0, x1 - 1, y0), fill=V[3])  # lit top of the band
+        d.line((x0 + 1, y1, x1 - 1, y1), fill=V[1])
+        d.line((x0, y0, x0, y1), fill=C[3])  # flanges (now the wheels)
+        put(img, x0, y0, C[4])
+        d.line((x1, y0, x1, y1), fill=C[2])
+        put(img, x1, y1, C[1])
 
 
-def _shade(img, p: Pose, cap_y: float, *, cap_dx: float = 0.0, wind_phase: float = 0.0, gold_glint: bool = False, progress: float | None = None):
-    """Post-outline detail pass: body ramps, wrap bands, cap face, stitches."""
+def _paw(img, x, y):
+    """A tiny cream mitten, ink-rimmed so it reads on the cream body."""
     d = ImageDraw.Draw(img)
-    cx = CX + p.lean
-
-    # Body shading: warm light high-left crescent, cool shadow low-right,
-    # C[1] rim inside the hem bottom. The lit crown IS the face plate.
-    dome_w = p.width(48.0)
-    d.arc((cx - dome_w + 1, p.crown - 6, cx + dome_w - 3, p.crown + 14), 150, 250, fill=C[4])
-    shadow_top = p.map_y(60.0)
-    dither_shade(img, (cx + p.width(70.0) - 5, shadow_top, cx + p.width(88.0) + 1, p.hem_bot - 1), C[2], phase=1)
-    d.line((cx - p.width(95.0) + 2, p.hem_bot - 1, cx + p.width(95.0) - 2, p.hem_bot - 1), fill=C[1])
-    d.line((cx - p.width(94.0) + 2, p.hem_bot - 2, cx + p.width(94.0) - 2, p.hem_bot - 2), fill=C[2])
-
-    # Wound-thread wrap: banded violet jumper with a lit left column and a
-    # deep right/bottom rim. Bands scroll with wind_phase.
-    top, bot = p.wrap_top, p.wrap_bot
-    wleft = cx - p.width(78.0) + 1
-    wright = cx + p.width(78.0) - 1
-    d.rectangle((wleft, top, wright, bot), fill=V[2])
-    yy = top + (wind_phase % 1.0) * 3
-    row = 0
-    while yy < bot:
-        d.line((wleft, yy, wright, yy), fill=V[1] if row % 2 == 0 else V[3])
-        yy += 3
-        row += 1
-    dither_shade(img, (wleft, top, wleft + 4, bot), V[4])
-    d.line((wright, top + 1, wright, bot), fill=V[0])
-    d.line((wleft, bot, wright, bot), fill=V[0])
-    if progress is not None:  # working gag: a gold stitch rides a band row
-        px = wleft + 2 + (wright - wleft - 4) * progress
-        py = top + 4 + 3 * (int(progress * 6) % 4)
-        put(img, px, py, G[2])
-        put(img, px + 1, py, G[3])
-
-    # Cap detail: top face, highlight arc, underside shadow + forehead cast,
-    # ink-ringed axle hole with navy core, five gold rim stitches.
-    ccx = cx + cap_dx
-    d.ellipse((ccx - CAP_W / 2 + 2, cap_y + 1, ccx + CAP_W / 2 - 2, cap_y + CAP_H - 2), fill=C[3])
-    d.arc((ccx - CAP_W / 2 + 3, cap_y + 1, ccx + CAP_W / 2 - 5, cap_y + CAP_H - 3), 150, 280, fill=C[4])
-    d.arc((ccx - CAP_W / 2, cap_y, ccx + CAP_W / 2, cap_y + CAP_H), 20, 130, fill=C[0])
-    d.line((cx - 9, p.crown + 1, cx + 9, p.crown + 1), fill=C[1])  # cast shadow on brow
-    d.ellipse((ccx - 3, cap_y + 1, ccx + 3, cap_y + 4), outline=INK, fill=N[0])
-    for k, sx in enumerate((-14, -7, 0, 7, 14)):
-        color = G[4] if (gold_glint and k == 2) else G[2]
-        put(img, ccx + sx, cap_y + CAP_H - 1, color)
+    d.ellipse((x - 2, y - 2, x + 2, y + 2), fill=C[3], outline=INK)
+    put(img, x - 1, y - 1, C[4])
+    put(img, x, y, ROSE[3])
 
 
-def _face(img, p: Pose, *, mood="open", look=(0, 0), mouth_mood="smile", cheeks=False):
-    cx = CX + p.lean
-    ey = p.map_y(52.0)
-    anime_eye_lg(img, int(cx - 9), int(ey), mood=mood, look=look)
-    anime_eye_lg(img, int(cx + 6), int(ey), mood=mood, look=look)
-    mouth(img, int(cx), int(ey + 9), mouth_mood)
+def _tail(img, pts, *, tip=True):
+    """The long curly thread tail: 2px violet strand with a cream tip."""
+    strand(img, pts, V[1], thick=True)
+    for a, b in zip(pts, pts[1:]):  # top-light along each segment
+        put(img, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 1, V[2])
+    if tip:
+        x, y = pts[-1]
+        put(img, x, y, C[4])
+        put(img, x, y + 1, C[3])
+
+
+def _tail_anchor(cx, cy, rx, ry, side=1):
+    """Where the tail leaves the body, low on the given side."""
+    return cx + side * (_pear_w(0.72, rx) - 1.0), cy + 0.72 * ry
+
+
+def _along(pts, f):
+    """Point at fraction *f* of the arc length of polyline *pts*."""
+    segs = list(zip(pts, pts[1:]))
+    lens = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in segs]
+    total = sum(lens)
+    if total <= 0:
+        return pts[-1]
+    dist = max(0.0, min(1.0, f)) * total
+    for (a, b), seg in zip(segs, lens):
+        if dist <= seg and seg > 0:
+            r = dist / seg
+            return (a[0] + (b[0] - a[0]) * r, a[1] + (b[1] - a[1]) * r)
+        dist -= seg
+    return pts[-1]
+
+
+def _tear_rim(img, x, y):
+    """Kit tear on an ink backing so it reads on the cream body."""
+    d = ImageDraw.Draw(img)
+    d.ellipse((x - 1, int(y) - 1, x + 1, int(y) + 3), fill=INK)
+    tear(img, x, y)
+
+
+def _face(img, cx, cy, rx, ry, *, mood="open", look=(0, 0), mstyle="smile", cheeks=False):
+    """Mouse face low on the head, on a soft lit plate (solid C[4] core with
+    a dithered fringe, clipped to the pear): hero eyes, 1px rose nose, tiny
+    mouth, whiskers flicking out past the cheek outline, blush on happy beats.
+    """
+    cxr = cx
+    cx = int(round(cx))
+    ey = int(round(cy - 0.36 * ry))
+    px = img.load()
+    for yi in range(ey - 5, ey + 12):
+        for xi in range(cx - 15, cx + 16):
+            if not (0 <= xi < img.width and 0 <= yi < img.height):
+                continue
+            nx, ny = (xi - cx) / 14.0, (yi - (ey + 3.0)) / 7.5
+            rr = nx * nx + ny * ny
+            if rr > 1.3 or not _in_pear(xi, yi, cxr, cy, rx, ry):
+                continue
+            if rr <= 1.0 or (xi + yi) % 2:  # solid core, dithered fringe
+                px[xi, yi] = C[4]
+    anime_eye_lg(img, cx - 10, ey, mood=mood, look=look)
+    anime_eye_lg(img, cx + 7, ey, mood=mood, look=look)
+    put(img, cx, ey + 5, ROSE[1])  # the 1px nose
+    mouth(img, cx, ey + 7, mstyle)
+    for sgn in (-1, 1):  # whiskers flick out past the cheeks into open air
+        for dyy in (4, 7):
+            u = (ey + dyy - cy) / ry
+            wx = _pear_w(u, rx)
+            for k in (2, 3):
+                put(img, cx + sgn * int(round(wx + k)), ey + dyy, C[2])
     if cheeks:
-        blush(img, int(cx - 13), int(ey + 6))
-        blush(img, int(cx + 11), int(ey + 6))
+        blush(img, cx - 14, ey + 6)
+        blush(img, cx + 12, ey + 6)
+    return ey
 
 
-def _ahoge(img, p: Pose, cap_y: float, pose: str, t: float, *, cap_dx: float = 0.0):
-    """The soul strand: rooted at the axle hole, pose per row."""
-    cx = CX + p.lean + cap_dx
-    root = (cx, cap_y + 1)
-    if pose == "perk":  # fully vertical, proud
-        pts = [(cx, cap_y - 4), (cx + 1, cap_y - 8), (cx, cap_y - 12)]
-    elif pose == "rest":
-        sway = follow(t, 0.15, 2)
-        pts = [(cx + 1, cap_y - 4), (cx + 2 + sway, cap_y - 8), (cx - 1 + sway, cap_y - 11)]
-    elif pose == "flick":  # idle life-beat: tip snaps up
-        pts = [(cx + 1, cap_y - 4), (cx + 2, cap_y - 9), (cx + 3, cap_y - 13)]
-    elif pose == "stream":  # running: streams straight back
-        whip = follow(t * 2, 0.2, 3)
-        pts = [(cx - 5, cap_y - 2), (cx - 10, cap_y - 3 + whip / 2), (cx - 14, cap_y - 1 + whip)]
-    elif pose == "flat":  # jump anticipation: flattened sideways
-        pts = [(cx + 4, cap_y - 1), (cx + 8, cap_y), (cx + 11, cap_y + 1)]
-    elif pose == "down":  # airborne: streams downward
-        pts = [(cx + 3, cap_y - 2), (cx + 5, cap_y + 3), (cx + 6, cap_y + 8)]
-    elif pose == "wilt":  # failed: draped over the cap edge
-        droop = min(1.0, t * 3)
-        pts = [
-            (cx + 3, cap_y - 3 + 3 * droop),
-            (cx + 7, cap_y - 2 + 5 * droop),
-            (cx + 10, cap_y + 6 * droop),
-        ]
-    elif pose == "hook":  # waiting: curls into a question mark
-        f = ease_in_out(min(1.0, t * 3))
-        wob = 1 if (int(t * 6) % 2 == 0 and t > 0.4) else 0
-        pts = [
-            (cx + 2, cap_y - 5),
-            (cx + 4 + 2 * f, cap_y - 9 - f),
-            (cx + 2 + 2 * f + wob, cap_y - 12 - 2 * f),
-            (cx - 1 + f, cap_y - 10 - 2 * f),
-        ]
-        strand(img, [root, *pts], V[2], thick=True)
-        strand(img, [root, *pts], V[1])
-        put(img, pts[-1][0], pts[-1][1], C[4])
-        put(img, cx + 2, cap_y - 6, V[1])  # the question dot
-        return
-    elif pose == "whip":  # working: counter-whips the tail orbit
-        whip = follow(t, 0.2, 3)
-        pts = [(cx - whip, cap_y - 5), (cx - 2 * whip, cap_y - 9), (cx - whip, cap_y - 12)]
-    else:
-        pts = [(cx, cap_y - 6), (cx, cap_y - 10)]
-    strand(img, [root, pts[0]], V[2], thick=True)
-    strand(img, pts, V[1])
-    put(img, pts[-1][0], pts[-1][1], C[4])
-
-
-def _tail(img, p: Pose, pts, *, tip=True):
-    """Thread tail exiting the wrap low-right, Bobbin's tool arm."""
-    cx = CX + p.lean
-    anchor = (cx + p.width(80.0) - 1, p.map_y(80.0))
-    strand(img, [anchor, *pts], V[1])
-    if tip and pts:
-        put(img, pts[-1][0], pts[-1][1], C[4])
-
-
+# ── choreography ─────────────────────────────────────────────────────────
 def draw(state: str, i: int, n: int):
     img = canvas()
     t = i / n
     ph = 2 * math.pi * t
 
     if state == "idle":
-        breath = math.sin(ph)
-        p = Pose(dy=-max(0.0, breath), squash=1.0 + 0.02 * breath)
-        cap_y = _silhouette(img, p)
+        squash = 1.0 + 0.03 * math.sin(ph)
+        tw = (1, -2) if i == 2 else (0, 0)  # left-ear twitch beat
+        cx, cy, rx, ry, ears = _body(img, 0, squash, ear_twitch=tw, tw_side=-1)
         img = auto_outline(img)
-        _shade(img, p, cap_y, gold_glint=(i == 2))
-        _ahoge(img, p, cap_y, "flick" if i == 2 else "rest", t)
-        drift = follow(t, 0.15, 4)
-        _tail(img, p, [(CX + 24, p.map_y(84.0) + drift / 2), (CX + 28, p.map_y(88.0) + drift)])
-        _face(img, p, mood="closed" if i == n - 1 else "open", mouth_mood="smile", cheeks=True)
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        ax, ay = _tail_anchor(cx, cy, rx, ry)
+        lag = follow(t, 0.18, 2.0)
+        _tail(
+            img,
+            [
+                (ax, ay),
+                (ax + 4, ay + 2),
+                (ax + 8, ay + 2 + 0.5 * lag),
+                (ax + 12, ay - 1 + lag),
+                (ax + 13, ay - 6 + lag),
+                (ax + 9, ay - 8 + 0.7 * lag),
+                (ax + 6, ay - 5 + 0.5 * lag),
+            ],
+        )
+        chest = cy + 0.45 * ry
+        hug = 1 if i == 3 else 0  # squeeze the spool on the exhale
+        _spool(img, cx, chest + hug)
+        _paw(img, cx - 5 + hug, chest + 2)
+        _paw(img, cx + 5 - hug, chest + 2)
+        mood = "happy" if i == 3 else ("closed" if i == n - 1 else "open")
+        _face(img, cx, cy, rx, ry, mood=mood, mstyle="smile", cheeks=True)
 
     elif state == "running-right":
-        bounce = ease_out(abs(math.sin(2 * ph)))
-        p = Pose(dy=-4 * bounce, squash=1.0 + 0.07 * (1 - bounce), lean=3)
-        cap_lag = 1.0 if bounce > 0.8 else 0.0  # cap floats at the apex
-        cap_y = _silhouette(img, p, feet_phase=t * 2, cap_float=cap_lag)
+        bounce = abs(math.sin(ph))  # two quick scurry-hops per loop
+        cx, cy, rx, ry, ears = _body(
+            img, -3 * ease_out(bounce), 1.0 + 0.06 * (1 - bounce), lean=3, ear_mode="back", ear_amt=0.9
+        )
         img = auto_outline(img)
-        _shade(img, p, cap_y)
-        _ahoge(img, p, cap_y, "stream", t)
-        whip = follow(t * 2, 0.35, 3)
-        _tail(img, p, [(CX - 14, p.map_y(78.0) - whip), (CX - 22, p.map_y(80.0) + whip)])
-        if i in (2, 6):  # max-velocity smear
-            sy = int(p.map_y(70.0))
-            for k in range(3):
-                put(img, CX - 20 - k, sy + k, C[2])
-        motion_ticks(img, CX - 20, int(p.map_y(64.0)), 1)
-        _face(img, p, mood="focused", look=(1, 0), mouth_mood="line")
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        axl, ayl = _tail_anchor(cx, cy, rx, ry, side=-1)
+        whip = follow(t * 2, 0.2, 3)
+        _tail(
+            img,
+            [
+                (axl, ayl),
+                (axl - 6, ayl - 3 + whip),
+                (axl - 12, ayl - 2 - whip),
+                (axl - 17, ayl - 5 + 0.5 * whip),
+                (axl - 19, ayl - 9 + 0.5 * whip),
+            ],
+        )
+        _spool(img, cx - 11, cy + 7)  # tucked underarm
+        _paw(img, cx - 10, cy + 2)
+        motion_ticks(img, int(cx - rx - 4), int(cy), 1)
+        _face(img, cx, cy, rx, ry, mood="focused", look=(1, 0), mstyle="line")
 
     elif state == "waving":
-        dip = 1.0 if i == 0 else 0.0
-        p = Pose(dy=dip)
-        cap_y = _silhouette(img, p)
-        img = auto_outline(img)
-        _shade(img, p, cap_y)
-        _ahoge(img, p, cap_y, "perk", t)
-        # The thread tail is the flag arm: anticipation low, overshoot apex.
         sweep = (0.0, 0.75, 1.0, 0.55)[i]
-        ang = math.pi * (0.05 + 0.75 * sweep)
-        ax, ay = CX + 20, p.map_y(70.0)
-        tipx = ax + 16 * math.cos(ang)
-        tipy = ay - 20 * math.sin(ang) + (2 if i == 2 else 0)
-        _tail(img, p, [(ax, ay - 10 * sweep), (tipx, tipy)])
+        cx, cy, rx, ry, ears = _body(img, 1 if i == 0 else 0, 1.0)
+        img = auto_outline(img)
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        ax, ay = _tail_anchor(cx, cy, rx, ry)
+        lag = follow(t, 0.1, 2)
+        _tail(
+            img,
+            [
+                (ax, ay),
+                (ax + 5, ay - 2 * sweep),
+                (ax + 9, ay - 3 - lag),
+                (ax + 8, ay - 8 - lag),
+                (ax + 4, ay - 8 + 0.5 * lag),
+            ],
+        )
+        # Big wave: the arm pivots at the shoulder edge and arcs through open
+        # sky (capped short of the ear so the paw never crosses the face).
+        pvy = cy - 1
+        pvx = cx + _pear_w((pvy - cy) / ry, rx)
+        ang = math.pi * (0.04 + 0.24 * ease_in_out(sweep))
+        wx, wy = pvx + 13 * math.cos(ang), pvy - 12 * math.sin(ang)
+        strand(img, [(pvx - 2, pvy), ((pvx + wx) / 2, (pvy + wy) / 2 + 1), (wx, wy)], C[2], thick=True)
+        _paw(img, int(wx), int(wy))
         if i == 2:
-            sparkle(img, int(tipx) + 2, int(tipy) - 2, small=True)
-        _face(img, p, mood="happy", mouth_mood="open", cheeks=True)
+            sparkle(img, int(wx) + 3, int(wy) - 3, small=True)
+        chest = cy + 0.45 * ry
+        _spool(img, cx - 4, chest)  # spool safe in the other paw
+        _paw(img, cx - 8, chest + 2)
+        _face(img, cx, cy, rx, ry, mood="happy", mstyle="open", cheeks=True)
 
     elif state == "jumping":
-        # Symmetric arc peaked at the middle frame: f0 crouch, f1 rise,
-        # f2 apex (hat float + sparkle), f3 descend, f4 landing squash.
+        # Grounded five-beat arc peaked at the middle frame; the spool is
+        # thrust triumphantly overhead at the apex.
         arc = math.sin(math.pi * i / (n - 1))
-        if i == 0:
-            p = Pose(squash=1.22)
-            cap_y = _silhouette(img, p, cap_float=-1)  # pressed onto brows
-        elif i == n - 1:
-            p = Pose(squash=1.12)
-            cap_y = _silhouette(img, p, cap_float=-1)
-        else:
-            p = Pose(dy=-14 * arc, squash=1.0 - 0.06 * arc)
-            cap_y = _silhouette(img, p, cap_float=2 * arc)  # hat float gag
+        if i == 0:  # anticipation crouch
+            squash, dy, mode, amt = 1.20, 0.0, "back", 0.4
+        elif i == 1:  # rise: stretched, ears swept back
+            squash, dy, mode, amt = 0.92, -16 * arc, "back", 1.0
+        elif i == 2:  # apex: hang-time
+            squash, dy, mode, amt = 0.97, -16 * arc, "trail", 0.6
+        elif i == 3:  # descend: ears streaming up
+            squash, dy, mode, amt = 1.02, -16 * arc, "trail", 1.0
+        else:  # grounded landing squash
+            squash, dy, mode, amt = 1.14, 0.0, "back", 0.5
+        cx, cy, rx, ry, ears = _body(img, dy, squash, ear_mode=mode, ear_amt=amt)
         img = auto_outline(img)
-        _shade(img, p, cap_y)
-        _ahoge(img, p, cap_y, "flat" if i in (0, n - 1) else "down", t)
-        _tail(img, p, [(CX + 24, p.map_y(86.0) + 6 * arc), (CX + 26, p.map_y(90.0) + 9 * arc)])
-        if i == 2:
-            sparkle(img, CX - 26, int(p.cap_top) + 2)
-            sparkle(img, CX + 27, int(p.crown) + 4, small=True)
-        happy = i != 0
-        _face(img, p, mood="happy" if happy else "focused", mouth_mood="open" if happy else "line", cheeks=happy)
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        ax, ay = _tail_anchor(cx, cy, rx, ry)
+        wob = follow(t, 0.2, 1.5)
+        tail_pts = (
+            [(ax, ay), (ax + 5, ay + 3), (ax + 10, ay + 4 + wob)],
+            [(ax, ay), (ax + 3, ay + 6), (ax + 5, ay + 11 + wob)],
+            [(ax, ay), (ax + 5, ay + 1), (ax + 9, ay - 2 + wob), (ax + 12, ay + 1)],
+            [(ax, ay), (ax + 4, ay - 5), (ax + 6, ay - 11 + wob)],
+            [(ax, ay), (ax + 6, ay + 3), (ax + 12, ay + 4 + wob)],
+        )
+        _tail(img, tail_pts[i])
+        top = cy - ry
+        chest = cy + 0.45 * ry
+        if i == 2:  # spool overhead + sparkles
+            _spool(img, cx, top - 11)
+            _paw(img, cx - 4, top - 4)
+            _paw(img, cx + 4, top - 4)
+            sparkle(img, int(cx - 13), int(top - 8))
+            sparkle(img, int(cx + 16), int(top - 11), small=True)
+        else:
+            lift = (0, 4, 0, 3, 0)[i]
+            _spool(img, cx, chest - lift)
+            _paw(img, cx - 5, chest + 2 - lift)
+            _paw(img, cx + 5, chest + 2 - lift)
+        moods = ("focused", "open", "happy", "open", "happy")
+        msts = ("line", "open", "open", "open", "smile")
+        _face(img, cx, cy, rx, ry, mood=moods[i], look=(0, 1) if i == 3 else (0, 0), mstyle=msts[i], cheeks=i in (2, 4))
 
     elif state == "failed":
-        settle = ease_in_out(min(1.0, i / 3))  # slump-in over f0..f3, then hold
-        sulk = 0.5 * math.sin(ph)
-        wrap_h = 20 - 6 * settle  # the wrap unravels away
-        p = Pose(dy=4 * settle + max(0.0, sulk), squash=1.0 + 0.14 * settle, wrap_h=wrap_h)
-        cap_y = _silhouette(img, p, cap_dx=2 * settle)
+        # The spool slips and rolls away over f0..f3 (trailing thread), the
+        # mouse deflates and its ears droop; settled sulk f4..f7 staring at it.
+        settle = ease_in_out(min(1.0, i / 3))
+        squash = 1.0 + 0.26 * settle + 0.02 * math.sin(ph)
+        tw = (0, 1) if i in (4, 6) else (0, 0)  # tiny ear-sag beats
+        cx, cy, rx, ry, ears = _body(img, 0, squash, ear_mode="droop", ear_amt=settle, ear_twitch=tw, tw_side=1)
         img = auto_outline(img)
-        _shade(img, p, cap_y, cap_dx=2 * settle)
-        _ahoge(img, p, cap_y, "wilt", t if i != 5 else t + 0.05, cap_dx=2 * settle)
-        # The unravelled thread piles up beside the hem as sagging loops.
-        loops = int(1 + 2 * settle)
-        base_y = p.hem_bot + 1
-        for k in range(loops):
-            x0 = CX + 14 + k * 7 - 4 * k
-            sag = 4 + k * 2 + math.sin(ph + k)
-            strand(img, [(x0, base_y - 2), (x0 + 5, base_y - 2 + sag / 2), (x0 + 10, base_y - 2)], V[1])
-        if i >= 3:
-            tear(img, CX + 12, p.map_y(58.0) + (i - 3))
-        sweat_drop(img, CX + CAP_W // 2 + 6, cap_y + 5 + 5 * t)
-        _face(img, p, mood="sad", look=(0, 1), mouth_mood="wobble")
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        axl, ayl = _tail_anchor(cx, cy, rx, ry, side=-1)
+        sag = follow(t, 0.1, 0.8)
+        _tail(
+            img,
+            [
+                (axl, ayl),
+                (axl - 5, GROUND - 1 + 0.5 * sag),
+                (axl - 9, GROUND - 2 - 0.5 * sag),
+                (axl - 13, GROUND - 1 + sag),
+            ],
+        )
+        chest = cy + 0.45 * ry
+        hx, hy = cx + 6, chest + 1  # the paw the thread still hangs from
+        if i == 0:  # the slip: spool tumbling off the paws
+            _spool(img, cx + 7, chest + 4, phase=1)
+            strand(img, [(hx, hy), (cx + 8, chest + 1)], V[1])
+        else:
+            sx = (0, 17, 28, 38, 37, 37, 37, 37)[i] + cx  # overshoot, settle
+            sy = GROUND - 3
+            _spool(img, sx, sy, phase=i, tipped=True)
+            mid = ((hx + sx - 5) / 2, GROUND - 1 + 0.5 * sag)
+            strand(img, [(hx, hy), mid, (sx - 5, GROUND - 3)], V[1])
+        _paw(img, cx + 2, chest + 2)
+        _paw(img, hx, hy)
+        sweat_drop(img, int(cx + 0.45 * rx), cy - ry - 2 + 6 * t)
+        if i == 0:  # the gasp
+            ey = _face(img, cx, cy, rx, ry, mood="open", look=(1, 1), mstyle="open")
+        elif i == 1:
+            ey = _face(img, cx, cy, rx, ry, mood="open", look=(1, 1), mstyle="wobble")
+        else:
+            ey = _face(img, cx, cy, rx, ry, mood="sad", look=(1, 1), mstyle="wobble")
+        if i >= 3:  # a single tear slides from the right eye
+            _tear_rim(img, int(cx) + 9, ey + 7 + (i - 3))
 
     elif state == "waiting":
-        p = Pose(dy=-max(0.0, math.sin(ph)) * 0.7)
-        cap_y = _silhouette(img, p)
+        squash = 1.0 + 0.02 * math.sin(ph)
+        tw = (1, -1) if i == 1 else (0, 0)
+        cx, cy, rx, ry, ears = _body(img, 0, squash, ear_twitch=tw, tw_side=1)
         img = auto_outline(img)
-        _shade(img, p, cap_y)
-        _ahoge(img, p, cap_y, "hook", t)
-        # Tail patience-tap: lifts on f1, taps on f2.
-        tap = 2 if i == 1 else 0
-        _tail(img, p, [(CX + 24, p.map_y(88.0) - tap), (CX + 27, p.map_y(92.0) - tap)])
-        attention_dot(img, CX, cap_y - 8 + bob(t, 1.5), t=t)
-        look = (0, -1) if (i // 2) % 2 == 0 else (-1, -1)
-        _face(img, p, mood="closed" if i == n - 1 else "open", look=look, mouth_mood="line")
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        # Tail rises past the hip and curls into a question hook in the open
+        # air beside the head, right under the gold dot.
+        ax, ay = _tail_anchor(cx, cy, rx, ry)
+        wob = follow(t, 0.15, 1.0)
+        _tail(
+            img,
+            [
+                (ax, ay),
+                (cx + 19, cy + 6),
+                (cx + 22 + wob, cy - 3),
+                (cx + 22 + wob, cy - 10),
+                (cx + 18 + wob, cy - 14),
+                (cx + 15 + wob, cy - 12),
+            ],
+        )
+        attention_dot(img, int(cx + 21), cy - 19 + bob(t, 1.2), t=t)
+        chest = cy + 0.45 * ry
+        _spool(img, cx, chest - 1)  # hugged tighter
+        _paw(img, cx - 4, chest - 1)
+        _paw(img, cx + 4, chest - 1)
+        _face(img, cx, cy, rx, ry, mood="closed" if i == n - 1 else "open", look=(1, -1), mstyle="smile", cheeks=True)
 
-    elif state == "running":  # working in place: winding the day's thread
-        beat = abs(math.sin(ph * 1.5))
-        p = Pose(dy=-2.5 * beat, squash=1.0 + 0.05 * (1 - beat))
-        rattle = 1 if i % 2 == 0 else -1
-        cap_y = _silhouette(img, p, cap_dx=rattle)
+    elif state == "running":  # focused work: winding its tail-thread onto the spool
+        press = math.sin(2 * ph)
+        cx, cy, rx, ry, ears = _body(img, -2 * abs(press), 1.0 + 0.04 * (1 - abs(press)))
         img = auto_outline(img)
-        _shade(img, p, cap_y, cap_dx=rattle, wind_phase=t * 3, progress=(t * 2) % 1.0)
-        _ahoge(img, p, cap_y, "whip", t, cap_dx=rattle)
-        ang = ph * 2
-        r = p.width(78.0) + 8
-        wx, wy = CX + r * math.cos(ang), p.map_y(78.0) + 7 * math.sin(ang)
-        _tail(img, p, [((CX + p.width(80.0) + wx) / 2, (p.map_y(80.0) + wy) / 2 - 3), (wx, wy)])
-        _face(img, p, mood="focused", look=(1 if math.cos(ang) > 0 else -1, 0), mouth_mood="line")
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        chest = cy + 0.45 * ry
+        ax, ay = _tail_anchor(cx, cy, rx, ry)
+        sw = follow(t * 2, 0.25, 2.0)
+        pts = [
+            (ax, ay),
+            (ax + 6, ay - 2 + 0.5 * sw),
+            (ax + 8, ay - 9 + sw),
+            (cx + 9, chest + 3),
+            (cx + 4, chest),
+        ]
+        _tail(img, pts, tip=False)
+        _spool(img, cx, chest, phase=i)  # the band visibly winds up
+        _paw(img, cx - 5, chest + 2)
+        _paw(img, cx + 6, chest - 5 + (1 if press > 0 else 0))  # guide paw taps
+        gx, gy = _along(pts, (2 * t) % 1.0)  # gold progress stitch rides the strand
+        put(img, gx, gy, G[3])
+        put(img, gx, gy - 1, G[4])
+        _face(img, cx, cy, rx, ry, mood="focused", look=(1 if press >= 0 else 0, 1), mstyle="line")
 
     elif state == "review":
         nod = i == n - 1
-        p = Pose(dy=1.0 if nod else 0.0)
-        cap_y = _silhouette(img, p, cap_float=-1 if nod else 0)
+        cx, cy, rx, ry, ears = _body(img, 1 if nod else 0, 1.0, ear_mode="perk")
         img = auto_outline(img)
-        _shade(img, p, cap_y)
-        _ahoge(img, p, cap_y, "rest", t)
-        # A taut cream reading thread: left mitten pinch, tail holds right.
-        line_y = p.map_y(62.0)
-        strand(img, [(CX - 22, line_y + 2), (CX - 18, line_y), (CX + 18, line_y), (CX + 22, line_y + 2)], C[3])
-        _tail(img, p, [(CX + 24, p.map_y(72.0)), (CX + 22, line_y + 2)], tip=False)
-        scan = ease_in_out(min(1.0, t * (n / (n - 1.5))))
-        sx = CX - 12 + 24 * scan
-        put(img, sx, line_y, G[2])
-        put(img, sx, line_y - 1, G[3])
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        ax, ay = _tail_anchor(cx, cy, rx, ry)
+        drift = follow(t, 0.18, 1.5)
+        _tail(
+            img,
+            [
+                (ax, ay),
+                (ax + 4, ay + 2 + 0.5 * drift),
+                (ax + 8, ay + 1 + drift),
+                (ax + 10, ay - 3 + 0.7 * drift),
+            ],
+        )
+        chest = cy + 0.45 * ry
+        _spool(img, cx - 8, chest)  # spool in the left paw...
+        _paw(img, cx - 11, chest + 3)
+        line_y = chest - 2
+        strand(img, [(cx - 5, line_y), (cx + 11, line_y)], V[1])  # ...thread held taut
+        _paw(img, cx + 13, line_y + 1)
+        scan = ease_in_out(min(1.0, i / (n - 2)))
+        gx = int(cx - 4 + 14 * scan)
+        put(img, gx, line_y, G[3])
+        put(img, gx, line_y - 1, G[4])
         if nod:
-            _face(img, p, mood="happy", mouth_mood="smile", cheeks=True)
+            _face(img, cx, cy, rx, ry, mood="happy", mstyle="smile", cheeks=True)
         else:
-            look_x = max(-1, min(1, int(round((sx - CX) / 6))))
-            _face(img, p, mood="focused", look=(look_x, 1), mouth_mood="line")
+            look_x = max(-1, min(1, int(round(-1 + 2 * scan))))
+            _face(img, cx, cy, rx, ry, mood="focused", look=(look_x, 1), mstyle="line")
 
-    else:  # pragma: no cover
-        p = Pose()
-        cap_y = _silhouette(img, p)
+    else:  # pragma: no cover - unknown states fall back to a static body
+        cx, cy, rx, ry, ears = _body(img, 0, 1.0)
         img = auto_outline(img)
-        _shade(img, p, cap_y)
-        _ahoge(img, p, cap_y, "rest", t)
-        _face(img, p)
+        _ear_detail(img, ears, cx, cy, rx, ry)
+        _spool(img, cx, cy + 0.45 * ry)
+        _face(img, cx, cy, rx, ry)
 
     return img

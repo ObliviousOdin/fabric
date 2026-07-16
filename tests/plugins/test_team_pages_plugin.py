@@ -11,16 +11,16 @@ DASHBOARD_DIR = REPO_ROOT / "plugins" / "team-pages" / "dashboard"
 DIST_DIR = DASHBOARD_DIR / "dist"
 
 
-def test_team_pages_manifest_registers_a_fabric_team_route() -> None:
+def test_team_pages_manifest_stays_available_without_claiming_the_team_route() -> None:
     manifest = json.loads((DASHBOARD_DIR / "manifest.json").read_text())
 
     assert manifest["name"] == "team-pages"
-    assert manifest["label"] == "Team"
+    assert manifest["label"] == "Team Pages"
     assert manifest["icon"] == "Users"
     assert manifest["tab"] == {
-        "path": "/team",
-        "layout": "workspace",
-        "position": "after:work",
+        "path": "/admin/integrations/team-pages",
+        "layout": "page",
+        "hidden": True,
     }
     assert manifest["entry"] == "dist/index.js"
     assert manifest["css"] == "dist/style.css"

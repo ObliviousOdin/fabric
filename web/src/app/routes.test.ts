@@ -83,6 +83,7 @@ describe("application route catalog", () => {
     expect(canonicalPathForPath("/design")).toBe("/workspace/design");
     expect(canonicalPathForPath("/kanban")).toBe("/workspace/work");
     expect(canonicalPathForPath("/work")).toBe("/workspace/work");
+    expect(canonicalPathForPath("/team")).toBe("/workspace/agents");
     expect(canonicalPathForPath("/sessions/")).toBe(
       "/workspace/conversations",
     );
@@ -129,6 +130,13 @@ describe("application route catalog", () => {
     expect(routeForPath("/chat")).toBe(routeForPath("/workspace/chat"));
     expect(routeSurfaceForPath("/chat")).toBe("workspace");
     expect(routeSurfaceForPath("/admin/advanced")).toBe("admin");
+  });
+
+  it("maps the retired Team page to the truthful Agents surface", () => {
+    expect(routeForPath("/team")).toBe(routeForPath("/workspace/agents"));
+    expect(canonicalLocationForPath("/team", "?profile=ops", "#active")).toBe(
+      "/workspace/agents?profile=ops#active",
+    );
   });
 
   it("allows plugins to override a route through canonical or legacy identity", () => {

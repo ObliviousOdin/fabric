@@ -14,6 +14,7 @@ const { FakeWebSocket } = vi.hoisted(() => {
     static instances: FakeWebSocket[] = []
 
     readyState = FakeWebSocket.CONNECTING
+    failNextSend = false
     sent: string[] = []
     readonly url: string
     private listeners = new Map<string, ListenerEntry[]>()
@@ -54,6 +55,11 @@ const { FakeWebSocket } = vi.hoisted(() => {
     }
 
     send(payload: string) {
+      if (this.failNextSend) {
+        this.failNextSend = false
+        throw new Error('send failed')
+      }
+
       if (this.readyState !== FakeWebSocket.OPEN) {
         throw new Error('socket not open')
       }
@@ -77,6 +83,10 @@ const { FakeWebSocket } = vi.hoisted(() => {
 
     message(data: string) {
       this.emit('message', { data })
+    }
+
+    error() {
+      this.emit('error', {})
     }
 
     private emit(type: string, event: any) {
@@ -112,6 +122,8 @@ describe('GatewayClient websocket attach mode', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
+
     if (originalGatewayUrl === undefined) {
       delete process.env.HERMES_TUI_GATEWAY_URL
     } else {
@@ -261,6 +273,383 @@ describe('GatewayClient websocket attach mode', () => {
     expect(sidecarSocket.sent).toContain(eventFrame)
 
     gw.kill()
+  })
+
+  it('buffers semantic frames until the sidecar opens and strips heavy session metadata', async () => {
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    const gw = new GatewayClient()
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    const sidecarSocket = FakeWebSocket.instances[1]!
+
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: {
+          type: 'session.info',
+          session_id: 'sid-1',
+          private_transport_metadata: 'strip-me',
+          payload: {
+            cwd: '/repo',
+            model: 'openai/gpt-5',
+            running: true,
+            title: 'Live task',
+            system_prompt: 'private',
+            tools: { terminal: {} },
+            skills: { private: {} },
+            mcp_servers: ['private']
+          }
+        }
+      })
+    )
+
+    expect(sidecarSocket.sent).toEqual([])
+    sidecarSocket.open()
+    expect(sidecarSocket.sent).toHaveLength(1)
+    expect(JSON.parse(sidecarSocket.sent[0] ?? '{}').params).toEqual({
+      type: 'session.info',
+      session_id: 'sid-1',
+      payload: {
+        cwd: '/repo',
+        model: 'openai/gpt-5',
+        running: true,
+        title: 'Live task'
+      }
+    })
+
+    gw.kill()
+  })
+
+  it('does not mirror transcript or reasoning token deltas', async () => {
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    const gw = new GatewayClient()
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    const sidecarSocket = FakeWebSocket.instances[1]!
+    sidecarSocket.open()
+
+    for (const type of ['message.delta', 'reasoning.delta', 'thinking.delta']) {
+      gatewaySocket.message(
+        JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type, payload: { text: 'token' } } })
+      )
+    }
+
+    for (const type of ['subagent.text', 'subagent.progress', 'background.complete', 'pet.hatch.progress']) {
+      gatewaySocket.message(
+        JSON.stringify({ jsonrpc: '2.0', method: 'event', params: { type, payload: { text: 'ignored' } } })
+      )
+    }
+
+    expect(sidecarSocket.sent).toEqual([])
+
+    gw.kill()
+  })
+
+  it('projects tool lifecycle fields and artifacts without mirroring raw results or final text', async () => {
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    const gw = new GatewayClient()
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    const sidecarSocket = FakeWebSocket.instances[1]!
+
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: {
+          type: 'tool.complete',
+          session_id: 'sid-1',
+          payload: {
+            args: { path: '/repo/output/report.md', prompt: 'private prompt' },
+            duration_s: 1.5,
+            inline_diff: 'private diff',
+            name: 'write_file',
+            result: {
+              download_url: 'https://example.test/export/report.pdf',
+              raw: 'private result body'
+            },
+            result_text: 'private result text',
+            summary: 'Wrote report',
+            tool_id: 'tool-1',
+            todos: [{ content: 'Verify report', id: 'todo-1', private: 'strip-me', status: 'pending' }]
+          }
+        }
+      })
+    )
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: {
+          type: 'message.complete',
+          session_id: 'sid-1',
+          payload: { reasoning: 'private reasoning', rendered: 'private ansi', text: 'private final answer' }
+        }
+      })
+    )
+
+    sidecarSocket.open()
+    expect(sidecarSocket.sent.map(frame => JSON.parse(frame).params)).toEqual([
+      {
+        type: 'tool.complete',
+        session_id: 'sid-1',
+        payload: {
+          duration_s: 1.5,
+          files_written: ['/repo/output/report.md', 'https://example.test/export/report.pdf'],
+          name: 'write_file',
+          summary: 'Wrote report',
+          tool_id: 'tool-1',
+          todos: [{ content: 'Verify report', id: 'todo-1', status: 'pending' }]
+        }
+      },
+      { type: 'message.complete', session_id: 'sid-1' }
+    ])
+    expect(sidecarSocket.sent.join('\n')).not.toContain('private')
+
+    gw.kill()
+  })
+
+  it('rejects oversized semantic frames before retaining them', async () => {
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    const gw = new GatewayClient()
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    const sidecarSocket = FakeWebSocket.instances[1]!
+
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: { type: 'status.update', payload: { kind: 'process', text: 'x'.repeat(40_000) } }
+      })
+    )
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: { type: 'tool.start', payload: { name: 'terminal', tool_id: 'small' } }
+      })
+    )
+
+    sidecarSocket.open()
+    expect(sidecarSocket.sent).toHaveLength(1)
+    expect(JSON.parse(sidecarSocket.sent[0] ?? '{}').params.payload.tool_id).toBe('small')
+
+    gw.kill()
+  })
+
+  it('caps adversarial todo-list scans before sidecar retention', async () => {
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    const gw = new GatewayClient()
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2))
+    const sidecarSocket = FakeWebSocket.instances[1]!
+    let reads = 0
+
+    const todos = new Proxy([], {
+      get(target, property, receiver) {
+        if (property === 'length') {
+          return 1_000_000
+        }
+
+        if (typeof property === 'string' && /^\d+$/.test(property)) {
+          reads += 1
+
+          if (Number(property) >= 128) {
+            throw new Error('todo compactor scanned beyond its cap')
+          }
+
+          return {}
+        }
+
+        return Reflect.get(target, property, receiver)
+      }
+    })
+
+    gw.drain()
+    await Promise.resolve()
+    gw.publishLocalEvent({
+      payload: { name: 'todo', todos, tool_id: 'bounded' },
+      type: 'tool.complete'
+    } as any)
+    sidecarSocket.open()
+
+    expect(reads).toBe(128)
+    expect(JSON.parse(sidecarSocket.sent[0] ?? '{}').params).toEqual({
+      type: 'tool.complete',
+      payload: { name: 'todo', tool_id: 'bounded' }
+    })
+
+    gw.kill()
+  })
+
+  it('reconnects the sidecar with backoff and flushes queued semantic frames', async () => {
+    vi.useFakeTimers()
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    const gw = new GatewayClient()
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    const firstSidecar = FakeWebSocket.instances[1]!
+    firstSidecar.open()
+    firstSidecar.close(1006)
+
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: { type: 'tool.start', payload: { tool_id: 'queued' } }
+      })
+    )
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(FakeWebSocket.instances).toHaveLength(3)
+    const secondSidecar = FakeWebSocket.instances[2]!
+    secondSidecar.open()
+    expect(JSON.parse(secondSidecar.sent[0] ?? '{}').params.type).toBe('tool.start')
+
+    gw.kill()
+    vi.useRealTimers()
+  })
+
+  it('reconnects and preserves the frame when an open sidecar send throws', async () => {
+    vi.useFakeTimers()
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    const gw = new GatewayClient()
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    const firstSidecar = FakeWebSocket.instances[1]!
+    firstSidecar.open()
+    firstSidecar.failNextSend = true
+
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: { type: 'tool.complete', payload: { tool_id: 'preserved' } }
+      })
+    )
+    expect(firstSidecar.readyState).toBe(FakeWebSocket.CLOSED)
+    await vi.advanceTimersByTimeAsync(100)
+    const secondSidecar = FakeWebSocket.instances[2]!
+    secondSidecar.open()
+    expect(JSON.parse(secondSidecar.sent[0] ?? '{}').params).toEqual({
+      type: 'tool.complete',
+      payload: { tool_id: 'preserved' }
+    })
+
+    gw.kill()
+    vi.useRealTimers()
+  })
+
+  it('bounds sidecar reconnect attempts when construction keeps failing', async () => {
+    vi.useFakeTimers()
+    let sidecarAttempts = 0
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    ;(globalThis as { WebSocket?: unknown }).WebSocket = class FailingSidecarWebSocket extends FakeWebSocket {
+      constructor(url: string) {
+        if (url.includes('/api/pub')) {
+          sidecarAttempts += 1
+          throw new Error('sidecar unavailable')
+        }
+
+        super(url)
+      }
+    } as unknown as typeof WebSocket
+    const gw = new GatewayClient()
+
+    gw.start()
+    FakeWebSocket.instances[0]!.open()
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    // Initial attempt plus five bounded retries; no timer remains after that.
+    expect(sidecarAttempts).toBe(6)
+    expect(gw.getLogTail(20)).toContain('[sidecar] reconnect attempts exhausted')
+
+    gw.kill()
+    vi.useRealTimers()
+  })
+
+  it('restarts a bounded reconnect cycle on the next semantic event after cooldown', async () => {
+    vi.useFakeTimers()
+    let sidecarAttempts = 0
+    process.env.HERMES_TUI_GATEWAY_URL = 'ws://gateway.test/api/ws?token=abc'
+    process.env.HERMES_TUI_SIDECAR_URL = 'ws://gateway.test/api/pub?token=abc&channel=demo'
+    ;(globalThis as { WebSocket?: unknown }).WebSocket = class RecoveringSidecarWebSocket extends FakeWebSocket {
+      constructor(url: string) {
+        if (url.includes('/api/pub')) {
+          sidecarAttempts += 1
+
+          if (sidecarAttempts <= 6) {
+            throw new Error('sidecar unavailable')
+          }
+        }
+
+        super(url)
+      }
+    } as unknown as typeof WebSocket
+    const gw = new GatewayClient()
+
+    gw.start()
+    const gatewaySocket = FakeWebSocket.instances[0]!
+    gatewaySocket.open()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(sidecarAttempts).toBe(6)
+
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: { type: 'status.update', payload: { kind: 'process', text: 'queued during cooldown' } }
+      })
+    )
+    expect(sidecarAttempts).toBe(6)
+
+    await vi.advanceTimersByTimeAsync(4_000)
+    gatewaySocket.message(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'event',
+        params: { type: 'tool.start', payload: { name: 'terminal', tool_id: 'recovered' } }
+      })
+    )
+    expect(sidecarAttempts).toBe(7)
+    const recoveredSidecar = FakeWebSocket.instances[1]!
+    recoveredSidecar.open()
+    expect(recoveredSidecar.sent.map(frame => JSON.parse(frame).params.type)).toEqual([
+      'status.update',
+      'tool.start'
+    ])
+
+    gw.kill()
+    vi.useRealTimers()
   })
 
   it('publishes local dashboard-control events to the sidecar websocket', async () => {

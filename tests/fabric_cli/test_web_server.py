@@ -7066,6 +7066,237 @@ class TestPtyWebSocket:
         # A subscriber on a different channel got nothing.
         assert sub_other.sent == []
 
+    def test_events_replay_semantic_frames_to_a_late_subscriber(self):
+        """Context may mount after the PTY emitted its initial session.info.
+
+        The server keeps a short session-metadata replay so responsive/hidden
+        rails do not need an always-on browser subscription. Activity stays
+        live-only, avoiding duplicate tool rows after reconnects.
+        """
+        import asyncio
+        import json
+        from fabric_cli import web_server as ws_mod
+
+        class _FakeSub:
+            def __init__(self):
+                self.sent: list[str] = []
+
+            async def send_text(self, payload: str) -> None:
+                self.sent.append(payload)
+
+        def _frame(event_type: str, payload: dict) -> str:
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": event_type,
+                    "session_id": "sid-late",
+                    "payload": payload,
+                },
+            })
+
+        app = ws_mod.app
+
+        async def _run():
+            event_channels, event_lock = ws_mod._get_event_state(app)
+            async with event_lock:
+                event_channels.pop("late-context", None)
+                ws_mod._get_event_replay(app).pop("late-context", None)
+
+            session = _frame("session.info", {"title": "Live task"})
+            delta = _frame("message.delta", {"text": "not replayed"})
+            title = _frame("session.title", {"title": "Renamed task"})
+            tool = _frame("tool.complete", {"name": "not replayed"})
+            await ws_mod._broadcast_event(app, "late-context", session)
+            await ws_mod._broadcast_event(app, "late-context", delta)
+            await ws_mod._broadcast_event(app, "late-context", title)
+            await ws_mod._broadcast_event(app, "late-context", tool)
+
+            subscriber = _FakeSub()
+            await ws_mod._register_event_subscriber(
+                app, "late-context", subscriber,
+            )
+            async with event_lock:
+                event_channels.pop("late-context", None)
+                ws_mod._get_event_replay(app).pop("late-context", None)
+            return subscriber, session, title
+
+        subscriber, session, title = asyncio.run(_run())
+        assert subscriber.sent == [session, title]
+
+    def test_event_replay_rejects_malformed_and_oversized_frames(self):
+        import json
+        from fabric_cli import web_server as ws_mod
+
+        assert not ws_mod._event_frame_is_replayable("not-json")
+        assert not ws_mod._event_frame_is_replayable(json.dumps({
+            "jsonrpc": "2.0",
+            "method": "event",
+            "params": {
+                "type": "session.info",
+                "payload": {"result": "x" * ws_mod._EVENT_REPLAY_MAX_FRAME_BYTES},
+            },
+        }))
+
+    def test_event_broadcast_rejects_oversized_frames_before_fanout(self):
+        """Legacy/custom publishers cannot retain or fan out huge results."""
+        import asyncio
+        from fabric_cli import web_server as ws_mod
+
+        class _FakeSub:
+            def __init__(self):
+                self.sent: list[str] = []
+
+            async def send_text(self, payload: str) -> None:
+                self.sent.append(payload)
+
+        async def _run():
+            app = ws_mod.app
+            subscriber = _FakeSub()
+            event_channels, event_lock = ws_mod._get_event_state(app)
+            async with event_lock:
+                event_channels.setdefault("oversized-event", set()).add(subscriber)
+            try:
+                await ws_mod._broadcast_event(
+                    app,
+                    "oversized-event",
+                    "x" * (ws_mod._EVENT_MAX_FRAME_BYTES + 1),
+                )
+            finally:
+                async with event_lock:
+                    event_channels.pop("oversized-event", None)
+            return subscriber
+
+        subscriber = asyncio.run(_run())
+        assert subscriber.sent == []
+
+    def test_slow_event_replay_does_not_hold_the_global_registry_lock(self):
+        """Live frames queue behind replay without stalling other channels."""
+        import asyncio
+        import json
+        from fabric_cli import web_server as ws_mod
+
+        def _frame(event_type: str, title: str) -> str:
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": event_type,
+                    "session_id": "sid-slow",
+                    "payload": {"title": title},
+                },
+            })
+
+        class _SlowSub:
+            def __init__(self):
+                self.entered = asyncio.Event()
+                self.release = asyncio.Event()
+                self.sent: list[str] = []
+                self.first = True
+
+            async def send_text(self, payload: str) -> None:
+                if self.first:
+                    self.first = False
+                    self.entered.set()
+                    await self.release.wait()
+                self.sent.append(payload)
+
+        app = ws_mod.app
+
+        async def _run():
+            event_channels, event_lock = ws_mod._get_event_state(app)
+            async with event_lock:
+                event_channels.pop("slow-replay", None)
+                event_channels.pop("other-chat", None)
+                ws_mod._get_event_replay(app).pop("slow-replay", None)
+                ws_mod._get_event_replay(app).pop("other-chat", None)
+
+            session = _frame("session.info", "Initial")
+            title = _frame("session.title", "During replay")
+            await ws_mod._broadcast_event(app, "slow-replay", session)
+            subscriber = _SlowSub()
+            registration = asyncio.create_task(
+                ws_mod._register_event_subscriber(
+                    app, "slow-replay", subscriber,
+                )
+            )
+            await subscriber.entered.wait()
+
+            # Both broadcasts complete while the subscriber is intentionally
+            # blocked. The same-channel title waits in its private catch-up
+            # deque; the other channel is wholly independent.
+            await asyncio.wait_for(
+                ws_mod._broadcast_event(app, "slow-replay", title),
+                timeout=0.1,
+            )
+            await asyncio.wait_for(
+                ws_mod._broadcast_event(app, "other-chat", session),
+                timeout=0.1,
+            )
+
+            subscriber.release.set()
+            entry = await registration
+            async with event_lock:
+                event_channels.get("slow-replay", set()).discard(entry)
+                event_channels.pop("slow-replay", None)
+                event_channels.pop("other-chat", None)
+                ws_mod._get_event_replay(app).pop("slow-replay", None)
+                ws_mod._get_event_replay(app).pop("other-chat", None)
+            return subscriber, session, title
+
+        subscriber, session, title = asyncio.run(_run())
+        assert subscriber.sent == [session, title]
+
+    def test_cancelled_event_replay_removes_joining_subscriber(self):
+        """ASGI cancellation during replay must not leak a channel entry."""
+        import asyncio
+        import json
+        from fabric_cli import web_server as ws_mod
+
+        class _BlockedSub:
+            def __init__(self):
+                self.entered = asyncio.Event()
+
+            async def send_text(self, _payload: str) -> None:
+                self.entered.set()
+                await asyncio.Event().wait()
+
+        async def _run():
+            app = ws_mod.app
+            event_channels, event_lock = ws_mod._get_event_state(app)
+            replay = json.dumps({
+                "jsonrpc": "2.0",
+                "method": "event",
+                "params": {
+                    "type": "session.info",
+                    "payload": {"title": "Initial"},
+                },
+            })
+            async with event_lock:
+                event_channels.pop("cancelled-replay", None)
+                ws_mod._get_event_replay(app).pop("cancelled-replay", None)
+            await ws_mod._broadcast_event(app, "cancelled-replay", replay)
+
+            subscriber = _BlockedSub()
+            registration = asyncio.create_task(
+                ws_mod._register_event_subscriber(
+                    app, "cancelled-replay", subscriber,
+                )
+            )
+            await subscriber.entered.wait()
+            registration.cancel()
+            try:
+                await registration
+            except asyncio.CancelledError:
+                pass
+
+            async with event_lock:
+                leaked = "cancelled-replay" in event_channels
+                ws_mod._get_event_replay(app).pop("cancelled-replay", None)
+            return leaked
+
+        assert asyncio.run(_run()) is False
+
     def test_events_rejects_missing_channel(self):
         from starlette.websockets import WebSocketDisconnect
 

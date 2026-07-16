@@ -2,6 +2,12 @@
 
 All notable changes to Fabric are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- The Achievements **Team Leaderboard** can now host its relay from the dashboard. A **Host on this machine** button starts and supervises the relay (surviving a dashboard restart), a **Detect** button reads a running relay plus this machine's Tailscale identity to **auto-fill a shareable Relay URL**, and the panel surfaces `fabric setup tailscale` for the Tailscale QR login — no more typing a host address you have to look up. Tailscale reads and connection reuse `fabric_cli.tailscale_setup`.
+
 ## [0.20.2] - 2026-07-15
 
 ### Added

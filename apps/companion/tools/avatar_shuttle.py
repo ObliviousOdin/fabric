@@ -26,13 +26,13 @@ from avatar_kit import (
     bob,
     canvas,
     ease_in_out,
-    ease_out,
     follow,
     motion_ticks,
     put,
     sparkle,
     strand,
     sweat_drop,
+    tear,
 )
 
 NAME = "Shuttle"
@@ -282,14 +282,23 @@ def draw(state: str, i: int, n: int):
         _shadow(img, cx, GROUND - (cy + HMAX), _footprint(ang) * 2)
 
     elif state == "jumping":
+        # Symmetric arc peaked at the middle frame: f0 nose-up launch crouch,
+        # f1 rise, f2 apex (sparkles), f3 nose-down descend, f4 a low LEVEL
+        # recovering hover that flows straight back into f0's launch.
         t2 = i / (n - 1)
         arc = math.sin(math.pi * t2)
-        cy = HOVER_Y + 3 - 27 * ease_out(arc)
         cx = CX
-        ang = -0.42 * math.cos(math.pi * t2)  # nose-up rising, level at apex
-        img = _assemble(img, cx, cy, ang, fin=0.5 * arc)
+        if i == n - 1:
+            cy = HOVER_Y + 4.0  # settled just under launch height
+            ang = 0.05  # level again — no nose-down snap into f0
+            fin = -0.3  # fin folds while the hover recovers
+        else:
+            cy = HOVER_Y + 3 - 27 * arc
+            ang = -0.42 * math.cos(math.pi * t2)  # nose-up rise, level apex
+            fin = 0.5 * arc
+        img = _assemble(img, cx, cy, ang, fin=fin)
         tx, ty = _pt(cx, cy, ang, -L, 0)
-        _thread(img, [  # thread whips below
+        _thread(img, [  # thread whips below, settling on the last frame
             (tx, ty),
             (tx - 4, ty + 4 + 3 * arc + follow(t2, 0.1, 1.5)),
             (tx - 8, ty + 8 + 5 * arc + follow(t2, 0.2, 2.5)),
@@ -301,28 +310,37 @@ def draw(state: str, i: int, n: int):
         elif i == 3:
             sparkle(img, int(cx) + 14, int(cy) - 13, small=True)
         happy = i in (1, 2, 3)
-        _eye(img, cx, cy, ang, mood="happy" if happy else "open",
-             look=(1, -2) if i == 0 else (1, 2))
+        look = (1, -2) if i == 0 else ((1, 0) if i == n - 1 else (1, 2))
+        _eye(img, cx, cy, ang, mood="happy" if happy else "open", look=look)
         if happy:
             bx, by = _pt(cx, cy, ang, 4, 2.6)
             blush(img, int(bx), int(by))
         _shadow(img, cx, GROUND - (cy + HMAX), _footprint(ang) * 2)
 
     elif state == "failed":
+        # Progressive power-down over f0..f3 — the hover gives out, the nose
+        # tips over, the shuttle sinks — then settled sulk-breathing on
+        # f4..f7 (amp <= 1px): a holdable powered-down droop.
+        settle = ease_in_out(min(1.0, i / 3))
+        sulk = 0.6 * math.sin(ph)
         cx = CX
-        cy = HOVER_Y + 7 + 0.6 * math.sin(ph)  # sinks low, bob nearly flat
-        ang = 0.52  # powered down, nose ~30 deg down
-        img = _assemble(img, cx, cy, ang, fin=-0.8)
+        cy = HOVER_Y + 2 + 5 * settle + sulk
+        ang = 0.20 + 0.32 * settle  # ends nose ~30 deg down
+        img = _assemble(img, cx, cy, ang, fin=-0.2 - 0.6 * settle)
         tx, ty = _pt(cx, cy, ang, -L, 0)
-        sway = 0.8 * math.sin(ph)
-        _thread(img, [  # tangled droop off the raised tail
+        sway = follow(t, 0.15, 0.8)
+        drag = follow(t, 0.32, 1.0)
+        _thread(img, [  # tangled droop off the raised tail, lagging the sulk
             (tx, ty),
             (tx - 3, ty + 4),
             (tx - 6, ty + 8 + sway),
             (tx - 2, ty + 10 + sway),
             (tx - 5, ty + 6),
-            (tx - 4, ty + 13 + sway),
+            (tx - 4, ty + 13 + drag),
         ])
+        if i >= 3:  # a tear wells at the porthole rim and slides down
+            ex, ey = _pt(cx, cy, ang, 11, -0.5)
+            tear(img, int(round(ex)) - 1, ey + 6 + (i - 3))
         sx, sy = _pt(cx, cy, ang, -8, -12)
         sweat_drop(img, int(sx), sy + 4 * t)
         _eye(img, cx, cy, ang, look=(0, 2), lid=0.45)
@@ -336,14 +354,15 @@ def draw(state: str, i: int, n: int):
         nx, ny = _pt(cx, cy, ang, L, 0)
         attention_dot(img, int(nx), ny - 7, t=t)
         tx, ty = _pt(cx, cy, ang, -L, 0)
+        wob = follow(t, 0.25, 1.2)  # the hook sways with a lagged beat
         _thread(img, [  # trailing thread curls into a question-hook
             (tx, ty),
             (tx + 4, ty),
-            (tx + 9, ty - 1),
-            (tx + 13, ty - 4),
-            (tx + 13, ty - 9),
-            (tx + 9, ty - 12),
-            (tx + 5, ty - 10),
+            (tx + 9, ty - 1 + 0.3 * wob),
+            (tx + 13, ty - 4 + 0.7 * wob),
+            (tx + 13, ty - 9 + wob),
+            (tx + 9, ty - 12 + wob),
+            (tx + 5, ty - 10 + wob),
         ])
         put(img, tx + 10, ty + 3, V[1])  # the question dot
         _eye(img, cx, cy, ang, look=(0, -2), lid=1.0 if i == n - 1 else 0.0)

@@ -365,7 +365,7 @@ def draw(state: str, i: int, n: int):
             strand(img, [(x0, base_y - 2), (x0 + 5, base_y - 2 + sag / 2), (x0 + 10, base_y - 2)], V[1])
         if i >= 3:
             tear(img, CX + 12, p.map_y(58.0) + (i - 3))
-        sweat_drop(img, CX + CAP_W // 2 + 2, cap_y + 3 + 5 * t)
+        sweat_drop(img, CX + CAP_W // 2 + 6, cap_y + 5 + 5 * t)
         _face(img, p, mood="sad", look=(0, 1), mouth_mood="wobble")
 
     elif state == "waiting":

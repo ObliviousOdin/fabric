@@ -3,8 +3,9 @@
 A round ball-of-yarn kitten: a sphere of brand-violet yarn with curved
 winding arcs crossing at angles, two triangular cat ears with rose inner
 flaps, and a loose yarn-strand tail with a cream tip. The face sits right
-on the ball — big anime eyes, a tiny :3 mouth, permanent blush. Rolls
-instead of runs, kneads instead of types.
+on the ball's lighter sheen patch — solid-ink hero eyes, a tiny :3 mouth,
+permanent blush. Rolls instead of runs, kneads instead of types. The tail
+is Skein's emotion appendage: it lags, whips, hooks, and unwinds.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from avatar_kit import (
     GROUND,
     INK,
     RAMPS,
-    anime_eye,
+    anime_eye_lg,
     attention_dot,
     auto_outline,
     blush,
@@ -34,6 +35,7 @@ from avatar_kit import (
     sparkle,
     strand,
     sweat_drop,
+    tear,
 )
 
 NAME = "Skein"
@@ -49,25 +51,33 @@ R = 21  # yarn-ball radius at rest (half-res px)
 
 
 # ── body ─────────────────────────────────────────────────────────────────
-def _ear_geo(cx, cy, rx, ry, mode="up", twitch=(0, 0), tw_side=-1):
-    """Two ear triangles (base-inner, base-outer, tip) sitting on the ball."""
+def _ear_geo(cx, cy, rx, ry, mode="up", twitch=(0, 0), tw_side=-1, amt=1.0):
+    """Two ear triangles (base-inner, base-outer, tip) sitting on the ball.
+
+    *amt* lerps the tip from upright (0.0) to the mode's target (1.0), so
+    ears can wilt or sweep progressively instead of snapping between poses.
+    """
     ears = []
     for side in (-1, 1):
         bi = (cx + side * 0.20 * rx, cy - 0.975 * ry + 2)
         bo = (cx + side * 0.66 * rx, cy - 0.72 * ry + 2)
-        if mode == "back":  # swept down/out mid-jump
-            tip = (cx + side * (0.60 * rx + 7), cy - ry + 1)
+        up = (cx + side * 0.60 * rx, cy - ry - 7)
+        if mode == "back":  # swept down/out on the rise
+            tgt = (cx + side * (0.60 * rx + 7), cy - ry + 1)
         elif mode == "droop":  # flat sideways dejection
-            tip = (cx + side * (0.66 * rx + 8), cy - 0.40 * ry)
+            tgt = (cx + side * (0.66 * rx + 8), cy - 0.40 * ry)
+        elif mode == "trail":  # streaming upward while the ball falls
+            tgt = (cx + side * 0.42 * rx, cy - ry - 11)
         else:  # upright
-            tip = (cx + side * 0.60 * rx, cy - ry - 7)
+            tgt = up
+        tip = (up[0] + (tgt[0] - up[0]) * amt, up[1] + (tgt[1] - up[1]) * amt)
         if side == tw_side and twitch != (0, 0):
             tip = (tip[0] + twitch[0], tip[1] + twitch[1])
         ears.append((bi, bo, tip))
     return ears
 
 
-def _body(img, dy, squash, *, lean=0.0, ear_mode="up", ear_twitch=(0, 0), tw_side=-1):
+def _body(img, dy, squash, *, lean=0.0, ear_mode="up", ear_twitch=(0, 0), tw_side=-1, ear_amt=1.0):
     """Ball anchored to the ground (bottom = GROUND + dy). Returns geometry."""
     d = ImageDraw.Draw(img)
     rx, ry = R * squash, R / squash
@@ -75,7 +85,7 @@ def _body(img, dy, squash, *, lean=0.0, ear_mode="up", ear_twitch=(0, 0), tw_sid
     bot = GROUND + dy
     cy = bot - ry
     shade_ellipse(img, (cx - rx, cy - ry, cx + rx, cy + ry), "violet")
-    ears = _ear_geo(cx, cy, rx, ry, ear_mode, ear_twitch, tw_side)
+    ears = _ear_geo(cx, cy, rx, ry, ear_mode, ear_twitch, tw_side, ear_amt)
     for tri in ears:
         d.polygon(tri, fill=V[2])
     return cx, cy, rx, ry, ears
@@ -138,7 +148,10 @@ def _cat_mouth(img, x, y):
 
 def _face(img, cx, cy, ry, *, mood="open", look=(0, 0), mstyle="cat", cheeks=False):
     """Face directly on the ball: a soft lighter patch with a dithered fringe
-    (no hard porcelain plate), then eyes / :3 mouth / blush on top."""
+    (no hard porcelain plate), then hero eyes / :3 mouth / blush on top.
+
+    The V[3] sheen patch is the ball's lit region — the solid-ink
+    :func:`anime_eye_lg` eyes separate cleanly against it."""
     d = ImageDraw.Draw(img)
     cx = int(round(cx))
     ey = int(round(cy - 0.48 * ry))
@@ -151,15 +164,16 @@ def _face(img, cx, cy, ry, *, mood="open", look=(0, 0), mstyle="cat", cheeks=Fal
                 if nx * nx + ny * ny <= 1.0 and px[x, y][3] != 0:
                     px[x, y] = V[3]
     d.ellipse((cx - 14, ey - 4, cx + 14, ey + 10), fill=V[3])
-    anime_eye(img, cx - 11, ey, mood=mood, look=look)
-    anime_eye(img, cx + 8, ey, mood=mood, look=look)
+    anime_eye_lg(img, cx - 11, ey, mood=mood, look=look)
+    anime_eye_lg(img, cx + 8, ey, mood=mood, look=look)
     if mstyle == "cat":
-        _cat_mouth(img, cx, ey + 6)
+        _cat_mouth(img, cx, ey + 7)
     else:
-        mouth(img, cx, ey + 6, mstyle)
+        mouth(img, cx, ey + 7, mstyle)
     if cheeks:
-        blush(img, cx - 14, ey + 5)
-        blush(img, cx + 12, ey + 5)
+        blush(img, cx - 14, ey + 6)
+        blush(img, cx + 12, ey + 6)
+    return ey
 
 
 def _tail(img, pts, *, tip=True):
@@ -237,48 +251,94 @@ def draw(state: str, i: int, n: int):
         _face(img, cx, cy, ry, mood="happy", mstyle="open", cheeks=True)
 
     elif state == "jumping":
-        arc = ease_out(math.sin(math.pi * t))
-        squash = 1.22 if i == 0 else 1.0 - 0.13 * arc
-        cx, cy, rx, ry, ears = _body(img, -17 * arc, squash, ear_mode="up" if i == 0 else "back")
+        # Symmetric arc peaked at the MIDDLE frame: f0 grounded crouch,
+        # f1 rise (stretch, ears swept back), f2 apex (floaty + sparkle),
+        # f3 descend (ears trailing up, eyes on the ground), f4 GROUNDED
+        # landing squash with ear/tail follow-through — lands into f0.
+        arc = math.sin(math.pi * i / (n - 1))
+        if i == 0:  # anticipation crouch, ears half-pressed
+            squash, dy, mode, amt = 1.22, 0.0, "back", 0.35
+        elif i == 1:  # rise: stretched tall, ears fully swept back
+            squash, dy, mode, amt = 0.90, -17 * arc, "back", 1.0
+        elif i == 2:  # apex: hang-time, round again, ears floating up
+            squash, dy, mode, amt = 0.96, -17 * arc, "trail", 0.3
+        elif i == 3:  # descend: ears stream upward as the ball falls
+            squash, dy, mode, amt = 1.02, -17 * arc, "trail", 1.0
+        else:  # grounded landing squash, ears still recovering
+            squash, dy, mode, amt = 1.15, 0.0, "back", 0.55
+        cx, cy, rx, ry, ears = _body(img, dy, squash, ear_mode=mode, ear_amt=amt)
         img = auto_outline(img)
-        _details(img, cx, cy, rx, ry, ears)
+        _details(img, cx, cy, rx, ry, ears, rot=0.35 * arc)
+        # Tail follow-through: tucked in the crouch, dragging below on the
+        # rise, level at the apex, whipped up on the descend, splayed along
+        # the ground on the landing (so it flows back into f0's tuck).
         ax, ay = cx - rx + 3, cy + 0.45 * ry
-        _tail(img, [(ax, ay), (ax - 4, ay + 8 + 6 * arc), (ax - 7, ay + 13 + 8 * arc)])
-        if i in (2, 3):
+        wob = follow(t, 0.2, 1.5)
+        tail_pts = (
+            [(ax, ay), (ax - 5, ay + 6), (ax - 9, ay + 9 + wob)],
+            [(ax, ay), (ax - 4, ay + 8), (ax - 6, ay + 14 + wob)],
+            [(ax, ay), (ax - 6, ay + 5), (ax - 11, ay + 6 + wob)],
+            [(ax, ay), (ax - 5, ay - 2), (ax - 8, ay - 8 + wob)],
+            [(ax, ay), (ax - 7, ay + 6), (ax - 13, ay + 8 + wob)],
+        )
+        _tail(img, tail_pts[i])
+        if i == 2:  # apex glint only — the float beat
             sparkle(img, int(cx - rx - 4), int(cy - ry - 2))
             sparkle(img, int(cx + rx + 4), int(cy - ry + 4), small=True)
+        moods = ("focused", "happy", "happy", "open", "happy")
+        msts = ("line", "open", "open", "open", "smile")
         _face(
             img,
             cx,
             cy,
             ry,
-            mood="focused" if i == 0 else "happy",
-            mstyle="line" if i == 0 else "open",
+            mood=moods[i],
+            look=(0, 1) if i == 3 else (0, 0),
+            mstyle=msts[i],
             cheeks=i != 0,
         )
 
     elif state == "failed":
-        squash = 1.30 + 0.02 * math.sin(ph)
-        cx, cy, rx, ry, ears = _body(img, 0, squash, ear_mode="droop")
+        # Progressive come-apart over f0..f3 — the ball deflates flat, the
+        # ears wilt from upright to draped, a strand pulls loose along the
+        # ground — then settled sulk-breathing f4..f7 (amp <= 1px), ending
+        # in a holdable slump. A tear wells up from f3.
+        settle = ease_in_out(min(1.0, i / 3))
+        squash = 1.0 + 0.30 * settle + 0.02 * math.sin(ph)
+        tw = (0, 1) if i in (4, 6) else (0, 0)  # tiny ear-tip sag beats
+        cx, cy, rx, ry, ears = _body(img, 0, squash, ear_mode="droop", ear_amt=settle, ear_twitch=tw, tw_side=1)
         img = auto_outline(img)
-        _details(img, cx, cy, rx, ry, ears, rot=0.05 * math.sin(ph))
-        # A pulled-out strand zigzags dejectedly along the ground.
+        _details(img, cx, cy, rx, ry, ears, rot=-0.10 * settle + 0.03 * math.sin(ph))
+        # The pulled-loose strand unwinds further with every slump frame.
         zx = cx + rx - 3
-        _tail(
-            img,
-            [(zx, GROUND - 2), (zx + 5, GROUND - 5), (zx + 9, GROUND - 1), (zx + 13, GROUND - 5), (zx + 17, GROUND - 2)],
-        )
+        sag = follow(t, 0.1, 0.8)
+        pts = [(zx, GROUND - 2.0)]
+        for k in range(2 + int(round(2 * settle))):
+            pts.append((zx + 4 * (k + 1), GROUND - (5 if k % 2 == 0 else 1) + (sag if k % 2 else -sag)))
+        _tail(img, pts)
         sweat_drop(img, int(cx + 0.45 * rx), cy - ry - 3 + 6 * t)
-        _face(img, cx, cy, ry, mood="sad", look=(0, 1), mstyle="wobble")
+        if i == 0:  # the gasp before the slump
+            ey = _face(img, cx, cy, ry, mood="open", mstyle="open")
+        elif i == 1:
+            ey = _face(img, cx, cy, ry, mood="open", look=(0, 1), mstyle="wobble")
+        else:
+            ey = _face(img, cx, cy, ry, mood="sad", look=(0, 1), mstyle="wobble")
+        if i >= 3:  # a single tear slides from the right eye
+            tear(img, int(cx) + 9, ey + 7 + (i - 3))
 
     elif state == "waiting":
         squash = 1.0 + 0.02 * math.sin(ph)
         cx, cy, rx, ry, ears = _body(img, 0, squash)
         img = auto_outline(img)
         _details(img, cx, cy, rx, ry, ears)
-        # Tail curls UP into a question-hook beside the left ear.
+        # Tail curls UP into a question-hook beside the left ear, its curl
+        # swaying with a lagged wobble.
         ax, ay = cx - rx + 2, cy + 2
-        _tail(img, [(ax, ay), (ax - 5, ay - 8), (ax - 7, ay - 16), (ax - 3, ay - 21), (ax + 2, ay - 17), (ax, ay - 13)])
+        wob = follow(t, 0.15, 1.0)
+        _tail(
+            img,
+            [(ax, ay), (ax - 5, ay - 8), (ax - 7 + wob, ay - 16), (ax - 3 + wob, ay - 21), (ax + 2 + wob, ay - 17), (ax + wob, ay - 13)],
+        )
         put(img, ax - 3, ay - 6, V[1])
         attention_dot(img, int(cx + 7), cy - ry - 11 + bob(t, 1.2), t=t)
         _face(img, cx, cy, ry, mood="closed" if i == n - 1 else "open", look=(1, -1), mstyle="cat")
@@ -293,6 +353,10 @@ def draw(state: str, i: int, n: int):
         lift_r = 5 * ease_out(max(0.0, -press))
         _paw(img, int(cx - 9), int(GROUND - 3 - lift_l))
         _paw(img, int(cx + 9), int(GROUND - 3 - lift_r))
+        # Tail swishes double-time behind, counter to the knead beat.
+        ax, ay = cx - rx + 3, cy + 0.45 * ry
+        swish = follow(t * 2, 0.25, 2.0)
+        _tail(img, [(ax, ay), (ax - 5, ay + 4 + swish), (ax - 10, ay + 6 - swish), (ax - 14, ay + 4 + 0.5 * swish)])
         look_x = -1 if press > 0.1 else (1 if press < -0.1 else 0)
         _face(img, cx, cy, ry, mood="focused", look=(look_x, 1), mstyle="line")
 
@@ -307,6 +371,10 @@ def draw(state: str, i: int, n: int):
         strand(img, [(cx - 10, sy - 1), (cx + 10, sy - 1)], C[3])
         _paw(img, int(cx - 13), sy)
         _paw(img, int(cx + 13), sy)
+        # Tail rests curled at the left, drifting with a slow lag.
+        ax, ay = cx - rx + 3, cy + 0.45 * ry
+        drift = follow(t, 0.18, 1.5)
+        _tail(img, [(ax, ay), (ax - 5, ay + 5 + 0.5 * drift), (ax - 10, ay + 8 + drift), (ax - 15, ay + 6 + 0.7 * drift)])
         gx = int(cx - 9 + 18 * scan)
         put(img, gx, sy - 1, G[3])
         put(img, gx, sy - 2, G[4])

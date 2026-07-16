@@ -102,13 +102,38 @@ def animated_gif(frames: dict[str, list[Image.Image]]) -> list[Image.Image]:
     return out
 
 
-def generate(only: str | None):
+def _load_custom_modules(custom_dir: Path):
+    """Load avatar_*.py modules from a personal studio directory.
+
+    Lets users keep private pet designs (fan art, commissions) outside the
+    repository while reusing the whole kit + pipeline."""
+    import importlib.util
+
+    modules = []
+    for path in sorted(custom_dir.glob("avatar_*.py")):
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        if spec is None or spec.loader is None:
+            continue
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except Exception as exc:  # noqa: BLE001 - a broken custom pet should not kill the run
+            print(f"  (skipping {path.name}: {exc})")
+            continue
+        modules.append(module)
+    return modules
+
+
+def generate(only: str | None, custom_dir: Path | None = None):
+    modules = []
     for mod_name in AVATAR_MODULES:
         try:
-            module = importlib.import_module(mod_name)
+            modules.append(importlib.import_module(mod_name))
         except ModuleNotFoundError:
             print(f"  (skipping {mod_name}: module not written yet)")
-            continue
+    if custom_dir:
+        modules.extend(_load_custom_modules(custom_dir))
+    for module in modules:
         if only and module.SLUG != only:
             continue
         frames = build_frames(module)
@@ -123,10 +148,15 @@ def main() -> int:
     parser.add_argument("--install", action="store_true", help="register into <FABRIC_HOME>/pets")
     parser.add_argument("--only", help="limit to one avatar slug")
     parser.add_argument("--gif", action="store_true", help="also write an animated <slug>.gif per avatar")
+    parser.add_argument(
+        "--custom-dir",
+        type=Path,
+        help="also load avatar_*.py modules from this personal studio directory",
+    )
     args = parser.parse_args()
 
     failures = 0
-    for module, frames, atlas, report in generate(args.only):
+    for module, frames, atlas, report in generate(args.only, args.custom_dir):
         status = "ok" if report["ok"] else "FAILED"
         print(f"{module.SLUG:8s} validate={status} errors={report['errors']} warnings={report['warnings']}")
         if not report["ok"]:

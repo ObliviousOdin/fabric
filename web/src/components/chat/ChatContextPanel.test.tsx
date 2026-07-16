@@ -141,6 +141,51 @@ describe("reduceChatContextEvent", () => {
     });
     expect(state.running).toBe(false);
   });
+
+  it("applies the async session.title event to the live chat projection", () => {
+    const state = reduceChatContextEvent(liveContext(), {
+      type: "session.title",
+      sessionId: "session-123",
+      payload: { title: "Renamed after first turn" },
+    });
+
+    expect(state.title).toBe("Renamed after first turn");
+    expect(state.sessionId).toBe("session-123");
+  });
+
+  it("clears prior conversation context when the channel starts a new session", () => {
+    let state = reduceChatContextEvent(liveContext(), {
+      type: "tool.complete",
+      sessionId: "session-123",
+      payload: {
+        files_written: ["/workspace/old-report.md"],
+        name: "write_file",
+        todos: [{ content: "Old task", id: "old", status: "completed" }],
+        tool_id: "old-tool",
+      },
+    });
+    expect(state.evidence).toHaveLength(1);
+    expect(state.todos).toHaveLength(1);
+    expect(state.artifacts).toHaveLength(1);
+
+    state = reduceChatContextEvent(state, {
+      type: "session.info",
+      sessionId: "session-456",
+      payload: {
+        cwd: "/workspace/new-chat",
+        running: false,
+        title: "Fresh conversation",
+      },
+    });
+
+    expect(state).toEqual({
+      ...EMPTY_CHAT_CONTEXT_STATE,
+      connected: true,
+      cwd: "/workspace/new-chat",
+      sessionId: "session-456",
+      title: "Fresh conversation",
+    });
+  });
 });
 
 describe("ChatContextTabs", () => {

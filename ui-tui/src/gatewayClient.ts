@@ -13,6 +13,14 @@ import { recordParentLifecycle } from './lib/parentLog.js'
 const MAX_GATEWAY_LOG_LINES = 200
 const MAX_LOG_LINE_BYTES = 4096
 const MAX_BUFFERED_EVENTS = 2000
+const MAX_BUFFERED_SIDECAR_FRAMES = 256
+const MAX_SIDECAR_FRAME_BYTES = 32 * 1024
+const MAX_SIDECAR_LIST_ITEMS = 20
+const MAX_SIDECAR_INPUT_LIST_SCAN = 128
+const MAX_SIDECAR_ARTIFACT_SCAN_NODES = 128
+const MAX_SIDECAR_FIELD_CHARS = 8 * 1024
+const MAX_SIDECAR_EVENT_TYPE_CHARS = 128
+const MAX_SIDECAR_SESSION_ID_CHARS = 512
 const MAX_LOG_PREVIEW = 240
 const STARTUP_TIMEOUT_MS = Math.max(5000, parseInt(process.env.HERMES_TUI_STARTUP_TIMEOUT_MS ?? '15000', 10) || 15000)
 const REQUEST_TIMEOUT_MS = Math.max(30000, parseInt(process.env.HERMES_TUI_RPC_TIMEOUT_MS ?? '120000', 10) || 120000)
@@ -20,6 +28,259 @@ const WS_CONNECTING = 0
 const WS_OPEN = 1
 const WS_CLOSING = 2
 const WS_CLOSED = 3
+const SIDECAR_MAX_RECONNECT_ATTEMPTS = 5
+const SIDECAR_RECONNECT_COOLDOWN_MS = 10_000
+const SIDECAR_STREAM_ONLY_EVENTS = new Set(['message.delta', 'reasoning.delta', 'thinking.delta'])
+
+const SIDECAR_SESSION_INFO_KEYS = new Set([
+  'credential_warning',
+  'cwd',
+  'model',
+  'provider',
+  'running',
+  'session_id',
+  'title'
+])
+
+const SIDECAR_EVENT_PAYLOAD_KEYS: Readonly<Record<string, ReadonlySet<string>>> = {
+  'dashboard.new_session_requested': new Set(['reason']),
+  error: new Set(['message']),
+  'session.info': SIDECAR_SESSION_INFO_KEYS,
+  'session.title': new Set(['session_id', 'title']),
+  'status.update': new Set(['kind', 'text']),
+  'subagent.complete': new Set([
+    'child_session_id',
+    'depth',
+    'duration_seconds',
+    'error',
+    'files_written',
+    'parent_id',
+    'status',
+    'subagent_id',
+    'summary',
+    'task_count',
+    'task_index',
+    'tool_name'
+  ]),
+  'tool.start': new Set(['context', 'name', 'tool_id', 'todos']),
+  'tool.complete': new Set(['duration_s', 'error', 'files_written', 'name', 'summary', 'tool_id', 'todos'])
+}
+
+const SIDECAR_ACCEPTED_EVENTS = new Set([
+  'approval.request',
+  'dashboard.new_session_requested',
+  'error',
+  'message.complete',
+  'message.start',
+  'session.info',
+  'session.title',
+  'status.update',
+  'subagent.complete',
+  'tool.complete',
+  'tool.start'
+])
+
+const SIDECAR_EMPTY_PAYLOAD_KEYS = new Set<string>()
+const SIDECAR_ARTIFACT_KEY_RE = /(?:^|[._-])(artifact|download|file|image|output|path|target|url)(?:s|$|[._-])/i
+
+const SIDECAR_ARTIFACT_EXT_RE =
+  /\.(?:bmp|csv|gif|gz|jpe?g|json|md|mov|mp3|mp4|pdf|png|svg|tar|txt|wav|webp|zip)(?:[?#].*)?$/i
+
+const _sidecarEncoder = new TextEncoder()
+
+class SidecarProjectionTooLarge extends Error {}
+
+const asObjectRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+
+const compactSidecarTodos = (value: unknown): Array<Record<string, string>> => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const compact: Array<Record<string, string>> = []
+
+  for (let index = 0; index < value.length && index < MAX_SIDECAR_INPUT_LIST_SCAN; index += 1) {
+    const item = value[index]
+    const record = asObjectRecord(item)
+    const content = typeof record?.content === 'string' ? record.content : ''
+
+    if (content.length > MAX_SIDECAR_FIELD_CHARS) {
+      throw new SidecarProjectionTooLarge('todo content exceeds sidecar field cap')
+    }
+
+    if (!content.trim()) {
+      continue
+    }
+
+    const todo: Record<string, string> = { content }
+
+    for (const key of ['id', 'status'] as const) {
+      if (typeof record?.[key] === 'string') {
+        if (record[key].length > MAX_SIDECAR_FIELD_CHARS) {
+          throw new SidecarProjectionTooLarge(`todo ${key} exceeds sidecar field cap`)
+        }
+
+        todo[key] = record[key]
+      }
+    }
+
+    compact.push(todo)
+
+    if (compact.length >= MAX_SIDECAR_LIST_ITEMS) {
+      break
+    }
+  }
+
+  return compact
+}
+
+const compactSidecarFiles = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const compact: string[] = []
+
+  for (let index = 0; index < value.length && index < MAX_SIDECAR_INPUT_LIST_SCAN; index += 1) {
+    const item = value[index]
+
+    if (typeof item !== 'string') {
+      continue
+    }
+
+    if (item.length > 2048) {
+      throw new SidecarProjectionTooLarge('artifact path exceeds sidecar field cap')
+    }
+
+    compact.push(item)
+
+    if (compact.length >= MAX_SIDECAR_LIST_ITEMS) {
+      break
+    }
+  }
+
+  return compact
+}
+
+const looksLikeSidecarArtifact = (value: string, keyPath: string) => {
+  if (!value || value.length > 2048 || value.startsWith('data:')) {
+    return false
+  }
+
+  const pathLike = /^(?:file:\/\/|\/|~\/|\.\.?\/|[A-Za-z]:[\\/])/.test(value)
+  const urlLike = /^https?:\/\//i.test(value)
+
+  if (urlLike) {
+    return SIDECAR_ARTIFACT_EXT_RE.test(value)
+  }
+
+  return pathLike && (SIDECAR_ARTIFACT_KEY_RE.test(keyPath) || SIDECAR_ARTIFACT_EXT_RE.test(value))
+}
+
+const compactSidecarArtifacts = (payload: Record<string, unknown>): string[] => {
+  const found = new Set(compactSidecarFiles(payload.files_written))
+  const budget = { remaining: MAX_SIDECAR_ARTIFACT_SCAN_NODES }
+
+  const visit = (value: unknown, keyPath: string, depth: number) => {
+    if (found.size >= MAX_SIDECAR_LIST_ITEMS || budget.remaining <= 0 || depth > 6) {
+      return
+    }
+
+    budget.remaining -= 1
+
+    if (typeof value === 'string') {
+      if (value.length > 2048) {
+        return
+      }
+
+      const normalized = value.trim().replace(/[),.;]+$/, '')
+
+      if (looksLikeSidecarArtifact(normalized, keyPath)) {
+        found.add(normalized)
+      }
+
+      return
+    }
+
+    if (Array.isArray(value)) {
+      for (
+        let index = 0;
+        index < value.length && budget.remaining > 0 && found.size < MAX_SIDECAR_LIST_ITEMS;
+        index += 1
+      ) {
+        visit(value[index], `${keyPath}.${index}`, depth + 1)
+      }
+
+      return
+    }
+
+    const record = asObjectRecord(value)
+
+    if (!record) {
+      return
+    }
+
+    for (const key in record) {
+      if (budget.remaining <= 0 || found.size >= MAX_SIDECAR_LIST_ITEMS) {
+        break
+      }
+
+      if (Object.prototype.hasOwnProperty.call(record, key)) {
+        visit(record[key], keyPath ? `${keyPath}.${key}` : key, depth + 1)
+      }
+    }
+  }
+
+  visit(payload.args, 'args', 0)
+  visit(payload.result, 'result', 0)
+
+  return Array.from(found).slice(0, MAX_SIDECAR_LIST_ITEMS)
+}
+
+const sidecarPayloadKeys = (eventType: string): ReadonlySet<string> => {
+  return SIDECAR_EVENT_PAYLOAD_KEYS[eventType] ?? SIDECAR_EMPTY_PAYLOAD_KEYS
+}
+
+const compactSidecarPayload = (eventType: string, value: unknown): Record<string, unknown> => {
+  const payload = asObjectRecord(value)
+
+  if (!payload) {
+    return {}
+  }
+
+  const compact: Record<string, unknown> = {}
+
+  for (const key of sidecarPayloadKeys(eventType)) {
+    const field = payload[key]
+
+    if (key === 'todos') {
+      const todos = compactSidecarTodos(field)
+
+      if (todos.length) {
+        compact[key] = todos
+      }
+    } else if (key === 'files_written') {
+      const files = eventType === 'tool.complete' ? compactSidecarArtifacts(payload) : compactSidecarFiles(field)
+
+      if (files.length) {
+        compact[key] = files
+      }
+    } else if (
+      typeof field === 'string' ||
+      typeof field === 'boolean' ||
+      (typeof field === 'number' && Number.isFinite(field))
+    ) {
+      if (typeof field === 'string' && field.length > MAX_SIDECAR_FIELD_CHARS) {
+        throw new SidecarProjectionTooLarge(`${eventType}.${key} exceeds sidecar field cap`)
+      }
+
+      compact[key] = field
+    }
+  }
+
+  return compact
+}
 
 const getWebSocketCtor = (): typeof WebSocket =>
   typeof WebSocket === 'undefined' ? (UndiciWebSocket as unknown as typeof WebSocket) : WebSocket
@@ -72,6 +333,45 @@ const asGatewayEvent = (value: unknown): GatewayEvent | null =>
   value && typeof value === 'object' && !Array.isArray(value) && typeof (value as { type?: unknown }).type === 'string'
     ? (value as GatewayEvent)
     : null
+
+const sidecarFrameForEvent = (ev: GatewayEvent): string | null => {
+  if (
+    !ev.type ||
+    ev.type.length > MAX_SIDECAR_EVENT_TYPE_CHARS ||
+    !SIDECAR_ACCEPTED_EVENTS.has(ev.type) ||
+    SIDECAR_STREAM_ONLY_EVENTS.has(ev.type)
+  ) {
+    return null
+  }
+
+  try {
+    const projected: Record<string, unknown> = { type: ev.type }
+
+    if (typeof ev.session_id === 'string') {
+      if (ev.session_id.length > MAX_SIDECAR_SESSION_ID_CHARS) {
+        return null
+      }
+
+      projected.session_id = ev.session_id
+    }
+
+    const payload = compactSidecarPayload(ev.type, ev.payload)
+
+    if (Object.keys(payload).length) {
+      projected.payload = payload
+    }
+
+    const frame = JSON.stringify({ jsonrpc: '2.0', method: 'event', params: projected })
+
+    return _sidecarEncoder.encode(frame).byteLength <= MAX_SIDECAR_FRAME_BYTES ? frame : null
+  } catch (err) {
+    if (err instanceof SidecarProjectionTooLarge) {
+      return null
+    }
+
+    throw err
+  }
+}
 
 // Hoisted decoder: attach mode can drive high-frequency binary frames
 // (tool deltas, reasoning streams) and constructing a fresh TextDecoder
@@ -136,12 +436,16 @@ export class GatewayClient extends EventEmitter {
   private ws: WebSocket | null = null
   private wsConnectPromise: Promise<void> | null = null
   private sidecarWs: WebSocket | null = null
+  private sidecarReconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private sidecarReconnectAttempt = 0
+  private sidecarReconnectCooldownUntil = 0
   private attachUrl: null | string = null
   private sidecarUrl: null | string = null
   private reqId = 0
   private logs = new CircularBuffer<string>(MAX_GATEWAY_LOG_LINES)
   private pending = new Map<string, Pending>()
   private bufferedEvents = new CircularBuffer<GatewayEvent>(MAX_BUFFERED_EVENTS)
+  private bufferedSidecarFrames = new CircularBuffer<string>(MAX_BUFFERED_SIDECAR_FRAMES)
   private pendingExit: number | null | undefined
   private ready = false
   private readyTimer: ReturnType<typeof setTimeout> | null = null
@@ -182,12 +486,21 @@ export class GatewayClient extends EventEmitter {
   }
 
   private closeSidecarSocket() {
+    if (this.sidecarReconnectTimer) {
+      clearTimeout(this.sidecarReconnectTimer)
+      this.sidecarReconnectTimer = null
+    }
+
+    this.sidecarReconnectAttempt = 0
+    this.sidecarReconnectCooldownUntil = 0
+    this.bufferedSidecarFrames.clear()
+    const ws = this.sidecarWs
+    this.sidecarWs = null
+
     try {
-      this.sidecarWs?.close()
+      ws?.close()
     } catch {
       // best effort
-    } finally {
-      this.sidecarWs = null
     }
   }
 
@@ -266,9 +579,7 @@ export class GatewayClient extends EventEmitter {
   }
 
   private connectSidecarMirror() {
-    this.closeSidecarSocket()
-
-    if (!this.sidecarUrl) {
+    if (!this.sidecarUrl || this.sidecarWs || this.sidecarReconnectTimer) {
       return
     }
 
@@ -284,38 +595,127 @@ export class GatewayClient extends EventEmitter {
       const ws = new WebSocketCtor(this.sidecarUrl)
 
       this.sidecarWs = ws
+      ws.addEventListener('open', () => {
+        if (this.sidecarWs !== ws) {
+          return
+        }
+
+        this.sidecarReconnectAttempt = 0
+        const pending = this.bufferedSidecarFrames.drain()
+
+        for (let index = 0; index < pending.length; index += 1) {
+          try {
+            ws.send(pending[index]!)
+          } catch {
+            for (const frame of pending.slice(index)) {
+              this.bufferedSidecarFrames.push(frame)
+            }
+
+            this.failSidecarSocket(ws)
+
+            break
+          }
+        }
+      })
       ws.addEventListener('close', () => {
         if (this.sidecarWs === ws) {
           this.sidecarWs = null
+          this.scheduleSidecarReconnect()
         }
       })
       ws.addEventListener('error', () => {
+        if (this.sidecarWs !== ws) {
+          return
+        }
+
         this.pushLog('[sidecar] mirror connection error')
+        this.failSidecarSocket(ws)
       })
     } catch (err) {
       this.pushLog(`[sidecar] failed to connect ${redactUrl(this.sidecarUrl)} (constructor error)`)
       this.sidecarWs = null
+      this.scheduleSidecarReconnect()
     }
   }
 
-  private mirrorEventToSidecar(rawFrame: string) {
+  private failSidecarSocket(ws: WebSocket) {
+    if (this.sidecarWs !== ws) {
+      return
+    }
+
+    this.sidecarWs = null
+
+    try {
+      ws.close()
+    } catch {
+      // best effort
+    }
+
+    this.scheduleSidecarReconnect()
+  }
+
+  private scheduleSidecarReconnect() {
+    if (!this.sidecarUrl || this.sidecarReconnectTimer) {
+      return
+    }
+
+    if (this.sidecarReconnectAttempt >= SIDECAR_MAX_RECONNECT_ATTEMPTS) {
+      this.sidecarReconnectCooldownUntil = Date.now() + SIDECAR_RECONNECT_COOLDOWN_MS
+      this.pushLog('[sidecar] reconnect attempts exhausted')
+
+      return
+    }
+
+    const attempt = ++this.sidecarReconnectAttempt
+    const delayMs = Math.min(100 * 2 ** (attempt - 1), 2_000)
+
+    this.sidecarReconnectTimer = setTimeout(() => {
+      this.sidecarReconnectTimer = null
+      this.connectSidecarMirror()
+    }, delayMs)
+    this.sidecarReconnectTimer.unref?.()
+  }
+
+  private mirrorEventToSidecar(ev: GatewayEvent) {
+    const frame = sidecarFrameForEvent(ev)
+
+    if (!frame) {
+      return
+    }
+
     const ws = this.sidecarWs
 
     if (!ws || ws.readyState !== WS_OPEN) {
+      this.bufferedSidecarFrames.push(frame)
+
+      // After the bounded burst has failed, remain completely idle during a
+      // cooldown. The next semantic event after that cooldown restarts one
+      // bounded cycle, avoiding both permanent silence and a background retry
+      // loop when the dashboard is absent.
+      if (
+        !this.sidecarWs &&
+        !this.sidecarReconnectTimer &&
+        this.sidecarReconnectAttempt >= SIDECAR_MAX_RECONNECT_ATTEMPTS &&
+        Date.now() >= this.sidecarReconnectCooldownUntil
+      ) {
+        this.sidecarReconnectAttempt = 0
+        this.sidecarReconnectCooldownUntil = 0
+        this.connectSidecarMirror()
+      }
+
       return
     }
 
     try {
-      ws.send(rawFrame)
+      ws.send(frame)
     } catch {
-      // best effort
+      this.bufferedSidecarFrames.push(frame)
+      this.failSidecarSocket(ws)
     }
   }
 
   publishLocalEvent(ev: GatewayEvent) {
-    const frame = JSON.stringify({ jsonrpc: '2.0', method: 'event', params: ev })
-
-    this.mirrorEventToSidecar(frame)
+    this.mirrorEventToSidecar(ev)
     this.publish(ev)
   }
 
@@ -330,7 +730,11 @@ export class GatewayClient extends EventEmitter {
       const frame = JSON.parse(text) as Record<string, unknown>
 
       if (frame.method === 'event') {
-        this.mirrorEventToSidecar(text)
+        const ev = asGatewayEvent(frame.params)
+
+        if (ev) {
+          this.mirrorEventToSidecar(ev)
+        }
       }
 
       this.dispatch(frame)

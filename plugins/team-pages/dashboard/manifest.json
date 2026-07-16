@@ -1,13 +1,13 @@
 {
   "name": "team-pages",
-  "label": "Team",
-  "description": "Config-driven internal team pages for shared context, priorities, links, metrics, and status.",
+  "label": "Team Pages",
+  "description": "Optional config-driven reference pages for shared context, priorities, links, metrics, and status.",
   "icon": "Users",
   "version": "0.1.0",
   "tab": {
-    "path": "/team",
-    "layout": "workspace",
-    "position": "after:work"
+    "path": "/admin/integrations/team-pages",
+    "layout": "page",
+    "hidden": true
   },
   "entry": "dist/index.js",
   "css": "dist/style.css"

@@ -10,6 +10,7 @@ Usage:
 """
 
 from contextlib import asynccontextmanager, contextmanager
+from collections import OrderedDict, deque
 
 import asyncio
 import atexit
@@ -142,11 +143,23 @@ _WEB_DIST_OVERRIDE = os.environ.get("FABRIC_WEB_DIST") or os.environ.get("HERMES
 WEB_DIST = Path(_WEB_DIST_OVERRIDE) if _WEB_DIST_OVERRIDE else Path(__file__).parent / "web_dist"
 _log = logging.getLogger(__name__)
 
+_EVENT_REPLAY_MAX_CHANNELS = 16
+_EVENT_REPLAY_MAX_FRAMES = 4
+_EVENT_REPLAY_MAX_FRAME_BYTES = 32 * 1024
+_EVENT_MAX_FRAME_BYTES = 64 * 1024
+_EVENT_PENDING_MAX_FRAMES = 64
+_EVENT_PENDING_MAX_BYTES = 256 * 1024
+_EVENT_REPLAY_TYPES = frozenset({
+    "session.info",
+    "session.title",
+})
+
 # ---------------------------------------------------------------------------
 # Per-channel subscriber registry used by /api/pub (PTY-side gateway → dashboard)
 # and /api/events (dashboard → browser sidebar).  Keyed by an opaque channel id
-# the chat tab generates on mount; entries auto-evict when the last subscriber
-# drops AND the publisher has disconnected.
+# the chat tab generates on mount. Live subscriber sets auto-evict when empty;
+# a separately capped replay store retains only recent semantic frames so a
+# late-opening Context panel can recover the real PTY session state.
 #
 # State lives on app.state (not module-level globals) so that asyncio.Lock is
 # created on the running event loop during lifespan startup.  A module-level
@@ -194,6 +207,7 @@ def _resolve_restart_drain_timeout() -> float:
 @asynccontextmanager
 async def _lifespan(app: "FastAPI"):
     app.state.event_channels = {}  # dict[str, set]
+    app.state.event_replay = OrderedDict()  # dict[str, deque[str]]
     app.state.event_lock = asyncio.Lock()
     app.state.pty_active_session_files = {}  # dict[str, Path]
     # Serializes chat-argv resolution so concurrent /api/pty connections
@@ -299,8 +313,24 @@ def _get_event_state(app: "FastAPI"):
         return app.state.event_channels, app.state.event_lock
     except AttributeError:
         app.state.event_channels = {}
+        app.state.event_replay = OrderedDict()
         app.state.event_lock = asyncio.Lock()
         return app.state.event_channels, app.state.event_lock
+
+
+def _get_event_replay(app: "FastAPI") -> "OrderedDict[str, deque[str]]":
+    """Return the bounded late-subscriber replay store.
+
+    The PTY publisher and the browser subscriber connect independently. A
+    short semantic replay closes that race without keeping an invisible React
+    rail mounted or mirroring token deltas. The channel and frame caps bound
+    worst-case memory even when browser tabs disappear without cleanup.
+    """
+    try:
+        return app.state.event_replay
+    except AttributeError:
+        app.state.event_replay = OrderedDict()
+        return app.state.event_replay
 
 
 def _get_chat_argv_lock(app: "FastAPI") -> asyncio.Lock:
@@ -16162,8 +16192,8 @@ def _ws_auth_ok(ws: "WebSocket") -> bool:
 
 # Per-channel subscriber registry used by /api/pub (PTY-side gateway → dashboard)
 # and /api/events (dashboard → browser sidebar).  Keyed by an opaque channel id
-# the chat tab generates on mount; entries auto-evict when the last subscriber
-# drops AND the publisher has disconnected.
+# the chat tab generates on mount. Live subscribers and bounded replay state
+# are managed separately; see _register_event_subscriber.
 # (Channel state and the chat-argv lock are initialised in _lifespan on app
 # startup — see _get_event_state / _get_chat_argv_lock above.)
 
@@ -16431,11 +16461,156 @@ def _build_sidecar_url(channel: str) -> Optional[str]:
     return f"ws://{netloc}/api/pub?{qs}"
 
 
+def _event_frame_is_replayable(
+    payload: str,
+    payload_bytes: Optional[int] = None,
+) -> bool:
+    """Keep only bounded semantic event frames for late subscribers."""
+    # Reject by character count before encoding. UTF-8 never uses fewer bytes
+    # than code points, so a multi-megabyte tool result cannot force a second
+    # multi-megabyte allocation just to discover that it is ineligible.
+    if len(payload) > _EVENT_REPLAY_MAX_FRAME_BYTES:
+        return False
+    if not any(f'"{event_type}"' in payload for event_type in _EVENT_REPLAY_TYPES):
+        return False
+    if payload_bytes is None:
+        payload_bytes = len(payload.encode("utf-8"))
+    if payload_bytes > _EVENT_REPLAY_MAX_FRAME_BYTES:
+        return False
+    try:
+        frame = json.loads(payload)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(frame, dict) or frame.get("method") != "event":
+        return False
+    params = frame.get("params")
+    return (
+        isinstance(params, dict)
+        and isinstance(params.get("type"), str)
+        and params["type"] in _EVENT_REPLAY_TYPES
+    )
+
+
+def _remember_event_frame(app: Any, channel: str, payload: str) -> None:
+    """Append one prevalidated frame to the per-channel replay buffer.
+
+    Must be called while ``event_lock`` is held so a subscriber cannot join
+    between the replay snapshot and its live registration. Eligibility is
+    deliberately checked before the lock in :func:`_broadcast_event`.
+    """
+    replay = _get_event_replay(app)
+    frames = replay.get(channel)
+    if frames is None:
+        frames = deque(maxlen=_EVENT_REPLAY_MAX_FRAMES)
+        replay[channel] = frames
+    else:
+        replay.move_to_end(channel)
+    frames.append(payload)
+    while len(replay) > _EVENT_REPLAY_MAX_CHANNELS:
+        replay.popitem(last=False)
+
+
+class _EventSubscriber:
+    """A joining subscriber whose live frames queue behind metadata replay."""
+
+    __slots__ = ("pending", "pending_bytes", "ready", "websocket")
+
+    def __init__(self, websocket: Any) -> None:
+        self.websocket = websocket
+        self.ready = False
+        self.pending: deque[tuple[str, int]] = deque()
+        self.pending_bytes = 0
+
+    def queue(self, payload: str, payload_bytes: int) -> None:
+        """Keep the newest bounded catch-up frames while replay is in flight."""
+        while self.pending and (
+            len(self.pending) >= _EVENT_PENDING_MAX_FRAMES
+            or self.pending_bytes + payload_bytes > _EVENT_PENDING_MAX_BYTES
+        ):
+            _, evicted_bytes = self.pending.popleft()
+            self.pending_bytes -= evicted_bytes
+        if payload_bytes <= _EVENT_PENDING_MAX_BYTES:
+            self.pending.append((payload, payload_bytes))
+            self.pending_bytes += payload_bytes
+
+
+async def _register_event_subscriber(
+    app: Any,
+    channel: str,
+    subscriber: Any,
+) -> _EventSubscriber:
+    """Replay metadata, catch up queued frames, then enter the live set.
+
+    Network writes never hold the global registry lock. Broadcasts that arrive
+    during replay append to this subscriber's bounded pending deque, preserving
+    replay-before-live ordering without letting a slow browser stall unrelated
+    chat channels or the PTY publisher.
+    """
+    event_channels, event_lock = _get_event_state(app)
+    entry = _EventSubscriber(subscriber)
+    async with event_lock:
+        event_channels.setdefault(channel, set()).add(entry)
+        replay = list(_get_event_replay(app).get(channel, ()))
+
+    try:
+        for payload in replay:
+            await subscriber.send_text(payload)
+
+        while True:
+            async with event_lock:
+                pending = [payload for payload, _ in entry.pending]
+                entry.pending.clear()
+                entry.pending_bytes = 0
+                if not pending:
+                    entry.ready = True
+                    return entry
+            for payload in pending:
+                await subscriber.send_text(payload)
+    except asyncio.CancelledError:
+        async with event_lock:
+            subs = event_channels.get(channel)
+            if subs is not None:
+                subs.discard(entry)
+                if not subs:
+                    event_channels.pop(channel, None)
+        raise
+    except Exception:
+        async with event_lock:
+            subs = event_channels.get(channel)
+            if subs is not None:
+                subs.discard(entry)
+                if not subs:
+                    event_channels.pop(channel, None)
+        raise
+
+
 async def _broadcast_event(app: Any, channel: str, payload: str) -> None:
-    """Fan out one publisher frame to every subscriber on `channel`."""
+    """Remember one semantic frame and fan it out to live subscribers."""
+    # The browser rail consumes compact semantic summaries. Refuse oversized
+    # frames before taking the cross-channel registry lock; publishers also
+    # project and cap events, but this keeps older/custom publishers bounded.
+    if len(payload) > _EVENT_MAX_FRAME_BYTES:
+        return
+    payload_bytes = len(payload.encode("utf-8"))
+    if payload_bytes > _EVENT_MAX_FRAME_BYTES:
+        return
+    replayable = _event_frame_is_replayable(payload, payload_bytes)
+
     event_channels, event_lock = _get_event_state(app)
     async with event_lock:
-        subs = list(event_channels.get(channel, ()))
+        if replayable:
+            _remember_event_frame(app, channel, payload)
+        subs = []
+        for subscriber in event_channels.get(channel, ()):
+            if isinstance(subscriber, _EventSubscriber):
+                if subscriber.ready:
+                    subs.append(subscriber.websocket)
+                else:
+                    subscriber.queue(payload, payload_bytes)
+            else:
+                # Backward-compatible with tests/embedders that registered a
+                # raw WebSocket directly before joining-state existed.
+                subs.append(subscriber)
 
     for sub in subs:
         try:
@@ -17336,8 +17511,14 @@ async def events_ws(ws: WebSocket) -> None:
     await ws.accept()
 
     event_channels, event_lock = _get_event_state(ws.app)
-    async with event_lock:
-        event_channels.setdefault(channel, set()).add(ws)
+    subscriber: Optional[_EventSubscriber] = None
+    try:
+        subscriber = await _register_event_subscriber(ws.app, channel, ws)
+    except Exception:
+        # The client disappeared while the bounded replay was being sent.
+        # Registration rolled back inside the helper, so there is no stale
+        # subscriber to retain.
+        return
 
     try:
         while True:
@@ -17352,7 +17533,8 @@ async def events_ws(ws: WebSocket) -> None:
             subs = event_channels.get(channel)
 
             if subs is not None:
-                subs.discard(ws)
+                if subscriber is not None:
+                    subs.discard(subscriber)
 
                 if not subs:
                     event_channels.pop(channel, None)

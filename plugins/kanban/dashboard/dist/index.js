@@ -1635,7 +1635,19 @@
                 search, setSearch,
                 onNudgeDispatch: function () {
                   SDK.fetchJSON(withBoard(`${API}/dispatch?max=8`, board), { method: "POST" })
-                    .then(loadBoard)
+                    .then(function (result) {
+                      const skipped = (result && result.skipped_unassigned) || [];
+                      if (skipped.length > 0) {
+                        setError(
+                          `Dispatcher skipped ${skipped.length} unassigned ready ` +
+                          `task${skipped.length === 1 ? "" : "s"}: ${skipped.join(", ")}. ` +
+                          "Assign an existing Fabric profile, then nudge again."
+                        );
+                      } else {
+                        setError(null);
+                      }
+                      return loadBoard();
+                    })
                     .catch(function (e) { setError(String(e.message || e)); });
                 },
                 onRefresh: loadBoard,
@@ -3413,7 +3425,7 @@
         h("p", {
           id: "fabric-work-create-description",
           className: "fabric-work-create-description",
-        }, "Add a task without leaving this view. Work with no parent starts ready; dependent work waits for its parent."),
+        }, "Add a task without leaving this view. A blank assignee uses the Work default or active profile; if neither exists, the task stays in Triage."),
         h("div", { className: "fabric-work-create-fields" },
           h("label", { className: "fabric-work-create-field" },
             h("span", null, "Title"),
@@ -4466,7 +4478,7 @@
           className: "h-7 text-xs flex-1",
           title: props.columnName === "triage"
             ? "Fabric profile that will spec this task (default: the dispatcher's configured specifier). Leave blank to let the dispatcher pick."
-            : "Fabric profile to assign. Leave blank and the dispatcher will pick from available profiles when the task is Ready.",
+            : "Fabric profile to assign. Blank uses the configured Work default or active profile; if neither exists, the task stays in Triage.",
           style: { textTransform: "none" },
           autoCapitalize: "none",
           autoCorrect: "off",
@@ -5790,7 +5802,17 @@
     const [slugTouched, setSlugTouched] = useState(false);
     const [creatingBoard, setCreatingBoard] = useState(false);
     const [createError, setCreateError] = useState(null);
+    const [trackingChat, setTrackingChat] = useState(false);
+    const [trackedChat, setTrackedChat] = useState(null);
+    const [trackChatNotice, setTrackChatNotice] = useState(null);
     const requestRef = useRef(0);
+    const trackRequestRef = useRef(0);
+    const selectedBoardRef = useRef(selectedBoard);
+    const hasLoadedBoardsRef = useRef(false);
+    const currentChat = props.currentChat || {};
+    const currentChatSessionId = String(currentChat.id || "").trim();
+    const trackedCurrentChat = trackedChat &&
+      trackedChat.sessionId === currentChatSessionId ? trackedChat : null;
 
     const loadBoards = useCallback(function (preferredSlug) {
       const requestId = ++requestRef.current;
@@ -5801,11 +5823,19 @@
           if (requestId !== requestRef.current) return null;
           const nextBoards = (data && data.boards) || [];
           const storedBoard = readSelectedBoard();
-          const candidates = [preferredSlug, storedBoard, data && data.current, "default"];
+          const candidates = [
+            preferredSlug,
+            storedBoard,
+            hasLoadedBoardsRef.current ? selectedBoardRef.current : null,
+            data && data.current,
+            "default",
+          ];
           const resolved = candidates.find(function (slug) {
             return slug && nextBoards.some(function (item) { return item.slug === slug; });
           }) || (nextBoards[0] && nextBoards[0].slug) || "default";
           setBoards(nextBoards);
+          selectedBoardRef.current = resolved;
+          hasLoadedBoardsRef.current = true;
           setSelectedBoard(resolved);
           return data;
         })
@@ -5830,14 +5860,23 @@
     }, [props.active, loadBoards]);
 
     useEffect(function () {
-      return function () { requestRef.current += 1; };
+      return function () {
+        requestRef.current += 1;
+        trackRequestRef.current += 1;
+      };
     }, []);
+
+    useEffect(function () {
+      trackRequestRef.current += 1;
+      setTrackingChat(false);
+      setTrackedChat(null);
+      setTrackChatNotice(null);
+    }, [currentChatSessionId]);
 
     const currentBoard = boards.find(function (item) {
       return item.slug === selectedBoard;
     }) || null;
     const counts = (currentBoard && currentBoard.counts) || {};
-    const currentChat = props.currentChat || {};
     const currentChatStatus = currentChat.status || "connecting";
     const currentChatLabel = currentChatStatus === "working"
       ? "working"
@@ -5845,6 +5884,10 @@
 
     function chooseBoard(slug) {
       if (!slug) return;
+      // In-memory selection is authoritative for this mounted Chat rail.
+      // localStorage is best-effort and may be denied in private/restricted
+      // browsers; async count refreshes must still preserve the user's choice.
+      selectedBoardRef.current = slug;
       setSelectedBoard(slug);
       writeSelectedBoard(slug);
     }
@@ -5853,6 +5896,54 @@
       const path = workViewPath(selectedBoard, view);
       if (typeof props.navigate === "function") props.navigate(path);
       else window.location.assign(path);
+    }
+
+    function trackCurrentChat() {
+      const sessionId = currentChatSessionId;
+      if (!sessionId || trackingChat || trackedCurrentChat) return;
+      const requestId = ++trackRequestRef.current;
+      const boardAtRequest = selectedBoard;
+      const boardNameAtRequest = (currentBoard && currentBoard.name) || boardAtRequest;
+      const chatTitle = String(currentChat.title || "Terminal-backed chat").trim();
+      setTrackingChat(true);
+      setTrackChatNotice(null);
+      SDK.fetchJSON(withBoard(`${API}/tasks`, boardAtRequest), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: `Chat: ${chatTitle || "Terminal-backed chat"}`,
+          body: `Tracked explicitly from the TUI-backed dashboard chat. Session ID: ${sessionId}`,
+          session_id: sessionId,
+          idempotency_key: `dashboard-chat:${sessionId}`,
+          triage: true,
+        }),
+      })
+        .then(function (result) {
+          if (requestId !== trackRequestRef.current) return null;
+          const task = result && result.task;
+          if (!task || !task.id) throw new Error("The chat was tracked but no task was returned.");
+          setTrackedChat({
+            sessionId: sessionId,
+            taskId: task.id,
+            boardSlug: boardAtRequest,
+            boardName: boardNameAtRequest,
+          });
+          setTrackChatNotice(result.warning
+            ? `Tracked as ${task.id}. ${result.warning}`
+            : `Tracked as ${task.id} on ${boardNameAtRequest}.`);
+          // Refresh counts without preferring boardAtRequest. The user may
+          // have switched boards while the POST was in flight; their current
+          // browser-local choice remains authoritative.
+          return loadBoards();
+        })
+        .catch(function (error) {
+          if (requestId === trackRequestRef.current) {
+            setTrackChatNotice("Could not track this chat. " + parseApiErrorMessage(error));
+          }
+        })
+        .finally(function () {
+          if (requestId === trackRequestRef.current) setTrackingChat(false);
+        });
     }
 
     function updateBoardName(event) {
@@ -5944,7 +6035,24 @@
           }, currentChatLabel),
         ),
         h("strong", null, currentChat.title || "Terminal-backed chat"),
-        h("p", null, "The counters below include durable tasks on this board only; ordinary chat work is shown separately here."),
+        h("p", null, "Chat stays transient until you explicitly track it. Tracking stores the session link as durable Work without invoking the model."),
+        h(Button, {
+          type: "button",
+          size: "sm",
+          outlined: true,
+          className: "fabric-work-rail-track-chat",
+          disabled: !currentChatSessionId || trackingChat || !!trackedCurrentChat,
+          title: currentChatSessionId
+            ? "Create one idempotent Work task linked to this chat session"
+            : "Connect the chat before tracking it in Work",
+          onClick: trackCurrentChat,
+        }, trackedCurrentChat ? "Tracked in Work" : trackingChat ? "Tracking…" : "Track chat in Work"),
+        trackChatNotice
+          ? h("p", {
+            className: "fabric-work-rail-track-notice",
+            role: trackedCurrentChat ? "status" : "alert",
+          }, trackChatNotice)
+          : null,
       ),
       loadError
         ? h("div", { className: "fabric-work-rail-error", role: "alert" },

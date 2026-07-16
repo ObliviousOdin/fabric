@@ -237,8 +237,19 @@ export function reduceChatContextEvent(
   state: ChatContextState,
   event: ChatContextEvent,
 ): ChatContextState {
+  const incomingSessionId = trimmed(event.sessionId);
+  if (
+    incomingSessionId &&
+    state.sessionId &&
+    incomingSessionId !== state.sessionId
+  ) {
+    // A channel survives `/new` and in-place PTY restarts. Treat a new
+    // non-empty session id as a hard read-model boundary so evidence, todos,
+    // and artifacts from the previous conversation are never misattributed.
+    return reduceChatContextEvent(EMPTY_CHAT_CONTEXT_STATE, event);
+  }
   const record = asRecord(event.payload);
-  const sessionId = trimmed(event.sessionId) || state.sessionId;
+  const sessionId = incomingSessionId || state.sessionId;
 
   switch (event.type) {
     case "session.info":
@@ -248,6 +259,14 @@ export function reduceChatContextEvent(
         cwd: trimmed(record?.cwd) || state.cwd,
         running:
           typeof record?.running === "boolean" ? record.running : state.running,
+        sessionId,
+        title: trimmed(record?.title) || state.title,
+      };
+
+    case "session.title":
+      return {
+        ...state,
+        connected: state.connected || !!sessionId,
         sessionId,
         title: trimmed(record?.title) || state.title,
       };

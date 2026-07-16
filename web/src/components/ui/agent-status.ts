@@ -109,7 +109,7 @@ export function gatewayAgentStatus(
 }
 
 /**
- * Chat sidecar connection: `open` → live, `error` → failed, `connecting` →
+ * Chat event-stream connection: `open` → live, `error` → failed, `connecting` →
  * idle tone with a "connecting…" label override, `idle`/`closed` → idle.
  */
 export function chatConnectionAgentStatus(

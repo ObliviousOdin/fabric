@@ -2307,6 +2307,14 @@
   font-size: 0.75rem;
   line-height: 1.4;
 }
+.fabric-work-rail-track-chat {
+  width: 100%;
+  min-height: 40px;
+}
+.fabric-work-rail-current-chat .fabric-work-rail-track-notice {
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
 .fabric-work-rail-field {
   display: flex;
   flex-direction: column;

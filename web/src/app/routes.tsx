@@ -138,7 +138,7 @@ export const APP_ROUTES: readonly AppRouteDef[] = [
   {
     id: "agents",
     path: "/workspace/agents",
-    aliases: ["/profiles"],
+    aliases: ["/profiles", "/team"],
     surface: "workspace",
     layout: "page",
     component: ProfilesPage,
@@ -146,7 +146,7 @@ export const APP_ROUTES: readonly AppRouteDef[] = [
       label: "Agents",
       labelKey: "agents",
       icon: Users,
-      anchorAliases: ["profiles"],
+      anchorAliases: ["profiles", "team"],
     },
   },
   {

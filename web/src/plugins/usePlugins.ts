@@ -7,8 +7,10 @@
  * 4. Waits for plugins to call register() and resolves them
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { api, HERMES_BASE_PATH } from "@/lib/api";
+import { canonicalPluginTargetPath } from "@/app/routes";
 import type { PluginManifest, RegisteredPlugin } from "./types";
 import {
   getPluginComponent,
@@ -18,6 +20,7 @@ import {
 } from "./registry";
 
 export function usePlugins() {
+  const { pathname } = useLocation();
   const [manifests, setManifests] = useState<PluginManifest[]>([]);
   const [plugins, setPlugins] = useState<RegisteredPlugin[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,18 +32,26 @@ export function usePlugins() {
       .getPlugins()
       .then((list) => {
         setManifests(list);
-        if (list.length === 0) setLoading(false);
+        // Routes and override ownership are fully known once manifests arrive.
+        // Individual PluginPage instances own their bundle loading UI, so a
+        // slow optional bundle must never hold the persistent Chat host back.
+        setLoading(false);
       })
       .catch(() => setLoading(false));
   }, []);
 
+  const assetManifests = useMemo(
+    () => manifests.filter((manifest) => shouldLoadPluginAssets(manifest, pathname)),
+    [manifests, pathname],
+  );
+
   // Load plugin assets when manifests arrive.
   useEffect(() => {
-    if (manifests.length === 0) return;
+    if (assetManifests.length === 0) return;
 
     const injectedScripts: HTMLScriptElement[] = [];
 
-    for (const manifest of manifests) {
+    for (const manifest of assetManifests) {
       // Inject CSS if specified.
       if (manifest.css) {
         const cssUrl = `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.css}`;
@@ -95,17 +106,14 @@ export function usePlugins() {
       injectedScripts.push(script);
     }
 
-    // Give plugins a moment to load and register, then stop loading state.
-    const timeout = setTimeout(() => setLoading(false), 2000);
     return () => {
-      clearTimeout(timeout);
       if (import.meta.env.DEV) {
         for (const el of injectedScripts) {
           el.remove();
         }
       }
     };
-  }, [manifests]);
+  }, [assetManifests]);
 
   // Listen for plugin registrations and resolve them against manifests.
   useEffect(() => {
@@ -118,10 +126,6 @@ export function usePlugins() {
         }
       }
       setPlugins(resolved);
-      // If all plugins registered, stop loading early.
-      if (resolved.length === manifests.length && manifests.length > 0) {
-        setLoading(false);
-      }
     }
 
     resolvePlugins();
@@ -130,4 +134,31 @@ export function usePlugins() {
   }, [manifests]);
 
   return { plugins, manifests, loading };
+}
+
+function normalizedRoutePath(path: string): string {
+  return path.replace(/\/+$/, "") || "/";
+}
+
+/**
+ * Visible pages and declared slot providers remain eager. A hidden page-only
+ * integration is fetched only when its canonical route, override, or alias is
+ * actually open, keeping retired/admin-only bundles off the Chat startup path.
+ */
+export function shouldLoadPluginAssets(
+  manifest: PluginManifest,
+  pathname: string,
+): boolean {
+  if (!manifest.tab.hidden || (manifest.slots?.length ?? 0) > 0) return true;
+
+  const current = canonicalPluginTargetPath(normalizedRoutePath(pathname));
+  return [
+    manifest.tab.path,
+    manifest.tab.override,
+    ...(manifest.tab.aliases ?? []),
+  ].some((candidate) =>
+    candidate
+      ? canonicalPluginTargetPath(normalizedRoutePath(candidate)) === current
+      : false,
+  );
 }

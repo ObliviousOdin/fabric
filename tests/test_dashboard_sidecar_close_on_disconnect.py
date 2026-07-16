@@ -1,25 +1,23 @@
-import re
 from pathlib import Path
 
 CHAT_SIDEBAR = Path(__file__).resolve().parent.parent / "web/src/components/ChatSidebar.tsx"
 
 
-def test_sidecar_session_create_requests_close_on_disconnect():
-    """The sidecar must opt its session into close_on_disconnect so the gateway
-    reaps the slash_worker on WS disconnect (the #21370/#21467 leak)."""
+def test_chat_sidebar_observes_real_pty_without_creating_duplicate_session():
+    """The supporting rail must not initialize a second agent/session.
+
+    Creating a throwaway gateway session duplicated tool/MCP/memory startup and
+    could report status for a different agent than the embedded TUI.  The rail
+    now passively observes the PTY publisher's channel instead.
+    """
     source = CHAT_SIDEBAR.read_text(encoding="utf-8")
-    call = re.search(r'"session\.create",\s*\{(.*?)\}', source, re.DOTALL)
-    assert call, "sidecar session.create call not found"
-    assert re.search(r"close_on_disconnect:\s*true", call.group(1))
+    assert '"session.create"' not in source
+    assert 'buildWsUrl("/api/events", { channel })' in source
+    assert "new WebSocket(url)" in source
 
 
-def test_sidecar_session_create_scopes_profile():
-    """The sidecar must pass the dashboard's selected profile so model/credential
-    info matches the PTY child under profile-scoped chat."""
+def test_chat_sidebar_supporting_model_info_remains_profile_scoped():
+    """Read-only model metadata should still follow the Chat profile."""
     source = CHAT_SIDEBAR.read_text(encoding="utf-8")
-    call = re.search(r'"session\.create",\s*\{(.*?)\}\);', source, re.DOTALL)
-    assert call, "sidecar session.create call not found"
-    body = call.group(1)
-    assert re.search(r"close_on_disconnect:\s*true", body)
-    assert re.search(r'source:\s*"tool"', body)
-    assert re.search(r"\.\.\.\(profile\s*\?\s*\{\s*profile\s*\}\s*:\s*\{\}\)", body)
+    assert ".getModelInfo(profile)" in source
+    assert "[profile]" in source

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns all theming; this only removes the framework action bar. -->
+    <style name="Theme.FabricMobile" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

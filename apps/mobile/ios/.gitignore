@@ -1,0 +1,4 @@
+# Derived output — regenerate with `xcodegen generate` from project.yml.
+FabricMobile.xcodeproj/
+DerivedData/
+*.xcuserstate

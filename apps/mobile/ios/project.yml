@@ -1,0 +1,36 @@
+# XcodeGen manifest for the Fabric iOS client.
+# Generate the project with:  xcodegen generate
+# (The .xcodeproj is derived output and stays untracked.)
+name: FabricMobile
+options:
+  bundleIdPrefix: io.github.obliviousodin
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Fabric:
+    type: application
+    platform: iOS
+    sources:
+      - Fabric
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.obliviousodin.fabric.mobile
+        PRODUCT_NAME: Fabric
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: Fabric/Info.plist
+      properties:
+        CFBundleDisplayName: Fabric
+        UILaunchScreen: {}
+        # `fabric serve` on a LAN host is plain http; the ATS exception is
+        # scoped to local networking only. Public gateways must be https.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true

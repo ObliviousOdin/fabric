@@ -83,6 +83,7 @@ import { ChatView } from './chat'
 import { requestComposerFocus, requestComposerInsert } from './chat/composer/focus'
 import { useComposerActions } from './chat/hooks/use-composer-actions'
 import { LiveViewPane } from './chat/live-view/live-view-pane'
+import { useActiveLiveViewPane } from './chat/live-view/use-active-live-view-pane'
 import { useBrowserLiveStreams } from './chat/live-view/use-browser-live-streams'
 import { useVisualGatewayRequest } from './chat/live-view/use-visual-gateway-request'
 import {
@@ -211,6 +212,7 @@ export function DesktopController() {
   const panesFlipped = useStore($panesFlipped)
   const liveView = activeSessionId ? liveViews[activeSessionId] : undefined
   const dockedLiveView = liveView?.presentation === 'docked'
+  useActiveLiveViewPane(activeSessionId, liveViews)
   const profileScope = useStore($profileScope)
   // Below SIDEBAR_COLLAPSE_BREAKPOINT_PX there's no room for a docked rail —
   // collapse both sidebars (without touching their stored open state) so the
@@ -267,6 +269,7 @@ export function DesktopController() {
   const { connectionRef, gatewayRef, requestGateway } = useGatewayRequest()
 
   const liveViewStreamingEnabled = gatewayState === 'open' && connection?.mode === 'local'
+
   const { requestVisualGateway } = useVisualGatewayRequest({
     connection,
     enabled: liveViewStreamingEnabled

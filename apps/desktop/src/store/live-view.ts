@@ -2,9 +2,6 @@ import { atom } from 'nanostores'
 
 import type { GatewayEventPayload } from '@/lib/chat-messages'
 
-import { PREVIEW_PANE_ID } from './layout'
-import { setPaneOpen } from './panes'
-
 export type LiveViewKind = 'browser' | 'desktop'
 export type LiveViewPresentation = 'docked' | 'hidden' | 'pip'
 export type LiveViewStatus = 'complete' | 'error' | 'running'
@@ -324,7 +321,7 @@ export function startLiveViewTool(sessionId: string, payload: GatewayEventPayloa
     clearLiveViewStreamFrames([sessionId])
   }
 
-  const next = setLiveView(sessionId, state => {
+  setLiveView(sessionId, state => {
     const hasRunningAction = state?.actions.some(action => action.status === 'running') ?? false
     const continuingHiddenRun = state?.presentation === 'hidden' && hasRunningAction
     const presentation = state?.presentation === 'pip' || continuingHiddenRun ? state.presentation : 'docked'
@@ -357,10 +354,6 @@ export function startLiveViewTool(sessionId: string, payload: GatewayEventPayloa
       updatedAt: now
     }
   })
-
-  if (next.presentation === 'docked') {
-    setPaneOpen(PREVIEW_PANE_ID, true)
-  }
 }
 
 export function completeLiveViewTool(sessionId: string, payload: GatewayEventPayload): void {
@@ -563,7 +556,6 @@ export function dockLiveView(sessionId: string): void {
     presentation: 'docked',
     updatedAt: Date.now()
   }))
-  setPaneOpen(PREVIEW_PANE_ID, true)
 
   if (typeof window !== 'undefined') {
     void window.hermesDesktop?.liveView?.close(sessionId)

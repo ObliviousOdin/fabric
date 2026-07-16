@@ -786,6 +786,97 @@
     );
   }
 
+  // Copy helper shared by the invite row and the "start the relay" command row.
+  // Resolves once the text is on the clipboard (best-effort; never throws).
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () {});
+    }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); ta.remove();
+    } catch (_) {}
+    return Promise.resolve();
+  }
+
+  // Detects a relay already answering on this machine plus this machine's own
+  // Tailscale identity, then AUTO-FILLS the relay URL so the host never has to
+  // guess "http://<what?>:9137". Read-only: GET /team/host/status only probes
+  // and reads — it never starts, stops, or manages the relay.
+  function HostingDetect({ t, busy, setRelay }) {
+    const [detecting, setDetecting] = hooks.useState(false);
+    const [host, setHost] = hooks.useState(null);
+    const [error, setError] = hooks.useState(null);
+    const [copied, setCopied] = hooks.useState(false);
+
+    function detect() {
+      setDetecting(true); setError(null);
+      api("/team/host/status")
+        .then(function (res) {
+          setHost(res);
+          if (res && res.suggested_relay_url) setRelay(res.suggested_relay_url);
+          if (res && res.ok === false && res.error) setError(res.error);
+        })
+        .catch(function (err) { setError(String(err)); })
+        .finally(function () { setDetecting(false); });
+    }
+
+    const ts = host && host.tailscale;
+    const local = host && host.local_relay;
+    const relayRunning = !!(local && local.ok);
+    const cmd = (host && host.run_command) ||
+      "cd plugins/fabric-achievements && python -m relay --host 0.0.0.0 --port 9137 --state ./roster.json";
+
+    let status = null;
+    if (host) {
+      const items = [];
+      if (ts && ts.running && ts.magicdns) {
+        items.push(h("li", { key: "ts", className: "ha-detect-ok" },
+          tx(t, "team.detect_ts_ok", "Tailscale: {name}", { name: ts.magicdns })));
+      } else if (ts && ts.installed) {
+        items.push(h("li", { key: "ts", className: "ha-detect-warn" },
+          tx(t, "team.detect_ts_down", "Tailscale is installed but not connected — run `tailscale up`, then detect again for a shareable address.")));
+      } else {
+        items.push(h("li", { key: "ts", className: "ha-detect-warn" },
+          tx(t, "team.detect_ts_none", "Tailscale not found. Install it (tailscale.com/download) so teammates can reach this relay with no port-forwarding.")));
+      }
+      items.push(relayRunning
+        ? h("li", { key: "relay", className: "ha-detect-ok" },
+            tx(t, "team.detect_relay_ok", "Relay is answering on this machine (port {port}).", { port: host.default_port }))
+        : h("li", { key: "relay", className: "ha-detect-warn" },
+            tx(t, "team.detect_relay_none", "No relay is running yet — start one in a terminal, then detect again:")));
+
+      const fillNote = host.suggested_relay_url
+        ? h("p", { className: cn("ha-field-hint", host.suggested_is_shareable ? "ha-detect-ok" : "ha-detect-warn") },
+            host.suggested_is_shareable
+              ? tx(t, "team.detect_filled", "Filled in {url} below — anyone on your tailnet can reach it.", { url: host.suggested_relay_url })
+              : tx(t, "team.detect_filled_local", "Filled in {url} — this only works on this machine (fine for a solo trial). Set up Tailscale to share.", { url: host.suggested_relay_url }))
+        : h("p", { className: "ha-field-hint ha-detect-warn" },
+            tx(t, "team.detect_nofill", "Start the relay (and/or connect Tailscale), then detect again to auto-fill the URL."));
+
+      status = h("div", { className: "ha-detect-result" },
+        h("ul", { className: "ha-detect-list" }, items),
+        !relayRunning && h("div", { className: "ha-invite-row ha-detect-cmd" },
+          h("input", { className: "ha-input ha-invite-input", readOnly: true, value: cmd, onFocus: function (e) { e.target.select(); } }),
+          h("button", { type: "button", className: "ha-team-btn",
+            onClick: function () { copyText(cmd).then(function () { setCopied(true); setTimeout(function () { setCopied(false); }, 1600); }); } },
+            copied ? tx(t, "team.copied", "Copied ✓") : tx(t, "team.copy_cmd", "Copy command"))),
+        fillNote
+      );
+    }
+
+    return h("div", { className: "ha-detect" },
+      h("div", { className: "ha-detect-head" },
+        h("button", { type: "button", className: "ha-team-btn", disabled: busy || detecting, onClick: detect },
+          detecting ? tx(t, "team.detecting", "Detecting…") : tx(t, "team.detect_button", "Detect relay & Tailscale")),
+        h("span", { className: "ha-field-hint" },
+          tx(t, "team.detect_hint", "Auto-fills the relay URL from this machine — no need to look up your address."))),
+      status,
+      error && !host && h("p", { className: "ha-field-hint ha-detect-warn" }, String(error))
+    );
+  }
+
   function CreateTeamCard({ busy, onAction, t }) {
     const [relay, setRelay] = hooks.useState("");
     const [name, setName] = hooks.useState("");
@@ -804,11 +895,12 @@
       h(C.CardContent, { className: "ha-team-card-content" },
         h("h3", null, tx(t, "team.create_title", "Create a team")),
         h("p", { className: "ha-team-lead" }, tx(t, "team.create_lead", "Start a leaderboard and invite people with a link. You choose which relay hosts it.")),
+        h(HostingDetect, { t: t, busy: busy, setRelay: setRelay }),
         h(LabelledInput, {
           label: tx(t, "team.relay_label", "Relay URL"),
           placeholder: "http://your-host:9137",
           value: relay, onChange: setRelay, disabled: busy,
-          hint: tx(t, "team.relay_hint", "The address of a running leaderboard relay (see the plugin docs to host one). Use http://127.0.0.1:9137 to try it locally."),
+          hint: tx(t, "team.relay_hint", "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) is reachable by your team."),
         }),
         h(LabelledInput, {
           label: tx(t, "team.team_name_label", "Team name"),
@@ -1008,11 +1100,11 @@
           h(JoinTeamCard, { busy: busy, onAction: runAction, t: t })
         ),
         h("details", { className: "ha-team-details ha-hosting-details" },
-          h("summary", null, tx(t, "team.hosting_summary", "Advanced: host a private leaderboard")),
+          h("summary", null, tx(t, "team.hosting_summary", "Advanced: host a private leaderboard (Tailscale)")),
           h("div", { className: "ha-hosting-body" },
             h("div", { className: "ha-hosting-copy" },
               h("strong", null, tx(t, "team.hosting_header", "Self-hosted and account-free")),
-              h("p", null, tx(t, "team.hosting_body", "Run the small leaderboard relay for your group, then create a team and share its invite. Use a TLS proxy or Tailscale outside your LAN."))
+              h("p", null, tx(t, "team.hosting_body", "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) start the small relay here, 3) click Detect below to auto-fill its address, then create a team and share the invite. Detect fills in a Tailscale name that works from anywhere on your tailnet, so nobody has to figure out an IP or open a port."))
             ),
             h(CreateTeamCard, { busy: busy, onAction: runAction, t: t })
           )

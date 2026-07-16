@@ -72,11 +72,19 @@ and pinned by `tests/plugins/test_leaderboard_privacy.py`).
 
 How it connects: one person runs a small **relay** (see
 [`relay/README.md`](relay/README.md) — a stdlib-only, self-hostable service,
-`python -m relay`). Creating a team returns a shareable **invite code**
-(`fbl1_…`); others paste it and choose **Join and share my score**. The button
-is the explicit opt-in, so a display name and separate consent checkbox are not
-required; the member can choose a name or join without sharing from the
-secondary options. Relay hosting and team creation stay under **Advanced**.
+`python -m relay`) and hosts the board. To avoid the "type in a Relay URL you
+don't know" problem, the hosting panel has a **Detect relay & Tailscale**
+button: it probes this machine for a running relay and reads its Tailscale
+name, then **auto-fills the Relay URL** — preferring a Tailscale MagicDNS
+address (ending in `.ts.net`) that teammates can reach from anywhere on the tailnet
+with no port-forwarding, and falling back to `http://127.0.0.1:9137` for a
+same-machine trial. Detection is read-only (`GET /team/host/status`); it never
+starts, stops, or manages the relay. Creating a team returns a shareable
+**invite code** (`fbl1_…`); others paste it and choose **Join and share my
+score**. The button is the explicit opt-in, so a display name and separate
+consent checkbox are not required; the member can choose a name or join without
+sharing from the secondary options. Relay hosting and team creation stay under
+**Advanced**.
 Once joined, sharing is a one-click status control and opting out actively
 retracts the member's published row. Each member's dashboard talks to the relay
 server-to-server through these backend routes — the browser never contacts the

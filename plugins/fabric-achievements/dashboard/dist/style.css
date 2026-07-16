@@ -195,6 +195,20 @@
 .ha-hosting-copy { display: flex; flex-direction: column; gap: .35rem; }
 .ha-hosting-copy strong { font-size: .9rem; }
 
+/* Relay + Tailscale detection helper (auto-fills the relay URL). */
+.ha-detect { display: flex; flex-direction: column; gap: .5rem; border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 6%, transparent); padding: .7rem .75rem; }
+.ha-detect-head { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.ha-detect-head .ha-field-hint { flex: 1; min-width: 12rem; }
+.ha-detect-result { display: flex; flex-direction: column; gap: .5rem; }
+.ha-detect-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .28rem; font-size: .76rem; line-height: 1.4; }
+.ha-detect-list li { padding-left: 1.1rem; position: relative; }
+.ha-detect-list li::before { position: absolute; left: 0; top: 0; }
+.ha-detect-ok { color: color-mix(in srgb, var(--color-foreground) 70%, #22c55e); }
+.ha-detect-warn { color: color-mix(in srgb, var(--color-foreground) 66%, #f59e0b); }
+.ha-detect-list li.ha-detect-ok::before { content: "\2713"; color: #22c55e; }
+.ha-detect-list li.ha-detect-warn::before { content: "\21BB"; color: #f59e0b; }
+.ha-detect-cmd .ha-invite-input { font-family: var(--font-mono, ui-monospace, monospace); font-size: .72rem; }
+
 .ha-team-hero-actions { position: relative; display: flex; gap: .5rem; align-items: center; }
 .ha-team-btn { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 72%, transparent); color: var(--color-foreground); padding: .45rem .7rem; font-size: .76rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .06em; cursor: pointer; white-space: nowrap; transition: border-color .12s ease, background .12s ease; }
 .ha-team-btn:hover:not(:disabled) { border-color: var(--color-ring); background: color-mix(in srgb, var(--color-primary) 16%, var(--color-card)); }

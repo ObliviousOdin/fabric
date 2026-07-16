@@ -38,8 +38,26 @@ python -m relay --host 0.0.0.0 --port 9137 --state ./roster.json
 - `--host 0.0.0.0` — reachable from your LAN / anywhere the port is exposed.
 
 Then, in each member's Fabric dashboard, open **Achievements → Team
-Leaderboard**, and either **Create a team** (pasting this relay's URL) or
-**Join** with an invite code.
+Leaderboard**. To host, expand **Advanced: host a private leaderboard
+(Tailscale)** and click **Detect relay & Tailscale** — the dashboard probes
+this machine for a running relay and reads its Tailscale name, then
+auto-fills the **Relay URL** for you (no need to look up an IP or host). Fill
+in a team name and create it; everyone else just **Joins** with the invite
+code. You can still type or paste a Relay URL manually if you prefer.
+
+### How auto-fill picks the URL
+
+The dashboard's `GET /team/host/status` endpoint (detection only — it never
+starts or manages the relay) combines two local checks:
+
+- a probe of `http://127.0.0.1:<port>/health` to see whether a relay is
+  already answering on this machine, and
+- this node's own Tailscale identity (`tailscale status --json` → `Self`),
+
+then prefers your Tailscale MagicDNS name (`something.ts.net`) because it is
+stable and reachable by teammates on the tailnet with no port-forwarding. If
+Tailscale isn't connected it falls back to `http://127.0.0.1:<port>`, which
+only works for a same-machine trial and is flagged as such in the UI.
 
 ## Exposing it beyond your LAN (TLS)
 

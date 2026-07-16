@@ -1177,6 +1177,18 @@ export interface Translations {
       hosting_summary: string;
       hosting_header: string;
       hosting_body: string;
+      detect_button: string;
+      detecting: string;
+      detect_hint: string;
+      detect_ts_ok: string;
+      detect_ts_down: string;
+      detect_ts_none: string;
+      detect_relay_ok: string;
+      detect_relay_none: string;
+      detect_filled: string;
+      detect_filled_local: string;
+      detect_nofill: string;
+      copy_cmd: string;
       member_summary: string;
       role_owner: string;
       role_member: string;

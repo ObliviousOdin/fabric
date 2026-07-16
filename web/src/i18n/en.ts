@@ -1048,7 +1048,7 @@ export const en: Translations = {
       join_viewer: "Join without sharing",
       relay_label: "Relay URL",
       relay_hint:
-        "The address of a running leaderboard relay (see the plugin docs to host one). Use http://127.0.0.1:9137 to try it locally.",
+        "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) is reachable by your team.",
       team_name_label: "Team name",
       team_name_placeholder: "Acme Crew",
       display_name_label: "Your display name",
@@ -1061,10 +1061,29 @@ export const en: Translations = {
       privacy_header: "What is shared",
       privacy_body:
         "Your score, unlock and tier counts, per-category tallies, and up to five unlocked badge names — plus a display name you pick. Session titles, transcripts, file paths, and raw metrics are never sent.",
-      hosting_summary: "Advanced: host a private leaderboard",
+      hosting_summary: "Advanced: host a private leaderboard (Tailscale)",
       hosting_header: "Self-hosted and account-free",
       hosting_body:
-        "Run the small leaderboard relay for your group, then create a team and share its invite. Use a TLS proxy or Tailscale outside your LAN.",
+        "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) start the small relay here, 3) click Detect below to auto-fill its address, then create a team and share the invite. Detect fills in a Tailscale name that works from anywhere on your tailnet, so nobody has to figure out an IP or open a port.",
+      detect_button: "Detect relay & Tailscale",
+      detecting: "Detecting…",
+      detect_hint:
+        "Auto-fills the relay URL from this machine — no need to look up your address.",
+      detect_ts_ok: "Tailscale: {name}",
+      detect_ts_down:
+        "Tailscale is installed but not connected — run `tailscale up`, then detect again for a shareable address.",
+      detect_ts_none:
+        "Tailscale not found. Install it (tailscale.com/download) so teammates can reach this relay with no port-forwarding.",
+      detect_relay_ok: "Relay is answering on this machine (port {port}).",
+      detect_relay_none:
+        "No relay is running yet — start one in a terminal, then detect again:",
+      detect_filled:
+        "Filled in {url} below — anyone on your tailnet can reach it.",
+      detect_filled_local:
+        "Filled in {url} — this only works on this machine (fine for a solo trial). Set up Tailscale to share.",
+      detect_nofill:
+        "Start the relay (and/or connect Tailscale), then detect again to auto-fill the URL.",
+      copy_cmd: "Copy command",
       member_summary: "You are {name} · {role}",
       role_owner: "owner",
       role_member: "member",

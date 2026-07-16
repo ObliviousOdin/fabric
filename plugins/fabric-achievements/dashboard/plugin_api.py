@@ -9,6 +9,8 @@ import functools
 import json
 import math
 import re
+import shutil
+import subprocess
 import threading
 import time
 import urllib.error
@@ -1396,6 +1398,175 @@ def _require_fields(result: Dict[str, Any], keys: Tuple[str, ...]) -> None:
         )
 
 
+# ---------------------------------------------------------------------------
+# Hosting helpers (detection only)
+# ---------------------------------------------------------------------------
+# Being the *host* of a leaderboard means running the relay (see relay/README.md)
+# and giving teammates its URL. The friction is that URL: on a laptop behind NAT,
+# "http://<what?>:9137" is not something a user can guess, and 127.0.0.1 only
+# works on the one machine it runs on. These helpers *detect* — they never start,
+# stop, or manage the relay — two things so the dashboard can pre-fill a URL that
+# actually works:
+#   1. whether a relay is already answering on this machine (probe /health), and
+#   2. this machine's Tailscale identity (MagicDNS name + IPs), which is the
+#      simplest way to hand friends a stable, reachable address with no NAT or
+#      port-forwarding.
+# The relay itself stays a separately-run process; nothing here spawns it, and
+# only this node's own name/IPs are read — never peer or tailnet data.
+
+DEFAULT_RELAY_PORT = 9137
+TAILSCALE_TIMEOUT = 5
+
+
+def _tailscale_exe() -> Optional[str]:
+    """Path to the ``tailscale`` CLI, or ``None`` if it isn't installed."""
+    exe = shutil.which("tailscale")
+    if exe:
+        return exe
+    # Common locations when tailscale isn't on PATH (macOS app bundle, Linux pkg).
+    for cand in (
+        "/usr/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ):
+        if Path(cand).exists():
+            return cand
+    return None
+
+
+def _run_tailscale(args: List[str], timeout: int = TAILSCALE_TIMEOUT) -> Tuple[int, str]:
+    """Run ``tailscale <args>``; return ``(returncode, stdout)``.
+
+    Returns ``(-1, "")`` if the CLI is absent or the call fails/ times out, so
+    callers can treat "no Tailscale" and "Tailscale error" the same way.
+    """
+    exe = _tailscale_exe()
+    if not exe:
+        return -1, ""
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [exe, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except Exception:  # noqa: BLE001 - detection must never raise
+        return -1, ""
+    return proc.returncode, proc.stdout or ""
+
+
+def detect_tailscale() -> Dict[str, Any]:
+    """Best-effort snapshot of this machine's own Tailscale identity.
+
+    Never raises. A machine without Tailscale reports ``installed: False``; an
+    installed-but-logged-out node reports ``running: False`` with no address.
+    Only ``Self`` (this node) is read from ``tailscale status`` — no peers.
+    """
+    if _tailscale_exe() is None:
+        return {"installed": False, "running": False, "magicdns": None, "ipv4": None, "ips": []}
+    code, out = _run_tailscale(["status", "--json"])
+    if code != 0 or not out.strip():
+        return {"installed": True, "running": False, "magicdns": None, "ipv4": None, "ips": []}
+    try:
+        data = json.loads(out)
+    except Exception:  # noqa: BLE001
+        return {"installed": True, "running": False, "magicdns": None, "ipv4": None, "ips": []}
+    self_node = data.get("Self") if isinstance(data, dict) else None
+    self_node = self_node if isinstance(self_node, dict) else {}
+    ips = [ip for ip in (self_node.get("TailscaleIPs") or []) if isinstance(ip, str)]
+    ipv4 = next((ip for ip in ips if ":" not in ip), None)
+    magicdns = (self_node.get("DNSName") or "").rstrip(".") or None
+    backend = data.get("BackendState") if isinstance(data, dict) else None
+    running = backend == "Running" and bool(ips)
+    return {
+        "installed": True,
+        "running": running,
+        "backend_state": backend,
+        "magicdns": magicdns,
+        "ipv4": ipv4,
+        "ips": ips,
+    }
+
+
+def _probe_relay_health(relay_url: Any, transport: Optional[Transport] = None) -> Dict[str, Any]:
+    """GET ``<relay_url>/health`` and confirm the responder is a Fabric relay.
+
+    Returns ``{"ok": True, "url", "schema_version", "teams", "members"}`` when a
+    relay answers, else ``{"ok": False, "error": ...}``. Never raises — detection
+    must degrade to "not found", not surface a 500. The ``/health`` payload is
+    the store's own ``stats()`` output, so the ``schema_version`` key is what
+    distinguishes a real relay from an unrelated server that happens to reply.
+    """
+    try:
+        base = _validate_relay_url(relay_url)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    call = transport or _default_transport
+    try:
+        status, payload = call("GET", base + "/health", {"Accept": "application/json"}, None)
+    except RelayClientError as exc:
+        return {"ok": False, "error": exc.message}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Could not reach {base}: {exc}"}
+    if status < 200 or status >= 300:
+        return {"ok": False, "error": f"Relay returned HTTP {status}."}
+    if not isinstance(payload, dict) or "schema_version" not in payload:
+        return {"ok": False, "error": "That address answered, but it is not a Fabric leaderboard relay."}
+    return {
+        "ok": True,
+        "url": base,
+        "schema_version": payload.get("schema_version"),
+        "teams": payload.get("teams"),
+        "members": payload.get("members"),
+    }
+
+
+def host_status(port: int = DEFAULT_RELAY_PORT, transport: Optional[Transport] = None) -> Dict[str, Any]:
+    """Everything the dashboard needs to pre-fill a shareable relay URL.
+
+    Combines (a) a probe of a relay on this machine and (b) this machine's
+    Tailscale identity into a single ``suggested_relay_url`` the host can accept
+    with one click instead of typing an address they'd have to look up. Prefers
+    a Tailscale address (stable, reachable by teammates on the tailnet without
+    port-forwarding) and falls back to loopback, which only serves a same-machine
+    trial (two ``FABRIC_HOME`` directories).
+    """
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        port = DEFAULT_RELAY_PORT
+    if port < 1 or port > 65535:
+        port = DEFAULT_RELAY_PORT
+
+    tailscale = detect_tailscale()
+    local_relay = _probe_relay_health(f"http://127.0.0.1:{port}", transport=transport)
+
+    shareable_host = tailscale.get("magicdns") or tailscale.get("ipv4")
+    if shareable_host:
+        suggested = f"http://{shareable_host}:{port}"
+        shareable = True
+    elif local_relay.get("ok"):
+        suggested = f"http://127.0.0.1:{port}"
+        shareable = False
+    else:
+        suggested = None
+        shareable = False
+
+    return {
+        "ok": True,
+        "default_port": port,
+        "tailscale": tailscale,
+        "local_relay": local_relay,
+        "suggested_relay_url": suggested,
+        "suggested_is_shareable": shareable,
+        "run_command": (
+            "cd plugins/fabric-achievements && "
+            f"python -m relay --host 0.0.0.0 --port {port} --state ./roster.json"
+        ),
+    }
+
+
 def _current_achievements() -> List[Dict[str, Any]]:
     """The evaluated achievement list used to build a publish profile.
 
@@ -1779,5 +1950,28 @@ async def post_team_kick(request: Request):
     body = await _json_body(request)
     try:
         return await _run(team_kick, str(body.get("target_member_id", "")))
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.get("/team/host/status")
+async def get_team_host_status(port: int = DEFAULT_RELAY_PORT):
+    # Detection only: probes a relay on this machine and reads this node's own
+    # Tailscale identity so the frontend can pre-fill a working relay URL. Runs
+    # the `tailscale` CLI and touches the local network, so it stays behind the
+    # dashboard auth gate (not on the public-paths allowlist), like /team/*.
+    try:
+        return await _run(host_status, port)
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/host/probe")
+async def post_team_host_probe(request: Request):
+    # Validate a candidate relay URL (typed or auto-filled) before Create/Join,
+    # turning a bad address into a clear message instead of a mid-create failure.
+    body = await _json_body(request)
+    try:
+        return await _run(_probe_relay_health, body.get("relay_url", ""))
     except (RelayClientError, ValueError) as exc:
         return _error_payload(exc)

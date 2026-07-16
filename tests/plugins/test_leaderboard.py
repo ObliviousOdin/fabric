@@ -336,3 +336,118 @@ def test_save_team_config_is_atomic(api):
     reloaded = api.load_team_config()
     assert reloaded["membership"]["team_id"] == "tm_x"
     assert reloaded["publish_opt_in"] is True
+
+
+# ---- hosting detection (auto-fill the relay URL) -------------------------
+def _healthy_relay_transport(schema_version=1, teams=2, members=5):
+    """Transport that answers GET /health like a real relay's stats()."""
+    def transport(method, url, headers, body):
+        assert method == "GET" and url.endswith("/health"), (method, url)
+        return 200, {"teams": teams, "members": members, "schema_version": schema_version}
+    return transport
+
+
+def _ts_status_json(dns="my-box.tail1234.ts.net.", ips=("100.101.102.103", "fd7a::1"), state="Running"):
+    return json.dumps({"BackendState": state, "Self": {"DNSName": dns, "TailscaleIPs": list(ips)}})
+
+
+def test_probe_relay_health_accepts_a_real_relay(api):
+    result = api._probe_relay_health("http://127.0.0.1:9137", transport=_healthy_relay_transport())
+    assert result["ok"] is True
+    assert result["url"] == "http://127.0.0.1:9137"
+    assert result["schema_version"] == 1
+    assert result["teams"] == 2 and result["members"] == 5
+
+
+def test_probe_relay_health_rejects_a_non_relay_200(api):
+    # A URL that answers 200 but isn't a relay (no schema_version) must be
+    # reported as not-a-relay, not accepted, so we never auto-fill a bad URL.
+    def not_a_relay(method, url, headers, body):
+        return 200, {"hello": "world"}
+
+    result = api._probe_relay_health("http://example.com", transport=not_a_relay)
+    assert result["ok"] is False
+    assert "not a Fabric leaderboard relay" in result["error"]
+
+
+def test_probe_relay_health_reports_unreachable(api):
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("Could not reach the relay: Connection refused", status=0)
+
+    result = api._probe_relay_health("http://127.0.0.1:9999", transport=dead)
+    assert result["ok"] is False
+    assert "Connection refused" in result["error"]
+
+
+def test_probe_relay_health_rejects_a_bad_url(api):
+    result = api._probe_relay_health("not-a-url")
+    assert result["ok"] is False
+    assert "http(s) URL" in result["error"]
+
+
+def test_detect_tailscale_absent(api, monkeypatch):
+    monkeypatch.setattr(api, "_tailscale_exe", lambda: None)
+    ts = api.detect_tailscale()
+    assert ts == {"installed": False, "running": False, "magicdns": None, "ipv4": None, "ips": []}
+
+
+def test_detect_tailscale_running_parses_self_only(api, monkeypatch):
+    monkeypatch.setattr(api, "_tailscale_exe", lambda: "/usr/bin/tailscale")
+    monkeypatch.setattr(api, "_run_tailscale", lambda args, timeout=5: (0, _ts_status_json()))
+    ts = api.detect_tailscale()
+    assert ts["installed"] is True and ts["running"] is True
+    assert ts["magicdns"] == "my-box.tail1234.ts.net"  # trailing dot stripped
+    assert ts["ipv4"] == "100.101.102.103"  # IPv4 preferred over the IPv6 addr
+    assert ts["ips"] == ["100.101.102.103", "fd7a::1"]
+
+
+def test_detect_tailscale_installed_but_logged_out(api, monkeypatch):
+    monkeypatch.setattr(api, "_tailscale_exe", lambda: "/usr/bin/tailscale")
+    # `tailscale status --json` exits non-zero when the node is stopped/logged out.
+    monkeypatch.setattr(api, "_run_tailscale", lambda args, timeout=5: (1, ""))
+    ts = api.detect_tailscale()
+    assert ts["installed"] is True and ts["running"] is False
+    assert ts["magicdns"] is None and ts["ipv4"] is None
+
+
+def test_host_status_prefers_tailscale_magicdns(api, monkeypatch):
+    monkeypatch.setattr(api, "_tailscale_exe", lambda: "/usr/bin/tailscale")
+    monkeypatch.setattr(api, "_run_tailscale", lambda args, timeout=5: (0, _ts_status_json()))
+    status = api.host_status(9137, transport=_healthy_relay_transport())
+    assert status["suggested_relay_url"] == "http://my-box.tail1234.ts.net:9137"
+    assert status["suggested_is_shareable"] is True
+    assert status["local_relay"]["ok"] is True
+    assert status["tailscale"]["running"] is True
+    assert "python -m relay" in status["run_command"]
+
+
+def test_host_status_falls_back_to_loopback_when_no_tailscale(api, monkeypatch):
+    # No Tailscale, but a relay is answering locally: suggest loopback and flag
+    # it as NOT shareable (only works for a same-machine trial).
+    monkeypatch.setattr(api, "_tailscale_exe", lambda: None)
+    status = api.host_status(9137, transport=_healthy_relay_transport())
+    assert status["suggested_relay_url"] == "http://127.0.0.1:9137"
+    assert status["suggested_is_shareable"] is False
+
+
+def test_host_status_no_relay_no_tailscale_suggests_nothing(api, monkeypatch):
+    monkeypatch.setattr(api, "_tailscale_exe", lambda: None)
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("Could not reach the relay: Connection refused", status=0)
+
+    status = api.host_status(9137, transport=dead)
+    assert status["suggested_relay_url"] is None
+    assert status["suggested_is_shareable"] is False
+    assert status["local_relay"]["ok"] is False
+
+
+def test_host_status_clamps_bad_port(api, monkeypatch):
+    monkeypatch.setattr(api, "_tailscale_exe", lambda: None)
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("unreachable", status=0)
+
+    assert api.host_status(0, transport=dead)["default_port"] == api.DEFAULT_RELAY_PORT
+    assert api.host_status(99999, transport=dead)["default_port"] == api.DEFAULT_RELAY_PORT
+    assert api.host_status("nope", transport=dead)["default_port"] == api.DEFAULT_RELAY_PORT

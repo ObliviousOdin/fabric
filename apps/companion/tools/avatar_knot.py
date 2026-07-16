@@ -20,7 +20,7 @@ from avatar_kit import (
     GROUND,
     INK,
     RAMPS,
-    anime_eye,
+    anime_eye_lg,
     attention_dot,
     auto_outline,
     blush,
@@ -35,6 +35,7 @@ from avatar_kit import (
     sparkle,
     strand,
     sweat_drop,
+    tear,
 )
 
 NAME = "Knot"
@@ -74,7 +75,7 @@ def _geo(dy: float = 0.0, sc: float = 1.0, *, lean: float = 0.0, swell: float = 
             cx + side * HOLE_DX * sc, cy + HOLE_DY * sc / squash,
             HOLE_RX * sc * loose, HOLE_RY * sc * loose,
         ))
-    return loops[0], loops[1], CX + lean, GROUND + dy - BASE_RY * sc / squash - 3
+    return loops[0], loops[1], CX + lean, GROUND + dy - BASE_RY * sc / squash + 2
 
 
 def _annulus(img, geo):
@@ -171,8 +172,17 @@ def _dashes(img, geo, *, phase: float = 0.0, excl=None):
                 px[xi, yi] = darker[c]
 
 
-def _crossing(img, left, right):
-    """Ink seam + crevice shadow where the right loop passes OVER the left."""
+def _face_oval(fx: float, fy: float):
+    """The lit crossing region that hosts the face (body material, no plate)."""
+    return (fx, fy + 4, 12.5, 8.0)
+
+
+def _crossing(img, left, right, avoid=None):
+    """Ink seam + crevice shadow where the right loop passes OVER the left.
+
+    *avoid* is an ellipse (cx, cy, rx, ry) the seam stays out of — the face
+    sits on the crossing, so the crevice quiets down beneath it.
+    """
     lcx, lcy, lrx, lry, lhx, lhy, lhrx, lhry = left
     rcx, rcy, rrx, rry = right[:4]
     px = img.load()
@@ -189,11 +199,13 @@ def _crossing(img, left, right):
                 continue
             if _in_ellipse(x, y, lhx, lhy, lhrx + 1.0, lhry + 1.0):
                 continue
+            if avoid is not None and _in_ellipse(x, y, *avoid):
+                continue
             if px[xi, yi] in _VIOLET:
                 px[xi, yi] = col
 
 
-def _details(img, left, right, *, dash_phase: float = 0.0):
+def _details(img, left, right, *, dash_phase: float = 0.0, face=None):
     _loop_shade(img, left, -1, excl=right)
     _loop_shade(img, right, +1)
     lcx, lcy, lrx, lry = left[:4]
@@ -202,7 +214,7 @@ def _details(img, left, right, *, dash_phase: float = 0.0):
     _dither_safe(img, (rcx + 6, rcy + rry * 0.5, rcx + rrx - 1, rcy + rry - 4), V[1], phase=1)
     _dashes(img, left, phase=dash_phase, excl=right)
     _dashes(img, right, phase=dash_phase + 0.5)
-    _crossing(img, left, right)
+    _crossing(img, left, right, avoid=_face_oval(*face) if face else None)
 
 
 # ── rope ends ────────────────────────────────────────────────────────────
@@ -246,19 +258,39 @@ def _puff(img, x, y):
 
 
 # ── face ─────────────────────────────────────────────────────────────────
+def _face_glow(img, fx: int, fy: int):
+    """Lift the crossing to its warm light step so the face sits on lit rope.
+
+    One-step ramp brighten inside the face oval with a dithered rim — pure
+    body material catching the key light, NOT a bolted-on plate. Only violet
+    rope pixels are touched (outline, holes, and effects stay intact).
+    """
+    cx, cy, rx, ry = _face_oval(fx, fy)
+    lighter = {V[0]: V[1], V[1]: V[2], V[2]: V[3], V[3]: V[4]}
+    px = img.load()
+    for y in range(int(cy - ry), int(cy + ry) + 2):
+        for x in range(int(cx - rx), int(cx + rx) + 2):
+            if not (0 <= x < G_W and 0 <= y < G_H):
+                continue
+            d2 = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+            if d2 > 1.0 or (d2 > 0.72 and (x + y) % 2):
+                continue  # dithered rim melts the glow into the rope
+            c = px[x, y]
+            if c in lighter:
+                px[x, y] = lighter[c]
+
+
 def _face(img, fx, fy, *, mood="open", look=(0, 0), mouth_mood="smile", cheeks=False):
-    """Cream face plate on the central crossing + anime eyes + mouth."""
-    d = ImageDraw.Draw(img)
+    """Hero face directly on the rope at the central crossing (no plate):
+    solid-ink anime_eye_lg pair on the glow-lit material + mouth + blush."""
     fx, fy = int(round(fx)), int(round(fy))
-    d.rounded_rectangle((fx - 12, fy - 3, fx + 12, fy + 9), radius=4, fill=C[3])
-    d.line((fx - 9, fy + 9, fx + 9, fy + 9), fill=C[1])
-    d.line((fx - 8, fy - 3, fx + 3, fy - 3), fill=C[4])
-    anime_eye(img, fx - 9, fy, mood=mood, look=look)
-    anime_eye(img, fx + 6, fy, mood=mood, look=look)
-    mouth(img, fx, fy + 6, mouth_mood)
+    _face_glow(img, fx, fy)
+    anime_eye_lg(img, fx - 9, fy, mood=mood, look=look)
+    anime_eye_lg(img, fx + 6, fy, mood=mood, look=look)
+    mouth(img, fx, fy + 9, mouth_mood)
     if cheeks:
-        blush(img, fx - 11, fy + 5)
-        blush(img, fx + 9, fy + 5)
+        blush(img, fx - 13, fy + 6)
+        blush(img, fx + 11, fy + 6)
 
 
 # ── choreography ─────────────────────────────────────────────────────────
@@ -271,7 +303,7 @@ def draw(state: str, i: int, n: int):
         left, right, fx, fy = _geo(swell=1.1 * math.sin(ph))
         _body(img, left, right)
         img = auto_outline(img)
-        _details(img, left, right)
+        _details(img, left, right, face=(fx, fy))
         sway = 2.0 * math.sin(ph)
         lag = 2.0 * follow(t, 0.18)
         axl, ayl = left[0] - left[2] + 2, left[1] + 6
@@ -285,7 +317,7 @@ def draw(state: str, i: int, n: int):
         left, right, fx, fy = _geo(dy=-4 * ease_out(bounce), lean=3, squash=1.0 + 0.06 * (1 - bounce))
         _body(img, left, right)
         img = auto_outline(img)
-        _details(img, left, right, dash_phase=4 * t)  # dash texture rolls forward
+        _details(img, left, right, dash_phase=4 * t, face=(fx, fy))  # dashes roll forward
         whip = follow(2 * t, 0.2, 2.5)
         whip2 = follow(2 * t, 0.35, 2.5)
         axl, ayl = left[0] - left[2] + 2, left[1] + 6
@@ -299,7 +331,7 @@ def draw(state: str, i: int, n: int):
         left, right, fx, fy = _geo()
         _body(img, left, right)
         img = auto_outline(img)
-        _details(img, left, right)
+        _details(img, left, right, face=(fx, fy))
         # Right end spirals up overhead with an eased pendulum; tip wiggles.
         s = ease_in_out(0.5 + 0.5 * math.sin(math.pi * (2 * t - 0.5)))
         axr, ayr = right[0] + right[2] - 3, right[1] + 2
@@ -314,54 +346,95 @@ def draw(state: str, i: int, n: int):
         _face(img, fx, fy, mood="happy", mouth_mood="open", cheeks=True)
 
     elif state == "jumping":
-        if i == 0:  # tightens: whole knot cinches down, holes shrink
-            left, right, fx, fy = _geo(sc=0.85, loose=0.75)
-            _body(img, left, right)
-            img = auto_outline(img)
-            _details(img, left, right)
-            axl, ayl = left[0] - left[2] + 2, left[1] + 6
-            axr, ayr = right[0] + right[2] - 2, right[1] + 6
+        # Symmetric arc peaked at the MIDDLE frame: f0 cinch-crouch, f1
+        # spring (ends dragged below), f2 apex (knot loosens mid-air +
+        # sparkle), f3 descend (ends flung up), f4 GROUNDED landing squash
+        # that flows straight back into the f0 crouch.
+        arc = math.sin(math.pi * i / (n - 1))
+        if i == 0:  # anticipation: the whole knot cinches down tight
+            left, right, fx, fy = _geo(sc=0.96, squash=1.14, loose=0.78)
+        elif i == n - 1:  # landing: grounded, wide, holes still slack
+            left, right, fx, fy = _geo(sc=0.97, squash=1.2, loose=0.88)
+        else:  # airborne: holes loosen toward the apex (mid-air slack gag)
+            descend = i > (n - 1) // 2
+            left, right, fx, fy = _geo(
+                dy=-15 * arc + (1 if descend else 0),
+                squash=1.0 - 0.05 * arc,
+                loose=1.0 + 0.24 * arc + (0.04 if descend else 0.0),
+            )
+        _body(img, left, right)
+        img = auto_outline(img)
+        _details(img, left, right, dash_phase=0.6 * i, face=(fx, fy))
+        axl, ayl = left[0] - left[2] + 2, left[1] + 6
+        axr, ayr = right[0] + right[2] - 2, right[1] + 6
+        drift = follow(t, 0.2, 1.5)
+        if i == 0:  # ends braced against the ground, coiled close
             _end(img, [(axl, ayl), (axl - 4, ayl + 6), (axl - 6, GROUND - 2)])
             _end(img, [(axr, ayr), (axr + 4, ayr + 6), (axr + 6, GROUND - 2)])
             _face(img, fx, fy, mood="focused", mouth_mood="line")
-        else:  # springs up, loops loosening, ends trailing below
-            arc = ease_out(math.sin(math.pi * t))
-            left, right, fx, fy = _geo(dy=-17 * arc, loose=1.0 + 0.3 * arc)
-            _body(img, left, right)
-            img = auto_outline(img)
-            _details(img, left, right)
-            axl, ayl = left[0] - left[2] + 2, left[1] + 6
-            axr, ayr = right[0] + right[2] - 2, right[1] + 6
-            _end(img, [(axl, ayl), (axl - 5, ayl + 8 + 6 * arc), (axl - 8, ayl + 13 + 8 * arc)])
-            _end(img, [(axr, ayr), (axr + 5, ayr + 8 + 6 * arc), (axr + 8, ayr + 13 + 8 * arc)])
-            if i in (2, 3):
-                sparkle(img, int(left[0] - left[2] - 5), int(left[1] - left[3] - 2))
-                sparkle(img, int(right[0] + right[2] + 4), int(right[1] - right[3] + 5), small=True)
+        elif i == 1:  # rising: ends drag straight down, left behind
+            _end(img, [(axl, ayl), (axl - 4 + drift, ayl + 10), (axl - 5 + drift, ayl + 17)])
+            _end(img, [(axr, ayr), (axr + 4 - drift, ayr + 10), (axr + 5 - drift, ayr + 17)])
+            _face(img, fx, fy, mood="happy", look=(0, -1), mouth_mood="open", cheeks=True)
+        elif i == 2:  # apex: weightless — ends drift out level, sparkle
+            _end(img, [(axl, ayl), (axl - 7, ayl + 4 + drift), (axl - 13, ayl + 6)])
+            _end(img, [(axr, ayr), (axr + 7, ayr + 4 + drift), (axr + 13, ayr + 6)])
+            sparkle(img, int(left[0] - left[2] - 6), int(left[1] - left[3] - 2))
+            sparkle(img, int(right[0] + right[2] + 5), int(right[1] - right[3] + 4), small=True)
             _face(img, fx, fy, mood="happy", mouth_mood="open", cheeks=True)
+        elif i == 3:  # descending: inertia flings the ends up past the loops
+            _end(img, [(axl, ayl), (axl - 6, ayl - 8), (axl - 9, ayl - 15)])
+            _end(img, [(axr, ayr), (axr + 6, ayr - 8), (axr + 9, ayr - 15)])
+            _face(img, fx, fy, mood="open", look=(0, 1), mouth_mood="open")
+        else:  # touchdown: ends splay wide along the ground
+            _end(img, [(axl, ayl), (axl - 8, ayl + 8), (axl - 14, GROUND - 1)])
+            _end(img, [(axr, ayr), (axr + 8, ayr + 8), (axr + 14, GROUND - 1)])
+            _face(img, fx, fy, mood="happy", mouth_mood="smile", cheeks=True)
 
-    elif state == "failed":  # half-undone: right loop droops, ends go limp
-        wob = math.sin(ph)
-        ry_l = 20.0 - 0.3 * wob
-        lgeo = (CX - 9, GROUND - ry_l, 15.5 + 0.3 * wob, ry_l, CX - 12, GROUND - ry_l - 7, 5.5, 6.5)
-        ry_r = 13.0 - 0.3 * wob
-        rgeo = (CX + 12, GROUND - ry_r, 16.0 + 0.4 * wob, ry_r, CX + 14, GROUND - ry_r - 3, 7.5, 5.2)
+    elif state == "failed":  # the knot comes half-undone, then sits with it
+        # Progressive come-apart over f0..f3 (right loop droops with a tiny
+        # overshoot pop at f3), then settled sulk-breathing f4..f7 (<=1px)
+        # ending in a holdable slump. Kit tear() wells up from f3.
+        slump = (0.12, 0.45, 0.78, 1.06, 1.0, 1.0, 1.0, 1.0)[i]
+        bre = 0.5 * math.sin(ph)  # sulk breath, sub-pixel amplitude
+
+        def lp(a: float, b: float) -> float:
+            return a + (b - a) * slump
+
+        ry_l = lp(22.0, 20.0) + 0.5 * bre
+        lgeo = (CX - 9, GROUND - ry_l, lp(15.0, 15.5), ry_l,
+                CX - 12, lp(70.0, 73.0) - 0.4 * bre, lp(4.6, 5.5), lp(6.3, 6.5))
+        ry_r = lp(22.0, 13.0) + 0.3 * bre
+        rgeo = (lp(57.0, 60.0), GROUND - ry_r, lp(15.0, 16.0), ry_r,
+                lp(60.0, 65.5), lp(70.0, 87.0) - 0.4 * bre, lp(4.6, 7.0), lp(6.3, 5.0))
+        fy = (GROUND - ry_l) + 2 + slump
         _body(img, lgeo, rgeo)
         img = auto_outline(img)
-        _details(img, lgeo, rgeo)
-        _end(img, [(CX - 20, GROUND - 10), (CX - 28, GROUND - 3), (CX - 33, GROUND - 1)])
-        _end(img, [(CX + 24, GROUND - 8), (CX + 29, GROUND - 2), (CX + 35, GROUND - 1)])
-        sweat_drop(img, CX + 13, 68 + 6 * t)
-        _face(img, CX, GROUND - 22, mood="sad", look=(0, 1), mouth_mood="wobble")
+        _details(img, lgeo, rgeo, face=(CX, fy))
+        # Rope ends slide from a hang into a full ground-level sprawl; the
+        # tips keep a follow()-lagged twitch through the sulk hold.
+        sl = min(1.0, slump)
+        dr = follow(t, 0.25, 0.8)
+        axl, ayl = lgeo[0] - lgeo[2] + 2, lgeo[1] + 6
+        axr, ayr = rgeo[0] + rgeo[2] - 2, rgeo[1] + 4
+        _end(img, [(axl, ayl), (axl - 5 - 3 * sl, ayl + 7 - sl), (axl - 9 - 5 * sl + dr, GROUND - 2 + sl)])
+        _end(img, [(axr, ayr), (axr + 4 + 3 * sl, min(ayr + 7.0, GROUND - 3)), (axr + 7 + 5 * sl - dr, GROUND - 2 + sl)])
+        if i >= 3:
+            tear(img, CX - 8, fy + 7 + (i - 3))
+        sweat_drop(img, CX + 17, 63 + 5 * t)
+        _face(img, CX, fy, mood="sad", look=(0, 1), mouth_mood="wobble")
 
     elif state == "waiting":
         left, right, fx, fy = _geo(swell=0.5 * math.sin(ph))
         _body(img, left, right)
         img = auto_outline(img)
-        _details(img, left, right)
-        # Left end curls into a question-hook under the twinkling gold dot.
+        _details(img, left, right, face=(fx, fy))
+        # Left end curls into a question-hook under the twinkling gold dot;
+        # the hook tip keeps a tiny alternating wobble so it never freezes.
+        wob = 1 if i % 2 == 0 else 0
         axl, ayl = left[0] - left[2] + 2, left[1] + 4
-        _end(img, [(axl, ayl), (axl - 5, ayl - 7), (axl - 7, ayl - 15), (axl - 3, ayl - 20),
-                   (axl + 1, ayl - 16), (axl - 1, ayl - 12)])
+        _end(img, [(axl, ayl), (axl - 5, ayl - 7), (axl - 7 - wob, ayl - 15), (axl - 3, ayl - 20),
+                   (axl + 1 + wob, ayl - 16), (axl - 1, ayl - 12)])
         put(img, axl - 4, ayl - 5, V[1])
         attention_dot(img, int(axl - 4), ayl - 27 + bob(t, 1.2), t=t)
         # Right end taps the ground on alternate frames.
@@ -374,7 +447,7 @@ def draw(state: str, i: int, n: int):
         left, right, fx, fy = _geo(squash=1.0 + 0.035 * pulse, loose=1.0 - 0.06 * abs(pulse))
         _body(img, left, right)
         img = auto_outline(img)
-        _details(img, left, right, dash_phase=2 * t)
+        _details(img, left, right, dash_phase=2 * t, face=(fx, fy))
         wl = ease_in_out(0.5 + 0.5 * math.sin(2 * ph))
         wr = ease_in_out(0.5 + 0.5 * math.sin(2 * ph + math.pi))
         fl = follow(2 * t, 0.15, 1.5)
@@ -396,12 +469,13 @@ def draw(state: str, i: int, n: int):
         left, right, fx, fy = _geo()
         _body(img, left, right)
         img = auto_outline(img)
-        _details(img, left, right)
-        sy = fy + 12
+        _details(img, left, right, face=(fx, fy))
+        sy = fy + 13
+        flex = follow(t, 0.3, 0.6)  # elbows flex as the strand is fed along
         axl, ayl = left[0] - left[2] + 2, left[1] + 6
         axr, ayr = right[0] + right[2] - 2, right[1] + 6
-        _end(img, [(axl, ayl), (axl - 2, ayl + 7), (CX - 19, sy + 3), (CX - 15, sy + 1)])
-        _end(img, [(axr, ayr), (axr + 2, ayr + 7), (CX + 19, sy + 3), (CX + 15, sy + 1)])
+        _end(img, [(axl, ayl), (axl - 2, ayl + 7 + flex), (CX - 19, sy + 3), (CX - 15, sy + 1)])
+        _end(img, [(axr, ayr), (axr + 2, ayr + 7 - flex), (CX + 19, sy + 3), (CX + 15, sy + 1)])
         strand(img, [(CX - 13, sy + 1), (CX - 10, sy), (CX + 10, sy), (CX + 13, sy + 1)], C[3])
         scan = ease_in_out(1.0 - abs(2 * t - 1.0))
         gx = CX - 10 + 20 * scan
@@ -414,7 +488,7 @@ def draw(state: str, i: int, n: int):
         left, right, fx, fy = _geo()
         _body(img, left, right)
         img = auto_outline(img)
-        _details(img, left, right)
+        _details(img, left, right, face=(fx, fy))
         _face(img, fx, fy)
 
     return img

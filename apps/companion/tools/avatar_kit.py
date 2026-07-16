@@ -352,13 +352,17 @@ def sparkle(img: Image.Image, x: int, y: int, *, small: bool = False) -> None:
 
 
 def sweat_drop(img: Image.Image, x: int, y: float) -> None:
-    """The classic anime distress drop, sliding down beside the head."""
+    """The classic anime distress drop, sliding down beside the head.
+
+    Ink-rimmed so it reads on any body tone or backdrop.
+    """
     d = ImageDraw.Draw(img)
     yi = int(y)
-    d.polygon([(x, yi - 2), (x - 1, yi), (x + 1, yi)], fill=RAMPS["cream"][2])
-    d.ellipse((x - 1, yi - 1, x + 1, yi + 2), fill=RAMPS["cream"][2])
+    d.ellipse((x - 2, yi - 2, x + 2, yi + 3), fill=INK)
+    d.polygon([(x, yi - 3), (x - 1, yi - 1), (x + 1, yi - 1)], fill=INK)
+    d.ellipse((x - 1, yi - 1, x + 1, yi + 2), fill=RAMPS["navy"][3])
+    put(img, x, yi - 1, RAMPS["cream"][2])
     put(img, x, yi, RAMPS["cream"][4])
-    put(img, x - 1, yi + 1, RAMPS["navy"][3])
 
 
 def motion_ticks(img: Image.Image, x: int, y: int, dir_x: int, *, count: int = 3) -> None:

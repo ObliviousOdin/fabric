@@ -1,11 +1,13 @@
 """Patch — the quilt golem. A huggable patchwork cube-critter.
 
 A soft rounded-square golem stitched from four brand-toned quilt squares
-(violet, gray, cream, navy), each puffed with its own ramp shading and
-joined by cream running stitches with gold cross-stitch accents. One big
-anime eye and one sewn-on button eye give it a lopsided handmade charm;
-stubby floating mitts and rounded navy feet do the rest. Personifies
-Fabric's "many pieces, one fabric" ethos.
+(cream, gray, violet, navy), each puffed with its own ramp shading and
+joined by running stitches with gold cross-stitch accents. The face lives
+directly ON the top-left cream square — one big solid-ink anime eye and one
+sewn-on button eye for lopsided handmade charm — and a loose gold basting
+thread springs from the crown seam as Patch's emotion ahoge. Stubby
+floating mitts and rounded navy feet do the rest. Personifies Fabric's
+"many pieces, one fabric" ethos.
 """
 
 from __future__ import annotations
@@ -21,13 +23,12 @@ from avatar_kit import (
     GROUND,
     INK,
     RAMPS,
-    anime_eye,
+    anime_eye_lg,
     attention_dot,
     auto_outline,
     blush,
     bob,
     canvas,
-    dither_shade,
     ease_in_out,
     ease_out,
     follow,
@@ -37,6 +38,7 @@ from avatar_kit import (
     sparkle,
     strand,
     sweat_drop,
+    tear,
 )
 
 NAME = "Patch"
@@ -94,11 +96,11 @@ def _quads(left, top, right, bot, sx, sy, *, puff=-1, sep=0, detach=(0, 0)):
     tr = [sx, top, right, sy]
     bl = [left, sy, sx, bot]
     br = [sx, sy, right, bot]
-    if puff == 0:  # violet + navy swell
+    if puff == 0:  # cream + navy swell
         tl[0] -= 1
         tl[1] -= 1
         br[2] += 1
-    elif puff == 1:  # gray + cream swell
+    elif puff == 1:  # gray + violet swell
         tr[2] += 1
         tr[1] -= 1
         bl[0] -= 1
@@ -111,8 +113,8 @@ def _quads(left, top, right, bot, sx, sy, *, puff=-1, sep=0, detach=(0, 0)):
     if dx or dyv:
         tr = [tr[0] + dx, tr[1] + dyv, tr[2] + dx, tr[3] + dyv]
     return [
-        (tuple(tl), "violet", (True, False, False, False)),
-        (tuple(bl), "cream", (False, False, False, True)),
+        (tuple(tl), "cream", (True, False, False, False)),
+        (tuple(bl), "violet", (False, False, False, True)),
         (tuple(br), "navy", (False, False, True, False)),
         (tuple(tr), "gray", (False, True, False, False)),
     ]
@@ -239,10 +241,11 @@ def _details(img, g) -> None:
             radius=7, corners=(False, True, False, False), outline=INK,
         )
 
-    # Gold cross-stitch accents on the cream and gray squares.
+    # Gold cross-stitch accents on the violet and gray squares (the cream
+    # square hosts the face, so it stays clear).
     for box, ramp, _c in g["quads"]:
         x0, y0, x1, y1 = (int(round(v)) for v in box)
-        if ramp == "cream":
+        if ramp == "violet":
             _cross(img, x0 + 6, (y0 + y1) // 2 + 2)
         elif ramp == "gray":
             _cross(img, x1 - 6, y1 - 5)
@@ -300,20 +303,76 @@ def _button_eye(img, x, y) -> None:
 
 def _face(img, g, *, mood="open", look=(0, 0), mouth_mood="smile",
           cheeks=False, dx=0) -> None:
-    """Big cream face plate: one anime eye + one button eye + mouth."""
-    d = ImageDraw.Draw(img)
-    cx = g["cx"] + dx
-    fy = g["top"] + 5
-    d.rounded_rectangle((cx - 15, fy - 3, cx + 15, fy + 11), radius=5,
-                        fill=C[3], outline=C[0])
-    _hline(img, cx - 12, cx + 12, fy + 10, C[1])
-    _hline(img, cx - 12, cx + 2, fy - 2, C[4])
-    anime_eye(img, cx - 11, fy, mood=mood, look=look)
-    _button_eye(img, cx + 4, fy - 1)
-    mouth(img, cx - 1, fy + 7, mouth_mood)
+    """The face lives ON the top-left cream quilt square (no plate):
+    one solid-ink hero eye + one sewn-on button eye + mouth."""
+    tlb = g["quads"][0][0]
+    x0, y0 = int(round(tlb[0])), int(round(tlb[1]))
+    fx = x0 + 4 + dx  # hero-eye anchor, riding the cream patch
+    fy = y0 + 6
+    anime_eye_lg(img, fx, fy, mood=mood, look=look)
+    _button_eye(img, fx + 8, fy - 1)
+    mouth(img, fx + 6, fy + 8, mouth_mood)
     if cheeks:
-        blush(img, cx - 14, fy + 6)
-        blush(img, cx + 12, fy + 6)
+        blush(img, fx - 2, fy + 7)
+        blush(img, fx + 12, fy + 7)
+
+
+def _ahoge(img, g, pose: str, t: float) -> None:
+    """Patch's soul thread: a loose gold basting strand at the crown seam.
+
+    Rooted where the center seam meets the crown, it perks, streams, wilts,
+    and curls into question hooks — emotion in every row, with follow() lag.
+    """
+    rx, ry = g["sx"], g["top"]
+    root = (rx, ry)
+    if pose == "perk":  # fully vertical, proud
+        pts = [(rx, ry - 4), (rx + 1, ry - 8), (rx, ry - 12)]
+    elif pose == "rest":
+        sway = follow(t, 0.15, 2)
+        pts = [(rx + 1, ry - 4), (rx + 2 + sway, ry - 8), (rx - 1 + sway, ry - 11)]
+    elif pose == "flick":  # idle life-beat: tip snaps up
+        pts = [(rx + 1, ry - 4), (rx + 2, ry - 9), (rx + 3, ry - 13)]
+    elif pose == "stream":  # running: streams straight back
+        whip = follow(t * 2, 0.2, 3)
+        pts = [(rx - 5, ry - 4), (rx - 10, ry - 6 + whip / 2), (rx - 14, ry - 5 + whip)]
+    elif pose == "flat":  # crouch/landing: flattened sideways
+        pts = [(rx + 4, ry - 1), (rx + 8, ry), (rx + 11, ry + 1)]
+    elif pose == "trail":  # rising: the thread trails below the crown
+        pts = [(rx + 4, ry), (rx + 7, ry + 3), (rx + 9, ry + 7)]
+    elif pose == "float":  # apex: weightless, straight up
+        pts = [(rx, ry - 5), (rx - 1, ry - 9), (rx + 1, ry - 13)]
+    elif pose == "up":  # descending: streams upward behind the fall
+        pts = [(rx + 2, ry - 4), (rx + 5, ry - 8), (rx + 7, ry - 12)]
+    elif pose == "wilt":  # failed: draped over the crown edge
+        droop = min(1.0, t * 3)
+        wob = follow(t, 0.1, 0.7) * droop
+        pts = [
+            (rx + 3, ry - 3 + 3 * droop),
+            (rx + 6, ry - 2 + 5 * droop + wob / 2),
+            (rx + 9, ry + 6 * droop + wob),
+        ]
+    elif pose == "hook":  # waiting: curls into a question mark
+        f = ease_in_out(min(1.0, t * 3))
+        wob = 1 if (int(t * 6) % 2 == 0 and t > 0.4) else 0
+        pts = [
+            (rx + 2, ry - 5),
+            (rx + 4 + 2 * f, ry - 9 - f),
+            (rx + 2 + 2 * f + wob, ry - 12 - 2 * f),
+            (rx - 1 + f, ry - 10 - 2 * f),
+        ]
+        strand(img, [root, *pts], G[1], thick=True)
+        strand(img, [root, *pts], G[2])
+        put(img, pts[-1][0], pts[-1][1], C[4])
+        put(img, rx + 2, ry - 6, G[2])  # the question dot
+        return
+    elif pose == "whip":  # working: counter-whips the knead beat
+        whip = follow(t, 0.2, 3)
+        pts = [(rx - whip, ry - 5), (rx - 2 * whip, ry - 9), (rx - whip, ry - 12)]
+    else:
+        pts = [(rx, ry - 6), (rx, ry - 10)]
+    strand(img, [root, pts[0]], G[1], thick=True)
+    strand(img, pts, G[2])
+    put(img, pts[-1][0], pts[-1][1], C[4])
 
 
 def _steam(img, x, y, big) -> None:
@@ -343,6 +402,7 @@ def draw(state: str, i: int, n: int):
         _mitts(img, g,
                l_off=(0, round(follow(t, 0.18, 2.0))),
                r_off=(0, round(follow(t, 0.32, 2.0))))
+        _ahoge(img, g, "flick" if i == 2 else "rest", t)
         _face(img, g, mood="closed" if i == n - 1 else "open",
               mouth_mood="smile", cheeks=True)
 
@@ -357,6 +417,7 @@ def draw(state: str, i: int, n: int):
                l_off=(round(3 * pump), -2 - round(1.5 * pump)),
                r_off=(round(-3 * pump), -2 + round(1.5 * pump)))
         motion_ticks(img, g["left"] - 3, (g["top"] + g["bot"]) // 2, 1)
+        _ahoge(img, g, "stream", t)
         _face(img, g, mood="open", look=(1, 0), mouth_mood="smile", dx=2)
 
     elif state == "waving":
@@ -377,46 +438,81 @@ def draw(state: str, i: int, n: int):
         _mitt(img, wx, wy)
         if sweep > 0.85:
             sparkle(img, int(round(wx)) + 6, int(round(wy)) - 2, small=True)
+        _ahoge(img, g, "perk", t)
         _face(img, g, mood="happy", mouth_mood="open", cheeks=True)
 
     elif state == "jumping":
-        arc = ease_out(math.sin(math.pi * t))
-        if i == 0:  # anticipation squash
+        # Symmetric arc peaked at the middle frame: f0 crouch, f1 rise,
+        # f2 apex (quilt squares drift apart + sparkles), f3 descend,
+        # f4 GROUNDED landing squash — the loop lands back into f0.
+        arc = math.sin(math.pi * i / (n - 1))
+        if i == 0:  # anticipation crouch
             g = _body(img, 0, 1.18)
             img = auto_outline(img)
             _details(img, g)
-            _mitts(img, g, l_off=(0, 2), r_off=(0, 2))
-            _face(img, g, mood="focused", mouth_mood="line")
-        else:
-            sep = 2 if i in (2, 3) else 0
-            g = _body(img, -15 * arc, 1.0 - 0.10 * arc, sep=sep)
+            _mitts(img, g, l_off=(0, 2), r_off=(0, 3))
+            _ahoge(img, g, "flat", t)
+            _face(img, g, mood="focused", look=(0, -1), mouth_mood="line")
+        elif i == n - 1:  # landing squash, boots planted, dust kicks
+            g = _body(img, 0, 1.10)
             img = auto_outline(img)
             _details(img, g)
-            _mitts(img, g,
-                   l_off=(-2, -round(5 * arc)),
-                   r_off=(2, -round(5 * arc)))
-            if sep:  # sparkles in the quilt gaps
+            _mitts(img, g, l_off=(-2, -3), r_off=(2, -3))
+            _ahoge(img, g, "flat", t)
+            for side in (-1, 1):
+                put(img, g["cx"] + side * 22, GROUND - 2, C[2])
+                put(img, g["cx"] + side * 24, GROUND - 4, C[1])
+            _face(img, g, mood="happy", mouth_mood="smile", cheeks=True)
+        else:
+            sep = 2 if i == (n - 1) // 2 else 0  # separation at the apex ONLY
+            g = _body(img, -15 * arc, 1.0 - 0.08 * arc, sep=sep)
+            img = auto_outline(img)
+            _details(img, g)
+            if sep:  # apex: weightless — sparkles in the quilt gaps
+                _mitts(img, g, l_off=(-3, -5), r_off=(3, -5))
+                _ahoge(img, g, "float", t)
                 sparkle(img, g["cx"], g["sy"], small=True)
                 sparkle(img, g["cx"] - 14, g["sy"], small=True)
                 sparkle(img, g["cx"] + 14, g["sy"], small=True)
                 sparkle(img, g["right"] + 7, g["top"] - 3)
-            _face(img, g, mood="happy", mouth_mood="open", cheeks=True)
+                _face(img, g, mood="happy", mouth_mood="open", cheeks=True)
+            elif i < (n - 1) // 2:  # rising: mitts + thread trail below
+                _mitts(img, g, l_off=(-2, 3), r_off=(2, 3))
+                _ahoge(img, g, "trail", t)
+                _face(img, g, mood="open", look=(0, -1), mouth_mood="open")
+            else:  # descending: mitts flung up, eyes on the landing
+                _mitts(img, g, l_off=(-2, -6), r_off=(2, -6))
+                _ahoge(img, g, "up", t)
+                _face(img, g, mood="open", look=(0, 1), mouth_mood="smile")
 
     elif state == "failed":
-        wob = math.sin(ph)
-        slump = 3 + round(0.5 + 0.5 * wob)
-        g = _body(img, slump, 1.10, detach=(3, 5 + (1 if wob > 0.3 else 0)))
+        # Progressive come-apart over f0-f3 (slump deepens, the gray square
+        # shears loose), then settled sulk-breathing f4-f7 (amp <= 1px) —
+        # ending in a holdable slumped pose.
+        settle = ease_in_out(min(1.0, i / 3))
+        breath = 1 if i in (5, 6) else 0
+        detach = (round(3 * settle), round(6 * settle))
+        g = _body(img, 3 * settle + breath, 1.0 + 0.10 * settle, detach=detach)
         img = auto_outline(img)
         _details(img, g)
-        _mitts(img, g, l_off=(-2, 4), r_off=(2, 5))
-        # Torn stitch frays in the crack + threads dangling off the square.
-        trb = next(b for b, rname, _c in g["quads"] if rname == "gray")
-        x0, y0, x1, y1 = (int(round(v)) for v in trb)
-        strand(img, [(x0 + 5, y0), (x0 + 4, y0 - 3)], C[3])
-        strand(img, [(x0 + 13, y0), (x0 + 14, y0 - 4)], C[3])
-        strand(img, [(x1 - 2, y1 - 1), (x1 + 1 + round(wob), y1 + 3),
-                     (x1 + round(2 * wob), y1 + 7)], C[3])
-        sweat_drop(img, g["left"] + 3, g["top"] + 4 + 5 * t)
+        _mitts(img, g,
+               l_off=(-round(2 * settle), round(4 * settle) + breath),
+               r_off=(round(2 * settle), round(5 * settle)))
+        _ahoge(img, g, "wilt", t)
+        if detach != (0, 0):
+            # Torn stitch frays in the crack + threads off the loose square.
+            sway = follow(t, 0.1, 1.0)
+            trb = next(b for b, rname, _c in g["quads"] if rname == "gray")
+            x0, y0, x1, y1 = (int(round(v)) for v in trb)
+            strand(img, [(x0 + 5, y0), (x0 + 4, y0 - 3)], C[3])
+            strand(img, [(x0 + 13, y0), (x0 + 14, y0 - 4)], C[3])
+            strand(img, [(x1 - 2, y1 - 1), (x1 + 1 + round(sway), y1 + 3),
+                         (x1 + round(2 * sway), y1 + 7)], C[3])
+        if i >= 3:  # a single tear wells under the hero eye
+            tlb = g["quads"][0][0]
+            tear(img, int(round(tlb[0])) + 6,
+                 int(round(tlb[1])) + 13 + min(i - 3, 3))
+        sweat_drop(img, g["left"] - 4, g["top"] + 5 + 5 * t)
         _face(img, g, mood="sad", look=(0, 1), mouth_mood="wobble")
 
     elif state == "waiting":
@@ -425,12 +521,9 @@ def draw(state: str, i: int, n: int):
         img = auto_outline(img)
         _details(img, g)
         _mitts(img, g, l_off=(0, round(follow(t, 0.2, 1.5))), r_off=(0, 1))
-        # A loose stitch thread curls into a question-hook beside the head.
-        ax, ay = g["left"] + 4, g["top"] + 1
-        strand(img, [(ax, ay), (ax - 4, ay - 4), (ax - 7, ay - 8),
-                     (ax - 6, ay - 12), (ax - 2, ay - 13), (ax, ay - 10)], C[1])
-        put(img, ax - 4, ay - 5, C[3])
-        attention_dot(img, g["cx"] + 9, g["top"] - 12 + bob(t, 1.5), t=t)
+        # The basting thread curls into a question-hook above the crown.
+        _ahoge(img, g, "hook", t)
+        attention_dot(img, g["cx"] + 13, g["top"] - 12 + bob(t, 1.5), t=t)
         _face(img, g, mood="closed" if i == n - 1 else "open",
               look=(1, -1), mouth_mood="line")
 
@@ -447,6 +540,7 @@ def draw(state: str, i: int, n: int):
         side = -1 if i % 2 else 1
         _steam(img, g["cx"] + side * (BODY_W // 2 + 6),
                g["top"] + 9 - 2 * (i % 3), i % 3 == 2)
+        _ahoge(img, g, "whip", t)
         _face(img, g, mood="focused",
               look=(1 if k > 0.2 else (-1 if k < -0.2 else 0), 0),
               mouth_mood="line", dx=round(0.7 * lean))
@@ -473,6 +567,7 @@ def draw(state: str, i: int, n: int):
         # Left mitt steadies the card; right mitt reads along under it.
         _mitt(img, cx - 12, sy + 5)
         _mitt(img, cx - 6 + 12 * pos, sy + 11)
+        _ahoge(img, g, "rest", t)
         _face(img, g, mood="focused",
               look=(int(round(-1 + 2 * pos)), 1), mouth_mood="line")
 
@@ -481,6 +576,7 @@ def draw(state: str, i: int, n: int):
         img = auto_outline(img)
         _details(img, g)
         _mitts(img, g)
+        _ahoge(img, g, "rest", t)
         _face(img, g)
 
     return img

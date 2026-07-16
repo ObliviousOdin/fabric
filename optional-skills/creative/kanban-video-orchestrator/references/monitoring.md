@@ -88,7 +88,7 @@ file):
 
 ```bash
 # 1. Create the new task and capture its id
-NEW_TASK_ID=$(hermes kanban create "Generate SRT captions from voiceover" \
+NEW_TASK_ID=$(fabric kanban create "Generate SRT captions from voiceover" \
     --assignee captioner \
     --workspace dir:"$HOME/projects/video-pipeline/<slug>" \
     --tenant <slug> \

@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 prerequisites:
   commands: [python3]
 metadata:
-  hermes:
+  fabric:
     tags: [privacy, data-broker, opt-out, ccpa, gdpr, security, doxxing]
     category: security
     related_skills: [google-workspace, agentmail, himalaya, scrapling, osint-investigation]

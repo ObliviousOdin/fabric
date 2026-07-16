@@ -8,11 +8,18 @@ description: "Durable SQLite-backed task board for coordinating multiple Fabric 
 
 > **Want a walkthrough?** Read the [Kanban tutorial](./kanban-tutorial) — four user stories (solo dev, fleet farming, role pipeline with retry, circuit breaker) with dashboard screenshots of each. This page is the reference; the tutorial is the narrative.
 
-Fabric Kanban is a durable task board, shared across all your Fabric profiles, that lets multiple named agents collaborate on work without fragile in-process subagent swarms. Every task is a row in `~/.fabric/kanban.db`; every handoff is a row anyone can read and write; every worker is a full OS process with its own identity.
+Fabric Kanban is a durable task board, shared across all your Fabric profiles,
+that lets multiple named agents collaborate on work without fragile in-process
+subagent swarms. Every task is a SQLite row; every handoff is durable; every
+worker is a full OS process with its own identity. In the web experience this
+system is presented as **Work** at `/workspace/work`, with Board, Graph, and
+Outline views. `/work` and `/kanban` remain route aliases.
 
 ### Two surfaces: the model talks through tools, you talk through the CLI
 
-The board has two front doors, both backed by the same `~/.fabric/kanban.db`:
+The board has two front doors, both backed by the same selected board database
+(`~/.fabric/kanban.db` for `default`, or
+`~/.fabric/kanban/boards/<slug>/kanban.db` for a named board):
 
 - **Agents drive the board through a dedicated `kanban_*` toolset** — `kanban_show`, `kanban_list`, `kanban_complete`, `kanban_block`, `kanban_heartbeat`, `kanban_comment`, `kanban_create`, `kanban_link`, `kanban_unblock`. The dispatcher spawns each worker with these tools already in its schema; orchestrator profiles can also enable the `kanban` toolset explicitly. The model reads and routes tasks by calling tools directly, *not* by shelling out to `fabric kanban`. See [How workers interact with the board](#how-workers-interact-with-the-board) below.
 - **You (and scripts, and cron) drive the board through `fabric kanban …`** on the CLI, `/kanban …` as a slash command, or the dashboard. These are for humans and automation — the places without a tool-calling model behind them.
@@ -27,7 +34,8 @@ This is the shape that covers the workloads `delegate_task` can't:
 - **Engineering pipelines** — decompose → implement in parallel worktrees → review → iterate → PR.
 - **Fleet work** — one specialist managing N subjects (50 social accounts, 12 monitored services).
 
-For the full design rationale, comparative analysis against Cline Kanban / Paperclip / NanoClaw / Google Gemini Enterprise, and the eight canonical collaboration patterns, see `docs/fabric-kanban-v1-spec.pdf` in the repository.
+For guided workflows, continue to the [Kanban tutorial](./kanban-tutorial). For
+the worker execution contract, see [Kanban worker lanes](./kanban-worker-lanes).
 
 ## Kanban vs. `delegate_task`
 
@@ -59,7 +67,10 @@ They coexist: a kanban worker may call `delegate_task` internally during its run
   (e.g. one per project, repo, or domain); see [Boards (multi-project)](#boards-multi-project)
   below. Single-project users stay on the `default` board and never see the
   word "board" outside this docs section.
-- **Task** — a row with title, optional body, one assignee (a profile name), status (`triage | todo | ready | running | blocked | done | archived`), optional tenant namespace, optional idempotency key (dedup for retried automation).
+- **Task** — a row with title, optional body, one assignee (a profile name),
+  status (`triage | todo | scheduled | ready | running | blocked | review | done | archived`),
+  optional tenant namespace, and optional idempotency key (dedup for retried
+  automation).
 - **Link** — `task_links` row recording a parent → child dependency. The dispatcher promotes `todo → ready` when all parents are `done`.
 - **Comment** — the inter-agent protocol. Agents and humans append comments; when a worker is (re-)spawned it reads the full comment thread as part of its context.
 - **Workspace** — the directory a worker operates in. Three kinds:
@@ -136,7 +147,7 @@ so path-traversal tricks can't name a board.
 
 ### Managing boards from the dashboard
 
-`fabric dashboard` → Kanban tab shows a board switcher at the top as soon
+`fabric dashboard` → **Work** shows a board switcher at the top as soon
 as more than one board exists (or any board has tasks). Single-board users
 see only a small `+ New board` button; the switcher is hidden until it
 matters.
@@ -454,20 +465,38 @@ The orchestrator guidance ships in the worker's system prompt automatically — 
 
 For best results, pair it with a profile whose toolsets are restricted to board operations (`kanban`, `gateway`, `memory`) so the orchestrator literally cannot execute implementation tasks even if it tries.
 
-## Dashboard (GUI)
+## Work in the dashboard
 
-The `/kanban` CLI and slash command are enough to run the board headlessly, but a visual board is often the right interface for humans-in-the-loop: triage, cross-profile supervision, reading comment threads, and dragging cards between columns. Fabric ships this as a **bundled dashboard plugin** at `plugins/kanban/` — not a core feature, not a separate service — following the model laid out in [Extending the Dashboard](./extending-the-dashboard).
+The `/kanban` CLI and slash command are enough to run the board headlessly, but
+the Work surface is often the right interface for humans-in-the-loop: triage,
+cross-profile supervision, dependency inspection, reviewing runs, and moving
+cards between states. Fabric ships it as a **bundled dashboard integration** at
+`plugins/kanban/`—not a separate service—following the model in
+[Extending the Dashboard](./extending-the-dashboard).
 
 Open it with:
 
 ```bash
 fabric kanban init      # one-time: create kanban.db if not already present
-fabric dashboard        # "Kanban" tab appears in the nav, after "Skills"
+fabric dashboard        # open Workspace → Work
 ```
+
+The integration overrides the reserved `/workspace/work` route. `/work` and
+`/kanban` resolve to the same page. The selected board, projection, and task are
+URL state (`?board=<slug>&view=board|graph|outline&task=<id>`), so a filtered
+work context can be bookmarked and shared.
 
 ### What the plugin gives you
 
-- A **Kanban** tab showing one column per status: `triage`, `todo`, `ready`, `running`, `blocked`, `done` (plus `archived` when the toggle is on).
+- Three projections of the same durable tasks:
+  - **Board** — the operational column view.
+  - **Graph** — goals, dependency edges, active agent runs, and result/review
+    nodes with a selected-path inspector.
+  - **Outline** — the same goal/task/run/result structure as an accessible,
+    keyboard-navigable hierarchy.
+- The **Board** projection shows statuses in kernel order: `triage`, `todo`,
+  `scheduled`, `ready`, `running`, `blocked`, `review`, `done` (plus
+  `archived` when the toggle is on).
   - `triage` is the parking column for rough ideas. By default (`kanban.auto_decompose: true`), the dispatcher auto-runs the **decomposer** on tasks that land here. The built-in decomposer uses the `auxiliary.kanban_decomposer` model path, reads your profile roster (with descriptions), and fans the task out into a small graph of child tasks routed to the best-fit specialists. The original task stays alive as the parent of every child so its assignee (`kanban.orchestrator_profile`, or the active default profile when unset) wakes back up to judge completion when everything finishes. Flip the **Orchestration: Auto/Manual** pill at the top of the page (emerald = Auto, muted gray = Manual), or by editing `config.yaml` directly. Both modes coexist with `fabric kanban specify` - that's still available as a single-task spec rewrite when you don't want fan-out.
 - Cards show the task id, title, priority badge, tenant tag, assigned profile, comment/link counts, a **progress pill** (`N/M` children done when the task has dependents), and "created N ago". A per-card checkbox enables multi-select.
 - **Per-profile lanes inside Running** — toolbar checkbox toggles sub-grouping of the Running column by assignee.
@@ -480,9 +509,25 @@ fabric dashboard        # "Kanban" tab appears in the nav, after "Skills"
   - **Editable assignee / priority** — click the meta row to rewrite.
   - **Editable description** — markdown-rendered by default (headings, bold, italic, inline code, fenced code, `http(s)` / `mailto:` links, bullet lists), with an "edit" button that swaps in a textarea. Markdown rendering is a tiny, XSS-safe renderer — every substitution runs on HTML-escaped input, only `http(s)` / `mailto:` links pass through, and `target="_blank"` + `rel="noopener noreferrer"` are always set.
   - **Dependency editor** — chip list of parents and children, each with an `×` to unlink, plus dropdowns over every other task to add a new parent or child. Cycle attempts are rejected server-side with a clear message.
-  - **Status action row** (→ triage / → ready / → running / block / unblock / complete / archive) with confirm prompts for destructive transitions. For cards in the **Triage** column the row also exposes two LLM-driven actions: **⚗ Decompose** fans the task out into a graph of child tasks routed to specialist profiles by description, and **✨ Specify** does a single-task spec rewrite. Decompose falls back to specify-style promotion when the LLM decides the task doesn't benefit from fan-out, so it's a strict superset. Both are reachable from the CLI (`fabric kanban decompose <id>` / `specify <id>` / `--all`), from any gateway platform (`/kanban decompose <id>`), and programmatically via `POST /api/plugins/kanban/tasks/:id/decompose` and `…/specify`. Configure the models under `auxiliary.kanban_decomposer` and `auxiliary.triage_specifier` in `config.yaml`.
+  - **Status action row** for supported task transitions, blocking/unblocking,
+    completion, review, and archive. `running` is owned by the dispatcher/claim
+    path and cannot be set directly. For cards in the **Triage** column the row
+    also exposes two LLM-driven actions: **⚗ Decompose** fans the task out into
+    a graph of child tasks routed to specialist profiles, and **✨ Specify** does
+    a single-task spec rewrite. Decompose falls back to specify-style promotion
+    when the LLM decides the task does not benefit from fan-out. Both are
+    reachable from the CLI (`fabric kanban decompose <id>` / `specify <id>` /
+    `--all`), from any gateway platform (`/kanban decompose <id>`), and through
+    `POST /api/plugins/kanban/tasks/:id/decompose` and `…/specify`. Configure
+    the models under `auxiliary.kanban_decomposer` and
+    `auxiliary.triage_specifier` in `config.yaml`.
   - Result section (also markdown-rendered), comment thread with Enter-to-submit, the last 20 events.
 - **Toolbar filters** — free-text search, tenant dropdown (defaults to `dashboard.kanban.default_tenant` from `config.yaml`), assignee dropdown, "show archived" toggle, "lanes by profile" toggle, and a **Nudge dispatcher** button so you don't have to wait for the next 60 s tick.
+- A **Chat Work card** in the dashboard's right rail with board selection,
+  Active/Running/Blocked/Review counts, shortcuts to all three Work views, and
+  board creation. **Track chat in Work** explicitly creates one idempotent
+  Triage task linked to the current TUI session; merely chatting never creates
+  durable board work, and tracking does not invoke the model.
 
 Visually the target is the familiar Linear / Fusion layout: dark theme, column headers with counts, coloured status dots, pill chips for priority and tenant. The plugin reads only theme CSS vars (`--color-*`, `--radius`, `--font-mono`, ...), so it reskins automatically with whichever dashboard theme is active.
 
@@ -545,7 +590,9 @@ The GUI is strictly a **read-through-the-DB + write-through-kanban_db** layer wi
 
 ### REST surface
 
-All routes are mounted under `/api/plugins/kanban/` and protected by the dashboard's ephemeral session token:
+All routes are mounted under `/api/plugins/kanban/` and protected by the
+dashboard's normal authentication boundary (the loopback session token or the
+configured non-loopback provider):
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -587,11 +634,18 @@ Each key is optional and falls back to the shown default.
 
 ### Security model
 
-The dashboard's HTTP auth middleware [explicitly skips `/api/plugins/`](./extending-the-dashboard#backend-api-routes) — plugin routes are unauthenticated by design because the dashboard binds to localhost by default. That means the kanban REST surface is reachable from any process on the host.
+Kanban's REST routes use the same dashboard authentication boundary as other
+`/api/` endpoints: the loopback SPA presents the ephemeral dashboard session
+token, while a non-loopback dashboard requires a configured auth provider. The
+events WebSocket authenticates its upgrade with the dashboard's query-token /
+ticket flow because browsers cannot attach an arbitrary `Authorization` header
+to the upgrade.
 
-The WebSocket takes one additional step: it requires the dashboard's ephemeral session token as a `?token=…` query parameter (browsers can't set `Authorization` on an upgrade request), matching the pattern used by the in-browser PTY bridge.
-
-If you run `fabric dashboard --host 0.0.0.0`, every plugin route — kanban included — becomes reachable from the network. **Don't do that on a shared host.** The board contains task bodies, comments, and workspace paths; an attacker reaching these routes gets read access to your entire collaboration surface and can also create / reassign / archive tasks.
+The dashboard still exposes powerful local operations and board contents such
+as task bodies, comments, and workspace paths. Keep the default loopback bind
+unless you have configured the documented non-loopback authentication, TLS,
+and network controls. Authentication does not turn a single-host board into a
+multi-tenant authorization boundary.
 
 Tasks in `~/.fabric/kanban.db` are profile-agnostic on purpose (that's the coordination primitive). If you open the dashboard with `fabric -p <profile> dashboard`, the board still shows tasks created by any other profile on the host. Same user owns all profiles, but this is worth knowing if multiple personas coexist.
 
@@ -603,7 +657,21 @@ Tasks in `~/.fabric/kanban.db` are profile-agnostic on purpose (that's the coord
 
 The plugin uses the standard Fabric dashboard plugin contract — see [Extending the Dashboard](./extending-the-dashboard) for the full manifest reference, shell slots, page-scoped slots, and the Plugin SDK. Extra columns, custom card chrome, tenant-filtered layouts, or full `tab.override` replacements are all expressible without forking this plugin.
 
-To disable without removing: add `dashboard.plugins.kanban.enabled: false` to `config.yaml` (or delete `plugins/kanban/dashboard/manifest.json`).
+The Work integration is dashboard-only: loading it does not add `kanban_*`
+tools to normal model calls. Dispatcher workers receive task-scoped tools, and
+orchestrator profiles opt into the `kanban` toolset separately.
+
+To disable the bundled Work frontend and plugin API without deleting code, add
+`kanban` to `plugins.disabled` in `config.yaml`, then restart the dashboard:
+
+```yaml
+plugins:
+  disabled:
+    - kanban
+```
+
+Remove it from `plugins.disabled` to restore Work. The old
+`dashboard.plugins.kanban.enabled` example is not a supported config key.
 
 ### Scope boundary
 
@@ -788,7 +856,7 @@ In the interactive CLI, typing `/kanban ` and hitting Tab cycles through the bui
 
 ## Collaboration patterns
 
-The board supports these eight patterns without any new primitives:
+The board supports these nine patterns without any new primitives:
 
 | Pattern | Shape | Example |
 |---|---|---|
@@ -802,7 +870,8 @@ The board supports these eight patterns without any new primitives:
 | **P8 Fleet farming** | one profile, N subjects | 50 social accounts |
 | **P9 Triage specifier** | rough idea → `triage` → `fabric kanban specify` expands body → `todo` | "turn this one-liner into a spec'd task" |
 
-For worked examples of each, see `docs/fabric-kanban-v1-spec.pdf`.
+The [Kanban tutorial](./kanban-tutorial) walks through the most common forms;
+the same task/link/comment primitives compose the remaining patterns.
 
 ## Multi-tenant usage
 
@@ -935,6 +1004,10 @@ Every transition appends a row to `task_events`. Each row carries an optional `r
 
 Kanban is deliberately single-host. `~/.fabric/kanban.db` is a local SQLite file and the dispatcher spawns workers on the same machine. Running a shared board across two hosts is not supported — there's no coordination primitive for "worker X on host A, worker Y on host B," and the crash-detection path assumes PIDs are host-local. If you need multi-host, run an independent board per host and use `delegate_task` / a message queue to bridge them.
 
-## Design spec
+## Implementation references
 
-The complete design — architecture, concurrency correctness, comparison with other systems, implementation plan, risks, open questions — lives in `docs/fabric-kanban-v1-spec.pdf`. Read that before filing any behavior-change PR.
+Before changing behavior, use `fabric_cli/kanban_db.py` as the lifecycle source
+of truth, `plugins/kanban/dashboard/plugin_api.py` for the thin web adapter, and
+the Kanban test suites for concurrency and transition invariants. This page and
+the [worker-lane contract](./kanban-worker-lanes) describe the user-facing
+contracts; there is no separate checked-in PDF specification.

@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [petdex, mascot, display, cli, tui, desktop]
     category: productivity
     homepage: https://petdex.dev

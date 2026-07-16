@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [macos]
 metadata:
-  hermes:
+  fabric:
     tags: [Notes, Apple, macOS, note-taking]
     related_skills: [obsidian]
 prerequisites:

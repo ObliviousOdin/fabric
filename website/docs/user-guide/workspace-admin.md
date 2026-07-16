@@ -27,6 +27,8 @@ capabilities that Fabric cannot yet enforce:
 - a command palette and profile-aware shell;
 - a live Home view built from runtime status, conversations, and automations;
 - a persistent three-panel Chat built around the real `fabric --tui`;
+- a Design brief builder that drafts a structured prompt into a fresh Chat;
+- a persistent SQLite-backed Work surface with Board, Graph, and Outline views;
 - existing management pages regrouped under the new information architecture;
 - lazy route loading, shared screen states, canonical Fabric Light/Dark
   themes, and the Fabric violet token family;
@@ -36,8 +38,6 @@ The following capabilities remain staged backend work:
 
 - authoritative tenant, team-workspace, and site scopes;
 - server-enforced capabilities and role-based navigation;
-- a core durable Work Board service (a compatible plugin can provide work
-  primitives today);
 - a provider-neutral typed Memory ledger with provenance, versions, conflicts,
   retrieval history, and corrections;
 - durable approval requests and decisions;
@@ -51,8 +51,9 @@ showing synthetic work, approval, memory, or activity counts.
 | Screen        | Canonical route            | Current behavior                                                                                                                      |
 | ------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Home          | `/workspace/home`          | Live gateway, conversation, automation, and readiness projections. Each source can fail independently.                                |
-| Chat          | `/workspace/chat`          | Live persistent TUI, conversation rail, agent activity, and honest context placeholders.                                              |
-| Work Board    | `/workspace/work`          | Reserved operational surface. Connect a compatible durable-work plugin to supply task data.                                           |
+| Chat          | `/workspace/chat`          | Live persistent TUI, conversation rail, agent activity, best-effort Task/Evidence/Artifacts projections, and profile Memory status.    |
+| Design        | `/workspace/design`        | Live brief builder for artifact type, design system, and fidelity; starts the generated prompt in a fresh Chat.                        |
+| Work          | `/workspace/work`          | Live persistent per-board SQLite work data with Board, Graph, and Outline projections, task details, dependencies, runs, and updates. |
 | Conversations | `/workspace/conversations` | Live session search, inspection, rename, export, archive, resume, and cleanup.                                                        |
 | Agents        | `/workspace/agents`        | Live machine-profile management. Profiles configure agent runtimes; they are not human identities.                                    |
 | Memory        | `/workspace/memory`        | Capability-aware placeholder until the selected provider exposes the typed ledger contract. Provider controls remain in Admin/System. |
@@ -105,12 +106,57 @@ Wide screens (1440px and above)
 
 The PTY/xterm instance stays mounted while you navigate, so a live terminal is
 not restarted merely because another page opened. Supporting rails load only
-when visible and fail independently; a context API error does not take down the
-terminal.
+when visible and fail independently; an event-feed or Memory-status error does
+not take down the terminal.
 
-The Task, Evidence, Memory, and Artifacts tabs currently state when their data
-contracts are unavailable. Tool output remains visible in the center TUI, and
-created files remain accessible through the existing runtime surfaces.
+The Task, Evidence, and Artifacts tabs project the existing PTY semantic event
+stream into a bounded, session-scoped read model. Task shows the live session
+identity and any structured checklist; Evidence shows recent tool lifecycle
+events; Artifacts detects file, image, and export paths reported by tools. The
+Memory tab independently reads the selected profile's provider selection,
+readiness state, and built-in `MEMORY.md` / `USER.md` sizes. It does not invent
+retrieval excerpts or provenance that the terminal session did not report.
+
+These projections are deliberately best-effort. Losing the event subscriber or
+Memory status request degrades only the rail; the TUI remains usable. They add
+no model tool, do not mutate the prompt, and do not trigger an extra inference
+request, so they do not change model speed or prompt-cache behavior.
+
+The Work card in the same rail is an explicit bridge, not automatic coupling.
+It shows selected-board counts and links, while **Track chat in Work** creates
+one idempotent Triage task linked to the current TUI session. Chats remain
+transient until the user chooses that action, and tracking writes directly to
+SQLite without invoking the model.
+
+## Work is durable and multi-view
+
+`/workspace/work` is the bundled `kanban` dashboard integration, backed by the
+same per-board SQLite databases used by `fabric kanban`, `/kanban`, and the
+task-scoped `kanban_*` tools. The default board lives at
+`~/.fabric/kanban.db`; named boards live under
+`~/.fabric/kanban/boards/<slug>/kanban.db`.
+
+- **Board** is the operational status view: Triage, Todo, Scheduled, Ready,
+  In Progress, Blocked, Review, and Done, with Archived available on demand.
+- **Graph** projects goals, dependency edges, active agent runs, and results.
+- **Outline** presents the same graph as an accessible linear hierarchy.
+
+The selected board, view, and task are reflected in the URL, so links such as
+`/workspace/work?board=default&view=graph&task=t_abcd` are shareable. The
+legacy `/work` and `/kanban` paths resolve to the same surface.
+
+## Team Pages is a separate reference integration
+
+The bundled `team-pages` dashboard integration provides optional,
+config-driven static reference pages for shared links, priorities, metrics,
+and status. It is intentionally hidden from primary navigation and loads only
+when its direct route, `/admin/integrations/team-pages`, is opened. It does not
+create agent profiles, people, tasks, or work-board data.
+
+`/team` is therefore an alias for **Agents**, not Team Pages. Agents manages
+machine profiles; Work manages durable tasks and runs; Team Pages renders
+operator-authored reference blocks. Keeping those concepts separate avoids
+presenting configuration as live team state.
 
 ## Profiles are not enterprise scopes
 
@@ -142,10 +188,12 @@ hash when it resolves a legacy route.
 | ----------------------------- | ---------------------------- |
 | `/`                           | `/workspace/home`            |
 | `/chat`                       | `/workspace/chat`            |
+| `/design`                     | `/workspace/design`          |
+| `/work`, `/kanban`            | `/workspace/work`            |
 | `/sessions`                   | `/workspace/conversations`   |
 | `/cron`                       | `/workspace/automations`     |
 | `/analytics`                  | `/workspace/insights`        |
-| `/profiles`                   | `/workspace/agents`          |
+| `/profiles`, `/team`          | `/workspace/agents`          |
 | `/files`                      | `/workspace/knowledge`       |
 | `/models`                     | `/admin/ai-runtime/models`   |
 | `/skills`, `/plugins`, `/mcp` | `/admin/integrations/...`    |

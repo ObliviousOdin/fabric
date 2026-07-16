@@ -40,7 +40,7 @@ Gmail, Calendar, Drive, Contacts, Sheets, and Docs — through Fabric-managed OA
 ## Scripts
 
 - `scripts/setup.py` — OAuth2 setup (run once to authorize)
-- `scripts/google_api.py` — compatibility wrapper CLI. It prefers `gws` for operations when available, while preserving Fabric' existing JSON output contract.
+- `scripts/google_api.py` — compatibility wrapper CLI. It prefers `gws` for operations when available, while preserving Fabric's existing JSON output contract.
 
 ## First-Time Setup
 
@@ -123,7 +123,7 @@ $GSETUP --client-secret /path/to/client_secret.json
 
 If they paste the raw client ID / client secret values instead of a file path,
 write a valid Desktop OAuth JSON file for them yourself, save it somewhere
-explicit (for example `~/Downloads/hermes-google-client-secret.json`), then run
+explicit (for example `~/Downloads/fabric-google-client-secret.json`), then run
 `--client-secret` against that file.
 
 ### Step 3: Get authorization URL

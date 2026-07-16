@@ -41,8 +41,8 @@ fabric status
 ```
 
 New installs store profile data under `~/.fabric`. `FABRIC_HOME` can select a
-different root. `FABRIC_HOME` remains a migration input for older installs but
-is not the name to advertise in new deployments.
+different root. See the [environment-variable reference](/reference/environment-variables)
+for migration-only compatibility inputs used by older installs.
 
 ## Native desktop app
 

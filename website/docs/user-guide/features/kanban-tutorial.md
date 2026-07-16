@@ -7,7 +7,7 @@ A walkthrough of the four use-cases the Fabric Kanban system was designed for, w
 ```bash
 fabric kanban init           # optional; first `fabric kanban <anything>` auto-inits
 fabric dashboard             # opens http://127.0.0.1:9119 in your browser
-# click Kanban in the left nav
+# open Workspace → Work
 ```
 
 The dashboard is the most comfortable place for **you** to watch the system. Agent workers the dispatcher spawns never see the dashboard or the CLI — they drive the board through a dedicated `kanban_*` [toolset](./kanban#how-workers-interact-with-the-board) (`kanban_show`, `kanban_list`, `kanban_complete`, `kanban_block`, `kanban_heartbeat`, `kanban_comment`, `kanban_create`, `kanban_link`, `kanban_unblock`). All three surfaces — dashboard, CLI, worker tools — route through the same per-board SQLite DB (`~/.fabric/kanban.db` for the default board, `~/.fabric/kanban/boards/<slug>/kanban.db` for any board you create later), so each board is consistent no matter which side of the fence a change came from.
@@ -16,19 +16,29 @@ This tutorial uses the `default` board throughout. If you want multiple isolated
 
 Throughout the tutorial, **code blocks labelled `bash` are commands *you* run.** Code blocks labelled `# worker tool calls` are what the spawned worker's model emits as tool calls — shown here so you can see the loop end-to-end, not because you'd ever run them yourself.
 
-## The board at a glance
+## Work at a glance
 
+The canonical route is `/workspace/work`; `/work` and `/kanban` are aliases.
+The view switcher exposes **Board**, **Graph**, and **Outline** over the same
+per-board SQLite data. Board is the operational status view, Graph visualizes
+goals/dependencies/agent runs/results, and Outline provides the same structure
+as a keyboard-friendly hierarchy. Board, view, and selected task are kept in
+the URL so you can bookmark the exact context.
 
-Six columns, left to right:
+Eight primary columns, left to right:
 
 - **Triage** — raw ideas. By default the dispatcher auto-runs the **decomposer** on tasks here: the built-in decomposer uses `auxiliary.kanban_decomposer`, reads your profile roster + descriptions, and produces a graph of child tasks routed to the best-fit specialists. The original task is held alive as the parent so its assignee (`kanban.orchestrator_profile`, or the active default profile when unset) wakes back up to judge completion when everything finishes. Flip the **Orchestration: Auto/Manual** pill at the top of the kanban page to switch modes. In Manual mode click **⚗ Decompose** on a card, or run `fabric kanban decompose <id>` / `/kanban decompose <id>`. For single tasks that don't need fan-out, **✨ Specify** does a one-shot spec rewrite (goal, approach, acceptance criteria) and promotes to `todo`. Configure the models under `auxiliary.kanban_decomposer` and `auxiliary.triage_specifier` in `config.yaml`. See [Auto vs Manual orchestration](./kanban#auto-vs-manual-orchestration) in the main Kanban guide.
 - **Todo** — created but waiting on dependencies, or not yet assigned.
+- **Scheduled** — deliberately waiting until `scheduled_at` or a follow-up time.
 - **Ready** — assigned and waiting for the dispatcher to claim.
 - **In progress** — a worker is actively running the task. With "Lanes by profile" on (the default), this column sub-groups by assignee so you can see at a glance what each worker is doing.
 - **Blocked** — a worker asked for human input, or the circuit breaker tripped.
+- **Review** — work is ready for a review agent or person before completion.
 - **Done** — completed.
 
-The top bar has filters for search, tenant, and assignee, plus a `Lanes by profile` toggle and a `Nudge dispatcher` button that runs one dispatch tick right now instead of waiting for the daemon's next interval. Clicking any card opens its drawer on the right.
+Archived tasks appear when **Show archived** is enabled.
+
+The top bar has filters for search, tenant, and assignee, plus a `Lanes by profile` toggle and a `Nudge dispatcher` button that runs one dispatch tick right now instead of waiting for the gateway-embedded dispatcher's next interval. Clicking any card opens its drawer on the right.
 
 ### Flat view
 
@@ -133,7 +143,12 @@ fabric gateway start
 Now filter the board to `content-ops` (or just search for "Transcribe") and you get this:
 
 
-Two transcribes done, one running, two ready waiting for the next dispatcher tick. The In Progress column is grouped by profile (the "Lanes by profile" default) so you see each worker's active task without scanning a mixed list. The dispatcher will promote the next ready task to running as soon as the current one completes. With three daemons working on three assignee pools in parallel, the whole content queue drains without further human input.
+Two transcribes done, one running, two ready waiting for the next dispatcher
+tick. The In Progress column is grouped by profile (the "Lanes by profile"
+default) so you see each worker's active task without scanning a mixed list.
+The single gateway-embedded dispatcher can spawn the three profiles in parallel
+(subject to the configured global and per-profile concurrency caps), then
+continues draining each assignee pool as runs finish.
 
 **Everything Story 1 said about structured handoff still applies here.** A translator worker completing a call emits `kanban_complete(summary="translated 4 pages, style matched existing marketing voice", metadata={"duration_seconds": 720, "tokens_used": 2100})` — useful for analytics and for any downstream task that depends on this one.
 

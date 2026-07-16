@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [Coding-Agent, Codex, OpenAI, Code-Review, Refactoring]
     related_skills: [claude-code, fabric-agent]
 ---

@@ -1,0 +1,128 @@
+{
+  "authored_docs": {
+    "exclude": [
+      ".git/**",
+      ".worktrees/**",
+      ".venv/**",
+      "build/**",
+      "dist/**",
+      "node_modules/**",
+      "parity/**",
+      "venv/**",
+      "**/.git/**",
+      "**/.worktrees/**",
+      "**/.venv/**",
+      "**/SKILL.md",
+      "**/build/**",
+      "**/dist/**",
+      "**/node_modules/**",
+      "**/venv/**",
+      "website/docs/reference/automation-blueprints-catalog.mdx",
+      "website/docs/reference/optional-skills-catalog.md",
+      "website/docs/reference/runtime-surfaces.mdx",
+      "website/docs/reference/skills-catalog.md",
+      "website/docs/user-guide/skills/**"
+    ],
+    "include": [
+      "*.md",
+      "**/*.md",
+      "**/*.mdx"
+    ]
+  },
+  "documented_token_exemptions": {
+    "HERMES_NEMO_RELAY_ATIF_": "Documentation wildcard for the backed HERMES_NEMO_RELAY_ATIF_* variable family.",
+    "HERMES_NEMO_RELAY_ATOF_": "Documentation wildcard for the backed HERMES_NEMO_RELAY_ATOF_* variable family."
+  },
+  "impact_contracts": [
+    {
+      "code_paths": [
+        "fabric_cli/commands.py"
+      ],
+      "docs_paths": [
+        "website/docs/reference/slash-commands.md",
+        "website/docs/user-guide/cli.md",
+        "website/docs/user-guide/desktop.md",
+        "website/docs/user-guide/tui.md"
+      ],
+      "id": "command-registry"
+    },
+    {
+      "code_paths": [
+        "fabric_cli/kanban.py",
+        "fabric_cli/kanban_db.py",
+        "fabric_cli/main.py",
+        "fabric_cli/subcommands/**",
+        "plugins/kanban/**"
+      ],
+      "docs_paths": [
+        "website/docs/reference/cli-commands.md",
+        "website/docs/user-guide/features/kanban-tutorial.md",
+        "website/docs/user-guide/features/kanban-worker-lanes.md",
+        "website/docs/user-guide/features/kanban.md",
+        "website/docs/user-guide/features/web-dashboard.md"
+      ],
+      "id": "cli-kanban"
+    },
+    {
+      "code_paths": [
+        "web/src/app/routes.tsx",
+        "web/src/components/sidebar/nav-model.ts",
+        "plugins/**/dashboard/manifest.json"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/features/extending-the-dashboard.md",
+        "website/docs/user-guide/features/web-dashboard.md",
+        "website/docs/user-guide/workspace-admin.md"
+      ],
+      "id": "dashboard-routes"
+    },
+    {
+      "code_paths": [
+        "fabric_cli/pty_bridge.py",
+        "tui_gateway/**",
+        "ui-tui/src/**",
+        "web/src/components/chat/**"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/features/web-dashboard.md",
+        "website/docs/user-guide/tui.md"
+      ],
+      "id": "dashboard-tui-context"
+    },
+    {
+      "code_paths": [
+        "fabric_cli/models.py",
+        "fabric_cli/providers.py",
+        "gateway/config.py",
+        "gateway/platform_registry.py",
+        "plugins/model-providers/**/plugin.yml",
+        "plugins/model-providers/**/plugin.yaml",
+        "plugins/platforms/**/plugin.yml",
+        "plugins/platforms/**/plugin.yaml",
+        "providers/**"
+      ],
+      "docs_paths": [
+        "website/docs/getting-started/platform-support.md",
+        "website/docs/integrations/providers.md",
+        "website/docs/user-guide/configuring-models.md"
+      ],
+      "id": "providers-platforms"
+    },
+    {
+      "code_paths": [
+        "fabric_cli/config.py",
+        "fabric_cli/fallback_config.py",
+        "fabric_cli/tools_config.py",
+        "toolsets.py"
+      ],
+      "docs_paths": [
+        "website/docs/reference/environment-variables.md",
+        "website/docs/reference/tools-reference.md",
+        "website/docs/reference/toolsets-reference.md",
+        "website/docs/user-guide/configuration.md"
+      ],
+      "id": "config-toolsets"
+    }
+  ],
+  "schema_version": 1
+}

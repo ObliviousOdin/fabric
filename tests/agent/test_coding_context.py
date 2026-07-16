@@ -81,6 +81,14 @@ class TestIsCodingContext:
         _git_init(tmp_path)
         assert cc.is_coding_context(platform="cli", cwd=tmp_path, config={}) is True
 
+    @pytest.mark.parametrize(
+        "context_name", [".fabric.md", "FABRIC.md", ".hermes.md", "HERMES.md"]
+    )
+    def test_project_context_file_marks_non_git_workspace(self, tmp_path, context_name):
+        (tmp_path / context_name).write_text("# Project rules\n")
+
+        assert cc.is_coding_context(platform="cli", cwd=tmp_path, config={}) is True
+
 
 # ── toolset substitution ────────────────────────────────────────────────────
 
@@ -185,9 +193,11 @@ class TestProjectFacts:
 
     def test_context_files_listed(self, tmp_path):
         _git_init(tmp_path)
+        (tmp_path / ".fabric.md").write_text("# canonical rules")
+        (tmp_path / "HERMES.md").write_text("# compatibility rules")
         (tmp_path / "AGENTS.md").write_text("# rules")
         block = cc.build_coding_workspace_block(tmp_path)
-        assert "Context files: AGENTS.md" in block
+        assert "Context files: .fabric.md, HERMES.md, AGENTS.md" in block
 
     def test_worktree_detected_without_primary_path(self, tmp_path):
         # A linked worktree should be detected, but the output must NOT contain

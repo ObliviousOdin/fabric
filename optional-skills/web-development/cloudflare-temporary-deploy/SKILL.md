@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [cloudflare, workers, wrangler, deploy, temporary, agent, serverless, web-development]
     category: web-development
 ---

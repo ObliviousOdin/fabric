@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos]
 metadata:
-  hermes:
+  fabric:
     tags: [cron, polling, rss, github, http, automation, monitoring]
     category: devops
     requires_toolsets: [terminal]

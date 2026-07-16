@@ -6,7 +6,7 @@ author: Fabric (adapted from obra/superpowers)
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [testing, tdd, development, quality, red-green-refactor]
     related_skills: [systematic-debugging, plan, subagent-driven-development]
 ---

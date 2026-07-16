@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [GitHub, Code-Review, Pull-Requests, Git, Quality]
     related_skills: [github-auth, github-pr-workflow]
 ---
@@ -28,8 +28,8 @@ if command -v gh &>/dev/null && gh auth status &>/dev/null; then
 else
   AUTH="git"
   if [ -z "$GITHUB_TOKEN" ]; then
-    if _hermes_env="${FABRIC_HOME:-$HOME/.fabric}/.env"; [ -f "$_hermes_env" ] && grep -q "^GITHUB_TOKEN=" "$_hermes_env"; then
-      GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" "$_hermes_env" | head -1 | cut -d= -f2 | tr -d '\n\r')
+    if _fabric_env="${FABRIC_HOME:-$HOME/.fabric}/.env"; [ -f "$_fabric_env" ] && grep -q "^GITHUB_TOKEN=" "$_fabric_env"; then
+      GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" "$_fabric_env" | head -1 | cut -d= -f2 | tr -d '\n\r')
     elif grep -q "github.com" ~/.git-credentials 2>/dev/null; then
       GITHUB_TOKEN=$(grep "github.com" ~/.git-credentials 2>/dev/null | head -1 | sed 's|https://[^:]*:\([^@]*\)@.*|\1|')
     fi

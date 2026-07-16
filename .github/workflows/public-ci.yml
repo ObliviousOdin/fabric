@@ -106,6 +106,25 @@ jobs:
       - name: Install skills-index dependency
         run: python3 -m pip install --disable-pip-version-check pyyaml==6.0.3
 
+      - name: Check generated documentation contracts
+        run: python3 scripts/docs_sync.py check
+
+      - name: Check generated skill documentation
+        run: python3 website/scripts/generate-skill-docs.py --check
+
+      - name: Audit documented tokens and skill metadata
+        run: python3 scripts/docs_sync.py audit
+
+      - name: Check narrative documentation impact
+        if: github.event_name == 'pull_request'
+        run: >-
+          python3 scripts/docs_sync.py impact
+          --base-ref "${{ github.event.pull_request.base.sha }}"
+          --event-path "$GITHUB_EVENT_PATH"
+
+      - name: Test documentation contracts
+        run: python3 -m unittest tests.scripts.test_docs_sync
+
       - name: Install documentation dependencies
         run: npm ci --prefix website
 

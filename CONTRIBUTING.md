@@ -211,8 +211,11 @@ symlink this clone's venv explicitly:
 
 ```bash
 mkdir -p ~/.local/bin
-ln -sf "$(pwd)/venv/bin/fabric" ~/.local/bin/fabric
+ln -sf "$VIRTUAL_ENV/bin/fabric" ~/.local/bin/fabric
 ```
+
+This works with either supported virtual-environment directory (`.venv` or
+`venv`) after activation, instead of assuming a particular local name.
 
 ### Run tests
 
@@ -234,7 +237,7 @@ fabric-agent/
 ├── run_agent.py              # AIAgent class — core conversation loop, tool dispatch, session persistence
 ├── cli.py                    # HermesCLI class — interactive TUI, prompt_toolkit integration
 ├── model_tools.py            # Tool orchestration (thin layer over tools/registry.py)
-├── toolsets.py               # Tool groupings and presets (fabric-cli, fabric-telegram, etc.)
+├── toolsets.py               # Tool groupings and platform presets (including legacy-named compatibility IDs)
 ├── fabric_state.py           # SQLite session database with FTS5 full-text search, session titles
 ├── batch_runner.py           # Parallel batch processing for trajectory generation
 │
@@ -270,7 +273,7 @@ fabric-agent/
 │   ├── code_execution_tool.py    # Sandboxed Python with RPC tool access
 │   ├── session_search_tool.py    # Search past conversations with FTS5 + anchored windows
 │   ├── cronjob_tools.py          # Scheduled task management
-│   ├── skill_tools.py            # Skill search, load, manage
+│   ├── skills_tool.py            # Skill search, load, manage
 │   └── environments/             # Terminal execution backends
 │       ├── base.py                   # BaseEnvironment ABC
 │       ├── local.py, docker.py, ssh.py, singularity.py, modal.py, daytona.py
@@ -279,8 +282,10 @@ fabric-agent/
 │   ├── run.py                    # GatewayRunner — platform lifecycle, message routing, cron
 │   ├── config.py                 # Platform configuration resolution
 │   ├── session.py                # Session store, context prompts, reset policies
-│   └── platforms/                # Platform adapters
-│       ├── telegram.py, discord_adapter.py, slack.py, whatsapp.py
+│   └── platforms/                # Core adapters (API, webhook, Signal, Weixin, and similar)
+│
+├── plugins/platforms/        # Plugin-owned messaging adapters
+│   ├── telegram/, discord/, slack/, whatsapp/, matrix/, and others
 │
 ├── scripts/                  # Installer and bridge scripts
 │   ├── install.sh                # Linux/macOS installer

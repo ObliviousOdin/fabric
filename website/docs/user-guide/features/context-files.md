@@ -1,7 +1,7 @@
 ---
 sidebar_position: 8
 title: "Context Files"
-description: "Project context files — .fabric.md, AGENTS.md, CLAUDE.md, global SOUL.md, and .cursorrules — automatically injected into every conversation"
+description: "Project context files — .fabric.md, FABRIC.md, AGENTS.md, CLAUDE.md, global SOUL.md, and .cursorrules — automatically injected into every conversation"
 ---
 
 # Context Files
@@ -12,7 +12,8 @@ Fabric automatically discovers and loads context files that shape how it behaves
 
 | File | Purpose | Discovery |
 |------|---------|-----------| 
-| **.fabric.md** / **HERMES.md** | Project instructions (highest priority) | Walks to git root |
+| **.fabric.md** / **FABRIC.md** | Canonical Fabric project instructions (highest priority) | Nearest file from CWD through the git root |
+| **.hermes.md** / **HERMES.md** | Legacy filename compatibility for existing projects | Same discovery and priority group as Fabric project instructions |
 | **AGENTS.md** | Project instructions, conventions, architecture | CWD at startup + subdirectories progressively |
 | **CLAUDE.md** | Claude Code context files (also detected) | CWD at startup + subdirectories progressively |
 | **SOUL.md** | Global personality and tone customization for this Fabric instance | `FABRIC_HOME/SOUL.md` only |
@@ -20,12 +21,12 @@ Fabric automatically discovers and loads context files that shape how it behaves
 | **.cursor/rules/*.mdc** | Cursor IDE rule modules | CWD only |
 
 :::info Priority system
-Only **one** project context type is loaded per session (first match wins): `.fabric.md` → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. **SOUL.md** is always loaded independently as the agent identity (slot #1).
+Only **one** project context type is loaded at startup (first match wins): Fabric project file → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. For Fabric project files, the nearest directory wins; within that directory the name order is `.fabric.md` → `FABRIC.md` → `.hermes.md` → `HERMES.md`. The pre-Fabric names are compatibility aliases for existing repositories; use a Fabric name for new files. **SOUL.md** is loaded independently as the agent identity (slot #1).
 :::
 
 ## AGENTS.md
 
-`AGENTS.md` is the primary project context file. It tells the agent how your project is structured, what conventions to follow, and any special instructions.
+`AGENTS.md` is the portable project context file shared by Fabric and other coding agents. It tells the agent how your project is structured, what conventions to follow, and any special instructions.
 
 ### Progressive Subdirectory Discovery
 
@@ -96,7 +97,7 @@ Important details:
 
 ## .cursorrules
 
-Fabric is compatible with Cursor IDE's `.cursorrules` file and `.cursor/rules/*.mdc` rule modules. If these files exist in your project root and no higher-priority context file (`.fabric.md`, `AGENTS.md`, or `CLAUDE.md`) is found, they're loaded as the project context.
+Fabric is compatible with Cursor IDE's `.cursorrules` file and `.cursor/rules/*.mdc` rule modules. If these files exist in your project root and no higher-priority Fabric project file, `AGENTS.md`, or `CLAUDE.md` is found, they're loaded as the project context.
 
 This means your existing Cursor conventions automatically apply when using Fabric.
 
@@ -106,10 +107,10 @@ This means your existing Cursor conventions automatically apply when using Fabri
 
 Context files are loaded by `build_context_files_prompt()` in `agent/prompt_builder.py`:
 
-1. **Scan working directory** — checks for `.fabric.md` → `AGENTS.md` → `CLAUDE.md` → `.cursorrules` (first match wins)
+1. **Scan project context** — searches the CWD and then its parents through the git root for the nearest `.fabric.md`, `FABRIC.md`, `.hermes.md`, or `HERMES.md`; if none exists, checks `AGENTS.md` → `CLAUDE.md` → `.cursorrules` in the CWD (first type wins)
 2. **Content is read** — each file is read as UTF-8 text
 3. **Security scan** — content is checked for prompt injection patterns
-4. **Truncation** — files exceeding `context_file_max_chars` characters (default 20,000) are head/tail truncated (70% head, 20% tail, with a marker in the middle)
+4. **Truncation** — sources exceeding the resolved dynamic or explicitly configured cap are head/tail truncated (70% head, 20% tail, with a marker in the middle)
 5. **Assembly** — all sections are combined under a `# Project Context` header
 6. **Injection** — the assembled content is added to the system prompt
 
@@ -171,12 +172,14 @@ This scanner protects against common injection patterns, but it's not a substitu
 
 | Limit | Value |
 |-------|-------|
-| Max chars per file | `context_file_max_chars` (default 20,000, ~7,000 tokens) |
+| Max chars per startup context source | Explicit `context_file_max_chars`, otherwise a model-window-aware cap (20,000 floor; 500,000 ceiling) |
 | Head truncation ratio | 70% |
 | Tail truncation ratio | 20% |
 | Truncation marker | 10% (shows char counts and suggests using file tools) |
 
-When a file exceeds the configured limit, the truncation message reads:
+Without an explicit setting, Fabric budgets roughly 6% of the model context window using a four-characters-per-token estimate. That keeps the historical 20,000-character floor for small or unknown windows and scales up for larger-context models. Setting `context_file_max_chars` pins the exact limit and overrides the dynamic calculation.
+
+When a source exceeds the resolved limit, the truncation message reads:
 
 ```
 [...truncated AGENTS.md: kept 14000+4000 of 25000 chars. Use file tools to read the full file.]

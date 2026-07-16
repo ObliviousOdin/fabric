@@ -687,8 +687,9 @@ class SessionEntry:
     
     # Set by the background expiry watcher after it finalizes an expired
     # session (invoking on_session_finalize hooks and evicting the cached
-    # agent).  Persisted to sessions.json so the flag survives gateway
-    # restarts — prevents redundant finalization runs.
+    # agent). Persisted in the durable routing entry (and the legacy
+    # sessions.json mirror when enabled) so the flag survives gateway restarts
+    # and prevents redundant finalization runs.
     expiry_finalized: bool = False
 
     # When True the next call to get_or_create_session() will auto-reset
@@ -963,7 +964,9 @@ class SessionStore:
     Manages session storage and retrieval.
     
     Uses SQLite (via SessionDB) for session metadata and message transcripts.
-    Falls back to legacy JSONL files if SQLite is unavailable.
+    If SQLite is unavailable, the routing index can still remain in memory and
+    use its compatibility ``sessions.json`` mirror, but transcript persistence
+    is unavailable. The legacy per-session JSONL fallback was removed.
     """
     
     def __init__(self, sessions_dir: Path, config: GatewayConfig,
@@ -987,7 +990,10 @@ class SessionStore:
             from fabric_state import SessionDB
             self._db = SessionDB()
         except Exception as e:
-            print(f"[gateway] Warning: SQLite session store unavailable, falling back to JSONL: {e}")
+            print(
+                "[gateway] Warning: SQLite session store unavailable; "
+                f"transcript persistence is disabled: {e}"
+            )
     
     def _ensure_loaded(self) -> None:
         """Load sessions index from disk if not already loaded."""
@@ -1729,7 +1735,7 @@ class SessionStore:
 
                 # Self-heal stale routing: if this session_key still points at
                 # a session that has ALREADY been ended in state.db (end_reason
-                # set), the in-memory sessions.json entry is stale.  Reusing it
+                # set), the in-memory routing entry is stale. Reusing it
                 # would route every incoming message into a closed session and
                 # silently drop it — with no log, no error, no response — until
                 # the gateway restarts and _prune_stale_sessions_locked() clears

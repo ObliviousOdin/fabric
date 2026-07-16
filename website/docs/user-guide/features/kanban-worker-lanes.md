@@ -18,7 +18,12 @@ Reviewer       =  human or human-proxy that gates "done"
 GitHub PR      =  upstreamable artifact (optional, for code lanes)
 ```
 
-Fabric Kanban owns lifecycle truth — `ready` → `running` → `blocked` / `done` / `archived`. Worker lanes execute work but never own that truth; everything they do flows back through the kanban kernel via the `kanban_*` tools (or, for non-Fabric external workers, via the API). Reviewers gate the transition from "code change written" to "task done."
+Fabric Kanban owns lifecycle truth across `triage`, `todo`, `scheduled`,
+`ready`, `running`, `blocked`, `review`, `done`, and `archived`. Worker lanes
+execute work but never own that truth; everything they do flows back through
+the kanban kernel via the `kanban_*` tools (or, for non-Fabric external
+workers, via the API). Reviewers gate the transition from "code change
+written" to "task done."
 
 ## What a lane provides
 
@@ -52,17 +57,27 @@ Every claim must end in exactly one of:
 
 - `kanban_complete(summary=..., metadata=...)` — task succeeds, status flips to `done`.
 - `kanban_block(reason=...)` — task waits for human input, status flips to `blocked`. The dispatcher respawns when `kanban_unblock` runs.
-- The worker process exits without a tool call. The kernel reaps it and emits `crashed` (PID died) or `gave_up` (consecutive-failure breaker tripped) or `timed_out` (max_runtime exceeded). This is the failure path; healthy workers don't end here.
+- The worker process exits without a lifecycle tool call. A clean exit while
+  the task is still `running` is a `protocol_violation`; an unexpectedly dead
+  PID is `crashed`; exceeding `max_runtime` is `timed_out`; repeated failures
+  can end in `gave_up`. This is the failure path; healthy workers do not end
+  here.
 
-The kanban kernel enforces that exactly one of these terminates each run. A worker that calls neither and exits normally is treated as crashed.
+The kanban kernel enforces that exactly one lifecycle terminator closes a
+healthy run. A worker that calls neither and exits normally is recorded as a
+protocol violation and auto-blocked instead of being silently respawned.
 
 ## Outputs and the review-required convention
 
-For most code-changing tasks, the work isn't truly *done* the moment the worker finishes — it needs a human reviewer. The kanban kernel doesn't enforce this distinction (a "code-changing task" is fuzzy and forcing block-instead-of-complete on every code worker would break flows where no review is wanted). It's a convention layered on top:
+For most code-changing tasks, the work isn't truly *done* the moment the worker finishes — it needs a reviewer. The kernel has an explicit `review` status for workflows that route a review agent, while the general injected worker contract uses a conservative human-handoff convention when a worker has no dedicated review transition:
 
 - **Block instead of complete**, with `reason` prefixed `review-required: ` so the dashboard / `fabric kanban show` surfaces the row as awaiting review.
 - **Drop structured metadata into a `kanban_comment` first** since `kanban_block` only carries the human-readable `reason`. Comments are the durable annotation channel — every audit-relevant field (changed_files, tests_run, diff_path or PR url, decisions) belongs there.
 - **Reviewer either approves and unblocks**, which respawns the worker with the comment thread for follow-ups; or asks for changes via another comment, which the next worker run sees as part of `kanban_show`'s context.
+
+The Work dashboard shows both states honestly: `blocked` means a human decision
+or capability is required; `review` means an explicit review-stage task is
+ready. A worker must not mark work `done` merely because it produced a diff.
 
 The injected `KANBAN_GUIDANCE` covers both `kanban_complete` (truly terminal tasks — typo fixes, docs changes, research writeups) and the `review-required` block pattern.
 

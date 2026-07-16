@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [design, ui, ux, prototype, artifact, design-system, design-md]
     related_skills: [claude-design, design-md, popular-web-designs]
 ---

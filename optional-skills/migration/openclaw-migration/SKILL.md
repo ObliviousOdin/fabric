@@ -6,7 +6,7 @@ author: Fabric (Nous Research)
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [Migration, OpenClaw, Fabric, Memory, Persona, Import]
     related_skills: [fabric-agent]
 ---

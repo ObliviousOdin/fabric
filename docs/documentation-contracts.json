@@ -78,6 +78,85 @@
     },
     {
       "code_paths": [
+        "apps/desktop/**"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/desktop.md"
+      ],
+      "id": "desktop-app"
+    },
+    {
+      "code_paths": [
+        "apps/desktop/electron/live-view*.ts",
+        "apps/desktop/electron/main.ts",
+        "apps/desktop/electron/preload.ts",
+        "apps/desktop/src/app/chat/live-view/**",
+        "apps/desktop/src/app/desktop-controller.tsx",
+        "apps/desktop/src/app/session/hooks/use-message-stream/gateway-event.ts",
+        "apps/desktop/src/store/live-view*.ts",
+        "tui_gateway/server.py",
+        "tui_gateway/visual_events.py"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/desktop.md"
+      ],
+      "id": "desktop-live-view-overview"
+    },
+    {
+      "code_paths": [
+        "apps/desktop/electron/live-view*.ts",
+        "apps/desktop/electron/main.ts",
+        "apps/desktop/electron/preload.ts",
+        "apps/desktop/src/app/chat/live-view/**",
+        "apps/desktop/src/app/desktop-controller.tsx",
+        "apps/desktop/src/app/session/hooks/use-message-stream/gateway-event.ts",
+        "apps/desktop/src/store/live-view*.ts",
+        "tui_gateway/server.py",
+        "tui_gateway/visual_events.py"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/features/browser.md"
+      ],
+      "id": "desktop-live-view-browser"
+    },
+    {
+      "code_paths": [
+        "apps/desktop/electron/live-view*.ts",
+        "apps/desktop/electron/main.ts",
+        "apps/desktop/electron/preload.ts",
+        "apps/desktop/src/app/chat/live-view/**",
+        "apps/desktop/src/app/desktop-controller.tsx",
+        "apps/desktop/src/app/session/hooks/use-message-stream/gateway-event.ts",
+        "apps/desktop/src/store/live-view*.ts",
+        "tui_gateway/server.py",
+        "tui_gateway/visual_events.py"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/features/computer-use.md"
+      ],
+      "id": "desktop-live-view-computer-use"
+    },
+    {
+      "code_paths": [
+        "tools/browser_*.py",
+        "tools/browser/**"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/features/browser.md"
+      ],
+      "id": "browser-automation"
+    },
+    {
+      "code_paths": [
+        "tools/computer_use/**"
+      ],
+      "docs_paths": [
+        "website/docs/user-guide/features/computer-use.md"
+      ],
+      "id": "computer-use"
+    },
+    {
+      "code_paths": [
         "fabric_cli/pty_bridge.py",
         "tui_gateway/**",
         "ui-tui/src/**",

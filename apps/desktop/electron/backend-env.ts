@@ -1,3 +1,4 @@
+import os from 'node:os'
 import path from 'node:path'
 
 // Match the POSIX fallback surface used by the Python terminal environment.
@@ -61,6 +62,7 @@ function appendUniquePathEntries(entries, { delimiter = path.delimiter } = {}) {
 function buildDesktopBackendPath({
   hermesHome,
   venvRoot,
+  home,
   currentPath = '',
   platform = process.platform,
   pathModule = pathModuleForPlatform(platform)
@@ -68,9 +70,14 @@ function buildDesktopBackendPath({
   const delimiter = delimiterForPlatform(platform)
   const hermesNodeBin = hermesHome ? pathModule.join(hermesHome, 'node', 'bin') : null
   const venvBin = venvRoot ? pathModule.join(venvRoot, platform === 'win32' ? 'Scripts' : 'bin') : null
+  // Finder/Dock-launched macOS apps inherit a minimal PATH even though user-level
+  // installers place Fabric and companion binaries (for example cua-driver) in
+  // ~/.local/bin. Keep it ahead of the inherited PATH, alongside the managed
+  // runtime bins, so the backend sees the same user tools as a login shell.
+  const userLocalBin = platform === 'win32' || !home ? null : pathModule.join(home, '.local', 'bin')
   const saneEntries = platform === 'win32' ? [] : POSIX_SANE_PATH_ENTRIES
 
-  return appendUniquePathEntries([hermesNodeBin, venvBin, currentPath, saneEntries], { delimiter })
+  return appendUniquePathEntries([hermesNodeBin, venvBin, userLocalBin, currentPath, saneEntries], { delimiter })
 }
 
 function normalizeHermesHomeRoot(hermesHome, { pathModule = pathModuleForPlatform(process.platform) }: any = {}) {
@@ -159,6 +166,7 @@ function buildDesktopBackendEnv({
   const delimiter = delimiterForPlatform(platform)
   const currentPythonPath = currentEnv?.PYTHONPATH || ''
   const key = pathEnvKey(currentEnv, platform)
+  const home = currentEnv?.HOME || (platform === process.platform ? os.homedir() : '')
 
   return {
     FABRIC_HOME: hermesHome,
@@ -167,6 +175,7 @@ function buildDesktopBackendEnv({
     [key]: buildDesktopBackendPath({
       hermesHome,
       venvRoot,
+      home,
       currentPath: currentPathValue(currentEnv, platform),
       platform,
       pathModule

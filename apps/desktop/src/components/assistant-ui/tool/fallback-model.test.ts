@@ -8,6 +8,7 @@ import {
   countDiffLineStats,
   inlineDiffFromResult,
   MAX_TOOL_RENDER_CHARS,
+  prettyJson,
   type ToolPart
 } from './fallback-model'
 
@@ -44,6 +45,74 @@ describe('buildToolView image handling', () => {
     const url = 'https://example.com/pic.webp'
 
     expect(buildToolView(part({ result: { url } }), '').imageUrl).toBe(url)
+  })
+
+  it('extracts computer-use screenshots from multimodal image_url content', () => {
+    const dataUrl = 'data:image/png;base64,U0VDUkVUX1NDUkVFTlNIT1RfQllURVM='
+
+    const view = buildToolView(
+      part({
+        toolName: 'computer_use',
+        result: {
+          _multimodal: true,
+          content: [
+            { type: 'text', text: 'Clicked the Save button' },
+            { type: 'image_url', image_url: { url: dataUrl } }
+          ],
+          text_summary: 'Clicked the Save button'
+        }
+      }),
+      ''
+    )
+
+    expect(view.imageUrl).toBe(dataUrl)
+    expect(view.title).toBe('Used computer')
+    expect(view.icon).toBe('device-desktop')
+    expect(view.rawResult).not.toContain('U0VDUkVUX1NDUkVFTlNIT1RfQllURVM=')
+    expect(view.rawResult).toContain('[inline image data omitted]')
+  })
+
+  it('extracts browser vision screenshots and preserves direct-result priority', () => {
+    const nestedUrl = 'https://example.com/nested.png'
+    const directUrl = 'https://example.com/direct.png'
+
+    const nestedOnly = buildToolView(
+      part({
+        toolName: 'browser_vision',
+        result: {
+          url: 'https://example.com/page-without-an-image-extension',
+          content: [{ type: 'image_url', image_url: { url: nestedUrl } }]
+        }
+      }),
+      ''
+    )
+
+    const direct = buildToolView(
+      part({
+        toolName: 'browser_vision',
+        result: {
+          image_url: directUrl,
+          content: [{ type: 'image_url', image_url: nestedUrl }]
+        }
+      }),
+      ''
+    )
+
+    expect(nestedOnly.imageUrl).toBe(nestedUrl)
+    expect(nestedOnly.title).toBe('Captured browser view')
+    expect(nestedOnly.icon).toBe('file-media')
+    expect(direct.imageUrl).toBe(directUrl)
+  })
+
+  it('redacts inline image bytes before serializing technical traces', () => {
+    const base64 = 'U0VDUkVUX1NDUkVFTlNIT1RfQllURVM='
+    const objectTrace = prettyJson({ content: [{ image_url: { url: `data:image/png;base64,${base64}` } }] })
+    const stringTrace = prettyJson(`{"image_url":{"url":"data:image/png;base64,${base64}"}}`)
+
+    for (const trace of [objectTrace, stringTrace]) {
+      expect(trace).not.toContain(base64)
+      expect(trace).toContain('data:image/png;base64,[inline image data omitted]')
+    }
   })
 })
 

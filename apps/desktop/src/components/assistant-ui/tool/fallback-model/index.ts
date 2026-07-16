@@ -154,12 +154,20 @@ const TOOL_META: Record<ToolTitleKey, ToolMetaSpec> = {
     icon: 'globe',
     tone: 'browser'
   },
+  browser_vision: {
+    icon: 'file-media',
+    tone: 'browser'
+  },
   clarify: {
     icon: 'question',
     tone: 'agent'
   },
   cronjob: {
     icon: 'watch',
+    tone: 'agent'
+  },
+  computer_use: {
+    icon: 'device-desktop',
     tone: 'agent'
   },
   edit_file: { icon: 'edit', tone: 'file' },
@@ -720,22 +728,57 @@ function toolPreviewTarget(toolName: string, args: Record<string, unknown>, resu
 }
 
 function toolImageUrl(args: Record<string, unknown>, result: Record<string, unknown>): string {
-  const candidate =
-    firstStringField(result, ['image_url', 'url', 'path', 'image_path']) ||
-    firstStringField(args, ['image_url', 'url', 'path'])
+  const candidates = [
+    firstStringField(result, ['image_url']),
+    firstStringField(result, ['url']),
+    firstStringField(result, ['path', 'image_path']),
+    multimodalImageUrl(result),
+    firstStringField(args, ['image_url']),
+    firstStringField(args, ['url']),
+    firstStringField(args, ['path'])
+  ]
 
-  if (!candidate) {
+  for (const candidate of candidates) {
+    // Only inline-render images the renderer can actually fetch: data URLs or
+    // remote http(s). A bare filesystem path (e.g. vision_analyze's input image)
+    // resolves against the dev-server origin and 404s — fall back to the tool's
+    // codicon instead of a broken <img>.
+    const isDataImage = candidate.toLowerCase().startsWith('data:image/')
+
+    const isRemoteImage = /^https?:\/\//i.test(candidate) && /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(candidate)
+
+    if (isDataImage || isRemoteImage) {
+      return candidate
+    }
+  }
+
+  return ''
+}
+
+function multimodalImageUrl(result: Record<string, unknown>): string {
+  if (!Array.isArray(result.content)) {
     return ''
   }
 
-  // Only inline-render images the renderer can actually fetch: data URLs or
-  // remote http(s). A bare filesystem path (e.g. vision_analyze's input image)
-  // resolves against the dev-server origin and 404s — fall back to the tool's
-  // codicon instead of a broken <img>.
-  const isDataImage = candidate.toLowerCase().startsWith('data:image/')
-  const isRemoteImage = /^https?:\/\//i.test(candidate) && /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(candidate)
+  for (const item of result.content) {
+    if (!isRecord(item)) {
+      continue
+    }
 
-  return isDataImage || isRemoteImage ? candidate : ''
+    if (typeof item.image_url === 'string' && item.image_url.trim()) {
+      return item.image_url.trim()
+    }
+
+    if (isRecord(item.image_url)) {
+      const url = firstStringField(item.image_url, ['url'])
+
+      if (url) {
+        return url
+      }
+    }
+  }
+
+  return ''
 }
 
 function stripAnsi(value: string): string {

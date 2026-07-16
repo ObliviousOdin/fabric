@@ -889,13 +889,25 @@
           h(CmdRow, { cmd: host.tailscale_setup_command, t: t })));
       }
 
-      blocks.push(host.suggested_relay_url
-        ? h("p", { key: "fill", className: cn("ha-field-hint", host.suggested_is_shareable ? "ha-detect-ok" : "ha-detect-warn") },
-            host.suggested_is_shareable
-              ? tx(t, "team.detect_filled", "Filled in {url} below — anyone on your tailnet can reach it.", { url: host.suggested_relay_url })
-              : tx(t, "team.detect_filled_local", "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.", { url: host.suggested_relay_url }))
-        : h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
-            tx(t, "team.detect_nofill", "Host the relay (and connect Tailscale), then the URL fills in automatically.")));
+      // Three states for the auto-filled URL, so we never promise reachability
+      // before a relay is actually up: reachable now (shareable host + live),
+      // pending (tailnet name but no relay yet), or local-only (loopback).
+      const hasTailnet = !!(ts && ts.running && (ts.magicdns || ts.ipv4));
+      let fill;
+      if (!host.suggested_relay_url) {
+        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+          tx(t, "team.detect_nofill", "Host the relay (and connect Tailscale), then the URL fills in automatically."));
+      } else if (host.suggested_is_shareable) {
+        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-ok" },
+          tx(t, "team.detect_filled", "Filled in {url} below — anyone on your tailnet can reach it.", { url: host.suggested_relay_url }));
+      } else if (hasTailnet) {
+        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+          tx(t, "team.detect_filled_pending", "Filled in {url} — start the relay (Host on this machine) to make it reachable on your tailnet.", { url: host.suggested_relay_url }));
+      } else {
+        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+          tx(t, "team.detect_filled_local", "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.", { url: host.suggested_relay_url }));
+      }
+      blocks.push(fill);
 
       if (host.note) {
         blocks.push(h("p", { key: "note", className: "ha-field-hint ha-detect-warn" }, host.note));

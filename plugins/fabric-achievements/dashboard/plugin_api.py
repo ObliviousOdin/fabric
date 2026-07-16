@@ -1922,6 +1922,12 @@ def host_status(
     an address they'd have to look up. Prefers a Tailscale address (stable,
     reachable by teammates on the tailnet without port-forwarding) and falls
     back to loopback, which only serves a same-machine trial.
+
+    ``suggested_is_shareable`` is only True when a relay is actually answering
+    (``relay_live``): a Tailscale name for a port nothing is listening on is a
+    *pending* URL, not a reachable one, so the UI must not promise reachability
+    before the relay is up. The URL is still pre-filled so it's ready the moment
+    the relay starts.
     """
     port = _coerce_port(port)
 
@@ -1929,16 +1935,20 @@ def host_status(
     local_relay = _probe_relay_health(f"http://127.0.0.1:{port}", transport=transport)
     managed = relay_process_status(transport=transport)
 
+    # A relay is "live" when something is answering /health on the port, or our
+    # managed relay reports running (it may be mid-startup before /health binds).
+    relay_live = bool(local_relay.get("ok")) or bool(managed.get("running"))
+
     shareable_host = tailscale.get("magicdns") or tailscale.get("ipv4")
     if shareable_host:
         suggested = f"http://{shareable_host}:{port}"
-        shareable = True
-    elif local_relay.get("ok"):
+    elif relay_live:
         suggested = f"http://127.0.0.1:{port}"
-        shareable = False
     else:
         suggested = None
-        shareable = False
+    # Reachable-by-teammates AND actually serving. A tailnet name with no relay
+    # behind it is pending, and loopback is never teammate-reachable.
+    shareable = bool(shareable_host) and relay_live
 
     result = {
         "ok": True,
@@ -1946,6 +1956,7 @@ def host_status(
         "tailscale": tailscale,
         "local_relay": local_relay,
         "managed_relay": managed,
+        "relay_live": relay_live,
         "suggested_relay_url": suggested,
         "suggested_is_shareable": shareable,
         # Connecting Tailscale is an interactive QR login owned by the CLI; the

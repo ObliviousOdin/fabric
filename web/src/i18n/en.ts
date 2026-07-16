@@ -1089,6 +1089,8 @@ export const en: Translations = {
         "Filled in {url} below — anyone on your tailnet can reach it.",
       detect_filled_local:
         "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.",
+      detect_filled_pending:
+        "Filled in {url} — start the relay (Host on this machine) to make it reachable on your tailnet.",
       detect_nofill:
         "Host the relay (and connect Tailscale), then the URL fills in automatically.",
       tailscale_connect_hint:

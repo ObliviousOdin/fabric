@@ -1193,6 +1193,7 @@ export interface Translations {
       detect_relay_external: string;
       detect_filled: string;
       detect_filled_local: string;
+      detect_filled_pending: string;
       detect_nofill: string;
       tailscale_connect_hint: string;
       copy_cmd: string;

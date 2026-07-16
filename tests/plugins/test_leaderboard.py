@@ -452,11 +452,28 @@ def test_host_status_prefers_tailscale_magicdns(api, monkeypatch):
         running=True, dns_name="my-box.tail1234.ts.net", ip="100.101.102.103"))
     status = api.host_status(9137, transport=_healthy_relay_transport())
     assert status["suggested_relay_url"] == "http://my-box.tail1234.ts.net:9137"
-    assert status["suggested_is_shareable"] is True
+    assert status["suggested_is_shareable"] is True  # relay is live
+    assert status["relay_live"] is True
     assert status["local_relay"]["ok"] is True
     assert status["tailscale"]["running"] is True
     assert status["tailscale_needs_setup"] is False
     assert "python -m relay" in status["run_command"]
+
+
+def test_host_status_tailscale_up_but_no_relay_is_pending_not_shareable(api, monkeypatch):
+    # A MagicDNS URL for a port with no relay behind it must NOT be marked
+    # shareable/reachable. The URL is still pre-filled (ready once Host runs),
+    # but relay_live is False so the UI shows a "pending" message, not "reachable".
+    _use_tailscale(monkeypatch, api, status=_FakeTailscaleStatus(
+        running=True, dns_name="box.tail1234.ts.net", ip="100.1.2.3"))
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("refused", status=0)
+
+    status = api.host_status(9137, transport=dead)
+    assert status["suggested_relay_url"] == "http://box.tail1234.ts.net:9137"  # still pre-filled
+    assert status["relay_live"] is False
+    assert status["suggested_is_shareable"] is False  # not promised as reachable
 
 
 def test_host_status_falls_back_to_loopback_when_no_tailscale(api, monkeypatch):

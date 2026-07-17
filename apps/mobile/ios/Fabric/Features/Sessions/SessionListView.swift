@@ -102,13 +102,10 @@ private struct ActiveSessionRow: View {
     let session: ActiveSession
     let onInterrupt: () async -> Void
 
+    // Contract status language: working rides the active-thread purple,
+    // waiting is amber, starting is info; idle stays neutral.
     private var statusColor: Color {
-        switch session.status {
-        case "working": return .green
-        case "waiting": return .orange
-        case "starting": return .blue
-        default: return .gray
-        }
+        FabricTheme.sessionStatusColor(session.status)
     }
 
     var body: some View {

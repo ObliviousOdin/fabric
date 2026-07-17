@@ -8,6 +8,9 @@ struct FabricMobileApp: App {
         WindowGroup {
             RootView()
                 .environment(appModel)
+                // The Fabric action accent drives every interactive control;
+                // neutral surfaces carry the rest (design contract).
+                .tint(FabricTheme.action)
         }
     }
 }

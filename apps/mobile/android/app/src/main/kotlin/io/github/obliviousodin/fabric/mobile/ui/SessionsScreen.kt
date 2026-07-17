@@ -38,12 +38,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.obliviousodin.fabric.mobile.AppViewModel
 import io.github.obliviousodin.fabric.mobile.core.ActiveSession
 import io.github.obliviousodin.fabric.mobile.core.SessionSummary
+import io.github.obliviousodin.fabric.mobile.ui.theme.FabricTheme
 import kotlinx.coroutines.launch
 
 /**
@@ -172,12 +172,9 @@ fun SessionsScreen(viewModel: AppViewModel) {
  */
 @Composable
 private fun ActiveSessionRow(session: ActiveSession, onInterrupt: () -> Unit) {
-    val statusColor = when (session.status) {
-        "working" -> Color(0xFF2E9E5B)
-        "waiting" -> Color(0xFFCC8B28)
-        "starting" -> Color(0xFF2873CC)
-        else -> Color.Gray
-    }
+    // Contract status language: working rides the active-thread purple,
+    // waiting is amber, starting is info; idle stays neutral.
+    val statusColor = FabricTheme.extras.sessionStatusColor(session.status)
 
     Row(
         verticalAlignment = Alignment.CenterVertically,

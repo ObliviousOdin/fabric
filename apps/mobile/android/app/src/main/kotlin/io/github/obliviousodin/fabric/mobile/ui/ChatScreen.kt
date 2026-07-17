@@ -5,16 +5,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
@@ -56,6 +58,7 @@ import io.github.obliviousodin.fabric.mobile.PendingApproval
 import io.github.obliviousodin.fabric.mobile.PendingPrompt
 import io.github.obliviousodin.fabric.mobile.Role
 import io.github.obliviousodin.fabric.mobile.TranscriptMessage
+import io.github.obliviousodin.fabric.mobile.ui.theme.FabricTheme
 
 /**
  * Chat transcript + composer for one Fabric session, with the same
@@ -235,6 +238,7 @@ fun ChatScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.Redo,
                             contentDescription = "Steer",
+                            tint = FabricTheme.extras.threadActive,
                         )
                     }
                     IconButton(onClick = controller::interrupt) {
@@ -257,31 +261,55 @@ fun ChatScreen(
     }
 }
 
+/**
+ * Waiting-for-approval banner. Status language per the design contract:
+ * an amber marker + explicit label, with the status color held to a tint
+ * and an edge marker — never a fully saturated panel. One primary action.
+ */
 @Composable
 private fun ApprovalBanner(
     approval: PendingApproval,
     onRespond: (Boolean) -> Unit,
 ) {
+    val warning = FabricTheme.extras.warning
     Surface(
-        color = MaterialTheme.colorScheme.tertiaryContainer,
+        color = warning.copy(alpha = 0.1f),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Approval requested", style = MaterialTheme.typography.titleSmall)
-            approval.command?.takeIf { it.isNotEmpty() }?.let { command ->
-                Text(
-                    command,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 4,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onRespond(false) }) { Text("Deny") }
-                Button(onClick = { onRespond(true) }) { Text("Allow") }
+        Row {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(warning),
+            )
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(warning, CircleShape),
+                    )
+                    Text("Waiting for approval", style = MaterialTheme.typography.titleSmall)
+                }
+                approval.command?.takeIf { it.isNotEmpty() }?.let { command ->
+                    Text(
+                        command,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 4,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onRespond(true) }) { Text("Allow") }
+                    OutlinedButton(onClick = { onRespond(false) }) { Text("Deny") }
+                }
             }
         }
     }
@@ -298,8 +326,9 @@ private fun PromptBanner(
 ) {
     var answer by remember(prompt.requestId) { mutableStateOf("") }
 
+    val info = FabricTheme.extras.info
     Surface(
-        color = MaterialTheme.colorScheme.secondaryContainer,
+        color = info.copy(alpha = 0.1f),
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
@@ -351,18 +380,21 @@ private fun PromptBanner(
 @Composable
 private fun MessageBubble(message: TranscriptMessage) {
     when (message.role) {
+        // Purple marks user-controlled elements (contract): the user's own
+        // words are the one solid-accent surface in the transcript.
         Role.USER -> {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                 Text(
                     message.text,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier
                         .widthIn(max = 320.dp)
                         .background(
                             MaterialTheme.colorScheme.primary,
-                            RoundedCornerShape(14.dp),
+                            MaterialTheme.shapes.large,
                         )
-                        .padding(10.dp),
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                 )
             }
         }
@@ -371,17 +403,20 @@ private fun MessageBubble(message: TranscriptMessage) {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
                 Text(
                     if (message.text.isEmpty() && message.streaming) "…" else message.text,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier
                         .widthIn(max = 320.dp)
                         .background(
-                            MaterialTheme.colorScheme.surfaceVariant,
-                            RoundedCornerShape(14.dp),
+                            MaterialTheme.colorScheme.surfaceContainerHigh,
+                            MaterialTheme.shapes.large,
                         )
-                        .padding(10.dp),
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                 )
             }
         }
 
+        // Technical output (slash results, task notices): mono on an inset
+        // surface, full width — a ledger row, not a speech bubble.
         Role.INFO -> {
             Text(
                 message.text,
@@ -391,21 +426,31 @@ private fun MessageBubble(message: TranscriptMessage) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        RoundedCornerShape(8.dp),
+                        MaterialTheme.colorScheme.surfaceContainerHighest,
+                        MaterialTheme.shapes.small,
                     )
-                    .padding(8.dp),
+                    .padding(10.dp),
             )
         }
 
+        // Failures read as status, not as chat: danger dot + left-aligned copy.
         Role.SYSTEM -> {
-            Text(
-                message.text,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
-            )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(FabricTheme.extras.danger, CircleShape),
+                )
+                Text(
+                    message.text,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = FabricTheme.extras.danger,
+                )
+            }
         }
     }
 }

@@ -5,22 +5,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import io.github.obliviousodin.fabric.mobile.ui.ChatScreen
 import io.github.obliviousodin.fabric.mobile.ui.ConnectScreen
 import io.github.obliviousodin.fabric.mobile.ui.SessionsScreen
-
-// Fabric's single brand/action accent (see apps/design-system, web/DESIGN.md).
-private val FabricAccent = Color(0xFF4628CC)
+import io.github.obliviousodin.fabric.mobile.ui.theme.FabricTheme
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
@@ -35,16 +28,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
-
-@Composable
-private fun FabricTheme(content: @Composable () -> Unit) {
-    val colorScheme = if (isSystemInDarkTheme()) {
-        darkColorScheme(primary = FabricAccent)
-    } else {
-        lightColorScheme(primary = FabricAccent)
-    }
-    MaterialTheme(colorScheme = colorScheme, content = content)
 }
 
 @Composable

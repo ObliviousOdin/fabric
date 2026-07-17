@@ -138,29 +138,43 @@ private struct ChatContentView: View {
         }
     }
 
+    /// Waiting-for-approval banner. Status language per the design contract:
+    /// an amber marker + explicit label, with the status color held to a
+    /// tint and an edge marker — never a fully saturated panel.
     private func approvalBanner(_ approval: PendingApproval) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Approval requested", systemImage: "hand.raised")
-                .font(.subheadline.weight(.semibold))
-            if let command = approval.command, !command.isEmpty {
-                Text(command)
-                    .font(.caption.monospaced())
-                    .lineLimit(4)
-            }
-            HStack {
-                Button("Deny", role: .destructive) {
-                    Task { await model.respondToApproval(allow: false) }
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(FabricTheme.warning)
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(FabricTheme.warning)
+                        .frame(width: 8, height: 8)
+                    Text("Waiting for approval")
+                        .font(.subheadline.weight(.semibold))
                 }
-                .buttonStyle(.bordered)
-                Button("Allow") {
-                    Task { await model.respondToApproval(allow: true) }
+                if let command = approval.command, !command.isEmpty {
+                    Text(command)
+                        .font(.caption.monospaced())
+                        .lineLimit(4)
                 }
-                .buttonStyle(.borderedProminent)
+                HStack {
+                    Button("Allow") {
+                        Task { await model.respondToApproval(allow: true) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Deny", role: .destructive) {
+                        Task { await model.respondToApproval(allow: false) }
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.yellow.opacity(0.15))
+        .background(FabricTheme.warning.fabricTint())
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Blocking agent prompt: clarify choices as buttons, plus a free-text
@@ -212,7 +226,7 @@ private struct ChatContentView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.blue.opacity(0.1))
+        .background(FabricTheme.info.fabricTint())
     }
 
     private var composer: some View {
@@ -227,7 +241,8 @@ private struct ChatContentView: View {
             .disabled(!model.sessionReady)
 
             if model.busy {
-                // Steering send: injects the note without interrupting.
+                // Steering send: injects the note without interrupting. The
+                // active-thread color marks it as touching the live turn.
                 Button {
                     let text = draft
                     draft = ""
@@ -235,6 +250,8 @@ private struct ChatContentView: View {
                 } label: {
                     Image(systemName: "arrow.uturn.right.circle.fill")
                         .font(.title2)
+                        .foregroundStyle(FabricTheme.threadActive)
+                        .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
@@ -243,6 +260,7 @@ private struct ChatContentView: View {
                 } label: {
                     Image(systemName: "stop.circle.fill")
                         .font(.title2)
+                        .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
             } else {
                 Button {
@@ -252,6 +270,7 @@ private struct ChatContentView: View {
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
+                        .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
                 .disabled(
                     !model.sessionReady
@@ -259,7 +278,8 @@ private struct ChatContentView: View {
                 )
             }
         }
-        .padding()
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 }
 
@@ -268,36 +288,50 @@ private struct MessageBubble: View {
 
     var body: some View {
         switch message.role {
+        // Purple marks user-controlled elements (contract): the user's own
+        // words are the one solid-accent surface in the transcript.
         case .user:
             HStack {
                 Spacer(minLength: 40)
                 Text(message.text)
-                    .padding(10)
-                    .background(Color.accentColor.opacity(0.9))
-                    .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .font(.subheadline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(FabricTheme.action)
+                    .foregroundStyle(FabricTheme.textOnBrand)
+                    .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
             }
         case .assistant:
             HStack {
                 Text(message.text.isEmpty && message.streaming ? "…" : message.text)
-                    .padding(10)
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .font(.subheadline)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(FabricTheme.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
                 Spacer(minLength: 40)
             }
+        // Technical output (slash results, task notices): mono on an inset
+        // surface, full width — a ledger row, not a speech bubble.
         case .info:
             Text(message.text)
                 .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .padding(8)
+                .foregroundStyle(FabricTheme.textMuted)
+                .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground).opacity(0.6))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(FabricTheme.surfaceInset)
+                .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
+        // Failures read as status, not as chat: danger dot + left-aligned copy.
         case .system:
-            Text(message.text)
-                .font(.caption)
-                .foregroundStyle(.red)
-                .frame(maxWidth: .infinity, alignment: .center)
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(FabricTheme.danger)
+                    .frame(width: 8, height: 8)
+                Text(message.text)
+                    .font(.caption)
+                    .foregroundStyle(FabricTheme.danger)
+                Spacer(minLength: 0)
+            }
         }
     }
 }

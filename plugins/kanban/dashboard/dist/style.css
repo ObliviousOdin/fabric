@@ -5,7 +5,7 @@
  * active dashboard theme. No hardcoded palette.
  */
 
-.hermes-kanban {
+.fabric-kanban {
   width: 100%;
 }
 
@@ -18,11 +18,11 @@
  * surfaces that must read as plain text on the board's own background.
  *
  * Rather than play whack-a-mole with theme rules (the pre-#21086 approach
- * was a single ``.hermes-kanban code { background: transparent }`` rule
+ * was a single ``.fabric-kanban code { background: transparent }`` rule
  * that lost specificity fights in the drawer context), reset EVERY
  * <code>/<pre> inside the kanban plugin container to transparent with
  * ``!important``, then opt back in ONLY on the class that carries
- * intentional styling (``.hermes-kanban-md code``, the inline code pill
+ * intentional styling (``.fabric-kanban-md code``, the inline code pill
  * inside rendered task-body Markdown).
  *
  * Net effect: any new theme, shipped or third-party, can introduce
@@ -31,16 +31,16 @@
  * Regression coverage: #21086 (task-drawer event payloads unreadable
  * across every shipped theme).
  */
-.hermes-kanban code,
-.hermes-kanban pre,
-.hermes-kanban-drawer code,
-.hermes-kanban-drawer pre {
+.fabric-kanban code,
+.fabric-kanban pre,
+.fabric-kanban-drawer code,
+.fabric-kanban-drawer pre {
   background: transparent !important;
   color: inherit;
 }
 /* The Markdown renderer intentionally paints a subtle code pill behind
  * inline ``<code>`` inside task-body prose — but NOT inside a fenced
- * block (those are a ``<pre class="hermes-kanban-md-code">`` with a
+ * block (those are a ``<pre class="fabric-kanban-md-code">`` with a
  * bare ``<code>`` inside, and the pill would double up with the pre
  * background). ``:not()`` scopes this opt-back-in to inline code only.
  *
@@ -48,37 +48,37 @@
  * so the pill renders consistently even when a theme forgets to set
  * ``--color-foreground`` (pre-existing safeguard from #18576).
  */
-.hermes-kanban .hermes-kanban-md code:not(.hermes-kanban-md-code *) {
+.fabric-kanban .fabric-kanban-md code:not(.fabric-kanban-md-code *) {
   background: color-mix(in srgb, currentColor 8%, transparent) !important;
 }
 /* Tighten contrast on the drawer-specific payload class — it lives on
  * its own line in the events list, so matching the muted-foreground
  * color keeps it visually distinct from the event title without
  * screaming for attention. */
-.hermes-kanban-event-payload,
-.hermes-kanban-drawer .hermes-kanban-event-payload {
+.fabric-kanban-event-payload,
+.fabric-kanban-drawer .fabric-kanban-event-payload {
   color: var(--color-muted-foreground) !important;
 }
 
 /* ---- Columns layout -------------------------------------------------- */
 
-.hermes-kanban-columns {
+.fabric-kanban-columns {
   display: flex;
   gap: 0.75rem;
   align-items: start;
   overflow-x: auto;
 }
 
-.hermes-kanban-columns--scrollable {
+.fabric-kanban-columns--scrollable {
   cursor: grab;
 }
 
-.hermes-kanban-columns--panning,
-.hermes-kanban-columns--panning * {
+.fabric-kanban-columns--panning,
+.fabric-kanban-columns--panning * {
   cursor: grabbing !important;
 }
 
-.hermes-kanban-column {
+.fabric-kanban-column {
   flex: 0 0 280px;
   display: flex;
   flex-direction: column;
@@ -91,12 +91,12 @@
   transition: border-color 120ms ease, background-color 120ms ease;
 }
 
-.hermes-kanban-column--drop {
+.fabric-kanban-column--drop {
   border-color: var(--color-ring);
   background: color-mix(in srgb, var(--color-ring) 8%, var(--color-card));
 }
 
-.hermes-kanban-column-header {
+.fabric-kanban-column-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -106,19 +106,19 @@
   color: var(--color-foreground);
 }
 
-.hermes-kanban-column-label {
+.fabric-kanban-column-label {
   flex: 1;
   letter-spacing: 0.01em;
 }
 
-.hermes-kanban-column-count {
+.fabric-kanban-column-count {
   font-variant-numeric: tabular-nums;
   color: var(--color-muted-foreground);
   font-size: 0.75rem;
   font-weight: 500;
 }
 
-.hermes-kanban-column-add {
+.fabric-kanban-column-add {
   appearance: none;
   background: transparent;
   border: 1px solid var(--color-border);
@@ -130,11 +130,11 @@
   font-size: 1rem;
   cursor: pointer;
 }
-.hermes-kanban-column-add:hover {
+.fabric-kanban-column-add:hover {
   background: color-mix(in srgb, var(--color-foreground) 8%, transparent);
 }
 
-.hermes-kanban-column-sub {
+.fabric-kanban-column-sub {
   padding: 0 0.25rem 0.5rem;
   font-size: 0.7rem;
   color: var(--color-muted-foreground);
@@ -142,7 +142,7 @@
   margin-bottom: 0.5rem;
 }
 
-.hermes-kanban-column-body {
+.fabric-kanban-column-body {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -152,7 +152,7 @@
   min-height: 0;
 }
 
-.hermes-kanban-empty {
+.fabric-kanban-empty {
   padding: 1.5rem 0.5rem;
   text-align: center;
   font-size: 0.75rem;
@@ -163,26 +163,26 @@
 
 /* ---- Status dots ----------------------------------------------------- */
 
-.hermes-kanban-dot {
+.fabric-kanban-dot {
   display: inline-block;
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 999px;
   background: var(--color-muted-foreground);
 }
-.hermes-kanban-dot-triage   { background: #b47dd6; }  /* lilac — fresh/unspecified */
-.hermes-kanban-dot-todo     { background: var(--color-muted-foreground); }
-.hermes-kanban-dot-scheduled { background: var(--color-warning, #d4b348); }
-.hermes-kanban-dot-ready    { background: var(--color-warning, #d4b348); }  /* amber */
-.hermes-kanban-dot-running  { background: var(--color-success, #3fb97d); }  /* green */
-.hermes-kanban-dot-blocked  { background: var(--color-destructive, #d14a4a); }
-.hermes-kanban-dot-review   { background: var(--color-warning, #d97706); }
-.hermes-kanban-dot-done     { background: var(--color-primary, #4a8cd1); }  /* blue */
-.hermes-kanban-dot-archived { background: var(--color-border); }
+.fabric-kanban-dot-triage   { background: #b47dd6; }  /* lilac — fresh/unspecified */
+.fabric-kanban-dot-todo     { background: var(--color-muted-foreground); }
+.fabric-kanban-dot-scheduled { background: var(--color-warning, #d4b348); }
+.fabric-kanban-dot-ready    { background: var(--color-warning, #d4b348); }  /* amber */
+.fabric-kanban-dot-running  { background: var(--color-success, #3fb97d); }  /* green */
+.fabric-kanban-dot-blocked  { background: var(--color-destructive, #d14a4a); }
+.fabric-kanban-dot-review   { background: var(--color-warning, #d97706); }
+.fabric-kanban-dot-done     { background: var(--color-primary, #4a8cd1); }  /* blue */
+.fabric-kanban-dot-archived { background: var(--color-border); }
 
 /* ---- Progress pill (N/M child tasks done) --------------------------- */
 
-.hermes-kanban-progress {
+.fabric-kanban-progress {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.62rem;
   padding: 0.05rem 0.35rem;
@@ -192,7 +192,7 @@
   color: var(--color-muted-foreground);
   letter-spacing: 0.02em;
 }
-.hermes-kanban-progress--full {
+.fabric-kanban-progress--full {
   background: color-mix(in srgb, var(--color-success, #3fb97d) 22%, transparent);
   border-color: color-mix(in srgb, var(--color-success, #3fb97d) 45%, transparent);
   color: var(--color-foreground);
@@ -200,18 +200,18 @@
 
 /* ---- Lanes (per-profile sub-grouping inside Running) ---------------- */
 
-.hermes-kanban-lane {
+.fabric-kanban-lane {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.25rem 0 0.35rem;
   border-top: 1px dashed color-mix(in srgb, var(--color-border) 70%, transparent);
 }
-.hermes-kanban-lane:first-child {
+.fabric-kanban-lane:first-child {
   border-top: 0;
   padding-top: 0;
 }
-.hermes-kanban-lane-head {
+.fabric-kanban-lane-head {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -223,51 +223,51 @@
   color: var(--color-muted-foreground);
   padding: 0 0.1rem;
 }
-.hermes-kanban-lane-name {
+.fabric-kanban-lane-name {
   font-weight: 600;
   font-family: var(--font-mono, ui-monospace, monospace);
 }
-.hermes-kanban-lane-count {
+.fabric-kanban-lane-count {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
 
 /* ---- Card ------------------------------------------------------------ */
 
-.hermes-kanban-card {
+.fabric-kanban-card {
   cursor: grab;
   transition: transform 100ms ease, box-shadow 100ms ease;
 }
-.hermes-kanban-card:hover {
+.fabric-kanban-card:hover {
   box-shadow: 0 1px 0 0 var(--color-ring) inset, 0 0 0 1px var(--color-ring) inset;
 }
-.hermes-kanban-card:active {
+.fabric-kanban-card:active {
   cursor: grabbing;
   transform: scale(0.995);
 }
 
-.hermes-kanban-card-content {
+.fabric-kanban-card-content {
   padding: 0.5rem 0.6rem !important;
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
 }
 
-.hermes-kanban-card-row {
+.fabric-kanban-card-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
   flex-wrap: wrap;
 }
 
-.hermes-kanban-card-id {
+.fabric-kanban-card-id {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.65rem;
   color: var(--color-muted-foreground);
   letter-spacing: 0.03em;
 }
 
-.hermes-kanban-card-title {
+.fabric-kanban-card-title {
   font-size: 0.85rem;
   font-weight: 500;
   line-height: 1.3;
@@ -275,13 +275,13 @@
   word-break: break-word;
 }
 
-.hermes-kanban-card-meta {
+.fabric-kanban-card-meta {
   font-size: 0.7rem;
   color: var(--color-muted-foreground);
   gap: 0.55rem;
 }
 
-.hermes-kanban-priority {
+.fabric-kanban-priority {
   font-size: 0.6rem !important;
   padding: 0.05rem 0.3rem !important;
   background: color-mix(in srgb, var(--color-ring) 18%, transparent);
@@ -289,12 +289,12 @@
   border: 1px solid color-mix(in srgb, var(--color-ring) 40%, transparent);
 }
 
-.hermes-kanban-tag {
+.fabric-kanban-tag {
   font-size: 0.6rem !important;
   padding: 0.05rem 0.3rem !important;
 }
 
-.hermes-kanban-needs-assignee {
+.fabric-kanban-needs-assignee {
   font-size: 0.6rem !important;
   padding: 0.05rem 0.3rem !important;
   background: color-mix(in srgb, var(--color-warning, #d4b348) 16%, transparent);
@@ -302,20 +302,20 @@
   color: var(--color-foreground);
 }
 
-.hermes-kanban-assignee {
+.fabric-kanban-assignee {
   font-weight: 500;
   color: color-mix(in srgb, var(--color-foreground) 80%, var(--color-muted-foreground));
 }
-.hermes-kanban-unassigned {
+.fabric-kanban-unassigned {
   font-style: italic;
 }
-.hermes-kanban-ago {
+.fabric-kanban-ago {
   margin-left: auto;
 }
 
 /* ---- Inline create --------------------------------------------------- */
 
-.hermes-kanban-inline-create {
+.fabric-kanban-inline-create {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -326,14 +326,14 @@
   border-radius: var(--radius-sm, 0.25rem);
 }
 
-.hermes-kanban-inline-create > .flex.gap-2:last-child > button:first-of-type {
+.fabric-kanban-inline-create > .flex.gap-2:last-child > button:first-of-type {
   flex: 1;
   min-width: 0;
 }
 
 /* ---- Drawer (task detail side panel) --------------------------------- */
 
-.hermes-kanban-drawer-shade {
+.fabric-kanban-drawer-shade {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
@@ -342,8 +342,8 @@
   justify-content: flex-end;
 }
 
-.hermes-kanban-drawer {
-  width: min(var(--hermes-kanban-drawer-width, 640px), 92vw);
+.fabric-kanban-drawer {
+  width: min(var(--fabric-kanban-drawer-width, 640px), 92vw);
   height: 100vh;
   /* Dynamic viewport unit excludes the mobile browser's collapsing chrome
      (URL/nav bars) so the drawer's bottom row stays reachable. Falls back to
@@ -355,15 +355,15 @@
   display: flex;
   flex-direction: column;
   box-shadow: -4px 0 18px rgba(0, 0, 0, 0.35);
-  animation: hermes-kanban-drawer-in 180ms ease-out;
+  animation: fabric-kanban-drawer-in 180ms ease-out;
 }
 
-@keyframes hermes-kanban-drawer-in {
+@keyframes fabric-kanban-drawer-in {
   from { transform: translateX(100%); opacity: 0.3; }
   to   { transform: translateX(0);    opacity: 1; }
 }
 
-.hermes-kanban-drawer-head {
+.fabric-kanban-drawer-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -380,12 +380,12 @@
    viewport top, so its header would sit behind that bar. Push the header down
    by the bar height (3.5rem) plus the top safe-area inset. */
 @media (max-width: 1023px) {
-  .hermes-kanban-drawer-head {
+  .fabric-kanban-drawer-head {
     padding-top: calc(3.5rem + env(safe-area-inset-top));
   }
 }
 
-.hermes-kanban-drawer-close {
+.fabric-kanban-drawer-close {
   appearance: none;
   background: transparent;
   border: 0;
@@ -395,11 +395,11 @@
   cursor: pointer;
   padding: 0 0.25rem;
 }
-.hermes-kanban-drawer-close:hover { color: var(--color-foreground); }
+.fabric-kanban-drawer-close:hover { color: var(--color-foreground); }
 
 /* Attachment download trigger — styled as a link, rendered as a <button>
    so the click handler can fetch with the session token (#35338). */
-.hermes-kanban-attachment-link {
+.fabric-kanban-attachment-link {
   appearance: none;
   background: transparent;
   border: 0;
@@ -414,9 +414,9 @@
   white-space: nowrap;
   flex: 1;
 }
-.hermes-kanban-attachment-link:hover { text-decoration: underline; }
+.fabric-kanban-attachment-link:hover { text-decoration: underline; }
 
-.hermes-kanban-drawer-body {
+.fabric-kanban-drawer-body {
   flex: 1;
   overflow-y: auto;
   padding: 0.9rem;
@@ -429,7 +429,7 @@
   gap: 0.85rem;
 }
 
-.hermes-kanban-drawer-title {
+.fabric-kanban-drawer-title {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -437,7 +437,7 @@
   font-weight: 600;
 }
 
-.hermes-kanban-drawer-meta {
+.fabric-kanban-drawer-meta {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
@@ -447,41 +447,41 @@
   border-radius: var(--radius-sm, 0.25rem);
 }
 
-.hermes-kanban-meta-row {
+.fabric-kanban-meta-row {
   display: flex;
   gap: 0.5rem;
   font-size: 0.8rem;
 }
-.hermes-kanban-meta-label {
+.fabric-kanban-meta-label {
   width: 92px;
   color: var(--color-muted-foreground);
 }
-.hermes-kanban-meta-value {
+.fabric-kanban-meta-value {
   color: var(--color-foreground);
   word-break: break-word;
 }
 
-.hermes-kanban-actions {
+.fabric-kanban-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
 }
 
 /* Specifier result banner — sits directly under the status action row. */
-.hermes-kanban-msg-ok,
-.hermes-kanban-msg-err {
+.fabric-kanban-msg-ok,
+.fabric-kanban-msg-err {
   margin-top: 0.4rem;
   padding: 0.35rem 0.55rem;
   border-radius: 0.375rem;
   font-size: 0.85rem;
   line-height: 1.3;
 }
-.hermes-kanban-msg-ok {
+.fabric-kanban-msg-ok {
   background: color-mix(in srgb, var(--color-success, #2ea043) 12%, transparent);
   color: var(--color-success, #2ea043);
   border: 1px solid color-mix(in srgb, var(--color-success, #2ea043) 35%, transparent);
 }
-.hermes-kanban-msg-err {
+.fabric-kanban-msg-err {
   background: color-mix(in srgb, var(--color-destructive, #f85149) 12%, transparent);
   color: var(--color-destructive, #f85149);
   border: 1px solid color-mix(in srgb, var(--color-destructive, #f85149) 35%, transparent);
@@ -489,17 +489,17 @@
 
 /* ---- Home channel subscription toggles (per-platform, per-task) ----- */
 
-.hermes-kanban-home-subs {
+.fabric-kanban-home-subs {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
 }
-.hermes-kanban-home-sub {
+.fabric-kanban-home-sub {
   font-family: var(--font-mono, ui-monospace, monospace);
   text-transform: lowercase;
   letter-spacing: 0.02em;
 }
-.hermes-kanban-home-sub--on {
+.fabric-kanban-home-sub--on {
   /* Subscribed toggle — use a strong ring-colored accent so the on/off
    * distinction reads at a glance, not just from the ✓ prefix. Border +
    * filled background + bolder weight keep the state obvious across
@@ -511,20 +511,20 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-ring) 40%, transparent);
 }
 
-.hermes-kanban-section {
+.fabric-kanban-section {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
 }
 
-.hermes-kanban-section-head {
+.fabric-kanban-section-head {
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.07em;
   color: var(--color-muted-foreground);
 }
 
-.hermes-kanban-pre {
+.fabric-kanban-pre {
   margin: 0;
   padding: 0.5rem 0.6rem;
   white-space: pre-wrap;
@@ -538,7 +538,7 @@
   color: var(--color-foreground);
 }
 
-.hermes-kanban-comment {
+.fabric-kanban-comment {
   border-left: 2px solid color-mix(in srgb, var(--color-ring) 35%, transparent);
   padding-left: 0.5rem;
   display: flex;
@@ -546,31 +546,31 @@
   gap: 0.2rem;
 }
 
-.hermes-kanban-comment-head {
+.fabric-kanban-comment-head {
   display: flex;
   gap: 0.5rem;
   font-size: 0.7rem;
 }
-.hermes-kanban-comment-author {
+.fabric-kanban-comment-author {
   font-weight: 600;
   color: var(--color-foreground);
 }
-.hermes-kanban-comment-ago {
+.fabric-kanban-comment-ago {
   color: var(--color-muted-foreground);
 }
 
-.hermes-kanban-event {
+.fabric-kanban-event {
   display: flex;
   gap: 0.5rem;
   font-size: 0.7rem;
   color: var(--color-muted-foreground);
   font-family: var(--font-mono, ui-monospace, monospace);
 }
-.hermes-kanban-event-kind {
+.fabric-kanban-event-kind {
   color: var(--color-foreground);
   min-width: 6rem;
 }
-.hermes-kanban-event-payload {
+.fabric-kanban-event-payload {
   color: var(--color-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -578,7 +578,7 @@
   max-width: 280px;
 }
 
-.hermes-kanban-drawer-comment-row {
+.fabric-kanban-drawer-comment-row {
   display: flex;
   gap: 0.4rem;
   padding: 0.55rem 0.75rem;
@@ -589,7 +589,7 @@
   background: color-mix(in srgb, var(--color-card) 90%, transparent);
 }
 
-.hermes-kanban-count {
+.fabric-kanban-count {
   display: inline-flex;
   gap: 0.2rem;
   align-items: center;
@@ -597,7 +597,7 @@
 
 /* ---- Selection chrome ----------------------------------------------- */
 
-.hermes-kanban-card--selected :where(.hermes-kanban-card-content) {
+.fabric-kanban-card--selected :where(.fabric-kanban-card-content) {
   box-shadow: 0 0 0 2px var(--color-ring) inset,
               0 0 0 1px var(--color-ring) inset;
   background: color-mix(in srgb, var(--color-ring) 6%, var(--color-card));
@@ -606,13 +606,13 @@
 /* Batch drag source styling — cards that are part of the current multi-drag.
    The browser ghost image floats; we dim the original DOM nodes so the user
    sees the whole set is in-flight. */
-.hermes-kanban-card--dragging-source :where(.hermes-kanban-card-content) {
+.fabric-kanban-card--dragging-source :where(.fabric-kanban-card-content) {
   opacity: 0.45;
   filter: grayscale(0.6);
   transition: opacity 120ms ease, filter 120ms ease;
 }
 
-.hermes-kanban-card-check {
+.fabric-kanban-card-check {
   width: 0.85rem;
   height: 0.85rem;
   margin: 0;
@@ -622,7 +622,7 @@
 
 /* ---- Bulk action bar ------------------------------------------------ */
 
-.hermes-kanban-bulk {
+.fabric-kanban-bulk {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -632,25 +632,25 @@
   border-radius: var(--radius-sm, 0.25rem);
   flex-wrap: wrap;
 }
-.hermes-kanban-bulk-count {
+.fabric-kanban-bulk-count {
   font-weight: 600;
   font-size: 0.75rem;
   padding-right: 0.25rem;
 }
 
-.hermes-kanban-bulk > button,
-.hermes-kanban-bulk-reassign > button {
+.fabric-kanban-bulk > button,
+.fabric-kanban-bulk-reassign > button {
   height: 1.7rem !important;
   padding: 0 0.5rem !important;
   font-size: 0.7rem !important;
   border: 1px solid var(--color-border);
   cursor: pointer;
 }
-.hermes-kanban-bulk > button:hover:not(:disabled),
-.hermes-kanban-bulk-reassign > button:hover:not(:disabled) {
+.fabric-kanban-bulk > button:hover:not(:disabled),
+.fabric-kanban-bulk-reassign > button:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-foreground) 8%, transparent);
 }
-.hermes-kanban-bulk-reassign {
+.fabric-kanban-bulk-reassign {
   display: flex;
   align-items: center;
   gap: 0.25rem;
@@ -660,30 +660,30 @@
 
 /* ---- Dependency editor chips --------------------------------------- */
 
-.hermes-kanban-deps-row {
+.fabric-kanban-deps-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.4rem;
 }
-.hermes-kanban-deps-label {
+.fabric-kanban-deps-label {
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   color: var(--color-muted-foreground);
   min-width: 4rem;
 }
-.hermes-kanban-deps-chips {
+.fabric-kanban-deps-chips {
   display: flex;
   gap: 0.3rem;
   flex-wrap: wrap;
   flex: 1;
 }
-.hermes-kanban-deps-empty {
+.fabric-kanban-deps-empty {
   font-size: 0.7rem;
   color: var(--color-muted-foreground);
   font-style: italic;
 }
-.hermes-kanban-dep-chip {
+.fabric-kanban-dep-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.15rem;
@@ -695,7 +695,7 @@
   font-size: 0.68rem;
   color: var(--color-foreground);
 }
-.hermes-kanban-dep-chip-x {
+.fabric-kanban-dep-chip-x {
   appearance: none;
   background: transparent;
   border: 0;
@@ -705,43 +705,43 @@
   line-height: 1;
   padding: 0 0.15rem;
 }
-.hermes-kanban-dep-chip-x:hover { color: var(--color-destructive, #d14a4a); }
+.fabric-kanban-dep-chip-x:hover { color: var(--color-destructive, #d14a4a); }
 
 /* ---- Inline edit affordances --------------------------------------- */
 
-.hermes-kanban-editable {
+.fabric-kanban-editable {
   cursor: pointer;
   border-bottom: 1px dotted color-mix(in srgb, var(--color-border) 80%, transparent);
 }
-.hermes-kanban-editable:hover {
+.fabric-kanban-editable:hover {
   color: var(--color-foreground);
   border-bottom-color: var(--color-ring);
 }
 
-.hermes-kanban-drawer-title-text {
+.fabric-kanban-drawer-title-text {
   cursor: pointer;
 }
-.hermes-kanban-drawer-title-text:hover {
+.fabric-kanban-drawer-title-text:hover {
   text-decoration: underline;
   text-decoration-color: var(--color-ring);
   text-decoration-style: dotted;
   text-underline-offset: 3px;
 }
 
-.hermes-kanban-edit-row {
+.fabric-kanban-edit-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
   width: 100%;
 }
 
-.hermes-kanban-section-head-row {
+.fabric-kanban-section-head-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
 }
-.hermes-kanban-edit-link {
+.fabric-kanban-edit-link {
   appearance: none;
   background: transparent;
   border: 0;
@@ -751,9 +751,9 @@
   cursor: pointer;
   padding: 0;
 }
-.hermes-kanban-edit-link:hover { color: var(--color-ring); }
+.fabric-kanban-edit-link:hover { color: var(--color-ring); }
 
-.hermes-kanban-textarea {
+.fabric-kanban-textarea {
   width: 100%;
   min-height: 8rem;
   background: var(--color-card);
@@ -766,7 +766,7 @@
   line-height: 1.5;
   resize: vertical;
 }
-.hermes-kanban-textarea:focus {
+.fabric-kanban-textarea:focus {
   outline: none;
   border-color: var(--color-ring);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-ring) 30%, transparent);
@@ -774,33 +774,33 @@
 
 /* ---- Markdown rendering -------------------------------------------- */
 
-.hermes-kanban-md {
+.fabric-kanban-md {
   font-size: 0.85rem;
   line-height: 1.6;
   color: var(--color-foreground);
 }
-.hermes-kanban-md p  { margin: 0.25rem 0; }
-.hermes-kanban-md h1,
-.hermes-kanban-md h2,
-.hermes-kanban-md h3,
-.hermes-kanban-md h4 {
+.fabric-kanban-md p  { margin: 0.25rem 0; }
+.fabric-kanban-md h1,
+.fabric-kanban-md h2,
+.fabric-kanban-md h3,
+.fabric-kanban-md h4 {
   margin: 0.6rem 0 0.2rem;
   line-height: 1.25;
 }
-.hermes-kanban-md h1 { font-size: 1.05rem; }
-.hermes-kanban-md h2 { font-size: 0.95rem; }
-.hermes-kanban-md h3 { font-size: 0.88rem; }
-.hermes-kanban-md h4 { font-size: 0.82rem; }
-.hermes-kanban-md ul {
+.fabric-kanban-md h1 { font-size: 1.05rem; }
+.fabric-kanban-md h2 { font-size: 0.95rem; }
+.fabric-kanban-md h3 { font-size: 0.88rem; }
+.fabric-kanban-md h4 { font-size: 0.82rem; }
+.fabric-kanban-md ul {
   margin: 0.25rem 0 0.25rem 1.1rem;
   padding: 0;
 }
-.hermes-kanban-md li { margin: 0.1rem 0; }
-.hermes-kanban-md a {
+.fabric-kanban-md li { margin: 0.1rem 0; }
+.fabric-kanban-md a {
   color: var(--color-ring);
   text-decoration: underline;
 }
-.hermes-kanban-md code {
+.fabric-kanban-md code {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 0.8rem;
   padding: 0.05rem 0.3rem;
@@ -816,11 +816,11 @@
  * UA default on <code> elements — otherwise themes that don't set
  * --color-foreground leave code text rendering near-black on dark themes
  * (see issue #18576). */
-.hermes-kanban pre.hermes-kanban-md-code {
+.fabric-kanban pre.fabric-kanban-md-code {
   margin: 0.35rem 0;
   padding: 0.5rem 0.6rem;
-  /* Higher specificity (``.hermes-kanban pre.hermes-kanban-md-code`` vs
-   * the reset's ``.hermes-kanban pre``) so this intentional pill wins
+  /* Higher specificity (``.fabric-kanban pre.fabric-kanban-md-code`` vs
+   * the reset's ``.fabric-kanban pre``) so this intentional pill wins
    * over our own ``<pre>`` reset. ``!important`` also needed so theme
    * rules that drop their own ``code``/``pre`` fill don't knock it out
    * either. #21086. */
@@ -829,18 +829,18 @@
   border-radius: var(--radius-sm, 0.25rem);
   overflow-x: auto;
 }
-.hermes-kanban-md-code code {
+.fabric-kanban-md-code code {
   background: transparent;
   padding: 0;
   font-size: 0.8rem;
   white-space: pre;
   color: inherit;
 }
-.hermes-kanban-md strong { font-weight: 600; }
+.fabric-kanban-md strong { font-weight: 600; }
 
 /* ---- Touch-drag proxy ---------------------------------------------- */
 
-.hermes-kanban-touch-proxy {
+.fabric-kanban-touch-proxy {
   pointer-events: none;
   opacity: 0.85;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
@@ -850,7 +850,7 @@
 
 /* ---- Multi-drag ghost ----------------------------------------------- */
 
-.hermes-kanban-drag-ghost {
+.fabric-kanban-drag-ghost {
   position: fixed;
   left: -9999px;
   padding: 0.45rem 0.8rem;
@@ -867,24 +867,24 @@
 
 /* ---- Staleness tiers ------------------------------------------------ */
 
-.hermes-kanban-card--stale-amber :where(.hermes-kanban-card-content) {
+.fabric-kanban-card--stale-amber :where(.fabric-kanban-card-content) {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-warning, #d4b348) 53%, transparent) inset;
 }
-.hermes-kanban-card--stale-amber:hover :where(.hermes-kanban-card-content) {
+.fabric-kanban-card--stale-amber:hover :where(.fabric-kanban-card-content) {
   box-shadow: 0 0 0 2px var(--color-warning, #d4b348) inset;
 }
-.hermes-kanban-card--stale-red :where(.hermes-kanban-card-content) {
+.fabric-kanban-card--stale-red :where(.fabric-kanban-card-content) {
   box-shadow: 0 0 0 1px var(--color-destructive, #d14a4a) inset,
               0 0 8px color-mix(in srgb, var(--color-destructive, #d14a4a) 30%, transparent);
 }
-.hermes-kanban-card--stale-red:hover :where(.hermes-kanban-card-content) {
+.fabric-kanban-card--stale-red:hover :where(.fabric-kanban-card-content) {
   box-shadow: 0 0 0 2px var(--color-destructive, #d14a4a) inset,
               0 0 10px color-mix(in srgb, var(--color-destructive, #d14a4a) 45%, transparent);
 }
 
 /* ---- Worker log pane ------------------------------------------------ */
 
-.hermes-kanban-log {
+.fabric-kanban-log {
   max-height: 360px;
   overflow: auto;
   white-space: pre;
@@ -895,56 +895,56 @@
 
 /* ---- Run history (per-attempt log in the drawer) ------------------- */
 
-.hermes-kanban-run {
+.fabric-kanban-run {
   border-left: 2px solid var(--color-border);
   padding: 0.35rem 0.5rem;
   margin-bottom: 0.4rem;
   background: color-mix(in srgb, var(--color-foreground) 3%, transparent);
   border-radius: var(--radius-sm, 0.25rem);
 }
-.hermes-kanban-run--active  { border-left-color: var(--color-success, #3fb97d); }
-.hermes-kanban-run--completed { border-left-color: var(--color-primary, #4a8cd1); }
-.hermes-kanban-run--ended { border-left-color: var(--color-muted-foreground, #6b7280); }  /* generic fallback when outcome is unset */
-.hermes-kanban-run--blocked { border-left-color: var(--color-destructive, #d14a4a); }
-.hermes-kanban-run--crashed,
-.hermes-kanban-run--timed_out,
-.hermes-kanban-run--gave_up,
-.hermes-kanban-run--spawn_failed {
+.fabric-kanban-run--active  { border-left-color: var(--color-success, #3fb97d); }
+.fabric-kanban-run--completed { border-left-color: var(--color-primary, #4a8cd1); }
+.fabric-kanban-run--ended { border-left-color: var(--color-muted-foreground, #6b7280); }  /* generic fallback when outcome is unset */
+.fabric-kanban-run--blocked { border-left-color: var(--color-destructive, #d14a4a); }
+.fabric-kanban-run--crashed,
+.fabric-kanban-run--timed_out,
+.fabric-kanban-run--gave_up,
+.fabric-kanban-run--spawn_failed {
   border-left-color: var(--color-destructive, #d14a4a);
   background: color-mix(in srgb, var(--color-destructive, #d14a4a) 6%, transparent);
 }
-.hermes-kanban-run--reclaimed { border-left-color: var(--color-warning, #d4b348); }
+.fabric-kanban-run--reclaimed { border-left-color: var(--color-warning, #d4b348); }
 
-.hermes-kanban-run-head {
+.fabric-kanban-run-head {
   display: flex;
   align-items: center;
   gap: 0.6rem;
   font-size: 0.7rem;
 }
-.hermes-kanban-run-outcome {
+.fabric-kanban-run-outcome {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-weight: 600;
   letter-spacing: 0.05em;
   color: var(--color-foreground);
 }
-.hermes-kanban-run-profile {
+.fabric-kanban-run-profile {
   color: var(--color-muted-foreground);
 }
-.hermes-kanban-run-elapsed {
+.fabric-kanban-run-elapsed {
   font-variant-numeric: tabular-nums;
   color: var(--color-muted-foreground);
 }
-.hermes-kanban-run-ago {
+.fabric-kanban-run-ago {
   margin-left: auto;
   color: var(--color-muted-foreground);
 }
-.hermes-kanban-run-summary {
+.fabric-kanban-run-summary {
   font-size: 0.82rem;
   line-height: 1.5;
   padding: 0.2rem 0 0;
   color: var(--color-foreground);
 }
-.hermes-kanban-run-error {
+.fabric-kanban-run-error {
   font-size: 0.7rem;
   color: var(--color-destructive, #d14a4a);
   padding: 0.15rem 0 0;
@@ -957,37 +957,37 @@
  * Uses a native <details>/<summary> pair so collapse is browser-handled
  * (zero JS); large blobs default collapsed via the open=false attribute.
  * See issue #19548. */
-.hermes-kanban-run-meta-block {
+.fabric-kanban-run-meta-block {
   margin-top: 0.4rem;
   padding: 0.25rem 0.5rem;
   border-left: 2px solid var(--color-border);
   background: transparent;
 }
-.hermes-kanban-run-meta-block > summary.hermes-kanban-run-meta-label {
+.fabric-kanban-run-meta-block > summary.fabric-kanban-run-meta-label {
   cursor: pointer;
   list-style: none;
 }
-.hermes-kanban-run-meta-block > summary.hermes-kanban-run-meta-label::-webkit-details-marker {
+.fabric-kanban-run-meta-block > summary.fabric-kanban-run-meta-label::-webkit-details-marker {
   display: none;
 }
-.hermes-kanban-run-meta-block > summary.hermes-kanban-run-meta-label::before {
+.fabric-kanban-run-meta-block > summary.fabric-kanban-run-meta-label::before {
   content: "▶ ";
   display: inline-block;
   font-size: 0.6rem;
   margin-right: 0.25rem;
   transition: transform 120ms ease;
 }
-.hermes-kanban-run-meta-block[open] > summary.hermes-kanban-run-meta-label::before {
+.fabric-kanban-run-meta-block[open] > summary.fabric-kanban-run-meta-label::before {
   transform: rotate(90deg);
 }
-.hermes-kanban-run-meta-label {
+.fabric-kanban-run-meta-label {
   font-size: 0.65rem;
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--color-muted-foreground);
   padding-bottom: 0.15rem;
 }
-.hermes-kanban-run-meta {
+.fabric-kanban-run-meta {
   display: block;
   max-height: 8.5rem;
   overflow: auto;
@@ -1004,26 +1004,26 @@
 /* -------------------------------------------------------------------------
    Multi-project: board switcher + create-board dialog
    ------------------------------------------------------------------------- */
-.hermes-kanban-boardswitcher {
+.fabric-kanban-boardswitcher {
   border: 1px solid var(--color-border, rgba(120, 120, 140, 0.25));
   border-radius: 0.5rem;
   padding: 0.6rem 0.85rem;
   background: var(--color-card-subtle, rgba(255, 255, 255, 0.02));
 }
-.hermes-kanban-boardswitcher-inner {
+.fabric-kanban-boardswitcher-inner {
   display: flex;
   align-items: flex-end;
   gap: 0.75rem;
   flex-wrap: wrap;
 }
-.hermes-kanban-boardswitcher-compact {
+.fabric-kanban-boardswitcher-compact {
   display: flex;
   justify-content: flex-end;
   padding: 0 0.25rem;
   gap: 0.5rem;
   align-items: center;
 }
-.hermes-kanban-docs-link {
+.fabric-kanban-docs-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1040,14 +1040,14 @@
   cursor: help;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
-.hermes-kanban-docs-link:hover,
-.hermes-kanban-docs-link:focus-visible {
+.fabric-kanban-docs-link:hover,
+.fabric-kanban-docs-link:focus-visible {
   color: var(--color-foreground, #e7e7ee);
   background: var(--color-card, rgba(255, 255, 255, 0.08));
   border-color: var(--color-border, rgba(160, 160, 190, 0.45));
   outline: none;
 }
-.hermes-kanban-dialog-backdrop {
+.fabric-kanban-dialog-backdrop {
   position: fixed;
   inset: 0;
   background: color-mix(in srgb, var(--background-base, #080a10) 55%, transparent);
@@ -1057,7 +1057,7 @@
   align-items: center;
   justify-content: center;
 }
-.hermes-kanban-dialog {
+.fabric-kanban-dialog {
   background: var(--color-card, #121421);
   color: var(--color-foreground);
   border: 1px solid var(--color-border, rgba(120, 120, 140, 0.25));
@@ -1069,12 +1069,12 @@
   overflow: auto;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
 }
-.hermes-kanban-dialog-title {
+.fabric-kanban-dialog-title {
   font-size: 1rem;
   font-weight: 600;
   margin-bottom: 0.25rem;
 }
-.hermes-kanban-dialog-actions {
+.fabric-kanban-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
@@ -1179,7 +1179,7 @@
 /* strip, recovery popover. Orange/red palette but muted so the board     */
 /* doesn't scream on every render.                                        */
 /* ---------------------------------------------------------------------- */
-.hermes-kanban-warning-badge {
+.fabric-kanban-warning-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1190,24 +1190,24 @@
 }
 
 /* Attention strip — collapsed state is a thin bar. */
-.hermes-kanban-attention {
+.fabric-kanban-attention {
   border: 1px solid color-mix(in srgb, var(--color-warning, #ff9e3b) 35%, transparent);
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 6%, transparent);
   border-radius: 0.5rem;
   overflow: hidden;
 }
-.hermes-kanban-attention-bar {
+.fabric-kanban-attention-bar {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 0.75rem;
   font-size: 0.8125rem;
 }
-.hermes-kanban-attention-icon { color: var(--color-warning, #ff9e3b); font-size: 1rem; }
-.hermes-kanban-attention-text { flex: 1; }
-.hermes-kanban-attention-toggle,
-.hermes-kanban-attention-dismiss,
-.hermes-kanban-attention-row-btn {
+.fabric-kanban-attention-icon { color: var(--color-warning, #ff9e3b); font-size: 1rem; }
+.fabric-kanban-attention-text { flex: 1; }
+.fabric-kanban-attention-toggle,
+.fabric-kanban-attention-dismiss,
+.fabric-kanban-attention-row-btn {
   background: transparent;
   border: 1px solid rgba(120, 120, 140, 0.3);
   border-radius: 0.3rem;
@@ -1216,63 +1216,63 @@
   color: inherit;
   cursor: pointer;
 }
-.hermes-kanban-attention-toggle:hover,
-.hermes-kanban-attention-dismiss:hover,
-.hermes-kanban-attention-row-btn:hover {
+.fabric-kanban-attention-toggle:hover,
+.fabric-kanban-attention-dismiss:hover,
+.fabric-kanban-attention-row-btn:hover {
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 12%, transparent);
 }
-.hermes-kanban-attention-list {
+.fabric-kanban-attention-list {
   border-top: 1px solid color-mix(in srgb, var(--color-warning, #ff9e3b) 20%, transparent);
   padding: 0.25rem 0;
 }
-.hermes-kanban-attention-row {
+.fabric-kanban-attention-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.3rem 0.75rem;
   font-size: 0.8125rem;
 }
-.hermes-kanban-attention-row:hover {
+.fabric-kanban-attention-row:hover {
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 8%, transparent);
 }
-.hermes-kanban-attention-row-id {
+.fabric-kanban-attention-row-id {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.75rem;
   color: var(--color-muted-foreground, #888);
   min-width: 7rem;
 }
-.hermes-kanban-attention-row-title {
+.fabric-kanban-attention-row-title {
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.hermes-kanban-attention-row-meta {
+.fabric-kanban-attention-row-meta {
   font-size: 0.75rem;
   color: var(--color-muted-foreground, #888);
 }
 
 /* Events tab — callout style for hallucination events. */
-.hermes-kanban-event--hallucination {
+.fabric-kanban-event--hallucination {
   border-left: 3px solid var(--color-destructive, #ff6b6b);
   background: color-mix(in srgb, var(--color-destructive, #ff6b6b) 8%, transparent);
   padding: 0.5rem 0.65rem;
   border-radius: 0.35rem;
   margin: 0.25rem 0;
 }
-.hermes-kanban-event-header,
-.hermes-kanban-event-header-plain {
+.fabric-kanban-event-header,
+.fabric-kanban-event-header-plain {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-.hermes-kanban-event-warning-icon { color: var(--color-destructive, #ff6b6b); font-size: 1rem; }
-.hermes-kanban-event-warning-label {
+.fabric-kanban-event-warning-icon { color: var(--color-destructive, #ff6b6b); font-size: 1rem; }
+.fabric-kanban-event-warning-label {
   color: var(--color-destructive, #ff6b6b);
   font-weight: 600;
   font-size: 0.8125rem;
 }
-.hermes-kanban-event-phantom-row {
+.fabric-kanban-event-phantom-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -1280,11 +1280,11 @@
   margin-top: 0.3rem;
   padding-left: 1.35rem;
 }
-.hermes-kanban-event-phantom-label {
+.fabric-kanban-event-phantom-label {
   font-size: 0.75rem;
   color: var(--color-muted-foreground, #999);
 }
-.hermes-kanban-event-phantom-chip {
+.fabric-kanban-event-phantom-chip {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.75rem;
   padding: 0.1rem 0.4rem;
@@ -1294,14 +1294,14 @@
 }
 
 /* Recovery section header — amber accent when the task has warnings. */
-.hermes-kanban-section-head-warning { color: var(--color-warning, #ff9e3b); }
-.hermes-kanban-section-head-row {
+.fabric-kanban-section-head-warning { color: var(--color-warning, #ff9e3b); }
+.fabric-kanban-section-head-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
 }
-.hermes-kanban-section-toggle {
+.fabric-kanban-section-toggle {
   background: transparent;
   border: 1px solid rgba(120, 120, 140, 0.3);
   border-radius: 0.3rem;
@@ -1312,7 +1312,7 @@
 }
 
 /* Recovery popover body. */
-.hermes-kanban-recovery {
+.fabric-kanban-recovery {
   border: 1px solid rgba(120, 120, 140, 0.25);
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 4%, transparent);
   border-radius: 0.5rem;
@@ -1321,26 +1321,26 @@
   flex-direction: column;
   gap: 0.75rem;
 }
-.hermes-kanban-recovery-title {
+.fabric-kanban-recovery-title {
   font-weight: 600;
   font-size: 0.8125rem;
 }
-.hermes-kanban-recovery-hint {
+.fabric-kanban-recovery-hint {
   font-size: 0.75rem;
   color: var(--color-muted-foreground, #888);
   line-height: 1.35;
 }
-.hermes-kanban-recovery-section {
+.fabric-kanban-recovery-section {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
 }
-.hermes-kanban-recovery-label {
+.fabric-kanban-recovery-label {
   font-size: 0.75rem;
   color: var(--color-muted-foreground, #888);
 }
-.hermes-kanban-recovery-input,
-.hermes-kanban-recovery-select {
+.fabric-kanban-recovery-input,
+.fabric-kanban-recovery-select {
   padding: 0.25rem 0.4rem;
   font-size: 0.8125rem;
   background: rgba(0, 0, 0, 0.15);
@@ -1349,23 +1349,23 @@
   color: inherit;
   outline: none;
 }
-.hermes-kanban-recovery-action-row {
+.fabric-kanban-recovery-action-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.hermes-kanban-recovery-action-label {
+.fabric-kanban-recovery-action-label {
   font-size: 0.8125rem;
   font-weight: 600;
   min-width: 8rem;
 }
-.hermes-kanban-recovery-action-desc {
+.fabric-kanban-recovery-action-desc {
   flex: 1;
   font-size: 0.75rem;
   color: var(--color-muted-foreground, #888);
 }
-.hermes-kanban-recovery-btn {
+.fabric-kanban-recovery-btn {
   padding: 0.25rem 0.7rem;
   font-size: 0.75rem;
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 15%, transparent);
@@ -1374,32 +1374,32 @@
   color: inherit;
   cursor: pointer;
 }
-.hermes-kanban-recovery-btn:hover:not(:disabled) {
+.fabric-kanban-recovery-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 25%, transparent);
 }
-.hermes-kanban-recovery-btn:disabled {
+.fabric-kanban-recovery-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.hermes-kanban-recovery-reassign-row {
+.fabric-kanban-recovery-reassign-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.hermes-kanban-recovery-checkbox {
+.fabric-kanban-recovery-checkbox {
   font-size: 0.75rem;
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
 }
-.hermes-kanban-recovery-cmd-row {
+.fabric-kanban-recovery-cmd-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.hermes-kanban-recovery-cmd {
+.fabric-kanban-recovery-cmd {
   font-family: ui-monospace, SFMono-Regular, monospace;
   font-size: 0.75rem;
   padding: 0.2rem 0.5rem;
@@ -1411,17 +1411,17 @@
   overflow-x: auto;
   white-space: nowrap;
 }
-.hermes-kanban-recovery-msg {
+.fabric-kanban-recovery-msg {
   font-size: 0.75rem;
   padding: 0.35rem 0.5rem;
   border-radius: 0.3rem;
 }
-.hermes-kanban-recovery-msg--ok {
+.fabric-kanban-recovery-msg--ok {
   background: color-mix(in srgb, var(--color-success, #78c878) 12%, transparent);
   color: var(--color-success, #6bc46b);
   border: 1px solid color-mix(in srgb, var(--color-success, #78c878) 30%, transparent);
 }
-.hermes-kanban-recovery-msg--err {
+.fabric-kanban-recovery-msg--err {
   background: color-mix(in srgb, var(--color-destructive, #ff6b6b) 12%, transparent);
   color: var(--color-destructive, #ff8b8b);
   border: 1px solid color-mix(in srgb, var(--color-destructive, #ff6b6b) 30%, transparent);
@@ -1434,53 +1434,53 @@
 
 /* Severity token variables so every diagnostic-coloured surface uses the */
 /* same palette. */
-.hermes-kanban-diag,
-.hermes-kanban-attention,
-.hermes-kanban-warning-badge,
-.hermes-kanban-attention-row {
+.fabric-kanban-diag,
+.fabric-kanban-attention,
+.fabric-kanban-warning-badge,
+.fabric-kanban-attention-row {
   --fabric-diag-warning: var(--color-warning, #ff9e3b);
   --fabric-diag-error:   var(--color-destructive, #ff6b3d);
   --fabric-diag-critical: color-mix(in srgb, var(--color-destructive, #ff4d4d) 80%, var(--color-foreground, currentColor));
 }
 
 /* Warning-badge severity variants (overrides the base colour). */
-.hermes-kanban-warning-badge--warning { color: var(--fabric-diag-warning); }
-.hermes-kanban-warning-badge--error   { color: var(--fabric-diag-error); font-weight: 700; }
-.hermes-kanban-warning-badge--critical { color: var(--fabric-diag-critical); font-weight: 700; }
+.fabric-kanban-warning-badge--warning { color: var(--fabric-diag-warning); }
+.fabric-kanban-warning-badge--error   { color: var(--fabric-diag-error); font-weight: 700; }
+.fabric-kanban-warning-badge--critical { color: var(--fabric-diag-critical); font-weight: 700; }
 
 /* Attention-strip severity variants. */
-.hermes-kanban-attention--warning {
+.fabric-kanban-attention--warning {
   border-color: color-mix(in srgb, var(--fabric-diag-warning) 35%, transparent);
   background: color-mix(in srgb, var(--fabric-diag-warning) 6%, transparent);
 }
-.hermes-kanban-attention--error {
+.fabric-kanban-attention--error {
   border-color: color-mix(in srgb, var(--fabric-diag-error) 45%, transparent);
   background: color-mix(in srgb, var(--fabric-diag-error) 8%, transparent);
 }
-.hermes-kanban-attention--critical {
+.fabric-kanban-attention--critical {
   border-color: color-mix(in srgb, var(--fabric-diag-critical) 55%, transparent);
   background: color-mix(in srgb, var(--fabric-diag-critical) 10%, transparent);
 }
-.hermes-kanban-attention--error .hermes-kanban-attention-icon { color: var(--fabric-diag-error); }
-.hermes-kanban-attention--critical .hermes-kanban-attention-icon { color: var(--fabric-diag-critical); }
+.fabric-kanban-attention--error .fabric-kanban-attention-icon { color: var(--fabric-diag-error); }
+.fabric-kanban-attention--critical .fabric-kanban-attention-icon { color: var(--fabric-diag-critical); }
 
 /* Per-row severity marker in the expanded attention list. */
-.hermes-kanban-attention-row-sev {
+.fabric-kanban-attention-row-sev {
   display: inline-block;
   min-width: 1.5rem;
   font-weight: 600;
 }
-.hermes-kanban-attention-row--warning .hermes-kanban-attention-row-sev { color: var(--fabric-diag-warning); }
-.hermes-kanban-attention-row--error    .hermes-kanban-attention-row-sev { color: var(--fabric-diag-error); font-weight: 700; }
-.hermes-kanban-attention-row--critical .hermes-kanban-attention-row-sev { color: var(--fabric-diag-critical); font-weight: 700; }
+.fabric-kanban-attention-row--warning .fabric-kanban-attention-row-sev { color: var(--fabric-diag-warning); }
+.fabric-kanban-attention-row--error    .fabric-kanban-attention-row-sev { color: var(--fabric-diag-error); font-weight: 700; }
+.fabric-kanban-attention-row--critical .fabric-kanban-attention-row-sev { color: var(--fabric-diag-critical); font-weight: 700; }
 
 /* Individual diagnostic card inside the drawer's Diagnostics section. */
-.hermes-kanban-diag-list {
+.fabric-kanban-diag-list {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
 }
-.hermes-kanban-diag {
+.fabric-kanban-diag {
   border-left: 3px solid var(--fabric-diag-warning);
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 5%, transparent);
   border-radius: 0.35rem;
@@ -1489,70 +1489,70 @@
   flex-direction: column;
   gap: 0.4rem;
 }
-.hermes-kanban-diag--error {
+.fabric-kanban-diag--error {
   border-left-color: var(--fabric-diag-error);
   background: color-mix(in srgb, var(--color-destructive, #ff6b3d) 6%, transparent);
 }
-.hermes-kanban-diag--critical {
+.fabric-kanban-diag--critical {
   border-left-color: var(--fabric-diag-critical);
   background: rgba(255, 77, 77, 0.07);
 }
-.hermes-kanban-diag-header {
+.fabric-kanban-diag-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-.hermes-kanban-diag-sev {
+.fabric-kanban-diag-sev {
   font-weight: 700;
   min-width: 1.5rem;
 }
-.hermes-kanban-diag--warning .hermes-kanban-diag-sev { color: var(--fabric-diag-warning); }
-.hermes-kanban-diag--error    .hermes-kanban-diag-sev { color: var(--fabric-diag-error); }
-.hermes-kanban-diag--critical .hermes-kanban-diag-sev { color: var(--fabric-diag-critical); }
-.hermes-kanban-diag-title {
+.fabric-kanban-diag--warning .fabric-kanban-diag-sev { color: var(--fabric-diag-warning); }
+.fabric-kanban-diag--error    .fabric-kanban-diag-sev { color: var(--fabric-diag-error); }
+.fabric-kanban-diag--critical .fabric-kanban-diag-sev { color: var(--fabric-diag-critical); }
+.fabric-kanban-diag-title {
   font-weight: 600;
   font-size: 0.875rem;
 }
-.hermes-kanban-diag-detail {
+.fabric-kanban-diag-detail {
   font-size: 0.8125rem;
   color: var(--color-foreground, #ccc);
   line-height: 1.4;
 }
-.hermes-kanban-diag-data {
+.fabric-kanban-diag-data {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
   font-size: 0.75rem;
 }
-.hermes-kanban-diag-data-row {
+.fabric-kanban-diag-data-row {
   display: flex;
   align-items: center;
   gap: 0.35rem;
   flex-wrap: wrap;
 }
-.hermes-kanban-diag-data-key {
+.fabric-kanban-diag-data-key {
   color: var(--color-muted-foreground, #888);
   font-weight: 500;
 }
-.hermes-kanban-diag-data-val {
+.fabric-kanban-diag-data-val {
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
-.hermes-kanban-diag-reassign-row {
+.fabric-kanban-diag-reassign-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   font-size: 0.75rem;
 }
-.hermes-kanban-diag-reassign-label {
+.fabric-kanban-diag-reassign-label {
   color: var(--color-muted-foreground, #888);
 }
-.hermes-kanban-diag-actions {
+.fabric-kanban-diag-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
   margin-top: 0.1rem;
 }
-.hermes-kanban-diag-action-btn {
+.fabric-kanban-diag-action-btn {
   padding: 0.25rem 0.6rem;
   font-size: 0.75rem;
   background: rgba(0, 0, 0, 0.2);
@@ -1562,48 +1562,48 @@
   cursor: pointer;
   text-decoration: none;
 }
-.hermes-kanban-diag-action-btn:hover:not(:disabled) {
+.fabric-kanban-diag-action-btn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.3);
 }
-.hermes-kanban-diag-action-btn:disabled {
+.fabric-kanban-diag-action-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
-.hermes-kanban-diag-action-btn--suggested {
+.fabric-kanban-diag-action-btn--suggested {
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 15%, transparent);
   border-color: color-mix(in srgb, var(--color-warning, #ff9e3b) 40%, transparent);
   font-weight: 600;
 }
-.hermes-kanban-diag-action-btn--suggested:hover:not(:disabled) {
+.fabric-kanban-diag-action-btn--suggested:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-warning, #ff9e3b) 25%, transparent);
 }
-.hermes-kanban-diag-action-btn--unknown {
+.fabric-kanban-diag-action-btn--unknown {
   opacity: 0.6;
   cursor: default;
 }
-.hermes-kanban-diag-msg {
+.fabric-kanban-diag-msg {
   font-size: 0.75rem;
   padding: 0.35rem 0.5rem;
   border-radius: 0.3rem;
 }
-.hermes-kanban-diag-msg--ok {
+.fabric-kanban-diag-msg--ok {
   background: color-mix(in srgb, var(--color-success, #78c878) 12%, transparent);
   color: var(--color-success, #6bc46b);
   border: 1px solid color-mix(in srgb, var(--color-success, #78c878) 30%, transparent);
 }
-.hermes-kanban-diag-msg--err {
+.fabric-kanban-diag-msg--err {
   background: color-mix(in srgb, var(--color-destructive, #ff6b3d) 12%, transparent);
   color: var(--color-destructive, #ff8b6b);
   border: 1px solid color-mix(in srgb, var(--color-destructive, #ff6b3d) 30%, transparent);
 }
 /* ---- Partial failure highlight --------------------------------------- */
-.hermes-kanban-card--failed :where(.hermes-kanban-card-content) {
+.fabric-kanban-card--failed :where(.fabric-kanban-card-content) {
   box-shadow: 0 0 0 2px var(--color-destructive, #d14a4a) inset,
               0 0 8px color-mix(in srgb, var(--color-destructive, #d14a4a) 30%, transparent);
 }
 
 /* ---- Larger checkbox hit target -------------------------------------- */
-.hermes-kanban-card-check-wrap {
+.fabric-kanban-card-check-wrap {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1612,7 +1612,7 @@
   margin: -0.3rem;
   cursor: pointer;
 }
-.hermes-kanban-card-check {
+.fabric-kanban-card-check {
   width: 0.95rem;
   height: 0.95rem;
   margin: 0;
@@ -1621,7 +1621,7 @@
 }
 
 /* ---- Column select-all checkbox -------------------------------------- */
-.hermes-kanban-col-check {
+.fabric-kanban-col-check {
   width: 0.9rem;
   height: 0.9rem;
   margin: 0 0.15rem 0 0;
@@ -1630,14 +1630,14 @@
 }
 
 /* ---- Bulk action bar extras ------------------------------------------ */
-.hermes-kanban-bulk-priority {
+.fabric-kanban-bulk-priority {
   display: flex;
   align-items: center;
   gap: 0.25rem;
   padding-left: 0.5rem;
   border-left: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
-.hermes-kanban-bulk-reclaim-first {
+.fabric-kanban-bulk-reclaim-first {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -1647,7 +1647,7 @@
 
 /* ---- Trash drop zone ------------------------------------------------- */
 
-.hermes-kanban-trash {
+.fabric-kanban-trash {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1666,23 +1666,23 @@
   pointer-events: none;
 }
 
-.hermes-kanban-trash--active {
+.fabric-kanban-trash--active {
   opacity: 1;
   pointer-events: auto;
 }
 
-.hermes-kanban-trash--drop {
+.fabric-kanban-trash--drop {
   border-color: var(--color-destructive, #d14a4a);
   background: color-mix(in srgb, var(--color-destructive, #d14a4a) 8%, var(--color-card));
   color: var(--color-destructive, #d14a4a);
 }
 
-.hermes-kanban-trash-icon {
+.fabric-kanban-trash-icon {
   font-size: 1.25rem;
   line-height: 1;
 }
 
-.hermes-kanban-trash-label {
+.fabric-kanban-trash-label {
   font-weight: 500;
 }
 
@@ -1897,15 +1897,15 @@
   border-bottom: 1px solid var(--fabric-work-line);
   background: var(--fabric-work-surface);
 }
-.fabric-workbench-board-row .hermes-kanban-boardswitcher { margin: 0; }
-.fabric-workbench-board-row .hermes-kanban-boardswitcher button {
+.fabric-workbench-board-row .fabric-kanban-boardswitcher { margin: 0; }
+.fabric-workbench-board-row .fabric-kanban-boardswitcher button {
   min-height: 44px;
 }
-.fabric-workbench-board-row .hermes-kanban-boardswitcher button[role="combobox"] {
+.fabric-workbench-board-row .fabric-kanban-boardswitcher button[role="combobox"] {
   border-radius: 8px;
   font-family: var(--theme-font-sans);
 }
-.fabric-workbench-board-row .hermes-kanban-boardswitcher-inner > button {
+.fabric-workbench-board-row .fabric-kanban-boardswitcher-inner > button {
   border: 1px solid var(--fabric-work-line);
   border-radius: 8px;
   background: var(--fabric-work-surface);
@@ -1917,7 +1917,7 @@
   letter-spacing: 0;
   text-transform: none;
 }
-.fabric-workbench-board-row .hermes-kanban-boardswitcher-inner > button:hover {
+.fabric-workbench-board-row .fabric-kanban-boardswitcher-inner > button:hover {
   background: var(--color-accent);
 }
 .fabric-workbench-board-row [class~="text-[11px]"] { font-size: 0.75rem; }
@@ -2400,21 +2400,21 @@
 .fabric-work-rail-error button { min-height: 44px; }
 
 /* Bring the legacy Board projection up to the same legibility/target floor. */
-.fabric-workbench .hermes-kanban-column-add,
-.fabric-workbench .hermes-kanban-docs-link,
-.fabric-workbench .hermes-kanban-drawer-close,
-.fabric-workbench .hermes-kanban-edit-link,
-.fabric-workbench .hermes-kanban-attention-toggle,
-.fabric-workbench .hermes-kanban-attention-dismiss,
-.fabric-workbench .hermes-kanban-attention-row-btn {
+.fabric-workbench .fabric-kanban-column-add,
+.fabric-workbench .fabric-kanban-docs-link,
+.fabric-workbench .fabric-kanban-drawer-close,
+.fabric-workbench .fabric-kanban-edit-link,
+.fabric-workbench .fabric-kanban-attention-toggle,
+.fabric-workbench .fabric-kanban-attention-dismiss,
+.fabric-workbench .fabric-kanban-attention-row-btn {
   min-width: 44px;
   min-height: 44px;
 }
-.fabric-workbench .hermes-kanban-column-label,
-.fabric-workbench .hermes-kanban-card-title,
-.fabric-workbench .hermes-kanban-column-sub,
-.fabric-workbench .hermes-kanban-empty,
-.fabric-workbench .hermes-kanban-drawer-body { font-size: max(14px, 0.875rem); }
+.fabric-workbench .fabric-kanban-column-label,
+.fabric-workbench .fabric-kanban-card-title,
+.fabric-workbench .fabric-kanban-column-sub,
+.fabric-workbench .fabric-kanban-empty,
+.fabric-workbench .fabric-kanban-drawer-body { font-size: max(14px, 0.875rem); }
 
 @media (max-width: 1279px) {
   .fabric-work-inspector {

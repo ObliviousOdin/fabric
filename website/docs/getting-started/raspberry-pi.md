@@ -36,7 +36,7 @@ getconf LONG_BIT  # must print: 64
 ```
 
 If you see `armv7l` or `32`, reflash with a 64-bit image before continuing —
-core dependencies do not publish 32-bit ARM wheels.
+this guide and Fabric's Linux SBC compatibility target cover arm64 only.
 
 ## 2. Add swap (1–2 GB boards)
 
@@ -49,8 +49,9 @@ sudo systemctl restart dphys-swapfile
 ```
 
 On Ubuntu Server, install `zram-tools` (`sudo apt install zram-tools`) or
-create a swapfile. Steady-state operation rarely touches swap; this is
-install-time insurance. Boards with 4 GB+ can skip this step.
+create a swapfile. Treat this as install-time insurance, then use `free -m`
+to verify that normal operation does not continuously depend on swap. Boards
+with 4 GB+ can usually skip this step.
 
 ## 3. Install system packages
 
@@ -82,6 +83,7 @@ Install the base package plus only the extras you need:
 ```bash
 git clone https://github.com/ObliviousOdin/fabric.git
 cd fabric
+python3 --version                            # must be 3.11-3.13
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
@@ -93,8 +95,11 @@ pip install -e '.[cli]'                    # base + interactive CLI
 Gateway platform SDKs lazy-install when you configure that platform, so a lean
 deployment does not need the broad `messaging` extra.
 
-If your distribution's Python is older than 3.11, use the Option A installer
-instead — its managed `uv` downloads a suitable Python for aarch64.
+If your distribution's Python is outside 3.11–3.13, use the standalone
+managed-`uv` [lean install from the Jetson guide](./jetson-nano.md#lean-install-all-boards)
+instead. The bootstrap is generic Linux arm64 and avoids putting the full
+`[all]` profile on a 1 GB board. In later login shells, return to the clone and
+run `source venv/bin/activate` before using `fabric`.
 
 See [Low-Memory Devices](./low-memory.md#the-lean-lite-install-profile) for
 which extras to pick and which to avoid on small boards.
@@ -112,8 +117,9 @@ Two model patterns work well on a Pi:
   cost is just the HTTPS client.
 - **Remote Ollama on your LAN** — run Ollama on a desktop or homelab box,
   select Ollama in `fabric model`, and set the server URL (`model.base_url`)
-  to that host instead of `http://localhost:11434`. Do not run Ollama on the
-  Pi itself — see [Low-Memory Devices](./low-memory.md#models-keep-inference-off-the-device).
+  to that host instead of `http://localhost:11434`. Keep inference remote on
+  1–4 GB boards. Small quantized models are possible but slow on an 8 GB Pi 5;
+  see [Low-Memory Devices](./low-memory.md#models-keep-inference-off-the-device).
 
 ## 6. Run the gateway as a service (optional)
 
@@ -140,7 +146,7 @@ sudo loginctl enable-linger "$USER"
 fabric version
 fabric doctor
 fabric status
-free -m          # expect the agent well under 200 MB at idle
+free -m          # observe headroom during a representative live session
 ```
 
 ## Troubleshooting
@@ -148,7 +154,7 @@ free -m          # expect the agent well under 200 MB at idle
 | Symptom | Fix |
 | --- | --- |
 | `pip`/compiler killed during install | Out of memory — add swap (step 2) and retry. |
-| A dependency tries to compile from source and fails | You are likely on a 32-bit OS — check `uname -m`; reflash 64-bit. |
+| A dependency tries to compile from source and fails | Check `uname -m` first; `armv7l` is outside the supported guide target, so reflash 64-bit before debugging the package. |
 | `fabric --tui` fails to launch | The TUI needs Node ≥ 20. The Option A installer provides it; on a lean install use the plain `fabric` CLI or install Node yourself. |
 | Gateway dies after SSH logout | Use `fabric gateway install` (service) rather than a foreground `fabric gateway start`, and enable lingering (step 6). |
 | Everything is slow on first run | SD-card I/O. A USB 3 SSD (Pi 4/5) markedly improves install and startup times. |

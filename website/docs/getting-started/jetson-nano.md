@@ -17,16 +17,17 @@ upstream; treat it as experimental.
 The install is essentially the [Raspberry Pi flow](./raspberry-pi.md) with
 one Jetson-specific wrinkle: **JetPack's system Python is too old for
 Fabric** (Python 3.6 on JetPack 4, 3.8 on JetPack 5, 3.10 on JetPack 6 —
-Fabric needs 3.11–3.13). Don't try to upgrade the OS Python; the official
-installer sidesteps it by downloading a managed Python via `uv`.
+Fabric needs 3.11–3.13). Don't try to upgrade the OS Python; use a managed
+Python downloaded by `uv`. The full installer provides that path on JetPack
+5/6; JetPack 4 must use the lean path below because of its older glibc.
 
 ## Which board?
 
 | Board | RAM | JetPack / base OS | Verdict |
 | --- | --- | --- | --- |
 | Jetson Orin Nano / Orin NX | 4–16 GB | JetPack 5/6 (Ubuntu 20.04/22.04) | Recommended. Full install works; 8 GB+ can optionally run small local models. |
-| Jetson Nano (original, 2019) | 4 GB | JetPack 4.x (Ubuntu 18.04, EOL) | Best-effort. The CLI and gateway run; keep inference off-device. |
-| Jetson Nano 2 GB | 2 GB | JetPack 4.x (EOL) | Use the lean profile and add swap, as on a 1–2 GB Pi. |
+| Jetson Nano (original, 2019) | 4 GB | JetPack 4.x (Ubuntu 18.04, EOL) | Experimental. Use the lean profile and keep inference off-device. |
+| Jetson Nano 2 GB | 2 GB | JetPack 4.x (EOL) | Experimental. Use the lean profile and add swap, as on a 1–2 GB Pi. |
 
 All Jetson boards are aarch64, so the 64-bit check from the Pi guide always
 passes. Jetson images ship with zram swap enabled by default
@@ -42,19 +43,23 @@ sudo apt install -y git curl ripgrep build-essential python3-dev libffi-dev
 
 ## 2. Install Fabric
 
-Use the official installer. On Jetson it does the heavy lifting that the OS
-cannot: installs a managed `uv`, which downloads a managed Python 3.11 for
-aarch64 (independent of JetPack's system Python), fetches an arm64 Node.js
+### Full install (JetPack 5/6)
+
+On an Orin board running JetPack 5 or 6, the official installer does the heavy
+lifting that the OS cannot: it installs a managed `uv`, downloads Python 3.11
+for aarch64 (independent of JetPack's system Python), fetches an arm64 Node.js
 for the TUI, and installs the `[all]` extras:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ObliviousOdin/fabric/main/scripts/install.sh | bash
 ```
 
-On a 2 GB Nano — or if you want a minimal footprint on any board — use a
-managed Python without first installing the full `[all]` profile. Install the
-same managed `uv` binary used by Fabric's installer, then let it download
-Python 3.11 and target the new environment explicitly:
+### Lean install (all boards)
+
+On every original Nano running JetPack 4, on a 2 GB board, or whenever you
+want a minimal footprint, install managed Python without first running the
+full installer. Bootstrap the same `uv` binary, let it download Python 3.11,
+and target the new environment explicitly:
 
 ```bash
 FABRIC_HOME="${FABRIC_HOME:-$HOME/.fabric}"
@@ -73,14 +78,19 @@ source venv/bin/activate
 
 Add only the extras you need, as described in the
 [low-memory guide](./low-memory.md#the-lean-lite-install-profile). Gateway
-platform SDKs lazy-install when that platform is configured.
+platform SDKs lazy-install when that platform is configured. In a later login
+shell, return to the clone and run `source venv/bin/activate` before using
+`fabric`.
 
-:::note JetPack 4 (original Nano)
-JetPack 4's Ubuntu 18.04 userland is old enough that best-effort is the
-honest label: the managed-Python path is the one most likely to work, but
-upstream tools drop old-glibc support over time. If the installer cannot
-provision Python on your image, the practical fixes are a community Ubuntu
-20.04 image for the original Nano or moving to an Orin-class board.
+:::warning JetPack 4 (original Nano)
+Do not use Fabric's full installer on JetPack 4. Ubuntu 18.04 provides glibc
+2.27, while the official Node 22 Linux arm64 binary
+[requires glibc 2.28 or newer](https://github.com/nodejs/node/blob/v22.x/BUILDING.md#platform-list).
+Fabric's installer checks that Node binary before cloning or installing Fabric,
+so it cannot complete on the stock image. The lean path avoids Node, but
+remains experimental because other upstream tools can also drop old-glibc
+support. If managed `uv` cannot provision Python, use a maintained community
+Ubuntu 20.04 image or move to an Orin-class board.
 :::
 
 ## 3. Configure
@@ -134,8 +144,9 @@ fabric status
 
 | Symptom | Fix |
 | --- | --- |
-| `pip install -e .` fails with syntax/version errors | You used JetPack's system Python (≤ 3.10). Use the installer's managed Python instead. |
-| Installer cannot download Python/uv on JetPack 4 | Old glibc/CA store. Update `ca-certificates`; if it persists, see the JetPack 4 note above. |
+| `pip install -e .` fails with syntax/version errors | You used JetPack's system Python (≤ 3.10). Use the lean managed-`uv` path above. |
+| Full installer fails while checking Node on JetPack 4 | Expected on the stock Ubuntu 18.04 image: Node 22 needs glibc 2.28. Use the lean path. |
+| Lean `uv` bootstrap cannot provision Python on JetPack 4 | Update `ca-certificates`; if it persists, use a maintained Ubuntu 20.04 image or an Orin-class board. |
 | Install killed mid-way on 2–4 GB boards | Add a swapfile on top of the default zram, retry. |
 | Ollama runs CPU-only on Jetson | Check `/etc/nv_tegra_release`; the current Ollama installer provides dedicated JetPack 5 (R35) and 6 (R36) bundles. Otherwise keep inference remote. |
 | Board throttles under load | Check the power model (`sudo nvpmodel -q`) and use an adequate power supply. |

@@ -14,28 +14,28 @@ platform. The lean profile described here is maintained on a best-effort
 basis.
 :::
 
-Yes — Fabric runs on a 1 GB device. The core agent is a Python process that
-talks to a model over the network; it is not the model itself. A base install
-measures roughly **70 MiB peak RSS** at runtime import (measured on Linux,
-Python 3.13, Fabric 0.21.0 — expect around 100–200 MB for a live session once
-conversation state and tool subprocesses are included) and about **104 MB of
-disk** for the virtual environment. What does *not* fit in 1 GB is local model
-inference and the heavier optional surfaces, so a low-memory deployment is
-about choosing a lean profile, not porting Fabric.
+Fabric can run on a 1 GB device in a carefully constrained, headless profile.
+The core agent is a Python process that talks to a model over the network; it
+is not the model itself. In one import-only Linux benchmark (Python 3.13,
+Fabric 0.21.0), the base environment used about **104 MB of disk** and peaked
+at roughly **70 MiB RSS**. Those figures are orientation, not an arm64 capacity
+guarantee: live usage varies with conversation history, providers, and tool
+subprocesses. What does *not* fit in 1 GB is local model inference and the
+heavier optional surfaces, so a low-memory deployment is about choosing a
+lean profile and measuring it on your board.
 
 ## What fits where
 
 | Device class | Verdict |
 | --- | --- |
 | 512 MB (Pi Zero 2 W) | Not recommended. Installs and upgrades alone can exhaust memory. |
-| 1 GB (Pi 3, early Pi 4) | Works headless: CLI sessions and one messaging gateway, cloud or remote inference, file-based or SQLite memory. |
-| 2–4 GB (Pi 4/5) | Comfortable: add the TUI, dashboard, and more gateway channels. Local LLM inference is still impractical. |
+| 1 GB (Pi 3, early Pi 4) | Best-effort only: headless CLI sessions and one messaging gateway, cloud or remote inference, file-based or SQLite memory. Measure your real workload. |
+| 2–4 GB (Pi 4/5) | More headroom for the TUI or dashboard and additional gateway channels. Local LLM inference is still impractical. |
 | 8 GB (Pi 5) | Small quantized local models via Ollama become *possible*, but slow; remote inference remains the better experience. |
 
-Use a **64-bit OS** (Raspberry Pi OS 64-bit, Ubuntu Server arm64). 32-bit
-armv7 userlands are not supported: Rust-backed dependencies such as
-`pydantic-core` and `cryptography` do not publish armv7 wheels, and Fabric
-requires Python 3.11–3.13.
+Use a **64-bit OS** (Raspberry Pi OS 64-bit, Ubuntu Server arm64). These guides
+and Fabric's Linux SBC compatibility target cover arm64 only; 32-bit armv7 is
+untested and unsupported. Fabric also requires Python 3.11–3.13.
 
 ## The lean ("lite") install profile
 
@@ -53,6 +53,7 @@ sudo apt update
 sudo apt install -y git curl python3 python3-venv ripgrep build-essential python3-dev libffi-dev
 git clone https://github.com/ObliviousOdin/fabric.git
 cd fabric
+python3 --version                    # must be 3.11-3.13
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
@@ -62,12 +63,19 @@ pip install -e '.[cli]'          # base + interactive CLI
 fabric setup
 ```
 
+If `python3` is outside 3.11–3.13, use the standalone managed-`uv` bootstrap
+in the [Jetson guide](./jetson-nano.md#lean-install-all-boards) instead. Those
+commands work on Linux arm64 generally and avoid installing the full `[all]`
+profile merely to obtain Python. In a later login shell, return to the clone
+and run `source venv/bin/activate` before using `fabric`.
+
 Notes for a 1 GB device:
 
 - **Add swap or zram before installing.** Dependency resolution and any
   wheel-less source build can spike past the install-time baseline. 1 GB of
-  zram (or a swapfile on non-SD storage) makes installs reliable; steady-state
-  operation rarely touches it.
+  zram (or a swapfile on non-SD storage) makes installs more reliable. Light
+  headless operation should not depend on swap continuously; verify with
+  `free -m` during a representative session.
 - **Prefer the plain CLI over the TUI.** `fabric --tui` launches a Node ≥ 20
   subprocess for the Ink terminal UI; plain `fabric` keeps everything in one
   Python process.
@@ -84,7 +92,7 @@ Notes for a 1 GB device:
 | --- | --- |
 | Local LLM inference (on-device Ollama) | Even small quantized 1–3 B models want 2 GB+ and Pi-class CPUs make them painfully slow. Use a cloud provider, or run Ollama on another machine (see below). |
 | Desktop app | Electron. Build and runtime footprints are desktop-class by design. |
-| Browser tools | The browser stack drives a Chromium instance (local CDP browser or the auto-spawned Chromium sidecar for cloud providers) — hundreds of MB on its own. |
+| Local browser tools | A local CDP browser or Chromium sidecar can consume hundreds of MB. Cloud browser providers remain viable for public URLs; if no local sidecar is acceptable, set `browser.auto_local_for_private_urls: false` and do not expect browser access to LAN/private URLs. |
 | `voice` extra | `faster-whisper` pulls `ctranslate2` and `onnxruntime`: large native libraries with patchy ARM wheel coverage. |
 | `matrix` extra | Builds `python-olm` from source and adds an encryption stack. |
 | Docker-based terminal isolation | Running a container engine next to the agent defeats the memory budget. |
@@ -159,12 +167,12 @@ same host.
 ```bash
 fabric doctor      # environment and dependency checks
 fabric status      # active configuration
-free -m            # confirm headroom; expect the agent well under 200 MB
+free -m            # observe headroom during a representative live session
 ```
 
 If installs fail with out-of-memory kills (`pip` or a compiler being killed),
-add swap/zram and retry; if a dependency tries to compile from source on
-armv7, you are on a 32-bit OS — reinstall with a 64-bit image.
+add swap/zram and retry. If `uname -m` reports `armv7l`, reinstall with a
+64-bit image before troubleshooting individual dependencies.
 
 ## See also
 

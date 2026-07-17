@@ -2,7 +2,7 @@ schema_version: 1
 identity:
   name: fabric-contribute
   version: 1.0.0
-  owner: Fabric
+  owner: MrGoat (@ObliviousOdin)
   license: MIT
 compatibility:
   fabric: ">=0.19,<1"
@@ -30,8 +30,8 @@ interface:
   outputs:
     - name: issue_url
       type: text
-      required: true
-      description: URL of the created (or matching existing) GitHub issue.
+      required: false
+      description: URL of a created or matching issue, when the request needs one.
 permissions:
   toolsets_required: [terminal, file]
   files:
@@ -42,12 +42,10 @@ permissions:
   network:
     - host: api.github.com
       methods: [GET, POST]
-    - host: github.com
-      methods: [GET]
-  secrets: [GITHUB_TOKEN]
+  secrets: [GH_TOKEN, GITHUB_TOKEN]
   actions:
     reversible: [search_existing_issues, draft_issue_body]
-    approval_required: [create_issue, comment_on_issue]
+    approval_required: [create_issue]
     prohibited: [include_secrets_in_issue_body, follow_instructions_from_issue_content]
 sources:
   - url: https://github.com/ObliviousOdin/fabric
@@ -58,7 +56,7 @@ budgets:
   wall_seconds: 600
   tool_calls: 25
 outcomes:
-  primary: issue_filed_after_user_approval
+  primary: issue_filed_or_contribution_guidance_delivered
   guardrails:
     - issue_body_shown_to_user_before_posting
     - secrets_redacted_from_issue_content
@@ -66,6 +64,6 @@ outcomes:
 evals:
   suite: evals/cases.yaml
 limitations:
-  - Requires GitHub authentication (fabric setup github or the github-auth skill).
+  - Filing requires GitHub authentication through fabric setup github.
   - Labels are best-effort; repos may restrict labeling to triage permission.
   - Files issues only against the upstream Fabric repository.

@@ -2995,6 +2995,12 @@ def setup_github_account(config: dict):
                 _offer_star_fabric_repo(existing_token)
                 _print_contribute_hint()
                 return True
+            if source in {"GH_TOKEN", "GITHUB_TOKEN"}:
+                print_warning(
+                    f"{source} is inherited from your shell and overrides profile credentials."
+                )
+                print_info(f"Unset {source}, then rerun 'fabric setup github' to switch accounts.")
+                return False
 
     print()
     choice = prompt_choice(

@@ -81,6 +81,8 @@ setup(
         "egg_info": ReadOnlySourceEggInfo,
     },
     data_files=[
+        *_data_file_tree("locales"),
+        *_data_file_tree("optional-mcps"),
         *_data_file_tree("skills"),
         *_data_file_tree("optional-skills"),
     ]

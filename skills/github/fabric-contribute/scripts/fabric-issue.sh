@@ -4,10 +4,10 @@
 # Usage:
 #   fabric-issue.sh "Issue title" /path/to/body.md [label]
 #
-# Auth resolution matches skills/github/github-auth/scripts/gh-env.sh:
-# prefers an authenticated `gh` CLI, falls back to GITHUB_TOKEN from the
-# environment or the Fabric profile's .env. Prints the created issue URL
-# on success.
+# Auth detection is delegated to the shared github-auth helper
+# (skills/github/github-auth/scripts/gh-env.sh): prefers an authenticated
+# `gh` CLI, falls back to GITHUB_TOKEN from the environment or the Fabric
+# profile's .env. Prints the created issue URL on success.
 
 set -euo pipefail
 
@@ -22,9 +22,19 @@ if [ -z "$TITLE" ] || [ -z "$BODY_FILE" ] || [ ! -f "$BODY_FILE" ]; then
     exit 2
 fi
 
-# --- Auth detection (same order as gh-env.sh) ---
+# --- Auth detection (shared helper; summary output silenced) ---
 
-if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# gh-env.sh probes git/gh and tolerates their failures internally, so it
+# must not run under this script's errexit (e.g. `git remote` fails when
+# invoked outside a repo).
+set +e
+# shellcheck source=../../github-auth/scripts/gh-env.sh
+source "$SCRIPT_DIR/../../github-auth/scripts/gh-env.sh" >/dev/null
+set -e
+GH_AUTH_METHOD="${GH_AUTH_METHOD:-none}"
+
+if [ "$GH_AUTH_METHOD" = "gh" ]; then
     ARGS=(--repo "$OWNER_REPO" --title "$TITLE" --body-file "$BODY_FILE")
     if [ -n "$LABEL" ]; then
         # Labels can require triage permission — retry without on failure.
@@ -36,15 +46,7 @@ if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
     exit 0
 fi
 
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-if [ -z "$GITHUB_TOKEN" ]; then
-    _fabric_env="${FABRIC_HOME:-${HERMES_HOME:-$HOME/.fabric}}/.env"
-    if [ -f "$_fabric_env" ] && grep -q "^GITHUB_TOKEN=" "$_fabric_env" 2>/dev/null; then
-        GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" "$_fabric_env" | head -1 | cut -d= -f2 | tr -d '\n\r')
-    fi
-fi
-
-if [ -z "$GITHUB_TOKEN" ]; then
+if [ "$GH_AUTH_METHOD" != "curl" ] || [ -z "${GITHUB_TOKEN:-}" ]; then
     echo "Not authenticated with GitHub. Run: fabric setup github" >&2
     exit 1
 fi
@@ -61,18 +63,20 @@ print(json.dumps(payload))
 PYEOF
 )
 
+# Guard every step below so `set -e` can't skip the failure diagnostics.
 RESPONSE=$(curl -s -X POST \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github+json" \
     "https://api.github.com/repos/$OWNER_REPO/issues" \
-    -d "$PAYLOAD")
+    -d "$PAYLOAD" || true)
 
-URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('html_url',''))" 2>/dev/null)
+URL=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('html_url',''))" 2>/dev/null || true)
 
 if [ -n "$URL" ]; then
     echo "$URL"
 else
     echo "Issue creation failed:" >&2
-    echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','unknown error'))" >&2 2>/dev/null || echo "$RESPONSE" >&2
+    echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','unknown error'))" >&2 2>/dev/null \
+        || echo "${RESPONSE:-no response (network error?)}" >&2
     exit 1
 fi

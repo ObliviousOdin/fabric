@@ -2069,7 +2069,6 @@ def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> Tuple[
         "cwd": str(cwd),
         "stdout": None,
         "stderr": subprocess.STDOUT,
-        "stdin": subprocess.DEVNULL,
         "close_fds": True,
         **detach_kwargs,
     }
@@ -2077,7 +2076,9 @@ def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> Tuple[
     popen_kwargs["stdout"] = log_fh
     try:
         try:
-            proc = subprocess.Popen(argv, **popen_kwargs)  # noqa: S603 - fixed argv, no shell
+            proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+                argv, stdin=subprocess.DEVNULL, **popen_kwargs
+            )
         except OSError:
             if "creationflags" not in detach_kwargs:
                 raise
@@ -2086,7 +2087,9 @@ def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> Tuple[
             from fabric_cli._subprocess_compat import windows_detach_flags_without_breakaway
             retry_kwargs = dict(popen_kwargs)
             retry_kwargs["creationflags"] = windows_detach_flags_without_breakaway()
-            proc = subprocess.Popen(argv, **retry_kwargs)  # noqa: S603 - fixed argv, no shell
+            proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+                argv, stdin=subprocess.DEVNULL, **retry_kwargs
+            )
     finally:
         # The child inherited its own duplicate; the parent copy is done.
         log_fh.close()

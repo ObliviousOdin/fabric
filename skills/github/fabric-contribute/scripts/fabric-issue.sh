@@ -29,7 +29,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # must not run under this script's errexit (e.g. `git remote` fails when
 # invoked outside a repo).
 set +e
-# shellcheck source=../../github-auth/scripts/gh-env.sh
+# The path is resolved from SCRIPT_DIR at runtime; ShellCheck resolves source
+# annotations from its invocation directory instead.
+# shellcheck disable=SC1091
 source "$SCRIPT_DIR/../../github-auth/scripts/gh-env.sh" >/dev/null
 set -e
 GH_AUTH_METHOD="${GH_AUTH_METHOD:-none}"

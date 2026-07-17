@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Palette, Check, Type, SunMoon } from "lucide-react";
+import { Palette, Check, Type, SunMoon, SquareTerminal } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
 import { ListItem } from "@nous-research/ui/ui/components/list-item";
 import { BottomSheet } from "@nous-research/ui/ui/components/bottom-sheet";
@@ -15,6 +15,14 @@ import type {
   FontChoice,
   ThemeListEntry,
 } from "@/themes";
+import {
+  TERMINAL_FONT_CHOICES,
+  TERMINAL_FONT_DEFAULT_ID,
+  TERMINAL_FONT_SIZE_CHOICES,
+  TERMINAL_SCHEMES,
+  THEME_DEFAULT_SCHEME_ID,
+  type TerminalSchemeChoice,
+} from "@/lib/terminal-schemes";
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -128,6 +136,7 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
             fontId={fontId}
             setFont={setFont}
           />
+          <TerminalSection />
         </BottomSheet>
       )}
 
@@ -175,6 +184,7 @@ export function ThemeSwitcher({ collapsed = false, dropUp = false }: ThemeSwitch
               fontId={fontId}
               setFont={setFont}
             />
+            <TerminalSection />
           </div>
         );
         return dropUp ? createPortal(dropdown, document.body) : dropdown;
@@ -393,6 +403,204 @@ function FontSection({ fontChoices, fontId, setFont }: FontSectionProps) {
         })}
       </div>
     </>
+  );
+}
+
+/** Terminal appearance section: color scheme, terminal font, and font size
+ *  for the embedded xterm terminals (Chat TUI + Fabric Console). Layered
+ *  like the font override — "Theme default" keeps deriving the palette
+ *  from the active theme; a catalog scheme pins it.
+ *
+ *  Same a11y layout as FontSection: the scheme and font option lists are
+ *  separate single-select listboxes labelled by plain-text headers that
+ *  live outside them; the size control is a radiogroup (DS Segmented)
+ *  wrapped in a labelled group. */
+function TerminalSection() {
+  const {
+    terminalPrefs,
+    setTerminalScheme,
+    setTerminalFont,
+    setTerminalFontSize,
+  } = useTheme();
+  const { t } = useI18n();
+  const baseId = useId();
+  const headerId = `${baseId}-terminal-header`;
+  const fontLabelId = `${baseId}-terminal-font`;
+  const sizeLabelId = `${baseId}-terminal-size`;
+  const schemeDefault = terminalPrefs.scheme === THEME_DEFAULT_SCHEME_ID;
+  const sizeValue = String(terminalPrefs.size);
+  const fontTitle = t.theme?.terminalFontTitle ?? "Terminal font";
+  const sizeTitle = t.theme?.terminalFontSizeTitle ?? "Terminal font size";
+
+  return (
+    <>
+      <div className="mt-1 border-t border-current/20 px-3 pb-1 pt-2">
+        <span className="inline-flex items-center gap-1.5" id={headerId}>
+          <SquareTerminal className="h-3 w-3 text-text-tertiary" />
+          <Typography
+            className="text-display text-xs tracking-[0.12em] text-text-tertiary"
+          >
+            {t.theme?.terminalTitle ?? "Terminal"}
+          </Typography>
+        </span>
+        <Typography className="mt-0.5 text-[0.65rem] tracking-normal text-text-tertiary">
+          {t.theme?.terminalHint ?? "Colors apply to new chat sessions"}
+        </Typography>
+      </div>
+
+      <div aria-labelledby={headerId} role="listbox">
+        {/* Theme-default (clears the scheme override). */}
+        <ListItem
+          active={schemeDefault}
+          aria-selected={schemeDefault}
+          className="gap-3"
+          onClick={() => setTerminalScheme(THEME_DEFAULT_SCHEME_ID)}
+          role="option"
+        >
+          <span aria-hidden className="h-4 w-9 shrink-0" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <Typography className="truncate text-xs tracking-normal">
+              {t.theme?.terminalSchemeDefault ?? "Theme default"}
+            </Typography>
+            <Typography className="truncate text-xs tracking-normal text-text-tertiary">
+              {t.theme?.terminalSchemeDefaultHint ??
+                "Derive colors from the active theme"}
+            </Typography>
+          </div>
+          <Check
+            className={cn(
+              "h-3 w-3 shrink-0 text-midground",
+              schemeDefault ? "opacity-100" : "opacity-0",
+            )}
+          />
+        </ListItem>
+
+        {TERMINAL_SCHEMES.map((scheme) => {
+          const isActive = terminalPrefs.scheme === scheme.id;
+          return (
+            <ListItem
+              active={isActive}
+              aria-selected={isActive}
+              className="gap-3"
+              key={scheme.id}
+              onClick={() => setTerminalScheme(scheme.id)}
+              role="option"
+            >
+              <TerminalSchemeSwatch scheme={scheme} />
+              <div className="flex min-w-0 flex-1 flex-col">
+                <Typography className="truncate text-xs tracking-normal">
+                  {scheme.label}
+                </Typography>
+              </div>
+              <Check
+                className={cn(
+                  "h-3 w-3 shrink-0 text-midground",
+                  isActive ? "opacity-100" : "opacity-0",
+                )}
+              />
+            </ListItem>
+          );
+        })}
+      </div>
+
+      <div className="px-3 pb-0.5 pt-1.5" id={fontLabelId}>
+        <Typography className="text-[0.65rem] uppercase tracking-[0.1em] text-text-tertiary">
+          {fontTitle}
+        </Typography>
+      </div>
+      <div aria-labelledby={fontLabelId} role="listbox">
+        {[
+          {
+            id: TERMINAL_FONT_DEFAULT_ID,
+            label: t.theme?.terminalFontDefault ?? "Default (JetBrains Mono)",
+            family: undefined as string | undefined,
+          },
+          ...TERMINAL_FONT_CHOICES.map((f) => ({
+            id: f.id,
+            label: f.label,
+            family: f.family as string | undefined,
+          })),
+        ].map((font) => {
+          const isActive = terminalPrefs.font === font.id;
+          return (
+            <ListItem
+              active={isActive}
+              aria-selected={isActive}
+              className="gap-3"
+              key={font.id}
+              onClick={() => setTerminalFont(font.id)}
+              role="option"
+            >
+              <span aria-hidden className="h-4 w-9 shrink-0" />
+              <div className="flex min-w-0 flex-1 flex-col">
+                {/* Preview each font in its own face (default keeps the UI font). */}
+                <span
+                  className="truncate text-xs"
+                  style={
+                    font.family
+                      ? { fontFamily: `${font.family}, monospace` }
+                      : undefined
+                  }
+                >
+                  {font.label}
+                </span>
+              </div>
+              <Check
+                className={cn(
+                  "h-3 w-3 shrink-0 text-midground",
+                  isActive ? "opacity-100" : "opacity-0",
+                )}
+              />
+            </ListItem>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col gap-1.5 px-3 pb-2 pt-1.5">
+        <Typography
+          className="text-[0.65rem] uppercase tracking-[0.1em] text-text-tertiary"
+          id={sizeLabelId}
+        >
+          {sizeTitle}
+        </Typography>
+        {/* Same radiogroup-labelling idiom as AppearanceSection. */}
+        <div aria-labelledby={sizeLabelId} role="group">
+          <Segmented<string>
+            onChange={(value) =>
+              setTerminalFontSize(
+                value === "auto" ? "auto" : Number.parseInt(value, 10),
+              )
+            }
+            options={TERMINAL_FONT_SIZE_CHOICES.map((size) => ({
+              label:
+                size === "auto"
+                  ? (t.theme?.terminalFontSizeAuto ?? "Auto")
+                  : String(size),
+              value: String(size),
+            }))}
+            size="sm"
+            value={sizeValue}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** 4-stop preview strip for a terminal scheme: canvas + the red/green/blue
+ *  ANSI accents, so schemes are recognizable at a glance. */
+function TerminalSchemeSwatch({ scheme }: { scheme: TerminalSchemeChoice }) {
+  const { theme } = scheme;
+  return (
+    <div
+      aria-hidden
+      className="flex h-4 w-9 shrink-0 overflow-hidden border border-current/20"
+    >
+      <span className="flex-[1.6]" style={{ background: theme.background }} />
+      <span className="flex-1" style={{ background: theme.red }} />
+      <span className="flex-1" style={{ background: theme.green }} />
+      <span className="flex-1" style={{ background: theme.blue }} />
+    </div>
   );
 }
 

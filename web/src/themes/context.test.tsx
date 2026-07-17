@@ -7,8 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { apiMock } = vi.hoisted(() => ({
   apiMock: {
     getFontPref: vi.fn(),
+    getTerminalPref: vi.fn(),
     getThemes: vi.fn(),
     setFontPref: vi.fn(),
+    setTerminalPref: vi.fn(),
     setTheme: vi.fn(),
   },
 }));
@@ -65,6 +67,10 @@ describe("ThemeProvider heritage migration", () => {
       ],
     });
     apiMock.setFontPref.mockReset().mockResolvedValue({ ok: true });
+    apiMock.getTerminalPref
+      .mockReset()
+      .mockResolvedValue({ scheme: "theme", font: "default", size: "auto" });
+    apiMock.setTerminalPref.mockReset().mockResolvedValue({ ok: true });
     apiMock.setTheme.mockReset().mockResolvedValue({ ok: true });
     container = document.createElement("div");
     document.body.appendChild(container);

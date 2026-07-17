@@ -1016,6 +1016,15 @@ export interface Translations {
     appearanceLight?: string;
     appearanceSystem?: string;
     highContrast?: string;
+    /** Terminal appearance section (optional — English fallback). */
+    terminalTitle?: string;
+    terminalHint?: string;
+    terminalSchemeDefault?: string;
+    terminalSchemeDefaultHint?: string;
+    terminalFontTitle?: string;
+    terminalFontDefault?: string;
+    terminalFontSizeTitle?: string;
+    terminalFontSizeAuto?: string;
   };
 
   // ── Command palette & keyboard shortcuts ──

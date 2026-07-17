@@ -75,6 +75,27 @@ def test_profile_pet_can_shadow_and_reveal_bundled_pet():
     assert revealed is not None and revealed.bundled
 
 
+def test_incomplete_profile_directory_does_not_hide_bundled_pet(monkeypatch):
+    local_dir = store.pets_dir() / "fabric-mascot"
+    local_dir.mkdir()
+    (local_dir / "pet.json").write_text(
+        json.dumps({"id": "fabric-mascot", "displayName": "Interrupted Install"}),
+        encoding="utf-8",
+    )
+
+    from agent.pet import manifest
+
+    def fail_manifest_lookup(*_args, **_kwargs):
+        raise AssertionError("bundled pet must not query Petdex")
+
+    monkeypatch.setattr(manifest, "find_entry", fail_manifest_lookup)
+
+    pet = store.load_pet("fabric-mascot")
+    assert pet is not None and pet.bundled
+    assert store.install_pet("fabric-mascot") == pet
+    assert store.install_pet("fabric-mascot", force=True) == pet
+
+
 def test_bundled_pet_exports_as_a_clean_pet_package():
     filename, payload = store.export_pet("fabric-mascot")
 
@@ -96,3 +117,27 @@ def test_cli_refuses_to_remove_bundled_pet(capsys):
 
     assert _cmd_remove(argparse.Namespace(slug="fabric-mascot")) == 1
     assert "ships with Fabric and cannot be removed" in capsys.readouterr().err
+
+
+def test_cli_remove_clears_active_only_without_fallback(monkeypatch):
+    from fabric_cli import pets as pets_cli
+
+    bundled = store.load_pet("fabric-mascot")
+    assert bundled is not None
+    local_dir = store.pets_dir() / bundled.slug
+    local_dir.mkdir()
+    shutil.copyfile(bundled.spritesheet, local_dir / "spritesheet.webp")
+
+    cleared: list[str] = []
+    monkeypatch.setattr(pets_cli, "_clear_active_if", cleared.append)
+
+    assert pets_cli._cmd_remove(argparse.Namespace(slug=bundled.slug)) == 0
+    assert cleared == []
+
+    local = store.register_local_pet(
+        bundled.spritesheet,
+        slug="temporary-pet",
+        display_name="Temporary Pet",
+    )
+    assert pets_cli._cmd_remove(argparse.Namespace(slug=local.slug)) == 0
+    assert cleared == [local.slug]

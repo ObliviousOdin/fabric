@@ -93,13 +93,15 @@ def _cmd_remove(args) -> int:
     from agent.pet import store
 
     slug = args.slug.strip()
+    if store.remove_pet(slug):
+        if store.load_pet(slug) is None:
+            _clear_active_if(slug)
+        _print(f"✓ removed {slug}")
+        return 0
     pet = store.load_pet(slug)
     if pet is not None and pet.bundled:
         _err(f"✗ '{slug}' ships with Fabric and cannot be removed")
         return 1
-    if store.remove_pet(slug):
-        _print(f"✓ removed {slug}")
-        return 0
     _err(f"✗ '{slug}' is not installed")
     return 1
 

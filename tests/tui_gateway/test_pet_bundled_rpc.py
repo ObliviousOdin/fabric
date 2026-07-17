@@ -24,8 +24,18 @@ def test_local_gallery_includes_offline_fabric_mascot(monkeypatch):
 
 
 def test_bundled_pet_can_be_selected_without_manifest_download(monkeypatch):
+    # An interrupted profile install must not shadow the usable read-only bundle.
+    local_dir = store.pets_dir() / "fabric-mascot"
+    local_dir.mkdir()
+    (local_dir / "pet.json").write_text("{}", encoding="utf-8")
+
     selected: list[str] = []
     monkeypatch.setattr(pets_cli, "_set_active", selected.append)
+
+    def fail_manifest_lookup(*_args, **_kwargs):
+        raise AssertionError("bundled pet must not query Petdex")
+
+    monkeypatch.setattr(manifest, "find_entry", fail_manifest_lookup)
 
     response = server._methods["pet.select"]("select", {"slug": "fabric-mascot"})
 
@@ -59,7 +69,15 @@ def test_removing_local_override_keeps_active_bundled_fallback(monkeypatch):
 
     response = server._methods["pet.remove"]("remove", {"slug": "fabric-mascot"})
 
-    assert response["result"] == {"ok": True, "slug": "fabric-mascot"}
+    assert response["result"] == {
+        "ok": True,
+        "slug": "fabric-mascot",
+        "fallback": {
+            "displayName": "Fabric Mascot",
+            "bundled": True,
+            "generated": False,
+        },
+    }
     fallback = store.load_pet("fabric-mascot")
     assert fallback is not None
     assert fallback.bundled is True

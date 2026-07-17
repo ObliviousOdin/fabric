@@ -469,27 +469,79 @@ export function renamePet(request: GatewayRequest, slug: string, name: string, f
   })()
 }
 
-/** Uninstall a pet; turns the mascot off if it was the active one. */
+interface PetRemoveFallback {
+  displayName: string
+  bundled: boolean
+  generated: boolean
+}
+
+interface PetRemoveResult {
+  ok: boolean
+  slug: string
+  fallback?: PetRemoveFallback
+}
+
+/** Uninstall a pet; keeps an active bundled fallback selected when revealed. */
 export function removePet(request: GatewayRequest, slug: string, fallback: string): Promise<boolean> {
   return mutate(slug, fallback, request, async () => {
-    await petRpc(request, 'pet.remove', { slug })
+    const result = await petRpc<PetRemoveResult>(request, 'pet.remove', { slug })
+
+    if (!result?.ok) {
+      throw new Error(fallback)
+    }
+
+    const replacement = result.fallback
     // Evict the by-slug thumb cache so a reused slug doesn't render this pet's
     // stale thumbnail (the backend drops its disk thumb in parallel).
     thumbCache.delete(slug)
-    patchGallery(g => ({
-      ...g,
-      enabled: g.active === slug ? false : g.enabled,
-      active: g.active === slug ? '' : g.active,
-      // Petdex pets can be reinstalled from the manifest, so we just mark them
-      // uninstalled. Generated / local-only pets have no remote source — once
-      // deleted they're gone, so drop them from the list entirely.
-      pets: g.pets.flatMap(p => {
+    patchGallery(g => {
+      let found = false
+
+      const pets = g.pets.flatMap(p => {
         if (p.slug !== slug) {
           return [p]
         }
 
+        found = true
+
+        if (replacement) {
+          return [
+            {
+              ...p,
+              displayName: replacement.displayName,
+              installed: true,
+              spritesheetUrl: '',
+              curated: replacement.bundled,
+              generated: replacement.generated,
+              bundled: replacement.bundled
+            }
+          ]
+        }
+
+        // Petdex pets can be reinstalled from the manifest, so we just mark
+        // them uninstalled. Generated / local-only pets have no remote source
+        // once deleted, so drop them from the list entirely.
         return p.generated || !p.spritesheetUrl ? [] : [{ ...p, installed: false }]
       })
-    }))
+
+      if (replacement && !found) {
+        pets.push({
+          slug,
+          displayName: replacement.displayName,
+          installed: true,
+          spritesheetUrl: '',
+          curated: replacement.bundled,
+          generated: replacement.generated,
+          bundled: replacement.bundled
+        })
+      }
+
+      return {
+        ...g,
+        enabled: replacement || g.active !== slug ? g.enabled : false,
+        active: replacement || g.active !== slug ? g.active : '',
+        pets
+      }
+    })
   })
 }

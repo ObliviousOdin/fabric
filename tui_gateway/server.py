@@ -7669,7 +7669,8 @@ def _(rid, params: dict) -> dict:
 
     Params: ``slug`` (required). If the removed pet was the active one, the
     display is turned off so nothing tries to render a now-missing sprite.
-    Returns ``{ok, slug}`` where ``ok`` reflects whether a directory was deleted.
+    Returns ``{ok, slug, fallback?}`` where ``ok`` reflects whether a directory
+    was deleted and ``fallback`` describes a bundled pet revealed by removal.
     """
     slug = str(params.get("slug") or "").strip()
     if not slug:
@@ -7683,13 +7684,21 @@ def _(rid, params: dict) -> dict:
         # Stop surfaces pointing at a deleted sprite. A bundled pet is
         # read-only, and removing a same-slug profile override reveals that
         # bundle, so keep the active config whenever a fallback still exists.
-        if removed and store.load_pet(slug) is None:
+        fallback = store.load_pet(slug) if removed else None
+        if removed and fallback is None:
             try:
                 _clear_active_if(slug)
             except Exception as exc:  # noqa: BLE001 - removal already succeeded
                 logger.debug("pet.remove config update failed: %s", exc)
 
-        return _ok(rid, {"ok": removed, "slug": slug})
+        result: dict = {"ok": removed, "slug": slug}
+        if fallback is not None and fallback.exists:
+            result["fallback"] = {
+                "displayName": fallback.display_name,
+                "bundled": fallback.bundled,
+                "generated": fallback.generated,
+            }
+        return _ok(rid, result)
     except Exception as exc:  # noqa: BLE001
         logger.debug("pet.remove failed: %s", exc)
         return _err(rid, 5031, f"pet.remove failed: {exc}")

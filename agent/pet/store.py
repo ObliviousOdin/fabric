@@ -131,14 +131,16 @@ def _load_pet_from(directory: Path, slug: str, *, bundled: bool = False) -> Inst
 def load_pet(slug: str) -> InstalledPet | None:
     """Return a profile pet or bundled first-party pet for *slug*.
 
-    Profile packages take precedence so a local/generated pet can deliberately
-    override a bundled slug without mutating the read-only application assets.
+    Usable profile packages take precedence so a local/generated pet can
+    deliberately override a bundled slug without mutating the read-only
+    application assets. An incomplete profile directory does not hide a valid
+    bundle; this keeps bundled pets selectable after an interrupted install.
     """
     slug = _safe_slug(slug)
     if not slug:
         return None
     local = _load_pet_from(pets_dir() / slug, slug)
-    if local is not None:
+    if local is not None and local.exists:
         return local
     return _load_pet_from(bundled_pets_dir() / slug, slug, bundled=True)
 
@@ -201,8 +203,10 @@ def resolve_active_pet(configured_slug: str | None = None) -> InstalledPet | Non
 def install_pet(slug: str, *, force: bool = False, timeout: float = _DOWNLOAD_TIMEOUT) -> InstalledPet:
     """Download *slug* from the manifest into the pets directory.
 
-    Idempotent: a fully-installed pet is returned as-is unless *force*.  Raises
-    :class:`PetStoreError` / :class:`~agent.pet.manifest.ManifestError` on
+    Idempotent: a fully-installed pet is returned as-is unless *force*. Bundled
+    pets are always returned as-is because their read-only package cannot be
+    refreshed from Petdex. Raises :class:`PetStoreError` /
+    :class:`~agent.pet.manifest.ManifestError` on
     failure.
     """
     from agent.pet.manifest import find_entry
@@ -211,7 +215,7 @@ def install_pet(slug: str, *, force: bool = False, timeout: float = _DOWNLOAD_TI
     if not slug:
         raise PetStoreError("invalid pet slug")
     existing = load_pet(slug)
-    if existing and existing.exists and not force:
+    if existing and existing.exists and (not force or existing.bundled):
         return existing
 
     entry = find_entry(slug, timeout=timeout)

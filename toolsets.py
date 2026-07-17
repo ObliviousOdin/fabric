@@ -67,6 +67,9 @@ _HERMES_CORE_TOOLS = [
     "cronjob",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
     "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
+    # Frigate NVR camera events and media (gated on FRIGATE_URL via check_fn)
+    "frigate_events", "frigate_reviews", "frigate_snapshot", "frigate_clip",
+    "frigate_status",
     # Kanban multi-agent coordination — only in schema when the agent is
     # spawned as a kanban worker (HERMES_KANBAN_TASK env set) or the current
     # profile explicitly enables the kanban toolset. Gated via check_fn in
@@ -257,6 +260,12 @@ TOOLSETS = {
         "includes": []
     },
 
+    "frigate": {
+        "description": "Frigate NVR camera events, review items, snapshots, and clips",
+        "tools": ["frigate_events", "frigate_reviews", "frigate_snapshot", "frigate_clip", "frigate_status"],
+        "includes": []
+    },
+
     "kanban": {
         "description": (
             "Kanban multi-agent coordination — only active when the agent "
@@ -422,6 +431,9 @@ TOOLSETS = {
             "cronjob",
             # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
             "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
+            # Frigate NVR camera events and media (gated on FRIGATE_URL via check_fn)
+            "frigate_events", "frigate_reviews", "frigate_snapshot", "frigate_clip",
+            "frigate_status",
 
         ],
         "includes": []

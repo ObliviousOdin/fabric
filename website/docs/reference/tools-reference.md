@@ -99,6 +99,16 @@ Scoped to the Feishu document-comment handler. Drives comment read/write operati
 | `ha_list_entities` | List Home Assistant entities. Optionally filter by domain (light, switch, climate, sensor, binary_sensor, cover, fan, etc.) or by area name (living room, kitchen, bedroom, etc.). | — |
 | `ha_list_services` | List available Home Assistant services (actions) for device control. Shows what actions can be performed on each device type and what parameters they accept. Use this to discover how to control devices found via ha_list_entities. | — |
 
+## `frigate` toolset
+
+| Tool | Description | Requires environment |
+|------|-------------|----------------------|
+| `frigate_events` | Search Frigate NVR tracked-object events (person/car/etc. detections). Filter by camera, label, zone, or a unix-time window. Returns compact event records whose IDs work with frigate_snapshot and frigate_clip. | `FRIGATE_URL` |
+| `frigate_reviews` | List Frigate review items — the curated activity queue. Severity 'alert' items are the important ones; 'detection' items are routine. | `FRIGATE_URL` |
+| `frigate_snapshot` | Download a Frigate snapshot to a local file: an event's best snapshot (by event_id) or a camera's latest frame (by camera name). Pass the returned path to vision_analyze. | `FRIGATE_URL` |
+| `frigate_clip` | Download the recorded clip (mp4, max 50MB) of a Frigate event to a local file for video_analyze. | `FRIGATE_URL` |
+| `frigate_status` | Frigate service status: version, uptime, per-camera FPS health, detector inference speeds. | `FRIGATE_URL` |
+
 ## `computer_use` toolset
 
 | Tool | Description | Requires environment |

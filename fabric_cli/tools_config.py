@@ -82,6 +82,7 @@ CONFIGURABLE_TOOLSETS = [
     ("delegation",      "👥 Task Delegation",           "delegate_task"),
     ("cronjob",         "⏰ Cron Jobs",                 "create/list/update/pause/resume/run, with optional attached skills"),
     ("homeassistant",    "🏠 Home Assistant",           "smart home device control"),
+    ("frigate",          "📹 Frigate NVR",              "camera events, reviews, snapshots, clips"),
     ("spotify",          "🎵 Spotify",                  "playback, search, playlists, library"),
     ("discord",         "💬 Discord (read/participate)", "fetch messages, search members, create thread"),
     ("discord_admin",   "🛡️  Discord Server Admin",    "list channels/roles, pin, assign roles"),
@@ -119,7 +120,7 @@ def gui_toolset_label(label: str) -> str:
 # `fabric tools` → X (Twitter) Search setup walks users through credential
 # setup. The tool's check_fn means the schema still won't appear to the
 # model if the credential later goes missing or expires.
-_DEFAULT_OFF_TOOLSETS = {"homeassistant", "spotify", "discord", "discord_admin", "video", "video_gen", "x_search"}
+_DEFAULT_OFF_TOOLSETS = {"homeassistant", "frigate", "spotify", "discord", "discord_admin", "video", "video_gen", "x_search"}
 
 
 def _xai_credentials_present() -> bool:
@@ -555,6 +556,20 @@ TOOL_CATEGORIES = {
                 "env_vars": [
                     {"key": "HASS_TOKEN", "prompt": "Home Assistant Long-Lived Access Token"},
                     {"key": "HASS_URL", "prompt": "Home Assistant URL", "default": "http://homeassistant.local:8123"},
+                ],
+            },
+        ],
+    },
+    "frigate": {
+        "name": "Frigate NVR",
+        "icon": "📹",
+        "providers": [
+            {
+                "name": "Frigate",
+                "tag": "HTTP API integration",
+                "env_vars": [
+                    {"key": "FRIGATE_URL", "prompt": "Frigate URL (port 5000 internal, 8971 authenticated)", "default": "http://frigate.local:5000"},
+                    {"key": "FRIGATE_TOKEN", "prompt": "Frigate JWT bearer token (optional, for the authenticated 8971 port)"},
                 ],
             },
         ],
@@ -1814,6 +1829,8 @@ def _get_platform_tools(
                 default_off.remove(platform)
             if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
                 default_off.remove("homeassistant")
+            if "frigate" in default_off and os.getenv("FRIGATE_URL"):
+                default_off.remove("frigate")
             _exempt_explicit_platform_native(
                 default_off, platform, explicitly_configured=explicitly_configured
             )
@@ -1874,6 +1891,10 @@ def _get_platform_tools(
         # regressed after #14798 made cron honor per-platform tool config.
         if "homeassistant" in default_off and os.getenv("HASS_TOKEN"):
             default_off.remove("homeassistant")
+        # Same carve-out for Frigate: FRIGATE_URL set means explicit opt-in,
+        # and the tools' check_fn already gates on it at schema-build time.
+        if "frigate" in default_off and os.getenv("FRIGATE_URL"):
+            default_off.remove("frigate")
         # Symmetric carve-out for x_search auto-enable (see the inject
         # block above). Without this, the default_off subtraction would
         # strip the entry we just added.

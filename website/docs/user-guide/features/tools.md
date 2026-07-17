@@ -28,7 +28,7 @@ High-level categories:
 | **Agent orchestration** | `todo`, `clarify`, `execute_code`, `delegate_task` | Planning, clarification, code execution, and subagent delegation. |
 | **Memory & recall** | `memory`, `session_search` | Persistent memory and session search. |
 | **Automation** | `cronjob` | Scheduled tasks with create/list/update/pause/resume/run/remove actions. Outbound delivery is handled by cron's own delivery, the `fabric send` CLI, and the gateway notifier — not by an agent-callable tool. |
-| **Integrations** | `ha_*`, MCP server tools | Home Assistant, MCP, and other integrations. |
+| **Integrations** | `ha_*`, `frigate_*`, MCP server tools | Home Assistant, Frigate NVR, MCP, and other integrations. |
 
 For the authoritative code-derived registry, see [Built-in Tools Reference](/reference/tools-reference) and [Toolsets Reference](/reference/toolsets-reference).
 
@@ -49,7 +49,7 @@ fabric tools
 fabric tools
 ```
 
-Common toolsets include `web`, `search`, `terminal`, `file`, `browser`, `vision`, `image_gen`, `skills`, `tts`, `todo`, `memory`, `session_search`, `cronjob`, `code_execution`, `delegation`, `clarify`, `homeassistant`, `messaging`, `spotify`, `discord`, `discord_admin`, `debugging`, and `safe`.
+Common toolsets include `web`, `search`, `terminal`, `file`, `browser`, `vision`, `image_gen`, `skills`, `tts`, `todo`, `memory`, `session_search`, `cronjob`, `code_execution`, `delegation`, `clarify`, `homeassistant`, `frigate`, `messaging`, `spotify`, `discord`, `discord_admin`, `debugging`, and `safe`.
 
 See [Toolsets Reference](/reference/toolsets-reference) for the full set, including platform presets such as `fabric-cli`, `fabric-telegram`, and dynamic MCP toolsets like `mcp-<server>`.
 

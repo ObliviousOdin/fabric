@@ -147,8 +147,13 @@ def test_profile_query_isolates_global_remote_imports(
     )
 
     assert response.status_code == 200
-    assert Path(response.json()["system"]["contentPath"]).is_relative_to(
+    system = response.json()["system"]
+    assert Path(system["contentPath"]) == (
         work_home
+        / "design-system-library"
+        / "revisions"
+        / system["activeRevision"]
+        / "files"
     )
     assert client.get("/api/design-systems?profile=work").json()["systems"]
     assert client.get("/api/design-systems").json() == {"systems": []}

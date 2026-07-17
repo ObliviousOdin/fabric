@@ -44,6 +44,7 @@ import { setPetActivity } from '../store/pet'
 import { setPetScale } from '../store/pet-gallery'
 import {
   setPetOverlayOpenAppHandler,
+  setPetOverlayOpenSessionHandler,
   setPetOverlayScaleHandler,
   setPetOverlaySubmitHandler
 } from '../store/pet-overlay'
@@ -914,10 +915,12 @@ export function DesktopController() {
         void resumeSessionRef.current(recent.id)
       }
     })
+    setPetOverlayOpenSessionHandler(sessionId => void resumeSessionRef.current(sessionId))
 
     return () => {
       setPetOverlaySubmitHandler(null)
       setPetOverlayOpenAppHandler(null)
+      setPetOverlayOpenSessionHandler(null)
       setPetOverlayScaleHandler(null)
     }
   }, [])

@@ -8,7 +8,10 @@ import { type PetZoomAnchor, usePetZoomGesture } from '@/components/pet/use-pet-
 import { Mail } from '@/lib/icons'
 import { $petActivity, $petInfo, setPetInfo } from '@/store/pet'
 import { overlayWindowSize } from '@/store/pet-overlay'
+import type { PetOverlaySession } from '@/store/pet-overlay-sessions'
 import { setAwaitingResponse, setBusy } from '@/store/session'
+
+import { PetOverlaySessionPanel } from './pet-overlay-session-panel'
 
 // Fallbacks mirror pet-sprite's defaults; the gateway normally sends real values.
 const DEFAULT_FRAME_W = 192
@@ -38,10 +41,9 @@ const ALPHA_HIT_THRESHOLD = 16
  * and the empty margins pass clicks through to whatever is behind.
  *
  * Gestures on the pet: drag to move it anywhere on screen (even outside the
- * app), shift-click to pop it back into the window, single-click to open a small
- * composer, double-click to toggle the app window (minimize ↔ restore). A mail
- * icon (shown only when a turn finished while you were away) raises the app on
- * the most recent thread.
+ * app), right-click for live/recent sessions, shift-click to pop it back into
+ * the window, single-click for a small composer, and double-click to toggle the
+ * app window (minimize ↔ restore). A mail icon raises the most recent thread.
  */
 
 // Below this much pointer travel, a press counts as a click, not a drag.
@@ -63,6 +65,8 @@ interface DragState {
 export function PetOverlayApp() {
   const info = useStore($petInfo)
   const [composerOpen, setComposerOpen] = useState(false)
+  const [sessionPanelOpen, setSessionPanelOpen] = useState(false)
+  const [sessions, setSessions] = useState<PetOverlaySession[]>([])
   const [draft, setDraft] = useState('')
   // Mirrored from the main renderer: a finish landed while you were away.
   const [unread, setUnread] = useState(false)
@@ -75,6 +79,7 @@ export function PetOverlayApp() {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const ignoreRef = useRef(true)
   const composerOpenRef = useRef(false)
+  const sessionPanelOpenRef = useRef(false)
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const setIgnore = (ignore: boolean) => {
@@ -92,6 +97,7 @@ export function PetOverlayApp() {
       setBusy(Boolean(payload.busy))
       setAwaitingResponse(Boolean(payload.awaiting))
       setUnread(Boolean(payload.unread))
+      setSessions(payload.sessions ?? [])
     })
 
     // Tell the main renderer we're mounted so it pushes the current frame (the
@@ -149,7 +155,7 @@ export function PetOverlayApp() {
     }
 
     const onMove = (ev: MouseEvent) => {
-      if (dragRef.current || composerOpenRef.current) {
+      if (dragRef.current || composerOpenRef.current || sessionPanelOpenRef.current) {
         setIgnore(false)
 
         return
@@ -182,6 +188,14 @@ export function PetOverlayApp() {
       requestAnimationFrame(() => inputRef.current?.focus())
     }
   }, [composerOpen])
+
+  useEffect(() => {
+    sessionPanelOpenRef.current = sessionPanelOpen
+
+    if (sessionPanelOpen) {
+      setIgnore(false)
+    }
+  }, [sessionPanelOpen])
 
   const onPetPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) {
@@ -263,6 +277,7 @@ export function PetOverlayApp() {
 
     clickTimerRef.current = setTimeout(() => {
       clickTimerRef.current = undefined
+      setSessionPanelOpen(false)
       setComposerOpen(open => !open)
     }, DOUBLE_CLICK_MS)
   }
@@ -281,7 +296,19 @@ export function PetOverlayApp() {
   const openApp = () => {
     // Hide the icon immediately; the main renderer also clears the source flag.
     setUnread(false)
+    setSessionPanelOpen(false)
     window.hermesDesktop?.petOverlay?.control({ type: 'open-app' })
+  }
+
+  const openSession = (sessionId: string) => {
+    setUnread(false)
+    setSessionPanelOpen(false)
+    window.hermesDesktop?.petOverlay?.control({ sessionId, type: 'open-session' })
+  }
+
+  const dockPet = () => {
+    setSessionPanelOpen(false)
+    window.hermesDesktop?.petOverlay?.control({ type: 'pop-in' })
   }
 
   // Alt+wheel over the popped-out pet resizes it. The overlay has no gateway,
@@ -350,10 +377,11 @@ export function PetOverlayApp() {
   return (
     <div
       onPointerDown={e => {
-        // Click on the transparent backdrop (not the pet/composer) dismisses
-        // the composer.
-        if (composerOpen && e.target === e.currentTarget) {
+        // Click on the transparent backdrop (not the pet/chrome) dismisses the
+        // transient controls.
+        if (e.target === e.currentTarget) {
           setComposerOpen(false)
+          setSessionPanelOpen(false)
         }
       }}
       style={{
@@ -368,6 +396,15 @@ export function PetOverlayApp() {
         width: '100vw'
       }}
     >
+      {sessionPanelOpen && (
+        <PetOverlaySessionPanel
+          onDock={dockPet}
+          onOpenApp={openApp}
+          onOpenSession={openSession}
+          sessions={sessions}
+        />
+      )}
+
       {composerOpen && (
         <input
           onChange={e => setDraft(e.target.value)}
@@ -398,6 +435,13 @@ export function PetOverlayApp() {
       )}
 
       <div
+        onContextMenu={e => {
+          e.preventDefault()
+          clearTimeout(clickTimerRef.current)
+          clickTimerRef.current = undefined
+          setComposerOpen(false)
+          setSessionPanelOpen(open => !open)
+        }}
         onPointerDown={onPetPointerDown}
         onPointerMove={onPetPointerMove}
         onPointerUp={onPetPointerUp}
@@ -410,6 +454,7 @@ export function PetOverlayApp() {
           position: 'relative',
           touchAction: 'none'
         }}
+        title="Right-click for sessions"
       >
         <div style={{ marginBottom: 4 }}>
           <PetBubble />

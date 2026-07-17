@@ -365,6 +365,13 @@ async function importDesignSystemZipForIpc(rawRequest: any, deps: any) {
         // Already closed.
       }
 
+      // responseJson aborts the file pump when the backend rejects, the socket
+      // fails, or the timeout expires. Preserve that bounded transport error
+      // instead of masking it with the pump's upload-aborted consequence.
+      if ((error as Error & { code?: string })?.code === 'upload-aborted') {
+        return await resultPromise
+      }
+
       throw error
     }
 

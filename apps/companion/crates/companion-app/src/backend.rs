@@ -7,8 +7,33 @@ use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// How long to wait for the backend's ready line before giving up.
-const READY_TIMEOUT: Duration = Duration::from_secs(60);
+/// Cold imports and Windows AV can delay a healthy first start for 30-60s.
+const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(90);
+/// Preserve the desktop's historical warm-start floor for bad overrides.
+const MIN_READY_TIMEOUT: Duration = Duration::from_secs(45);
+// public-release-audit: allow-legacy-compat -- mirror the desktop's existing cold-start override
+const READY_TIMEOUT_ENV: &str = "HERMES_DESKTOP_PORT_ANNOUNCE_TIMEOUT_MS";
+
+fn resolve_ready_timeout(raw: Option<&str>) -> Duration {
+    let Some(milliseconds) = raw.and_then(|value| value.parse::<f64>().ok()) else {
+        return DEFAULT_READY_TIMEOUT;
+    };
+    if !milliseconds.is_finite() || milliseconds <= 0.0 {
+        return DEFAULT_READY_TIMEOUT;
+    }
+    Duration::from_millis(milliseconds.round() as u64).max(MIN_READY_TIMEOUT)
+}
+
+fn ready_timeout() -> Duration {
+    resolve_ready_timeout(std::env::var(READY_TIMEOUT_ENV).ok().as_deref())
+}
+
+fn timeout_error(timeout: Duration) -> String {
+    format!(
+        "backend never announced readiness within {}ms",
+        timeout.as_millis()
+    )
+}
 
 /// The spawned backend process; killed when the companion exits.
 pub struct BackendGuard(Child);
@@ -70,13 +95,14 @@ pub fn spawn_backend(fabric_bin: &str) -> Result<(String, BackendGuard), String>
         })
         .expect("spawn backend stdout thread");
 
-    let deadline = Instant::now() + READY_TIMEOUT;
+    let timeout = ready_timeout();
+    let deadline = Instant::now() + timeout;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("backend never announced readiness within 60s".into());
+            return Err(timeout_error(timeout));
         }
         match line_rx.recv_timeout(remaining) {
             Ok(line) => {
@@ -88,7 +114,7 @@ pub fn spawn_backend(fabric_bin: &str) -> Result<(String, BackendGuard), String>
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("backend never announced readiness within 60s".into());
+                return Err(timeout_error(timeout));
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 let _ = child.kill();
@@ -137,5 +163,25 @@ mod tests {
         assert_eq!(a.len(), 64);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn ready_timeout_matches_desktop_cold_start_contract() {
+        assert_eq!(resolve_ready_timeout(None), Duration::from_secs(90));
+        assert_eq!(
+            resolve_ready_timeout(Some("120000")),
+            Duration::from_secs(120)
+        );
+        assert_eq!(resolve_ready_timeout(Some("1000")), Duration::from_secs(45));
+        assert_eq!(
+            resolve_ready_timeout(Some("60000.7")),
+            Duration::from_millis(60_001)
+        );
+        for invalid in ["", "abc", "0", "-5", "NaN"] {
+            assert_eq!(
+                resolve_ready_timeout(Some(invalid)),
+                Duration::from_secs(90)
+            );
+        }
     }
 }

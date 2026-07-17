@@ -30,6 +30,7 @@ true multi-frame strips without procedural puppetry.
 
 from __future__ import annotations
 
+import inspect
 import math
 from collections import deque
 from pathlib import Path
@@ -179,15 +180,41 @@ def _question_hook(img: Image.Image, x: float, y: float, *, wob: float = 0.0) ->
     put(img, hx, hy + 12, V[2])
 
 
-def _as_path_list(value) -> list[Path]:
+def _asset_root(base_dir, caller_file) -> Path:
+    """Resolve the asset root, defaulting to the calling module's directory."""
+    caller_root = Path(caller_file).resolve().parent if caller_file else Path.cwd()
+    if base_dir is None:
+        return caller_root
+    root = Path(base_dir).expanduser()
+    if not root.is_absolute():
+        root = caller_root / root
+    return root.resolve()
+
+
+def _asset_path(value, base_dir: Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = base_dir / path
+    return path.resolve()
+
+
+def _as_path_list(value, base_dir: Path) -> list[Path]:
     if value is None:
         return []
     if isinstance(value, (list, tuple)):
-        return [Path(v).resolve() for v in value]
-    return [Path(value).resolve()]
+        return [_asset_path(v, base_dir) for v in value]
+    return [_asset_path(value, base_dir)]
 
 
-def _load_pose_bank(image, poses, *, bg_threshold: int, max_w: int, max_h: int) -> dict[str, list[Image.Image]]:
+def _load_pose_bank(
+    image,
+    poses,
+    *,
+    base_dir: Path,
+    bg_threshold: int,
+    max_w: int,
+    max_h: int,
+) -> dict[str, list[Image.Image]]:
     """Prepare default + per-state masters."""
     bank: dict[str, list[Image.Image]] = {}
     cache: dict[Path, Image.Image] = {}
@@ -198,9 +225,9 @@ def _load_pose_bank(image, poses, *, bg_threshold: int, max_w: int, max_h: int) 
         return cache[path]
 
     if image is not None:
-        bank["default"] = [load_one(Path(image).resolve())]
+        bank["default"] = [load_one(_asset_path(image, base_dir))]
     for key, val in dict(poses or {}).items():
-        frames = [load_one(p) for p in _as_path_list(val)]
+        frames = [load_one(p) for p in _as_path_list(val, base_dir)]
         if frames:
             bank[key] = frames
     if "default" not in bank:
@@ -233,16 +260,29 @@ def _pick(bank: dict[str, list[Image.Image]], *keys: str, i: int = 0) -> Image.I
 
 
 def bitmap_avatar(*, name: str, slug: str, description: str, image=None,
-                  poses: dict | None = None,
+                  poses: dict | None = None, base_dir=None,
                   bg_threshold: int = 40, max_w: int = 88, max_h: int = 94,
                   hero: bool = False):
     """Build a harness-compatible avatar from one master or a pose set.
 
-    ``poses`` maps activity state → path or list[path]. When a state has real
-    art, puppet thrash is suppressed (subtle breath/hop only). Missing states
-    fall back to ``image`` / ``idle`` / first pose.
+    ``poses`` maps activity state → path or list[path]. Relative paths resolve
+    from the calling module, so custom studios can keep assets beside their
+    ``avatar_*.py`` file. Pass ``base_dir`` to override that root explicitly.
+    When a state has real art, puppet thrash is suppressed (subtle breath/hop
+    only). Missing states fall back to ``image`` / ``idle`` / first pose.
     """
-    bank = _load_pose_bank(image, poses, bg_threshold=bg_threshold, max_w=max_w, max_h=max_h)
+    frame = inspect.currentframe()
+    caller_file = frame.f_back.f_globals.get("__file__") if frame and frame.f_back else None
+    del frame
+    root = _asset_root(base_dir, caller_file)
+    bank = _load_pose_bank(
+        image,
+        poses,
+        base_dir=root,
+        bg_threshold=bg_threshold,
+        max_w=max_w,
+        max_h=max_h,
+    )
     multi = any(k not in ("default",) for k in bank) and len([k for k in bank if k != "default"]) >= 1
     # Prefer multi-pose path whenever caller passed poses=.
     multi = bool(poses)

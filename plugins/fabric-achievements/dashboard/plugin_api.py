@@ -2167,6 +2167,7 @@ def start_local_relay(
     note: Optional[str] = None
     action_error: Optional[str] = None
     do_healthcheck = False
+    started_identity: Optional[Tuple[int, int]] = None
 
     with _RELAY_LOCK:
         acquired, process_lock = _acquire_relay_process_lock()
@@ -2248,23 +2249,39 @@ def start_local_relay(
                                 note = f"Started the relay but could not record it ({exc}); {suffix}."
                                 action_error = note
                             else:
+                                started_identity = (pid, start_time)
                                 do_healthcheck = True
             finally:
                 _release_relay_process_lock(process_lock)
 
     if do_healthcheck and not _wait_relay_healthy(host, port, transport):
-        state = load_relay_state()
-        raw_identity = _relay_process_identity(state.get("pid"), state.get("start_time"))
-        owns_record = state.get("pid") == pid and state.get("start_time") == start_time
-        if owns_record and raw_identity == "gone":
-            clear_relay_state()
-            note = "The relay process exited right after starting — see the relay log."
-            action_error = note
-        elif _relay_state_identity(state) in {"same", "starting"}:
-            note = "Relay started but isn't answering yet — check the relay log if it doesn't come up."
-        else:
-            note = "The relay process could not be verified after starting — see the relay log."
-            action_error = note
+        # Re-enter the cross-process critical section before clearing a dead
+        # child's record. A concurrent Stop + Start may otherwise replace the
+        # state between our identity check and unlink, orphaning the new child.
+        with _RELAY_LOCK:
+            acquired, process_lock = _acquire_relay_process_lock()
+            if not acquired:
+                note = "Another dashboard process is updating the relay; check status again."
+                action_error = note
+            else:
+                try:
+                    state = load_relay_state()
+                    raw_identity = _relay_process_identity(state.get("pid"), state.get("start_time"))
+                    owns_record = (
+                        started_identity is not None
+                        and (state.get("pid"), state.get("start_time")) == started_identity
+                    )
+                    if owns_record and raw_identity == "gone":
+                        clear_relay_state()
+                        note = "The relay process exited right after starting — see the relay log."
+                        action_error = note
+                    elif _relay_state_identity(state) in {"same", "starting"}:
+                        note = "Relay started but isn't answering yet — check the relay log if it doesn't come up."
+                    else:
+                        note = "The relay process could not be verified after starting — see the relay log."
+                        action_error = note
+                finally:
+                    _release_relay_process_lock(process_lock)
     return host_status(port, transport=transport, extra_note=note, action_error=action_error)
 
 

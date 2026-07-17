@@ -18099,20 +18099,18 @@ def _normalize_terminal_prefs(raw: Any) -> Dict[str, Any]:
     font = prefs.get("font")
     if font not in _TERMINAL_FONT_CHOICES:
         font = _TERMINAL_FONT_DEFAULT_ID
-    size: Any = prefs.get("size", _TERMINAL_SIZE_DEFAULT)
-    if isinstance(size, str) and size != _TERMINAL_SIZE_DEFAULT:
+    # Single coercion path (mirrors normalizeTerminalFontSize in
+    # terminal-schemes.ts): anything that doesn't round to an in-range int
+    # — including "auto", bools, and garbage — falls back to the sentinel.
+    raw_size = prefs.get("size", _TERMINAL_SIZE_DEFAULT)
+    size: Any = _TERMINAL_SIZE_DEFAULT
+    if not isinstance(raw_size, bool):
         try:
-            size = int(size, 10)
-        except ValueError:
-            size = _TERMINAL_SIZE_DEFAULT
-    if isinstance(size, bool):
-        size = _TERMINAL_SIZE_DEFAULT
-    elif isinstance(size, (int, float)):
-        size = int(round(size))
-        if not (_TERMINAL_SIZE_MIN <= size <= _TERMINAL_SIZE_MAX):
-            size = _TERMINAL_SIZE_DEFAULT
-    elif size != _TERMINAL_SIZE_DEFAULT:
-        size = _TERMINAL_SIZE_DEFAULT
+            rounded = int(round(float(raw_size)))
+        except (TypeError, ValueError):
+            rounded = None
+        if rounded is not None and _TERMINAL_SIZE_MIN <= rounded <= _TERMINAL_SIZE_MAX:
+            size = rounded
     return {"scheme": scheme, "font": font, "size": size}
 
 

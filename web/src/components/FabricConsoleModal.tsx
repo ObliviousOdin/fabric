@@ -17,11 +17,18 @@ import {
   DEFAULT_TERMINAL_FOREGROUND,
 } from "@/lib/terminal-theme";
 import {
+  getTerminalFontChoice,
   resolveTerminalTheme,
   terminalFontFamily,
 } from "@/lib/terminal-schemes";
 import { cn, themedBody } from "@/lib/utils";
 import { useTheme } from "@/themes";
+
+/** Fixed px size the console uses for the "auto" size pref — unlike
+ *  ChatPage's width-tier responsive sizing, the modal is a fixed-width
+ *  REPL. One constant so the mount path and the live-update path can't
+ *  disagree. */
+const CONSOLE_AUTO_FONT_SIZE = 13;
 
 type ConsoleFrame =
   | {
@@ -347,7 +354,7 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
       allowProposedApi: true,
       cursorBlink: true,
       fontFamily: terminalFontFamily(prefs0.font),
-      fontSize: prefs0.size === "auto" ? 13 : prefs0.size,
+      fontSize: prefs0.size === "auto" ? CONSOLE_AUTO_FONT_SIZE : prefs0.size,
       lineHeight: 1.25,
       letterSpacing: 0,
       macOptionIsMeta: true,
@@ -461,6 +468,8 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
     };
   }, [handleFrame, handleInputData, open, profile]);
 
+  // Live recolor on theme/scheme change — scoped to the color inputs so a
+  // font-only pref change doesn't re-derive and repaint the palette.
   useEffect(() => {
     if (!open) return;
     const term = termRef.current;
@@ -470,22 +479,42 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
       theme.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND,
       theme.terminalForeground ?? DEFAULT_TERMINAL_FOREGROUND,
     );
+  }, [open, theme, terminalPrefs.scheme]);
+
+  // Live font family/size updates.
+  useEffect(() => {
+    if (!open) return;
+    const term = termRef.current;
+    if (!term) return;
     const family = terminalFontFamily(terminalPrefs.font);
-    const size = terminalPrefs.size === "auto" ? 13 : terminalPrefs.size;
-    const fontChanged =
-      term.options.fontFamily !== family || term.options.fontSize !== size;
-    if (fontChanged) {
-      term.options.fontFamily = family;
-      term.options.fontSize = size;
-      // Cell metrics changed while the host box didn't — the mount effect's
-      // ResizeObserver won't fire, so refit here.
+    const size =
+      terminalPrefs.size === "auto" ? CONSOLE_AUTO_FONT_SIZE : terminalPrefs.size;
+    const refit = () => {
       try {
         fitAddonRef.current?.fit();
       } catch {
         /* fit can fail while the modal is closing */
       }
+    };
+    if (term.options.fontFamily !== family || term.options.fontSize !== size) {
+      term.options.fontFamily = family;
+      term.options.fontSize = size;
+      // Cell metrics changed while the host box didn't — the mount effect's
+      // ResizeObserver won't fire, so refit here.
+      refit();
     }
-  }, [open, theme, terminalPrefs]);
+    // First-time selection of an uncached webfont: the fit above measured
+    // the fallback face (the provider injects the stylesheet async). Refit
+    // when the real glyphs arrive. `load()` covers an already-registered
+    // face; `loadingdone` covers the stylesheet finishing later.
+    const choice = getTerminalFontChoice(terminalPrefs.font);
+    if (!choice || typeof document === "undefined" || !document.fonts) {
+      return;
+    }
+    document.fonts.load(`16px ${choice.family}`).then(refit).catch(() => {});
+    document.fonts.addEventListener("loadingdone", refit);
+    return () => document.fonts.removeEventListener("loadingdone", refit);
+  }, [open, terminalPrefs.font, terminalPrefs.size]);
 
   if (!open) return null;
 

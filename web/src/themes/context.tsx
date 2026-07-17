@@ -173,11 +173,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
 
   /** Mirror for the setters (stable callbacks that merge patches without
-   *  re-subscribing) and the mount adoption effect. */
+   *  re-subscribing) and the mount adoption effect. Kept in sync
+   *  imperatively by the only two writers (updateTerminalPrefs and the
+   *  adoption effect) — no mirror effect needed. */
   const terminalPrefsRef = useRef(terminalPrefs);
-  useEffect(() => {
-    terminalPrefsRef.current = terminalPrefs;
-  }, [terminalPrefs]);
 
   /** Flipped when the user touches a terminal pref this session, so a slow
    *  server response can't clobber their in-flight choice (same guard as

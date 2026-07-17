@@ -21,7 +21,11 @@
  * `_TERMINAL_FONT_CHOICES`) — the ids must match exactly.
  */
 
-import { buildTerminalTheme, type TerminalTheme } from "./terminal-theme";
+import {
+  buildTerminalTheme,
+  cursorAndSelectionSlots,
+  type TerminalTheme,
+} from "./terminal-theme";
 import { getFontChoice } from "@/themes/fonts";
 
 /** Sentinel id meaning "no override — derive from the active theme". */
@@ -55,23 +59,20 @@ export const TERMINAL_FONT_SIZE_CHOICES: readonly TerminalFontSize[] = [
 const MIN_TERMINAL_FONT_SIZE = 8;
 const MAX_TERMINAL_FONT_SIZE = 32;
 
-/** Coerce a persisted value (server/localStorage) to a valid size pref. */
+/** Coerce a persisted value (server/localStorage) to a valid size pref.
+ *  ("auto" parses to NaN and falls through to the sentinel.) */
 export function normalizeTerminalFontSize(
   value: unknown,
 ): TerminalFontSize {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const n = Math.round(value);
-    if (n >= MIN_TERMINAL_FONT_SIZE && n <= MAX_TERMINAL_FONT_SIZE) return n;
-  }
-  if (typeof value === "string" && value !== "auto") {
-    const n = Number.parseInt(value, 10);
-    if (
-      Number.isFinite(n) &&
-      n >= MIN_TERMINAL_FONT_SIZE &&
-      n <= MAX_TERMINAL_FONT_SIZE
-    ) {
-      return n;
-    }
+  const n = Math.round(
+    typeof value === "string" ? Number.parseInt(value, 10) : Number(value),
+  );
+  if (
+    Number.isFinite(n) &&
+    n >= MIN_TERMINAL_FONT_SIZE &&
+    n <= MAX_TERMINAL_FONT_SIZE
+  ) {
+    return n;
   }
   return "auto";
 }
@@ -132,8 +133,9 @@ export interface TerminalSchemeChoice {
   theme: TerminalTheme;
 }
 
-/** Fill the cursor/selection slots the same way the derived builder does,
- *  so catalog entries only have to state bg/fg + the 16 ANSI colors. */
+/** Fill the cursor/selection slots via the shared helper the derived
+ *  builder uses, so catalog entries only have to state bg/fg + the 16
+ *  ANSI colors. */
 function defineScheme(
   id: string,
   label: string,
@@ -147,10 +149,7 @@ function defineScheme(
     label,
     theme: {
       ...colors,
-      cursor: colors.foreground,
-      cursorAccent: colors.background,
-      // Foreground at ~27% alpha — matches buildTerminalTheme.
-      selectionBackground: `${colors.foreground}44`,
+      ...cursorAndSelectionSlots(colors.background, colors.foreground),
     },
   };
 }
@@ -158,6 +157,12 @@ function defineScheme(
 /**
  * The curated set — canonical palettes for widely-loved terminal schemes.
  * Order is the display order in the picker.
+ *
+ * Palettes are used VERBATIM — deliberately not run through the WCAG-AA
+ * lightness walk that `buildTerminalTheme` applies to derived palettes.
+ * Users picking Dracula/Solarized/etc. expect the canonical colors (dim
+ * slots and all, e.g. Solarized's muted brights), exactly as VS Code and
+ * iTerm ship them; "Theme default" remains the AA-guaranteed option.
  */
 export const TERMINAL_SCHEMES: readonly TerminalSchemeChoice[] = [
   defineScheme("dracula", "Dracula", {

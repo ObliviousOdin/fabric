@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { Palette, Check, Type, SunMoon, SquareTerminal } from "lucide-react";
 import { Button } from "@nous-research/ui/ui/components/button";
@@ -21,6 +28,7 @@ import {
   TERMINAL_FONT_SIZE_CHOICES,
   TERMINAL_SCHEMES,
   THEME_DEFAULT_SCHEME_ID,
+  type TerminalFontSize,
   type TerminalSchemeChoice,
 } from "@/lib/terminal-schemes";
 import { useI18n } from "@/i18n";
@@ -431,6 +439,18 @@ function TerminalSection() {
   const sizeValue = String(terminalPrefs.size);
   const fontTitle = t.theme?.terminalFontTitle ?? "Terminal font";
   const sizeTitle = t.theme?.terminalFontSizeTitle ?? "Terminal font size";
+  // Persistence accepts any 8–32 px size (hand-edited config, older
+  // clients); surface an off-catalog active size as its own segment so the
+  // control always reflects reality instead of showing nothing selected.
+  const sizeChoices: TerminalFontSize[] = [...TERMINAL_FONT_SIZE_CHOICES];
+  const activeSize = terminalPrefs.size;
+  if (activeSize !== "auto" && !sizeChoices.includes(activeSize)) {
+    const insertAt =
+      1 +
+      sizeChoices.filter((s): s is number => s !== "auto" && s < activeSize)
+        .length;
+    sizeChoices.splice(insertAt, 0, activeSize);
+  }
 
   return (
     <>
@@ -450,57 +470,31 @@ function TerminalSection() {
 
       <div aria-labelledby={headerId} role="listbox">
         {/* Theme-default (clears the scheme override). */}
-        <ListItem
+        <TerminalPickerRow
           active={schemeDefault}
-          aria-selected={schemeDefault}
-          className="gap-3"
           onClick={() => setTerminalScheme(THEME_DEFAULT_SCHEME_ID)}
-          role="option"
         >
-          <span aria-hidden className="h-4 w-9 shrink-0" />
-          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <Typography className="truncate text-xs tracking-normal">
-              {t.theme?.terminalSchemeDefault ?? "Theme default"}
-            </Typography>
-            <Typography className="truncate text-xs tracking-normal text-text-tertiary">
-              {t.theme?.terminalSchemeDefaultHint ??
-                "Derive colors from the active theme"}
-            </Typography>
-          </div>
-          <Check
-            className={cn(
-              "h-3 w-3 shrink-0 text-midground",
-              schemeDefault ? "opacity-100" : "opacity-0",
-            )}
-          />
-        </ListItem>
+          <Typography className="truncate text-xs tracking-normal">
+            {t.theme?.terminalSchemeDefault ?? "Theme default"}
+          </Typography>
+          <Typography className="truncate text-xs tracking-normal text-text-tertiary">
+            {t.theme?.terminalSchemeDefaultHint ??
+              "Derive colors from the active theme"}
+          </Typography>
+        </TerminalPickerRow>
 
-        {TERMINAL_SCHEMES.map((scheme) => {
-          const isActive = terminalPrefs.scheme === scheme.id;
-          return (
-            <ListItem
-              active={isActive}
-              aria-selected={isActive}
-              className="gap-3"
-              key={scheme.id}
-              onClick={() => setTerminalScheme(scheme.id)}
-              role="option"
-            >
-              <TerminalSchemeSwatch scheme={scheme} />
-              <div className="flex min-w-0 flex-1 flex-col">
-                <Typography className="truncate text-xs tracking-normal">
-                  {scheme.label}
-                </Typography>
-              </div>
-              <Check
-                className={cn(
-                  "h-3 w-3 shrink-0 text-midground",
-                  isActive ? "opacity-100" : "opacity-0",
-                )}
-              />
-            </ListItem>
-          );
-        })}
+        {TERMINAL_SCHEMES.map((scheme) => (
+          <TerminalPickerRow
+            active={terminalPrefs.scheme === scheme.id}
+            key={scheme.id}
+            leading={<TerminalSchemeSwatch scheme={scheme} />}
+            onClick={() => setTerminalScheme(scheme.id)}
+          >
+            <Typography className="truncate text-xs tracking-normal">
+              {scheme.label}
+            </Typography>
+          </TerminalPickerRow>
+        ))}
       </div>
 
       <div className="px-3 pb-0.5 pt-1.5" id={fontLabelId}>
@@ -520,40 +514,25 @@ function TerminalSection() {
             label: f.label,
             family: f.family as string | undefined,
           })),
-        ].map((font) => {
-          const isActive = terminalPrefs.font === font.id;
-          return (
-            <ListItem
-              active={isActive}
-              aria-selected={isActive}
-              className="gap-3"
-              key={font.id}
-              onClick={() => setTerminalFont(font.id)}
-              role="option"
+        ].map((font) => (
+          <TerminalPickerRow
+            active={terminalPrefs.font === font.id}
+            key={font.id}
+            onClick={() => setTerminalFont(font.id)}
+          >
+            {/* Preview each font in its own face (default keeps the UI font). */}
+            <span
+              className="truncate text-xs"
+              style={
+                font.family
+                  ? { fontFamily: `${font.family}, monospace` }
+                  : undefined
+              }
             >
-              <span aria-hidden className="h-4 w-9 shrink-0" />
-              <div className="flex min-w-0 flex-1 flex-col">
-                {/* Preview each font in its own face (default keeps the UI font). */}
-                <span
-                  className="truncate text-xs"
-                  style={
-                    font.family
-                      ? { fontFamily: `${font.family}, monospace` }
-                      : undefined
-                  }
-                >
-                  {font.label}
-                </span>
-              </div>
-              <Check
-                className={cn(
-                  "h-3 w-3 shrink-0 text-midground",
-                  isActive ? "opacity-100" : "opacity-0",
-                )}
-              />
-            </ListItem>
-          );
-        })}
+              {font.label}
+            </span>
+          </TerminalPickerRow>
+        ))}
       </div>
 
       <div className="flex flex-col gap-1.5 px-3 pb-2 pt-1.5">
@@ -571,7 +550,7 @@ function TerminalSection() {
                 value === "auto" ? "auto" : Number.parseInt(value, 10),
               )
             }
-            options={TERMINAL_FONT_SIZE_CHOICES.map((size) => ({
+            options={sizeChoices.map((size) => ({
               label:
                 size === "auto"
                   ? (t.theme?.terminalFontSizeAuto ?? "Auto")
@@ -584,6 +563,40 @@ function TerminalSection() {
         </div>
       </div>
     </>
+  );
+}
+
+/** Shared option row for the terminal pickers: leading swatch (or spacer),
+ *  label content, and the selected-state check — one place for the
+ *  aria-selected / Check-opacity contract instead of three copies. */
+function TerminalPickerRow({
+  active,
+  children,
+  leading,
+  onClick,
+}: {
+  active: boolean;
+  children: ReactNode;
+  leading?: ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <ListItem
+      active={active}
+      aria-selected={active}
+      className="gap-3"
+      onClick={onClick}
+      role="option"
+    >
+      {leading ?? <span aria-hidden className="h-4 w-9 shrink-0" />}
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">{children}</div>
+      <Check
+        className={cn(
+          "h-3 w-3 shrink-0 text-midground",
+          active ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </ListItem>
   );
 }
 

@@ -57,6 +57,7 @@ import {
   DEFAULT_TERMINAL_FOREGROUND,
 } from "@/lib/terminal-theme";
 import {
+  getTerminalFontChoice,
   resolveTerminalTheme,
   terminalFontFamily,
 } from "@/lib/terminal-schemes";
@@ -283,20 +284,14 @@ export default function ChatPage({
     () => resolveTerminalTheme(terminalPrefs.scheme, terminalBg, terminalFg),
     [terminalPrefs.scheme, terminalBg, terminalFg],
   );
-  // Font prefs apply live (no PTY palette involved, unlike colors). The refs
-  // let the terminal-creation effect and syncTerminalMetrics — created once
+  // Font prefs apply live (no PTY palette involved, unlike colors). The ref
+  // lets the terminal-creation effect and syncTerminalMetrics — created once
   // per PTY session — read the current prefs without re-running on change;
   // the live-update effect below pushes changes into the running terminal.
-  const terminalFontSizePref = terminalPrefs.size;
-  const terminalFontSizePrefRef = useRef(terminalFontSizePref);
+  const terminalPrefsRef = useRef(terminalPrefs);
   useEffect(() => {
-    terminalFontSizePrefRef.current = terminalFontSizePref;
-  }, [terminalFontSizePref]);
-  const terminalFontPref = terminalPrefs.font;
-  const terminalFontPrefRef = useRef(terminalFontPref);
-  useEffect(() => {
-    terminalFontPrefRef.current = terminalFontPref;
-  }, [terminalFontPref]);
+    terminalPrefsRef.current = terminalPrefs;
+  }, [terminalPrefs]);
 
   // The dashboard keeps ChatPage mounted persistently so the PTY survives tab
   // switches. That is great for ordinary /chat navigation, but it means query
@@ -498,13 +493,13 @@ export default function ChatPage({
     }
 
     const tierW0 = terminalTierWidthPx(host);
-    const sizePref0 = terminalFontSizePrefRef.current;
+    const prefs0 = terminalPrefsRef.current;
     const term = new Terminal({
       allowProposedApi: true,
       cursorBlink: true,
-      fontFamily: terminalFontFamily(terminalFontPrefRef.current),
+      fontFamily: terminalFontFamily(prefs0.font),
       fontSize:
-        sizePref0 === "auto" ? terminalFontSizeForWidth(tierW0) : sizePref0,
+        prefs0.size === "auto" ? terminalFontSizeForWidth(tierW0) : prefs0.size,
       lineHeight: terminalLineHeightForWidth(tierW0),
       letterSpacing: 0,
       fontWeight: "400",
@@ -704,7 +699,7 @@ export default function ChatPage({
         return;
       }
       const w = terminalTierWidthPx(host);
-      const sizePref = terminalFontSizePrefRef.current;
+      const sizePref = terminalPrefsRef.current.size;
       const nextSize =
         sizePref === "auto" ? terminalFontSizeForWidth(w) : sizePref;
       const nextLh = terminalLineHeightForWidth(w);
@@ -1049,12 +1044,25 @@ export default function ChatPage({
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    const family = terminalFontFamily(terminalFontPref);
+    const family = terminalFontFamily(terminalPrefs.font);
     if (term.options.fontFamily !== family) {
       term.options.fontFamily = family;
     }
     syncMetricsRef.current?.();
-  }, [terminalFontPref, terminalFontSizePref]);
+    // First-time selection of an uncached webfont: the fit above measured
+    // the fallback face (the provider injects the stylesheet async). Refit
+    // when the real glyphs arrive so cell metrics match what's rendered.
+    // `load()` covers a face that's already registered; the `loadingdone`
+    // listener covers the stylesheet finishing after this effect ran.
+    const choice = getTerminalFontChoice(terminalPrefs.font);
+    if (!choice || typeof document === "undefined" || !document.fonts) {
+      return;
+    }
+    const refit = () => syncMetricsRef.current?.();
+    document.fonts.load(`16px ${choice.family}`).then(refit).catch(() => {});
+    document.fonts.addEventListener("loadingdone", refit);
+    return () => document.fonts.removeEventListener("loadingdone", refit);
+  }, [terminalPrefs.font, terminalPrefs.size]);
 
   // When the user returns to the chat tab (isActive: false → true), the
   // terminal host just transitioned from display:none to display:flex.

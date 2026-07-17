@@ -74,6 +74,21 @@ export const AA_TERMINAL_SLOTS = [
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
+/** Cursor + selection slots shared by this derived builder and the pinned
+ *  catalog schemes (terminal-schemes.ts): block cursor in the foreground,
+ *  cursor text in the background, selection = foreground at ~27% alpha —
+ *  visible on any canvas without occluding the selected glyphs. */
+export function cursorAndSelectionSlots(
+  background: string,
+  foreground: string,
+): Pick<TerminalTheme, "cursor" | "cursorAccent" | "selectionBackground"> {
+  return {
+    cursor: foreground,
+    cursorAccent: background,
+    selectionBackground: `${foreground}44`,
+  };
+}
+
 function normalizeHex(value: string | undefined, fallback: string): string {
   if (!value) return fallback;
   const v = value.trim();
@@ -141,11 +156,7 @@ export function buildTerminalTheme(
   const theme: TerminalTheme = {
     background: bg,
     foreground: fg,
-    cursor: fg,
-    cursorAccent: bg,
-    // Foreground at ~27% alpha: visible on any canvas without occluding
-    // the selected glyphs.
-    selectionBackground: `${fg}44`,
+    ...cursorAndSelectionSlots(bg, fg),
     // `black` stays anchored to its semantic end of the ramp (see
     // AA_TERMINAL_SLOTS): true black on light canvases, a near-canvas
     // ink on dark ones so inverse-video blocks keep their shape.

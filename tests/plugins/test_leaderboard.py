@@ -238,6 +238,28 @@ def test_relay_leave_rolls_back_after_persistence_failure(tmp_path, monkeypatch)
     assert owner["team_id"] not in reloaded._teams
 
 
+def test_relay_keeps_committed_state_when_directory_fsync_fails(tmp_path, monkeypatch):
+    store_mod = _load(STORE_PATH, f"lb_store_dir_fsync_{id(tmp_path)}")
+    roster_path = tmp_path / "state" / "roster.json"
+    relay = store_mod.LeaderboardStore(roster_path)
+    original_fsync = store_mod.os.fsync
+    calls = 0
+
+    def fail_directory_fsync(fd):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("directory fsync unsupported")
+        return original_fsync(fd)
+
+    monkeypatch.setattr(store_mod.os, "fsync", fail_directory_fsync)
+    owner = relay.create_team(name="Crew", display_name="Owner")
+
+    assert calls == 2
+    assert owner["team_id"] in relay._teams
+    assert owner["team_id"] in store_mod.LeaderboardStore(roster_path)._teams
+
+
 @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits only")
 def test_relay_roster_permissions_are_private_and_hardened(tmp_path):
     store_mod = _load(STORE_PATH, f"lb_store_modes_{id(tmp_path)}")
@@ -253,6 +275,31 @@ def test_relay_roster_permissions_are_private_and_hardened(tmp_path):
     store_mod.LeaderboardStore(roster_path)
     assert stat.S_IMODE(roster_path.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(roster_path.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits only")
+def test_relay_roster_file_hardens_when_parent_chmod_fails(tmp_path, monkeypatch):
+    store_mod = _load(STORE_PATH, f"lb_store_parent_modes_{id(tmp_path)}")
+    roster_path = tmp_path / "state" / "roster.json"
+    relay = store_mod.LeaderboardStore(roster_path)
+    owner = relay.create_team(name="Crew", display_name="Owner")
+    roster_path.chmod(0o644)
+    original_chmod = Path.chmod
+
+    def selective_chmod(path, mode):
+        if path == roster_path.parent:
+            raise PermissionError("parent owned elsewhere")
+        return original_chmod(path, mode)
+
+    monkeypatch.setattr(Path, "chmod", selective_chmod)
+    hardened = store_mod.LeaderboardStore(roster_path)
+
+    assert stat.S_IMODE(roster_path.stat().st_mode) == 0o600
+    assert hardened.unpublish(
+        team_id=owner["team_id"],
+        member_id=owner["member_id"],
+        member_token=owner["member_token"],
+    ) == {"ok": True}
 
 
 # ---- backend helpers e2e -------------------------------------------------
@@ -542,10 +589,19 @@ def test_mutations_require_explicit_relay_ack(api, operation):
         calls[operation]()
 
 
-def test_rotate_requires_new_invite_secret(api):
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"ok": True},
+        {"ok": True, "join_secret": ""},
+        {"ok": True, "join_secret": "   "},
+        {"ok": True, "join_secret": " padded "},
+    ],
+)
+def test_rotate_requires_new_invite_secret(api, response):
     client = api.RelayClient(
         "http://relay.test",
-        transport=lambda *_args: (200, {"ok": True}),
+        transport=lambda *_args: (200, response),
     )
     with pytest.raises(api.RelayClientError, match="new invite secret"):
         client.rotate("tm", "mb", "token")
@@ -683,6 +739,24 @@ def test_load_hardens_unchanged_team_config_permissions(api):
 
     assert loaded["membership"]["member_token"] == "token"
     assert stat.S_IMODE(cfg_path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits only")
+def test_team_config_file_hardens_when_parent_chmod_fails(api, monkeypatch):
+    cfg_path = api.team_config_path()
+    api.save_team_config(api._default_team_config())
+    cfg_path.chmod(0o644)
+    original_chmod = Path.chmod
+
+    def selective_chmod(path, mode):
+        if path == cfg_path.parent:
+            raise PermissionError("parent owned elsewhere")
+        return original_chmod(path, mode)
+
+    monkeypatch.setattr(Path, "chmod", selective_chmod)
+    api.load_team_config()
+
     assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
 
 

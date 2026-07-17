@@ -1244,21 +1244,21 @@
       };
     }, []);
 
-    // Run a POST action, invalidate older reads, then refresh the board. Failed
-    // state-changing actions still apply their returned local state so the UI
-    // cannot claim a failed retraction succeeded.
+    // Run a POST action, invalidate older reads, apply its authoritative local
+    // state, then refresh the roster. The mutation remains visible even when
+    // that follow-up read fails.
     function runAction(path, body) {
       reloadGeneration.current += 1;
       setBusy(true); setActionError(null);
       return apiPost(path, body)
         .then(function (res) {
           if (!mounted.current) return res;
+          if (res && Object.prototype.hasOwnProperty.call(res, "membership")) {
+            setData(function (current) { return Object.assign({}, current || {}, res); });
+            if (res.membership && res.membership.display_name) setNameDraft(res.membership.display_name);
+          }
           if (res && res.ok === false) {
             setActionError(res.error || tx(t, "team.generic_error", "Something went wrong."));
-            if (Object.prototype.hasOwnProperty.call(res, "membership")) {
-              setData(function (current) { return Object.assign({}, current || {}, res); });
-              if (res.membership && res.membership.display_name) setNameDraft(res.membership.display_name);
-            }
             return res;
           }
           // The action already applied any profile change. Read the resulting

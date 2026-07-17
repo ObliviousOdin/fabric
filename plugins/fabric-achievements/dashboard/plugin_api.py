@@ -1194,10 +1194,13 @@ def _pending_leave_record(membership: Dict[str, Any]) -> Optional[Dict[str, str]
 def _harden_team_config_permissions(path: Path) -> None:
     """Best-effort permission upgrade for existing credential-bearing state."""
     try:
-        path.parent.chmod(0o700)
         path.chmod(0o600)
     except OSError:
         # POSIX modes are not meaningful on every supported filesystem/OS.
+        pass
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
         pass
 
 
@@ -1472,7 +1475,12 @@ class RelayClient:
     def rotate(self, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
         result = self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/rotate",
                               {"member_id": member_id, "member_token": member_token})
-        if not isinstance(result.get("join_secret"), str) or not result["join_secret"]:
+        join_secret = result.get("join_secret")
+        if (
+            not isinstance(join_secret, str)
+            or not join_secret.strip()
+            or join_secret != join_secret.strip()
+        ):
             raise RelayClientError("Relay confirmed rotation without returning the new invite secret.", status=502)
         return result
 

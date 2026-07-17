@@ -199,8 +199,11 @@ class LeaderboardStore:
             return
         if os.name != "nt":
             try:
-                self._path.parent.chmod(0o700)
                 self._path.chmod(0o600)
+            except OSError:
+                pass
+            try:
+                self._path.parent.chmod(0o700)
             except OSError:
                 pass
         try:
@@ -215,7 +218,10 @@ class LeaderboardStore:
             return
         self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if os.name != "nt":
-            self._path.parent.chmod(0o700)
+            try:
+                self._path.parent.chmod(0o700)
+            except OSError:
+                pass
         payload = {"schema_version": SCHEMA_VERSION, "teams": self._teams}
         tmp: Optional[Path] = None
         try:

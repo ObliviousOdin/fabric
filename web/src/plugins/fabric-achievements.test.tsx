@@ -352,6 +352,65 @@ describe("fabric-achievements leaderboard bundle", () => {
     expect(container.textContent).not.toContain("Old Team");
   });
 
+  it.each([
+    ["unpublish", "Stop sharing", "/team/settings"],
+    ["rotate", "Reset invite", "/team/rotate"],
+    ["leave", "Leave team", "/team/leave"],
+  ])("keeps a successful %s visible when the follow-up roster read fails", async (action, buttonText, endpoint) => {
+    const membership = {
+      team_name: "Fabric Team",
+      display_name: "Owner",
+      role: "owner",
+      member_id: "member-1",
+      invite_code: "fbl1_old",
+    };
+    const response = action === "leave"
+      ? { ok: true, membership: null, publish_opt_in: false, leaderboard: [] }
+      : action === "rotate"
+        ? { ok: true, membership: { ...membership, invite_code: "fbl1_new" }, publish_opt_in: true }
+        : { ok: true, membership, publish_opt_in: false, pending_unpublish: false, last_published_at: null };
+
+    fetchJSON.mockImplementation((url: string) => {
+      if (url.endsWith("/achievements")) return new Promise(() => {});
+      if (url.endsWith("/team/leaderboard")) {
+        return Promise.resolve({
+          ok: true,
+          membership,
+          publish_opt_in: true,
+          last_published_at: 100,
+          leaderboard: [],
+        });
+      }
+      if (url.endsWith(endpoint)) return Promise.resolve(response);
+      if (url.includes("/team/leaderboard?refresh=false")) {
+        return Promise.reject(new Error("roster read failed"));
+      }
+      if (url.endsWith("/team/host/status")) {
+        return Promise.resolve({ ok: true, tailscale: {}, local_relay: {}, managed_relay: {} });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    await renderLeaderboard();
+    const actionButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === buttonText,
+    );
+    expect(actionButton).toBeDefined();
+    await act(async () => actionButton?.click());
+    await flushEffects();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("roster read failed");
+    if (action === "leave") {
+      expect(container.textContent).toContain("Join a leaderboard");
+      expect(container.textContent).not.toContain("Fabric Team");
+    } else if (action === "rotate") {
+      expect(container.querySelector<HTMLInputElement>(".ha-invite-row input")?.value).toBe("fbl1_new");
+    } else {
+      expect(container.textContent).toContain("Viewing only");
+      expect(container.textContent).not.toContain("Your score is being shared");
+    }
+  });
+
   it("shows a failed retraction truthfully and announces the error", async () => {
     const membership = {
       team_name: "Fabric Team",

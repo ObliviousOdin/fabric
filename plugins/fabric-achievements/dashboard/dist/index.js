@@ -820,11 +820,15 @@
       });
     }
     hooks.useEffect(function () {
+      generation.current += 1;
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      resetTimer.current = null;
+      setCopyState("idle");
       return function () {
         generation.current += 1;
         if (resetTimer.current) clearTimeout(resetTimer.current);
       };
-    }, []);
+    }, [text]);
     return [copyState, copy];
   }
 
@@ -1287,7 +1291,7 @@
           h("div", { className: "ha-hosting-body" },
             h("div", { className: "ha-hosting-copy" },
               h("strong", null, tx(t, "team.hosting_header", "Self-hosted and account-free")),
-              h("p", null, tx(t, "team.hosting_body", "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) start the small relay here, 3) click Detect below to auto-fill and verify its Tailscale address from this machine, then create a team and share the invite. Teammate access still follows your tailnet ACLs."))
+              h("p", null, tx(t, "team.hosting_body", "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) click Host on this machine to start the small relay here, 3) the dashboard auto-fills a Tailscale address and verifies it from this machine, then create a team and share the invite. Teammate access still follows your tailnet ACLs."))
             ),
             h(CreateTeamCard, { busy: busy, onAction: runAction, t: t })
           )
@@ -1298,7 +1302,7 @@
     // --- In a team: board + controls ---
     const optIn = !!(data && data.publish_opt_in);
     const pendingUnpublish = !!(data && data.pending_unpublish);
-    const sharingError = !!(optIn && data && data.last_error);
+    const sharingError = !!(optIn && data && data.publish_error);
     const isOwner = membership.role === "owner";
     const rows = (data && data.leaderboard) || [];
     const invite = membership.invite_code;
@@ -1363,6 +1367,12 @@
               className: "ha-team-btn", disabled: busy,
               onClick: function () { runAction("/team/settings", { publish_opt_in: false }); },
             }, busy ? tx(t, "team.working", "Working…") : tx(t, "team.retry_retraction", "Retry retraction"))
+          : sharingError
+            ? h(C.Button, {
+                disabled: busy,
+                onClick: function () { runAction("/team/publish", {}); },
+                className: "ha-team-primary",
+              }, busy ? tx(t, "team.working", "Working…") : tx(t, "team.publish_now", "Publish now"))
           : optIn
             ? h("button", {
                 className: "ha-team-btn", disabled: busy,
@@ -1411,7 +1421,7 @@
           h("div", { className: "ha-team-danger-zone" },
             h("div", null,
               h("strong", null, tx(t, "team.leave_title", "Leave this leaderboard")),
-              h("p", null, tx(t, "team.leave_body", "Your shared score will be removed from the relay and this machine will forget the membership."))
+              h("p", null, tx(t, "team.leave_body", "Fabric removes your shared score from the relay and forgets the membership locally. If the relay is unavailable, Fabric leaves locally and retries the remote removal."))
             ),
             h("button", {
               className: "ha-team-btn ha-team-btn-danger", disabled: busy,

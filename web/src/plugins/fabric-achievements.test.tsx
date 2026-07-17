@@ -128,6 +128,9 @@ describe("fabric-achievements leaderboard bundle", () => {
     expect(container.textContent).toContain("Relay hosting on this machine");
     expect(container.textContent).toContain("PID 123");
     expect(container.textContent).toContain("Stop");
+    expect(container.textContent).toContain(
+      "If the relay is unavailable, Fabric leaves locally and retries the remote removal.",
+    );
   });
 
   it("surfaces a failed relay action even when status retrieval succeeded", async () => {
@@ -160,6 +163,9 @@ describe("fabric-achievements leaderboard bundle", () => {
     });
 
     await renderLeaderboard();
+    expect(container.textContent).toContain(
+      "click Host on this machine to start the small relay here",
+    );
     const hostButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Host on this machine",
     );
@@ -389,6 +395,59 @@ describe("fabric-achievements leaderboard bundle", () => {
     expect(container.textContent).not.toContain("Viewing only");
   });
 
+  it("offers a real publish retry without conflating generic relay errors", async () => {
+    const membership = {
+      team_name: "Fabric Team",
+      display_name: "Owner",
+      role: "owner",
+      member_id: "member-1",
+    };
+    let retried = false;
+    fetchJSON.mockImplementation((url: string) => {
+      if (url.endsWith("/achievements")) return new Promise(() => {});
+      if (url.endsWith("/team/leaderboard")) {
+        return Promise.resolve({
+          ok: true,
+          membership,
+          publish_opt_in: true,
+          publish_error: "publish refused",
+          last_error: "roster also unavailable",
+          leaderboard: [],
+        });
+      }
+      if (url.endsWith("/team/publish")) {
+        retried = true;
+        return Promise.resolve({ ok: true, membership, publish_opt_in: true });
+      }
+      if (url.includes("/team/leaderboard?refresh=false")) {
+        return Promise.resolve({
+          ok: true,
+          membership,
+          publish_opt_in: true,
+          publish_error: null,
+          last_error: "roster unavailable",
+          leaderboard: [],
+        });
+      }
+      if (url.endsWith("/team/host/status")) {
+        return Promise.resolve({ ok: true, tailscale: {}, local_relay: {}, managed_relay: {} });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    await renderLeaderboard();
+    expect(container.textContent).toContain("Sharing needs attention");
+    const publish = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Publish now",
+    );
+    expect(publish).toBeDefined();
+    await act(async () => publish?.click());
+    await flushEffects();
+    expect(retried).toBe(true);
+    expect(container.textContent).not.toContain("Sharing needs attention");
+    expect(container.textContent).toContain("Stop sharing");
+  });
+
   it("keeps the latest clipboard result and exposes table semantics", async () => {
     const writes: Array<ReturnType<typeof deferred<void>>> = [];
     Object.defineProperty(navigator, "clipboard", {
@@ -454,6 +513,59 @@ describe("fabric-achievements leaderboard bundle", () => {
     });
     expect(container.textContent).toContain("Copied ✓");
     expect(container.textContent).not.toContain("Copy failed");
+  });
+
+  it("invalidates clipboard feedback when the invite rotates", async () => {
+    const oldWrite = deferred<void>();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn(() => oldWrite.promise) },
+    });
+    const membership = {
+      team_name: "Fabric Team",
+      display_name: "Owner",
+      role: "owner",
+      member_id: "member-1",
+      invite_code: "fbl1_old",
+    };
+    fetchJSON.mockImplementation((url: string) => {
+      if (url.endsWith("/achievements")) return new Promise(() => {});
+      if (url.endsWith("/team/leaderboard")) {
+        return Promise.resolve({ ok: true, membership, publish_opt_in: false, leaderboard: [] });
+      }
+      if (url.endsWith("/team/rotate")) return Promise.resolve({ ok: true });
+      if (url.includes("/team/leaderboard?refresh=false")) {
+        return Promise.resolve({
+          ok: true,
+          membership: { ...membership, invite_code: "fbl1_new" },
+          publish_opt_in: false,
+          leaderboard: [],
+        });
+      }
+      if (url.endsWith("/team/host/status")) {
+        return Promise.resolve({ ok: true, tailscale: {}, local_relay: {}, managed_relay: {} });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    await renderLeaderboard();
+    const copy = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Copy invite",
+    );
+    await act(async () => copy?.click());
+    const rotate = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Reset invite",
+    );
+    expect(rotate).toBeDefined();
+    await act(async () => rotate?.click());
+    await flushEffects();
+    expect(container.querySelector<HTMLInputElement>(".ha-invite-row input")?.value).toBe("fbl1_new");
+    await act(async () => {
+      oldWrite.resolve();
+      await oldWrite.promise;
+    });
+    expect(container.textContent).not.toContain("Copied ✓");
+    expect(container.textContent).toContain("Copy invite");
   });
 
   it("labels relay startup as starting", async () => {

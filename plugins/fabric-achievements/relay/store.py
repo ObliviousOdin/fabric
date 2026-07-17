@@ -345,7 +345,9 @@ class LeaderboardStore:
     def leave(self, *, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
         """Remove a member from a team (authenticated by the member token)."""
         with self._lock:
-            team = self._get_team(team_id)
+            team = self._teams.get(team_id)
+            if not team or member_id not in team["members"]:
+                return {"ok": True}
             self._auth_member(team, member_id, member_token)
             team["members"].pop(member_id, None)
             # Drop the whole team once the last member leaves so the store

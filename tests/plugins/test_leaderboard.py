@@ -11,6 +11,7 @@ import json
 import multiprocessing
 import os
 import socket
+import stat
 import urllib.parse
 from pathlib import Path
 
@@ -340,6 +341,11 @@ def test_failed_unpublish_is_reported_and_retried(api, store):
     assert state["pending_unpublish"] is True
     assert state["error"] == "unpublish refused"
 
+    blocked = api.team_publish(transport=transport)
+    assert blocked["ok"] is False
+    assert blocked["pending_unpublish"] is True
+    assert "Sharing is disabled" in blocked["error"]
+
     # The next board read retries the remote retraction and clears the marker.
     board = api.team_leaderboard(transport=transport, refresh_profile=False)
     assert board["ok"] is True
@@ -362,6 +368,7 @@ def test_create_surfaces_initial_publish_failure(api, store):
     assert state["ok"] is False
     assert state["membership"]["team_name"] == "Crew"
     assert state["publish_opt_in"] is True
+    assert state["publish_error"] == "publish refused"
     assert state["error"] == "publish refused"
 
 
@@ -389,10 +396,35 @@ def test_failed_remote_leave_is_retained_and_retried(api, store):
     assert state["membership"] is None
     assert state["pending_leave_count"] == 1
     assert "Fabric will retry" in state["error"]
+    persisted = json.loads(api.team_config_path().read_text(encoding="utf-8"))
+    assert set(persisted["pending_leaves"][0]) == {
+        "relay_url", "team_id", "member_id", "member_token",
+    }
+    assert stat.S_IMODE(api.team_config_path().stat().st_mode) == 0o600
 
     state = api.team_leaderboard(transport=transport, refresh_profile=False)
     assert state["ok"] is True
     assert state["pending_leave_count"] == 0
+
+
+def test_relay_leave_is_idempotent_after_member_is_absent(store):
+    st, _store_mod = store
+    owner = st.create_team(name="Crew", display_name="Owner")
+    member = st.join_team(
+        team_id=owner["team_id"],
+        join_secret=owner["join_secret"],
+        display_name="Member",
+    )
+    assert st.leave(
+        team_id=member["team_id"],
+        member_id=member["member_id"],
+        member_token=member["member_token"],
+    ) == {"ok": True}
+    assert st.leave(
+        team_id=member["team_id"],
+        member_id=member["member_id"],
+        member_token=member["member_token"],
+    ) == {"ok": True}
 
 
 def test_owner_rotate_updates_local_invite(api, store):
@@ -450,6 +482,48 @@ def test_create_against_non_relay_2xx_raises_clean_error(api):
     assert "unexpected response" in str(exc.value)
 
 
+@pytest.mark.parametrize("operation", ["publish", "unpublish", "leave", "rotate", "kick"])
+def test_mutations_require_explicit_relay_ack(api, operation):
+    client = api.RelayClient("http://relay.test", transport=lambda *_args: (200, {}))
+    calls = {
+        "publish": lambda: client.publish("tm", "mb", "token", {}),
+        "unpublish": lambda: client.unpublish("tm", "mb", "token"),
+        "leave": lambda: client.leave("tm", "mb", "token"),
+        "rotate": lambda: client.rotate("tm", "mb", "token"),
+        "kick": lambda: client.kick("tm", "mb", "token", "target"),
+    }
+    with pytest.raises(api.RelayClientError, match="did not confirm"):
+        calls[operation]()
+
+
+def test_create_and_join_reject_existing_membership_before_remote_call(api, store):
+    st, store_mod = store
+    base_transport = _make_transport(st, store_mod)
+    calls = []
+
+    def counting_transport(method, url, headers, body):
+        calls.append((method, url))
+        return base_transport(method, url, headers, body)
+
+    current = api.team_create(
+        "http://relay.test", "First", "Owner", publish_opt_in=True,
+        transport=counting_transport,
+    )
+    invite = current["membership"]["invite_code"]
+    calls.clear()
+
+    created = api.team_create(
+        "http://relay.test", "Second", "Owner", publish_opt_in=True,
+        transport=counting_transport,
+    )
+    joined = api.team_join(invite, "Owner", transport=counting_transport)
+    assert created["ok"] is False
+    assert joined["ok"] is False
+    assert created["membership"]["team_name"] == "First"
+    assert joined["membership"]["team_name"] == "First"
+    assert calls == []
+
+
 def test_opt_out_retracts_published_row(api, store):
     st, store_mod = store
     transport = _make_transport(st, store_mod)
@@ -474,10 +548,33 @@ def test_save_team_config_is_atomic(api):
                           "last_published_at": None, "last_error": None})
     cfg_path = api.team_config_path()
     assert cfg_path.exists()
-    assert not cfg_path.with_suffix(cfg_path.suffix + ".tmp").exists()
+    assert list(cfg_path.parent.glob(f".{cfg_path.name}.*.tmp")) == []
+    assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
     reloaded = api.load_team_config()
     assert reloaded["membership"]["team_id"] == "tm_x"
     assert reloaded["publish_opt_in"] is True
+
+
+def test_old_failed_opt_out_migrates_to_pending_retraction(api):
+    cfg_path = api.team_config_path()
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(json.dumps({
+        "membership": {
+            "relay_url": "http://relay.test",
+            "team_id": "tm_old",
+            "member_id": "mb_old",
+            "member_token": "token",
+        },
+        "publish_opt_in": False,
+        "last_published_at": 123,
+        "last_error": "relay unavailable",
+    }), encoding="utf-8")
+
+    loaded = api.load_team_config()
+    persisted = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert loaded["pending_unpublish"] is True
+    assert persisted["pending_unpublish"] is True
+    assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
 
 
 # ---- hosting detection (auto-fill the relay URL) -------------------------
@@ -807,6 +904,7 @@ def test_start_local_relay_does_not_respawn_while_managed_relay_is_starting(api,
     monkeypatch.setattr(api, "RELAY_START_HEALTH_ATTEMPTS", 0)
     monkeypatch.setattr(api, "_process_start_time", lambda p: 999)
     monkeypatch.setattr(api, "_pid_is_alive", lambda p, start_time=None: bool(p))
+    monkeypatch.setattr(api, "_relay_process_identity", lambda p, start_time=None: "same")
     spawned = []
 
     def spawn(argv, cwd, log):
@@ -864,6 +962,25 @@ def test_start_local_relay_surfaces_spawn_failure(api, monkeypatch):
     assert "Could not start the relay" in (result.get("note") or "")
     assert result["action_ok"] is False
     assert api.load_relay_state() == {}  # nothing recorded on failure
+
+
+def test_start_local_relay_clears_state_when_child_exits_during_health_wait(api, monkeypatch):
+    _no_tailscale(monkeypatch, api)
+    monkeypatch.setattr(api, "_wait_relay_healthy", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(api, "_relay_process_identity", lambda *_args: "gone")
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("refused", status=0)
+
+    result = api.start_local_relay(
+        9137,
+        "127.0.0.1",
+        spawner=lambda *_args: (424242, 999),
+        transport=dead,
+    )
+    assert result["action_ok"] is False
+    assert "exited right after starting" in result["error"]
+    assert api.load_relay_state() == {}
 
 
 def test_start_local_relay_binds_loopback_by_default_without_tailscale(api, monkeypatch):

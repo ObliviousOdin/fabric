@@ -162,8 +162,9 @@ describe("fabric-achievements leaderboard bundle", () => {
     );
   });
 
-  it("does not reclassify a matching manual relay URL as auto-filled", async () => {
+  it("preserves a manually restored relay URL after auto-fill", async () => {
     const manualRelay = "http://127.0.0.1:9137";
+    const otherRelay = "http://127.0.0.1:9237";
     let statusCalls = 0;
     fetchJSON.mockImplementation((url: string) => {
       if (url.endsWith("/achievements")) return new Promise(() => {});
@@ -175,12 +176,12 @@ describe("fabric-achievements leaderboard bundle", () => {
         return Promise.resolve({
           ok: true,
           tailscale: { installed: false, running: false },
-          local_relay: { ok: statusCalls === 2 },
+          local_relay: { ok: statusCalls === 1 },
           managed_relay: { managed: false, running: false },
           default_port: 9137,
-          suggested_relay_url: statusCalls === 2 ? manualRelay : null,
+          suggested_relay_url: statusCalls === 1 ? manualRelay : null,
           suggested_is_shareable: false,
-          relay_live: statusCalls === 2,
+          relay_live: statusCalls === 1,
         });
       }
       return Promise.resolve({ ok: true });
@@ -191,12 +192,15 @@ describe("fabric-achievements leaderboard bundle", () => {
       'input[placeholder="http://your-host:9137"]',
     );
     expect(relayInput).not.toBeNull();
+    expect(relayInput?.value).toBe(manualRelay);
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
       )?.set;
       if (relayInput) {
+        setValue?.call(relayInput, otherRelay);
+        relayInput.dispatchEvent(new Event("input", { bubbles: true }));
         setValue?.call(relayInput, manualRelay);
         relayInput.dispatchEvent(new Event("input", { bubbles: true }));
       }
@@ -206,10 +210,6 @@ describe("fabric-achievements leaderboard bundle", () => {
       (button) => button.textContent === "Detect",
     );
     expect(detectButton).toBeDefined();
-    await act(async () => detectButton?.click());
-    await flushEffects();
-    expect(relayInput?.value).toBe(manualRelay);
-
     await act(async () => detectButton?.click());
     await flushEffects();
     expect(relayInput?.value).toBe(manualRelay);

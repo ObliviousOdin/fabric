@@ -832,11 +832,12 @@
   // so the host never has to guess "http://<what?>:9137". Connecting Tailscale
   // itself is an interactive QR login owned by the CLI, so we surface Fabric's
   // built-in `fabric setup tailscale` command rather than duplicate it here.
-  function HostingDetect({ t, busy, setRelay, onWorkingChange }) {
+  function HostingDetect({ t, busy, setRelay, autoRelayRef, onWorkingChange }) {
     const [action, setAction] = hooks.useState(null);
     const [host, setHost] = hooks.useState(null);
     const [error, setError] = hooks.useState(null);
-    const autoRelay = React.useRef(null);
+    const localAutoRelay = React.useRef(null);
+    const autoRelay = autoRelayRef || localAutoRelay;
     const requestGeneration = React.useRef(0);
     const canFill = typeof setRelay === "function";
 
@@ -996,6 +997,7 @@
 
   function CreateTeamCard({ busy, onAction, t }) {
     const [relay, setRelay] = hooks.useState("");
+    const autoRelay = React.useRef(null);
     const [name, setName] = hooks.useState("");
     const [display, setDisplay] = hooks.useState("");
     const [share, setShare] = hooks.useState(true);
@@ -1028,13 +1030,15 @@
         h("h3", null, tx(t, "team.create_title", "Create a team")),
         h("p", { className: "ha-team-lead" }, tx(t, "team.create_lead", "Start a leaderboard and invite people with a link. You choose which relay hosts it.")),
         h(HostingDetect, {
-          t: t, busy: busy || checking, setRelay: setRelay,
+          t: t, busy: busy || checking, setRelay: setRelay, autoRelayRef: autoRelay,
           onWorkingChange: setHostingBusy,
         }),
         h(LabelledInput, {
           label: tx(t, "team.relay_label", "Relay URL"),
           placeholder: "http://your-host:9137",
-          value: relay, onChange: setRelay, disabled: busyAll,
+          value: relay,
+          onChange: function (value) { autoRelay.current = null; setRelay(value); },
+          disabled: busyAll,
           hint: tx(t, "team.relay_hint", "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) can be shared with teammates allowed by your tailnet ACLs."),
         }),
         probeError && h("p", { className: "ha-field-hint ha-detect-warn", role: "alert" }, String(probeError)),

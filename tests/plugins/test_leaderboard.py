@@ -14,6 +14,7 @@ import socket
 import urllib.parse
 from pathlib import Path
 
+import psutil
 import pytest
 
 PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins" / "fabric-achievements"
@@ -45,12 +46,16 @@ def _concurrent_relay_start_worker(home, port, gate, ready, spawn_log, results):
 
     def recording_spawner(argv, cwd, log_path):
         pid, start_time = original_spawner(argv, cwd, log_path)
-        payload = f"{pid},{start_time}\n".encode()
-        fd = os.open(spawn_log, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
         try:
-            os.write(fd, payload)
-        finally:
-            os.close(fd)
+            payload = f"{pid},{start_time}\n".encode()
+            fd = os.open(spawn_log, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+            try:
+                os.write(fd, payload)
+            finally:
+                os.close(fd)
+        except Exception:
+            api._terminate_relay_pid(pid, start_time)
+            raise
         return pid, start_time
 
     ready.put(True)
@@ -67,6 +72,32 @@ def _concurrent_relay_start_worker(home, port, gate, ready, spawn_log, results):
         "error": result.get("error"),
         "pid": result.get("managed_relay", {}).get("pid"),
     })
+
+
+def _cleanup_test_relays(state_path: Path) -> None:
+    """Stop detached test relays even if a worker died before recording its PID."""
+    marker = str(state_path)
+    for process in psutil.process_iter(["cmdline"]):
+        try:
+            cmdline = process.info.get("cmdline") or []
+            is_relay = any(
+                cmdline[index : index + 2] == ["-m", "relay"]
+                for index in range(len(cmdline) - 1)
+            )
+            owns_state = any(
+                cmdline[index : index + 2] == ["--state", marker]
+                for index in range(len(cmdline) - 1)
+            )
+            if not (is_relay and owns_state):
+                continue
+            process.terminate()
+            try:
+                process.wait(timeout=3)
+            except psutil.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=3)
+        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+            continue
 
 
 def _make_transport(store, store_mod):
@@ -970,6 +1001,43 @@ def test_default_spawner_retries_windows_without_breakaway(api, monkeypatch, tmp
 
 
 @pytest.mark.live_system_guard_bypass
+def test_relay_worker_record_failure_cleans_child(api, tmp_path):
+    """A diagnostic-record failure must not leak the detached child."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+
+    context = multiprocessing.get_context("spawn")
+    gate = context.Event()
+    ready = context.Queue()
+    results = context.Queue()
+    bad_spawn_log = tmp_path / "missing" / "relay-spawns.txt"
+    fabric_home = str(api.relay_state_path().parents[2])
+    worker = context.Process(
+        target=_concurrent_relay_start_worker,
+        args=(fabric_home, port, gate, ready, str(bad_spawn_log), results),
+    )
+    try:
+        worker.start()
+        assert ready.get(timeout=15) is True
+        gate.set()
+        worker.join(timeout=30)
+        assert not worker.is_alive()
+        assert worker.exitcode == 0
+        response = results.get(timeout=5)
+        assert response.get("action_ok") is False
+        assert api.relay_state_path().exists() is False
+        assert api._probe_relay_health(f"http://127.0.0.1:{port}")["ok"] is False
+    finally:
+        gate.set()
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=5)
+        _cleanup_test_relays(api.relay_roster_path())
+        api.clear_relay_state()
+
+
+@pytest.mark.live_system_guard_bypass
 def test_managed_relay_concurrent_processes_spawn_once(api, tmp_path):
     """Two dashboard workers must not orphan a bind-losing relay child."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
@@ -1031,6 +1099,7 @@ def test_managed_relay_concurrent_processes_spawn_once(api, tmp_path):
         for pid, start_time in spawned_records:
             if api._relay_process_identity(pid, start_time) == "same":
                 api._terminate_relay_pid(pid, start_time)
+        _cleanup_test_relays(api.relay_roster_path())
         api.clear_relay_state()
 
     assert api._probe_relay_health(f"http://127.0.0.1:{port}")["ok"] is False

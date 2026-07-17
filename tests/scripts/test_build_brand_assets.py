@@ -62,12 +62,23 @@ class FabricBrandAssetBuilderTests(unittest.TestCase):
             self.assertEqual(mark.size, (192, 192))
             self.assertEqual(mark.mode, "RGBA")
             self.assertEqual(mark.getpixel((0, 0))[3], 0)
-            self.assertEqual(mark.getpixel((96, 96))[:3], (70, 40, 204))
+            center_pixel = mark.getpixel((96, 96))
+            self.assertIsInstance(center_pixel, tuple)
+            assert isinstance(center_pixel, tuple)
+            self.assertGreater(center_pixel[3], 250)
+            center_color = center_pixel[:3]
+            self.assertNotEqual(center_color, (70, 40, 204))
 
         with Image.open(self.output / "fabric-app-icon-192.png") as app_icon:
             self.assertEqual(app_icon.size, (192, 192))
-            self.assertEqual(app_icon.getpixel((0, 0))[:3], (248, 250, 254))
-            self.assertEqual(app_icon.getpixel((96, 96))[:3], (70, 40, 204))
+            corner_pixel = app_icon.getpixel((0, 0))
+            app_center_pixel = app_icon.getpixel((96, 96))
+            self.assertIsInstance(corner_pixel, tuple)
+            self.assertIsInstance(app_center_pixel, tuple)
+            assert isinstance(corner_pixel, tuple)
+            assert isinstance(app_center_pixel, tuple)
+            self.assertEqual(corner_pixel[:3], (239, 238, 233))
+            self.assertEqual(app_center_pixel[:3], center_color)
 
         with Image.open(self.output / "fabric-maskable-512.png") as maskable:
             self.assertEqual(maskable.getpixel((0, 0))[:3], (70, 40, 204))
@@ -105,13 +116,13 @@ class FabricBrandAssetBuilderTests(unittest.TestCase):
         self.assertIn("fabric-app-icon-192.png", manifest["assets"])
         self.assertIn("fabric-favicon.ico", manifest["assets"])
         self.assertIn("fabric-app-icon.icns", manifest["assets"])
-        self.assertNotIn("reference-wordmark.png", manifest["assets"])
-        reference = manifest["sources"]["reference-wordmark.png"]
-        self.assertEqual(reference["width"], 1792)
-        self.assertEqual(reference["height"], 1008)
+        self.assertNotIn("reference-mark.jpg", manifest["assets"])
+        reference = manifest["sources"]["reference-mark.jpg"]
+        self.assertEqual(reference["width"], 1024)
+        self.assertEqual(reference["height"], 1024)
         self.assertEqual(
             reference["sha256"],
-            "ed6ce701ca2ce7ceb88c70f1a2c41ce91b5783e57a0b0a017048beead1d8e7ac",
+            "934aebaece6894fed26fa6bb61d9672672d7091142f8096684d36ecf34fee8c4",
         )
         for name, record in manifest["assets"].items():
             self.assertEqual(
@@ -135,11 +146,13 @@ class FabricBrandAssetBuilderTests(unittest.TestCase):
         mark = (source / "mark.svg").read_text(encoding="utf-8")
         wordmark = (source / "wordmark.svg").read_text(encoding="utf-8")
 
-        self.assertIn('fill="#4628CC"', mark)
+        self.assertIn('id="fabric-mark-gradient"', mark)
+        self.assertEqual(mark.count('data-fabric-mark="true"'), 2)
         self.assertNotIn("data-fabric-bracket", mark)
         self.assertNotIn("<text", wordmark)
+        self.assertIn('data-fabric-symbol="true"', wordmark)
         self.assertIn('data-fabric-bracket="true"', wordmark)
-        self.assertTrue((source / "reference-wordmark.png").is_file())
+        self.assertTrue((source / "reference-mark.jpg").is_file())
         self.assertFalse(list((source.parents[1] / "fonts").glob("*.woff*")))
 
 

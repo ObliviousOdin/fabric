@@ -35,14 +35,14 @@ do not write into product integration paths.
 with every palette reference resolved to a CSS-ready value. Product surfaces
 should consume those resolved roles instead of duplicating palette values.
 
-The full wordmark keeps the supplied bracket underline. Compact icons use the
-simplified lowercase f only; the bracket is intentionally omitted below
-wordmark scale.
+The full wordmark pairs the supplied stylized F symbol with the Fabric letter
+paths and keeps the bracket underline. Compact icons use the symbol only; the
+bracket is intentionally omitted below wordmark scale.
 
 ## Supplied logo reference
 
-`src/brand/fabric/reference-wordmark.png` preserves the supplied raster for
-audit and visual comparison only. It is 1792 by 1008 pixels with SHA-256
-ed6ce701ca2ce7ceb88c70f1a2c41ce91b5783e57a0b0a017048beead1d8e7ac.
-The raster is not copied into dist and is never used to generate icons; all
-runtime assets derive from the manually reconstructed SVG geometry.
+`src/brand/fabric/reference-mark.jpg` preserves the supplied raster for audit
+and visual comparison only. It is 1024 by 1024 pixels with SHA-256
+934aebaece6894fed26fa6bb61d9672672d7091142f8096684d36ecf34fee8c4.
+The JPEG is not copied into dist and is never used to generate icons; all
+runtime assets derive from the cleaned vector reconstruction.

@@ -57,12 +57,12 @@ export function FabricBrand({
           className={cn(
             "font-sans font-semibold leading-none",
             compact
-              ? "text-lg lowercase text-[var(--fabric-brand-primary)]"
+              ? "text-lg text-[var(--fabric-brand-primary)]"
               : "text-[1.125rem] tracking-[-0.015em] text-midground",
           )}
           data-brand-fallback="true"
         >
-          {compact ? "f" : label}
+          {compact ? "F" : label}
         </span>
       ) : (
         <img

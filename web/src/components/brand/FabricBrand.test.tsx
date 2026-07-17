@@ -66,7 +66,7 @@ describe("FabricBrand", () => {
     expect(image?.getAttribute("style")).toBeNull();
   });
 
-  it("uses the compact lowercase-f mark at icon scale", async () => {
+  it("uses the compact stylized-F symbol at icon scale", async () => {
     await render("dark", true);
 
     const brand = container.querySelector<HTMLElement>("[data-fabric-brand]");
@@ -76,6 +76,21 @@ describe("FabricBrand", () => {
     expect(image?.getAttribute("src")).toBe(FABRIC_BRAND_ASSETS.mark);
     expect(image?.getAttribute("width")).toBe("18");
     expect(image?.getAttribute("height")).toBe("18");
+  });
+
+  it("falls back to the new symbol initial at compact scale", async () => {
+    await render("dark", true);
+
+    const image = container.querySelector<HTMLImageElement>(
+      "[data-fabric-brand] img",
+    );
+    await act(async () => {
+      image?.dispatchEvent(new Event("error"));
+    });
+
+    expect(
+      container.querySelector("[data-brand-fallback]")?.textContent,
+    ).toBe("F");
   });
 
   it("falls back to stable visible text and retries when the selected asset changes", async () => {

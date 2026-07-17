@@ -98,8 +98,8 @@ describe('Fabric banner branding', () => {
   it('renders the official Fabric mark with the Fabric wordmark at full width', async () => {
     const frame = await renderBanner(100)
 
-    expect(frame).toContain('───fabric')
-    expect(frame).toContain('╰──────────╮')
+    expect(frame).toContain('├────╮  fabric')
+    expect(frame).toContain('╰──────────────╮')
     expect(frame).toContain('Fabric · agentic operations engine')
     expect(frame).not.toContain('█')
     expect(frame).not.toMatch(/Hermes|Nous Research/i)
@@ -118,9 +118,11 @@ describe('Fabric banner branding', () => {
       DEFAULT_THEME.color.primary,
       DEFAULT_THEME.color.accent,
       DEFAULT_THEME.color.primary,
+      DEFAULT_THEME.color.accent,
+      DEFAULT_THEME.color.primary,
       DEFAULT_THEME.color.muted
     ])
-    expect(mark.map(([, text]) => text).join('\n')).toContain('──f')
+    expect(mark.map(([, text]) => text).join('\n')).toContain('│╱────╯•')
     expect(semantic).toEqual([
       [DEFAULT_THEME.color.accent, '──fabric'],
       [DEFAULT_THEME.color.muted, '╰───╮']

@@ -7575,7 +7575,7 @@ def _(rid, params: dict) -> dict:
         except Exception:
             pet_cfg = {}
 
-        installed = {p.slug: p for p in store.installed_pets()}
+        installed = {p.slug: p for p in store.available_pets()}
 
         gallery: list[dict] = []
         seen: set[str] = set()
@@ -7598,8 +7598,10 @@ def _(rid, params: dict) -> dict:
                         # petdex exposes no popularity metric; "curated" (its
                         # hand-picked/official set, identified by the asset path)
                         # is the closest signal, so the picker can surface it first.
-                        "curated": "/curated/" in entry.spritesheet_url,
+                        "curated": "/curated/" in entry.spritesheet_url
+                        or (entry.slug in installed and installed[entry.slug].bundled),
                         "generated": entry.slug in installed and installed[entry.slug].generated,
+                        "bundled": entry.slug in installed and installed[entry.slug].bundled,
                     }
                 )
         except Exception as exc:  # noqa: BLE001 - offline: fall back to installed
@@ -7614,7 +7616,9 @@ def _(rid, params: dict) -> dict:
                         "displayName": pet.display_name,
                         "installed": True,
                         "spritesheetUrl": "",
+                        "curated": pet.bundled,
                         "generated": pet.generated,
+                        "bundled": pet.bundled,
                     }
                 )
 
@@ -7676,11 +7680,14 @@ def _(rid, params: dict) -> dict:
 
         removed = store.remove_pet(slug)
 
-        # If that was the active pet, stop surfaces pointing at a deleted sprite.
-        try:
-            _clear_active_if(slug)
-        except Exception as exc:  # noqa: BLE001 - removal already succeeded
-            logger.debug("pet.remove config update failed: %s", exc)
+        # Stop surfaces pointing at a deleted sprite. A bundled pet is
+        # read-only, and removing a same-slug profile override reveals that
+        # bundle, so keep the active config whenever a fallback still exists.
+        if removed and store.load_pet(slug) is None:
+            try:
+                _clear_active_if(slug)
+            except Exception as exc:  # noqa: BLE001 - removal already succeeded
+                logger.debug("pet.remove config update failed: %s", exc)
 
         return _ok(rid, {"ok": removed, "slug": slug})
     except Exception as exc:  # noqa: BLE001

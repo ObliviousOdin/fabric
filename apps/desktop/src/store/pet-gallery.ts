@@ -30,6 +30,8 @@ export interface GalleryPet {
   curated?: boolean
   /** Hatched locally by the user (createdBy=generator) — badged + ranked first. */
   generated?: boolean
+  /** First-party asset shipped with Fabric; selectable but read-only. */
+  bundled?: boolean
 }
 
 export interface PetGallery {

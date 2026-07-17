@@ -1,8 +1,9 @@
 """CLI subcommand: ``fabric pets <subcommand>``.
 
-Thin shell around :mod:`agent.pet`.  Browses the public petdex gallery,
-installs pets into the profile's ``pets/`` directory, selects the active
-mascot (writes ``display.pet.*`` to config.yaml), and runs a doctor check.
+Thin shell around :mod:`agent.pet`. Browses the public Petdex gallery,
+uses bundled pets or installs them into the profile's ``pets/`` directory,
+selects the active mascot (writes ``display.pet.*`` to config.yaml), and runs
+a doctor check.
 
 No side effects at import time — ``main.py`` wires the argparse subparsers on
 demand via :func:`register_cli`.
@@ -23,17 +24,18 @@ def _err(msg: str) -> None:
 
 
 def _cmd_list(args) -> int:
-    """List gallery pets (or only installed ones with ``--installed``)."""
+    """List gallery pets or locally available pets with ``--installed``."""
     from agent.pet import store
 
     if getattr(args, "installed", False):
-        pets = store.installed_pets()
+        pets = store.available_pets()
         if not pets:
             _print("No pets installed. Try: fabric pets install boba")
             return 0
-        _print(f"Installed pets ({len(pets)}):")
+        _print(f"Available pets ({len(pets)}):")
         for pet in pets:
-            _print(f"  {pet.slug:<24} {pet.display_name}")
+            source = " [bundled]" if pet.bundled else ""
+            _print(f"  {pet.slug:<24} {pet.display_name}{source}")
         return 0
 
     from agent.pet.manifest import ManifestError, fetch_manifest
@@ -54,7 +56,7 @@ def _cmd_list(args) -> int:
 
     limit = getattr(args, "limit", 0) or 0
     shown = entries[:limit] if limit > 0 else entries
-    installed = {p.slug for p in store.installed_pets()}
+    installed = {p.slug for p in store.available_pets()}
 
     _print(f"petdex gallery — {len(entries)} pet(s){' matching ' + repr(query) if query else ''}:")
     for entry in shown:
@@ -91,6 +93,10 @@ def _cmd_remove(args) -> int:
     from agent.pet import store
 
     slug = args.slug.strip()
+    pet = store.load_pet(slug)
+    if pet is not None and pet.bundled:
+        _err(f"✗ '{slug}' ships with Fabric and cannot be removed")
+        return 1
     if store.remove_pet(slug):
         _print(f"✓ removed {slug}")
         return 0
@@ -103,7 +109,7 @@ def _cmd_select(args) -> int:
 
     slug = (getattr(args, "slug", "") or "").strip()
     if not slug:
-        pets = store.installed_pets()
+        pets = store.available_pets()
         if not pets:
             _err("✗ no pets installed — run: fabric pets install boba")
             return 1
@@ -253,7 +259,7 @@ def _cmd_doctor(args) -> int:
     configured_slug = str(cfg.get("slug", "") or "")
     mode_cfg = str(cfg.get("render_mode", "auto") or "auto")
 
-    pets = store.installed_pets()
+    pets = store.available_pets()
     active = store.resolve_active_pet(configured_slug)
 
     _print("petdex doctor")
@@ -369,7 +375,7 @@ def toggle_pet_display() -> tuple[bool, str | None, str | None]:
         return False, pet.display_name if pet else None, None
 
     if pet is None:
-        installed = store.installed_pets()
+        installed = store.available_pets()
         if not installed:
             return False, None, "no pets installed — /pet list to browse, or /pet <slug> to adopt"
         pet = installed[0]
@@ -390,7 +396,7 @@ def print_pet_gallery(*, limit: int = 20) -> None:
         print(f"(._.) Couldn't reach the petdex gallery: {exc}")
         return
 
-    installed = {p.slug for p in store.installed_pets()}
+    installed = {p.slug for p in store.available_pets()}
     shown = entries[:limit] if limit > 0 else entries
     print(f"(^o^)/ petdex gallery — first {len(shown)} of {len(entries)}:")
     for entry in shown:

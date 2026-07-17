@@ -8,17 +8,19 @@ description: "Adopt an animated mascot that reacts to agent activity across the 
 
 Fabric can show an animated **pet** — a small mascot sprite that reacts to what
 the agent is doing (idle, running a tool, thinking, finishing, failing) across
-the **CLI**, **TUI**, and **desktop app**. Pets come from the public
+the **CLI**, **TUI**, and **desktop app**. Fabric ships with the official
+**Fabric Mascot** pet, and more pets come from the public
 [petdex](https://github.com/crafter-station/petdex) gallery.
 
 Pets are purely cosmetic. They have **no effect on prompt caching, tokens, or
 the agent's behavior** — the sprite is a display concern only. The feature is
-**off by default** and stays dormant until you install and select a pet.
+**off by default** and stays dormant until you select a pet.
 
 ## How it works
 
-- Pets are installed into your profile's `pets/` directory
-  (`<FABRIC_HOME>/pets/<slug>/`), so each [profile](../profiles.md) keeps its
+- The read-only Fabric Mascot ships inside the Fabric package and remains
+  available offline. Other pets are installed into your profile's `pets/`
+  directory (`<FABRIC_HOME>/pets/<slug>/`), so each [profile](../profiles.md) keeps its
   own set.
 - Selecting a pet writes `display.pet.slug` and `display.pet.enabled` to
   `config.yaml` — nothing is stored as a secret or env var.
@@ -55,6 +57,9 @@ from **Settings → Appearance**.
 fabric pets list
 fabric pets list cat
 
+# Select the included Fabric Mascot without a download
+fabric pets select fabric-mascot
+
 # Install a pet and make it active in one step
 fabric pets install boba --select
 
@@ -70,7 +75,7 @@ fabric pets doctor
 | Goal | Command |
 | --- | --- |
 | Browse the gallery | `fabric pets list [query] [--limit N]` |
-| List installed pets | `fabric pets list --installed` |
+| List bundled and installed pets | `fabric pets list --installed` |
 | Install a pet | `fabric pets install <slug> [--select] [--force]` |
 | Set the active pet | `fabric pets select [slug]` (omit slug for a picker) |
 | Resize the pet everywhere | `fabric pets scale <factor>` (e.g. `0.5`, clamped 0.1–3.0) |

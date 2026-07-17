@@ -52,9 +52,22 @@ Everything below exists today in `fabric_cli/web_server.py` and
 
 | Surface | Endpoint | Notes |
 | --- | --- | --- |
-| Liveness/probe | `GET /api/status` | Public. `auth_required: true` marks an OAuth-gated gateway (`authModeFromStatus` in the desktop). |
-| RPC channel | `WS /api/ws?token=…` or `?ticket=…` | JSON-RPC 2.0 requests + `method: "event"` frames. Token mode uses the dashboard session token; OAuth mode mints a single-use ticket at `POST /api/auth/ws-ticket`. |
+| Liveness/probe | `GET /api/status` | Public. `auth_required: true` marks a gated gateway (`authModeFromStatus` in the desktop). |
+| RPC channel | `WS /api/ws?token=…` or `?ticket=…` | JSON-RPC 2.0 requests + `method: "event"` frames. Token mode uses the dashboard session token; gated mode mints a single-use ticket at `POST /api/auth/ws-ticket`. |
 | REST auth header | `X-Fabric-Session-Token` | For token-mode REST calls. |
+| Sign-in options | `GET /api/auth/providers` | Gated only: `{providers: [{name, display_name, supports_password}]}`. |
+| Password login | `POST /auth/password-login` | Gated only: `{provider, username, password}` → session cookies (`hermes_session_at`/`_rt`). |
+
+Two auth modes, decided by the server's bind (June 2026 hardening):
+
+- **Token** — loopback binds (`127.0.0.1`, incl. behind an SSH/`tailscale
+  serve` tunnel): the ephemeral session token authenticates REST and the
+  `?token=` WS upgrade.
+- **Gated** — any non-loopback bind (a Tailscale IP, `0.0.0.0`): the token
+  path is rejected outright. Clients sign in against a configured auth
+  provider (e.g. the bundled password provider), carry the session cookies,
+  and mint a single-use 30s `?ticket=` for every WS connect. Both apps
+  implement this flow; OAuth-provider sign-in is still roadmap.
 
 RPC methods the v1 slice uses (of ~120 registered in
 `tui_gateway/server.py`):
@@ -137,17 +150,53 @@ the same chat screen:
 - **Process control** — per-session background processes (`process.list`)
   with output tails and kill (`process.kill`).
 
+## Pairing (QR) and connecting over Tailscale
+
+`fabric serve --qr` prints a `fabric://pair` QR (contract in
+`fabric_cli/mobile_pairing.py`); both apps scan it from the connect screen.
+Gated binds emit a URL-only QR — credentials never ride in the QR — and the
+app follows up with the username/password form. Ungated (loopback/tunnel)
+binds embed the session token, so scanning connects with zero typing.
+
+**Phone and machine on the same tailnet** — two supported shapes:
+
+1. **Direct bind to the tailnet address** (username/password on the phone):
+
+   ```bash
+   # one-time: configure the bundled password provider
+   #   dashboard.basic_auth.username + password_hash in config.yaml
+   #   (hash with: python -c "from plugins.dashboard_auth.basic import hash_password; print(hash_password('your-password'))")
+   fabric serve --host <tailscale-ip> --port 9119 --qr
+   ```
+
+   The QR carries the URL; the phone asks for the username/password. The
+   auth gate refuses to bind publicly without a provider, so this is
+   fail-closed by construction.
+
+2. **Loopback bind fronted by `tailscale serve`** (token QR, zero typing,
+   TLS from the tailnet cert):
+
+   ```bash
+   tailscale serve --bg 9119        # https://<machine>.<tailnet>.ts.net → 127.0.0.1:9119
+   fabric serve --host 127.0.0.1 --port 9119 --qr --qr-url https://<machine>.<tailnet>.ts.net
+   ```
+
+   Traffic reaches the gateway from loopback, so token auth applies and the
+   QR embeds the token. Treat that QR like a password.
+
 ## Build & run
 
-Both apps need a reachable backend. On the machine that runs Fabric:
+Both apps need a reachable backend — see the pairing section above for the
+Tailscale shapes. The plain-LAN equivalent of shape 1:
 
 ```bash
-fabric serve --host 0.0.0.0 --port 9119   # or keep 127.0.0.1 + a tailscale/ssh tunnel
+fabric serve --host 0.0.0.0 --port 9119 --qr   # requires a configured auth provider
 ```
 
-The session token is what the dashboard/desktop use; the served value is
-injected into the dashboard index page (`window.__HERMES_SESSION_TOKEN__`,
-see `apps/desktop/electron/dashboard-token.ts`).
+In token mode the session token is what the dashboard/desktop use; the
+served value is injected into the dashboard index page
+(`window.__HERMES_SESSION_TOKEN__`, see
+`apps/desktop/electron/dashboard-token.ts`).
 
 ### iOS (macOS + Xcode 16 required)
 
@@ -174,12 +223,15 @@ Dependencies: Compose (BOM), OkHttp, kotlinx-serialization.
 
 ## Roadmap after the slice
 
-1. **OAuth gateway auth** — `auth_required` gateways: system browser sign-in
-   (`ASWebAuthenticationSession` / Custom Tabs), cookie session, ticket mint
-   before each socket open (mirror `resolveTestWsUrl` semantics, including
-   "mint failure = hard auth error").
-2. **QR pairing** — desktop/dashboard shows a QR of `{url, token}`; phone
-   scans instead of typing. Needs a tiny dashboard surface.
+1. ~~**QR pairing**~~ — done: `fabric serve --qr` + in-app scanners
+   (`fabric_cli/mobile_pairing.py`; `PairingURI.swift` / `PairingUri.kt`).
+2. ~~**Password (gated) gateway auth**~~ — done: providers discovery,
+   `POST /auth/password-login` cookie session, per-connect
+   `POST /api/auth/ws-ticket` mint. Remaining from this line: **OAuth
+   provider sign-in** via system browser (`ASWebAuthenticationSession` /
+   Custom Tabs) for hosted gateways, and automatic ticket re-mint inside a
+   reconnect loop (today a drop returns to the connect screen; the cookie
+   session usually survives so reconnect is one tap, no password).
 3. **Push notifications** — APNs/FCM for `approval.request` and turn
    completion while backgrounded; requires a small gateway-side notifier
    (new server work — the only item here that is).

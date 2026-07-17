@@ -14,8 +14,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /** Row shape returned by the `session.list` RPC (tui_gateway/server.py). */
 data class SessionSummary(
@@ -80,11 +82,18 @@ data class BackgroundProcess(
 )
 
 /**
- * Public body of `GET /api/status`. `authRequired` distinguishes an
- * OAuth-gated gateway from legacy token auth (`authModeFromStatus` in
- * apps/desktop/electron/connection-config.ts).
+ * Public body of `GET /api/status`. `authRequired` distinguishes a gated
+ * gateway (provider login + WS tickets) from legacy token auth
+ * (`authModeFromStatus` in apps/desktop/electron/connection-config.ts).
  */
 data class GatewayStatus(val authRequired: Boolean)
+
+/** Row from `GET /api/auth/providers` (gated gateways only). */
+data class AuthProviderInfo(
+    val name: String,
+    val displayName: String,
+    val supportsPassword: Boolean,
+)
 
 class GatewayHttpException(message: String) : Exception(message)
 
@@ -121,12 +130,22 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
          * `ws(s)://host[/prefix]/api/ws?token=…` — the token-mode WS URL,
          * same construction as `buildGatewayWsUrl` in the desktop config.
          */
-        fun websocketUrl(baseUrl: String, token: String): String {
+        fun websocketUrl(baseUrl: String, token: String): String =
+            websocketUrl(baseUrl, "token" to token)
+
+        /**
+         * `ws(s)://…/api/ws?ticket=…` — the gated-mode WS URL. Tickets are
+         * single-use with a 30s TTL: mint one immediately before every connect.
+         */
+        fun websocketUrlWithTicket(baseUrl: String, ticket: String): String =
+            websocketUrl(baseUrl, "ticket" to ticket)
+
+        private fun websocketUrl(baseUrl: String, authParam: Pair<String, String>): String {
             val base = normalizedBase(baseUrl)
             val wsScheme = if (base.scheme == "https") "wss" else "ws"
             val httpUrl = base.newBuilder()
                 .addPathSegments("api/ws")
-                .addQueryParameter("token", token)
+                .addQueryParameter(authParam.first, authParam.second)
                 .build()
             // OkHttp's newWebSocket accepts http(s) URLs, but keep the ws(s)
             // form for parity with the shared client and easier debugging.
@@ -137,6 +156,95 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
             val trimmed = baseUrl.trim().trimEnd('/')
             return trimmed.toHttpUrlOrNull()
                 ?: throw GatewayHttpException("Gateway URL must be http:// or https://")
+        }
+    }
+
+    // -- Gated auth (provider login + WS tickets) -----------------------------
+    // OkHttp has no cookie handling by default; this client carries the
+    // session cookies (`hermes_session_at`/`_rt`) that `/auth/password-login`
+    // sets so the ticket mint below is authenticated — mirroring the browser
+    // SPA's flow. In-memory only: the session dies with the process and the
+    // user signs in again (password persistence is deliberately avoided).
+    private val authClient = OkHttpClient.Builder()
+        .cookieJar(MemoryCookieJar())
+        .build()
+
+    /** `GET /api/auth/providers` — which sign-in options this gateway offers. */
+    suspend fun listAuthProviders(baseUrl: String): List<AuthProviderInfo> =
+        withContext(Dispatchers.IO) {
+            val url = normalizedBase(baseUrl).newBuilder()
+                .addPathSegments("api/auth/providers")
+                .build()
+            authClient.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw GatewayHttpException("HTTP ${response.code}: ${response.body?.string().orEmpty()}")
+                }
+                val parsed = runCatching {
+                    json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
+                }.getOrNull() ?: return@use emptyList()
+                val rows = parsed["providers"] as? JsonArray ?: return@use emptyList()
+                rows.mapNotNull { row ->
+                    val obj = row as? JsonObject ?: return@mapNotNull null
+                    val name = obj.string("name") ?: return@mapNotNull null
+                    AuthProviderInfo(
+                        name = name,
+                        displayName = obj.string("display_name") ?: name,
+                        supportsPassword = (obj["supports_password"] as? JsonPrimitive)
+                            ?.booleanOrNull ?: false,
+                    )
+                }
+            }
+        }
+
+    /**
+     * `POST /auth/password-login` — authenticates and stores the session
+     * cookies in [authClient]'s jar. 401 means bad credentials; 429
+     * rate-limited.
+     */
+    suspend fun passwordLogin(
+        baseUrl: String,
+        provider: String,
+        username: String,
+        password: String,
+    ): Unit = withContext(Dispatchers.IO) {
+        val url = normalizedBase(baseUrl).newBuilder()
+            .addPathSegments("auth/password-login")
+            .build()
+        val body = buildJsonObject {
+            put("provider", provider)
+            put("username", username)
+            put("password", password)
+        }.toString().toRequestBody("application/json".toMediaType())
+        authClient.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                val detail = runCatching {
+                    json.parseToJsonElement(response.body?.string().orEmpty())
+                        .jsonObject.string("detail")
+                }.getOrNull()
+                throw GatewayHttpException(detail ?: "Sign-in failed (HTTP ${response.code})")
+            }
+        }
+    }
+
+    /**
+     * `POST /api/auth/ws-ticket` — single-use 30s WS credential for the
+     * cookie session. A 401 here means the session has expired (or was never
+     * established): re-run [passwordLogin].
+     */
+    suspend fun mintWsTicket(baseUrl: String): String = withContext(Dispatchers.IO) {
+        val url = normalizedBase(baseUrl).newBuilder()
+            .addPathSegments("api/auth/ws-ticket")
+            .build()
+        val body = ByteArray(0).toRequestBody(null)
+        authClient.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw GatewayHttpException("HTTP ${response.code}: ${response.body?.string().orEmpty()}")
+            }
+            val parsed = runCatching {
+                json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
+            }.getOrNull()
+            parsed?.string("ticket")?.takeIf { it.isNotEmpty() }
+                ?: throw GatewayHttpException("Gateway returned no ticket")
         }
     }
 

@@ -2,6 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Pairing-QR scanning; the camera is optional so tablets/emulators
+         without one can still install and pair by typing the URL. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <!-- Cleartext is allowed because `fabric serve` on a LAN/tailnet host is
          plain http today, matching the desktop's local-networking posture.

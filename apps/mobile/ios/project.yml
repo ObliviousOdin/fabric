@@ -30,7 +30,11 @@ targets:
       properties:
         CFBundleDisplayName: Fabric
         UILaunchScreen: {}
-        # `fabric serve` on a LAN host is plain http; the ATS exception is
-        # scoped to local networking only. Public gateways must be https.
+        NSCameraUsageDescription: >-
+          Fabric uses the camera to scan the pairing QR code shown by
+          `fabric serve --qr`.
+        # `fabric serve` on a LAN/tailnet host is plain http; the ATS
+        # exception covers local + private-range networking only. Public
+        # gateways must be https.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true

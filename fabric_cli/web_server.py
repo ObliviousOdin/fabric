@@ -18882,6 +18882,8 @@ def start_server(
     allow_public: bool = False,
     initial_profile: str = "",
     headless: bool = False,
+    pairing_qr: bool = False,
+    pairing_qr_url: str = "",
 ):
     """Start the web UI server.
 
@@ -18893,6 +18895,11 @@ def start_server(
     ``headless`` is the ``serve`` path: the JSON-RPC/WS backend with no UI
     build and no SPA mount (mount_spa() honours ``FABRIC_SERVE_HEADLESS``), so
     the banner announces the bind rather than a browser URL.
+
+    ``pairing_qr`` (``--qr``) prints a ``fabric://pair`` QR after the ready
+    banner so a mobile client can connect by scanning; ``pairing_qr_url``
+    (``--qr-url``) overrides the advertised base URL for tunnel fronts. See
+    ``fabric_cli/mobile_pairing.py`` for the payload contract.
     """
     from agent.egress_policy import (
         EgressPolicyConfigurationError,
@@ -19087,6 +19094,16 @@ def start_server(
                 print(f"  Fabric backend listening on {host}:{actual_port}")
             else:
                 print(f"  Fabric Web UI → http://{host}:{actual_port}")
+            if pairing_qr:
+                from fabric_cli.mobile_pairing import print_pairing_info
+
+                print_pairing_info(
+                    bound_host=host,
+                    port=actual_port,
+                    auth_required=bool(app.state.auth_required),
+                    session_token=_SESSION_TOKEN,
+                    override_url=pairing_qr_url,
+                )
             _maybe_open_browser(host, actual_port, open_browser, initial_profile)
 
             # Collapse the peer-hangup teardown flood (#50005). When the Desktop

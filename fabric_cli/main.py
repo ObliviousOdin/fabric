@@ -12419,6 +12419,8 @@ def cmd_dashboard(args):
         allow_public=getattr(args, "insecure", False),
         initial_profile=getattr(args, "open_profile", "") or "",
         headless=_headless_backend,
+        pairing_qr=getattr(args, "qr", False),
+        pairing_qr_url=getattr(args, "qr_url", "") or "",
     )
 
 

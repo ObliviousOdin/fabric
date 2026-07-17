@@ -65,11 +65,20 @@ struct BackgroundProcess: Identifiable, Hashable {
 }
 
 /// Public body of `GET /api/status`. Only the fields the client needs;
-/// `authRequired` distinguishes an OAuth-gated gateway from legacy token
-/// auth (`authModeFromStatus` in `apps/desktop/electron/connection-config.ts`).
+/// `authRequired` distinguishes a gated gateway (provider login + WS tickets)
+/// from legacy token auth (`authModeFromStatus` in
+/// `apps/desktop/electron/connection-config.ts`).
 struct GatewayStatus {
     let authRequired: Bool
     let raw: [String: Any]
+}
+
+/// Row from `GET /api/auth/providers` (gated gateways only).
+struct AuthProviderInfo: Identifiable, Hashable {
+    let name: String
+    let displayName: String
+    let supportsPassword: Bool
+    var id: String { name }
 }
 
 enum GatewayAPIError: LocalizedError {
@@ -113,6 +122,16 @@ struct GatewayAPI {
     /// `ws(s)://host[/prefix]/api/ws?token=…` — the token-mode WS URL, same
     /// construction as `buildGatewayWsUrl` in the desktop connection config.
     static func websocketURL(baseURL: URL, token: String) throws -> URL {
+        try websocketURL(baseURL: baseURL, authParam: ("token", token))
+    }
+
+    /// `ws(s)://…/api/ws?ticket=…` — the gated-mode WS URL. Tickets are
+    /// single-use with a 30s TTL: mint one immediately before every connect.
+    static func websocketURL(baseURL: URL, ticket: String) throws -> URL {
+        try websocketURL(baseURL: baseURL, authParam: ("ticket", ticket))
+    }
+
+    private static func websocketURL(baseURL: URL, authParam: (String, String)) throws -> URL {
         guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
               let scheme = components.scheme, scheme == "http" || scheme == "https"
         else {
@@ -121,9 +140,78 @@ struct GatewayAPI {
         components.scheme = scheme == "https" ? "wss" : "ws"
         let prefix = components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path
         components.path = prefix + "/api/ws"
-        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        components.queryItems = [URLQueryItem(name: authParam.0, value: authParam.1)]
         guard let url = components.url else { throw GatewayAPIError.badURL }
         return url
+    }
+
+    // MARK: - Gated auth (provider login + WS tickets)
+    // URLSession.shared stores the session cookies (`hermes_session_at`/`_rt`)
+    // that `/auth/password-login` sets, so the ticket mint below is
+    // automatically authenticated — mirroring the browser SPA's flow.
+
+    /// `GET /api/auth/providers` — which sign-in options this gateway offers.
+    static func listAuthProviders(baseURL: URL) async throws -> [AuthProviderInfo] {
+        let url = baseURL.appending(path: "api/auth/providers")
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw GatewayAPIError.httpStatus(code, body: String(decoding: data, as: UTF8.self))
+        }
+        let body = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        let rows = body["providers"] as? [[String: Any]] ?? []
+        return rows.compactMap { row in
+            guard let name = row["name"] as? String else { return nil }
+            return AuthProviderInfo(
+                name: name,
+                displayName: row["display_name"] as? String ?? name,
+                supportsPassword: row["supports_password"] as? Bool ?? false
+            )
+        }
+    }
+
+    /// `POST /auth/password-login` — authenticates and stores the session
+    /// cookies. 401 means bad credentials; 429 rate-limited.
+    static func passwordLogin(
+        baseURL: URL,
+        provider: String,
+        username: String,
+        password: String
+    ) async throws {
+        let url = baseURL.appending(path: "auth/password-login")
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "provider": provider,
+            "username": username,
+            "password": password,
+        ])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
+            throw GatewayAPIError.httpStatus(code, body: detail ?? "Sign-in failed")
+        }
+    }
+
+    /// `POST /api/auth/ws-ticket` — single-use 30s WS credential for the
+    /// cookie session. A 401 here means the session has expired (or was
+    /// never established): re-run `passwordLogin`.
+    static func mintWsTicket(baseURL: URL) async throws -> String {
+        let url = baseURL.appending(path: "api/auth/ws-ticket")
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.httpMethod = "POST"
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw GatewayAPIError.httpStatus(code, body: String(decoding: data, as: UTF8.self))
+        }
+        let body = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        guard let ticket = body["ticket"] as? String, !ticket.isEmpty else {
+            throw GatewayAPIError.httpStatus(500, body: "Gateway returned no ticket")
+        }
+        return ticket
     }
 
     // MARK: - Sessions

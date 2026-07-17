@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.obliviousodin.fabric.mobile.core.ConnectionSettings
 import io.github.obliviousodin.fabric.mobile.core.ConnectionStore
 import io.github.obliviousodin.fabric.mobile.core.GatewayApi
+import io.github.obliviousodin.fabric.mobile.core.GatewayAuthMode
 import io.github.obliviousodin.fabric.mobile.core.GatewayConnectionState
 import io.github.obliviousodin.fabric.mobile.core.GatewayRpcException
 import io.github.obliviousodin.fabric.mobile.core.JsonRpcGatewayClient
@@ -63,6 +64,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Token-mode connect: loopback/tunnel gateways where the session token
+     * is the credential (`?token=` on the WS upgrade).
+     */
     fun connect(settings: ConnectionSettings) {
         if (_phase.value == ConnectionPhase.Connecting) return
         _phase.value = ConnectionPhase.Connecting
@@ -70,17 +75,56 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             try {
                 // Probe first: fail fast with a readable error and refuse the
-                // token path against an OAuth-gated gateway instead of dying
-                // on an opaque 4401 at WS upgrade.
+                // token path against a gated gateway instead of dying on an
+                // opaque 4401 at WS upgrade.
                 val status = GatewayApi.probeStatus(settings.baseUrl)
                 if (status.authRequired) {
                     throw GatewayRpcException(
-                        "This gateway requires OAuth sign-in, which the mobile app " +
-                            "does not support yet. Use a token-authenticated gateway."
+                        "This gateway requires a sign-in (it rejects token auth). " +
+                            "Use the username/password form."
                     )
                 }
                 client.connect(GatewayApi.websocketUrl(settings.baseUrl, settings.token))
                 ConnectionStore.save(getApplication<Application>(), settings)
+                _phase.value = ConnectionPhase.Connected
+                _screen.value = Screen.Sessions
+            } catch (e: Exception) {
+                _connectError.value = e.message ?: e.toString()
+                _phase.value = ConnectionPhase.Disconnected
+            }
+        }
+    }
+
+    /**
+     * Gated-mode connect: provider login (username/password) → cookie
+     * session → single-use WS ticket → `?ticket=` upgrade.
+     *
+     * Tries the ticket mint first: the cookie jar may still hold a live
+     * session from an earlier connect, in which case no password round-trip
+     * is needed. Falls back to `passwordLogin` on failure.
+     */
+    fun connectGated(baseUrl: String, provider: String, username: String, password: String) {
+        if (_phase.value == ConnectionPhase.Connecting) return
+        _phase.value = ConnectionPhase.Connecting
+        _connectError.value = null
+        viewModelScope.launch {
+            try {
+                val ticket = try {
+                    api.mintWsTicket(baseUrl)
+                } catch (_: Exception) {
+                    api.passwordLogin(baseUrl, provider, username, password)
+                    api.mintWsTicket(baseUrl)
+                }
+                client.connect(GatewayApi.websocketUrlWithTicket(baseUrl, ticket))
+                ConnectionStore.save(
+                    getApplication<Application>(),
+                    ConnectionSettings(
+                        baseUrl = baseUrl,
+                        token = "",
+                        authMode = GatewayAuthMode.GATED,
+                        username = username,
+                    ),
+                )
                 _phase.value = ConnectionPhase.Connected
                 _screen.value = Screen.Sessions
             } catch (e: Exception) {

@@ -894,6 +894,14 @@ export const en: Translations = {
     appearanceLight: "Light",
     appearanceSystem: "System",
     highContrast: "High contrast",
+    terminalTitle: "Terminal",
+    terminalHint: "Colors apply to new chat sessions",
+    terminalSchemeDefault: "Theme default",
+    terminalSchemeDefaultHint: "Derive colors from the active theme",
+    terminalFontTitle: "Terminal font",
+    terminalFontDefault: "Default (JetBrains Mono)",
+    terminalFontSizeTitle: "Terminal font size",
+    terminalFontSizeAuto: "Auto",
   },
 
   commandPalette: {

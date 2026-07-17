@@ -20,6 +20,13 @@ import {
 import type { DashboardTheme, ThemeListEntry } from "./types";
 import { api } from "@/lib/api";
 import {
+  DEFAULT_TERMINAL_PREFS,
+  normalizeTerminalPrefs,
+  terminalFontUrl,
+  type TerminalFontSize,
+  type TerminalPrefs,
+} from "@/lib/terminal-schemes";
+import {
   ThemeContext,
   type AppearancePref,
   type ContrastPref,
@@ -33,9 +40,11 @@ import {
   LEGACY_FONT_STORAGE_KEY,
   LEGACY_STORAGE_KEY,
   STORAGE_KEY,
+  TERMINAL_PREFS_STORAGE_KEY,
   appearanceForThemeMigration,
   applyTheme,
   canonicalizeThemeEntry,
+  injectFontStylesheet,
   migrateThemeName,
   setActiveFontOverride,
 } from "./apply";
@@ -147,6 +156,33 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       ? "high"
       : "normal";
   });
+
+  /** Terminal appearance overrides (scheme / font / size). Seeded from
+   *  localStorage so embedded terminals mount with the right palette;
+   *  the server value adopted below is the cross-browser source of truth. */
+  const [terminalPrefs, setTerminalPrefsState] = useState<TerminalPrefs>(() => {
+    if (typeof window === "undefined") return DEFAULT_TERMINAL_PREFS;
+    try {
+      const raw = window.localStorage.getItem(TERMINAL_PREFS_STORAGE_KEY);
+      return raw
+        ? normalizeTerminalPrefs(JSON.parse(raw))
+        : DEFAULT_TERMINAL_PREFS;
+    } catch {
+      return DEFAULT_TERMINAL_PREFS;
+    }
+  });
+
+  /** Mirror for the setters (stable callbacks that merge patches without
+   *  re-subscribing) and the mount adoption effect. */
+  const terminalPrefsRef = useRef(terminalPrefs);
+  useEffect(() => {
+    terminalPrefsRef.current = terminalPrefs;
+  }, [terminalPrefs]);
+
+  /** Flipped when the user touches a terminal pref this session, so a slow
+   *  server response can't clobber their in-flight choice (same guard as
+   *  `userPickedRef` for themes). */
+  const terminalPickedRef = useRef(false);
 
   // Resolve a theme name to a full DashboardTheme, falling back to default
   // only when neither a built-in nor a user theme is found. Generated
@@ -316,6 +352,76 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load the server-persisted terminal prefs once on mount (same contract
+  // as the font override: server wins across browsers, localStorage only
+  // avoids the flash).
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getTerminalPref()
+      .then((resp) => {
+        if (cancelled || terminalPickedRef.current) return;
+        const server = normalizeTerminalPrefs(resp);
+        const current = terminalPrefsRef.current;
+        if (
+          server.scheme === current.scheme &&
+          server.font === current.font &&
+          server.size === current.size
+        ) {
+          return;
+        }
+        terminalPrefsRef.current = server;
+        setTerminalPrefsState(server);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(
+            TERMINAL_PREFS_STORAGE_KEY,
+            JSON.stringify(server),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // A terminal font override is consumed by xterm as a plain CSS
+  // font-family, so its webfont stylesheet must be present in the page for
+  // the renderer to measure/rasterize it.
+  useEffect(() => {
+    injectFontStylesheet(terminalFontUrl(terminalPrefs.font));
+  }, [terminalPrefs.font]);
+
+  const updateTerminalPrefs = useCallback((patch: Partial<TerminalPrefs>) => {
+    terminalPickedRef.current = true;
+    const next = normalizeTerminalPrefs({
+      ...terminalPrefsRef.current,
+      ...patch,
+    });
+    terminalPrefsRef.current = next;
+    setTerminalPrefsState(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        TERMINAL_PREFS_STORAGE_KEY,
+        JSON.stringify(next),
+      );
+    }
+    api.setTerminalPref(next).catch(() => {});
+  }, []);
+
+  const setTerminalScheme = useCallback(
+    (id: string) => updateTerminalPrefs({ scheme: id }),
+    [updateTerminalPrefs],
+  );
+  const setTerminalFont = useCallback(
+    (id: string) => updateTerminalPrefs({ font: id }),
+    [updateTerminalPrefs],
+  );
+  const setTerminalFontSize = useCallback(
+    (size: TerminalFontSize) => updateTerminalPrefs({ size }),
+    [updateTerminalPrefs],
+  );
+
   const setTheme = useCallback(
     (name: string) => {
       userPickedRef.current = true;
@@ -395,6 +501,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setAppearance,
       contrast,
       setContrast,
+      terminalPrefs,
+      setTerminalScheme,
+      setTerminalFont,
+      setTerminalFontSize,
     }),
     [
       themeName,
@@ -407,6 +517,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setAppearance,
       contrast,
       setContrast,
+      terminalPrefs,
+      setTerminalScheme,
+      setTerminalFont,
+      setTerminalFontSize,
     ],
   );
 

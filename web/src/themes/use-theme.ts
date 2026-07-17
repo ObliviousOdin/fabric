@@ -3,6 +3,11 @@ import { BUILTIN_THEMES, defaultTheme } from "./presets";
 import { FONT_CHOICES, THEME_DEFAULT_FONT_ID, type FontChoice } from "./fonts";
 import type { ThemeContrast } from "./generate";
 import type { DashboardTheme, ThemeListEntry } from "./types";
+import {
+  DEFAULT_TERMINAL_PREFS,
+  type TerminalFontSize,
+  type TerminalPrefs,
+} from "@/lib/terminal-schemes";
 
 // The context object, hook, and preference types live outside context.tsx so
 // that file exports only components (Fast Refresh requirement) — a
@@ -12,6 +17,9 @@ import type { DashboardTheme, ThemeListEntry } from "./types";
 export type AppearancePref = "dark" | "light" | "system";
 /** Contrast preference — applies to the generated theme pair. */
 export type ContrastPref = ThemeContrast;
+
+export type { TerminalFontSize, TerminalPrefs };
+export { DEFAULT_TERMINAL_PREFS };
 
 export interface ThemeContextValue {
   availableThemes: ThemeListEntry[];
@@ -30,6 +38,11 @@ export interface ThemeContextValue {
   /** Contrast preference — applies to the generated theme pair. */
   contrast: ContrastPref;
   setContrast: (pref: ContrastPref) => void;
+  /** Terminal appearance overrides (scheme / font / size). */
+  terminalPrefs: TerminalPrefs;
+  setTerminalScheme: (id: string) => void;
+  setTerminalFont: (id: string) => void;
+  setTerminalFontSize: (size: TerminalFontSize) => void;
 }
 
 export const ThemeContext = createContext<ThemeContextValue>({
@@ -48,6 +61,10 @@ export const ThemeContext = createContext<ThemeContextValue>({
   setAppearance: () => {},
   contrast: "normal",
   setContrast: () => {},
+  terminalPrefs: DEFAULT_TERMINAL_PREFS,
+  setTerminalScheme: () => {},
+  setTerminalFont: () => {},
+  setTerminalFontSize: () => {},
 });
 
 export function useTheme(): ThemeContextValue {

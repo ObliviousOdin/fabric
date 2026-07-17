@@ -13,10 +13,13 @@ import { useProfileScope } from "@/contexts/useProfileScope";
 import { api } from "@/lib/api";
 import { publicConsolePrompt } from "@/lib/public-identity";
 import {
-  buildTerminalTheme,
   DEFAULT_TERMINAL_BACKGROUND,
   DEFAULT_TERMINAL_FOREGROUND,
 } from "@/lib/terminal-theme";
+import {
+  resolveTerminalTheme,
+  terminalFontFamily,
+} from "@/lib/terminal-schemes";
 import { cn, themedBody } from "@/lib/utils";
 import { useTheme } from "@/themes";
 
@@ -82,6 +85,7 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
   const modalRef = useModalBehavior({ open, onClose });
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XtermTerminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const lineRef = useRef("");
   const promptRef = useRef("fabric> ");
@@ -96,14 +100,19 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
   const [consoleContext, setConsoleContext] = useState("pending");
   const [consoleProfile, setConsoleProfile] = useState("current");
   const { profile } = useProfileScope();
-  const { theme } = useTheme();
-  // Construct-time copy so the mount effect doesn't depend on `theme` —
-  // a theme switch must restyle the live terminal (the effect below sets
-  // term.options.theme), not dispose it and kill the console WebSocket.
+  const { theme, terminalPrefs } = useTheme();
+  // Construct-time copies so the mount effect doesn't depend on `theme` or
+  // `terminalPrefs` — a theme/pref switch must restyle the live terminal
+  // (the effect below sets term.options), not dispose it and kill the
+  // console WebSocket.
   const themeRef = useRef(theme);
   useEffect(() => {
     themeRef.current = theme;
   }, [theme]);
+  const terminalPrefsRef = useRef(terminalPrefs);
+  useEffect(() => {
+    terminalPrefsRef.current = terminalPrefs;
+  }, [terminalPrefs]);
 
   const redrawInput = useCallback((line = lineRef.current) => {
     const term = termRef.current;
@@ -333,17 +342,18 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
 
     let cancelled = false;
     let resizeFrame = 0;
+    const prefs0 = terminalPrefsRef.current;
     const term = new XtermTerminal({
       allowProposedApi: true,
       cursorBlink: true,
-      fontFamily:
-        "'JetBrains Mono', 'Cascadia Mono', 'Fira Code', 'MesloLGS NF', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace",
-      fontSize: 13,
+      fontFamily: terminalFontFamily(prefs0.font),
+      fontSize: prefs0.size === "auto" ? 13 : prefs0.size,
       lineHeight: 1.25,
       letterSpacing: 0,
       macOptionIsMeta: true,
       scrollback: 3000,
-      theme: buildTerminalTheme(
+      theme: resolveTerminalTheme(
+        prefs0.scheme,
         themeRef.current.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND,
         themeRef.current.terminalForeground ?? DEFAULT_TERMINAL_FOREGROUND,
       ),
@@ -351,6 +361,7 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
     termRef.current = term;
 
     const fit = new FitAddon();
+    fitAddonRef.current = fit;
     term.loadAddon(fit);
     const unicode11 = new Unicode11Addon();
     term.loadAddon(unicode11);
@@ -442,6 +453,7 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
       wsRef.current = null;
       term.dispose();
       termRef.current = null;
+      fitAddonRef.current = null;
       lineRef.current = "";
       pendingCommandRef.current = null;
       activeCommandRef.current = false;
@@ -453,11 +465,27 @@ export function FabricConsoleModal({ open, onClose }: FabricConsoleModalProps) {
     if (!open) return;
     const term = termRef.current;
     if (!term) return;
-    term.options.theme = buildTerminalTheme(
+    term.options.theme = resolveTerminalTheme(
+      terminalPrefs.scheme,
       theme.terminalBackground ?? DEFAULT_TERMINAL_BACKGROUND,
       theme.terminalForeground ?? DEFAULT_TERMINAL_FOREGROUND,
     );
-  }, [open, theme]);
+    const family = terminalFontFamily(terminalPrefs.font);
+    const size = terminalPrefs.size === "auto" ? 13 : terminalPrefs.size;
+    const fontChanged =
+      term.options.fontFamily !== family || term.options.fontSize !== size;
+    if (fontChanged) {
+      term.options.fontFamily = family;
+      term.options.fontSize = size;
+      // Cell metrics changed while the host box didn't — the mount effect's
+      // ResizeObserver won't fire, so refit here.
+      try {
+        fitAddonRef.current?.fit();
+      } catch {
+        /* fit can fail while the modal is closing */
+      }
+    }
+  }, [open, theme, terminalPrefs]);
 
   if (!open) return null;
 

@@ -39,6 +39,11 @@ requires Python 3.11–3.13.
 
 ## The lean ("lite") install profile
 
+For full step-by-step walkthroughs, see
+[Install on Raspberry Pi](./raspberry-pi.md) and
+[Install on Jetson Nano](./jetson-nano.md); this section explains the profile
+itself.
+
 Skip the `.[all]` extra. Install the base package plus only the extras you
 will actually use — the same philosophy as the tested
 [Termux profile](./termux.md), which targets similarly constrained phones:
@@ -163,6 +168,8 @@ armv7, you are on a 32-bit OS — reinstall with a 64-bit image.
 
 ## See also
 
+- [Install on Raspberry Pi](./raspberry-pi.md) — step-by-step Pi walkthrough
+- [Install on Jetson Nano](./jetson-nano.md) — step-by-step Jetson walkthrough
 - [Platform Support](./platform-support.md) — support tiers for Linux arm64
 - [Android / Termux](./termux.md) — the same lean-profile approach on phones
 - [Memory Providers](/user-guide/features/memory-providers) — full provider matrix and consent model

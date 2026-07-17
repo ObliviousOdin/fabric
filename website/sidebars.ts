@@ -11,6 +11,8 @@ const sidebars: SidebarsConfig = {
         'getting-started/installation',
         'getting-started/platform-support',
         'getting-started/low-memory',
+        'getting-started/raspberry-pi',
+        'getting-started/jetson-nano',
         'getting-started/termux',
         'getting-started/nix-setup',
         'getting-started/updating',

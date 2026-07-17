@@ -244,3 +244,93 @@ class TestRegister:
         p2 = ctx2.register_dashboard_auth_provider.call_args.args[0]
         s = p1.complete_password_login(username="admin", password="hunter2")
         assert p2.verify_session(access_token=s.access_token) is not None
+
+
+class TestTotpSecondFactor:
+    """Optional TOTP second factor on the password provider (RFC 6238)."""
+
+    def _code_now(self, basic, secret, *, offset=0):
+        import time
+
+        step = (int(time.time()) // 30) + offset
+        return basic._totp_at(secret, step)
+
+    def test_rfc6238_reference_vectors(self, basic):
+        # SHA1 / 6-digit vectors from RFC 6238 Appendix B for the ASCII
+        # seed "12345678901234567890".
+        import base64
+
+        secret = base64.b32encode(b"12345678901234567890").decode()
+        assert basic._totp_at(secret, 59 // 30) == "287082"
+        assert basic._totp_at(secret, 1111111109 // 30) == "081804"
+
+    def test_verify_accepts_current_and_adjacent_steps(self, basic):
+        import time
+
+        secret = basic.generate_totp_secret()
+        now = int(time.time())
+        code = basic._totp_at(secret, now // 30)
+        assert basic.verify_totp(secret, code, at=now)
+        assert basic.verify_totp(secret, code, at=now + 31)   # +1 step (skew)
+        assert not basic.verify_totp(secret, code, at=now + 120)  # too far
+
+    def test_verify_rejects_malformed(self, basic):
+        secret = basic.generate_totp_secret()
+        for bad in ("", "abc", "12345", "1234567", "  12 34"):
+            assert not basic.verify_totp(secret, bad)
+
+    def test_login_requires_valid_code_when_configured(self, basic):
+        secret = basic.generate_totp_secret()
+        provider = basic.BasicAuthProvider(
+            username="admin",
+            password_hash=basic.hash_password("pw"),
+            secret=secrets.token_bytes(32),
+            totp_secret=secret,
+        )
+        assert provider.requires_totp is True
+
+        good = self._code_now(basic, secret)
+        assert provider.complete_password_login(
+            username="admin", password="pw", otp=good
+        ) is not None
+
+        # Missing / wrong code, wrong password, and wrong user all fail with
+        # the SAME generic error — no which-factor oracle.
+        for user, pw, otp in [
+            ("admin", "pw", ""),
+            ("admin", "pw", "000000"),
+            ("admin", "wrong", good),
+            ("nope", "pw", good),
+        ]:
+            with pytest.raises(InvalidCredentialsError):
+                provider.complete_password_login(username=user, password=pw, otp=otp)
+
+    def test_no_totp_configured_is_single_factor(self, basic):
+        provider = basic.BasicAuthProvider(
+            username="admin",
+            password_hash=basic.hash_password("pw"),
+            secret=secrets.token_bytes(32),
+        )
+        assert provider.requires_totp is False
+        # The two-arg call still works (backward compatible) and an otp arg
+        # is ignored when no factor is configured.
+        assert provider.complete_password_login(username="admin", password="pw") is not None
+        assert provider.complete_password_login(
+            username="admin", password="pw", otp="whatever"
+        ) is not None
+
+    def test_register_reads_totp_secret_from_env(self, basic, monkeypatch):
+        secret = basic.generate_totp_secret()
+        monkeypatch.setattr(basic, "_load_config_basic_auth_section", lambda: {})
+        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_USERNAME", "admin")
+        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "pw")
+        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_TOTP_SECRET", secret)
+
+        ctx = MagicMock()
+        basic.register(ctx)
+        provider = ctx.register_dashboard_auth_provider.call_args.args[0]
+        assert provider.requires_totp is True
+        good = self._code_now(basic, secret)
+        assert provider.complete_password_login(
+            username="admin", password="pw", otp=good
+        ) is not None

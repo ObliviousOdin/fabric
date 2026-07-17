@@ -29,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -199,17 +201,20 @@ private fun SignInDialog(
     onDismiss: () -> Unit,
 ) {
     var password by remember { mutableStateOf("") }
+    var otp by remember { mutableStateOf("") }
     var providerName by remember { mutableStateOf<String?>(null) }
+    var requiresTotp by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val phase by viewModel.phase.collectAsState()
     val scope = rememberCoroutineScope()
 
-    // Try a silent reconnect on a live cookie session as soon as the dialog
-    // opens; resolve the provider in parallel for the manual path.
+    // Resolve the provider (and whether it needs a code) when the dialog opens.
     androidx.compose.runtime.LaunchedEffect(gateway.id) {
-        providerName = runCatching {
-            viewModel.api.listAuthProviders(gateway.baseUrl).firstOrNull { it.supportsPassword }?.name
+        val provider = runCatching {
+            viewModel.api.listAuthProviders(gateway.baseUrl).firstOrNull { it.supportsPassword }
         }.getOrNull()
+        providerName = provider?.name
+        requiresTotp = provider?.requiresTotp ?: false
     }
     androidx.compose.runtime.LaunchedEffect(phase) {
         if (phase == ConnectionPhase.Connected) onDismiss()
@@ -229,12 +234,23 @@ private fun SignInDialog(
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (requiresTotp) {
+                    OutlinedTextField(
+                        value = otp,
+                        onValueChange = { otp = it.filter(Char::isDigit).take(6) },
+                        label = { Text("6-digit code") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = FabricTheme.extras.danger) }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = password.isNotEmpty() && phase != ConnectionPhase.Connecting,
+                enabled = password.isNotEmpty() && phase != ConnectionPhase.Connecting &&
+                    (!requiresTotp || otp.length >= 6),
                 onClick = {
                     val provider = providerName
                     if (provider == null) {
@@ -242,7 +258,7 @@ private fun SignInDialog(
                         return@TextButton
                     }
                     scope.launch {
-                        viewModel.connectGated(gateway, provider, password)
+                        viewModel.connectGated(gateway, provider, password, otp.trim())
                         if (viewModel.phase.value != ConnectionPhase.Connected) {
                             error = viewModel.connectError.value ?: "Sign-in failed."
                         }

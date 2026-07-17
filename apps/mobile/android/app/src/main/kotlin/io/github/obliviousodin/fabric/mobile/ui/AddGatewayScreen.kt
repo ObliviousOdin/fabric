@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.journeyapps.barcodescanner.ScanContract
@@ -54,23 +56,35 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
     var token by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var otp by remember { mutableStateOf("") }
     var providerName by remember { mutableStateOf<String?>(null) }
+    var requiresTotp by remember { mutableStateOf(false) }
     var probeResult by remember { mutableStateOf<String?>(null) }
     var probing by remember { mutableStateOf(false) }
 
     val urlValid = url.trim().startsWith("http://") || url.trim().startsWith("https://")
     val canSave = urlValid && phase != ConnectionPhase.Connecting &&
-        if (passwordMode) username.isNotBlank() && password.isNotEmpty() else token.isNotBlank()
+        if (passwordMode) {
+            username.isNotBlank() && password.isNotEmpty() &&
+                (!requiresTotp || otp.trim().length >= 6)
+        } else {
+            token.isNotBlank()
+        }
 
     // Dismiss once a connect lands.
     androidx.compose.runtime.LaunchedEffect(phase) {
         if (phase == ConnectionPhase.Connected) onDismiss()
     }
 
-    suspend fun resolveProvider(base: String): String? =
-        providerName ?: runCatching {
-            viewModel.api.listAuthProviders(base).firstOrNull { it.supportsPassword }?.name
-        }.getOrNull().also { providerName = it }
+    suspend fun resolveProvider(base: String): String? {
+        providerName?.let { return it }
+        val provider = runCatching {
+            viewModel.api.listAuthProviders(base).firstOrNull { it.supportsPassword }
+        }.getOrNull()
+        providerName = provider?.name
+        requiresTotp = provider?.requiresTotp ?: false
+        return provider?.name
+    }
 
     fun save() {
         val base = url.trim().trimEnd('/')
@@ -82,7 +96,7 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
                     return@launch
                 }
                 val gateway = viewModel.saveGatedGateway(label, base, username.trim())
-                viewModel.connectGated(gateway, provider, password)
+                viewModel.connectGated(gateway, provider, password, otp.trim())
             } else {
                 val gateway = viewModel.saveTokenGateway(label, base, token.trim())
                 viewModel.connectToken(gateway)
@@ -168,6 +182,17 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (requiresTotp) {
+                    OutlinedTextField(
+                        value = otp,
+                        onValueChange = { otp = it.filter(Char::isDigit).take(6) },
+                        label = { Text("6-digit code") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        supportingText = { Text("From your authenticator app") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             } else {
                 OutlinedTextField(
                     value = token,

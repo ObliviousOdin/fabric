@@ -100,6 +100,8 @@ data class AuthProviderInfo(
     val name: String,
     val displayName: String,
     val supportsPassword: Boolean,
+    /** Provider requires a TOTP second factor — show a code field. */
+    val requiresTotp: Boolean,
 )
 
 class GatewayHttpException(message: String) : Exception(message)
@@ -198,6 +200,8 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
                         displayName = obj.string("display_name") ?: name,
                         supportsPassword = (obj["supports_password"] as? JsonPrimitive)
                             ?.booleanOrNull ?: false,
+                        requiresTotp = (obj["requires_totp"] as? JsonPrimitive)
+                            ?.booleanOrNull ?: false,
                     )
                 }
             }
@@ -213,6 +217,7 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
         provider: String,
         username: String,
         password: String,
+        otp: String = "",
     ): Unit = withContext(Dispatchers.IO) {
         val url = normalizedBase(baseUrl).newBuilder()
             .addPathSegments("auth/password-login")
@@ -221,6 +226,7 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
             put("provider", provider)
             put("username", username)
             put("password", password)
+            put("otp", otp)
         }.toString().toRequestBody("application/json".toMediaType())
         authClient.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
             if (!response.isSuccessful) {

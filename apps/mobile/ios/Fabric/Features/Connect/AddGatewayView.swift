@@ -19,7 +19,9 @@ struct AddGatewayView: View {
     @State private var token = ""
     @State private var username = ""
     @State private var password = ""
+    @State private var otp = ""
     @State private var providerName: String?
+    @State private var requiresTotp = false
     @State private var probeResult: String?
     @State private var probing = false
     @State private var showScanner = false
@@ -37,7 +39,9 @@ struct AddGatewayView: View {
         guard parsedURL != nil, appModel.phase != .connecting else { return false }
         switch mode {
         case .token: return !token.trimmingCharacters(in: .whitespaces).isEmpty
-        case .password: return !username.isEmpty && !password.isEmpty
+        case .password:
+            let credsOK = !username.isEmpty && !password.isEmpty
+            return credsOK && (!requiresTotp || otp.trimmingCharacters(in: .whitespaces).count >= 6)
         }
     }
 
@@ -78,8 +82,15 @@ struct AddGatewayView: View {
                             .textInputAutocapitalization(.never)
                         SecureField("Password", text: $password)
                             .textContentType(.password)
+                        if requiresTotp {
+                            TextField("6-digit code", text: $otp)
+                                .keyboardType(.numberPad)
+                                .textContentType(.oneTimeCode)
+                        }
                         if let providerName {
-                            Text("Provider: \(providerName)")
+                            Text(requiresTotp
+                                 ? "Provider: \(providerName) · code from your authenticator app"
+                                 : "Provider: \(providerName)")
                                 .font(.footnote)
                                 .foregroundStyle(FabricTheme.textMuted)
                         }
@@ -168,6 +179,7 @@ struct AddGatewayView: View {
         if let provider = try? await GatewayAPI.listAuthProviders(baseURL: url)
             .first(where: { $0.supportsPassword }) {
             providerName = provider.name
+            requiresTotp = provider.requiresTotp
         }
     }
 
@@ -188,7 +200,12 @@ struct AddGatewayView: View {
                 return
             }
             let gateway = appModel.saveGatedGateway(label: label, baseURL: url, username: username)
-            await appModel.connectGated(gateway, provider: providerName, password: password)
+            await appModel.connectGated(
+                gateway,
+                provider: providerName,
+                password: password,
+                otp: otp.trimmingCharacters(in: .whitespaces)
+            )
         }
         if appModel.phase == .connected { dismiss() }
     }
@@ -223,7 +240,9 @@ struct SignInSheet: View {
     let gateway: SavedGateway
 
     @State private var password = ""
+    @State private var otp = ""
     @State private var providerName: String?
+    @State private var requiresTotp = false
     @State private var working = false
     @State private var error: String?
 
@@ -240,6 +259,11 @@ struct SignInSheet: View {
                     LabeledContent("Username", value: gateway.username)
                     SecureField("Password", text: $password)
                         .textContentType(.password)
+                    if requiresTotp {
+                        TextField("6-digit code", text: $otp)
+                            .keyboardType(.numberPad)
+                            .textContentType(.oneTimeCode)
+                    }
                 }
                 Section {
                     Button {
@@ -247,7 +271,10 @@ struct SignInSheet: View {
                     } label: {
                         if working { ProgressView() } else { Text("Sign in and connect") }
                     }
-                    .disabled(password.isEmpty || working)
+                    .disabled(
+                        password.isEmpty || working
+                            || (requiresTotp && otp.trimmingCharacters(in: .whitespaces).count < 6)
+                    )
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(FabricTheme.danger)
                     }
@@ -261,8 +288,11 @@ struct SignInSheet: View {
                 }
             }
             .task {
-                providerName = try? await GatewayAPI.listAuthProviders(baseURL: gateway.baseURL)
-                    .first(where: { $0.supportsPassword })?.name
+                if let provider = try? await GatewayAPI.listAuthProviders(baseURL: gateway.baseURL)
+                    .first(where: { $0.supportsPassword }) {
+                    providerName = provider.name
+                    requiresTotp = provider.requiresTotp
+                }
             }
         }
     }
@@ -274,7 +304,12 @@ struct SignInSheet: View {
             error = "This server offers no password sign-in."
             return
         }
-        await appModel.connectGated(gateway, provider: providerName, password: password)
+        await appModel.connectGated(
+            gateway,
+            provider: providerName,
+            password: password,
+            otp: otp.trimmingCharacters(in: .whitespaces)
+        )
         if appModel.phase == .connected {
             dismiss()
         } else {

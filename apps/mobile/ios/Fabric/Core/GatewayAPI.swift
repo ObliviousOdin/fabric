@@ -85,6 +85,8 @@ struct AuthProviderInfo: Identifiable, Hashable {
     let name: String
     let displayName: String
     let supportsPassword: Bool
+    /// Provider requires a TOTP second factor — show a code field.
+    let requiresTotp: Bool
     var id: String { name }
 }
 
@@ -172,7 +174,8 @@ struct GatewayAPI {
             return AuthProviderInfo(
                 name: name,
                 displayName: row["display_name"] as? String ?? name,
-                supportsPassword: row["supports_password"] as? Bool ?? false
+                supportsPassword: row["supports_password"] as? Bool ?? false,
+                requiresTotp: row["requires_totp"] as? Bool ?? false
             )
         }
     }
@@ -183,7 +186,8 @@ struct GatewayAPI {
         baseURL: URL,
         provider: String,
         username: String,
-        password: String
+        password: String,
+        otp: String = ""
     ) async throws {
         let url = baseURL.appending(path: "auth/password-login")
         var request = URLRequest(url: url, timeoutInterval: 15)
@@ -193,6 +197,7 @@ struct GatewayAPI {
             "provider": provider,
             "username": username,
             "password": password,
+            "otp": otp,
         ])
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

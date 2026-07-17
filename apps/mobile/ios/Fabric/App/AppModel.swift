@@ -107,7 +107,8 @@ final class AppModel {
     func connectGated(
         _ gateway: SavedGateway,
         provider: String,
-        password: String?
+        password: String?,
+        otp: String = ""
     ) async {
         await connect(gateway: gateway) {
             do {
@@ -121,7 +122,8 @@ final class AppModel {
                     baseURL: gateway.baseURL,
                     provider: provider,
                     username: gateway.username,
-                    password: password
+                    password: password,
+                    otp: otp
                 )
                 let ticket = try await GatewayAPI.mintWsTicket(baseURL: gateway.baseURL)
                 return try await GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)

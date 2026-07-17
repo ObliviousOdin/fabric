@@ -108,6 +108,114 @@ LAST_SKIP_REASON: str = ""
 
 
 # ---------------------------------------------------------------------------
+# TOTP second factor (RFC 6238 / RFC 4226, pure stdlib)
+# ---------------------------------------------------------------------------
+#
+# Optional layer on top of the password: when a base32 ``totp_secret`` is
+# configured, ``complete_password_login`` requires a valid 6-digit code from
+# an authenticator app (Google Authenticator, Authy, 1Password, the Apple
+# Passwords app / iCloud Keychain, etc.) in addition to the password. This is
+# the "Google-authenticator-style" second factor — it needs no external
+# service (no SMS/email gateway), works offline, and adds no new network
+# attack surface. It is defense-in-depth for the password provider; it is
+# NOT a substitute for keeping the gateway off the public internet (see
+# apps/mobile/SECURITY.md).
+
+_TOTP_STEP_SECONDS = 30
+_TOTP_DIGITS = 6
+# Accept the code from the adjacent time steps too, so a ±30s clock skew
+# between phone and server doesn't reject a correct code.
+_TOTP_SKEW_STEPS = 1
+
+
+def generate_totp_secret() -> str:
+    """A fresh base32 TOTP secret (160 bits, RFC 4226 recommended length)."""
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+
+def totp_provisioning_uri(secret: str, account: str, *, issuer: str = "Fabric") -> str:
+    """The ``otpauth://`` URI to enroll `secret` in an authenticator app.
+
+    Render it as a QR (or type the secret) into Google Authenticator / Authy /
+    1Password / Apple Passwords. Matches the Key URI format the apps expect.
+    """
+    from urllib.parse import quote
+
+    label = quote(f"{issuer}:{account}")
+    query = f"secret={secret}&issuer={quote(issuer)}&digits={_TOTP_DIGITS}&period={_TOTP_STEP_SECONDS}"
+    return f"otpauth://totp/{label}?{query}"
+
+
+def print_totp_enrollment(account: str = "admin", *, issuer: str = "Fabric") -> str:
+    """Operator helper: mint a secret and print enrollment instructions.
+
+    Run it, add the printed secret to ``dashboard.basic_auth.totp_secret``
+    (or the env override), and scan the ``otpauth://`` URI into an
+    authenticator app::
+
+        python -c "from plugins.dashboard_auth.basic import print_totp_enrollment; print_totp_enrollment('admin')"
+
+    Returns the secret so it can be captured programmatically in tests.
+    """
+    secret = generate_totp_secret()
+    uri = totp_provisioning_uri(secret, account, issuer=issuer)
+    print("Fabric dashboard TOTP enrollment")
+    print(f"  secret (base32): {secret}")
+    print(f"  otpauth URI:     {uri}")
+    print(
+        "\nAdd to config.yaml:\n"
+        "  dashboard:\n"
+        "    basic_auth:\n"
+        f"      totp_secret: \"{secret}\"\n"
+        "…or set HERMES_DASHBOARD_BASIC_AUTH_TOTP_SECRET. Then scan the "
+        "otpauth URI (or type the secret) into Google Authenticator, Authy, "
+        "1Password, or the Apple Passwords app."
+    )
+    return secret
+
+
+def _totp_at(secret_b32: str, counter: int) -> str:
+    """The RFC 4226 HOTP value for `counter` — the TOTP code for one step."""
+    # Restore base32 padding the config/QR form omits.
+    padded = secret_b32.strip().replace(" ", "").upper()
+    padded += "=" * (-len(padded) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    msg = counter.to_bytes(8, "big")
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    binary = (
+        (digest[offset] & 0x7F) << 24
+        | (digest[offset + 1] & 0xFF) << 16
+        | (digest[offset + 2] & 0xFF) << 8
+        | (digest[offset + 3] & 0xFF)
+    )
+    return str(binary % (10**_TOTP_DIGITS)).zfill(_TOTP_DIGITS)
+
+
+def verify_totp(secret_b32: str, code: str, *, at: Optional[int] = None) -> bool:
+    """True if `code` is valid now (within ±_TOTP_SKEW_STEPS steps).
+
+    Constant-time compares each candidate to avoid a timing side channel.
+    Malformed input (non-digit / wrong length / bad secret) returns False
+    rather than raising, so a garbage code is just a failed factor.
+    """
+    cleaned = (code or "").strip().replace(" ", "")
+    if len(cleaned) != _TOTP_DIGITS or not cleaned.isdigit():
+        return False
+    now = int(at if at is not None else time.time())
+    step = now // _TOTP_STEP_SECONDS
+    try:
+        ok = False
+        for delta in range(-_TOTP_SKEW_STEPS, _TOTP_SKEW_STEPS + 1):
+            candidate = _totp_at(secret_b32, step + delta)
+            # Don't short-circuit — check every window in constant time.
+            ok = hmac.compare_digest(candidate, cleaned) or ok
+        return ok
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # Password hashing (stdlib scrypt)
 # ---------------------------------------------------------------------------
 
@@ -212,6 +320,7 @@ class BasicAuthProvider(DashboardAuthProvider):
         password_hash: str,
         secret: bytes,
         ttl_seconds: int = _DEFAULT_TTL_SECONDS,
+        totp_secret: str = "",
     ) -> None:
         if not username:
             raise ValueError("username must be non-empty")
@@ -223,6 +332,17 @@ class BasicAuthProvider(DashboardAuthProvider):
         self._password_hash = password_hash
         self._secret = secret
         self._ttl = max(60, int(ttl_seconds))
+        self._totp_secret = (totp_secret or "").strip()
+
+    @property
+    def requires_totp(self) -> bool:
+        """True when a TOTP second factor is configured for this provider.
+
+        Surfaced on ``/api/auth/providers`` so clients show a code field.
+        It is a capability flag, not per-attempt state, so it leaks nothing
+        about any individual login.
+        """
+        return bool(self._totp_secret)
 
     # ---- OAuth methods: not used (pure-password provider) ------------------
 
@@ -242,7 +362,7 @@ class BasicAuthProvider(DashboardAuthProvider):
     # ---- password login ----------------------------------------------------
 
     def complete_password_login(
-        self, *, username: str, password: str
+        self, *, username: str, password: str, otp: str = ""
     ) -> Session:
         # Constant-time-ish: always run a scrypt verify (against the real
         # hash if the username matches, else a dummy hash) so an unknown
@@ -254,8 +374,15 @@ class BasicAuthProvider(DashboardAuthProvider):
         )
         target_hash = self._password_hash if username_ok else _DUMMY_HASH
         password_ok = _verify_password(password, target_hash)
-        if not (username_ok and password_ok):
-            raise InvalidCredentialsError("invalid username or password")
+        # When a TOTP factor is configured, the code must also be valid. The
+        # three checks are combined into ONE generic failure so the endpoint
+        # never reveals which factor failed — a wrong password and a wrong
+        # code are indistinguishable to the caller, so it isn't a
+        # password-was-correct oracle. Clients learn a code is expected from
+        # the provider's `requires_totp` capability flag, not from a failure.
+        otp_ok = (not self._totp_secret) or verify_totp(self._totp_secret, otp)
+        if not (username_ok and password_ok and otp_ok):
+            raise InvalidCredentialsError("invalid username, password, or code")
         return self._mint_session(self._username)
 
     # ---- session lifecycle -------------------------------------------------
@@ -466,6 +593,9 @@ def register(ctx) -> None:
         )
 
     secret = _resolve_secret(section)
+    totp_secret = _resolve(
+        "HERMES_DASHBOARD_BASIC_AUTH_TOTP_SECRET", section, "totp_secret"
+    )
 
     try:
         ttl = int(ttl_raw) if ttl_raw else _DEFAULT_TTL_SECONDS
@@ -478,6 +608,7 @@ def register(ctx) -> None:
             password_hash=password_hash,
             secret=secret,
             ttl_seconds=ttl,
+            totp_secret=totp_secret,
         )
     except ValueError as exc:
         LAST_SKIP_REASON = f"BasicAuthProvider construction failed: {exc}"
@@ -486,6 +617,7 @@ def register(ctx) -> None:
 
     ctx.register_dashboard_auth_provider(provider)
     logger.info(
-        "dashboard-auth-basic: registered password provider (username=%s)",
+        "dashboard-auth-basic: registered password provider (username=%s, totp=%s)",
         username,
+        "on" if provider.requires_totp else "off",
     )

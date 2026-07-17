@@ -133,7 +133,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
      * mints. A null/blank password with no live session surfaces a re-auth
      * error so the caller can prompt.
      */
-    fun connectGated(gateway: SavedGateway, provider: String, password: String?) {
+    fun connectGated(gateway: SavedGateway, provider: String, password: String?, otp: String = "") {
         connect(gateway) {
             try {
                 val ticket = api.mintWsTicket(gateway.baseUrl)
@@ -142,7 +142,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 if (password.isNullOrEmpty()) {
                     throw GatewayRpcException("Sign in to ${gateway.label} to connect.")
                 }
-                api.passwordLogin(gateway.baseUrl, provider, gateway.username, password)
+                api.passwordLogin(gateway.baseUrl, provider, gateway.username, password, otp)
                 val ticket = api.mintWsTicket(gateway.baseUrl)
                 GatewayApi.websocketUrlWithTicket(gateway.baseUrl, ticket)
             }

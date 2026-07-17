@@ -11,6 +11,7 @@ from unittest import mock
 
 import pytest
 import yaml
+from agent.skill_preprocessing import preprocess_skill_content
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_ROOT = REPO_ROOT / "skills" / "github" / "fabric-contribute"
@@ -52,7 +53,17 @@ def test_skill_follows_bundled_authoring_contract():
     assert positions == sorted(positions)
     assert "source skills/github/" not in body
     assert "skills/github/fabric-contribute/scripts/" not in body
+    assert "<skill-dir>" not in body
+    assert "${HERMES_SKILL_DIR}" in body
     assert "fabric_issue.py" in body
+
+    rendered = preprocess_skill_content(
+        body,
+        SKILL_ROOT,
+        skills_cfg={"template_vars": True, "inline_shell": False},
+    )
+    assert "${HERMES_SKILL_DIR}" not in rendered
+    assert str(HELPER_PATH) in rendered
 
 
 def test_search_is_scoped_to_fabric_issues():

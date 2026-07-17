@@ -43,9 +43,10 @@ FABRIC_REPO_URL = f"https://github.com/{FABRIC_REPO_SLUG}"
 # grant to "GitHub CLI", not Fabric — the sign-in flow says so up front.
 GITHUB_OAUTH_CLIENT_ID = "178c6fc778ccc68e1d6a"
 
-# ``public_repo`` covers everything this module does: starring the (public)
-# Fabric repository. Deliberately narrower than the ``repo`` scope so a token
-# minted here can't touch private repositories.
+# GitHub requires ``public_repo`` to star public repositories. The scope grants
+# read/write access to all of the user's public repositories, which also enables
+# the GitHub skills to push, open PRs, and file issues. It is deliberately
+# narrower than ``repo`` so a token minted here cannot touch private repositories.
 GITHUB_OAUTH_SCOPES = "public_repo"
 
 GITHUB_API_BASE = "https://api.github.com"
@@ -202,7 +203,7 @@ def github_device_code_login() -> Optional[str]:
     # there so the attribution isn't a surprise.
     print()
     print("  GitHub's authorization page will show this request as 'GitHub CLI' —")
-    print("  Fabric signs in through the GitHub CLI's public app, asking only")
-    print("  for public-repository access.")
+    print("  Fabric signs in through the GitHub CLI's public app and requests")
+    print("  read/write access to your public repositories (no private repos).")
 
     return device_code_login(GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_SCOPES)

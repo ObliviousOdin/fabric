@@ -46,8 +46,8 @@ It files a well-formed issue on the upstream Fabric repository:
 ## Prerequisites
 
 The user must be signed in to GitHub. `fabric setup github` handles this (device
-code sign-in, saved as `GITHUB_TOKEN` in `~/.fabric/.env`). Detect credentials
-with the shared helper:
+code sign-in, saved as `GITHUB_TOKEN` in the active Fabric profile's `.env`).
+Detect credentials with the shared helper:
 
 ```bash
 source skills/github/github-auth/scripts/gh-env.sh
@@ -85,8 +85,8 @@ Search existing issues first and show the user anything similar:
 ```bash
 QUERY="the user's summary in a few keywords"
 
-# With gh
-gh search issues --repo ObliviousOdin/fabric --state all --limit 10 "$QUERY"
+# With gh (omitting --state searches both open and closed issues)
+gh search issues --repo ObliviousOdin/fabric --limit 10 "$QUERY"
 
 # With curl
 curl -s -H "Authorization: token $GITHUB_TOKEN" \

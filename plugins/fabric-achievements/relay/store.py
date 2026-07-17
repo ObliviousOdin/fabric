@@ -235,11 +235,16 @@ class LeaderboardStore:
                 os.fsync(handle.fileno())
             tmp.replace(self._path)
             if os.name != "nt":
-                directory_fd = os.open(self._path.parent, os.O_RDONLY)
                 try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
+                    directory_fd = os.open(self._path.parent, os.O_RDONLY)
+                    try:
+                        os.fsync(directory_fd)
+                    finally:
+                        os.close(directory_fd)
+                except OSError:
+                    # The rename is already committed. Do not report failure
+                    # and roll memory back to a state that disagrees with disk.
+                    pass
         finally:
             if tmp is not None:
                 try:

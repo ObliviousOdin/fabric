@@ -252,7 +252,7 @@ _FABRIC_MODEL_WARNING = (
 # Negative examples it must NOT match:
 #   fabric-brain:qwen3-14b-ctx16k, qwen3:14b, claude-opus-4-6
 _NOUS_FABRIC_NON_AGENTIC_RE = re.compile(
-    r"(?:^|[/:])fabric[-_ ]?[34](?:[-_.:]|$)",
+    r"(?:^|[/:])hermes[-_ ]?[34](?:[-_.:]|$)",
     re.IGNORECASE,
 )
 

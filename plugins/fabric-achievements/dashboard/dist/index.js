@@ -804,14 +804,32 @@
     }
   }
 
-  function CmdRow({ cmd, t }) {
+  function useCopyFeedback(text) {
     const [copyState, setCopyState] = hooks.useState("idle");
+    const generation = React.useRef(0);
+    const resetTimer = React.useRef(null);
     function copy() {
-      copyText(cmd).then(function (ok) {
+      const current = ++generation.current;
+      if (resetTimer.current) clearTimeout(resetTimer.current);
+      copyText(text).then(function (ok) {
+        if (current !== generation.current) return;
         setCopyState(ok ? "copied" : "failed");
-        setTimeout(function () { setCopyState("idle"); }, 1600);
+        resetTimer.current = setTimeout(function () {
+          if (current === generation.current) setCopyState("idle");
+        }, 1600);
       });
     }
+    hooks.useEffect(function () {
+      return function () {
+        generation.current += 1;
+        if (resetTimer.current) clearTimeout(resetTimer.current);
+      };
+    }, []);
+    return [copyState, copy];
+  }
+
+  function CmdRow({ cmd, t }) {
+    const [copyState, copy] = useCopyFeedback(cmd);
     const label = copyState === "copied"
       ? tx(t, "team.copied", "Copied ✓")
       : copyState === "failed"
@@ -901,7 +919,7 @@
     const managed = host && host.managed_relay;
     const hosted = !!(managed && managed.running);
     const ownershipUnknown = !!(managed && managed.ownership_unknown);
-    const relayAnswering = !!(local && local.ok);
+    const relayAnswering = !!((local && local.ok) || (host && host.shareable_relay && host.shareable_relay.ok));
     const busyAll = busy || !!action;
 
     let status = null;
@@ -975,7 +993,7 @@
     }
 
     const hostLabel = action === "start"
-      ? tx(t, "team.working", "Working…")
+      ? tx(t, "team.starting", "Starting…")
       : tx(t, "team.host_button", "Host on this machine");
     const detectLabel = action === "detect"
       ? tx(t, "team.detecting", "Detecting…")
@@ -1113,13 +1131,7 @@
   }
 
   function InviteRow({ code, t }) {
-    const [copyState, setCopyState] = hooks.useState("idle");
-    function copy() {
-      copyText(code).then(function (ok) {
-        setCopyState(ok ? "copied" : "failed");
-        setTimeout(function () { setCopyState("idle"); }, 1600);
-      });
-    }
+    const [copyState, copy] = useCopyFeedback(code);
     const label = copyState === "copied"
       ? tx(t, "team.copied", "Copied ✓")
       : copyState === "failed"
@@ -1140,33 +1152,33 @@
       return h("div", { className: "ha-board-empty" },
         tx(t, "team.board_empty", "No one has shared stats yet. Turn on sharing above to appear on the board."));
     }
-    return h("div", { className: "ha-board" },
-      h("div", { className: "ha-board-head" },
-        h("span", { className: "ha-board-rank" }, "#"),
-        h("span", { className: "ha-board-name" }, tx(t, "team.col_member", "Member")),
-        h("span", { className: "ha-board-score" }, tx(t, "team.col_score", "Score")),
-        h("span", { className: "ha-board-unlocked" }, tx(t, "team.col_unlocked", "Unlocked")),
-        h("span", { className: "ha-board-tier" }, tx(t, "team.col_tier", "Top tier")),
-        isOwner && h("span", { className: "ha-board-actions" }, "")
+    return h("div", { className: "ha-board", role: "table", "aria-label": tx(t, "team.board_label", "Team leaderboard") },
+      h("div", { className: "ha-board-head", role: "row" },
+        h("span", { className: "ha-board-rank", role: "columnheader" }, "#"),
+        h("span", { className: "ha-board-name", role: "columnheader" }, tx(t, "team.col_member", "Member")),
+        h("span", { className: "ha-board-score", role: "columnheader" }, tx(t, "team.col_score", "Score")),
+        h("span", { className: "ha-board-unlocked", role: "columnheader" }, tx(t, "team.col_unlocked", "Unlocked")),
+        h("span", { className: "ha-board-tier", role: "columnheader" }, tx(t, "team.col_tier", "Top tier")),
+        isOwner && h("span", { className: "ha-board-actions", role: "columnheader", "aria-label": tx(t, "team.col_actions", "Actions") }, "")
       ),
       rows.map(function (row) {
         const isMe = row.member_id === myId;
-        return h("div", { key: row.member_id, className: cn("ha-board-row", tierClass(row.highest_tier), isMe && "ha-board-me") },
-          h("span", { className: "ha-board-rank" }, row.rank),
-          h("span", { className: "ha-board-name" },
+        return h("div", { key: row.member_id, role: "row", className: cn("ha-board-row", tierClass(row.highest_tier), isMe && "ha-board-me") },
+          h("span", { className: "ha-board-rank", role: "cell" }, row.rank),
+          h("span", { className: "ha-board-name", role: "cell" },
             row.display_name,
             row.role === "owner" && h("span", { className: "ha-role-badge" }, tx(t, "team.owner_badge", "owner")),
             isMe && h("span", { className: "ha-you-badge" }, tx(t, "team.you_badge", "you")),
             !row.has_published && h("span", { className: "ha-pending-badge" }, tx(t, "team.not_shared", "not shared"))
           ),
-          h("span", { className: "ha-board-score" }, (row.score || 0).toLocaleString()),
-          h("span", { className: "ha-board-unlocked" }, (row.unlocked_count || 0) + (row.total_count ? " / " + row.total_count : "")),
-          h("span", { className: "ha-board-tier" },
+          h("span", { className: "ha-board-score", role: "cell" }, (row.score || 0).toLocaleString()),
+          h("span", { className: "ha-board-unlocked", role: "cell" }, (row.unlocked_count || 0) + (row.total_count ? " / " + row.total_count : "")),
+          h("span", { className: "ha-board-tier", role: "cell" },
             row.highest_tier
               ? h("span", { className: cn("ha-tier-badge", tierClass(row.highest_tier)) }, row.highest_tier)
               : h("span", { className: "ha-board-dash" }, "—")
           ),
-          isOwner && h("span", { className: "ha-board-actions" },
+          isOwner && h("span", { className: "ha-board-actions", role: "cell" },
             !isMe && h("button", {
               className: "ha-team-btn ha-team-btn-danger", disabled: busy,
               title: tx(t, "team.kick_title", "Remove this member"),
@@ -1185,42 +1197,67 @@
     const [busy, setBusy] = hooks.useState(false);
     const [actionError, setActionError] = hooks.useState(null);
     const [nameDraft, setNameDraft] = hooks.useState("");
+    const reloadGeneration = React.useRef(0);
+    const mounted = React.useRef(true);
 
     function reload(spinner, refreshProfile) {
+      const generation = ++reloadGeneration.current;
       if (spinner) setLoading(true);
       const path = refreshProfile === false ? "/team/leaderboard?refresh=false" : "/team/leaderboard";
       return api(path)
         .then(function (payload) {
+          if (!mounted.current || generation !== reloadGeneration.current) return;
           setData(payload);
           if (payload && payload.membership && payload.membership.display_name) {
             setNameDraft(payload.membership.display_name);
           }
-          // Surface a relay failure on load/refresh (e.g. relay unreachable)
-          // instead of a misleading empty board; clear any stale banner when
-          // the fetch succeeds.
+          // Surface relay and pending-retraction failures instead of rendering
+          // a stale privacy or membership state as successful.
           if (payload && payload.ok === false) {
             setActionError(payload.error || tx(t, "team.generic_error", "Something went wrong."));
           } else {
             setActionError(null);
           }
         })
-        .catch(function (err) { setActionError(String(err)); })
-        .finally(function () { setLoading(false); });
+        .catch(function (err) {
+          if (mounted.current && generation === reloadGeneration.current) setActionError(String(err));
+        })
+        .finally(function () {
+          if (mounted.current && generation === reloadGeneration.current) setLoading(false);
+        });
     }
-    hooks.useEffect(function () { reload(true, true); }, []);
+    hooks.useEffect(function () {
+      mounted.current = true;
+      reload(true, true);
+      return function () {
+        mounted.current = false;
+        reloadGeneration.current += 1;
+      };
+    }, []);
 
-    // Run a POST action, surface its inline error, then refresh the board.
+    // Run a POST action, invalidate older reads, then refresh the board. Failed
+    // state-changing actions still apply their returned local state so the UI
+    // cannot claim a failed retraction succeeded.
     function runAction(path, body) {
+      reloadGeneration.current += 1;
       setBusy(true); setActionError(null);
       return apiPost(path, body)
         .then(function (res) {
-          if (res && res.ok === false) { setActionError(res.error || tx(t, "team.generic_error", "Something went wrong.")); return res; }
+          if (!mounted.current) return res;
+          if (res && res.ok === false) {
+            setActionError(res.error || tx(t, "team.generic_error", "Something went wrong."));
+            if (Object.prototype.hasOwnProperty.call(res, "membership")) {
+              setData(function (current) { return Object.assign({}, current || {}, res); });
+              if (res.membership && res.membership.display_name) setNameDraft(res.membership.display_name);
+            }
+            return res;
+          }
           // The action already applied any profile change. Read the resulting
           // roster without immediately publishing the same profile twice.
           return reload(false, false).then(function () { return res; });
         })
-        .catch(function (err) { setActionError(String(err)); })
-        .finally(function () { setBusy(false); });
+        .catch(function (err) { if (mounted.current) setActionError(String(err)); })
+        .finally(function () { if (mounted.current) setBusy(false); });
     }
 
     if (loading) {
@@ -1229,7 +1266,7 @@
     }
 
     const membership = data && data.membership;
-    const errorBanner = actionError && h(C.Card, { className: "ha-error" }, h(C.CardContent, null, String(actionError)));
+    const errorBanner = actionError && h(C.Card, { className: "ha-error", role: "alert" }, h(C.CardContent, null, String(actionError)));
 
     // --- Not in a team: one simple join path; hosting stays advanced. ---
     if (!membership) {
@@ -1260,6 +1297,8 @@
 
     // --- In a team: board + controls ---
     const optIn = !!(data && data.publish_opt_in);
+    const pendingUnpublish = !!(data && data.pending_unpublish);
+    const sharingError = !!(optIn && data && data.last_error);
     const isOwner = membership.role === "owner";
     const rows = (data && data.leaderboard) || [];
     const invite = membership.invite_code;
@@ -1294,29 +1333,46 @@
           h(HostingDetect, { t: t, busy: busy })
         )
       ),
-      h("section", { className: cn("ha-sharing-status", optIn ? "is-on" : "is-off") },
+      h("section", { className: cn("ha-sharing-status", optIn && !sharingError ? "is-on" : "is-off") },
         h("div", { className: "ha-sharing-status-copy" },
-          h("div", { className: "ha-sharing-eyebrow" }, optIn
-            ? tx(t, "team.on_board", "On the leaderboard")
-            : tx(t, "team.viewing_only", "Viewing only")),
-          h("h2", null, optIn
-            ? tx(t, "team.sharing_on_title", "Your score is being shared")
-            : tx(t, "team.sharing_off_title", "Share your score when you are ready")),
-          h("p", null, optIn
-            ? tx(t, "team.sharing_on", "Fabric shares only your aggregate achievement profile. Your session content stays private.")
-            : tx(t, "team.sharing_off", "You can view this board without appearing in it. Opt in with one click.")),
-          published && optIn && h("span", { className: "ha-control-hint" }, tx(t, "team.published_age", "Updated {age}", { age: published }))
+          h("div", { className: "ha-sharing-eyebrow" }, pendingUnpublish
+            ? tx(t, "team.retraction_pending", "Retraction pending")
+            : sharingError
+              ? tx(t, "team.sharing_needs_attention", "Sharing needs attention")
+              : optIn
+                ? tx(t, "team.on_board", "On the leaderboard")
+                : tx(t, "team.viewing_only", "Viewing only")),
+          h("h2", null, pendingUnpublish
+            ? tx(t, "team.retraction_pending_title", "Your score may still be visible")
+            : sharingError
+              ? tx(t, "team.sharing_error_title", "Sharing could not be confirmed")
+              : optIn
+                ? tx(t, "team.sharing_on_title", "Your score is being shared")
+                : tx(t, "team.sharing_off_title", "Share your score when you are ready")),
+          h("p", null, pendingUnpublish
+            ? tx(t, "team.retraction_pending_body", "Fabric saved your opt-out locally and will retry removing the remote row. Retry when the relay is reachable.")
+            : sharingError
+              ? tx(t, "team.sharing_error_body", "The latest publish failed. Your previous row may still be visible; retry with Publish now.")
+              : optIn
+                ? tx(t, "team.sharing_on", "Fabric shares only your aggregate achievement profile. Your session content stays private.")
+                : tx(t, "team.sharing_off", "You can view this board without appearing in it. Opt in with one click.")),
+          published && optIn && !sharingError && h("span", { className: "ha-control-hint" }, tx(t, "team.published_age", "Updated {age}", { age: published }))
         ),
-        optIn
+        pendingUnpublish
           ? h("button", {
               className: "ha-team-btn", disabled: busy,
               onClick: function () { runAction("/team/settings", { publish_opt_in: false }); },
-            }, tx(t, "team.stop_sharing", "Stop sharing"))
-          : h(C.Button, {
-              disabled: busy,
-              onClick: function () { runAction("/team/settings", { publish_opt_in: true }); },
-              className: "ha-team-primary",
-            }, busy ? tx(t, "team.working", "Working…") : tx(t, "team.share_score", "Share my score"))
+            }, busy ? tx(t, "team.working", "Working…") : tx(t, "team.retry_retraction", "Retry retraction"))
+          : optIn
+            ? h("button", {
+                className: "ha-team-btn", disabled: busy,
+                onClick: function () { runAction("/team/settings", { publish_opt_in: false }); },
+              }, tx(t, "team.stop_sharing", "Stop sharing"))
+            : h(C.Button, {
+                disabled: busy,
+                onClick: function () { runAction("/team/settings", { publish_opt_in: true }); },
+                className: "ha-team-primary",
+              }, busy ? tx(t, "team.working", "Working…") : tx(t, "team.share_score", "Share my score"))
       ),
       h("section", null,
         h(LeaderboardTable, {

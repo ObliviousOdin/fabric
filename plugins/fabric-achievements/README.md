@@ -100,7 +100,9 @@ display name and separate consent checkbox are not required; the member can
 choose a name or join without sharing from the secondary options. Relay hosting
 and team creation stay under **Advanced**.
 Once joined, sharing is a one-click status control and opting out actively
-retracts the member's published row. Each member's dashboard talks to the relay
+retracts the member's published row. Failed retractions and remote leave
+removals remain visible and are retried instead of being reported as complete.
+Each member's dashboard talks to the relay
 server-to-server through these backend routes — the browser never contacts the
 relay directly. Publishing is aggregate-only, the team owner can reset the
 invite or remove members, and scores are self-reported (this is a friendly

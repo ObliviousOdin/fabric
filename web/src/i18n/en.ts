@@ -1029,6 +1029,7 @@ export const en: Translations = {
         "Compare Fabric achievements with people you know. Joining and sharing is one explicit opt-in; your private session content always stays on this machine.",
       loading: "Loading team…",
       working: "Working…",
+      starting: "Starting…",
       generic_error: "Something went wrong.",
       create_title: "Create a team",
       create_lead:
@@ -1118,6 +1119,15 @@ export const en: Translations = {
       leave: "Leave team",
       on_board: "On the leaderboard",
       viewing_only: "Viewing only",
+      retraction_pending: "Retraction pending",
+      retraction_pending_title: "Your score may still be visible",
+      retraction_pending_body:
+        "Fabric saved your opt-out locally and will retry removing the remote row. Retry when the relay is reachable.",
+      retry_retraction: "Retry retraction",
+      sharing_needs_attention: "Sharing needs attention",
+      sharing_error_title: "Sharing could not be confirmed",
+      sharing_error_body:
+        "The latest publish failed. Your previous row may still be visible; retry with Publish now.",
       sharing_on_title: "Your score is being shared",
       sharing_off_title: "Share your score when you are ready",
       sharing_on:
@@ -1139,13 +1149,15 @@ export const en: Translations = {
         "Anyone with this code can view the board and join. Share it only with people you want on your team.",
       leave_title: "Leave this leaderboard",
       leave_body:
-        "Your shared score will be removed from the relay and this machine will forget the membership.",
+        "Fabric removes your shared score from the relay and forgets the membership locally. If the relay is unavailable, Fabric leaves locally and retries the remote removal.",
       board_empty:
         "No one has shared stats yet. Turn on sharing above to appear on the board.",
+      board_label: "Team leaderboard",
       col_member: "Member",
       col_score: "Score",
       col_unlocked: "Unlocked",
       col_tier: "Top tier",
+      col_actions: "Actions",
       owner_badge: "owner",
       you_badge: "you",
       not_shared: "not shared",

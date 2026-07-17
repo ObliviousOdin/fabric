@@ -33,6 +33,16 @@ async function flushEffects() {
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("fabric-achievements leaderboard bundle", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -284,5 +294,195 @@ describe("fabric-achievements leaderboard bundle", () => {
     expect(
       fetchJSON.mock.calls.some(([url]) => String(url).endsWith("/team/create")),
     ).toBe(false);
+  });
+
+  it("keeps the newest membership response when refresh and leave overlap", async () => {
+    const staleRefresh = deferred<Record<string, unknown>>();
+    let leaderboardCalls = 0;
+    const membership = {
+      team_name: "Old Team",
+      display_name: "Owner",
+      role: "owner",
+      member_id: "member-1",
+    };
+    fetchJSON.mockImplementation((url: string) => {
+      if (url.endsWith("/achievements")) return new Promise(() => {});
+      if (url.endsWith("/team/leaderboard")) {
+        leaderboardCalls += 1;
+        if (leaderboardCalls === 1) {
+          return Promise.resolve({ ok: true, membership, publish_opt_in: false, leaderboard: [] });
+        }
+        return staleRefresh.promise;
+      }
+      if (url.includes("/team/leaderboard?refresh=false")) {
+        return Promise.resolve({ ok: true, membership: null, leaderboard: [] });
+      }
+      if (url.endsWith("/team/leave")) {
+        return Promise.resolve({ ok: true, membership: null, publish_opt_in: false });
+      }
+      if (url.endsWith("/team/host/status")) {
+        return Promise.resolve({ ok: true, tailscale: {}, local_relay: {}, managed_relay: {} });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    await renderLeaderboard();
+    const refresh = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Refresh",
+    );
+    const leave = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Leave team",
+    );
+    await act(async () => refresh?.click());
+    await act(async () => leave?.click());
+    await flushEffects();
+    expect(container.textContent).toContain("Join a leaderboard");
+
+    await act(async () => {
+      staleRefresh.resolve({ ok: true, membership, publish_opt_in: false, leaderboard: [] });
+      await staleRefresh.promise;
+    });
+    expect(container.textContent).toContain("Join a leaderboard");
+    expect(container.textContent).not.toContain("Old Team");
+  });
+
+  it("shows a failed retraction truthfully and announces the error", async () => {
+    const membership = {
+      team_name: "Fabric Team",
+      display_name: "Owner",
+      role: "owner",
+      member_id: "member-1",
+    };
+    fetchJSON.mockImplementation((url: string) => {
+      if (url.endsWith("/achievements")) return new Promise(() => {});
+      if (url.endsWith("/team/leaderboard")) {
+        return Promise.resolve({ ok: true, membership, publish_opt_in: true, leaderboard: [] });
+      }
+      if (url.endsWith("/team/settings")) {
+        return Promise.resolve({
+          ok: false,
+          error: "unpublish refused",
+          membership,
+          publish_opt_in: false,
+          pending_unpublish: true,
+          leaderboard: [],
+        });
+      }
+      if (url.endsWith("/team/host/status")) {
+        return Promise.resolve({ ok: true, tailscale: {}, local_relay: {}, managed_relay: {} });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    await renderLeaderboard();
+    const stop = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Stop sharing",
+    );
+    await act(async () => stop?.click());
+    await flushEffects();
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "unpublish refused",
+    );
+    expect(container.textContent).toContain("Your score may still be visible");
+    expect(container.textContent).toContain("Retry retraction");
+    expect(container.textContent).not.toContain("Viewing only");
+  });
+
+  it("keeps the latest clipboard result and exposes table semantics", async () => {
+    const writes: Array<ReturnType<typeof deferred<void>>> = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn(() => {
+          const write = deferred<void>();
+          writes.push(write);
+          return write.promise;
+        }),
+      },
+    });
+    fetchJSON.mockImplementation((url: string) => {
+      if (url.endsWith("/achievements")) return new Promise(() => {});
+      if (url.endsWith("/team/leaderboard")) {
+        return Promise.resolve({
+          ok: true,
+          membership: {
+            team_name: "Fabric Team",
+            display_name: "Owner",
+            role: "owner",
+            member_id: "member-1",
+            invite_code: "fbl1_test",
+          },
+          publish_opt_in: true,
+          leaderboard: [{
+            member_id: "member-1",
+            display_name: "Owner",
+            role: "owner",
+            rank: 1,
+            score: 42,
+            unlocked_count: 3,
+            total_count: 5,
+            highest_tier: "Bronze",
+            has_published: true,
+          }],
+        });
+      }
+      if (url.endsWith("/team/host/status")) {
+        return Promise.resolve({ ok: true, tailscale: {}, local_relay: {}, managed_relay: {} });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    await renderLeaderboard();
+    expect(container.querySelector('[role="table"]')).not.toBeNull();
+    expect(container.querySelectorAll('[role="columnheader"]')).toHaveLength(6);
+    expect(container.querySelectorAll('[role="row"]')).toHaveLength(2);
+
+    const copy = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Copy invite",
+    );
+    await act(async () => copy?.click());
+    await act(async () => copy?.click());
+    await act(async () => {
+      writes[1].resolve();
+      await writes[1].promise;
+    });
+    expect(container.textContent).toContain("Copied ✓");
+    await act(async () => {
+      writes[0].reject(new Error("denied"));
+      await writes[0].promise.catch(() => undefined);
+    });
+    expect(container.textContent).toContain("Copied ✓");
+    expect(container.textContent).not.toContain("Copy failed");
+  });
+
+  it("labels relay startup as starting", async () => {
+    const start = deferred<Record<string, unknown>>();
+    const stopped = {
+      ok: true,
+      tailscale: { installed: false, running: false },
+      local_relay: { ok: false },
+      shareable_relay: { ok: false },
+      managed_relay: { managed: false, running: false },
+      default_port: 9137,
+    };
+    fetchJSON.mockImplementation((url: string) => {
+      if (url.endsWith("/achievements")) return new Promise(() => {});
+      if (url.endsWith("/team/leaderboard")) return Promise.resolve({ ok: true, membership: null });
+      if (url.endsWith("/team/host/status")) return Promise.resolve(stopped);
+      if (url.endsWith("/team/host/start")) return start.promise;
+      return Promise.resolve({ ok: true });
+    });
+
+    await renderLeaderboard();
+    const host = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Host on this machine",
+    );
+    await act(async () => host?.click());
+    expect(container.textContent).toContain("Starting…");
+    await act(async () => {
+      start.resolve(stopped);
+      await start.promise;
+    });
   });
 });

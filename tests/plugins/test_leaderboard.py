@@ -321,6 +321,50 @@ def test_settings_toggle_and_rename(api, store):
     assert board["leaderboard"][0]["display_name"] == "Chan"
 
 
+def test_failed_unpublish_is_reported_and_retried(api, store):
+    st, store_mod = store
+    transport = _make_transport(st, store_mod)
+    api.team_create("http://relay.test", "Crew", "Channa", publish_opt_in=True, transport=transport)
+    failed_once = False
+
+    def flaky_unpublish(method, url, headers, body):
+        nonlocal failed_once
+        if url.endswith("/unpublish") and not failed_once:
+            failed_once = True
+            return 503, {"error": "unpublish refused"}
+        return transport(method, url, headers, body)
+
+    state = api.team_settings(publish_opt_in=False, transport=flaky_unpublish)
+    assert state["ok"] is False
+    assert state["publish_opt_in"] is False
+    assert state["pending_unpublish"] is True
+    assert state["error"] == "unpublish refused"
+
+    # The next board read retries the remote retraction and clears the marker.
+    board = api.team_leaderboard(transport=transport, refresh_profile=False)
+    assert board["ok"] is True
+    assert board["pending_unpublish"] is False
+    assert board["leaderboard"][0]["has_published"] is False
+
+
+def test_create_surfaces_initial_publish_failure(api, store):
+    st, store_mod = store
+    transport = _make_transport(st, store_mod)
+
+    def publish_fails(method, url, headers, body):
+        if url.endswith("/publish"):
+            return 503, {"error": "publish refused"}
+        return transport(method, url, headers, body)
+
+    state = api.team_create(
+        "http://relay.test", "Crew", "Channa", publish_opt_in=True, transport=publish_fails,
+    )
+    assert state["ok"] is False
+    assert state["membership"]["team_name"] == "Crew"
+    assert state["publish_opt_in"] is True
+    assert state["error"] == "publish refused"
+
+
 def test_leave_clears_membership(api, store):
     st, store_mod = store
     transport = _make_transport(st, store_mod)
@@ -328,6 +372,27 @@ def test_leave_clears_membership(api, store):
     state = api.team_leave(transport=transport)
     assert state["membership"] is None
     assert state["publish_opt_in"] is False
+
+
+def test_failed_remote_leave_is_retained_and_retried(api, store):
+    st, store_mod = store
+    transport = _make_transport(st, store_mod)
+    api.team_create("http://relay.test", "Crew", "Channa", publish_opt_in=True, transport=transport)
+
+    def leave_fails(method, url, headers, body):
+        if url.endswith("/leave"):
+            return 503, {"error": "leave refused"}
+        return transport(method, url, headers, body)
+
+    state = api.team_leave(transport=leave_fails)
+    assert state["ok"] is False
+    assert state["membership"] is None
+    assert state["pending_leave_count"] == 1
+    assert "Fabric will retry" in state["error"]
+
+    state = api.team_leaderboard(transport=transport, refresh_profile=False)
+    assert state["ok"] is True
+    assert state["pending_leave_count"] == 0
 
 
 def test_owner_rotate_updates_local_invite(api, store):
@@ -560,6 +625,28 @@ def test_host_status_does_not_call_loopback_only_relay_shareable(api, monkeypatc
     assert status["suggested_relay_url"] == "http://my-box.tail1234.ts.net:9137"
     assert status["suggested_is_shareable"] is False
     assert status["shareable_relay"]["ok"] is False
+
+
+def test_host_status_detects_tailscale_only_relay(api, monkeypatch):
+    _use_tailscale(monkeypatch, api, status=_FakeTailscaleStatus(
+        running=True, dns_name="my-box.tail1234.ts.net", ip="100.101.102.103"))
+    calls = []
+
+    def tailnet_only(method, url, headers, body):
+        calls.append(url)
+        if url.startswith("http://my-box.tail1234.ts.net:"):
+            return 200, {"teams": 0, "members": 0, "schema_version": 1}
+        raise api.RelayClientError("connection refused", status=0)
+
+    status = api.host_status(9137, transport=tailnet_only)
+    assert status["local_relay"]["ok"] is False
+    assert status["shareable_relay"]["ok"] is True
+    assert status["suggested_is_shareable"] is True
+    assert status["relay_live"] is True
+    assert calls == [
+        "http://127.0.0.1:9137/health",
+        "http://my-box.tail1234.ts.net:9137/health",
+    ]
 
 
 def test_host_status_tailscale_up_but_no_relay_is_pending_not_shareable(api, monkeypatch):

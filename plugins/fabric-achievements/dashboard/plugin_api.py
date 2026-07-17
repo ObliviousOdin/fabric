@@ -1173,6 +1173,9 @@ def _default_team_config() -> Dict[str, Any]:
     return {
         "membership": None,
         "publish_opt_in": False,
+        "pending_unpublish": False,
+        "pending_leaves": [],
+        "pending_leave_error": None,
         "last_published_at": None,
         "last_error": None,
     }
@@ -2258,18 +2261,15 @@ def host_status(
     }
     if shareable_host:
         suggested = _relay_url(shareable_host, port)
-        if local_relay.get("ok"):
-            shareable_relay = _probe_relay_health(suggested, transport=transport)
-        else:
-            shareable_relay = {
-                "ok": False,
-                "error": "The relay is not answering on its managed address yet.",
-            }
+        # A manually hosted relay may bind only to its Tailscale address, so a
+        # failed loopback probe must not suppress this independent check.
+        shareable_relay = _probe_relay_health(suggested, transport=transport)
     elif relay_live:
         suggested = _relay_url("127.0.0.1", port)
     else:
         suggested = None
     shareable = bool(shareable_relay.get("ok"))
+    relay_live = relay_live or shareable
     command_host = tailscale.get("ipv4") if tailscale.get("running") and tailscale.get("ipv4") else "127.0.0.1"
 
     result = {
@@ -2336,10 +2336,13 @@ def _membership_summary(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _team_state_payload(config: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    pending_leaves = config.get("pending_leaves")
     payload = {
         "ok": True,
         "membership": _membership_summary(config),
         "publish_opt_in": bool(config.get("publish_opt_in")),
+        "pending_unpublish": bool(config.get("pending_unpublish")),
+        "pending_leave_count": len(pending_leaves) if isinstance(pending_leaves, list) else 0,
         "last_published_at": config.get("last_published_at"),
         "last_error": config.get("last_error"),
     }
@@ -2360,6 +2363,7 @@ def _publish_now(config: Dict[str, Any], transport: Optional[Transport] = None) 
         profile, display_name=membership.get("display_name"),
     )
     config["last_published_at"] = int(time.time())
+    config["pending_unpublish"] = False
     config["last_error"] = None
     save_team_config(config)
     return result
@@ -2385,14 +2389,19 @@ def team_create(relay_url: str, team_name: str, display_name: str, publish_opt_i
         "joined_at": int(time.time()),
     }
     config["publish_opt_in"] = bool(publish_opt_in)
+    config["pending_unpublish"] = False
     config["last_error"] = None
     save_team_config(config)
+    publish_error: Optional[str] = None
     if config["publish_opt_in"]:
         try:
             _publish_now(config, transport=transport)
         except RelayClientError as exc:
+            publish_error = exc.message
             config["last_error"] = exc.message
             save_team_config(config)
+    if publish_error:
+        return _team_state_payload(config, {"ok": False, "error": publish_error})
     return _team_state_payload(config)
 
 
@@ -2416,31 +2425,73 @@ def team_join(invite_code: str, display_name: str, publish_opt_in: bool = True, 
         "joined_at": int(time.time()),
     }
     config["publish_opt_in"] = bool(publish_opt_in)
+    config["pending_unpublish"] = False
     config["last_error"] = None
     save_team_config(config)
+    publish_error: Optional[str] = None
     if config["publish_opt_in"]:
         try:
             _publish_now(config, transport=transport)
         except RelayClientError as exc:
+            publish_error = exc.message
             config["last_error"] = exc.message
             save_team_config(config)
+    if publish_error:
+        return _team_state_payload(config, {"ok": False, "error": publish_error})
     return _team_state_payload(config)
+
+
+def _retry_pending_leaves(config: Dict[str, Any], transport: Optional[Transport] = None) -> Optional[str]:
+    """Retry remote removals retained after successful local leave actions."""
+    pending = config.get("pending_leaves")
+    if not isinstance(pending, list) or not pending:
+        config["pending_leaves"] = []
+        return None
+    remaining = []
+    errors = []
+    for membership in pending:
+        if not isinstance(membership, dict):
+            continue
+        try:
+            client = RelayClient(membership["relay_url"], transport=transport)
+            client.leave(membership["team_id"], membership["member_id"], membership["member_token"])
+        except Exception as exc:  # noqa: BLE001 - retain credentials for a later retry
+            remaining.append(membership)
+            errors.append(getattr(exc, "message", None) or str(exc))
+    config["pending_leaves"] = remaining
+    config["pending_leave_error"] = errors[0] if errors else None
+    save_team_config(config)
+    return errors[0] if errors else None
 
 
 @_synchronized
 def team_leave(transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
+    previous_error = _retry_pending_leaves(config, transport=transport)
     membership = config.get("membership")
+    leave_error: Optional[str] = None
     if isinstance(membership, dict):
-        # Best-effort removal from the relay; a dead relay must not trap the
-        # user in a team they can't leave locally.
         try:
             client = RelayClient(membership["relay_url"], transport=transport)
             client.leave(membership["team_id"], membership["member_id"], membership["member_token"])
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - local leave must still succeed
+            leave_error = getattr(exc, "message", None) or str(exc)
+            pending = config.get("pending_leaves")
+            if not isinstance(pending, list):
+                pending = []
+            pending.append(dict(membership))
+            config["pending_leaves"] = pending
+
+    pending = config.get("pending_leaves") if isinstance(config.get("pending_leaves"), list) else []
     config = _default_team_config()
+    config["pending_leaves"] = pending
+    action_error = leave_error or previous_error
+    if action_error:
+        config["pending_leave_error"] = action_error
     save_team_config(config)
+    if action_error:
+        message = f"Left locally, but the remote row could not be removed: {action_error}. Fabric will retry."
+        return _team_state_payload(config, {"ok": False, "error": message})
     return _team_state_payload(config)
 
 
@@ -2449,6 +2500,7 @@ def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[
     config = load_team_config()
     membership = config.get("membership")
     was_opt_in = bool(config.get("publish_opt_in"))
+    pending_unpublish = bool(config.get("pending_unpublish"))
     changed_name = False
     if display_name is not None:
         cleaned = display_name.strip()
@@ -2457,21 +2509,28 @@ def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[
             changed_name = True
     if publish_opt_in is not None:
         config["publish_opt_in"] = bool(publish_opt_in)
+        if publish_opt_in:
+            config["pending_unpublish"] = False
+        elif was_opt_in or pending_unpublish:
+            # Persist the local opt-out before contacting the relay. If the
+            # retraction fails, this marker drives truthful UI and retries.
+            config["pending_unpublish"] = True
     save_team_config(config)
     now_opt_in = bool(config.get("publish_opt_in"))
-    turned_off = publish_opt_in is False and was_opt_in
+    should_unpublish = publish_opt_in is False and bool(config.get("pending_unpublish"))
+    action_error: Optional[str] = None
 
     if isinstance(membership, dict):
-        if turned_off:
-            # Opting out must actively RETRACT the already-published row from
-            # the relay, not just stop future publishes.
+        if should_unpublish:
             try:
                 client = RelayClient(membership["relay_url"], transport=transport)
                 client.unpublish(membership["team_id"], membership["member_id"], membership["member_token"])
+                config["pending_unpublish"] = False
                 config["last_published_at"] = None
                 config["last_error"] = None
                 save_team_config(config)
             except RelayClientError as exc:
+                action_error = exc.message
                 config["last_error"] = exc.message
                 save_team_config(config)
         elif now_opt_in and (changed_name or (publish_opt_in and not was_opt_in)):
@@ -2479,8 +2538,11 @@ def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[
             try:
                 _publish_now(config, transport=transport)
             except RelayClientError as exc:
+                action_error = exc.message
                 config["last_error"] = exc.message
                 save_team_config(config)
+    if action_error:
+        return _team_state_payload(config, {"ok": False, "error": action_error})
     return _team_state_payload(config)
 
 
@@ -2504,9 +2566,29 @@ def team_leaderboard(
     refresh_profile: bool = True,
 ) -> Dict[str, Any]:
     config = load_team_config()
+    pending_leave_error = _retry_pending_leaves(config, transport=transport)
     membership = config.get("membership")
     if not isinstance(membership, dict):
-        return _team_state_payload(config, {"leaderboard": [], "member_count": 0})
+        extra = {"leaderboard": [], "member_count": 0}
+        if pending_leave_error:
+            extra.update({
+                "ok": False,
+                "error": f"A previous leaderboard row could not be removed: {pending_leave_error}. Fabric will retry.",
+            })
+        return _team_state_payload(config, extra)
+    pending_error: Optional[str] = pending_leave_error
+    if config.get("pending_unpublish"):
+        try:
+            client = RelayClient(membership["relay_url"], transport=transport)
+            client.unpublish(membership["team_id"], membership["member_id"], membership["member_token"])
+            config["pending_unpublish"] = False
+            config["last_published_at"] = None
+            config["last_error"] = None
+            save_team_config(config)
+        except RelayClientError as exc:
+            pending_error = exc.message
+            config["last_error"] = exc.message
+            save_team_config(config)
     # On an initial load or explicit refresh, update our row before reading so
     # the board is current. Action follow-up reads pass ``refresh_profile=False``
     # because create/join/settings already applied their profile change.
@@ -2529,13 +2611,16 @@ def team_leaderboard(
         config["last_error"] = exc.message
         save_team_config(config)
         return _team_state_payload(config, {"ok": False, "error": exc.message, "leaderboard": []})
-    return _team_state_payload(config, {
+    extra = {
         "team_name": roster.get("team_name"),
         "member_count": roster.get("member_count", 0),
         "my_member_id": membership.get("member_id"),
         "leaderboard": roster.get("leaderboard", []),
         "roster_generated_at": roster.get("generated_at"),
-    })
+    }
+    if pending_error:
+        extra.update({"ok": False, "error": pending_error})
+    return _team_state_payload(config, extra)
 
 
 @_synchronized

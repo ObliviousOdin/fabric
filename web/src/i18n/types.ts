@@ -1149,6 +1149,7 @@ export interface Translations {
       hero_subtitle: string;
       loading: string;
       working: string;
+      starting: string;
       generic_error: string;
       create_title: string;
       create_lead: string;
@@ -1215,6 +1216,13 @@ export interface Translations {
       leave: string;
       on_board: string;
       viewing_only: string;
+      retraction_pending: string;
+      retraction_pending_title: string;
+      retraction_pending_body: string;
+      retry_retraction: string;
+      sharing_needs_attention: string;
+      sharing_error_title: string;
+      sharing_error_body: string;
       sharing_on_title: string;
       sharing_off_title: string;
       sharing_on: string;
@@ -1234,10 +1242,12 @@ export interface Translations {
       leave_title: string;
       leave_body: string;
       board_empty: string;
+      board_label: string;
       col_member: string;
       col_score: string;
       col_unlocked: string;
       col_tier: string;
+      col_actions: string;
       owner_badge: string;
       you_badge: string;
       not_shared: string;

@@ -38,9 +38,9 @@ _DEVICE_GRANT = {
 }
 
 
-def _urlopen_script(*poll_payloads):
+def _urlopen_script(*poll_payloads, grant=None):
     """Return a fake urlopen: first call yields the device grant, then polls."""
-    responses = [_FakeResponse(_DEVICE_GRANT)] + [
+    responses = [_FakeResponse(grant or _DEVICE_GRANT)] + [
         _FakeResponse(p) for p in poll_payloads
     ]
     calls = []
@@ -79,6 +79,46 @@ def test_slow_down_honors_server_interval_then_succeeds():
     assert token == "gho_ok"
     # The sleep after the slow_down response must reflect the server interval
     assert sleeps[-1] >= 7
+
+
+def test_slow_down_never_reduces_required_five_second_increase():
+    fake, _ = _urlopen_script(
+        {"error": "slow_down", "interval": 2},
+        {"access_token": "gho_ok"},
+    )
+    sleeps = []
+    with mock.patch("urllib.request.urlopen", side_effect=fake), \
+         mock.patch("time.sleep", side_effect=sleeps.append):
+        token = device_code_login("client123", "public_repo")
+    assert token == "gho_ok"
+    # First sleep uses the grant interval (1) + safety margin (3).
+    # After slow_down, the interval must rise by at least 5 seconds even if
+    # the server returns a smaller interval value.
+    assert sleeps == [4, 9]
+
+
+def test_default_timeout_honors_device_code_expiry():
+    grant = {**_DEVICE_GRANT, "expires_in": 900}
+    fake, _ = _urlopen_script({"access_token": "gho_ok"}, grant=grant)
+    with mock.patch("urllib.request.urlopen", side_effect=fake), \
+         mock.patch("time.sleep"), \
+         mock.patch("time.monotonic", side_effect=[100, 500]):
+        token = device_code_login("client123", "public_repo")
+    assert token == "gho_ok"
+
+
+def test_transient_poll_failure_backs_off_before_retry():
+    responses = [
+        _FakeResponse(_DEVICE_GRANT),
+        OSError("temporary network error"),
+        _FakeResponse({"access_token": "gho_ok"}),
+    ]
+    sleeps = []
+    with mock.patch("urllib.request.urlopen", side_effect=responses), \
+         mock.patch("time.sleep", side_effect=sleeps.append):
+        token = device_code_login("client123", "public_repo")
+    assert token == "gho_ok"
+    assert sleeps[1] > sleeps[0]
 
 
 def test_expired_token_returns_none():

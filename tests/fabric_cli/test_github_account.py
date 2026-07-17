@@ -38,13 +38,13 @@ def no_ambient_tokens(monkeypatch):
         yield {"dotenv": dotenv, "gh": gh}
 
 
-def test_resolve_token_prefers_github_token_env(no_ambient_tokens, monkeypatch):
+def test_resolve_token_matches_gh_cli_environment_precedence(no_ambient_tokens, monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "gho_env_token")
     monkeypatch.setenv("GH_TOKEN", "gho_gh_env")
-    assert gha.resolve_github_token() == ("gho_env_token", "GITHUB_TOKEN")
+    assert gha.resolve_github_token() == ("gho_gh_env", "GH_TOKEN")
 
 
-def test_resolve_token_gh_token_env_second(no_ambient_tokens, monkeypatch):
+def test_resolve_token_gh_token_env(no_ambient_tokens, monkeypatch):
     monkeypatch.setenv("GH_TOKEN", "gho_gh_env")
     assert gha.resolve_github_token() == ("gho_gh_env", "GH_TOKEN")
 
@@ -155,6 +155,21 @@ def test_save_github_token_writes_env():
     assert saved == {"GITHUB_TOKEN": "gho_x"}
 
 
+def test_saved_profile_token_round_trips_through_real_config(tmp_path, monkeypatch):
+    """Exercise the actual profile write/read chain instead of mocked helpers."""
+    fabric_home = tmp_path / "profile"
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    with mock.patch("fabric_cli.copilot_auth._try_gh_cli_token", return_value=None):
+        gha.save_github_token("gho_profile")
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        assert gha.resolve_github_token() == ("gho_profile", "fabric .env")
+
+    assert (fabric_home / ".env").read_text(encoding="utf-8") == "GITHUB_TOKEN=gho_profile\n"
+
+
 # ── Setup parser ────────────────────────────────────────────────────────────
 
 
@@ -257,6 +272,22 @@ def test_section_existing_token_kept_is_not_persisted():
     assert result is True
     h.save.assert_not_called()
     h.login.assert_not_called()
+
+
+@pytest.mark.parametrize("source", ["GH_TOKEN", "GITHUB_TOKEN"])
+def test_section_cannot_replace_ambient_environment_account(source):
+    """A profile token cannot override an inherited shell credential."""
+    result, h = _run_section(
+        resolved=("gho_ambient", source),
+        user={"login": "old-account"},
+        yes_no=lambda question, default: "different account" in question,
+        choice=0,
+        device_token="gho_new",
+    )
+    assert result is False
+    h.choice.assert_not_called()
+    h.login.assert_not_called()
+    h.save.assert_not_called()
 
 
 def test_section_star_accepted_stars_repo():

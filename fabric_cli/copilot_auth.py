@@ -167,7 +167,7 @@ def device_code_login(
     scope: str,
     *,
     host: str = "github.com",
-    timeout_seconds: float = 300,
+    timeout_seconds: Optional[float] = None,
 ) -> Optional[str]:
     """Run the GitHub OAuth device code flow (RFC 8628) for any client app.
 
@@ -213,6 +213,9 @@ def device_code_login(
     user_code = device_data.get("user_code", "")
     device_code = device_data.get("device_code", "")
     interval = max(device_data.get("interval", _DEVICE_CODE_POLL_INTERVAL), 1)
+    expires_in = device_data.get("expires_in", 300)
+    if not isinstance(expires_in, (int, float)) or expires_in <= 0:
+        expires_in = 300
 
     if not device_code or not user_code:
         print("  ✗ GitHub did not return a device code.")
@@ -229,7 +232,8 @@ def device_code_login(
     # out of an authorization they no longer want, so treat it as a clean
     # cancel rather than letting the KeyboardInterrupt unwind the wizard.
     try:
-        deadline = time.monotonic() + timeout_seconds
+        wait_seconds = expires_in if timeout_seconds is None else min(timeout_seconds, expires_in)
+        deadline = time.monotonic() + wait_seconds
 
         while time.monotonic() < deadline:
             time.sleep(interval + _DEVICE_CODE_POLL_SAFETY_MARGIN)
@@ -254,6 +258,8 @@ def device_code_login(
                 with urllib.request.urlopen(poll_req, timeout=10) as resp:
                     result = json.loads(resp.read().decode())
             except Exception:
+                # RFC 8628 recommends backing off after connection timeouts.
+                interval = min(interval * 2, 60)
                 print(".", end="", flush=True)
                 continue
 
@@ -269,7 +275,7 @@ def device_code_login(
                 # RFC 8628: add 5 seconds to polling interval
                 server_interval = result.get("interval")
                 if isinstance(server_interval, (int, float)) and server_interval > 0:
-                    interval = int(server_interval)
+                    interval = max(interval + 5, int(server_interval))
                 else:
                     interval += 5
                 print(".", end="", flush=True)
@@ -299,7 +305,7 @@ def device_code_login(
 def copilot_device_code_login(
     *,
     host: str = "github.com",
-    timeout_seconds: float = 300,
+    timeout_seconds: Optional[float] = None,
 ) -> Optional[str]:
     """Run the GitHub OAuth device code flow for Copilot.
 

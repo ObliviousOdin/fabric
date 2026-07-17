@@ -11,12 +11,9 @@ GitHub skills (``skills/github/github-auth/scripts/gh-env.sh``) resolve
 credentials from, so signing in during setup makes them work out of the box.
 
 Token resolution order (this module):
-  1. GITHUB_TOKEN / GH_TOKEN env vars
+  1. GH_TOKEN / GITHUB_TOKEN env vars (matching GitHub CLI precedence)
   2. GITHUB_TOKEN in the Fabric profile's ``.env``
   3. ``gh auth token`` CLI fallback
-
-(The skills' gh-env.sh helper prefers an authenticated ``gh`` CLI first; both
-resolve the same credentials, just in a different order.)
 """
 
 from __future__ import annotations
@@ -52,8 +49,8 @@ GITHUB_OAUTH_SCOPES = "public_repo"
 GITHUB_API_BASE = "https://api.github.com"
 _REQUEST_TIMEOUT_SECONDS = 15.0
 
-# Env var search order for an existing token.
-GITHUB_ENV_VARS = ("GITHUB_TOKEN", "GH_TOKEN")
+# Env var search order for an existing token matches GitHub CLI.
+GITHUB_ENV_VARS = ("GH_TOKEN", "GITHUB_TOKEN")
 
 _USER_AGENT = "FabricAgent/1.0"
 

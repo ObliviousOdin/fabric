@@ -51,18 +51,29 @@ for the TUI, and installs the `[all]` extras:
 curl -fsSL https://raw.githubusercontent.com/ObliviousOdin/fabric/main/scripts/install.sh | bash
 ```
 
-On a 2 GB Nano — or if you want a minimal footprint on any board — use the
-lean manual profile from the
-[low-memory guide](./low-memory.md#the-lean-lite-install-profile) instead,
-but note that the manual `python3 -m venv` path needs Python ≥ 3.11 already
-on the PATH; on JetPack that means letting the installer provide it, e.g.:
+On a 2 GB Nano — or if you want a minimal footprint on any board — use a
+managed Python without first installing the full `[all]` profile. Install the
+same managed `uv` binary used by Fabric's installer, then let it download
+Python 3.11 and target the new environment explicitly:
 
 ```bash
-# after the installer has provisioned managed uv + Python:
-cd ~/.fabric/fabric-agent   # the installer's default checkout location
-~/.fabric/bin/uv venv venv --python 3.11
-~/.fabric/bin/uv pip install -e '.[cli,mcp,messaging]'
+FABRIC_HOME="${FABRIC_HOME:-$HOME/.fabric}"
+mkdir -p "$FABRIC_HOME/bin"
+uv_installer="$(mktemp)"
+curl -LsSf https://astral.sh/uv/install.sh -o "$uv_installer"
+UV_UNMANAGED_INSTALL="$FABRIC_HOME/bin" sh "$uv_installer"
+rm -f "$uv_installer"
+
+git clone https://github.com/ObliviousOdin/fabric.git
+cd fabric
+"$FABRIC_HOME/bin/uv" venv venv --python 3.11
+"$FABRIC_HOME/bin/uv" pip install --python venv/bin/python -e '.[cli]'
+source venv/bin/activate
 ```
+
+Add only the extras you need, as described in the
+[low-memory guide](./low-memory.md#the-lean-lite-install-profile). Gateway
+platform SDKs lazy-install when that platform is configured.
 
 :::note JetPack 4 (original Nano)
 JetPack 4's Ubuntu 18.04 userland is old enough that best-effort is the
@@ -86,8 +97,8 @@ way. Pick one:
 - **Remote Ollama on your LAN** — select Ollama in `fabric model` and point
   the server URL (`model.base_url`) at the machine running it.
 - **On-device Ollama (Orin Nano 8 GB+ only)** — Ollama ships arm64 Linux
-  builds, and recent JetPack releases can use the GPU for acceleration
-  (check Ollama's Jetson notes for your JetPack version). Stick to small
+  builds. Its Linux installer detects JetPack 5 (L4T R35) and JetPack 6
+  (L4T R36) and downloads their dedicated support bundles. Stick to small
   quantized models and expect modest speeds:
 
   ```bash
@@ -126,7 +137,7 @@ fabric status
 | `pip install -e .` fails with syntax/version errors | You used JetPack's system Python (≤ 3.10). Use the installer's managed Python instead. |
 | Installer cannot download Python/uv on JetPack 4 | Old glibc/CA store. Update `ca-certificates`; if it persists, see the JetPack 4 note above. |
 | Install killed mid-way on 2–4 GB boards | Add a swapfile on top of the default zram, retry. |
-| Ollama runs CPU-only on Jetson | GPU support depends on the JetPack version; check Ollama's documentation, or keep inference remote. |
+| Ollama runs CPU-only on Jetson | Check `/etc/nv_tegra_release`; the current Ollama installer provides dedicated JetPack 5 (R35) and 6 (R36) bundles. Otherwise keep inference remote. |
 | Board throttles under load | Check the power model (`sudo nvpmodel -q`) and use an adequate power supply. |
 
 ## See also

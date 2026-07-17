@@ -50,16 +50,15 @@ will actually use — the same philosophy as the tested
 
 ```bash
 sudo apt update
-sudo apt install -y git python3 python3-venv ripgrep
+sudo apt install -y git curl python3 python3-venv ripgrep build-essential python3-dev libffi-dev
 git clone https://github.com/ObliviousOdin/fabric.git
 cd fabric
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
-pip install -e '.[cli]'          # base + interactive CLI menus
+pip install -e '.[cli]'          # base + interactive CLI
 # add extras individually as needed, e.g.:
-# pip install -e '.[cli,mcp]'                # + MCP support
-# pip install -e '.[cli,mcp,messaging]'      # + Telegram/Discord/Slack gateway
+# pip install -e '.[cli,mcp]'    # + MCP support
 fabric setup
 ```
 
@@ -72,11 +71,12 @@ Notes for a 1 GB device:
 - **Prefer the plain CLI over the TUI.** `fabric --tui` launches a Node ≥ 20
   subprocess for the Ink terminal UI; plain `fabric` keeps everything in one
   Python process.
-- **Run the gateway headless.** `fabric gateway start` under systemd is the
-  natural deployment for a Pi. Skip `fabric dashboard` when memory is tight —
-  it is another long-running process.
-- Many optional backends (Telegram, Slack, Honcho, and others) lazy-install on
-  first use, so an extra you never touch costs nothing.
+- **Run the gateway headless.** `fabric gateway install` installs and starts a
+  systemd service (normally in user scope). Skip `fabric dashboard` when memory
+  is tight — it is another long-running process.
+- Many optional backends (Telegram, Slack, Honcho, and others) lazy-install
+  their own dependencies on first use. Configure only the gateway platform you
+  need instead of eagerly installing the broad `messaging` extra.
 
 ## What to leave out at 1 GB
 
@@ -99,7 +99,7 @@ The agent core is transport, not inference. Two patterns work well:
 2. **Remote Ollama on your LAN** — run Ollama on a desktop or homelab box and
    point the Pi at it. Select Ollama in `fabric model` and set the server URL
    (`model.base_url`) to the remote host instead of `http://localhost:11434`.
-   The Pi stays under load-free; the LAN box does the inference. See
+   The Pi stays lightly loaded; the LAN box does the inference. See
    [Local Ollama Setup](/guides/local-ollama-setup).
 
 ## Memory without a local embedding stack

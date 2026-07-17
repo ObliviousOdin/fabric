@@ -12,8 +12,9 @@
 //!   conformance-tested against shared vectors generated from Python.
 //! - [`atlas`]  — Petdex spritesheet geometry, row taxonomy inference, and
 //!   blank-trim frame counting.
-//! - [`store`]  — read-only access to `<FABRIC_HOME>/pets/` and the
-//!   `display.pet.*` config block.
+//! - [`store`]  — read-only access to `<FABRIC_HOME>/pets/`, first-party
+//!   bundled packages under `agent/pet/assets/`, and the `display.pet.*`
+//!   config block.
 //! - [`gateway`] — the subset of gateway WebSocket wire events the overlay
 //!   consumes, and their mapping onto activity signals.
 //!

@@ -100,10 +100,13 @@ The companion reads the same config every other surface writes — no new
 files:
 
 - `~/.fabric/pets/<slug>/` — pet store (`pet.json` + `spritesheet.webp|png`).
+- First-party packages under `agent/pet/assets/` (notably `fabric-mascot`)
+  when no usable profile package exists for the configured slug.
 - `~/.fabric/config.yaml` → `display.pet.slug` and `display.pet.scale`
   (0.1–3.0, default 0.33).
 - `FABRIC_HOME` env var relocates the state directory (legacy fallbacks
   honored like `fabric_constants.get_fabric_home`).
+- `FABRIC_BUNDLED_PETS` optionally points at an alternate bundled-assets root.
 
 CLI flags override config: `--pet <slug>`, `--scale`, `--no-roam`,
 `--width/--height/--position`, `--floor-offset` (keep the floor above a

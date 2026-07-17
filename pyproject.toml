@@ -322,6 +322,7 @@ fabric-acp = "acp_adapter.entry:main"
 py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajectory_compressor", "toolset_distributions", "cli", "fabric_bootstrap", "fabric_constants", "fabric_state", "fabric_time", "fabric_logging", "utils", "mcp_serve"]
 
 [tool.setuptools.package-data]
+agent = ["pet/assets/**/*"]
 fabric_cli = ["web_dist/**/*", "tui_dist/**/*", "scripts/install.sh", "scripts/install.ps1"]
 gateway = ["assets/**/*"]
 plugins = [

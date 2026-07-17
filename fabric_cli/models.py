@@ -21,7 +21,7 @@ from fabric_cli import __version__ as _FABRIC_VERSION
 
 # Identify ourselves so endpoints fronted by Cloudflare's Browser Integrity
 # Check (error 1010) don't reject the default ``Python-urllib/*`` signature.
-_FABRIC_USER_AGENT = f"fabric-cli/{_FABRIC_VERSION}"
+_FABRIC_USER_AGENT = f"hermes-cli/{_FABRIC_VERSION}"
 
 COPILOT_BASE_URL = "https://api.githubcopilot.com"
 COPILOT_MODELS_URL = f"{COPILOT_BASE_URL}/models"

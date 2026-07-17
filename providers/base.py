@@ -30,7 +30,7 @@ def _profile_user_agent() -> str:
     """
     try:
         from fabric_cli import __version__ as _ver  # lazy: avoid layer cycle at import time
-        return f"fabric-cli/{_ver}"
+        return f"hermes-cli/{_ver}"
     except Exception:
         return "fabric-cli"
 

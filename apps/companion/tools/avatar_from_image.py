@@ -1,12 +1,10 @@
-"""Bitmap-pet factory: turn a single character image into a full Petdex pet.
+"""Bitmap-pet factory: turn character image(s) into a full Petdex pet.
 
-Takes one master image (e.g. commissioned pixel art), removes its studio
-background with a corner flood-fill, downscales it into the half-res avatar
-cell, and animates it puppet-style — breathing, leans, squash-stretch jump
-arcs, slumps — with the shared effect layer (sparkles, tear, sweat drop,
-question hook, gold attention beacon, motion ticks) on top. The result is a
-module-compatible object the `pixel_avatars.py` harness can render, preview,
-validate, and install like any hand-drawn avatar.
+Two modes:
+
+1. **Single master** (legacy) — one image puppeteered with squash/lean/rot.
+2. **Multi-pose** (preferred) — real art per activity state via ``poses={...}``.
+   In-pose motion stays subtle (breath, hop); pose switches carry the acting.
 
 Usage from a personal-studio module (see --custom-dir):
 
@@ -14,14 +12,20 @@ Usage from a personal-studio module (see --custom-dir):
     _pet = bitmap_avatar(
         name="Caped Hero", slug="capedhero",
         description="...",
-        image=__file__ + "/../refs/hero.png",
+        image="refs/idle.png",          # fallback / default pose
+        poses={
+            "idle": "refs/idle.png",
+            "running-right": "refs/run.png",
+            "waving": "refs/wave.png",
+            "jumping": "refs/jump.png",
+            "failed": "refs/failed.png",
+        },
         bg_threshold=40,
-        hero=True,  # punchier lean/jump/sway for cape masters
     )
     NAME, SLUG, DESCRIPTION, draw = _pet.NAME, _pet.SLUG, _pet.DESCRIPTION, _pet.draw
 
-Whole-sprite puppetry keeps every pixel of the source art, so fidelity is
-bounded by the master image, not by procedural drawing skill.
+A pose value may be a path or a list of paths (cycled by frame index) for
+true multi-frame strips without procedural puppetry.
 """
 
 from __future__ import annotations
@@ -100,8 +104,6 @@ def _remove_background(img: Image.Image, threshold: int) -> Image.Image:
 def _prepare_master(path: Path, *, bg_threshold: int, max_w: int, max_h: int) -> Image.Image:
     """Master pipeline: mid-size, deflood, autocrop, fit, requantize, crisp edges."""
     img = Image.open(path).convert("RGBA")
-    # Work at ~3x target first: soft AA/gradients average out and the flood
-    # fill runs fast.
     mid_h = max_h * 3
     if img.height > mid_h:
         img = img.resize((int(img.width * mid_h / img.height), mid_h), Image.BOX)
@@ -112,22 +114,16 @@ def _prepare_master(path: Path, *, bg_threshold: int, max_w: int, max_h: int) ->
     scale = min(max_w / img.width, max_h / img.height)
     tw = max(1, int(img.width * scale))
     th = max(1, int(img.height * scale))
-    # Two-step resize: BOX to ~2x target (anti-alias soft source), then NEAREST
-    # into the half-res cell so the final silhouette locks to hard pixels.
     img = img.resize((max(1, tw * 2), max(1, th * 2)), Image.BOX)
     img = img.resize((tw, th), Image.NEAREST)
-    # Re-flatten the color field to a pixel-art palette (alpha preserved).
     alpha = img.getchannel("A")
     quant = img.convert("RGB").quantize(colors=28, method=Image.MEDIANCUT).convert("RGBA")
     quant.putalpha(alpha)
-    # Kill semi-transparent fringe: alpha snaps to on/off.
     px = quant.load()
     for y in range(quant.height):
         for x in range(quant.width):
             r, g, b, a = px[x, y]
             px[x, y] = (r, g, b, 255 if a >= 128 else 0)
-    # Snap pure-white residual studio pixels on the bbox edge (catches soft
-    # glow masters the corner flood-fill left behind).
     for y in range(quant.height):
         for x in range(quant.width):
             r, g, b, a = px[x, y]
@@ -146,7 +142,6 @@ def _ground_shadow(img: Image.Image, *, cx: float, width: float, alpha: float = 
     d = ImageDraw.Draw(img)
     hw = max(6.0, width * 0.32)
     d.ellipse((cx - hw, GROUND - 2, cx + hw, GROUND + 2), fill=shadow)
-    # Dither the rim so it feels 16-bit instead of a soft blob.
     px = img.load()
     for x in range(int(cx - hw), int(cx + hw) + 1):
         for y in (GROUND - 1, GROUND, GROUND + 1):
@@ -157,11 +152,7 @@ def _ground_shadow(img: Image.Image, *, cx: float, width: float, alpha: float = 
 def _place(img_canvas: Image.Image, master: Image.Image, *, dx: float = 0, dy: float = 0,
            sx: float = 1.0, sy: float = 1.0, rot: float = 0.0, dark: float = 0.0,
            shadow: bool = True):
-    """Paste the master anchored bottom-center at the ground line.
-
-    sx/sy squash-stretch about the ground anchor; rot degrees (NEAREST keeps
-    the chunky pixels); dark in [0,1] dims the sprite (failed gloom).
-    """
+    """Paste the master anchored bottom-center at the ground line."""
     m = master
     if sx != 1.0 or sy != 1.0:
         m = m.resize((max(1, int(m.width * sx)), max(1, int(m.height * sy))), Image.NEAREST)
@@ -174,14 +165,13 @@ def _place(img_canvas: Image.Image, master: Image.Image, *, dx: float = 0, dy: f
     x = int(round(CX + dx - m.width / 2))
     y = int(round(GROUND + dy - m.height))
     if shadow:
-        # Shadow stays on the floor even when the body jumps (dy lifts the sprite).
         _ground_shadow(img_canvas, cx=CX + dx, width=m.width, alpha=0.28 if dy < -2 else 0.4)
     img_canvas.alpha_composite(m, (max(-m.width, x), max(-m.height, y)))
     return x, y, m.width, m.height
 
 
 def _question_hook(img: Image.Image, x: float, y: float, *, wob: float = 0.0) -> None:
-    """Chunky violet ? so waiting reads at 0.33 scale (not a 1px squiggle)."""
+    """Chunky violet ? so waiting reads at 0.33 scale."""
     hx, hy = x + wob, y
     strand(img, [(hx, hy + 8), (hx + 3, hy + 4), (hx + 1, hy), (hx - 2, hy - 2), (hx - 4, hy + 1)], V[1], thick=True)
     put(img, hx - 1, hy + 4, V[2])
@@ -189,152 +179,282 @@ def _question_hook(img: Image.Image, x: float, y: float, *, wob: float = 0.0) ->
     put(img, hx, hy + 12, V[2])
 
 
-def bitmap_avatar(*, name: str, slug: str, description: str, image,
+def _as_path_list(value) -> list[Path]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [Path(v).resolve() for v in value]
+    return [Path(value).resolve()]
+
+
+def _load_pose_bank(image, poses, *, bg_threshold: int, max_w: int, max_h: int) -> dict[str, list[Image.Image]]:
+    """Prepare default + per-state masters."""
+    bank: dict[str, list[Image.Image]] = {}
+    cache: dict[Path, Image.Image] = {}
+
+    def load_one(path: Path) -> Image.Image:
+        if path not in cache:
+            cache[path] = _prepare_master(path, bg_threshold=bg_threshold, max_w=max_w, max_h=max_h)
+        return cache[path]
+
+    if image is not None:
+        bank["default"] = [load_one(Path(image).resolve())]
+    for key, val in dict(poses or {}).items():
+        frames = [load_one(p) for p in _as_path_list(val)]
+        if frames:
+            bank[key] = frames
+    if "default" not in bank:
+        if not bank:
+            raise ValueError("bitmap_avatar needs image= and/or poses=")
+        bank["default"] = next(iter(bank.values()))
+    aliases = {
+        "run": "running-right",
+        "running": "running-right",
+        "wave": "waving",
+        "jump": "jumping",
+        "fail": "failed",
+        "sad": "failed",
+        "wait": "waiting",
+        "think": "review",
+    }
+    for alias, canon in aliases.items():
+        if alias in bank and canon not in bank:
+            bank[canon] = bank[alias]
+    return bank
+
+
+def _pick(bank: dict[str, list[Image.Image]], *keys: str, i: int = 0) -> Image.Image:
+    """First matching pose bank entry; cycles multi-frame strips by *i*."""
+    for key in keys:
+        frames = bank.get(key)
+        if frames:
+            return frames[i % len(frames)]
+    return bank["default"][i % len(bank["default"])]
+
+
+def bitmap_avatar(*, name: str, slug: str, description: str, image=None,
+                  poses: dict | None = None,
                   bg_threshold: int = 40, max_w: int = 88, max_h: int = 94,
                   hero: bool = False):
-    """Build a harness-compatible avatar module from one master image.
+    """Build a harness-compatible avatar from one master or a pose set.
 
-    Pass ``hero=True`` for cape/superhero masters: amplifies lean, jump arc,
-    and idle sway so a rigid bitmap still reads as lively at pet scale.
+    ``poses`` maps activity state → path or list[path]. When a state has real
+    art, puppet thrash is suppressed (subtle breath/hop only). Missing states
+    fall back to ``image`` / ``idle`` / first pose.
     """
-    master = _prepare_master(Path(image).resolve(), bg_threshold=bg_threshold,
-                             max_w=max_w, max_h=max_h)
-    # Hero masters get punchier puppet ranges (cape silhouette does free work).
-    amp = 1.35 if hero else 1.0
+    bank = _load_pose_bank(image, poses, bg_threshold=bg_threshold, max_w=max_w, max_h=max_h)
+    multi = any(k not in ("default",) for k in bank) and len([k for k in bank if k != "default"]) >= 1
+    # Prefer multi-pose path whenever caller passed poses=.
+    multi = bool(poses)
+    amp = 1.35 if hero and not multi else 1.0
 
     def draw(state: str, i: int, n: int):
         img = canvas()
         t = i / n
         ph = 2 * math.pi * t
+        if multi:
+            return _draw_posed(img, bank, state, i, n, t, ph)
+        return _draw_puppet(img, bank["default"][0], state, i, n, t, ph, amp=amp, hero=hero)
 
-        if state == "idle":
-            # Readable breath + soft cape sway (rot) — 0.008 squash was invisible at 0.33.
-            breath = math.sin(ph)
-            sway = 1.8 * amp * math.sin(ph)
-            x, y, w, h = _place(
-                img,
-                master,
-                dy=min(0, -bob(t, 1.6 * amp)),
-                sx=1.0 + 0.028 * amp * breath,
-                sy=1.0 - 0.024 * amp * breath,
-                rot=sway * 0.9 if hero else sway * 0.35,
-            )
+    return SimpleNamespace(
+        NAME=name, SLUG=slug, DESCRIPTION=description, draw=draw,
+        multi_pose=multi,
+        poses=sorted(k for k in bank if k != "default"),
+    )
 
-        elif state == "running-right":
-            bounce = ease_out(abs(math.sin(2 * ph)))
-            lean = -8 * amp if hero else -5
+
+def _draw_posed(img, bank, state, i, n, t, ph):
+    """Real pose art + light life + effects. No whole-body spin theater."""
+    breath = 0.012 * math.sin(ph)
+
+    if state == "idle":
+        m = _pick(bank, "idle", i=i)
+        _place(img, m, dy=min(0, -bob(t, 1.2)), sx=1.0 + breath, sy=1.0 - breath)
+
+    elif state == "running-right":
+        m = _pick(bank, "running-right", "running", "idle", i=i)
+        bounce = ease_out(abs(math.sin(2 * ph)))
+        x, y, w, h = _place(
+            img, m, dy=-3.5 * bounce,
+            sx=1.0 + 0.02 * (1 - bounce), sy=1.0 - 0.02 * (1 - bounce),
+        )
+        motion_ticks(img, x - 4, y + h // 2, 1, count=3)
+
+    elif state == "waving":
+        m = _pick(bank, "waving", "idle", i=i)
+        lift = -1 if (i % 2) else 0
+        x, y, w, h = _place(img, m, dy=lift, sx=1.0 + breath * 0.5, sy=1.0 - breath * 0.5)
+        if i >= 1:
+            sparkle(img, x + w - 2, y + 4, small=(i != 2))
+        if i == 2:
+            sparkle(img, x + w // 2, y - 4, small=True)
+
+    elif state == "jumping":
+        # Crouch/land → idle; airborne → jump pose + height.
+        arc = math.sin(math.pi * i / max(1, n - 1))
+        if i == 0:
+            m = _pick(bank, "crouch", "idle", i=0)
+            x, y, w, h = _place(img, m, sx=1.10, sy=0.90)
+        elif i == n - 1:
+            m = _pick(bank, "crouch", "idle", i=0)
+            x, y, w, h = _place(img, m, sx=1.08, sy=0.92)
+        else:
+            m = _pick(bank, "jumping", "idle", i=i)
+            x, y, w, h = _place(img, m, dy=-16 * arc, sx=1.0 - 0.03 * arc, sy=1.0 + 0.03 * arc)
+        if i == 2 or (n >= 5 and i == n // 2):
+            sparkle(img, x - 4, y + 2)
+            sparkle(img, x + w + 3, y + 6, small=True)
+
+    elif state == "failed":
+        m = _pick(bank, "failed", "idle", i=i)
+        sulk = 0.4 * math.sin(ph)
+        settle = ease_in_out(min(1.0, i / 3))
+        x, y, w, h = _place(
+            img, m, dy=max(0, sulk), dark=0.15 * settle,
+            sx=1.0 + 0.02 * settle, sy=1.0 - 0.02 * settle,
+        )
+        if i >= 2:
+            tear(img, x + int(w * 0.68), y + int(h * 0.34) + max(0, i - 3))
+        sweat_drop(img, x + w - 1, y + 4 + 4 * t)
+
+    elif state == "waiting":
+        m = _pick(bank, "waiting", "idle", i=i)
+        sway = follow(t, 0.0, 1.0)
+        x, y, w, h = _place(img, m, dx=sway, dy=min(0, -bob(t, 0.8)))
+        _question_hook(img, x + w + 1, y + 6, wob=follow(t, 0.2, 1.0))
+        attention_dot(img, CX + 2, y - 12 + bob(t, 1.5), t=t)
+
+    elif state == "running":  # tool work — run pose, hop in place
+        m = _pick(bank, "running", "running-right", "idle", i=i)
+        press = abs(math.sin(ph * 1.5))
+        x, y, w, h = _place(img, m, dy=-2.5 * press, sx=1.0 + 0.02 * press, sy=1.0 - 0.02 * press)
+        motion_ticks(img, x - 4, y + h // 2, 1, count=2)
+        motion_ticks(img, x + w + 4, y + h // 2 + 2, -1, count=2)
+        for k in range(min(5, i // 2 + 1)):
+            put(img, CX - 10 + k * 5, GROUND + 1, G[2])
+            put(img, CX - 10 + k * 5, GROUND, G[3])
+
+    elif state == "review":
+        m = _pick(bank, "review", "idle", i=i)
+        nod = i == n - 1
+        scan = ease_in_out(min(1.0, i / max(1, n - 2)))
+        x, y, w, h = _place(img, m, dy=-1 if nod else 0, sx=1.0 + breath * 0.4, sy=1.0 - breath * 0.4)
+        line_y = y + int(h * 0.52)
+        strand(img, [(x - 10, line_y + 2), (x - 6, line_y), (x - 1, line_y)], C[3], thick=True)
+        gx = x - 10 + int(9 * scan)
+        put(img, gx, line_y, G[2])
+        put(img, gx, line_y - 1, G[3])
+        if nod:
+            sparkle(img, x - 6, line_y - 6, small=True)
+
+    else:  # pragma: no cover
+        _place(img, _pick(bank, "idle", i=0))
+    return img
+
+
+def _draw_puppet(img, master, state, i, n, t, ph, *, amp: float, hero: bool):
+    """Legacy single-master whole-sprite puppetry."""
+    if state == "idle":
+        breath = math.sin(ph)
+        sway = 1.8 * amp * math.sin(ph)
+        _place(
+            img, master,
+            dy=min(0, -bob(t, 1.6 * amp)),
+            sx=1.0 + 0.028 * amp * breath,
+            sy=1.0 - 0.024 * amp * breath,
+            rot=sway * 0.9 if hero else sway * 0.35,
+        )
+
+    elif state == "running-right":
+        bounce = ease_out(abs(math.sin(2 * ph)))
+        lean = -8 * amp if hero else -5
+        x, y, w, h = _place(
+            img, master, dx=3, dy=-6 * amp * bounce,
+            sx=1.0 + 0.06 * (1 - bounce), sy=1.0 - 0.05 * (1 - bounce),
+            rot=lean - 2 * bounce,
+        )
+        motion_ticks(img, x - 5, y + h // 2, 1, count=4)
+        if hero:
+            motion_ticks(img, x - 2, y + h // 3, 1, count=2)
+
+    elif state == "waving":
+        rock = tuple(int(v * amp) for v in (0, -10, -14, -6))[min(i, 3)]
+        lift = -2 if i in (1, 2) else 0
+        x, y, w, h = _place(img, master, rot=rock, dy=lift)
+        if i >= 1:
+            sparkle(img, x + w - 1, y - 3, small=(i != 2))
+        if i == 2:
+            sparkle(img, x + w + 4, y + 6, small=True)
+            sparkle(img, x + w // 2, y - 6, small=True)
+
+    elif state == "jumping":
+        arc = math.sin(math.pi * i / max(1, n - 1))
+        if i == 0:
+            x, y, w, h = _place(img, master, sx=1.14, sy=0.86, rot=-4 if hero else 0)
+        elif i == n - 1:
+            x, y, w, h = _place(img, master, sx=1.12, sy=0.88, rot=3 if hero else 0)
+        else:
+            stretch = 0.07 * amp * arc
             x, y, w, h = _place(
-                img,
-                master,
-                dx=3,
-                dy=-6 * amp * bounce,
-                sx=1.0 + 0.06 * (1 - bounce),
-                sy=1.0 - 0.05 * (1 - bounce),
-                rot=lean - 2 * bounce,
+                img, master, dy=-18 * amp * arc,
+                sx=1.0 - stretch, sy=1.0 + stretch,
+                rot=(-6 if hero else -2) if i < n // 2 else (4 if hero else 1),
             )
-            motion_ticks(img, x - 5, y + h // 2, 1, count=4)
+        if i == 2 or (n >= 5 and i == n // 2):
+            sparkle(img, x - 5, y + 2)
+            sparkle(img, x + w + 3, y + 8, small=True)
             if hero:
-                motion_ticks(img, x - 2, y + h // 3, 1, count=2)
-
-        elif state == "waving":
-            # Bigger rock + lift so a whole-body wave sells the greeting beat.
-            rock = tuple(int(v * amp) for v in (0, -10, -14, -6))[min(i, 3)]
-            lift = -2 if i in (1, 2) else 0
-            x, y, w, h = _place(img, master, rot=rock, dy=lift)
-            if i >= 1:
-                sparkle(img, x + w - 1, y - 3, small=(i != 2))
-            if i == 2:
-                sparkle(img, x + w + 4, y + 6, small=True)
-                sparkle(img, x + w // 2, y - 6, small=True)
-
-        elif state == "jumping":
-            # Symmetric arc: crouch → rise → apex sparkle → fall → land squash.
-            arc = math.sin(math.pi * i / max(1, n - 1))
-            if i == 0:
-                x, y, w, h = _place(img, master, sx=1.14, sy=0.86, rot=-4 if hero else 0)
-            elif i == n - 1:
-                x, y, w, h = _place(img, master, sx=1.12, sy=0.88, rot=3 if hero else 0)
-            else:
-                stretch = 0.07 * amp * arc
-                x, y, w, h = _place(
-                    img,
-                    master,
-                    dy=-18 * amp * arc,
-                    sx=1.0 - stretch,
-                    sy=1.0 + stretch,
-                    rot=(-6 if hero else -2) if i < n // 2 else (4 if hero else 1),
-                )
-            if i == 2 or (n >= 5 and i == n // 2):
-                sparkle(img, x - 5, y + 2)
-                sparkle(img, x + w + 3, y + 8, small=True)
-                if hero:
-                    sparkle(img, x + w // 2, y - 4, small=True)
-
-        elif state == "failed":
-            settle = ease_in_out(min(1.0, i / 3))
-            sulk = 0.8 * math.sin(ph)
-            x, y, w, h = _place(
-                img,
-                master,
-                rot=(-12 if hero else -7) * settle,
-                dy=max(0, sulk),
-                sx=1.0 + 0.07 * settle,
-                sy=1.0 - 0.08 * settle,
-                dark=settle,
-            )
-            if i >= 2:
-                tear(img, x + int(w * 0.68), y + int(h * 0.36) + max(0, i - 3))
-            sweat_drop(img, x + w - 1, y + 4 + 5 * t)
-
-        elif state == "waiting":
-            sway = follow(t, 0.0, 2.0 * amp)
-            x, y, w, h = _place(img, master, dx=sway, rot=sway * 0.6)
-            # Question hook on the free side of the silhouette.
-            _question_hook(img, x + w + 1, y + 6, wob=follow(t, 0.2, 1.2))
-            attention_dot(img, CX + 2, y - 12 + bob(t, 1.8), t=t)
-
-        elif state == "running":  # focused work in place — power pose bounce
-            press = abs(math.sin(ph * 1.5))
-            jitter = (2 if i % 2 == 0 else -2) if hero else (1 if i % 2 == 0 else -1)
-            x, y, w, h = _place(
-                img,
-                master,
-                dx=jitter,
-                dy=-3.5 * amp * press,
-                rot=(-4 if hero else -2) - 2 * press,
-                sx=1.0 + 0.03 * press,
-                sy=1.0 - 0.03 * press,
-            )
-            motion_ticks(img, x - 5, y + h // 2, 1, count=3)
-            motion_ticks(img, x + w + 5, y + h // 2 + 3, -1, count=3)
-            # Gold progress pips accumulate underfoot.
-            for k in range(min(5, i // 2 + 1)):
-                put(img, CX - 10 + k * 5, GROUND + 1, G[2])
-                put(img, CX - 10 + k * 5, GROUND, G[3])
-                put(img, CX - 10 + k * 5 + 1, GROUND, G[4])
-
-        elif state == "review":
-            nod = i == n - 1
-            scan = ease_in_out(min(1.0, i / max(1, n - 2)))
-            x, y, w, h = _place(
-                img,
-                master,
-                dx=int(3 * math.sin(ph)),
-                rot=(6 if nod else -2 + 4 * scan),
-                dy=-1 if nod else 0,
-            )
-            line_y = y + int(h * 0.52)
-            strand(img, [(x - 10, line_y + 2), (x - 6, line_y), (x - 1, line_y)], C[3], thick=True)
-            gx = x - 10 + int(9 * scan)
-            put(img, gx, line_y, G[2])
-            put(img, gx, line_y - 1, G[3])
-            put(img, gx + 1, line_y - 1, G[4])
-            if nod:
-                sparkle(img, x - 7, line_y - 7, small=True)
                 sparkle(img, x + w // 2, y - 4, small=True)
 
-        else:  # pragma: no cover
-            _place(img, master)
-        return img
+    elif state == "failed":
+        settle = ease_in_out(min(1.0, i / 3))
+        sulk = 0.8 * math.sin(ph)
+        x, y, w, h = _place(
+            img, master, rot=(-12 if hero else -7) * settle, dy=max(0, sulk),
+            sx=1.0 + 0.07 * settle, sy=1.0 - 0.08 * settle, dark=settle,
+        )
+        if i >= 2:
+            tear(img, x + int(w * 0.68), y + int(h * 0.36) + max(0, i - 3))
+        sweat_drop(img, x + w - 1, y + 4 + 5 * t)
 
-    return SimpleNamespace(NAME=name, SLUG=slug, DESCRIPTION=description, draw=draw)
+    elif state == "waiting":
+        sway = follow(t, 0.0, 2.0 * amp)
+        x, y, w, h = _place(img, master, dx=sway, rot=sway * 0.6)
+        _question_hook(img, x + w + 1, y + 6, wob=follow(t, 0.2, 1.2))
+        attention_dot(img, CX + 2, y - 12 + bob(t, 1.8), t=t)
+
+    elif state == "running":
+        press = abs(math.sin(ph * 1.5))
+        jitter = (2 if i % 2 == 0 else -2) if hero else (1 if i % 2 == 0 else -1)
+        x, y, w, h = _place(
+            img, master, dx=jitter, dy=-3.5 * amp * press,
+            rot=(-4 if hero else -2) - 2 * press,
+            sx=1.0 + 0.03 * press, sy=1.0 - 0.03 * press,
+        )
+        motion_ticks(img, x - 5, y + h // 2, 1, count=3)
+        motion_ticks(img, x + w + 5, y + h // 2 + 3, -1, count=3)
+        for k in range(min(5, i // 2 + 1)):
+            put(img, CX - 10 + k * 5, GROUND + 1, G[2])
+            put(img, CX - 10 + k * 5, GROUND, G[3])
+            put(img, CX - 10 + k * 5 + 1, GROUND, G[4])
+
+    elif state == "review":
+        nod = i == n - 1
+        scan = ease_in_out(min(1.0, i / max(1, n - 2)))
+        x, y, w, h = _place(
+            img, master, dx=int(3 * math.sin(ph)),
+            rot=(6 if nod else -2 + 4 * scan), dy=-1 if nod else 0,
+        )
+        line_y = y + int(h * 0.52)
+        strand(img, [(x - 10, line_y + 2), (x - 6, line_y), (x - 1, line_y)], C[3], thick=True)
+        gx = x - 10 + int(9 * scan)
+        put(img, gx, line_y, G[2])
+        put(img, gx, line_y - 1, G[3])
+        put(img, gx + 1, line_y - 1, G[4])
+        if nod:
+            sparkle(img, x - 7, line_y - 7, small=True)
+            sparkle(img, x + w // 2, y - 4, small=True)
+
+    else:  # pragma: no cover
+        _place(img, master)
+    return img

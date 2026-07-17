@@ -1208,6 +1208,17 @@ export interface Translations {
     deliverableLabel: string
     fidelityLabel: string
     systemLabel: string
+    viewArtifacts: string
+    addArchive: string
+    replaceArchive: string
+    revealSource: string
+    removeSystem: string
+    libraryTitle: string
+    libraryDescription: string
+    libraryEmpty: string
+    savedSystemPrefix: string
+    importFailed: string
+    revealFailed: string
     reviewHint: string
     start: string
     contractTitle: string

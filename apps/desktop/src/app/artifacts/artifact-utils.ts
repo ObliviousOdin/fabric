@@ -19,11 +19,21 @@ export interface ArtifactRecord {
 
 const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g
 const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)\s]+)\)/g
+const INLINE_CODE_RE = /`([^`\n]+)`/g
 const URL_RE = /https?:\/\/[^\s<>"')]+/g
-const PATH_RE = /(^|[\s("'`])((?:\/|~\/|\.\.?\/)[^\s"'`<>]+(?:\.[a-z0-9]{1,8})?)/gi
-const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp)(?:\?.*)?$/i
-const FILE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|pdf|txt|json|md|csv|zip|tar|gz|mp3|wav|mp4|mov)(?:\?.*)?$/i
+const PATH_RE = /(^|[\s("'`])((?:\/|~\/|\.\.?\/)[^\s"'`<>]+(?:\.[a-z0-9]{1,10})?)/gi
+
+const RELATIVE_PATH_RE =
+  /(^|[\s("'`])((?:[a-z0-9_@.+-]+\/)+[a-z0-9_@.+-]+\.[a-z0-9]{1,10})(?=$|[\s)"'`,;])/gi
+
+const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i
+
+const FILE_EXT_RE =
+  /\.(?:png|jpe?g|gif|webp|svg|bmp|ico|pdf|txt|html?|json|md|csv|zip|tar|gz|mp3|wav|mp4|mov)(?:[?#].*)?$/i
+
 const KEY_HINT_RE = /(path|file|url|image|artifact|output|download|result|target)/i
+
+const WINDOWS_ABSOLUTE_PATH_RE = /^(?:[a-z]:[\\/]|\\\\)/i
 
 function artifactSessionTitle(session: SessionInfo): string {
   return session.title?.trim() || session.preview?.trim() || 'Untitled session'
@@ -63,11 +73,51 @@ function looksLikeArtifact(value: string): boolean {
     return true
   }
 
-  if (looksLikePathOrUrl(value) && (IMAGE_EXT_RE.test(value) || FILE_EXT_RE.test(value))) {
+  if (FILE_EXT_RE.test(value)) {
     return true
   }
 
-  return value.startsWith('/') && value.includes('.')
+  return (value.startsWith('/') || WINDOWS_ABSOLUTE_PATH_RE.test(value)) && value.includes('.')
+}
+
+function resolveArtifactValue(value: string, cwd?: null | string): null | string {
+  if (
+    /^(?:https?:\/\/|data:|file:)/i.test(value) ||
+    value.startsWith('/') ||
+    value.startsWith('~/') ||
+    WINDOWS_ABSOLUTE_PATH_RE.test(value)
+  ) {
+    return value
+  }
+
+  if (!cwd) {
+    return null
+  }
+
+  const combined = `${cwd.replace(/\\/g, '/').replace(/\/+$/, '')}/${value.replace(/\\/g, '/')}`
+  const absolute = combined.startsWith('/')
+  const unc = combined.startsWith('//')
+  const drive = /^[a-z]:\//i.test(combined)
+  const rootDepth = unc ? 2 : drive ? 1 : 0
+  const segments: string[] = []
+
+  for (const segment of combined.split('/')) {
+    if (!segment || segment === '.') {
+      continue
+    }
+
+    if (segment === '..') {
+      if (segments.length > rootDepth) {
+        segments.pop()
+      }
+
+      continue
+    }
+
+    segments.push(segment)
+  }
+
+  return `${unc ? '//' : absolute ? '/' : ''}${segments.join('/')}`
 }
 
 function artifactKind(value: string): ArtifactKind {
@@ -80,7 +130,8 @@ function artifactKind(value: string): ArtifactKind {
     value.startsWith('./') ||
     value.startsWith('../') ||
     value.startsWith('~/') ||
-    value.startsWith('file://')
+    value.startsWith('file://') ||
+    WINDOWS_ABSOLUTE_PATH_RE.test(value)
   ) {
     return 'file'
   }
@@ -93,7 +144,15 @@ function artifactHref(value: string): string {
     return value
   }
 
-  if (value.startsWith('file://') || value.startsWith('/')) {
+  if (/^[a-z]:[\\/]/i.test(value) && !isRemoteGateway()) {
+    return `file:///${value.replace(/\\/g, '/')}`
+  }
+
+  if (/^(?:\\\\|\/\/)/.test(value) && !isRemoteGateway()) {
+    return `file:${value.replace(/\\/g, '/')}`
+  }
+
+  if (value.startsWith('file://') || value.startsWith('/') || WINDOWS_ABSOLUTE_PATH_RE.test(value)) {
     return mediaExternalUrl(value)
   }
 
@@ -167,6 +226,20 @@ function collectStringValues(
   }
 }
 
+function collectStructuredArtifactValues(value: unknown, pushValue: (value: string) => void): void {
+  collectStringValues(value, '', (candidate, keyPath) => {
+    const normalized = normalizeValue(candidate)
+
+    if (!normalized) {
+      return
+    }
+
+    if ((KEY_HINT_RE.test(keyPath) || looksLikePathOrUrl(normalized)) && looksLikeArtifact(normalized)) {
+      pushValue(normalized)
+    }
+  })
+}
+
 function collectArtifactsFromText(text: string, pushValue: (value: string) => void): void {
   for (const match of text.matchAll(MARKDOWN_IMAGE_RE)) {
     pushValue(match[2] || '')
@@ -194,7 +267,19 @@ function collectArtifactsFromText(text: string, pushValue: (value: string) => vo
     }
   }
 
+  for (const match of text.matchAll(INLINE_CODE_RE)) {
+    const value = match[1] || ''
+
+    if (looksLikeArtifact(value)) {
+      pushValue(value)
+    }
+  }
+
   for (const match of text.matchAll(PATH_RE)) {
+    pushValue(match[2] || '')
+  }
+
+  for (const match of text.matchAll(RELATIVE_PATH_RE)) {
     pushValue(match[2] || '')
   }
 }
@@ -212,34 +297,32 @@ function collectArtifactsFromMessage(message: SessionMessage, pushValue: (value:
 
   if (Array.isArray(message.tool_calls)) {
     for (const call of message.tool_calls) {
-      collectStringValues(call, 'tool_call', (value, keyPath) => {
-        const normalized = normalizeValue(value)
+      collectStructuredArtifactValues(call, pushValue)
 
-        if (!normalized) {
-          return
-        }
+      if (!call || typeof call !== 'object') {
+        continue
+      }
 
-        if (KEY_HINT_RE.test(keyPath) && (looksLikePathOrUrl(normalized) || FILE_EXT_RE.test(normalized))) {
-          pushValue(normalized)
+      const record = call as Record<string, unknown>
+      const fn = record.function && typeof record.function === 'object' ? (record.function as Record<string, unknown>) : null
+      const rawArguments = fn?.arguments ?? record.arguments
+
+      if (typeof rawArguments === 'string') {
+        const parsedArguments = parseMaybeJson(rawArguments)
+
+        if (parsedArguments !== null) {
+          collectStructuredArtifactValues(parsedArguments, pushValue)
         }
-      })
+      } else if (rawArguments !== undefined) {
+        collectStructuredArtifactValues(rawArguments, pushValue)
+      }
     }
   }
 
   const parsed = parseMaybeJson(text)
 
   if (parsed !== null) {
-    collectStringValues(parsed, 'tool_result', (value, keyPath) => {
-      const normalized = normalizeValue(value)
-
-      if (!normalized) {
-        return
-      }
-
-      if ((KEY_HINT_RE.test(keyPath) || looksLikePathOrUrl(normalized)) && looksLikeArtifact(normalized)) {
-        pushValue(normalized)
-      }
-    })
+    collectStructuredArtifactValues(parsed, pushValue)
   }
 }
 
@@ -253,9 +336,15 @@ export function collectArtifactsForSession(session: SessionInfo, messages: Sessi
     }
 
     collectArtifactsFromMessage(message, candidate => {
-      const value = normalizeValue(candidate)
+      const rawValue = normalizeValue(candidate)
 
-      if (!value || !looksLikeArtifact(value)) {
+      if (!rawValue || !looksLikeArtifact(rawValue)) {
+        return
+      }
+
+      const value = resolveArtifactValue(rawValue, session.cwd)
+
+      if (!value) {
         return
       }
 

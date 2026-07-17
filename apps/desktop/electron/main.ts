@@ -36,6 +36,7 @@ import { validateDesktopBrand } from '../scripts/desktop-brand.mjs'
 import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { buildDesktopBackendEnv, resolveDesktopHome } from './backend-env'
 import { canImportHermesCli, verifyHermesCli } from './backend-probes'
+import { pythonCandidatesForRoot } from './backend-python'
 import { waitForDashboardPortAnnouncement } from './backend-ready'
 import { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } from './bootstrap-platform'
 import { runBootstrap } from './bootstrap-runner'
@@ -55,6 +56,7 @@ import {
   tokenPreview
 } from './connection-config'
 import { adoptServedDashboardToken } from './dashboard-token'
+import { importDesignSystemZipForIpc } from './design-system-upload'
 import { extractDesktopDeepLink, parseDesktopDeepLink } from './desktop-deep-link'
 import {
   buildPosixCleanupScript,
@@ -1697,13 +1699,7 @@ function findPythonForRoot(root) {
     return override
   }
 
-  const relativePaths = IS_WINDOWS
-    ? [path.join('.venv', 'Scripts', 'python.exe'), path.join('venv', 'Scripts', 'python.exe')]
-    : [path.join('.venv', 'bin', 'python'), path.join('venv', 'bin', 'python')]
-
-  for (const relativePath of relativePaths) {
-    const candidate = path.join(root, relativePath)
-
+  for (const candidate of pythonCandidatesForRoot(root, VENV_ROOT)) {
     if (fileExists(candidate)) {
       return candidate
     }
@@ -6515,8 +6511,10 @@ async function startHermes() {
       })
     )
 
-    hermesProcess.stdout.on('data', rememberLog)
-    hermesProcess.stderr.on('data', rememberLog)
+    const child = hermesProcess
+
+    child.stdout.on('data', rememberLog)
+    child.stderr.on('data', rememberLog)
     let backendReady = false
     let rejectBackendStart = null
 
@@ -6524,7 +6522,7 @@ async function startHermes() {
       rejectBackendStart = reject
     })
 
-    hermesProcess.once('error', error => {
+    child.once('error', error => {
       rememberLog(`${PRODUCT_NAME} backend failed to start: ${error.message}`)
       updateBootProgress(
         {
@@ -6540,7 +6538,7 @@ async function startHermes() {
       sendBackendExit({ code: null, signal: null, error: error.message })
       rejectBackendStart?.(error)
     })
-    hermesProcess.once('exit', (code, signal) => {
+    child.once('exit', (code, signal) => {
       rememberLog(`${PRODUCT_NAME} backend exited (${signal || code})`)
       hermesProcess = null
       connectionPromise = null
@@ -6569,8 +6567,8 @@ async function startHermes() {
 
     // Discover the ephemeral port the child bound to
     const port = await Promise.race([
-      waitForDashboardPortAnnouncement(hermesProcess, { readyFile }),
-      backendStartFailed
+      backendStartFailed,
+      waitForDashboardPortAnnouncement(child, { readyFile })
     ])
 
     if (readyFile) {
@@ -6584,8 +6582,7 @@ async function startHermes() {
     backendStartFailure = null
 
     const authToken = await adoptServedDashboardToken(baseUrl, token, {
-      // The exit/error handlers null hermesProcess when the child dies.
-      childAlive: () => hermesProcess !== null && hermesProcess.exitCode === null && !hermesProcess.killed,
+      childAlive: () => child.exitCode === null && !child.killed,
       rememberLog
     })
 
@@ -7618,6 +7615,16 @@ async function mergeRemoteProfileSessions(searchParams, remoteProfiles) {
 
   return { ...(base as any), sessions: merged.slice(offset, offset + limit), total, profile_totals: profileTotals }
 }
+
+ipcMain.handle('hermes:design-system:import', (_event, request) =>
+  importDesignSystemZipForIpc(request, {
+    electronRequest: options => electronNet.request(options as any),
+    ensureBackend,
+    getOauthSession,
+    globalRemoteActive,
+    profileHasRemoteOverride
+  })
+)
 
 ipcMain.handle('hermes:api', async (_event, request) => {
   // Remote-profile session requests would otherwise hit the local primary off

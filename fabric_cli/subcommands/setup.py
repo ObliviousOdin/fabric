@@ -21,7 +21,7 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
         help="Interactive setup wizard",
         description="Configure Fabric with an interactive wizard. "
         "Run a specific section: fabric setup "
-        "model|tts|terminal|gateway|tools|tailscale|agent",
+        "model|tts|terminal|gateway|tools|github|tailscale|agent",
     )
     setup_parser.add_argument(
         "section",
@@ -32,6 +32,7 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
             "terminal",
             "gateway",
             "tools",
+            "github",
             "tailscale",
             "agent",
         ],

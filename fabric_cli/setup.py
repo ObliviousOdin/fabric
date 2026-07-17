@@ -2919,12 +2919,134 @@ def _setup_tailscale_section(config: dict) -> bool:
     return setup_tailscale(config)
 
 
+# =============================================================================
+# GitHub Account Section
+# =============================================================================
+
+
+def _offer_star_fabric_repo(token: str) -> None:
+    """Offer to star the Fabric repository (skipped if already starred)."""
+    from fabric_cli.github_account import (
+        FABRIC_REPO_SLUG,
+        FABRIC_REPO_URL,
+        is_repo_starred,
+        star_repo,
+    )
+
+    if is_repo_starred(token) is True:
+        print_success(f"You've already starred {FABRIC_REPO_SLUG} — thank you! ★")
+        return
+
+    print()
+    print_info("Enjoying Fabric? Starring the repo helps other people find it:")
+    print_info(f"  {FABRIC_REPO_URL}")
+    if prompt_yes_no(f"Star {FABRIC_REPO_SLUG} on GitHub now?", True):
+        if star_repo(token):
+            print_success(f"Starred {FABRIC_REPO_SLUG} — thank you! ★")
+        else:
+            print_warning("Couldn't star the repo (network issue or token lacks the public_repo scope).")
+            print_info(f"You can star it any time at {FABRIC_REPO_URL}")
+
+
+def _print_contribute_hint() -> None:
+    """Point at the fabric-contribute skill for feature requests / bug reports."""
+    from fabric_cli.github_account import FABRIC_REPO_URL
+
+    print()
+    print_info("Want to request a feature or report a bug?")
+    print_info('  Just ask your agent — e.g. "file a feature request for Fabric" —')
+    print_info("  and the fabric-contribute skill will open a GitHub issue for you.")
+    print_info(f"  Or browse existing issues: {FABRIC_REPO_URL}/issues")
+
+
+def setup_github_account(config: dict):
+    """Connect a GitHub account: sign in, then optionally star the Fabric repo.
+
+    The token is saved as ``GITHUB_TOKEN`` in the profile's ``.env``, which is
+    where the GitHub skills (github-auth, github-issues, fabric-contribute, …)
+    already resolve credentials from — so one sign-in here lights up all of
+    them. Returns False when the user skips or auth fails, True on success.
+    """
+    from fabric_cli.github_account import (
+        fetch_github_user,
+        github_device_code_login,
+        resolve_github_token,
+        save_github_token,
+    )
+
+    print_header("GitHub Account")
+    print_info("Connect GitHub so Fabric's GitHub skills can act as you:")
+    print_info("  cloning and pushing repos, PRs, code review, and filing issues.")
+
+    # Already signed in? Offer to keep the existing account.
+    existing_token, source = resolve_github_token()
+    if existing_token:
+        user = fetch_github_user(existing_token)
+        if user and user.get("login"):
+            login = user["login"]
+            print()
+            print_success(f"Already signed in as {login} (token from {source}).")
+            if not prompt_yes_no("Sign in with a different account instead?", False):
+                if source != "fabric .env":
+                    # Make the working token visible to skills that read .env
+                    save_github_token(existing_token)
+                _offer_star_fabric_repo(existing_token)
+                _print_contribute_hint()
+                return True
+
+    print()
+    choice = prompt_choice(
+        "How would you like to sign in to GitHub?",
+        [
+            "Sign in with your browser (device code — recommended)",
+            "Paste a personal access token",
+            "Skip for now",
+        ],
+        0,
+    )
+
+    if choice == 2:
+        print_info("Skipped. Run 'fabric setup github' any time to connect GitHub.")
+        return False
+
+    if choice == 0:
+        token = github_device_code_login()
+        if not token:
+            print_error("GitHub sign-in did not complete.")
+            print_info("Run 'fabric setup github' to try again.")
+            return False
+    else:
+        print_info("Create a token at https://github.com/settings/tokens")
+        print_info("Required scope: public_repo (star repos, open issues).")
+        print_info("Add the full 'repo' scope if you also want private-repo access.")
+        token = masked_secret_prompt("  GitHub personal access token: ").strip()
+        if not token:
+            print_error("No token entered.")
+            return False
+
+    user = fetch_github_user(token)
+    if not user or not user.get("login"):
+        print_error("Could not verify the token with GitHub — sign-in failed.")
+        print_info("Check the token (and its scopes) and run 'fabric setup github' again.")
+        return False
+
+    save_github_token(token)
+    print()
+    print_success(f"Signed in to GitHub as {user['login']}.")
+    print_info(f"Token saved as GITHUB_TOKEN in {get_env_path()}")
+
+    _offer_star_fabric_repo(token)
+    _print_contribute_hint()
+    return True
+
+
 SETUP_SECTIONS = [
     ("model", "Model & Provider", setup_model_provider),
     ("tts", "Text-to-Speech", setup_tts),
     ("terminal", "Terminal Backend", setup_terminal_backend),
     ("gateway", "Messaging Platforms (Gateway)", setup_gateway),
     ("tools", "Tools", setup_tools),
+    ("github", "GitHub Account", setup_github_account),
     ("tailscale", "Tailscale Private Access", _setup_tailscale_section),
     ("agent", "Agent Settings", setup_agent_settings),
 ]
@@ -3024,6 +3146,7 @@ def run_setup_wizard(args):
       fabric setup terminal  — just terminal backend
       fabric setup gateway   — just messaging platforms
       fabric setup tools     — just tool configuration
+      fabric setup github    — connect a GitHub account (sign in, star, contribute)
       fabric setup tailscale — connect this machine with Tailscale's QR login
       fabric setup agent     — just agent settings
     """
@@ -3179,7 +3302,7 @@ def run_setup_wizard(args):
         print_info("Press Enter to keep it, or type a new value to change it.")
         print_info("")
         print_info("Tip: jump straight to a section with 'fabric setup model|tts|terminal|")
-        print_info("     gateway|tools|tailscale|agent', or fill only missing items with --quick.")
+        print_info("     gateway|tools|github|tailscale|agent', or fill only missing items with --quick.")
         # Fall through to the "Full Setup — run all sections" block below.
         # --reconfigure is now the default on existing installs; the flag
         # is preserved for backwards compatibility but is a no-op here.
@@ -3300,6 +3423,15 @@ def run_setup_wizard(args):
         print_info("Fabric will not enable SSH, routes, exit nodes, Serve, or Funnel.")
         if prompt_yes_no("Connect this machine with Tailscale now?", False):
             _setup_tailscale_section(config)
+
+        # Optional GitHub sign-in — enables the GitHub skills and offers a
+        # chance to star / contribute to the Fabric repo.
+        print()
+        print_header("GitHub Account (optional)")
+        print_info("Sign in to GitHub to enable repo, PR, and issue skills —")
+        print_info("and, if you like Fabric, star the repo or file feature requests.")
+        if prompt_yes_no("Connect your GitHub account now?", False):
+            setup_github_account(config)
 
     # Save and show summary
     save_config(config)

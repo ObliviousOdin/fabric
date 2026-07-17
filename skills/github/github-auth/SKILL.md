@@ -8,12 +8,18 @@ platforms: [linux, macos, windows]
 metadata:
   fabric:
     tags: [GitHub, Authentication, Git, gh-cli, SSH, Setup]
-    related_skills: [github-pr-workflow, github-code-review, github-issues, github-repo-management]
+    related_skills: [github-pr-workflow, github-code-review, github-issues, github-repo-management, fabric-contribute]
 ---
 
 # GitHub Authentication Setup
 
-This skill sets up authentication so the agent can work with GitHub repositories, PRs, issues, and CI. It covers two paths:
+This skill sets up authentication so the agent can work with GitHub repositories, PRs, issues, and CI.
+
+> **Easiest path:** `fabric setup github` runs a browser device-code sign-in and
+> saves the token as `GITHUB_TOKEN` in `~/.fabric/.env`, where every GitHub
+> skill (including this one's detection helper) finds it automatically.
+
+It covers two paths:
 
 - **`git` (always available)** — uses HTTPS personal access tokens or SSH keys
 - **`gh` CLI (if installed)** — richer GitHub API access with a simpler auth flow

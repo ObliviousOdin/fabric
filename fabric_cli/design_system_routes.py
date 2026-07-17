@@ -162,7 +162,7 @@ def _library_for_profile(profile: str | None) -> DesignSystemLibrary:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not profiles_mod.profile_exists(name):
         raise HTTPException(status_code=404, detail=f"Profile '{name}' does not exist.")
-    return DesignSystemLibrary(profiles_mod.get_profile_dir(name) / "design-system-library")
+    return DesignSystemLibrary(profiles_mod.get_profile_dir(name))
 
 
 def design_system_router() -> APIRouter:

@@ -7310,9 +7310,9 @@ ipcMain.on('hermes:pet-overlay:control', (_event, payload) => {
     return
   }
 
-  // The mail icon means "take me to the app": raise the main window (it may be
-  // minimized or buried) before the renderer navigates to the latest thread.
-  if (payload && payload.type === 'open-app') {
+  // The mail icon and session picker both mean "take me to the app": raise the
+  // main window before the renderer navigates to the requested thread.
+  if (payload && (payload.type === 'open-app' || payload.type === 'open-session')) {
     if (mainWindow.isMinimized()) {
       mainWindow.restore()
     }

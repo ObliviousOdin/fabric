@@ -437,7 +437,7 @@ BRAND_SOURCE_REQUIRED = (
     "mark-mono.svg",
     "wordmark.svg",
     "wordmark-on-dark.svg",
-    "reference-wordmark.png",
+    "reference-mark.jpg",
 )
 
 

@@ -51,8 +51,8 @@ def test_default_fabric_art_resolves_skin_colors_and_renders_without_color():
     console.print(resolved)
     output = console.export_text()
 
-    assert "───fabric" in output
-    assert "╰──────────╮" in output
+    assert "├────╮  fabric" in output
+    assert "╰──────────────╮" in output
     assert "█" not in output
 
 

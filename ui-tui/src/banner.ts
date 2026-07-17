@@ -55,21 +55,25 @@ export function parseRichMarkup(markup: string, colors?: ThemeColors): Line[] {
 }
 
 const LOGO_ART = [
-  '     ╭─',
-  '  ───fabric',
-  '     │',
-  '     ╰──────────╮'
+  '  ╭─────────╮',
+  '  │╱───────╯ •',
+  '  ├────╮  fabric',
+  '  │╱──╯',
+  '  │',
+  '  ╰──────────────╮'
 ]
 
 const FABRIC_MARK_ART = [
-  '    ╭─',
-  '  ──f',
-  '    │',
-  '    ╰────╮'
+  '  ╭──────╮',
+  '  │╱────╯•',
+  '  ├──╮',
+  '  │╱╯',
+  '  │',
+  '  ╰────╮'
 ]
 
-const LOGO_GRADIENT = [0, 1, 0, 3] as const
-const FABRIC_MARK_GRADIENT = [0, 1, 0, 3] as const
+const LOGO_GRADIENT = [0, 1, 0, 1, 0, 3] as const
+const FABRIC_MARK_GRADIENT = [0, 1, 0, 1, 0, 3] as const
 
 const colorize = (art: string[], gradient: readonly number[], c: ThemeColors): Line[] => {
   const p = [c.primary, c.accent, c.border, c.muted]

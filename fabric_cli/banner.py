@@ -68,15 +68,19 @@ _BANNER_COLOR_TOKENS = {
     "muted": ("banner_dim", "#667085"),
 }
 
-FABRIC_AGENT_LOGO_TEMPLATE = """[bold {primary}]     ╭─[/]
-[bold {accent}]  ───fabric[/]
-[bold {primary}]     │[/]
-[dim {muted}]     ╰──────────╮[/]"""
+FABRIC_AGENT_LOGO_TEMPLATE = """[bold {primary}]  ╭─────────╮[/]
+[bold {accent}]  │╱───────╯ •[/]
+[bold {primary}]  ├────╮  fabric[/]
+[bold {accent}]  │╱──╯[/]
+[bold {primary}]  │[/]
+[dim {muted}]  ╰──────────────╮[/]"""
 
-FABRIC_MARK_TEMPLATE = """[bold {primary}]    ╭─[/]
-[bold {accent}]  ──f[/]
-[bold {primary}]    │[/]
-[dim {muted}]    ╰────╮[/]"""
+FABRIC_MARK_TEMPLATE = """[bold {primary}]  ╭──────╮[/]
+[bold {accent}]  │╱────╯•[/]
+[bold {primary}]  ├──╮[/]
+[bold {accent}]  │╱╯[/]
+[bold {primary}]  │[/]
+[dim {muted}]  ╰────╮[/]"""
 
 
 def _resolve_fallback_banner_art(markup: str) -> str:

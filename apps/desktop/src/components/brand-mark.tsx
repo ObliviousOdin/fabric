@@ -31,8 +31,8 @@ export function BrandMark({ className, ...props }: React.ComponentProps<'span'>)
   )
 }
 
-// The full Fabric wordmark preserves the bracket underline from the canonical
-// brand source. Use it for hero moments; compact surfaces should use BrandMark.
+// The full Fabric wordmark pairs the stylized F symbol with the bracket
+// underline. Use it for hero moments; compact surfaces should use BrandMark.
 export function BrandWordmark({ className, ...props }: React.ComponentProps<'span'>) {
   return (
     <span

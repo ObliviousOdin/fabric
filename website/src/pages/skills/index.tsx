@@ -29,6 +29,32 @@ interface Skill {
    *  `.includes()` per skill instead of array-join + toLowerCase on
    *  every render. Skipped on the wire — added in the loader. */
   _search?: string;
+  /** Sibling skills this one composes with (frontmatter related_skills).
+   *  Local skills only — community entries don't carry it. */
+  related?: string[];
+}
+
+/** One member of a curated stack or the featured list (skill-stacks.json). */
+interface StackMember {
+  name: string;
+  source: string;
+  /** Hub install identifier for community members that may not be in the
+   *  local catalog yet (e.g. "owner/repo/skills/name"). */
+  install?: string;
+}
+
+interface SkillStack {
+  id: string;
+  icon: string;
+  title: string;
+  tagline: string;
+  why: string;
+  skills: StackMember[];
+}
+
+interface StacksData {
+  featured: StackMember[];
+  stacks: SkillStack[];
 }
 
 const allSkills: Skill[] = [];
@@ -408,6 +434,26 @@ function SkillCard({
                 ))}
               </div>
             )}
+            {skill.related?.length ? (
+              <div className={styles.relatedBlock}>
+                <span className={styles.detailLabel}>Works well with</span>
+                <div className={styles.tagRow}>
+                  {skill.related.map((rel) => (
+                    <button
+                      key={rel}
+                      className={styles.relatedChip}
+                      title={`Find ${rel}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTagClick(rel);
+                      }}
+                    >
+                      {rel}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {skill.author && (
               <div className={styles.authorRow}>
                 <span className={styles.authorLabel}>Author</span>
@@ -460,6 +506,129 @@ function SkillCard({
   );
 }
 
+const MEMBER_SOURCE_COLORS: Record<string, { color: string; bg: string; border: string }> = {
+  "built-in": { color: "#4ade80", bg: "rgba(74, 222, 128, 0.08)", border: "rgba(74, 222, 128, 0.25)" },
+  optional: { color: "#fbbf24", bg: "rgba(251, 191, 36, 0.08)", border: "rgba(251, 191, 36, 0.25)" },
+  community: { color: "#60a5fa", bg: "rgba(96, 165, 250, 0.08)", border: "rgba(96, 165, 250, 0.25)" },
+};
+
+function memberRepoUrl(member: StackMember): string | undefined {
+  if (!member.install) return undefined;
+  const parts = member.install.split("/");
+  return parts.length >= 2 ? `https://github.com/${parts[0]}/${parts[1]}` : undefined;
+}
+
+function StackCard({
+  stack,
+  catalogNames,
+  onMemberClick,
+}: {
+  stack: SkillStack;
+  catalogNames: Set<string>;
+  onMemberClick: (name: string) => void;
+}) {
+  return (
+    <div className={styles.stackCard}>
+      <div className={styles.stackHead}>
+        <span className={styles.stackIcon}>{stack.icon}</span>
+        <div className={styles.stackTitleGroup}>
+          <h3 className={styles.stackTitle}>{stack.title}</h3>
+          <p className={styles.stackTagline}>{stack.tagline}</p>
+        </div>
+      </div>
+      <div className={styles.stackMembers}>
+        {stack.skills.map((m) => {
+          const colors = MEMBER_SOURCE_COLORS[m.source] || MEMBER_SOURCE_COLORS.community;
+          const chipStyle = {
+            color: colors.color,
+            background: colors.bg,
+            borderColor: colors.border,
+          } as React.CSSProperties;
+          if (catalogNames.has(m.name)) {
+            return (
+              <button
+                key={m.name}
+                className={styles.memberChip}
+                style={chipStyle}
+                title={`Find ${m.name}`}
+                onClick={() => onMemberClick(m.name)}
+              >
+                {m.name}
+              </button>
+            );
+          }
+          // Community member not yet in the catalog — link to its repo and
+          // surface the install command in the tooltip.
+          return (
+            <a
+              key={m.name}
+              className={`${styles.memberChip} ${styles.memberChipMissing}`}
+              style={chipStyle}
+              href={memberRepoUrl(m)}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={m.install ? `fabric skills install ${m.install}` : m.name}
+            >
+              {m.name} {"↗"}
+            </a>
+          );
+        })}
+      </div>
+      <p className={styles.stackWhy}>{stack.why}</p>
+    </div>
+  );
+}
+
+/** Featured community skill that hasn't landed in the crawled catalog yet:
+ *  render an install card instead of hiding it. */
+function FeaturedInstallCard({ member, style }: { member: StackMember; style?: React.CSSProperties }) {
+  const colors = MEMBER_SOURCE_COLORS.community;
+  const repoUrl = memberRepoUrl(member);
+  const repo = member.install?.split("/").slice(0, 2).join("/");
+  const installCmd = member.install ? `fabric skills install ${member.install}` : "";
+  return (
+    <div className={styles.card} style={style}>
+      <div className={styles.cardAccent} style={{ background: colors.color }} />
+      <div className={styles.cardInner}>
+        <div className={styles.cardTop}>
+          <span className={styles.cardIcon}>{"\u{1F310}"}</span>
+          <div className={styles.cardTitleGroup}>
+            <h3 className={styles.cardTitle}>{member.name}</h3>
+            <span
+              className={styles.sourcePill}
+              style={{ color: colors.color, background: colors.bg, borderColor: colors.border }}
+            >
+              {"○"} Community
+            </span>
+          </div>
+        </div>
+        <p className={styles.cardDesc}>
+          From the community pack <strong>{repo}</strong>. Installs through the
+          skills guard scan and quarantine like every hub skill.
+        </p>
+        {installCmd && (
+          <div className={styles.installHint}>
+            <code>{installCmd}</code>
+            <CopyButton text={installCmd} />
+          </div>
+        )}
+        {repoUrl && (
+          <div className={styles.cardLinks}>
+            <a
+              className={styles.docsLink}
+              href={repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View source {"↗"}
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StatCard({ value, label, color }: { value: number; label: string; color: string }) {
   return (
     <div className={styles.stat}>
@@ -493,6 +662,7 @@ function buildSearchHaystack(s: Skill): string {
 export default function SkillsDashboard() {
   const skillsUrl = useBaseUrl("/api/skills.json");
   const metaUrl = useBaseUrl("/api/skills-meta.json");
+  const stacksUrl = useBaseUrl("/api/skill-stacks.json");
   // Lazy-loaded data. Was bundled into the JS chunk (~22 MB at 50k skills,
   // which made the initial page load unusable on mobile). Now fetched on
   // mount from the same CDN that serves the docs.
@@ -507,6 +677,8 @@ export default function SkillsDashboard() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [stacksData, setStacksData] = useState<StacksData | null>(null);
+  const [browseAll, setBrowseAll] = useState(false);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -517,18 +689,24 @@ export default function SkillsDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const [sk, mt] = await Promise.all([
+        const [sk, mt, st] = await Promise.all([
           fetch(skillsUrl).then((r) => {
             if (!r.ok) throw new Error(`skills.json HTTP ${r.status}`);
             return r.json();
           }),
           fetch(metaUrl).then((r) => (r.ok ? r.json() : {})).catch(() => ({})),
+          // Curated stacks are an enhancement — a failed fetch just means
+          // the page opens on the full grid instead of Recommended.
+          fetch(stacksUrl).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         ]);
         if (cancelled) return;
         const skillsArr = Array.isArray(sk) ? (sk as Skill[]) : [];
         // Stamp the precomputed search haystack onto each row.
         for (const s of skillsArr) s._search = buildSearchHaystack(s);
         setData({ skills: skillsArr, meta: mt || {} });
+        if (st && Array.isArray(st.stacks) && st.stacks.length) {
+          setStacksData(st as StacksData);
+        }
       } catch (err) {
         if (cancelled) return;
         setLoadError(err instanceof Error ? err.message : String(err));
@@ -537,7 +715,7 @@ export default function SkillsDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [skillsUrl, metaUrl]);
+  }, [skillsUrl, metaUrl, stacksUrl]);
 
   // Debounce the search input — 150ms feels instant while preventing the
   // filter from running on every individual keystroke.
@@ -613,6 +791,37 @@ export default function SkillsDashboard() {
   const visible = filtered.slice(0, visibleCount);
   const hasMore = visibleCount < filtered.length;
 
+  // Recommended is the landing view: curated stacks + featured picks. Any
+  // search, filter, or explicit "All Skills" click switches to the grid.
+  const inRecommended =
+    !!stacksData &&
+    !debouncedSearch.trim() &&
+    sourceFilter === "all" &&
+    categoryFilter === "all" &&
+    !browseAll;
+
+  const catalogNames = useMemo(
+    () => new Set(allSkillsLocal.map((s) => s.name)),
+    [allSkillsLocal]
+  );
+
+  // Resolve featured members against the catalog. Local members must match
+  // source too (community packs reuse names like "brainstorming"); community
+  // members match by bare name and fall back to an install card when the
+  // crawled index hasn't picked them up yet.
+  const featuredEntries = useMemo(() => {
+    if (!stacksData) return [];
+    return stacksData.featured.map((member) => {
+      const isLocal = member.source === "built-in" || member.source === "optional";
+      const skill = allSkillsLocal.find((s) =>
+        isLocal
+          ? s.name === member.name && s.source === member.source
+          : s.name === member.name
+      );
+      return { member, skill };
+    });
+  }, [stacksData, allSkillsLocal]);
+
   const handleSourceChange = useCallback(
     (src: string) => {
       setSourceFilter(src);
@@ -636,6 +845,12 @@ export default function SkillsDashboard() {
     setSearch("");
     setSourceFilter("all");
     setCategoryFilter("all");
+    setBrowseAll(false);
+  }, []);
+
+  const handleStackMemberClick = useCallback((name: string) => {
+    setSearch(name);
+    gridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
   return (
@@ -793,10 +1008,24 @@ export default function SkillsDashboard() {
               )}
             </div>
             <nav className={styles.catList}>
+              {stacksData && (
+                <button
+                  className={`${styles.catItem} ${inRecommended ? styles.catItemActive : ""}`}
+                  onClick={() => {
+                    clearAll();
+                    setSidebarOpen(false);
+                  }}
+                >
+                  <span className={styles.catItemIcon}>{"\u{2B50}"}</span>
+                  <span className={styles.catItemLabel}>Recommended</span>
+                  <span className={styles.catItemCount}>{stacksData.stacks.length}</span>
+                </button>
+              )}
               <button
-                className={`${styles.catItem} ${categoryFilter === "all" ? styles.catItemActive : ""}`}
+                className={`${styles.catItem} ${categoryFilter === "all" && !inRecommended ? styles.catItemActive : ""}`}
                 onClick={() => {
                   setCategoryFilter("all");
+                  setBrowseAll(true);
                   setSidebarOpen(false);
                 }}
               >
@@ -859,6 +1088,72 @@ export default function SkillsDashboard() {
                   Fetching 88k+ skills across every registry. One moment.
                 </p>
               </div>
+            ) : inRecommended && stacksData ? (
+              <>
+                <div className={styles.recoHeader}>
+                  <h2 className={styles.recoTitle}>Works well together</h2>
+                  <p className={styles.recoSub}>
+                    Curated stacks of skills that compose into complete
+                    workflows. Click a skill to find it, or follow a dashed
+                    chip to its community source.
+                  </p>
+                </div>
+                <div className={styles.stacksGrid}>
+                  {stacksData.stacks.map((stack) => (
+                    <StackCard
+                      key={stack.id}
+                      stack={stack}
+                      catalogNames={catalogNames}
+                      onMemberClick={handleStackMemberClick}
+                    />
+                  ))}
+                </div>
+
+                <div className={styles.recoHeader}>
+                  <h2 className={styles.recoTitle}>Recommended skills</h2>
+                  <p className={styles.recoSub}>
+                    Hand-picked starting points from the bundled library and
+                    the community.
+                  </p>
+                </div>
+                <div className={styles.grid}>
+                  {featuredEntries.map(({ member, skill }, i) => {
+                    const key = `featured-${member.name}-${i}`;
+                    if (skill) {
+                      return (
+                        <SkillCard
+                          key={key}
+                          skill={skill}
+                          query=""
+                          expanded={expandedCard === key}
+                          onToggle={() =>
+                            setExpandedCard(expandedCard === key ? null : key)
+                          }
+                          onCategoryClick={handleCategoryClick}
+                          onTagClick={handleTagClick}
+                          style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
+                        />
+                      );
+                    }
+                    return (
+                      <FeaturedInstallCard
+                        key={key}
+                        member={member}
+                        style={{ animationDelay: `${Math.min(i, 20) * 25}ms` }}
+                      />
+                    );
+                  })}
+                </div>
+
+                <div className={styles.loadMoreWrap}>
+                  <button
+                    className={styles.loadMoreBtn}
+                    onClick={() => setBrowseAll(true)}
+                  >
+                    Browse all {allSkillsLocal.length.toLocaleString()} skills →
+                  </button>
+                </div>
+              </>
             ) : visible.length > 0 ? (
               <>
                 <div className={styles.grid}>

@@ -3011,6 +3011,7 @@ GITHUB_TAP_PROVIDERS = {
     "phuryn/pm-skills": "PMSkills",
     "leonxlnx/taste-skill": "Taste",
     "pbakaus/impeccable": "Impeccable",
+    "multica-ai/andrej-karpathy-skills": "Karpathy",
 }
 
 
@@ -3082,6 +3083,7 @@ class GitHubSource(SkillSource):
         {"repo": "phuryn/pm-skills", "path": "pm-execution/skills/"},
         {"repo": "leonxlnx/taste-skill", "path": "skills/"},
         {"repo": "pbakaus/impeccable", "path": ".claude/skills/"},
+        {"repo": "multica-ai/andrej-karpathy-skills", "path": "skills/"},
     ]
 
     def __init__(self, auth: GitHubAuth, extra_taps: Optional[List[Dict]] = None):

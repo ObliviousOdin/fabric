@@ -64,6 +64,7 @@ CURATED_TAPS = [
     {"repo": "alirezarezvani/claude-skills", "path": "c-level-advisor/skills/"},  # B, ~34 skills
     {"repo": "alirezarezvani/claude-skills", "path": "engineering/skills/"},  # B, ~38 skills
     {"repo": "alirezarezvani/claude-skills", "path": "marketing-skill/skills/"},  # B, ~47 skills
+    {"repo": "AbdullahHameedKhan/karpathy-ponytail-skills", "path": "skills/"},  # C, ~1 skill
     {"repo": "Aperivue/medsci-skills", "path": "skills/"},  # B, ~56 skills
     {"repo": "apify/agent-skills", "path": "skills/"},  # A1, ~5 skills
     {"repo": "apollographql/skills", "path": "skills/"},  # A1, ~14 skills

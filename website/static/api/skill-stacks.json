@@ -1,0 +1,146 @@
+{
+ "version": 1,
+ "updated": "2026-07-17",
+ "featured": [
+  {"name": "brainstorming", "source": "built-in"},
+  {"name": "karpathy-guidelines", "source": "community", "install": "multica-ai/andrej-karpathy-skills/skills/karpathy-guidelines"},
+  {"name": "build-something-people-want", "source": "built-in"},
+  {"name": "product-taste", "source": "built-in"},
+  {"name": "impeccable-craft", "source": "built-in"},
+  {"name": "design", "source": "built-in"},
+  {"name": "webapp-development", "source": "built-in"},
+  {"name": "plan", "source": "built-in"},
+  {"name": "test-driven-development", "source": "built-in"}
+ ],
+ "stacks": [
+  {
+   "id": "zero-to-one",
+   "icon": "🚀",
+   "title": "Zero to One",
+   "tagline": "Take a raw idea to product-market fit.",
+   "why": "Diverge on ideas, validate the winner with real customer interviews, then pressure-test the economics before you build.",
+   "skills": [
+    {"name": "brainstorming", "source": "built-in"},
+    {"name": "build-something-people-want", "source": "built-in"},
+    {"name": "business-planning", "source": "built-in"},
+    {"name": "product-taste", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "karpathy-discipline",
+   "icon": "🧠",
+   "title": "Karpathy-Style Discipline",
+   "tagline": "Write less code, prove it works.",
+   "why": "Surgical changes with verifiable success criteria, an over-engineering review that finds what to delete, then disciplined simplification and root-cause debugging.",
+   "skills": [
+    {"name": "karpathy-guidelines", "source": "community", "install": "multica-ai/andrej-karpathy-skills/skills/karpathy-guidelines"},
+    {"name": "ponytail-review", "source": "community", "install": "DietrichGebert/ponytail/skills/ponytail-review"},
+    {"name": "simplify-code", "source": "built-in"},
+    {"name": "systematic-debugging", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "design-studio",
+   "icon": "🎨",
+   "title": "Design Studio",
+   "tagline": "Explore directions, build the winner, polish it.",
+   "why": "Run a studio sprint to generate distinct concepts, construct the chosen direction with the design front door, judge it with explicit taste, and finish with a ship-ready polish pass.",
+   "skills": [
+    {"name": "design-studio", "source": "built-in"},
+    {"name": "design", "source": "built-in"},
+    {"name": "product-taste", "source": "built-in"},
+    {"name": "impeccable-craft", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "launch-website",
+   "icon": "🌐",
+   "title": "Launch a Website",
+   "tagline": "From positioning to a live URL.",
+   "why": "Positioning and page-by-page copy, a fast modern toolchain, visual design that fits the brand, and a final polish pass before the domain goes live.",
+   "skills": [
+    {"name": "website-building", "source": "built-in"},
+    {"name": "rstack", "source": "built-in"},
+    {"name": "design", "source": "built-in"},
+    {"name": "impeccable-craft", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "ship-saas",
+   "icon": "🧰",
+   "title": "Ship a SaaS",
+   "tagline": "Walking skeleton to production.",
+   "why": "Stand up the full production arc, keep it honest with test-first discipline, and land every change through a reviewed pull request.",
+   "skills": [
+    {"name": "webapp-development", "source": "built-in"},
+    {"name": "test-driven-development", "source": "built-in"},
+    {"name": "requesting-code-review", "source": "built-in"},
+    {"name": "github-pr-workflow", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "ship-ios",
+   "icon": "📱",
+   "title": "Ship an iOS App",
+   "tagline": "SwiftUI to the App Store.",
+   "why": "Architecture and HIG guidance, visual design through the design front door, tests that hold up under review, and polish that survives App Store scrutiny.",
+   "skills": [
+    {"name": "ios-app-development", "source": "built-in"},
+    {"name": "design", "source": "built-in"},
+    {"name": "test-driven-development", "source": "built-in"},
+    {"name": "impeccable-craft", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "hardware-d2c",
+   "icon": "🔌",
+   "title": "Hardware & D2C",
+   "tagline": "Connected product, factory to customer.",
+   "why": "Architect the device, app, and cloud together, take the design through CAD, PCB, and production gates, then sell it direct with a storefront.",
+   "skills": [
+    {"name": "d2c-smart-products", "source": "built-in"},
+    {"name": "hardware-manufacturing", "source": "built-in"},
+    {"name": "shopify", "source": "optional"},
+    {"name": "build-something-people-want", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "win-the-client",
+   "icon": "🤝",
+   "title": "Win the Client",
+   "tagline": "Turn conversations into signed work.",
+   "why": "Discovery-driven proposals with tiered pricing, a business case that survives scrutiny, and a site that closes the credibility gap.",
+   "skills": [
+    {"name": "proposal-writing", "source": "built-in"},
+    {"name": "business-planning", "source": "built-in"},
+    {"name": "website-building", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "compound-engineering",
+   "icon": "🔁",
+   "title": "Compound Engineering",
+   "tagline": "Every task teaches the system.",
+   "why": "Brainstorm and plan with the compound loop, review with its checklist, then compound what you learned back into reusable skills.",
+   "skills": [
+    {"name": "ce-brainstorm", "source": "community", "install": "EveryInc/compound-engineering-plugin/skills/ce-brainstorm"},
+    {"name": "ce-plan", "source": "community", "install": "EveryInc/compound-engineering-plugin/skills/ce-plan"},
+    {"name": "ce-code-review", "source": "community", "install": "EveryInc/compound-engineering-plugin/skills/ce-code-review"},
+    {"name": "ce-compound", "source": "community", "install": "EveryInc/compound-engineering-plugin/skills/ce-compound"}
+   ]
+  },
+  {
+   "id": "superpowers-method",
+   "icon": "⚡",
+   "title": "Superpowers Method",
+   "tagline": "Plan it, delegate it, verify it.",
+   "why": "The full obra/superpowers loop: write the plan, execute it with subagents, and refuse to call anything done before verification.",
+   "skills": [
+    {"name": "writing-plans", "source": "community", "install": "obra/superpowers/skills/writing-plans"},
+    {"name": "executing-plans", "source": "community", "install": "obra/superpowers/skills/executing-plans"},
+    {"name": "subagent-driven-development", "source": "community", "install": "obra/superpowers/skills/subagent-driven-development"},
+    {"name": "verification-before-completion", "source": "community", "install": "obra/superpowers/skills/verification-before-completion"}
+   ]
+  }
+ ]
+}

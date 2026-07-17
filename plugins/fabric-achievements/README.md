@@ -77,9 +77,11 @@ How it connects: one person **hosts the board** by running a small **relay**
 service, `python -m relay`). The hosting panel makes this one click:
 
 - **Host on this machine** starts the relay for you (`POST /team/host/start`),
+  binds only to this node's Tailscale IPv4 address (or loopback when disconnected),
   supervises it (pid + start-time recorded in `relay.json`, so status and
-  **Stop** keep working across a dashboard restart), and health-checks it. No
-  copy-paste terminal command required.
+  **Stop** keep working across a dashboard restart), and health-checks it. The
+  controls remain available after team creation; no copy-paste terminal command
+  is required.
 - The dashboard then **auto-fills the Relay URL** — preferring a Tailscale
   MagicDNS address (ending in `.ts.net`) and verifying that the tailnet URL
   answers as a Fabric relay before calling it teammate-reachable. A relay bound

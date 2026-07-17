@@ -1034,6 +1034,8 @@ export const en: Translations = {
       create_lead:
         "Start a leaderboard and invite people with a link. You choose which relay hosts it.",
       create_button: "Create team",
+      checking_relay: "Checking relay…",
+      relay_unreachable: "That relay is not reachable.",
       join_title: "Join a leaderboard",
       join_lead:
         "Paste an invite from someone you trust. Fabric will connect to the private leaderboard named in that invite.",
@@ -1072,9 +1074,14 @@ export const en: Translations = {
       host_button: "Host on this machine",
       host_hint:
         "Starts the relay here and fills in a shareable URL. Detect re-checks without starting anything.",
+      host_manage_hint:
+        "Starts, checks, or stops the relay hosted by this dashboard.",
       host_running: "Relay hosted on this machine — PID {pid}, port {port}{state}.",
       host_starting: " (starting…)",
       host_stop: "Stop",
+      stopping: "Stopping…",
+      host_ownership_unknown:
+        "A saved relay process cannot be verified, so Fabric will not replace or stop it.",
       detect_ts_ok: "Tailscale: {name}",
       detect_ts_down:
         "Tailscale is installed but not connected — connect it below for a shareable address.",
@@ -1098,6 +1105,11 @@ export const en: Translations = {
       tailscale_connect_hint:
         "Connect Tailscale with Fabric's built-in setup (it shows a QR to scan). Run this in a terminal:",
       copy_cmd: "Copy command",
+      command_label: "Command",
+      copy_failed: "Copy failed",
+      relay_manage_summary: "Relay hosting on this machine",
+      relay_manage_body:
+        "This local relay keeps running independently of team membership. Check or stop the process hosted by this dashboard here.",
       member_summary: "You are {name} · {role}",
       role_owner: "owner",
       role_member: "member",

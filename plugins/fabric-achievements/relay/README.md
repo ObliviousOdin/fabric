@@ -44,8 +44,11 @@ python -m relay --host 0.0.0.0 --port 9137 --state ./roster.json
 
 - `--host 127.0.0.1` (default) — reachable only from the same machine. Good for
   trying the feature locally with two `FABRIC_HOME`s.
-- `--host 0.0.0.0` — reachable from your LAN / anywhere the port is exposed
-  (this is what **Host on this machine** uses).
+- `--host 0.0.0.0` — reachable from your LAN / anywhere the port is exposed.
+
+**Host on this machine** binds narrowly: to this node's connected Tailscale
+IPv4 address when available, otherwise to `127.0.0.1`. It never exposes the
+plain-HTTP relay to every LAN interface by default.
 
 Whichever way it runs, everyone else just **Joins** with the invite code. If a
 relay is already answering on the port, **Host on this machine** adopts it
@@ -56,8 +59,7 @@ managed (no Stop button).
 
 The dashboard's `GET /team/host/status` endpoint combines three local checks:
 
-- a probe of `http://127.0.0.1:<port>/health` to see whether a relay is
-  already answering on this machine,
+- a probe of the managed bind address (or loopback for an unmanaged relay),
 - this node's own Tailscale identity (`tailscale status --json` → `Self`), and
 - when both exist, a probe of the resulting Tailscale URL so a relay bound only
   to `127.0.0.1` is never claimed to be teammate-reachable.

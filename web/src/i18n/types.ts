@@ -1153,6 +1153,8 @@ export interface Translations {
       create_title: string;
       create_lead: string;
       create_button: string;
+      checking_relay: string;
+      relay_unreachable: string;
       join_title: string;
       join_lead: string;
       join_button: string;
@@ -1182,9 +1184,12 @@ export interface Translations {
       detect_hint: string;
       host_button: string;
       host_hint: string;
+      host_manage_hint: string;
       host_running: string;
       host_starting: string;
       host_stop: string;
+      stopping: string;
+      host_ownership_unknown: string;
       detect_ts_ok: string;
       detect_ts_down: string;
       detect_ts_none: string;
@@ -1198,6 +1203,10 @@ export interface Translations {
       detect_nofill: string;
       tailscale_connect_hint: string;
       copy_cmd: string;
+      command_label: string;
+      copy_failed: string;
+      relay_manage_summary: string;
+      relay_manage_body: string;
       member_summary: string;
       role_owner: string;
       role_member: string;

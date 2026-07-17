@@ -786,29 +786,44 @@
     );
   }
 
-  // Copy helper shared by the invite row and the command rows. Resolves once
-  // the text is on the clipboard (best-effort; never throws).
+  // Copy helper shared by invite and command rows. Resolve to the real outcome
+  // so the UI never announces success when clipboard access was denied.
   function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(text).catch(function () {});
+      return navigator.clipboard.writeText(text).then(function () { return true; }).catch(function () { return false; });
     }
+    let ta;
     try {
-      const ta = document.createElement("textarea");
+      ta = document.createElement("textarea");
       ta.value = text; document.body.appendChild(ta); ta.select();
-      document.execCommand("copy"); ta.remove();
-    } catch (_) {}
-    return Promise.resolve();
+      return Promise.resolve(document.execCommand("copy") === true);
+    } catch (_) {
+      return Promise.resolve(false);
+    } finally {
+      if (ta) ta.remove();
+    }
   }
 
-  // A read-only command with a copy button (relay start command, `fabric setup
-  // tailscale`). Each instance owns its own "Copied ✓" state.
   function CmdRow({ cmd, t }) {
-    const [copied, setCopied] = hooks.useState(false);
+    const [copyState, setCopyState] = hooks.useState("idle");
+    function copy() {
+      copyText(cmd).then(function (ok) {
+        setCopyState(ok ? "copied" : "failed");
+        setTimeout(function () { setCopyState("idle"); }, 1600);
+      });
+    }
+    const label = copyState === "copied"
+      ? tx(t, "team.copied", "Copied ✓")
+      : copyState === "failed"
+        ? tx(t, "team.copy_failed", "Copy failed")
+        : tx(t, "team.copy_cmd", "Copy command");
     return h("div", { className: "ha-invite-row ha-detect-cmd" },
-      h("input", { className: "ha-input ha-invite-input", readOnly: true, value: cmd, onFocus: function (e) { e.target.select(); } }),
-      h("button", { type: "button", className: "ha-team-btn",
-        onClick: function () { copyText(cmd).then(function () { setCopied(true); setTimeout(function () { setCopied(false); }, 1600); }); } },
-        copied ? tx(t, "team.copied", "Copied ✓") : tx(t, "team.copy_cmd", "Copy command")));
+      h("input", {
+        className: "ha-input ha-invite-input", readOnly: true, value: cmd,
+        "aria-label": tx(t, "team.command_label", "Command"),
+        onFocus: function (e) { e.target.select(); },
+      }),
+      h("button", { type: "button", className: "ha-team-btn", onClick: copy, "aria-live": "polite" }, label));
   }
 
   // Hosting control: one click to START the relay on this machine (POST
@@ -817,55 +832,78 @@
   // so the host never has to guess "http://<what?>:9137". Connecting Tailscale
   // itself is an interactive QR login owned by the CLI, so we surface Fabric's
   // built-in `fabric setup tailscale` command rather than duplicate it here.
-  function HostingDetect({ t, busy, setRelay }) {
-    const [working, setWorking] = hooks.useState(false);
+  function HostingDetect({ t, busy, setRelay, onWorkingChange }) {
+    const [action, setAction] = hooks.useState(null);
     const [host, setHost] = hooks.useState(null);
     const [error, setError] = hooks.useState(null);
-    // Track only values this panel wrote. Detect/start/stop may refresh or clear
-    // an auto-filled URL, but must never overwrite a relay URL the user typed.
     const autoRelay = React.useRef(null);
+    const requestGeneration = React.useRef(0);
+    const canFill = typeof setRelay === "function";
 
-    function apply(res) {
-      // An {ok:false} payload is an error, not a status snapshot — surface it
-      // and keep the previous host state rather than rendering a bogus panel.
-      if (res && res.ok === false) { setError(res.error || tx(t, "team.generic_error", "Something went wrong.")); return; }
-      setHost(res);
-      const suggested = res && res.suggested_relay_url;
-      const previousAuto = autoRelay.current;
-      if (suggested) {
-        setRelay(function (current) { return !current || current === previousAuto ? suggested : current; });
-        autoRelay.current = suggested;
-      } else {
-        setRelay(function (current) { return current === previousAuto ? "" : current; });
-        autoRelay.current = null;
+    function apply(res, generation) {
+      if (generation !== requestGeneration.current) return;
+      if (res && res.ok === false) {
+        setError(res.error || tx(t, "team.generic_error", "Something went wrong."));
+        return;
       }
-      setError(null);
+      setHost(res);
+      if (canFill) {
+        const suggested = res && res.suggested_relay_url;
+        const previousAuto = autoRelay.current;
+        if (suggested) {
+          setRelay(function (current) { return !current || current === previousAuto ? suggested : current; });
+          autoRelay.current = suggested;
+        } else {
+          setRelay(function (current) { return current === previousAuto ? "" : current; });
+          autoRelay.current = null;
+        }
+      }
+      setError(res && res.action_ok === false
+        ? (res.error || tx(t, "team.generic_error", "Something went wrong."))
+        : null);
     }
-    function run(promise) {
-      setWorking(true); setError(null);
+    function run(nextAction, promise) {
+      const generation = ++requestGeneration.current;
+      setAction(nextAction); setError(null);
+      const blocksParent = nextAction !== "detect";
+      if (blocksParent && onWorkingChange) onWorkingChange(true);
       return promise
-        .then(apply)
-        .catch(function (err) { setError(String(err)); })
-        .finally(function () { setWorking(false); });
+        .then(function (res) { apply(res, generation); })
+        .catch(function (err) {
+          if (generation === requestGeneration.current) setError(String((err && err.message) || err));
+        })
+        .finally(function () {
+          if (generation !== requestGeneration.current) return;
+          setAction(null);
+          if (blocksParent && onWorkingChange) onWorkingChange(false);
+        });
     }
-    function detect() { run(api("/team/host/status")); }
-    function startHost() { run(apiPost("/team/host/start", {})); }
-    function stopHost() { run(apiPost("/team/host/stop", {})); }
+    function detect() { return run("detect", api("/team/host/status")); }
+    function startHost() { return run("start", apiPost("/team/host/start", {})); }
+    function stopHost() { return run("stop", apiPost("/team/host/stop", {})); }
+
+    hooks.useEffect(function () {
+      detect();
+      return function () {
+        requestGeneration.current += 1;
+      };
+    }, []);
 
     const ts = host && host.tailscale;
     const local = host && host.local_relay;
     const managed = host && host.managed_relay;
     const hosted = !!(managed && managed.running);
+    const ownershipUnknown = !!(managed && managed.ownership_unknown);
     const relayAnswering = !!(local && local.ok);
-    const busyAll = busy || working;
+    const busyAll = busy || !!action;
 
     let status = null;
     if (host) {
       const items = [];
-      // Tailscale line.
-      if (ts && ts.running && ts.magicdns) {
+      const tailnetName = ts && (ts.magicdns || ts.ipv4 || ts.ipv6);
+      if (ts && ts.running && tailnetName) {
         items.push(h("li", { key: "ts", className: "ha-detect-ok" },
-          tx(t, "team.detect_ts_ok", "Tailscale: {name}", { name: ts.magicdns })));
+          tx(t, "team.detect_ts_ok", "Tailscale: {name}", { name: tailnetName })));
       } else if (ts && ts.installed) {
         items.push(h("li", { key: "ts", className: "ha-detect-warn" },
           tx(t, "team.detect_ts_down", "Tailscale is installed but not connected — connect it below for a shareable address.")));
@@ -873,15 +911,19 @@
         items.push(h("li", { key: "ts", className: "ha-detect-warn" },
           tx(t, "team.detect_ts_none", "Tailscale not found. Install it (tailscale.com/download) so teammates can reach this relay with no port-forwarding.")));
       }
-      // Relay line.
       if (hosted) {
         items.push(h("li", { key: "relay", className: "ha-detect-ok" },
           tx(t, "team.host_running", "Relay hosted on this machine — PID {pid}, port {port}{state}.", {
             pid: managed.pid, port: managed.port,
             state: managed.healthy ? "" : tx(t, "team.host_starting", " (starting…)"),
           }),
-          h("button", { type: "button", className: "ha-team-btn ha-team-btn-danger ha-detect-stop", disabled: busyAll, onClick: stopHost },
-            tx(t, "team.host_stop", "Stop"))));
+          h("button", {
+            type: "button", className: "ha-team-btn ha-team-btn-danger ha-detect-stop",
+            disabled: busyAll, onClick: stopHost, "aria-busy": action === "stop",
+          }, action === "stop" ? tx(t, "team.stopping", "Stopping…") : tx(t, "team.host_stop", "Stop"))));
+      } else if (ownershipUnknown) {
+        items.push(h("li", { key: "relay", className: "ha-detect-warn" },
+          tx(t, "team.host_ownership_unknown", "A saved relay process cannot be verified, so Fabric will not replace or stop it.")));
       } else if (relayAnswering) {
         items.push(h("li", { key: "relay", className: "ha-detect-ok" },
           tx(t, "team.detect_relay_external", "A relay is answering on this machine (port {port}) — not managed by the dashboard.", { port: host.default_port })));
@@ -891,8 +933,6 @@
       }
 
       const blocks = [h("ul", { key: "list", className: "ha-detect-list" }, items)];
-
-      // Connect Tailscale by reusing Fabric's built-in setup (a QR login).
       if (host.tailscale_needs_setup && host.tailscale_setup_command) {
         blocks.push(h("div", { key: "tsconnect", className: "ha-detect-connect" },
           h("span", { className: "ha-field-hint" },
@@ -900,47 +940,51 @@
           h(CmdRow, { cmd: host.tailscale_setup_command, t: t })));
       }
 
-      // Four states for the auto-filled URL, so we never promise reachability:
-      // reachable now (tailnet URL answers), running locally but not reachable
-      // through Tailscale, pending (tailnet name but no relay yet), or local-only.
-      const hasTailnet = !!(ts && ts.running && (ts.magicdns || ts.ipv4));
-      let fill;
-      if (!host.suggested_relay_url) {
-        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
-          tx(t, "team.detect_nofill", "Host the relay (and connect Tailscale), then the URL fills in automatically."));
-      } else if (host.suggested_is_shareable) {
-        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-ok" },
-          tx(t, "team.detect_filled", "Filled in {url} below — anyone on your tailnet can reach it.", { url: host.suggested_relay_url }));
-      } else if (hasTailnet && host.relay_live) {
-        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
-          tx(t, "team.detect_filled_unreachable", "Filled in {url}, but that tailnet address is not answering. If you started the relay manually, bind it to 0.0.0.0 or your Tailscale address.", { url: host.suggested_relay_url }));
-      } else if (hasTailnet) {
-        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
-          tx(t, "team.detect_filled_pending", "Filled in {url} — start the relay (Host on this machine) to make it reachable on your tailnet.", { url: host.suggested_relay_url }));
-      } else {
-        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
-          tx(t, "team.detect_filled_local", "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.", { url: host.suggested_relay_url }));
+      if (canFill) {
+        const hasTailnet = !!(ts && ts.running && (ts.magicdns || ts.ipv4 || ts.ipv6));
+        let fill;
+        if (!host.suggested_relay_url) {
+          fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+            tx(t, "team.detect_nofill", "Host the relay (and connect Tailscale), then the URL fills in automatically."));
+        } else if (host.suggested_is_shareable) {
+          fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-ok" },
+            tx(t, "team.detect_filled", "Filled in {url} below — anyone on your tailnet can reach it.", { url: host.suggested_relay_url }));
+        } else if (hasTailnet && host.relay_live) {
+          fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+            tx(t, "team.detect_filled_unreachable", "Filled in {url}, but that tailnet address is not answering. If you started the relay manually, bind it to 0.0.0.0 or your Tailscale address.", { url: host.suggested_relay_url }));
+        } else if (hasTailnet) {
+          fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+            tx(t, "team.detect_filled_pending", "Filled in {url} — start the relay (Host on this machine) to make it reachable on your tailnet.", { url: host.suggested_relay_url }));
+        } else {
+          fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+            tx(t, "team.detect_filled_local", "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.", { url: host.suggested_relay_url }));
+        }
+        blocks.push(fill);
       }
-      blocks.push(fill);
-
       if (host.note) {
         blocks.push(h("p", { key: "note", className: "ha-field-hint ha-detect-warn" }, host.note));
       }
-      status = h("div", { className: "ha-detect-result" }, blocks);
+      status = h("div", { className: "ha-detect-result", role: "status", "aria-live": "polite" }, blocks);
     }
 
-    return h("div", { className: "ha-detect" },
+    const hostLabel = action === "start"
+      ? tx(t, "team.working", "Working…")
+      : tx(t, "team.host_button", "Host on this machine");
+    const detectLabel = action === "detect"
+      ? tx(t, "team.detecting", "Detecting…")
+      : tx(t, "team.detect_button", "Detect");
+    return h("div", { className: "ha-detect", "aria-busy": !!action },
       h("div", { className: "ha-detect-head" },
-        h(C.Button, { onClick: startHost, disabled: busyAll || hosted, className: "ha-detect-host" },
-          working ? tx(t, "team.working", "Working…") : tx(t, "team.host_button", "Host on this machine")),
-        h("button", { type: "button", className: "ha-team-btn", disabled: busyAll, onClick: detect },
-          tx(t, "team.detect_button", "Detect")),
-        h("span", { className: "ha-field-hint" },
-          tx(t, "team.host_hint", "Starts the relay here and fills in a shareable URL. Detect re-checks without starting anything."))),
+        h(C.Button, {
+          onClick: startHost, disabled: busyAll || hosted || ownershipUnknown,
+          className: "ha-detect-host", "aria-busy": action === "start",
+        }, hostLabel),
+        h("button", { type: "button", className: "ha-team-btn", disabled: busyAll, onClick: detect }, detectLabel),
+        h("span", { className: "ha-field-hint" }, canFill
+          ? tx(t, "team.host_hint", "Starts the relay here and fills in a shareable URL. Detect re-checks without starting anything.")
+          : tx(t, "team.host_manage_hint", "Starts, checks, or stops the relay hosted by this dashboard."))),
       status,
-      // Show errors whether or not a prior status snapshot is on screen — a
-      // failed Host/Stop after a successful Detect must not fail silently.
-      error && h("p", { className: "ha-field-hint ha-detect-warn ha-detect-error" }, String(error))
+      error && h("p", { className: "ha-field-hint ha-detect-warn ha-detect-error", role: "alert" }, String(error))
     );
   }
 
@@ -949,42 +993,65 @@
     const [name, setName] = hooks.useState("");
     const [display, setDisplay] = hooks.useState("");
     const [share, setShare] = hooks.useState(true);
+    const [hostingBusy, setHostingBusy] = hooks.useState(false);
+    const [checking, setChecking] = hooks.useState(false);
+    const [probeError, setProbeError] = hooks.useState(null);
     function submit() {
-      onAction("/team/create", {
-        relay_url: relay.trim(),
-        team_name: name.trim(),
-        display_name: display.trim(),
-        publish_opt_in: share,
-      });
+      const relayUrl = relay.trim();
+      setChecking(true); setProbeError(null);
+      apiPost("/team/host/probe", { relay_url: relayUrl })
+        .then(function (res) {
+          if (!res || res.ok === false) {
+            setProbeError((res && res.error) || tx(t, "team.relay_unreachable", "That relay is not reachable."));
+            return;
+          }
+          return onAction("/team/create", {
+            relay_url: relayUrl,
+            team_name: name.trim(),
+            display_name: display.trim(),
+            publish_opt_in: share,
+          });
+        })
+        .catch(function (err) { setProbeError(String((err && err.message) || err)); })
+        .finally(function () { setChecking(false); });
     }
-    const ready = relay.trim() && name.trim() && display.trim() && !busy;
+    const busyAll = busy || hostingBusy || checking;
+    const ready = relay.trim() && name.trim() && display.trim() && !busyAll;
     return h(C.Card, { className: "ha-team-card" },
       h(C.CardContent, { className: "ha-team-card-content" },
         h("h3", null, tx(t, "team.create_title", "Create a team")),
         h("p", { className: "ha-team-lead" }, tx(t, "team.create_lead", "Start a leaderboard and invite people with a link. You choose which relay hosts it.")),
-        h(HostingDetect, { t: t, busy: busy, setRelay: setRelay }),
+        h(HostingDetect, {
+          t: t, busy: busy || checking, setRelay: setRelay,
+          onWorkingChange: setHostingBusy,
+        }),
         h(LabelledInput, {
           label: tx(t, "team.relay_label", "Relay URL"),
           placeholder: "http://your-host:9137",
-          value: relay, onChange: setRelay, disabled: busy,
+          value: relay, onChange: setRelay, disabled: busyAll,
           hint: tx(t, "team.relay_hint", "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) is reachable by your team."),
         }),
+        probeError && h("p", { className: "ha-field-hint ha-detect-warn", role: "alert" }, String(probeError)),
         h(LabelledInput, {
           label: tx(t, "team.team_name_label", "Team name"),
           placeholder: tx(t, "team.team_name_placeholder", "Acme Crew"),
-          value: name, onChange: setName, disabled: busy,
+          value: name, onChange: setName, disabled: busyAll,
         }),
         h(LabelledInput, {
           label: tx(t, "team.display_name_label", "Your display name"),
           placeholder: tx(t, "team.display_name_placeholder", "How you appear on the board"),
-          value: display, onChange: setDisplay, disabled: busy, onEnter: ready ? submit : undefined,
+          value: display, onChange: setDisplay, disabled: busyAll, onEnter: ready ? submit : undefined,
         }),
         h(ShareToggle, {
-          checked: share, disabled: busy, onChange: setShare,
+          checked: share, disabled: busyAll, onChange: setShare,
           label: tx(t, "team.share_consent", "Share my achievement stats (score, unlock and tier counts, and a display name — never session content)."),
         }),
-        h(C.Button, { onClick: submit, disabled: !ready, className: "ha-team-primary" },
-          busy ? tx(t, "team.working", "Working…") : tx(t, "team.create_button", "Create team"))
+        h(C.Button, { onClick: submit, disabled: !ready, className: "ha-team-primary", "aria-busy": checking },
+          checking
+            ? tx(t, "team.checking_relay", "Checking relay…")
+            : busy
+              ? tx(t, "team.working", "Working…")
+              : tx(t, "team.create_button", "Create team"))
       )
     );
   }
@@ -1036,23 +1103,25 @@
   }
 
   function InviteRow({ code, t }) {
-    const [copied, setCopied] = hooks.useState(false);
+    const [copyState, setCopyState] = hooks.useState("idle");
     function copy() {
-      const done = function () { setCopied(true); setTimeout(function () { setCopied(false); }, 1600); };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(code).then(done).catch(function () {});
-      } else {
-        try {
-          const ta = document.createElement("textarea");
-          ta.value = code; document.body.appendChild(ta); ta.select();
-          document.execCommand("copy"); ta.remove(); done();
-        } catch (_) {}
-      }
+      copyText(code).then(function (ok) {
+        setCopyState(ok ? "copied" : "failed");
+        setTimeout(function () { setCopyState("idle"); }, 1600);
+      });
     }
+    const label = copyState === "copied"
+      ? tx(t, "team.copied", "Copied ✓")
+      : copyState === "failed"
+        ? tx(t, "team.copy_failed", "Copy failed")
+        : tx(t, "team.copy_invite", "Copy invite");
     return h("div", { className: "ha-invite-row" },
-      h("input", { className: "ha-input ha-invite-input", readOnly: true, value: code, onFocus: function (e) { e.target.select(); } }),
-      h("button", { className: "ha-team-btn", onClick: copy },
-        copied ? tx(t, "team.copied", "Copied ✓") : tx(t, "team.copy_invite", "Copy invite"))
+      h("input", {
+        className: "ha-input ha-invite-input", readOnly: true, value: code,
+        "aria-label": tx(t, "team.invite_label", "Invite code"),
+        onFocus: function (e) { e.target.select(); },
+      }),
+      h("button", { type: "button", className: "ha-team-btn", onClick: copy, "aria-live": "polite" }, label)
     );
   }
 
@@ -1205,6 +1274,16 @@
         )
       ),
       errorBanner,
+      h("details", { className: "ha-team-details ha-hosting-details" },
+        h("summary", null, tx(t, "team.relay_manage_summary", "Relay hosting on this machine")),
+        h("div", { className: "ha-hosting-body" },
+          h("div", { className: "ha-hosting-copy" },
+            h("strong", null, tx(t, "team.hosting_header", "Self-hosted and account-free")),
+            h("p", null, tx(t, "team.relay_manage_body", "This local relay keeps running independently of team membership. Check or stop the process hosted by this dashboard here."))
+          ),
+          h(HostingDetect, { t: t, busy: busy })
+        )
+      ),
       h("section", { className: cn("ha-sharing-status", optIn ? "is-on" : "is-off") },
         h("div", { className: "ha-sharing-status-copy" },
           h("div", { className: "ha-sharing-eyebrow" }, optIn

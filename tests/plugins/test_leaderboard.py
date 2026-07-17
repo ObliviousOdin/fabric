@@ -1,13 +1,14 @@
 """Tests for the fabric-achievements team leaderboard client + backend helpers.
 
 These exercise the invite codec, the points/profile model, the ``RelayClient``,
-and the ``team_*`` backend helpers end-to-end against an in-process relay store
-(no sockets), with an isolated ``FABRIC_HOME`` so ``team.json`` doesn't collide.
+and the ``team_*`` backend helpers against an in-process relay store, plus one
+real managed-relay lifecycle smoke test. ``FABRIC_HOME`` is isolated throughout.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
+import socket
 import urllib.parse
 from pathlib import Path
 
@@ -412,7 +413,14 @@ def _no_tailscale(monkeypatch, api):
 def test_detect_tailscale_absent(api, monkeypatch):
     _use_tailscale(monkeypatch, api, binary=None)
     ts = api.detect_tailscale()
-    assert ts == {"installed": False, "running": False, "magicdns": None, "ipv4": None, "ips": []}
+    assert ts == {
+        "installed": False,
+        "running": False,
+        "magicdns": None,
+        "ipv4": None,
+        "ipv6": None,
+        "ips": [],
+    }
 
 
 def test_detect_tailscale_running_reuses_canonical_helper(api, monkeypatch):
@@ -528,6 +536,23 @@ def test_host_status_ignores_stale_tailscale_address_when_not_running(api, monke
     assert status["tailscale_needs_setup"] is True
 
 
+def test_host_status_brackets_ipv6_tailscale_suggestion(api, monkeypatch):
+    _use_tailscale(
+        monkeypatch,
+        api,
+        status=_FakeTailscaleStatus(
+            running=True,
+            dns_name=None,
+            ip="fd7a:115c:a1e0::1234",
+        ),
+    )
+    status = api.host_status(9137, transport=_healthy_relay_transport())
+    assert status["tailscale"]["ipv4"] is None
+    assert status["tailscale"]["ipv6"] == "fd7a:115c:a1e0::1234"
+    assert status["suggested_relay_url"] == "http://[fd7a:115c:a1e0::1234]:9137"
+    assert status["suggested_is_shareable"] is True
+
+
 def test_host_status_no_relay_no_tailscale_suggests_nothing(api, monkeypatch):
     _no_tailscale(monkeypatch, api)
 
@@ -576,6 +601,11 @@ def _managed_relay_env(api, monkeypatch, *, pid=424242, start_time=999):
         return pid
 
     monkeypatch.setattr(api, "_pid_is_alive", lambda p, start_time=None: p == pid and state["up"])
+    monkeypatch.setattr(
+        api,
+        "_relay_process_identity",
+        lambda p, start_time=None: "same" if p == pid and state["up"] else "gone",
+    )
     return state, spawned, spawn
 
 
@@ -669,16 +699,27 @@ def test_start_local_relay_surfaces_spawn_failure(api, monkeypatch):
 
     result = api.start_local_relay(9137, "0.0.0.0", spawner=boom, transport=dead)
     assert "Could not start the relay" in (result.get("note") or "")
+    assert result["action_ok"] is False
     assert api.load_relay_state() == {}  # nothing recorded on failure
 
 
-def test_start_local_relay_binds_all_interfaces_by_default(api, monkeypatch):
-    # host unspecified -> 0.0.0.0, which the loopback health/adopt probes rely on
-    # AND which the Tailscale interface teammates use is a subset of.
+def test_start_local_relay_binds_loopback_by_default_without_tailscale(api, monkeypatch):
     state, spawned, spawn = _managed_relay_env(api, monkeypatch)
     api.start_local_relay(9137, None, spawner=spawn, transport=_stateful_transport(state))
     host_idx = spawned["argv"].index("--host") + 1
-    assert spawned["argv"][host_idx] == "0.0.0.0"
+    assert spawned["argv"][host_idx] == "127.0.0.1"
+
+
+def test_start_local_relay_binds_tailscale_ipv4_when_connected(api, monkeypatch):
+    state, spawned, spawn = _managed_relay_env(api, monkeypatch)
+    _use_tailscale(
+        monkeypatch,
+        api,
+        status=_FakeTailscaleStatus(running=True, ip="100.64.0.8"),
+    )
+    api.start_local_relay(9137, None, spawner=spawn, transport=_stateful_transport(state))
+    host_idx = spawned["argv"].index("--host") + 1
+    assert spawned["argv"][host_idx] == "100.64.0.8"
 
 
 def test_start_local_relay_honors_explicit_host(api, monkeypatch):
@@ -701,7 +742,7 @@ def test_start_local_relay_orphan_guard_on_save_failure(api, monkeypatch):
         raise OSError("disk full")
     monkeypatch.setattr(api, "save_relay_state", save_boom)
     killed = {}
-    monkeypatch.setattr(api, "_terminate_relay_pid", lambda p: killed.setdefault("pid", p) or True)
+    monkeypatch.setattr(api, "_terminate_relay_pid", lambda p, start: killed.setdefault("pid", p) or True)
 
     def dead(method, url, headers, body):
         raise api.RelayClientError("refused", status=0)
@@ -718,13 +759,15 @@ def test_stop_local_relay_terminates_and_clears(api, monkeypatch):
 
     terminated = {}
 
-    def term(p):
+    def term(p, start):
         terminated["pid"] = p
+        terminated["start_time"] = start
         state["up"] = False
         return True  # terminate succeeded
     monkeypatch.setattr(api, "_terminate_relay_pid", term)
     result = api.stop_local_relay(transport=transport)
     assert terminated["pid"] == 424242
+    assert terminated["start_time"] == 999
     assert api.relay_state_path().exists() is False
     assert result["managed_relay"]["managed"] is False
 
@@ -736,7 +779,7 @@ def test_stop_local_relay_keeps_state_when_terminate_fails(api, monkeypatch):
     transport = _stateful_transport(state)
     api.start_local_relay(9137, "0.0.0.0", spawner=spawn, transport=transport)
 
-    monkeypatch.setattr(api, "_terminate_relay_pid", lambda p: False)  # kill failed
+    monkeypatch.setattr(api, "_terminate_relay_pid", lambda p, start: False)  # kill failed
     result = api.stop_local_relay(transport=transport)
     assert "try again" in (result.get("note") or "")
     assert api.relay_state_path().exists() is True  # state kept for retry
@@ -765,3 +808,113 @@ def test_relay_process_status_reports_dead_pid_read_only(api, monkeypatch):
     status = api.relay_process_status(transport=dead)
     assert status["managed"] is False and status["running"] is False
     assert api.relay_state_path().exists() is True  # read-only: not cleared here
+
+
+def test_start_and_stop_fail_closed_when_pid_identity_is_unknown(api, monkeypatch):
+    _no_tailscale(monkeypatch, api)
+    api.save_relay_state({"pid": 555, "port": 9137, "start_time": None, "log": "x.log"})
+    monkeypatch.setattr(api, "_pid_is_alive", lambda *args: False)
+    monkeypatch.setattr(api, "_relay_process_identity", lambda *args: "unknown")
+    spawned = []
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("refused", status=0)
+
+    started = api.start_local_relay(
+        9137,
+        spawner=lambda *args: spawned.append(args) or 999,
+        transport=dead,
+    )
+    stopped = api.stop_local_relay(transport=dead)
+    assert spawned == []
+    assert started["action_ok"] is False
+    assert stopped["action_ok"] is False
+    assert api.load_relay_state()["pid"] == 555
+
+
+def test_start_local_relay_respects_cross_process_lock(api, monkeypatch):
+    _no_tailscale(monkeypatch, api)
+    monkeypatch.setattr(api, "_acquire_relay_process_lock", lambda: (False, True))
+    spawned = []
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("refused", status=0)
+
+    result = api.start_local_relay(
+        9137,
+        spawner=lambda *args: spawned.append(args) or 999,
+        transport=dead,
+    )
+    assert spawned == []
+    assert result["action_ok"] is False
+    assert "Another dashboard process" in result["error"]
+
+
+def test_terminate_relay_escalates_and_confirms_exit(api, monkeypatch):
+    identities = iter(("same", "same", "same", "gone"))
+    signals = []
+    monkeypatch.setattr(api, "_relay_process_identity", lambda *args: next(identities))
+    monkeypatch.setattr(api, "_signal_relay_pid", lambda pid, force: signals.append(force) or True)
+    monkeypatch.setattr(api, "RELAY_STOP_TIMEOUT", 0)
+    monkeypatch.setattr(api, "RELAY_FORCE_TIMEOUT", 0)
+    assert api._terminate_relay_pid(123, 456) is True
+    assert signals == [False, True]
+
+
+def test_terminate_relay_never_signals_unknown_identity(api, monkeypatch):
+    signals = []
+    monkeypatch.setattr(api, "_relay_process_identity", lambda *args: "unknown")
+    monkeypatch.setattr(api, "_signal_relay_pid", lambda pid, force: signals.append(force) or True)
+    assert api._terminate_relay_pid(123, 456) is False
+    assert signals == []
+
+
+def test_default_spawner_retries_windows_without_breakaway(api, monkeypatch, tmp_path):
+    import fabric_cli._subprocess_compat as compat
+
+    monkeypatch.setattr(compat, "windows_detach_popen_kwargs", lambda: {"creationflags": 3})
+    monkeypatch.setattr(compat, "windows_detach_flags_without_breakaway", lambda: 2)
+    monkeypatch.setattr(api, "_capture_process_start_time", lambda pid: 777)
+    calls = []
+
+    class Proc:
+        pid = 321
+
+    def popen(argv, **kwargs):
+        calls.append(kwargs["creationflags"])
+        if len(calls) == 1:
+            raise OSError("breakaway denied")
+        return Proc()
+
+    monkeypatch.setattr(api.subprocess, "Popen", popen)
+    assert api._default_relay_spawner(
+        ["python", "-m", "relay"], tmp_path, tmp_path / "relay.log"
+    ) == (321, 777)
+    assert calls == [3, 2]
+
+
+def test_managed_relay_real_start_health_stop(api, monkeypatch):
+    """Exercise the detached child, real HTTP health, state, and shutdown path."""
+    _no_tailscale(monkeypatch, api)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+
+    started = None
+    try:
+        started = api.start_local_relay(port=port, host="127.0.0.1")
+        managed = started["managed_relay"]
+        assert started.get("action_ok") is not False, started.get("error")
+        assert started["local_relay"]["ok"] is True
+        assert managed["managed"] is True
+        assert managed["running"] is True
+        assert managed["healthy"] is True
+        assert managed["port"] == port
+        assert api.relay_state_path().exists()
+    finally:
+        if started is not None or api.relay_state_path().exists():
+            stopped = api.stop_local_relay()
+            assert stopped.get("action_ok") is not False, stopped.get("error")
+
+    assert api.relay_state_path().exists() is False
+    assert api._probe_relay_health(f"http://127.0.0.1:{port}")["ok"] is False

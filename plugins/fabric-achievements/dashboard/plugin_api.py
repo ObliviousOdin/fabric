@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import functools
+import ipaddress
 import json
 import math
 import os
@@ -1487,8 +1488,8 @@ def _reused_tailscale_identity() -> Optional[Dict[str, Any]]:
     """Read Tailscale identity via ``fabric_cli.tailscale_setup`` (reuse).
 
     Returns a normalized dict (``installed``/``running``/``backend_state``/
-    ``magicdns``/``ipv4``), or ``None`` when the reused module isn't importable
-    so ``detect_tailscale`` knows to fall back to a direct probe. Never raises.
+    ``magicdns``/``ip``), or ``None`` when the reused module isn't importable so
+    ``detect_tailscale`` knows to fall back to a direct probe. Never raises.
     """
     if _ts_find_binary is None or _ts_status is None:
         return None
@@ -1497,19 +1498,19 @@ def _reused_tailscale_identity() -> Optional[Dict[str, Any]]:
     except Exception:  # noqa: BLE001
         binary = None
     if not binary:
-        return {"installed": False, "running": False, "backend_state": None, "magicdns": None, "ipv4": None}
+        return {"installed": False, "running": False, "backend_state": None, "magicdns": None, "ip": None}
     try:
         status = _ts_status(binary)
     except Exception:  # noqa: BLE001
         status = None
     if status is None:
-        return {"installed": True, "running": False, "backend_state": None, "magicdns": None, "ipv4": None}
+        return {"installed": True, "running": False, "backend_state": None, "magicdns": None, "ip": None}
     return {
         "installed": True,
         "running": bool(status.is_running),
         "backend_state": status.backend_state,
         "magicdns": status.dns_name,
-        "ipv4": status.ip,
+        "ip": status.ip,
     }
 
 
@@ -1520,35 +1521,71 @@ def detect_tailscale() -> Dict[str, Any]:
     helpers; falls back to a direct ``tailscale status --json`` probe when that
     module isn't importable. A machine without Tailscale reports
     ``installed: False``; an installed-but-logged-out node reports
-    ``running: False`` with no address. Only ``Self`` (this node) is read.
+    ``running: False`` with no usable address. Only ``Self`` is read.
     """
     reused = _reused_tailscale_identity()
     if reused is not None:
         if not reused.get("installed"):
-            return {"installed": False, "running": False, "magicdns": None, "ipv4": None, "ips": []}
-        ipv4 = reused.get("ipv4")
+            return {
+                "installed": False,
+                "running": False,
+                "magicdns": None,
+                "ipv4": None,
+                "ipv6": None,
+                "ips": [],
+            }
+        raw_ip = reused.get("ip")
+        try:
+            parsed_ip = ipaddress.ip_address(str(raw_ip)) if raw_ip else None
+        except ValueError:
+            parsed_ip = None
+        ipv4 = str(parsed_ip) if parsed_ip and parsed_ip.version == 4 else None
+        ipv6 = str(parsed_ip) if parsed_ip and parsed_ip.version == 6 else None
         return {
             "installed": True,
             "running": bool(reused.get("running")),
             "backend_state": reused.get("backend_state"),
             "magicdns": reused.get("magicdns"),
             "ipv4": ipv4,
-            "ips": [ipv4] if ipv4 else [],
+            "ipv6": ipv6,
+            "ips": [str(parsed_ip)] if parsed_ip else [],
         }
     # Fallback: fabric_cli.tailscale_setup unavailable — probe the CLI directly.
     if _tailscale_exe() is None:
-        return {"installed": False, "running": False, "magicdns": None, "ipv4": None, "ips": []}
+        return {
+            "installed": False,
+            "running": False,
+            "magicdns": None,
+            "ipv4": None,
+            "ipv6": None,
+            "ips": [],
+        }
     code, out = _run_tailscale(["status", "--json"])
     if code != 0 or not out.strip():
-        return {"installed": True, "running": False, "magicdns": None, "ipv4": None, "ips": []}
+        return {
+            "installed": True,
+            "running": False,
+            "magicdns": None,
+            "ipv4": None,
+            "ipv6": None,
+            "ips": [],
+        }
     try:
         data = json.loads(out)
     except Exception:  # noqa: BLE001
-        return {"installed": True, "running": False, "magicdns": None, "ipv4": None, "ips": []}
+        return {
+            "installed": True,
+            "running": False,
+            "magicdns": None,
+            "ipv4": None,
+            "ipv6": None,
+            "ips": [],
+        }
     self_node = data.get("Self") if isinstance(data, dict) else None
     self_node = self_node if isinstance(self_node, dict) else {}
     ips = [ip for ip in (self_node.get("TailscaleIPs") or []) if isinstance(ip, str)]
     ipv4 = next((ip for ip in ips if ":" not in ip), None)
+    ipv6 = next((ip for ip in ips if ":" in ip), None)
     magicdns = (self_node.get("DNSName") or "").rstrip(".") or None
     backend = data.get("BackendState") if isinstance(data, dict) else None
     # Case-insensitive to match the reused path's TailscaleStatus.is_running.
@@ -1559,6 +1596,7 @@ def detect_tailscale() -> Dict[str, Any]:
         "backend_state": backend,
         "magicdns": magicdns,
         "ipv4": ipv4,
+        "ipv6": ipv6,
         "ips": ips,
     }
 
@@ -1606,6 +1644,28 @@ def _coerce_port(port: Any) -> int:
     return port
 
 
+def _relay_url(host: Any, port: Any) -> str:
+    """Build an HTTP relay URL, bracketing IPv6 authorities correctly."""
+    text = str(host or "").strip()
+    try:
+        parsed = ipaddress.ip_address(text)
+    except ValueError:
+        authority = text
+    else:
+        authority = f"[{parsed}]" if parsed.version == 6 else str(parsed)
+    return f"http://{authority}:{_coerce_port(port)}"
+
+
+def _relay_probe_url(host: Any, port: Any) -> str:
+    """Return the reachable local health URL for a persisted bind address."""
+    text = str(host or "").strip()
+    if text in {"", "0.0.0.0"}:
+        text = "127.0.0.1"
+    elif text == "::":
+        text = "::1"
+    return _relay_url(text, port)
+
+
 # --- Relay process management (host the relay from the dashboard) -----------
 # There is no generic plugin process supervisor to reuse, so this mirrors the
 # dashboard's own detached-spawn idiom (web_server._spawn_hermes_action and the
@@ -1616,14 +1676,19 @@ def _coerce_port(port: Any) -> int:
 
 _RELAY_LOCK = threading.Lock()
 
-# How long start_local_relay waits for the freshly-spawned server to bind and
-# answer /health before reporting. Module-level so tests can shrink them.
+# Module-level timing seams keep real process supervision bounded and let tests
+# replace delays without sleeping.
 RELAY_START_HEALTH_ATTEMPTS = 15
 RELAY_START_HEALTH_DELAY = 0.3
+RELAY_FINGERPRINT_ATTEMPTS = 20
+RELAY_FINGERPRINT_DELAY = 0.025
+RELAY_STOP_TIMEOUT = 3.0
+RELAY_FORCE_TIMEOUT = 2.0
+RELAY_STOP_POLL_DELAY = 0.05
 
-# Spawner is injectable so tests exercise the start/stop bookkeeping without a
-# real process. Shape: (argv, cwd, log_path) -> pid.
-Spawner = Callable[[List[str], Path, Path], int]
+# Spawner is injectable. The production spawner returns ``(pid, start_time)``;
+# tests may return a PID and use the fingerprint seam above.
+Spawner = Callable[[List[str], Path, Path], Any]
 
 
 def relay_state_path() -> Path:
@@ -1687,64 +1752,133 @@ def _process_start_time(pid: int) -> Optional[int]:
         return None
 
 
-def _pid_is_alive(pid: Optional[int], start_time: Optional[int] = None) -> bool:
-    """Is ``pid`` a live process — and, when recorded, the SAME process?
-
-    Reuses gateway.status liveness + start-time (PID-reuse safety) with an
-    ``os.kill(pid, 0)`` fallback. The start-time guard prevents mistaking (or
-    later killing) an unrelated process that reused our PID after the relay died.
-    """
-    if not pid or int(pid) <= 0:
-        return False
-    pid = int(pid)
-    alive: Optional[bool] = None
+def _pid_exists(pid: Any) -> bool:
     try:
-        from gateway.status import _pid_exists
-        alive = bool(_pid_exists(pid))
+        value = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if value <= 0:
+        return False
+    try:
+        from gateway.status import _pid_exists as gateway_pid_exists
+        return bool(gateway_pid_exists(value))
     except Exception:  # noqa: BLE001
-        alive = None
-    if alive is None:
-        try:
-            os.kill(pid, 0)
-            alive = True
-        except OSError:
-            alive = False
-    if not alive:
-        return False
-    if start_time is not None:
-        current = _process_start_time(pid)
-        if current is not None and current != int(start_time):
+        if os.name == "nt":
             return False
-    return True
-
-
-def _terminate_relay_pid(pid: int) -> bool:
-    """Ask ``pid`` to stop; return whether a terminate signal was delivered.
-
-    ``False`` (both the reused terminate and the SIGTERM fallback failed) tells
-    the caller to KEEP the relay's recorded state so Stop can be retried, rather
-    than forgetting a relay it couldn't kill.
-    """
     try:
-        from gateway.status import terminate_pid  # reuse cross-platform terminate
-        terminate_pid(int(pid))
+        os.kill(value, 0)
         return True
-    except Exception:  # noqa: BLE001 - fall back to a plain SIGTERM
-        pass
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _relay_process_identity(pid: Any, start_time: Any) -> str:
+    """Return ``same``, ``gone``, ``other``, or ``unknown`` for a PID record."""
+    if not _pid_exists(pid):
+        return "gone"
+    try:
+        recorded = int(start_time)
+    except (TypeError, ValueError):
+        return "unknown"
+    current = _process_start_time(int(pid))
+    if current is None:
+        return "unknown"
+    return "same" if current == recorded else "other"
+
+
+def _pid_is_alive(pid: Optional[int], start_time: Optional[int] = None) -> bool:
+    """Return True only when PID liveness and its saved fingerprint both match."""
+    return _relay_process_identity(pid, start_time) == "same"
+
+
+def _capture_process_start_time(pid: int) -> Optional[int]:
+    for attempt in range(RELAY_FINGERPRINT_ATTEMPTS + 1):
+        value = _process_start_time(pid)
+        if value is not None:
+            return value
+        if not _pid_exists(pid):
+            return None
+        if attempt < RELAY_FINGERPRINT_ATTEMPTS:
+            time.sleep(RELAY_FINGERPRINT_DELAY)
+    return None
+
+
+def _wait_original_process_gone(pid: int, start_time: int, timeout: float) -> bool:
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        identity = _relay_process_identity(pid, start_time)
+        if identity in {"gone", "other"}:
+            return True
+        if identity == "unknown" or time.monotonic() >= deadline:
+            return False
+        time.sleep(RELAY_STOP_POLL_DELAY)
+
+
+def _signal_relay_pid(pid: int, *, force: bool) -> bool:
+    try:
+        from gateway.status import terminate_pid
+        terminate_pid(int(pid), force=force)
+        return True
+    except Exception:  # noqa: BLE001
+        if os.name == "nt":
+            return False
     try:
         import signal
-        os.kill(int(pid), signal.SIGTERM)
+        sig = getattr(signal, "SIGKILL", signal.SIGTERM) if force else signal.SIGTERM
+        os.kill(int(pid), sig)
         return True
     except Exception:  # noqa: BLE001
         return False
 
 
-def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> int:
-    """Spawn the relay detached, logging to ``log_path``; return its PID.
+def _terminate_relay_pid(pid: int, start_time: int) -> bool:
+    """Terminate the exact recorded process and confirm it exited.
 
-    Reuses ``fabric_cli._subprocess_compat.windows_detach_popen_kwargs`` for
-    correct cross-platform detachment instead of hand-rolling creationflags.
+    Identity checks fail closed: an absent/unreadable fingerprint is never
+    signalled. State remains on disk when exit cannot be confirmed so the
+    dashboard does not forget a possibly-live relay.
     """
+    if _relay_process_identity(pid, start_time) != "same":
+        return False
+    if not _signal_relay_pid(pid, force=False):
+        return False
+    if _wait_original_process_gone(pid, start_time, RELAY_STOP_TIMEOUT):
+        return True
+    if _relay_process_identity(pid, start_time) != "same":
+        return False
+    if not _signal_relay_pid(pid, force=True):
+        return False
+    return _wait_original_process_gone(pid, start_time, RELAY_FORCE_TIMEOUT)
+
+
+def _acquire_relay_process_lock() -> Tuple[bool, bool]:
+    """Acquire cross-process mutation ownership; bools are (acquired, scoped)."""
+    try:
+        from gateway.status import acquire_scoped_lock
+        acquired, _owner = acquire_scoped_lock(
+            "fabric-achievements-relay",
+            str(relay_state_path().resolve()),
+            {"state_path": str(relay_state_path())},
+        )
+        return bool(acquired), True
+    except Exception:  # noqa: BLE001 - standalone plugin fallback
+        return True, False
+
+
+def _release_relay_process_lock(scoped: bool) -> None:
+    if not scoped:
+        return
+    try:
+        from gateway.status import release_scoped_lock
+        release_scoped_lock("fabric-achievements-relay", str(relay_state_path().resolve()))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> Tuple[int, int]:
+    """Spawn detached and return a PID plus a verified start-time fingerprint."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     detach_kwargs: Dict[str, Any] = {}
     try:
@@ -1753,64 +1887,105 @@ def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> int:
     except Exception:  # noqa: BLE001
         if os.name != "nt":
             detach_kwargs = {"start_new_session": True}
+    popen_kwargs = {
+        "cwd": str(cwd),
+        "stdout": None,
+        "stderr": subprocess.STDOUT,
+        "stdin": subprocess.DEVNULL,
+        "close_fds": True,
+        **detach_kwargs,
+    }
     log_fh = open(log_path, "ab")
+    popen_kwargs["stdout"] = log_fh
     try:
-        proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-            argv,
-            cwd=str(cwd),
-            stdout=log_fh,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            close_fds=True,
-            **detach_kwargs,
-        )
+        try:
+            proc = subprocess.Popen(argv, **popen_kwargs)  # noqa: S603 - fixed argv, no shell
+        except OSError:
+            if "creationflags" not in detach_kwargs:
+                raise
+            # Windows job objects may deny CREATE_BREAKAWAY_FROM_JOB. Retry with
+            # the canonical no-breakaway flags rather than failing hosting.
+            from fabric_cli._subprocess_compat import windows_detach_flags_without_breakaway
+            retry_kwargs = dict(popen_kwargs)
+            retry_kwargs["creationflags"] = windows_detach_flags_without_breakaway()
+            proc = subprocess.Popen(argv, **retry_kwargs)  # noqa: S603 - fixed argv, no shell
     finally:
-        # The child inherited its own dup of the fd; the parent copy is done.
+        # The child inherited its own duplicate; the parent copy is done.
         log_fh.close()
-    return int(proc.pid)
+
+    start_time = _capture_process_start_time(int(proc.pid))
+    if start_time is None:
+        # We still own the Popen handle, so cleanup is safe even without a PID
+        # fingerprint. Never persist a killable record that cannot prove identity.
+        try:
+            proc.terminate()
+            proc.wait(timeout=1)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+                proc.wait(timeout=1)
+            except Exception:  # noqa: BLE001
+                pass
+        raise RuntimeError("Could not verify the relay process identity after spawn.")
+    return int(proc.pid), int(start_time)
 
 
 def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any]:
     """Status of a *dashboard-managed* relay recorded in relay.json, if any.
 
-    Reports a stale record (a PID that is no longer our live process) as not
-    managed so the UI never shows a dead relay as running. The status path does
-    not delete relay.json because it runs without ``_RELAY_LOCK``; start and stop
-    own cleanup. An external relay is read-only and is never treated as managed.
+    A record is managed only when both PID and start-time fingerprint match.
+    Unknown ownership is surfaced separately and is never treated as killable.
+    This read-only path does not delete state; start/stop own cleanup.
     """
     state = load_relay_state()
     pid = state.get("pid")
     port = state.get("port")
+    host = state.get("host")
     log = state.get("log")
     if not pid:
-        return {"managed": False, "running": False, "pid": None, "port": None, "healthy": False, "log": log}
-    if not _pid_is_alive(pid, state.get("start_time")):
-        # Read-only: a stale pid is reported as not-managed but NOT cleared here.
-        # This runs without _RELAY_LOCK (via host_status/the GET route); clearing
-        # could race a concurrent start_local_relay and delete a freshly-written
-        # relay.json. start (overwrite) and stop (clear) own cleanup instead.
-        return {"managed": False, "running": False, "pid": None, "port": None, "healthy": False, "log": log}
-    healthy = False
-    if port:
-        healthy = bool(_probe_relay_health(f"http://127.0.0.1:{_coerce_port(port)}", transport=transport).get("ok"))
+        return {
+            "managed": False,
+            "running": False,
+            "ownership_unknown": False,
+            "pid": None,
+            "port": None,
+            "healthy": False,
+            "log": log,
+        }
+    identity = _relay_process_identity(pid, state.get("start_time"))
+    if identity != "same":
+        return {
+            "managed": False,
+            "running": False,
+            "ownership_unknown": identity == "unknown",
+            "pid": int(pid) if identity == "unknown" else None,
+            "port": _coerce_port(port) if identity == "unknown" and port else None,
+            "healthy": False,
+            "log": log,
+        }
+    healthy = bool(
+        port and _probe_relay_health(_relay_probe_url(host, port), transport=transport).get("ok")
+    )
     return {
         "managed": True,
         "running": True,
+        "ownership_unknown": False,
         "pid": int(pid),
         "port": _coerce_port(port) if port else None,
-        "host": state.get("host"),
+        "host": host,
         "started_at": state.get("started_at"),
         "healthy": healthy,
         "log": log,
     }
 
 
-def _wait_relay_healthy(port: int, transport: Optional[Transport]) -> bool:
-    health = _probe_relay_health(f"http://127.0.0.1:{port}", transport=transport)
+def _wait_relay_healthy(host: str, port: int, transport: Optional[Transport]) -> bool:
+    health_url = _relay_probe_url(host, port)
+    health = _probe_relay_health(health_url, transport=transport)
     attempts = 0
     while not health.get("ok") and attempts < RELAY_START_HEALTH_ATTEMPTS:
         time.sleep(RELAY_START_HEALTH_DELAY)
-        health = _probe_relay_health(f"http://127.0.0.1:{port}", transport=transport)
+        health = _probe_relay_health(health_url, transport=transport)
         attempts += 1
     return bool(health.get("ok"))
 
@@ -1821,165 +1996,200 @@ def start_local_relay(
     spawner: Optional[Spawner] = None,
     transport: Optional[Transport] = None,
 ) -> Dict[str, Any]:
-    """Start a dashboard-managed relay on this machine (idempotent).
+    """Start one dashboard-managed relay without orphaning concurrent children.
 
-    If a healthy relay already answers on ``port`` it is adopted rather than
-    double-started. Binds ``0.0.0.0`` by default (the documented relay default):
-    that covers the loopback interface the health/adopt probes use AND the
-    Tailscale interface teammates connect over. It also exposes the plain-HTTP
-    relay on the LAN, so run it on a trusted network or bind an explicit ``host``
-    (see relay/README.md). On success the relay is recorded in relay.json (pid +
-    start-time for PID-reuse-safe liveness) so status/stop keep working across a
-    dashboard restart. Returns the same shape as ``host_status`` so the UI can
-    update from a single call. The short adoption probe is serialized with
-    spawn/state updates; the longer startup health wait runs after releasing
-    the lock.
+    The default bind is the connected Tailscale IPv4 address, otherwise
+    loopback. Mutation ownership is serialized across threads and dashboard
+    processes; a live record is authoritative even before health starts
+    answering. Every persisted PID has a verified start-time fingerprint.
     """
     port = _coerce_port(port)
-    host = str(host).strip() if host and str(host).strip() else "0.0.0.0"
+    tailscale = detect_tailscale()
+    default_host = tailscale.get("ipv4") if tailscale.get("running") else None
+    host = str(host).strip() if host and str(host).strip() else str(default_host or "127.0.0.1")
     note: Optional[str] = None
+    action_error: Optional[str] = None
     do_healthcheck = False
-    with _RELAY_LOCK:
-        # A process can be alive before /health starts answering. Treat the
-        # recorded live process as authoritative so a retry (or another browser
-        # tab) cannot spawn a duplicate during that startup window. This also
-        # prevents a different-port request from overwriting relay.json and
-        # orphaning the relay the dashboard already manages.
-        state = load_relay_state()
-        managed_pid = state.get("pid")
-        if managed_pid and _pid_is_alive(managed_pid, state.get("start_time")):
-            managed_port = _coerce_port(state.get("port"))
-            if managed_port != port:
-                note = (
-                    f"The dashboard is already hosting a relay on port {managed_port}; "
-                    "stop it before starting one on another port."
-                )
-            port = managed_port
-        else:
-            existing = _probe_relay_health(f"http://127.0.0.1:{port}", transport=transport)
-            if existing.get("ok"):
-                note = "A relay is already running on this port (not started by the dashboard)."
-            else:
-                argv = [
-                    sys.executable, "-m", "relay",
-                    "--host", host, "--port", str(port),
-                    "--state", str(relay_roster_path()),
-                ]
-                spawn = spawner or _default_relay_spawner
-                try:
-                    pid = spawn(argv, _relay_plugin_dir(), relay_log_path())
-                except Exception as exc:  # noqa: BLE001
-                    note = f"Could not start the relay: {exc}"
-                else:
-                    try:
-                        save_relay_state({
-                            "pid": int(pid),
-                            "port": port,
-                            "host": host,
-                            "started_at": int(time.time()),
-                            "start_time": _process_start_time(int(pid)),
-                            "log": str(relay_log_path()),
-                        })
-                    except Exception as exc:  # noqa: BLE001
-                        # We spawned a relay but can't record it. Kill it rather than
-                        # leak an untracked process the dashboard could never stop.
-                        _terminate_relay_pid(int(pid))
-                        note = f"Started the relay but could not record it ({exc}); stopped it to avoid an orphan."
-                    else:
-                        do_healthcheck = True
 
-    if do_healthcheck and not _wait_relay_healthy(port, transport):
+    with _RELAY_LOCK:
+        acquired, scoped = _acquire_relay_process_lock()
+        if not acquired:
+            note = "Another dashboard process is updating the relay; try again."
+            action_error = note
+        else:
+            try:
+                state = load_relay_state()
+                managed_pid = state.get("pid")
+                if managed_pid and _pid_is_alive(managed_pid, state.get("start_time")):
+                    identity = "same"
+                else:
+                    identity = _relay_process_identity(managed_pid, state.get("start_time")) if managed_pid else "gone"
+                if identity == "same":
+                    managed_port = _coerce_port(state.get("port"))
+                    if managed_port != port:
+                        note = (
+                            f"The dashboard is already hosting a relay on port {managed_port}; "
+                            "stop it before starting one on another port."
+                        )
+                        action_error = note
+                    port = managed_port
+                elif identity == "unknown":
+                    note = "Relay ownership could not be verified; refusing to replace a possibly-live process."
+                    action_error = note
+                else:
+                    probe_urls = [_relay_url("127.0.0.1", port)]
+                    bind_probe = _relay_probe_url(host, port)
+                    if bind_probe not in probe_urls:
+                        probe_urls.append(bind_probe)
+                    existing = next(
+                        (
+                            probe
+                            for probe in (
+                                _probe_relay_health(url, transport=transport)
+                                for url in probe_urls
+                            )
+                            if probe.get("ok")
+                        ),
+                        None,
+                    )
+                    if existing:
+                        note = "A relay is already running on this port (not started by the dashboard)."
+                    else:
+                        argv = [
+                            sys.executable, "-m", "relay",
+                            "--host", host, "--port", str(port),
+                            "--state", str(relay_roster_path()),
+                        ]
+                        spawn = spawner or _default_relay_spawner
+                        try:
+                            spawned = spawn(argv, _relay_plugin_dir(), relay_log_path())
+                            if isinstance(spawned, tuple):
+                                if len(spawned) != 2:
+                                    raise RuntimeError("Relay spawner returned an invalid process record.")
+                                pid, start_time = int(spawned[0]), int(spawned[1])
+                            else:
+                                spawned_pid: Any = spawned
+                                pid = int(spawned_pid)
+                                captured = _capture_process_start_time(pid)
+                                if captured is None:
+                                    _signal_relay_pid(pid, force=True)
+                                    raise RuntimeError("Could not verify the relay process identity after spawn.")
+                                start_time = captured
+                        except Exception as exc:  # noqa: BLE001
+                            note = f"Could not start the relay: {exc}"
+                            action_error = note
+                        else:
+                            try:
+                                save_relay_state({
+                                    "pid": pid,
+                                    "port": port,
+                                    "host": host,
+                                    "started_at": int(time.time()),
+                                    "start_time": start_time,
+                                    "log": str(relay_log_path()),
+                                })
+                            except Exception as exc:  # noqa: BLE001
+                                stopped = _terminate_relay_pid(pid, start_time)
+                                suffix = "stopped it to avoid an orphan" if stopped else "manual cleanup may be required"
+                                note = f"Started the relay but could not record it ({exc}); {suffix}."
+                                action_error = note
+                            else:
+                                do_healthcheck = True
+            finally:
+                _release_relay_process_lock(scoped)
+
+    if do_healthcheck and not _wait_relay_healthy(host, port, transport):
         state = load_relay_state()
         if _pid_is_alive(state.get("pid"), state.get("start_time")):
             note = "Relay started but isn't answering yet — check the relay log if it doesn't come up."
         else:
             note = "The relay process exited right after starting — see the relay log."
-    return host_status(port, transport=transport, extra_note=note)
+            action_error = note
+    return host_status(port, transport=transport, extra_note=note, action_error=action_error)
 
 
 def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
-    """Stop the dashboard-managed relay (if any) and forget it.
-
-    On a failed terminate the recorded state is KEPT so Stop can be retried,
-    rather than orphaning a relay we couldn't kill.
-    """
+    """Stop only the exact dashboard-managed process and confirm its exit."""
     note: Optional[str] = None
+    action_error: Optional[str] = None
+    state: Dict[str, Any] = {}
     with _RELAY_LOCK:
-        state = load_relay_state()
-        pid = state.get("pid")
-        if pid and _pid_is_alive(pid, state.get("start_time")):
-            if _terminate_relay_pid(int(pid)):
-                clear_relay_state()
-            else:
-                note = "Could not stop the relay — it may still be running; try again."
+        acquired, scoped = _acquire_relay_process_lock()
+        if not acquired:
+            note = "Another dashboard process is updating the relay; try again."
+            action_error = note
         else:
-            if not pid:
-                note = "No dashboard-managed relay is running."
-            clear_relay_state()  # dead or absent pid — forget it
+            try:
+                state = load_relay_state()
+                pid = state.get("pid")
+                start_time = state.get("start_time")
+                if pid and _pid_is_alive(pid, start_time):
+                    identity = "same"
+                else:
+                    identity = _relay_process_identity(pid, start_time) if pid else "gone"
+                if identity == "same":
+                    pid_value = int(pid or 0)
+                    start_value = int(start_time or 0)
+                    if _terminate_relay_pid(pid_value, start_value):
+                        clear_relay_state()
+                    else:
+                        note = "Could not confirm the relay stopped — it may still be running; try again."
+                        action_error = note
+                elif identity == "unknown":
+                    note = "Relay ownership could not be verified, so it was not stopped."
+                    action_error = note
+                else:
+                    if not pid:
+                        note = "No dashboard-managed relay is running."
+                    clear_relay_state()
+            finally:
+                _release_relay_process_lock(scoped)
     port = _coerce_port(state.get("port") or DEFAULT_RELAY_PORT)
-    return host_status(port, transport=transport, extra_note=note)
+    return host_status(port, transport=transport, extra_note=note, action_error=action_error)
 
 
 def host_status(
     port: int = DEFAULT_RELAY_PORT,
     transport: Optional[Transport] = None,
     extra_note: Optional[str] = None,
+    action_error: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Everything the dashboard needs to host and to pre-fill a shareable URL.
-
-    Combines (a) a probe of a relay on this machine, (b) any dashboard-managed
-    relay's status, and (c) this machine's Tailscale identity into a single
-    ``suggested_relay_url`` the host can accept with one click instead of typing
-    an address they'd have to look up. Prefers a Tailscale address (stable,
-    reachable by teammates on the tailnet without port-forwarding) and falls
-    back to loopback, which only serves a same-machine trial.
-
-    ``suggested_is_shareable`` is only True when the suggested Tailscale URL
-    itself answers as a Fabric relay. A process listening only on loopback can
-    pass the local health check while remaining unreachable to teammates, so a
-    healthy local/managed process alone is not enough. The URL is still
-    pre-filled as pending so it is ready when the relay binds the tailnet
-    interface.
-    """
+    """Return local process health plus separately verified tailnet reachability."""
     port = _coerce_port(port)
-
     tailscale = detect_tailscale()
-    local_relay = _probe_relay_health(f"http://127.0.0.1:{port}", transport=transport)
     managed = relay_process_status(transport=transport)
+    if managed.get("running") and managed.get("port"):
+        port = _coerce_port(managed["port"])
+        local_url = _relay_probe_url(managed.get("host"), port)
+    else:
+        local_url = _relay_url("127.0.0.1", port)
+    local_relay = _probe_relay_health(local_url, transport=transport)
 
-    # A relay is "live" when something is answering /health on the port, or our
-    # managed relay reports running (it may be mid-startup before /health binds).
+    # Liveness keeps the UI in a truthful "starting" state, but only health can
+    # establish reachability or make a suggested URL shareable.
     relay_live = bool(local_relay.get("ok")) or bool(managed.get("running"))
-
-    # A stopped/logged-out Tailscale daemon can still report its last DNS name
-    # or address. Never present that stale identity as a usable tailnet URL.
     shareable_host = (
-        tailscale.get("magicdns") or tailscale.get("ipv4")
+        tailscale.get("magicdns") or tailscale.get("ipv4") or tailscale.get("ipv6")
     ) if tailscale.get("running") else None
     shareable_relay: Dict[str, Any] = {
         "ok": False,
         "error": "No connected Tailscale address is available.",
     }
     if shareable_host:
-        suggested = f"http://{shareable_host}:{port}"
+        suggested = _relay_url(shareable_host, port)
         if local_relay.get("ok"):
-            # A relay answering on loopback may still be bound to 127.0.0.1 only
-            # (the manual relay command defaults to that). Probe the actual
-            # tailnet URL before telling the UI teammates can reach it.
             shareable_relay = _probe_relay_health(suggested, transport=transport)
         else:
             shareable_relay = {
                 "ok": False,
-                "error": "The relay is not answering locally yet.",
+                "error": "The relay is not answering on its managed address yet.",
             }
     elif relay_live:
-        suggested = f"http://127.0.0.1:{port}"
+        suggested = _relay_url("127.0.0.1", port)
     else:
         suggested = None
-    # Reachable-by-teammates means the actual tailnet URL answered as a Fabric
-    # relay. A healthy loopback listener alone is insufficient because it may be
-    # bound to 127.0.0.1 and therefore unreachable over Tailscale.
     shareable = bool(shareable_relay.get("ok"))
+    command_host = tailscale.get("ipv4") if tailscale.get("running") and tailscale.get("ipv4") else "127.0.0.1"
 
     result = {
         "ok": True,
@@ -1991,17 +2201,18 @@ def host_status(
         "relay_live": relay_live,
         "suggested_relay_url": suggested,
         "suggested_is_shareable": shareable,
-        # Connecting Tailscale is an interactive QR login owned by the CLI; the
-        # UI surfaces this command rather than duplicating that ceremony.
         "tailscale_setup_command": TAILSCALE_SETUP_COMMAND,
         "tailscale_needs_setup": bool(tailscale.get("installed") and not tailscale.get("running")),
         "run_command": (
             "cd plugins/fabric-achievements && "
-            f"python -m relay --host 0.0.0.0 --port {port} --state ./roster.json"
+            f"python -m relay --host {command_host} --port {port} --state ./roster.json"
         ),
     }
     if extra_note:
         result["note"] = extra_note
+    if action_error:
+        result["action_ok"] = False
+        result["error"] = action_error
     return result
 
 

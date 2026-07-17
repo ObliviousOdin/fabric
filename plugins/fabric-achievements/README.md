@@ -81,8 +81,9 @@ service, `python -m relay`). The hosting panel makes this one click:
   **Stop** keep working across a dashboard restart), and health-checks it. No
   copy-paste terminal command required.
 - The dashboard then **auto-fills the Relay URL** — preferring a Tailscale
-  MagicDNS address (ending in `.ts.net`) that teammates can reach from anywhere
-  on the tailnet with no port-forwarding, and falling back to
+  MagicDNS address (ending in `.ts.net`) and verifying that the tailnet URL
+  answers as a Fabric relay before calling it teammate-reachable. A relay bound
+  only to `127.0.0.1` stays local-only; without Tailscale the UI falls back to
   `http://127.0.0.1:9137` for a same-machine trial. **Detect** re-checks
   read-only without starting anything.
 - If Tailscale is installed but not connected, the panel surfaces Fabric's

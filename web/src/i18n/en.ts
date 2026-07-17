@@ -1087,6 +1087,8 @@ export const en: Translations = {
         "A relay is answering on this machine (port {port}) — not managed by the dashboard.",
       detect_filled:
         "Filled in {url} below — anyone on your tailnet can reach it.",
+      detect_filled_unreachable:
+        "Filled in {url}, but that tailnet address is not answering. If you started the relay manually, bind it to 0.0.0.0 or your Tailscale address.",
       detect_filled_local:
         "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.",
       detect_filled_pending:

@@ -54,14 +54,17 @@ managed (no Stop button).
 
 ### How auto-fill picks the URL
 
-The dashboard's `GET /team/host/status` endpoint combines two local checks:
+The dashboard's `GET /team/host/status` endpoint combines three local checks:
 
 - a probe of `http://127.0.0.1:<port>/health` to see whether a relay is
-  already answering on this machine, and
-- this node's own Tailscale identity (`tailscale status --json` → `Self`),
+  already answering on this machine,
+- this node's own Tailscale identity (`tailscale status --json` → `Self`), and
+- when both exist, a probe of the resulting Tailscale URL so a relay bound only
+  to `127.0.0.1` is never claimed to be teammate-reachable.
 
-then prefers your Tailscale MagicDNS name (`something.ts.net`) because it is
-stable and reachable by teammates on the tailnet with no port-forwarding. If
+It prefers your Tailscale MagicDNS name (`something.ts.net`) because it is
+stable and reachable by teammates on the tailnet with no port-forwarding, but
+marks it shareable only after that address answers as a Fabric relay. If
 Tailscale isn't connected it falls back to `http://127.0.0.1:<port>`, which
 only works for a same-machine trial and is flagged as such in the UI.
 

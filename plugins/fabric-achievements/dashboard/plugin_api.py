@@ -1773,9 +1773,10 @@ def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> int:
 def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any]:
     """Status of a *dashboard-managed* relay recorded in relay.json, if any.
 
-    Reaps stale state (a recorded PID that is no longer our live process) so the
-    UI never shows a dead relay as running. Read-only for an external relay —
-    it only reports processes this dashboard started.
+    Reports a stale record (a PID that is no longer our live process) as not
+    managed so the UI never shows a dead relay as running. The status path does
+    not delete relay.json because it runs without ``_RELAY_LOCK``; start and stop
+    own cleanup. An external relay is read-only and is never treated as managed.
     """
     state = load_relay_state()
     pid = state.get("pid")
@@ -1830,52 +1831,62 @@ def start_local_relay(
     (see relay/README.md). On success the relay is recorded in relay.json (pid +
     start-time for PID-reuse-safe liveness) so status/stop keep working across a
     dashboard restart. Returns the same shape as ``host_status`` so the UI can
-    update from a single call. Never spawns while holding a network call.
+    update from a single call. The short adoption probe is serialized with
+    spawn/state updates; the longer startup health wait runs after releasing
+    the lock.
     """
     port = _coerce_port(port)
     host = str(host).strip() if host and str(host).strip() else "0.0.0.0"
     note: Optional[str] = None
     do_healthcheck = False
     with _RELAY_LOCK:
-        existing = _probe_relay_health(f"http://127.0.0.1:{port}", transport=transport)
-        if existing.get("ok"):
-            state = load_relay_state()
-            ours = (
-                bool(state.get("pid"))
-                and _pid_is_alive(state.get("pid"), state.get("start_time"))
-                and _coerce_port(state.get("port")) == port
-            )
-            if not ours:
-                note = "A relay is already running on this port (not started by the dashboard)."
-            # else: our relay is already up — nothing to do.
+        # A process can be alive before /health starts answering. Treat the
+        # recorded live process as authoritative so a retry (or another browser
+        # tab) cannot spawn a duplicate during that startup window. This also
+        # prevents a different-port request from overwriting relay.json and
+        # orphaning the relay the dashboard already manages.
+        state = load_relay_state()
+        managed_pid = state.get("pid")
+        if managed_pid and _pid_is_alive(managed_pid, state.get("start_time")):
+            managed_port = _coerce_port(state.get("port"))
+            if managed_port != port:
+                note = (
+                    f"The dashboard is already hosting a relay on port {managed_port}; "
+                    "stop it before starting one on another port."
+                )
+            port = managed_port
         else:
-            argv = [
-                sys.executable, "-m", "relay",
-                "--host", host, "--port", str(port),
-                "--state", str(relay_roster_path()),
-            ]
-            spawn = spawner or _default_relay_spawner
-            try:
-                pid = spawn(argv, _relay_plugin_dir(), relay_log_path())
-            except Exception as exc:  # noqa: BLE001
-                note = f"Could not start the relay: {exc}"
+            existing = _probe_relay_health(f"http://127.0.0.1:{port}", transport=transport)
+            if existing.get("ok"):
+                note = "A relay is already running on this port (not started by the dashboard)."
             else:
+                argv = [
+                    sys.executable, "-m", "relay",
+                    "--host", host, "--port", str(port),
+                    "--state", str(relay_roster_path()),
+                ]
+                spawn = spawner or _default_relay_spawner
                 try:
-                    save_relay_state({
-                        "pid": int(pid),
-                        "port": port,
-                        "host": host,
-                        "started_at": int(time.time()),
-                        "start_time": _process_start_time(int(pid)),
-                        "log": str(relay_log_path()),
-                    })
+                    pid = spawn(argv, _relay_plugin_dir(), relay_log_path())
                 except Exception as exc:  # noqa: BLE001
-                    # We spawned a relay but can't record it. Kill it rather than
-                    # leak an untracked process the dashboard could never stop.
-                    _terminate_relay_pid(int(pid))
-                    note = f"Started the relay but could not record it ({exc}); stopped it to avoid an orphan."
+                    note = f"Could not start the relay: {exc}"
                 else:
-                    do_healthcheck = True
+                    try:
+                        save_relay_state({
+                            "pid": int(pid),
+                            "port": port,
+                            "host": host,
+                            "started_at": int(time.time()),
+                            "start_time": _process_start_time(int(pid)),
+                            "log": str(relay_log_path()),
+                        })
+                    except Exception as exc:  # noqa: BLE001
+                        # We spawned a relay but can't record it. Kill it rather than
+                        # leak an untracked process the dashboard could never stop.
+                        _terminate_relay_pid(int(pid))
+                        note = f"Started the relay but could not record it ({exc}); stopped it to avoid an orphan."
+                    else:
+                        do_healthcheck = True
 
     if do_healthcheck and not _wait_relay_healthy(port, transport):
         state = load_relay_state()
@@ -1923,11 +1934,12 @@ def host_status(
     reachable by teammates on the tailnet without port-forwarding) and falls
     back to loopback, which only serves a same-machine trial.
 
-    ``suggested_is_shareable`` is only True when a relay is actually answering
-    (``relay_live``): a Tailscale name for a port nothing is listening on is a
-    *pending* URL, not a reachable one, so the UI must not promise reachability
-    before the relay is up. The URL is still pre-filled so it's ready the moment
-    the relay starts.
+    ``suggested_is_shareable`` is only True when the suggested Tailscale URL
+    itself answers as a Fabric relay. A process listening only on loopback can
+    pass the local health check while remaining unreachable to teammates, so a
+    healthy local/managed process alone is not enough. The URL is still
+    pre-filled as pending so it is ready when the relay binds the tailnet
+    interface.
     """
     port = _coerce_port(port)
 
@@ -1939,22 +1951,42 @@ def host_status(
     # managed relay reports running (it may be mid-startup before /health binds).
     relay_live = bool(local_relay.get("ok")) or bool(managed.get("running"))
 
-    shareable_host = tailscale.get("magicdns") or tailscale.get("ipv4")
+    # A stopped/logged-out Tailscale daemon can still report its last DNS name
+    # or address. Never present that stale identity as a usable tailnet URL.
+    shareable_host = (
+        tailscale.get("magicdns") or tailscale.get("ipv4")
+    ) if tailscale.get("running") else None
+    shareable_relay: Dict[str, Any] = {
+        "ok": False,
+        "error": "No connected Tailscale address is available.",
+    }
     if shareable_host:
         suggested = f"http://{shareable_host}:{port}"
+        if local_relay.get("ok"):
+            # A relay answering on loopback may still be bound to 127.0.0.1 only
+            # (the manual relay command defaults to that). Probe the actual
+            # tailnet URL before telling the UI teammates can reach it.
+            shareable_relay = _probe_relay_health(suggested, transport=transport)
+        else:
+            shareable_relay = {
+                "ok": False,
+                "error": "The relay is not answering locally yet.",
+            }
     elif relay_live:
         suggested = f"http://127.0.0.1:{port}"
     else:
         suggested = None
-    # Reachable-by-teammates AND actually serving. A tailnet name with no relay
-    # behind it is pending, and loopback is never teammate-reachable.
-    shareable = bool(shareable_host) and relay_live
+    # Reachable-by-teammates means the actual tailnet URL answered as a Fabric
+    # relay. A healthy loopback listener alone is insufficient because it may be
+    # bound to 127.0.0.1 and therefore unreachable over Tailscale.
+    shareable = bool(shareable_relay.get("ok"))
 
     result = {
         "ok": True,
         "default_port": port,
         "tailscale": tailscale,
         "local_relay": local_relay,
+        "shareable_relay": shareable_relay,
         "managed_relay": managed,
         "relay_live": relay_live,
         "suggested_relay_url": suggested,
@@ -2390,8 +2422,9 @@ async def post_team_host_start(request: Request):
     # user-initiated action that spawns a local listening server, so it stays
     # behind the dashboard auth gate like the rest of /team/*.
     body = await _json_body(request)
-    # host is optional: when omitted, start_local_relay binds the Tailscale IPv4
-    # (tailnet-only) if connected, else 0.0.0.0.
+    # host is optional: when omitted, start_local_relay binds 0.0.0.0 so both
+    # its loopback health probe and the machine's Tailscale interface can reach
+    # it. The LAN-exposure trade-off is documented in the relay guide.
     host = body.get("host")
     try:
         return await _run(

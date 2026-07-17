@@ -452,12 +452,30 @@ def test_host_status_prefers_tailscale_magicdns(api, monkeypatch):
         running=True, dns_name="my-box.tail1234.ts.net", ip="100.101.102.103"))
     status = api.host_status(9137, transport=_healthy_relay_transport())
     assert status["suggested_relay_url"] == "http://my-box.tail1234.ts.net:9137"
-    assert status["suggested_is_shareable"] is True  # relay is live
+    assert status["suggested_is_shareable"] is True  # tailnet URL itself answers
+    assert status["shareable_relay"]["ok"] is True
     assert status["relay_live"] is True
     assert status["local_relay"]["ok"] is True
     assert status["tailscale"]["running"] is True
     assert status["tailscale_needs_setup"] is False
     assert "python -m relay" in status["run_command"]
+
+
+def test_host_status_does_not_call_loopback_only_relay_shareable(api, monkeypatch):
+    _use_tailscale(monkeypatch, api, status=_FakeTailscaleStatus(
+        running=True, dns_name="my-box.tail1234.ts.net", ip="100.101.102.103"))
+
+    def loopback_only(method, url, headers, body):
+        if url.startswith("http://127.0.0.1:"):
+            return 200, {"teams": 0, "members": 0, "schema_version": 1}
+        raise api.RelayClientError("connection refused", status=0)
+
+    status = api.host_status(9137, transport=loopback_only)
+    assert status["local_relay"]["ok"] is True
+    assert status["relay_live"] is True
+    assert status["suggested_relay_url"] == "http://my-box.tail1234.ts.net:9137"
+    assert status["suggested_is_shareable"] is False
+    assert status["shareable_relay"]["ok"] is False
 
 
 def test_host_status_tailscale_up_but_no_relay_is_pending_not_shareable(api, monkeypatch):
@@ -493,6 +511,21 @@ def test_host_status_flags_tailscale_needs_setup(api, monkeypatch):
     assert status["tailscale"]["running"] is False
     assert status["tailscale_needs_setup"] is True
     assert status["tailscale_setup_command"] == "fabric setup tailscale"
+
+
+def test_host_status_ignores_stale_tailscale_address_when_not_running(api, monkeypatch):
+    # Tailscale can retain the node's last identity while logged out/stopped.
+    # A stale MagicDNS name must not be advertised as currently shareable.
+    _use_tailscale(monkeypatch, api, status=_FakeTailscaleStatus(
+        running=False,
+        backend_state="Stopped",
+        dns_name="stale.tail1234.ts.net",
+        ip="100.1.2.3",
+    ))
+    status = api.host_status(9137, transport=_healthy_relay_transport())
+    assert status["suggested_relay_url"] == "http://127.0.0.1:9137"
+    assert status["suggested_is_shareable"] is False
+    assert status["tailscale_needs_setup"] is True
 
 
 def test_host_status_no_relay_no_tailscale_suggests_nothing(api, monkeypatch):
@@ -574,6 +607,38 @@ def test_start_local_relay_is_idempotent_when_ours_is_running(api, monkeypatch):
     # Second call: our relay is already up -> must not spawn again.
     api.start_local_relay(9137, "0.0.0.0", spawner=spawn, transport=transport)
     assert spawned == {}
+
+
+def test_start_local_relay_does_not_respawn_while_managed_relay_is_starting(api, monkeypatch):
+    _no_tailscale(monkeypatch, api)
+    monkeypatch.setattr(api, "RELAY_START_HEALTH_ATTEMPTS", 0)
+    monkeypatch.setattr(api, "_process_start_time", lambda p: 999)
+    monkeypatch.setattr(api, "_pid_is_alive", lambda p, start_time=None: bool(p))
+    spawned = []
+
+    def spawn(argv, cwd, log):
+        spawned.append(list(argv))
+        return 424242
+
+    def still_starting(method, url, headers, body):
+        raise api.RelayClientError("refused", status=0)
+
+    api.start_local_relay(9137, spawner=spawn, transport=still_starting)
+    api.start_local_relay(9137, spawner=spawn, transport=still_starting)
+    assert len(spawned) == 1
+
+
+def test_start_local_relay_does_not_orphan_managed_relay_for_another_port(api, monkeypatch):
+    state, spawned, spawn = _managed_relay_env(api, monkeypatch)
+    transport = _stateful_transport(state)
+    api.start_local_relay(9137, spawner=spawn, transport=transport)
+    spawned.clear()
+
+    result = api.start_local_relay(9999, spawner=spawn, transport=transport)
+    assert spawned == {}
+    assert result["default_port"] == 9137
+    assert "already hosting a relay on port 9137" in (result.get("note") or "")
+    assert api.load_relay_state()["port"] == 9137
 
 
 def test_start_local_relay_reports_external_relay(api, monkeypatch):

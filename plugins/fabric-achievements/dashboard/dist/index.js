@@ -821,13 +821,24 @@
     const [working, setWorking] = hooks.useState(false);
     const [host, setHost] = hooks.useState(null);
     const [error, setError] = hooks.useState(null);
+    // Track only values this panel wrote. Detect/start/stop may refresh or clear
+    // an auto-filled URL, but must never overwrite a relay URL the user typed.
+    const autoRelay = React.useRef(null);
 
     function apply(res) {
       // An {ok:false} payload is an error, not a status snapshot — surface it
       // and keep the previous host state rather than rendering a bogus panel.
       if (res && res.ok === false) { setError(res.error || tx(t, "team.generic_error", "Something went wrong.")); return; }
       setHost(res);
-      if (res && res.suggested_relay_url) setRelay(res.suggested_relay_url);
+      const suggested = res && res.suggested_relay_url;
+      const previousAuto = autoRelay.current;
+      if (suggested) {
+        setRelay(function (current) { return !current || current === previousAuto ? suggested : current; });
+        autoRelay.current = suggested;
+      } else {
+        setRelay(function (current) { return current === previousAuto ? "" : current; });
+        autoRelay.current = null;
+      }
       setError(null);
     }
     function run(promise) {
@@ -889,9 +900,9 @@
           h(CmdRow, { cmd: host.tailscale_setup_command, t: t })));
       }
 
-      // Three states for the auto-filled URL, so we never promise reachability
-      // before a relay is actually up: reachable now (shareable host + live),
-      // pending (tailnet name but no relay yet), or local-only (loopback).
+      // Four states for the auto-filled URL, so we never promise reachability:
+      // reachable now (tailnet URL answers), running locally but not reachable
+      // through Tailscale, pending (tailnet name but no relay yet), or local-only.
       const hasTailnet = !!(ts && ts.running && (ts.magicdns || ts.ipv4));
       let fill;
       if (!host.suggested_relay_url) {
@@ -900,6 +911,9 @@
       } else if (host.suggested_is_shareable) {
         fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-ok" },
           tx(t, "team.detect_filled", "Filled in {url} below — anyone on your tailnet can reach it.", { url: host.suggested_relay_url }));
+      } else if (hasTailnet && host.relay_live) {
+        fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
+          tx(t, "team.detect_filled_unreachable", "Filled in {url}, but that tailnet address is not answering. If you started the relay manually, bind it to 0.0.0.0 or your Tailscale address.", { url: host.suggested_relay_url }));
       } else if (hasTailnet) {
         fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
           tx(t, "team.detect_filled_pending", "Filled in {url} — start the relay (Host on this machine) to make it reachable on your tailnet.", { url: host.suggested_relay_url }));

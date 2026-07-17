@@ -1244,6 +1244,8 @@ tabs, shell slots, and backend API routes without cloning the repository.
 
 **Change the font independently** from the same picker — the **Font** section below the theme list overrides the UI font of whatever theme is active. The choice persists across theme switches (`config.yaml` → `dashboard.font`); pick **Theme default** to clear it and return to the active theme's own font.
 
+**Customize the embedded terminals** from the **Terminal** section at the bottom of the same picker. By default the Chat TUI and the Fabric Console derive their colors from the active theme; here you can instead pin a classic color scheme (Dracula, One Dark, Nord, Gruvbox Dark, Monokai, Solarized Dark/Light), switch the terminal font (JetBrains Mono, IBM Plex Mono, Space Mono), and set the font size (**Auto** keeps the responsive default). Color changes apply to new chat sessions — a running PTY keeps the palette it spawned with — while font and size changes apply to running terminals immediately. Preferences persist to `config.yaml` under `dashboard.terminal` (and mirror to the browser for flash-free loads).
+
 Built-in themes:
 
 | Theme                             | Character                                                         |

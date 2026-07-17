@@ -56,7 +56,7 @@ install-time insurance. Boards with 4 GB+ can skip this step.
 
 ```bash
 sudo apt update
-sudo apt install -y git curl ripgrep build-essential python3-dev libffi-dev
+sudo apt install -y git curl ripgrep build-essential python3-dev python3-venv libffi-dev
 ```
 
 `ffmpeg` is optional (media and TTS conversions); add it if you plan to use
@@ -85,10 +85,13 @@ cd fabric
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
-pip install -e '.[cli]'                    # base + interactive CLI menus
-# or, with a messaging gateway and MCP:
-# pip install -e '.[cli,mcp,messaging]'
+pip install -e '.[cli]'                    # base + interactive CLI
+# add MCP only if you need it:
+# pip install -e '.[cli,mcp]'
 ```
+
+Gateway platform SDKs lazy-install when you configure that platform, so a lean
+deployment does not need the broad `messaging` extra.
 
 If your distribution's Python is older than 3.11, use the Option A installer
 instead — its managed `uv` downloads a suitable Python for aarch64.

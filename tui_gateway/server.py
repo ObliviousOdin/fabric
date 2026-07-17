@@ -7575,7 +7575,7 @@ def _(rid, params: dict) -> dict:
         except Exception:
             pet_cfg = {}
 
-        installed = {p.slug: p for p in store.installed_pets()}
+        installed = {p.slug: p for p in store.available_pets()}
 
         gallery: list[dict] = []
         seen: set[str] = set()
@@ -7598,8 +7598,10 @@ def _(rid, params: dict) -> dict:
                         # petdex exposes no popularity metric; "curated" (its
                         # hand-picked/official set, identified by the asset path)
                         # is the closest signal, so the picker can surface it first.
-                        "curated": "/curated/" in entry.spritesheet_url,
+                        "curated": "/curated/" in entry.spritesheet_url
+                        or (entry.slug in installed and installed[entry.slug].bundled),
                         "generated": entry.slug in installed and installed[entry.slug].generated,
+                        "bundled": entry.slug in installed and installed[entry.slug].bundled,
                     }
                 )
         except Exception as exc:  # noqa: BLE001 - offline: fall back to installed
@@ -7614,7 +7616,9 @@ def _(rid, params: dict) -> dict:
                         "displayName": pet.display_name,
                         "installed": True,
                         "spritesheetUrl": "",
+                        "curated": pet.bundled,
                         "generated": pet.generated,
+                        "bundled": pet.bundled,
                     }
                 )
 
@@ -7665,7 +7669,8 @@ def _(rid, params: dict) -> dict:
 
     Params: ``slug`` (required). If the removed pet was the active one, the
     display is turned off so nothing tries to render a now-missing sprite.
-    Returns ``{ok, slug}`` where ``ok`` reflects whether a directory was deleted.
+    Returns ``{ok, slug, fallback?}`` where ``ok`` reflects whether a directory
+    was deleted and ``fallback`` describes a bundled pet revealed by removal.
     """
     slug = str(params.get("slug") or "").strip()
     if not slug:
@@ -7676,13 +7681,24 @@ def _(rid, params: dict) -> dict:
 
         removed = store.remove_pet(slug)
 
-        # If that was the active pet, stop surfaces pointing at a deleted sprite.
-        try:
-            _clear_active_if(slug)
-        except Exception as exc:  # noqa: BLE001 - removal already succeeded
-            logger.debug("pet.remove config update failed: %s", exc)
+        # Stop surfaces pointing at a deleted sprite. A bundled pet is
+        # read-only, and removing a same-slug profile override reveals that
+        # bundle, so keep the active config whenever a fallback still exists.
+        fallback = store.load_pet(slug) if removed else None
+        if removed and fallback is None:
+            try:
+                _clear_active_if(slug)
+            except Exception as exc:  # noqa: BLE001 - removal already succeeded
+                logger.debug("pet.remove config update failed: %s", exc)
 
-        return _ok(rid, {"ok": removed, "slug": slug})
+        result: dict = {"ok": removed, "slug": slug}
+        if fallback is not None and fallback.exists:
+            result["fallback"] = {
+                "displayName": fallback.display_name,
+                "bundled": fallback.bundled,
+                "generated": fallback.generated,
+            }
+        return _ok(rid, result)
     except Exception as exc:  # noqa: BLE001
         logger.debug("pet.remove failed: %s", exc)
         return _err(rid, 5031, f"pet.remove failed: {exc}")

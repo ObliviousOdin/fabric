@@ -27,6 +27,8 @@ from fabric_constants import get_fabric_home
 logger = logging.getLogger(__name__)
 
 _DOWNLOAD_TIMEOUT = 60.0
+_BUNDLED_PETS_DIR = Path(__file__).resolve().parent / "assets"
+_DEFAULT_BUNDLED_PET_SLUG = "fabric-mascot"
 
 
 class PetStoreError(RuntimeError):
@@ -42,7 +44,8 @@ class InstalledPet:
     description: str
     directory: Path
     spritesheet: Path
-    created_by: str = ""  # "generator" for pets hatched locally; "" for petdex installs
+    created_by: str = ""  # Manifest provenance (for example, generator or fabric).
+    bundled: bool = False
 
     @property
     def exists(self) -> bool:
@@ -58,6 +61,11 @@ def pets_dir() -> Path:
     path = get_fabric_home() / "pets"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def bundled_pets_dir() -> Path:
+    """Return Fabric's read-only first-party pet package directory."""
+    return _BUNDLED_PETS_DIR
 
 
 def _read_pet_json(directory: Path) -> dict:
@@ -104,12 +112,8 @@ def _safe_slug(slug: str) -> str:
     return segment
 
 
-def load_pet(slug: str) -> InstalledPet | None:
-    """Return the :class:`InstalledPet` for *slug*, or ``None`` if absent."""
-    slug = _safe_slug(slug)
-    if not slug:
-        return None
-    directory = pets_dir() / slug
+def _load_pet_from(directory: Path, slug: str, *, bundled: bool = False) -> InstalledPet | None:
+    """Build one pet record from a concrete package directory."""
     if not directory.is_dir():
         return None
     meta = _read_pet_json(directory)
@@ -120,19 +124,60 @@ def load_pet(slug: str) -> InstalledPet | None:
         directory=directory,
         spritesheet=_resolve_spritesheet(directory, meta),
         created_by=str(meta.get("createdBy", "") or ""),
+        bundled=bundled,
     )
 
 
+def load_pet(slug: str) -> InstalledPet | None:
+    """Return a profile pet or bundled first-party pet for *slug*.
+
+    Usable profile packages take precedence so a local/generated pet can
+    deliberately override a bundled slug without mutating the read-only
+    application assets. An incomplete profile directory does not hide a valid
+    bundle; this keeps bundled pets selectable after an interrupted install.
+    """
+    slug = _safe_slug(slug)
+    if not slug:
+        return None
+    local = _load_pet_from(pets_dir() / slug, slug)
+    if local is not None and local.exists:
+        return local
+    return _load_pet_from(bundled_pets_dir() / slug, slug, bundled=True)
+
+
 def installed_pets() -> list[InstalledPet]:
-    """Return every installed pet (dirs containing a usable spritesheet)."""
+    """Return profile-installed pets (excluding read-only bundled pets)."""
     out: list[InstalledPet] = []
     for child in sorted(pets_dir().iterdir()):
         if not child.is_dir():
             continue
-        pet = load_pet(child.name)
+        pet = _load_pet_from(child, child.name)
         if pet and pet.exists:
             out.append(pet)
     return out
+
+
+def bundled_pets() -> list[InstalledPet]:
+    """Return usable first-party pets shipped inside the Fabric package."""
+    root = bundled_pets_dir()
+    if not root.is_dir():
+        return []
+    out: list[InstalledPet] = []
+    for child in sorted(root.iterdir()):
+        if not child.is_dir():
+            continue
+        pet = _load_pet_from(child, child.name, bundled=True)
+        if pet and pet.exists:
+            out.append(pet)
+    return out
+
+
+def available_pets() -> list[InstalledPet]:
+    """Return profile pets first, then unshadowed bundled pets."""
+    local = installed_pets()
+    local_slugs = {pet.slug for pet in local}
+    bundled = [pet for pet in bundled_pets() if pet.slug not in local_slugs]
+    return [*local, *bundled]
 
 
 def resolve_active_pet(configured_slug: str | None = None) -> InstalledPet | None:
@@ -145,15 +190,23 @@ def resolve_active_pet(configured_slug: str | None = None) -> InstalledPet | Non
         pet = load_pet(configured_slug.strip())
         if pet and pet.exists:
             return pet
-    pets = installed_pets()
-    return pets[0] if pets else None
+    local = installed_pets()
+    if local:
+        return local[0]
+    default = load_pet(_DEFAULT_BUNDLED_PET_SLUG)
+    if default and default.exists:
+        return default
+    bundled = bundled_pets()
+    return bundled[0] if bundled else None
 
 
 def install_pet(slug: str, *, force: bool = False, timeout: float = _DOWNLOAD_TIMEOUT) -> InstalledPet:
     """Download *slug* from the manifest into the pets directory.
 
-    Idempotent: a fully-installed pet is returned as-is unless *force*.  Raises
-    :class:`PetStoreError` / :class:`~agent.pet.manifest.ManifestError` on
+    Idempotent: a fully-installed pet is returned as-is unless *force*. Bundled
+    pets are always returned as-is because their read-only package cannot be
+    refreshed from Petdex. Raises :class:`PetStoreError` /
+    :class:`~agent.pet.manifest.ManifestError` on
     failure.
     """
     from agent.pet.manifest import find_entry
@@ -162,7 +215,7 @@ def install_pet(slug: str, *, force: bool = False, timeout: float = _DOWNLOAD_TI
     if not slug:
         raise PetStoreError("invalid pet slug")
     existing = load_pet(slug)
-    if existing and existing.exists and not force:
+    if existing and existing.exists and (not force or existing.bundled):
         return existing
 
     entry = find_entry(slug, timeout=timeout)
@@ -215,7 +268,7 @@ def unique_slug(name: str) -> str:
     base = slugify(name)
     slug = base
     counter = 2
-    while (pets_dir() / slug).exists():
+    while load_pet(slug) is not None:
         slug = f"{base}-{counter}"
         counter += 1
     return slug
@@ -284,13 +337,13 @@ def export_pet(slug: str) -> tuple[str, bytes]:
     import io
     import zipfile
 
-    root = pets_dir()
-    directory = root / slug.strip()
-    # Guard against traversal: the target must be a direct child of pets_dir.
-    if directory.resolve().parent != root.resolve() or not directory.is_dir():
+    slug = _safe_slug(slug)
+    pet = load_pet(slug)
+    if not slug or pet is None or not pet.exists:
         raise PetStoreError(f"pet '{slug}' is not installed")
 
-    name = directory.name
+    directory = pet.directory
+    name = pet.slug
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(directory.iterdir()):

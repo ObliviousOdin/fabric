@@ -155,19 +155,19 @@ test('Windows PE strings and native icon files carry Fabric identity', () => {
 
   assert.equal(
     sha256(path.join(DESKTOP_ROOT, brand.assets.icns)),
-    '65cb2e27be3495eaa650f7b1d5eb6f52df1ab40dc82f04ab510d98cc06900e6a'
+    'a96f68ea0dfc250906f52b078b2b5d07b63a999c858e30dc3721d56fc72cb684'
   )
   assert.equal(
     sha256(path.join(DESKTOP_ROOT, brand.assets.ico)),
-    'e4e50da48100bf0250da499e4511c13759457a6bdd8454a629d1e1413578a00d'
+    '5c00b2f71862baeb2e84f8ea8e1c92bce71ae4cb7cc9b2ba1fe4e0b9ac4ff5db'
   )
   assert.equal(
     sha256(path.join(DESKTOP_ROOT, brand.assets.png)),
-    'e51a099027364620e2758172128ad42dc0a498fee52ab3ec4b2c5197681a39de'
+    '1a514b79784db3179b2f924dd81bd318cf4cd2605cc24d3fb9d9a43ff6abcfc6'
   )
   assert.equal(
     sha256(path.join(DESKTOP_ROOT, brand.assets.publicPng)),
-    '5cf6929b5b0b6670595d502e2c67f14e6ac5a8e7cea0f5d3de1390646034b230'
+    'f7f37fdca4e39a731c7e58cfb694b7cc60cb434160a0fc84b9de37532465a8be'
   )
 })
 

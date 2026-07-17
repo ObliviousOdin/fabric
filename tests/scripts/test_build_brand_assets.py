@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PIL import Image
@@ -104,6 +105,36 @@ class FabricBrandAssetBuilderTests(unittest.TestCase):
             self.assertEqual(app_icns.format, "ICNS")
             self.assertEqual(app_icns.size, (1024, 1024))
 
+    def test_raster_gradient_uses_canonical_svg_bounds(self) -> None:
+        square = [[(0, 0), (128, 0), (128, 128), (0, 128), (0, 0)]]
+        master = self.builder._render_master(  # noqa: SLF001
+            (0, 0, 128, 128),
+            square,
+            foreground=None,
+            background=None,
+        )
+        pixel_x = round(32 / 128 * (self.builder.MASTER_SIZE - 1))
+        user_x = pixel_x / (self.builder.MASTER_SIZE - 1) * 128
+        start, end = self.builder.MARK_GRADIENT_X_RANGE
+        position = (user_x - start) / (end - start)
+        stops = [
+            (offset, self.builder.ImageColor.getrgb(color))
+            for offset, color in self.builder.MARK_GRADIENT_STOPS
+        ]
+        for index, (right_offset, right_color) in enumerate(stops[1:], start=1):
+            if position <= right_offset:
+                left_offset, left_color = stops[index - 1]
+                amount = (position - left_offset) / (right_offset - left_offset)
+                expected = tuple(
+                    round(left + (right - left) * amount)
+                    for left, right in zip(left_color, right_color, strict=True)
+                )
+                break
+        else:
+            expected = stops[-1][1]
+
+        self.assertEqual(master.getpixel((pixel_x, 64))[:3], expected)
+
     def test_manifest_hashes_every_generated_asset(self) -> None:
         self.builder.generate_assets(self.output)
         manifest = json.loads(
@@ -144,9 +175,19 @@ class FabricBrandAssetBuilderTests(unittest.TestCase):
     def test_source_contract_is_vector_and_keeps_bracket_out_of_mark(self) -> None:
         source = self.builder.SOURCE_DIR
         mark = (source / "mark.svg").read_text(encoding="utf-8")
+        mark_root = ET.fromstring(mark)
         wordmark = (source / "wordmark.svg").read_text(encoding="utf-8")
 
         self.assertIn('id="fabric-mark-gradient"', mark)
+        gradient = next(
+            element
+            for element in mark_root.iter()
+            if element.attrib.get("id") == "fabric-mark-gradient"
+        )
+        self.assertEqual(
+            tuple(float(gradient.attrib[name]) for name in ("x1", "x2")),
+            self.builder.MARK_GRADIENT_X_RANGE,
+        )
         self.assertEqual(mark.count('data-fabric-mark="true"'), 2)
         self.assertNotIn("data-fabric-bracket", mark)
         self.assertNotIn("<text", wordmark)

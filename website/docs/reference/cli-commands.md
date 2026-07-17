@@ -46,7 +46,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric gateway` | Run or manage the messaging gateway service. |
 | `fabric proxy` | Local OpenAI-compatible proxy that attaches OAuth provider credentials. See [Subscription Proxy](../user-guide/features/subscription-proxy.md). |
 | `fabric lsp` | Manage Language Server Protocol integration (semantic diagnostics for write_file/patch). |
-| `fabric setup` | Interactive setup wizard for all or one section (`model`, `tts`, `terminal`, `gateway`, `tools`, `agent`, or opt-in `tailscale`). |
+| `fabric setup` | Interactive setup wizard for all or one section (`model`, `tts`, `terminal`, `gateway`, `tools`, `github`, `agent`, or opt-in `tailscale`). |
 | `fabric whatsapp` | Configure and pair the WhatsApp bridge. |
 | `fabric whatsapp-cloud` | Configure the official Meta WhatsApp Business Cloud API adapter (Business account + public webhook required). Distinct from `fabric whatsapp` (Baileys personal-account bridge). |
 | `fabric slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |
@@ -282,7 +282,7 @@ the full guide, supported languages, and configuration knobs.
 ## `fabric setup`
 
 ```bash
-fabric setup [model|tts|terminal|gateway|tools|tailscale|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
+fabric setup [model|tts|terminal|gateway|tools|github|tailscale|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
 ```
 
 Run `fabric setup` for the full interactive wizard, or use `fabric model` and
@@ -301,6 +301,7 @@ Jump into one section instead of the full wizard:
 | `terminal` | Terminal backend and sandbox setup. |
 | `gateway` | Messaging platform setup. |
 | `tools` | Enable/disable tools per platform. |
+| `github` | Connect a GitHub account: browser device-code sign-in (or a personal access token), saved as `GITHUB_TOKEN` for the GitHub skills. Offers to star the Fabric repo and points at the `fabric-contribute` skill for filing feature requests and bug reports. |
 | `tailscale` | Opt-in private Tailscale access setup. |
 | `agent` | Agent behavior settings. |
 

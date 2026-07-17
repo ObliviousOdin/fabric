@@ -84,10 +84,11 @@ service, `python -m relay`). The hosting panel makes this one click:
   is required.
 - The dashboard then **auto-fills the Relay URL** — preferring a Tailscale
   MagicDNS address (ending in `.ts.net`) and verifying that the tailnet URL
-  answers as a Fabric relay before calling it teammate-reachable. A relay bound
-  only to `127.0.0.1` stays local-only; without Tailscale the UI falls back to
-  `http://127.0.0.1:9137` for a same-machine trial. **Detect** re-checks
-  read-only without starting anything.
+  answers as a Fabric relay from the host machine. That proves DNS and binding,
+  not every teammate's Tailscale ACL access; teammates still need permission in
+  the tailnet policy. A relay bound only to `127.0.0.1` stays local-only; without
+  Tailscale the UI falls back to `http://127.0.0.1:9137` for a same-machine
+  trial. **Detect** re-checks read-only without starting anything.
 - If Tailscale is installed but not connected, the panel surfaces Fabric's
   built-in **`fabric setup tailscale`** command (the QR login). Both the read
   side and that command reuse `fabric_cli.tailscale_setup` — the same code

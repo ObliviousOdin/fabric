@@ -62,13 +62,14 @@ The dashboard's `GET /team/host/status` endpoint combines three local checks:
 - a probe of the managed bind address (or loopback for an unmanaged relay),
 - this node's own Tailscale identity (`tailscale status --json` → `Self`), and
 - when both exist, a probe of the resulting Tailscale URL so a relay bound only
-  to `127.0.0.1` is never claimed to be teammate-reachable.
+  to `127.0.0.1` is never claimed to answer over Tailscale.
 
 It prefers your Tailscale MagicDNS name (`something.ts.net`) because it is
-stable and reachable by teammates on the tailnet with no port-forwarding, but
-marks it shareable only after that address answers as a Fabric relay. If
-Tailscale isn't connected it falls back to `http://127.0.0.1:<port>`, which
-only works for a same-machine trial and is flagged as such in the UI.
+stable and needs no port-forwarding, but marks it shareable only after that
+address answers as a Fabric relay from this machine. This does not prove every
+teammate's access: Tailscale ACLs still apply. If Tailscale isn't connected it
+falls back to `http://127.0.0.1:<port>`, which only works for a same-machine
+trial and is flagged as such in the UI.
 
 ## Exposing it beyond your LAN (TLS)
 

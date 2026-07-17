@@ -162,6 +162,59 @@ describe("fabric-achievements leaderboard bundle", () => {
     );
   });
 
+  it("does not reclassify a matching manual relay URL as auto-filled", async () => {
+    const manualRelay = "http://127.0.0.1:9137";
+    let statusCalls = 0;
+    fetchJSON.mockImplementation((url: string) => {
+      if (url.endsWith("/achievements")) return new Promise(() => {});
+      if (url.endsWith("/team/leaderboard")) {
+        return Promise.resolve({ ok: true, membership: null });
+      }
+      if (url.endsWith("/team/host/status")) {
+        statusCalls += 1;
+        return Promise.resolve({
+          ok: true,
+          tailscale: { installed: false, running: false },
+          local_relay: { ok: statusCalls === 2 },
+          managed_relay: { managed: false, running: false },
+          default_port: 9137,
+          suggested_relay_url: statusCalls === 2 ? manualRelay : null,
+          suggested_is_shareable: false,
+          relay_live: statusCalls === 2,
+        });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    await renderLeaderboard();
+    const relayInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="http://your-host:9137"]',
+    );
+    expect(relayInput).not.toBeNull();
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      if (relayInput) {
+        setValue?.call(relayInput, manualRelay);
+        relayInput.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    });
+
+    const detectButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Detect",
+    );
+    expect(detectButton).toBeDefined();
+    await act(async () => detectButton?.click());
+    await flushEffects();
+    expect(relayInput?.value).toBe(manualRelay);
+
+    await act(async () => detectButton?.click());
+    await flushEffects();
+    expect(relayInput?.value).toBe(manualRelay);
+  });
+
   it("probes a relay before creating a team and surfaces failure inline", async () => {
     fetchJSON.mockImplementation((url: string) => {
       if (url.endsWith("/achievements")) return new Promise(() => {});

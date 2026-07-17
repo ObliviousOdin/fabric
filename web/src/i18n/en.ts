@@ -1050,7 +1050,7 @@ export const en: Translations = {
       join_viewer: "Join without sharing",
       relay_label: "Relay URL",
       relay_hint:
-        "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) is reachable by your team.",
+        "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) can be shared with teammates allowed by your tailnet ACLs.",
       team_name_label: "Team name",
       team_name_placeholder: "Acme Crew",
       display_name_label: "Your display name",
@@ -1066,7 +1066,7 @@ export const en: Translations = {
       hosting_summary: "Advanced: host a private leaderboard (Tailscale)",
       hosting_header: "Self-hosted and account-free",
       hosting_body:
-        "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) click Host on this machine to start the small relay here, 3) the dashboard auto-fills a Tailscale address that works from anywhere on your tailnet, then create a team and share the invite. Nobody has to figure out an IP or open a port.",
+        "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) click Host on this machine to start the small relay here, 3) the dashboard auto-fills a Tailscale address and verifies it from this machine, then create a team and share the invite. Teammate access still follows your tailnet ACLs.",
       detect_button: "Detect",
       detecting: "Detecting…",
       detect_hint:
@@ -1086,14 +1086,14 @@ export const en: Translations = {
       detect_ts_down:
         "Tailscale is installed but not connected — connect it below for a shareable address.",
       detect_ts_none:
-        "Tailscale not found. Install it (tailscale.com/download) so teammates can reach this relay with no port-forwarding.",
+        "Tailscale not found. Install it (tailscale.com/download) so teammates allowed by your tailnet ACLs can reach this relay with no port-forwarding.",
       detect_relay_ok: "Relay is answering on this machine (port {port}).",
       detect_relay_none:
         "No relay is running yet — click Host on this machine to start one.",
       detect_relay_external:
         "A relay is answering on this machine (port {port}) — not managed by the dashboard.",
       detect_filled:
-        "Filled in {url} below — anyone on your tailnet can reach it.",
+        "Filled in {url}. It answers over Tailscale from this machine; teammate access depends on your tailnet ACLs.",
       detect_filled_unreachable:
         "Filled in {url}, but that tailnet address is not answering. If you started the relay manually, bind it to 0.0.0.0 or your Tailscale address.",
       detect_filled_local:

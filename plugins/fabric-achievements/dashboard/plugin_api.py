@@ -23,6 +23,16 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None  # type: ignore[assignment]
+
+try:
     from fabric_constants import get_fabric_home
 except ImportError:
     def get_fabric_home() -> Path:  # type: ignore[misc]
@@ -1682,6 +1692,9 @@ RELAY_START_HEALTH_ATTEMPTS = 15
 RELAY_START_HEALTH_DELAY = 0.3
 RELAY_FINGERPRINT_ATTEMPTS = 20
 RELAY_FINGERPRINT_DELAY = 0.025
+RELAY_PROCESS_LOCK_TIMEOUT = 5.0
+RELAY_PROCESS_LOCK_POLL_DELAY = 0.05
+RELAY_STARTUP_OWNERSHIP_GRACE = 10.0
 RELAY_STOP_TIMEOUT = 3.0
 RELAY_FORCE_TIMEOUT = 2.0
 RELAY_STOP_POLL_DELAY = 0.05
@@ -1693,6 +1706,10 @@ Spawner = Callable[[List[str], Path, Path], Any]
 
 def relay_state_path() -> Path:
     return get_fabric_home() / "plugins" / "fabric-achievements" / "relay.json"
+
+
+def relay_lock_path() -> Path:
+    return relay_state_path().with_suffix(".lock")
 
 
 def relay_roster_path() -> Path:
@@ -1760,10 +1777,19 @@ def _pid_exists(pid: Any) -> bool:
     if value <= 0:
         return False
     try:
-        from gateway.status import _pid_exists as gateway_pid_exists
-        return bool(gateway_pid_exists(value))
-    except Exception:  # noqa: BLE001
+        import psutil
+        try:
+            if psutil.Process(value).status() == psutil.STATUS_ZOMBIE:
+                return False
+        except psutil.NoSuchProcess:
+            return False
+        except Exception:  # noqa: BLE001
+            pass
+        return bool(psutil.pid_exists(value))
+    except ImportError:
         if os.name == "nt":
+            # CPython maps os.kill(pid, 0) to CTRL_C_EVENT on Windows. Never
+            # turn a liveness check into a signal when psutil is unavailable.
             return False
     try:
         os.kill(value, 0)
@@ -1791,6 +1817,28 @@ def _relay_process_identity(pid: Any, start_time: Any) -> str:
 def _pid_is_alive(pid: Optional[int], start_time: Optional[int] = None) -> bool:
     """Return True only when PID liveness and its saved fingerprint both match."""
     return _relay_process_identity(pid, start_time) == "same"
+
+
+def _relay_state_in_startup_grace(state: Dict[str, Any], now: Optional[float] = None) -> bool:
+    """Keep a freshly persisted spawn authoritative through process-table races."""
+    if not state.get("pid") or state.get("start_time") is None:
+        return False
+    raw_started_at = state.get("started_at")
+    if raw_started_at is None:
+        return False
+    try:
+        started_at = float(raw_started_at)
+    except (TypeError, ValueError):
+        return False
+    age = float(time.time() if now is None else now) - started_at
+    return 0.0 <= age <= RELAY_STARTUP_OWNERSHIP_GRACE
+
+
+def _relay_state_identity(state: Dict[str, Any]) -> str:
+    identity = _relay_process_identity(state.get("pid"), state.get("start_time"))
+    if identity == "gone" and _relay_state_in_startup_grace(state):
+        return "starting"
+    return identity
 
 
 def _capture_process_start_time(pid: int) -> Optional[int]:
@@ -1853,28 +1901,63 @@ def _terminate_relay_pid(pid: int, start_time: int) -> bool:
     return _wait_original_process_gone(pid, start_time, RELAY_FORCE_TIMEOUT)
 
 
-def _acquire_relay_process_lock() -> Tuple[bool, bool]:
-    """Acquire cross-process mutation ownership; bools are (acquired, scoped)."""
+def _acquire_relay_process_lock() -> Tuple[bool, Optional[Any]]:
+    """Acquire an OS advisory lock for relay state mutations.
+
+    ``gateway.status`` scoped locks intentionally reject live non-gateway
+    owners, so they cannot serialize independent dashboard workers. This lock
+    is kernel-owned and is released automatically if a process crashes.
+    """
+    path = relay_lock_path()
     try:
-        from gateway.status import acquire_scoped_lock
-        acquired, _owner = acquire_scoped_lock(
-            "fabric-achievements-relay",
-            str(relay_state_path().resolve()),
-            {"state_path": str(relay_state_path())},
-        )
-        return bool(acquired), True
-    except Exception:  # noqa: BLE001 - standalone plugin fallback
-        return True, False
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fh = open(path, "a+b")
+    except OSError:
+        return False, None
+
+    try:
+        if msvcrt is not None:
+            lock_fh.seek(0, os.SEEK_END)
+            if lock_fh.tell() == 0:
+                lock_fh.write(b"\0")
+                lock_fh.flush()
+            lock_fh.seek(0)
+
+        deadline = time.monotonic() + RELAY_PROCESS_LOCK_TIMEOUT
+        while True:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                elif msvcrt is not None:
+                    getattr(msvcrt, "locking")(
+                        lock_fh.fileno(), getattr(msvcrt, "LK_NBLCK"), 1
+                    )
+                return True, lock_fh
+            except (OSError, IOError):
+                if time.monotonic() >= deadline:
+                    lock_fh.close()
+                    return False, None
+                time.sleep(RELAY_PROCESS_LOCK_POLL_DELAY)
+    except Exception:  # noqa: BLE001
+        lock_fh.close()
+        return False, None
 
 
-def _release_relay_process_lock(scoped: bool) -> None:
-    if not scoped:
+def _release_relay_process_lock(lock_fh: Optional[Any]) -> None:
+    if lock_fh is None:
         return
     try:
-        from gateway.status import release_scoped_lock
-        release_scoped_lock("fabric-achievements-relay", str(relay_state_path().resolve()))
-    except Exception:  # noqa: BLE001
+        if fcntl is not None:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+        elif msvcrt is not None:
+            lock_fh.seek(0)
+            getattr(msvcrt, "locking")(
+                lock_fh.fileno(), getattr(msvcrt, "LK_UNLCK"), 1
+            )
+    except (OSError, IOError):
         pass
+    finally:
+        lock_fh.close()
 
 
 def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> Tuple[int, int]:
@@ -1952,8 +2035,8 @@ def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any
             "healthy": False,
             "log": log,
         }
-    identity = _relay_process_identity(pid, state.get("start_time"))
-    if identity != "same":
+    identity = _relay_state_identity(state)
+    if identity not in {"same", "starting"}:
         return {
             "managed": False,
             "running": False,
@@ -1969,6 +2052,7 @@ def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any
     return {
         "managed": True,
         "running": True,
+        "starting": identity == "starting",
         "ownership_unknown": False,
         "pid": int(pid),
         "port": _coerce_port(port) if port else None,
@@ -2012,7 +2096,7 @@ def start_local_relay(
     do_healthcheck = False
 
     with _RELAY_LOCK:
-        acquired, scoped = _acquire_relay_process_lock()
+        acquired, process_lock = _acquire_relay_process_lock()
         if not acquired:
             note = "Another dashboard process is updating the relay; try again."
             action_error = note
@@ -2020,11 +2104,8 @@ def start_local_relay(
             try:
                 state = load_relay_state()
                 managed_pid = state.get("pid")
-                if managed_pid and _pid_is_alive(managed_pid, state.get("start_time")):
-                    identity = "same"
-                else:
-                    identity = _relay_process_identity(managed_pid, state.get("start_time")) if managed_pid else "gone"
-                if identity == "same":
+                identity = _relay_state_identity(state) if managed_pid else "gone"
+                if identity in {"same", "starting"}:
                     managed_port = _coerce_port(state.get("port"))
                     if managed_port != port:
                         note = (
@@ -2096,11 +2177,11 @@ def start_local_relay(
                             else:
                                 do_healthcheck = True
             finally:
-                _release_relay_process_lock(scoped)
+                _release_relay_process_lock(process_lock)
 
     if do_healthcheck and not _wait_relay_healthy(host, port, transport):
         state = load_relay_state()
-        if _pid_is_alive(state.get("pid"), state.get("start_time")):
+        if _relay_state_identity(state) in {"same", "starting"}:
             note = "Relay started but isn't answering yet — check the relay log if it doesn't come up."
         else:
             note = "The relay process exited right after starting — see the relay log."
@@ -2114,7 +2195,7 @@ def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
     action_error: Optional[str] = None
     state: Dict[str, Any] = {}
     with _RELAY_LOCK:
-        acquired, scoped = _acquire_relay_process_lock()
+        acquired, process_lock = _acquire_relay_process_lock()
         if not acquired:
             note = "Another dashboard process is updating the relay; try again."
             action_error = note
@@ -2123,10 +2204,7 @@ def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
                 state = load_relay_state()
                 pid = state.get("pid")
                 start_time = state.get("start_time")
-                if pid and _pid_is_alive(pid, start_time):
-                    identity = "same"
-                else:
-                    identity = _relay_process_identity(pid, start_time) if pid else "gone"
+                identity = _relay_state_identity(state) if pid else "gone"
                 if identity == "same":
                     pid_value = int(pid or 0)
                     start_value = int(start_time or 0)
@@ -2135,6 +2213,9 @@ def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
                     else:
                         note = "Could not confirm the relay stopped — it may still be running; try again."
                         action_error = note
+                elif identity == "starting":
+                    note = "The relay is still starting; try Stop again in a moment."
+                    action_error = note
                 elif identity == "unknown":
                     note = "Relay ownership could not be verified, so it was not stopped."
                     action_error = note
@@ -2143,7 +2224,7 @@ def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
                         note = "No dashboard-managed relay is running."
                     clear_relay_state()
             finally:
-                _release_relay_process_lock(scoped)
+                _release_relay_process_lock(process_lock)
     port = _coerce_port(state.get("port") or DEFAULT_RELAY_PORT)
     return host_status(port, transport=transport, extra_note=note, action_error=action_error)
 

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import multiprocessing
+import os
 import socket
 import urllib.parse
 from pathlib import Path
@@ -24,6 +26,47 @@ def _load(path: Path, name: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _concurrent_relay_start_worker(home, port, gate, ready, spawn_log, results):
+    """Start through a fresh plugin import, simulating another dashboard worker."""
+    os.environ["FABRIC_HOME"] = home
+    os.environ.pop("HERMES_HOME", None)
+    api = _load(PLUGIN_API_PATH, f"plugin_api_worker_{os.getpid()}")
+    setattr(api, "detect_tailscale", lambda: {
+        "installed": False,
+        "running": False,
+        "magicdns": None,
+        "ip": None,
+        "ipv4": None,
+        "ipv6": None,
+    })
+    original_spawner = api._default_relay_spawner
+
+    def recording_spawner(argv, cwd, log_path):
+        pid, start_time = original_spawner(argv, cwd, log_path)
+        payload = f"{pid},{start_time}\n".encode()
+        fd = os.open(spawn_log, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+        try:
+            os.write(fd, payload)
+        finally:
+            os.close(fd)
+        return pid, start_time
+
+    ready.put(True)
+    if not gate.wait(timeout=10):
+        results.put({"error": "start gate timed out"})
+        return
+    result = api.start_local_relay(
+        port=port,
+        host="127.0.0.1",
+        spawner=recording_spawner,
+    )
+    results.put({
+        "action_ok": result.get("action_ok", True),
+        "error": result.get("error"),
+        "pid": result.get("managed_relay", {}).get("pid"),
+    })
 
 
 def _make_transport(store, store_mod):
@@ -70,8 +113,10 @@ SAMPLE_ACHIEVEMENTS = [
 
 @pytest.fixture
 def api(tmp_path, monkeypatch):
+    fabric_home = tmp_path / ".fabric"
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.delenv("FABRIC_HOME", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    monkeypatch.delenv("HERMES_HOME", raising=False)
     module = _load(PLUGIN_API_PATH, f"plugin_api_lb_{id(tmp_path)}")
     # Keep the leaderboard logic independent of the session scanner.
     monkeypatch.setattr(module, "_current_achievements", lambda: SAMPLE_ACHIEVEMENTS)
@@ -810,6 +855,37 @@ def test_relay_process_status_reports_dead_pid_read_only(api, monkeypatch):
     assert api.relay_state_path().exists() is True  # read-only: not cleared here
 
 
+def test_fresh_relay_record_remains_authoritative_during_startup_grace(api, monkeypatch):
+    _no_tailscale(monkeypatch, api)
+    api.save_relay_state({
+        "pid": 555,
+        "port": 9137,
+        "host": "127.0.0.1",
+        "start_time": 123,
+        "started_at": int(api.time.time()),
+        "log": "x.log",
+    })
+    monkeypatch.setattr(api, "_relay_process_identity", lambda *args: "gone")
+    spawned = []
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("refused", status=0)
+
+    started = api.start_local_relay(
+        9137,
+        spawner=lambda *args: spawned.append(args) or (999, 456),
+        transport=dead,
+    )
+    assert spawned == []
+    assert started.get("action_ok") is not False
+    assert started["managed_relay"]["managed"] is True
+    assert started["managed_relay"]["starting"] is True
+
+    stopped = api.stop_local_relay(transport=dead)
+    assert stopped["action_ok"] is False
+    assert api.load_relay_state()["pid"] == 555
+
+
 def test_start_and_stop_fail_closed_when_pid_identity_is_unknown(api, monkeypatch):
     _no_tailscale(monkeypatch, api)
     api.save_relay_state({"pid": 555, "port": 9137, "start_time": None, "log": "x.log"})
@@ -891,6 +967,73 @@ def test_default_spawner_retries_windows_without_breakaway(api, monkeypatch, tmp
         ["python", "-m", "relay"], tmp_path, tmp_path / "relay.log"
     ) == (321, 777)
     assert calls == [3, 2]
+
+
+@pytest.mark.live_system_guard_bypass
+def test_managed_relay_concurrent_processes_spawn_once(api, tmp_path):
+    """Two dashboard workers must not orphan a bind-losing relay child."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+
+    context = multiprocessing.get_context("spawn")
+    gate = context.Event()
+    ready = context.Queue()
+    results = context.Queue()
+    spawn_log = tmp_path / "relay-spawns.txt"
+    fabric_home = str(api.relay_state_path().parents[2])
+    workers = [
+        context.Process(
+            target=_concurrent_relay_start_worker,
+            args=(fabric_home, port, gate, ready, str(spawn_log), results),
+        )
+        for _ in range(2)
+    ]
+    spawned_records = []
+    responses = []
+    try:
+        for worker in workers:
+            worker.start()
+        for _ in workers:
+            assert ready.get(timeout=15) is True
+        gate.set()
+        for worker in workers:
+            worker.join(timeout=30)
+        assert all(not worker.is_alive() for worker in workers)
+        assert [worker.exitcode for worker in workers] == [0, 0]
+        responses = [results.get(timeout=5) for _ in workers]
+        assert all(response.get("action_ok") is not False for response in responses), responses
+
+        spawned_records = [
+            tuple(int(value) for value in line.split(",", 1))
+            for line in spawn_log.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert len(spawned_records) == 1
+        state = api.load_relay_state()
+        assert state["pid"] == spawned_records[0][0]
+        assert api._probe_relay_health(f"http://127.0.0.1:{port}")["ok"] is True
+
+        stopped = api.stop_local_relay()
+        assert stopped.get("action_ok") is not False, stopped.get("error")
+    finally:
+        gate.set()
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(timeout=5)
+        if spawn_log.exists() and not spawned_records:
+            spawned_records = [
+                tuple(int(value) for value in line.split(",", 1))
+                for line in spawn_log.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        for pid, start_time in spawned_records:
+            if api._relay_process_identity(pid, start_time) == "same":
+                api._terminate_relay_pid(pid, start_time)
+        api.clear_relay_state()
+
+    assert api._probe_relay_health(f"http://127.0.0.1:{port}")["ok"] is False
 
 
 def test_managed_relay_real_start_health_stop(api, monkeypatch):

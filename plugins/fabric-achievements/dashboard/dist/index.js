@@ -851,11 +851,17 @@
         const suggested = res && res.suggested_relay_url;
         const previousAuto = autoRelay.current;
         if (suggested) {
-          setRelay(function (current) { return !current || current === previousAuto ? suggested : current; });
-          autoRelay.current = suggested;
+          setRelay(function (current) {
+            const replace = !current || current === previousAuto;
+            autoRelay.current = replace ? suggested : null;
+            return replace ? suggested : current;
+          });
         } else {
-          setRelay(function (current) { return current === previousAuto ? "" : current; });
-          autoRelay.current = null;
+          setRelay(function (current) {
+            const clear = current === previousAuto;
+            autoRelay.current = null;
+            return clear ? "" : current;
+          });
         }
       }
       setError(res && res.action_ok === false
@@ -909,7 +915,7 @@
           tx(t, "team.detect_ts_down", "Tailscale is installed but not connected — connect it below for a shareable address.")));
       } else {
         items.push(h("li", { key: "ts", className: "ha-detect-warn" },
-          tx(t, "team.detect_ts_none", "Tailscale not found. Install it (tailscale.com/download) so teammates can reach this relay with no port-forwarding.")));
+          tx(t, "team.detect_ts_none", "Tailscale not found. Install it (tailscale.com/download) so teammates allowed by your tailnet ACLs can reach this relay with no port-forwarding.")));
       }
       if (hosted) {
         items.push(h("li", { key: "relay", className: "ha-detect-ok" },
@@ -948,7 +954,7 @@
             tx(t, "team.detect_nofill", "Host the relay (and connect Tailscale), then the URL fills in automatically."));
         } else if (host.suggested_is_shareable) {
           fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-ok" },
-            tx(t, "team.detect_filled", "Filled in {url} below — anyone on your tailnet can reach it.", { url: host.suggested_relay_url }));
+            tx(t, "team.detect_filled", "Filled in {url}. It answers over Tailscale from this machine; teammate access depends on your tailnet ACLs.", { url: host.suggested_relay_url }));
         } else if (hasTailnet && host.relay_live) {
           fill = h("p", { key: "fill", className: "ha-field-hint ha-detect-warn" },
             tx(t, "team.detect_filled_unreachable", "Filled in {url}, but that tailnet address is not answering. If you started the relay manually, bind it to 0.0.0.0 or your Tailscale address.", { url: host.suggested_relay_url }));
@@ -1029,7 +1035,7 @@
           label: tx(t, "team.relay_label", "Relay URL"),
           placeholder: "http://your-host:9137",
           value: relay, onChange: setRelay, disabled: busyAll,
-          hint: tx(t, "team.relay_hint", "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) is reachable by your team."),
+          hint: tx(t, "team.relay_hint", "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) can be shared with teammates allowed by your tailnet ACLs."),
         }),
         probeError && h("p", { className: "ha-field-hint ha-detect-warn", role: "alert" }, String(probeError)),
         h(LabelledInput, {
@@ -1240,7 +1246,7 @@
           h("div", { className: "ha-hosting-body" },
             h("div", { className: "ha-hosting-copy" },
               h("strong", null, tx(t, "team.hosting_header", "Self-hosted and account-free")),
-              h("p", null, tx(t, "team.hosting_body", "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) start the small relay here, 3) click Detect below to auto-fill its address, then create a team and share the invite. Detect fills in a Tailscale name that works from anywhere on your tailnet, so nobody has to figure out an IP or open a port."))
+              h("p", null, tx(t, "team.hosting_body", "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) start the small relay here, 3) click Detect below to auto-fill and verify its Tailscale address from this machine, then create a team and share the invite. Teammate access still follows your tailnet ACLs."))
             ),
             h(CreateTeamCard, { busy: busy, onAction: runAction, t: t })
           )

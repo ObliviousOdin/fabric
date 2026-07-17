@@ -111,6 +111,36 @@ opens the visual target and action timeline beside the conversation. You can
 pop that same session into an always-on-top window, pause only its visual
 updates, and dock it again without restarting the task.
 
+## Design systems and outputs
+
+Open **Design** to turn a brief into a reviewed `/design` prompt. The workspace
+can use the current project's `DESIGN.md`, start a new visual language, apply a
+bundled preset, or reuse an exported Claude Design ZIP:
+
+1. Choose **Add Claude Design ZIP** and select a `.zip` archive.
+2. Select the imported system in the **Design system library**. The selected row is
+   highlighted and the source name appears below the design-system control.
+3. Enter the brief, deliverable, and fidelity, then choose **Start in chat**.
+4. Review the fresh chat. Fabric references the selected, already validated
+   design-system revision and asks the agent to materialize the reusable contract
+   in the project and maintain `DESIGN.md`.
+5. Choose **View outputs** to open artifacts reported by the design run.
+
+The library is profile-scoped and stored by the Fabric backend, so moving or
+deleting the original ZIP does not break an imported system. Import validates
+the ZIP, rejects traversal paths and links, applies bounded entry and size
+limits, and extracts an immutable revision without executing bundle code.
+**Replace** validates a new revision, **Show** reveals the managed copy for a
+local backend, and **Remove** deletes Fabric's managed entry without deleting
+the original ZIP. Maintained tokens, components, assets, and rationale still
+belong in the project and its `DESIGN.md`; imported revisions are read-only
+reference snapshots.
+
+Design prompts require an `Artifacts` handoff with exact output paths. Desktop
+indexes workspace-relative HTML files, images, documents, archives, and other
+common outputs, resolves relative paths against the session working directory,
+and makes them available from **Artifacts**.
+
 ## Provider and local-model settings
 
 Open **Settings → Providers**:

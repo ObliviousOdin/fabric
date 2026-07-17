@@ -362,8 +362,10 @@ app = FastAPI(title=dashboard_product_name(), version=__version__, lifespan=_lif
 
 # Memory-provider OAuth connect routes live in the memory layer, not here.
 from fabric_cli.memory_oauth import router as _memory_oauth_router  # noqa: E402
+from fabric_cli.design_system_routes import design_system_router  # noqa: E402
 
 app.include_router(_memory_oauth_router)
+app.include_router(design_system_router())
 
 # ---------------------------------------------------------------------------
 # Session token for protecting sensitive endpoints (reveal).

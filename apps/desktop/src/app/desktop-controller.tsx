@@ -20,6 +20,7 @@ import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChat
 import { storedSessionIdForNotification } from '../lib/session-ids'
 import { isMessagingSource } from '../lib/session-source'
 import { latestSessionTodos } from '../lib/todos'
+import { stashSessionDraft } from '../store/composer'
 import { setCronFocusJobId } from '../store/cron'
 import {
   $fileBrowserOpen,
@@ -94,6 +95,7 @@ import {
 } from './chat/right-rail'
 import { ChatSidebar } from './chat/sidebar'
 import { CommandPalette } from './command-palette'
+import type { DesignStartRequest } from './design'
 import { useGatewayBoot } from './gateway/hooks/use-gateway-boot'
 import { useGatewayRequest } from './gateway/hooks/use-gateway-request'
 import { useKeybinds } from './hooks/use-keybinds'
@@ -109,7 +111,7 @@ import { $terminalTakeover } from './right-sidebar/store'
 import { TerminalPaneChrome } from './right-sidebar/terminal/chrome'
 import { PersistentTerminal } from './right-sidebar/terminal/persistent'
 import { closeActiveTerminal } from './right-sidebar/terminal/terminals'
-import { CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
+import { ARTIFACTS_ROUTE, CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
 import { SessionPickerOverlay } from './session-picker-overlay'
 import { SessionSwitcher } from './session-switcher'
 import { useContextSuggestions } from './session/hooks/use-context-suggestions'
@@ -672,10 +674,14 @@ export function DesktopController() {
   })
 
   const startDesignChat = useCallback(
-    (prompt: string) => {
+    ({ prompt }: DesignStartRequest) => {
+      // Seed the new-session draft through the composer's per-thread store. An
+      // external insert event can race the route transition or be ignored while
+      // the gateway is still starting, leaving the new composer empty.
+      stashSessionDraft(null, prompt, [])
       startFreshSessionDraft()
-      requestComposerInsert(prompt, { target: 'main' })
-      requestComposerFocus('main')
+
+      window.requestAnimationFrame(() => requestComposerFocus('main'))
     },
     [startFreshSessionDraft]
   )
@@ -1378,7 +1384,11 @@ export function DesktopController() {
           <Route
             element={
               <Suspense fallback={null}>
-                <DesignView onStartDesign={startDesignChat} />
+                <DesignView
+                  currentCwd={currentCwd}
+                  onOpenArtifacts={() => navigate(ARTIFACTS_ROUTE)}
+                  onStartDesign={startDesignChat}
+                />
               </Suspense>
             }
             path="design"

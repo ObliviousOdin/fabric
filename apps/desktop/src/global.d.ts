@@ -74,6 +74,7 @@ declare global {
         set: (name: string | null) => Promise<DesktopActiveProfile>
       }
       api: <T>(request: HermesApiRequest) => Promise<T>
+      importDesignSystemZip: <T = unknown>(request: HermesDesignSystemImportRequest) => Promise<T>
       notify: (payload: HermesNotification) => Promise<boolean>
       requestMicrophoneAccess: () => Promise<boolean>
       readFileDataUrl: (filePath: string) => Promise<string>
@@ -538,6 +539,14 @@ export interface HermesApiRequest {
   // (window) backend. Read-only cross-profile data is served by the primary, so
   // this is only needed for profile-scoped live/settings calls.
   profile?: string | null
+}
+
+export interface HermesDesignSystemImportRequest {
+  sourcePath: string
+  profile?: string | null
+  name: string
+  replaceId?: string | null
+  generation: number
 }
 
 export interface HermesNotification {

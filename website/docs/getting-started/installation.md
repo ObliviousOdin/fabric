@@ -17,9 +17,10 @@ with checksums and the expected platform signature.
 
 See [Platform Support](/getting-started/platform-support) for the release-blocking operating
 systems and the difference between source, CI, and signed production packages.
-Installing on a Raspberry Pi or another 1 GB single-board computer? Use the
-lean profile in [Low-Memory Devices](/getting-started/low-memory) instead of
-the default installer path.
+Installing on a single-board computer? See the step-by-step
+[Raspberry Pi](/getting-started/raspberry-pi) and
+[Jetson Nano](/getting-started/jetson-nano) guides, and the
+[Low-Memory Devices](/getting-started/low-memory) profile for 1 GB boards.
 
 ## macOS, Linux, or WSL2
 

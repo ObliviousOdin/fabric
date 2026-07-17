@@ -80,31 +80,52 @@ def _find_git_root(start: Path) -> Optional[Path]:
     return None
 
 
+_FABRIC_MD_NAMES = (
+    ".fabric.md",
+    "FABRIC.md",
+    ".hermes.md",
+    "HERMES.md",
+)
+
+# Compatibility-only names retained for callers that still need to identify
+# the pre-Fabric filenames explicitly. New projects should use one of the
+# first two entries in ``_FABRIC_MD_NAMES``.
 _HERMES_MD_NAMES = (".hermes.md", "HERMES.md")
 
 
-def _find_hermes_md(cwd: Path) -> Optional[Path]:
-    """Discover the nearest ``.hermes.md`` or ``HERMES.md``.
+def _find_fabric_md(cwd: Path) -> Optional[Path]:
+    """Discover the nearest Fabric project-context file.
 
     Search order: *cwd* first, then each parent directory up to (and
-    including) the git repository root.  Returns the first match, or
-    ``None`` if nothing is found.
+    including) the git repository root. Within each directory, the canonical
+    ``.fabric.md`` and ``FABRIC.md`` names take priority over the legacy
+    ``.hermes.md`` and ``HERMES.md`` compatibility names. Returns the first
+    match, or ``None`` if nothing is found.
     """
     stop_at = _find_git_root(cwd)
     current = cwd.resolve()
 
     # When there is no git root, only check cwd itself – walking parents
-    # could pick up a .hermes.md planted in /tmp, /home, etc.
+    # could pick up a context file planted in /tmp, /home, etc.
     search_dirs = [current, *current.parents] if stop_at else [current]
 
     for directory in search_dirs:
-        for name in _HERMES_MD_NAMES:
+        for name in _FABRIC_MD_NAMES:
             candidate = directory / name
             if candidate.is_file():
                 return candidate
         if stop_at and directory == stop_at:
             break
     return None
+
+
+def _find_hermes_md(cwd: Path) -> Optional[Path]:
+    """Compatibility alias for :func:`_find_fabric_md`.
+
+    Kept for plugins and tests that imported the old private helper. It now
+    follows the complete Fabric naming contract, including canonical names.
+    """
+    return _find_fabric_md(cwd)
 
 
 def _strip_yaml_frontmatter(content: str) -> str:
@@ -1916,30 +1937,35 @@ def load_soul_md(context_length: Optional[int] = None) -> Optional[str]:
         return None
 
 
-def _load_hermes_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
-    """.hermes.md / HERMES.md — walk to git root."""
-    hermes_md_path = _find_hermes_md(cwd_path)
-    if not hermes_md_path:
+def _load_fabric_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
+    """Fabric project context — walk to the git root, nearest file wins."""
+    fabric_md_path = _find_fabric_md(cwd_path)
+    if not fabric_md_path:
         return ""
     try:
-        content = hermes_md_path.read_text(encoding="utf-8").strip()
+        content = fabric_md_path.read_text(encoding="utf-8").strip()
         if not content:
             return ""
         content = _strip_yaml_frontmatter(content)
-        rel = hermes_md_path.name
+        rel = fabric_md_path.name
         try:
-            rel = str(hermes_md_path.relative_to(cwd_path))
+            rel = str(fabric_md_path.relative_to(cwd_path))
         except ValueError:
             pass
         content = _scan_context_content(content, rel)
         result = f"## {rel}\n\n{content}"
         return _truncate_content(
-            result, ".hermes.md", context_length=context_length,
-            read_path=str(hermes_md_path),
+            result, fabric_md_path.name, context_length=context_length,
+            read_path=str(fabric_md_path),
         )
     except Exception as e:
-        logger.debug("Could not read %s: %s", hermes_md_path, e)
+        logger.debug("Could not read %s: %s", fabric_md_path, e)
         return ""
+
+
+def _load_hermes_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
+    """Compatibility alias for :func:`_load_fabric_md`."""
+    return _load_fabric_md(cwd_path, context_length)
 
 
 def _load_agents_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
@@ -2021,7 +2047,8 @@ def build_context_files_prompt(
     """Discover and load context files for the system prompt.
 
     Priority (first found wins — only ONE project context type is loaded):
-      1. .hermes.md / HERMES.md  (walk to git root)
+      1. .fabric.md / FABRIC.md, with .hermes.md / HERMES.md compatibility
+         names (nearest directory through the git root wins)
       2. AGENTS.md / agents.md   (cwd only)
       3. CLAUDE.md / claude.md   (cwd only)
       4. .cursorrules / .cursor/rules/*.mdc  (cwd only)
@@ -2044,7 +2071,7 @@ def build_context_files_prompt(
 
     # Priority-based project context: first match wins
     project_context = (
-        _load_hermes_md(cwd_path, context_length)
+        _load_fabric_md(cwd_path, context_length)
         or _load_agents_md(cwd_path, context_length)
         or _load_claude_md(cwd_path, context_length)
         or _load_cursorrules(cwd_path, context_length)

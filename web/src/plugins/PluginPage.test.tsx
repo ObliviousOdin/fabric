@@ -89,4 +89,20 @@ describe("PluginPage", () => {
       "/work?board=default&view=outline#selected",
     );
   });
+
+  it("exposes the Film icon through the shared plugin SDK", () => {
+    expect(window.__FABRIC_PLUGIN_SDK__?.icons?.Film).toBeDefined();
+    expect(window.__HERMES_PLUGIN_SDK__?.icons?.Film).toBe(
+      window.__FABRIC_PLUGIN_SDK__?.icons?.Film,
+    );
+  });
+
+  it("exposes the host React DOM helpers without requiring a bundled renderer", () => {
+    expect(window.__FABRIC_PLUGIN_SDK__?.ReactDOM.createPortal).toBeTypeOf(
+      "function",
+    );
+    expect(window.__HERMES_PLUGIN_SDK__?.ReactDOM).toBe(
+      window.__FABRIC_PLUGIN_SDK__?.ReactDOM,
+    );
+  });
 });

@@ -2,25 +2,16 @@
  * ChatSidebar — structured-events panel that sits next to the xterm.js
  * terminal in the dashboard Chat tab.
  *
- * Two WebSockets, one per concern:
- *
- *   1. **JSON-RPC sidecar** (`GatewayClient` → /api/ws) — a lightweight
- *      session used only for connection state (the "live" badge) and
- *      credential warnings. Independent of the PTY pane's session by
- *      design. The model badge does NOT come from here: it reads the
- *      effective config model over REST (`/api/model/info`), and the model
- *      picker writes config over REST (`/api/model/set`) then offers a
- *      dashboard reload so the running chat adopts the new model.
- *
- *   2. **Event subscriber** (/api/events?channel=…) — passive, receives
+ * One passive **event subscriber** (`/api/events?channel=…`) receives
  *      every dispatcher emit from the PTY-side `tui_gateway.entry` that
- *      the dashboard fanned out.  The sidebar uses it for `session.info`
+ *      the dashboard fanned out. The sidebar uses it for `session.info`
+ *      and `session.title`
  *      (live chat title + cwd), `dashboard.new_session_requested`, and the
  *      Activity feed (CH3): `tool.start`/`tool.complete` rows,
- *      `message.*`/`reasoning.delta`/`thinking.delta` state lines,
  *      `approval.request` pin, `status.update` lines — all folded through
  *      the pure reducer in `chat/activity-feed.ts` and throttle-flushed so
- *      a delta storm never becomes a render storm. The `channel` id ties
+ *      a burst never becomes a render storm. Token/reasoning deltas are
+ *      deliberately ignored because xterm already renders them. The `channel` id ties
  *      this listener to the same chat tab's PTY child — see `ChatPage.tsx`
  *      for where the id is generated.
  *
@@ -33,22 +24,30 @@ import { Card } from "@nous-research/ui/ui/components/card";
 
 import { ActivityFeed } from "@/components/chat/ActivityFeed";
 import { AgentCard } from "@/components/chat/AgentCard";
+import type {
+  ChatContextEvent,
+  ChatContextState,
+} from "@/components/chat/chat-context-state";
 import {
   EMPTY_ACTIVITY_FEED,
   reduceActivityEvent,
   type ActivityFeedState,
 } from "@/components/chat/activity-feed";
+import {
+  eventStreamReconnectDelay,
+  isSemanticPtyEvent,
+  ptySessionMetadata,
+} from "@/components/chat/pty-event-stream";
 import { ModelPickerDialog } from "@/components/ModelPickerDialog";
 import { ModelReloadConfirm } from "@/components/ModelReloadConfirm";
 import { ReasoningPicker } from "@/components/ReasoningPicker";
-import { GatewayClient, type ConnectionState } from "@/lib/gatewayClient";
+import type { ConnectionState } from "@/lib/gatewayClient";
 import { api, buildWsUrl } from "@/lib/api";
-import { titleFromSessionInfoPayload } from "@/lib/chat-title";
 import { PluginSlot } from "@/plugins";
 
 import { cn } from "@/lib/utils";
 import { AlertCircle, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 interface SessionInfo {
   cwd?: string;
@@ -60,20 +59,16 @@ interface SessionInfo {
 
 interface RpcEnvelope {
   method?: string;
-  params?: { type?: string; payload?: unknown };
+  params?: { type?: string; payload?: unknown; session_id?: string };
 }
 
 /** Trailing-throttle window for Activity-feed state flushes (CH3). */
 const FEED_FLUSH_MS = 120;
 
-function cwdFromSessionInfoPayload(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const cwd = (payload as { cwd?: unknown }).cwd;
-  return typeof cwd === "string" && cwd.trim() ? cwd : null;
-}
-
 interface ChatSidebarProps {
   channel: string;
+  /** Live PTY read model projected by the parent context rail. */
+  contextSnapshot?: ChatContextState;
   /** Chat profile from the dashboard switcher / URL scope. */
   profile?: string;
   /** Whether the persistently-mounted Chat route is currently visible. */
@@ -81,37 +76,33 @@ interface ChatSidebarProps {
   className?: string;
   onDashboardNewSessionRequest?: () => void;
   onSessionTitleChange?: (title: string | null) => void;
+  onContextEvent?: (event: ChatContextEvent) => void;
   /** Navigate from a supporting Chat-rail card without replacing Chat itself. */
   onNavigate?: (path: string) => void;
 }
 
 export function ChatSidebar({
   channel,
+  contextSnapshot,
   profile,
   isActive = true,
   className,
   onDashboardNewSessionRequest,
   onSessionTitleChange,
+  onContextEvent,
   onNavigate,
 }: ChatSidebarProps) {
-  // `version` bumps on reconnect; gw is derived so we never call setState
-  // for it inside an effect (React 19's set-state-in-effect rule). The
-  // counter is the dependency on purpose — it's not read in the memo body,
-  // it's the signal that says "rebuild the client".
+  // `version` tears down/rebuilds the passive PTY event subscriber.
   const [version, setVersion] = useState(0);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const gw = useMemo(() => new GatewayClient(), [version]);
-
   const [state, setState] = useState<ConnectionState>("idle");
   const [info, setInfo] = useState<SessionInfo>({});
   const [modelOpen, setModelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The badge shows config.yaml's main model (`model.default`) via
   // `/api/model/info` — the same value the Models page writes and a new chat
-  // session boots from. We deliberately don't use the sidecar's `session.info`
-  // model: that's a one-time snapshot of the throwaway sidecar agent taken when
-  // its session is created, and it never updates when the model is changed
-  // elsewhere, so the badge would go stale. Pass the chat profile explicitly so
+  // session boots from. We deliberately don't use the event stream's
+  // `session.info` model as the authority: it is a running-session snapshot and
+  // does not update when config changes elsewhere. Pass the chat profile so
   // this card stays scoped to the PTY even if the global dashboard switcher
   // changes while the chat is open.
   const [effectiveModel, setEffectiveModel] = useState("");
@@ -136,17 +127,15 @@ export function ChatSidebar({
   // CH4: the PTY session title mirrored into the Agent card (same
   // `session.info` payload that feeds `onSessionTitleChange`).
   const [railTitle, setRailTitle] = useState<string | null>(null);
-  // CH2: the PTY session cwd from the events channel (preferred over the
-  // sidecar's own cwd — the sidecar is a separate throwaway session).
+  // CH2: the real PTY session cwd from the events channel.
   const [ptyCwd, setPtyCwd] = useState<string | null>(null);
 
   // ── Activity feed (CH3) ──────────────────────────────────────────────
-  // Events fold into a ref via the pure reducer; a trailing 120 ms timer
-  // flushes the ref into React state. reasoning.delta / message.delta
-  // storms therefore cost ref writes + at most ~8 renders/s — and the
-  // reducer returns the same reference for no-op events, so those flushes
-  // bail out of rendering entirely (Object.is).
+  // Semantic events fold into a ref via the pure reducer; a trailing 120 ms
+  // timer flushes the ref into React state. Token/reasoning deltas are filtered
+  // before this point, and reducer no-ops bail out via Object.is.
   const feedRef = useRef<ActivityFeedState>(EMPTY_ACTIVITY_FEED);
+  const feedSessionIdRef = useRef<string | null>(null);
   const [feed, setFeed] = useState<ActivityFeedState>(EMPTY_ACTIVITY_FEED);
   const feedFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scheduleFeedFlush = useCallback(() => {
@@ -156,12 +145,13 @@ export function ChatSidebar({
       setFeed(feedRef.current);
     }, FEED_FLUSH_MS);
   }, []);
-  const resetFeed = useCallback(() => {
+  const resetFeed = useCallback((sessionId: string | null = null) => {
     if (feedFlushTimer.current !== null) {
       clearTimeout(feedFlushTimer.current);
       feedFlushTimer.current = null;
     }
     feedRef.current = EMPTY_ACTIVITY_FEED;
+    feedSessionIdRef.current = sessionId;
     setFeed(EMPTY_ACTIVITY_FEED);
   }, []);
   useEffect(
@@ -187,128 +177,85 @@ export function ChatSidebar({
       });
   }, [profile]);
 
-  // Profile or PTY channel change tears down both WebSockets. Bump `version`
-  // (same path as the manual Reconnect button) so the gateway client is
-  // recreated and the events feed resubscribes — otherwise the old events
-  // socket's close handler can leave a stale error banner after a switch.
-  const scopeKey = `${channel}\0${profile ?? ""}`;
-  const prevScopeKey = useRef<string | null>(null);
-  useEffect(() => {
-    if (prevScopeKey.current === null) {
-      prevScopeKey.current = scopeKey;
-      return;
-    }
-    if (prevScopeKey.current === scopeKey) return;
-    prevScopeKey.current = scopeKey;
-    setError(null);
-    setVersion((v) => v + 1);
-  }, [scopeKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (cancelled) return;
-      setInfo({});
-      setError(null);
-      // Scope switch / reconnect: the rail identifies a new PTY run — drop
-      // the previous run's title, cwd, and activity (CH3 reset contract).
-      setRailTitle(null);
-      setPtyCwd(null);
-      resetFeed();
-    });
-    const offState = gw.onState(setState);
-
-    const offSessionInfo = gw.on<SessionInfo>("session.info", (ev) => {
-      if (ev.payload) {
-        setInfo((prev) => ({ ...prev, ...ev.payload }));
-      }
-    });
-
-    const offError = gw.on<{ message?: string }>("error", (ev) => {
-      const message = ev.payload?.message;
-
-      if (message) {
-        setError(message);
-      }
-    });
-
-    // Create the sidecar session so the gateway surfaces session-scoped
-    // signals (connection state, credential warnings). It's independent of the
-    // PTY pane's session by design. The model picker no longer rides this
-    // session — it writes config.yaml over REST — so we don't track its id.
-    gw.connect()
-      .then(() => {
-        if (cancelled) {
-          return;
-        }
-        // close_on_disconnect: the gateway reaps this sidecar session (and its
-        // slash_worker subprocess) when the WS drops, instead of leaking it.
-        return gw.request<{ session_id: string }>("session.create", {
-          close_on_disconnect: true,
-          source: "tool",
-          ...(profile ? { profile } : {}),
-        });
-      })
-      .catch((e: Error) => {
-        if (!cancelled) {
-          setError(e.message);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-      offState();
-      offSessionInfo();
-      offError();
-      gw.close();
-    };
-    // `profile` is read from render; scope changes bump `version` → new `gw`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gw]);
-
   // Event subscriber WebSocket — receives the rebroadcast of every
   // dispatcher emit from the PTY child's gateway.  See /api/pub +
   // /api/events in fabric_cli/web_server.py for the broadcast hop.
   //
-  // Failures (auth/loopback rejection, server too old to expose the
-  // endpoint, transient drops) surface in the same banner as the
-  // JSON-RPC sidecar so the sidebar matches its documented best-effort
-  // UX and the user always has a reconnect affordance.
+  // This is the only chat-observation socket. Connection state, warnings,
+  // title, and cwd all come from the real PTY session rather than a throwaway
+  // `session.create`. Transient drops retry with bounded exponential backoff.
   useEffect(() => {
     if (!channel) {
       return;
     }
-    // In loopback mode the legacy ?token=<session> path is fine; in gated
-    // mode we have to mint a single-use ticket from the cookie. The IIFE
-    // keeps the outer effect synchronous so its ``return cleanup`` stays
-    // at the top level; the local ``ws`` is hoisted to a closed-over
-    // binding the cleanup reads via ``wsRef``.
     let unmounting = false;
     let ws: WebSocket | null = null;
-    void (async () => {
-      const url = await buildWsUrl("/api/events", { channel });
-      if (unmounting) {
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
+    const DISCONNECTED = "events feed disconnected — reconnecting";
+
+    queueMicrotask(() => {
+      if (unmounting) return;
+      setInfo({});
+      setError(null);
+      setRailTitle(null);
+      setPtyCwd(null);
+      resetFeed();
+    });
+
+    const connect = async (): Promise<void> => {
+      if (unmounting) return;
+      setState("connecting");
+      let url: string;
+      try {
+        url = await buildWsUrl("/api/events", { channel });
+      } catch {
+        scheduleReconnect();
         return;
       }
-      ws = new WebSocket(url);
+      if (unmounting) return;
+      let ownedWs: WebSocket;
+      try {
+        ownedWs = new WebSocket(url);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+      ws = ownedWs;
 
-      // `unmounting` suppresses the banner during cleanup — `ws.close()`
-      // from the effect's return fires a close event with code 1005 that
-      // would otherwise look like an unexpected drop.
-      const DISCONNECTED = "events feed disconnected — tool calls may not appear";
-      const surface = (msg: string) => !unmounting && setError(msg);
-
-      ws.addEventListener("error", () => surface(DISCONNECTED));
-
-      ws.addEventListener("close", (ev) => {
-        if (ev.code === 4401 || ev.code === 4403) {
-          surface(`events feed rejected (${ev.code}) — reload the page`);
-        } else if (ev.code !== 1000) {
-          surface(DISCONNECTED);
-        }
+      ownedWs.addEventListener("open", () => {
+        if (unmounting || ws !== ownedWs) return;
+        reconnectAttempt = 0;
+        // The browser reaching /api/events only proves the passive subscriber
+        // is attached. Stay in Connecting until the PTY publisher identifies
+        // a real session; otherwise a dead/missing TUI would look falsely live.
+        setState("connecting");
+        setError(null);
       });
 
-      ws.addEventListener("message", (ev) => {
+      ownedWs.addEventListener("error", () => {
+        if (unmounting || ws !== ownedWs) return;
+        ws = null;
+        try {
+          ownedWs.close();
+        } catch {
+          // Best-effort; the retry does not depend on close succeeding.
+        }
+        scheduleReconnect();
+      });
+
+      ownedWs.addEventListener("close", (ev) => {
+        if (unmounting || ws !== ownedWs) return;
+        ws = null;
+        if (ev.code === 4401 || ev.code === 4403) {
+          setState("error");
+          setError(`events feed rejected (${ev.code}) — reload the page`);
+          return;
+        }
+        scheduleReconnect();
+      });
+
+      ownedWs.addEventListener("message", (ev) => {
         let frame: RpcEnvelope;
 
         try {
@@ -322,17 +269,59 @@ export function ChatSidebar({
         }
 
         const { type, payload } = frame.params;
+        const incomingSessionId =
+          typeof frame.params.session_id === "string"
+            ? frame.params.session_id.trim()
+            : "";
 
-        if (type === "session.info") {
-          const title = titleFromSessionInfoPayload(payload);
-          if (title !== undefined) {
-            onSessionTitleChange?.(title);
-            setRailTitle(title);
+        if (incomingSessionId) {
+          if (
+            feedSessionIdRef.current &&
+            feedSessionIdRef.current !== incomingSessionId
+          ) {
+            resetFeed(incomingSessionId);
+            setInfo({});
+            setRailTitle(null);
+            setPtyCwd(null);
+            onSessionTitleChange?.(null);
+          } else {
+            feedSessionIdRef.current = incomingSessionId;
           }
-          const cwd = cwdFromSessionInfoPayload(payload);
-          if (cwd) {
-            setPtyCwd(cwd);
+        }
+
+        if (type === "session.info") setState("open");
+
+        if (type && isSemanticPtyEvent(type)) {
+          onContextEvent?.({
+            payload,
+            sessionId: frame.params.session_id,
+            type,
+          });
+        }
+
+        const metadata = type ? ptySessionMetadata(type, payload) : null;
+        if (metadata) {
+          setInfo((prev) => ({
+            ...prev,
+            ...(metadata.credentialWarning !== undefined
+              ? { credential_warning: metadata.credentialWarning ?? undefined }
+              : {}),
+            ...(metadata.cwd !== undefined
+              ? { cwd: metadata.cwd ?? undefined }
+              : {}),
+            ...(metadata.model !== undefined ? { model: metadata.model } : {}),
+            ...(metadata.provider !== undefined
+              ? { provider: metadata.provider }
+              : {}),
+            ...(metadata.title !== undefined
+              ? { title: metadata.title ?? undefined }
+              : {}),
+          }));
+          if (metadata.title !== undefined) {
+            onSessionTitleChange?.(metadata.title);
+            setRailTitle(metadata.title);
           }
+          if (metadata.cwd !== undefined) setPtyCwd(metadata.cwd);
         } else if (type === "dashboard.new_session_requested") {
           onDashboardNewSessionRequest?.();
         }
@@ -341,7 +330,7 @@ export function ChatSidebar({
         // Own try/catch (R7) so a malformed frame can never break the
         // title / new-session handlers above.
         try {
-          if (type) {
+          if (type && isSemanticPtyEvent(type)) {
             const next = reduceActivityEvent(feedRef.current, type, payload);
             if (next !== feedRef.current) {
               feedRef.current = next;
@@ -352,22 +341,44 @@ export function ChatSidebar({
           // Best-effort ticker — drop the frame, keep the feed alive.
         }
       });
-    })();
+    };
+
+    function scheduleReconnect(): void {
+      if (unmounting || reconnectTimer !== null) return;
+      reconnectAttempt += 1;
+      const delay = eventStreamReconnectDelay(reconnectAttempt);
+      if (delay === null) {
+        setState("error");
+        setError("events feed disconnected — automatic retries exhausted");
+        return;
+      }
+      setState("connecting");
+      setError(DISCONNECTED);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, delay);
+    }
+
+    void connect();
 
     return () => {
       unmounting = true;
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       ws?.close();
     };
   }, [
     channel,
     onDashboardNewSessionRequest,
+    onContextEvent,
     onSessionTitleChange,
     scheduleFeedFlush,
+    profile,
+    resetFeed,
     version,
   ]);
 
-  // Seed the badge on mount and re-read it whenever the sockets are rebuilt
-  // (a profile/channel switch bumps `version`).
+  // Seed the badge on mount and re-read it after a manual event reconnect.
   useEffect(() => {
     refreshEffectiveModel();
   }, [refreshEffectiveModel, version]);
@@ -379,8 +390,7 @@ export function ChatSidebar({
     setVersion((v) => v + 1);
   }, []);
 
-  // The picker writes config.yaml over REST and reloads — it doesn't ride the
-  // sidecar gateway session, so it's available whenever the sidebar is mounted.
+  // The picker writes config.yaml over REST and does not need an agent session.
   const modelName = effectiveModel || info.model || "—";
   const modelLabel = modelName.split("/").slice(-1)[0] ?? "—";
   const banner = error ?? info.credential_warning ?? null;
@@ -407,6 +417,17 @@ export function ChatSidebar({
         name="chat:rail"
         slotProps={{
           active: isActive,
+          currentChat: contextSnapshot
+            ? {
+                id: contextSnapshot.sessionId,
+                status: contextSnapshot.connected
+                  ? contextSnapshot.running
+                    ? "working"
+                    : "ready"
+                  : "connecting",
+                title: contextSnapshot.title,
+              }
+            : undefined,
           ...(onNavigate ? { navigate: onNavigate } : {}),
         }}
       />

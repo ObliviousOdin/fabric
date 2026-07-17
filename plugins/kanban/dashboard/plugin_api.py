@@ -650,6 +650,43 @@ class CreateTaskBody(BaseModel):
     skills: Optional[list[str]] = None
     goal_mode: bool = False
     goal_max_turns: Optional[int] = None
+    session_id: Optional[str] = None
+
+
+def _resolve_dashboard_default_assignee() -> Optional[str]:
+    """Resolve a real profile for dashboard-created executable work.
+
+    Blank dashboard assignees used to create ``ready`` rows even though the
+    dispatcher cannot claim an unassigned task. Prefer the operator's explicit
+    ``kanban.default_assignee`` and then the currently-active profile, but only
+    when the profile actually exists. Callers park the task in triage when no
+    valid candidate is available so the UI never implies work is dispatchable
+    when it is not.
+    """
+    explicit_default = ""
+    try:
+        from fabric_cli.config import load_config
+
+        cfg = load_config() or {}
+        if isinstance(cfg, dict):
+            kanban_cfg = cfg.get("kanban") or {}
+            if isinstance(kanban_cfg, dict):
+                explicit_default = str(
+                    kanban_cfg.get("default_assignee") or ""
+                ).strip()
+    except Exception:
+        pass
+
+    try:
+        from fabric_cli import profiles as profiles_mod
+
+        active_profile = (profiles_mod.get_active_profile_name() or "").strip()
+        for candidate in (explicit_default, active_profile):
+            if candidate and profiles_mod.profile_exists(candidate):
+                return candidate
+    except Exception:
+        return None
+    return None
 
 
 @router.post("/tasks")
@@ -657,32 +694,58 @@ def create_task(payload: CreateTaskBody, board: Optional[str] = Query(None)):
     board = _resolve_board(board)
     conn = _conn(board=board)
     try:
+        assignee = (payload.assignee or "").strip() or None
+        triage = payload.triage
+        if not triage and assignee is None:
+            assignee = _resolve_dashboard_default_assignee()
+            if assignee is None:
+                # A blank ready task is not runnable: dispatch_once records it
+                # in skipped_unassigned and leaves it parked forever. Keep it
+                # explicitly in triage until a real profile can be selected.
+                triage = True
+
         task_id = kanban_db.create_task(
             conn,
             title=payload.title,
             body=payload.body,
-            assignee=payload.assignee,
+            assignee=assignee,
             created_by="dashboard",
             workspace_kind=payload.workspace_kind,
             workspace_path=payload.workspace_path,
             tenant=payload.tenant,
             priority=payload.priority,
             parents=payload.parents,
-            triage=payload.triage,
+            triage=triage,
             idempotency_key=payload.idempotency_key,
             max_runtime_seconds=payload.max_runtime_seconds,
             skills=payload.skills,
             goal_mode=payload.goal_mode,
             goal_max_turns=payload.goal_max_turns,
+            session_id=(payload.session_id or "").strip() or None,
         )
         task = kanban_db.get_task(conn, task_id)
         body: dict[str, Any] = {"task": _task_dict(task) if task else None}
-        # Surface a dispatcher-presence warning so the UI can show a
-        # banner when a `ready` task would otherwise sit idle because no
-        # gateway is running (or dispatch_in_gateway=false). Only emit
-        # for ready+assigned tasks; triage/todo are expected to wait,
-        # and unassigned tasks can't be dispatched regardless.
-        if task and task.status == "ready" and task.assignee:
+        # Surface actionable routing/dispatcher warnings in the create
+        # response. Derive them from the committed task returned by the DB,
+        # rather than the pre-create resolution attempt: an idempotent retry
+        # may return an older triage row after profile availability changed.
+        if (
+            task
+            and not task.assignee
+            and task.status == "triage"
+            and not payload.triage
+        ):
+            body["warning"] = (
+                "No valid Work default or active Fabric profile is available. "
+                "This task was kept in Triage; assign a profile before moving "
+                "it to Ready."
+            )
+        elif task and not task.assignee and task.status != "triage":
+            body["warning"] = (
+                "This task has no assignee, so the dispatcher will skip it. "
+                "Assign an existing Fabric profile before it becomes Ready."
+            )
+        elif task and task.status == "ready" and task.assignee:
             try:
                 from fabric_cli.kanban import _check_dispatcher_presence
                 running, message = _check_dispatcher_presence()
@@ -874,7 +937,7 @@ class UpdateTaskBody(BaseModel):
     result: Optional[str] = None
     block_reason: Optional[str] = None
     # Structured handoff fields — forwarded to complete_task when status
-    # transitions to 'done'. Dashboard parity with ``hermes kanban
+    # transitions to 'done'. Dashboard parity with ``fabric kanban
     # complete --summary ... --metadata ...``.
     summary: Optional[str] = None
     metadata: Optional[dict] = None
@@ -1447,7 +1510,7 @@ def list_diagnostics(
 
     Severity-filterable so the UI can render "just the critical ones"
     or the CLI can grep. Useful for the board-header attention strip
-    AND for ``hermes kanban diagnostics`` which shells to this
+    AND for ``fabric kanban diagnostics`` which shells to this
     endpoint when the dashboard's running, or invokes the engine
     directly when it isn't.
     """
@@ -1743,7 +1806,7 @@ def reclaim_task_endpoint(
     Used by the dashboard recovery popover when an operator wants to
     abort a stuck worker (e.g. one that keeps hallucinating card ids)
     without waiting for the claim TTL. Maps 1:1 to
-    ``hermes kanban reclaim <task_id> --reason ...``.
+    ``fabric kanban reclaim <task_id> --reason ...``.
     """
     board = _resolve_board(board)
     conn = _conn(board=board)
@@ -1777,7 +1840,7 @@ def specify_task_endpoint(
     board: Optional[str] = Query(None),
 ):
     """Flesh out a triage-column task via the auxiliary LLM and promote
-    it to ``todo``. Maps 1:1 to ``hermes kanban specify <task_id>``.
+    it to ``todo``. Maps 1:1 to ``fabric kanban specify <task_id>``.
 
     Returns the outcome shape used by the CLI: ``{ok, task_id, reason,
     new_title}``. A non-OK outcome is NOT an HTTP error — the UI renders
@@ -1831,7 +1894,7 @@ def reassign_task_endpoint(
     Used by the dashboard recovery popover when an operator wants to
     retry a task with a different worker profile (e.g. switch to a
     smarter model after the assigned profile keeps hallucinating).
-    Maps 1:1 to ``hermes kanban reassign <task_id> <profile> [--reclaim]``.
+    Maps 1:1 to ``fabric kanban reassign <task_id> <profile> [--reclaim]``.
     """
     board = _resolve_board(board)
     conn = _conn(board=board)
@@ -2391,7 +2454,7 @@ def decompose_task_endpoint(
 ):
     """Fan a triage-column task out into a graph of child tasks via the
     auxiliary LLM, routed to specialist profiles by description. Maps
-    1:1 to ``hermes kanban decompose <task_id>``.
+    1:1 to ``fabric kanban decompose <task_id>``.
 
     Returns the outcome shape used by the CLI: ``{ok, task_id, reason,
     fanout, child_ids, new_title}``. A non-OK outcome is NOT an HTTP

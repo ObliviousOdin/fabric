@@ -103,9 +103,13 @@ def test_website_and_bootstrap_reference_only_propagated_brand_assets() -> None:
     ]
 
 
-def test_bracket_geometry_is_reserved_for_full_wordmarks() -> None:
+def test_new_symbol_is_in_every_wordmark_and_bracket_is_wordmark_only() -> None:
     for name in ("fabric-wordmark.svg", "fabric-wordmark-on-dark.svg"):
-        assert b'data-fabric-bracket="true"' in (BRAND / name).read_bytes()
+        contents = (BRAND / name).read_bytes()
+        assert b'data-fabric-symbol="true"' in contents
+        assert b'data-fabric-bracket="true"' in contents
 
     for name in ("fabric-mark.svg", "fabric-mark-mono.svg"):
-        assert b"fabric-bracket" not in (BRAND / name).read_bytes()
+        contents = (BRAND / name).read_bytes()
+        assert contents.count(b'data-fabric-mark="true"') == 2
+        assert b"fabric-bracket" not in contents

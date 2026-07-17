@@ -1,8 +1,8 @@
 # Session Lifecycle
 
 > **Audience:** Gateway developers and maintainers
-> **Source files:** `gateway/session.py` (~1444 lines), `gateway/run.py` (~16800 lines), `gateway/config.py`
-> **Last updated:** 2026-06-16
+> **Source files:** `gateway/session.py`, `gateway/run.py`, `gateway/config.py`, `fabric_state.py`
+> **Contract verified:** 2026-07-16
 
 ## Overview
 
@@ -22,7 +22,7 @@ The session system lives primarily in two modules:
 
 ## 1. SessionSource — Message Origin Descriptor
 
-`SessionSource` is a frozen record of *where a message came from*. It is attached to every
+`SessionSource` is the data record for *where a message came from*. It is attached to every
 incoming `MessageEvent` and used for routing, isolation, and context injection.
 
 ### Fields
@@ -40,23 +40,32 @@ incoming `MessageEvent` and used for routing, isolation, and context injection.
 | `user_id_alt` | `Optional[str]` | `None` | Platform-specific stable alternative ID (Signal UUID, Feishu union_id). Used when `user_id` is ephemeral. |
 | `chat_id_alt` | `Optional[str]` | `None` | Signal group internal ID — maps a Signal group V2 identifier to its canonical form. |
 | `is_bot` | `bool` | `False` | True when the message author is a bot or webhook (Discord bots). |
-| `guild_id` | `Optional[str]` | `None` | Discord guild / Slack workspace / Matrix server scope identifier. |
+| `scope_id` | `Optional[str]` | `None` | Platform-neutral server/workspace scope identifier used for isolation. |
+| `guild_id` | `Optional[str]` | `None` | Deprecated wire alias for `scope_id`; dual-read/dual-write compatibility only. |
 | `parent_chat_id` | `Optional[str]` | `None` | Parent channel when `chat_id` refers to a thread. |
 | `message_id` | `Optional[str]` | `None` | ID of the triggering message. Used for pin/reply/react operations and Discord ID injection. |
 | `role_authorized` | `bool` | `False` | True when adapter granted access via a platform role (not individual user ID). |
+| `profile` | `Optional[str]` | `None` | Routed profile for an opt-in multiplexed gateway; used to namespace session keys. |
+| `auto_thread_created` | `bool` | `False` | Marks a Discord thread that Fabric created and may safely rename after the first turn. |
+| `auto_thread_initial_name` | `Optional[str]` | `None` | Initial auto-thread title used by the rename guard. |
+| `delivered_via_upstream_relay` | `bool` | `False` | Runtime-only authenticated relay trust signal. It is deliberately never serialized. |
 
 ### Key Methods
 
 - **`description`** (property: `str`) — Human-readable summary e.g. `"DM with Alice"`,
   `"group: My Group, thread: 12345"`.
-- **`to_dict()` / `from_dict()`** — Serialization round-trip for persistence in `sessions.json`.
+- **`to_dict()` / `from_dict()`** — Serialization round-trip for the durable routing
+  entry. Runtime trust/authorization signals such as `delivered_via_upstream_relay`,
+  `role_authorized`, and `is_bot` are intentionally not restored from disk.
 
 ---
 
 ## 2. SessionEntry — Active Session Record
 
-`SessionEntry` is the per-session metadata record stored in memory and persisted to
-`{sessions_dir}/sessions.json`. Each entry maps a `session_key` to its current `session_id`.
+`SessionEntry` is the per-session routing record stored in memory and persisted in the
+`gateway_routing` table in `~/.fabric/state.db`. By default it is also written to the
+legacy `{sessions_dir}/sessions.json` compatibility mirror. Each entry maps a
+`session_key` to its current `session_id`.
 
 ### Fields
 
@@ -78,6 +87,7 @@ incoming `MessageEvent` and used for routing, isolation, and context injection.
 | `estimated_cost_usd` | `float` | `0.0` | Estimated cumulative USD cost. |
 | `cost_status` | `str` | `"unknown"` | Cost tracking status label. |
 | `last_prompt_tokens` | `int` | `0` | Last API-reported prompt token count. Used for accurate compression pre-check. |
+| `model_override` | `Optional[dict[str, str]]` | `None` | Session-scoped `/model` selection. Only `model`, `provider`, and `base_url` persist; credentials are stripped and re-resolved at runtime. |
 
 ### Boolean Flags (State Machine)
 
@@ -143,9 +153,10 @@ behavior on the next access.
 
 ## 3. SessionStore — Storage and Operations
 
-`SessionStore` is the main storage layer. It maintains an in-memory dict (`_entries`) persisted
-to `sessions.json`, with SQLite (`SessionDB`) as the canonical store for session metadata and
-message transcripts.
+`SessionStore` is the gateway routing layer. It maintains an in-memory dict (`_entries`),
+persists that routing index to the SQLite `gateway_routing` table, and uses the same
+database as the canonical session/message store. `sessions.json` is an optional,
+legacy routing mirror rather than the primary source.
 
 ### Constructor
 
@@ -173,6 +184,7 @@ SessionStore(sessions_dir: Path, config: GatewayConfig, has_active_processes_fn=
 | `prune_old_entries(max_age_days)` | Drop entries older than `max_age_days` (based on `updated_at`). Skips `suspended` entries and sessions with active processes. |
 | `list_sessions(active_minutes=None)` | Return all sessions, optionally filtered by recent activity. Sorted by `updated_at` descending. |
 | `lookup_by_session_id(session_id)` | Find the active `SessionEntry` for a persisted session ID. |
+| `peek_session_id(session_key)` | Resolve the current key-to-ID mapping while holding the store lock. |
 | `has_any_sessions()` | Check if any sessions have ever been created (uses SQLite for history, not just in-memory dict). |
 | `append_to_transcript(session_id, message, skip_db=False)` | Append a message to SQLite transcript. `skip_db=True` prevents duplicate writes when the agent already persisted. |
 | `rewrite_transcript(session_id, messages)` | Full replacement of session transcript (used by `/retry`, `/undo`, `/compress`). |
@@ -181,8 +193,11 @@ SessionStore(sessions_dir: Path, config: GatewayConfig, has_active_processes_fn=
 
 ### Internal Helpers
 
-- `_ensure_loaded()` / `_ensure_loaded_locked()` — Load `sessions.json` into `_entries` dict.
-- `_save()` — Atomic write to `sessions.json` via temp file + `atomic_replace`.
+- `_ensure_loaded()` / `_ensure_loaded_locked()` — Load `gateway_routing` first, then
+  import missing keys from a legacy `sessions.json` file. SQLite entries win.
+- `_save()` — Atomically replace the scoped `gateway_routing` rows, then write the
+  compatibility JSON mirror when `gateway.write_sessions_json` is enabled (or when
+  the database write failed).
 - `_generate_session_key(source)` — Delegates to `build_session_key()` with config params.
 - `_is_session_expired(entry)` — Policy check from entry alone (no source needed). Used by
   background expiry watcher.
@@ -191,16 +206,16 @@ SessionStore(sessions_dir: Path, config: GatewayConfig, has_active_processes_fn=
 ### Storage Layout
 
 ```
-{sessions_dir}/
-  sessions.json          # In-memory _entries dict, persisted as JSON
-                           Maps session_key → SessionEntry (metadata only)
-  {session_id}.jsonl     # (Legacy, removed in spec 002)
+~/.fabric/
+  state.db               # Canonical sessions, messages, and gateway_routing rows
+  sessions/
+    sessions.json        # Optional legacy mirror: session_key → SessionEntry
 ```
 
-The canonical transcript store is SQLite via `SessionDB` (from `fabric_state`). The
-`sessions.json` file persists the `session_key → session_id` mapping and entry metadata
-(flags, timestamps, token counts). If SQLite is unavailable, the store falls back to
-JSONL, but this is a degradation path.
+The canonical transcript and routing stores are SQLite via `SessionDB` (from
+`fabric_state`). The JSON file is written by default for downgrade safety and external
+tooling, and can be disabled with `gateway.write_sessions_json: false`. The old per-session
+JSONL transcript fallback was removed; a missing SQLite store does not restore that path.
 
 ---
 
@@ -212,8 +227,12 @@ by `build_session_key(source, group_sessions_per_user, thread_sessions_per_user)
 ### Key Format
 
 ```
-agent:main:{platform}:{chat_type}[:{chat_id}][:{thread_id}][:{participant_id}]
+agent:{profile_namespace}:{platform}:{chat_type}[:{chat_id}][:{thread_id}][:{participant_id}]
 ```
+
+`profile_namespace` is `main` for the default and all non-multiplexed gateways, preserving
+existing keys byte-for-byte. With `gateway.multiplex_profiles: true`, a named routed profile
+uses its profile name in that slot (for example, `agent:coder:telegram:dm:12345`).
 
 ### DM Rules
 
@@ -250,7 +269,7 @@ agent:main:{platform}:{chat_type}[:{chat_id}][:{thread_id}][:{participant_id}]
 - `participant_id` = `user_id_alt` or `user_id` (in that priority).
 - WhatsApp identifiers are canonicalized to handle JID/LID alias flips.
 
-### Special Case: WhatApp
+### Special Case: WhatsApp
 
 WhatsApp phone numbers go through `canonical_whatsapp_identifier()` which strips the
 `@s.whatsapp.net` suffix and normalizes to E.164 format. This prevents session fragmentation
@@ -299,10 +318,10 @@ Reset policies control when a session automatically loses context (gets a new `s
 
 | Mode | Behavior | Default Config |
 |---|---|---|
-| `"none"` | Never auto-reset. Context managed only by compression. | — |
+| `"none"` | Never auto-reset. Context is managed by explicit reset and compression. | **Default mode** |
 | `"idle"` | Reset after N minutes of inactivity from `updated_at`. | `idle_minutes: 1440` (24h) |
 | `"daily"` | Reset at a specific hour each day (local time). | `at_hour: 4` (4 AM) |
-| `"both"` | Whichever triggers first — daily boundary OR idle timeout. | **(default)** |
+| `"both"` | Whichever triggers first — daily boundary OR idle timeout. | Opt-in |
 
 ### Policy Evaluation
 
@@ -326,8 +345,10 @@ after 24h idle, but Slack groups persist indefinitely).
 
 ### Exclusions
 
-Sessions with active background processes are **never** expired or reset. The
-`has_active_processes_fn` callback checks for running processes when evaluating policies.
+Sessions with qualifying active background processes are not expired or reset. The gateway's
+`has_active_processes_fn` ignores processes older than
+`session_reset.bg_process_max_age_hours` (24 hours by default), so a forgotten long-running
+preview server cannot pin a conversation forever.
 
 ### Reset Effects
 
@@ -399,7 +420,7 @@ unexpected exit). For each session updated within the last 120 seconds:
 
 ### Stuck-Loop Detection (`_suspend_stuck_loop_sessions`)
 
-Counts consecutive restarts via a JSON file (`{FABRIC_HOME}/restart_counts.json`). If a
+Counts consecutive restarts via `{FABRIC_HOME}/.restart_failure_counts`. If a
 session has been active across 3+ consecutive restarts, it's auto-suspended so the user
 gets a clean slate.
 
@@ -528,8 +549,10 @@ personally identifiable information before sending to the LLM:
 
 - User IDs → `user_<12hex>` (SHA-256 prefix)
 - Chat IDs → `<platform>:<12hex>` or just `<12hex>`
-- Platforms excluded from redaction: Discord (needs raw IDs for `@mentions`),
-  and any plugin-registered platform not marked `pii_safe`.
+- Built-in platforms eligible for redaction: WhatsApp, Signal, Telegram, and
+  BlueBubbles.
+- A plugin platform is eligible only when its registry entry declares `pii_safe`.
+- Discord is intentionally ineligible because mention and moderation tools require raw IDs.
 
 Redaction applies only to the system prompt text. Routing, session keys, and adapter
 operations always use the original values.
@@ -555,7 +578,8 @@ The `_session_expiry_watcher` task runs in the gateway event loop every 300 seco
    reset policy. This prevents unbounded memory growth in gateways with long-lived sessions.
 
 3. **Prune stale entries** — Calls `session_store.prune_old_entries()` hourly based on
-   `config.session_store_max_age_days`. Prevents `sessions.json` from growing unbounded.
+   `config.session_store_max_age_days` (90 days by default). Prevents the routing table,
+   compatibility mirror, and in-memory index from growing unbounded.
 
 ### Failure Handling
 
@@ -614,7 +638,9 @@ When a session expires:
 |---|---|---|---|
 | `group_sessions_per_user` | `bool` | `true` | Isolate group/channel sessions per user |
 | `thread_sessions_per_user` | `bool` | `false` | Isolate thread sessions per user |
-| `session_store_max_age_days` | `int` | `0` | Prune sessions older than N days (0=disabled) |
+| `session_store_max_age_days` | `int` | `90` | Prune inactive routing entries older than N days (0=disabled) |
+| `gateway.write_sessions_json` | `bool` | `true` | Keep the legacy routing mirror for downgrade/external-tool compatibility |
+| `gateway.multiplex_profiles` | `bool` | `false` | Namespace routing keys by profile in a multi-profile gateway |
 | `agent.gateway_auto_continue_freshness` | `int` | `3600` | Seconds for resume freshness window |
 | `agent.gateway_timeout` | `int` | `1800` | Agent turn timeout (30 min default) |
 
@@ -622,10 +648,11 @@ When a session expires:
 
 ```yaml
 session_reset:
-  mode: both            # none | idle | daily | both
+  mode: none            # default; opt into idle, daily, or both when desired
   at_hour: 4            # daily reset hour (local time)
   idle_minutes: 1440    # idle timeout (24h)
   notify: true          # notify user on auto-reset
+  bg_process_max_age_hours: 24
 ```
 
 Platform-specific overrides can be set under `platforms.<name>.session_reset`.

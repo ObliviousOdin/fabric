@@ -21,7 +21,16 @@ stored even if a client tried to send them.
 
 ## Run it
 
-From the plugin directory:
+The easiest way is from the dashboard: open **Achievements → Team Leaderboard**,
+expand **Advanced: host a private leaderboard (Tailscale)**, and click **Host on
+this machine**. The dashboard spawns this relay for you (`POST
+/team/host/start`), tracks it in `$FABRIC_HOME/plugins/fabric-achievements/relay.json`
+so **Stop** and status survive a dashboard restart, logs to
+`$FABRIC_HOME/logs/fabric-achievements-relay.log`, and auto-fills a shareable Relay
+URL. You never have to run the command below by hand.
+
+To run it yourself instead (e.g. as a system service on an always-on box), from
+the plugin directory:
 
 ```bash
 cd plugins/fabric-achievements
@@ -37,9 +46,30 @@ python -m relay --host 0.0.0.0 --port 9137 --state ./roster.json
   trying the feature locally with two `FABRIC_HOME`s.
 - `--host 0.0.0.0` — reachable from your LAN / anywhere the port is exposed.
 
-Then, in each member's Fabric dashboard, open **Achievements → Team
-Leaderboard**, and either **Create a team** (pasting this relay's URL) or
-**Join** with an invite code.
+**Host on this machine** binds narrowly: to this node's connected Tailscale
+IPv4 address when available, otherwise to `127.0.0.1`. It never exposes the
+plain-HTTP relay to every LAN interface by default.
+
+Whichever way it runs, everyone else just **Joins** with the invite code. If a
+relay is already answering on the port, **Host on this machine** adopts it
+rather than starting a second one; a relay it didn't start is reported but not
+managed (no Stop button).
+
+### How auto-fill picks the URL
+
+The dashboard's `GET /team/host/status` endpoint combines three local checks:
+
+- a probe of the managed bind address (or loopback for an unmanaged relay),
+- this node's own Tailscale identity (`tailscale status --json` → `Self`), and
+- when both exist, a probe of the resulting Tailscale URL so a relay bound only
+  to `127.0.0.1` is never claimed to answer over Tailscale.
+
+It prefers your Tailscale MagicDNS name (`something.ts.net`) because it is
+stable and needs no port-forwarding, but marks it shareable only after that
+address answers as a Fabric relay from this machine. This does not prove every
+teammate's access: Tailscale ACLs still apply. If Tailscale isn't connected it
+falls back to `http://127.0.0.1:<port>`, which only works for a same-machine
+trial and is flagged as such in the UI.
 
 ## Exposing it beyond your LAN (TLS)
 
@@ -49,7 +79,10 @@ Do **not** put it directly on the public internet. Instead bind it to
 
 - **Tailscale** (simplest for a friend group): run the relay on any node and
   share `http://<magicdns-name>:9137`, or use `tailscale funnel 9137` for a
-  public HTTPS URL.
+  public HTTPS URL. To connect this machine to your tailnet, run
+  `fabric setup tailscale` (Fabric's built-in QR login — the dashboard's
+  hosting panel links to this same command). The dashboard reads the resulting
+  MagicDNS name to auto-fill the Relay URL.
 - **Cloudflare Tunnel**: `cloudflared tunnel --url http://127.0.0.1:9137`.
 - **Caddy** (auto-HTTPS reverse proxy):
 

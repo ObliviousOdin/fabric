@@ -6,7 +6,7 @@ author: Teknium (teknium1), Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [Documentation, Mermaid, Architecture, Diagrams, Wiki, Code-Analysis]
     related_skills: [codebase-inspection, github-repo-management]
 ---

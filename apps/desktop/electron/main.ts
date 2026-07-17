@@ -36,6 +36,7 @@ import { validateDesktopBrand } from '../scripts/desktop-brand.mjs'
 import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { buildDesktopBackendEnv, resolveDesktopHome } from './backend-env'
 import { canImportHermesCli, verifyHermesCli } from './backend-probes'
+import { pythonCandidatesForRoot } from './backend-python'
 import { waitForDashboardPortAnnouncement } from './backend-ready'
 import { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } from './bootstrap-platform'
 import { runBootstrap } from './bootstrap-runner'
@@ -55,6 +56,7 @@ import {
   tokenPreview
 } from './connection-config'
 import { adoptServedDashboardToken } from './dashboard-token'
+import { importDesignSystemZipForIpc } from './design-system-upload'
 import { extractDesktopDeepLink, parseDesktopDeepLink } from './desktop-deep-link'
 import {
   buildPosixCleanupScript,
@@ -96,6 +98,15 @@ import {
   TEXT_PREVIEW_SOURCE_MAX_BYTES
 } from './hardening'
 import { createLinkTitleWindow, guardLinkTitleSession, readLinkTitleWindowTitle } from './link-title-window'
+import { createLiveViewController } from './live-view-controller'
+import {
+  buildLiveViewWindowUrl,
+  createLiveViewWindowRegistry,
+  LIVE_VIEW_DEFAULT_HEIGHT,
+  LIVE_VIEW_DEFAULT_WIDTH,
+  LIVE_VIEW_MIN_HEIGHT,
+  LIVE_VIEW_MIN_WIDTH
+} from './live-view-windows'
 import { serializeJsonBody, setJsonRequestHeaders } from './oauth-net-request'
 import {
   buildSessionWindowUrl,
@@ -1688,13 +1699,7 @@ function findPythonForRoot(root) {
     return override
   }
 
-  const relativePaths = IS_WINDOWS
-    ? [path.join('.venv', 'Scripts', 'python.exe'), path.join('venv', 'Scripts', 'python.exe')]
-    : [path.join('.venv', 'bin', 'python'), path.join('venv', 'bin', 'python')]
-
-  for (const relativePath of relativePaths) {
-    const candidate = path.join(root, relativePath)
-
+  for (const candidate of pythonCandidatesForRoot(root, VENV_ROOT)) {
     if (fileExists(candidate)) {
       return candidate
     }
@@ -3537,7 +3542,10 @@ function resolveHermesBackend(backendArgs) {
             command: hermesCommand,
             args: backendArgs,
             bootstrap: false,
-            env: {},
+            // Finder/Dock launches do not inherit ~/.local/bin. Build the same
+            // sane PATH as managed runtimes so companion binaries installed
+            // beside a user CLI (notably cua-driver) remain discoverable.
+            env: buildDesktopBackendEnv({ hermesHome: HERMES_HOME }),
             kind: 'command',
             shell: shellForProbe
           }
@@ -3571,7 +3579,7 @@ function resolveHermesBackend(backendArgs) {
         command: python,
         args: ['-m', 'fabric_cli.main', ...backendArgs],
         bootstrap: false,
-        env: {},
+        env: buildDesktopBackendEnv({ hermesHome: HERMES_HOME }),
         shell: false
       }
     }
@@ -6503,8 +6511,10 @@ async function startHermes() {
       })
     )
 
-    hermesProcess.stdout.on('data', rememberLog)
-    hermesProcess.stderr.on('data', rememberLog)
+    const child = hermesProcess
+
+    child.stdout.on('data', rememberLog)
+    child.stderr.on('data', rememberLog)
     let backendReady = false
     let rejectBackendStart = null
 
@@ -6512,7 +6522,7 @@ async function startHermes() {
       rejectBackendStart = reject
     })
 
-    hermesProcess.once('error', error => {
+    child.once('error', error => {
       rememberLog(`${PRODUCT_NAME} backend failed to start: ${error.message}`)
       updateBootProgress(
         {
@@ -6528,7 +6538,7 @@ async function startHermes() {
       sendBackendExit({ code: null, signal: null, error: error.message })
       rejectBackendStart?.(error)
     })
-    hermesProcess.once('exit', (code, signal) => {
+    child.once('exit', (code, signal) => {
       rememberLog(`${PRODUCT_NAME} backend exited (${signal || code})`)
       hermesProcess = null
       connectionPromise = null
@@ -6557,8 +6567,8 @@ async function startHermes() {
 
     // Discover the ephemeral port the child bound to
     const port = await Promise.race([
-      waitForDashboardPortAnnouncement(hermesProcess, { readyFile }),
-      backendStartFailed
+      backendStartFailed,
+      waitForDashboardPortAnnouncement(child, { readyFile })
     ])
 
     if (readyFile) {
@@ -6572,8 +6582,7 @@ async function startHermes() {
     backendStartFailure = null
 
     const authToken = await adoptServedDashboardToken(baseUrl, token, {
-      // The exit/error handlers null hermesProcess when the child dies.
-      childAlive: () => hermesProcess !== null && hermesProcess.exitCode === null && !hermesProcess.killed,
+      childAlive: () => child.exitCode === null && !child.killed,
       rememberLog
     })
 
@@ -6646,6 +6655,17 @@ function wireCommonWindowHandlers(win) {
 // close. The primary mainWindow is never tracked here. Pure logic + the URL
 // builder live in session-windows.ts so they stay unit-testable.
 const sessionWindows = createSessionWindowRegistry()
+const liveViewWindows = createLiveViewWindowRegistry<BrowserWindow>()
+const liveViewController = createLiveViewController<BrowserWindow>({
+  focusWindow,
+  isSenderAttached: sender => {
+    const senderWindow = BrowserWindow.fromWebContents(sender)
+
+    return Boolean(senderWindow && !senderWindow.isDestroyed())
+  },
+  registry: liveViewWindows,
+  spawnWindow: spawnLiveViewWindow
+})
 
 function focusWindow(win) {
   if (!win || win.isDestroyed()) {
@@ -6659,6 +6679,7 @@ function focusWindow(win) {
   if (!win.isVisible()) {
     win.show()
   }
+
   win.focus()
 }
 
@@ -6729,6 +6750,72 @@ function createSessionWindow(sessionId, { watch = false } = {}) {
 // later converts to a real session must not get refocused as if it were blank.
 function createNewSessionWindow() {
   return spawnSecondaryWindow({ newSession: true })
+}
+
+// Browser/Computer Use live view — one window per chat, fed by the owning
+// renderer over IPC. The PiP never opens its own gateway or browser session;
+// it is a second presentation of the same bounded, in-memory visual state.
+function spawnLiveViewWindow(sessionId) {
+  const win = new BrowserWindow({
+    width: LIVE_VIEW_DEFAULT_WIDTH,
+    height: LIVE_VIEW_DEFAULT_HEIGHT,
+    minWidth: LIVE_VIEW_MIN_WIDTH,
+    minHeight: LIVE_VIEW_MIN_HEIGHT,
+    title: `${APP_NAME} Live View`,
+    frame: false,
+    roundedCorners: true,
+    resizable: true,
+    movable: true,
+    // A minimized PiP cannot be observed, so there is no reason to keep its
+    // browser stream alive. The dock/pause/close controls cover every intended
+    // state without a hidden always-on-top window consuming frames.
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: !IS_MAC,
+    alwaysOnTop: true,
+    type: IS_MAC ? 'panel' : undefined,
+    hiddenInMissionControl: IS_MAC,
+    show: false,
+    backgroundColor: getWindowBackgroundColor(),
+    webPreferences: {
+      preload: PRELOAD_PATH,
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      devTools: true
+    }
+  })
+
+  win.setAlwaysOnTop(true, IS_MAC ? 'floating' : 'screen-saver')
+  win.setHiddenInMissionControl?.(true)
+
+  try {
+    win.setVisibleOnAllWorkspaces(
+      true,
+      IS_MAC ? { visibleOnFullScreen: true, skipTransformProcessType: true } : undefined
+    )
+  } catch {
+    // Best effort on platforms that do not support cross-workspace panels.
+  }
+
+  wireCommonWindowHandlers(win)
+  liveViewController.bindWindow(sessionId, win)
+
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) {
+      win.show()
+    }
+  })
+
+  win.loadURL(
+    buildLiveViewWindowUrl(sessionId, {
+      devServer: DEV_SERVER,
+      rendererIndexPath: resolveRendererIndex()
+    })
+  )
+
+  return win
 }
 
 // The pet overlay: a single transparent, frameless, always-on-top window that
@@ -7094,6 +7181,23 @@ ipcMain.on('hermes:zoom:set-percent', (event, percent) => {
     return
   }
   setAndPersistZoomLevel(window, percentToZoomLevel(Number(percent)))
+})
+
+// --- Browser / Computer Use live view ------------------------------------
+ipcMain.handle('hermes:live-view:open', (event, request) => liveViewController.open(event.sender, request?.sessionId))
+
+ipcMain.handle('hermes:live-view:close', (event, rawSessionId) => liveViewController.close(event.sender, rawSessionId))
+
+// Owner renderer → PiP. Keep only the latest bounded state per session; frames
+// never enter persistence, logs, or the model conversation.
+ipcMain.on('hermes:live-view:state', (event, payload) => {
+  liveViewController.pushState(event.sender, payload)
+})
+
+// PiP → owner renderer. `ready` also gets an immediate latest-frame replay so
+// the floating window paints even if its first owner push raced navigation.
+ipcMain.on('hermes:live-view:control', (event, payload) => {
+  liveViewController.control(event.sender, payload)
 })
 
 // --- Pet overlay (pop-out mascot) -----------------------------------------
@@ -7511,6 +7615,16 @@ async function mergeRemoteProfileSessions(searchParams, remoteProfiles) {
 
   return { ...(base as any), sessions: merged.slice(offset, offset + limit), total, profile_totals: profileTotals }
 }
+
+ipcMain.handle('hermes:design-system:import', (_event, request) =>
+  importDesignSystemZipForIpc(request, {
+    electronRequest: options => electronNet.request(options as any),
+    ensureBackend,
+    getOauthSession,
+    globalRemoteActive,
+    profileHasRemoteOverride
+  })
+)
 
 ipcMain.handle('hermes:api', async (_event, request) => {
   // Remote-profile session requests would otherwise hit the local primary off
@@ -8669,6 +8783,7 @@ function configureSpellChecker() {
 app.on('before-quit', () => {
   // The always-on-top overlay isn't a "real" app window; close it so a stray
   // pet can't keep the process alive or float over a quit app.
+  liveViewWindows.closeAll()
   closePetOverlay()
 
   // Quitting mid-install should stop the installer, not orphan it.

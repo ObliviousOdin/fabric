@@ -9,7 +9,7 @@ prerequisites:
   env_vars: [TENOR_API_KEY]
   commands: [curl, jq]
 metadata:
-  hermes:
+  fabric:
     tags: [GIF, Media, Search, Tenor, API]
 ---
 

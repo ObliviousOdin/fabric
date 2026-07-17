@@ -1,7 +1,7 @@
 ---
 sidebar_position: 17
 title: "Extending the Dashboard"
-description: "Build themes and plugins for the Fabric web dashboard — palettes, typography, layouts, custom tabs, shell slots, page-scoped slots, and backend API routes"
+description: "Build themes and plugins for the Fabric web dashboard — palettes, workspaces, custom tabs, shell slots, WebAssembly assets, and authenticated backend routes"
 ---
 
 # Extending the Dashboard
@@ -9,7 +9,7 @@ description: "Build themes and plugins for the Fabric web dashboard — palettes
 The Fabric web dashboard (`fabric dashboard`) is built to be reskinned and extended without forking the codebase. Three layers are exposed:
 
 1. **Themes** — YAML files that repaint the dashboard's palette, typography, layout, and per-component chrome. Drop a file in `~/.fabric/dashboard-themes/`; it appears in the theme switcher.
-2. **UI plugins** — a directory with `manifest.json` + a JavaScript bundle that registers a tab, replaces a built-in page, augments one via page-scoped slots, or injects components into named shell slots.
+2. **UI plugins** — a directory with `manifest.json` + a JavaScript bundle that registers a page or full-bleed workspace, replaces a built-in page, augments one via page-scoped slots, or injects components into named shell slots.
 3. **Backend plugins** — a Python file inside that plugin directory that exposes a FastAPI `router`; routes are mounted under `/api/plugins/<name>/` and called from the plugin's UI.
 
 All three are **drop-in at runtime**: no repo clone, no `npm run build`, no patching the dashboard source. This page is the canonical reference for all three.
@@ -45,6 +45,7 @@ Themes and plugins are independent but synergistic. A theme can stand alone (jus
   - [Slot-only plugins (`tab.hidden`)](#slot-only-plugins-tabhidden)
   - [Backend API routes](#backend-api-routes)
   - [Custom CSS per plugin](#custom-css-per-plugin)
+  - [Static and media assets](#static-and-media-assets)
   - [Plugin discovery & reload](#plugin-discovery--reload)
 - [API reference](#api-reference)
 - [Troubleshooting](#troubleshooting)
@@ -362,7 +363,15 @@ Refresh the dashboard after creating the file. Switch themes live from the heade
 
 A dashboard plugin is a directory with a `manifest.json`, a pre-built JS bundle, and optionally a CSS file and a Python file with FastAPI routes. Plugins live next to other Fabric plugins in `~/.fabric/plugins/<name>/` — the dashboard extension is a `dashboard/` subfolder inside that plugin directory, so one plugin can extend both the CLI/gateway and the dashboard from a single install.
 
-Plugins don't bundle React or UI components. They use the **Plugin SDK** exposed on `window.__HERMES_PLUGIN_SDK__`. This keeps plugin bundles tiny (typically a few KB) and avoids version conflicts.
+User-installed plugins must be explicitly enabled before Fabric serves their UI
+assets or imports their backend code. Install and enable a Git repository in one
+step with `fabric plugins install owner/repo --enable`, or enable an existing
+checkout with `fabric plugins enable <name>`.
+
+Plugins don't bundle React, ReactDOM, or UI components. They use the **Plugin
+SDK** exposed on `window.__FABRIC_PLUGIN_SDK__` (with the legacy Hermes name kept
+as an alias). This keeps plugin bundles small and, more importantly, ensures the
+host and every plugin share one React renderer.
 
 ### Quick start — your first plugin
 
@@ -396,7 +405,8 @@ Write the JS bundle (a plain IIFE — no build step needed):
 (function () {
   "use strict";
 
-  const SDK = window.__HERMES_PLUGIN_SDK__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
+  const Plugins = window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__;
   const { React } = SDK;
   const { Card, CardHeader, CardTitle, CardContent } = SDK.components;
 
@@ -413,14 +423,17 @@ Write the JS bundle (a plain IIFE — no build step needed):
     );
   }
 
-  window.__HERMES_PLUGINS__.register("my-plugin", MyPage);
+  Plugins.register("my-plugin", MyPage);
 })();
 ```
 
 Refresh the dashboard — your tab appears in the nav bar, after **Skills**.
 
 :::tip Skip React.createElement
-If you prefer JSX, use any bundler (esbuild, Vite, rollup) with React as an external and IIFE output. The only hard requirement is that the final file is a single JS file loadable via `<script>`. React is never bundled; it comes from `SDK.React`.
+If you prefer JSX, use any bundler (esbuild, Vite, rollup) with `react` and
+`react-dom` as externals and IIFE output. The final entry file must be loadable
+via `<script>`. Use `SDK.React` and `SDK.ReactDOM`, then register a component for
+the host to mount—do not create a second application root.
 :::
 
 ### Directory layout
@@ -456,6 +469,8 @@ None of them are required; include only the layers you need.
   "version": "1.0.0",
   "tab": {
     "path": "/my-plugin",
+    "layout": "page",
+    "aliases": ["/legacy-my-plugin"],
     "position": "after:skills",
     "override": "/",
     "hidden": false
@@ -475,6 +490,8 @@ None of them are required; include only the layers you need.
 | `icon` | No | Lucide icon name. Defaults to `Puzzle`. Unknown names fall back to `Puzzle`. |
 | `version` | No | Semver string. Defaults to `0.0.0`. |
 | `tab.path` | Yes | URL path for the tab (e.g. `/my-plugin`). |
+| `tab.layout` | No | `"page"` (default) uses the normal dashboard header, padding, and document scroll. `"workspace"` gives the plugin a full-bleed, internally managed work area for editors, canvases, and other application-like surfaces. |
+| `tab.aliases` | No | Compatibility paths that redirect to the canonical plugin route while preserving the query string and hash. Each alias must start with `/`. |
 | `tab.position` | No | Where to insert the tab. `"end"` (default), `"after:<path>"`, or `"before:<path>"` — value after the colon is the **path segment** of the target tab (no leading slash). Examples: `"after:skills"`, `"before:config"`. |
 | `tab.override` | No | Set to a canonical built-in route path (`"/workspace/home"`, `"/workspace/conversations"`, `"/admin/advanced"`, ...) to **replace** that page instead of adding a new tab. Legacy paths remain accepted for compatibility. See [Replacing built-in pages](#replacing-built-in-pages-taboverride). |
 | `tab.hidden` | No | When true, register the component and any slots without adding a tab to the nav. Used by slot-only plugins. See [Slot-only plugins](#slot-only-plugins-tabhidden). |
@@ -487,19 +504,28 @@ None of them are required; include only the layers you need.
 
 Plugins use Lucide icon names. The dashboard maps these by name — unknown names silently fall back to `Puzzle`.
 
-Currently mapped: `Activity`, `BarChart3`, `Clock`, `Code`, `Database`, `Eye`, `FileText`, `Globe`, `Heart`, `KeyRound`, `MessageSquare`, `Package`, `Puzzle`, `Settings`, `Shield`, `Sparkles`, `Star`, `Terminal`, `Wrench`, `Zap`.
+Currently mapped: `Activity`, `BarChart3`, `Clock`, `Code`, `Cpu`, `Database`,
+`Eye`, `FileText`, `Film`, `FolderOpen`, `Globe`, `Heart`, `KeyRound`,
+`MessageSquare`, `Package`, `Puzzle`, `Settings`, `Shield`, `Sparkles`, `Star`,
+`Terminal`, `Users`, `Wrench`, `Zap`.
 
-Need a different icon? Open a PR to `web/src/App.tsx`'s `ICON_MAP` — pure additive change.
+Need a different icon? Open a PR to `web/src/components/sidebar/nav-model.ts`'s
+`ICON_MAP` — pure additive change.
 
 ### The Plugin SDK
 
-Everything a plugin needs is on `window.__HERMES_PLUGIN_SDK__`. Plugins should never import React directly.
+Everything a plugin needs is on `window.__FABRIC_PLUGIN_SDK__`. The legacy
+`window.__HERMES_PLUGIN_SDK__` global points to the same object for compatibility.
+Plugins should never bundle their own React renderer.
 
 ```javascript
-const SDK = window.__HERMES_PLUGIN_SDK__;
+const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
 
-// React + hooks
+SDK.sdkVersion               // host SDK contract version
+
+// React, ReactDOM helpers, and hooks
 SDK.React                    // the React instance
+SDK.ReactDOM                 // createPortal, flushSync, and other DOM helpers
 SDK.hooks.useState
 SDK.hooks.useEffect
 SDK.hooks.useCallback
@@ -525,9 +551,16 @@ SDK.components.TabsList
 SDK.components.TabsTrigger
 SDK.components.PluginSlot    // render a named slot (useful for nested plugin UIs)
 
+// Host-owned Lucide icons (use these instead of bundling another icon library)
+SDK.icons.Film
+SDK.icons.Workflow
+
 // Fabric API client + raw fetcher
 SDK.api                      // typed client — getStatus, getSessions, getConfig, ...
 SDK.fetchJSON                // raw fetch for custom endpoints (plugin-registered routes)
+SDK.authedFetch              // authenticated uploads and binary/blob responses
+SDK.buildWsUrl               // authenticated WebSocket URL for the active auth mode
+SDK.buildWsAuthParam         // lower-level WebSocket auth name/value pair
 
 // Utilities
 SDK.utils.cn                 // Tailwind class merger (clsx + twMerge)
@@ -567,8 +600,10 @@ Slots let a plugin inject components into named locations of the app shell — t
 Register from inside the plugin bundle:
 
 ```javascript
-window.__HERMES_PLUGINS__.registerSlot("my-plugin", "sidebar", MySidebar);
-window.__HERMES_PLUGINS__.registerSlot("my-plugin", "header-left", MyCrest);
+(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+  .registerSlot("my-plugin", "sidebar", MySidebar);
+(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+  .registerSlot("my-plugin", "header-left", MyCrest);
 ```
 
 #### Slot catalogue
@@ -612,7 +647,8 @@ function PinnedSessionsBanner() {
   );
 }
 
-window.__HERMES_PLUGINS__.registerSlot("my-plugin", "sessions:top", PinnedSessionsBanner);
+(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+  .registerSlot("my-plugin", "sessions:top", PinnedSessionsBanner);
 ```
 
 Combine page-scoped slots with `tab.hidden: true` if your plugin only augments existing pages and doesn't need a sidebar tab of its own.
@@ -674,7 +710,8 @@ Minimal example — pin a banner to the top of the Sessions page:
 ```javascript
 // ~/.fabric/plugins/session-notes/dashboard/dist/index.js
 (function () {
-  const SDK = window.__HERMES_PLUGIN_SDK__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
+  const Plugins = window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__;
   const { React } = SDK;
   const { Card, CardContent } = SDK.components;
 
@@ -686,10 +723,10 @@ Minimal example — pin a banner to the top of the Sessions page:
   }
 
   // Placeholder for the hidden tab.
-  window.__HERMES_PLUGINS__.register("session-notes", function () { return null; });
+  Plugins.register("session-notes", function () { return null; });
 
   // The real work.
-  window.__HERMES_PLUGINS__.registerSlot("session-notes", "sessions:top", Banner);
+  Plugins.registerSlot("session-notes", "sessions:top", Banner);
 })();
 ```
 
@@ -744,7 +781,17 @@ Routes are mounted under `/api/plugins/<name>/`, so the above becomes:
 - `GET  /api/plugins/my-plugin/data`
 - `POST /api/plugins/my-plugin/action`
 
-Plugin API routes bypass session-token authentication since the dashboard server binds to localhost by default. **Don't expose the dashboard on a public interface with `--host 0.0.0.0` if you run untrusted plugins** — their routes become reachable too.
+Plugin API routes are non-public `/api/` routes and use the same dashboard
+authentication gate as built-in endpoints. On loopback, the SPA sends the
+ephemeral session token; on a non-loopback bind, the configured dashboard auth
+provider must authorize the request. User plugin routers are imported only when
+the plugin is in `plugins.enabled`, and disabling a running plugin makes its API
+return 404 immediately (a restart fully unmounts it).
+
+Project-local plugins under `./.fabric/plugins/` may provide static dashboard
+UI, but Fabric deliberately does not auto-import their `plugin_api.py`. Move a
+reviewed plugin to `~/.fabric/plugins/` and enable it when you trust its Python
+code to run with the dashboard process's privileges.
 
 #### Accessing Fabric internals
 
@@ -799,6 +846,19 @@ The file is injected as a `<link>` tag on plugin load. Use specific class names 
 
 The dashboard exposes every shadcn token as `--color-*` plus theme extras (`--theme-asset-*`, `--component-<bucket>-*`, `--radius`, `--spacing-mul`). Reference those and your plugin automatically reskins with the active theme.
 
+### Static and media assets
+
+The unauthenticated `/dashboard-plugins/<name>/...` route serves only explicit
+browser asset types: JavaScript, CSS, JSON, HTML, common images and fonts,
+source maps, and WebAssembly (`.wasm`, served as `application/wasm`). Python,
+video, arbitrary binary data, and unknown suffixes return 404, and path
+traversal is blocked.
+
+Use an authenticated `plugin_api.py` route plus `SDK.authedFetch` for uploads,
+media streaming, or binary downloads. This keeps sensitive project data out of
+the static bundle surface and lets the backend implement range requests when a
+video or audio player needs them.
+
 ### Plugin discovery & reload
 
 The dashboard scans three directories for `dashboard/manifest.json`:
@@ -813,6 +873,16 @@ The dashboard scans three directories for `dashboard/manifest.json`:
 Discovery results are cached per dashboard process. After adding a new plugin, either:
 
 ```bash
+# Install and explicitly activate a plugin from GitHub
+fabric plugins install owner/repo --enable
+
+# Or activate a plugin that is already installed
+fabric plugins enable my-plugin
+```
+
+Then rescan the UI assets:
+
+```bash
 # Force a rescan without restart
 curl http://127.0.0.1:9119/api/dashboard/plugins/rescan
 ```
@@ -821,10 +891,10 @@ curl http://127.0.0.1:9119/api/dashboard/plugins/rescan
 
 #### Plugin load lifecycle
 
-1. Dashboard loads. `main.tsx` exposes the SDK on `window.__HERMES_PLUGIN_SDK__` and the registry on `window.__HERMES_PLUGINS__`.
+1. Dashboard loads. `main.tsx` exposes the SDK on `window.__FABRIC_PLUGIN_SDK__` and the registry on `window.__FABRIC_PLUGINS__`; the `window.__HERMES_*` compatibility globals remain aliases.
 2. `App.tsx` calls `usePlugins()` → fetches `GET /api/dashboard/plugins`.
 3. For each manifest: CSS `<link>` is injected (if declared), then a `<script>` tag loads the JS bundle.
-4. The plugin's IIFE runs and calls `window.__HERMES_PLUGINS__.register(name, Component)` — and optionally `.registerSlot(name, slot, Component)` for each slot.
+4. The plugin's IIFE runs and calls `window.__FABRIC_PLUGINS__.register(name, Component)` — and optionally `.registerSlot(name, slot, Component)` for each slot.
 5. The dashboard resolves the registered component against the manifest, adds the tab to navigation (unless `hidden`), and mounts the component as a route.
 
 Plugins have up to **2 seconds** after their script loads to call `register()`. After that the dashboard stops waiting and finishes initial render. If a plugin later registers, it still appears — the nav is reactive.
@@ -848,16 +918,17 @@ If a plugin's script fails to load (404, syntax error, exception during IIFE), t
 |----------|--------|-------------|
 | `/api/dashboard/plugins` | GET | List discovered plugins (with manifests, minus internal fields). |
 | `/api/dashboard/plugins/rescan` | GET | Force re-scan the plugin directories without restarting. |
-| `/dashboard-plugins/<name>/<path>` | GET | Serve static assets from a plugin's `dashboard/` directory. Path traversal is blocked. |
-| `/api/plugins/<name>/*` | * | Plugin-registered backend routes. |
+| `/dashboard-plugins/<name>/<path>` | GET | Serve explicitly allowlisted browser assets from an active plugin's `dashboard/` directory, including `.wasm`. Path traversal and backend-source access are blocked. |
+| `/api/plugins/<name>/*` | * | Authenticated plugin-registered backend routes. User plugin code mounts only after explicit enablement. |
 
 ### SDK on `window`
 
 | Global | Type | Provider |
 |--------|------|----------|
-| `window.__HERMES_PLUGIN_SDK__` | object | `registry.ts` — React, hooks, UI components, API client, utils. |
-| `window.__HERMES_PLUGINS__.register(name, Component)` | function | Register a plugin's main component. |
-| `window.__HERMES_PLUGINS__.registerSlot(name, slot, Component)` | function | Register into a named shell slot. |
+| `window.__FABRIC_PLUGIN_SDK__` | object | `registry.ts` — SDK version, host React/ReactDOM, hooks, UI components, icons, authenticated API/WS helpers, and utils. |
+| `window.__FABRIC_PLUGINS__.register(name, Component)` | function | Register a plugin's main component for the host to mount. |
+| `window.__FABRIC_PLUGINS__.registerSlot(name, slot, Component)` | function | Register into a named shell slot. |
+| `window.__HERMES_PLUGIN_SDK__`, `window.__HERMES_PLUGINS__` | aliases | Backward-compatible aliases of the Fabric globals. |
 
 ---
 
@@ -868,19 +939,21 @@ Check that the file is in `~/.fabric/dashboard-themes/` and ends in `.yaml` or `
 
 **My plugin's tab doesn't show up.**
 1. Check the manifest is at `~/.fabric/plugins/<name>/dashboard/manifest.json` (note the `dashboard/` subdirectory).
-2. `curl http://127.0.0.1:9119/api/dashboard/plugins/rescan` to force re-discovery.
-3. Open browser dev tools → Network — confirm `manifest.json`, `index.js`, and any CSS loaded without 404s.
-4. Open browser dev tools → Console — look for errors during the IIFE or `window.__HERMES_PLUGINS__ is undefined` (indicates the SDK didn't initialize, usually a React render crash earlier).
-5. Verify your bundle calls `window.__HERMES_PLUGINS__.register(...)` with the **same name** as `manifest.json:name`.
+2. Run `fabric plugins enable <name>`; user plugin assets are not served until the plugin is explicitly enabled.
+3. `curl http://127.0.0.1:9119/api/dashboard/plugins/rescan` to force re-discovery.
+4. Open browser dev tools → Network — confirm `manifest.json`, `index.js`, and any CSS loaded without 404s.
+5. Open browser dev tools → Console — look for errors during the IIFE or `window.__FABRIC_PLUGINS__ is undefined` (indicates the SDK didn't initialize, usually a React render crash earlier).
+6. Verify your bundle calls `window.__FABRIC_PLUGINS__.register(...)` with the **same name** as `manifest.json:name`.
 
 **Slot-registered components don't render.**
 The `sidebar` slot only renders when the active theme has `layoutVariant: cockpit`. Other slots always render. If you're registering into a slot with no hits, add `console.log` inside `registerSlot` to confirm the plugin bundle ran at all.
 
 **Plugin backend routes return 404.**
 1. Confirm the manifest has `"api": "plugin_api.py"` pointing to an existing file inside `dashboard/`.
-2. Restart `fabric dashboard` — plugin API routes are mounted once at startup, **not** on rescan.
-3. Check that `plugin_api.py` exports a module-level `router = APIRouter()`. Other export names are not picked up.
-4. Tail `~/.fabric/logs/errors.log` for `Failed to load plugin <name> API routes` — import errors are logged there.
+2. Run `fabric plugins enable <name>`; disabled user plugin code is never imported.
+3. Restart `fabric dashboard` — plugin API routes are mounted once at startup, **not** on rescan.
+4. Check that `plugin_api.py` exports a module-level `router = APIRouter()`. Other export names are not picked up.
+5. Tail `~/.fabric/logs/errors.log` for `Failed to load plugin <name> API routes` — import errors are logged there.
 
 **Theme change drops my color overrides.**
 `colorOverrides` are scoped to the active theme and cleared on theme switch — that's by design. If you want overrides that persist, put them in your theme's YAML, not in the live switcher.
@@ -889,4 +962,7 @@ The `sidebar` slot only renders when the active theme has `layoutVariant: cockpi
 The `customCSS` block is capped at 32 KiB per theme. Split large stylesheets across multiple themes, or switch to a plugin that injects a full stylesheet via its `css` field (no size cap).
 
 **I want to ship a plugin on PyPI.**
-Dashboard plugins are installed by directory layout, not by pip entry point. The cleanest distribution path today is a git repo the user clones into `~/.fabric/plugins/`. A pip-based installer for dashboard plugins is not currently wired up.
+Dashboard plugins are installed by directory layout, not by pip entry point. The
+cleanest distribution path today is a standalone Git repository users install
+with `fabric plugins install owner/repo --enable`. A pip-based installer for
+dashboard plugins is not currently wired up.

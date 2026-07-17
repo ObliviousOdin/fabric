@@ -20,6 +20,7 @@ import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChat
 import { storedSessionIdForNotification } from '../lib/session-ids'
 import { isMessagingSource } from '../lib/session-source'
 import { latestSessionTodos } from '../lib/todos'
+import { stashSessionDraft } from '../store/composer'
 import { setCronFocusJobId } from '../store/cron'
 import {
   $fileBrowserOpen,
@@ -36,6 +37,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   unpinSession
 } from '../store/layout'
+import { $liveViews, hideLiveView, initLiveViewBridge } from '../store/live-view'
 import { respondToApprovalAction } from '../store/native-notifications'
 import { $paneOpen } from '../store/panes'
 import { setPetActivity } from '../store/pet'
@@ -53,6 +55,7 @@ import { $reviewOpen, REVIEW_PANE_ID } from '../store/review'
 import {
   $activeSessionId,
   $attentionSessionIds,
+  $connection,
   $currentCwd,
   $freshDraftReady,
   $gatewayState,
@@ -81,6 +84,10 @@ import { isSecondaryWindow } from '../store/windows'
 import { ChatView } from './chat'
 import { requestComposerFocus, requestComposerInsert } from './chat/composer/focus'
 import { useComposerActions } from './chat/hooks/use-composer-actions'
+import { LiveViewPane } from './chat/live-view/live-view-pane'
+import { useActiveLiveViewPane } from './chat/live-view/use-active-live-view-pane'
+import { useBrowserLiveStreams } from './chat/live-view/use-browser-live-streams'
+import { useVisualGatewayRequest } from './chat/live-view/use-visual-gateway-request'
 import {
   ChatPreviewRail,
   PREVIEW_RAIL_MAX_WIDTH,
@@ -89,6 +96,7 @@ import {
 } from './chat/right-rail'
 import { ChatSidebar } from './chat/sidebar'
 import { CommandPalette } from './command-palette'
+import type { DesignStartRequest } from './design'
 import { useGatewayBoot } from './gateway/hooks/use-gateway-boot'
 import { useGatewayRequest } from './gateway/hooks/use-gateway-request'
 import { useKeybinds } from './hooks/use-keybinds'
@@ -104,7 +112,7 @@ import { $terminalTakeover } from './right-sidebar/store'
 import { TerminalPaneChrome } from './right-sidebar/terminal/chrome'
 import { PersistentTerminal } from './right-sidebar/terminal/persistent'
 import { closeActiveTerminal } from './right-sidebar/terminal/terminals'
-import { CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
+import { ARTIFACTS_ROUTE, CRON_ROUTE, NEW_CHAT_ROUTE, routeSessionId, sessionRoute, SETTINGS_ROUTE } from './routes'
 import { SessionPickerOverlay } from './session-picker-overlay'
 import { SessionSwitcher } from './session-switcher'
 import { useContextSuggestions } from './session/hooks/use-context-suggestions'
@@ -189,7 +197,9 @@ export function DesktopController() {
   const messagingTranscriptSignatureRef = useRef(new Map<string, string>())
 
   const gatewayState = useStore($gatewayState)
+  const connection = useStore($connection)
   const activeSessionId = useStore($activeSessionId)
+  const liveViews = useStore($liveViews)
   const currentCwd = useStore($currentCwd)
   const freshDraftReady = useStore($freshDraftReady)
   const resumeFailedSessionId = useStore($resumeFailedSessionId)
@@ -203,6 +213,9 @@ export function DesktopController() {
   const fileBrowserOpen = useStore($fileBrowserOpen)
   const previewPaneOpen = useStore($paneOpen(PREVIEW_PANE_ID))
   const panesFlipped = useStore($panesFlipped)
+  const liveView = activeSessionId ? liveViews[activeSessionId] : undefined
+  const dockedLiveView = liveView?.presentation === 'docked'
+  useActiveLiveViewPane(activeSessionId, liveViews)
   const profileScope = useStore($profileScope)
   // Below SIDEBAR_COLLAPSE_BREAKPOINT_PX there's no room for a docked rail —
   // collapse both sidebars (without touching their stored open state) so the
@@ -258,9 +271,26 @@ export function DesktopController() {
 
   const { connectionRef, gatewayRef, requestGateway } = useGatewayRequest()
 
+  const liveViewStreamingEnabled = gatewayState === 'open' && connection?.mode === 'local'
+
+  const { requestVisualGateway } = useVisualGatewayRequest({
+    connection,
+    enabled: liveViewStreamingEnabled
+  })
+
+  useBrowserLiveStreams({
+    activeSessionId,
+    enabled: liveViewStreamingEnabled,
+    requestVisualGateway
+  })
+
   useEffect(() => {
-    window.hermesDesktop?.setPreviewShortcutActive?.(Boolean(chatOpen && (filePreviewTarget || previewTarget)))
-  }, [chatOpen, filePreviewTarget, previewTarget])
+    window.hermesDesktop?.setPreviewShortcutActive?.(
+      Boolean(chatOpen && (dockedLiveView || filePreviewTarget || previewTarget))
+    )
+  }, [chatOpen, dockedLiveView, filePreviewTarget, previewTarget])
+
+  useEffect(() => initLiveViewBridge(), [])
 
   useEffect(() => {
     startUpdatePoller()
@@ -357,6 +387,17 @@ export function DesktopController() {
   }, [])
 
   useEffect(() => {
+    const closeActiveRail = () => {
+      const sessionId = $activeSessionId.get()
+      const activeLiveView = sessionId ? $liveViews.get()[sessionId] : undefined
+
+      if (sessionId && activeLiveView?.presentation === 'docked') {
+        hideLiveView(sessionId)
+      } else {
+        closeActiveRightRailTab()
+      }
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.altKey || event.shiftKey || event.key.toLowerCase() !== 'w' || (!event.metaKey && !event.ctrlKey)) {
         return
@@ -376,14 +417,17 @@ export function DesktopController() {
       }
 
       // Otherwise ⌘/Ctrl+W closes the active preview tab when one is open.
-      if ($filePreviewTarget.get() || $previewTarget.get()) {
+      const sessionId = $activeSessionId.get()
+      const activeLiveView = sessionId ? $liveViews.get()[sessionId] : undefined
+
+      if (activeLiveView?.presentation === 'docked' || $filePreviewTarget.get() || $previewTarget.get()) {
         event.preventDefault()
         event.stopPropagation()
-        closeActiveRightRailTab()
+        closeActiveRail()
       }
     }
 
-    const unsubscribe = window.hermesDesktop?.onClosePreviewRequested?.(closeActiveRightRailTab)
+    const unsubscribe = window.hermesDesktop?.onClosePreviewRequested?.(closeActiveRail)
 
     window.addEventListener('keydown', onKeyDown, { capture: true })
 
@@ -631,10 +675,14 @@ export function DesktopController() {
   })
 
   const startDesignChat = useCallback(
-    (prompt: string) => {
+    ({ prompt }: DesignStartRequest) => {
+      // Seed the new-session draft through the composer's per-thread store. An
+      // external insert event can race the route transition or be ignored while
+      // the gateway is still starting, leaving the new composer empty.
+      stashSessionDraft(null, prompt, [])
       startFreshSessionDraft()
-      requestComposerInsert(prompt, { target: 'main' })
-      requestComposerFocus('main')
+
+      window.requestAnimationFrame(() => requestComposerFocus('main'))
     },
     [startFreshSessionDraft]
   )
@@ -1187,7 +1235,7 @@ export function DesktopController() {
   // Other sidebars docked as real columns on the terminal's rail. Force-collapsed
   // hover-reveal overlays (narrow window) don't take a column, so they don't count.
   const railColumnOpen =
-    (chatOpen && Boolean(previewTarget || filePreviewTarget) && previewPaneOpen) ||
+    (chatOpen && Boolean(dockedLiveView || previewTarget || filePreviewTarget) && previewPaneOpen) ||
     (chatOpen && !narrowViewport && fileBrowserOpen) ||
     (chatOpen && Boolean(currentCwd.trim()) && !narrowViewport && reviewOpen)
 
@@ -1197,7 +1245,7 @@ export function DesktopController() {
 
   const previewPane = (
     <Pane
-      disabled={!chatOpen || (!previewTarget && !filePreviewTarget)}
+      disabled={!chatOpen || (!dockedLiveView && !previewTarget && !filePreviewTarget)}
       id={PREVIEW_PANE_ID}
       key="preview"
       maxWidth={PREVIEW_RAIL_MAX_WIDTH}
@@ -1206,7 +1254,9 @@ export function DesktopController() {
       side={railSide}
       width={PREVIEW_RAIL_PANE_WIDTH}
     >
-      {chatOpen ? (
+      {chatOpen && dockedLiveView && activeSessionId ? (
+        <LiveViewPane sessionId={activeSessionId} setTitlebarToolGroup={setTitlebarToolGroup} />
+      ) : chatOpen ? (
         <ChatPreviewRail onRestartServer={restartPreviewServer} setTitlebarToolGroup={setTitlebarToolGroup} />
       ) : null}
     </Pane>
@@ -1302,7 +1352,7 @@ export function DesktopController() {
       mainOverlays={mainOverlays}
       onOpenSettings={openSettings}
       overlays={overlays}
-      previewPaneOpen={chatOpen && Boolean(previewTarget || filePreviewTarget)}
+      previewPaneOpen={chatOpen && Boolean(dockedLiveView || previewTarget || filePreviewTarget)}
       statusbarItems={statusbarItems}
       terminalPaneOpen={terminalSidebarOpen}
       titlebarTools={titlebarToolGroups.flat.right}
@@ -1337,7 +1387,11 @@ export function DesktopController() {
           <Route
             element={
               <Suspense fallback={null}>
-                <DesignView onStartDesign={startDesignChat} />
+                <DesignView
+                  currentCwd={currentCwd}
+                  onOpenArtifacts={() => navigate(ARTIFACTS_ROUTE)}
+                  onStartDesign={startDesignChat}
+                />
               </Suspense>
             }
             path="design"

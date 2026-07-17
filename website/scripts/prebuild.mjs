@@ -5,6 +5,7 @@
 //   - website/static/api/skills-meta.json (sidecar metadata for the Skills Hub)
 //   - website/static/llms.txt (agent-friendly short docs index)
 //   - website/static/llms-full.txt (full docs concat for LLM context)
+//   - website/static/api/runtime-surfaces.json + the matching reference page
 // all exist without contributors remembering to run Python scripts manually.
 // CI workflows still run the extraction explicitly, which is a no-op duplicate
 // but matches their historical behaviour.
@@ -35,6 +36,8 @@ const pythonCommand = resolvePythonRuntime({ repoDir });
 const extractScript = join(scriptDir, "extract-skills.py");
 const llmsScript = join(scriptDir, "generate-llms-txt.py");
 const cronBlueprintsScript = join(scriptDir, "extract-automation-blueprints.py");
+const docsSyncScript = join(repoDir, "scripts", "docs_sync.py");
+const skillDocsScript = join(scriptDir, "generate-skill-docs.py");
 const outputFile = join(websiteDir, "static", "api", "skills.json");
 const unifiedIndexFile = join(websiteDir, "static", "api", "skills-index.json");
 const UNIFIED_INDEX_URL =
@@ -74,7 +77,7 @@ function writeEmptyFallback(reason) {
   );
 }
 
-function runPython(script, label) {
+function runPython(script, label, args = []) {
   if (!existsSync(script)) {
     console.warn(`[prebuild] ${label} skipped (script missing)`);
     return false;
@@ -83,7 +86,10 @@ function runPython(script, label) {
     console.warn(`[prebuild] ${label} skipped (Python 3.11-3.13 not found)`);
     return false;
   }
-  const r = spawnSync(pythonCommand, [script], { stdio: "inherit", cwd: websiteDir });
+  const r = spawnSync(pythonCommand, [script, ...args], {
+    stdio: "inherit",
+    cwd: websiteDir,
+  });
   if (r.status !== 0) {
     console.warn(`[prebuild] ${label} exited with status ${r.status}`);
     return false;
@@ -196,9 +202,17 @@ if (!existsSync(extractScript)) {
 // the CLI Skills Hub never start life as a 404.
 writeSkillsIndexFallback();
 
-// 2) llms.txt + llms-full.txt — agent-friendly docs entrypoints. Non-fatal.
+// 2) Per-skill pages, catalogs, and sidebar. The generator also removes
+//    generated pages whose source SKILL.md no longer exists.
+runPython(skillDocsScript, "generate-skill-docs.py");
+
+// 3) Deterministic runtime registry catalog. CI runs `check` before prebuild;
+//    local builds refresh it so the site always reflects the current checkout.
+runPython(docsSyncScript, "docs_sync.py generate", ["generate"]);
+
+// 4) llms.txt + llms-full.txt — agent-friendly docs entrypoints. Non-fatal.
 runPython(llmsScript, "generate-llms-txt.py");
 
-// 3) automation-blueprints-index.json — Automation Blueprints catalog page. Non-fatal; the page
+// 5) automation-blueprints-index.json — Automation Blueprints catalog page. Non-fatal; the page
 //    renders an empty state if the generator can't run.
 runPython(cronBlueprintsScript, "extract-automation-blueprints.py");

@@ -87,7 +87,16 @@ def register(ctx):
     ctx.register_hook("post_tool_call", on_tool_call)
 ```
 
-Drop both files into `~/.fabric/plugins/hello-world/`, restart Fabric, and the model can immediately call `hello_world`. The hook prints a log line after every tool invocation.
+Drop both files into `~/.fabric/plugins/hello-world/`, enable the plugin, and
+restart Fabric:
+
+```bash
+fabric plugins enable hello-world
+```
+
+The model can then call `hello_world`, and the hook prints a log line after
+every tool invocation. Discovery alone never executes a newly installed user
+plugin.
 
 Project-local plugins under `./.fabric/plugins/` are disabled by default. Enable them only for trusted repositories by setting `FABRIC_ENABLE_PROJECT_PLUGINS=true` before starting Fabric.
 
@@ -142,9 +151,13 @@ Within each source, Fabric also recognizes sub-category directories that route p
 
 User plugins at `~/.fabric/plugins/model-providers/<name>/` and `~/.fabric/plugins/memory/<name>/` override bundled plugins of the same name — last-writer-wins in `register_provider()` / `register_memory_provider()`. Drop a directory in, and it replaces the built-in without any repo edits.
 
-## Plugins are opt-in (with a few exceptions)
+## Activation: runtime code and dashboard delivery are separate
 
-**General plugins and user-installed backends are disabled by default** — discovery finds them (so they show up in `fabric plugins` and `/plugins`), but nothing with hooks or tools loads until you add the plugin's name to `plugins.enabled` in `~/.fabric/config.yaml`. This stops third-party code from running without your explicit consent.
+**General plugins and user-installed backends are disabled by default** —
+discovery finds them (so they show up in `fabric plugins` and `/plugins`), but
+nothing with hooks or tools loads until you add the plugin's name to
+`plugins.enabled` in `~/.fabric/config.yaml`. This stops third-party code from
+running without your explicit consent.
 
 ```yaml
 plugins:
@@ -165,6 +178,26 @@ fabric plugins disable <name>     # remove from allow-list + add to disabled
 
 After `fabric plugins install owner/repo`, you're asked `Enable 'name' now? [y/N]` — defaults to no. Skip the prompt for scripted installs with `--enable` or `--no-enable`.
 
+A dashboard manifest is an orthogonal surface. It may add a page, override a
+built-in route, register a shell slot, or mount a plugin API without registering
+a lifecycle hook or model tool:
+
+- **Bundled dashboard integrations** are trusted release assets and are served
+  without an entry in `plugins.enabled`, unless their name is explicitly in
+  `plugins.disabled`.
+- **User-installed dashboard plugins** must be enabled before Fabric serves
+  their JavaScript/CSS or imports their Python API.
+- **Project dashboard plugins** may serve static UI only when project-plugin
+  discovery is explicitly enabled; their Python API is never auto-imported.
+- `dashboard.hidden_plugins` changes dashboard presentation, not agent runtime
+  activation. A manifest's own `tab.hidden: true` creates a direct-route page
+  without primary navigation.
+
+For example, the bundled `kanban` manifest supplies the persistent Work page at
+`/workspace/work` without putting `kanban_*` tools into ordinary model calls.
+Those tools are separately workflow-gated for dispatcher workers and profiles
+that explicitly enable the `kanban` toolset.
+
 ### What the allow-list does NOT gate
 
 Several categories of plugin bypass `plugins.enabled` — they're part of Fabric's built-in surface and would break basic functionality if gated off by default:
@@ -176,10 +209,14 @@ Several categories of plugin bypass `plugins.enabled` — they're part of Fabric
 | **Memory providers** (`plugins/memory/`) | All discovered; exactly one is active, chosen by `memory.provider` in `config.yaml`. |
 | **Context engines** (`plugins/context_engine/`) | All discovered; one is active, chosen by `context.engine` in `config.yaml`. |
 | **Model providers** (`plugins/model-providers/`) | All bundled providers under `plugins/model-providers/` discover and register at the first `get_provider_profile()` call. The user picks one at a time via `--provider` or `config.yaml`. |
+| **Bundled dashboard integrations** (`*/dashboard/manifest.json`) | Served by the dashboard unless explicitly listed in `plugins.disabled`; they do not thereby activate hooks or model tools. |
 | **Pip-installed `backend` plugins** | Opt-in via `plugins.enabled` (same as general plugins). |
 | **User-installed platforms** (under `~/.fabric/plugins/platforms/`) | Opt-in via `plugins.enabled` — third-party gateway adapters need explicit consent. |
 
-In short: **bundled "always-works" infrastructure loads automatically; third-party general plugins are opt-in.** The `plugins.enabled` allow-list is the gate specifically for arbitrary code a user drops into `~/.fabric/plugins/`.
+In short: **bundled provider registration and dashboard delivery use
+their own activation contracts; arbitrary third-party runtime code is
+opt-in.** `plugins.disabled` is the final deny-list for both runtime and
+dashboard surfaces with the same plugin name.
 
 ### Migration for existing users
 
@@ -202,9 +239,10 @@ Plugins can register callbacks for these lifecycle events. See the **[Event Hook
 | [`subagent_stop`](/user-guide/features/hooks#subagent_stop) | Once per child after `delegate_task` finishes |
 | [`pre_gateway_dispatch`](/user-guide/features/hooks#pre_gateway_dispatch) | Gateway received a user message, before auth + dispatch. Return `{"action": "skip" \| "rewrite" \| "allow", ...}` to influence flow. |
 
-## Plugin types
+## Runtime plugin types and dashboard integrations
 
-Fabric has four kinds of plugins:
+Fabric has four runtime plugin kinds plus an orthogonal dashboard integration
+surface:
 
 | Type | What it does | Selection | Location |
 |------|-------------|-----------|----------|
@@ -212,8 +250,14 @@ Fabric has four kinds of plugins:
 | **Memory providers** | Replace or augment built-in memory | Single-select (one active) | `plugins/memory/` |
 | **Context engines** | Replace the built-in context compressor | Single-select (one active) | `plugins/context_engine/` |
 | **Model providers** | Declare an inference backend (OpenRouter, Anthropic, …) | Multi-register, picked by `--provider` / `config.yaml` | `plugins/model-providers/` |
+| **Dashboard integrations** | Add/override pages, slots, static assets, and optional dashboard APIs | Bundled opt-out; user plugins opt-in | `<plugin>/dashboard/manifest.json` |
 
 Memory providers and context engines are **provider plugins** — only one of each type can be active at a time. Model providers are also plugins, but many load simultaneously; the user picks one at a time via `--provider` or `config.yaml`. General plugins can be enabled in any combination.
+
+Dashboard integration is orthogonal to those runtime types: one plugin may
+have both a `plugin.yaml` runtime module and a `dashboard/manifest.json`, while
+dashboard-only integrations such as `kanban` and `team-pages` have no agent
+runtime module at all.
 
 ## Pluggable interfaces — where to go for each
 
@@ -317,6 +361,11 @@ Plugins occupy one of three states:
 | `not enabled` | Discovered but never opted in | No | No |
 
 The default for a newly-installed or bundled plugin is `not enabled`. `fabric plugins list` shows all three distinct states so you can tell what's been explicitly turned off vs. what's just waiting to be enabled.
+
+These states describe the agent/runtime allow-list. A bundled dashboard-only
+integration can be visible while its runtime state is `not enabled`, because it
+has no hook/tool module to activate. Conversely, an entry in
+`plugins.disabled` suppresses its bundled dashboard assets and API as well.
 
 In a running session, `/plugins` shows which plugins are currently loaded.
 

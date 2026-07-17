@@ -19,7 +19,7 @@ export interface AgentCardProps {
   onOpenModelPicker: () => void;
   /** `effective_context_length` from /api/model/info; ≤0 hides the row. */
   contextLength: number;
-  /** JSON-RPC sidecar connection state → AgentStatusBadge (G1). */
+  /** Real PTY event-stream connection state → AgentStatusBadge (G1). */
   connection: ConnectionState;
   /** PTY session cwd from `session.info` (events channel), when known. */
   cwd?: string | null;

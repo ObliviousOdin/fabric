@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -79,6 +80,42 @@ FRAME_TREE_MAX_OOPIF_DEPTH = 2
 
 # Ring buffer of recent console-level events (used later by PR 2 diagnostics).
 CONSOLE_HISTORY_MAX = 50
+
+# Browser Live View is intentionally low-frequency UI telemetry. Keep the
+# hard limit beside the actual CDP command so tab discovery or gateway timing
+# can never bunch screenshot starts more tightly than this.
+LIVE_VIEW_MIN_CAPTURE_INTERVAL_S = 0.5
+_LIVE_VIEW_CAPTURE_GATE_LOCK = threading.Lock()
+_LIVE_VIEW_CAPTURE_LAST_BY_TASK: Dict[str, float] = {}
+
+
+def _reserve_live_view_capture(task_id: str) -> int:
+    """Reserve one actual screenshot start, returning retry milliseconds.
+
+    The task-keyed gate is module-global rather than supervisor-local so a CDP
+    reconnect or supervisor replacement cannot reset the cadence. It is called
+    on the supervisor loop immediately before ``Page.captureScreenshot`` and
+    performs no await between reservation and command dispatch.
+    """
+    now = time.monotonic()
+    with _LIVE_VIEW_CAPTURE_GATE_LOCK:
+        previous = _LIVE_VIEW_CAPTURE_LAST_BY_TASK.get(task_id)
+        if previous is not None:
+            retry_after = LIVE_VIEW_MIN_CAPTURE_INTERVAL_S - (now - previous)
+            if retry_after > 0:
+                return max(1, math.ceil(retry_after * 1000))
+        _LIVE_VIEW_CAPTURE_LAST_BY_TASK[task_id] = now
+
+        # Bound process-lifetime state without weakening the current task's
+        # reservation. Normal session cleanup need not clear the short lease.
+        if len(_LIVE_VIEW_CAPTURE_LAST_BY_TASK) > 512:
+            stale_before = now - 60.0
+            for stale_task, started_at in list(
+                _LIVE_VIEW_CAPTURE_LAST_BY_TASK.items()
+            ):
+                if stale_task != task_id and started_at < stale_before:
+                    _LIVE_VIEW_CAPTURE_LAST_BY_TASK.pop(stale_task, None)
+    return 0
 
 # Keep the last N closed dialogs in ``recent_dialogs`` so agents on backends
 # that auto-dismiss server-side (e.g. Browserbase) can still observe that a
@@ -337,6 +374,8 @@ class CDPSupervisor:
         self._pending_calls: Dict[int, asyncio.Future] = {}
         self._ws: Optional[ClientConnection] = None
         self._page_session_id: Optional[str] = None
+        self._page_target_id: Optional[str] = None
+        self._page_sessions: Dict[str, str] = {}  # page target_id -> our CDP session_id
         self._child_sessions: Dict[str, Dict[str, Any]] = {}  # session_id -> info
 
         # Dialog auto-dismiss watchdog handles (per dialog id).
@@ -604,6 +643,103 @@ class CDPSupervisor:
 
         return {"ok": True, "result": value, "result_type": result_type}
 
+    def capture_viewport_jpeg(
+        self,
+        *,
+        quality: int = 40,
+        max_base64_chars: int = 256_000,
+        timeout: float = 2.0,
+    ) -> Dict[str, Any]:
+        """Capture exactly one viewport JPEG over the persistent CDP socket.
+
+        Agent-browser's viewport WebSocket starts an unbounded CDP screencast
+        (``everyNthFrame: 1``) for as long as a viewer remains connected. The
+        Desktop Live View instead calls this one-shot bridge at a server-gated
+        cadence. Reusing the supervisor avoids both the continuous screencast
+        and a screenshot CLI subprocess on every frame.
+
+        The returned base64 is bounded before it can cross the gateway. This
+        method is internal UI plumbing, not a model tool, and it never mutates
+        the agent's prompt or tool schema.
+        """
+        loop = self._loop
+        if loop is None or not loop.is_running():
+            return {"ok": False, "error": "supervisor loop is not running"}
+
+        with self._state_lock:
+            if not self._active:
+                return {"ok": False, "error": "supervisor is not active"}
+
+        safe_quality = max(1, min(int(quality), 100))
+        safe_max_chars = max(1, int(max_base64_chars))
+        safe_timeout = max(0.1, min(float(timeout), 5.0))
+
+        async def _capture() -> Dict[str, Any]:
+            # One deadline covers active-tab discovery *and* capture. Without
+            # this, a many-tab visibility scan could consume ``safe_timeout``
+            # several times and keep running after the synchronous caller had
+            # already released its observer lease.
+            deadline = asyncio.get_running_loop().time() + safe_timeout
+            session_id = await self._visible_page_session(deadline=deadline)
+            loop_now = asyncio.get_running_loop().time()
+            remaining = deadline - loop_now
+            if remaining <= 0:
+                raise TimeoutError("viewport capture deadline expired")
+            retry_after_ms = _reserve_live_view_capture(self.task_id)
+            if retry_after_ms > 0:
+                return {"_fabric_live_view_throttled_ms": retry_after_ms}
+
+            # Reservation is immediately adjacent to Page.captureScreenshot
+            # and happens without an intervening await.
+            return await self._cdp(
+                "Page.captureScreenshot",
+                {
+                    "format": "jpeg",
+                    "quality": safe_quality,
+                    "fromSurface": True,
+                    "captureBeyondViewport": False,
+                },
+                session_id=session_id,
+                timeout=remaining,
+            )
+
+        future = None
+        try:
+            from agent.async_utils import safe_schedule_threadsafe
+
+            future = safe_schedule_threadsafe(_capture(), loop)
+            if future is None:
+                return {"ok": False, "error": "Browser supervisor loop unavailable"}
+            response = future.result(timeout=safe_timeout + 0.25)
+        except Exception as exc:
+            # ``run_coroutine_threadsafe`` futures do not stop merely because
+            # ``result(timeout=...)`` timed out. Explicit cancellation prevents
+            # a late visibility scan/capture from overlapping a later pull.
+            if future is not None and not future.done():
+                future.cancel()
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+        throttled_ms = (
+            response.get("_fabric_live_view_throttled_ms")
+            if isinstance(response, dict)
+            else None
+        )
+        if isinstance(throttled_ms, int) and throttled_ms > 0:
+            return {
+                "ok": False,
+                "reason": "frame_throttled",
+                "retry_after_ms": throttled_ms,
+            }
+
+        result = response.get("result") if isinstance(response, dict) else None
+        data = result.get("data") if isinstance(result, dict) else None
+        if not isinstance(data, str) or not data:
+            return {"ok": False, "error": "capture returned no image"}
+        if len(data) > safe_max_chars:
+            return {"ok": False, "error": "capture exceeded size limit"}
+
+        return {"ok": True, "data": data, "mime_type": "image/jpeg"}
+
     # ── Supervisor loop internals ────────────────────────────────────────────
 
     def _thread_main(self) -> None:
@@ -675,6 +811,8 @@ class CDPSupervisor:
                 # Reset per-connection session state so stale ids don't hang
                 # around after a reconnect.
                 self._page_session_id = None
+                self._page_target_id = None
+                self._page_sessions.clear()
                 self._child_sessions.clear()
                 # We deliberately keep `_pending_dialogs` and `_frames` —
                 # they're reconciled as the supervisor resubscribes and
@@ -733,6 +871,113 @@ class CDPSupervisor:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 10.0)
 
+    @staticmethod
+    def _deadline_remaining(deadline: float) -> float:
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TimeoutError("viewport capture deadline expired")
+        return remaining
+
+    async def _page_visibility(self, session_id: str, *, deadline: float) -> str:
+        """Return a page session's visibility state, or an empty sentinel."""
+        try:
+            response = await self._cdp(
+                "Runtime.evaluate",
+                {
+                    "expression": "document.visibilityState",
+                    "returnByValue": True,
+                },
+                session_id=session_id,
+                timeout=min(self._deadline_remaining(deadline), 1.0),
+            )
+        except TimeoutError:
+            raise
+        except Exception:
+            return ""
+
+        payload = response.get("result") if isinstance(response, dict) else None
+        result = payload.get("result") if isinstance(payload, dict) else None
+        value = result.get("value") if isinstance(result, dict) else None
+        return value if isinstance(value, str) else ""
+
+    async def _visible_page_session(self, *, deadline: float) -> str:
+        """Resolve the agent-browser tab currently brought to the front.
+
+        Agent-browser supports multiple tabs and updates its own stream server
+        to the selected page after ``tab new``, ``tab switch``, and closes. A
+        standalone CDP client does not receive that private active-index state.
+        Chrome does, however, expose the same selection through
+        ``document.visibilityState`` after agent-browser's ``Page.bringToFront``.
+
+        Keep one attached session per page target. The common one-tab path is a
+        single visibility query; target discovery only runs after the current
+        page becomes hidden or stale.
+        """
+        current_session = self._page_session_id
+        if current_session:
+            if await self._page_visibility(current_session, deadline=deadline) == "visible":
+                return current_session
+
+        response = await self._cdp(
+            "Target.getTargets",
+            timeout=self._deadline_remaining(deadline),
+        )
+        payload = response.get("result") if isinstance(response, dict) else None
+        raw_targets = payload.get("targetInfos") if isinstance(payload, dict) else None
+        targets = [
+            target
+            for target in (raw_targets if isinstance(raw_targets, list) else [])
+            if isinstance(target, dict)
+            and target.get("type") == "page"
+            and isinstance(target.get("targetId"), str)
+        ]
+        if not targets:
+            raise RuntimeError("supervisor has no page target")
+
+        live_target_ids = {str(target["targetId"]) for target in targets}
+        for target_id in list(self._page_sessions):
+            if target_id not in live_target_ids:
+                self._page_sessions.pop(target_id, None)
+
+        fallback: Optional[Tuple[str, str]] = None
+        for target in targets:
+            target_id = str(target["targetId"])
+            session_id = self._page_sessions.get(target_id)
+            if not session_id:
+                attached = await self._cdp(
+                    "Target.attachToTarget",
+                    {"targetId": target_id, "flatten": True},
+                    timeout=self._deadline_remaining(deadline),
+                )
+                attached_payload = (
+                    attached.get("result") if isinstance(attached, dict) else None
+                )
+                session_id = (
+                    attached_payload.get("sessionId")
+                    if isinstance(attached_payload, dict)
+                    else None
+                )
+                if not isinstance(session_id, str) or not session_id:
+                    continue
+                self._page_sessions[target_id] = session_id
+
+            fallback = (target_id, session_id)
+            if session_id == current_session:
+                continue
+            if await self._page_visibility(session_id, deadline=deadline) == "visible":
+                self._page_target_id = target_id
+                self._page_session_id = session_id
+                return session_id
+
+        if fallback is None:
+            raise RuntimeError("supervisor could not attach to a page target")
+
+        # Headless/CDP providers do not all model foreground visibility. In
+        # that case prefer the most recently enumerated live page rather than
+        # retaining a closed or hidden session forever.
+        self._page_target_id, self._page_session_id = fallback
+        return self._page_session_id
+
     async def _attach_initial_page(self) -> None:
         """Find a page target, attach flattened session, enable domains, install dialog bridge."""
         resp = await self._cdp("Target.getTargets")
@@ -749,6 +994,8 @@ class CDPSupervisor:
             {"targetId": target_id, "flatten": True},
         )
         self._page_session_id = attach["result"]["sessionId"]
+        self._page_target_id = target_id
+        self._page_sessions[target_id] = self._page_session_id
         await self._cdp("Page.enable", session_id=self._page_session_id)
         await self._cdp("Runtime.enable", session_id=self._page_session_id)
         await self._cdp(
@@ -1329,6 +1576,12 @@ class CDPSupervisor:
         if not sid:
             return
         self._child_sessions.pop(sid, None)
+        for target_id, page_sid in list(self._page_sessions.items()):
+            if page_sid == sid:
+                self._page_sessions.pop(target_id, None)
+                if self._page_session_id == sid:
+                    self._page_session_id = None
+                    self._page_target_id = None
         with self._state_lock:
             for fid, frame in list(self._frames.items()):
                 if frame.cdp_session_id == sid:

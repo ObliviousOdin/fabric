@@ -10,11 +10,18 @@ Fabric is a local-first AI agent runtime for terminal, desktop, web, and messagi
 - Keep persistent memory across sessions with explicit privacy and write controls.
 - Install and compose skills, with authored Compound Engineering and Product Design capability packs included for continued integration work.
 - Turn product intent into structured design briefs from the desktop or dashboard, then continue through the existing agent conversation.
+- Watch [Browser](website/docs/user-guide/features/browser.md#desktop-live-view) and [Computer Use](website/docs/user-guide/features/computer-use.md#desktop-live-view) activity beside Desktop chat, or pop the same live session into an always-on-top view without adding model context or calls.
 - Use the same agent core from the CLI, Ink TUI, desktop app, dashboard, cron, and messaging gateways.
 - Delegate work to subagents and connect terminal, browser, MCP, media, and remote execution tools.
 - Store state locally by default under `~/.fabric` (`%LOCALAPPDATA%\fabric` on Windows).
 
 ## Install
+
+Deploying on a single-board computer? See the step-by-step
+[Raspberry Pi](website/docs/getting-started/raspberry-pi.md) and
+[Jetson Nano](website/docs/getting-started/jetson-nano.md) install guides,
+and the [low-memory guide](website/docs/getting-started/low-memory.md) for
+the lean 1 GB profile and embedding-free memory options.
 
 Linux, macOS, WSL, and Termux:
 

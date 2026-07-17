@@ -29,8 +29,17 @@ SOURCE_DIR = DESIGN_SYSTEM_ROOT / "src" / "brand" / "fabric"
 OUTPUT_DIR = DESIGN_SYSTEM_ROOT / "dist" / "brand"
 
 CANONICAL_PRIMARY = "#4628CC"
-APP_ICON_BACKGROUND = "#F8FAFE"
-GENERATOR_VERSION = 1
+APP_ICON_BACKGROUND = "#EFEEE9"
+MARK_GRADIENT_STOPS = (
+    (0.00, "#3B267D"),
+    (0.24, "#3E2B83"),
+    (0.39, "#5239B6"),
+    (0.46, "#5A47D7"),
+    (0.72, "#5A47D8"),
+    (1.00, "#5F5CEE"),
+)
+MARK_GRADIENT_X_RANGE = (20.0, 108.0)
+GENERATOR_VERSION = 3
 PINNED_PILLOW_VERSION = "12.2.0"
 SVG_SOURCE_NAMES = (
     "mark.svg",
@@ -38,8 +47,8 @@ SVG_SOURCE_NAMES = (
     "wordmark.svg",
     "wordmark-on-dark.svg",
 )
-REFERENCE_SOURCE_NAME = "reference-wordmark.png"
-REFERENCE_SOURCE_SIZE = (1792, 1008)
+REFERENCE_SOURCE_NAME = "reference-mark.jpg"
+REFERENCE_SOURCE_SIZE = (1024, 1024)
 MARK_PNG_SIZES = (16, 32, 64, 128, 180, 192, 512, 1024)
 APP_ICON_SIZES = (180, 192, 512, 1024)
 ICO_SIZES = (16, 32, 48, 64, 128, 256)
@@ -72,7 +81,10 @@ def _parse_view_box(root: ET.Element) -> tuple[float, float, float, float]:
 
 def _canonical_geometry(
     source_dir: Path,
-) -> tuple[tuple[float, float, float, float], list[tuple[float, float]]]:
+) -> tuple[
+    tuple[float, float, float, float],
+    list[list[tuple[float, float]]],
+]:
     mark_path = source_dir / "mark.svg"
     mono_path = source_dir / "mark-mono.svg"
     wordmark_path = source_dir / "wordmark.svg"
@@ -86,6 +98,25 @@ def _canonical_geometry(
     mono_root = ET.parse(mono_path).getroot()
     view_box = _parse_view_box(mark_root)
 
+    gradient = next(
+        (
+            element
+            for element in mark_root.iter()
+            if element.attrib.get("id") == "fabric-mark-gradient"
+        ),
+        None,
+    )
+    if gradient is None or gradient.attrib.get("gradientUnits") != "userSpaceOnUse":
+        raise ValueError("mark.svg must define the canonical user-space gradient")
+    try:
+        gradient_x_range = tuple(
+            float(gradient.attrib[name]) for name in ("x1", "x2")
+        )
+    except (KeyError, ValueError) as exc:
+        raise ValueError("mark.svg must define numeric gradient x bounds") from exc
+    if gradient_x_range != MARK_GRADIENT_X_RANGE:
+        raise ValueError("mark.svg gradient x bounds do not match the raster contract")
+
     mark_elements = [
         element
         for element in mark_root.iter()
@@ -98,19 +129,34 @@ def _canonical_geometry(
         if _local_name(element) == "path"
         and element.attrib.get("data-fabric-mark") == "true"
     ]
-    if len(mark_elements) != 1 or len(mono_elements) != 1:
-        raise ValueError("mark sources must each contain one canonical mark path")
+    if not mark_elements or len(mark_elements) != len(mono_elements):
+        raise ValueError("mark sources must contain matching canonical mark paths")
 
-    mark_element = mark_elements[0]
-    mono_element = mono_elements[0]
-    if mark_element.attrib.get("fill", "").upper() != CANONICAL_PRIMARY:
-        raise ValueError(
-            "mark.svg must use the canonical primary " + CANONICAL_PRIMARY
-        )
-    if mono_element.attrib.get("fill") != "currentColor":
-        raise ValueError("mark-mono.svg must use currentColor")
-    if mark_element.attrib.get("d") != mono_element.attrib.get("d"):
-        raise ValueError("color and monochrome compact marks must share geometry")
+    color_fill = "url(#fabric-mark-gradient)"
+    for mark_element, mono_element in zip(mark_elements, mono_elements, strict=True):
+        if mark_element.attrib.get("fill") not in {None, color_fill}:
+            raise ValueError("mark.svg must use the canonical Fabric gradient")
+        if mono_element.attrib.get("fill") not in {None, "currentColor"}:
+            raise ValueError("mark-mono.svg must use currentColor")
+        if mark_element.attrib.get("d") != mono_element.attrib.get("d"):
+            raise ValueError("color and monochrome compact marks must share geometry")
+
+    color_group = next(
+        (element for element in mark_root.iter() if element.attrib.get("id") == "fabric-mark"),
+        None,
+    )
+    mono_group = next(
+        (
+            element
+            for element in mono_root.iter()
+            if element.attrib.get("id") == "fabric-mark-mono"
+        ),
+        None,
+    )
+    if color_group is None or color_group.attrib.get("fill") != color_fill:
+        raise ValueError("mark.svg must apply the canonical Fabric gradient")
+    if mono_group is None or mono_group.attrib.get("fill") != "currentColor":
+        raise ValueError("mark-mono.svg must apply currentColor")
 
     for wordmark in (wordmark_path, dark_wordmark_path):
         root = ET.parse(wordmark).getroot()
@@ -126,8 +172,11 @@ def _canonical_geometry(
                 f"{wordmark.name} must preserve exactly one bracket underline"
             )
 
-    points = _svg_path_points(mark_element.attrib["d"])
-    return view_box, points
+    point_groups = [
+        _svg_path_points(mark_element.attrib["d"])
+        for mark_element in mark_elements
+    ]
+    return view_box, point_groups
 
 
 def _svg_path_points(path_data: str) -> list[tuple[float, float]]:
@@ -205,9 +254,9 @@ def _svg_path_points(path_data: str) -> list[tuple[float, float]]:
 
 def _render_master(
     view_box: tuple[float, float, float, float],
-    points: Iterable[tuple[float, float]],
+    point_groups: Iterable[Iterable[tuple[float, float]]],
     *,
-    foreground: str,
+    foreground: str | None,
     background: str | None,
     geometry_scale: float = 1,
 ) -> Image.Image:
@@ -221,17 +270,59 @@ def _render_master(
     scale = MASTER_SIZE / width
     center_x = x + width / 2
     center_y = y + height / 2
-    translated = [
-        (
-            (center_x + (point_x - center_x) * geometry_scale - x) * scale,
-            (center_y + (point_y - center_y) * geometry_scale - y) * scale,
+    mask = Image.new("L", (MASTER_SIZE, MASTER_SIZE), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    for points in point_groups:
+        translated = [
+            (
+                (center_x + (point_x - center_x) * geometry_scale - x) * scale,
+                (center_y + (point_y - center_y) * geometry_scale - y) * scale,
+            )
+            for point_x, point_y in points
+        ]
+        mask_draw.polygon(translated, fill=255)
+
+    if foreground is None:
+        gradient_row = Image.new("RGBA", (MASTER_SIZE, 1))
+        pixels = gradient_row.load()
+        if pixels is None:
+            raise RuntimeError("unable to allocate gradient pixel buffer")
+        stops = [
+            (offset, ImageColor.getrgb(color))
+            for offset, color in MARK_GRADIENT_STOPS
+        ]
+        gradient_start, gradient_end = MARK_GRADIENT_X_RANGE
+        for pixel_x in range(MASTER_SIZE):
+            user_x = x + pixel_x / (MASTER_SIZE - 1) * width
+            position = max(
+                0.0,
+                min(1.0, (user_x - gradient_start) / (gradient_end - gradient_start)),
+            )
+            for index, (right_offset, right_color) in enumerate(stops[1:], start=1):
+                if position <= right_offset:
+                    left_offset, left_color = stops[index - 1]
+                    span = right_offset - left_offset
+                    amount = 0 if span == 0 else (position - left_offset) / span
+                    color = tuple(
+                        round(left + (right - left) * amount)
+                        for left, right in zip(left_color, right_color, strict=True)
+                    )
+                    pixels[pixel_x, 0] = (*color, 255)
+                    break
+            else:
+                pixels[pixel_x, 0] = (*stops[-1][1], 255)
+        foreground_image = gradient_row.resize(
+            (MASTER_SIZE, MASTER_SIZE),
+            Image.Resampling.NEAREST,
         )
-        for point_x, point_y in points
-    ]
-    ImageDraw.Draw(image).polygon(
-        translated,
-        fill=(*ImageColor.getrgb(foreground), 255),
-    )
+    else:
+        foreground_image = Image.new(
+            "RGBA",
+            (MASTER_SIZE, MASTER_SIZE),
+            (*ImageColor.getrgb(foreground), 255),
+        )
+    foreground_image.putalpha(mask)
+    image.alpha_composite(foreground_image)
     return image
 
 
@@ -284,26 +375,26 @@ def generate_assets(
             "Use .venv/bin/python."
         )
     output_dir.mkdir(parents=True, exist_ok=True)
-    view_box, points = _canonical_geometry(source_dir)
+    view_box, point_groups = _canonical_geometry(source_dir)
     transparent = _render_master(
         view_box,
-        points,
-        foreground=CANONICAL_PRIMARY,
+        point_groups,
+        foreground=None,
         background=None,
     )
     app_icon = _render_master(
         view_box,
-        points,
-        foreground=CANONICAL_PRIMARY,
+        point_groups,
+        foreground=None,
         background=APP_ICON_BACKGROUND,
     )
     maskable = _render_master(
         view_box,
-        points,
+        point_groups,
         foreground="#FFFFFF",
         background=CANONICAL_PRIMARY,
         # W3C maskable icons reserve a centered circular safe zone with an
-        # 80% diameter. The optical f is asymmetric, so shrink its geometry
+        # 80% diameter. The symbol is asymmetric, so shrink its geometry
         # around the canvas center instead of relying on rectangular padding.
         geometry_scale=0.72,
     )
@@ -334,13 +425,10 @@ def generate_assets(
     if not reference.is_file():
         raise FileNotFoundError(f"missing supplied logo reference: {reference}")
     with Image.open(reference) as reference_image:
-        if (
-            reference_image.format != "PNG"
-            or reference_image.size != REFERENCE_SOURCE_SIZE
-        ):
+        if reference_image.format != "JPEG" or reference_image.size != REFERENCE_SOURCE_SIZE:
             raise ValueError(
-                "reference-wordmark.png must remain the supplied "
-                f"{REFERENCE_SOURCE_SIZE[0]}x{REFERENCE_SOURCE_SIZE[1]} PNG"
+                "reference-mark.jpg must remain the supplied "
+                f"{REFERENCE_SOURCE_SIZE[0]}x{REFERENCE_SOURCE_SIZE[1]} JPEG"
             )
     sources[REFERENCE_SOURCE_NAME] = {
         "path": reference.relative_to(ROOT).as_posix(),
@@ -418,8 +506,8 @@ def generate_assets(
         "encoder": f"Pillow {PINNED_PILLOW_VERSION}",
         "brand": "Fabric",
         "canonicalPrimary": CANONICAL_PRIMARY,
-        "compactMark": "simplified lowercase f without bracket",
-        "wordmark": "lowercase Fabric lockup with bracket underline",
+        "compactMark": "stylized F with feather nib and eye dot",
+        "wordmark": "Fabric symbol lockup with bracket underline",
         "sourceViewBox": [int(value) for value in view_box],
         "sources": dict(sorted(sources.items())),
         "assets": dict(sorted(assets.items())),

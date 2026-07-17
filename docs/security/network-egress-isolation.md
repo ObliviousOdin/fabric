@@ -1,195 +1,127 @@
-# Network Egress Isolation for Docker Deployments
+# Network Isolation for Agent Commands
 
-When running Fabric inside Docker, the default `network_mode: host` gives the
-agent process unrestricted outbound network access. This guide shows how to
-segment traffic so the agent core can only reach the services it needs, while
-blocking arbitrary outbound connections.
+Fabric itself needs outbound access for model providers, messaging platforms,
+OAuth, and any network-backed tools you enable. Putting that process on an
+internet-capable Docker network while setting `HTTP_PROXY` does **not** create
+an egress security boundary: a shell command can unset the proxy variables or
+open a raw socket.
 
-This is primarily a defense against prompt injection attacks that attempt to
-exfiltrate data via `curl`, `wget`, or raw HTTP from tool-generated shell
-commands.
+The supported isolation boundary is the separate Docker terminal backend. Run
+Fabric on the network it needs, then execute `terminal`, `execute_code`, and
+file-tool work inside a sandbox container with networking disabled.
 
-## Threat Model
+## Threat model
 
-The Fabric [SECURITY.md](../../SECURITY.md) §2 defines the trust model. The
-terminal backend is the primary execution boundary. However, when running with
-`network_mode: host`, any command the agent executes can reach any endpoint on
-the network, including external ones.
+This protects against a prompt-injected or mistaken shell command trying to
+exfiltrate workspace data with `curl`, `wget`, DNS, or a raw TCP connection.
+It does not make every Fabric capability offline. Model requests, messaging
+adapters, and explicitly enabled host-side web or browser tools still use the
+Fabric process's network access.
 
-Network egress isolation adds a second layer: even if a malicious command
-executes inside the container, it cannot reach endpoints outside the
-explicitly allowlisted set.
+## Recommended configuration
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│  Docker Network: internal (no internet)     │
-│                                             │
-│   ┌──────────────┐   ┌──────────────────┐   │
-│   │ fabric-agent │   │ fabric-dashboard │   │
-│   └──────┬───────┘   └────────┬─────────┘   │
-│          │                    │              │
-│          ▼                    │              │
-│   ┌──────────────┐            │              │
-│   │ hermes-gtw   │◄───────────┘              │
-│   └──────┬───────┘                           │
-│          │                                   │
-└──────────┼───────────────────────────────────┘
-           │
-┌──────────┼───────────────────────────────────┐
-│  Docker Network: egress (internet-capable)   │
-│          │                                   │
-│          ▼                                   │
-│   ┌─────────────────┐                        │
-│   │ egress-proxy     │──► allowlisted hosts  │
-│   │ (squid / envoy)  │                       │
-│   └─────────────────┘                        │
-└──────────────────────────────────────────────┘
-```
-
-Two Docker networks:
-
-- **`internal`** — no default route, no internet access. The agent, dashboard,
-  and gateway run here.
-- **`egress`** — has internet access. Only services that need to reach external
-  APIs are attached to this network.
-
-The gateway service is dual-homed (attached to both networks) so it can
-receive inbound messages from Telegram/Slack/etc. and forward them to the
-agent on the internal network.
-
-## Compose Configuration
-
-Override the default `docker-compose.yml` with a
-`docker-compose.override.yml`:
+Put the following in `~/.fabric/config.yaml`:
 
 ```yaml
-# docker-compose.override.yml
-# Network egress isolation for production deployments.
-#
-# Usage:
-#   FABRIC_UID=$(id -u) FABRIC_GID=$(id -g) docker compose up -d
-#
-# This overrides network_mode: host with isolated Docker networks.
-
-networks:
-  internal:
-    driver: bridge
-    internal: true          # no default route, no internet
-  egress:
-    driver: bridge
-
-services:
-  gateway:
-    network_mode: ""        # clear the host-mode default
-    networks:
-      - internal
-      - egress              # needs outbound for Telegram, LLM APIs
-    ports:
-      - "127.0.0.1:9119:9119"   # dashboard proxy, localhost only
-
-  dashboard:
-    network_mode: ""
-    networks:
-      - internal            # internal only, no egress needed
+terminal:
+  backend: docker
+  docker_image: python:3.11-slim
+  docker_network: false
+  docker_auto_mount_cwd: true
 ```
 
-### With an Egress Proxy (Recommended)
+`terminal.docker_network: false` maps to Docker's `--network=none`. Fabric also
+checks a reusable sandbox before attaching to it: if an older container has a
+network but the current config requests isolation, Fabric removes it and
+creates a fresh air-gapped container.
 
-For tighter control, route all outbound traffic through an HTTP proxy with
-an explicit allowlist:
+Use this first-class key instead of adding `--network=none` through
+`terminal.docker_extra_args`; the explicit setting is validated by the
+container-reuse path and is easier to audit.
 
-```yaml
-# docker-compose.override.yml (with egress proxy)
+The boundary looks like this:
 
-networks:
-  internal:
-    driver: bridge
-    internal: true
-  egress:
-    driver: bridge
-
-services:
-  gateway:
-    network_mode: ""
-    networks:
-      - internal
-      - egress
-    environment:
-      - HTTP_PROXY=http://egress-proxy:3128
-      - HTTPS_PROXY=http://egress-proxy:3128
-      - NO_PROXY=fabric,fabric-dashboard,localhost
-
-  dashboard:
-    network_mode: ""
-    networks:
-      - internal
-
-  egress-proxy:
-    image: ubuntu/squid:6.10-24.04_edge
-    networks:
-      - egress
-    volumes:
-      - ./config/squid-allowlist.conf:/etc/squid/conf.d/allowlist.conf:ro
-    restart: unless-stopped
+```text
+Fabric process
+  ├─ model, gateway, approved web/browser integrations ── network as configured
+  └─ terminal / execute_code / file tools
+       └─ Docker sandbox (`--network=none`) ── no network interface
 ```
 
-Example `config/squid-allowlist.conf`:
+Keep mounts narrow. Anything mounted into the sandbox is readable by agent
+commands even when the network is disabled. Never mount the Docker socket,
+cloud credential directories, or unrelated host paths into an untrusted task
+sandbox.
 
-```
-# Only allow HTTPS CONNECT to these hosts
-acl allowed_hosts dstdomain api.openai.com
-acl allowed_hosts dstdomain api.anthropic.com
-acl allowed_hosts dstdomain openrouter.ai
-acl allowed_hosts dstdomain generativelanguage.googleapis.com
-acl allowed_hosts dstdomain api.telegram.org
-acl allowed_hosts dstdomain api.github.com
-acl allowed_hosts dstdomain discord.com
+## Verify the boundary
 
-http_access allow CONNECT allowed_hosts
-http_access deny all
-```
-
-Adjust the allowlist to match your LLM provider and messaging platform.
-
-## Validating the Setup
-
-After bringing up the stack, verify isolation:
+Start one tool-assisted session so Fabric creates the Docker sandbox, then
+inspect containers carrying Fabric's execution label:
 
 ```bash
-# From the agent container: this should FAIL (no egress)
-docker compose exec gateway \
-  curl -sf --max-time 5 https://example.com && echo "FAIL: egress not blocked" || echo "OK: egress blocked"
+docker ps --filter label=fabric-agent=1 \
+  --format 'table {{.ID}}\t{{.Names}}\t{{.Image}}'
 
-# From the agent container: this should SUCCEED (internal network)
-docker compose exec gateway \
-  curl -sf --max-time 5 http://fabric-dashboard:9119/health && echo "OK: internal reachable" || echo "FAIL"
-
-# If using egress proxy: this should SUCCEED (allowlisted)
-docker compose exec gateway \
-  curl -sf --max-time 5 --proxy http://egress-proxy:3128 https://api.openai.com/v1/models && echo "OK" || echo "FAIL"
+container_id="$(docker ps -q --filter label=fabric-agent=1 | head -n 1)"
+docker inspect --format '{{.HostConfig.NetworkMode}}' "$container_id"
+# expected: none
 ```
+
+Test both HTTP and DNS/raw network behavior inside that sandbox:
+
+```bash
+docker exec "$container_id" sh -lc \
+  'curl -fsS --max-time 5 https://example.com'
+# expected: failure
+
+docker exec "$container_id" sh -lc \
+  'python - <<"PY"
+import socket
+socket.create_connection(("1.1.1.1", 443), timeout=3)
+PY'
+# expected: failure
+```
+
+If the inspection reports `bridge`, `host`, or another network, stop and fix
+the configuration before treating the sandbox as isolated. Remove an obsolete
+sandbox with `docker rm -f "$container_id"`; Fabric will recreate it on the
+next tool call.
+
+## What an HTTP proxy can and cannot do
+
+You may still route the main Fabric process through an allowlisting HTTP proxy
+for observability or ordinary policy enforcement:
+
+```bash
+HTTP_PROXY=http://proxy.internal:3128 \
+HTTPS_PROXY=http://proxy.internal:3128 \
+NO_PROXY=127.0.0.1,localhost \
+fabric gateway run
+```
+
+Treat this as cooperative routing unless the operating system or container
+network blocks every direct route and only the proxy is dual-homed. Environment
+variables alone do not constrain raw sockets, alternate clients, or DNS. A
+secure proxy topology needs its own direct-TCP and DNS-bypass tests; a successful
+proxied request is not proof that direct egress is blocked.
 
 ## Limitations
 
-- **DNS resolution:** The `internal` network can still resolve external DNS
-  names unless you also run a local DNS resolver that blocks external queries.
-  For most threat models this is acceptable since DNS resolution alone does not
-  exfiltrate meaningful data.
-
-- **Not a substitute for sandbox backends:** This guide isolates the agent
-  *container's* network. If you use the default local terminal backend, tool
-  commands execute inside the same container. For stronger isolation, combine
-  network segmentation with a sandboxed terminal backend (Docker, Modal,
-  Daytona).
-
-- **Platform adapters need egress:** The gateway service needs outbound access
-  to reach messaging platform APIs. If you add new platform adapters, add their
-  API endpoints to the proxy allowlist.
+- **Network-backed tools are separate capabilities.** `web_search`, remote
+  browser providers, model APIs, and messaging adapters run outside the
+  air-gapped terminal sandbox unless their own backend says otherwise.
+- **Local terminal is not isolated.** With `terminal.backend: local`, agent
+  shell commands inherit the Fabric host's network access.
+- **Mounted data remains exposed to commands.** Network isolation limits
+  exfiltration paths; it does not prevent reads or writes inside mounted paths.
+- **No network means no package downloads.** Pre-build the sandbox image with
+  required dependencies or temporarily use a separately controlled build
+  process. Do not weaken a production sandbox just to run `pip install`.
+- **Defense in depth still matters.** Keep dangerous-command approvals,
+  URL-safety checks, secret redaction, and least-privilege credentials enabled.
 
 ## Related
 
-- [SECURITY.md](../../SECURITY.md) — Fabric trust model and vulnerability reporting
-- [Terminal backends](../../README.md) — sandboxed execution targets
-- [docker-compose.yml](../../docker-compose.yml) — default compose configuration
+- [Security policy](../../SECURITY.md)
+- [Terminal backend configuration](../../website/docs/user-guide/configuration.md#docker-backend)
+- [Docker deployment guide](../../website/docs/user-guide/docker.md)

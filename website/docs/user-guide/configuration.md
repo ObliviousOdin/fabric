@@ -622,14 +622,11 @@ With `memory.write_approval: true`, memory writes need your approval before they
 Controls how much content Fabric loads from each automatic context file before applying head/tail truncation. This applies to files injected into the system prompt such as `SOUL.md`, `.fabric.md`, `AGENTS.md`, `CLAUDE.md`, and `.cursorrules`. It does **not** affect the `read_file` tool.
 
 ```yaml
-context_file_max_chars: 20000  # default
-```
-
-Raise it when you intentionally keep larger identity or project-context files and run models with enough context window to carry them:
-
-```yaml
+# Optional: pin an exact cap. Omit for a model-window-aware limit.
 context_file_max_chars: 25000
 ```
+
+When this key is omitted, Fabric derives the cap from the active model's context window: roughly 6% of the window using a four-characters-per-token estimate, with a 20,000-character floor and a 500,000-character ceiling. If the model window is unknown, the cap is 20,000 characters. Set the key when you need a fixed limit; an explicit value always overrides the dynamic calculation.
 
 ## File Read Safety
 
@@ -1951,18 +1948,19 @@ Fabric uses two different context scopes:
 | File | Purpose | Scope |
 |------|---------|-------|
 | `SOUL.md` | **Primary agent identity** — defines who the agent is (slot #1 in the system prompt) | `~/.fabric/SOUL.md` or `$FABRIC_HOME/SOUL.md` |
-| `.fabric.md` / `HERMES.md` | Project-specific instructions (highest priority) | Walks to git root |
-| `AGENTS.md` | Project-specific instructions, coding conventions | Recursive directory walk |
+| `.fabric.md` / `FABRIC.md` | Canonical project-specific instructions (highest priority) | Nearest file from CWD through the git root |
+| `.hermes.md` / `HERMES.md` | Legacy compatibility names for Fabric project instructions | Same nearest-file search |
+| `AGENTS.md` | Portable project-specific instructions and coding conventions | CWD at startup; subdirectories discovered progressively |
 | `CLAUDE.md` | Claude Code context files (also detected) | Working directory only |
 | `.cursorrules` | Cursor IDE rules (also detected) | Working directory only |
 | `.cursor/rules/*.mdc` | Cursor rule files (also detected) | Working directory only |
 
 - **SOUL.md** is the agent's primary identity. It occupies slot #1 in the system prompt, completely replacing the built-in default identity. Edit it to fully customize who the agent is.
 - If SOUL.md is missing, empty, or cannot be loaded, Fabric falls back to a built-in default identity.
-- **Project context files use a priority system** — only ONE type is loaded (first match wins): `.fabric.md` → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. SOUL.md is always loaded independently.
-- **AGENTS.md** is hierarchical: if subdirectories also have AGENTS.md, all are combined.
+- **Project context files use a priority system** — only ONE type is loaded at startup (first match wins): Fabric project file → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. Fabric project files use `.fabric.md` → `FABRIC.md` → `.hermes.md` → `HERMES.md` within the nearest matching directory; the pre-Fabric names are compatibility-only. SOUL.md is loaded independently.
+- **AGENTS.md** can be hierarchical during a session: the CWD file is loaded at startup, then relevant subdirectory files are discovered lazily and appended to tool results without changing the cached system prompt.
 - Fabric automatically seeds a default `SOUL.md` if one does not already exist.
-- All loaded context files are capped at `context_file_max_chars` characters (default 20,000) with smart truncation.
+- Loaded startup context sources use smart truncation. An explicit `context_file_max_chars` pins the cap; otherwise it scales with the model window from a 20,000-character floor up to a 500,000-character ceiling.
 
 See also:
 - [Personality & SOUL.md](/user-guide/features/personality)

@@ -585,7 +585,8 @@ def guess_category(path: Path) -> Optional[str]:
         if top == "cache":
             return "temp"
     except ValueError:
-        # Path isn't under HERMES_HOME (e.g. /tmp/hermes-*) — fall through.
+        # Path isn't under FABRIC_HOME (for example, a supported temp prefix)
+        # — fall through to filename classification.
         pass
 
     name = path.name

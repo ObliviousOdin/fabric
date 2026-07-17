@@ -18,6 +18,18 @@ const DEFAULT_PORT_ANNOUNCE_TIMEOUT_MS = 90_000
 // (the historical default) so a malformed override can't reintroduce the loop.
 const MIN_PORT_ANNOUNCE_TIMEOUT_MS = 45_000
 
+function backendProcessUnavailable(child) {
+  if (!child?.stdout || typeof child.on !== 'function' || typeof child.stdout.on !== 'function') {
+    return new Error('Fabric backend process is unavailable before port announcement')
+  }
+
+  if (child.exitCode !== null && child.exitCode !== undefined) {
+    return new Error(`Fabric backend: exited before port announcement (${child.signalCode || child.exitCode})`)
+  }
+
+  return null
+}
+
 /**
  * Resolve the port-announcement deadline. Honors the
  * HERMES_DESKTOP_PORT_ANNOUNCE_TIMEOUT_MS env override (for users on slow
@@ -52,6 +64,12 @@ function resolvePortAnnounceTimeoutMs(env = process.env) {
  * backend spawns don't leak listener slots on the child.
  */
 function waitForDashboardPort(child, timeoutMs = resolvePortAnnounceTimeoutMs()) {
+  const unavailable = backendProcessUnavailable(child)
+
+  if (unavailable) {
+    return Promise.reject(unavailable)
+  }
+
   return new Promise((resolve, reject) => {
     let buf = ''
     let done = false
@@ -122,6 +140,12 @@ function readDashboardReadyFile(readyFile: fs.PathOrFileDescriptor) {
 }
 
 function waitForDashboardReadyFile(readyFile, child, timeoutMs = resolvePortAnnounceTimeoutMs()) {
+  const unavailable = backendProcessUnavailable(child)
+
+  if (unavailable) {
+    return Promise.reject(unavailable)
+  }
+
   return new Promise((resolve, reject) => {
     let done = false
     let interval = null

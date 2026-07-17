@@ -1470,6 +1470,18 @@ export const en: Translations = {
     deliverableLabel: 'Deliverable',
     fidelityLabel: 'Fidelity',
     systemLabel: 'Design system',
+    viewArtifacts: 'View outputs',
+    addArchive: 'Add Claude Design ZIP',
+    replaceArchive: 'Replace source archive',
+    revealSource: 'Show managed copy',
+    removeSystem: 'Remove from library',
+    libraryTitle: 'Design-system library',
+    libraryDescription:
+      'Import validated Claude Design ZIPs as profile-scoped, reusable revisions. Fabric reads the selected managed copy and keeps reusable decisions in the project DESIGN.md.',
+    libraryEmpty: 'No imported design systems yet. The original ZIP is never changed.',
+    savedSystemPrefix: 'Imported',
+    importFailed: 'Design-system import failed',
+    revealFailed: 'Could not show the managed copy',
     reviewHint: 'Fabric will place this brief in a new chat for review before it runs.',
     start: 'Start in chat',
     contractTitle: 'Design contract',
@@ -2294,6 +2306,47 @@ export const en: Translations = {
     }
   },
 
+  liveView: {
+    title: 'Agent live view',
+    browserTitle: 'Browser',
+    desktopTitle: 'Desktop',
+    browserAction: 'Used browser',
+    desktopAction: 'Used desktop',
+    actionLabels: {
+      browserBack: 'Went back',
+      browserClick: 'Clicked element',
+      browserConsole: 'Ran browser script',
+      browserForward: 'Went forward',
+      browserGetImages: 'Inspected images',
+      browserNavigate: 'Opened page',
+      browserPress: 'Pressed key',
+      browserScroll: 'Scrolled page',
+      browserSnapshot: 'Captured page structure',
+      browserType: 'Typed text',
+      browserVision: 'Captured page',
+      computerUse: 'Used desktop'
+    },
+    live: 'Live',
+    working: 'Working',
+    ready: 'Ready',
+    paused: 'Paused',
+    failed: 'Failed',
+    pause: 'Pause visual updates',
+    resume: 'Resume visual updates',
+    pictureInPicture: 'PiP',
+    popOut: 'Pop out picture-in-picture',
+    dock: 'Return to side panel',
+    close: 'Close live view',
+    waitingTarget: 'Waiting for the agent',
+    waitingFrame: 'Waiting for the first visual frame',
+    waitingFrameBody: 'Actions appear immediately. A frame appears when the visual tool produces one.',
+    browserFrame: 'Live browser frame',
+    desktopFrame: 'Latest desktop screenshot',
+    previewPaused: 'Visual updates paused — the agent is still working',
+    actions: 'Live actions',
+    noActions: 'No visual actions yet'
+  },
+
   assistant: {
     thread: {
       loadingSession: 'Loading session',
@@ -2419,7 +2472,13 @@ export const en: Translations = {
           pendingAction: 'Capturing'
         },
         browser_type: { done: 'Typed on page', pending: 'Typing on page', pendingAction: 'Typing' },
+        browser_vision: {
+          done: 'Captured browser view',
+          pending: 'Capturing browser view',
+          pendingAction: 'Capturing'
+        },
         clarify: { done: 'Asked a question', pending: 'Asking a question', pendingAction: 'Asking' },
+        computer_use: { done: 'Used computer', pending: 'Using computer', pendingAction: 'Using' },
         cronjob: { done: 'Cron job', pending: 'Scheduling cron job', pendingAction: 'Scheduling' },
         edit_file: { done: 'Edited file', pending: 'Editing file', pendingAction: 'Editing' },
         execute_code: { done: 'Ran code', pending: 'Scripting', pendingAction: 'Scripting' },

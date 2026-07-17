@@ -7,6 +7,24 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   getGatewayWsUrl: profile => ipcRenderer.invoke('hermes:gateway:ws-url', profile),
   openSessionWindow: (sessionId, opts) => ipcRenderer.invoke('hermes:window:openSession', sessionId, opts),
   openNewSessionWindow: () => ipcRenderer.invoke('hermes:window:openNewSession'),
+  liveView: {
+    open: request => ipcRenderer.invoke('hermes:live-view:open', request),
+    close: sessionId => ipcRenderer.invoke('hermes:live-view:close', sessionId),
+    pushState: payload => ipcRenderer.send('hermes:live-view:state', payload),
+    control: payload => ipcRenderer.send('hermes:live-view:control', payload),
+    onState: callback => {
+      const listener = (_event, payload) => callback(payload)
+      ipcRenderer.on('hermes:live-view:state', listener)
+
+      return () => ipcRenderer.removeListener('hermes:live-view:state', listener)
+    },
+    onControl: callback => {
+      const listener = (_event, payload) => callback(payload)
+      ipcRenderer.on('hermes:live-view:control', listener)
+
+      return () => ipcRenderer.removeListener('hermes:live-view:control', listener)
+    }
+  },
   petOverlay: {
     // Main renderer → main process: window lifecycle + drag. `request` is
     // `{ bounds, screen }`; resolves with the screen bounds it actually used.
@@ -48,6 +66,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     set: name => ipcRenderer.invoke('hermes:profile:set', name)
   },
   api: request => ipcRenderer.invoke('hermes:api', request),
+  importDesignSystemZip: request => ipcRenderer.invoke('hermes:design-system:import', request),
   notify: payload => ipcRenderer.invoke('hermes:notify', payload),
   requestMicrophoneAccess: () => ipcRenderer.invoke('hermes:requestMicrophoneAccess'),
   readFileDataUrl: filePath => ipcRenderer.invoke('hermes:readFileDataUrl', filePath),

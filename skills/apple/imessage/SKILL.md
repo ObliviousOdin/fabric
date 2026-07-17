@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [macos]
 metadata:
-  hermes:
+  fabric:
     tags: [iMessage, SMS, messaging, macOS, Apple]
 prerequisites:
   commands: [imsg]

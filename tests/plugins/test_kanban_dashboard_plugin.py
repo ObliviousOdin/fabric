@@ -156,6 +156,157 @@ def test_dashboard_task_retry_reuses_idempotency_key(client):
     assert [task["title"] for task in tasks] == ["Create only once"]
 
 
+def test_dashboard_blank_assignee_uses_existing_work_default(
+    client, monkeypatch,
+):
+    """Executable dashboard work must resolve to a real configured profile."""
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config",
+        lambda: {"kanban": {"default_assignee": "worker-default"}},
+    )
+    monkeypatch.setattr(
+        "fabric_cli.profiles.get_active_profile_name", lambda: "active-worker",
+    )
+    monkeypatch.setattr(
+        "fabric_cli.profiles.profile_exists",
+        lambda name: name in {"worker-default", "active-worker"},
+    )
+    monkeypatch.setattr(
+        "fabric_cli.kanban._check_dispatcher_presence", lambda: (True, ""),
+    )
+
+    r = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "Route this work"},
+    )
+
+    assert r.status_code == 200, r.text
+    task = r.json()["task"]
+    assert task["assignee"] == "worker-default"
+    assert task["status"] == "ready"
+    assert not r.json().get("warning")
+
+
+def test_dashboard_blank_assignee_falls_back_to_existing_active_profile(
+    client, monkeypatch,
+):
+    """An invalid configured default must not hide a usable active profile."""
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config",
+        lambda: {"kanban": {"default_assignee": "deleted-profile"}},
+    )
+    monkeypatch.setattr(
+        "fabric_cli.profiles.get_active_profile_name", lambda: "active-worker",
+    )
+    monkeypatch.setattr(
+        "fabric_cli.profiles.profile_exists",
+        lambda name: name == "active-worker",
+    )
+    monkeypatch.setattr(
+        "fabric_cli.kanban._check_dispatcher_presence", lambda: (True, ""),
+    )
+
+    r = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "Use the active profile"},
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["task"]["assignee"] == "active-worker"
+    assert r.json()["task"]["status"] == "ready"
+
+
+def test_dashboard_blank_assignee_without_valid_profile_stays_in_triage(
+    client, monkeypatch,
+):
+    """Never present an unassigned dashboard task as dispatcher-ready."""
+    monkeypatch.setattr("fabric_cli.config.load_config", lambda: {"kanban": {}})
+    monkeypatch.setattr(
+        "fabric_cli.profiles.get_active_profile_name", lambda: "missing-profile",
+    )
+    monkeypatch.setattr(
+        "fabric_cli.profiles.profile_exists", lambda _name: False,
+    )
+
+    r = client.post(
+        "/api/plugins/kanban/tasks",
+        json={"title": "Needs routing"},
+    )
+
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["task"]["assignee"] is None
+    assert data["task"]["status"] == "triage"
+    assert "kept in Triage" in data["warning"]
+    assert "assign a profile" in data["warning"]
+
+
+def test_idempotent_retry_keeps_warning_from_returned_unassigned_triage_task(
+    client, monkeypatch,
+):
+    """Profile availability changing cannot hide an existing task's routing need."""
+    profile_available = {"value": False}
+    monkeypatch.setattr("fabric_cli.config.load_config", lambda: {"kanban": {}})
+    monkeypatch.setattr(
+        "fabric_cli.profiles.get_active_profile_name", lambda: "active-worker",
+    )
+    monkeypatch.setattr(
+        "fabric_cli.profiles.profile_exists",
+        lambda name: name == "active-worker" and profile_available["value"],
+    )
+    payload = {
+        "title": "Retry-safe routing",
+        "idempotency_key": "routing-warning-retry-1",
+    }
+
+    first = client.post("/api/plugins/kanban/tasks", json=payload)
+    assert first.status_code == 200, first.text
+    assert first.json()["task"]["status"] == "triage"
+    assert first.json()["task"]["assignee"] is None
+    assert "kept in Triage" in first.json()["warning"]
+
+    profile_available["value"] = True
+    second = client.post("/api/plugins/kanban/tasks", json=payload)
+
+    assert second.status_code == 200, second.text
+    assert second.json()["task"]["id"] == first.json()["task"]["id"]
+    assert second.json()["task"]["status"] == "triage"
+    assert second.json()["task"]["assignee"] is None
+    assert "kept in Triage" in second.json()["warning"]
+    assert "assign a profile" in second.json()["warning"]
+
+
+def test_dashboard_chat_task_persists_session_id_idempotently(client):
+    """Repeated Track-chat clicks recover one durable session-linked task."""
+    payload = {
+        "title": "Chat: release planning",
+        "body": "Tracked explicitly from chat.",
+        "session_id": "session-chat-42",
+        "idempotency_key": "dashboard-chat:session-chat-42",
+        "triage": True,
+    }
+
+    first = client.post("/api/plugins/kanban/tasks", json=payload)
+    second = client.post("/api/plugins/kanban/tasks", json=payload)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    first_task = first.json()["task"]
+    second_task = second.json()["task"]
+    assert first_task["id"] == second_task["id"]
+    assert first_task["session_id"] == "session-chat-42"
+    assert first_task["status"] == "triage"
+    assert not first.json().get("warning")
+    board = client.get("/api/plugins/kanban/board").json()
+    tracked = [
+        task
+        for column in board["columns"]
+        for task in column["tasks"]
+        if task["session_id"] == "session-chat-42"
+    ]
+    assert [task["id"] for task in tracked] == [first_task["id"]]
+
+
 def test_scheduled_tasks_have_their_own_column_not_todo(client):
     """Scheduled/time-delay tasks must not be silently bucketed into todo."""
 
@@ -375,6 +526,10 @@ def test_chat_work_rail_lists_and_creates_boards_without_switching_cli_default()
     assert "[props.active, loadBoards]" in js
     assert "loadBoards(selectedBoard)" not in js
     assert "This board key already exists" in js
+    assert '"aria-label": "Current chat work status"' in js
+    assert 'props.currentChat || {}' in js
+    assert '"Chat stays transient until you explicitly track it.' in js
+    assert '"Track chat in Work"' in js
     assert 'SDK.fetchJSON(`${API}/boards/${encodeURIComponent(slug)}/switch`' not in js
 
 
@@ -2947,6 +3102,40 @@ def test_dashboard_multi_move_bulk_exists():
     assert "onMoveSelected" in dist
     assert "props.onMoveSelected" in dist
     assert "`${API}/tasks/bulk`" in dist
+
+
+def test_dashboard_work_rail_tracks_chat_only_on_explicit_action():
+    """The chat rail creates one session-linked task only after a click."""
+    repo_root = Path(__file__).resolve().parents[2]
+    dist = (
+        repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js"
+    ).read_text()
+    css = (
+        repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "style.css"
+    ).read_text()
+
+    assert "function trackCurrentChat()" in dist
+    assert "onClick: trackCurrentChat" in dist
+    assert 'session_id: sessionId' in dist
+    assert 'idempotency_key: `dashboard-chat:${sessionId}`' in dist
+    assert "triage: true" in dist
+    assert '"Track chat in Work"' in dist
+    assert "without invoking the model" in dist
+    assert dist.count("trackCurrentChat()") == 1
+    assert ".fabric-work-rail-track-chat" in css
+
+
+def test_dashboard_surfaces_unassigned_dispatcher_results():
+    """Nudging Work must explain ready tasks the dispatcher cannot claim."""
+    repo_root = Path(__file__).resolve().parents[2]
+    dist = (
+        repo_root / "plugins" / "kanban" / "dashboard" / "dist" / "index.js"
+    ).read_text()
+
+    assert "result.skipped_unassigned" in dist
+    assert "Dispatcher skipped ${skipped.length} unassigned ready" in dist
+    assert "Assign an existing Fabric profile, then nudge again." in dist
+    assert "Blank uses the configured Work default or active profile" in dist
 
 
 def test_dashboard_failed_card_highlight_class_exists():

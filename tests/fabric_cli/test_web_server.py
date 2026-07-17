@@ -1083,6 +1083,86 @@ class TestWebServerEndpoints:
         assert config["dashboard"]["theme"] == "ember"
         assert config["dashboard"]["font"] == "jetbrains-mono"
 
+    # ── Dashboard terminal prefs ────────────────────────────────────────
+
+    def test_get_dashboard_terminal_defaults(self):
+        """With nothing persisted, every pref reads back as its sentinel."""
+        resp = self.client.get("/api/dashboard/terminal")
+        assert resp.status_code == 200
+        assert resp.json() == {"scheme": "theme", "font": "default", "size": "auto"}
+
+    def test_set_dashboard_terminal_persists_valid_prefs(self):
+        from fabric_cli.config import load_config
+
+        resp = self.client.put(
+            "/api/dashboard/terminal",
+            json={"scheme": "dracula", "font": "ibm-plex-mono", "size": 16},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True, "scheme": "dracula", "font": "ibm-plex-mono", "size": 16,
+        }
+
+        config = load_config()
+        assert config["dashboard"]["terminal"] == {
+            "scheme": "dracula", "font": "ibm-plex-mono", "size": 16,
+        }
+        assert self.client.get("/api/dashboard/terminal").json() == {
+            "scheme": "dracula", "font": "ibm-plex-mono", "size": 16,
+        }
+
+    def test_set_dashboard_terminal_coerces_unknown_ids(self):
+        """Unknown scheme/font ids and out-of-range sizes fall back to their
+        sentinels, so a stale/hostile client can't inject arbitrary values."""
+        resp = self.client.put(
+            "/api/dashboard/terminal",
+            json={"scheme": "../../etc/passwd", "font": "papyrus", "size": 500},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True, "scheme": "theme", "font": "default", "size": "auto",
+        }
+
+    def test_set_dashboard_terminal_accepts_partial_body(self):
+        """Omitted fields keep their sentinels (the client always sends the
+        full prefs blob, but a partial PUT must not 422)."""
+        resp = self.client.put(
+            "/api/dashboard/terminal", json={"scheme": "solarized-light"}
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "ok": True, "scheme": "solarized-light", "font": "default",
+            "size": "auto",
+        }
+
+    def test_get_dashboard_terminal_coerces_stale_persisted_values(self):
+        """Hand-edited / stale config values read back normalized."""
+        from fabric_cli.config import load_config, save_config
+
+        config = load_config()
+        config.setdefault("dashboard", {})["terminal"] = {
+            "scheme": "retired-scheme", "font": 42, "size": "13",
+        }
+        save_config(config)
+
+        assert self.client.get("/api/dashboard/terminal").json() == {
+            "scheme": "theme", "font": "default", "size": 13,
+        }
+
+    def test_dashboard_terminal_prefs_independent_of_theme_and_font(self):
+        from fabric_cli.config import load_config
+
+        self.client.put("/api/dashboard/theme", json={"name": "ember"})
+        self.client.put("/api/dashboard/font", json={"font": "inter"})
+        self.client.put(
+            "/api/dashboard/terminal", json={"scheme": "nord", "size": "auto"}
+        )
+
+        config = load_config()
+        assert config["dashboard"]["theme"] == "ember"
+        assert config["dashboard"]["font"] == "inter"
+        assert config["dashboard"]["terminal"]["scheme"] == "nord"
+
     def test_get_sessions_uses_only_persisted_cwd(self, monkeypatch):
         """Session rows without persisted cwd must not inherit TERMINAL_CWD.
 

@@ -18065,6 +18065,85 @@ async def set_dashboard_font(body: FontSetBody):
     return {"ok": True, "font": font}
 
 
+# Terminal appearance prefs for the embedded xterm terminals (Chat TUI +
+# Fabric Console). Kept in sync with the catalogs in
+# web/src/lib/terminal-schemes.ts — the frontend owns the palettes/stacks;
+# the backend only validates ids so config.yaml never carries arbitrary
+# values back into the dashboard.
+_TERMINAL_SCHEME_DEFAULT_ID = "theme"
+_TERMINAL_SCHEME_CHOICES = frozenset({
+    "theme",
+    "dracula", "one-dark", "nord", "gruvbox-dark", "monokai",
+    "solarized-dark", "solarized-light",
+})
+_TERMINAL_FONT_DEFAULT_ID = "default"
+_TERMINAL_FONT_CHOICES = frozenset({
+    "default", "jetbrains-mono", "ibm-plex-mono", "space-mono",
+})
+_TERMINAL_SIZE_DEFAULT = "auto"
+_TERMINAL_SIZE_MIN = 8
+_TERMINAL_SIZE_MAX = 32
+
+
+def _normalize_terminal_prefs(raw: Any) -> Dict[str, Any]:
+    """Coerce stored/submitted terminal prefs to the valid shape.
+
+    Unknown ids fall back to their sentinels rather than 400'ing so a stale
+    client (or hand-edited config.yaml) can't wedge the pickers — same
+    contract as the font endpoint above.
+    """
+    prefs = raw if isinstance(raw, dict) else {}
+    scheme = prefs.get("scheme")
+    if scheme not in _TERMINAL_SCHEME_CHOICES:
+        scheme = _TERMINAL_SCHEME_DEFAULT_ID
+    font = prefs.get("font")
+    if font not in _TERMINAL_FONT_CHOICES:
+        font = _TERMINAL_FONT_DEFAULT_ID
+    # Single coercion path (mirrors normalizeTerminalFontSize in
+    # terminal-schemes.ts): anything that doesn't round to an in-range int
+    # — including "auto", bools, and garbage — falls back to the sentinel.
+    raw_size = prefs.get("size", _TERMINAL_SIZE_DEFAULT)
+    size: Any = _TERMINAL_SIZE_DEFAULT
+    if not isinstance(raw_size, bool):
+        try:
+            rounded = int(round(float(raw_size)))
+        except (TypeError, ValueError):
+            rounded = None
+        if rounded is not None and _TERMINAL_SIZE_MIN <= rounded <= _TERMINAL_SIZE_MAX:
+            size = rounded
+    return {"scheme": scheme, "font": font, "size": size}
+
+
+@app.get("/api/dashboard/terminal")
+async def get_dashboard_terminal():
+    """Return the terminal appearance prefs (scheme / font / size)."""
+    config = load_config()
+    return _normalize_terminal_prefs(
+        cfg_get(config, "dashboard", "terminal", default=None)
+    )
+
+
+class TerminalPrefsBody(BaseModel):
+    scheme: str = _TERMINAL_SCHEME_DEFAULT_ID
+    font: str = _TERMINAL_FONT_DEFAULT_ID
+    # "auto" or a px integer; anything else is coerced back to "auto".
+    size: Any = _TERMINAL_SIZE_DEFAULT
+
+
+@app.put("/api/dashboard/terminal")
+async def set_dashboard_terminal(body: TerminalPrefsBody):
+    """Set the terminal appearance prefs (persists to config.yaml)."""
+    prefs = _normalize_terminal_prefs(
+        {"scheme": body.scheme, "font": body.font, "size": body.size}
+    )
+    config = load_config()
+    if "dashboard" not in config:
+        config["dashboard"] = {}
+    config["dashboard"]["terminal"] = prefs
+    save_config(config)
+    return {"ok": True, **prefs}
+
+
 # ---------------------------------------------------------------------------
 # Dashboard plugin system
 # ---------------------------------------------------------------------------

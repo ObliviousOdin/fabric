@@ -1248,6 +1248,17 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ font }),
     }),
+  getTerminalPref: () =>
+    fetchJSON<DashboardTerminalResponse>("/api/dashboard/terminal"),
+  setTerminalPref: (prefs: DashboardTerminalResponse) =>
+    fetchJSON<{ ok: boolean } & DashboardTerminalResponse>(
+      "/api/dashboard/terminal",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prefs),
+      },
+    ),
 
   // ── Admin: MCP servers ──────────────────────────────────────────────
   getMcpServers: () => fetchJSON<{ servers: McpServer[] }>("/api/mcp/servers"),
@@ -2888,6 +2899,15 @@ export interface DashboardThemesResponse {
 export interface DashboardFontResponse {
   /** Active font-override id, or "theme" when no override is set. */
   font: string;
+}
+
+export interface DashboardTerminalResponse {
+  /** Terminal color-scheme id, or "theme" to derive from the active theme. */
+  scheme: string;
+  /** Terminal font id, or "default" for the built-in stack. */
+  font: string;
+  /** Terminal font size in px, or "auto" for responsive sizing. */
+  size: number | "auto";
 }
 
 // ── Dashboard plugin types ─────────────────────────────────────────────

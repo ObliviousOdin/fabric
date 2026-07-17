@@ -209,6 +209,52 @@ def test_score_and_profile(api):
     assert profile["top_achievements"][0]["name"] == "Terminal Goblin"
 
 
+def test_relay_leave_rolls_back_after_persistence_failure(tmp_path, monkeypatch):
+    store_mod = _load(STORE_PATH, f"lb_store_persist_{id(tmp_path)}")
+    roster_path = tmp_path / "state" / "roster.json"
+    relay = store_mod.LeaderboardStore(roster_path)
+    owner = relay.create_team(name="Crew", display_name="Owner")
+    original_persist = relay._persist_locked
+
+    def fail_persist():
+        raise OSError("disk full")
+
+    monkeypatch.setattr(relay, "_persist_locked", fail_persist)
+    with pytest.raises(OSError, match="disk full"):
+        relay.leave(
+            team_id=owner["team_id"],
+            member_id=owner["member_id"],
+            member_token=owner["member_token"],
+        )
+    assert owner["team_id"] in relay._teams
+
+    monkeypatch.setattr(relay, "_persist_locked", original_persist)
+    assert relay.leave(
+        team_id=owner["team_id"],
+        member_id=owner["member_id"],
+        member_token=owner["member_token"],
+    ) == {"ok": True}
+    reloaded = store_mod.LeaderboardStore(roster_path)
+    assert owner["team_id"] not in reloaded._teams
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits only")
+def test_relay_roster_permissions_are_private_and_hardened(tmp_path):
+    store_mod = _load(STORE_PATH, f"lb_store_modes_{id(tmp_path)}")
+    roster_path = tmp_path / "state" / "roster.json"
+    relay = store_mod.LeaderboardStore(roster_path)
+    relay.create_team(name="Crew", display_name="Owner")
+
+    assert stat.S_IMODE(roster_path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(roster_path.stat().st_mode) == 0o600
+
+    roster_path.parent.chmod(0o755)
+    roster_path.chmod(0o644)
+    store_mod.LeaderboardStore(roster_path)
+    assert stat.S_IMODE(roster_path.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(roster_path.stat().st_mode) == 0o600
+
+
 # ---- backend helpers e2e -------------------------------------------------
 def test_create_publishes_and_board_shows_me(api, store):
     st, store_mod = store
@@ -496,6 +542,41 @@ def test_mutations_require_explicit_relay_ack(api, operation):
         calls[operation]()
 
 
+def test_rotate_requires_new_invite_secret(api):
+    client = api.RelayClient(
+        "http://relay.test",
+        transport=lambda *_args: (200, {"ok": True}),
+    )
+    with pytest.raises(api.RelayClientError, match="new invite secret"):
+        client.rotate("tm", "mb", "token")
+
+
+def test_generic_404_does_not_confirm_unpublish_or_leave(api, store):
+    st, store_mod = store
+    transport = _make_transport(st, store_mod)
+    api.team_create(
+        "http://relay.test", "Crew", "Channa", publish_opt_in=True,
+        transport=transport,
+    )
+
+    def missing_route(method, url, headers, body):
+        return 404, {"error": "route not found"}
+
+    opt_out = api.team_settings(publish_opt_in=False, transport=missing_route)
+    assert opt_out["ok"] is False
+    assert opt_out["pending_unpublish"] is True
+    assert opt_out["last_published_at"] is not None
+
+    leave = api.team_leave(transport=missing_route)
+    assert leave["ok"] is False
+    assert leave["membership"] is None
+    assert leave["pending_leave_count"] == 1
+
+    retry = api.team_leaderboard(transport=missing_route, refresh_profile=False)
+    assert retry["ok"] is False
+    assert retry["pending_leave_count"] == 1
+
+
 def test_create_and_join_reject_existing_membership_before_remote_call(api, store):
     st, store_mod = store
     base_transport = _make_transport(st, store_mod)
@@ -555,7 +636,8 @@ def test_save_team_config_is_atomic(api):
     assert reloaded["publish_opt_in"] is True
 
 
-def test_old_failed_opt_out_migrates_to_pending_retraction(api):
+@pytest.mark.parametrize("pending_field", [{}, {"pending_unpublish": False}])
+def test_old_failed_opt_out_migrates_to_pending_retraction(api, pending_field):
     cfg_path = api.team_config_path()
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text(json.dumps({
@@ -568,12 +650,39 @@ def test_old_failed_opt_out_migrates_to_pending_retraction(api):
         "publish_opt_in": False,
         "last_published_at": 123,
         "last_error": "relay unavailable",
+        **pending_field,
     }), encoding="utf-8")
 
     loaded = api.load_team_config()
     persisted = json.loads(cfg_path.read_text(encoding="utf-8"))
     assert loaded["pending_unpublish"] is True
     assert persisted["pending_unpublish"] is True
+    assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits only")
+def test_load_hardens_unchanged_team_config_permissions(api):
+    cfg_path = api.team_config_path()
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    cfg_path.write_text(json.dumps({
+        "membership": {
+            "relay_url": "http://relay.test",
+            "team_id": "tm_old",
+            "member_id": "mb_old",
+            "member_token": "token",
+            "join_secret": "secret",
+        },
+        "publish_opt_in": False,
+        "pending_unpublish": False,
+        "last_published_at": None,
+    }), encoding="utf-8")
+    cfg_path.parent.chmod(0o755)
+    cfg_path.chmod(0o644)
+
+    loaded = api.load_team_config()
+
+    assert loaded["membership"]["member_token"] == "token"
+    assert stat.S_IMODE(cfg_path.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(cfg_path.stat().st_mode) == 0o600
 
 
@@ -981,6 +1090,37 @@ def test_start_local_relay_clears_state_when_child_exits_during_health_wait(api,
     assert result["action_ok"] is False
     assert "exited right after starting" in result["error"]
     assert api.load_relay_state() == {}
+
+
+def test_start_failure_cleanup_preserves_replacement_relay_state(api, monkeypatch):
+    _no_tailscale(monkeypatch, api)
+
+    def replace_during_health_wait(*_args, **_kwargs):
+        replacement = api.load_relay_state()
+        assert replacement["pid"] == 111
+        replacement["pid"] = 222
+        replacement["start_time"] = 2220
+        api.save_relay_state(replacement)
+        return False
+
+    monkeypatch.setattr(api, "_wait_relay_healthy", replace_during_health_wait)
+    monkeypatch.setattr(
+        api,
+        "_relay_process_identity",
+        lambda pid, _start: "gone" if pid == 111 else "same",
+    )
+
+    def dead(method, url, headers, body):
+        raise api.RelayClientError("refused", status=0)
+
+    api.start_local_relay(
+        9137,
+        "127.0.0.1",
+        spawner=lambda *_args: (111, 1110),
+        transport=dead,
+    )
+
+    assert api.load_relay_state()["pid"] == 222
 
 
 def test_start_local_relay_binds_loopback_by_default_without_tailscale(api, monkeypatch):

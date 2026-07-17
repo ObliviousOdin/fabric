@@ -805,17 +805,22 @@
   }
 
   function useCopyFeedback(text) {
-    const [copyState, setCopyState] = hooks.useState("idle");
+    const [copyFeedback, setCopyFeedback] = hooks.useState({ text: null, status: "idle" });
     const generation = React.useRef(0);
     const resetTimer = React.useRef(null);
+    const latestText = React.useRef(text);
+    latestText.current = text;
     function copy() {
+      const copiedText = text;
       const current = ++generation.current;
       if (resetTimer.current) clearTimeout(resetTimer.current);
-      copyText(text).then(function (ok) {
-        if (current !== generation.current) return;
-        setCopyState(ok ? "copied" : "failed");
+      copyText(copiedText).then(function (ok) {
+        if (current !== generation.current || latestText.current !== copiedText) return;
+        setCopyFeedback({ text: copiedText, status: ok ? "copied" : "failed" });
         resetTimer.current = setTimeout(function () {
-          if (current === generation.current) setCopyState("idle");
+          if (current === generation.current && latestText.current === copiedText) {
+            setCopyFeedback({ text: copiedText, status: "idle" });
+          }
         }, 1600);
       });
     }
@@ -823,13 +828,13 @@
       generation.current += 1;
       if (resetTimer.current) clearTimeout(resetTimer.current);
       resetTimer.current = null;
-      setCopyState("idle");
+      setCopyFeedback({ text: null, status: "idle" });
       return function () {
         generation.current += 1;
         if (resetTimer.current) clearTimeout(resetTimer.current);
       };
     }, [text]);
-    return [copyState, copy];
+    return [copyFeedback.text === text ? copyFeedback.status : "idle", copy];
   }
 
   function CmdRow({ cmd, t }) {

@@ -25,10 +25,13 @@ are salted-SHA256 hashed and compared with :func:`hmac.compare_digest`.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import hmac
 import json
+import os
 import secrets
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -194,6 +197,12 @@ class LeaderboardStore:
     def _load(self) -> None:
         if not self._path or not self._path.exists():
             return
+        if os.name != "nt":
+            try:
+                self._path.parent.chmod(0o700)
+                self._path.chmod(0o600)
+            except OSError:
+                pass
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
         except Exception:
@@ -204,11 +213,47 @@ class LeaderboardStore:
     def _persist_locked(self) -> None:
         if self._path is None:
             return
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name != "nt":
+            self._path.parent.chmod(0o700)
         payload = {"schema_version": SCHEMA_VERSION, "teams": self._teams}
-        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        tmp.replace(self._path)
+        tmp: Optional[Path] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=self._path.parent,
+                prefix=f".{self._path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                tmp = Path(handle.name)
+                if os.name != "nt":
+                    os.chmod(tmp, 0o600)
+                json.dump(payload, handle, indent=2, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            tmp.replace(self._path)
+            if os.name != "nt":
+                directory_fd = os.open(self._path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
+            if tmp is not None:
+                try:
+                    tmp.unlink()
+                except FileNotFoundError:
+                    pass
+
+    def _persist_with_rollback_locked(self, previous: Dict[str, Dict[str, Any]]) -> None:
+        """Persist a mutation or restore the last durable in-memory state."""
+        try:
+            self._persist_locked()
+        except Exception:
+            self._teams = previous
+            raise
 
     # ---- internal helpers ---------------------------------------------
     def _get_team(self, team_id: str) -> Dict[str, Any]:
@@ -236,6 +281,7 @@ class LeaderboardStore:
         with self._lock:
             if len(self._teams) >= MAX_TEAMS:
                 raise ValidationError("relay is at team capacity", status=429)
+            previous = copy.deepcopy(self._teams)
             self._teams[team_id] = {
                 "id": team_id,
                 "name": clean_name,
@@ -255,7 +301,7 @@ class LeaderboardStore:
                     }
                 },
             }
-            self._persist_locked()
+            self._persist_with_rollback_locked(previous)
         return {
             "team_id": team_id,
             "team_name": clean_name,
@@ -273,6 +319,7 @@ class LeaderboardStore:
                 raise AuthError("invalid invite secret", status=403)
             if len(team["members"]) >= MAX_MEMBERS_PER_TEAM:
                 raise ValidationError("team is full", status=409)
+            previous = copy.deepcopy(self._teams)
             member_id = _gen_id("mb")
             member_token = _gen_secret()
             now = _now()
@@ -285,7 +332,7 @@ class LeaderboardStore:
                 "updated_at": now,
                 "profile": None,
             }
-            self._persist_locked()
+            self._persist_with_rollback_locked(previous)
             return {
                 "team_id": team_id,
                 "team_name": team["name"],
@@ -319,13 +366,14 @@ class LeaderboardStore:
         with self._lock:
             team = self._get_team(team_id)
             member = self._auth_member(team, member_id, member_token)
+            previous = copy.deepcopy(self._teams)
             member["profile"] = clean_profile
             member["updated_at"] = _now()
             if display_name is not None:
                 new_name = _clean_str(display_name, max_len=MAX_DISPLAY_NAME)
                 if new_name:
                     member["display_name"] = new_name
-            self._persist_locked()
+            self._persist_with_rollback_locked(previous)
             return {"ok": True, "updated_at": member["updated_at"]}
 
     def unpublish(self, *, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
@@ -337,9 +385,10 @@ class LeaderboardStore:
         with self._lock:
             team = self._get_team(team_id)
             member = self._auth_member(team, member_id, member_token)
+            previous = copy.deepcopy(self._teams)
             member["profile"] = None
             member["updated_at"] = _now()
-            self._persist_locked()
+            self._persist_with_rollback_locked(previous)
             return {"ok": True}
 
     def leave(self, *, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
@@ -349,12 +398,13 @@ class LeaderboardStore:
             if not team or member_id not in team["members"]:
                 return {"ok": True}
             self._auth_member(team, member_id, member_token)
+            previous = copy.deepcopy(self._teams)
             team["members"].pop(member_id, None)
             # Drop the whole team once the last member leaves so the store
             # doesn't accumulate empty husks.
             if not team["members"]:
                 self._teams.pop(team_id, None)
-            self._persist_locked()
+            self._persist_with_rollback_locked(previous)
             return {"ok": True}
 
     def _require_owner(self, team: Dict[str, Any], member_id: str, member_token: str) -> Dict[str, Any]:
@@ -368,9 +418,10 @@ class LeaderboardStore:
         with self._lock:
             team = self._get_team(team_id)
             self._require_owner(team, member_id, member_token)
+            previous = copy.deepcopy(self._teams)
             new_secret = _gen_secret()
             team["join_secret_hash"] = _hash_secret(new_secret, team["salt"])
-            self._persist_locked()
+            self._persist_with_rollback_locked(previous)
             return {"ok": True, "join_secret": new_secret}
 
     def kick_member(self, *, team_id: str, member_id: str, member_token: str, target_member_id: str) -> Dict[str, Any]:
@@ -382,8 +433,9 @@ class LeaderboardStore:
                 raise ValidationError("use leave to remove yourself", status=400)
             if target_member_id not in team["members"]:
                 raise TeamNotFoundError("member not found", status=404)
+            previous = copy.deepcopy(self._teams)
             team["members"].pop(target_member_id, None)
-            self._persist_locked()
+            self._persist_with_rollback_locked(previous)
             return {"ok": True}
 
     def leaderboard(

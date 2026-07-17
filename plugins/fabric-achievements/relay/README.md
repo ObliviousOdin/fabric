@@ -24,9 +24,9 @@ stored even if a client tried to send them.
 The easiest way is from the dashboard: open **Achievements → Team Leaderboard**,
 expand **Advanced: host a private leaderboard (Tailscale)**, and click **Host on
 this machine**. The dashboard spawns this relay for you (`POST
-/team/host/start`), tracks it in `~/.fabric/plugins/fabric-achievements/relay.json`
+/team/host/start`), tracks it in `$FABRIC_HOME/plugins/fabric-achievements/relay.json`
 so **Stop** and status survive a dashboard restart, logs to
-`~/.fabric/logs/fabric-achievements-relay.log`, and auto-fills a shareable Relay
+`$FABRIC_HOME/logs/fabric-achievements-relay.log`, and auto-fills a shareable Relay
 URL. You never have to run the command below by hand.
 
 To run it yourself instead (e.g. as a system service on an always-on box), from

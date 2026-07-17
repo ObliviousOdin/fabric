@@ -1191,11 +1191,22 @@ def _pending_leave_record(membership: Dict[str, Any]) -> Optional[Dict[str, str]
     return {key: membership[key] for key in keys}
 
 
+def _harden_team_config_permissions(path: Path) -> None:
+    """Best-effort permission upgrade for existing credential-bearing state."""
+    try:
+        path.parent.chmod(0o700)
+        path.chmod(0o600)
+    except OSError:
+        # POSIX modes are not meaningful on every supported filesystem/OS.
+        pass
+
+
 def load_team_config() -> Dict[str, Any]:
     path = team_config_path()
     config = _default_team_config()
     if not path.exists():
         return config
+    _harden_team_config_permissions(path)
     try:
         data = json.loads(path.read_text())
     except Exception:
@@ -1208,10 +1219,10 @@ def load_team_config() -> Dict[str, Any]:
         # Older builds represented a failed opt-out as opt-in=false while
         # leaving last_published_at set. Preserve that cleanup obligation.
         if (
-            "pending_unpublish" not in data
-            and isinstance(config.get("membership"), dict)
+            isinstance(config.get("membership"), dict)
             and not config.get("publish_opt_in")
             and config.get("last_published_at") is not None
+            and not config.get("pending_unpublish")
         ):
             config["pending_unpublish"] = True
             migrated = True
@@ -1459,8 +1470,11 @@ class RelayClient:
                             {"member_id": member_id, "member_token": member_token})
 
     def rotate(self, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
-        return self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/rotate",
-                            {"member_id": member_id, "member_token": member_token})
+        result = self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/rotate",
+                              {"member_id": member_id, "member_token": member_token})
+        if not isinstance(result.get("join_secret"), str) or not result["join_secret"]:
+            raise RelayClientError("Relay confirmed rotation without returning the new invite secret.", status=502)
+        return result
 
     def kick(self, team_id: str, member_id: str, member_token: str, target_member_id: str) -> Dict[str, Any]:
         return self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/kick",
@@ -2573,8 +2587,6 @@ def _retry_pending_leaves(config: Dict[str, Any], transport: Optional[Transport]
             client = RelayClient(membership["relay_url"], transport=transport)
             client.leave(membership["team_id"], membership["member_id"], membership["member_token"])
         except RelayClientError as exc:
-            if exc.status == 404:
-                continue
             remaining.append(membership)
             errors.append(exc.message)
         except Exception as exc:  # noqa: BLE001 - retain credentials for a later retry
@@ -2597,8 +2609,7 @@ def team_leave(transport: Optional[Transport] = None) -> Dict[str, Any]:
             client = RelayClient(membership["relay_url"], transport=transport)
             client.leave(membership["team_id"], membership["member_id"], membership["member_token"])
         except RelayClientError as exc:
-            if exc.status != 404:
-                leave_error = exc.message
+            leave_error = exc.message
         except Exception as exc:  # noqa: BLE001 - local leave must still succeed
             leave_error = getattr(exc, "message", None) or str(exc)
         if leave_error:
@@ -2657,12 +2668,9 @@ def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[
                 client.unpublish(membership["team_id"], membership["member_id"], membership["member_token"])
                 _mark_unpublished(config)
             except RelayClientError as exc:
-                if exc.status == 404:
-                    _mark_unpublished(config)
-                else:
-                    action_error = exc.message
-                    config["last_error"] = exc.message
-                    save_team_config(config)
+                action_error = exc.message
+                config["last_error"] = exc.message
+                save_team_config(config)
         elif now_opt_in and (changed_name or (publish_opt_in and not was_opt_in)):
             # Re-publish so a new name or newly-enabled sharing shows up now.
             try:
@@ -2720,12 +2728,9 @@ def team_leaderboard(
             client.unpublish(membership["team_id"], membership["member_id"], membership["member_token"])
             _mark_unpublished(config)
         except RelayClientError as exc:
-            if exc.status == 404:
-                _mark_unpublished(config)
-            else:
-                pending_error = exc.message
-                config["last_error"] = exc.message
-                save_team_config(config)
+            pending_error = exc.message
+            config["last_error"] = exc.message
+            save_team_config(config)
     # On an initial load or explicit refresh, update our row before reading so
     # the board is current. Action follow-up reads pass ``refresh_profile=False``
     # because create/join/settings already applied their profile change.

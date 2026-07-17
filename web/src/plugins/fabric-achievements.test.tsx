@@ -517,6 +517,7 @@ describe("fabric-achievements leaderboard bundle", () => {
 
   it("invalidates clipboard feedback when the invite rotates", async () => {
     const oldWrite = deferred<void>();
+    const rotateReload = deferred<Record<string, unknown>>();
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: vi.fn(() => oldWrite.promise) },
@@ -535,12 +536,7 @@ describe("fabric-achievements leaderboard bundle", () => {
       }
       if (url.endsWith("/team/rotate")) return Promise.resolve({ ok: true });
       if (url.includes("/team/leaderboard?refresh=false")) {
-        return Promise.resolve({
-          ok: true,
-          membership: { ...membership, invite_code: "fbl1_new" },
-          publish_opt_in: false,
-          leaderboard: [],
-        });
+        return rotateReload.promise;
       }
       if (url.endsWith("/team/host/status")) {
         return Promise.resolve({ ok: true, tailscale: {}, local_relay: {}, managed_relay: {} });
@@ -557,13 +553,35 @@ describe("fabric-achievements leaderboard bundle", () => {
       (button) => button.textContent === "Reset invite",
     );
     expect(rotate).toBeDefined();
-    await act(async () => rotate?.click());
-    await flushEffects();
-    expect(container.querySelector<HTMLInputElement>(".ha-invite-row input")?.value).toBe("fbl1_new");
     await act(async () => {
-      oldWrite.resolve();
-      await oldWrite.promise;
+      rotate?.click();
+      await Promise.resolve();
     });
+
+    const observed: string[] = [];
+    const observer = new MutationObserver(() => {
+      const invite = container.querySelector<HTMLInputElement>(".ha-invite-row input")?.value;
+      const label = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent?.includes("Copy") || button.textContent?.includes("Copied"),
+      )?.textContent;
+      observed.push(`${invite}:${label}`);
+    });
+    observer.observe(container, { childList: true, subtree: true, characterData: true });
+
+    await act(async () => {
+      rotateReload.resolve({
+        ok: true,
+        membership: { ...membership, invite_code: "fbl1_new" },
+        publish_opt_in: false,
+        leaderboard: [],
+      });
+      oldWrite.resolve();
+      await Promise.all([rotateReload.promise, oldWrite.promise]);
+    });
+    observer.disconnect();
+
+    expect(container.querySelector<HTMLInputElement>(".ha-invite-row input")?.value).toBe("fbl1_new");
+    expect(observed).not.toContain("fbl1_new:Copied ✓");
     expect(container.textContent).not.toContain("Copied ✓");
     expect(container.textContent).toContain("Copy invite");
   });

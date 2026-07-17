@@ -252,7 +252,7 @@ class TestFreshInstall:
             m = _enter_fresh_install_patches(
                 stack,
                 prompt=("fabric_cli.setup.prompt_choice", {"return_value": 0}),
-                tailscale_prompt=(
+                opt_in_prompt=(
                     "fabric_cli.setup.prompt_yes_no",
                     {"return_value": True},
                 ),
@@ -261,16 +261,62 @@ class TestFreshInstall:
                 gateway="fabric_cli.setup.setup_gateway",
                 tools="fabric_cli.setup.setup_tools",
                 tailscale="fabric_cli.setup._setup_tailscale_section",
+                github="fabric_cli.setup.setup_github_account",
             )
             from fabric_cli.setup import run_setup_wizard
 
             run_setup_wizard(args)
 
-        m["tailscale_prompt"].assert_called_once_with(
+        m["opt_in_prompt"].assert_any_call(
             "Connect this machine with Tailscale now?",
             False,
         )
         m["tailscale"].assert_called_once()
+
+    def test_first_time_github_offer_is_explicit_opt_in(self, fresh_install):
+        args = _make_setup_args()
+
+        with ExitStack() as stack:
+            m = _enter_fresh_install_patches(
+                stack,
+                prompt=("fabric_cli.setup.prompt_choice", {"return_value": 0}),
+                opt_in_prompt=(
+                    "fabric_cli.setup.prompt_yes_no",
+                    {"return_value": True},
+                ),
+                model="fabric_cli.setup.setup_model_provider",
+                defaults="fabric_cli.setup._apply_default_agent_settings",
+                gateway="fabric_cli.setup.setup_gateway",
+                tools="fabric_cli.setup.setup_tools",
+                tailscale="fabric_cli.setup._setup_tailscale_section",
+                github="fabric_cli.setup.setup_github_account",
+            )
+            from fabric_cli.setup import run_setup_wizard
+
+            run_setup_wizard(args)
+
+        github_calls = [
+            c for c in m["opt_in_prompt"].call_args_list
+            if "GitHub" in c.args[0]
+        ]
+        assert len(github_calls) == 1
+        assert github_calls[0].args[1] is False
+        m["github"].assert_called_once()
+
+    def test_first_time_github_offer_declined_skips_section(self, fresh_install):
+        args = _make_setup_args()
+
+        with ExitStack() as stack:
+            m = self._guided_flow_patches(stack)
+            github = stack.enter_context(
+                patch("fabric_cli.setup.setup_github_account")
+            )
+            from fabric_cli.setup import run_setup_wizard
+
+            run_setup_wizard(args)
+
+        # Default prompt_yes_no mock answers False — section must not run.
+        github.assert_not_called()
 
     def test_full_setup_runs_terminal_configuration(self, fresh_install):
         args = _make_setup_args()

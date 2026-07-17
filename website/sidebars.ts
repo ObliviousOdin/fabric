@@ -230,6 +230,7 @@ const sidebars: SidebarsConfig = {
                   collapsed: true,
                   items: [
                     'user-guide/skills/bundled/github/github-codebase-inspection',
+                    'user-guide/skills/bundled/github/github-fabric-contribute',
                     'user-guide/skills/bundled/github/github-github-auth',
                     'user-guide/skills/bundled/github/github-github-code-review',
                     'user-guide/skills/bundled/github/github-github-issues',

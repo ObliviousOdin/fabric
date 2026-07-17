@@ -112,9 +112,12 @@ def test_faster_whisper_is_not_a_base_dependency():
 
 def test_manifest_includes_bundled_skills():
     manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+    setup_source = (REPO_ROOT / "setup.py").read_text(encoding="utf-8")
 
     assert "graft skills" in manifest
     assert "graft optional-skills" in manifest
+    assert '_data_file_tree("skills")' in setup_source
+    assert '_data_file_tree("optional-skills")' in setup_source
 
 
 def test_bundled_plugin_manifests_ship_in_both_wheel_and_sdist():
@@ -296,12 +299,9 @@ def test_locale_catalogs_ship_in_both_wheel_and_sdist():
     (sdist). Without both, sealed installs drop the catalogs and gateway/CLI
     commands surface raw i18n keys like `gateway.reset.header_default`.
     """
-    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    data_files = data["tool"]["setuptools"].get("data-files", {})
-    assert data_files.get("locales") == ["locales/*.yaml"], (
-        "pyproject [tool.setuptools.data-files] must declare "
-        'locales = ["locales/*.yaml"] so the wheel ships i18n catalogs'
-    )
+    setup_source = (REPO_ROOT / "setup.py").read_text(encoding="utf-8")
+    assert '_data_file_tree("locales")' in setup_source
+    assert '_data_file_tree("optional-mcps")' in setup_source
 
     manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
     assert "graft locales" in manifest, (

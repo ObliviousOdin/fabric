@@ -14,7 +14,9 @@ export type ToolTitleKey =
   | 'browser_snapshot'
   | 'browser_take_screenshot'
   | 'browser_type'
+  | 'browser_vision'
   | 'clarify'
+  | 'computer_use'
   | 'cronjob'
   | 'edit_file'
   | 'execute_code'
@@ -1898,6 +1900,47 @@ export interface Translations {
       openTarget: (url: string) => string
       fallbackTitle: string
     }
+  }
+
+  liveView: {
+    title: string
+    browserTitle: string
+    desktopTitle: string
+    browserAction: string
+    desktopAction: string
+    actionLabels: {
+      browserBack: string
+      browserClick: string
+      browserConsole: string
+      browserForward: string
+      browserGetImages: string
+      browserNavigate: string
+      browserPress: string
+      browserScroll: string
+      browserSnapshot: string
+      browserType: string
+      browserVision: string
+      computerUse: string
+    }
+    live: string
+    working: string
+    ready: string
+    paused: string
+    failed: string
+    pause: string
+    resume: string
+    pictureInPicture: string
+    popOut: string
+    dock: string
+    close: string
+    waitingTarget: string
+    waitingFrame: string
+    waitingFrameBody: string
+    browserFrame: string
+    desktopFrame: string
+    previewPaused: string
+    actions: string
+    noActions: string
   }
 
   assistant: {

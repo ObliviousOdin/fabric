@@ -91,6 +91,8 @@ or begin OAuth. Discovery and sign-in start only after an explicit action.
 The main window provides:
 
 - streaming assistant output and live tool activity;
+- an Agent Live View side panel and picture-in-picture window for Browser and
+  Computer Use actions;
 - approval prompts for dangerous actions;
 - drag-and-drop attachments;
 - a project file browser and preview rail;
@@ -102,6 +104,12 @@ The composer model picker changes the active chat/device selection. Set the
 profile-wide default under **Settings → Model**. Switching models in a live
 conversation invalidates the provider prompt cache, so a new chat is often the
 cheaper choice for a long transcript.
+
+When the agent starts using [Browser Automation](/user-guide/features/browser#desktop-live-view)
+or [Computer Use](/user-guide/features/computer-use#desktop-live-view), Desktop
+opens the visual target and action timeline beside the conversation. You can
+pop that same session into an always-on-top window, pause only its visual
+updates, and dock it again without restarting the task.
 
 ## Provider and local-model settings
 

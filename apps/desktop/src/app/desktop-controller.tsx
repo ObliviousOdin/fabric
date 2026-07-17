@@ -36,6 +36,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   unpinSession
 } from '../store/layout'
+import { $liveViews, hideLiveView, initLiveViewBridge } from '../store/live-view'
 import { respondToApprovalAction } from '../store/native-notifications'
 import { $paneOpen } from '../store/panes'
 import { setPetActivity } from '../store/pet'
@@ -52,6 +53,7 @@ import { $reviewOpen, REVIEW_PANE_ID } from '../store/review'
 import {
   $activeSessionId,
   $attentionSessionIds,
+  $connection,
   $currentCwd,
   $freshDraftReady,
   $gatewayState,
@@ -80,6 +82,10 @@ import { isSecondaryWindow } from '../store/windows'
 import { ChatView } from './chat'
 import { requestComposerFocus, requestComposerInsert } from './chat/composer/focus'
 import { useComposerActions } from './chat/hooks/use-composer-actions'
+import { LiveViewPane } from './chat/live-view/live-view-pane'
+import { useActiveLiveViewPane } from './chat/live-view/use-active-live-view-pane'
+import { useBrowserLiveStreams } from './chat/live-view/use-browser-live-streams'
+import { useVisualGatewayRequest } from './chat/live-view/use-visual-gateway-request'
 import {
   ChatPreviewRail,
   PREVIEW_RAIL_MAX_WIDTH,
@@ -188,7 +194,9 @@ export function DesktopController() {
   const messagingTranscriptSignatureRef = useRef(new Map<string, string>())
 
   const gatewayState = useStore($gatewayState)
+  const connection = useStore($connection)
   const activeSessionId = useStore($activeSessionId)
+  const liveViews = useStore($liveViews)
   const currentCwd = useStore($currentCwd)
   const freshDraftReady = useStore($freshDraftReady)
   const resumeFailedSessionId = useStore($resumeFailedSessionId)
@@ -202,6 +210,9 @@ export function DesktopController() {
   const fileBrowserOpen = useStore($fileBrowserOpen)
   const previewPaneOpen = useStore($paneOpen(PREVIEW_PANE_ID))
   const panesFlipped = useStore($panesFlipped)
+  const liveView = activeSessionId ? liveViews[activeSessionId] : undefined
+  const dockedLiveView = liveView?.presentation === 'docked'
+  useActiveLiveViewPane(activeSessionId, liveViews)
   const profileScope = useStore($profileScope)
   // Below SIDEBAR_COLLAPSE_BREAKPOINT_PX there's no room for a docked rail —
   // collapse both sidebars (without touching their stored open state) so the
@@ -257,9 +268,26 @@ export function DesktopController() {
 
   const { connectionRef, gatewayRef, requestGateway } = useGatewayRequest()
 
+  const liveViewStreamingEnabled = gatewayState === 'open' && connection?.mode === 'local'
+
+  const { requestVisualGateway } = useVisualGatewayRequest({
+    connection,
+    enabled: liveViewStreamingEnabled
+  })
+
+  useBrowserLiveStreams({
+    activeSessionId,
+    enabled: liveViewStreamingEnabled,
+    requestVisualGateway
+  })
+
   useEffect(() => {
-    window.hermesDesktop?.setPreviewShortcutActive?.(Boolean(chatOpen && (filePreviewTarget || previewTarget)))
-  }, [chatOpen, filePreviewTarget, previewTarget])
+    window.hermesDesktop?.setPreviewShortcutActive?.(
+      Boolean(chatOpen && (dockedLiveView || filePreviewTarget || previewTarget))
+    )
+  }, [chatOpen, dockedLiveView, filePreviewTarget, previewTarget])
+
+  useEffect(() => initLiveViewBridge(), [])
 
   useEffect(() => {
     startUpdatePoller()
@@ -356,6 +384,17 @@ export function DesktopController() {
   }, [])
 
   useEffect(() => {
+    const closeActiveRail = () => {
+      const sessionId = $activeSessionId.get()
+      const activeLiveView = sessionId ? $liveViews.get()[sessionId] : undefined
+
+      if (sessionId && activeLiveView?.presentation === 'docked') {
+        hideLiveView(sessionId)
+      } else {
+        closeActiveRightRailTab()
+      }
+    }
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.altKey || event.shiftKey || event.key.toLowerCase() !== 'w' || (!event.metaKey && !event.ctrlKey)) {
         return
@@ -375,14 +414,17 @@ export function DesktopController() {
       }
 
       // Otherwise ⌘/Ctrl+W closes the active preview tab when one is open.
-      if ($filePreviewTarget.get() || $previewTarget.get()) {
+      const sessionId = $activeSessionId.get()
+      const activeLiveView = sessionId ? $liveViews.get()[sessionId] : undefined
+
+      if (activeLiveView?.presentation === 'docked' || $filePreviewTarget.get() || $previewTarget.get()) {
         event.preventDefault()
         event.stopPropagation()
-        closeActiveRightRailTab()
+        closeActiveRail()
       }
     }
 
-    const unsubscribe = window.hermesDesktop?.onClosePreviewRequested?.(closeActiveRightRailTab)
+    const unsubscribe = window.hermesDesktop?.onClosePreviewRequested?.(closeActiveRail)
 
     window.addEventListener('keydown', onKeyDown, { capture: true })
 
@@ -1184,7 +1226,7 @@ export function DesktopController() {
   // Other sidebars docked as real columns on the terminal's rail. Force-collapsed
   // hover-reveal overlays (narrow window) don't take a column, so they don't count.
   const railColumnOpen =
-    (chatOpen && Boolean(previewTarget || filePreviewTarget) && previewPaneOpen) ||
+    (chatOpen && Boolean(dockedLiveView || previewTarget || filePreviewTarget) && previewPaneOpen) ||
     (chatOpen && !narrowViewport && fileBrowserOpen) ||
     (chatOpen && Boolean(currentCwd.trim()) && !narrowViewport && reviewOpen)
 
@@ -1194,7 +1236,7 @@ export function DesktopController() {
 
   const previewPane = (
     <Pane
-      disabled={!chatOpen || (!previewTarget && !filePreviewTarget)}
+      disabled={!chatOpen || (!dockedLiveView && !previewTarget && !filePreviewTarget)}
       id={PREVIEW_PANE_ID}
       key="preview"
       maxWidth={PREVIEW_RAIL_MAX_WIDTH}
@@ -1203,7 +1245,9 @@ export function DesktopController() {
       side={railSide}
       width={PREVIEW_RAIL_PANE_WIDTH}
     >
-      {chatOpen ? (
+      {chatOpen && dockedLiveView && activeSessionId ? (
+        <LiveViewPane sessionId={activeSessionId} setTitlebarToolGroup={setTitlebarToolGroup} />
+      ) : chatOpen ? (
         <ChatPreviewRail onRestartServer={restartPreviewServer} setTitlebarToolGroup={setTitlebarToolGroup} />
       ) : null}
     </Pane>
@@ -1299,7 +1343,7 @@ export function DesktopController() {
       mainOverlays={mainOverlays}
       onOpenSettings={openSettings}
       overlays={overlays}
-      previewPaneOpen={chatOpen && Boolean(previewTarget || filePreviewTarget)}
+      previewPaneOpen={chatOpen && Boolean(dockedLiveView || previewTarget || filePreviewTarget)}
       statusbarItems={statusbarItems}
       terminalPaneOpen={terminalSidebarOpen}
       titlebarTools={titlebarToolGroups.flat.right}

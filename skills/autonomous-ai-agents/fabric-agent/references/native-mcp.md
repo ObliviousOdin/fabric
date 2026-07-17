@@ -15,16 +15,16 @@ For ad-hoc, one-off MCP tool calls from the terminal without configuring anythin
 
 ## Prerequisites
 
-- **mcp Python package** -- optional dependency; install with `pip install mcp`. If not installed, MCP support is silently disabled.
+- **Fabric MCP extra** -- optional dependency; install with `pip install 'fabric-agent[mcp]'`. If not installed, MCP support is silently disabled.
 - **Node.js** -- required for `npx`-based MCP servers (most community servers)
 - **uv** -- required for `uvx`-based MCP servers (Python-based servers)
 
-Install the MCP SDK:
+Install Fabric's pinned MCP SDK extra:
 
 ```bash
-pip install mcp
-# or, if using uv:
-uv pip install mcp
+pip install 'fabric-agent[mcp]'
+# or, from a Fabric source checkout:
+uv pip install -e '.[mcp]'
 ```
 
 ## Quick Start
@@ -193,10 +193,10 @@ If an MCP tool call fails, any credential-like patterns in the error message are
 
 ### "MCP SDK not available -- skipping MCP tool discovery"
 
-The `mcp` Python package is not installed. Install it:
+The pinned MCP SDK extra is not installed. Install it:
 
 ```bash
-pip install mcp
+pip install 'fabric-agent[mcp]'
 ```
 
 ### "No MCP servers configured"
@@ -213,10 +213,11 @@ Common causes:
 
 ### "MCP server 'X' requires HTTP transport but mcp.client.streamable_http is not available"
 
-Your `mcp` package version doesn't include HTTP client support. Upgrade:
+Your `mcp` package version doesn't include HTTP client support. Upgrade Fabric
+with its pinned MCP extra:
 
 ```bash
-pip install --upgrade mcp
+pip install --upgrade 'fabric-agent[mcp]'
 ```
 
 ### Tools not appearing

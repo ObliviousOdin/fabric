@@ -2453,6 +2453,47 @@ export const zh: Translations = {
     }
   },
 
+  liveView: {
+    title: '智能体实时视图',
+    browserTitle: '浏览器',
+    desktopTitle: '桌面',
+    browserAction: '已操作浏览器',
+    desktopAction: '已操作桌面',
+    actionLabels: {
+      browserBack: '已返回上一页',
+      browserClick: '已点击元素',
+      browserConsole: '已运行浏览器脚本',
+      browserForward: '已前进到下一页',
+      browserGetImages: '已检查图片',
+      browserNavigate: '已打开页面',
+      browserPress: '已按键',
+      browserScroll: '已滚动页面',
+      browserSnapshot: '已捕获页面结构',
+      browserType: '已输入文本',
+      browserVision: '已捕获页面',
+      computerUse: '已操作桌面'
+    },
+    live: '实时',
+    working: '正在工作',
+    ready: '就绪',
+    paused: '已暂停',
+    failed: '失败',
+    pause: '暂停画面更新',
+    resume: '恢复画面更新',
+    pictureInPicture: '画中画',
+    popOut: '弹出画中画',
+    dock: '返回侧边面板',
+    close: '关闭实时视图',
+    waitingTarget: '等待智能体',
+    waitingFrame: '等待第一个画面',
+    waitingFrameBody: '操作会立即显示。可视化工具生成画面后，预览将出现在这里。',
+    browserFrame: '实时浏览器画面',
+    desktopFrame: '最新桌面截图',
+    previewPaused: '画面更新已暂停——智能体仍在工作',
+    actions: '实时操作',
+    noActions: '暂无可视化操作'
+  },
+
   assistant: {
     thread: {
       loadingSession: '正在加载会话',
@@ -2567,7 +2608,9 @@ export const zh: Translations = {
         browser_snapshot: { done: '已捕获页面快照', pending: '正在捕获页面快照', pendingAction: '正在捕获' },
         browser_take_screenshot: { done: '已捕获截图', pending: '正在捕获截图', pendingAction: '正在捕获' },
         browser_type: { done: '已在页面输入', pending: '正在页面输入', pendingAction: '正在输入' },
+        browser_vision: { done: '已捕获浏览器画面', pending: '正在捕获浏览器画面', pendingAction: '正在捕获' },
         clarify: { done: '已提问', pending: '正在提问', pendingAction: '正在提问' },
+        computer_use: { done: '已操作电脑', pending: '正在操作电脑', pendingAction: '正在操作' },
         cronjob: { done: 'Cron 任务', pending: '正在安排 Cron 任务', pendingAction: '正在安排' },
         edit_file: { done: '已编辑文件', pending: '正在编辑文件', pendingAction: '正在编辑' },
         execute_code: { done: '已运行代码', pending: '正在编写脚本', pendingAction: '正在编写脚本' },

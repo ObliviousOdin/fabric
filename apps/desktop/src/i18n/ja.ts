@@ -2393,7 +2393,17 @@ export const ja = defineLocale({
           pendingAction: '取得中'
         },
         browser_type: { done: 'ページに入力しました', pending: 'ページに入力中', pendingAction: '入力中' },
+        browser_vision: {
+          done: 'ブラウザー画面をキャプチャしました',
+          pending: 'ブラウザー画面をキャプチャ中',
+          pendingAction: 'キャプチャ中'
+        },
         clarify: { done: '質問しました', pending: '質問中', pendingAction: '質問中' },
+        computer_use: {
+          done: 'コンピューターを操作しました',
+          pending: 'コンピューターを操作中',
+          pendingAction: '操作中'
+        },
         cronjob: { done: 'Cron ジョブ', pending: 'Cron ジョブをスケジュール中', pendingAction: 'スケジュール中' },
         edit_file: { done: 'ファイルを編集しました', pending: 'ファイルを編集中', pendingAction: '編集中' },
         execute_code: { done: 'コードを実行しました', pending: 'スクリプト作成中', pendingAction: 'スクリプト作成中' },
@@ -2440,6 +2450,48 @@ export const ja = defineLocale({
     secretTitle: 'シークレットが必要です',
     secretDesc: 'Fabric は続行するための認証情報が必要です。',
     secretPlaceholder: 'シークレット値'
+  },
+
+  liveView: {
+    title: 'エージェントライブビュー',
+    browserTitle: 'ブラウザー',
+    desktopTitle: 'デスクトップ',
+    browserAction: 'ブラウザーを操作しました',
+    desktopAction: 'デスクトップを操作しました',
+    actionLabels: {
+      browserBack: '前のページに戻りました',
+      browserClick: '要素をクリックしました',
+      browserConsole: 'ブラウザースクリプトを実行しました',
+      browserForward: '次のページに進みました',
+      browserGetImages: '画像を確認しました',
+      browserNavigate: 'ページを開きました',
+      browserPress: 'キーを押しました',
+      browserScroll: 'ページをスクロールしました',
+      browserSnapshot: 'ページ構造を取得しました',
+      browserType: 'テキストを入力しました',
+      browserVision: 'ページをキャプチャしました',
+      computerUse: 'デスクトップを操作しました'
+    },
+    live: 'ライブ',
+    working: '作業中',
+    ready: '準備完了',
+    paused: '一時停止中',
+    failed: '失敗',
+    pause: 'ビジュアル更新を一時停止',
+    resume: 'ビジュアル更新を再開',
+    pictureInPicture: 'PiP',
+    popOut: 'ピクチャーインピクチャーで表示',
+    dock: 'サイドパネルに戻す',
+    close: 'ライブビューを閉じる',
+    waitingTarget: 'エージェントを待機中',
+    waitingFrame: '最初のビジュアルフレームを待機中',
+    waitingFrameBody:
+      'アクションはすぐに表示されます。ビジュアルツールがフレームを生成すると、ここに表示されます。',
+    browserFrame: 'ライブブラウザーフレーム',
+    desktopFrame: '最新のデスクトップスクリーンショット',
+    previewPaused: 'ビジュアル更新は一時停止中 — エージェントは引き続き動作しています',
+    actions: 'ライブアクション',
+    noActions: 'ビジュアルアクションはまだありません'
   },
 
   desktop: {

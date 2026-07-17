@@ -8,6 +8,26 @@ All notable changes to Fabric are documented in this file.
 
 - The Achievements **Team Leaderboard** can now host its relay from the dashboard. A **Host on this machine** button starts and supervises the relay (surviving a dashboard restart), a **Detect** button reads a running relay plus this machine's Tailscale identity to **auto-fill a shareable Relay URL**, and the panel surfaces `fabric setup tailscale` for the Tailscale QR login — no more typing a host address you have to look up. Tailscale reads and connection reuse `fabric_cli.tailscale_setup`.
 
+## [0.21.0] - 2026-07-16
+
+### Added
+
+- Fabric Desktop now opens Browser and Computer Use activity in a docked Agent Live View beside chat, with pause, close, and a resizable always-on-top picture-in-picture window that docks back into the same session.
+- Added Browser and Computer Use Live View guides with step-by-step product screenshots and clear performance and model-context behavior.
+
+### Changed
+
+- On local Desktop backends, Browser Live View now pulls one bounded active-tab frame at a time over a dedicated authenticated visual connection, starts at most two captures per second for each browser session, and never shares the chat, model-output, tool-event, or approval socket.
+- Computer Use Live View reuses screenshots returned by existing actions instead of adding another screen-capture loop; neither viewer adds model tools, prompt text, context tokens, or model calls.
+- Computer Use documentation now uses the current CuaDriver permission flow, `PATH`-based local-build selection, and `config.yaml` telemetry setting instead of legacy Hermes environment overrides.
+- Documentation impact contracts now map Desktop, Browser automation, and Computer Use code to their narrative guides so CI requires those docs to evolve with future behavior changes.
+
+### Fixed
+
+- Raised the optional MCP Python SDK floor to 1.28.1, which includes upstream fixes for cross-principal HTTP sessions, cross-session experimental task access, and WebSocket Host/Origin validation (CVE-2026-52869, CVE-2026-52870, and CVE-2026-59950).
+- Finder and Dock launches now include user-local executable directories so Desktop can discover `cua-driver` consistently.
+- Browser preview work now yields to agent-driven browser actions without queueing them, securely bounds visual payloads, and cleans up stale CDP supervisors, pending connections, and PiP ownership across timeout, reload, crash, minimize, and backend-switch paths.
+
 ## [0.20.2] - 2026-07-15
 
 ### Added
@@ -79,7 +99,8 @@ All notable changes to Fabric are documented in this file.
 
 - Removed unused legacy display fonts and the inherited dashboard styling paths that made Fabric resemble the upstream Hermes interface.
 
-[0.20.2]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15.2...HEAD
+[0.21.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15.3...v2026.7.16
+[0.20.2]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15.2...v2026.7.15.3
 [0.20.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.15...v2026.7.15.2
 [0.20.0]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...v2026.7.15
 [0.19.1]: https://github.com/ObliviousOdin/fabric/compare/v2026.7.14...HEAD

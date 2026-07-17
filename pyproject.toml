@@ -215,6 +215,10 @@ vision = []
 mcp = ["mcp==1.28.1", "starlette==1.3.1"]  # OSV-fixed MCP and Starlette floors
 nemo-relay = ["nemo-relay==0.3"]
 homeassistant = ["aiohttp==3.14.1"]
+# Frigate NVR — MQTT event adapter (aiomqtt) + HTTP API tools (aiohttp).
+# Lazy-installed at first use via LAZY_DEPS["platform.frigate"]; kept out
+# of [all] per the lazy-install policy below.
+frigate = ["aiomqtt==2.5.1", "aiohttp==3.14.1"]
 sms = ["aiohttp==3.14.1"]
 teams = ["microsoft-teams-apps==2.0.13.4", "aiohttp==3.14.1"]  # aiohttp 3.14.1: CVE-2026-34993(RCE)/47265 + 34513/34518/34519/34520/34525
 # Computer use — macOS background desktop control via cua-driver (MCP stdio).

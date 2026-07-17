@@ -1,0 +1,36 @@
+name: frigate-platform
+label: Frigate
+kind: platform
+version: 1.0.0
+description: >
+  Frigate NVR gateway adapter for Fabric.
+  Subscribes to Frigate's MQTT review topic (frigate/reviews) — the curated
+  alert/detection queue — and forwards camera activity to the agent, with
+  severity filtering, camera watch/ignore lists, and per-camera cooldowns
+  to stop event floods. Outbound messages are published to an MQTT reply
+  topic so Home Assistant or other automations can consume them.
+  Pairs with the ``frigate`` toolset (frigate_events / frigate_snapshot /
+  frigate_clip) for pulling media once an event arrives.
+author: community
+requires_env:
+  - name: FRIGATE_MQTT_HOST
+    description: "MQTT broker host that Frigate publishes to (e.g. 127.0.0.1)"
+    prompt: "MQTT broker host"
+    password: false
+optional_env:
+  - name: FRIGATE_MQTT_PORT
+    description: "MQTT broker port (default: 1883)"
+    prompt: "MQTT broker port"
+    password: false
+  - name: FRIGATE_MQTT_USERNAME
+    description: "MQTT username (if the broker requires auth)"
+    prompt: "MQTT username"
+    password: false
+  - name: FRIGATE_MQTT_PASSWORD
+    description: "MQTT password (if the broker requires auth)"
+    prompt: "MQTT password"
+    password: true
+  - name: FRIGATE_MQTT_TOPIC_PREFIX
+    description: "Frigate MQTT topic prefix (default: frigate)"
+    prompt: "Frigate topic prefix"
+    password: false

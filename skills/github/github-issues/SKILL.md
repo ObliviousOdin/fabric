@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   fabric:
     tags: [GitHub, Issues, Project-Management, Bug-Tracking, Triage]
-    related_skills: [github-auth, github-pr-workflow]
+    related_skills: [github-auth, github-pr-workflow, fabric-contribute]
 ---
 
 # GitHub Issues Management

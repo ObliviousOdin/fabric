@@ -34,8 +34,8 @@ The following is the complete skill definition that Fabric loads when this skill
 This skill sets up authentication so the agent can work with GitHub repositories, PRs, issues, and CI.
 
 > **Easiest path:** `fabric setup github` runs a browser device-code sign-in and
-> saves the token as `GITHUB_TOKEN` in `~/.fabric/.env`, where every GitHub
-> skill (including this one's detection helper) finds it automatically.
+> saves the token as `GITHUB_TOKEN` in the active Fabric profile's `.env`, where
+> every GitHub skill (including this one's detection helper) finds it automatically.
 
 It covers two paths:
 

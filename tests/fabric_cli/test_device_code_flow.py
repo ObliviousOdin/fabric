@@ -125,7 +125,7 @@ def test_copilot_wrapper_uses_copilot_client_id():
     assert f"client_id={COPILOT_OAUTH_CLIENT_ID}" in calls[0].data.decode()
 
 
-def test_github_account_wrapper_uses_gh_client_id_and_scope():
+def test_github_account_wrapper_discloses_gh_attribution_and_scope(capsys):
     fake, calls = _urlopen_script({"access_token": "gho_fabric"})
     with mock.patch("urllib.request.urlopen", side_effect=fake), \
          mock.patch("time.sleep"):
@@ -134,3 +134,7 @@ def test_github_account_wrapper_uses_gh_client_id_and_scope():
     body = calls[0].data.decode()
     assert f"client_id={GITHUB_OAUTH_CLIENT_ID}" in body
     assert "public_repo" in body
+    output = capsys.readouterr().out
+    assert "GitHub CLI" in output
+    assert "read/write access to your public repositories" in output
+    assert "no private repos" in output

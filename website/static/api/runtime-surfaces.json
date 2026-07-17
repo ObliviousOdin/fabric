@@ -1585,7 +1585,7 @@
           },
           {
             "path": "cli.py",
-            "symbol": "HermesCLI.process_command"
+            "symbol": "FabricCLI.process_command"
           }
         ],
         "confidence": "unknown",
@@ -4320,7 +4320,7 @@
         "authorities": [
           {
             "path": "cli.py",
-            "symbol": "HermesCLI"
+            "symbol": "FabricCLI"
           }
         ],
         "confidence": "declared",

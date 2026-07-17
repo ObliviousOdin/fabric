@@ -365,7 +365,7 @@ def list_agent_created_skill_names() -> List[str]:
     names: List[str] = []
     # Top-level SKILL.md files (flat layout) AND nested category/skill/SKILL.md
     for skill_md in base.rglob("SKILL.md"):
-        # Skip Hermes metadata, VCS, virtualenv/dependency, and cache dirs
+        # Skip Fabric metadata, VCS, virtualenv/dependency, and cache dirs
         if is_excluded_skill_path(skill_md):
             continue
         # External skill dirs can be mounted below the local skills tree.
@@ -402,8 +402,8 @@ def list_archived_skill_names() -> List[str]:
     """Enumerate skills in ``~/.hermes/skills/.archive/``.
 
     Archive layout is flat (``.archive/<skill>/``) as set by ``archive_skill``,
-    so the directory name is the skill name. Used by ``hermes curator
-    list-archived`` to help users pass a name to ``hermes curator restore``.
+    so the directory name is the skill name. Used by ``fabric curator
+    list-archived`` to help users pass a name to ``fabric curator restore``.
     """
     archive_root = _archive_dir()
     if not archive_root.exists():

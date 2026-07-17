@@ -627,13 +627,13 @@ The NixOS module supports declarative plugin installation — no imperative `fab
 
 ### Directory Plugins (`extraPlugins`)
 
-For plugins that are just a source tree with `plugin.yaml` + `__init__.py` (e.g., [hermes-lcm](https://github.com/stephenschoettler/hermes-lcm)):
+For plugins that are just a source tree with `plugin.yaml` + `__init__.py` (e.g., [fabric-lcm](https://github.com/stephenschoettler/fabric-lcm)):
 
 ```nix
 services.fabric-agent.extraPlugins = [
   (pkgs.fetchFromGitHub {
     owner = "stephenschoettler";
-    repo = "hermes-lcm";
+    repo = "fabric-lcm";
     rev = "v0.7.0";
     hash = "sha256-...";
   })
@@ -644,16 +644,16 @@ Plugins are symlinked into `$FABRIC_HOME/plugins/` at activation time. Fabric di
 
 ### Entry-Point Plugins (`extraPythonPackages`)
 
-For pip-packaged plugins that register via `[project.entry-points."hermes_agent.plugins"]` (e.g., [rtk-hermes](https://github.com/ogallotti/rtk-hermes)):
+For pip-packaged plugins that register via `[project.entry-points."fabric_agent.plugins"]` (e.g., [rtk-fabric](https://github.com/ogallotti/rtk-fabric)):
 
 ```nix
 services.fabric-agent.extraPythonPackages = [
   (pkgs.python312Packages.buildPythonPackage {
-    pname = "rtk-hermes";
+    pname = "rtk-fabric";
     version = "1.0.0";
     src = pkgs.fetchFromGitHub {
       owner = "ogallotti";
-      repo = "rtk-hermes";
+      repo = "rtk-fabric";
       rev = "v1.0.0";
       hash = "sha256-...";
     };
@@ -749,7 +749,7 @@ Plugins still need to be enabled in `config.yaml`. Add them via the declarative 
 
 ```nix
 services.fabric-agent.settings.plugins.enabled = [
-  "hermes-lcm"
+  "fabric-lcm"
   "rtk-rewrite"
 ];
 ```

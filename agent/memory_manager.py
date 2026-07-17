@@ -710,7 +710,7 @@ class MemoryManager:
     def _strip_skill_scaffolding(text: str) -> Optional[str]:
         """Return memory-worthy user text, or None to skip the turn.
 
-        When a user invokes a /skill or /bundle, Hermes expands the turn into
+        When a user invokes a /skill or /bundle, Fabric expands the turn into
         a model-facing message that embeds the entire skill body. Feeding that
         verbatim to memory providers pollutes their stores/embeddings with
         prompt scaffolding instead of what the user actually asked. We recover
@@ -1478,13 +1478,13 @@ class MemoryManager:
     def initialize_all(self, session_id: str, **kwargs) -> Dict[str, str]:
         """Initialize all providers.
 
-        Automatically injects ``hermes_home`` into *kwargs* so that every
+        Automatically injects ``fabric_home`` into *kwargs* so that every
         provider can resolve profile-scoped storage paths without importing
         ``get_fabric_home()`` themselves.
         """
-        if "hermes_home" not in kwargs:
+        if "fabric_home" not in kwargs:
             from fabric_constants import get_fabric_home
-            kwargs["hermes_home"] = str(get_fabric_home())
+            kwargs["fabric_home"] = str(get_fabric_home())
         outcomes: Dict[str, str] = {}
         self._initialized_session_id = str(session_id or "")
         for provider in self._providers:

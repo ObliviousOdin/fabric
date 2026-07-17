@@ -30,7 +30,7 @@ from fabric_cli.config import (
 )
 
 
-class TestGetHermesHome:
+class TestGetFabricHome:
     def test_default_path(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("HERMES_HOME", None)
@@ -45,7 +45,7 @@ class TestGetHermesHome:
             assert home == Path("/custom/path")
 
 
-class TestEnsureHermesHome:
+class TestEnsureFabricHome:
     def test_creates_subdirs(self, tmp_path):
         with patch.dict(os.environ, {"HERMES_HOME": str(tmp_path)}):
             ensure_fabric_home()
@@ -136,7 +136,7 @@ class TestLoadConfigParseFailure:
     Before issue #23570 this was a single ``print(...)`` that scrolled past
     on the first invocation — users saw aux-fallback misbehavior with no clue
     their config.yaml was being ignored. The helper must:
-      * log at WARNING (so ``hermes logs`` surfaces it)
+      * log at WARNING (so ``fabric logs`` surfaces it)
       * also write to stderr (so it's visible at startup even before
         ``setup_logging()`` has wired up file handlers)
       * dedup on (path, mtime_ns, size) so concurrent loads don't spam
@@ -167,7 +167,7 @@ class TestLoadConfigParseFailure:
             ), f"expected WARNING log, got: {[r.message for r in caplog.records]}"
 
             # stderr also got a user-visible message (with the ⚠️ marker so it
-            # stands out at hermes startup before logging is configured)
+            # stands out at fabric startup before logging is configured)
             captured = capsys.readouterr()
             assert "fabric config:" in captured.err
             assert str(tmp_path / "config.yaml") in captured.err
@@ -1283,13 +1283,13 @@ class TestUserMessagePreviewConfig:
 class TestEnvWriteDenylist:
     """``save_env_value`` refuses to persist env-var names that
     influence how subprocesses execute — ``LD_PRELOAD``, ``PYTHONPATH``,
-    ``PATH``, ``EDITOR``, etc. — or any ``HERMES_*`` runtime flag.
+    ``PATH``, ``EDITOR``, etc. — or any ``FABRIC_*`` runtime flag.
 
     The dashboard exposes ``PUT /api/env`` to any authed caller (and
     the session token lives in the SPA's HTML where any future plugin
     XSS or local process could exfiltrate it). Without this gate, an
     attacker who steals the token could plant
-    ``LD_PRELOAD=/tmp/evil.so`` in ``.env`` and own the next Hermes
+    ``LD_PRELOAD=/tmp/evil.so`` in ``.env`` and own the next Fabric
     process on next startup via the dotenv → ``os.environ`` chain in
     ``fabric_cli/env_loader.py``.
 
@@ -1348,10 +1348,10 @@ class TestEnvWriteDenylist:
             "HERMES_MAX_ITERATIONS",
         ],
     )
-    def test_hermes_integration_keys_still_writable(self, allowed_key):
-        """``HERMES_*`` overall is NOT blocked — only the four runtime
+    def test_fabric_integration_keys_still_writable(self, allowed_key):
+        """``FABRIC_*`` overall is NOT blocked — only the four runtime
         location names (HOME/PROFILE/CONFIG/ENV) are. Integration
-        credentials following the ``HERMES_*`` convention must keep
+        credentials following the ``FABRIC_*`` convention must keep
         working or we'd regress every provider setup wizard that
         currently writes one of these (auth.py, Spotify, Langfuse, …)."""
         save_env_value(allowed_key, "test-value-123")
@@ -1366,7 +1366,7 @@ class TestEnvWriteDenylist:
 
     def test_arbitrary_user_key_still_works(self):
         """Plugin / user-defined env vars (anything outside the
-        denylist and outside ``HERMES_*``) keep working. The denylist
+        denylist and outside ``FABRIC_*``) keep working. The denylist
         is narrow on purpose."""
         save_env_value("MY_PLUGIN_TOKEN", "plugin-secret-123")
         env = load_env()
@@ -1800,12 +1800,12 @@ class TestCodexAppServerAutoConfig:
                 tmp_path,
                 "_config_version: 31\n"
                 "compression:\n"
-                "  codex_app_server_auto: hermes\n",
+                "  codex_app_server_auto: fabric\n",
             )
 
             migrate_config(interactive=False, quiet=True)
 
             raw = yaml.safe_load((tmp_path / "config.yaml").read_text())
-            assert raw["compression"]["codex_app_server_auto"] == "hermes"
+            assert raw["compression"]["codex_app_server_auto"] == "fabric"
 
 

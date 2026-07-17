@@ -70,7 +70,7 @@ describe("usePlugins asset loading", () => {
     await act(async () => root.unmount());
     container.remove();
     document
-      .querySelectorAll('[data-hermes-plugin], link[href^="/dashboard-plugins/"]')
+      .querySelectorAll('[data-fabric-plugin], link[href^="/dashboard-plugins/"]')
       .forEach((element) => element.remove());
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
   });
@@ -95,9 +95,9 @@ describe("usePlugins asset loading", () => {
     });
 
     expect(container.textContent).toBe("ready");
-    expect(document.querySelector('[data-hermes-plugin="work"]')).not.toBeNull();
+    expect(document.querySelector('[data-fabric-plugin="work"]')).not.toBeNull();
     expect(
-      document.querySelector('[data-hermes-plugin="team-pages"]'),
+      document.querySelector('[data-fabric-plugin="team-pages"]'),
     ).toBeNull();
   });
 
@@ -121,7 +121,7 @@ describe("usePlugins asset loading", () => {
 
     expect(container.textContent).toBe("ready");
     expect(
-      document.querySelector('[data-hermes-plugin="team-pages"]'),
+      document.querySelector('[data-fabric-plugin="team-pages"]'),
     ).not.toBeNull();
   });
 

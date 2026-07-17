@@ -59,9 +59,9 @@ def get_env_value(name: str, default=None):
     xAI credential resolver.
     """
     try:
-        from fabric_cli.config import get_env_value as _hermes_get_env_value
+        from fabric_cli.config import get_env_value as _fabric_get_env_value
 
-        value = _hermes_get_env_value(name)
+        value = _fabric_get_env_value(name)
         if value is not None:
             return value
     except Exception:
@@ -69,7 +69,7 @@ def get_env_value(name: str, default=None):
     return os.environ.get(name, default)
 
 
-def hermes_xai_user_agent() -> str:
+def fabric_xai_user_agent() -> str:
     """Return a stable Fabric-specific User-Agent for xAI HTTP calls."""
     try:
         from fabric_cli import __version__
@@ -224,9 +224,9 @@ def maybe_mark_xai_storage_notice_seen(section_name: str) -> Optional[str]:
 def resolve_xai_http_credentials(*, force_refresh: bool = False) -> Dict[str, str]:
     """Resolve bearer credentials for direct xAI HTTP endpoints.
 
-    Prefers Hermes-managed xAI OAuth credentials when available, then falls back
+    Prefers Fabric-managed xAI OAuth credentials when available, then falls back
     to ``XAI_API_KEY`` resolved via ``fabric_cli.config.get_env_value`` so keys
-    stored in ``~/.hermes/.env`` (the standard Hermes location) are honored —
+    stored in ``~/.hermes/.env`` (the standard Fabric location) are honored —
     not just ones already exported into ``os.environ``. This keeps direct xAI
     endpoints (images, TTS, STT, etc.) aligned with the main runtime auth model
     and preserves the regression contract from PR #17140 / #17163.

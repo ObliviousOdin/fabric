@@ -23,7 +23,7 @@ describe('branded desktop translation catalog', () => {
   it('brands arbitrary nested strings and functions at the catalog boundary', () => {
     const branded = brandTranslationCatalog({
       message: 'Fabric',
-      nested: { dynamic: (name: string) => `Hermes welcomes ${name}` }
+      nested: { dynamic: (name: string) => `Fabric welcomes ${name}` }
     } as never) as unknown as {
       message: string
       nested: { dynamic: (name: string) => string }

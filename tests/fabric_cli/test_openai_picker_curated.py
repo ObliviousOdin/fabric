@@ -10,7 +10,7 @@ Bug 1 — OpenAI picker dumped the raw ``/v1/models`` catalog
     verbatim so discovery still works.
 
 Bug 2 — OpenRouter appeared authenticated whenever OPENAI_API_KEY was set
-    OpenRouter's HermesOverlay carried ``extra_env_vars=("OPENAI_API_KEY",)``.
+    OpenRouter's FabricOverlay carried ``extra_env_vars=("OPENAI_API_KEY",)``.
     ``list_authenticated_providers`` reads ``extra_env_vars`` to decide whether
     a provider has credentials, so any OpenAI user saw a phantom OpenRouter
     row. The overlay entry is removed; runtime credential resolution still

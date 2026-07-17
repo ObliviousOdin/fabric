@@ -194,7 +194,7 @@ def load_env_file(env_path: Path) -> Dict[str, str]:
     return secrets
 
 
-def build_profile_secret_scope(hermes_home: Path) -> Dict[str, str]:
+def build_profile_secret_scope(fabric_home: Path) -> Dict[str, str]:
     """Build a complete, non-mutating credential scope for one profile.
 
     Precedence is profile ``.env`` (plus the optional 1Password bootstrap
@@ -203,7 +203,7 @@ def build_profile_secret_scope(hermes_home: Path) -> Dict[str, str]:
     against the profile mapping and never seeds from arbitrary process-global
     provider credentials. A fresh dict is returned on every call.
     """
-    home = Path(hermes_home)
+    home = Path(fabric_home)
     secrets = load_env_file(home / ".env")
     for key, value in load_env_file(home / ".op.env").items():
         secrets.setdefault(key, value)

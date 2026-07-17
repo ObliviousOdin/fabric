@@ -671,7 +671,7 @@ def test_save_platform_tools_does_not_preserve_platform_default_toolsets():
     assert "moa" not in saved
 
 
-def test_save_platform_tools_does_not_preserve_hermes_telegram():
+def test_save_platform_tools_does_not_preserve_fabric_telegram():
     """Same bug for Telegram — hermes-telegram must not be preserved."""
     config = {
         "platform_toolsets": {
@@ -1895,14 +1895,14 @@ def test_get_platform_tools_recovers_non_configurable_toolsets_from_composite():
         "tools": ["_test_special_tool"],
         "includes": [],
     }
-    fake_toolsets["hermes-_test_platform"] = {
+    fake_toolsets["fabric-_test_platform"] = {
         "description": "test composite",
         "tools": ["web_search", "web_extract", "terminal", "process", "_test_special_tool"],
         "includes": [],
     }
 
     test_platforms = {
-        "_test_platform": {"label": "Test", "default_toolset": "hermes-_test_platform"},
+        "_test_platform": {"label": "Test", "default_toolset": "fabric-_test_platform"},
     }
 
     with mock_patch("fabric_cli.tools_config.PLATFORMS", {**PLATFORMS, **test_platforms}):

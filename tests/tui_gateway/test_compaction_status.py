@@ -21,7 +21,7 @@ def server():
         "sys.modules",
         {
             "fabric_constants": MagicMock(
-                get_fabric_home=MagicMock(return_value="/tmp/hermes_test_compaction")
+                get_fabric_home=MagicMock(return_value="/tmp/fabric_test_compaction")
             ),
             "fabric_cli.env_loader": MagicMock(),
             "fabric_cli.banner": MagicMock(),

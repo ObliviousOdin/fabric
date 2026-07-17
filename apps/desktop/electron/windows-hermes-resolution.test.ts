@@ -12,7 +12,7 @@
 //      shim, written at the END of venv setup and absent in interrupted
 //      states), so it escalated to a full venv recreate even on healthy
 //      installs.
-//   3. unwrapWindowsVenvHermesCommand() returned the venv python with NO
+//   3. unwrapWindowsVenvFabricCommand() returned the venv python with NO
 //      runtime probe (bypassing the caller's --version check too), so a venv
 //      broken mid-update (e.g. missing python-dotenv) was re-selected forever:
 //      Retry / "Repair install" resolved the same dead interpreter instead of
@@ -52,11 +52,11 @@ test('runtime resolution prefers the Fabric CLI and retains the legacy command f
   assert.match(
     source,
     /findOnPath\('fabric'\) \|\| findOnPath\('hermes'\)/,
-    'the public Fabric command must be resolved before the legacy Hermes shim'
+    'the public Fabric command must be resolved before the legacy Fabric shim'
   )
   assert.match(
     source,
-    /\^\(\?:fabric\|hermes\)\(\?:\\\.exe\)\?\$/,
+    /\^\(\?:fabric\|fabric\)\(\?:\\\.exe\)\?\$/,
     'Windows venv unwrapping must accept both current and legacy executable names'
   )
 })
@@ -74,21 +74,21 @@ test('Windows bootstrap recovery chooses --update when any real-install signal i
   // The old too-narrow check (only venv\Scripts\hermes.exe) must not return.
   assert.doesNotMatch(
     source,
-    /updaterArgs = fileExists\(venvHermes\) \?/,
+    /updaterArgs = fileExists\(venvFabric\) \?/,
     'recovery regressed to gating only on the hermes.exe shim, which forces destructive --repair'
   )
 })
 
-test('unwrapWindowsVenvHermesCommand smoke-tests the venv python before trusting it', () => {
+test('unwrapWindowsVenvFabricCommand smoke-tests the venv python before trusting it', () => {
   const source = readMain()
-  const fnStart = source.indexOf('function unwrapWindowsVenvHermesCommand(')
-  assert.notEqual(fnStart, -1, 'unwrapWindowsVenvHermesCommand must exist in main.ts')
+  const fnStart = source.indexOf('function unwrapWindowsVenvFabricCommand(')
+  assert.notEqual(fnStart, -1, 'unwrapWindowsVenvFabricCommand must exist in main.ts')
   // Slice out just the function body (up to the next top-level function decl)
   const fnEnd = source.indexOf('\nfunction ', fnStart + 1)
   const body = source.slice(fnStart, fnEnd === -1 ? undefined : fnEnd)
   assert.match(
     body,
-    /canImportHermesCli\(python/,
+    /canImportFabricCli\(python/,
     'unwrap must probe the venv interpreter; returning it unprobed re-selects a broken venv ' +
       'forever (Retry/Repair loop on a mid-update venv missing e.g. python-dotenv)'
   )

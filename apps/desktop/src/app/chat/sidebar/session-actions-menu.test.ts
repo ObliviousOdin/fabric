@@ -16,7 +16,7 @@ const activeGateway = vi.fn<() => { request: typeof request } | null>(() => ({ r
 
 vi.mock('@/hermes', () => ({
   renameSession: (...args: unknown[]) => renameSession(...(args as [])),
-  HermesGateway: class {}
+  FabricGateway: class {}
 }))
 
 vi.mock('@/store/gateway', () => ({

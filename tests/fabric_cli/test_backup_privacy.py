@@ -176,8 +176,8 @@ def test_marked_custom_backup_is_blocked_from_model_and_gateway_paths(
     created_archive.rename(archive)
 
     with (
-        patch("agent.file_safety._hermes_home_path", return_value=fabric_home),
-        patch("agent.file_safety._hermes_root_path", return_value=fabric_home),
+        patch("agent.file_safety._fabric_home_path", return_value=fabric_home),
+        patch("agent.file_safety._fabric_root_path", return_value=fabric_home),
     ):
         assert get_read_block_error(str(archive)) is not None
 
@@ -407,7 +407,7 @@ def test_huge_sparse_archive_classification_is_bounded(
 def test_similarly_named_non_archive_is_not_private(tmp_path: Path) -> None:
     fabric_home = tmp_path / ".fabric"
     fabric_home.mkdir()
-    ordinary = tmp_path / "hermes-backup-project-notes.payload"
+    ordinary = tmp_path / "fabric-backup-project-notes.payload"
     ordinary.write_text("This is a normal project report, not an archive.\n")
 
     assert not _is_private(ordinary, fabric_home)
@@ -416,7 +416,7 @@ def test_similarly_named_non_archive_is_not_private(tmp_path: Path) -> None:
 def test_similarly_named_valid_project_zip_is_not_private(tmp_path: Path) -> None:
     fabric_home = tmp_path / ".fabric"
     fabric_home.mkdir()
-    ordinary = tmp_path / "hermes-backup-project.zip"
+    ordinary = tmp_path / "fabric-backup-project.zip"
     _write_zip(ordinary, {"config.yaml": "project-local: true\n"})
 
     assert not _is_private(ordinary, fabric_home)
@@ -431,7 +431,7 @@ def test_nested_private_archive_is_excluded_but_similar_project_zip_is_kept(
     nested = fabric_home / "exports"
     nested.mkdir(parents=True)
     private_archive = nested / "renamed.data"
-    project_archive = nested / "hermes-backup-project.zip"
+    project_archive = nested / "fabric-backup-project.zip"
     _write_zip(
         private_archive,
         {"sessions/one.json": "{}", "skills/custom/SKILL.md": "# skill"},
@@ -444,7 +444,7 @@ def test_nested_private_archive_is_excluded_but_similar_project_zip_is_kept(
     with zipfile.ZipFile(output) as backup_zip:
         names = set(backup_zip.namelist())
     assert "exports/renamed.data" not in names
-    assert "exports/hermes-backup-project.zip" in names
+    assert "exports/fabric-backup-project.zip" in names
 
 
 def test_pinned_capability_rejects_path_replacement_and_in_place_mutation(
@@ -1132,8 +1132,8 @@ def test_ordinary_directory_is_not_private_and_directory_search_is_not_blocked(
     project = tmp_path / "ordinary-project"
     project.mkdir()
     (project / "notes.txt").write_text("searchable\n")
-    monkeypatch.setattr(file_safety, "_hermes_home_path", lambda: fabric_home)
-    monkeypatch.setattr(file_safety, "_hermes_root_path", lambda: fabric_home)
+    monkeypatch.setattr(file_safety, "_fabric_home_path", lambda: fabric_home)
+    monkeypatch.setattr(file_safety, "_fabric_root_path", lambda: fabric_home)
 
     assert not _is_private(project, fabric_home)
     assert file_safety.get_read_block_error(str(project)) is None
@@ -1281,7 +1281,7 @@ def test_quick_snapshot_tree_is_owner_only_with_umask_zero(
     (fabric_home / "config.yaml").write_text("model: local\n")
     previous_umask = os.umask(0)
     try:
-        snapshot_id = create_quick_snapshot(hermes_home=fabric_home)
+        snapshot_id = create_quick_snapshot(fabric_home=fabric_home)
     finally:
         os.umask(previous_umask)
 
@@ -1318,7 +1318,7 @@ def test_quick_snapshot_regular_file_is_private_before_first_byte(
 
     monkeypatch.setattr(backup, "_copy_to_private_descriptor", checked_copy)
 
-    snapshot_id = backup.create_quick_snapshot(hermes_home=fabric_home)
+    snapshot_id = backup.create_quick_snapshot(fabric_home=fabric_home)
 
     assert snapshot_id is not None
     assert any(path.name == "config.yaml" for path in observed)
@@ -1371,7 +1371,7 @@ def test_windows_quick_and_db_staging_apply_dacl_before_bytes(
         checked_open,
     )
 
-    snapshot_id = backup.create_quick_snapshot(hermes_home=fabric_home)
+    snapshot_id = backup.create_quick_snapshot(fabric_home=fabric_home)
     output = tmp_path / "full.zip"
     assert backup._write_full_zip_backup(output, fabric_home) == output
 
@@ -1522,8 +1522,8 @@ def test_local_content_search_pins_and_classifies_before_match_bytes(
             swapped = True
         return result
 
-    monkeypatch.setattr(file_safety, "_hermes_home_path", lambda: fabric_home)
-    monkeypatch.setattr(file_safety, "_hermes_root_path", lambda: fabric_home)
+    monkeypatch.setattr(file_safety, "_fabric_home_path", lambda: fabric_home)
+    monkeypatch.setattr(file_safety, "_fabric_root_path", lambda: fabric_home)
     monkeypatch.setattr(
         privacy,
         "classify_pinned_provider_account_path",
@@ -1664,7 +1664,7 @@ def test_failed_quick_snapshot_cannot_delete_prior_same_timestamp_snapshot(
             return fixed
 
     monkeypatch.setattr(backup, "datetime", FrozenDateTime)
-    first_id = backup.create_quick_snapshot(hermes_home=fabric_home)
+    first_id = backup.create_quick_snapshot(fabric_home=fabric_home)
     assert first_id is not None
     first_snapshot = fabric_home / "state-snapshots" / first_id
     assert (first_snapshot / "config.yaml").read_text() == "model: first\n"
@@ -1673,7 +1673,7 @@ def test_failed_quick_snapshot_cannot_delete_prior_same_timestamp_snapshot(
         raise PermissionError("deterministic failed attempt")
 
     monkeypatch.setattr(backup, "_copy_to_private_descriptor", fail_copy)
-    assert backup.create_quick_snapshot(hermes_home=fabric_home) is None
+    assert backup.create_quick_snapshot(fabric_home=fabric_home) is None
 
     assert first_snapshot.is_dir()
     assert (first_snapshot / "config.yaml").read_text() == "model: first\n"
@@ -1697,7 +1697,7 @@ def test_quick_snapshot_label_is_metadata_only_and_id_is_direct_child(
 
     snapshot_id = backup.create_quick_snapshot(
         label=label,
-        hermes_home=fabric_home,
+        fabric_home=fabric_home,
     )
 
     assert snapshot_id is not None

@@ -428,15 +428,15 @@ class TestSlackNativeSlashes:
         reserved_norm = {_norm(n) for n in _SLACK_RESERVED_COMMANDS}
         # Commands deliberately routed through /hermes <command> on Slack only
         # (Slack's 50-slash cap) are expected to be absent from native slashes.
-        via_hermes_norm = {_norm(n) for n in _SLACK_VIA_HERMES_ONLY}
-        missing = (tg_norm - slack_norm) - reserved_norm - via_hermes_norm
+        via_fabric_norm = {_norm(n) for n in _SLACK_VIA_HERMES_ONLY}
+        missing = (tg_norm - slack_norm) - reserved_norm - via_fabric_norm
         assert not missing, (
             f"commands on Telegram but missing from Slack native slashes: {sorted(missing)}"
         )
 
 
 class TestSlackAppManifest:
-    """Generated Slack app manifest (used by `hermes slack manifest`)."""
+    """Generated Slack app manifest (used by `fabric slack manifest`)."""
 
     def test_returns_dict(self):
         m = slack_app_manifest()
@@ -461,7 +461,7 @@ class TestSlackAppManifest:
         commands = [c["command"] for c in m["features"]["slash_commands"]]
         assert "/btw" in commands
 
-    def test_manifest_uses_fabric_catchall_not_legacy_hermes(self):
+    def test_manifest_uses_fabric_catchall_not_legacy_fabric(self):
         commands = [
             entry["command"]
             for entry in slack_app_manifest()["features"]["slash_commands"]

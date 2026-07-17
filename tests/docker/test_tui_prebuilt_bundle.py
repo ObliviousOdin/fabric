@@ -22,13 +22,13 @@ import subprocess
 
 
 def _exec_py(image: str, py: str) -> str:
-    """Run a Python snippet inside the image as the hermes user, return stdout."""
+    """Run a Python snippet inside the image as the fabric user, return stdout."""
     inner = (
         "source /opt/hermes/.venv/bin/activate && "
         "cd /opt/hermes && "
         f"python3 -c {shlex.quote(py)}"
     )
-    # Drop to the hermes user (UID 10000) so we exercise the same path the
+    # Drop to the fabric user (UID 10000) so we exercise the same path the
     # dashboard PTY child runs as — not root.
     cmd = [
         "docker", "run", "--rm", "--entrypoint", "su", image,
@@ -39,7 +39,7 @@ def _exec_py(image: str, py: str) -> str:
     return r.stdout.strip()
 
 
-def test_hermes_tui_dir_env_is_set(built_image: str) -> None:
+def test_fabric_tui_dir_env_is_set(built_image: str) -> None:
     """HERMES_TUI_DIR must point at the prebuilt bundle dir in the image."""
     r = subprocess.run(
         ["docker", "run", "--rm", "--entrypoint", "sh", built_image,

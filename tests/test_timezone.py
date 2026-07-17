@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import fabric_time
 
 
-def _reset_hermes_time_cache():
+def _reset_fabric_time_cache():
     """Reset the fabric_time module cache (replacement for removed reset_cache)."""
     fabric_time._cached_tz = None
     fabric_time._cached_tz_name = None
@@ -31,14 +31,14 @@ def _reset_hermes_time_cache():
 # fabric_time.now() — core helper
 # =========================================================================
 
-class TestHermesTimeNow:
+class TestFabricTimeNow:
     """Test the timezone-aware now() helper."""
 
     def setup_method(self):
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
     def teardown_method(self):
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
         os.environ.pop("HERMES_TIMEZONE", None)
 
     def test_valid_timezone_applies(self):
@@ -93,12 +93,12 @@ class TestHermesTimeNow:
     def test_cache_invalidation(self):
         """Changing env var + reset_cache picks up new timezone."""
         os.environ["HERMES_TIMEZONE"] = "UTC"
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
         r1 = fabric_time.now()
         assert r1.utcoffset() == timedelta(0)
 
         os.environ["HERMES_TIMEZONE"] = "Asia/Kolkata"
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
         r2 = fabric_time.now()
         assert r2.utcoffset() == timedelta(hours=5, minutes=30)
 
@@ -107,10 +107,10 @@ class TestGetTimezone:
     """Test get_timezone()."""
 
     def setup_method(self):
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
     def teardown_method(self):
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
         os.environ.pop("HERMES_TIMEZONE", None)
 
     def test_returns_zoneinfo_for_valid(self):
@@ -211,10 +211,10 @@ class TestCronTimezone:
     """Verify cron paths use timezone-aware now()."""
 
     def setup_method(self):
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
     def teardown_method(self):
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
         os.environ.pop("HERMES_TIMEZONE", None)
 
     def test_parse_schedule_duration_uses_tz_aware_now(self):
@@ -243,7 +243,7 @@ class TestCronTimezone:
         monkeypatch.setattr(jobs_module, "OUTPUT_DIR", tmp_path / "cron" / "output")
 
         os.environ["HERMES_TIMEZONE"] = "Asia/Kolkata"
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
         # Create a job with a NAIVE past timestamp (simulating pre-tz data)
         from cron.jobs import create_job, load_jobs, save_jobs, get_due_jobs
@@ -261,14 +261,14 @@ class TestCronTimezone:
     def test_ensure_aware_naive_preserves_absolute_time(self):
         """_ensure_aware must preserve the absolute instant for naive datetimes.
 
-        Regression: the old code used replace(tzinfo=hermes_tz) which shifted
-        absolute time when system-local tz != Hermes tz.  The fix interprets
+        Regression: the old code used replace(tzinfo=fabric_tz) which shifted
+        absolute time when system-local tz != Fabric tz.  The fix interprets
         naive values as system-local wall time, then converts.
         """
         from cron.jobs import _ensure_aware
 
         os.environ["HERMES_TIMEZONE"] = "Asia/Kolkata"
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
         # Create a naive datetime — will be interpreted as system-local time
         naive_dt = datetime(2026, 3, 11, 12, 0, 0)
@@ -287,28 +287,28 @@ class TestCronTimezone:
             f"Absolute time shifted: expected {expected_utc}, got {actual_utc}"
         )
 
-    def test_ensure_aware_normalizes_aware_to_hermes_tz(self):
-        """Already-aware datetimes should be normalized to Hermes tz."""
+    def test_ensure_aware_normalizes_aware_to_fabric_tz(self):
+        """Already-aware datetimes should be normalized to Fabric tz."""
         from cron.jobs import _ensure_aware
 
         os.environ["HERMES_TIMEZONE"] = "Asia/Kolkata"
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
         # Create an aware datetime in UTC
         utc_dt = datetime(2026, 3, 11, 15, 0, 0, tzinfo=timezone.utc)
         result = _ensure_aware(utc_dt)
 
-        # Must be in Hermes tz (Kolkata) but same absolute instant
+        # Must be in Fabric tz (Kolkata) but same absolute instant
         kolkata = ZoneInfo("Asia/Kolkata")
         assert result.utctimetuple()[:5] == (2026, 3, 11, 15, 0)
         expected_local = utc_dt.astimezone(kolkata)
         assert result == expected_local
 
     def test_ensure_aware_due_job_not_skipped_when_system_ahead(self, tmp_path, monkeypatch):
-        """Reproduce the actual bug: system tz ahead of Hermes tz caused
+        """Reproduce the actual bug: system tz ahead of Fabric tz caused
         overdue jobs to appear as not-yet-due.
 
-        Scenario: system is Asia/Kolkata (UTC+5:30), Hermes is UTC.
+        Scenario: system is Asia/Kolkata (UTC+5:30), Fabric is UTC.
         A naive timestamp from 5 minutes ago (local time) should still
         be recognized as due after conversion.
         """
@@ -318,7 +318,7 @@ class TestCronTimezone:
         monkeypatch.setattr(jobs_module, "OUTPUT_DIR", tmp_path / "cron" / "output")
 
         os.environ["HERMES_TIMEZONE"] = "UTC"
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
         from cron.jobs import create_job, load_jobs, save_jobs, get_due_jobs
 
@@ -338,18 +338,18 @@ class TestCronTimezone:
         )
 
     def test_get_due_jobs_naive_cross_timezone(self, tmp_path, monkeypatch):
-        """Naive past timestamps must be detected as due even when Hermes tz
+        """Naive past timestamps must be detected as due even when Fabric tz
         is behind system local tz — the scenario that triggered #806."""
         import cron.jobs as jobs_module
         monkeypatch.setattr(jobs_module, "CRON_DIR", tmp_path / "cron")
         monkeypatch.setattr(jobs_module, "JOBS_FILE", tmp_path / "cron" / "jobs.json")
         monkeypatch.setattr(jobs_module, "OUTPUT_DIR", tmp_path / "cron" / "output")
 
-        # Use a Hermes timezone far behind UTC so that the numeric wall time
-        # of the naive timestamp exceeds _hermes_now's wall time — this would
+        # Use a Fabric timezone far behind UTC so that the numeric wall time
+        # of the naive timestamp exceeds _fabric_now's wall time — this would
         # have caused a false "not due" with the old replace(tzinfo=...) approach.
         os.environ["HERMES_TIMEZONE"] = "Pacific/Midway"  # UTC-11
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
         from cron.jobs import create_job, load_jobs, save_jobs, get_due_jobs
         create_job(prompt="Cross-tz job", schedule="every 1h")
@@ -362,7 +362,7 @@ class TestCronTimezone:
 
         due = get_due_jobs()
         assert len(due) == 1, (
-            "Naive past timestamp should be due regardless of Hermes timezone"
+            "Naive past timestamp should be due regardless of Fabric timezone"
         )
 
     def test_create_job_stores_tz_aware_timestamps(self, tmp_path, monkeypatch):
@@ -373,7 +373,7 @@ class TestCronTimezone:
         monkeypatch.setattr(jobs_module, "OUTPUT_DIR", tmp_path / "cron" / "output")
 
         os.environ["HERMES_TIMEZONE"] = "US/Eastern"
-        _reset_hermes_time_cache()
+        _reset_fabric_time_cache()
 
         from cron.jobs import create_job
         job = create_job(prompt="TZ test", schedule="every 2h")

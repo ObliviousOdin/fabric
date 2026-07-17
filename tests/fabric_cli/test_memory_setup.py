@@ -185,7 +185,7 @@ def test_cmd_setup_clears_interactive_picker_before_provider_post_setup(monkeypa
     events = []
 
     class PostSetupProvider:
-        def post_setup(self, hermes_home, config):
+        def post_setup(self, fabric_home, config):
             events.append("post_setup")
 
     monkeypatch.setattr(memory_setup, "_get_available_providers", lambda: [("openviking", "local", PostSetupProvider())])
@@ -197,7 +197,7 @@ def test_cmd_setup_clears_interactive_picker_before_provider_post_setup(monkeypa
         lambda config, name: events.append("consent") or True,
     )
     monkeypatch.setattr(memory_setup, "_install_dependencies", lambda name: events.append("install"))
-    monkeypatch.setattr(memory_setup, "get_fabric_home", lambda: "/tmp/hermes-test")
+    monkeypatch.setattr(memory_setup, "get_fabric_home", lambda: "/tmp/fabric-test")
     monkeypatch.setattr("fabric_cli.config.load_config", lambda: {"memory": {}})
 
     memory_setup.cmd_setup(SimpleNamespace())
@@ -209,7 +209,7 @@ def test_cmd_setup_provider_clears_before_provider_post_setup(monkeypatch):
     events = []
 
     class PostSetupProvider:
-        def post_setup(self, hermes_home, config):
+        def post_setup(self, fabric_home, config):
             events.append("post_setup")
 
     monkeypatch.setattr(memory_setup, "_get_available_providers", lambda: [("openviking", "local", PostSetupProvider())])
@@ -220,7 +220,7 @@ def test_cmd_setup_provider_clears_before_provider_post_setup(monkeypatch):
         lambda config, name: events.append("consent") or True,
     )
     monkeypatch.setattr(memory_setup, "_install_dependencies", lambda name: events.append("install"))
-    monkeypatch.setattr(memory_setup, "get_fabric_home", lambda: "/tmp/hermes-test")
+    monkeypatch.setattr(memory_setup, "get_fabric_home", lambda: "/tmp/fabric-test")
     monkeypatch.setattr("fabric_cli.config.load_config", lambda: {"memory": {}})
 
     memory_setup.cmd_setup_provider("openviking")
@@ -235,8 +235,8 @@ def test_cmd_setup_provider_explicit_slug_bypasses_curated_picker(monkeypatch):
         def get_config_schema(self):
             return []
 
-        def post_setup(self, hermes_home, config):
-            events.append(("post_setup", hermes_home))
+        def post_setup(self, fabric_home, config):
+            events.append(("post_setup", fabric_home))
 
     provider = InstalledProvider()
     monkeypatch.setattr(memory_setup, "_get_available_providers", lambda: [])

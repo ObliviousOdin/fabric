@@ -212,7 +212,7 @@ class TestParseFrontmatterQuick:
         assert fm == {}
 
     def test_nested_yaml(self):
-        content = "---\nname: test\nmetadata:\n  hermes:\n    tags: [a, b]\n---\n\nBody.\n"
+        content = "---\nname: test\nmetadata:\n  fabric:\n    tags: [a, b]\n---\n\nBody.\n"
         fm = GitHubSource._parse_frontmatter_quick(content)
         assert fm["metadata"]["hermes"]["tags"] == ["a", "b"]
 
@@ -398,7 +398,7 @@ class TestTrustLevelFor:
 
     def test_nvidia_skills_tap_is_registered_and_trusted(self):
         # Invariant: every trusted repo in TRUSTED_REPOS that we want
-        # browseable/searchable through `hermes skills browse` must also
+        # browseable/searchable through `fabric skills browse` must also
         # appear as a default tap on GitHubSource. Without the tap, the
         # repo's skills don't show up in search results or the docs-site
         # Skills Hub page even though the trust level is correct.
@@ -423,7 +423,7 @@ class TestTrustLevelFor:
             assert repo in tap_repos, (
                 f"Trusted repo {repo!r} is in TRUSTED_REPOS but missing "
                 "from GitHubSource.DEFAULT_TAPS — its skills will not be "
-                "browsable via `hermes skills browse`."
+                "browsable via `fabric skills browse`."
             )
 
 
@@ -1118,7 +1118,7 @@ class TestUrlSource:
                 "name: sharethis-chat\n"
                 "description: Share agent conversations.\n"
                 "metadata:\n"
-                "  hermes:\n"
+                "  fabric:\n"
                 "    tags: [sharing, chat]\n"
                 "---\n\n# Body\n"
             ),
@@ -1140,7 +1140,7 @@ class TestUrlSource:
             text=(
                 "---\nname: canonical\ndescription: Canonical tags.\n"
                 "metadata:\n"
-                "  hermes:\n    tags: [legacy]\n"
+                "  fabric:\n    tags: [legacy]\n"
                 "  fabric:\n    tags: [canonical]\n"
                 "---\n# Body\n"
             ),
@@ -2292,7 +2292,7 @@ class TestGithubProviderLabeling:
         gs._fetch_file_content = lambda repo, path: (
             "---\nname: foo\ndescription: bar.\n"
             "metadata:\n"
-            "  hermes:\n    tags: [legacy]\n"
+            "  fabric:\n    tags: [legacy]\n"
             "  fabric:\n    tags: [canonical]\n"
             "---\n# Body\n"
         )
@@ -2304,15 +2304,15 @@ class TestGithubProviderLabeling:
 
 
 def _make_index_source(skills):
-    """Build a HermesIndexSource pre-loaded with a fixed skill list."""
-    from tools.skills_hub import HermesIndexSource
-    src = HermesIndexSource(auth=GitHubAuth())
+    """Build a FabricIndexSource pre-loaded with a fixed skill list."""
+    from tools.skills_hub import FabricIndexSource
+    src = FabricIndexSource(auth=GitHubAuth())
     src._index = {"skills": skills}
     src._loaded = True
     return src
 
 
-class TestHermesIndexSearch:
+class TestFabricIndexSearch:
     def test_search_matches_identifier_and_provider(self):
         # NVIDIA skill whose name/description does NOT contain "nvidia" — only
         # the identifier and the provider label do. The old substring-only
@@ -2554,7 +2554,7 @@ class TestOptionalSkillSourceMetadata:
         (skill_dir / "SKILL.md").write_text(
             "---\nname: canonical-skill\ndescription: test\n"
             "metadata:\n"
-            "  hermes:\n    tags: [legacy]\n"
+            "  fabric:\n    tags: [legacy]\n"
             "  fabric:\n    tags: [canonical]\n"
             "---\n# Body\n",
             encoding="utf-8",
@@ -2622,10 +2622,10 @@ class TestOptionalSkillSourceBinaryAssets:
 
 
 class TestQuarantineBundleBinaryAssets:
-    def test_hermes_index_metadata_cannot_claim_official_or_trusted(self):
+    def test_fabric_index_metadata_cannot_claim_official_or_trusted(self):
         import tools.skills_hub as hub
 
-        source = hub.HermesIndexSource(auth=MagicMock())
+        source = hub.FabricIndexSource(auth=MagicMock())
         source._loaded = True
         source._index = {
             "skills": [
@@ -6561,11 +6561,11 @@ class TestParallelSearchSourcesTimeout:
 
 
 # ---------------------------------------------------------------------------
-# _load_hermes_index — centralized index fetch (Browse-hub landing / search)
+# _load_fabric_index — centralized index fetch (Browse-hub landing / search)
 # ---------------------------------------------------------------------------
 
 
-class TestLoadHermesIndex:
+class TestLoadFabricIndex:
     """Regression coverage for the Skills-Hub index fetch.
 
     The centralized index is a large body served with Content-Encoding: br.
@@ -6582,7 +6582,7 @@ class TestLoadHermesIndex:
         import tools.skills_hub as hub
 
         cache_file = tmp_path / "hermes-index.json"
-        monkeypatch.setattr(hub, "_hermes_index_cache_file", lambda: cache_file)
+        monkeypatch.setattr(hub, "_fabric_index_cache_file", lambda: cache_file)
         return cache_file
 
     def test_fetch_does_not_request_brotli(self, monkeypatch, tmp_path):
@@ -6602,7 +6602,7 @@ class TestLoadHermesIndex:
 
         monkeypatch.setattr(hub.httpx, "get", fake_get)
 
-        data = hub._load_hermes_index()
+        data = hub._load_fabric_index()
         assert data == {"skills": [{"name": "x"}]}
 
         accept = captured["headers"].get("Accept-Encoding", "")
@@ -6628,7 +6628,7 @@ class TestLoadHermesIndex:
 
         monkeypatch.setattr(hub.httpx, "get", fake_get)
 
-        data = hub._load_hermes_index()
+        data = hub._load_fabric_index()
         assert data == {"skills": [{"name": "recovered"}]}
         assert attempts == ["identity"]
 
@@ -6651,5 +6651,5 @@ class TestLoadHermesIndex:
 
         monkeypatch.setattr(hub.httpx, "get", fake_get)
 
-        data = hub._load_hermes_index()
+        data = hub._load_fabric_index()
         assert data == {"skills": [{"name": "stale"}]}

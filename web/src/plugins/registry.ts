@@ -5,7 +5,7 @@
  * that plugin bundles can use them without bundling their own copies.
  *
  * Plugins call window.__FABRIC_PLUGINS__.register(name, Component) to register
- * their tab component. The legacy Hermes global remains a compatibility alias.
+ * their tab component. The legacy Fabric global remains a compatibility alias.
  */
 
 import React, {
@@ -232,7 +232,7 @@ export function exposePluginSDK() {
     useI18n,
   };
 
-  // Fabric-owned names are canonical. The Hermes globals remain aliases so
+  // Fabric-owned names are canonical. The Fabric globals remain aliases so
   // existing third-party plugin bundles keep working without a flag day.
   window.__FABRIC_PLUGINS__ = pluginRegistry;
   window.__FABRIC_PLUGIN_SDK__ = pluginSDK;

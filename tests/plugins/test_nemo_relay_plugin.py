@@ -204,7 +204,7 @@ def test_manifest_fields():
 
 
 def test_nemo_relay_plugin_is_discoverable_as_bundled_plugin(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "fabric_test"))
 
     manager = PluginManager()
     manager.discover_and_load()
@@ -264,7 +264,7 @@ def test_nemo_relay_plugin_emits_llm_tool_and_exports_atif(tmp_path, monkeypatch
     assert "tool.call" in event_names
     assert "tool.call_end" in event_names
     assert "scope.pop" in event_names
-    assert (tmp_path / "atif" / "hermes-atif-s1.json").exists()
+    assert (tmp_path / "atif" / "fabric-atif-s1.json").exists()
 
 
 def test_nemo_relay_plugin_closes_api_span_on_error(monkeypatch):
@@ -393,10 +393,10 @@ def test_nemo_relay_plugin_reparents_child_session_scope_for_embedded_atif(monke
     child_push = next(
         event
         for event in fake.events
-        if event[0] == "scope.push" and event[1] == "hermes-session-child-session"
+        if event[0] == "scope.push" and event[1] == "fabric-session-child-session"
     )
     child_kwargs = child_push[3]
-    assert child_kwargs["handle"] == ("scope", "hermes-session-parent-session")
+    assert child_kwargs["handle"] == ("scope", "fabric-session-parent-session")
     assert child_kwargs["metadata"]["session_id"] == "child-session"
     assert child_kwargs["metadata"]["trajectory_id"] == "child-session"
     assert child_kwargs["metadata"]["nemo_relay_scope_role"] == "subagent"
@@ -422,8 +422,8 @@ def test_nemo_relay_plugin_skips_embedded_child_atif_file_by_default(tmp_path, m
     plugin.on_session_end(session_id="parent-session")
     plugin.on_session_finalize(session_id="parent-session")
 
-    assert (tmp_path / "atif" / "hermes-atif-parent-session.json").exists()
-    assert not (tmp_path / "atif" / "hermes-atif-child-session.json").exists()
+    assert (tmp_path / "atif" / "fabric-atif-parent-session.json").exists()
+    assert not (tmp_path / "atif" / "fabric-atif-child-session.json").exists()
 
 
 def test_nemo_relay_plugin_can_write_embedded_child_atif_file_in_all_mode(tmp_path, monkeypatch):
@@ -445,8 +445,8 @@ def test_nemo_relay_plugin_can_write_embedded_child_atif_file_in_all_mode(tmp_pa
     plugin.on_session_end(session_id="parent-session")
     plugin.on_session_finalize(session_id="parent-session")
 
-    assert (tmp_path / "atif" / "hermes-atif-parent-session.json").exists()
-    assert (tmp_path / "atif" / "hermes-atif-child-session.json").exists()
+    assert (tmp_path / "atif" / "fabric-atif-parent-session.json").exists()
+    assert (tmp_path / "atif" / "fabric-atif-child-session.json").exists()
 
 
 def test_nemo_relay_plugin_can_initialize_plugins_toml(tmp_path, monkeypatch):
@@ -566,7 +566,7 @@ enabled = true
     assert runtime is not None
     assert runtime._plugin_config_initialized is True
     scope_push_names = [event[1] for event in fake.events if event[0] == "scope.push"]
-    assert "hermes-session-s2" in scope_push_names
+    assert "fabric-session-s2" in scope_push_names
 
 
 def test_nemo_relay_plugin_retries_plugins_toml_after_clear_failure(tmp_path, monkeypatch):
@@ -607,7 +607,7 @@ enabled = true
     assert event_names.count("plugin.initialize.attempt") == 2
     assert event_names.count("plugin.clear.failed") == 1
     scope_push_names = [event[1] for event in fake.events if event[0] == "scope.push"]
-    assert "hermes-session-s2" in scope_push_names
+    assert "fabric-session-s2" in scope_push_names
 
 
 def test_nemo_relay_plugin_disables_direct_atif_when_plugins_toml_owns_atif(tmp_path, monkeypatch):
@@ -639,7 +639,7 @@ output_directory = "{(tmp_path / "managed-atif").as_posix()}"
     assert "plugin.initialize" in event_names
     assert "plugin.clear" in event_names
     assert "atif.register" not in event_names
-    assert not (tmp_path / "direct-atif" / "hermes-atif-s1.json").exists()
+    assert not (tmp_path / "direct-atif" / "fabric-atif-s1.json").exists()
 
 
 def test_nemo_relay_plugin_keeps_direct_atif_when_plugins_toml_init_fails(tmp_path, monkeypatch):
@@ -677,7 +677,7 @@ output_directory = "{(tmp_path / "managed-atif").as_posix()}"
     assert "plugin.initialize.failed" in event_names
     assert "plugin.clear" not in event_names
     assert "atif.register" in event_names
-    assert (tmp_path / "direct-atif" / "hermes-atif-s1.json").exists()
+    assert (tmp_path / "direct-atif" / "fabric-atif-s1.json").exists()
 
 
 def test_nemo_relay_plugin_retries_plugins_toml_after_fallback_only_session_and_clears_direct_atof(

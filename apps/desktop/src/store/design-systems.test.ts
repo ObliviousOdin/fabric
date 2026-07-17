@@ -38,7 +38,7 @@ const system: ManagedDesignSystem = {
 function installBridge(api = vi.fn()) {
   const importZip = vi.fn()
 
-  Object.defineProperty(window, 'hermesDesktop', {
+  Object.defineProperty(window, 'fabricDesktop', {
     configurable: true,
     value: { api, importDesignSystemZip: importZip }
   })

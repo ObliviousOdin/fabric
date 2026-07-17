@@ -447,7 +447,7 @@ def _check_version_consistency(issues: list[str]) -> None:
     """Verify pyproject.toml version matches fabric_cli.__version__.
 
     A git conflict resolution (reset/merge) can revert one file without the
-    other, leaving ``hermes --version`` reporting a stale version while
+    other, leaving ``fabric --version`` reporting a stale version while
     ``pyproject.toml`` is current. Detect that drift so users can re-sync.
     Silent no-op for installed wheels where pyproject.toml isn't present.
     """
@@ -796,7 +796,7 @@ def run_doctor(args):
     # it safe to resolve .env and external secret managers.
     _env_path = get_env_path()
     load_fabric_dotenv(
-        hermes_home=_env_path.parent,
+        fabric_home=_env_path.parent,
         project_env=PROJECT_ROOT / ".env",
     )
 
@@ -1411,11 +1411,11 @@ def run_doctor(args):
             pass
 
     _section("Directory Structure")
-    hermes_home = HERMES_HOME
-    if hermes_home.exists():
+    fabric_home = HERMES_HOME
+    if fabric_home.exists():
         check_ok(f"{_DHH} directory exists")
     elif should_fix:
-        hermes_home.mkdir(parents=True, exist_ok=True)
+        fabric_home.mkdir(parents=True, exist_ok=True)
         check_ok(f"Created {_DHH} directory")
         fixed_count += 1
     else:
@@ -1424,7 +1424,7 @@ def run_doctor(args):
     # Check expected subdirectories
     expected_subdirs = ["cron", "sessions", "logs", "skills", "memories"]
     for subdir_name in expected_subdirs:
-        subdir_path = hermes_home / subdir_name
+        subdir_path = fabric_home / subdir_name
         if subdir_path.exists():
             check_ok(f"{_DHH}/{subdir_name}/ exists")
         elif should_fix:
@@ -1435,7 +1435,7 @@ def run_doctor(args):
             check_warn(f"{_DHH}/{subdir_name}/ not found", "(will be created on first use)")
     
     # Check for SOUL.md persona file
-    soul_path = hermes_home / "SOUL.md"
+    soul_path = fabric_home / "SOUL.md"
     if soul_path.exists():
         content = soul_path.read_text(encoding="utf-8").strip()
         # Check if it's just the template comments (no real content)
@@ -1483,10 +1483,10 @@ def run_doctor(args):
     if should_fix:
         try:
             from fabric_cli.fabric_brand import fabric_brand_enabled
-            from fabric_cli.fabric_soul_migrate import migrate_hermes_home_souls
+            from fabric_cli.fabric_soul_migrate import migrate_fabric_home_souls
 
             if fabric_brand_enabled():
-                n = migrate_hermes_home_souls(hermes_home)
+                n = migrate_fabric_home_souls(fabric_home)
                 if n:
                     check_ok(f"Migrated {n} default SOUL.md file(s) to Fabric identity")
                     fixed_count += n
@@ -1494,7 +1494,7 @@ def run_doctor(args):
             pass
 
     # Check memory directory
-    memories_dir = hermes_home / "memories"
+    memories_dir = fabric_home / "memories"
     if memories_dir.exists():
         check_ok(f"{_DHH}/memories/ directory exists")
         memory_file = memories_dir / "MEMORY.md"
@@ -1517,7 +1517,7 @@ def run_doctor(args):
             fixed_count += 1
     
     # Check SQLite session store
-    state_db_path = hermes_home / "state.db"
+    state_db_path = fabric_home / "state.db"
     if state_db_path.exists():
         try:
             import sqlite3
@@ -1618,7 +1618,7 @@ def run_doctor(args):
         check_info(f"{_DHH}/state.db not created yet (will be created on first session)")
 
     # Check WAL file size (unbounded growth indicates missed checkpoints)
-    wal_path = hermes_home / "state.db-wal"
+    wal_path = fabric_home / "state.db-wal"
     if wal_path.exists():
         try:
             wal_size = wal_path.stat().st_size
@@ -2010,7 +2010,7 @@ def run_doctor(args):
                         # tooling (esbuild/vite, etc.), not runtime code that ships
                         # to users. Manual npm remediation may error with a known
                         # arborist crash (edgesOut / isDescendantOf) on this monorepo
-                        # tree — in that case it is an npm bug, not a Hermes one.
+                        # tree — in that case it is an npm bug, not a Fabric one.
                         check_info(
                             "  ^ build-time tooling (not runtime); if manual npm remediation "
                             "errors with an arborist crash it's a known npm bug — clears "

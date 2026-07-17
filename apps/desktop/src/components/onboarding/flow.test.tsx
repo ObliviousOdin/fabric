@@ -16,7 +16,7 @@ const ctx: OnboardingContext = { requestGateway: async () => undefined as never 
 
 function provider(id: string, name: string): OAuthProvider {
   return {
-    cli_command: `hermes login ${id}`,
+    cli_command: `fabric login ${id}`,
     docs_url: `https://example.test/${id}`,
     flow: 'device_code',
     id,

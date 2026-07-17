@@ -490,8 +490,8 @@
           [
             (pkgs.fetchFromGitHub {
               owner = "stephenschoettler";
-              repo = "hermes-lcm";
-              name = "hermes-lcm";
+              repo = "fabric-lcm";
+              name = "fabric-lcm";
               rev = "v0.7.0";
               hash = "sha256-...";
             })
@@ -505,17 +505,17 @@
         description = ''
           Python packages to add to PYTHONPATH for entry-point plugin discovery.
           These are pip-packaged plugins that register via the
-          hermes_agent.plugins entry-point group. Each package must be built
+          fabric_agent.plugins entry-point group. Each package must be built
           with the same Python interpreter as fabric (python312).
         '';
         example = literalExpression ''
           [
             (pkgs.python312Packages.buildPythonPackage {
-              pname = "rtk-hermes";
+              pname = "rtk-fabric";
               version = "1.0.0";
               src = pkgs.fetchFromGitHub {
                 owner = "ogallotti";
-                repo = "rtk-hermes";
+                repo = "rtk-fabric";
                 rev = "main";
                 hash = "sha256-...";
               };
@@ -774,7 +774,7 @@
     backend=${cfg.container.backend}
     container_name=${containerName}
     exec_user=${cfg.user}
-    hermes_bin=${containerDataDir}/current-package/bin/fabric
+    fabric_bin=${containerDataDir}/current-package/bin/fabric
     HERMES_CONTAINER_MODE_EOF
             chown ${cfg.user}:${cfg.group} ${cfg.stateDir}/.fabric/.container-mode
             chmod 0644 ${cfg.stateDir}/.fabric/.container-mode

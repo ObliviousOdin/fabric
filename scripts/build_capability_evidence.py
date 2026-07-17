@@ -1272,7 +1272,7 @@ def _command_capabilities(
                 ),
                 _authority(
                     "cli.py",
-                    "HermesCLI.process_command",
+                    "FabricCLI.process_command",
                     "runtime_quick_command_dispatch",
                 ),
             ],
@@ -1713,7 +1713,7 @@ def _terminal_capabilities(root: Path) -> tuple[list[dict[str, Any]], set[str], 
 
 
 _SURFACE_SPECS = (
-    ("classic-cli", "Classic interactive CLI", "cli.py", "HermesCLI"),
+    ("classic-cli", "Classic interactive CLI", "cli.py", "FabricCLI"),
     ("ink-tui", "Ink terminal UI", "ui-tui/src/app.tsx", "App"),
     ("tui-gateway", "TUI JSON-RPC gateway", "tui_gateway/entry.py", "main"),
     ("web-dashboard", "Web dashboard", "web/src/App.tsx", "App"),

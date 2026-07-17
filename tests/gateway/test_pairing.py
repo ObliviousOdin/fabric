@@ -774,7 +774,7 @@ class TestProfileScopedStorage:
 
     def test_default_store_uses_global_dir(self, tmp_path, monkeypatch):
         """PairingStore() (no profile) keeps the legacy global path so the
-        ``hermes pairing`` CLI continues to work without a profile context."""
+        ``fabric pairing`` CLI continues to work without a profile context."""
         from fabric_constants import get_fabric_home
         monkeypatch.setattr("fabric_constants.get_fabric_home", lambda: tmp_path)
         # Re-import PAIRING_DIR (it's a module-level constant resolved at

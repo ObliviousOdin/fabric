@@ -1,7 +1,7 @@
 """Unit tests for fabric_cli.toolset_validation (see #38798).
 
 Pure logic — the validity predicate is injected, so these tests need neither the
-tool registry nor a running Hermes.
+tool registry nor a running Fabric.
 """
 
 import pytest
@@ -50,7 +50,7 @@ def test_mixed_valid_and_invalid_flags_only_the_invalid():
 
 
 def test_unknown_without_valid_platform_default_omits_suggestion():
-    # hermes-mystery is not a known toolset, so no "did you mean" hint.
+    # fabric-mystery is not a known toolset, so no "did you mean" hint.
     warnings = validate_platform_toolsets({"mystery": ["nope"]}, _is_valid)
     unknown = [w for w in warnings if "unknown toolset 'nope'" in w]
     assert len(unknown) == 1
@@ -80,7 +80,7 @@ def test_all_invalid_reports_each_and_the_zero_state():
     assert any("zero valid toolsets" in w for w in warnings)
 
 
-def test_real_validate_toolset_treats_hermes_cli_valid_and_hermes_invalid():
+def test_real_validate_toolset_treats_fabric_cli_valid_and_fabric_invalid():
     # Ties the helper to reality: the canonical registry check agrees that
     # `hermes-cli` is the real toolset and `hermes` is not (the #38798 crux).
     from toolsets import validate_toolset

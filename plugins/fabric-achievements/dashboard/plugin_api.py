@@ -1773,7 +1773,7 @@ def _relay_probe_url(host: Any, port: Any) -> str:
 
 # --- Relay process management (host the relay from the dashboard) -----------
 # There is no generic plugin process supervisor to reuse, so this mirrors the
-# dashboard's own detached-spawn idiom (web_server._spawn_hermes_action and the
+# dashboard's own detached-spawn idiom (web_server._spawn_fabric_action and the
 # WhatsApp pairing supervisor): a detached child, a small JSON state file next
 # to team.json, and cross-platform detach + terminate reused from the shared
 # helpers (fabric_cli._subprocess_compat, gateway.status, utils.atomic_json_write).

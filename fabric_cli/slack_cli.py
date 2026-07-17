@@ -31,9 +31,9 @@ def _build_full_manifest(
     """Build a full Slack manifest merging display info + our slash list.
 
     The slash-command list is always generated from ``COMMAND_REGISTRY`` so
-    it stays in sync with the rest of Hermes. Other manifest sections
+    it stays in sync with the rest of Fabric. Other manifest sections
     (display info, OAuth scopes, socket mode) are set to sensible defaults
-    for a Hermes deployment — users can tweak them in the Slack UI after
+    for a Fabric deployment — users can tweak them in the Slack UI after
     pasting.
 
     When ``include_assistant`` is True (default) the manifest opts the app

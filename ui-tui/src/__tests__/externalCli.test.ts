@@ -7,7 +7,7 @@ describe('resolveFabricBin', () => {
     expect(resolveFabricBin({})).toBe('fabric')
   })
 
-  it('prefers the Fabric override and preserves the Hermes override as a legacy fallback', () => {
+  it('prefers the Fabric override and preserves the Fabric override as a legacy fallback', () => {
     expect(resolveFabricBin({ FABRIC_BIN: '/opt/fabric/bin/fabric', HERMES_BIN: '/opt/legacy/hermes' })).toBe(
       '/opt/fabric/bin/fabric'
     )

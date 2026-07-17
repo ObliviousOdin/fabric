@@ -3,13 +3,13 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from cli import HermesCLI, _build_compact_banner, _rich_text_from_ansi
+from cli import FabricCLI, _build_compact_banner, _rich_text_from_ansi
 from fabric_cli.banner import build_welcome_banner
 from fabric_cli.skin_engine import get_active_skin, set_active_skin
 
 
 def _make_cli_stub():
-    cli = HermesCLI.__new__(HermesCLI)
+    cli = FabricCLI.__new__(FabricCLI)
     cli._sudo_state = None
     cli._secret_state = None
     cli._approval_state = None
@@ -106,7 +106,7 @@ class TestCompactBannerSkinIntegration:
         assert "HERMES" not in banner
         assert "NOUS" not in banner
 
-    def test_poseidon_compact_banner_uses_skin_branding_instead_of_nous_hermes(self):
+    def test_poseidon_compact_banner_uses_skin_branding_instead_of_nous_fabric(self):
         set_active_skin("poseidon")
 
         with patch("cli.shutil.get_terminal_size", return_value=SimpleNamespace(columns=90)), \

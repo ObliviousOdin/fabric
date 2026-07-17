@@ -37,7 +37,7 @@ _MAX_SNAPSHOT_TAPS = 1_000
 _MAX_SNAPSHOT_STRING_BYTES = 8 * 1024
 _SNAPSHOT_SCHEMA_VERSION = 2
 _SNAPSHOT_ROOT_FIELDS = frozenset(
-    {"schema_version", "hermes_version", "exported_at", "skills", "taps"}
+    {"schema_version", "fabric_version", "exported_at", "skills", "taps"}
 )
 _SNAPSHOT_SKILL_FIELDS = frozenset(
     {
@@ -147,8 +147,8 @@ def _display_description(r) -> str:
         return description
     description = re.sub(r"\bNous Research\b", "the upstream maintainers", description, flags=re.IGNORECASE)
     description = re.sub(r"\bNous\b", "upstream", description, flags=re.IGNORECASE)
-    description = re.sub(r"\bHermes\b", "Fabric", description)
-    description = re.sub(r"\bhermes\b", "fabric", description)
+    description = re.sub(r"\bFabric\b", "Fabric", description)
+    description = re.sub(r"\bfabric\b", "fabric", description)
     return description
 
 
@@ -1093,7 +1093,7 @@ def do_install(identifier: str, category: str = "", force: bool = False,
         )
 
     # Blueprint detection: if the installed skill declares a
-    # metadata.fabric.blueprint block (or its legacy metadata.hermes fallback),
+    # metadata.fabric.blueprint block (or its legacy metadata.fabric fallback),
     # it is a runnable automation. Register it as a Suggested Cron Job rather
     # than auto-scheduling — installing never
     # silently creates a recurring job; the user accepts it via /suggestions.
@@ -2116,7 +2116,7 @@ def _validated_snapshot_document(snapshot: object) -> dict:
         raise ValueError(
             f"snapshot schema must be exactly {_SNAPSHOT_SCHEMA_VERSION}"
         )
-    for field in ("hermes_version", "exported_at"):
+    for field in ("fabric_version", "exported_at"):
         if field in snapshot:
             checked_string(snapshot[field], field=f"snapshot field {field!r}")
     skills = snapshot["skills"]
@@ -2215,7 +2215,7 @@ def _validated_snapshot_document(snapshot: object) -> dict:
 
     result = {
         field: snapshot[field]
-        for field in ("schema_version", "hermes_version", "exported_at")
+        for field in ("schema_version", "fabric_version", "exported_at")
         if field in snapshot
     }
     result["skills"] = validated_skills
@@ -2293,7 +2293,7 @@ def do_snapshot_export(output_path: str, console: Optional[Console] = None) -> N
             "schema_version": _SNAPSHOT_SCHEMA_VERSION,
             # Keep the established compatibility key until the Fabric artifact-ID
             # migration policy is approved, but bind its value to the running build.
-            "hermes_version": __version__,
+            "fabric_version": __version__,
             "exported_at": __import__("datetime")
             .datetime.now(__import__("datetime").timezone.utc)
             .isoformat(),

@@ -9,7 +9,7 @@ description: "Complete reference of all environment variables used by Fabric"
 Fabric reads environment variables from the process environment and, for user-managed secrets, from `~/.fabric/.env`. Keep API keys, bot tokens, OAuth secrets, and other credentials in `.env`; prefer `config.yaml` for non-secret behaviour settings when a config key exists. Some variables below are process-only overrides or internal bridge variables and should not be committed to `.env` just because they are documented here.
 
 :::note Compatibility-prefixed names
-Some active runtime variables still use the `HERMES_` prefix. Those names are
+Some active runtime variables still use the `FABRIC_` prefix. Those names are
 compatibility contracts retained by the codebase, not documentation branding;
 use them exactly as shown until a `FABRIC_` replacement is explicitly listed.
 Names that only exist as Python constants are not environment variables and do

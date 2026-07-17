@@ -744,7 +744,7 @@ class TestXAIProviderOAuthPath:
             "api_mode": "codex_responses",
             "base_url": "https://api.x.ai/v1",
             "api_key": "ya29.fake-oauth-access-token",
-            "source": "hermes-auth-store",
+            "source": "fabric-auth-store",
         }
 
         captured: dict = {}

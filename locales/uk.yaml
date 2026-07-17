@@ -327,7 +327,7 @@ Future messages in this room will use that transcript until `/reset` or another 
   update:
     platform_not_messaging:  "✗ /update доступний лише на платформах обміну повідомленнями. Виконайте `fabric update` у терміналі."
     not_git_repo:            "✗ Не git-репозиторій — оновлення неможливе."
-    hermes_cmd_not_found:    "✗ Не вдалося знайти команду `fabric`. Fabric запущено, але команда оновлення не знайшла виконуваний файл у PATH або через поточний інтерпретатор Python. Спробуйте виконати `fabric update` вручну у вашому терміналі."
+    fabric_cmd_not_found:    "✗ Не вдалося знайти команду `fabric`. Fabric запущено, але команда оновлення не знайшла виконуваний файл у PATH або через поточний інтерпретатор Python. Спробуйте виконати `fabric update` вручну у вашому терміналі."
     start_failed:            "✗ Не вдалося запустити оновлення: {error}"
     starting:                "⚕ Запуск оновлення Fabric… Я транслюватиму прогрес сюди."
 

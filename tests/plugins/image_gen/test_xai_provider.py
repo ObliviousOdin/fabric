@@ -496,16 +496,16 @@ def test_xai_image_field_expands_user_home(tmp_path, monkeypatch):
 
 
 class TestXAIImageFieldReadGuard:
-    """#57698: local image inputs must not read Hermes credential stores."""
+    """#57698: local image inputs must not read Fabric credential stores."""
 
     def test_xai_image_field_blocks_credential_store(self, tmp_path, monkeypatch):
         from plugins.image_gen.xai import _xai_image_field
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        auth_json = hermes_home / "auth.json"
+        fabric_home = tmp_path / ".hermes"
+        fabric_home.mkdir()
+        auth_json = fabric_home / "auth.json"
         auth_json.write_text('{"api_key":"sk-secret"}', encoding="utf-8")
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
 
         with pytest.raises(ValueError, match="credential store"):
             _xai_image_field(str(auth_json))
@@ -516,11 +516,11 @@ class TestXAIImageFieldReadGuard:
 
         from plugins.image_gen.xai import _xai_image_field
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        auth_json = hermes_home / "auth.json"
+        fabric_home = tmp_path / ".hermes"
+        fabric_home.mkdir()
+        auth_json = fabric_home / "auth.json"
         auth_json.write_text('{"api_key":"sk-secret"}', encoding="utf-8")
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
 
         real_open = builtins.open
         opened: list = []

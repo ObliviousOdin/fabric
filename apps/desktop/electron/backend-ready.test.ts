@@ -158,7 +158,7 @@ test('a late announcement after timeout does not throw (listeners torn down)', a
 // ---------------------------------------------------------------------------
 
 function mkTmpReadyFile() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-ready-test-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fabric-ready-test-'))
 
   return {
     dir,

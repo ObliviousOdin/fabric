@@ -62,10 +62,10 @@ def _install_modal_test_modules(
     fabric_cli = types.ModuleType("fabric_cli")
     fabric_cli.__path__ = []  # type: ignore[attr-defined]
     sys.modules["fabric_cli"] = fabric_cli
-    hermes_home = tmp_path / "hermes-home"
-    os.environ["HERMES_HOME"] = str(hermes_home)
+    fabric_home = tmp_path / "fabric-home"
+    os.environ["HERMES_HOME"] = str(fabric_home)
     sys.modules["fabric_cli.config"] = types.SimpleNamespace(
-        get_fabric_home=lambda: hermes_home,
+        get_fabric_home=lambda: fabric_home,
     )
 
     tools_package = types.ModuleType("tools")
@@ -190,7 +190,7 @@ def _install_modal_test_modules(
     )
 
     return {
-        "snapshot_store": hermes_home / "modal_snapshots.json",
+        "snapshot_store": fabric_home / "modal_snapshots.json",
         "create_calls": create_calls,
         "from_id_calls": from_id_calls,
         "registry_calls": registry_calls,

@@ -119,7 +119,7 @@ export function DesignView({
 
   const revealArchive = async (saved: ManagedDesignSystem) => {
     try {
-      const revealed = await window.hermesDesktop?.revealPath?.(saved.contentPath)
+      const revealed = await window.fabricDesktop?.revealPath?.(saved.contentPath)
 
       if (!revealed) {
         throw new Error(d.revealFailed)

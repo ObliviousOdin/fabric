@@ -772,7 +772,7 @@ def test_select_provider_and_model_neutralizes_hidden_legacy_active_provider(
     cfg = load_config()
     cfg["model"] = {
         "provider": "nous",
-        "default": "hermes-legacy-model",
+        "default": "fabric-legacy-model",
     }
     save_config(cfg)
     captured_picker = {}
@@ -792,7 +792,7 @@ def test_select_provider_and_model_neutralizes_hidden_legacy_active_provider(
     assert "Configured provider (not in Fabric catalog)" in out
     assert "configured model hidden" in out
     assert "Nous" not in out
-    assert "hermes-legacy-model" not in out
+    assert "fabric-legacy-model" not in out
     assert captured_picker["choices"][-1] == "Leave unchanged"
     assert captured_picker["default"] == len(captured_picker["choices"]) - 1
     assert load_config()["model"]["provider"] == "nous"
@@ -809,7 +809,7 @@ def test_select_provider_and_model_restores_legacy_active_provider_with_opt_in(
     cfg = load_config()
     cfg["model"] = {
         "provider": "nous",
-        "default": "hermes-legacy-model",
+        "default": "fabric-legacy-model",
     }
     save_config(cfg)
     monkeypatch.setattr(
@@ -823,7 +823,7 @@ def test_select_provider_and_model_restores_legacy_active_provider_with_opt_in(
     out = capsys.readouterr().out
 
     assert "Active provider:  Nous Portal" in out
-    assert "Current model:    hermes-legacy-model" in out
+    assert "Current model:    fabric-legacy-model" in out
 
 
 def test_codex_setup_uses_runtime_access_token_for_live_model_list(tmp_path, monkeypatch):

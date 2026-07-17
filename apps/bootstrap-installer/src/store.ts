@@ -302,7 +302,7 @@ export async function startInstall(opts?: { branch?: string }): Promise<void> {
       commit: null,
       branch: opts?.branch ?? null,
       include_desktop: true,
-      hermes_home: null,
+      fabric_home: null,
     },
   });
 }

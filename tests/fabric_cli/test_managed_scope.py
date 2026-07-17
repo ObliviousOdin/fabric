@@ -21,7 +21,7 @@ def test_get_managed_dir_fabric_override_wins_legacy(tmp_path, monkeypatch):
     from fabric_cli import managed_scope
 
     fabric_managed = tmp_path / "fabric-managed"
-    legacy_managed = tmp_path / "hermes-managed"
+    legacy_managed = tmp_path / "fabric-managed"
     fabric_managed.mkdir()
     legacy_managed.mkdir()
     monkeypatch.setenv("FABRIC_MANAGED_DIR", str(fabric_managed))
@@ -45,7 +45,7 @@ def test_get_managed_dir_invalid_fabric_override_does_not_use_legacy(
     """An explicit canonical override keeps the legacy path from taking over."""
     from fabric_cli import managed_scope
 
-    legacy_managed = tmp_path / "hermes-managed"
+    legacy_managed = tmp_path / "fabric-managed"
     legacy_managed.mkdir()
     monkeypatch.setenv("FABRIC_MANAGED_DIR", str(tmp_path / "nope"))
     monkeypatch.setenv("HERMES_MANAGED_DIR", str(legacy_managed))

@@ -18,7 +18,7 @@ as [`runtime-surfaces.json`](https://obliviousodin.github.io/fabric/api/runtime-
 | api-server | OpenAI-compatible API server platform | `gateway/platforms/api_server.py::APIServerAdapter` |
 | batch | Parallel batch runner | `batch_runner.py::main` |
 | bootstrap-installer | Native bootstrap installer | `apps/bootstrap-installer/src/app.tsx::App` |
-| classic-cli | Classic interactive CLI | `cli.py::HermesCLI` |
+| classic-cli | Classic interactive CLI | `cli.py::FabricCLI` |
 | cron | Cron automation scheduler | `cron/scheduler.py::tick` |
 | documentation-site | Documentation website | `website/docusaurus.config.ts::config` |
 | electron-desktop | Electron desktop application | `apps/desktop/src/app/desktop-controller.tsx::DesktopController` |
@@ -310,7 +310,7 @@ separately and can be narrower than this registry scope.
 
 ## Toolsets
 
-IDs beginning with `hermes-` are live pre-Fabric compatibility identifiers.
+IDs beginning with `fabric-` are live pre-Fabric compatibility identifiers.
 Keep them for existing configuration, but use canonical `fabric-` IDs for new
 toolsets and integrations.
 

@@ -180,7 +180,7 @@ export default function SystemPage() {
     // load without a separate effect / a forced network round-trip. A
     // failed update check is routine offline, so it never joins the banner.
     void api
-      .checkHermesUpdate(false)
+      .checkFabricUpdate(false)
       .then(setUpdateInfo)
       .catch(() => undefined)
       .finally(() => settle("update"));
@@ -249,7 +249,7 @@ export default function SystemPage() {
     [],
   );
 
-  const canUpdateHermes = status?.can_update_hermes !== false;
+  const canUpdateFabric = status?.can_update_fabric !== false;
 
   return (
     <div className="flex flex-col gap-8">
@@ -289,7 +289,7 @@ export default function SystemPage() {
       >
         <HostCard
           stats={stats}
-          canUpdateHermes={canUpdateHermes}
+          canUpdateFabric={canUpdateFabric}
           updateInfo={updateInfo}
           setUpdateInfo={setUpdateInfo}
           setActiveAction={setActiveAction}

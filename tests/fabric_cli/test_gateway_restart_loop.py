@@ -28,11 +28,11 @@ class TestGatewayLifecyclePattern:
     @pytest.mark.parametrize("text", [
         "fabric gateway restart",
         "fabric gateway stop",
-        "hermes  gateway  restart",         # double spaces
+        "fabric  gateway  restart",         # double spaces
         "Hermez Gateway Restart".lower().replace("z", "s"),  # case handled
-        "HERMES GATEWAY RESTART",           # uppercase
+        "FABRIC GATEWAY RESTART",           # uppercase
     ])
-    def test_hermes_gateway_commands(self, text):
+    def test_fabric_gateway_commands(self, text):
         assert _contains_gateway_lifecycle_command(text), f"Should match: {text!r}"
 
     @pytest.mark.parametrize("text", [
@@ -48,8 +48,8 @@ class TestGatewayLifecyclePattern:
 
     @pytest.mark.parametrize("text", [
         "kill fabric gateway process",
-        "pkill -f hermes.*gateway",
-        "pkill -f gateway.*hermes",          # inverse token order
+        "pkill -f fabric.*gateway",
+        "pkill -f gateway.*fabric",          # inverse token order
     ])
     def test_kill_commands(self, text):
         assert _contains_gateway_lifecycle_command(text), f"Should match: {text!r}"
@@ -58,7 +58,7 @@ class TestGatewayLifecyclePattern:
         "restart the server application",
         "fabric cron list",
         "fabric update",
-        "hermes config set model claude",
+        "fabric config set model claude",
         "echo 'just a normal cron job'",
         "run the backup script",
         "gateway is running fine",
@@ -68,9 +68,9 @@ class TestGatewayLifecyclePattern:
         # foot-gun (#30719 lists only those).
         "fabric gateway start",
         "fabric gateway start --all",
-        # Tightened launchctl/systemctl branches: ops on NON-gateway hermes
-        # services must not be falsely blocked (the old `.*hermes` matched any
-        # hermes token).
+        # Tightened launchctl/systemctl branches: ops on NON-gateway fabric
+        # services must not be falsely blocked (the old `.*fabric` matched any
+        # fabric token).
         "launchctl unload ai.hermes.update-checker.plist",
         "launchctl restart ai.hermes.daemon",
         "systemctl restart hermes-meta.service",
@@ -98,11 +98,11 @@ class TestCronCreateLifecycleBlock:
         monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
         monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
 
-    def test_block_hermes_gateway_restart(self, capsys):
+    def test_block_fabric_gateway_restart(self, capsys):
         args = Namespace(
             cron_command="create",
             schedule="30m",
-            prompt="Upgrade hermes then run fabric gateway restart",
+            prompt="Upgrade fabric then run fabric gateway restart",
             name=None,
             deliver=None,
             repeat=None,
@@ -141,7 +141,7 @@ class TestCronCreateLifecycleBlock:
 
     def test_block_script_with_lifecycle_command(self, tmp_path, capsys, monkeypatch):
         # A no_agent job whose script IS the job (the issue's real abuse path:
-        # restart_hermes_gateway_once.sh). The script must live under
+        # restart_fabric_gateway_once.sh). The script must live under
         # HERMES_HOME/scripts so the scheduler — and the guard — resolve it.
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
         scripts_dir = tmp_path / ".hermes" / "scripts"
@@ -316,7 +316,7 @@ class TestTerminalToolGatewayLifecycleGuard:
         "systemctl stop fabric-gateway.service",
         "fabric gateway restart",
         "launchctl kickstart gui/501/ai.fabric.gateway",
-        "pkill -f hermes.*gateway",
+        "pkill -f fabric.*gateway",
     ])
     def test_blocks_lifecycle_commands_inside_gateway(self, monkeypatch, cmd):
         import tools.terminal_tool as tt
@@ -339,7 +339,7 @@ class TestTerminalToolGatewayLifecycleGuard:
         assert "Blocked" in result["error"]
 
     def test_safe_systemctl_commands_pass_through(self, monkeypatch):
-        """Non-hermes systemctl commands must not be blocked by this guard."""
+        """Non-fabric systemctl commands must not be blocked by this guard."""
         import tools.terminal_tool as tt
 
         calls = []

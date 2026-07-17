@@ -29,7 +29,7 @@ Primary files:
 The cached system prompt is assembled as three ordered tiers (see `agent/system_prompt.py`):
 
 1. **stable** — identity (`SOUL.md` or fallback), tool/model guidance, skills prompt, environment hints, platform hints
-2. **context** — caller-supplied `system_message` plus project context files (`.fabric.md` / `FABRIC.md` / `AGENTS.md` / `CLAUDE.md` / `.cursorrules`; legacy Hermes filenames remain compatible)
+2. **context** — caller-supplied `system_message` plus project context files (`.fabric.md` / `FABRIC.md` / `AGENTS.md` / `CLAUDE.md` / `.cursorrules`; legacy Fabric filenames remain compatible)
 3. **volatile** — built-in memory snapshot (`MEMORY.md`), user profile snapshot (`USER.md`), external memory-provider block, timestamp/session/model/provider line
 
 The final system prompt is then joined as: `stable` → `context` → `volatile`.
@@ -194,7 +194,7 @@ def build_context_files_prompt(cwd=None, skip_soul=False):
 
     # Priority: first match wins — only ONE project context loaded
     project_context = (
-        _load_fabric_md(cwd_path)       # 1. Fabric names + legacy Hermes names (nearest through git root)
+        _load_fabric_md(cwd_path)       # 1. Fabric names + legacy Fabric names (nearest through git root)
         or _load_agents_md(cwd_path)    # 2. AGENTS.md (cwd only)
         or _load_claude_md(cwd_path)    # 3. CLAUDE.md (cwd only)
         or _load_cursorrules(cwd_path)  # 4. .cursorrules / .cursor/rules/*.mdc

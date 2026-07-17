@@ -62,7 +62,7 @@ def test_exec_schtasks_decodes_with_replace_errors(monkeypatch):
     monkeypatch.setattr(gateway_windows.shutil, "which", lambda name: r"C:\\Windows\\System32\\schtasks.exe")
     monkeypatch.setattr(gateway_windows.subprocess, "run", fake_run)
 
-    code, out, err = gateway_windows._exec_schtasks(["/Query", "/TN", "Hermes_Gateway"])
+    code, out, err = gateway_windows._exec_schtasks(["/Query", "/TN", "Fabric_Gateway"])
 
     assert (code, out, err) == (0, "ok", "")
     assert captured["errors"] == "replace", "schtasks output must decode with errors='replace'"
@@ -78,11 +78,11 @@ def test_build_gateway_argv_uses_base_pythonw_for_uv_venv_launcher(monkeypatch, 
     project = tmp_path / "project"
     scripts = project / "venv" / "Scripts"
     site_packages = project / "venv" / "Lib" / "site-packages"
-    hermes_home = tmp_path / "hermes-home"
+    fabric_home = tmp_path / "fabric-home"
     base = tmp_path / "uv" / "python" / "cpython-3.11-windows-x86_64-none"
     scripts.mkdir(parents=True)
     site_packages.mkdir(parents=True)
-    hermes_home.mkdir()
+    fabric_home.mkdir()
     base.mkdir(parents=True)
 
     venv_python = scripts / "python.exe"
@@ -100,20 +100,20 @@ def test_build_gateway_argv_uses_base_pythonw_for_uv_venv_launcher(monkeypatch, 
     monkeypatch.setattr(gateway_windows.sys, "platform", "win32")
     monkeypatch.setattr(gateway, "PROJECT_ROOT", project)
     monkeypatch.setattr(gateway, "get_python_path", lambda: str(venv_python))
-    monkeypatch.setattr(gateway, "_profile_arg", lambda hermes_home: "")
-    monkeypatch.setattr("fabric_cli.config.get_fabric_home", lambda: str(hermes_home))
+    monkeypatch.setattr(gateway, "_profile_arg", lambda fabric_home: "")
+    monkeypatch.setattr("fabric_cli.config.get_fabric_home", lambda: str(fabric_home))
 
     argv, cwd, env_overlay = gateway_windows._build_gateway_argv()
 
     assert argv[:3] == [str(base_pythonw), "-m", "fabric_cli.main"]
-    assert cwd == str(hermes_home.resolve())
+    assert cwd == str(fabric_home.resolve())
     assert env_overlay["VIRTUAL_ENV"] == str(project / "venv")
     assert str(project) in env_overlay["PYTHONPATH"].split(gateway_windows.os.pathsep)
     assert str(site_packages) in env_overlay["PYTHONPATH"].split(gateway_windows.os.pathsep)
 
 
 class TestStableWindowsGatewayWorkingDir:
-    def test_stable_gateway_working_dir_uses_hermes_home(self, tmp_path, monkeypatch):
+    def test_stable_gateway_working_dir_uses_fabric_home(self, tmp_path, monkeypatch):
         home = tmp_path / ".hermes"
         home.mkdir()
         monkeypatch.setattr("fabric_cli.config.get_fabric_home", lambda: home)
@@ -126,10 +126,10 @@ class TestStableWindowsGatewayWorkingDir:
         assert gateway_windows._stable_gateway_working_dir(project) == str(project)
 
 
-def test_write_task_script_anchors_cmd_cd_at_hermes_home(monkeypatch, tmp_path):
+def test_write_task_script_anchors_cmd_cd_at_fabric_home(monkeypatch, tmp_path):
     project = tmp_path / "project"
-    hermes_home = tmp_path / "hermes-home"
-    hermes_home.mkdir()
+    fabric_home = tmp_path / "fabric-home"
+    fabric_home.mkdir()
     python_exe = project / "venv" / "Scripts" / "python.exe"
     python_exe.parent.mkdir(parents=True)
     python_exe.write_text("", encoding="utf-8")
@@ -138,26 +138,26 @@ def test_write_task_script_anchors_cmd_cd_at_hermes_home(monkeypatch, tmp_path):
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
     monkeypatch.setattr(gateway, "PROJECT_ROOT", project)
     monkeypatch.setattr(gateway, "get_python_path", lambda: str(python_exe))
-    monkeypatch.setattr(gateway, "_profile_arg", lambda hermes_home: "")
-    monkeypatch.setattr("fabric_cli.config.get_fabric_home", lambda: str(hermes_home))
+    monkeypatch.setattr(gateway, "_profile_arg", lambda fabric_home: "")
+    monkeypatch.setattr("fabric_cli.config.get_fabric_home", lambda: str(fabric_home))
     monkeypatch.setattr(gateway_windows, "get_task_script_path", lambda: script_path)
 
     written = gateway_windows._write_task_script()
     content = script_path.read_text(encoding="utf-8")
 
     assert written == script_path
-    assert f"cd /d {gateway_windows._quote_cmd_script_arg(str(hermes_home.resolve()))}" in content
+    assert f"cd /d {gateway_windows._quote_cmd_script_arg(str(fabric_home.resolve()))}" in content
     assert f"cd /d {gateway_windows._quote_cmd_script_arg(str(project))}" not in content
 
 
 def _arrange_startup_fallback(monkeypatch, tmp_path, running_pids):
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
-    startup_entry = tmp_path / "Startup" / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
+    startup_entry = tmp_path / "Startup" / "Fabric_Gateway_alice.cmd"
     calls = []
 
     monkeypatch.setattr(gateway_windows, "_prompt_install_choices", lambda *args, **kwargs: (False, True))
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Hermes_Gateway_alice")
+    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Fabric_Gateway_alice")
     monkeypatch.setattr(gateway_windows, "_write_task_script", lambda: script_path)
     monkeypatch.setattr(
         gateway_windows,
@@ -199,7 +199,7 @@ def test_gateway_cmd_script_uses_pythonw_without_replace_or_start_churn(monkeypa
     content = gateway_windows._build_gateway_cmd_script(
         r"C:\\Hermes\\fabric-agent\\venv\\Scripts\\python.exe",
         r"C:\\Hermes\\fabric-agent",
-        r"C:\\HermesHome\\profiles\\alice",
+        r"C:\\FabricHome\\profiles\\alice",
         "--profile alice",
     )
 
@@ -215,11 +215,11 @@ def test_gateway_cmd_script_uses_uv_safe_base_pythonw(monkeypatch, tmp_path):
     project = tmp_path / "project"
     scripts = project / "venv" / "Scripts"
     site_packages = project / "venv" / "Lib" / "site-packages"
-    hermes_home = tmp_path / "hermes-home"
+    fabric_home = tmp_path / "fabric-home"
     base = tmp_path / "uv" / "python" / "cpython-3.11-windows-x86_64-none"
     scripts.mkdir(parents=True)
     site_packages.mkdir(parents=True)
-    hermes_home.mkdir()
+    fabric_home.mkdir()
     base.mkdir(parents=True)
 
     venv_python = scripts / "python.exe"
@@ -234,8 +234,8 @@ def test_gateway_cmd_script_uses_uv_safe_base_pythonw(monkeypatch, tmp_path):
 
     content = gateway_windows._build_gateway_cmd_script(
         str(venv_python),
-        str(hermes_home),
-        str(hermes_home),
+        str(fabric_home),
+        str(fabric_home),
         "",
     )
 
@@ -277,7 +277,7 @@ def test_elevated_gateway_command_uses_pythonw_hidden_console(monkeypatch):
 def test_install_scheduled_task_recreates_instead_of_change(monkeypatch, tmp_path):
     """Install must delete+create so stale minute-repeat task settings are not preserved."""
     calls = []
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
     xml_seen = {}
 
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
@@ -294,11 +294,11 @@ def test_install_scheduled_task_recreates_instead_of_change(monkeypatch, tmp_pat
         raise AssertionError(f"unexpected schtasks args: {args}")
 
     monkeypatch.setattr(gateway_windows, "_exec_schtasks", fake_schtasks)
-    ok, detail = gateway_windows._install_scheduled_task("Hermes_Gateway_alice", script_path)
+    ok, detail = gateway_windows._install_scheduled_task("Fabric_Gateway_alice", script_path)
 
     assert ok is True
     assert "/Change" not in [arg for call in calls for arg in call]
-    assert calls[0][:4] == ("/Delete", "/F", "/TN", "Hermes_Gateway_alice")
+    assert calls[0][:4] == ("/Delete", "/F", "/TN", "Fabric_Gateway_alice")
     assert calls[1][0] == "/Create"
     assert "/XML" in calls[1]
     assert "/SC" not in calls[1]
@@ -314,7 +314,7 @@ def test_install_scheduled_task_recreates_instead_of_change(monkeypatch, tmp_pat
     # (issue #45599 fix A: no console -> no logon CTRL_CLOSE_EVENT / 0xC000013A).
     assert "<Command>wscript.exe</Command>" in xml_seen["text"]
     assert "//B //Nologo" in xml_seen["text"]
-    assert "Hermes_Gateway_alice.vbs" in xml_seen["text"]
+    assert "Fabric_Gateway_alice.vbs" in xml_seen["text"]
     assert "cmd.exe" not in xml_seen["text"]
 
 
@@ -386,18 +386,18 @@ def test_quote_vbs_string_doubles_quotes_and_rejects_newlines():
 
 def test_install_scheduled_task_success_start_now_uses_direct_spawn_not_task_run(monkeypatch, tmp_path, capsys):
     """Install start-now should not /Run the task; that preserved old restart loops."""
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
     calls = []
 
     monkeypatch.setattr(gateway_windows, "_prompt_install_choices", lambda *args, **kwargs: (True, True))
     monkeypatch.setattr(gateway_windows, "_is_running_as_admin", lambda: True)
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Hermes_Gateway_alice")
+    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Fabric_Gateway_alice")
     monkeypatch.setattr(gateway_windows, "_write_task_script", lambda: script_path)
     monkeypatch.setattr(
         gateway_windows,
         "_install_scheduled_task",
-        lambda task_name, script_path: (True, "Created Scheduled Task 'Hermes_Gateway_alice'"),
+        lambda task_name, script_path: (True, "Created Scheduled Task 'Fabric_Gateway_alice'"),
     )
     monkeypatch.setattr(gateway_windows, "_gateway_pids", lambda: [])
     monkeypatch.setattr(gateway_windows, "_exec_schtasks", lambda args: calls.append(("schtasks", tuple(args))) or (0, "", ""))
@@ -416,18 +416,18 @@ def test_install_scheduled_task_success_start_now_uses_direct_spawn_not_task_run
 
 def test_install_scheduled_task_success_does_not_auto_start(monkeypatch, tmp_path, capsys):
     """Install should register/update the task only; start is explicit."""
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
     calls = []
 
     monkeypatch.setattr(gateway_windows, "_prompt_install_choices", lambda *args, **kwargs: (False, True))
     monkeypatch.setattr(gateway_windows, "_is_running_as_admin", lambda: True)
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Hermes_Gateway_alice")
+    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Fabric_Gateway_alice")
     monkeypatch.setattr(gateway_windows, "_write_task_script", lambda: script_path)
     monkeypatch.setattr(
         gateway_windows,
         "_install_scheduled_task",
-        lambda task_name, script_path: (True, "Created Scheduled Task 'Hermes_Gateway_alice'"),
+        lambda task_name, script_path: (True, "Created Scheduled Task 'Fabric_Gateway_alice'"),
     )
     monkeypatch.setattr(gateway_windows, "_exec_schtasks", lambda args: calls.append(("schtasks", tuple(args))) or (0, "", ""))
     monkeypatch.setattr(gateway_windows, "_spawn_detached", lambda path=None: calls.append(("spawn", path)) or 12345)
@@ -446,12 +446,12 @@ def test_install_scheduled_task_success_does_not_auto_start(monkeypatch, tmp_pat
 
 def test_install_access_denied_launches_elevated_install_before_startup_fallback(monkeypatch, tmp_path, capsys):
     """Non-admin Scheduled Task access denied should hand off to UAC elevation."""
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
     calls = []
 
     monkeypatch.setattr(gateway_windows, "_prompt_install_choices", lambda *args, **kwargs: (False, True))
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Hermes_Gateway_alice")
+    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Fabric_Gateway_alice")
     monkeypatch.setattr(gateway_windows, "_write_task_script", lambda: script_path)
     monkeypatch.setattr(
         gateway_windows,
@@ -482,12 +482,12 @@ def test_install_access_denied_launches_elevated_install_before_startup_fallback
 
 def test_install_prompts_start_choices_before_uac(monkeypatch, tmp_path, capsys):
     """Windows install asks start-now and auto-start before any UAC handoff."""
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
     calls = []
     answers = iter([True, True, True])
 
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Hermes_Gateway_alice")
+    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Fabric_Gateway_alice")
     monkeypatch.setattr(gateway_windows, "_write_task_script", lambda: script_path)
     monkeypatch.setattr(
         gateway_windows,
@@ -582,17 +582,17 @@ def test_install_startup_fallback_does_not_auto_spawn_when_gateway_stopped(monke
     assert ("next_steps", None) in calls
     out = capsys.readouterr().out
     assert "gateway not started now" in out
-    assert "hermes --profile alice gateway start" in out
+    assert "fabric --profile alice gateway start" in out
 
 
 def test_install_access_denied_declined_elevation_uses_startup_fallback(monkeypatch, tmp_path, capsys):
     """Install should ask before UAC; declining keeps the non-jarring fallback path."""
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
     calls = []
 
     monkeypatch.setattr(gateway_windows, "_prompt_install_choices", lambda *args, **kwargs: (False, True))
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Hermes_Gateway_alice")
+    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Fabric_Gateway_alice")
     monkeypatch.setattr(gateway_windows, "_write_task_script", lambda: script_path)
     monkeypatch.setattr(
         gateway_windows,
@@ -627,12 +627,12 @@ def test_install_access_denied_declined_elevation_uses_startup_fallback(monkeypa
 def test_uninstall_access_denied_prompts_before_elevating(monkeypatch, tmp_path, capsys):
     """Uninstall should hand off to an elevated uninstall only after user consent."""
     calls = []
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
-    startup_entry = tmp_path / "Startup" / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
+    startup_entry = tmp_path / "Startup" / "Fabric_Gateway_alice.cmd"
 
     monkeypatch.setattr(gateway_windows, "_prompt_install_choices", lambda *args, **kwargs: (False, True))
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Hermes_Gateway_alice")
+    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Fabric_Gateway_alice")
     monkeypatch.setattr(gateway_windows, "get_task_script_path", lambda: script_path)
     monkeypatch.setattr(gateway_windows, "get_startup_entry_path", lambda: startup_entry)
     monkeypatch.setattr(gateway_windows, "is_task_registered", lambda: True)
@@ -658,15 +658,15 @@ def test_uninstall_access_denied_prompts_before_elevating(monkeypatch, tmp_path,
 def test_uninstall_access_denied_declined_keeps_task_and_cleans_files(monkeypatch, tmp_path, capsys):
     """Declining UAC should not surprise the user, but should still remove user-writable artifacts."""
     calls = []
-    script_path = tmp_path / "Hermes_Gateway_alice.cmd"
-    startup_entry = tmp_path / "Startup" / "Hermes_Gateway_alice.cmd"
+    script_path = tmp_path / "Fabric_Gateway_alice.cmd"
+    startup_entry = tmp_path / "Startup" / "Fabric_Gateway_alice.cmd"
     startup_entry.parent.mkdir(parents=True)
     script_path.write_text("task", encoding="utf-8")
     startup_entry.write_text("startup", encoding="utf-8")
 
     monkeypatch.setattr(gateway_windows, "_prompt_install_choices", lambda *args, **kwargs: (False, True))
     monkeypatch.setattr(gateway_windows, "_assert_windows", lambda: None)
-    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Hermes_Gateway_alice")
+    monkeypatch.setattr(gateway_windows, "get_task_name", lambda: "Fabric_Gateway_alice")
     monkeypatch.setattr(gateway_windows, "get_task_script_path", lambda: script_path)
     monkeypatch.setattr(gateway_windows, "get_startup_entry_path", lambda: startup_entry)
     monkeypatch.setattr(gateway_windows, "is_task_registered", lambda: True)

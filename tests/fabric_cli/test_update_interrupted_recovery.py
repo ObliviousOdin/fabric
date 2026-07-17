@@ -155,7 +155,7 @@ def test_recovery_self_lock_guard_clears_marker_without_install(tmp_path, monkey
 
     monkeypatch.setattr(m, "_is_windows", lambda: True)
     monkeypatch.setattr(m, "_venv_scripts_dir", lambda: scripts_dir)
-    monkeypatch.setattr(m, "_hermes_exe_shims", lambda d: [shim])
+    monkeypatch.setattr(m, "_fabric_exe_shims", lambda d: [shim])
 
     class FakeProc:
         def __init__(self, exe_path):
@@ -185,7 +185,7 @@ def sys_executable_path():
 
 
 def test_recovery_self_lock_guard_inactive_when_not_ancestor(tmp_path, monkeypatch):
-    # Windows, but hermes.exe is NOT in the ancestry (launched via `hermes
+    # Windows, but hermes.exe is NOT in the ancestry (launched via `fabric
     # dashboard` from a separate cmd, say). The guard must fall through to the
     # normal install so a genuinely interrupted install still gets healed.
     monkeypatch.setattr(m, "PROJECT_ROOT", tmp_path)
@@ -199,7 +199,7 @@ def test_recovery_self_lock_guard_inactive_when_not_ancestor(tmp_path, monkeypat
 
     monkeypatch.setattr(m, "_is_windows", lambda: True)
     monkeypatch.setattr(m, "_venv_scripts_dir", lambda: scripts_dir)
-    monkeypatch.setattr(m, "_hermes_exe_shims", lambda d: [shim])
+    monkeypatch.setattr(m, "_fabric_exe_shims", lambda d: [shim])
 
     class FakeProc:
         def __init__(self, exe_path):

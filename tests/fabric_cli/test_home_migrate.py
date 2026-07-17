@@ -65,7 +65,7 @@ def test_migrate_home_preserves_data_archives_source_and_excludes_old_runtime(tm
     assert not (target / "gateway.lock").exists()
     assert not (target / "cron" / ".tick.lock").exists()
 
-    receipt = json.loads((target / "migration-hermes-to-fabric.json").read_text())
+    receipt = json.loads((target / "migration-fabric-to-fabric.json").read_text())
     assert receipt["source"] == str(source.resolve())
     assert receipt["target"] == str(target.resolve())
     assert receipt["old_engine_excluded"] is True
@@ -171,7 +171,7 @@ def test_process_table_fallback_detects_legacy_gateway_without_pid_file(
             "cmdline": [
                 str(source / "hermes-agent" / "venv" / "bin" / "python"),
                 "-m",
-                "hermes_cli.main",
+                "fabric_cli.main",
                 "gateway",
                 "run",
                 "--replace",

@@ -119,7 +119,7 @@ export interface OnboardingContext {
 }
 
 const CONFIGURED_CACHE_KEY = 'hermes-desktop-onboarded-v1'
-const SKIP_CACHE_KEY = 'hermes-onboarding-skipped-v1'
+const SKIP_CACHE_KEY = 'fabric-onboarding-skipped-v1'
 const POLL_MS = 2000
 const COPY_FLASH_MS = 1500
 export const DEFAULT_ONBOARDING_REASON = 'No inference provider is configured.'
@@ -237,11 +237,11 @@ function scopeExternalProviderCommand(provider: OAuthProvider, profile: string):
   // remaining external commands (for example `copilot /login` and
   // `claude setup-token`) own their credentials outside Fabric and must remain
   // byte-for-byte unchanged.
-  if (!/^(?:fabric|hermes)(?:\s|$)/.test(command)) {
+  if (!/^(?:fabric|fabric)(?:\s|$)/.test(command)) {
     return provider
   }
 
-  const scopedCommand = command.replace(/^(fabric|hermes)(?=\s|$)/, `$1 --profile ${shellArgument(profile)}`)
+  const scopedCommand = command.replace(/^(fabric|fabric)(?=\s|$)/, `$1 --profile ${shellArgument(profile)}`)
 
   return { ...provider, cli_command: scopedCommand }
 }
@@ -747,9 +747,9 @@ export async function refreshOnboarding(ctx: OnboardingContext) {
 // OS open and is commonly blocked anyway. window.open is only for previews
 // where the desktop bridge is genuinely absent.
 async function openSignInUrl(url: string) {
-  if (window.hermesDesktop?.openExternal) {
+  if (window.fabricDesktop?.openExternal) {
     try {
-      const opened = await (window.hermesDesktop.openExternal as (target: string) => Promise<unknown>)(url)
+      const opened = await (window.fabricDesktop.openExternal as (target: string) => Promise<unknown>)(url)
 
       if (opened === false) {
         throw new Error('The sign-in page could not be opened.')

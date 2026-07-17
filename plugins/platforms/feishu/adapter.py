@@ -37,7 +37,7 @@ For bots specifically:
                         puts in ``mentions[].id.open_id`` when someone
                         @-mentions the bot.  Used for mention gating only.
 
-In single-bot mode (what Hermes currently supports), open_id works as a
+In single-bot mode (what Fabric currently supports), open_id works as a
 de-facto unique user identifier since there is only one app context.
 
 Session-key participant isolation prefers ``union_id`` (via user_id_alt)
@@ -1983,7 +1983,7 @@ class FeishuAdapter(BasePlatformAdapter):
     ) -> SendResult:
         """Send an interactive card with approval buttons.
 
-        The buttons carry ``hermes_action`` in their value dict so that
+        The buttons carry ``fabric_action`` in their value dict so that
         ``_handle_card_action_event`` can intercept them and call
         ``resolve_gateway_approval()`` to unblock the waiting agent thread.
         """
@@ -1999,7 +1999,7 @@ class FeishuAdapter(BasePlatformAdapter):
                     "tag": "button",
                     "text": {"tag": "plain_text", "content": label},
                     "type": btn_type,
-                    "value": {"hermes_action": action_name, "approval_id": approval_id},
+                    "value": {"fabric_action": action_name, "approval_id": approval_id},
                 }
 
             card = {
@@ -2056,7 +2056,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 "text": {"tag": "plain_text", "content": label},
                 "type": btn_type,
                 "value": {
-                    "hermes_update_prompt_action": answer,
+                    "fabric_update_prompt_action": answer,
                     "update_prompt_id": prompt_id,
                 },
             }
@@ -2549,7 +2549,7 @@ class FeishuAdapter(BasePlatformAdapter):
         )
 
     def _on_message_read_event(self, data: P2ImMessageMessageReadV1) -> None:
-        """Ignore read-receipt events that Hermes does not act on."""
+        """Ignore read-receipt events that Fabric does not act on."""
         event = getattr(data, "event", None)
         message = getattr(event, "message", None)
         message_id = getattr(message, "message_id", None) or ""
@@ -2648,13 +2648,13 @@ class FeishuAdapter(BasePlatformAdapter):
         event = getattr(data, "event", None)
         action = getattr(event, "action", None)
         action_value = getattr(action, "value", {}) or {}
-        hermes_action = action_value.get("hermes_action") if isinstance(action_value, dict) else None
+        fabric_action = action_value.get("fabric_action") if isinstance(action_value, dict) else None
         update_prompt_action = (
-            action_value.get("hermes_update_prompt_action")
+            action_value.get("fabric_update_prompt_action")
             if isinstance(action_value, dict) else None
         )
 
-        if hermes_action:
+        if fabric_action:
             return self._handle_approval_card_action(event=event, action_value=action_value, loop=loop)
         if update_prompt_action:
             return self._handle_update_prompt_card_action(
@@ -2707,7 +2707,7 @@ class FeishuAdapter(BasePlatformAdapter):
         if not state:
             logger.debug("[Feishu] Approval %s already resolved or unknown", approval_id)
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
-        choice = _APPROVAL_CHOICE_MAP.get(action_value.get("hermes_action"), "deny")
+        choice = _APPROVAL_CHOICE_MAP.get(action_value.get("fabric_action"), "deny")
 
         operator = getattr(event, "operator", None)
         open_id = str(getattr(operator, "open_id", "") or "")
@@ -2764,7 +2764,7 @@ class FeishuAdapter(BasePlatformAdapter):
             logger.debug("[Feishu] Update prompt %s already resolved or unknown", prompt_id)
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
 
-        answer = str(action_value.get("hermes_update_prompt_action", "") or "").strip().lower()
+        answer = str(action_value.get("fabric_update_prompt_action", "") or "").strip().lower()
         if answer not in {"y", "n"}:
             logger.debug("[Feishu] Card action has invalid update prompt answer=%r", answer)
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
@@ -4035,7 +4035,7 @@ class FeishuAdapter(BasePlatformAdapter):
         *,
         is_bot: bool = False,
     ) -> Dict[str, Optional[str]]:
-        """Map Feishu's three-tier user IDs onto Hermes' SessionSource fields.
+        """Map Feishu's three-tier user IDs onto Fabric' SessionSource fields.
 
         Preference order for the primary ``user_id`` field:
           1. user_id  (tenant-scoped, most stable — requires permission scope)
@@ -5100,9 +5100,9 @@ def _begin_registration(domain: str = "feishu") -> dict:
         raise RuntimeError("Feishu / Lark registration did not return a device_code")
     qr_url = res.get("verification_uri_complete", "")
     if "?" in qr_url:
-        qr_url += "&from=hermes&tp=hermes"
+        qr_url += "&from=fabric&tp=fabric"
     else:
-        qr_url += "?from=hermes&tp=hermes"
+        qr_url += "?from=fabric&tp=fabric"
     return {
         "device_code": device_code,
         "qr_url": qr_url,
@@ -5640,7 +5640,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Fabric plugin system."""
     ctx.register_platform(
         name="feishu",
         label="Feishu / Lark",

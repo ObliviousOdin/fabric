@@ -82,8 +82,8 @@ def test_manager_remove_evicts_cache(tmp_path, monkeypatch):
     assert p1 is not p2
 
 
-def test_hermes_provider_subclass_exists():
-    """HermesMCPOAuthProvider is defined and subclasses OAuthClientProvider."""
+def test_fabric_provider_subclass_exists():
+    """FabricMCPOAuthProvider is defined and subclasses OAuthClientProvider."""
     from tools.mcp_oauth_manager import _HERMES_PROVIDER_CLS
     from mcp.client.auth.oauth2 import OAuthClientProvider
 
@@ -237,8 +237,8 @@ async def test_handle_401_dedup_survives_even_if_task_reference_dropped(tmp_path
     assert len(mgr._inflight_tasks) == 0
 
 
-def test_manager_builds_hermes_provider_subclass(tmp_path, monkeypatch):
-    """get_or_build_provider returns HermesMCPOAuthProvider, not plain OAuthClientProvider."""
+def test_manager_builds_fabric_provider_subclass(tmp_path, monkeypatch):
+    """get_or_build_provider returns FabricMCPOAuthProvider, not plain OAuthClientProvider."""
     from tools.mcp_oauth_manager import (
         MCPOAuthManager, _HERMES_PROVIDER_CLS, reset_manager_for_tests,
     )
@@ -251,7 +251,7 @@ def test_manager_builds_hermes_provider_subclass(tmp_path, monkeypatch):
 
     assert _HERMES_PROVIDER_CLS is not None
     assert isinstance(provider, _HERMES_PROVIDER_CLS)
-    assert provider._hermes_server_name == "srv"
+    assert provider._fabric_server_name == "srv"
 
 
 def test_manager_fails_fast_noninteractive_without_cached_tokens(tmp_path, monkeypatch):

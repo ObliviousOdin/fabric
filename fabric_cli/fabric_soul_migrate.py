@@ -73,7 +73,7 @@ def iter_soul_paths(home: Path) -> Iterable[Path]:
                 yield profile_dir / "SOUL.md"
 
 
-def migrate_hermes_home_souls(home: Path | str) -> int:
+def migrate_fabric_home_souls(home: Path | str) -> int:
     """Migrate all allow-listed souls under *home*. Return count changed."""
     home_path = Path(home).expanduser()
     branded = _branded_soul_text()
@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     if not home.exists():
         print(f"[fabric-soul] home does not exist: {home}", file=sys.stderr)
         return 1
-    changed = migrate_hermes_home_souls(home)
+    changed = migrate_fabric_home_souls(home)
     if changed:
         print(f"[fabric-soul] migrated {changed} soul file(s) under {home}")
     else:

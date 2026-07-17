@@ -13,7 +13,7 @@ hooks land.
 
 Every ``docker exec`` here runs as the unprivileged ``hermes`` user
 (via :func:`docker_exec` in conftest); see the conftest module
-docstring. ``/run/service`` is chowned hermes-writable by the
+docstring. ``/run/service`` is chowned fabric-writable by the
 ``02-reconcile-profiles`` cont-init.d script, so register/unregister
 operations work correctly under UID 10000.
 """

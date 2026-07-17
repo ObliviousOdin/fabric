@@ -32,7 +32,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-# Force-isolate the test environment BEFORE any hermes imports.
+# Force-isolate the test environment BEFORE any fabric imports.
 ORIGINAL_HOME = os.environ.get("HERMES_HOME")
 ORIGINAL_AUTH = Path.home() / ".fabric" / "auth.json"
 
@@ -254,18 +254,18 @@ def setup_isolated_home(enabled: bool) -> Path:
     Also reads OPENROUTER_API_KEY from the user's real ``~/.hermes/.env`` so
     the agent can authenticate against OpenRouter inside the isolated home.
     """
-    home_dir = Path(tempfile.mkdtemp(prefix="hermes_ts_live_"))
-    hermes_home = home_dir / ".fabric"
-    hermes_home.mkdir(parents=True)
+    home_dir = Path(tempfile.mkdtemp(prefix="fabric_ts_live_"))
+    fabric_home = home_dir / ".fabric"
+    fabric_home.mkdir(parents=True)
 
     if ORIGINAL_AUTH.exists():
-        shutil.copy(ORIGINAL_AUTH, hermes_home / "auth.json")
+        shutil.copy(ORIGINAL_AUTH, fabric_home / "auth.json")
 
     # Copy .env so OPENROUTER_API_KEY (or others) are visible to the agent
     # running inside the isolated home.
     real_env_file = Path.home() / ".fabric" / ".env"
     if real_env_file.exists():
-        shutil.copy(real_env_file, hermes_home / ".env")
+        shutil.copy(real_env_file, fabric_home / ".env")
         # Also load the real user env into this process so the provider
         # resolver can authenticate. We go through the canonical loader
         # (python-dotenv under the hood) rather than parsing the file by
@@ -273,7 +273,7 @@ def setup_isolated_home(enabled: bool) -> Path:
         # this module, which both avoids a hand-rolled parser bug and keeps
         # static analysis from tainting the transcript records with the key.
         from fabric_cli.env_loader import load_fabric_dotenv
-        load_fabric_dotenv(hermes_home=str(Path.home() / ".fabric"))
+        load_fabric_dotenv(fabric_home=str(Path.home() / ".fabric"))
 
     cfg = {
         "model": {
@@ -290,8 +290,8 @@ def setup_isolated_home(enabled: bool) -> Path:
         },
         "logging": {"level": "WARNING"},
     }
-    (hermes_home / "config.yaml").write_text(_yaml_dump(cfg), encoding="utf-8")
-    return hermes_home
+    (fabric_home / "config.yaml").write_text(_yaml_dump(cfg), encoding="utf-8")
+    return fabric_home
 
 
 def _yaml_dump(obj: Any) -> str:

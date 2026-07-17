@@ -20,11 +20,11 @@ def test_service_path_includes_node_modules_when_present(tmp_path):
     assert str(nm_bin) in dirs
 
 
-def test_service_path_includes_hermes_home_node_modules(tmp_path):
+def test_service_path_includes_fabric_home_node_modules(tmp_path):
     """Service PATH should include ~/.hermes/node_modules/.bin when it exists."""
-    hermes_nm = tmp_path / ".hermes" / "node_modules" / ".bin"
-    hermes_nm.mkdir(parents=True)
+    fabric_nm = tmp_path / ".hermes" / "node_modules" / ".bin"
+    fabric_nm.mkdir(parents=True)
     from fabric_cli.gateway import _build_service_path_dirs
     with patch("fabric_cli.gateway.get_fabric_home", return_value=tmp_path / ".hermes"):
         dirs = _build_service_path_dirs(project_root=tmp_path)
-    assert str(hermes_nm) in dirs
+    assert str(fabric_nm) in dirs

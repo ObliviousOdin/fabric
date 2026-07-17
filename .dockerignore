@@ -61,7 +61,7 @@ data/
 .notebooklm-home/
 
 # Compose/profile runtime state (bind-mounted; avoid ownership/secret issues)
-hermes-config/
+fabric-config/
 runtime/
 
 # ---------- Not needed inside the Docker image ----------
@@ -84,8 +84,8 @@ docs/
 assets/
 infographic/
 
-# Plugin-level docs (hermes-achievements ships docs/ but the runtime doesn't read them)
-plugins/hermes-achievements/docs/
+# Plugin-level docs (fabric-achievements ships docs/ but the runtime doesn't read them)
+plugins/fabric-achievements/docs/
 
 # Nix / Homebrew / AUR packaging metadata — irrelevant to Docker
 nix/

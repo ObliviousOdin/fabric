@@ -369,7 +369,7 @@ step with `fabric plugins install owner/repo --enable`, or enable an existing
 checkout with `fabric plugins enable <name>`.
 
 Plugins don't bundle React, ReactDOM, or UI components. They use the **Plugin
-SDK** exposed on `window.__FABRIC_PLUGIN_SDK__` (with the legacy Hermes name kept
+SDK** exposed on `window.__FABRIC_PLUGIN_SDK__` (with the legacy Fabric name kept
 as an alias). This keeps plugin bundles small and, more importantly, ensures the
 host and every plugin share one React renderer.
 
@@ -891,7 +891,7 @@ curl http://127.0.0.1:9119/api/dashboard/plugins/rescan
 
 #### Plugin load lifecycle
 
-1. Dashboard loads. `main.tsx` exposes the SDK on `window.__FABRIC_PLUGIN_SDK__` and the registry on `window.__FABRIC_PLUGINS__`; the `window.__HERMES_*` compatibility globals remain aliases.
+1. Dashboard loads. `main.tsx` exposes the SDK on `window.__FABRIC_PLUGIN_SDK__` and the registry on `window.__FABRIC_PLUGINS__`; the `window.__FABRIC_*` compatibility globals remain aliases.
 2. `App.tsx` calls `usePlugins()` → fetches `GET /api/dashboard/plugins`.
 3. For each manifest: CSS `<link>` is injected (if declared), then a `<script>` tag loads the JS bundle.
 4. The plugin's IIFE runs and calls `window.__FABRIC_PLUGINS__.register(name, Component)` — and optionally `.registerSlot(name, slot, Component)` for each slot.

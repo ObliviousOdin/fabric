@@ -23,7 +23,7 @@ use std::process::Command;
 use tracing_appender::non_blocking::WorkerGuard;
 
 /// Returns the canonical Fabric home directory while preserving legacy homes.
-pub fn hermes_home() -> PathBuf {
+pub fn fabric_home() -> PathBuf {
     for key in ["FABRIC_HOME", "HERMES_HOME"] {
         if let Ok(override_path) = std::env::var(key) {
             if !override_path.trim().is_empty() {
@@ -62,7 +62,7 @@ fn prefer_modern_home(modern: PathBuf, legacy: PathBuf) -> PathBuf {
 }
 
 pub fn log_dir() -> PathBuf {
-    hermes_home().join("logs")
+    fabric_home().join("logs")
 }
 
 pub fn log_path() -> PathBuf {
@@ -70,11 +70,11 @@ pub fn log_path() -> PathBuf {
 }
 
 pub fn bootstrap_cache_dir() -> PathBuf {
-    hermes_home().join("bootstrap-cache")
+    fabric_home().join("bootstrap-cache")
 }
 
 /// Resolve the installed source tree. Current installers use `fabric-agent`;
-/// old Hermes releases used `hermes-agent`. Prefer Fabric when both exist and
+/// old Fabric releases used `hermes-agent`. Prefer Fabric when both exist and
 /// retain the legacy fallback so an in-place upgrade can still launch/update.
 pub fn install_root_for_home(home: &Path) -> PathBuf {
     let fabric = home.join("fabric-agent");
@@ -87,7 +87,7 @@ pub fn install_root_for_home(home: &Path) -> PathBuf {
 }
 
 pub fn install_root() -> PathBuf {
-    install_root_for_home(&hermes_home())
+    install_root_for_home(&fabric_home())
 }
 
 /// Preferred stable location for the updater helper.
@@ -97,7 +97,7 @@ pub fn installer_dest() -> PathBuf {
     } else {
         "fabric-setup"
     };
-    hermes_home().join(name)
+    fabric_home().join(name)
 }
 
 /// Previous releases and an older desktop may still invoke this exact path.
@@ -109,7 +109,7 @@ pub fn legacy_installer_dest() -> PathBuf {
     } else {
         "hermes-setup"
     };
-    hermes_home().join(name)
+    fabric_home().join(name)
 }
 
 /// Marker the updater writes for the duration of an in-app update and removes
@@ -122,11 +122,11 @@ pub fn legacy_installer_dest() -> PathBuf {
 /// so the Electron desktop — which resolves both home names identically —
 /// the updater's env — agrees on the exact path.
 pub fn update_in_progress_marker() -> PathBuf {
-    hermes_home().join(".hermes-update-in-progress")
+    fabric_home().join(".hermes-update-in-progress")
 }
 
 /// Copy the currently-running installer binary to both the preferred Fabric
-/// helper path and the legacy Hermes helper path. This lets a new Fabric app
+/// helper path and the legacy Fabric helper path. This lets a new Fabric app
 /// update an old install and lets an old desktop hand off to a newly installed
 /// setup helper during a rolling upgrade.
 ///
@@ -135,7 +135,7 @@ pub fn update_in_progress_marker() -> PathBuf {
 /// that path), where copying onto ourselves would be a Windows sharing
 /// violation. Best-effort: a failure here must not fail the install, so the
 /// caller logs and continues.
-pub fn copy_self_to_hermes_home() -> std::io::Result<()> {
+pub fn copy_self_to_fabric_home() -> std::io::Result<()> {
     let src = std::env::current_exe()?;
     copy_installer_to(&src, &installer_dest())?;
     copy_installer_to(&src, &legacy_installer_dest())?;
@@ -237,15 +237,15 @@ pub fn get_log_path() -> String {
 }
 
 #[tauri::command]
-pub fn get_hermes_home() -> String {
-    hermes_home().to_string_lossy().into_owned()
+pub fn get_fabric_home() -> String {
+    fabric_home().to_string_lossy().into_owned()
 }
 
 /// Primary command name. Existing installs may resolve to a legacy
 /// home, while new installs use the canonical Fabric home.
 #[tauri::command]
 pub fn get_fabric_home() -> String {
-    get_hermes_home()
+    get_fabric_home()
 }
 
 #[tauri::command]

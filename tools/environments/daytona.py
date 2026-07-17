@@ -83,8 +83,8 @@ class DaytonaEnvironment(BaseEnvironment):
             disk_gib = 10
         resources = Resources(cpu=cpu, memory=memory_gib, disk=disk_gib)
 
-        labels = {"hermes_task_id": task_id}
-        sandbox_name = f"hermes-{task_id}"
+        labels = {"fabric_task_id": task_id}
+        sandbox_name = f"fabric-{task_id}"
 
         if self._persistent:
             try:

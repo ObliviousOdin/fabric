@@ -2308,7 +2308,7 @@ class TestRunJobSkillBacked:
 
         with patch("cron.scheduler._fabric_home", tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
-             patch("tools.credential_files._resolve_hermes_home", return_value=tmp_path), \
+             patch("tools.credential_files._resolve_fabric_home", return_value=tmp_path), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
              patch("fabric_state.SessionDB", return_value=fake_db), \

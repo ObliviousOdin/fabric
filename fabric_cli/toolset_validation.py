@@ -1,7 +1,7 @@
 """Validation for the ``platform_toolsets`` config section.
 
 Pure, side-effect-free helpers so the logic is unit-testable without importing
-the tool registry or launching Hermes (mirrors the decoupled-helper pattern used
+the tool registry or launching Fabric (mirrors the decoupled-helper pattern used
 elsewhere in the CLI).
 
 Motivated by #38798: a config migration silently rewrote the valid toolset name
@@ -24,7 +24,7 @@ def validate_platform_toolsets(
     Two failure modes are reported:
 
     1. A toolset name that ``is_valid_toolset`` rejects — usually a corrupted or
-       renamed entry. When ``hermes-<platform>`` would have been valid (the exact
+       renamed entry. When ``fabric-<platform>`` would have been valid (the exact
        #38798 shape, where ``cli`` held ``fabric`` instead of ``hermes-cli``),
        the warning includes that as a suggestion.
     2. The mapping is non-empty but resolves to *zero* valid toolsets, so the
@@ -55,7 +55,7 @@ def validate_platform_toolsets(
             if is_valid_toolset(name):
                 valid_count += 1
                 continue
-            suggestion = f"hermes-{platform}"
+            suggestion = f"fabric-{platform}"
             hint = (
                 f" — did you mean '{suggestion}'?"
                 if is_valid_toolset(suggestion)

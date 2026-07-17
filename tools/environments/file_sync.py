@@ -239,7 +239,7 @@ class FileSyncManager:
     # Sync-back: pull remote changes to host on teardown
     # ------------------------------------------------------------------
 
-    def sync_back(self, hermes_home: Path | None = None) -> None:
+    def sync_back(self, fabric_home: Path | None = None) -> None:
         """Pull remote changes back to the host filesystem.
 
         Downloads the remote ``.hermes/`` directory as a tar archive,
@@ -259,7 +259,7 @@ class FileSyncManager:
             logger.debug("sync_back: no prior push state — skipping")
             return
 
-        lock_path = (hermes_home or get_fabric_home()) / ".sync.lock"
+        lock_path = (fabric_home or get_fabric_home()) / ".sync.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
 
         last_exc: Exception | None = None
@@ -358,7 +358,7 @@ class FileSyncManager:
                 )
                 return
 
-            with tempfile.TemporaryDirectory(prefix="hermes-sync-back-") as staging:
+            with tempfile.TemporaryDirectory(prefix="fabric-sync-back-") as staging:
                 with tarfile.open(tf.name) as tar:
                     tar.extractall(staging, filter="data")
 

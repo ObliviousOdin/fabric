@@ -35,7 +35,7 @@ def _restore_stdout():
 @pytest.fixture()
 def server():
     with patch.dict("sys.modules", {
-        "fabric_constants": MagicMock(get_fabric_home=MagicMock(return_value="/tmp/hermes_test")),
+        "fabric_constants": MagicMock(get_fabric_home=MagicMock(return_value="/tmp/fabric_test")),
         "fabric_cli.env_loader": MagicMock(),
         "fabric_cli.banner": MagicMock(),
         "fabric_state": MagicMock(),

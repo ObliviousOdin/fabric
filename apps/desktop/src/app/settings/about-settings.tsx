@@ -157,7 +157,7 @@ export function AboutSettings() {
                 href={desktopBrand.releaseNotesUrl}
                 onClick={event => {
                   event.preventDefault()
-                  void window.hermesDesktop?.openExternal?.(desktopBrand.releaseNotesUrl)
+                  void window.fabricDesktop?.openExternal?.(desktopBrand.releaseNotesUrl)
                 }}
                 rel="noreferrer"
                 target="_blank"

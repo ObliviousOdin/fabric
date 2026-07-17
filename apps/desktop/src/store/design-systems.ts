@@ -1,6 +1,6 @@
 import { atom } from 'nanostores'
 
-import type { HermesConnection } from '@/global'
+import type { FabricConnection } from '@/global'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { $connection } from '@/store/session'
 
@@ -50,7 +50,7 @@ export const $designSystems = atom<ManagedDesignSystem[]>([])
 export const $designSystemsStatus = atom<DesignSystemsStatus>('idle')
 export const $designSystemsError = atom<null | string>(null)
 
-function connectionKey(connection: HermesConnection | null): string {
+function connectionKey(connection: FabricConnection | null): string {
   if (!connection || connection.mode !== 'remote') {
     return 'local'
   }
@@ -115,7 +115,7 @@ export async function loadDesignSystems(): Promise<ManagedDesignSystem[]> {
   $designSystemsStatus.set('loading')
 
   try {
-    const response = await window.hermesDesktop.api<DesignSystemListResponse>({
+    const response = await window.fabricDesktop.api<DesignSystemListResponse>({
       path: '/api/design-systems',
       profile: target.profile
     })
@@ -140,13 +140,13 @@ export async function loadDesignSystems(): Promise<ManagedDesignSystem[]> {
 
 export async function importDesignSystemZip(sourcePath: string, name?: string): Promise<DesignSystemImportResult> {
   const target = captureTarget()
-  const importer = window.hermesDesktop.importDesignSystemZip
+  const importer = window.fabricDesktop.importDesignSystemZip
 
   if (!importer) {
     throw new Error('This Fabric backend does not support managed design systems yet. Update Fabric and try again.')
   }
 
-  const result = await window.hermesDesktop.importDesignSystemZip<DesignSystemImportResult>({
+  const result = await window.fabricDesktop.importDesignSystemZip<DesignSystemImportResult>({
     generation: 0,
     name: name?.trim() || archiveDisplayName(sourcePath),
     profile: target.profile,
@@ -167,13 +167,13 @@ export async function replaceDesignSystemZip(
   sourcePath: string
 ): Promise<DesignSystemImportResult> {
   const target = captureTarget()
-  const importer = window.hermesDesktop.importDesignSystemZip
+  const importer = window.fabricDesktop.importDesignSystemZip
 
   if (!importer) {
     throw new Error('This Fabric backend does not support managed design systems yet. Update Fabric and try again.')
   }
 
-  const result = await window.hermesDesktop.importDesignSystemZip<DesignSystemImportResult>({
+  const result = await window.fabricDesktop.importDesignSystemZip<DesignSystemImportResult>({
     generation: system.generation,
     name: system.name,
     profile: target.profile,
@@ -191,7 +191,7 @@ export async function replaceDesignSystemZip(
 export async function removeDesignSystem(system: ManagedDesignSystem): Promise<void> {
   const target = captureTarget()
 
-  await window.hermesDesktop.api<{ ok: boolean }>({
+  await window.fabricDesktop.api<{ ok: boolean }>({
     body: { expectedGeneration: system.generation },
     method: 'DELETE',
     path: `/api/design-systems/${encodeURIComponent(system.id)}`,

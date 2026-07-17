@@ -287,7 +287,7 @@ def _provider_config_values(
     if name == "holographic":
         plugins_config = config.get("plugins")
         if isinstance(plugins_config, Mapping):
-            native = plugins_config.get("hermes-memory-store")
+            native = plugins_config.get("fabric-memory-store")
             if isinstance(native, Mapping):
                 values.update(native)
     return values

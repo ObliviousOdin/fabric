@@ -31,7 +31,7 @@ const TRANSLATION_LOADERS: Record<DeferredLocale, () => Promise<Translations>> =
 
 const TRANSLATION_CACHE: Partial<Record<Locale, Translations>> = { en };
 const STORAGE_KEY = "fabric-locale";
-const LEGACY_STORAGE_KEY = "hermes-locale";
+const LEGACY_STORAGE_KEY = "fabric-locale";
 
 function isLocale(value: string): value is Locale {
   return Object.hasOwn(LOCALE_META, value);

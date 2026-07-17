@@ -1,4 +1,4 @@
-"""Tests for HermesCLI initialization -- catches configuration bugs
+"""Tests for FabricCLI initialization -- catches configuration bugs
 that only manifest at runtime (not in mocked unit tests)."""
 
 import os
@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
-    """Create a HermesCLI instance with minimal mocking."""
+    """Create a FabricCLI instance with minimal mocking."""
     import importlib
 
     _clean_config = {
@@ -51,7 +51,7 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
         _cli_mod = importlib.reload(_cli_mod)
         with patch.object(_cli_mod, "get_tool_definitions", return_value=[]), \
              patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}):
-            return _cli_mod.HermesCLI(**kwargs)
+            return _cli_mod.FabricCLI(**kwargs)
 
 
 class TestMaxTurnsResolution:
@@ -371,7 +371,7 @@ class TestHistoryDisplay:
             {
                 "id": "20260401_201329_d85961",
                 "title": "Checking Running Fabric",
-                "preview": "check running gateways for hermes agent",
+                "preview": "check running gateways for fabric agent",
                 "last_active": 0,
             },
         ]
@@ -399,7 +399,7 @@ class TestHistoryDisplay:
             {
                 "id": "20260401_201329_d85961",
                 "title": "Checking Running Fabric",
-                "preview": "check running gateways for hermes agent",
+                "preview": "check running gateways for fabric agent",
                 "last_active": 0,
             },
         ]
@@ -412,7 +412,7 @@ class TestHistoryDisplay:
         assert "Use /resume" in output
         assert "session title" in output
 
-    def test_resume_updates_hermes_session_id_env_and_context(self, tmp_path):
+    def test_resume_updates_fabric_session_id_env_and_context(self, tmp_path):
         from gateway.session_context import _UNSET, _VAR_MAP, get_session_env
         from fabric_state import SessionDB
 
@@ -482,7 +482,7 @@ class TestHistoryDisplay:
             {
                 "id": "20260401_201329_d85961",
                 "title": "Checking Running Fabric",
-                "preview": "check running gateways for hermes agent",
+                "preview": "check running gateways for fabric agent",
                 "last_active": 0,
             },
         ]
@@ -506,7 +506,7 @@ class TestHistoryDisplay:
             {
                 "id": "20260401_201329_d85961",
                 "title": "Checking Running Fabric",
-                "preview": "check running gateways for hermes agent",
+                "preview": "check running gateways for fabric agent",
                 "last_active": 0,
             },
         ]
@@ -558,11 +558,11 @@ class TestRootLevelProviderOverride:
         """model.provider takes priority — root-level provider is only a fallback."""
         import yaml
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        fabric_home = tmp_path / ".hermes"
+        fabric_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
 
-        config_path = hermes_home / "config.yaml"
+        config_path = fabric_home / "config.yaml"
         config_path.write_text(yaml.safe_dump({
             "provider": "opencode-go",  # stale root-level key
             "model": {
@@ -572,7 +572,7 @@ class TestRootLevelProviderOverride:
         }))
 
         import cli
-        monkeypatch.setattr(cli, "_fabric_home", hermes_home)
+        monkeypatch.setattr(cli, "_fabric_home", fabric_home)
         cfg = cli.load_cli_config()
 
         assert cfg["model"]["provider"] == "openrouter"
@@ -581,11 +581,11 @@ class TestRootLevelProviderOverride:
         """Legacy root-level provider still populates model.provider in the CLI loader."""
         import yaml
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        fabric_home = tmp_path / ".hermes"
+        fabric_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
 
-        config_path = hermes_home / "config.yaml"
+        config_path = fabric_home / "config.yaml"
         config_path.write_text(yaml.safe_dump({
             "provider": "opencode-go",  # stale root key
             "model": {
@@ -595,7 +595,7 @@ class TestRootLevelProviderOverride:
         }))
 
         import cli
-        monkeypatch.setattr(cli, "_fabric_home", hermes_home)
+        monkeypatch.setattr(cli, "_fabric_home", fabric_home)
         cfg = cli.load_cli_config()
 
         assert cfg["model"]["provider"] == "opencode-go"
@@ -604,11 +604,11 @@ class TestRootLevelProviderOverride:
         """Legacy root-level base_url still populates model.base_url in the CLI loader."""
         import yaml
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        fabric_home = tmp_path / ".hermes"
+        fabric_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
 
-        config_path = hermes_home / "config.yaml"
+        config_path = fabric_home / "config.yaml"
         config_path.write_text(yaml.safe_dump({
             "base_url": "https://example.com/v1",
             "model": {
@@ -617,7 +617,7 @@ class TestRootLevelProviderOverride:
         }))
 
         import cli
-        monkeypatch.setattr(cli, "_fabric_home", hermes_home)
+        monkeypatch.setattr(cli, "_fabric_home", fabric_home)
         cfg = cli.load_cli_config()
 
         assert cfg["model"]["base_url"] == "https://example.com/v1"

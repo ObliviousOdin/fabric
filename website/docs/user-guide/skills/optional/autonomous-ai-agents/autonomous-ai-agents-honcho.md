@@ -58,7 +58,7 @@ fabric memory setup honcho
 # select "local", enter base URL (e.g. http://localhost:8000)
 ```
 
-See: https://docs.honcho.dev/v3/guides/integrations/hermes#running-honcho-locally-with-hermes
+See: https://docs.honcho.dev/v3/guides/integrations/hermes#running-honcho-locally-with-fabric
 
 ### Verify
 

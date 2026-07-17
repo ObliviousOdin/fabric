@@ -223,7 +223,7 @@ Pick the closest existing category. Don't invent new top-level categories casual
 
 ## Cross-Referencing Other Skills
 
-`metadata.fabric.related_skills` unions both trees (`skills/` in-repo and `~/.fabric/skills/`) at load time. Legacy `metadata.hermes` values still load as fallbacks, but new and edited skills should use the canonical `metadata.fabric` namespace. You CAN reference a user-local skill from an in-repo skill, but it won't resolve for other users who clone the repo fresh. Prefer referencing only in-repo skills from in-repo skills. If a frequently-referenced skill lives only in `~/.fabric/skills/`, consider promoting it to the repo.
+`metadata.fabric.related_skills` unions both trees (`skills/` in-repo and `~/.fabric/skills/`) at load time. Legacy `metadata.fabric` values still load as fallbacks, but new and edited skills should use the canonical `metadata.fabric` namespace. You CAN reference a user-local skill from an in-repo skill, but it won't resolve for other users who clone the repo fresh. Prefer referencing only in-repo skills from in-repo skills. If a frequently-referenced skill lives only in `~/.fabric/skills/`, consider promoting it to the repo.
 
 ## Editing Existing In-Repo Skills
 

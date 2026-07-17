@@ -9,7 +9,7 @@ and a trust-aware install policy that determines whether a skill is allowed
 based on both the scan verdict and the source's trust level.
 
 Trust levels:
-  - builtin:   Ships with Hermes. Never scanned, always trusted.
+  - builtin:   Ships with Fabric. Never scanned, always trusted.
   - trusted:   openai/skills and anthropics/skills only. Caution verdicts allowed.
   - community: Everything else. Any findings = blocked unless --force.
 
@@ -151,7 +151,7 @@ THREAT_PATTERNS = [
      "docker_dir_access", "high", "exfiltration",
      "references Docker config (may contain registry creds)"),
     (_FABRIC_ENV_PATH_PATTERN,
-     "hermes_env_access", "critical", "exfiltration",
+     "fabric_env_access", "critical", "exfiltration",
      "directly references Fabric secrets file"),
     # Match `cat <secrets-file>` (reading credentials) but NOT `cat > <file>`
     # or `cat >> <file>`, which are output redirections that WRITE a file
@@ -477,7 +477,7 @@ THREAT_PATTERNS = [
      "agent_config_mod", "critical", "persistence",
      "references agent config files (could persist malicious instructions across sessions)"),
     (_FABRIC_CONFIG_PATH_PATTERN,
-     "hermes_config_mod", "critical", "persistence",
+     "fabric_config_mod", "critical", "persistence",
      "references Fabric configuration files directly"),
     (r'\.claude/settings|\.codex/config',
      "other_agent_config", "high", "persistence",
@@ -1164,7 +1164,7 @@ def _unicode_char_name(char: str) -> str:
 # ---------------------------------------------------------------------------
 
 # Ignore-file names a skill may ship to exclude dev/docs artifacts from the
-# scan. `.skillignore` is the Hermes-native name; `.clawhubignore` is honored
+# scan. `.skillignore` is the Fabric-native name; `.clawhubignore` is honored
 # for compatibility with skills published through ClawHub.
 _SKILL_IGNORE_FILENAMES = (".skillignore", ".clawhubignore")
 

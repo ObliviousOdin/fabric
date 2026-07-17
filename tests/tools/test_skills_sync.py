@@ -214,16 +214,16 @@ class TestRmtreeWritableScopeGuard:
             with pytest.raises(ValueError, match="refusing to rmtree"):
                 _rmtree_writable(Path("/"))
 
-    def test_refuses_hermes_home_itself(self, tmp_path):
+    def test_refuses_fabric_home_itself(self, tmp_path):
         """``~/.hermes/`` itself is what the #48200 wipe destroyed."""
         from tools.skills_sync import _rmtree_writable
 
-        hermes = tmp_path / "home"
+        fabric = tmp_path / "home"
         hermes.mkdir()
-        (hermes / "skills").mkdir()
-        with patch("tools.skills_sync.SKILLS_DIR", hermes / "skills"):
+        (fabric / "skills").mkdir()
+        with patch("tools.skills_sync.SKILLS_DIR", fabric / "skills"):
             with pytest.raises(ValueError, match="refusing to rmtree"):
-                _rmtree_writable(hermes)
+                _rmtree_writable(fabric)
 
     def test_refuses_sibling_directory(self, tmp_path):
         """A directory that is a sibling of SKILLS_DIR (e.g. a wrong
@@ -231,11 +231,11 @@ class TestRmtreeWritableScopeGuard:
         """
         from tools.skills_sync import _rmtree_writable
 
-        hermes = tmp_path / "home"
+        fabric = tmp_path / "home"
         hermes.mkdir()
-        skills = hermes / "skills"
+        skills = fabric / "skills"
         skills.mkdir()
-        not_skills = hermes / "kanban.db"  # any non-skills path
+        not_skills = fabric / "kanban.db"  # any non-skills path
         not_skills.mkdir()
         with patch("tools.skills_sync.SKILLS_DIR", skills):
             with pytest.raises(ValueError, match="refusing to rmtree"):
@@ -1291,14 +1291,14 @@ class TestNoBundledSkillsOptOut:
         bundled = self._setup_bundled(tmp_path)
         skills_dir = tmp_path / "user_skills"
         manifest_file = skills_dir / ".bundled_manifest"
-        hermes_home = tmp_path / "home"
-        hermes_home.mkdir()
-        (hermes_home / ".no-bundled-skills").write_text("opted out\n")
+        fabric_home = tmp_path / "home"
+        fabric_home.mkdir()
+        (fabric_home / ".no-bundled-skills").write_text("opted out\n")
 
         with patch("tools.skills_sync._get_bundled_dir", return_value=bundled), \
              patch("tools.skills_sync.SKILLS_DIR", skills_dir), \
              patch("tools.skills_sync.MANIFEST_FILE", manifest_file), \
-             patch("tools.skills_sync.HERMES_HOME", hermes_home):
+             patch("tools.skills_sync.HERMES_HOME", fabric_home):
             result = sync_skills(quiet=True)
 
         # Opt-out signalled, nothing copied, nothing written to disk.
@@ -1311,15 +1311,15 @@ class TestNoBundledSkillsOptOut:
         bundled = self._setup_bundled(tmp_path)
         skills_dir = tmp_path / "user_skills"
         manifest_file = skills_dir / ".bundled_manifest"
-        hermes_home = tmp_path / "home"
-        hermes_home.mkdir()
+        fabric_home = tmp_path / "home"
+        fabric_home.mkdir()
         # No marker written.
 
         with patch("tools.skills_sync._get_bundled_dir", return_value=bundled), \
              patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"), \
              patch("tools.skills_sync.SKILLS_DIR", skills_dir), \
              patch("tools.skills_sync.MANIFEST_FILE", manifest_file), \
-             patch("tools.skills_sync.HERMES_HOME", hermes_home):
+             patch("tools.skills_sync.HERMES_HOME", fabric_home):
             result = sync_skills(quiet=True)
 
         assert result.get("skipped_opt_out") is not True
@@ -1328,7 +1328,7 @@ class TestNoBundledSkillsOptOut:
 
 
 class TestOptOutToggleAndRemove:
-    """`hermes skills opt-out/opt-in` core: marker toggle + safe removal."""
+    """`fabric skills opt-out/opt-in` core: marker toggle + safe removal."""
 
     def _setup_bundled(self, tmp_path):
         bundled = tmp_path / "bundled"

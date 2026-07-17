@@ -1,4 +1,4 @@
-"""Helpers for loading Hermes .env files consistently across entrypoints."""
+"""Helpers for loading Fabric .env files consistently across entrypoints."""
 
 from __future__ import annotations
 
@@ -394,7 +394,7 @@ def _sanitize_env_file_if_needed(path: Path) -> None:
     copy-pasting API keys from terminals or rich-text editors.
 
     We delegate to ``fabric_cli.config._sanitize_env_lines`` which
-    already knows all valid Hermes env-var names and can split
+    already knows all valid Fabric env-var names and can split
     concatenated lines correctly.
     """
     if not path.exists():
@@ -940,10 +940,10 @@ def resolve_external_secret_sources(
 
 def load_fabric_dotenv(
     *,
-    hermes_home: str | os.PathLike | None = None,
+    fabric_home: str | os.PathLike | None = None,
     project_env: str | os.PathLike | None = None,
 ) -> list[Path]:
-    """Load Hermes environment files with user config taking precedence.
+    """Load Fabric environment files with user config taking precedence.
 
     Behavior:
     - `~/.hermes/.env` overrides stale shell-exported values when present.
@@ -953,8 +953,8 @@ def load_fabric_dotenv(
     """
     loaded: list[Path] = []
 
-    if hermes_home is not None:
-        home_path = Path(hermes_home)
+    if fabric_home is not None:
+        home_path = Path(fabric_home)
     else:
         env_home = (os.getenv("FABRIC_HOME") or os.getenv("HERMES_HOME") or "").strip()
         if env_home:

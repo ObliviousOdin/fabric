@@ -687,7 +687,7 @@ def _find_skill(name: str) -> Optional[Dict[str, Any]]:
 
 
 def _find_skill_in_other_profiles(name: str) -> List[Tuple[str, Path]]:
-    """Look for ``name`` under SKILL.md across OTHER Hermes profiles.
+    """Look for ``name`` under SKILL.md across OTHER Fabric profiles.
 
     Returns a list of ``(profile_name, skill_dir)`` pairs. Used to make
     the "Skill X not found" error explain when the user is editing the
@@ -1205,7 +1205,7 @@ def _delete_skill(name: str, absorbed_into: Optional[str] = None) -> Dict[str, A
     # During the curator consolidation pass, a verified consolidation must be
     # RECOVERABLE: archival into ~/.hermes/skills/.archive/ is documented as
     # the maximum destructive action the curator may take, and
-    # `hermes curator restore` promises the skill can be brought back. Route
+    # `fabric curator restore` promises the skill can be brought back. Route
     # through the recoverable archive primitive instead of permanent rmtree so
     # a misjudged consolidation can be undone (#29912). Foreground,
     # user-directed deletes keep their existing hard-delete semantics.
@@ -4229,7 +4229,7 @@ def skill_manage(
                 bump_patch(name)
             elif action == "delete":
                 # A recoverable curator archive (routed through archive_skill)
-                # keeps its usage record as STATE_ARCHIVED so `hermes curator
+                # keeps its usage record as STATE_ARCHIVED so `fabric curator
                 # status`/`restore` still see it. Only a hard delete forgets.
                 if not result.get("_archived"):
                     forget(name)

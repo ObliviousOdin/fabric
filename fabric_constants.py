@@ -130,7 +130,7 @@ def get_fabric_home() -> Path:
 
 
 def get_default_fabric_root() -> Path:
-    """Return the root Hermes directory for profile-level operations.
+    """Return the root Fabric directory for profile-level operations.
 
     In standard deployments this is the platform-native Fabric home
     (``~/.hermes`` on POSIX, ``%LOCALAPPDATA%\\hermes`` on native Windows).
@@ -272,8 +272,8 @@ def get_bundled_capability_packs_dir(default: Path) -> Path:
     return Path(default)
 
 
-def get_hermes_dir(new_subpath: str, old_name: str) -> Path:
-    """Resolve a Hermes subdirectory with backward compatibility.
+def get_fabric_dir(new_subpath: str, old_name: str) -> Path:
+    """Resolve a Fabric subdirectory with backward compatibility.
 
     New installs get the consolidated layout (e.g. ``cache/images``).
     Existing installs that already have the old path (e.g. ``image_cache``)
@@ -302,8 +302,8 @@ def get_hermes_dir(new_subpath: str, old_name: str) -> Path:
     return home / new_subpath
 
 
-def iter_hermes_node_dirs(home: Path | None = None) -> list[Path]:
-    """Return Hermes-managed Node.js directories in preferred lookup order.
+def iter_fabric_node_dirs(home: Path | None = None) -> list[Path]:
+    """Return Fabric-managed Node.js directories in preferred lookup order.
 
     Windows installs from ``scripts/install.ps1`` unpack portable Node directly
     into ``%LOCALAPPDATA%\\hermes\\node``. POSIX installs use
@@ -313,7 +313,7 @@ def iter_hermes_node_dirs(home: Path | None = None) -> list[Path]:
     root = home or get_fabric_home()
     dirs = [root / "node"]
     bin_dir = root / "node" / "bin"
-    # NOTE: keep this ordering in sync with hermesManagedNodePathEntries() in
+    # NOTE: keep this ordering in sync with fabricManagedNodePathEntries() in
     # apps/desktop/electron/main.cjs — the Electron main process is Node and
     # cannot import this module, so the platform-ordering rule is mirrored there.
     if sys.platform == "win32":
@@ -344,10 +344,10 @@ _NODE_BOOTSTRAP_SCRIPT = Path(__file__).resolve().parent / "scripts" / "lib" / "
 def node_tool_runnable(path: str | None) -> bool:
     """Return True only when *path* is a Node/npm/npx binary that actually runs.
 
-    Hermes-managed Node trees live under ``$HERMES_HOME/node`` (or a profile's
+    Fabric-managed Node trees live under ``$HERMES_HOME/node`` (or a profile's
     ``HERMES_HOME``). A partial upgrade or interrupted install can leave
     ``bin/npm`` behind while ``lib/cli.js`` is missing — the wrapper exists but
-    immediately throws ``MODULE_NOT_FOUND``. ``find_hermes_node_executable``
+    immediately throws ``MODULE_NOT_FOUND``. ``find_fabric_node_executable``
     used to trust file presence alone, so ``fabric update`` would pick that
     broken npm and fail the Node refresh / web UI build.
 
@@ -372,7 +372,7 @@ def node_tool_runnable(path: str | None) -> bool:
             [path, "--version"],
             capture_output=True,
             timeout=10,
-            env=with_hermes_node_path(),
+            env=with_fabric_node_path(),
             creationflags=windows_hide_flags(),
         )
     except (OSError, subprocess.TimeoutExpired, ValueError):
@@ -380,12 +380,12 @@ def node_tool_runnable(path: str | None) -> bool:
     return result.returncode == 0
 
 
-def hermes_managed_node_tree_present(home: Path | None = None) -> bool:
-    """Return True when any Hermes-managed node/npm/npx shim exists on disk."""
+def fabric_managed_node_tree_present(home: Path | None = None) -> bool:
+    """Return True when any Fabric-managed node/npm/npx shim exists on disk."""
     names = set()
     for command in ("node", "npm", "npx"):
         names.update(_candidate_node_command_names(command))
-    for directory in iter_hermes_node_dirs(home):
+    for directory in iter_fabric_node_dirs(home):
         for name in names:
             candidate = directory / name
             if candidate.is_file() and (
@@ -457,8 +457,8 @@ def _heal_managed_node_windows() -> bool:
     return node_tool_runnable(str(target / "node.exe"))
 
 
-def heal_hermes_managed_node() -> bool:
-    """Redownload Hermes-managed Node when the tree exists but is broken.
+def heal_fabric_managed_node() -> bool:
+    """Redownload Fabric-managed Node when the tree exists but is broken.
 
     Runs at most once per process. POSIX installs shell out to
     ``heal_managed_node`` in ``scripts/lib/node-bootstrap.sh``; Windows
@@ -467,7 +467,7 @@ def heal_hermes_managed_node() -> bool:
     global _managed_node_heal_attempted
     if _managed_node_heal_attempted:
         return False
-    if not hermes_managed_node_tree_present():
+    if not fabric_managed_node_tree_present():
         return False
     _managed_node_heal_attempted = True
 
@@ -496,11 +496,11 @@ def heal_hermes_managed_node() -> bool:
     return result.returncode == 0
 
 
-def find_hermes_node_executable(command: str) -> str | None:
-    """Return a Hermes-managed Node/npm executable path, healing broken trees."""
+def find_fabric_node_executable(command: str) -> str | None:
+    """Return a Fabric-managed Node/npm executable path, healing broken trees."""
     names = _candidate_node_command_names(command)
     broken_present = False
-    for directory in iter_hermes_node_dirs():
+    for directory in iter_fabric_node_dirs():
         for name in names:
             candidate = directory / name
             if candidate.is_file() and (
@@ -510,8 +510,8 @@ def find_hermes_node_executable(command: str) -> str | None:
                 if node_tool_runnable(resolved):
                     return resolved
                 broken_present = True
-    if broken_present and heal_hermes_managed_node():
-        for directory in iter_hermes_node_dirs():
+    if broken_present and heal_fabric_managed_node():
+        for directory in iter_fabric_node_dirs():
             for name in names:
                 candidate = directory / name
                 if candidate.is_file() and (
@@ -528,7 +528,7 @@ def find_node_executable_on_path(command: str) -> str | None:
 
     ``shutil.which("npm")`` can resolve an extensionless npm shim before the
     ``.cmd`` shim on Windows. Python's CreateProcess cannot execute that shim
-    directly, so prefer the launchable variants explicitly for Hermes-owned
+    directly, so prefer the launchable variants explicitly for Fabric-owned
     subprocesses.
     """
     if sys.platform != "win32":
@@ -552,27 +552,27 @@ def find_node_executable_on_path(command: str) -> str | None:
 
 
 def find_node_executable(command: str) -> str | None:
-    """Resolve a Node.js command, preferring healthy Hermes-managed installs.
+    """Resolve a Node.js command, preferring healthy Fabric-managed installs.
 
-    This is for Hermes-owned subprocesses that should not be broken by a bad,
+    This is for Fabric-owned subprocesses that should not be broken by a bad,
     missing, or elevation-triggering system Node/npm on PATH. When a managed
     tree exists but cannot be healed, returns ``None`` instead of falling back
     to system npm on PATH.
     """
-    managed = find_hermes_node_executable(command)
+    managed = find_fabric_node_executable(command)
     if managed:
         return managed
-    if hermes_managed_node_tree_present():
+    if fabric_managed_node_tree_present():
         return None
     return find_node_executable_on_path(command)
 
 
-def with_hermes_node_path(env: dict[str, str] | None = None) -> dict[str, str]:
-    """Return *env* with Hermes-managed Node directories prepended to PATH."""
+def with_fabric_node_path(env: dict[str, str] | None = None) -> dict[str, str]:
+    """Return *env* with Fabric-managed Node directories prepended to PATH."""
     merged = dict(os.environ if env is None else env)
     existing = merged.get("PATH", "")
     parts = [p for p in existing.split(os.pathsep) if p]
-    managed = [str(path) for path in iter_hermes_node_dirs() if path.is_dir()]
+    managed = [str(path) for path in iter_fabric_node_dirs() if path.is_dir()]
     for entry in reversed(managed):
         if entry not in parts:
             parts.insert(0, entry)
@@ -620,7 +620,7 @@ def agent_browser_runnable(path: str | None) -> bool:
             [path, "--version"],
             capture_output=True,
             timeout=10,
-            env=with_hermes_node_path(),
+            env=with_fabric_node_path(),
             creationflags=windows_hide_flags(),
         )
     except (OSError, subprocess.TimeoutExpired, ValueError):
@@ -730,10 +730,10 @@ def _norm_home_path(path: str | None) -> str:
 
 def _profile_home_path(env: dict[str, str] | None = None) -> str | None:
     """Return ``{HERMES_HOME}/home`` when the profile-home directory exists."""
-    hermes_home = get_fabric_home_override() or (env or {}).get("HERMES_HOME") or os.getenv("HERMES_HOME")
-    if not hermes_home:
+    fabric_home = get_fabric_home_override() or (env or {}).get("HERMES_HOME") or os.getenv("HERMES_HOME")
+    if not fabric_home:
         return None
-    profile_home = os.path.join(hermes_home, "home")
+    profile_home = os.path.join(fabric_home, "home")
     if os.path.isdir(profile_home):
         return profile_home
     return None
@@ -777,7 +777,7 @@ def _iter_real_home_candidates(env: dict[str, str] | None = None) -> list[str]:
 def get_real_home(env: dict[str, str] | None = None) -> str:
     """Return the OS user's real home directory, avoiding Fabric profile HOME.
 
-    ``HERMES_HOME`` scopes Hermes state. ``HOME`` is reserved for the OS/user
+    ``HERMES_HOME`` scopes Fabric state. ``HOME`` is reserved for the OS/user
     account and the many external CLIs that store credentials under ``~``.
     If a parent process is already running with ``HOME={HERMES_HOME}/home``,
     this helper repairs back to the account home when possible.
@@ -831,7 +831,7 @@ def get_subprocess_home(env: dict[str, str] | None = None) -> str | None:
 
 
 def apply_subprocess_home_env(env: dict[str, str]) -> None:
-    """Apply Hermes' subprocess HOME contract to *env* in-place."""
+    """Apply Fabric' subprocess HOME contract to *env* in-place."""
     real_home = get_real_home(env)
     if real_home:
         env["HERMES_REAL_HOME"] = real_home
@@ -1005,7 +1005,7 @@ def apply_ipv4_preference(force: bool = False) -> None:
     import socket
 
     # Guard against double-patching
-    if getattr(socket.getaddrinfo, "_hermes_ipv4_patched", False):
+    if getattr(socket.getaddrinfo, "_fabric_ipv4_patched", False):
         return
 
     _original_getaddrinfo = socket.getaddrinfo
@@ -1021,7 +1021,7 @@ def apply_ipv4_preference(force: bool = False) -> None:
                 return _original_getaddrinfo(host, port, family, type, proto, flags)
         return _original_getaddrinfo(host, port, family, type, proto, flags)
 
-    _ipv4_getaddrinfo._hermes_ipv4_patched = True  # type: ignore[attr-defined]
+    _ipv4_getaddrinfo._fabric_ipv4_patched = True  # type: ignore[attr-defined]
     socket.getaddrinfo = _ipv4_getaddrinfo  # type: ignore[assignment]
 
 

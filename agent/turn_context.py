@@ -463,7 +463,7 @@ def build_turn_context(
         )
         _preflight_deferred = _defer_preflight(_preflight_tokens)
         # Codex app-server threads are compacted by the codex agent itself;
-        # Hermes only initiates compaction in "hermes" mode (#36801).
+        # Fabric only initiates compaction in "hermes" mode (#36801).
         _codex_native_auto = (
             getattr(agent, "api_mode", None) == "codex_app_server"
             and str(

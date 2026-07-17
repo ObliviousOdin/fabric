@@ -1,6 +1,6 @@
 """Shared logic for the /codex-runtime slash command.
 
-Toggles `model.openai_runtime` between "auto" (= chat_completions, Hermes'
+Toggles `model.openai_runtime` between "auto" (= chat_completions, Fabric'
 default) and "codex_app_server" (= hand turns to a codex subprocess).
 
 Both CLI (cli.py) and gateway (gateway/run.py) call into this module so the
@@ -205,9 +205,9 @@ def apply(
         ok, ver = _check_binary_cached()
         if ok:
             msg_lines.append(f"codex CLI: {ver}")
-        # Auto-migrate Hermes' MCP servers + Codex's installed curated
+        # Auto-migrate Fabric' MCP servers + Codex's installed curated
         # plugins into ~/.codex/config.toml so the spawned codex subprocess
-        # sees the same tool surface AND can call back into Hermes for
+        # sees the same tool surface AND can call back into Fabric for
         # browser/web/delegate_task/vision/memory tools (#7 fix).
         # Failures are non-fatal — the runtime change still proceeds.
         try:

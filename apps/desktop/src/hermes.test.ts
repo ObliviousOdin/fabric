@@ -4,8 +4,8 @@ import {
   getCronJobs,
   getGlobalModelInfo,
   getGlobalModelOptions,
-  getHermesConfig,
-  getHermesConfigDefaults,
+  getFabricConfig,
+  getFabricConfigDefaults,
   getProfiles,
   getSessionMessages,
   getStatus,
@@ -21,12 +21,12 @@ const emptySessionsResponse = {
   total: 0
 }
 
-describe('Hermes REST session helpers', () => {
+describe('Fabric REST session helpers', () => {
   let api: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     api = vi.fn().mockResolvedValue(emptySessionsResponse)
-    Object.defineProperty(window, 'hermesDesktop', {
+    Object.defineProperty(window, 'fabricDesktop', {
       configurable: true,
       value: { api }
     })
@@ -34,7 +34,7 @@ describe('Hermes REST session helpers', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
-    Reflect.deleteProperty(window, 'hermesDesktop')
+    Reflect.deleteProperty(window, 'fabricDesktop')
   })
 
   it('uses a longer timeout for the single-profile session list', async () => {
@@ -97,8 +97,8 @@ describe('Hermes REST session helpers', () => {
     api.mockResolvedValue({})
 
     const bootCalls: [() => Promise<unknown>, string][] = [
-      [getHermesConfig, '/api/config'],
-      [getHermesConfigDefaults, '/api/config/defaults'],
+      [getFabricConfig, '/api/config'],
+      [getFabricConfigDefaults, '/api/config/defaults'],
       [getGlobalModelInfo, '/api/model/info'],
       [() => getGlobalModelOptions(), '/api/model/options?explicit_only=1'],
       [getCronJobs, '/api/cron/jobs']

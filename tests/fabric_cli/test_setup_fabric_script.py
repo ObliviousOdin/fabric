@@ -28,4 +28,4 @@ def test_setup_script_advertises_only_fabric_cli_and_modern_home():
     assert 'cat > "$command_link_dir/hermes"' not in content
     assert "$HOME/.fabric" in content
     assert "Start chatting" in content
-    assert "Start chatting: hermes" not in content
+    assert "Start chatting: fabric" not in content

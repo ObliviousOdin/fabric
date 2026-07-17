@@ -38,7 +38,7 @@ function installBridge() {
   const api = vi.fn().mockResolvedValue({ systems: [] })
   const importZip = vi.fn().mockResolvedValue({ deduplicated: false, system: managedSystem, warnings: [] })
 
-  Object.defineProperty(window, 'hermesDesktop', {
+  Object.defineProperty(window, 'fabricDesktop', {
     configurable: true,
     value: { api, importDesignSystemZip: importZip, revealPath: vi.fn() }
   })

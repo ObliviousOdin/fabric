@@ -1145,7 +1145,7 @@ export default function ChatPage({
     >
       <div
         ref={hostRef}
-        className="hermes-chat-xterm-host min-h-0 min-w-0 flex-1"
+        className="fabric-chat-xterm-host min-h-0 min-w-0 flex-1"
       />
 
       {/* NS-504: the agent process exited (e.g. `/exit` or a new session).

@@ -200,7 +200,7 @@ class _Client:
         h = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "x-sdk-runtime": "hermes-plugin",
+            "x-sdk-runtime": "fabric-plugin",
         }
         if path.startswith(("/v1/memory", "/v1/context")):
             h["X-API-Key"] = token
@@ -299,7 +299,7 @@ class _Client:
         import requests
         url = f"{self.base_url}/v1/files"
         token = self.api_key.replace("Bearer ", "").strip()
-        headers = {"Authorization": f"Bearer {token}", "x-sdk-runtime": "hermes-plugin"}
+        headers = {"Authorization": f"Bearer {token}", "x-sdk-runtime": "fabric-plugin"}
         fields = {"path": remote_path, "scope": scope.upper()}
         if project_id:
             fields["project_id"] = project_id
@@ -320,7 +320,7 @@ class _Client:
         import requests
         token = self.api_key.replace("Bearer ", "").strip()
         url = f"{self.base_url}/v1/files/{quote(file_id, safe='')}/content"
-        resp = requests.get(url, headers={"Authorization": f"Bearer {token}", "x-sdk-runtime": "hermes-plugin"}, timeout=30, allow_redirects=True)
+        resp = requests.get(url, headers={"Authorization": f"Bearer {token}", "x-sdk-runtime": "fabric-plugin"}, timeout=30, allow_redirects=True)
         resp.raise_for_status()
         return resp.content
 
@@ -537,8 +537,8 @@ class RetainDBMemoryProvider(MemoryProvider):
         if explicit:
             project = explicit
         else:
-            hermes_home = str(kwargs.get("hermes_home", ""))
-            profile_name = os.path.basename(hermes_home) if hermes_home else ""
+            fabric_home = str(kwargs.get("fabric_home", ""))
+            profile_name = os.path.basename(fabric_home) if fabric_home else ""
             project = (
                 f"{_LEGACY_PROJECT_NAMESPACE}-{profile_name}"
                 if profile_name
@@ -552,12 +552,12 @@ class RetainDBMemoryProvider(MemoryProvider):
         self._agent_id = kwargs.get("agent_id", _LEGACY_AGENT_ID) or _LEGACY_AGENT_ID
 
         from fabric_constants import get_fabric_home
-        hermes_home_path = get_fabric_home()
-        db_path = hermes_home_path / "retaindb_queue.db"
+        fabric_home_path = get_fabric_home()
+        db_path = fabric_home_path / "retaindb_queue.db"
         self._queue = _WriteQueue(self._client, db_path)
 
         # Seed agent identity from SOUL.md in background
-        soul_path = hermes_home_path / "SOUL.md"
+        soul_path = fabric_home_path / "SOUL.md"
         if soul_path.exists():
             soul_content = soul_path.read_text(encoding="utf-8", errors="replace").strip()
             if soul_content:

@@ -22,7 +22,7 @@ def _restore_stdout():
 @pytest.fixture()
 def server():
     with patch.dict("sys.modules", {
-        "fabric_constants": MagicMock(get_fabric_home=MagicMock(return_value="/tmp/hermes_test")),
+        "fabric_constants": MagicMock(get_fabric_home=MagicMock(return_value="/tmp/fabric_test")),
         "fabric_cli.env_loader": MagicMock(),
         "fabric_cli.banner": MagicMock(),
         "fabric_state": MagicMock(),
@@ -1560,7 +1560,7 @@ def test_skills_manage_search_sanitizes_official_provenance_by_default(
     monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
     monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
     result = type("Result", (), {
-        "description": "Hermes skill maintained by Nous Research",
+        "description": "Fabric skill maintained by Nous Research",
         "name": "official-skill",
         "source": "official",
     })()
@@ -1590,7 +1590,7 @@ def test_skills_manage_search_restores_official_provenance_with_legacy_opt_in(
 ):
     monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
     result = type("Result", (), {
-        "description": "Hermes skill maintained by Nous Research",
+        "description": "Fabric skill maintained by Nous Research",
         "name": "official-skill",
         "source": "official",
     })()
@@ -1610,7 +1610,7 @@ def test_skills_manage_search_restores_official_provenance_with_legacy_opt_in(
     assert resp["result"] == {
         "results": [{
             "name": "official-skill",
-            "description": "Hermes skill maintained by Nous Research",
+            "description": "Fabric skill maintained by Nous Research",
         }]
     }
 

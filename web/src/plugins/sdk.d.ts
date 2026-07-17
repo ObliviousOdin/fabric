@@ -19,7 +19,7 @@
  *      it is a deliberate act, visible in review, not an accidental
  *      consequence of refactoring an internal helper.
  *
- * Versioning: bump ``HermesPluginSDK["sdkVersion"]`` (and the
+ * Versioning: bump ``FabricPluginSDK["sdkVersion"]`` (and the
  * ``SDK_CONTRACT_VERSION`` const the host exposes) on any
  * backwards-incompatible change to this surface. Additive changes
  * (new optional fields, new helpers) don't require a major bump.
@@ -111,7 +111,7 @@ export interface PluginRegistry {
 // SDK surface (window.__HERMES_PLUGIN_SDK__)
 // ---------------------------------------------------------------------------
 
-export interface HermesPluginSDK {
+export interface FabricPluginSDK {
   /** Contract version of this SDK surface (see SDK_CONTRACT_VERSION). */
   readonly sdkVersion: string;
 
@@ -179,9 +179,9 @@ export interface HermesPluginSDK {
 
 declare global {
   interface Window {
-    __FABRIC_PLUGIN_SDK__?: HermesPluginSDK;
+    __FABRIC_PLUGIN_SDK__?: FabricPluginSDK;
     __FABRIC_PLUGINS__?: PluginRegistry;
-    __HERMES_PLUGIN_SDK__?: HermesPluginSDK;
+    __HERMES_PLUGIN_SDK__?: FabricPluginSDK;
     __HERMES_PLUGINS__?: PluginRegistry;
   }
 }

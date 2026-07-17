@@ -87,11 +87,6 @@ _FABRIC_MD_NAMES = (
     "HERMES.md",
 )
 
-# Compatibility-only names retained for callers that still need to identify
-# the pre-Fabric filenames explicitly. New projects should use one of the
-# first two entries in ``_FABRIC_MD_NAMES``.
-_HERMES_MD_NAMES = (".hermes.md", "HERMES.md")
-
 
 def _find_fabric_md(cwd: Path) -> Optional[Path]:
     """Discover the nearest Fabric project-context file.
@@ -117,15 +112,6 @@ def _find_fabric_md(cwd: Path) -> Optional[Path]:
         if stop_at and directory == stop_at:
             break
     return None
-
-
-def _find_hermes_md(cwd: Path) -> Optional[Path]:
-    """Compatibility alias for :func:`_find_fabric_md`.
-
-    Kept for plugins and tests that imported the old private helper. It now
-    follows the complete Fabric naming contract, including canonical names.
-    """
-    return _find_fabric_md(cwd)
 
 
 def _strip_yaml_frontmatter(content: str) -> str:
@@ -907,7 +893,7 @@ WSL_ENVIRONMENT_HINT = (
 
 # Non-local terminal backends that run commands (and therefore every file
 # tool: read_file, write_file, patch, search_files) inside a separate
-# container / remote host rather than on the machine where Hermes itself
+# container / remote host rather than on the machine where Fabric itself
 # runs. For these backends, host info (Windows/Linux/macOS, $HOME, cwd) is
 # misleading — the agent should only see the machine it can actually touch.
 _REMOTE_TERMINAL_BACKENDS = frozenset({
@@ -934,7 +920,7 @@ _BACKEND_FALLBACK_DESCRIPTIONS: dict[str, str] = {
 # on the first prompt build of a session. Keyed by (env_type, cwd_hint) so
 # a mid-process backend switch rebuilds the string. Kept in-module (not on
 # disk) because the probe captures live backend state that may change
-# across Hermes restarts.
+# across Fabric restarts.
 _BACKEND_PROBE_CACHE: dict[tuple[str, str], str] = {}
 
 
@@ -1167,7 +1153,7 @@ def build_environment_hints() -> str:
     if is_wsl():
         hints.append(WSL_ENVIRONMENT_HINT)
 
-    # Embedder-supplied environment description. Lets a host that wraps Hermes
+    # Embedder-supplied environment description. Lets a host that wraps Fabric
     # (e.g. a sandbox runner / managed platform) explain the environment the
     # agent is running in — proxy, credential handling, mount layout — without
     # forking the identity slot (SOUL.md). Read once at prompt-build time, so
@@ -1961,11 +1947,6 @@ def _load_fabric_md(cwd_path: Path, context_length: Optional[int] = None) -> str
     except Exception as e:
         logger.debug("Could not read %s: %s", fabric_md_path, e)
         return ""
-
-
-def _load_hermes_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
-    """Compatibility alias for :func:`_load_fabric_md`."""
-    return _load_fabric_md(cwd_path, context_length)
 
 
 def _load_agents_md(cwd_path: Path, context_length: Optional[int] = None) -> str:

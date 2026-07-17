@@ -24,7 +24,7 @@ def sample_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init")
-    _git(repo, "config", "user.name", "Hermes Tests")
+    _git(repo, "config", "user.name", "Fabric Tests")
     _git(repo, "config", "user.email", "tests@example.com")
 
     (repo / "src").mkdir()
@@ -328,15 +328,15 @@ def test_defaults_allowed_root_to_cwd(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_blocks_sensitive_home_and_hermes_paths(tmp_path: Path, monkeypatch):
+async def test_blocks_sensitive_home_and_fabric_paths(tmp_path: Path, monkeypatch):
     from agent.context_references import preprocess_context_references_async
 
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
 
-    hermes_env = tmp_path / ".hermes" / ".env"
-    hermes_env.parent.mkdir(parents=True)
-    hermes_env.write_text("API_KEY=super-secret\n", encoding="utf-8")
+    fabric_env = tmp_path / ".hermes" / ".env"
+    fabric_env.parent.mkdir(parents=True)
+    fabric_env.write_text("API_KEY=super-secret\n", encoding="utf-8")
 
     ssh_key = tmp_path / ".ssh" / "id_rsa"
     ssh_key.parent.mkdir(parents=True)
@@ -371,16 +371,16 @@ async def test_blocks_canonical_read_denylist_credential_stores(tmp_path: Path, 
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
 
-    hermes_home = tmp_path / ".hermes"
-    (hermes_home).mkdir(parents=True)
+    fabric_home = tmp_path / ".hermes"
+    (fabric_home).mkdir(parents=True)
 
-    auth_json = hermes_home / "auth.json"
+    auth_json = fabric_home / "auth.json"
     auth_json.write_text('{"openai": "sk-AUTHJSON-SECRET"}\n', encoding="utf-8")
 
-    oauth = hermes_home / ".anthropic_oauth.json"
+    oauth = fabric_home / ".anthropic_oauth.json"
     oauth.write_text('{"access_token": "OAUTH-SECRET"}\n', encoding="utf-8")
 
-    mcp_token = hermes_home / "mcp-tokens" / "github.json"
+    mcp_token = fabric_home / "mcp-tokens" / "github.json"
     mcp_token.parent.mkdir(parents=True)
     mcp_token.write_text('{"token": "MCP-TOKEN-SECRET"}\n', encoding="utf-8")
 
@@ -423,9 +423,9 @@ async def test_canonical_guard_fails_closed_when_lookup_raises(tmp_path: Path, m
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
 
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir(parents=True)
-    auth_json = hermes_home / "auth.json"
+    fabric_home = tmp_path / ".hermes"
+    fabric_home.mkdir(parents=True)
+    auth_json = fabric_home / "auth.json"
     auth_json.write_text('{"openai": "sk-AUTHJSON-SECRET"}\n', encoding="utf-8")
 
     def _boom(_path):

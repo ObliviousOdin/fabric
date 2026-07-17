@@ -107,35 +107,35 @@ def test_has_system_browser_checks_posix_names():
         assert _has_system_browser() is False
 
 
-def test_has_hermes_agent_browser_windows_path(tmp_path):
+def test_has_fabric_agent_browser_windows_path(tmp_path):
     node_dir = tmp_path / "node"
     node_dir.mkdir(parents=True)
     (node_dir / "agent-browser.cmd").write_text("@echo off")
-    from fabric_cli.dep_ensure import _has_hermes_agent_browser
+    from fabric_cli.dep_ensure import _has_fabric_agent_browser
     with patch("fabric_cli.dep_ensure._IS_WINDOWS", True), \
          patch("fabric_constants.get_fabric_home", return_value=tmp_path):
-        assert _has_hermes_agent_browser() is True
+        assert _has_fabric_agent_browser() is True
 
 
-def test_has_hermes_agent_browser_posix_path(tmp_path):
+def test_has_fabric_agent_browser_posix_path(tmp_path):
     bin_dir = tmp_path / "node" / "bin"
     bin_dir.mkdir(parents=True)
     (bin_dir / "agent-browser").write_text("#!/bin/sh")
-    from fabric_cli.dep_ensure import _has_hermes_agent_browser
+    from fabric_cli.dep_ensure import _has_fabric_agent_browser
     with patch("fabric_cli.dep_ensure._IS_WINDOWS", False), \
          patch("fabric_constants.get_fabric_home", return_value=tmp_path):
-        assert _has_hermes_agent_browser() is True
+        assert _has_fabric_agent_browser() is True
 
 
-def test_has_hermes_agent_browser_legacy_node_modules_path(tmp_path):
+def test_has_fabric_agent_browser_legacy_node_modules_path(tmp_path):
     """Legacy git-clone installs put agent-browser in $HERMES_HOME/node_modules/.bin/."""
     bin_dir = tmp_path / "node_modules" / ".bin"
     bin_dir.mkdir(parents=True)
     (bin_dir / "agent-browser").write_text("#!/bin/sh")
-    from fabric_cli.dep_ensure import _has_hermes_agent_browser
+    from fabric_cli.dep_ensure import _has_fabric_agent_browser
     with patch("fabric_cli.dep_ensure._IS_WINDOWS", False), \
          patch("fabric_constants.get_fabric_home", return_value=tmp_path):
-        assert _has_hermes_agent_browser() is True
+        assert _has_fabric_agent_browser() is True
 
 
 def test_ensure_dependency_uses_powershell_on_windows(tmp_path):
@@ -158,5 +158,5 @@ def test_ensure_dependency_uses_powershell_on_windows(tmp_path):
         assert "powershell" in cmd[0].lower()
         assert "-Ensure" in cmd
         assert cmd[cmd.index("-Ensure") + 1] == "node"
-        assert "-HermesHome" in cmd
+        assert "-FabricHome" in cmd
         assert str(tmp_path / "fakehome") in cmd

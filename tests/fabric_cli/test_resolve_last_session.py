@@ -1,4 +1,4 @@
-"""Verify `hermes -c` picks the session the user most recently used."""
+"""Verify `fabric -c` picks the session the user most recently used."""
 
 from __future__ import annotations
 

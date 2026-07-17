@@ -1,4 +1,4 @@
-"""Tests for fabric_cli/bundles.py — the `hermes bundles` CLI subcommand."""
+"""Tests for fabric_cli/bundles.py — the `fabric bundles` CLI subcommand."""
 
 import argparse
 

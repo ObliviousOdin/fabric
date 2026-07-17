@@ -304,7 +304,7 @@ interface ModelCatalogPickerProps {
 }
 
 /**
- * Backend model catalog — the GUI counterpart of the model picker `hermes
+ * Backend model catalog — the GUI counterpart of the model picker `fabric
  * tools` runs after you choose an image/video generation backend (e.g. FAL's
  * multi-model catalog). Renders speed / strengths / price per model as a
  * radio-card list and persists the choice to `image_gen.model` /

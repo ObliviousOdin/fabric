@@ -2,7 +2,7 @@
 
 Build the real image and verify at runtime:
 
-  1. /opt/hermes is not writable by the hermes user (immutable install tree)
+  1. /opt/hermes is not writable by the fabric user (immutable install tree)
   2. PYTHONDONTWRITEBYTECODE and HERMES_DISABLE_LAZY_INSTALLS are set
   3. /opt/hermes/.install_method contains "docker" (code-scoped stamp)
   4. $HERMES_HOME/.install_method is NOT stamped as "docker" by stage2
@@ -18,10 +18,10 @@ from tests.docker.conftest import (
 )
 
 
-def test_install_tree_not_writable_by_hermes(
+def test_install_tree_not_writable_by_fabric(
     built_image: str, container_name: str,
 ) -> None:
-    """The hermes user must not be able to modify /opt/hermes.
+    """The fabric user must not be able to modify /opt/hermes.
 
     The install tree (source, venv, TUI bundle, node_modules) must remain
     root-owned and non-writable so an agent session cannot self-modify
@@ -31,13 +31,13 @@ def test_install_tree_not_writable_by_hermes(
 
     r = docker_exec_sh(
         container_name,
-        # Try to create a file under /opt/hermes as the hermes user
+        # Try to create a file under /opt/hermes as the fabric user
         "touch /opt/hermes/test_write 2>&1 && "
         "echo WRITE_SUCCEEDED || echo WRITE_FAILED",
         timeout=10,
     )
     assert "WRITE_FAILED" in r.stdout, (
-        f"hermes user can write to /opt/hermes (install tree not immutable): "
+        f"fabric user can write to /opt/hermes (install tree not immutable): "
         f"{r.stdout}"
     )
 
@@ -49,11 +49,11 @@ def test_install_tree_not_writable_by_hermes(
         timeout=10,
     )
     assert "WRITE_FAILED" in r.stdout, (
-        f"hermes user can write to /opt/hermes/.venv: {r.stdout}"
+        f"fabric user can write to /opt/hermes/.venv: {r.stdout}"
     )
 
 
-def test_hermes_disable_lazy_installs_and_dont_write_bytecode(
+def test_fabric_disable_lazy_installs_and_dont_write_bytecode(
     built_image: str, container_name: str,
 ) -> None:
     """The container must set PYTHONDONTWRITEBYTECODE and

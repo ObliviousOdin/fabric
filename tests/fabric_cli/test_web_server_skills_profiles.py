@@ -21,7 +21,7 @@ def _write_skill(skills_dir, name, description="test skill"):
 
 
 @pytest.fixture
-def isolated_profiles(tmp_path, monkeypatch, _isolate_hermes_home):
+def isolated_profiles(tmp_path, monkeypatch, _isolate_fabric_home):
     """Isolated default home + one named profile, each with its own skills."""
     from fabric_constants import get_fabric_home
     from fabric_cli import profiles
@@ -237,7 +237,7 @@ class TestProfileScopedMemory:
         try:
             provider = load_memory_provider("retaindb")
             assert provider is not None and provider.is_available()
-            provider.initialize("worker-runtime", hermes_home=str(worker_home))
+            provider.initialize("worker-runtime", fabric_home=str(worker_home))
             assert provider.get_runtime_state().value == "ready"
             assert provider._client.api_key == "worker-secret"
             provider.shutdown()
@@ -362,7 +362,7 @@ class TestProfileScopedHubActions:
     def test_hub_install_spawns_with_profile_flag(
         self, client, isolated_profiles, monkeypatch
     ):
-        """Hub installs must go through a fresh ``hermes -p <profile>``
+        """Hub installs must go through a fresh ``fabric -p <profile>``
         subprocess — the in-process scope can't reach skills_hub's
         import-time SKILLS_DIR binding."""
         import fabric_cli.web_server as web_server
@@ -376,7 +376,7 @@ class TestProfileScopedHubActions:
             calls.append((list(subcommand), name))
             return _FakeProc()
 
-        monkeypatch.setattr(web_server, "_spawn_hermes_action", _fake_spawn)
+        monkeypatch.setattr(web_server, "_spawn_fabric_action", _fake_spawn)
         resp = client.post(
             "/api/skills/hub/install",
             json={"identifier": "official/demo", "profile": "worker_alpha"},
@@ -401,7 +401,7 @@ class TestProfileScopedHubActions:
 
         monkeypatch.setattr(
             web_server,
-            "_spawn_hermes_action",
+            "_spawn_fabric_action",
             lambda subcommand, name: calls.append(list(subcommand)) or _FakeProc(),
         )
         resp = client.post(
@@ -443,7 +443,7 @@ class TestProfileScopedHubActions:
             web_server._ACTION_COMMANDS[name] = tuple(subcommand)
             return proc
 
-        monkeypatch.setattr(web_server, "_spawn_hermes_action", _fake_spawn)
+        monkeypatch.setattr(web_server, "_spawn_fabric_action", _fake_spawn)
 
         alpha = client.post(
             "/api/skills/hub/update", json={"profile": "worker_alpha"}
@@ -481,7 +481,7 @@ class TestProfileScopedHubActions:
         monkeypatch.setattr(web_server, "_ACTION_LOG_FILES", dict(web_server._ACTION_LOG_FILES))
         monkeypatch.setattr(
             web_server,
-            "_spawn_hermes_action",
+            "_spawn_fabric_action",
             lambda subcommand, name: names.append(name) or _FakeProc(),
         )
 
@@ -516,7 +516,7 @@ class TestProfileScopedHubActions:
             web_server._ACTION_PROCS[name] = proc
             return proc
 
-        monkeypatch.setattr(web_server, "_spawn_hermes_action", _fake_spawn)
+        monkeypatch.setattr(web_server, "_spawn_fabric_action", _fake_spawn)
 
         first = client.post(
             "/api/skills/hub/update", json={"profile": "worker_alpha"}

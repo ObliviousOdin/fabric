@@ -23,7 +23,7 @@ class TestPortalEnvOverrideHelper:
         monkeypatch.delenv("NOUS_PORTAL_BASE_URL", raising=False)
         assert _nous_portal_env_override() is None
 
-    def test_hermes_portal_base_url_wins(self, monkeypatch):
+    def test_fabric_portal_base_url_wins(self, monkeypatch):
         monkeypatch.setenv(
             "HERMES_PORTAL_BASE_URL", "https://staging.example.invalid/"
         )

@@ -69,7 +69,7 @@ def _launch_cwd_for_session(source: str) -> Optional[str]:
     """Working directory to stamp on a new session row, or None.
 
     Only local CLI sessions get a recorded cwd: the directory the process was
-    launched from is meaningful for ``hermes -c`` / ``--resume`` (relaunch
+    launched from is meaningful for ``fabric -c`` / ``--resume`` (relaunch
     where you left off). Gateway/cron/remote-backend sessions have no stable
     host cwd to restore, so they record nothing.
 
@@ -124,7 +124,7 @@ from fabric_cli.timeouts import (
 
 _fabric_home = get_fabric_home()
 _project_env = Path(__file__).parent / '.env'
-_loaded_env_paths = load_fabric_dotenv(hermes_home=_fabric_home, project_env=_project_env)
+_loaded_env_paths = load_fabric_dotenv(fabric_home=_fabric_home, project_env=_project_env)
 if _loaded_env_paths:
     for _env_path in _loaded_env_paths:
         logger.info("Loaded environment variables from %s", _env_path)
@@ -758,7 +758,7 @@ class AIAgent:
 
     def _ensure_lmstudio_runtime_loaded(self, config_context_length: Optional[int] = None) -> None:
         """
-        Preload the LM Studio model with at least Hermes' minimum context.
+        Preload the LM Studio model with at least Fabric' minimum context.
         """
         if (self.provider or "").strip().lower() != "lmstudio":
             return

@@ -247,7 +247,7 @@ def _iter_external_files(base: Path) -> List[Path]:
 
 
 def _should_exclude(rel_path: Path) -> bool:
-    """Return True if *rel_path* (relative to hermes root) should be skipped."""
+    """Return True if *rel_path* (relative to fabric root) should be skipped."""
     parts = rel_path.parts
 
     for part in parts:
@@ -320,20 +320,20 @@ def _tighten_provider_account_artifact(path: Path, profile_home: Path) -> None:
         pass
 
 
-def _profile_home_for_backup_target(target: Path, hermes_root: Path) -> Path:
+def _profile_home_for_backup_target(target: Path, fabric_root: Path) -> Path:
     """Resolve the exact profile home owning one restored archive target."""
     try:
-        rel = target.relative_to(hermes_root)
+        rel = target.relative_to(fabric_root)
     except ValueError:
-        return hermes_root
+        return fabric_root
     if len(rel.parts) >= 3 and rel.parts[0] == "profiles":
-        return hermes_root / "profiles" / rel.parts[1]
-    return hermes_root
+        return fabric_root / "profiles" / rel.parts[1]
+    return fabric_root
 
 
 def _restored_provider_account_home(
     target: Path,
-    hermes_root: Path,
+    fabric_root: Path,
 ) -> Path | None:
     """Return the profile home only for an exact restored account-state path.
 
@@ -347,12 +347,12 @@ def _restored_provider_account_home(
     try:
         forms.append((
             Path(os.path.abspath(os.fspath(target))),
-            Path(os.path.abspath(os.fspath(hermes_root))),
+            Path(os.path.abspath(os.fspath(fabric_root))),
         ))
     except (OSError, TypeError, ValueError):
         pass
     try:
-        resolved = (target.resolve(), hermes_root.resolve())
+        resolved = (target.resolve(), fabric_root.resolve())
         if resolved not in forms:
             forms.append(resolved)
     except (OSError, RuntimeError):
@@ -364,14 +364,14 @@ def _restored_provider_account_home(
         except ValueError:
             continue
         if rel == Path(_PROVIDER_ACCOUNT_STATE_FILE):
-            return hermes_root
+            return fabric_root
         if (
             len(rel.parts) == 3
             and rel.parts[0] == "profiles"
             and rel.parts[1] not in {"", ".", ".."}
             and rel.parts[2] == _PROVIDER_ACCOUNT_STATE_FILE
         ):
-            return hermes_root / "profiles" / rel.parts[1]
+            return fabric_root / "profiles" / rel.parts[1]
     return None
 
 
@@ -389,7 +389,7 @@ def _should_skip_backup_file(
     abs_path: Path,
     rel_path: Path,
     out_path: Path,
-    hermes_root: Path,
+    fabric_root: Path,
 ) -> bool:
     """Return True when a candidate file should not be written to a backup zip."""
     if _should_exclude(rel_path):
@@ -405,8 +405,8 @@ def _should_skip_backup_file(
     # registry plus archive member structure; it does not trust basenames.
     if is_private_backup_archive(
         abs_path,
-        active_home=hermes_root,
-        fabric_root=hermes_root,
+        active_home=fabric_root,
+        fabric_root=fabric_root,
     ):
         return True
 
@@ -737,7 +737,7 @@ def _write_pinned_backup_source(
     path: Path,
     arcname: str,
     *,
-    hermes_root: Path,
+    fabric_root: Path,
 ) -> int | None:
     """Classify and stream the same exact descriptor into the outer ZIP."""
     with _pinned_backup_source(path) as capability:
@@ -746,8 +746,8 @@ def _write_pinned_backup_source(
         try:
             private = classify_pinned_backup_archive(
                 capability,
-                active_home=hermes_root,
-                fabric_root=hermes_root,
+                active_home=fabric_root,
+                fabric_root=fabric_root,
             )
             capability.assert_unchanged()
         except PinnedPathError:
@@ -775,7 +775,7 @@ def _write_backup_path(
     path: Path,
     arcname: str,
     *,
-    hermes_root: Path,
+    fabric_root: Path,
     staging_parent: Path,
 ) -> int | None:
     if path.suffix != ".db":
@@ -783,7 +783,7 @@ def _write_backup_path(
             transaction,
             path,
             arcname,
-            hermes_root=hermes_root,
+            fabric_root=fabric_root,
         )
     temporary = _private_db_staging_path(staging_parent)
     try:
@@ -793,7 +793,7 @@ def _write_backup_path(
             transaction,
             temporary,
             arcname,
-            hermes_root=hermes_root,
+            fabric_root=fabric_root,
         )
     finally:
         temporary.unlink(missing_ok=True)
@@ -1623,10 +1623,10 @@ def _format_size(nbytes: int) -> str:
 
 def run_backup(args) -> None:
     """Create a zip backup of the Fabric home directory."""
-    hermes_root = get_default_fabric_root()
+    fabric_root = get_default_fabric_root()
 
-    if not hermes_root.is_dir():
-        print(f"Error: Fabric home directory not found at {hermes_root}")
+    if not fabric_root.is_dir():
+        print(f"Error: Fabric home directory not found at {fabric_root}")
         sys.exit(1)
 
     # Determine output path
@@ -1654,9 +1654,9 @@ def run_backup(args) -> None:
     files_to_add: list[tuple[Path, Path]] = []  # (absolute, relative)
     skipped_dirs = set()
 
-    for dirpath, dirnames, filenames in os.walk(hermes_root, followlinks=False):
+    for dirpath, dirnames, filenames in os.walk(fabric_root, followlinks=False):
         dp = Path(dirpath)
-        rel_dir = dp.relative_to(hermes_root)
+        rel_dir = dp.relative_to(fabric_root)
 
         # Prune excluded directories in-place so os.walk doesn't descend
         # ``fabric-agent`` is only pruned at the root level; nested dirs
@@ -1672,9 +1672,9 @@ def run_backup(args) -> None:
 
         for fname in filenames:
             fpath = dp / fname
-            rel = fpath.relative_to(hermes_root)
+            rel = fpath.relative_to(fabric_root)
 
-            if _should_skip_backup_file(fpath, rel, out_path, hermes_root):
+            if _should_skip_backup_file(fpath, rel, out_path, fabric_root):
                 continue
 
             files_to_add.append((fpath, rel))
@@ -1715,14 +1715,14 @@ def run_backup(args) -> None:
     errors = []
     t0 = time.monotonic()
 
-    with _private_backup_zip(out_path, registry_root=hermes_root) as zf:
+    with _private_backup_zip(out_path, registry_root=fabric_root) as zf:
         for i, (abs_path, rel_path) in enumerate(files_to_add, 1):
             try:
                 written = _write_backup_path(
                     zf,
                     abs_path,
                     rel_path.as_posix(),
-                    hermes_root=hermes_root,
+                    fabric_root=fabric_root,
                     staging_parent=out_path.parent,
                 )
                 if written is not None:
@@ -1746,7 +1746,7 @@ def run_backup(args) -> None:
                     zf,
                     abs_path,
                     arcname,
-                    hermes_root=hermes_root,
+                    fabric_root=fabric_root,
                     staging_parent=out_path.parent,
                 )
                 if written is not None:
@@ -1845,7 +1845,7 @@ def _detect_prefix(zf: zipfile.ZipFile) -> str:
     first_parts = {p[0] for p in parts_list if len(p) > 1}
     if len(first_parts) == 1:
         prefix = first_parts.pop()
-        # Only strip if it looks like a hermes dir name
+        # Only strip if it looks like a fabric dir name
         if prefix in _LEGACY_BACKUP_ROOT_NAMES:
             return prefix + "/"
 
@@ -1864,7 +1864,7 @@ def run_import(args) -> None:
         print(f"Error: Not a valid zip file: {zip_path}")
         sys.exit(1)
 
-    hermes_root = get_default_fabric_root()
+    fabric_root = get_default_fabric_root()
 
     with zipfile.ZipFile(zip_path, "r") as zf:
         # Validate
@@ -1884,8 +1884,8 @@ def run_import(args) -> None:
             print(f"Detected archive prefix: {prefix!r} (will be stripped)")
 
         # Check for existing installation
-        has_config = (hermes_root / "config.yaml").exists()
-        has_env = (hermes_root / ".env").exists()
+        has_config = (fabric_root / "config.yaml").exists()
+        has_env = (fabric_root / ".env").exists()
 
         if (has_config or has_env) and not args.force:
             print()
@@ -1903,7 +1903,7 @@ def run_import(args) -> None:
 
         # Extract
         print(f"\nImporting {file_count} files ...")
-        hermes_root.mkdir(parents=True, exist_ok=True)
+        fabric_root.mkdir(parents=True, exist_ok=True)
 
         errors = []
         restored = 0
@@ -1968,11 +1968,11 @@ def run_import(args) -> None:
                 skipped_runtime.append(rel)
                 continue
 
-            target = hermes_root / rel
+            target = fabric_root / rel
 
             # Security: reject absolute paths and traversals
             try:
-                target.resolve().relative_to(hermes_root.resolve())
+                target.resolve().relative_to(fabric_root.resolve())
             except ValueError:
                 errors.append(f"  {rel}: path traversal blocked")
                 continue
@@ -1985,9 +1985,9 @@ def run_import(args) -> None:
                     os.chmod(target, 0o600)
                 _tighten_provider_account_artifact(
                     target,
-                    _profile_home_for_backup_target(target, hermes_root),
+                    _profile_home_for_backup_target(target, fabric_root),
                 )
-                account_home = _restored_provider_account_home(target, hermes_root)
+                account_home = _restored_provider_account_home(target, fabric_root)
                 if account_home is not None:
                     restored_account_homes.add(account_home)
                 restored += 1
@@ -2035,7 +2035,7 @@ def run_import(args) -> None:
                 print(f"    ... and {len(skipped_runtime) - 10} more")
 
         # Post-import: restore profile wrapper scripts
-        profiles_dir = hermes_root / "profiles"
+        profiles_dir = fabric_root / "profiles"
         restored_profiles = []
         if profiles_dir.is_dir():
             try:
@@ -2077,7 +2077,7 @@ def run_import(args) -> None:
 
         # Guidance
         print()
-        if not (hermes_root / "fabric-agent").is_dir():
+        if not (fabric_root / "fabric-agent").is_dir():
             print("Note: The fabric-agent codebase was not included in the backup.")
             print("  If this is a fresh install, run: fabric update")
 
@@ -2138,8 +2138,8 @@ _QUICK_SNAPSHOTS_DIR = "state-snapshots"
 _QUICK_DEFAULT_KEEP = 20
 
 
-def _quick_snapshot_root(hermes_home: Optional[Path] = None) -> Path:
-    home = hermes_home or get_fabric_home()
+def _quick_snapshot_root(fabric_home: Optional[Path] = None) -> Path:
+    home = fabric_home or get_fabric_home()
     return home / _QUICK_SNAPSHOTS_DIR
 
 
@@ -2370,7 +2370,7 @@ def _quick_snapshot_writer(root: Path, timestamp: str) -> Iterator[_QuickSnapsho
 
 def create_quick_snapshot(
     label: Optional[str] = None,
-    hermes_home: Optional[Path] = None,
+    fabric_home: Optional[Path] = None,
     keep: Optional[int] = None,
 ) -> Optional[str]:
     """Create a quick state snapshot of critical files.
@@ -2381,7 +2381,7 @@ def create_quick_snapshot(
     Returns:
         Snapshot ID (timestamp-based), or None if no files found.
     """
-    home = hermes_home or get_fabric_home()
+    home = fabric_home or get_fabric_home()
     root = _quick_snapshot_root(home)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
@@ -2463,10 +2463,10 @@ def create_quick_snapshot(
 
 def list_quick_snapshots(
     limit: int = 20,
-    hermes_home: Optional[Path] = None,
+    fabric_home: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """List existing quick state snapshots, most recent first."""
-    root = _quick_snapshot_root(hermes_home)
+    root = _quick_snapshot_root(fabric_home)
     if not root.exists():
         return []
 
@@ -2489,14 +2489,14 @@ def list_quick_snapshots(
 
 def restore_quick_snapshot(
     snapshot_id: str,
-    hermes_home: Optional[Path] = None,
+    fabric_home: Optional[Path] = None,
 ) -> bool:
     """Restore state from a quick snapshot.
 
     Overwrites current state files with the snapshot's copies.
     Returns True if at least one file was restored.
     """
-    home = hermes_home or get_fabric_home()
+    home = fabric_home or get_fabric_home()
     root = _quick_snapshot_root(home)
 
     # Security: reject snapshot_id values that contain path separators or
@@ -2604,7 +2604,7 @@ def _count_cron_jobs(path: Path) -> Optional[int]:
 
 def restore_cron_jobs_if_emptied(
     snapshot_id: str,
-    hermes_home: Optional[Path] = None,
+    fabric_home: Optional[Path] = None,
 ) -> Optional[Dict[str, Any]]:
     """Safety net for silent cron-job loss across ``fabric update``.
 
@@ -2627,7 +2627,7 @@ def restore_cron_jobs_if_emptied(
     Args:
         snapshot_id: The pre-update quick-snapshot id (from
             :func:`create_quick_snapshot`).
-        hermes_home: Override for the Fabric home directory (tests).
+        fabric_home: Override for the Fabric home directory (tests).
 
     Returns:
         ``None`` when no action was taken (the common, healthy path). On a
@@ -2637,7 +2637,7 @@ def restore_cron_jobs_if_emptied(
     if not snapshot_id:
         return None
 
-    home = hermes_home or get_fabric_home()
+    home = fabric_home or get_fabric_home()
     live_path = home / _CRON_JOBS_REL
 
     live_count = _count_cron_jobs(live_path)
@@ -2702,10 +2702,10 @@ def _prune_quick_snapshots(root: Path, keep: int = _QUICK_DEFAULT_KEEP) -> int:
 
 def prune_quick_snapshots(
     keep: int = _QUICK_DEFAULT_KEEP,
-    hermes_home: Optional[Path] = None,
+    fabric_home: Optional[Path] = None,
 ) -> int:
     """Manually prune quick snapshots. Returns count deleted."""
-    return _prune_quick_snapshots(_quick_snapshot_root(hermes_home), keep=keep)
+    return _prune_quick_snapshots(_quick_snapshot_root(fabric_home), keep=keep)
 
 
 def run_quick_backup(args) -> None:
@@ -2725,8 +2725,8 @@ def run_quick_backup(args) -> None:
 # Shared full-zip backup helper
 # ---------------------------------------------------------------------------
 
-def _write_full_zip_backup(out_path: Path, hermes_root: Path) -> Optional[Path]:
-    """Write a full zip snapshot of ``hermes_root`` to ``out_path``.
+def _write_full_zip_backup(out_path: Path, fabric_root: Path) -> Optional[Path]:
+    """Write a full zip snapshot of ``fabric_root`` to ``out_path``.
 
     Uses the same exclusion rules and SQLite safe-copy as :func:`run_backup`.
     Returns the output path on success, None on failure (nothing to back up,
@@ -2734,7 +2734,7 @@ def _write_full_zip_backup(out_path: Path, hermes_root: Path) -> Optional[Path]:
     """
     files_to_add: list[tuple[Path, Path]] = []
     try:
-        for dirpath, dirnames, filenames in os.walk(hermes_root, followlinks=False):
+        for dirpath, dirnames, filenames in os.walk(fabric_root, followlinks=False):
             dp = Path(dirpath)
             # Prune excluded directories in-place so os.walk doesn't descend
             dirnames[:] = [d for d in dirnames if d not in _EXCLUDED_DIRS]
@@ -2742,11 +2742,11 @@ def _write_full_zip_backup(out_path: Path, hermes_root: Path) -> Optional[Path]:
             for fname in filenames:
                 fpath = dp / fname
                 try:
-                    rel = fpath.relative_to(hermes_root)
+                    rel = fpath.relative_to(fabric_root)
                 except ValueError:
                     continue
 
-                if _should_skip_backup_file(fpath, rel, out_path, hermes_root):
+                if _should_skip_backup_file(fpath, rel, out_path, fabric_root):
                     continue
 
                 files_to_add.append((fpath, rel))
@@ -2758,14 +2758,14 @@ def _write_full_zip_backup(out_path: Path, hermes_root: Path) -> Optional[Path]:
         return None
 
     try:
-        with _private_backup_zip(out_path, registry_root=hermes_root) as zf:
+        with _private_backup_zip(out_path, registry_root=fabric_root) as zf:
             for abs_path, rel_path in files_to_add:
                 try:
                     _write_backup_path(
                         zf,
                         abs_path,
                         rel_path.as_posix(),
-                        hermes_root=hermes_root,
+                        fabric_root=fabric_root,
                         staging_parent=out_path.parent,
                     )
                 except BackupSourceChanged:
@@ -2791,8 +2791,8 @@ _PRE_UPDATE_PREFIX = "pre-update-"
 _PRE_UPDATE_DEFAULT_KEEP = 5
 
 
-def _pre_update_backup_dir(hermes_home: Optional[Path] = None) -> Path:
-    home = hermes_home or get_fabric_home()
+def _pre_update_backup_dir(fabric_home: Optional[Path] = None) -> Path:
+    home = fabric_home or get_fabric_home()
     return home / _PRE_UPDATE_BACKUPS_DIR
 
 
@@ -2834,7 +2834,7 @@ def _prune_pre_update_backups(backup_dir: Path, keep: int) -> int:
 
 
 def create_pre_update_backup(
-    hermes_home: Optional[Path] = None,
+    fabric_home: Optional[Path] = None,
     keep: int = _PRE_UPDATE_DEFAULT_KEEP,
 ) -> Optional[Path]:
     """Create a full zip backup of HERMES_HOME under ``backups/``.
@@ -2847,11 +2847,11 @@ def create_pre_update_backup(
     found or the backup could not be created.  Never raises — the caller
     (``fabric update``) should continue even if the backup fails.
     """
-    hermes_root = hermes_home or get_default_fabric_root()
-    if not hermes_root.is_dir():
+    fabric_root = fabric_home or get_default_fabric_root()
+    if not fabric_root.is_dir():
         return None
 
-    backup_dir = _pre_update_backup_dir(hermes_root)
+    backup_dir = _pre_update_backup_dir(fabric_root)
     try:
         backup_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -2861,7 +2861,7 @@ def create_pre_update_backup(
     stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     out_path = backup_dir / f"{_PRE_UPDATE_PREFIX}{stamp}.zip"
 
-    result = _write_full_zip_backup(out_path, hermes_root)
+    result = _write_full_zip_backup(out_path, fabric_root)
     if result is None:
         return None
 
@@ -2906,7 +2906,7 @@ def _prune_pre_migration_backups(backup_dir: Path, keep: int) -> int:
 
 
 def create_pre_migration_backup(
-    hermes_home: Optional[Path] = None,
+    fabric_home: Optional[Path] = None,
     keep: int = _PRE_MIGRATION_DEFAULT_KEEP,
 ) -> Optional[Path]:
     """Create a full zip backup of HERMES_HOME under ``backups/`` before a
@@ -2922,13 +2922,13 @@ def create_pre_migration_backup(
     to back up (fresh install) or the write failed.  Never raises — the
     caller decides whether to abort or proceed.
     """
-    hermes_root = hermes_home or get_default_fabric_root()
-    if not hermes_root.is_dir():
+    fabric_root = fabric_home or get_default_fabric_root()
+    if not fabric_root.is_dir():
         return None
 
     # Reuses the shared backups/ directory so `fabric import` and the
     # update-backup listing pick up pre-migration archives too.
-    backup_dir = _pre_update_backup_dir(hermes_root)
+    backup_dir = _pre_update_backup_dir(fabric_root)
     try:
         backup_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -2938,7 +2938,7 @@ def create_pre_migration_backup(
     stamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
     out_path = backup_dir / f"{_PRE_MIGRATION_PREFIX}{stamp}.zip"
 
-    result = _write_full_zip_backup(out_path, hermes_root)
+    result = _write_full_zip_backup(out_path, fabric_root)
     if result is None:
         return None
 

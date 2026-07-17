@@ -85,19 +85,19 @@ class TestDoctorEnvFileEncoding:
     ):
         import pathlib
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
+        fabric_home = tmp_path / ".hermes"
+        fabric_home.mkdir()
         # Write a UTF-8 .env containing an em dash (U+2014 = e2 80 94). The
         # 0x94 byte is exactly the one the issue reporter hit: it's invalid
         # as a GBK trailing byte in this position, so locale-default reads
         # raise UnicodeDecodeError on Chinese Windows.
-        env_path = hermes_home / ".env"
+        env_path = fabric_home / ".env"
         env_path.write_text(
             "OPENAI_API_KEY=sk-test  # em-dash here — should not crash\n",
             encoding="utf-8",
         )
 
-        monkeypatch.setattr(doctor_mod, "HERMES_HOME", hermes_home)
+        monkeypatch.setattr(doctor_mod, "HERMES_HOME", fabric_home)
 
         orig_read_text = pathlib.Path.read_text
 
@@ -217,12 +217,12 @@ class TestHonchoDoctorConfigDetection:
 def test_run_doctor_sets_interactive_env_for_tool_checks(monkeypatch, tmp_path):
     """Doctor should present CLI-gated tools as available in CLI context."""
     project_root = tmp_path / "project"
-    hermes_home = tmp_path / ".hermes"
+    fabric_home = tmp_path / ".hermes"
     project_root.mkdir()
-    hermes_home.mkdir()
+    fabric_home.mkdir()
 
     monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project_root)
-    monkeypatch.setattr(doctor_mod, "HERMES_HOME", hermes_home)
+    monkeypatch.setattr(doctor_mod, "HERMES_HOME", fabric_home)
     monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
 
     seen = {}
@@ -283,7 +283,7 @@ def test_check_gateway_service_linger_skips_when_service_not_installed(monkeypat
 class TestDoctorMemoryProviderSection:
     """The ◆ Memory Provider section should respect memory.provider config."""
 
-    def _make_hermes_home(
+    def _make_fabric_home(
         self,
         tmp_path,
         provider="",
@@ -315,7 +315,7 @@ class TestDoctorMemoryProviderSection:
         user_profile_enabled=True,
     ):
         """Run doctor and capture stdout."""
-        home = self._make_hermes_home(
+        home = self._make_fabric_home(
             tmp_path,
             provider,
             memory_enabled=memory_enabled,
@@ -353,7 +353,6 @@ class TestDoctorMemoryProviderSection:
         monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
         out = self._run_doctor_and_capture(monkeypatch, tmp_path, provider="")
         assert "Fabric Doctor" in out
-        assert "Hermes Doctor" not in out
         assert "Nous Portal" not in out
         assert "OpenRouter API" in out
         assert "Anthropic API" not in out
@@ -631,7 +630,7 @@ def test_run_doctor_gates_missing_credentials_for_active_openrouter_provider(
         ("nvidia", "qwen/qwen3.5-122b-a10b"),
     ],
 )
-def test_run_doctor_accepts_hermes_provider_ids_that_catalog_aliases(
+def test_run_doctor_accepts_fabric_provider_ids_that_catalog_aliases(
     monkeypatch, tmp_path, provider, default_model
 ):
     home = tmp_path / ".hermes"
@@ -1459,20 +1458,20 @@ class TestDoctorStaleMaxIterationsDrift:
         import io
         from argparse import Namespace
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir(parents=True)
-        (hermes_home / "config.yaml").write_text(
+        fabric_home = tmp_path / ".hermes"
+        fabric_home.mkdir(parents=True)
+        (fabric_home / "config.yaml").write_text(
             f"agent:\n  max_turns: {cfg_turns}\n", encoding="utf-8"
         )
         env_lines = ["OPENAI_API_KEY=sk-test\n"]
         if ghost is not None:
             env_lines.append(f"HERMES_MAX_ITERATIONS={ghost}\n")
-        (hermes_home / ".env").write_text("".join(env_lines), encoding="utf-8")
+        (fabric_home / ".env").write_text("".join(env_lines), encoding="utf-8")
 
-        monkeypatch.setattr(doctor_mod, "HERMES_HOME", hermes_home)
-        monkeypatch.setattr(doctor_mod, "get_fabric_home", lambda: hermes_home)
+        monkeypatch.setattr(doctor_mod, "HERMES_HOME", fabric_home)
+        monkeypatch.setattr(doctor_mod, "get_fabric_home", lambda: fabric_home)
         # Point the config helpers at the temp home.
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
         if os_environ_value is not None:
             # Simulate the gateway bridge having already overridden os.environ.
             monkeypatch.setenv("HERMES_MAX_ITERATIONS", str(os_environ_value))
@@ -1490,25 +1489,25 @@ class TestDoctorStaleMaxIterationsDrift:
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), pytest.raises(SystemExit):
             doctor_mod.run_doctor(Namespace(fix=fix))
-        return buf.getvalue(), hermes_home
+        return buf.getvalue(), fabric_home
 
     def test_detects_drift_warn_only(self, monkeypatch, tmp_path):
-        out, hermes_home = self._run_config_section(
+        out, fabric_home = self._run_config_section(
             monkeypatch, tmp_path, fix=False, ghost=90, cfg_turns=400,
             os_environ_value=400,  # bridge contaminated os.environ
         )
         assert "HERMES_MAX_ITERATIONS=90" in out
         assert "shadows" in out
         # Warn-only must NOT mutate .env.
-        assert "HERMES_MAX_ITERATIONS=90" in (hermes_home / ".env").read_text(encoding="utf-8")
+        assert "HERMES_MAX_ITERATIONS=90" in (fabric_home / ".env").read_text(encoding="utf-8")
 
     def test_fix_removes_ghost(self, monkeypatch, tmp_path):
-        out, hermes_home = self._run_config_section(
+        out, fabric_home = self._run_config_section(
             monkeypatch, tmp_path, fix=True, ghost=90, cfg_turns=400,
             os_environ_value=400,
         )
         assert "Removed stale HERMES_MAX_ITERATIONS" in out
-        env_after = (hermes_home / ".env").read_text(encoding="utf-8")
+        env_after = (fabric_home / ".env").read_text(encoding="utf-8")
         assert "HERMES_MAX_ITERATIONS" not in env_after
         assert "OPENAI_API_KEY=sk-test" in env_after  # other keys preserved
 
@@ -1588,7 +1587,7 @@ def test_npm_audit_fix_hint_avoids_crashing_workspace_flag(monkeypatch, tmp_path
     assert "npm audit fix" not in out
     # ... and explains the workspace advisories are build-time tooling whose
     # manual remediation may hit a known npm arborist crash, so the user isn't
-    # left thinking a crashing command means a broken Hermes install.
+    # left thinking a crashing command means a broken Fabric install.
     assert "build-time tooling" in out
     assert "known npm bug" in out
     assert "lockfile bump" in out

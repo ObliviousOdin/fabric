@@ -30,7 +30,7 @@ class TestWriteDenyExactPaths:
         assert _is_write_denied(path) is True
 
 
-    def test_hermes_env(self):
+    def test_fabric_env(self):
         # ``.env`` under the active HERMES_HOME (profile-aware, not just
         # ``~/.hermes``) must be write-denied. The hermetic test conftest
         # points HERMES_HOME at a tempdir — resolve via get_fabric_home()
@@ -39,7 +39,7 @@ class TestWriteDenyExactPaths:
         path = str(get_fabric_home() / ".env")
         assert _is_write_denied(path) is True
 
-    def test_hermes_root_env_when_running_under_profile(self, tmp_path, monkeypatch):
+    def test_fabric_root_env_when_running_under_profile(self, tmp_path, monkeypatch):
         """Top-level ``<root>/.env`` stays write-denied even when running under
         a profile (#15981).
 
@@ -49,7 +49,7 @@ class TestWriteDenyExactPaths:
         could be silently overwritten by ``write_file`` while a profile was
         active.
         """
-        root = tmp_path / "hermes_root"
+        root = tmp_path / "fabric_root"
         profile_home = root / "profiles" / "coder"
         profile_home.mkdir(parents=True)
         global_env = root / ".env"
@@ -120,7 +120,7 @@ class TestWriteAllowed:
     def test_project_file(self):
         assert _is_write_denied("/home/user/project/main.py") is False
 
-    def test_hermes_control_files_requested_writable(self):
+    def test_fabric_control_files_requested_writable(self):
         from fabric_constants import get_fabric_home
 
         home = get_fabric_home()

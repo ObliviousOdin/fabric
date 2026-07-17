@@ -5,16 +5,16 @@ import pytest
 
 
 def _write_config(tmp_path, config: dict) -> None:
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir(parents=True, exist_ok=True)
+    fabric_home = tmp_path / "hermes"
+    fabric_home.mkdir(parents=True, exist_ok=True)
     import yaml
-    (hermes_home / "config.yaml").write_text(yaml.dump(config))
+    (fabric_home / "config.yaml").write_text(yaml.dump(config))
 
 
 def _write_auth_store(tmp_path, payload: dict) -> None:
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir(parents=True, exist_ok=True)
-    (hermes_home / "auth.json").write_text(json.dumps(payload, indent=2))
+    fabric_home = tmp_path / "hermes"
+    fabric_home.mkdir(parents=True, exist_ok=True)
+    (fabric_home / "auth.json").write_text(json.dumps(payload, indent=2))
 
 
 @pytest.fixture(autouse=True)
@@ -109,7 +109,7 @@ def test_ambient_pool_source_does_not_count_as_explicit(tmp_path, monkeypatch):
 
 
 def test_explicit_pool_source_counts_as_explicit(tmp_path, monkeypatch):
-    """manual / device_code / PKCE pool entries reflect explicit Hermes flows."""
+    """manual / device_code / PKCE pool entries reflect explicit Fabric flows."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     _write_auth_store(tmp_path, {
         "version": 1,

@@ -295,7 +295,7 @@ def test_do_list_enabled_only_hides_disabled(three_source_env, monkeypatch):
 
 
 def test_do_list_platform_env_is_ignored(three_source_env, monkeypatch):
-    """`hermes skills list` reads the active profile's config via
+    """`fabric skills list` reads the active profile's config via
     HERMES_HOME (swapped by -p), so it must NOT pass a platform arg to
     ``get_disabled_skill_names`` — otherwise per-platform overrides
     would silently leak in from HERMES_PLATFORM env."""
@@ -1355,7 +1355,7 @@ def test_snapshot_export_uses_running_fabric_version(monkeypatch, tmp_path, hub_
 
     snapshot = json.loads(output.read_text(encoding="utf-8"))
     assert snapshot["schema_version"] == 2
-    assert snapshot["hermes_version"] == "9.8.7"
+    assert snapshot["fabric_version"] == "9.8.7"
 
 
 def test_snapshot_export_is_one_locked_point_in_time(monkeypatch, tmp_path, hub_env):
@@ -1524,7 +1524,7 @@ def test_do_browse_neutralizes_nous_provenance_by_default(monkeypatch):
     monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
     meta = SkillMeta(
         name="demo",
-        description="Nous Research made Hermes",
+        description="Nous Research made Fabric",
         source="official",
         identifier="official/demo",
         trust_level="builtin",
@@ -1560,7 +1560,7 @@ def test_do_browse_restores_nous_provenance_under_explicit_opt_in(monkeypatch):
     monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
     meta = SkillMeta(
         name="demo",
-        description="Nous Research made Hermes",
+        description="Nous Research made Fabric",
         source="official",
         identifier="official/demo",
         trust_level="builtin",
@@ -1579,14 +1579,14 @@ def test_do_browse_restores_nous_provenance_under_explicit_opt_in(monkeypatch):
 
     output = sink.getvalue()
     assert "official optional skill(s) from Nous Research" in output
-    assert "Nous Research made Hermes" in output
-    assert api_result["items"][0]["description"] == "Nous Research made Hermes"
+    assert "Nous Research made Fabric" in output
+    assert api_result["items"][0]["description"] == "Nous Research made Fabric"
     assert api_result["items"][0]["source"] == "official"
     assert api_result["items"][0]["trust"] == "official"
 
 
 # ---------------------------------------------------------------------------
-# Regression: full identifier must be recoverable from `hermes skills search`
+# Regression: full identifier must be recoverable from `fabric skills search`
 # even when the slug is too long to fit the terminal width (issue #33674).
 # ---------------------------------------------------------------------------
 

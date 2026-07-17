@@ -14,7 +14,7 @@ Linux is the most recent runtime (X11 today, Wayland via XWayland; pure-
 Wayland progress tracked upstream). It is enabled in
 `check_computer_use_requirements` alongside macOS and Windows. The plumbing
 in this file is OS-agnostic; per-host gaps (no DISPLAY, missing AT-SPI,
-etc.) surface as specific blocked checks via `hermes computer-use doctor`
+etc.) surface as specific blocked checks via `fabric computer-use doctor`
 rather than failing silently.
 
 Install:
@@ -153,7 +153,7 @@ def _resolve_mcp_invocation(
     (trycua/cua#1961). The manifest carries a stable ``mcp_invocation``
     pointer with both ``command`` and ``args``, so a future cua-driver
     that renames or relocates the subcommand keeps working without a
-    Hermes patch.
+    Fabric patch.
 
     Falls back to ``(driver_cmd, ["mcp"])`` for older drivers that don't
     expose ``manifest``, or any indeterminate failure — the wrapper must
@@ -620,7 +620,7 @@ class _CuaDriverSession:
                 command=command,
                 args=args,
                 # Apply the telemetry policy first (default: disabled), then
-                # sanitize Hermes-managed secrets out of the child env.
+                # sanitize Fabric-managed secrets out of the child env.
                 env=_sanitize_subprocess_env(cua_driver_child_env()),
             )
 
@@ -1170,26 +1170,26 @@ class CuaDriverBackend(ComputerUseBackend):
         # instructions ask every consumer to declare a stable session
         # at the start of a run (start_session) and tear it down at
         # the end (end_session). Doing so:
-        #   - Gets a distinct agent-cursor color per Hermes run, with
+        #   - Gets a distinct agent-cursor color per Fabric run, with
         #     overlay rendering visualising where actions land
         #     (without moving the real OS cursor).
         #   - Isolates per-session config + recording ownership so
         #     concurrent Fabric runs / subagents don't step on each
         #     other.
         # We mint a UUID4-based id once per CuaDriverBackend instance —
-        # one Hermes run = one backend = one session — and pass it as
+        # one Fabric run = one backend = one session — and pass it as
         # `session` on every cua-driver tool call. Sessions are an
         # additive feature on the cua-driver side: when our id is
         # unknown to the driver (older builds), the tool calls
         # degrade to the anonymous / unsynced path documented in the
         # MCP server instructions.
-        self._session_id: str = f"hermes-{uuid.uuid4().hex[:12]}"
+        self._session_id: str = f"fabric-{uuid.uuid4().hex[:12]}"
 
     # ── Lifecycle ──────────────────────────────────────────────────
     def start(self) -> None:
         _maybe_nudge_update()
         # The MCP client SDK (`mcp`) is an optional dependency (the
-        # `computer-use` / `mcp` extras), not part of Hermes' minimal core.
+        # `computer-use` / `mcp` extras), not part of Fabric' minimal core.
         # Lazy-install it on first use — the same pattern every other optional
         # backend uses — so users never hit an opaque `No module named 'mcp'`
         # at invoke time. Auto-install is gated by `security.allow_lazy_installs`
@@ -1247,7 +1247,7 @@ class CuaDriverBackend(ComputerUseBackend):
     def capture(self, mode: str = "som", app: Optional[str] = None) -> CaptureResult:
         """Capture the frontmost on-screen window (optionally filtered by app name).
 
-        Maps hermes `capture(mode, app)` → cua-driver `list_windows` +
+        Maps fabric `capture(mode, app)` → cua-driver `list_windows` +
         `get_window_state` (ax/som) or `screenshot` (vision).
         """
         # Step 1: enumerate on-screen windows to find target pid/window_id.

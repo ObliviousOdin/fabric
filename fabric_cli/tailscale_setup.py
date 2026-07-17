@@ -238,9 +238,9 @@ def _subprocess_env() -> dict[str, str]:
     # Tailscale needs no Fabric/provider credentials.  Use the shared
     # strip-by-default child environment and force macOS app invocations to
     # behave as a CLI rather than opening the GUI.
-    from tools.environments.local import hermes_subprocess_env
+    from tools.environments.local import fabric_subprocess_env
 
-    base_env = hermes_subprocess_env(inherit_credentials=False)
+    base_env = fabric_subprocess_env(inherit_credentials=False)
     env = {
         key: value
         for key, value in base_env.items()

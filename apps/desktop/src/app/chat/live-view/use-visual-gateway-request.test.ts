@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { HermesConnection } from '@/global'
+import type { FabricConnection } from '@/global'
 
 import { useVisualGatewayRequest } from './use-visual-gateway-request'
 
@@ -81,7 +81,7 @@ class FakeWebSocket {
   }
 }
 
-function localConnection(profile = 'default'): HermesConnection {
+function localConnection(profile = 'default'): FabricConnection {
   return {
     authMode: 'token',
     baseUrl: 'http://127.0.0.1:8080',
@@ -114,14 +114,14 @@ beforeEach(() => {
   FakeWebSocket.autoOpen = true
   ;(globalThis as { WebSocket: unknown }).WebSocket = FakeWebSocket
   getGatewayWsUrl = vi.fn(async (profile?: string | null) => `ws://visual.test/api/ws?token=${profile ?? 'default'}`)
-  ;(window as { hermesDesktop?: unknown }).hermesDesktop = { getGatewayWsUrl }
+  ;(window as { fabricDesktop?: unknown }).fabricDesktop = { getGatewayWsUrl }
 })
 
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
   ;(globalThis as { WebSocket: unknown }).WebSocket = originalWebSocket
-  delete (window as { hermesDesktop?: unknown }).hermesDesktop
+  delete (window as { fabricDesktop?: unknown }).fabricDesktop
 })
 
 describe('useVisualGatewayRequest', () => {
@@ -151,10 +151,10 @@ describe('useVisualGatewayRequest', () => {
   })
 
   it('does not connect for remote or disabled gateways', async () => {
-    const remote: HermesConnection = { ...localConnection(), mode: 'remote' }
+    const remote: FabricConnection = { ...localConnection(), mode: 'remote' }
 
     const { result, rerender } = renderHook(
-      ({ connection, enabled }: { connection: HermesConnection; enabled: boolean }) =>
+      ({ connection, enabled }: { connection: FabricConnection; enabled: boolean }) =>
         useVisualGatewayRequest({ connection, enabled }),
       { initialProps: { connection: remote, enabled: true } }
     )

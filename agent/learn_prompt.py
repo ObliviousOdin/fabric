@@ -62,7 +62,7 @@ Frontmatter:
   when the dependency is genuinely platform-bound. Omit the field for portable
   skills.
 - metadata.fabric.tags: a few Capitalized, Relevant, Tags. Fabric is the
-  canonical namespace; do not author new metadata.hermes blocks.
+  canonical namespace; do not author new metadata.fabric blocks.
 
 Body section order (omit a section only if it genuinely has no content):
 1. "# <Human Title>" then a 2-3 sentence intro: what it does, what it does NOT

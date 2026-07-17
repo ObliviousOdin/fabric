@@ -489,14 +489,14 @@ class TestMem0UserIdResolution:
         monkeypatch.delenv("MEM0_USER_ID", raising=False)
         provider = self._provider(monkeypatch, tmp_path)
         provider.initialize("test")
-        assert provider._user_id == "hermes-user"
+        assert provider._user_id == "fabric-user"
 
     def test_legacy_placeholder_in_config_does_not_override_kwargs(self, monkeypatch, tmp_path):
-        # Setup wizard historically wrote {"user_id": "hermes-user"} as the
+        # Setup wizard historically wrote {"user_id": "fabric-user"} as the
         # suggested default. Treat that placeholder as unset so users on
         # gateways still get gateway-native ids — not silent collisions.
         monkeypatch.delenv("MEM0_USER_ID", raising=False)
-        (tmp_path / "mem0.json").write_text('{"user_id": "hermes-user"}')
+        (tmp_path / "mem0.json").write_text('{"user_id": "fabric-user"}')
         provider = self._provider(monkeypatch, tmp_path)
         provider.initialize("test", user_id="123456789", platform="telegram")
         assert provider._user_id == "123456789"

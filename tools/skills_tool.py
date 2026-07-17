@@ -1409,7 +1409,7 @@ def skill_view(
                         [str(f.relative_to(skill_dir)) for f in scripts_dir.glob(ext)]
                     )
 
-        # Canonical metadata.fabric values override legacy metadata.hermes
+        # Canonical metadata.fabric values override legacy metadata.fabric
         # values. Top-level fields remain a compatibility fallback.
         raw_metadata = frontmatter.get("metadata")
         skill_metadata = extract_skill_metadata(frontmatter)

@@ -30,7 +30,7 @@ import { LoadingState, Pill, SettingsContent } from './primitives'
 
 // The embedded terminal (and thus the "run disconnect command" path) only
 // exists in the Electron desktop shell, not the web dashboard.
-const canRunInTerminal = () => typeof window !== 'undefined' && Boolean(window.hermesDesktop?.terminal)
+const canRunInTerminal = () => typeof window !== 'undefined' && Boolean(window.fabricDesktop?.terminal)
 
 // Parallel group headers ("Connected", "Other providers") so the expanded list
 // reads as its own section instead of bleeding into the connected group.
@@ -489,7 +489,7 @@ export function ProvidersSettings({ onClose, onMainModelChanged, onViewChange, v
   }, [onboardingActive])
 
   // External (CLI-managed) providers can't be cleared via the API by design —
-  // Hermes never deletes creds another tool owns behind a silent API call.
+  // Fabric never deletes creds another tool owns behind a silent API call.
   // Instead we run the documented removal command in the embedded terminal so
   // the user sees exactly what executes, then return them to chat to watch it.
   function handleTerminalDisconnect(provider: OAuthProvider) {

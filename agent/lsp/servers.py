@@ -759,9 +759,9 @@ def _spawn_powershell_es(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
     )
     # Session details file: PSES writes connection info here on startup.
     session_path = os.path.join(
-        hermes_lsp_session_dir(), f"pses-session-{os.getpid()}.json"
+        fabric_lsp_session_dir(), f"pses-session-{os.getpid()}.json"
     )
-    log_path = os.path.join(hermes_lsp_session_dir(), "pses.log")
+    log_path = os.path.join(fabric_lsp_session_dir(), "pses.log")
     legacy_host_name = "Her" + "mes"  # PowerShellEditorServices compatibility identifier.
     legacy_host_profile_id = "hermes"  # PowerShellEditorServices compatibility identifier.
     inner = (
@@ -796,7 +796,7 @@ def _spawn_powershell_es(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
     )
 
 
-def hermes_lsp_session_dir() -> str:
+def fabric_lsp_session_dir() -> str:
     """Return (and create) the dir for PSES session/log scratch files."""
     home = str(get_fabric_home())
     d = os.path.join(home, "lsp", "pses")

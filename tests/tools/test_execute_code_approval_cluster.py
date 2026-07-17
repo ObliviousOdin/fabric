@@ -9,7 +9,7 @@ Covers the canonical fix for issues #4146, #27303, #30882, #33057:
   3. tools.approval.check_execute_code_guard — the entry-point guard decision
      matrix (isolated backends, yolo/off, cron-deny, headless-local,
      gateway approve/deny/timeout/missing-notify, smart mode).
-  4. tools.code_execution_tool._scrub_child_env — broad HERMES_ prefix dropped,
+  4. tools.code_execution_tool._scrub_child_env — broad FABRIC_ prefix dropped,
      operational allowlist kept, DSN/WEBHOOK blocked, passthrough precedence.
 """
 
@@ -280,14 +280,14 @@ def test_guard_session_yolo_bypasses(gw_session):
 # 4. Env scrubbing (#27303)
 # ---------------------------------------------------------------------------
 
-def test_env_scrub_hermes_allowlist_and_secret_blocks():
+def test_env_scrub_fabric_allowlist_and_secret_blocks():
     from tools.code_execution_tool import _scrub_child_env
 
     env = {
         # operational allowlist → kept
         "HERMES_HOME": "/h", "HERMES_PROFILE": "p",
         "HERMES_CONFIG": "/c.yaml", "HERMES_ENV": "/e",
-        # other HERMES_* → dropped (broad prefix removed)
+        # other FABRIC_* → dropped (broad prefix removed)
         "HERMES_BASE_URL": "https://x", "HERMES_INTERACTIVE": "1",
         "HERMES_KANBAN_DB": "postgres://u:p@h/db",
         # secret substrings (incl. new DSN/WEBHOOK) → dropped
@@ -352,11 +352,11 @@ def test_execute_code_entry_blocks_before_spawn_when_guard_denies(monkeypatch, t
 # 6. Env-scrub diagnosability mitigation (#27303 follow-up)
 # ---------------------------------------------------------------------------
 
-def test_env_scrub_logs_dropped_hermes_vars(caplog):
-    """Dropping a non-allowlisted, non-secret HERMES_* var must be diagnosable:
+def test_env_scrub_logs_dropped_fabric_vars(caplog):
+    """Dropping a non-allowlisted, non-secret FABRIC_* var must be diagnosable:
     the scrub emits a one-shot debug log naming the dropped vars and pointing at
     the env_passthrough opt-in, so the silent behavior change (#27303) doesn't
-    leave users guessing why a sandbox script sees an unset HERMES_* var."""
+    leave users guessing why a sandbox script sees an unset FABRIC_* var."""
     import logging
 
     from tools.code_execution_tool import _scrub_child_env
@@ -382,7 +382,7 @@ def test_env_scrub_logs_dropped_hermes_vars(caplog):
 
 
 def test_env_scrub_no_log_when_nothing_dropped(caplog):
-    """No diagnostic noise when there are no dropped HERMES_* vars."""
+    """No diagnostic noise when there are no dropped FABRIC_* vars."""
     import logging
 
     from tools.code_execution_tool import _scrub_child_env

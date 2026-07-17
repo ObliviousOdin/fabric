@@ -6,15 +6,15 @@ import {
   appendUniquePathEntries,
   buildDesktopBackendEnv,
   buildDesktopBackendPath,
-  normalizeHermesHomeRoot,
+  normalizeFabricHomeRoot,
   pathEnvKey,
   POSIX_SANE_PATH_ENTRIES,
   resolveDesktopHome
 } from './backend-env'
 
-test('desktop backend PATH adds Hermes-managed bins and missing POSIX sane entries', () => {
+test('desktop backend PATH adds Fabric-managed bins and missing POSIX sane entries', () => {
   const result = buildDesktopBackendPath({
-    hermesHome: '/Users/test/.hermes',
+    fabricHome: '/Users/test/.hermes',
     venvRoot: '/Users/test/.hermes/fabric-agent/venv',
     home: '/Users/test',
     currentPath: '/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin',
@@ -37,7 +37,7 @@ test('desktop backend PATH adds Hermes-managed bins and missing POSIX sane entri
 
 test('desktop backend PATH preserves first occurrence and avoids duplicates', () => {
   const result = buildDesktopBackendPath({
-    hermesHome: '/Users/test/.hermes',
+    fabricHome: '/Users/test/.hermes',
     venvRoot: '/Users/test/.hermes/fabric-agent/venv',
     home: '/Users/test',
     currentPath: '/Users/test/.local/bin:/opt/homebrew/bin:/usr/bin:/opt/homebrew/bin:/bin',
@@ -56,7 +56,7 @@ test('desktop backend PATH preserves first occurrence and avoids duplicates', ()
 
 test('buildDesktopBackendEnv extends PYTHONPATH and backend PATH together', () => {
   const env = buildDesktopBackendEnv({
-    hermesHome: '/Users/test/.hermes',
+    fabricHome: '/Users/test/.hermes',
     pythonPathEntries: ['/repo/fabric-agent'],
     venvRoot: '/Users/test/.hermes/fabric-agent/venv',
     currentEnv: {
@@ -81,7 +81,7 @@ test('buildDesktopBackendEnv extends PYTHONPATH and backend PATH together', () =
 
 test('Finder-style minimal PATH gains the user local bin without duplication', () => {
   const env = buildDesktopBackendEnv({
-    hermesHome: '/Users/test/.fabric',
+    fabricHome: '/Users/test/.fabric',
     venvRoot: '/Users/test/.fabric/fabric-agent/venv',
     currentEnv: {
       HOME: '/Users/test',
@@ -96,21 +96,21 @@ test('Finder-style minimal PATH gains the user local bin without duplication', (
   assert.equal(entries.filter(entry => entry === '/Users/test/.local/bin').length, 1)
 })
 
-test('normalizeHermesHomeRoot maps profile homes back to the global Hermes root', () => {
+test('normalizeFabricHomeRoot maps profile homes back to the global Fabric root', () => {
   assert.equal(
-    normalizeHermesHomeRoot('/Users/test/.hermes/profiles/oracle', { pathModule: path.posix }),
+    normalizeFabricHomeRoot('/Users/test/.hermes/profiles/oracle', { pathModule: path.posix }),
     '/Users/test/.hermes'
   )
   assert.equal(
-    normalizeHermesHomeRoot('C:\\Users\\test\\AppData\\Local\\hermes\\profiles\\oracle', { pathModule: path.win32 }),
+    normalizeFabricHomeRoot('C:\\Users\\test\\AppData\\Local\\hermes\\profiles\\oracle', { pathModule: path.win32 }),
     'C:\\Users\\test\\AppData\\Local\\hermes'
   )
-  assert.equal(normalizeHermesHomeRoot('/Users/test/.hermes', { pathModule: path.posix }), '/Users/test/.hermes')
+  assert.equal(normalizeFabricHomeRoot('/Users/test/.hermes', { pathModule: path.posix }), '/Users/test/.hermes')
 })
 
 test('Windows PATH casing and delimiter are preserved without POSIX sane entries', () => {
   const env = buildDesktopBackendEnv({
-    hermesHome: 'C:\\Users\\test\\AppData\\Local\\hermes',
+    fabricHome: 'C:\\Users\\test\\AppData\\Local\\hermes',
     pythonPathEntries: ['C:\\repo\\fabric-agent'],
     venvRoot: 'C:\\Users\\test\\AppData\\Local\\hermes\\fabric-agent\\venv',
     currentEnv: {

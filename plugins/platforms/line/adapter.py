@@ -1297,14 +1297,14 @@ class LineAdapter(BasePlatformAdapter):
 
         try:
             from fabric_constants import get_fabric_home
-            hermes_home = Path(get_fabric_home()).resolve()
+            fabric_home = Path(get_fabric_home()).resolve()
         except Exception:
-            hermes_home = Path.home().joinpath(".fabric").resolve()
+            fabric_home = Path.home().joinpath(".fabric").resolve()
 
         allowed_roots = {
             Path(tempfile.gettempdir()).resolve(),
             Path("/tmp").resolve(),  # → /private/tmp on macOS
-            hermes_home,
+            fabric_home,
         }
         resolved = path.resolve()
         if not any(_is_relative_to(resolved, r) for r in allowed_roots):
@@ -1618,7 +1618,7 @@ def interactive_setup() -> None:
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system at startup."""
+    """Plugin entry point — called by the Fabric plugin system at startup."""
     ctx.register_platform(
         name="line",
         label="LINE",

@@ -214,7 +214,7 @@ def test_format_venv_holders_message_flags_desktop_backend(tmp_path):
 @patch.object(cli_main, "_is_windows", return_value=True)
 def test_detect_venv_python_catches_outside_venv_trampoline(_winp, tmp_path):
     """uv/base-interpreter trampoline: exe OUTSIDE the venv, but the cmdline
-    clearly runs Hermes from this install → must still be flagged as a holder
+    clearly runs Fabric from this install → must still be flagged as a holder
     (it imports from the venv and holds its .pyd files)."""
     base_py = "C:\\Python311\\python.exe"
     venv_path = str(tmp_path / "venv" / "Scripts" / "python.exe")
@@ -249,7 +249,7 @@ def test_detect_venv_python_catches_outside_venv_trampoline(_winp, tmp_path):
 
 
 @patch.object(cli_main, "_is_windows", return_value=True)
-def test_detect_venv_hermes_cli_cmdline_outside_install_not_matched(_winp, tmp_path):
+def test_detect_venv_fabric_cli_cmdline_outside_install_not_matched(_winp, tmp_path):
     """A fabric_cli.main process belonging to a DIFFERENT install (neither
     install root in cmdline nor cwd under it) must not be flagged."""
     base_py = "C:\\Python311\\python.exe"

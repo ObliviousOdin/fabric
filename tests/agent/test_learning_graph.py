@@ -107,10 +107,10 @@ def test_malformed_frontmatter_metadata_does_not_crash(tmp_path):
 
 
 def test_skill_metadata_tolerates_non_dict_and_prefers_fabric():
-    assert learning_graph._hermes_meta({"metadata": "junk"}) == {}
-    assert learning_graph._hermes_meta({"metadata": {"hermes": "junk"}}) == {}
-    assert learning_graph._hermes_meta({"metadata": {"hermes": {"category": "x"}}}) == {"category": "x"}
-    assert learning_graph._hermes_meta(
+    assert learning_graph._fabric_meta({"metadata": "junk"}) == {}
+    assert learning_graph._fabric_meta({"metadata": {"hermes": "junk"}}) == {}
+    assert learning_graph._fabric_meta({"metadata": {"hermes": {"category": "x"}}}) == {"category": "x"}
+    assert learning_graph._fabric_meta(
         {
             "metadata": {
                 "hermes": {"category": "legacy", "related_skills": ["one"]},

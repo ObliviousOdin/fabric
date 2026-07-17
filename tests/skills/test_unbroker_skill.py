@@ -503,7 +503,7 @@ def test_cdp_launch_command_has_debug_flags():
     assert "--no-first-run" in cmd
 
 
-def test_cdp_default_profile_uses_hermes_home():
+def test_cdp_default_profile_uses_fabric_home():
     prev = os.environ.get("HERMES_HOME")
     with tempfile.TemporaryDirectory() as d:
         os.environ["HERMES_HOME"] = d

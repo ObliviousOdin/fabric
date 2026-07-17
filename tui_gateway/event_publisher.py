@@ -310,7 +310,7 @@ class WsPublisherTransport:
         # sidecar must not add its timeout to TUI/model startup latency.
         self._worker = threading.Thread(
             target=self._drain,
-            name="hermes-ws-pub",
+            name="fabric-ws-pub",
             daemon=True,
         )
         self._worker.start()

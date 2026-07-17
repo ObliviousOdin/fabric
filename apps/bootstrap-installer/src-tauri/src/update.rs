@@ -38,7 +38,7 @@ use crate::events::{BootstrapEvent, LogStream, StageInfo, StageState};
 
 /// CLI update exit code meaning "another Fabric process is holding the
 /// venv shim open / dirty precondition" — see _cmd_update_impl in
-/// hermes_cli/main.py (sys.exit(2)). We surface a targeted message for this.
+/// fabric_cli/main.py (sys.exit(2)). We surface a targeted message for this.
 const UPDATE_EXIT_CONCURRENT: i32 = 2;
 
 /// How long to wait for the old desktop process to release files under the
@@ -314,7 +314,7 @@ async fn run_update(app: AppHandle) -> Result<()> {
             let msg = format!(
                 "Fabric update failed (exit {:?}). See {} for details.",
                 other,
-                crate::paths::hermes_home()
+                crate::paths::fabric_home()
                     .join("logs")
                     .join("update.log")
                     .display()
@@ -719,7 +719,7 @@ fn venv_cli_candidates(install_root: &Path, target_os: &str) -> Vec<PathBuf> {
 }
 
 /// Resolve the CLI to drive. Prefer Fabric in the target venv, then legacy
-/// Hermes in that venv, followed by the same ordered names on PATH.
+/// Fabric in that venv, followed by the same ordered names on PATH.
 fn resolve_fabric_cli(install_root: &Path) -> Option<PathBuf> {
     for shim in venv_cli_candidates(install_root, std::env::consts::OS) {
         if shim.exists() {
@@ -746,19 +746,19 @@ fn resolve_fabric_cli(install_root: &Path) -> Option<PathBuf> {
 }
 
 fn update_child_env(install_root: &Path) -> Vec<(String, OsString)> {
-    let hermes_home = crate::paths::hermes_home();
+    let fabric_home = crate::paths::fabric_home();
     let mut envs = vec![
         (
             "FABRIC_HOME".to_string(),
-            hermes_home.as_os_str().to_os_string(),
+            fabric_home.as_os_str().to_os_string(),
         ),
         (
             "HERMES_HOME".to_string(),
-            hermes_home.as_os_str().to_os_string(),
+            fabric_home.as_os_str().to_os_string(),
         ),
     ];
     if let Some(path) = path_with_prepended_entries(&[
-        hermes_home.join("node").join("bin"),
+        fabric_home.join("node").join("bin"),
         venv_bin_dir(install_root),
     ]) {
         envs.push(("PATH".to_string(), path));
@@ -832,7 +832,7 @@ async fn install_macos_app_update(
         ));
     }
 
-    let rebuilt_app = crate::bootstrap::resolve_hermes_desktop_app(install_root).ok_or_else(|| {
+    let rebuilt_app = crate::bootstrap::resolve_fabric_desktop_app(install_root).ok_or_else(|| {
         anyhow!(
             "desktop rebuild succeeded but no Fabric or legacy Fabric app was found under {}",
             install_root.join("apps").join("desktop").join("release").display()
@@ -878,7 +878,7 @@ async fn install_macos_app_update(
     let ditto = Command::new("/usr/bin/ditto")
         .arg(&rebuilt_app)
         .arg(&tmp)
-        .current_dir(crate::paths::hermes_home())
+        .current_dir(crate::paths::fabric_home())
         .status()
         .await
         .map_err(|e| anyhow!("running ditto: {e}"))?;
@@ -898,7 +898,7 @@ async fn install_macos_app_update(
         .arg("-dr")
         .arg("com.apple.quarantine")
         .arg(target_app)
-        .current_dir(crate::paths::hermes_home())
+        .current_dir(crate::paths::fabric_home())
         .status()
         .await;
 
@@ -1058,7 +1058,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn venv_cli_candidates_prefer_fabric_and_keep_hermes() {
+    fn venv_cli_candidates_prefer_fabric_and_keep_fabric() {
         let root = Path::new("/x/fabric-agent");
         for os in ["windows", "macos", "linux"] {
             let shims = venv_cli_candidates(root, os);

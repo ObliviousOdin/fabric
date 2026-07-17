@@ -1760,7 +1760,7 @@ class DiscordAdapter(BasePlatformAdapter):
         return "safe"
 
     def _canonicalize_app_command_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Reduce command payloads to the semantic fields Hermes manages."""
+        """Reduce command payloads to the semantic fields Fabric manages."""
         contexts = payload.get("contexts")
         integration_types = payload.get("integration_types")
         return {
@@ -2811,7 +2811,7 @@ class DiscordAdapter(BasePlatformAdapter):
         # Synthesise the ack via the configured TTS provider, then layer it.
         import uuid as _uuid
         audio_path = os.path.join(
-            tempfile.gettempdir(), "hermes_voice",
+            tempfile.gettempdir(), "fabric_voice",
             f"ack_{_uuid.uuid4().hex[:12]}.mp3",
         )
         os.makedirs(os.path.dirname(audio_path), exist_ok=True)
@@ -3233,7 +3233,7 @@ class DiscordAdapter(BasePlatformAdapter):
         return bool(channel_ids & allowed)
 
     def _is_pairing_approved_user(self, user_id: str) -> bool:
-        """True when the Discord user has an explicit Hermes pairing grant."""
+        """True when the Discord user has an explicit Fabric pairing grant."""
         user_id = str(user_id or "").strip()
         if not user_id:
             return False
@@ -5324,7 +5324,7 @@ class DiscordAdapter(BasePlatformAdapter):
         titles don't show raw <@id>, <@&id>, or <#id> markers — the ID
         isn't meaningful to humans glancing at the thread list (#6336).
         Real semantic naming is done after the first agent turn, when
-        Hermes has an LLM-generated session title and can safely rename
+        Fabric has an LLM-generated session title and can safely rename
         only this newly-created thread.
         """
         content = (content or "").strip()
@@ -5357,7 +5357,7 @@ class DiscordAdapter(BasePlatformAdapter):
             try:
                 thread = await message.create_thread(name=thread_name, auto_archive_duration=1440)
                 try:
-                    setattr(thread, "_hermes_auto_thread_initial_name", thread_name)
+                    setattr(thread, "_fabric_auto_thread_initial_name", thread_name)
                 except Exception:
                     pass
                 return thread
@@ -5373,7 +5373,7 @@ class DiscordAdapter(BasePlatformAdapter):
                         reason=reason,
                     )
                     try:
-                        setattr(thread, "_hermes_auto_thread_initial_name", thread_name)
+                        setattr(thread, "_fabric_auto_thread_initial_name", thread_name)
                     except Exception:
                         pass
                     return thread
@@ -6340,7 +6340,7 @@ class DiscordAdapter(BasePlatformAdapter):
             role_authorized=role_authorized,
             auto_thread_created=auto_threaded_channel is not None,
             auto_thread_initial_name=(
-                getattr(auto_threaded_channel, "_hermes_auto_thread_initial_name", None)
+                getattr(auto_threaded_channel, "_fabric_auto_thread_initial_name", None)
                 or self._derive_auto_thread_name(message.content or "")
             ) if auto_threaded_channel is not None else None,
         )
@@ -6701,7 +6701,7 @@ def _component_check_auth(
     Mirrors the gateway's external-surface authorization model: component
     button clicks must be explicitly authorized by a Discord user/role
     allowlist, a global user allowlist, an explicit allow-all flag, or
-    the pairing store (``hermes pairing approve``).
+    the pairing store (``fabric pairing approve``).
 
     Behavior:
 
@@ -6760,7 +6760,7 @@ def _component_check_auth(
             return True
 
     # Check pairing store — mirrors ``authz_mixin._check_authorization``
-    # so users approved via ``hermes pairing approve`` can interact with
+    # so users approved via ``fabric pairing approve`` can interact with
     # component buttons even without DISCORD_ALLOWED_USERS set.
     if uid:
         try:
@@ -8427,7 +8427,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Fabric plugin system."""
     ctx.register_platform(
         name="discord",
         label="Discord",

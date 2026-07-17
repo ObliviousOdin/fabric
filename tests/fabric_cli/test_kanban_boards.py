@@ -1,4 +1,4 @@
-"""Tests for the multi-board kanban layer (``hermes kanban boards …``).
+"""Tests for the multi-board kanban layer (``fabric kanban boards …``).
 
 Covers the pieces added when boards became a first-class concept:
 
@@ -9,7 +9,7 @@ Covers the pieces added when boards became a first-class concept:
   ``HERMES_KANBAN_BOARD`` env var.
 * ``connect(board=)`` isolation — writes on one board don't leak.
 * ``create_board`` / ``list_boards`` / ``remove_board`` round trip.
-* CLI surface: ``hermes kanban boards list/create/switch/rm``.
+* CLI surface: ``fabric kanban boards list/create/switch/rm``.
 * ``_default_spawn`` injects ``HERMES_KANBAN_BOARD`` into worker env.
 """
 
@@ -43,7 +43,7 @@ def fresh_home(tmp_path, monkeypatch):
     fixture layers a per-test HERMES_HOME plus a path-init cache reset
     so each test sees a truly empty board set.
     """
-    home = tmp_path / "hermes_home"
+    home = tmp_path / "fabric_home"
     home.mkdir()
     monkeypatch.setenv("HERMES_HOME", str(home))
     for var in (
@@ -56,7 +56,7 @@ def fresh_home(tmp_path, monkeypatch):
     # Also reset fabric_constants cache so get_default_fabric_root() re-reads.
     try:
         import fabric_constants
-        fabric_constants._cached_default_hermes_root = None  # type: ignore[attr-defined]
+        fabric_constants._cached_default_fabric_root = None  # type: ignore[attr-defined]
     except Exception:
         pass
     # Kanban module-level init cache must not leak between tests.
@@ -468,7 +468,7 @@ class TestWorkerSpawnEnv:
 # ---------------------------------------------------------------------------
 
 def _cli(args: list[str], env_extra: dict | None = None) -> subprocess.CompletedProcess:
-    """Run ``hermes kanban …`` with PYTHONPATH pinned to the worktree."""
+    """Run ``fabric kanban …`` with PYTHONPATH pinned to the worktree."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(_WORKTREE)
     if env_extra:

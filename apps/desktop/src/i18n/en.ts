@@ -69,7 +69,7 @@ export const en: Translations = {
       loadingSettings: 'Loading Fabric settings',
       loadingSessions: 'Loading recent sessions',
       startingDesktopConnection: 'Starting desktop connection',
-      startingHermesDesktop: 'Starting Fabric…'
+      startingFabricDesktop: 'Starting Fabric…'
     },
     errors: {
       backgroundExited: 'Fabric background process exited.',
@@ -120,7 +120,7 @@ export const en: Translations = {
     backendOutOfDateMessage:
       'Your Fabric backend is older than this desktop build and may not work correctly. Update to align them.',
     installMethodUnsupportedTitle: 'Unsupported install method',
-    updateHermes: 'Update Fabric',
+    updateFabric: 'Update Fabric',
     updateReadyTitle: 'Update ready',
     updateReadyMessage: count => `${count} new change${count === 1 ? '' : 's'} available.`,
     seeWhatsNew: "See what's new",
@@ -1059,10 +1059,10 @@ export const en: Translations = {
     noSessions: 'No sessions yet.',
     gatewayRunning: 'Messaging gateway running',
     gatewayStopped: 'Messaging gateway stopped',
-    hermesActiveSessions: (version, count) => `Fabric ${version} · Active sessions ${count}`,
+    fabricActiveSessions: (version, count) => `Fabric ${version} · Active sessions ${count}`,
     restartGateway: 'Restart gateway',
     gatewayRestartFailed: 'Gateway restart failed.',
-    updateHermes: 'Update Fabric',
+    updateFabric: 'Update Fabric',
     actionRunning: 'running',
     actionDone: 'done',
     actionFailed: 'failed',

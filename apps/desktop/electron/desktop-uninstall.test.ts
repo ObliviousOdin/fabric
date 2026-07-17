@@ -109,7 +109,7 @@ test('resolveRemovableAppPath returns null for an unrecognized Windows dir', () 
 
 test('resolveRemovableAppPath uses APPIMAGE on Linux when set', () => {
   assert.equal(
-    resolveRemovableAppPath('/tmp/.mount_HermesXXXX/hermes', 'linux', { APPIMAGE: '/home/x/Apps/Hermes.AppImage' }),
+    resolveRemovableAppPath('/tmp/.mount_FabricXXXX/hermes', 'linux', { APPIMAGE: '/home/x/Apps/Hermes.AppImage' }),
     '/home/x/Apps/Hermes.AppImage'
   )
 })
@@ -144,7 +144,7 @@ test('buildPosixCleanupScript waits for the PID, runs the uninstall module, remo
     agentRoot: '/home/x/.hermes/fabric-agent',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'gui'],
     appPath: '/opt/hermes/linux-unpacked',
-    hermesHome: '/home/x/.hermes'
+    fabricHome: '/home/x/.hermes'
   })
 
   assert.match(script, /^#!\/bin\/bash/)
@@ -166,7 +166,7 @@ test('buildPosixCleanupScript exports PYTHONPATH when pythonPath is set (lite/fu
     agentRoot: '/home/x/.hermes/fabric-agent',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'full'],
     appPath: null,
-    hermesHome: '/home/x/.hermes'
+    fabricHome: '/home/x/.hermes'
   })
 
   // System python + source on PYTHONPATH so import fabric_cli works while the
@@ -183,7 +183,7 @@ test('buildPosixCleanupScript omits PYTHONPATH when pythonPath is null (gui)', (
     agentRoot: '/a',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'gui'],
     appPath: null,
-    hermesHome: '/h'
+    fabricHome: '/h'
   })
 
   assert.doesNotMatch(script, /export PYTHONPATH/)
@@ -197,7 +197,7 @@ test('buildPosixCleanupScript omits the bundle rm when appPath is null', () => {
     agentRoot: '/a',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'lite'],
     appPath: null,
-    hermesHome: '/h'
+    fabricHome: '/h'
   })
 
   assert.doesNotMatch(script, /rm -rf '\//)
@@ -213,7 +213,7 @@ test('buildPosixCleanupScript single-quote-escapes paths with apostrophes', () =
     agentRoot: '/a',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'gui'],
     appPath: null,
-    hermesHome: '/h'
+    fabricHome: '/h'
   })
 
   // The apostrophe is closed-escaped-reopened so the shell sees the literal.
@@ -230,7 +230,7 @@ test('buildWindowsCleanupScript waits (bounded) for PID, runs uninstall, rmdir b
     agentRoot: 'C:\\hermes',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'full'],
     appPath: 'C:\\Users\\x\\AppData\\Local\\Programs\\Hermes',
-    hermesHome: 'C:\\Users\\x\\AppData\\Local\\hermes'
+    fabricHome: 'C:\\Users\\x\\AppData\\Local\\hermes'
   })
 
   assert.match(script, /@echo off/)
@@ -259,7 +259,7 @@ test('buildWindowsCleanupScript omits PYTHONPATH + rmdir when not needed (gui, n
     agentRoot: 'C:\\h',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'gui'],
     appPath: null,
-    hermesHome: 'C:\\h'
+    fabricHome: 'C:\\h'
   })
 
   assert.doesNotMatch(script, /rmdir/)

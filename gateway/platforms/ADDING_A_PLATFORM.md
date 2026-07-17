@@ -252,7 +252,7 @@ And add it to the canonical `fabric-gateway` composite:
 }
 ```
 
-`hermes-gateway` and existing individual `hermes-*` platform IDs remain runtime
+`hermes-gateway` and existing individual `fabric-*` platform IDs remain runtime
 aliases for older configurations. New code and documentation should use the
 canonical `fabric-` namespace until a separate compatibility migration retires
 the older IDs.

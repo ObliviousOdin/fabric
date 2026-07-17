@@ -36,7 +36,7 @@ import {
 
 function provider(id: string, name = id): OAuthProvider {
   return {
-    cli_command: `hermes login ${id}`,
+    cli_command: `fabric login ${id}`,
     docs_url: `https://example.com/${id}`,
     flow: 'pkce',
     id,
@@ -66,7 +66,7 @@ function baseState(overrides: Partial<DesktopOnboardingState> = {}): DesktopOnbo
 
 function installApiMock(api: (request: { path: string }) => Promise<unknown>) {
   const openExternal = vi.fn(async (_url: string): Promise<unknown> => true)
-  Object.defineProperty(window, 'hermesDesktop', {
+  Object.defineProperty(window, 'fabricDesktop', {
     configurable: true,
     value: { api, openExternal }
   })

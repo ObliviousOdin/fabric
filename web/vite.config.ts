@@ -15,13 +15,13 @@ const BACKEND = process.env.HERMES_DASHBOARD_URL ?? "http://127.0.0.1:9119";
  * load, scrapes the `window.__HERMES_SESSION_TOKEN__` assignment, and
  * re-injects it into the dev HTML. No-op in production builds.
  */
-function hermesDevToken(): Plugin {
+function fabricDevToken(): Plugin {
   const TOKEN_RE = /window\.__HERMES_SESSION_TOKEN__\s*=\s*"([^"]+)"/;
   const EMBEDDED_RE =
     /window\.__HERMES_DASHBOARD_EMBEDDED_CHAT__\s*=\s*(true|false)/;
 
   return {
-    name: "hermes:dev-session-token",
+    name: "fabric:dev-session-token",
     apply: "serve",
     async transformIndexHtml() {
       try {
@@ -30,7 +30,7 @@ function hermesDevToken(): Plugin {
         const match = html.match(TOKEN_RE);
         if (!match) {
           console.warn(
-            `[hermes] Could not find session token in ${BACKEND} — ` +
+            `[fabric] Could not find session token in ${BACKEND} — ` +
               `is \`Fabric dashboard\` running? /api calls will 401.`,
           );
           return;
@@ -48,7 +48,7 @@ function hermesDevToken(): Plugin {
         ];
       } catch (err) {
         console.warn(
-          `[hermes] Dashboard at ${BACKEND} unreachable — ` +
+          `[fabric] Dashboard at ${BACKEND} unreachable — ` +
             `start it with \`Fabric dashboard\` or set HERMES_DASHBOARD_URL. ` +
             `(${(err as Error).message})`,
         );
@@ -58,7 +58,7 @@ function hermesDevToken(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), hermesDevToken()],
+  plugins: [react(), tailwindcss(), fabricDevToken()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

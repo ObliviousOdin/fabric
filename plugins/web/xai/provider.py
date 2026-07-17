@@ -4,7 +4,7 @@ Routes ``web_search`` tool calls through xAI's agentic Web Search tool
 (server-side ``web_search`` on the Responses API). Grok runs the actual
 searching and page-browsing server-side; we ask it to return the top
 results as structured JSON so we can hand back the same
-``{title, url, description, position}`` rows every other Hermes web
+``{title, url, description, position}`` rows every other Fabric web
 provider produces.
 
 Reference: https://docs.x.ai/developers/tools/web-search
@@ -25,7 +25,7 @@ Optional knobs (under ``web.xai`` in ``config.yaml``)::
         timeout: 90                   # seconds (default 90)
 
 Auth: reuses :func:`tools.xai_http.resolve_xai_http_credentials`, which
-prefers Hermes-managed xAI Grok OAuth (via ``fabric auth``) and falls back
+prefers Fabric-managed xAI Grok OAuth (via ``fabric auth``) and falls back
 to ``XAI_API_KEY`` (resolved through ``~/.hermes/.env``, then
 ``os.environ``).
 """
@@ -40,7 +40,7 @@ from typing import Any, Dict, List, Optional
 from agent.web_search_provider import WebSearchProvider
 from tools.xai_http import (
     has_xai_credentials,
-    hermes_xai_user_agent,
+    fabric_xai_user_agent,
     resolve_xai_http_credentials,
 )
 
@@ -223,7 +223,7 @@ class XAIWebSearchProvider(WebSearchProvider):
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "User-Agent": hermes_xai_user_agent(),
+            "User-Agent": fabric_xai_user_agent(),
         }
 
         try:

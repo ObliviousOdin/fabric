@@ -5,7 +5,7 @@
 //! `state_frame_counts`). Two atlas shapes exist in the wild:
 //!
 //! - Current petdex/Codex sheets: 1536×1872 px — 8 columns × 9 rows.
-//! - Legacy Hermes/petdex sheets: 1728×1664 px — 9 columns × 8 rows.
+//! - Legacy Fabric/petdex sheets: 1728×1664 px — 9 columns × 8 rows.
 //!
 //! Nothing checks exact sizes at display time; renderers floor-divide the
 //! concrete sheet into cells and pick the taxonomy from the row count, so
@@ -43,7 +43,7 @@ pub fn clamp_scale(scale: f32) -> f32 {
     scale.clamp(MIN_SCALE, MAX_SCALE)
 }
 
-/// Legacy Hermes/petdex row order (top → bottom) for 8-row atlases.
+/// Legacy Fabric/petdex row order (top → bottom) for 8-row atlases.
 pub const LEGACY_STATE_ROWS: &[&str] = &[
     "idle", "wave", "run", "failed", "review", "jump", "extra1", "extra2",
 ];

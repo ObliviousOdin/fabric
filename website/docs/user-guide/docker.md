@@ -68,7 +68,7 @@ This behavior applies to the s6-based image only. Earlier (tini-based) images st
 :::
 
 :::note Compatibility environment names
-The `HERMES_*` variables on this page are not stale product branding: they are
+The `FABRIC_*` variables on this page are not stale product branding: they are
 the exact environment-variable ABI the current container code still reads.
 Keep using those names until a documented `FABRIC_*` alias exists; silently
 renaming a live variable in an example would disable the feature.
@@ -201,7 +201,7 @@ The `/opt/data` volume is the single source of truth for all Fabric state. It ma
 
 ### Immutable install tree
 
-In hosted and published Docker images, `/opt/hermes` is the installed application tree. It is root-owned and read-only to the runtime **hermes** service account, so agent turns, gateway sessions, dashboard actions, and normal `docker exec fabric fabric ...` commands cannot edit the core source, bundled `.venv`, `node_modules`, or TUI bundle in place. The account name, like the install path, is retained only for container compatibility; users still invoke the `fabric` executable.
+In hosted and published Docker images, `/opt/hermes` is the installed application tree. It is root-owned and read-only to the runtime **fabric** service account, so agent turns, gateway sessions, dashboard actions, and normal `docker exec fabric fabric ...` commands cannot edit the core source, bundled `.venv`, `node_modules`, or TUI bundle in place. The account name, like the install path, is retained only for container compatibility; users still invoke the `fabric` executable.
 
 All mutable Fabric state belongs under `/opt/data`: config, `.env`, profiles, skills, memories, sessions, logs, dashboard uploads, plugins, and other user-managed files. The image disables runtime `.pyc` writes and prevents lazy dependencies from modifying `/opt/hermes`. Allow-listed optional dependencies may instead be installed into `/opt/data/lazy-packages`, which is appended after the sealed environment on `sys.path`; set `security.allow_lazy_installs: false` to disable those durable-target installs too.
 
@@ -533,7 +533,7 @@ The container ENTRYPOINT is now `/init` (s6-overlay), not `/usr/bin/tini`. All f
 Do not override the image entrypoint: keep the image's `/init` +
 `/opt/hermes/docker/main-wrapper.sh` chain. s6-overlay's `/init` must start as
 root so it can remap the service UID/GID and repair the data volume; each real
-service and the main command then drops to the internal **hermes** account via
+service and the main command then drops to the internal **fabric** account via
 `s6-setuidgid`. The retained `docker/entrypoint.sh` file is a deprecated
 bootstrap-only compatibility shim—it runs the stage2 hook but does **not** run
 the CMD, so it is not an equivalent replacement for `/init`. Starting `fabric
@@ -545,7 +545,7 @@ that risk.
 
 ### `docker exec` automatically drops to the service account
 
-`docker exec fabric <cmd>` defaults to running as root inside the container, but the image ships a thin shim at `/opt/hermes/bin/fabric` (earliest on PATH) that detects root callers and transparently re-execs through `s6-setuidgid hermes`. So `docker exec fabric login`, `docker exec fabric profile create …`, `docker exec fabric setup`, etc. all write files owned by the service UID (10000 by default, or the remapped `FABRIC_UID`) and remain readable by the supervised gateway, with no extra `--user` flag needed. Non-root callers (the supervised processes themselves, `docker exec --user hermes`, kanban subagents inside the container) take a short path that execs the venv binary directly, so there is no extra privilege-drop hop on hot paths.
+`docker exec fabric <cmd>` defaults to running as root inside the container, but the image ships a thin shim at `/opt/hermes/bin/fabric` (earliest on PATH) that detects root callers and transparently re-execs through `s6-setuidgid fabric`. So `docker exec fabric login`, `docker exec fabric profile create …`, `docker exec fabric setup`, etc. all write files owned by the service UID (10000 by default, or the remapped `FABRIC_UID`) and remain readable by the supervised gateway, with no extra `--user` flag needed. Non-root callers (the supervised processes themselves, `docker exec --user fabric`, kanban subagents inside the container) take a short path that execs the venv binary directly, so there is no extra privilege-drop hop on hot paths.
 
 If you specifically need a `docker exec` that retains root semantics (diagnostic sessions, inspecting root-only state, files outside `/opt/data` that root happens to own), opt out per invocation:
 
@@ -641,8 +641,8 @@ RUN apt-get update \
 ```
 
 Leave the final image user as root. The `/init` bootstrap needs root at
-container start and drops runtime commands to the internal **hermes** account
-itself; ending a derived Dockerfile with `USER hermes` bypasses required volume
+container start and drops runtime commands to the internal **fabric** account
+itself; ending a derived Dockerfile with `USER fabric` bypasses required volume
 and supervision setup.
 
 Build it and use it in place of the official image:
@@ -838,7 +838,7 @@ Check logs: `docker logs fabric`. Common causes:
 
 ### "Permission denied" errors
 
-The container's stage2 hook drops privileges to the internal non-root **hermes**
+The container's stage2 hook drops privileges to the internal non-root **fabric**
 service account (UID 10000 by default) via `s6-setuidgid` inside each supervised
 service. If your host `~/.fabric/` is owned by a different UID, set
 `FABRIC_UID`/`FABRIC_GID` — or their `PUID`/`PGID` aliases, for parity with

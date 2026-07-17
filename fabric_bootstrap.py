@@ -1,4 +1,4 @@
-"""Windows UTF-8 bootstrap for Hermes entry points.
+"""Windows UTF-8 bootstrap for Fabric entry points.
 
 Python on Windows has two long-standing text-encoding footguns:
 
@@ -13,7 +13,7 @@ Python on Windows has two long-standing text-encoding footguns:
    cp1252 defaults and hits the same UnicodeEncodeError.
 
 This module fixes both on Windows *only* — POSIX is untouched.  It
-should be imported at the very top of every Hermes entry point
+should be imported at the very top of every Fabric entry point
 (``fabric``, ``fabric-agent``, ``hermes-acp``, ``python -m gateway.run``,
 ``batch_runner.py``, ``cron/scheduler.py``) before any other imports
 that might do file I/O or print to stdout.
@@ -123,7 +123,7 @@ def apply_windows_utf8_bootstrap() -> bool:
 
 
 def harden_import_path(src_root: str | None = None) -> None:
-    """Stop a package in the current directory from shadowing Hermes modules.
+    """Stop a package in the current directory from shadowing Fabric modules.
 
     Fabric ships top-level modules with common names (``utils``, ``proxy``,
     ``ui``).  Python always seeds ``sys.path`` with the current directory, so
@@ -139,7 +139,7 @@ def harden_import_path(src_root: str | None = None) -> None:
       - As its own *absolute* path, when a venv activation or a project that
         adds itself to ``PYTHONPATH`` puts the directory there explicitly.
 
-    We drop the relative forms outright, then force the real Hermes source root
+    We drop the relative forms outright, then force the real Fabric source root
     to the front — relocating it ahead of any absolute cwd entry rather than
     only inserting when absent, so an absolute cwd path can't keep winning.
 

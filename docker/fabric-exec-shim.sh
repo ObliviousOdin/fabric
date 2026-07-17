@@ -21,11 +21,11 @@
 # Fix
 # ---
 # This shim sits at /opt/hermes/bin/fabric and is placed earliest on PATH.
-# When invoked as root, it drops to the hermes user (via s6-setuidgid)
+# When invoked as root, it drops to the fabric user (via s6-setuidgid)
 # before exec'ing the real venv binary, so anything that writes under
 # $HERMES_HOME is uid-aligned with the supervised processes. When invoked
 # as any non-root UID — including the supervised processes themselves,
-# `docker exec --user hermes`, kanban subagents, etc. — it short-circuits
+# `docker exec --user fabric`, kanban subagents, etc. — it short-circuits
 # straight to the venv binary with no privilege change. Net: one extra
 # fork on the docker-exec-as-root path, zero behavioral change on every
 # other path.
@@ -51,7 +51,7 @@ if [ ! -x "$REAL" ]; then
 fi
 
 # Already non-root? Just exec the real binary. This is the hot path for
-# supervised processes (uid 10000) and for `docker exec --user hermes`.
+# supervised processes (uid 10000) and for `docker exec --user fabric`.
 if [ "$(id -u)" != "0" ]; then
     exec "$REAL" "$@"
 fi
@@ -63,7 +63,7 @@ case "${FABRIC_DOCKER_EXEC_AS_ROOT:-${HERMES_DOCKER_EXEC_AS_ROOT:-}}" in
         ;;
 esac
 
-# Root, no opt-out. Drop to the hermes user.
+# Root, no opt-out. Drop to the fabric user.
 #
 # s6-setuidgid lives under /command/ which is NOT on `docker exec`'s PATH
 # (s6-overlay only puts /command/ on PATH for supervision-tree children).
@@ -79,10 +79,10 @@ if [ ! -x "$S6_SUID" ]; then
     exit 126
 fi
 
-# Reset HOME to the hermes user's home before dropping privileges. Without
+# Reset HOME to the fabric user's home before dropping privileges. Without
 # this, $HOME stays /root and any library that resolves paths off $HOME
 # (XDG caches, lockfiles, .config writes) will try to write to /root and
 # fail with EACCES. Mirrors main-wrapper.sh.
 export HOME=/opt/data
 
-exec "$S6_SUID" hermes "$REAL" "$@"
+exec "$S6_SUID" fabric "$REAL" "$@"

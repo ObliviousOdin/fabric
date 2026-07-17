@@ -547,7 +547,7 @@ async def test_safe_sync_slash_commands_only_mutates_diffs():
 
     desired_same = {
         "name": "status",
-        "description": "Show Hermes session status",
+        "description": "Show Fabric session status",
         "type": 1,
         "options": [],
         "nsfw": False,
@@ -726,7 +726,7 @@ async def test_post_connect_initialization_skips_same_fingerprint_after_success(
         def to_dict(self, tree):
             return {
                 "name": "status",
-                "description": "Show Hermes status",
+                "description": "Show Fabric status",
                 "type": 1,
                 "options": [],
             }
@@ -763,7 +763,7 @@ async def test_post_connect_initialization_respects_discord_retry_after(tmp_path
         def to_dict(self, tree):
             return {
                 "name": "status",
-                "description": "Show Hermes status",
+                "description": "Show Fabric status",
                 "type": 1,
                 "options": [],
             }
@@ -802,7 +802,7 @@ async def test_post_connect_initialization_reraises_non_rate_limit_exceptions(tm
 
     class _DesiredCommand:
         def to_dict(self, tree):
-            return {"name": "status", "description": "Show Hermes status", "type": 1, "options": []}
+            return {"name": "status", "description": "Show Fabric status", "type": 1, "options": []}
 
     adapter._client = SimpleNamespace(
         tree=SimpleNamespace(get_commands=lambda: [_DesiredCommand()]),
@@ -861,7 +861,7 @@ async def test_safe_sync_slash_commands_paces_mutation_writes(monkeypatch):
 
     desired_one = {
         "name": "status",
-        "description": "Show Hermes status",
+        "description": "Show Fabric status",
         "type": 1,
         "options": [],
     }

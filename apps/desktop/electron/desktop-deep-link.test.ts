@@ -20,8 +20,8 @@ test('primary and compatibility desktop protocols produce the same payload', () 
 
 test('desktop deep-link extraction accepts configured schemes only', () => {
   assert.equal(
-    extractDesktopDeepLink(['Fabric.exe', '--profile=work', 'hermes://blueprint/old'], schemes),
-    'hermes://blueprint/old'
+    extractDesktopDeepLink(['Fabric.exe', '--profile=work', 'fabric://blueprint/old'], schemes),
+    'fabric://blueprint/old'
   )
   assert.equal(extractDesktopDeepLink(['Fabric.exe', 'https://github.com/ObliviousOdin/fabric/'], schemes), null)
   assert.equal(parseDesktopDeepLink('javascript:alert(1)', schemes), null)

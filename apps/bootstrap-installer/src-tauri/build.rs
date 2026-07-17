@@ -13,7 +13,7 @@ fn main() {
     // (tolerant of fast-forwards/new commits, and never references a SHA the
     // local checkout hasn't pushed). Set FABRIC_BUILD_PIN_COMMIT to bake an
     // immutable commit pin for reproducible/release installers. The previous
-    // HERMES_* spelling remains accepted for release-pipeline compatibility.
+    // FABRIC_* spelling remains accepted for release-pipeline compatibility.
     //
     // Commit pin resolution:
     //   - FABRIC_BUILD_PIN_COMMIT (then legacy HERMES_BUILD_PIN_COMMIT), if set.

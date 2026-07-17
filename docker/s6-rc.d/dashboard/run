@@ -52,5 +52,5 @@ esac
 
 # Skip the drop when already non-root.
 [ "$(id -u)" = 0 ] || exec fabric dashboard --host "$dash_host" --port "$dash_port" --no-open
-exec s6-setuidgid hermes fabric dashboard \
+exec s6-setuidgid fabric fabric dashboard \
     --host "$dash_host" --port "$dash_port" --no-open

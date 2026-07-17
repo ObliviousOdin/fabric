@@ -69,7 +69,7 @@ export const zhHant = defineLocale({
       loadingSettings: '正在載入 Fabric 設定',
       loadingSessions: '正在載入最近工作階段',
       startingDesktopConnection: '正在啟動桌面連線',
-      startingHermesDesktop: '正在啟動 Fabric…'
+      startingFabricDesktop: '正在啟動 Fabric…'
     },
     errors: {
       backgroundExited: 'Fabric 背景程序已結束。',
@@ -117,7 +117,7 @@ export const zhHant = defineLocale({
     backendOutOfDateTitle: '後端版本過舊',
     backendOutOfDateMessage: '您的 Fabric 後端早於目前的桌面版本，可能無法正常運作。請更新以保持一致。',
     installMethodUnsupportedTitle: '不受支援的安裝方式',
-    updateHermes: '更新 Fabric',
+    updateFabric: '更新 Fabric',
     updateReadyTitle: '有可用更新',
     updateReadyMessage: count => `有 ${count} 項新變更可用。`,
     seeWhatsNew: '查看新增內容',
@@ -1048,10 +1048,10 @@ export const zhHant = defineLocale({
     noSessions: '暫無工作階段。',
     gatewayRunning: '訊息閘道執行中',
     gatewayStopped: '訊息閘道已停止',
-    hermesActiveSessions: (version, count) => `Fabric ${version} · 活躍工作階段 ${count}`,
+    fabricActiveSessions: (version, count) => `Fabric ${version} · 活躍工作階段 ${count}`,
     restartGateway: '重新啟動閘道',
     gatewayRestartFailed: '閘道重新啟動失敗。',
-    updateHermes: '更新 Fabric',
+    updateFabric: '更新 Fabric',
     actionRunning: '執行中',
     actionDone: '完成',
     actionFailed: '失敗',

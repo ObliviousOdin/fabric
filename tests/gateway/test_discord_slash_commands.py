@@ -104,7 +104,7 @@ def adapter():
         tree=FakeTree(),
         get_channel=lambda _id: None,
         fetch_channel=AsyncMock(),
-        user=SimpleNamespace(id=99999, name="HermesBot"),
+        user=SimpleNamespace(id=99999, name="FabricBot"),
     )
     adapter._text_batch_delay_seconds = 0  # disable batching for tests
     # Slash auth is exercised in test_discord_slash_auth.py — bypass it here
@@ -422,10 +422,10 @@ async def test_handle_thread_create_slash_dispatches_session_when_message_provid
 
     adapter._dispatch_thread_session = AsyncMock()
 
-    await adapter._handle_thread_create_slash(interaction, "Planning", "Hello Hermes", 1440)
+    await adapter._handle_thread_create_slash(interaction, "Planning", "Hello Fabric", 1440)
 
     adapter._dispatch_thread_session.assert_awaited_once_with(
-        interaction, "555", "Planning", "Hello Hermes",
+        interaction, "555", "Planning", "Hello Fabric",
     )
 
 
@@ -590,7 +590,7 @@ async def test_auto_create_thread_uses_message_content_as_name(adapter):
     call_kwargs = message.create_thread.await_args[1]
     assert call_kwargs["name"] == "Hello world, how are you?"
     assert call_kwargs["auto_archive_duration"] == 1440
-    assert thread._hermes_auto_thread_initial_name == "Hello world, how are you?"
+    assert thread._fabric_auto_thread_initial_name == "Hello world, how are you?"
 
 
 @pytest.mark.asyncio
@@ -618,7 +618,7 @@ async def test_auto_create_thread_strips_mention_syntax_from_name(adapter):
 
 
 @pytest.mark.asyncio
-async def test_auto_create_thread_falls_back_to_hermes_when_only_mentions(adapter):
+async def test_auto_create_thread_falls_back_to_fabric_when_only_mentions(adapter):
     """If a message contains only mention syntax, the stripped content is
     empty — fall back to the 'Fabric' default rather than ''."""
     thread = SimpleNamespace(id=999, name="Fabric")
@@ -823,7 +823,7 @@ async def test_auto_thread_source_carries_initial_name_for_semantic_rename(adapt
     thread = SimpleNamespace(
         id=999,
         name="raw user prompt",
-        _hermes_auto_thread_initial_name="raw user prompt",
+        _fabric_auto_thread_initial_name="raw user prompt",
     )
     adapter._auto_create_thread = AsyncMock(return_value=thread)
 
@@ -926,15 +926,15 @@ def test_discord_auto_thread_config_bridge(monkeypatch, tmp_path):
     from pathlib import Path
 
     # Write a config.yaml the loader will find
-    hermes_dir = tmp_path / ".hermes"
-    hermes_dir.mkdir()
-    config_path = hermes_dir / "config.yaml"
+    fabric_dir = tmp_path / ".hermes"
+    fabric_dir.mkdir()
+    config_path = fabric_dir / "config.yaml"
     config_path.write_text(yaml.dump({
         "discord": {"auto_thread": True},
     }))
 
     monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(hermes_dir))
+    monkeypatch.setenv("HERMES_HOME", str(fabric_dir))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     from gateway.config import load_gateway_config

@@ -23,7 +23,7 @@ def test_dashboard_not_running_by_default(
 ) -> None:
     """Without HERMES_DASHBOARD, no dashboard process should be running."""
     start_container(built_image, container_name, cmd="sleep 60")
-    r = docker_exec(container_name, "pgrep", "-f", "hermes dashboard")
+    r = docker_exec(container_name, "pgrep", "-f", "fabric dashboard")
     # pgrep exits non-zero when no match found
     assert r.returncode != 0, (
         "Dashboard should not be running without HERMES_DASHBOARD"
@@ -94,7 +94,7 @@ def test_dashboard_opt_in_starts(
     # backgrounds it and bootstrap (skills sync etc.) can take a few
     # seconds before the python process actually launches.
     ok, _ = poll_container(
-        container_name, "pgrep -f 'hermes dashboard'", deadline_s=30.0,
+        container_name, "pgrep -f 'fabric dashboard'", deadline_s=30.0,
     )
     assert ok, "Dashboard should be running with HERMES_DASHBOARD=1"
 
@@ -151,7 +151,7 @@ def test_dashboard_restarts_after_crash(
     )
     # Wait for the first dashboard to come up.
     ok, _ = poll_container(
-        container_name, "pgrep -f 'hermes dashboard'", deadline_s=30.0,
+        container_name, "pgrep -f 'fabric dashboard'", deadline_s=30.0,
     )
     assert ok, "Dashboard never started initially"
 
@@ -161,7 +161,7 @@ def test_dashboard_restarts_after_crash(
     first_pid: str | None = None
     for _attempt in range(10):
         first_pid_result = docker_exec(
-            container_name, "pgrep", "-f", "hermes dashboard",
+            container_name, "pgrep", "-f", "fabric dashboard",
         )
         first_pids = first_pid_result.stdout.strip().split()
         if first_pids:
@@ -170,15 +170,15 @@ def test_dashboard_restarts_after_crash(
         time.sleep(0.5)
     assert first_pid is not None, "Could not capture initial dashboard PID"
 
-    # Kill the dashboard. The dashboard process runs as hermes, so the
-    # hermes user can kill it (same UID).
+    # Kill the dashboard. The dashboard process runs as fabric, so the
+    # fabric user can kill it (same UID).
     docker_exec(container_name, "kill", "-9", first_pid)
 
     # s6 backs off ~1s before restart; allow up to 15s for the new
     # process to appear with a different PID.
     deadline = time.monotonic() + 15.0
     while time.monotonic() < deadline:
-        r = docker_exec(container_name, "pgrep", "-f", "hermes dashboard")
+        r = docker_exec(container_name, "pgrep", "-f", "fabric dashboard")
         pids = r.stdout.strip().split() if r.returncode == 0 else []
         if pids and pids[0] != first_pid:
             return  # success

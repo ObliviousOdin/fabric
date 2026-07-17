@@ -89,4 +89,4 @@ def test_system_prompt_uses_fabric_identity_when_branded(monkeypatch):
 
     assert FABRIC_AGENT_IDENTITY in stable
     assert FABRIC_HELP_GUIDANCE in stable
-    assert "Hermes Agent" not in stable
+    assert "Fabric Agent" not in stable

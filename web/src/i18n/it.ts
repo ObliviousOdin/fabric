@@ -120,8 +120,8 @@ export const it: Translations = {
     starting: "Avvio in corso",
     startedInBackground: "Avviato in background — controlla i log per i progressi",
     stopped: "Arrestato",
-    updateHermes: "Aggiorna Fabric",
-    updatingHermes: "Aggiornamento di Fabric…",
+    updateFabric: "Aggiorna Fabric",
+    updatingFabric: "Aggiornamento di Fabric…",
     waitingForOutput: "In attesa di output…",
   },
 

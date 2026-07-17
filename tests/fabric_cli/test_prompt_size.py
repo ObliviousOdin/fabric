@@ -1,4 +1,4 @@
-"""Tests for the ``hermes prompt-size`` diagnostic (issue #34667)."""
+"""Tests for the ``fabric prompt-size`` diagnostic (issue #34667)."""
 
 import json
 import sys
@@ -14,8 +14,8 @@ from fabric_cli.prompt_size import (
 )
 
 
-def _seed_memory(hermes_home, memory_text="", user_text=""):
-    mem_dir = hermes_home / "memories"
+def _seed_memory(fabric_home, memory_text="", user_text=""):
+    mem_dir = fabric_home / "memories"
     mem_dir.mkdir(parents=True, exist_ok=True)
     if memory_text:
         (mem_dir / "MEMORY.md").write_text(memory_text, encoding="utf-8")
@@ -23,8 +23,8 @@ def _seed_memory(hermes_home, memory_text="", user_text=""):
         (mem_dir / "USER.md").write_text(user_text, encoding="utf-8")
 
 
-def _seed_skill(hermes_home, name, description):
-    skill_dir = hermes_home / "skills" / "demo" / name
+def _seed_skill(fabric_home, name, description):
+    skill_dir = fabric_home / "skills" / "demo" / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
         f"---\nname: {name}\ndescription: {description}\n---\n# {name}\nbody\n",
@@ -34,11 +34,11 @@ def _seed_skill(hermes_home, name, description):
 
 @pytest.fixture
 def isolated_home(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / ".hermes"
+    fabric_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
     monkeypatch.chdir(tmp_path)  # avoid picking up the repo's AGENTS.md
-    return hermes_home
+    return fabric_home
 
 
 def test_breakdown_keys_and_shape(isolated_home):

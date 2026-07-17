@@ -660,7 +660,7 @@ def test_credential_dir_trees_blocked_on_subdir_descent(forced_files_client):
     snapshot_file.write_text('{"device_label": "private-device"}\n')
 
     backups_dir = root / "backups"
-    backup_file = backups_dir / "hermes-backup-test.zip"
+    backup_file = backups_dir / "fabric-backup-test.zip"
     backup_file.parent.mkdir(parents=True)
     backup_file.write_bytes(b"private backup")
 

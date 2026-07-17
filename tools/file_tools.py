@@ -95,7 +95,7 @@ def _truncate_to_char_budget(content: str, max_chars: int) -> tuple[str, int, bo
     """Trim line-numbered ``read_file`` content to fit a char budget.
 
     Ported in spirit from nearai/ironclaw#5029 (dual line/byte cap on
-    ``read_file``). Where hermes previously hard-rejected an oversized read
+    ``read_file``). Where fabric previously hard-rejected an oversized read
     (forcing the model to guess a smaller ``limit`` and burn a round-trip
     returning nothing), this trims the content to the last *complete line*
     that fits within ``max_chars`` and reports how many lines were kept so
@@ -821,25 +821,25 @@ _SENSITIVE_PATH_PREFIXES = (
 )
 _SENSITIVE_EXACT_PATHS = {"/var/run/docker.sock", "/run/docker.sock"}
 
-_hermes_config_resolved: str | None = None
-_hermes_config_resolved_loaded = False
+_fabric_config_resolved: str | None = None
+_fabric_config_resolved_loaded = False
 
 
-def _get_hermes_config_resolved() -> str | None:
+def _get_fabric_config_resolved() -> str | None:
     """Return the resolved absolute path of the Fabric config file (cached)."""
-    global _hermes_config_resolved, _hermes_config_resolved_loaded
-    if _hermes_config_resolved_loaded:
-        return _hermes_config_resolved
-    _hermes_config_resolved_loaded = True
+    global _fabric_config_resolved, _fabric_config_resolved_loaded
+    if _fabric_config_resolved_loaded:
+        return _fabric_config_resolved
+    _fabric_config_resolved_loaded = True
     try:
         from fabric_cli.config import get_config_path
-        _hermes_config_resolved = str(get_config_path().resolve())
+        _fabric_config_resolved = str(get_config_path().resolve())
     except Exception:
         try:
-            _hermes_config_resolved = str(Path(_expand_tilde("~/.fabric/config.yaml")).resolve())
+            _fabric_config_resolved = str(Path(_expand_tilde("~/.fabric/config.yaml")).resolve())
         except Exception:
-            _hermes_config_resolved = None
-    return _hermes_config_resolved
+            _fabric_config_resolved = None
+    return _fabric_config_resolved
 
 
 def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None:
@@ -862,8 +862,8 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
     # approvals.mode and other security settings live here; a malicious or
     # prompt-injected agent could silently disable exec approval by writing to
     # this file.
-    hermes_config = _get_hermes_config_resolved()
-    if hermes_config and (resolved == hermes_config or normalized == hermes_config):
+    fabric_config = _get_fabric_config_resolved()
+    if fabric_config and (resolved == fabric_config or normalized == fabric_config):
         return (
             f"Refusing to write to Fabric config file: {filepath}\n"
             "Agent cannot modify security-sensitive configuration. "
@@ -873,7 +873,7 @@ def _check_sensitive_path(filepath: str, task_id: str = "default") -> str | None
 
 
 def _get_container_mirror_prefix_for_task(task_id: str = "default") -> str | None:
-    """Return the container-side Hermes mirror prefix for Docker file tools."""
+    """Return the container-side Fabric mirror prefix for Docker file tools."""
     try:
         from tools.terminal_tool import (
             _active_environments,
@@ -907,9 +907,9 @@ def _get_container_mirror_prefix_for_task(task_id: str = "default") -> str | Non
 
 
 def _check_cross_profile_path(filepath: str, task_id: str = "default") -> str | None:
-    """Return a soft-guard warning when ``filepath`` lands in another Hermes
+    """Return a soft-guard warning when ``filepath`` lands in another Fabric
     profile's scoped area, a host-side sandbox-mirror of authoritative profile
-    state, or the Docker container's sandbox mirror of Hermes state.
+    state, or the Docker container's sandbox mirror of Fabric state.
 
     Three detectors run in order:
 
@@ -924,7 +924,7 @@ def _check_cross_profile_path(filepath: str, task_id: str = "default") -> str | 
       container whose bind-mounted home strips the ``sandboxes/`` prefix, so
       the agent sees a plain ``/root/.hermes/…`` path.
 
-    Returns ``None`` when the write is in-scope or outside Hermes scope.
+    Returns ``None`` when the write is in-scope or outside Fabric scope.
     All detectors are soft guards — the agent can override any by
     passing ``cross_profile=True`` to its write tool after explicit user
     direction. Defense-in-depth, NOT a security boundary — the terminal
@@ -1575,7 +1575,7 @@ def _read_file_tool_impl(
                 ),
             })
 
-        # ── Hermes internal path guard ────────────────────────────────
+        # ── Fabric internal path guard ────────────────────────────────
         # Prevent prompt injection via catalog or hub metadata files,
         # and block credential stores under HERMES_HOME.  Pass the
         # already-resolved path so a relative-path read against
@@ -1973,7 +1973,7 @@ def write_file_tool(path: str, content: str, task_id: str = "default",
                     session_id: str | None = None) -> str:
     """Write content to a file.
 
-    ``cross_profile`` opts out of the soft cross-Hermes-profile guard. The
+    ``cross_profile`` opts out of the soft cross-Fabric-profile guard. The
     guard fires only on writes that land in another profile's
     skills/plugins/cron/memories directory; everything else is unaffected.
     Pass ``True`` after explicit user direction — same shape as ``force``
@@ -2057,7 +2057,7 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
                session_id: str | None = None) -> str:
     """Patch a file using replace mode or V4A patch format.
 
-    ``cross_profile`` opts out of the soft cross-Hermes-profile guard for
+    ``cross_profile`` opts out of the soft cross-Fabric-profile guard for
     targets under another profile's skills/plugins/cron/memories
     directory. Same shape as ``write_file``'s flag.
     """
@@ -2485,7 +2485,7 @@ def _handle_write_file(args, **kw):
             "write_file: missing required field 'content'. The tool call included a "
             "path but no content argument — this is almost always a dropped-arg bug "
             "under context pressure. Re-emit the tool call with the full content "
-            "payload, or use execute_code with hermes_tools.write_file() for very "
+            "payload, or use execute_code with fabric_tools.write_file() for very "
             "large files."
         )
     if not isinstance(args["content"], str):

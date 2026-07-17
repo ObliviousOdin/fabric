@@ -1,7 +1,7 @@
 """Tests for the TUI-hot-path mouse-residue suppression.
 
-The Python launcher (`hermes --tui …`) has a ~100–300ms cold-start window
-where stdin is still in cooked + echo mode. If a previous Hermes session
+The Python launcher (`fabric --tui …`) has a ~100–300ms cold-start window
+where stdin is still in cooked + echo mode. If a previous Fabric session
 left DEC mouse-tracking asserted, any mouse motion during that window
 echoes literal ``^[[<…M`` text into the user's scrollback.
 
@@ -37,7 +37,7 @@ class TestEarlyMouseDisable:
 
         mock_write.assert_called_once_with(1, EXPECTED)
 
-    def test_writes_disable_sequence_when_hermes_tui_env_set(self, monkeypatch):
+    def test_writes_disable_sequence_when_fabric_tui_env_set(self, monkeypatch):
         monkeypatch.setattr(sys, "argv", ["hermes"])
         monkeypatch.setenv("HERMES_TUI", "1")
         monkeypatch.delenv("HERMES_TUI_NO_EARLY_DISABLE", raising=False)
@@ -68,7 +68,7 @@ class TestEarlyMouseDisable:
         mock_write.assert_not_called()
 
     def test_skips_when_stdout_is_not_a_tty(self, monkeypatch):
-        # `hermes --tui … >log` or CI capture: pipe is fd 1, not a TTY. The
+        # `fabric --tui … >log` or CI capture: pipe is fd 1, not a TTY. The
         # bytes can't reach a terminal and would just pollute the log.
         monkeypatch.setattr(sys, "argv", ["hermes", "--tui"])
         monkeypatch.delenv("HERMES_TUI", raising=False)

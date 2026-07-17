@@ -173,7 +173,7 @@ def test_uv_run_pytest_matches_detected_pytest(tmp_path, monkeypatch):
 def test_temp_script_records_ad_hoc_evidence_without_canonical_suite(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     (tmp_path / "package.json").write_text("{}", encoding="utf-8")
-    script = Path(tempfile.gettempdir()) / f"hermes-ad-hoc-{tmp_path.name}.py"
+    script = Path(tempfile.gettempdir()) / f"fabric-ad-hoc-{tmp_path.name}.py"
     script.write_text("print('ok')\n", encoding="utf-8")
     try:
         evidence = classify_verification_command(
@@ -215,7 +215,7 @@ def test_unprefixed_temp_script_is_not_ad_hoc_evidence(tmp_path, monkeypatch):
 def test_temp_script_does_not_replace_detected_suite(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
     _node_project(tmp_path)
-    script = Path(tempfile.gettempdir()) / f"hermes-ad-hoc-{tmp_path.name}.py"
+    script = Path(tempfile.gettempdir()) / f"fabric-ad-hoc-{tmp_path.name}.py"
     script.write_text("print('ok')\n", encoding="utf-8")
     try:
         evidence = classify_verification_command(

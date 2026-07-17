@@ -4,7 +4,7 @@ The guard fires when a tool tries to write into the per-task mirror
 directory created by a non-local terminal backend (Docker, Daytona, etc.).
 Those paths look like ``…/sandboxes/<backend>/<task>/home/.hermes/…`` and
 they accumulate divergent copies of authoritative profile state (SOUL.md,
-config.yaml, memories/*.md) because the host Hermes process never reads
+config.yaml, memories/*.md) because the host Fabric process never reads
 them. Soft guard — defense in depth, NOT a security boundary.
 
 Reference: #32049 — under ``terminal.backend: docker``, the agent's
@@ -89,7 +89,7 @@ class TestClassifySandboxMirrorTarget:
         assert backend in result["mirror_root"]
 
     def test_path_outside_sandbox_returns_none(self, tmp_path):
-        """A plain Hermes path is not a mirror."""
+        """A plain Fabric path is not a mirror."""
         from agent.file_safety import classify_sandbox_mirror_target
 
         target = tmp_path / ".hermes" / "profiles" / "group1" / "SOUL.md"
@@ -98,8 +98,8 @@ class TestClassifySandboxMirrorTarget:
 
         assert classify_sandbox_mirror_target(str(target)) is None
 
-    def test_sandboxes_segment_without_home_hermes_returns_none(self, tmp_path):
-        """A ``sandboxes/`` directory unrelated to Hermes-state mirroring (e.g.
+    def test_sandboxes_segment_without_home_fabric_returns_none(self, tmp_path):
+        """A ``sandboxes/`` directory unrelated to Fabric-state mirroring (e.g.
         the sandbox workspace itself) is not flagged."""
         from agent.file_safety import classify_sandbox_mirror_target
 
@@ -112,8 +112,8 @@ class TestClassifySandboxMirrorTarget:
 
         assert classify_sandbox_mirror_target(str(target)) is None
 
-    def test_sandboxes_segment_with_home_but_no_hermes_returns_none(self, tmp_path):
-        """``sandboxes/<backend>/<task>/home/anything-not-hermes`` is not a mirror."""
+    def test_sandboxes_segment_with_home_but_no_fabric_returns_none(self, tmp_path):
+        """``sandboxes/<backend>/<task>/home/anything-not-fabric`` is not a mirror."""
         from agent.file_safety import classify_sandbox_mirror_target
 
         target = (
@@ -221,8 +221,8 @@ class TestSandboxMirrorIsOrthogonalToCrossProfile:
 
     def test_same_profile_mirror_still_flagged(self, tmp_path, monkeypatch):
         import agent.file_safety as fs
-        monkeypatch.setattr(fs, "_hermes_root_path", lambda: tmp_path)
-        monkeypatch.setattr(fs, "_hermes_home_path", lambda: tmp_path / "profiles" / "group1")
+        monkeypatch.setattr(fs, "_fabric_root_path", lambda: tmp_path)
+        monkeypatch.setattr(fs, "_fabric_home_path", lambda: tmp_path / "profiles" / "group1")
 
         target = (
             tmp_path

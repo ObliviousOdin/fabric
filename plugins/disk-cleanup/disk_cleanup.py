@@ -76,15 +76,15 @@ def is_safe_path(path: Path) -> bool:
 
     Rejects Windows mounts (``/mnt/c`` etc.) and any system directory.
     """
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     try:
-        path.resolve().relative_to(hermes_home)
+        path.resolve().relative_to(fabric_home)
         return True
     except (ValueError, OSError):
         pass
     # Keep the historical prefix so cleanup remains safe across an upgrade.
     parts = path.parts
-    if len(parts) >= 3 and parts[1] == "tmp" and parts[2].startswith(("fabric-", "hermes-")):
+    if len(parts) >= 3 and parts[1] == "tmp" and parts[2].startswith(("fabric-", "fabric-")):
         return True
     return False
 
@@ -185,9 +185,9 @@ def _is_protected_cron_path(p: Path) -> bool:
     # Lazily build the set once per process so HERMES_HOME is resolved
     # exactly once.
     if not _PROTECTED_CRON_PATHS:
-        hermes_home = get_fabric_home()
+        fabric_home = get_fabric_home()
         for parent in ("cron", "cronjobs"):
-            base = hermes_home / parent
+            base = fabric_home / parent
             _PROTECTED_CRON_PATHS.add(str(base))
             _PROTECTED_CRON_PATHS.add(str(base / "output"))
             _PROTECTED_CRON_PATHS.add(str(base / "jobs.json"))
@@ -373,14 +373,14 @@ def quick() -> Dict[str, Any]:
             new_tracked.append(item)
 
     # Remove empty dirs under HERMES_HOME, but never recurse into known
-    # durable state trees.  Some installs place the Hermes checkout, venv,
+    # durable state trees.  Some installs place the Fabric checkout, venv,
     # and desktop build under HERMES_HOME; a full rglob over that tree can
     # stall the gateway event loop for minutes.
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     empty_removed = 0
     sweep_stack: List[Tuple[Path, bool]] = []
     try:
-        for top in hermes_home.iterdir():
+        for top in fabric_home.iterdir():
             if (
                 top.is_dir()
                 and not top.is_symlink()
@@ -563,9 +563,9 @@ def guess_category(path: Path) -> Optional[str]:
         return None
 
     # Skip the state dir itself, logs, memory files, sessions, config.
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     try:
-        rel = path.resolve().relative_to(hermes_home)
+        rel = path.resolve().relative_to(fabric_home)
         top = rel.parts[0] if rel.parts else ""
         if top in {
             "disk-cleanup", "logs", "memories", "sessions", "config.yaml",

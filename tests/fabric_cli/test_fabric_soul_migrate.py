@@ -9,7 +9,7 @@ from fabric_cli.default_soul import DEFAULT_SOUL_MD
 from fabric_cli.fabric_brand import FABRIC_SOUL_MD
 from fabric_cli.fabric_soul_migrate import (
     LEGACY_IDENTITY_HASHES,
-    migrate_hermes_home_souls,
+    migrate_fabric_home_souls,
     migrate_soul_file,
 )
 
@@ -62,7 +62,7 @@ def test_migrate_home_covers_profiles(tmp_path: Path, monkeypatch):
     root_soul.write_text(legacy, encoding="utf-8")
     profile_soul.write_text(legacy, encoding="utf-8")
 
-    changed = migrate_hermes_home_souls(home)
+    changed = migrate_fabric_home_souls(home)
     assert changed == 2
     assert root_soul.read_text(encoding="utf-8") == FABRIC_SOUL_MD
     assert profile_soul.read_text(encoding="utf-8") == FABRIC_SOUL_MD

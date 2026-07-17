@@ -86,7 +86,7 @@ describe('gatewayMediaDataUrl', () => {
 
   beforeEach(() => {
     api.mockClear()
-    vi.stubGlobal('window', { hermesDesktop: { api } })
+    vi.stubGlobal('window', { fabricDesktop: { api } })
     $connection.set({ mode: 'remote' } as never)
   })
 
@@ -100,7 +100,7 @@ describe('gatewayMediaDataUrl', () => {
 
     expect(url).toBe('data:image/png;base64,ZHVtbXk=')
     expect(api).toHaveBeenCalledWith({
-      path: '/api/fs/read-data-url?path=%2Fhome%2Fu%2F.hermes%2Fskills%2Fdemo%2Fimages%2Fa%20b.png'
+      path: '/api/fs/read-data-url?path=%2Fhome%2Fu%2F.fabric%2Fskills%2Fdemo%2Fimages%2Fa%20b.png'
     })
   })
 })
@@ -118,7 +118,7 @@ describe('downloadGatewayMediaFile', () => {
 
   beforeEach(() => {
     api.mockClear()
-    vi.stubGlobal('window', { hermesDesktop: { api }, setTimeout: vi.fn() })
+    vi.stubGlobal('window', { fabricDesktop: { api }, setTimeout: vi.fn() })
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({ blob: async () => new Blob(['# report'], { type: 'text/markdown' }) }))

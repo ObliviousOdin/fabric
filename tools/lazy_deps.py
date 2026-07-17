@@ -1,7 +1,7 @@
 """
 Lazy dependency installer for opt-in Fabric backends.
 
-Many Hermes features (Mistral TTS, ElevenLabs TTS, Honcho memory, Bedrock,
+Many Fabric features (Mistral TTS, ElevenLabs TTS, Honcho memory, Bedrock,
 Slack, Matrix, etc.) require Python packages that not every user needs. The
 historical approach was to bundle them all under ``pyproject.toml`` extras
 (``fabric-agent[all]``) and install them eagerly at setup time. That has
@@ -38,7 +38,7 @@ Security model:
   a module the core already ships. The worst a bad/incompatible backend
   package can do is fail to import and report itself unavailable — the agent
   core stays healthy. This is the structural guarantee that a lazily
-  installed package cannot brick Hermes, which is what made it safe to seal
+  installed package cannot brick Fabric, which is what made it safe to seal
   the venv in the first place. Compiled-wheel safety across image rebuilds
   is handled by an ABI/Python-version stamp on the target subdir (see
   :func:`_ensure_target_ready`).
@@ -241,7 +241,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
         "mcp==1.28.1",
         "starlette==1.3.1",  # OSV-fixed floors — keep in sync with pyproject [computer-use]
     ),
-    # HF Agent Trace Viewer upload (hermes trace upload / /upload-trace).
+    # HF Agent Trace Viewer upload (fabric trace upload / /upload-trace).
     "tool.trace_upload": ("huggingface-hub==1.2.3",),
 }
 
@@ -623,7 +623,7 @@ def _core_constraints_file() -> Optional[Path]:
             lines.append(f"{name}=={ver}")
         if not lines:
             return None
-        fd, path = tempfile.mkstemp(prefix="hermes-core-constraints-", suffix=".txt")
+        fd, path = tempfile.mkstemp(prefix="fabric-core-constraints-", suffix=".txt")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write("\n".join(sorted(lines)) + "\n")
         return Path(path)
@@ -670,8 +670,8 @@ def _venv_pip_install(specs: tuple[str, ...], *, timeout: int = 300) -> _Install
 
     try:
         venv_root = Path(sys.executable).parent.parent
-        from tools.environments.local import hermes_subprocess_env
-        uv_env = hermes_subprocess_env(inherit_credentials=False)
+        from tools.environments.local import fabric_subprocess_env
+        uv_env = fabric_subprocess_env(inherit_credentials=False)
         uv_env["VIRTUAL_ENV"] = str(venv_root)
 
         # Tier 1: uv (preferred — fast, doesn't need pip in the venv)

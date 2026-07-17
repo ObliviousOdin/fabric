@@ -478,8 +478,8 @@ def resolve_whatsapp_bridge_dir() -> Path:
     install_bridge = _Path(__file__).resolve().parents[2] / "scripts" / "whatsapp-bridge"
 
     # Try HERMES_HOME location first
-    hermes_home = get_fabric_home()
-    hermes_home_bridge = hermes_home / "scripts" / "whatsapp-bridge"
+    fabric_home = get_fabric_home()
+    fabric_home_bridge = fabric_home / "scripts" / "whatsapp-bridge"
 
     # Check if install dir is writable
     try:
@@ -494,17 +494,17 @@ def resolve_whatsapp_bridge_dir() -> Path:
         return install_bridge
 
     # Install dir is read-only, mirror to HERMES_HOME if needed
-    if hermes_home_bridge.exists():
-        return hermes_home_bridge
+    if fabric_home_bridge.exists():
+        return fabric_home_bridge
 
     # Mirror the bridge source to HERMES_HOME
     try:
-        hermes_home_bridge.parent.mkdir(parents=True, exist_ok=True)
+        fabric_home_bridge.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(
             install_bridge,
-            hermes_home_bridge,
+            fabric_home_bridge,
             dirs_exist_ok=False,
         )
-        return hermes_home_bridge
+        return fabric_home_bridge
     except Exception:
         return install_bridge

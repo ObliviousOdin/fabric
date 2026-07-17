@@ -26,7 +26,7 @@ from fabric_constants import (
 from fabric_cli.env_loader import load_fabric_dotenv
 from fabric_cli.egress_startup import network_bootstrap_permitted
 from utils import is_truthy_value
-from tools.environments.local import hermes_subprocess_env
+from tools.environments.local import fabric_subprocess_env
 from agent.replay_cleanup import sanitize_replay_history
 from tui_gateway import git_probe
 from tui_gateway.transport import (
@@ -47,7 +47,7 @@ _fabric_home = get_fabric_home()
 _EARLY_NETWORK_BOOTSTRAP_PERMITTED = network_bootstrap_permitted()
 if _EARLY_NETWORK_BOOTSTRAP_PERMITTED:
     load_fabric_dotenv(
-        hermes_home=_fabric_home,
+        fabric_home=_fabric_home,
         project_env=Path(__file__).parent.parent / ".env",
     )
 
@@ -297,7 +297,7 @@ _detached_ws_transport = _DropTransport()
 
 
 class _SlashWorker:
-    """Persistent HermesCLI subprocess for slash commands."""
+    """Persistent FabricCLI subprocess for slash commands."""
 
     def __init__(self, session_key: str, model: str, profile_home: str | None = None):
         self._lock = threading.Lock()
@@ -335,7 +335,7 @@ class _SlashWorker:
             credential_scope = current_secret_scope()
             if credential_scope is None:
                 credential_scope = build_profile_secret_scope(Path(profile_home))
-            # Only a full Hermes child may receive the target profile's vault
+            # Only a full Fabric child may receive the target profile's vault
             # bootstrap credentials. Keep the allowlist config-derived so a
             # custom bootstrap env name works without handing arbitrary DB/
             # application passwords to every model-driving child.
@@ -370,7 +370,7 @@ class _SlashWorker:
                 }
                 or key.startswith("OP_SESSION_")
             )
-        env = hermes_subprocess_env(
+        env = fabric_subprocess_env(
             inherit_credentials=True,
             credential_scope=credential_scope,
             credential_scope_allowlist=credential_scope_allowlist,
@@ -2952,7 +2952,7 @@ def _load_enabled_toolsets() -> list[str] | None:
     cfg = None
     fallback_notice = None
 
-    # Coding posture (base Hermes): with no explicit pin, collapse to the
+    # Coding posture (base Fabric): with no explicit pin, collapse to the
     # coding toolset (+ enabled MCP servers) when sitting in a code workspace.
     # The desktop app and `fabric --tui` both land here. See
     # agent/coding_context.py. No config is loaded yet at this point, so we let
@@ -4608,7 +4608,7 @@ def _load_fallback_model():
     """Return the configured fallback chain for TUI-created agents.
 
     Delegates to the shared ``get_fallback_chain`` helper so the TUI path
-    stays in parity with ``HermesCLI.__init__`` and ``gateway/run.py``:
+    stays in parity with ``FabricCLI.__init__`` and ``gateway/run.py``:
     ``fallback_providers`` is the primary source of truth and keeps its
     order, with legacy ``fallback_model`` entries merged in afterwards
     (deduped on provider/model/base_url).
@@ -7376,7 +7376,7 @@ def _pet_active_selection():
 def _pet_state_rows(spritesheet) -> list[str]:
     """Row taxonomy for the concrete active pet sheet.
 
-    Hermes has to support both the legacy 8-row petdex atlas and the current
+    Fabric has to support both the legacy 8-row petdex atlas and the current
     Codex/petdex 9-row atlas. The desktop canvas gets this list and indexes it
     with the same `PetState` names the Python renderer uses.
     """
@@ -11770,9 +11770,9 @@ def _is_repo_junk(root: str) -> bool:
 
     real = os.path.realpath(root)
     home = os.path.realpath(os.path.expanduser("~"))
-    hermes_home = os.path.realpath(str(get_fabric_home()))
+    fabric_home = os.path.realpath(str(get_fabric_home()))
 
-    return real == home or real == hermes_home or real.startswith(hermes_home + os.sep)
+    return real == home or real == fabric_home or real.startswith(fabric_home + os.sep)
 
 
 def _discover_repos_payload(db, *, conn=None, backfill: bool = True) -> list[dict]:
@@ -13128,7 +13128,7 @@ def _(rid, params: dict) -> dict:
             cwd=os.getcwd(),
             # cli.exec runs `python -m fabric_cli.main` (can drive the agent) →
             # needs provider credentials. Tier-1 secrets still stripped (#29157).
-            env=hermes_subprocess_env(inherit_credentials=True),
+            env=fabric_subprocess_env(inherit_credentials=True),
             stdin=subprocess.DEVNULL,
         )
         parts = [r.stdout or "", r.stderr or ""]

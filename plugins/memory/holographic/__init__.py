@@ -1,4 +1,4 @@
-"""hermes-memory-store — holographic memory plugin using MemoryProvider interface.
+"""fabric-memory-store — holographic memory plugin using MemoryProvider interface.
 
 Registers as a MemoryProvider plugin, giving the agent structured fact storage
 with entity resolution, trust scoring, and HRR-based compositional retrieval.
@@ -7,7 +7,7 @@ Original plugin by dusterbloom (PR #2351), adapted to the MemoryProvider ABC.
 
 Config in $HERMES_HOME/config.yaml (profile-scoped):
   plugins:
-    hermes-memory-store:
+    fabric-memory-store:
       db_path: $HERMES_HOME/memory_store.db   # omit to use the default
       auto_extract: false
       default_trust: 0.5
@@ -108,7 +108,7 @@ def _load_plugin_config() -> dict:
         import yaml
         with open(config_path, encoding="utf-8-sig") as f:
             all_config = yaml.safe_load(f) or {}
-        return cfg_get(all_config, "plugins", "hermes-memory-store", default={}) or {}
+        return cfg_get(all_config, "plugins", "fabric-memory-store", default={}) or {}
     except Exception:
         return {}
 
@@ -155,12 +155,12 @@ class HolographicMemoryProvider(MemoryProvider):
     def is_available(self) -> bool:
         return True  # SQLite is always available, numpy is optional
 
-    def save_config(self, values, hermes_home):
-        """Write config to config.yaml under plugins.hermes-memory-store."""
+    def save_config(self, values, fabric_home):
+        """Write config to config.yaml under plugins.fabric-memory-store."""
         from pathlib import Path
         from fabric_cli.config import atomic_config_write
 
-        config_path = Path(hermes_home) / "config.yaml"
+        config_path = Path(fabric_home) / "config.yaml"
         import yaml
 
         existing = {}
@@ -180,7 +180,7 @@ class HolographicMemoryProvider(MemoryProvider):
             )
         if not isinstance(values, dict):
             raise TypeError("Holographic configuration values must be a mapping")
-        plugins["hermes-memory-store"] = dict(values)
+        plugins["fabric-memory-store"] = dict(values)
         atomic_config_write(config_path, existing, sort_keys=False)
 
     def get_config_schema(self):

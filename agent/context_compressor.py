@@ -543,7 +543,7 @@ def _strip_historical_media(messages: List[Dict[str, Any]]) -> List[Dict[str, An
 
     Shallow copies of touched messages only; input is never mutated.
     Port of Kilo-Org/kilocode#9434 (adapted for the OpenAI-style message
-    shape the hermes compressor emits).
+    shape the fabric compressor emits).
     """
     if not messages:
         return messages
@@ -1185,7 +1185,7 @@ class ContextCompressor(ContextEngine):
         """Return True when a high rough preflight estimate is known-noisy.
 
         ``estimate_request_tokens_rough(..., tools=...)`` intentionally
-        overestimates schema-heavy requests so Hermes compresses before a
+        overestimates schema-heavy requests so Fabric compresses before a
         provider rejects the payload. After a successful compressed API call,
         though, provider ``prompt_tokens`` are a better signal than repeating
         compaction from the same rough schema overhead. Defer only while the
@@ -1784,9 +1784,9 @@ Summary generation was unavailable, so this is a best-effort deterministic fallb
         # date here never affects prompt-cache stability. Resolved defensively —
         # a clock failure must never block compaction.
         try:
-            from fabric_time import now as _hermes_now
+            from fabric_time import now as _fabric_now
 
-            _today_str = _hermes_now().strftime("%Y-%m-%d")
+            _today_str = _fabric_now().strftime("%Y-%m-%d")
         except Exception:  # pragma: no cover - clock resolution is best-effort
             _today_str = ""
 
@@ -3040,7 +3040,7 @@ This compaction should PRIORITISE preserving all information related to the focu
         # request-build time), so ``last_head_role`` defaults to "user" and
         # the summary is emitted as role="assistant". On a session whose only
         # genuine user turn falls into the compressed middle — e.g. a
-        # ``hermes kanban`` worker seeded with a single short
+        # ``fabric kanban`` worker seeded with a single short
         # ``"work kanban task <id>"`` prompt followed by nothing but
         # assistant/tool turns — that leaves the compressed transcript with
         # ZERO user-role messages. OpenAI-compatible backends (vLLM/Qwen)

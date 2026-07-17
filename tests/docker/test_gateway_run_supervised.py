@@ -58,7 +58,7 @@ def _wait_for_gateway_or_exit(
     CMD process (not supervised by s6).  Under CI load the gateway can
     take well over 6s to finish Python imports and reach the gateway
     entrypoint — a fixed ``time.sleep(6)`` races.  Polling for
-    ``pgrep -f 'hermes.*gateway'`` (the gateway is running) or
+    ``pgrep -f 'fabric.*gateway'`` (the gateway is running) or
     ``docker inspect`` returning ``exited`` is both faster on quick
     machines and flake-free on slow ones.
     """
@@ -75,7 +75,7 @@ def _wait_for_gateway_or_exit(
             # Check if the gateway process is actually running in the
             # foreground (the no-supervise path).  If it is, we're done.
             pgrep = docker_exec_sh(
-                container, "pgrep -f 'hermes.*gateway' >/dev/null 2>&1",
+                container, "pgrep -f 'fabric.*gateway' >/dev/null 2>&1",
             )
             if pgrep.returncode == 0:
                 return "running"
@@ -312,7 +312,7 @@ def test_supervised_gateway_does_not_recurse(
     # respawn fresh `gateway run` processes on every cycle, leaving
     # multiple Python-process descendants under the gateway-default
     # supervise tree.
-    r = docker_exec_sh(container_name, "ps -eo pid,cmd | grep -v grep | grep -E 'python.*hermes.*gateway run' | wc -l")
+    r = docker_exec_sh(container_name, "ps -eo pid,cmd | grep -v grep | grep -E 'python.*fabric.*gateway run' | wc -l")
     assert r.returncode == 0
     n = int(r.stdout.strip() or 0)
     assert n <= 1, (

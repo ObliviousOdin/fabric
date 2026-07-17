@@ -55,10 +55,10 @@ def _reset_logging_state():
 
 
 @pytest.fixture
-def hermes_home(tmp_path, monkeypatch):
+def fabric_home(tmp_path, monkeypatch):
     """Provide an isolated HERMES_HOME for logging tests.
 
-    Uses the same tmp_path as the autouse _isolate_hermes_home from conftest,
+    Uses the same tmp_path as the autouse _isolate_fabric_home from conftest,
     reading it back from the env var to avoid double-mkdir conflicts.
     """
     home = Path(os.environ["HERMES_HOME"])
@@ -68,13 +68,13 @@ def hermes_home(tmp_path, monkeypatch):
 class TestSetupLogging:
     """setup_logging() creates agent.log + errors.log with RotatingFileHandler."""
 
-    def test_creates_log_directory(self, hermes_home):
-        log_dir = fabric_logging.setup_logging(hermes_home=hermes_home)
-        assert log_dir == hermes_home / "logs"
+    def test_creates_log_directory(self, fabric_home):
+        log_dir = fabric_logging.setup_logging(fabric_home=fabric_home)
+        assert log_dir == fabric_home / "logs"
         assert log_dir.is_dir()
 
-    def test_creates_agent_log_handler(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_creates_agent_log_handler(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         root = logging.getLogger()
 
         agent_handlers = [
@@ -85,8 +85,8 @@ class TestSetupLogging:
         assert len(agent_handlers) == 1
         assert agent_handlers[0].level == logging.INFO
 
-    def test_creates_errors_log_handler(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_creates_errors_log_handler(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         root = logging.getLogger()
 
         error_handlers = [
@@ -97,9 +97,9 @@ class TestSetupLogging:
         assert len(error_handlers) == 1
         assert error_handlers[0].level == logging.WARNING
 
-    def test_idempotent_no_duplicate_handlers(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
-        fabric_logging.setup_logging(hermes_home=hermes_home)  # second call — should be no-op
+    def test_idempotent_no_duplicate_handlers(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
+        fabric_logging.setup_logging(fabric_home=fabric_home)  # second call — should be no-op
 
         root = logging.getLogger()
         agent_handlers = [
@@ -109,11 +109,11 @@ class TestSetupLogging:
         ]
         assert len(agent_handlers) == 1
 
-    def test_force_reinitializes(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_force_reinitializes(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         # Force still won't add duplicate handlers because _add_rotating_handler
         # checks by resolved path.
-        fabric_logging.setup_logging(hermes_home=hermes_home, force=True)
+        fabric_logging.setup_logging(fabric_home=fabric_home, force=True)
 
         root = logging.getLogger()
         agent_handlers = [
@@ -123,8 +123,8 @@ class TestSetupLogging:
         ]
         assert len(agent_handlers) == 1
 
-    def test_custom_log_level(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home, log_level="DEBUG")
+    def test_custom_log_level(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home, log_level="DEBUG")
 
         root = logging.getLogger()
         agent_handlers = [
@@ -134,9 +134,9 @@ class TestSetupLogging:
         ]
         assert agent_handlers[0].level == logging.DEBUG
 
-    def test_custom_max_size_and_backup(self, hermes_home):
+    def test_custom_max_size_and_backup(self, fabric_home):
         fabric_logging.setup_logging(
-            hermes_home=hermes_home, max_size_mb=10, backup_count=5
+            fabric_home=fabric_home, max_size_mb=10, backup_count=5
         )
 
         root = logging.getLogger()
@@ -148,59 +148,59 @@ class TestSetupLogging:
         assert agent_handlers[0].maxBytes == 10 * 1024 * 1024
         assert agent_handlers[0].backupCount == 5
 
-    def test_suppresses_noisy_loggers(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_suppresses_noisy_loggers(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
 
         assert logging.getLogger("openai").level >= logging.WARNING
         assert logging.getLogger("httpx").level >= logging.WARNING
         assert logging.getLogger("httpcore").level >= logging.WARNING
 
-    def test_writes_to_agent_log(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_writes_to_agent_log(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
 
-        test_logger = logging.getLogger("test_hermes_logging.write_test")
+        test_logger = logging.getLogger("test_fabric_logging.write_test")
         test_logger.info("test message for agent.log")
 
         # Flush handlers
         fabric_logging.flush_log_queue()
 
-        agent_log = hermes_home / "logs" / "agent.log"
+        agent_log = fabric_home / "logs" / "agent.log"
         assert agent_log.exists()
         content = agent_log.read_text()
         assert "test message for agent.log" in content
 
-    def test_warnings_appear_in_both_logs(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_warnings_appear_in_both_logs(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
 
-        test_logger = logging.getLogger("test_hermes_logging.warning_test")
+        test_logger = logging.getLogger("test_fabric_logging.warning_test")
         test_logger.warning("this is a warning")
 
         fabric_logging.flush_log_queue()
 
-        agent_log = hermes_home / "logs" / "agent.log"
-        errors_log = hermes_home / "logs" / "errors.log"
+        agent_log = fabric_home / "logs" / "agent.log"
+        errors_log = fabric_home / "logs" / "errors.log"
         assert "this is a warning" in agent_log.read_text()
         assert "this is a warning" in errors_log.read_text()
 
-    def test_info_not_in_errors_log(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_info_not_in_errors_log(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
 
-        test_logger = logging.getLogger("test_hermes_logging.info_test")
+        test_logger = logging.getLogger("test_fabric_logging.info_test")
         test_logger.info("info only message")
 
         fabric_logging.flush_log_queue()
 
-        errors_log = hermes_home / "logs" / "errors.log"
+        errors_log = fabric_home / "logs" / "errors.log"
         if errors_log.exists():
             assert "info only message" not in errors_log.read_text()
 
-    def test_reads_config_yaml(self, hermes_home):
+    def test_reads_config_yaml(self, fabric_home):
         """setup_logging reads logging.level from config.yaml."""
         import yaml
         config = {"logging": {"level": "DEBUG", "max_size_mb": 2, "backup_count": 1}}
-        (hermes_home / "config.yaml").write_text(yaml.dump(config))
+        (fabric_home / "config.yaml").write_text(yaml.dump(config))
 
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+        fabric_logging.setup_logging(fabric_home=fabric_home)
 
         root = logging.getLogger()
         agent_handlers = [
@@ -212,13 +212,13 @@ class TestSetupLogging:
         assert agent_handlers[0].maxBytes == 2 * 1024 * 1024
         assert agent_handlers[0].backupCount == 1
 
-    def test_explicit_params_override_config(self, hermes_home):
+    def test_explicit_params_override_config(self, fabric_home):
         """Explicit function params take precedence over config.yaml."""
         import yaml
         config = {"logging": {"level": "DEBUG"}}
-        (hermes_home / "config.yaml").write_text(yaml.dump(config))
+        (fabric_home / "config.yaml").write_text(yaml.dump(config))
 
-        fabric_logging.setup_logging(hermes_home=hermes_home, log_level="WARNING")
+        fabric_logging.setup_logging(fabric_home=fabric_home, log_level="WARNING")
 
         root = logging.getLogger()
         agent_handlers = [
@@ -228,12 +228,12 @@ class TestSetupLogging:
         ]
         assert agent_handlers[0].level == logging.WARNING
 
-    def test_record_factory_installed(self, hermes_home):
+    def test_record_factory_installed(self, fabric_home):
         """The custom record factory injects session_tag on all records."""
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         factory = logging.getLogRecordFactory()
-        assert getattr(factory, "_hermes_session_injector", False), (
-            "Record factory should have _hermes_session_injector marker"
+        assert getattr(factory, "_fabric_session_injector", False), (
+            "Record factory should have _fabric_session_injector marker"
         )
         # Verify session_tag exists on a fresh record
         record = factory("test", logging.INFO, "", 0, "msg", (), None)
@@ -243,8 +243,8 @@ class TestSetupLogging:
 class TestGatewayMode:
     """setup_logging(mode='gateway') creates a filtered gateway.log."""
 
-    def test_gateway_log_created(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
+    def test_gateway_log_created(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
         root = logging.getLogger()
 
         gw_handlers = [
@@ -254,8 +254,8 @@ class TestGatewayMode:
         ]
         assert len(gw_handlers) == 1
 
-    def test_gateway_log_not_created_in_cli_mode(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="cli")
+    def test_gateway_log_not_created_in_cli_mode(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="cli")
         root = logging.getLogger()
 
         gw_handlers = [
@@ -265,10 +265,10 @@ class TestGatewayMode:
         ]
         assert len(gw_handlers) == 0
 
-    def test_gateway_log_created_after_cli_init(self, hermes_home):
+    def test_gateway_log_created_after_cli_init(self, fabric_home):
         """Gateway mode attaches gateway.log even after earlier CLI init."""
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="cli")
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="cli")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
 
         root = logging.getLogger()
         gw_handlers = [
@@ -282,15 +282,15 @@ class TestGatewayMode:
 
         fabric_logging.flush_log_queue()
 
-        gw_log = hermes_home / "logs" / "gateway.log"
+        gw_log = fabric_home / "logs" / "gateway.log"
         assert gw_log.exists()
         assert "gateway connected after cli init" in gw_log.read_text()
 
-    def test_gateway_log_created_after_cli_init_without_duplicate_handlers(self, hermes_home):
+    def test_gateway_log_created_after_cli_init_without_duplicate_handlers(self, fabric_home):
         """Repeated gateway setup calls do not attach duplicate gateway handlers."""
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="cli")
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="cli")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
 
         root = logging.getLogger()
         gw_handlers = [
@@ -300,22 +300,22 @@ class TestGatewayMode:
         ]
         assert len(gw_handlers) == 1
 
-    def test_gateway_log_receives_gateway_records(self, hermes_home):
+    def test_gateway_log_receives_gateway_records(self, fabric_home):
         """gateway.log captures records from gateway.* loggers."""
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
 
         gw_logger = logging.getLogger("plugins.platforms.telegram.adapter")
         gw_logger.info("telegram connected")
 
         fabric_logging.flush_log_queue()
 
-        gw_log = hermes_home / "logs" / "gateway.log"
+        gw_log = fabric_home / "logs" / "gateway.log"
         assert gw_log.exists()
         assert "telegram connected" in gw_log.read_text()
 
-    def test_gateway_log_rejects_non_gateway_records(self, hermes_home):
+    def test_gateway_log_rejects_non_gateway_records(self, fabric_home):
         """gateway.log does NOT capture records from tools.*, agent.*, etc."""
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
 
         tool_logger = logging.getLogger("tools.terminal_tool")
         tool_logger.info("running command")
@@ -325,15 +325,15 @@ class TestGatewayMode:
 
         fabric_logging.flush_log_queue()
 
-        gw_log = hermes_home / "logs" / "gateway.log"
+        gw_log = fabric_home / "logs" / "gateway.log"
         if gw_log.exists():
             content = gw_log.read_text()
             assert "running command" not in content
             assert "compressing context" not in content
 
-    def test_agent_log_still_receives_all(self, hermes_home):
+    def test_agent_log_still_receives_all(self, fabric_home):
         """agent.log (catch-all) still receives gateway AND tool records."""
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
 
         gw_logger = logging.getLogger("gateway.run")
         file_logger = logging.getLogger("tools.file_tools")
@@ -349,7 +349,7 @@ class TestGatewayMode:
 
         fabric_logging.flush_log_queue()
 
-        agent_log = hermes_home / "logs" / "agent.log"
+        agent_log = fabric_home / "logs" / "agent.log"
         content = agent_log.read_text()
         assert "gateway msg" in content
         assert "file msg" in content
@@ -358,8 +358,8 @@ class TestGatewayMode:
 class TestGuiMode:
     """setup_logging(mode='gui') creates a filtered gui.log."""
 
-    def test_gui_log_created(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gui")
+    def test_gui_log_created(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gui")
         root = logging.getLogger()
 
         gui_handlers = [
@@ -369,9 +369,9 @@ class TestGuiMode:
         ]
         assert len(gui_handlers) == 1
 
-    def test_gui_log_created_after_cli_init(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="cli")
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gui")
+    def test_gui_log_created_after_cli_init(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="cli")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gui")
 
         root = logging.getLogger()
         gui_handlers = [
@@ -381,8 +381,8 @@ class TestGuiMode:
         ]
         assert len(gui_handlers) == 1
 
-    def test_gui_log_receives_only_gui_components(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gui")
+    def test_gui_log_receives_only_gui_components(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gui")
 
         logging.getLogger("fabric_cli.web_server").info("dashboard online")
         logging.getLogger("tui_gateway.ws").info("ws connected")
@@ -390,7 +390,7 @@ class TestGuiMode:
 
         fabric_logging.flush_log_queue()
 
-        gui_log = hermes_home / "logs" / "gui.log"
+        gui_log = fabric_home / "logs" / "gui.log"
         assert gui_log.exists()
         content = gui_log.read_text()
         assert "dashboard online" in content
@@ -401,9 +401,9 @@ class TestGuiMode:
 class TestSessionContext:
     """set_session_context / clear_session_context + _SessionFilter."""
 
-    def test_session_tag_in_log_output(self, hermes_home):
+    def test_session_tag_in_log_output(self, fabric_home):
         """When session context is set, log lines include [session_id]."""
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         fabric_logging.set_session_context("abc123")
 
         test_logger = logging.getLogger("test.session_tag")
@@ -411,14 +411,14 @@ class TestSessionContext:
 
         fabric_logging.flush_log_queue()
 
-        agent_log = hermes_home / "logs" / "agent.log"
+        agent_log = fabric_home / "logs" / "agent.log"
         content = agent_log.read_text()
         assert "[abc123]" in content
         assert "tagged message" in content
 
-    def test_no_session_tag_without_context(self, hermes_home):
+    def test_no_session_tag_without_context(self, fabric_home):
         """Without session context, log lines have no session tag."""
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         fabric_logging.clear_session_context()
 
         test_logger = logging.getLogger("test.no_session")
@@ -426,7 +426,7 @@ class TestSessionContext:
 
         fabric_logging.flush_log_queue()
 
-        agent_log = hermes_home / "logs" / "agent.log"
+        agent_log = fabric_home / "logs" / "agent.log"
         content = agent_log.read_text()
         assert "untagged message" in content
         # Should not have any [xxx] session tag
@@ -435,9 +435,9 @@ class TestSessionContext:
             if "untagged message" in line:
                 assert not re.search(r"\[.+?\]", line.split("INFO")[1].split("test.no_session")[0])
 
-    def test_clear_session_context(self, hermes_home):
+    def test_clear_session_context(self, fabric_home):
         """After clearing, session tag disappears."""
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         fabric_logging.set_session_context("xyz789")
         fabric_logging.clear_session_context()
 
@@ -446,13 +446,13 @@ class TestSessionContext:
 
         fabric_logging.flush_log_queue()
 
-        agent_log = hermes_home / "logs" / "agent.log"
+        agent_log = fabric_home / "logs" / "agent.log"
         content = agent_log.read_text()
         assert "[xyz789]" not in content
 
-    def test_session_context_thread_isolated(self, hermes_home):
+    def test_session_context_thread_isolated(self, fabric_home):
         """Session context is per-thread — one thread's context doesn't leak."""
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+        fabric_logging.setup_logging(fabric_home=fabric_home)
 
         results = {}
 
@@ -473,7 +473,7 @@ class TestSessionContext:
         tb.start()
         tb.join()
 
-        agent_log = hermes_home / "logs" / "agent.log"
+        agent_log = fabric_home / "logs" / "agent.log"
         content = agent_log.read_text()
 
         # Each thread's message should have its own session tag
@@ -581,7 +581,7 @@ class TestComponentPrefixes:
 
     def test_gateway_prefix(self):
         assert "gateway" in fabric_logging.COMPONENT_PREFIXES
-        # The gateway component captures core gateway logs, the hermes_plugins
+        # The gateway component captures core gateway logs, the fabric_plugins
         # facility, and plugins.platforms (messaging-platform adapters that
         # migrated out of gateway/platforms/ into bundled plugins, #41112).
         # Assert the required members as an invariant rather than an exact
@@ -589,7 +589,7 @@ class TestComponentPrefixes:
         # break this test.
         gateway_prefixes = fabric_logging.COMPONENT_PREFIXES["gateway"]
         assert "gateway" in gateway_prefixes
-        assert "hermes_plugins" in gateway_prefixes
+        assert "fabric_plugins" in gateway_prefixes
         assert "plugins.platforms" in gateway_prefixes
 
     def test_agent_prefix(self):
@@ -618,8 +618,8 @@ class TestComponentPrefixes:
 class TestSetupVerboseLogging:
     """setup_verbose_logging() adds a DEBUG-level console handler."""
 
-    def test_adds_stream_handler(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_adds_stream_handler(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         fabric_logging.setup_verbose_logging()
 
         root = logging.getLogger()
@@ -627,13 +627,13 @@ class TestSetupVerboseLogging:
             h for h in root.handlers
             if isinstance(h, logging.StreamHandler)
             and not isinstance(h, RotatingFileHandler)
-            and getattr(h, "_hermes_verbose", False)
+            and getattr(h, "_fabric_verbose", False)
         ]
         assert len(verbose_handlers) == 1
         assert verbose_handlers[0].level == logging.DEBUG
 
-    def test_idempotent(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_idempotent(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         fabric_logging.setup_verbose_logging()
         fabric_logging.setup_verbose_logging()  # second call
 
@@ -642,7 +642,7 @@ class TestSetupVerboseLogging:
             h for h in root.handlers
             if isinstance(h, logging.StreamHandler)
             and not isinstance(h, RotatingFileHandler)
-            and getattr(h, "_hermes_verbose", False)
+            and getattr(h, "_fabric_verbose", False)
         ]
         assert len(verbose_handlers) == 1
 
@@ -884,26 +884,26 @@ class TestWindowsConcurrentLogLockTimeout:
 class TestReadLoggingConfig:
     """_read_logging_config() reads from config.yaml."""
 
-    def test_returns_none_when_no_config(self, hermes_home):
+    def test_returns_none_when_no_config(self, fabric_home):
         level, max_size, backup = fabric_logging._read_logging_config()
         assert level is None
         assert max_size is None
         assert backup is None
 
-    def test_reads_logging_section(self, hermes_home):
+    def test_reads_logging_section(self, fabric_home):
         import yaml
         config = {"logging": {"level": "DEBUG", "max_size_mb": 10, "backup_count": 5}}
-        (hermes_home / "config.yaml").write_text(yaml.dump(config))
+        (fabric_home / "config.yaml").write_text(yaml.dump(config))
 
         level, max_size, backup = fabric_logging._read_logging_config()
         assert level == "DEBUG"
         assert max_size == 10
         assert backup == 5
 
-    def test_handles_missing_logging_section(self, hermes_home):
+    def test_handles_missing_logging_section(self, fabric_home):
         import yaml
         config = {"model": "test"}
-        (hermes_home / "config.yaml").write_text(yaml.dump(config))
+        (fabric_home / "config.yaml").write_text(yaml.dump(config))
 
         level, max_size, backup = fabric_logging._read_logging_config()
         assert level is None
@@ -1038,7 +1038,7 @@ class TestExternalRotationRecovery:
             handler.close()
 
     def test_gateway_log_attached_after_external_rotation_then_re_setup(
-        self, hermes_home,
+        self, fabric_home,
     ):
         """End-to-end Allen-reproduction: gateway.log gets externally rotated,
         ``setup_logging(mode='gateway')`` is re-called, the handler keeps
@@ -1048,9 +1048,9 @@ class TestExternalRotationRecovery:
         records leaking to agent.log) when something external rotates the
         file between setup_logging() calls.
         """
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
-        gw_path = hermes_home / "logs" / "gateway.log"
-        rotated = hermes_home / "logs" / "gateway.log.1"
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
+        gw_path = fabric_home / "logs" / "gateway.log"
+        rotated = fabric_home / "logs" / "gateway.log.1"
 
         logging.getLogger("gateway.run").info("line BEFORE rotation")
         fabric_logging.flush_log_queue()
@@ -1063,7 +1063,7 @@ class TestExternalRotationRecovery:
         # Caller (or some restart path) re-enters setup_logging.  This used
         # to silently no-op due to the per-path dedup check, leaving the
         # stale fd in place.
-        fabric_logging.setup_logging(hermes_home=hermes_home, mode="gateway")
+        fabric_logging.setup_logging(fabric_home=fabric_home, mode="gateway")
 
         logging.getLogger("gateway.run").info("line AFTER rotation")
         fabric_logging.flush_log_queue()
@@ -1151,14 +1151,14 @@ class TestAsyncQueueLogging:
     """File logging runs through a QueueListener so emits never block on the
     cross-process rotation lock (Windows event-loop-stall fix)."""
 
-    def test_file_handlers_not_on_root(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_file_handlers_not_on_root(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         root = logging.getLogger()
         # Rotating file handlers live on the async listener, never on root.
         assert not any(isinstance(h, RotatingFileHandler) for h in root.handlers)
         # Exactly one queue handler funnels records to the listener.
         queue_handlers = [
-            h for h in root.handlers if getattr(h, "_hermes_queue", False)
+            h for h in root.handlers if getattr(h, "_fabric_queue", False)
         ]
         assert len(queue_handlers) == 1
         # The real file handlers are discoverable via the accessor.
@@ -1167,18 +1167,18 @@ class TestAsyncQueueLogging:
             for h in fabric_logging.rotating_file_handlers()
         )
 
-    def test_records_reach_file_through_queue(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_records_reach_file_through_queue(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         logging.getLogger("test_async.queue").info("through the queue")
         fabric_logging.flush_log_queue()
-        agent_log = hermes_home / "logs" / "agent.log"
+        agent_log = fabric_home / "logs" / "agent.log"
         assert "through the queue" in agent_log.read_text()
 
-    def test_queue_preserves_per_handler_levels(self, hermes_home):
-        fabric_logging.setup_logging(hermes_home=hermes_home)
+    def test_queue_preserves_per_handler_levels(self, fabric_home):
+        fabric_logging.setup_logging(fabric_home=fabric_home)
         logging.getLogger("test_async.levels").info("info-level line")
         fabric_logging.flush_log_queue()
-        errors_log = hermes_home / "logs" / "errors.log"
+        errors_log = fabric_home / "logs" / "errors.log"
         # INFO must not reach the WARNING+ errors.log even through the queue.
         if errors_log.exists():
             assert "info-level line" not in errors_log.read_text()

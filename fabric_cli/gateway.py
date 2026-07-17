@@ -371,7 +371,7 @@ def _scan_gateway_pids(
             return (
                 f"--profile {current_profile_name_lc}" in command_lc
                 or f"-p {current_profile_name_lc}" in command_lc
-                or f"hermes_home={current_home_lc}" in command_lc
+                or f"fabric_home={current_home_lc}" in command_lc
             )
 
         # Default-profile case: no profile flag in argv. Accept as long as
@@ -382,8 +382,8 @@ def _scan_gateway_pids(
         if "--profile " in command_lc or " -p " in command_lc:
             return False
         if (
-            "hermes_home=" in command_lc
-            and f"hermes_home={current_home_lc}" not in command_lc
+            "fabric_home=" in command_lc
+            and f"fabric_home={current_home_lc}" not in command_lc
         ):
             return False
         return True
@@ -627,7 +627,7 @@ def find_gateway_pids(
 def find_profile_gateway_processes(
     exclude_pids: set | None = None,
 ) -> list[ProfileGatewayProcess]:
-    """Return running gateway PIDs mapped to Hermes profiles via PID files."""
+    """Return running gateway PIDs mapped to Fabric profiles via PID files."""
     _exclude = set(exclude_pids or set())
     processes: list[ProfileGatewayProcess] = []
     try:
@@ -941,7 +941,7 @@ def _read_systemd_unit_environment(system: bool = False) -> dict[str, str]:
     return parsed
 
 
-def _hermes_home_from_systemd_unit_file(system: bool = False) -> str | None:
+def _fabric_home_from_systemd_unit_file(system: bool = False) -> str | None:
     """Read ``HERMES_HOME`` from the on-disk unit file (not ``systemctl show``).
 
     Prefer the file when refreshing/comparing: under ``sudo``, ``systemctl``
@@ -967,7 +967,7 @@ def _hermes_home_from_systemd_unit_file(system: bool = False) -> str | None:
     return None
 
 
-def _sync_hermes_home_from_systemd_unit(system: bool) -> None:
+def _sync_fabric_home_from_systemd_unit(system: bool) -> None:
     """When acting on a system-scope unit, adopt its ``HERMES_HOME``.
 
     Under ``sudo``, ``HERMES_HOME`` is stripped and ``HOME=/root``, so
@@ -980,7 +980,7 @@ def _sync_hermes_home_from_systemd_unit(system: bool) -> None:
         return
     # Prefer the on-disk unit (source of truth for refresh/compare). Fall
     # back to ``systemctl show`` for units that only exist in the manager.
-    unit_home = (_hermes_home_from_systemd_unit_file(system=True) or "").strip()
+    unit_home = (_fabric_home_from_systemd_unit_file(system=True) or "").strip()
     if not unit_home:
         unit_home = _read_systemd_unit_environment(system=True).get("HERMES_HOME", "").strip()
     if not unit_home:
@@ -1642,7 +1642,7 @@ def _systemd_operational(system: bool = False) -> bool:
 def _container_systemd_operational() -> bool:
     """Return True when a container exposes working user or system systemd.
 
-    This is NOT our Hermes Docker image — that one runs s6-overlay as
+    This is NOT our Fabric Docker image — that one runs s6-overlay as
     PID 1 (since Phase 2 of the s6-overlay supervision plan) and is
     detected via ``service_manager.detect_service_manager() == "s6"``.
     This function handles the "container managed by something else"
@@ -1735,17 +1735,17 @@ def _profile_suffix() -> str:
     return hashlib.sha256(str(home).encode()).hexdigest()[:8]
 
 
-def _profile_arg(hermes_home: str | None = None, default_root: str | Path | None = None) -> str:
+def _profile_arg(fabric_home: str | None = None, default_root: str | Path | None = None) -> str:
     """Return ``--profile <name>`` only when HERMES_HOME is a named profile.
 
     For ``~/.fabric/profiles/<name>``, returns ``"--profile <name>"``.
     For the default profile or hash-based custom paths, returns the empty string.
 
     Args:
-        hermes_home: Optional explicit HERMES_HOME path. Defaults to the current
+        fabric_home: Optional explicit HERMES_HOME path. Defaults to the current
             ``get_fabric_home()`` value. Should be passed when generating a
             service definition for a different user (e.g. system service).
-        default_root: Optional Hermes root to compare against. Used when
+        default_root: Optional Fabric root to compare against. Used when
             generating a system service for another user from a sudo/root
             process, where ``Path.home()`` and ``get_default_fabric_root()``
             refer to root but the target profile lives under the service user.
@@ -1753,7 +1753,7 @@ def _profile_arg(hermes_home: str | None = None, default_root: str | Path | None
     import re
     from fabric_constants import get_default_fabric_root
 
-    home = Path(hermes_home or str(get_fabric_home())).resolve()
+    home = Path(fabric_home or str(get_fabric_home())).resolve()
     default = Path(default_root).resolve() if default_root else get_default_fabric_root().resolve()
     if home == default:
         return ""
@@ -1768,17 +1768,17 @@ def _profile_arg(hermes_home: str | None = None, default_root: str | Path | None
     return ""
 
 
-def _profile_arg_for_target_user(hermes_home: str, target_home_dir: str) -> str:
+def _profile_arg_for_target_user(fabric_home: str, target_home_dir: str) -> str:
     """Return the profile arg for a system service running as another user."""
     # Prefer modern Fabric home; still accept legacy .hermes target roots.
     for name in (".fabric", _LEGACY_HOME_DIRNAME):
         target_root = Path(target_home_dir) / name
         try:
-            Path(hermes_home).resolve().relative_to(target_root.resolve())
-            return _profile_arg(hermes_home, default_root=target_root)
+            Path(fabric_home).resolve().relative_to(target_root.resolve())
+            return _profile_arg(fabric_home, default_root=target_root)
         except ValueError:
             continue
-    return _profile_arg(hermes_home)
+    return _profile_arg(fabric_home)
 
 
 def get_service_name() -> str:
@@ -2078,7 +2078,7 @@ def _legacy_unit_search_paths() -> list[tuple[bool, Path]]:
     ]
 
 
-def _find_legacy_hermes_units() -> list[tuple[str, Path, bool]]:
+def _find_legacy_fabric_units() -> list[tuple[str, Path, bool]]:
     """Return ``[(unit_name, unit_path, is_system)]`` for legacy Fabric gateway units.
 
     Detects unit files installed by older versions that used a legacy service
@@ -2091,7 +2091,7 @@ def _find_legacy_hermes_units() -> list[tuple[str, Path, bool]]:
 
     * Explicit allowlist of legacy names (no globbing). Profile units such
       as ``fabric-gateway-coder.service`` and unrelated third-party
-      ``hermes-*`` services are never matched.
+      ``fabric-*`` services are never matched.
     * ExecStart content check — only flag units that invoke our gateway
       entrypoint. A user-created ``hermes.service`` running an unrelated
       binary is left untouched.
@@ -2115,9 +2115,9 @@ def _find_legacy_hermes_units() -> list[tuple[str, Path, bool]]:
     return results
 
 
-def has_legacy_hermes_units() -> bool:
+def has_legacy_fabric_units() -> bool:
     """Return True when any legacy Fabric gateway unit files exist."""
-    return bool(_find_legacy_hermes_units())
+    return bool(_find_legacy_fabric_units())
 
 
 def print_legacy_unit_warning() -> None:
@@ -2126,7 +2126,7 @@ def print_legacy_unit_warning() -> None:
     Idempotent: prints nothing when no legacy units are detected. Safe to
     call from any status/install/setup path.
     """
-    legacy = _find_legacy_hermes_units()
+    legacy = _find_legacy_fabric_units()
     if not legacy:
         return
     print_warning("Legacy Fabric gateway unit(s) detected from an older install:")
@@ -2139,13 +2139,13 @@ def print_legacy_unit_warning() -> None:
     print_info("    fabric gateway migrate-legacy")
 
 
-def remove_legacy_hermes_units(
+def remove_legacy_fabric_units(
     interactive: bool = True,
     dry_run: bool = False,
 ) -> tuple[int, list[Path]]:
     """Stop, disable, and remove legacy Fabric gateway unit files.
 
-    Iterates over whatever ``_find_legacy_hermes_units()`` returns — which is
+    Iterates over whatever ``_find_legacy_fabric_units()`` returns — which is
     an explicit allowlist of legacy names (not a glob). Profile units and
     unrelated third-party services are never touched.
 
@@ -2159,7 +2159,7 @@ def remove_legacy_hermes_units(
         ``(removed_count, remaining_paths)`` — remaining includes units we
         couldn't remove (typically system-scope when not running as root).
     """
-    legacy = _find_legacy_hermes_units()
+    legacy = _find_legacy_fabric_units()
     if not legacy:
         print("No legacy Fabric gateway units found.")
         return 0, []
@@ -2456,7 +2456,7 @@ def print_systemd_linger_guidance() -> None:
 def _launchd_user_home() -> Path:
     """Return the real macOS user home for launchd artifacts.
 
-    Profile-mode Hermes often sets ``HOME`` to a profile-scoped directory, but
+    Profile-mode Fabric often sets ``HOME`` to a profile-scoped directory, but
     launchd user agents still live under the actual account home.
     """
     import pwd
@@ -2602,7 +2602,7 @@ def _remap_path_for_user(path: str, target_home_dir: str) -> str:
         return str(p)
 
 
-def _hermes_home_for_target_user(target_home_dir: str) -> str:
+def _fabric_home_for_target_user(target_home_dir: str) -> str:
     """Remap the current Fabric/Fabric home to the target user's equivalent.
 
     When installing a system service via sudo, get_fabric_home() resolves to
@@ -2613,7 +2613,7 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
       /root/.hermes/profiles/coder     → /home/alice/.fabric/profiles/coder
       /opt/custom-data                 → /opt/custom-data      (kept as-is)
     """
-    current_hermes = get_fabric_home().resolve()
+    current_fabric = get_fabric_home().resolve()
     home = Path.home()
     # Accept either modern or legacy default as "current default"
     current_defaults = [
@@ -2623,7 +2623,7 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
     target_default = Path(target_home_dir) / ".fabric"
 
     for current_default in current_defaults:
-        if current_hermes == current_default:
+        if current_fabric == current_default:
             return str(target_default)
         try:
             relative = current_hermes.relative_to(current_default)
@@ -2632,7 +2632,7 @@ def _hermes_home_for_target_user(target_home_dir: str) -> str:
             continue
 
     # Completely custom path (not under ~/.fabric or legacy ~/.hermes) — keep as-is
-    return str(current_hermes)
+    return str(current_fabric)
 
 
 def _build_service_path_dirs(project_root: Path | None = None) -> list[str]:
@@ -2658,13 +2658,13 @@ def _build_service_path_dirs(project_root: Path | None = None) -> list[str]:
     if _is_dir(node_bin):
         candidates.append(str(node_bin))
 
-    hermes_home = get_fabric_home()
-    hermes_node = hermes_home / "node" / "bin"
-    if _is_dir(hermes_node):
-        candidates.append(str(hermes_node))
-    hermes_nm = hermes_home / "node_modules" / ".bin"
-    if _is_dir(hermes_nm):
-        candidates.append(str(hermes_nm))
+    fabric_home = get_fabric_home()
+    fabric_node = fabric_home / "node" / "bin"
+    if _is_dir(fabric_node):
+        candidates.append(str(fabric_node))
+    fabric_nm = fabric_home / "node_modules" / ".bin"
+    if _is_dir(fabric_nm):
+        candidates.append(str(fabric_nm))
 
     return candidates
 
@@ -2737,8 +2737,8 @@ def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) 
 
     if system:
         username, group_name, home_dir = _system_service_identity(run_as_user)
-        hermes_home = _hermes_home_for_target_user(home_dir)
-        profile_arg = _profile_arg_for_target_user(hermes_home, home_dir)
+        fabric_home = _fabric_home_for_target_user(home_dir)
+        profile_arg = _profile_arg_for_target_user(fabric_home, home_dir)
         # Remap all paths that may resolve under the calling user's home
         # (e.g. /root/) to the target user's home so the service can
         # actually access them.
@@ -2746,7 +2746,7 @@ def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) 
         # Anchor cwd to the target user's HERMES_HOME (stable, always exists)
         # rather than a remapped source-checkout path that can rot. See
         # _stable_service_working_dir() for the full rationale.
-        working_dir = str(hermes_home) if hermes_home else _remap_path_for_user(working_dir, home_dir)
+        working_dir = str(fabric_home) if fabric_home else _remap_path_for_user(working_dir, home_dir)
         venv_dir = _remap_path_for_user(venv_dir, home_dir)
         path_entries = [_remap_path_for_user(p, home_dir) for p in path_entries]
         path_entries.extend(_build_user_local_paths(Path(home_dir), path_entries))
@@ -2770,8 +2770,8 @@ Environment="USER={username}"
 Environment="LOGNAME={username}"
 Environment="PATH={sane_path}"
 Environment="VIRTUAL_ENV={venv_dir}"
-Environment="FABRIC_HOME={hermes_home}"
-Environment="HERMES_HOME={hermes_home}"
+Environment="FABRIC_HOME={fabric_home}"
+Environment="HERMES_HOME={fabric_home}"
 Restart=always
 RestartSec=5
 RestartForceExitStatus={GATEWAY_SERVICE_RESTART_EXIT_CODE}
@@ -2787,8 +2787,8 @@ StandardError=journal
 WantedBy=multi-user.target
 """
 
-    hermes_home = str(get_fabric_home().resolve())
-    profile_arg = _profile_arg(hermes_home)
+    fabric_home = str(get_fabric_home().resolve())
+    profile_arg = _profile_arg(fabric_home)
     path_entries.extend(_build_user_local_paths(Path.home(), path_entries))
     path_entries.extend(_build_wsl_interop_paths(path_entries))
     path_entries.extend(common_bin_paths)
@@ -2805,8 +2805,8 @@ ExecStart={python_path} -m fabric_cli.main{f" {profile_arg}" if profile_arg else
 WorkingDirectory={working_dir}
 Environment="PATH={sane_path}"
 Environment="VIRTUAL_ENV={venv_dir}"
-Environment="FABRIC_HOME={hermes_home}"
-Environment="HERMES_HOME={hermes_home}"
+Environment="FABRIC_HOME={fabric_home}"
+Environment="HERMES_HOME={fabric_home}"
 Restart=always
 RestartSec=5
 RestartForceExitStatus={GATEWAY_SERVICE_RESTART_EXIT_CODE}
@@ -2886,7 +2886,7 @@ def systemd_unit_is_current(system: bool = False) -> bool:
     # ``_sync_...`` is idempotent (early-returns once os.environ matches), so
     # the mutation persists for callers that read runtime state after this
     # (e.g. ``systemd_restart``'s post-refresh get_running_pid / drain-timeout).
-    _sync_hermes_home_from_systemd_unit(system=system)
+    _sync_fabric_home_from_systemd_unit(system=system)
 
     unit_path = get_systemd_unit_path(system=system)
     if not unit_path.exists():
@@ -2918,7 +2918,7 @@ def _temp_home_in_service_definition(definition: str) -> str | None:
     the gateway comes back "active (running)" but pointed at an empty temp
     home ("No messaging platforms enabled"), deaf to every platform.
     Seen live 2026-06-11: an E2E guard probe ran ``fabric gateway restart``
-    with ``HERMES_HOME=/tmp/hermes-e2e-<pr>`` exported; the restart path's
+    with ``HERMES_HOME=/tmp/fabric-e2e-<pr>`` exported; the restart path's
     unit refresh baked the temp path into the production unit and the
     post-update restart produced a zombie gateway for 7+ hours.
 
@@ -2986,7 +2986,7 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
     # The user-scope unit path resolves under ``Path.home()``, which is NOT
     # sandboxed by the test conftest (only HERMES_HOME is). If a test
     # exercises ``run_gateway()`` with a pytest-tmp HERMES_HOME, the freshly
-    # generated unit bakes that ``/tmp/pytest-of-.../hermes_test`` path into
+    # generated unit bakes that ``/tmp/pytest-of-.../fabric_test`` path into
     # ``Environment="HERMES_HOME=..."``. Writing that to the developer's
     # real user systemd unit file silently breaks their gateway on the next
     # reboot (systemd loads the polluted env, the gateway looks at an empty
@@ -2998,13 +2998,13 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
     # still works.
     if not system and (
         "/pytest-of-" in new_unit
-        or '/hermes_test"' in new_unit
-        or "/hermes_test/" in new_unit
+        or '/fabric_test"' in new_unit
+        or "/fabric_test/" in new_unit
     ):
         return False
 
     # Structural variant of the same belt: refuse to bake ANY temp-dir
-    # HERMES_HOME into the unit (manual E2E homes like /tmp/hermes-e2e-NNN
+    # HERMES_HOME into the unit (manual E2E homes like /tmp/fabric-e2e-NNN
     # don't carry the pytest markers above but poison the unit identically).
     if _refuse_temp_home_service_write(new_unit, "systemd unit"):
         return False
@@ -3152,12 +3152,12 @@ def systemd_install(
     # flap-fight for the Telegram bot token on every gateway startup.
     # Only removes units matching _LEGACY_SERVICE_NAMES + our ExecStart
     # signature — profile units are never touched.
-    if has_legacy_hermes_units():
+    if has_legacy_fabric_units():
         print()
         print_legacy_unit_warning()
         print()
         if non_interactive or prompt_yes_no("Remove the legacy unit(s) before installing?", True):
-            remove_legacy_hermes_units(interactive=False)
+            remove_legacy_fabric_units(interactive=False)
             print()
 
     unit_path = get_systemd_unit_path(system=system)
@@ -3170,7 +3170,7 @@ def systemd_install(
     # ``sudo Fabric gateway install --system --force`` would bake /root/.hermes
     # into an already-correct unit. Keep it to protect that bypass path.
     if unit_path.exists():
-        _sync_hermes_home_from_systemd_unit(system=system)
+        _sync_fabric_home_from_systemd_unit(system=system)
 
     if unit_path.exists() and not force:
         if not systemd_unit_is_current(system=system):
@@ -3275,7 +3275,7 @@ def systemd_stop(system: bool = False):
     if system:
         _require_root_for_system_service("stop")
     _require_service_installed("stop", system=system)
-    _sync_hermes_home_from_systemd_unit(system=system)
+    _sync_fabric_home_from_systemd_unit(system=system)
     try:
         from gateway.status import get_running_pid, write_planned_stop_marker
 
@@ -3415,7 +3415,7 @@ def systemd_status(deep: bool = False, system: bool = False, full: bool = False)
         print_systemd_scope_conflict_warning()
         print()
 
-    if has_legacy_hermes_units():
+    if has_legacy_fabric_units():
         print_legacy_unit_warning()
         print()
 
@@ -3890,11 +3890,11 @@ def generate_launchd_plist() -> str:
     # _stable_service_working_dir() for the rationale (same rot risk applies
     # to launchd's WorkingDirectory as to systemd's).
     working_dir = _stable_service_working_dir()
-    hermes_home = str(get_fabric_home().resolve())
+    fabric_home = str(get_fabric_home().resolve())
     log_dir = get_fabric_home() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     label = get_launchd_label()
-    profile_arg = _profile_arg(hermes_home)
+    profile_arg = _profile_arg(fabric_home)
     # Build a sane PATH for the launchd plist.  launchd provides only a
     # minimal default (/usr/bin:/bin:/usr/sbin:/sbin) which misses Homebrew,
     # nvm, cargo, etc.  We prepend venv/bin and node_modules/.bin (matching
@@ -3962,9 +3962,9 @@ def generate_launchd_plist() -> str:
         <key>VIRTUAL_ENV</key>
         <string>{venv_dir}</string>
         <key>FABRIC_HOME</key>
-        <string>{hermes_home}</string>
+        <string>{fabric_home}</string>
         <key>HERMES_HOME</key>
-        <string>{hermes_home}</string>
+        <string>{fabric_home}</string>
     </dict>
 
     <key>LimitLoadToSessionType</key>
@@ -4052,7 +4052,7 @@ def refresh_launchd_plist_if_needed() -> bool:
         # launchd no longer knows about, so the gateway stays dark until a
         # manual `launchctl bootstrap`. Failures append a timestamped line
         # to ~/.fabric/logs/launchd-reload.log, which the health watchdog
-        # can tail to detect a persistent orphan. See hermes-restart
+        # can tail to detect a persistent orphan. See fabric-restart
         # rootcause handoff (2026-06-26 incident).
         reload_log_path = get_fabric_home() / "logs" / "launchd-reload.log"
         try:
@@ -4429,14 +4429,14 @@ def launchd_status(deep: bool = False):
     # unmanageable domain).  A PID in the output confirms a live process.
     launchd_pid = _parse_launchd_pid_from_list_output(list_output) if service_listed else None
 
-    # Hermes PID tracking — may be a detached fallback process spawned when
+    # Fabric PID tracking — may be a detached fallback process spawned when
     # launchd cannot manage the domain on this host.
     from gateway.status import get_running_pid
     fallback_pid = get_running_pid(cleanup_stale=False)
 
     # Avoid double-counting: when launchd IS supervising, fallback_pid and
     # launchd_pid point at the same process (the gateway writes both the
-    # launchd PID and the Hermes PID file).
+    # launchd PID and the Fabric PID file).
     if launchd_pid is not None and fallback_pid == launchd_pid:
         fallback_pid = None
 
@@ -6149,7 +6149,7 @@ def gateway_setup():
         print_systemd_scope_conflict_warning()
         print()
 
-    if supports_systemd_services() and has_legacy_hermes_units():
+    if supports_systemd_services() and has_legacy_fabric_units():
         print_legacy_unit_warning()
         print()
 
@@ -6775,7 +6775,7 @@ def _gateway_command_inner(args):
         # Phase 4: inside a container with s6, dispatch via the service
         # manager instead of falling through to systemd/launchd/windows.
         # `--all` isn't meaningful here (each profile has its own service
-        # slot — start them individually via `hermes -p <name> gateway
+        # slot — start them individually via `fabric -p <name> gateway
         # start`), so just bring up the current profile's slot.
         if not start_all and _dispatch_via_service_manager_if_s6("start"):
             return
@@ -7196,4 +7196,4 @@ def _gateway_command_inner(args):
         if not supports_systemd_services() and not is_macos():
             print("Legacy unit migration only applies to systemd-based Linux hosts.")
             return
-        remove_legacy_hermes_units(interactive=not yes, dry_run=dry_run)
+        remove_legacy_fabric_units(interactive=not yes, dry_run=dry_run)

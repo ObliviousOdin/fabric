@@ -57,10 +57,10 @@ def test_fabric_help_is_customer_silent():
     assert "usage: fabric" in result.stdout
     assert "Fabric - AI assistant" in result.stdout
     for forbidden in (
-        "usage: hermes",
+        "usage: fabric",
         "~/.hermes/config.yaml",
-        "Uninstall Hermes",
-        "Update Hermes",
+        "Uninstall Fabric",
+        "Update Fabric",
         "anthropic/claude",
         "openrouter, anthropic",
         "HERMES_INFERENCE_MODEL",

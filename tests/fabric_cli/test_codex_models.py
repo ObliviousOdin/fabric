@@ -166,7 +166,7 @@ def test_model_command_prompts_to_reuse_or_reauthenticate_codex_session(
     monkeypatch.setattr("builtins.input", lambda prompt="": next(choices))
     monkeypatch.setattr(
         "fabric_cli.auth.get_codex_auth_status",
-        lambda: {"logged_in": True, "source": "hermes-auth-store"},
+        lambda: {"logged_in": True, "source": "fabric-auth-store"},
     )
     monkeypatch.setattr(
         "fabric_cli.auth.resolve_codex_runtime_credentials",
@@ -209,7 +209,7 @@ def test_model_command_uses_existing_codex_session_without_relogin(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt="": next(choices))
     monkeypatch.setattr(
         "fabric_cli.auth.get_codex_auth_status",
-        lambda: {"logged_in": True, "source": "hermes-auth-store"},
+        lambda: {"logged_in": True, "source": "fabric-auth-store"},
     )
     monkeypatch.setattr(
         "fabric_cli.auth.resolve_codex_runtime_credentials",
@@ -242,9 +242,9 @@ def test_model_command_uses_existing_codex_session_without_relogin(monkeypatch):
 
 
 def _make_cli(model="anthropic/claude-opus-4.6", **kwargs):
-    """Create a HermesCLI with minimal mocking."""
+    """Create a FabricCLI with minimal mocking."""
     import cli as _cli_mod
-    from cli import HermesCLI
+    from cli import FabricCLI
 
     _clean_config = {
         "model": {
@@ -262,7 +262,7 @@ def _make_cli(model="anthropic/claude-opus-4.6", **kwargs):
         patch.dict("os.environ", clean_env, clear=False),
         patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
     ):
-        cli = HermesCLI(model=model, **kwargs)
+        cli = FabricCLI(model=model, **kwargs)
     return cli
 
 
@@ -358,8 +358,8 @@ class TestNormalizeModelForProvider:
             patch.dict("os.environ", {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}, clear=False),
             patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
         ):
-            from cli import HermesCLI
-            cli = HermesCLI()
+            from cli import FabricCLI
+            cli = FabricCLI()
 
         assert cli._model_is_default is True
         with patch(
@@ -389,8 +389,8 @@ class TestNormalizeModelForProvider:
             patch.dict("os.environ", {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}, clear=False),
             patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
         ):
-            from cli import HermesCLI
-            cli = HermesCLI()
+            from cli import FabricCLI
+            cli = FabricCLI()
 
         with patch(
             "fabric_cli.codex_models.get_codex_model_ids",

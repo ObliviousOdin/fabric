@@ -60,7 +60,7 @@ interface GatewayEventDeps {
   failAssistantMessage: (sessionId: string, errorMessage: string) => void
   flushQueuedDeltas: (sessionId?: string) => void
   queryClient: QueryClient
-  refreshHermesConfig: () => Promise<void>
+  refreshFabricConfig: () => Promise<void>
   sessionInterrupted: (sessionId: string) => boolean
   updateSessionState: (
     sessionId: string,
@@ -88,7 +88,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
     failAssistantMessage,
     flushQueuedDeltas,
     queryClient,
-    refreshHermesConfig,
+    refreshFabricConfig,
     sessionInterrupted,
     updateSessionState,
     upsertToolCall
@@ -223,7 +223,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
           reportInstallMethodWarning(payload?.install_warning)
         }
 
-        void refreshHermesConfig()
+        void refreshFabricConfig()
 
         if (modelChanged || providerChanged) {
           void queryClient.invalidateQueries({
@@ -671,7 +671,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
       lastCwdInfoSessionRef,
       nativeSubagentSessionsRef,
       queryClient,
-      refreshHermesConfig,
+      refreshFabricConfig,
       sessionInterrupted,
       updateSessionState,
       upsertToolCall

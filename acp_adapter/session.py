@@ -1,4 +1,4 @@
-"""ACP session manager — maps ACP sessions to Hermes AIAgent instances.
+"""ACP session manager — maps ACP sessions to Fabric AIAgent instances.
 
 Sessions are persisted to the shared SessionDB (``~/.hermes/state.db``) so they
 survive process restarts and appear in ``session_search``.  When the editor
@@ -37,9 +37,9 @@ def _win_path_to_wsl(path: str) -> str | None:
 
 
 def _translate_acp_cwd(cwd: str) -> str:
-    """Translate Windows ACP cwd values when Hermes itself is running in WSL.
+    """Translate Windows ACP cwd values when Fabric itself is running in WSL.
 
-    Windows ACP clients can launch ``hermes acp`` inside WSL while still sending
+    Windows ACP clients can launch ``fabric acp`` inside WSL while still sending
     editor workspaces as Windows drive paths such as ``E:\\Projects``. Store
     and execute against the WSL mount path so agents, tools, and persisted ACP
     sessions all agree on the usable workspace. Native Linux/macOS keeps the
@@ -184,7 +184,7 @@ class SessionState:
 
 
 class SessionManager:
-    """Thread-safe manager for ACP sessions backed by Hermes AIAgent instances.
+    """Thread-safe manager for ACP sessions backed by Fabric AIAgent instances.
 
     Sessions are held in-memory for fast access **and** persisted to the
     shared SessionDB so they survive process restarts and are searchable
@@ -407,14 +407,14 @@ class SessionManager:
         Note: we resolve ``HERMES_HOME`` dynamically rather than relying on
         the module-level ``DEFAULT_DB_PATH`` constant, because that constant
         is evaluated at import time and won't reflect env-var changes made
-        later (e.g. by the test fixture ``_isolate_hermes_home``).
+        later (e.g. by the test fixture ``_isolate_fabric_home``).
         """
         if self._db_instance is not None:
             return self._db_instance
         try:
             from fabric_state import SessionDB
-            hermes_home = get_fabric_home()
-            self._db_instance = SessionDB(db_path=hermes_home / "state.db")
+            fabric_home = get_fabric_home()
+            self._db_instance = SessionDB(db_path=fabric_home / "state.db")
             return self._db_instance
         except Exception:
             logger.debug("SessionDB unavailable for ACP persistence", exc_info=True)
@@ -656,7 +656,7 @@ class SessionManager:
         agent = AIAgent(**kwargs)
         # Codex app-server sessions are spawned lazily on the first turn. Stamp
         # the ACP workspace onto the agent so the Codex runtime starts from the
-        # editor/session cwd instead of the Hermes daemon's process cwd.
+        # editor/session cwd instead of the Fabric daemon's process cwd.
         agent.session_cwd = cwd
         # ACP stdio transport requires stdout to remain protocol-only JSON-RPC.
         # Route any incidental human-readable agent output to stderr instead.

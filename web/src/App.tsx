@@ -214,7 +214,7 @@ function buildRoutes(
 }
 
 const SIDEBAR_COLLAPSED_KEY = "fabric-sidebar-collapsed";
-const LEGACY_SIDEBAR_COLLAPSED_KEY = "hermes-sidebar-collapsed";
+const LEGACY_SIDEBAR_COLLAPSED_KEY = "fabric-sidebar-collapsed";
 
 export default function App() {
   return (

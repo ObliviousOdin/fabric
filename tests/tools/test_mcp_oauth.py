@@ -12,7 +12,7 @@ import pytest
 import asyncio
 
 from tools.mcp_oauth import (
-    HermesTokenStorage,
+    FabricTokenStorage,
     OAuthNonInteractiveError,
     build_oauth_auth,
     remove_oauth_tokens,
@@ -33,13 +33,13 @@ def _set_interactive_stdin(monkeypatch, *, is_tty: bool = True) -> None:
 
 
 # ---------------------------------------------------------------------------
-# HermesTokenStorage
+# FabricTokenStorage
 # ---------------------------------------------------------------------------
 
-class TestHermesTokenStorage:
+class TestFabricTokenStorage:
     def test_roundtrip_tokens(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("test-server")
+        storage = FabricTokenStorage("test-server")
 
         import asyncio
 
@@ -71,7 +71,7 @@ class TestHermesTokenStorage:
         the fix shipped for ``agent/google_oauth.py`` in #19673.
         """
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("perm-test-server")
+        storage = FabricTokenStorage("perm-test-server")
 
         import asyncio
         mock_token = MagicMock()
@@ -94,7 +94,7 @@ class TestHermesTokenStorage:
 
     def test_roundtrip_client_info(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("test-server")
+        storage = FabricTokenStorage("test-server")
         import asyncio
 
         assert asyncio.run(storage.get_client_info()) is None
@@ -111,7 +111,7 @@ class TestHermesTokenStorage:
 
     def test_remove_cleans_up(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("test-server")
+        storage = FabricTokenStorage("test-server")
 
         # Create files
         d = tmp_path / "mcp-tokens"
@@ -125,7 +125,7 @@ class TestHermesTokenStorage:
 
     def test_has_cached_tokens(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("my-server")
+        storage = FabricTokenStorage("my-server")
 
         assert not storage.has_cached_tokens()
 
@@ -137,7 +137,7 @@ class TestHermesTokenStorage:
 
     def test_corrupt_tokens_returns_none(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("bad-server")
+        storage = FabricTokenStorage("bad-server")
 
         d = tmp_path / "mcp-tokens"
         d.mkdir(parents=True)
@@ -148,7 +148,7 @@ class TestHermesTokenStorage:
 
     def test_corrupt_client_info_returns_none(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("bad-server")
+        storage = FabricTokenStorage("bad-server")
 
         d = tmp_path / "mcp-tokens"
         d.mkdir(parents=True)
@@ -324,7 +324,7 @@ class TestPathTraversal:
 
     def test_path_traversal_blocked(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("../../.ssh/config")
+        storage = FabricTokenStorage("../../.ssh/config")
         path = storage._tokens_path()
         # Should stay within mcp-tokens directory
         assert "mcp-tokens" in str(path)
@@ -332,19 +332,19 @@ class TestPathTraversal:
 
     def test_dots_and_slashes_sanitized(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("../../../etc/passwd")
+        storage = FabricTokenStorage("../../../etc/passwd")
         path = storage._tokens_path()
         resolved = path.resolve()
         assert resolved.is_relative_to((tmp_path / "mcp-tokens").resolve())
 
     def test_normal_name_unchanged(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("my-mcp-server")
+        storage = FabricTokenStorage("my-mcp-server")
         assert "my-mcp-server.json" in str(storage._tokens_path())
 
     def test_special_chars_sanitized(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("server@host:8080/path")
+        storage = FabricTokenStorage("server@host:8080/path")
         path = storage._tokens_path()
         assert "@" not in path.name
         assert ":" not in path.name
@@ -666,7 +666,7 @@ class TestNonInteractiveFailFastAtCallbackBoundary:
         err = capsys.readouterr().err
         assert "https://idp.example.com/authorize" not in err
 
-    def test_boundary_errors_point_at_hermes_mcp_login(self, monkeypatch):
+    def test_boundary_errors_point_at_fabric_mcp_login(self, monkeypatch):
         """Both boundaries emit an actionable next step."""
         import tools.mcp_oauth as mod
         import asyncio
@@ -773,7 +773,7 @@ def test_build_oauth_auth_preserves_server_url_path():
     breaking RFC 9728 protected-resource validation against servers whose PRM
     advertises a path-scoped resource (Notion). The MCP SDK strips the path
     itself for authorization-server discovery via
-    ``OAuthContext.get_authorization_base_url``; Hermes must not pre-strip.
+    ``OAuthContext.get_authorization_base_url``; Fabric must not pre-strip.
     """
     from tools import mcp_oauth
 
@@ -787,7 +787,7 @@ def test_build_oauth_auth_preserves_server_url_path():
          patch.object(mcp_oauth, "OAuthClientProvider", _FakeProvider), \
          patch.object(mcp_oauth, "_is_interactive", return_value=True), \
          patch.object(mcp_oauth, "_maybe_preregister_client"), \
-         patch.object(mcp_oauth, "HermesTokenStorage") as mock_storage_cls:
+         patch.object(mcp_oauth, "FabricTokenStorage") as mock_storage_cls:
         mock_storage_cls.return_value = MagicMock(has_cached_tokens=lambda: True)
         build_oauth_auth(
             server_name="notion",
@@ -1034,7 +1034,7 @@ class TestWaitForCallbackSkipIntegration:
 class TestPoisonClientRegistration:
     def test_poison_backs_up_and_removes_client_and_meta(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("srv")
+        storage = FabricTokenStorage("srv")
         d = tmp_path / "mcp-tokens"
         d.mkdir(parents=True)
         (d / "srv.json").write_text('{"access_token": "keep-me"}')
@@ -1054,5 +1054,5 @@ class TestPoisonClientRegistration:
 
     def test_poison_noop_when_no_client_file(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        storage = HermesTokenStorage("srv")
+        storage = FabricTokenStorage("srv")
         assert storage.poison_client_registration() is False

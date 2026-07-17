@@ -13,7 +13,7 @@ downstream consumers (CI / `fabric update`) rely on:
 We do NOT spin up a real cua-driver — that lives in the cua-driver
 integration test suite (libs/cua-driver/rust/tests/integration/
 test_health_report_mcp.py). Here we mock the subprocess and assert the
-Hermes-side adapter behaves correctly against the documented response
+Fabric-side adapter behaves correctly against the documented response
 shape.
 """
 

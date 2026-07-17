@@ -1691,7 +1691,7 @@ def test_has_spawnable_ready_false_when_only_terminal_lanes(kanban_home, monkeyp
 
 def test_has_spawnable_ready_true_when_real_profile_present(kanban_home, monkeypatch):
     """``has_spawnable_ready`` returns True as soon as ANY ready task
-    has an assignee that maps to a real Hermes profile — preserves the
+    has an assignee that maps to a real Fabric profile — preserves the
     real "stuck" signal when a daily/agent task is queued."""
     from fabric_cli import profiles
     monkeypatch.setattr(
@@ -1699,7 +1699,7 @@ def test_has_spawnable_ready_true_when_real_profile_present(kanban_home, monkeyp
     )
     with kb.connect() as conn:
         kb.create_task(conn, title="terminal-task", assignee="orion-cc")
-        kb.create_task(conn, title="hermes-task", assignee="daily")
+        kb.create_task(conn, title="fabric-task", assignee="daily")
         assert kb.has_spawnable_ready(conn) is True
 
 
@@ -2078,7 +2078,7 @@ def test_dispatch_respawn_guard_emits_event_for_skipped_task(
 # Workspace resolution
 # ---------------------------------------------------------------------------
 
-def test_scratch_workspace_created_under_hermes_home(kanban_home):
+def test_scratch_workspace_created_under_fabric_home(kanban_home):
     with kb.connect() as conn:
         t = kb.create_task(conn, title="x")
         task = kb.get_task(conn, t)
@@ -2336,7 +2336,7 @@ def test_cleanup_workspace_removes_managed_scratch_dir(kanban_home):
         kb.set_workspace_path(conn, t, ws)
         assert ws.is_dir()
         kb.complete_task(conn, t, result="ok")
-    assert not ws.exists(), "Hermes-managed scratch dir should be cleaned up"
+    assert not ws.exists(), "Fabric-managed scratch dir should be cleaned up"
 
 
 def test_cleanup_workspace_refuses_path_outside_scratch_root(kanban_home, tmp_path):
@@ -2506,7 +2506,7 @@ def test_is_managed_scratch_path_rejects_kanban_metadata_subtrees(kanban_home):
     ``workspace_path`` was mis-set to the kanban home, the logs dir, or a
     board's metadata dir (i.e. the board root itself, not its ``workspaces/``
     child) must be refused. Without this, the containment check would happily
-    ``shutil.rmtree`` Hermes' DB/metadata/logs on task completion.
+    ``shutil.rmtree`` Fabric' DB/metadata/logs on task completion.
     """
     kanban_root = kanban_home / "kanban"
     kanban_root.mkdir(parents=True, exist_ok=True)
@@ -2679,7 +2679,7 @@ def test_session_id_compose_with_tenant_filter(kanban_home):
 # Shared-board path resolution (issue #19348)
 #
 # The kanban board is a cross-profile coordination primitive: a worker
-# spawned with `hermes -p <profile>` must read/write the same kanban.db
+# spawned with `fabric -p <profile>` must read/write the same kanban.db
 # as the dispatcher that claimed the task. These tests exercise the
 # path-resolution layer directly and would have caught the regression
 # where `kanban_db_path()` resolved to the active profile's HERMES_HOME.
@@ -2689,12 +2689,12 @@ class TestSharedBoardPaths:
     """`kanban_home`/`kanban_db_path`/`workspaces_root`/`worker_log_path`
     must anchor at the **shared root**, not the active profile's HERMES_HOME."""
 
-    def _set_home(self, monkeypatch, tmp_path, hermes_home):
+    def _set_home(self, monkeypatch, tmp_path, fabric_home):
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
         monkeypatch.delenv("HERMES_KANBAN_HOME", raising=False)
 
-    def test_default_install_anchors_at_home_dot_hermes(
+    def test_default_install_anchors_at_home_dot_fabric(
         self, tmp_path, monkeypatch
     ):
         # Standard install: HERMES_HOME == ~/.hermes, no profile active.
@@ -2754,7 +2754,7 @@ class TestSharedBoardPaths:
         dispatcher_ws = kb.workspaces_root()
         dispatcher_log = kb.worker_log_path("t_handoff")
 
-        # Worker's perspective (profile activated by `hermes -p coder`).
+        # Worker's perspective (profile activated by `fabric -p coder`).
         monkeypatch.setenv("HERMES_HOME", str(profile_home))
         worker_db = kb.kanban_db_path()
         worker_ws = kb.workspaces_root()
@@ -2764,7 +2764,7 @@ class TestSharedBoardPaths:
         assert dispatcher_ws == worker_ws
         assert dispatcher_log == worker_log
 
-    def test_docker_custom_hermes_home_uses_env_path_directly(
+    def test_docker_custom_fabric_home_uses_env_path_directly(
         self, tmp_path, monkeypatch
     ):
         # Docker / custom deployment: HERMES_HOME points outside ~/.hermes.
@@ -2792,7 +2792,7 @@ class TestSharedBoardPaths:
         assert kb.kanban_home() == custom_root
         assert kb.kanban_db_path() == custom_root / "kanban.db"
 
-    def test_explicit_override_via_hermes_kanban_home(
+    def test_explicit_override_via_fabric_kanban_home(
         self, tmp_path, monkeypatch
     ):
         # Explicit override: HERMES_KANBAN_HOME beats every other
@@ -2845,7 +2845,7 @@ class TestSharedBoardPaths:
         assert task is not None
         assert task.title == "cross-profile"
 
-    def test_hermes_kanban_db_pin_beats_kanban_home(
+    def test_fabric_kanban_db_pin_beats_kanban_home(
         self, tmp_path, monkeypatch
     ):
         # HERMES_KANBAN_DB pins the file path directly and beats both
@@ -2868,7 +2868,7 @@ class TestSharedBoardPaths:
         # are independent.
         assert kb.workspaces_root() == umbrella / "kanban" / "workspaces"
 
-    def test_hermes_kanban_workspaces_root_pin_beats_kanban_home(
+    def test_fabric_kanban_workspaces_root_pin_beats_kanban_home(
         self, tmp_path, monkeypatch
     ):
         # HERMES_KANBAN_WORKSPACES_ROOT pins the workspaces root directly.
@@ -3104,7 +3104,7 @@ def test_unlink_tasks_triggers_recompute_ready(kanban_home):
     complete_task and unblock_task.
 
     Before the fix, child stayed 'todo' indefinitely after unlink; only the
-    next dispatcher tick or a manual 'hermes kanban recompute' would promote it.
+    next dispatcher tick or a manual 'fabric kanban recompute' would promote it.
     """
     with kb.connect() as conn:
         # A is done.
@@ -3238,7 +3238,7 @@ def test_migrate_add_optional_columns_tolerates_concurrent_migration(kanban_home
 
 
 # ---------------------------------------------------------------------------
-# Dispatcher spawn invocation — _resolve_hermes_argv()
+# Dispatcher spawn invocation — _resolve_fabric_argv()
 #
 # Workers spawned by the dispatcher must use a `hermes` invocation that does
 # not depend on PATH being set up correctly. cron jobs, systemd User= services,
@@ -3250,18 +3250,18 @@ def test_migrate_add_optional_columns_tolerates_concurrent_migration(kanban_home
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_hermes_argv_prefers_path_shim(monkeypatch):
+def test_resolve_fabric_argv_prefers_path_shim(monkeypatch):
     """When `hermes` is on PATH, use the shim — preserves familiar ps output."""
     import shutil
     import fabric_cli.kanban_db as kb
 
     monkeypatch.delenv("HERMES_BIN", raising=False)
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/local/bin/hermes")
-    argv = kb._resolve_hermes_argv()
+    argv = kb._resolve_fabric_argv()
     assert argv == ["/usr/local/bin/hermes"]
 
 
-def test_resolve_hermes_argv_absolutizes_relative_exe_shim(monkeypatch, tmp_path):
+def test_resolve_fabric_argv_absolutizes_relative_exe_shim(monkeypatch, tmp_path):
     """A relative executable override must not remain workspace-cwd-dependent."""
     import fabric_cli.kanban_db as kb
 
@@ -3269,10 +3269,10 @@ def test_resolve_hermes_argv_absolutizes_relative_exe_shim(monkeypatch, tmp_path
     monkeypatch.setenv("HERMES_BIN", ".\\hermes.exe")
     monkeypatch.setattr(kb, "_IS_WINDOWS", True)
 
-    assert kb._resolve_hermes_argv() == [os.path.abspath(".\\hermes.exe")]
+    assert kb._resolve_fabric_argv() == [os.path.abspath(".\\hermes.exe")]
 
 
-def test_resolve_hermes_argv_avoids_implicit_windows_batch_shim(monkeypatch, tmp_path):
+def test_resolve_fabric_argv_avoids_implicit_windows_batch_shim(monkeypatch, tmp_path):
     """Implicit .cmd/.bat shims use the module fallback, not batch argv[0]."""
     import sys
     import fabric_cli.kanban_db as kb
@@ -3285,10 +3285,10 @@ def test_resolve_hermes_argv_avoids_implicit_windows_batch_shim(monkeypatch, tmp
     monkeypatch.setenv("PATHEXT", ".CMD")
     monkeypatch.setattr(kb, "_IS_WINDOWS", True)
 
-    assert kb._resolve_hermes_argv() == [sys.executable, "-m", "fabric_cli.main"]
+    assert kb._resolve_fabric_argv() == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_honors_hermes_bin_path_override(monkeypatch, tmp_path):
+def test_resolve_fabric_argv_honors_fabric_bin_path_override(monkeypatch, tmp_path):
     """An explicit path-like HERMES_BIN lets service managers pin the executable."""
     import shutil
     import fabric_cli.kanban_db as kb
@@ -3299,18 +3299,18 @@ def test_resolve_hermes_argv_honors_hermes_bin_path_override(monkeypatch, tmp_pa
     monkeypatch.setenv("HERMES_BIN", str(shim))
     monkeypatch.setattr(shutil, "which", lambda name: None)
 
-    assert kb._resolve_hermes_argv() == [str(shim)]
+    assert kb._resolve_fabric_argv() == [str(shim)]
 
 
-def test_resolve_hermes_argv_hermes_bin_bare_name_uses_path(monkeypatch, tmp_path):
+def test_resolve_fabric_argv_fabric_bin_bare_name_uses_path(monkeypatch, tmp_path):
     """Bare HERMES_BIN values keep PATH semantics instead of cwd shadowing."""
     import stat
     import fabric_cli.kanban_db as kb
 
-    cwd_hermes = tmp_path / "hermes"
+    cwd_fabric = tmp_path / "hermes"
     cwd_hermes.write_text("wrong\n", encoding="utf-8")
     cwd_hermes.chmod(cwd_hermes.stat().st_mode | stat.S_IXUSR)
-    path_hermes = tmp_path / "bin" / "hermes"
+    path_fabric = tmp_path / "bin" / "hermes"
     path_hermes.parent.mkdir()
     path_hermes.write_text("right\n", encoding="utf-8")
     path_hermes.chmod(path_hermes.stat().st_mode | stat.S_IXUSR)
@@ -3318,10 +3318,10 @@ def test_resolve_hermes_argv_hermes_bin_bare_name_uses_path(monkeypatch, tmp_pat
     monkeypatch.setenv("PATH", str(path_hermes.parent))
     monkeypatch.setenv("HERMES_BIN", "hermes")
 
-    assert kb._resolve_hermes_argv() == [str(path_hermes)]
+    assert kb._resolve_fabric_argv() == [str(path_fabric)]
 
 
-def test_resolve_hermes_argv_hermes_bin_bare_name_ignores_cwd(monkeypatch, tmp_path):
+def test_resolve_fabric_argv_fabric_bin_bare_name_ignores_cwd(monkeypatch, tmp_path):
     """Bare HERMES_BIN does not accept current-directory shadow executables."""
     import sys
     import fabric_cli.kanban_db as kb
@@ -3332,10 +3332,10 @@ def test_resolve_hermes_argv_hermes_bin_bare_name_ignores_cwd(monkeypatch, tmp_p
     monkeypatch.setenv("HERMES_BIN", "hermes")
     monkeypatch.setattr(kb, "_IS_WINDOWS", True)
 
-    assert kb._resolve_hermes_argv() == [sys.executable, "-m", "fabric_cli.main"]
+    assert kb._resolve_fabric_argv() == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_hermes_bin_bare_cmd_uses_module_fallback(monkeypatch, tmp_path):
+def test_resolve_fabric_argv_fabric_bin_bare_cmd_uses_module_fallback(monkeypatch, tmp_path):
     """A PATH-resolved HERMES_BIN batch shim is not used as worker argv[0]."""
     import sys
     import fabric_cli.kanban_db as kb
@@ -3348,10 +3348,10 @@ def test_resolve_hermes_argv_hermes_bin_bare_cmd_uses_module_fallback(monkeypatc
     monkeypatch.setenv("HERMES_BIN", "hermes")
     monkeypatch.setattr(kb, "_IS_WINDOWS", True)
 
-    assert kb._resolve_hermes_argv() == [sys.executable, "-m", "fabric_cli.main"]
+    assert kb._resolve_fabric_argv() == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_hermes_bin_unresolved_bare_name_falls_back(monkeypatch):
+def test_resolve_fabric_argv_fabric_bin_unresolved_bare_name_falls_back(monkeypatch):
     """Unresolved HERMES_BIN command names do not delegate cwd search to Popen."""
     import sys
     import fabric_cli.kanban_db as kb
@@ -3359,15 +3359,15 @@ def test_resolve_hermes_argv_hermes_bin_unresolved_bare_name_falls_back(monkeypa
     monkeypatch.setenv("PATH", "")
     monkeypatch.setenv("HERMES_BIN", "hermes")
 
-    assert kb._resolve_hermes_argv() == [sys.executable, "-m", "fabric_cli.main"]
+    assert kb._resolve_fabric_argv() == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_falls_back_to_module_form_when_no_path_shim(monkeypatch):
+def test_resolve_fabric_argv_falls_back_to_module_form_when_no_path_shim(monkeypatch):
     """When the shim is not on PATH, fall back to `python -m fabric_cli.main`.
 
     Pins the correct module name (NOT `hermes` — there is no top-level
     `hermes` package). Regression for #23198: the original PR shipped
-    `python -m hermes` which fails with `No module named hermes` on every
+    `python -m fabric` which fails with `No module named fabric` on every
     invocation.
     """
     import shutil
@@ -3376,11 +3376,11 @@ def test_resolve_hermes_argv_falls_back_to_module_form_when_no_path_shim(monkeyp
 
     monkeypatch.delenv("HERMES_BIN", raising=False)
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    argv = kb._resolve_hermes_argv()
+    argv = kb._resolve_fabric_argv()
     assert argv == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_module_actually_runs():
+def test_resolve_fabric_argv_module_actually_runs():
     """The fallback module name must be importable + runnable.
 
     A unit test that pins the literal string is necessary but not
@@ -3397,7 +3397,7 @@ def test_resolve_hermes_argv_module_actually_runs():
     with mock.patch.dict(os.environ, {}, clear=False):
         os.environ.pop("HERMES_BIN", None)
         with mock.patch.object(shutil, "which", return_value=None):
-            argv = kb._resolve_hermes_argv()
+            argv = kb._resolve_fabric_argv()
     r = subprocess.run(argv + ["--version"], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, (
         f"`{' '.join(argv)} --version` failed (rc={r.returncode}); "

@@ -179,7 +179,7 @@ def check_env_vars():
         from fabric_cli.env_loader import load_fabric_dotenv
 
         load_fabric_dotenv(
-            hermes_home=ENV_FILE.parent,
+            fabric_home=ENV_FILE.parent,
             project_env=PROJECT_ROOT / ".env",
         )
     except ImportError:

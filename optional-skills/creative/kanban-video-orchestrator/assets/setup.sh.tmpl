@@ -35,7 +35,7 @@ check_key() {
         echo "  ✓ ${var} (Keychain ${kc_account}/${kc_service})"
         return 0
     fi
-    # Older installs used a Hermes-named Keychain account; read it only as a
+    # Older installs used a Fabric-named Keychain account; read it only as a
     # compatibility fallback while all new writes and guidance use Fabric.
     if [ "${kc_account}" != "hermes" ] && command -v security >/dev/null 2>&1 && \
        security find-generic-password -a "hermes" -s "${kc_service}" -w >/dev/null 2>&1; then

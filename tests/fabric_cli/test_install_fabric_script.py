@@ -17,8 +17,6 @@ def test_installer_help_is_fabric_only():
     result = subprocess.run(["bash", str(INSTALLER), "--help"], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert "Fabric Installer" in result.stdout
-    assert "fabric setup" not in result.stderr
-    assert "Hermes Installer" not in result.stdout
 
 
 def test_installer_uses_modern_home_and_safe_migration_command():

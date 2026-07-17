@@ -245,7 +245,7 @@ class TestSystemdServiceRefresh:
         ``Environment=`` line. Without this guard, any test that drives
         ``run_gateway()`` end-to-end on a real Linux dev box silently
         rewrites the developer's installed gateway unit with a
-        ``/tmp/pytest-of-.../hermes_test`` HERMES_HOME — silently breaking
+        ``/tmp/pytest-of-.../fabric_test`` HERMES_HOME — silently breaking
         their gateway on the next boot. The guard sniffs the generated
         unit body for tmpdir markers and refuses the write. Tests that
         legitimately exercise the refresh flow patch
@@ -262,7 +262,7 @@ class TestSystemdServiceRefresh:
         polluted_unit = (
             "[Service]\n"
             'Environment="HERMES_HOME=/tmp/pytest-of-alice/pytest-42/'
-            'popen-gw0/test_x/hermes_test"\n'
+            'popen-gw0/test_x/fabric_test"\n'
         )
         monkeypatch.setattr(
             gateway_cli,
@@ -293,7 +293,7 @@ class TestSystemdServiceRefresh:
         self, tmp_path, monkeypatch
     ):
         """Structural guard: a manual E2E HERMES_HOME like
-        ``/tmp/hermes-e2e-41264`` carries none of the pytest markers but
+        ``/tmp/fabric-e2e-41264`` carries none of the pytest markers but
         poisons the unit identically (seen live 2026-06-11 — an E2E probe ran
         ``fabric gateway restart`` with a /tmp HERMES_HOME exported; the
         restart's unit refresh baked it into the production unit and the
@@ -308,8 +308,8 @@ class TestSystemdServiceRefresh:
         )
         polluted_unit = (
             "[Service]\n"
-            'Environment="HERMES_HOME=/tmp/hermes-e2e-41264"\n'
-            "WorkingDirectory=/tmp/hermes-e2e-41264\n"
+            'Environment="HERMES_HOME=/tmp/fabric-e2e-41264"\n'
+            "WorkingDirectory=/tmp/fabric-e2e-41264\n"
         )
         monkeypatch.setattr(
             gateway_cli,
@@ -340,31 +340,31 @@ class TestTempHomeServiceDefinitionGuard:
     """_temp_home_in_service_definition() — structural temp-dir detection."""
 
     def test_detects_tmp_home_in_systemd_unit(self):
-        unit = '[Service]\nEnvironment="HERMES_HOME=/tmp/hermes-e2e-41264"\n'
+        unit = '[Service]\nEnvironment="HERMES_HOME=/tmp/fabric-e2e-41264"\n'
         assert (
             gateway_cli._temp_home_in_service_definition(unit)
-            == "/tmp/hermes-e2e-41264"
+            == "/tmp/fabric-e2e-41264"
         )
 
     def test_detects_var_tmp_home(self):
-        unit = '[Service]\nEnvironment="HERMES_HOME=/var/tmp/hermes-x"\n'
+        unit = '[Service]\nEnvironment="HERMES_HOME=/var/tmp/fabric-x"\n'
         assert gateway_cli._temp_home_in_service_definition(unit) is not None
 
     def test_detects_tempdir_env_home(self, monkeypatch, tmp_path):
         import tempfile as _tempfile
 
         monkeypatch.setattr(_tempfile, "gettempdir", lambda: str(tmp_path))
-        unit = f'[Service]\nEnvironment="HERMES_HOME={tmp_path}/hermes-home"\n'
+        unit = f'[Service]\nEnvironment="HERMES_HOME={tmp_path}/fabric-home"\n'
         assert gateway_cli._temp_home_in_service_definition(unit) is not None
 
     def test_detects_tmp_home_in_launchd_plist(self):
         plist = (
             "<dict>\n  <key>HERMES_HOME</key>\n"
-            "  <string>/tmp/hermes-e2e-99999</string>\n</dict>\n"
+            "  <string>/tmp/fabric-e2e-99999</string>\n</dict>\n"
         )
         assert (
             gateway_cli._temp_home_in_service_definition(plist)
-            == "/tmp/hermes-e2e-99999"
+            == "/tmp/fabric-e2e-99999"
         )
 
     def test_accepts_real_home(self):
@@ -374,11 +374,11 @@ class TestTempHomeServiceDefinitionGuard:
     def test_accepts_macos_real_home_plist(self):
         plist = (
             "<dict>\n  <key>HERMES_HOME</key>\n"
-            "  <string>/Users/alice/.hermes</string>\n</dict>\n"
+            "  <string>/Users/alice/.fabric</string>\n</dict>\n"
         )
         assert gateway_cli._temp_home_in_service_definition(plist) is None
 
-    def test_accepts_unit_without_hermes_home(self):
+    def test_accepts_unit_without_fabric_home(self):
         unit = "[Service]\nExecStart=/usr/bin/python -m fabric_cli.main gateway run\n"
         assert gateway_cli._temp_home_in_service_definition(unit) is None
 
@@ -518,7 +518,7 @@ class TestGeneratedSystemdUnits:
             "_system_service_identity",
             lambda run_as_user=None: ("alice", "alice", "/home/alice"),
         )
-        monkeypatch.setattr(gateway_cli, "_hermes_home_for_target_user", lambda home: "/home/alice/.fabric")
+        monkeypatch.setattr(gateway_cli, "_fabric_home_for_target_user", lambda home: "/home/alice/.fabric")
         monkeypatch.setenv("PATH", "/usr/local/bin:/mnt/c/WINDOWS/system32")
         monkeypatch.setattr(gateway_cli.shutil, "which", lambda cmd: None)
 
@@ -646,7 +646,7 @@ class TestLaunchdServiceRecovery:
             "generate_launchd_plist",
             lambda: (
                 "<plist>--replace\n<key>HERMES_HOME</key>"
-                "<string>/Users/alice/.hermes</string></plist>"
+                "<string>/Users/alice/.fabric</string></plist>"
             ),
         )
 
@@ -687,7 +687,7 @@ class TestLaunchdServiceRecovery:
             "generate_launchd_plist",
             lambda: (
                 "<plist>--replace\n<key>HERMES_HOME</key>"
-                "<string>/Users/alice/.hermes</string></plist>"
+                "<string>/Users/alice/.fabric</string></plist>"
             ),
         )
         # Pretend the gateway is running and that we ARE inside its tree.
@@ -741,7 +741,7 @@ class TestLaunchdServiceRecovery:
             "generate_launchd_plist",
             lambda: (
                 "<plist>--replace\n<key>HERMES_HOME</key>"
-                "<string>/Users/alice/.hermes</string></plist>"
+                "<string>/Users/alice/.fabric</string></plist>"
             ),
         )
         # Gateway running, but we are NOT inside its tree.
@@ -1066,7 +1066,7 @@ class TestLaunchdServiceRecovery:
             "generate_launchd_plist",
             lambda: (
                 "<plist><key>HERMES_HOME</key>"
-                "<string>/Users/alice/.hermes</string></plist>"
+                "<string>/Users/alice/.fabric</string></plist>"
             ),
         )
 
@@ -1720,7 +1720,7 @@ class TestGatewaySystemServiceRouting:
         monkeypatch.setattr(gateway_cli, "_select_systemd_scope", lambda system=False: False)
         monkeypatch.setattr(gateway_cli, "get_systemd_unit_path", lambda system=False: unit)
         monkeypatch.setattr(gateway_cli, "has_conflicting_systemd_units", lambda: False)
-        monkeypatch.setattr(gateway_cli, "has_legacy_hermes_units", lambda: False)
+        monkeypatch.setattr(gateway_cli, "has_legacy_fabric_units", lambda: False)
         monkeypatch.setattr(gateway_cli, "systemd_unit_is_current", lambda system=False: True)
         monkeypatch.setattr(gateway_cli, "_runtime_health_lines", lambda: ["⚠ Last shutdown reason: Gateway restart requested"])
         monkeypatch.setattr(gateway_cli, "get_systemd_linger_status", lambda: (True, ""))
@@ -1965,7 +1965,7 @@ class TestDetectVenvDir:
         assert result is None
 
 
-class TestSystemUnitHermesHome:
+class TestSystemUnitFabricHome:
     """HERMES_HOME in system units must reference the target user, not root."""
 
     def test_system_unit_uses_target_user_home_not_calling_user(self, monkeypatch):
@@ -2004,7 +2004,7 @@ class TestSystemUnitHermesHome:
         assert ('FABRIC_HOME=/home/alice/.fabric/profiles/coder' in unit or 'HERMES_HOME=/home/alice/.fabric/profiles/coder' in unit)
         assert '/root/' not in unit
 
-    def test_system_unit_preserves_custom_hermes_home(self, monkeypatch):
+    def test_system_unit_preserves_custom_fabric_home(self, monkeypatch):
         # Custom HERMES_HOME not under any user's home — keep as-is
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/root")))
         monkeypatch.setenv("HERMES_HOME", "/opt/hermes-shared")
@@ -2025,24 +2025,24 @@ class TestSystemUnitHermesHome:
         # User-scope units should still use the calling user's HERMES_HOME
         unit = gateway_cli.generate_systemd_unit(system=False)
 
-        hermes_home = str(gateway_cli.get_fabric_home().resolve())
-        assert f'HERMES_HOME={hermes_home}' in unit
+        fabric_home = str(gateway_cli.get_fabric_home().resolve())
+        assert f'HERMES_HOME={fabric_home}' in unit
 
 
-class TestSystemUnitRefreshSyncsHermesHome:
+class TestSystemUnitRefreshSyncsFabricHome:
     """sudo system refresh must not flip TimeoutStopSec via /root/.hermes."""
 
-    def test_refresh_adopts_unit_hermes_home_before_rewriting(self, tmp_path, monkeypatch):
+    def test_refresh_adopts_unit_fabric_home_before_rewriting(self, tmp_path, monkeypatch):
         root_home = tmp_path / "root"
         alice_home = tmp_path / "alice"
-        root_hermes = root_home / ".hermes"
-        alice_hermes = alice_home / ".hermes"
+        root_fabric = root_home / ".hermes"
+        alice_fabric = alice_home / ".hermes"
         root_hermes.mkdir(parents=True)
         alice_hermes.mkdir(parents=True)
-        (root_hermes / "config.yaml").write_text(
+        (root_fabric / "config.yaml").write_text(
             "agent:\n  restart_drain_timeout: 60\n", encoding="utf-8"
         )
-        (alice_hermes / "config.yaml").write_text(
+        (alice_fabric / "config.yaml").write_text(
             "agent:\n  restart_drain_timeout: 180\n", encoding="utf-8"
         )
 
@@ -2062,16 +2062,16 @@ class TestSystemUnitRefreshSyncsHermesHome:
         monkeypatch.delenv("HERMES_RESTART_DRAIN_TIMEOUT", raising=False)
 
         # Correct installed unit (operator's HERMES_HOME + drain timeout).
-        monkeypatch.setenv("HERMES_HOME", str(alice_hermes))
+        monkeypatch.setenv("HERMES_HOME", str(alice_fabric))
         good_unit = gateway_cli.generate_systemd_unit(system=True, run_as_user="alice")
         assert "TimeoutStopSec=210" in good_unit
         unit_path.write_text(good_unit, encoding="utf-8")
 
         # Simulate sudo without inherited HERMES_HOME (falls back to root).
-        monkeypatch.setenv("HERMES_HOME", str(root_hermes))
+        monkeypatch.setenv("HERMES_HOME", str(root_fabric))
         assert gateway_cli.refresh_systemd_unit_if_needed(system=True) is False
         assert unit_path.read_text(encoding="utf-8") == good_unit
-        assert os.environ["HERMES_HOME"] == str(alice_hermes)
+        assert os.environ["HERMES_HOME"] == str(alice_fabric)
         assert gateway_cli.systemd_unit_is_current(system=True) is True
 
     def test_is_current_syncs_before_reading_unit(self, tmp_path, monkeypatch):
@@ -2098,7 +2098,7 @@ class TestSystemUnitRefreshSyncsHermesHome:
                 order.append("read")
             return real_read_text(self, *a, **k)
 
-        monkeypatch.setattr(gateway_cli, "_sync_hermes_home_from_systemd_unit", tracking_sync)
+        monkeypatch.setattr(gateway_cli, "_sync_fabric_home_from_systemd_unit", tracking_sync)
         monkeypatch.setattr(Path, "read_text", tracking_read_text)
         # Avoid a real generate/compare — we only assert sync precedes read.
         monkeypatch.setattr(gateway_cli, "generate_systemd_unit", lambda **k: "[Unit]\n")
@@ -2125,7 +2125,7 @@ class TestSystemUnitRefreshSyncsHermesHome:
             )
             monkeypatch.setattr(
                 gateway_cli,
-                "_sync_hermes_home_from_systemd_unit",
+                "_sync_fabric_home_from_systemd_unit",
                 lambda system: calls.append("sync"),
             )
             monkeypatch.setattr(
@@ -2160,35 +2160,35 @@ class TestSystemUnitRefreshSyncsHermesHome:
             )
 
 
-class TestHermesHomeForTargetUser:
-    """Unit tests for _hermes_home_for_target_user()."""
+class TestFabricHomeForTargetUser:
+    """Unit tests for _fabric_home_for_target_user()."""
 
     def test_remaps_default_home(self, monkeypatch):
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/root")))
         monkeypatch.delenv("HERMES_HOME", raising=False)
 
-        result = gateway_cli._hermes_home_for_target_user("/home/alice")
+        result = gateway_cli._fabric_home_for_target_user("/home/alice")
         assert result == "/home/alice/.fabric"
 
     def test_remaps_profile_path(self, monkeypatch):
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/root")))
         monkeypatch.setenv("HERMES_HOME", "/root/.fabric/profiles/coder")
 
-        result = gateway_cli._hermes_home_for_target_user("/home/alice")
+        result = gateway_cli._fabric_home_for_target_user("/home/alice")
         assert result == "/home/alice/.fabric/profiles/coder"
 
     def test_keeps_custom_path(self, monkeypatch):
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/root")))
         monkeypatch.setenv("HERMES_HOME", "/opt/hermes")
 
-        result = gateway_cli._hermes_home_for_target_user("/home/alice")
+        result = gateway_cli._fabric_home_for_target_user("/home/alice")
         assert result == "/opt/hermes"
 
     def test_noop_when_same_user(self, monkeypatch):
         monkeypatch.setattr(Path, "home", staticmethod(lambda: Path("/home/alice")))
         monkeypatch.delenv("HERMES_HOME", raising=False)
 
-        result = gateway_cli._hermes_home_for_target_user("/home/alice")
+        result = gateway_cli._fabric_home_for_target_user("/home/alice")
         assert result == "/home/alice/.fabric"
 
 
@@ -2478,13 +2478,13 @@ class TestPreflightUserSystemd:
 class TestProfileArg:
     """Tests for _profile_arg — returns '--profile <name>' for named profiles."""
 
-    def test_default_hermes_home_returns_empty(self, tmp_path, monkeypatch):
+    def test_default_fabric_home_returns_empty(self, tmp_path, monkeypatch):
         """Default ~/.hermes should not produce a --profile flag."""
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
+        fabric_home = tmp_path / ".hermes"
+        fabric_home.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-        result = gateway_cli._profile_arg(str(hermes_home))
+        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        result = gateway_cli._profile_arg(str(fabric_home))
         assert result == ""
 
     def test_named_profile_returns_flag(self, tmp_path, monkeypatch):
@@ -2764,8 +2764,8 @@ class TestDockerAwareGateway:
         assert "fabric gateway run" in out
 
 
-class TestLegacyHermesUnitDetection:
-    """Tests for _find_legacy_hermes_units / has_legacy_hermes_units.
+class TestLegacyFabricUnitDetection:
+    """Tests for _find_legacy_fabric_units / has_legacy_fabric_units.
 
     These guard against the scenario that tripped Luis in April 2026: an
     older install left a ``hermes.service`` unit behind when the service was
@@ -2780,7 +2780,7 @@ class TestLegacyHermesUnitDetection:
 
     # Minimal ExecStart that looks like our gateway
     _OUR_UNIT_TEXT = (
-        "[Unit]\nDescription=Hermes Gateway\n[Service]\n"
+        "[Unit]\nDescription=Fabric Gateway\n[Service]\n"
         "ExecStart=/usr/bin/python -m fabric_cli.main gateway run --replace\n"
     )
 
@@ -2798,26 +2798,26 @@ class TestLegacyHermesUnitDetection:
         )
         return user_dir, system_dir
 
-    def test_detects_legacy_hermes_service_in_user_scope(self, tmp_path, monkeypatch):
+    def test_detects_legacy_fabric_service_in_user_scope(self, tmp_path, monkeypatch):
         user_dir, _ = self._setup_search_paths(tmp_path, monkeypatch)
         legacy = user_dir / "hermes.service"
         legacy.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        results = gateway_cli._find_legacy_hermes_units()
+        results = gateway_cli._find_legacy_fabric_units()
 
         assert len(results) == 1
         name, path, is_system = results[0]
         assert name == "hermes.service"
         assert path == legacy
         assert is_system is False
-        assert gateway_cli.has_legacy_hermes_units() is True
+        assert gateway_cli.has_legacy_fabric_units() is True
 
-    def test_detects_legacy_hermes_service_in_system_scope(self, tmp_path, monkeypatch):
+    def test_detects_legacy_fabric_service_in_system_scope(self, tmp_path, monkeypatch):
         _, system_dir = self._setup_search_paths(tmp_path, monkeypatch)
         legacy = system_dir / "hermes.service"
         legacy.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        results = gateway_cli._find_legacy_hermes_units()
+        results = gateway_cli._find_legacy_fabric_units()
 
         assert len(results) == 1
         name, path, is_system = results[0]
@@ -2825,7 +2825,7 @@ class TestLegacyHermesUnitDetection:
         assert path == legacy
         assert is_system is True
 
-    def test_ignores_profile_unit_hermes_gateway_coder(self, tmp_path, monkeypatch):
+    def test_ignores_profile_unit_fabric_gateway_coder(self, tmp_path, monkeypatch):
         """CRITICAL: profile units must NOT be flagged as legacy.
 
         Teknium's concern — ``fabric-gateway-coder.service`` is our standard
@@ -2845,12 +2845,12 @@ class TestLegacyHermesUnitDetection:
                 self._OUR_UNIT_TEXT, encoding="utf-8"
             )
 
-        results = gateway_cli._find_legacy_hermes_units()
+        results = gateway_cli._find_legacy_fabric_units()
 
         assert results == []
-        assert gateway_cli.has_legacy_hermes_units() is False
+        assert gateway_cli.has_legacy_fabric_units() is False
 
-    def test_ignores_unrelated_hermes_service(self, tmp_path, monkeypatch):
+    def test_ignores_unrelated_fabric_service(self, tmp_path, monkeypatch):
         """Third-party ``hermes.service`` that isn't ours stays untouched.
 
         If a user has some other package named ``hermes`` installed as a
@@ -2858,21 +2858,21 @@ class TestLegacyHermesUnitDetection:
         """
         user_dir, _ = self._setup_search_paths(tmp_path, monkeypatch)
         (user_dir / "hermes.service").write_text(
-            "[Unit]\nDescription=Some Other Hermes\n[Service]\n"
-            "ExecStart=/opt/other-hermes/bin/daemon --foreground\n",
+            "[Unit]\nDescription=Some Other Fabric\n[Service]\n"
+            "ExecStart=/opt/other-fabric/bin/daemon --foreground\n",
             encoding="utf-8",
         )
 
-        results = gateway_cli._find_legacy_hermes_units()
+        results = gateway_cli._find_legacy_fabric_units()
 
         assert results == []
-        assert gateway_cli.has_legacy_hermes_units() is False
+        assert gateway_cli.has_legacy_fabric_units() is False
 
     def test_returns_empty_when_no_legacy_files_exist(self, tmp_path, monkeypatch):
         self._setup_search_paths(tmp_path, monkeypatch)
 
-        assert gateway_cli._find_legacy_hermes_units() == []
-        assert gateway_cli.has_legacy_hermes_units() is False
+        assert gateway_cli._find_legacy_fabric_units() == []
+        assert gateway_cli.has_legacy_fabric_units() is False
 
     def test_detects_both_scopes_simultaneously(self, tmp_path, monkeypatch):
         """When a user has BOTH user-scope and system-scope legacy units,
@@ -2881,7 +2881,7 @@ class TestLegacyHermesUnitDetection:
         (user_dir / "hermes.service").write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
         (system_dir / "hermes.service").write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        results = gateway_cli._find_legacy_hermes_units()
+        results = gateway_cli._find_legacy_fabric_units()
 
         scopes = sorted(is_system for _, _, is_system in results)
         assert scopes == [False, True]
@@ -2906,10 +2906,10 @@ class TestLegacyHermesUnitDetection:
             name = "hermes.service" if i == 0 else "hermes.service"  # same name
             # Test each variant fresh
             (user_dir / "hermes.service").write_text(
-                f"[Unit]\nDescription=Old Hermes\n[Service]\n{execstart}\n",
+                f"[Unit]\nDescription=Old Fabric\n[Service]\n{execstart}\n",
                 encoding="utf-8",
             )
-            results = gateway_cli._find_legacy_hermes_units()
+            results = gateway_cli._find_legacy_fabric_units()
             assert len(results) == 1, f"Variant {i} not detected: {execstart!r}"
 
     def test_print_legacy_unit_warning_is_noop_when_empty(self, tmp_path, monkeypatch, capsys):
@@ -2947,15 +2947,15 @@ class TestLegacyHermesUnitDetection:
         monkeypatch.setattr(gateway_cli.Path, "read_text", raising_read_text)
 
         # Should not raise
-        results = gateway_cli._find_legacy_hermes_units()
+        results = gateway_cli._find_legacy_fabric_units()
         assert results == []
 
 
-class TestRemoveLegacyHermesUnits:
-    """Tests for remove_legacy_hermes_units (the migration action)."""
+class TestRemoveLegacyFabricUnits:
+    """Tests for remove_legacy_fabric_units (the migration action)."""
 
     _OUR_UNIT_TEXT = (
-        "[Unit]\nDescription=Hermes Gateway\n[Service]\n"
+        "[Unit]\nDescription=Fabric Gateway\n[Service]\n"
         "ExecStart=/usr/bin/python -m fabric_cli.main gateway run --replace\n"
     )
 
@@ -2984,7 +2984,7 @@ class TestRemoveLegacyHermesUnits:
     def test_returns_zero_when_no_legacy_units(self, tmp_path, monkeypatch, capsys):
         self._setup(tmp_path, monkeypatch)
 
-        removed, remaining = gateway_cli.remove_legacy_hermes_units(interactive=False)
+        removed, remaining = gateway_cli.remove_legacy_fabric_units(interactive=False)
 
         assert removed == 0
         assert remaining == []
@@ -2995,7 +2995,7 @@ class TestRemoveLegacyHermesUnits:
         legacy = user_dir / "hermes.service"
         legacy.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        removed, remaining = gateway_cli.remove_legacy_hermes_units(
+        removed, remaining = gateway_cli.remove_legacy_fabric_units(
             interactive=False, dry_run=True
         )
 
@@ -3011,7 +3011,7 @@ class TestRemoveLegacyHermesUnits:
         legacy = user_dir / "hermes.service"
         legacy.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        removed, remaining = gateway_cli.remove_legacy_hermes_units(interactive=False)
+        removed, remaining = gateway_cli.remove_legacy_fabric_units(interactive=False)
 
         assert removed == 1
         assert remaining == []
@@ -3027,7 +3027,7 @@ class TestRemoveLegacyHermesUnits:
         legacy = system_dir / "hermes.service"
         legacy.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        removed, remaining = gateway_cli.remove_legacy_hermes_units(interactive=False)
+        removed, remaining = gateway_cli.remove_legacy_fabric_units(interactive=False)
 
         assert removed == 0
         assert remaining == [legacy]
@@ -3040,7 +3040,7 @@ class TestRemoveLegacyHermesUnits:
         legacy = system_dir / "hermes.service"
         legacy.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        removed, remaining = gateway_cli.remove_legacy_hermes_units(interactive=False)
+        removed, remaining = gateway_cli.remove_legacy_fabric_units(interactive=False)
 
         assert removed == 1
         assert remaining == []
@@ -3061,7 +3061,7 @@ class TestRemoveLegacyHermesUnits:
         user_legacy.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
         system_legacy.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        removed, remaining = gateway_cli.remove_legacy_hermes_units(interactive=False)
+        removed, remaining = gateway_cli.remove_legacy_fabric_units(interactive=False)
 
         assert removed == 2
         assert remaining == []
@@ -3080,7 +3080,7 @@ class TestRemoveLegacyHermesUnits:
         default_unit = user_dir / "fabric-gateway.service"
         default_unit.write_text(self._OUR_UNIT_TEXT, encoding="utf-8")
 
-        removed, remaining = gateway_cli.remove_legacy_hermes_units(interactive=False)
+        removed, remaining = gateway_cli.remove_legacy_fabric_units(interactive=False)
 
         assert removed == 0
         assert remaining == []
@@ -3096,7 +3096,7 @@ class TestRemoveLegacyHermesUnits:
 
         monkeypatch.setattr(gateway_cli, "prompt_yes_no", lambda *a, **k: False)
 
-        removed, remaining = gateway_cli.remove_legacy_hermes_units(interactive=True)
+        removed, remaining = gateway_cli.remove_legacy_fabric_units(interactive=True)
 
         assert removed == 0
         assert remaining == [legacy]
@@ -3144,7 +3144,7 @@ class TestMigrateLegacyCommand:
             called["dry_run"] = dry_run
             return 0, []
 
-        monkeypatch.setattr(gateway_cli, "remove_legacy_hermes_units", fake_remove)
+        monkeypatch.setattr(gateway_cli, "remove_legacy_fabric_units", fake_remove)
         monkeypatch.setattr(gateway_cli, "supports_systemd_services", lambda: True)
         monkeypatch.setattr(gateway_cli, "is_macos", lambda: False)
 
@@ -3182,7 +3182,7 @@ class TestGatewayStatusParser:
             called["dry_run"] = dry_run
             return 0, []
 
-        monkeypatch.setattr(gateway_cli, "remove_legacy_hermes_units", fake_remove)
+        monkeypatch.setattr(gateway_cli, "remove_legacy_fabric_units", fake_remove)
         monkeypatch.setattr(gateway_cli, "supports_systemd_services", lambda: True)
         monkeypatch.setattr(gateway_cli, "is_macos", lambda: False)
 
@@ -3223,9 +3223,9 @@ class TestSystemdInstallOffersLegacyRemoval:
             remove_called["interactive"] = interactive
             return 1, []
 
-        # has_legacy_hermes_units must return True
-        monkeypatch.setattr(gateway_cli, "has_legacy_hermes_units", lambda: True)
-        monkeypatch.setattr(gateway_cli, "remove_legacy_hermes_units", fake_remove)
+        # has_legacy_fabric_units must return True
+        monkeypatch.setattr(gateway_cli, "has_legacy_fabric_units", lambda: True)
+        monkeypatch.setattr(gateway_cli, "remove_legacy_fabric_units", fake_remove)
         monkeypatch.setattr(gateway_cli, "print_legacy_unit_warning", lambda: None)
         # Answer "yes" to the legacy-removal prompt
         monkeypatch.setattr(gateway_cli, "prompt_yes_no", lambda *a, **k: True)
@@ -3263,8 +3263,8 @@ class TestSystemdInstallOffersLegacyRemoval:
             remove_called["invoked"] = True
             return 0, []
 
-        monkeypatch.setattr(gateway_cli, "has_legacy_hermes_units", lambda: True)
-        monkeypatch.setattr(gateway_cli, "remove_legacy_hermes_units", fake_remove)
+        monkeypatch.setattr(gateway_cli, "has_legacy_fabric_units", lambda: True)
+        monkeypatch.setattr(gateway_cli, "remove_legacy_fabric_units", fake_remove)
         monkeypatch.setattr(gateway_cli, "print_legacy_unit_warning", lambda: None)
         monkeypatch.setattr(gateway_cli, "prompt_yes_no", lambda *a, **k: False)
 
@@ -3308,8 +3308,8 @@ class TestSystemdInstallOffersLegacyRemoval:
             remove_called["invoked"] = True
             return 0, []
 
-        monkeypatch.setattr(gateway_cli, "has_legacy_hermes_units", lambda: False)
-        monkeypatch.setattr(gateway_cli, "remove_legacy_hermes_units", fake_remove)
+        monkeypatch.setattr(gateway_cli, "has_legacy_fabric_units", lambda: False)
+        monkeypatch.setattr(gateway_cli, "remove_legacy_fabric_units", fake_remove)
         monkeypatch.setattr(gateway_cli, "prompt_yes_no", counting_prompt)
 
         unit_path = tmp_path / "fabric-gateway.service"
@@ -3508,7 +3508,7 @@ class TestServiceWorkingDirIsStable:
     deleted checkout can't crash-loop the unit on CHDIR (status=200).
     """
 
-    def test_stable_working_dir_uses_hermes_home(self, tmp_path, monkeypatch):
+    def test_stable_working_dir_uses_fabric_home(self, tmp_path, monkeypatch):
         home = tmp_path / ".hermes"
         home.mkdir()
         monkeypatch.setattr(gateway_cli, "get_fabric_home", lambda: home)
@@ -3520,7 +3520,7 @@ class TestServiceWorkingDirIsStable:
         monkeypatch.setattr(gateway_cli, "get_fabric_home", lambda: missing)
         assert gateway_cli._stable_service_working_dir() == str(gateway_cli.PROJECT_ROOT)
 
-    def test_user_unit_workingdirectory_is_hermes_home_not_checkout(self, tmp_path, monkeypatch):
+    def test_user_unit_workingdirectory_is_fabric_home_not_checkout(self, tmp_path, monkeypatch):
         home = tmp_path / ".hermes"
         home.mkdir()
         monkeypatch.setattr(gateway_cli, "get_fabric_home", lambda: home)
@@ -3532,7 +3532,7 @@ class TestServiceWorkingDirIsStable:
         # The bug class: never pin cwd inside a transient worktree checkout.
         assert "/.worktrees/" not in value
 
-    def test_launchd_workingdirectory_is_hermes_home(self, tmp_path, monkeypatch):
+    def test_launchd_workingdirectory_is_fabric_home(self, tmp_path, monkeypatch):
         import re
 
         home = tmp_path / ".hermes"

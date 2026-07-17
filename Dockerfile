@@ -21,18 +21,18 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
 
 # Install system dependencies in one layer, clear APT cache.
 # tini was previously PID 1 to reap orphaned zombie processes (MCP stdio
-# subprocesses, git, bun, etc.) that would otherwise accumulate when hermes
+# subprocesses, git, bun, etc.) that would otherwise accumulate when fabric
 # ran as PID 1. See #15012. Phase 2 of the s6-overlay supervision plan
 # replaces tini with s6-overlay's /init (PID 1 = s6-svscan), which reaps
 # zombies non-blockingly on SIGCHLD and additionally supervises the main
-# hermes process, the dashboard, and per-profile gateways.
+# fabric process, the dashboard, and per-profile gateways.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates curl iputils-ping python3 python-is-python3 ripgrep ffmpeg gcc g++ make cmake python3-dev python3-venv libffi-dev libolm-dev procps git openssh-client docker-cli xz-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # ---------- s6-overlay install ----------
-# s6-overlay provides supervision for the main hermes process, the dashboard,
+# s6-overlay provides supervision for the main fabric process, the dashboard,
 # and per-profile gateways. /init becomes PID 1 below — see ENTRYPOINT.
 #
 # Multi-arch: BuildKit auto-populates TARGETARCH (amd64 / arm64). s6-overlay
@@ -79,7 +79,7 @@ RUN set -eu; \
     rm /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay.sha256; \
     # #34192: backward-compat shim for orchestration templates that still\
     # reference the legacy /usr/bin/tini entrypoint (e.g. Hostinger's\
-    # 'Hermes WebUI' catalog). The image has moved to s6-overlay /init\
+    # 'Fabric WebUI' catalog). The image has moved to s6-overlay /init\
     # as PID 1 (see ENTRYPOINT below + the migration comment at the top\
     # of this file), but external wrappers pinned to /usr/bin/tini will\
     # crash with 'tini: No such file or directory' on startup. The shim\
@@ -89,7 +89,7 @@ RUN set -eu; \
     ln -sf /init /usr/bin/tini
 
 # Non-root service account; UID can be overridden via FABRIC_UID at runtime.
-RUN useradd -u 10000 -m -d /opt/data hermes
+RUN useradd -u 10000 -m -d /opt/data fabric
 
 COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
 
@@ -197,7 +197,7 @@ RUN cd web && npm run build && \
 # the final read-only permissions at copy time so we skip the separate
 # `chmod -R` pass that previously walked ~30k files across the venv +
 # node_modules + source (21s amd64 / 222s arm64 — #49113).  `a+rX,go-w`
-# gives the non-root hermes user read + traverse but no write; root retains
+# gives the non-root fabric user read + traverse but no write; root retains
 # write so the build steps below don't need chmod u+w dances.
 COPY --link --chmod=a+rX,go-w . .
 
@@ -209,7 +209,7 @@ RUN uv pip install --no-cache-dir --no-deps -e "."
 
 # Wire the exec shim and install-method stamp.  Files under /opt/hermes are
 # already root-owned (COPY, uv sync, npm install all run as root) and
-# read-only for the hermes user (go-w from the --chmod above).
+# read-only for the fabric user (go-w from the --chmod above).
 
 USER root
 RUN mkdir -p /opt/hermes/bin && \
@@ -224,9 +224,9 @@ RUN mkdir -p /opt/hermes/bin && \
 # host install's marker and wrongly block its ``fabric update``. A code-scoped
 # stamp is read first by detect_install_method() and is immune to the share.
 # Start as root so the s6-overlay stage2 hook can usermod/groupmod and chown
-# the data volume. Each supervised service then drops to the hermes user via
-# `s6-setuidgid hermes` in its run script. If HERMES_UID is unset, services
-# run as the default hermes user (UID 10000).
+# the data volume. Each supervised service then drops to the fabric user via
+# `s6-setuidgid fabric` in its run script. If HERMES_UID is unset, services
+# run as the default fabric user (UID 10000).
 
 # ---------- Bake build-time git revision ----------
 # .dockerignore excludes .git, so `git rev-parse HEAD` from inside the
@@ -310,7 +310,7 @@ ENV HERMES_DISABLE_LAZY_INSTALLS=1
 # lazy_deps appends this dir to the END of sys.path, so a package installed
 # here can only ADD modules — it can never shadow or downgrade a core module,
 # so the sealed-venv guarantee holds even with installs re-enabled. The dir
-# is seeded + chowned to the hermes user by docker/stage2-hook.sh and lives
+# is seeded + chowned to the fabric user by docker/stage2-hook.sh and lives
 # on the /opt/data volume, so it persists across container recreates / image
 # updates (an ABI stamp invalidates it if a rebuild bumps the interpreter).
 ENV FABRIC_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
@@ -321,9 +321,9 @@ ENV HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
 # command writes under the Fabric home (auth.json, .env, config.yaml) ends
 # up root-owned and unreadable to the supervised gateway (UID 10000).
 # The shim lives at /opt/hermes/bin/fabric, sits earliest on PATH, and
-# transparently re-exec's the real venv binary via `s6-setuidgid hermes`
+# transparently re-exec's the real venv binary via `s6-setuidgid fabric`
 # when invoked as root. Non-root callers (supervised processes,
-# `--user hermes`, etc.) hit the short-circuit path with no overhead.
+# `--user fabric`, etc.) hit the short-circuit path with no overhead.
 # Recursion is impossible because the shim exec's the venv binary by
 # absolute path (/opt/hermes/.venv/bin/fabric). See the shim source for
 # the opt-out env var (FABRIC_DOCKER_EXEC_AS_ROOT=1).
@@ -361,7 +361,7 @@ VOLUME [ "/opt/data" ]
 #   docker run <image> --tui            → /init main-wrapper.sh --tui
 #
 # main-wrapper.sh handles arg routing (bare-exec vs. Fabric
-# subcommand vs. no-args), drops to the hermes user via s6-setuidgid,
+# subcommand vs. no-args), drops to the fabric user via s6-setuidgid,
 # and exec's the final program so its exit code becomes the container
 # exit code. Without the wrapper-as-ENTRYPOINT, leading-dash args
 # like `--version` would be intercepted by /init's POSIX shell.

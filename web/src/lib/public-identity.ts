@@ -1,5 +1,5 @@
-const LEGACY_CLI_PREFIX = /^hermes(?=\s|$)/i;
-const LEGACY_CONSOLE_PROMPT = /^hermes(?=>)/i;
+const LEGACY_CLI_PREFIX = /^fabric(?=\s|$)/i;
+const LEGACY_CONSOLE_PROMPT = /^fabric(?=>)/i;
 
 /** Render a backend-supplied CLI command using the public Fabric executable. */
 export function publicCliCommand(

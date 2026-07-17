@@ -1,4 +1,4 @@
-"""``hermes gui`` subcommand parser.
+"""``fabric gui`` subcommand parser.
 
 Extracted verbatim from ``fabric_cli/main.py:main()`` (god-file Phase 2).
 Handler injected to avoid importing ``main``.
@@ -43,7 +43,7 @@ def build_gui_parser(subparsers, *, cmd_gui: Callable) -> None:
         help="Force Desktop to ignore any Fabric CLI already on PATH during backend resolution",
     )
     gui_parser.add_argument(
-        "--hermes-root",
+        "--fabric-root",
         help="Override the Fabric source root used by Desktop (sets HERMES_DESKTOP_HERMES_ROOT)",
     )
     gui_parser.add_argument(

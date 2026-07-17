@@ -12,7 +12,7 @@ def _dockerfile_text() -> str:
     return DOCKERFILE.read_text()
 
 
-def test_dockerfile_makes_opt_hermes_readonly_for_hermes_user() -> None:
+def test_dockerfile_makes_opt_fabric_readonly_for_fabric_user() -> None:
     text = _dockerfile_text()
 
     # --chmod on the source COPY bakes read-only perms at copy time instead
@@ -40,13 +40,13 @@ def test_dockerfile_disables_runtime_install_mutations() -> None:
     assert "HERMES_TUI_DIR=/opt/hermes/ui-tui" in text
 
 
-def test_dockerfile_does_not_chown_install_trees_to_hermes() -> None:
+def test_dockerfile_does_not_chown_install_trees_to_fabric() -> None:
     text = _dockerfile_text()
     forbidden_patterns = (
-        r"chown\s+-R\s+hermes:hermes\s+/opt/hermes/\.venv",
-        r"chown\s+-R\s+hermes:hermes\s+/opt/hermes/ui-tui",
-        r"chown\s+-R\s+hermes:hermes\s+/opt/hermes/gateway",
-        r"chown\s+-R\s+hermes:hermes\s+/opt/hermes/node_modules",
+        r"chown\s+-R\s+fabric:fabric\s+/opt/hermes/\.venv",
+        r"chown\s+-R\s+fabric:fabric\s+/opt/hermes/ui-tui",
+        r"chown\s+-R\s+fabric:fabric\s+/opt/hermes/gateway",
+        r"chown\s+-R\s+fabric:fabric\s+/opt/hermes/node_modules",
     )
     for pattern in forbidden_patterns:
         assert not re.search(pattern, text), (
@@ -62,7 +62,7 @@ def test_dockerfile_bakes_code_scoped_install_method_stamp() -> None:
     (/opt/hermes/.install_method) first; baking it at build time keeps the
     published image self-identifying as 'docker' WITHOUT writing into the
     shared $HERMES_HOME data volume (which a host install may also use).
-    The stamp is created by root in the shim-wiring RUN block; the hermes
+    The stamp is created by root in the shim-wiring RUN block; the fabric
     user can't modify it (go-w from the --chmod on the source COPY).
     """
     text = _dockerfile_text()
@@ -100,12 +100,12 @@ def test_dockerfile_redirects_lazy_installs_to_durable_target() -> None:
     assert "ENV HERMES_DISABLE_LAZY_INSTALLS=1" in text
 
     # stage2-hook must seed + chown the target dir so first-use installs
-    # succeed as the unprivileged hermes runtime user.
+    # succeed as the unprivileged fabric runtime user.
     stage2 = (REPO_ROOT / "docker" / "stage2-hook.sh").read_text()
     assert '"$HERMES_HOME/lazy-packages"' in stage2, (
         "stage2-hook.sh must create the lazy-packages dir on the data volume"
     )
     assert "lazy-packages" in stage2.split("for sub in", 1)[1].split(";", 1)[0], (
         "lazy-packages must be in the per-boot chown subdir list so it stays "
-        "hermes-owned"
+        "fabric-owned"
     )

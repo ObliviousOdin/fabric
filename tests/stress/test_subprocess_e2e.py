@@ -52,7 +52,7 @@ def make_spawn_fn(home: str):
 
 
 def main():
-    home = tempfile.mkdtemp(prefix="hermes_e2e_")
+    home = tempfile.mkdtemp(prefix="fabric_e2e_")
     os.environ["HERMES_HOME"] = home
     os.environ["HOME"] = home
     sys.path.insert(0, WT)
@@ -211,7 +211,7 @@ exec {PY} -m fabric_cli.main "$@"
     print("=" * 60)
     print("C. Worker log captured to disk")
     print("=" * 60)
-    # Scenario A workers wrote to /tmp/hermes_e2e_*/worker_*.log
+    # Scenario A workers wrote to /tmp/fabric_e2e_*/worker_*.log
     import glob
     logs = glob.glob(os.path.join(home, "worker_*.log"))
     print(f"  {len(logs)} worker log files")

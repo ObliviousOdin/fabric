@@ -1958,7 +1958,7 @@ def _concrete_adapter_identity(
 
     identity = {
         OptionalSkillSource: (HubSourceKind.OFFICIAL_OPTIONAL, "official"),
-        HermesIndexSource: (HubSourceKind.HERMES_INDEX, "hermes-index"),
+        FabricIndexSource: (HubSourceKind.HERMES_INDEX, "hermes-index"),
         SkillsShSource: (HubSourceKind.SKILLS_SH, "skills.sh"),
         WellKnownSkillSource: (HubSourceKind.WELL_KNOWN, "well-known"),
         UrlSource: (HubSourceKind.URL, "url"),
@@ -5772,7 +5772,7 @@ class LobeHubSource(SkillSource):
             f"name: {identifier}",
             f"description: {description[:500]}",
             "metadata:",
-            "  hermes:",
+            "  fabric:",
             f"    tags: [{', '.join(str(t) for t in tag_list)}]",
             "  lobehub:",
             "    source: lobehub",
@@ -9248,18 +9248,18 @@ def check_for_skill_updates(
 
 
 # ---------------------------------------------------------------------------
-# Hermes centralized index source
+# Fabric centralized index source
 # ---------------------------------------------------------------------------
 
 HERMES_INDEX_URL = "https://obliviousodin.github.io/fabric/api/skills-index.json"
 HERMES_INDEX_TTL = 6 * 3600  # 6 hours
 
 
-def _hermes_index_cache_file() -> Path:
+def _fabric_index_cache_file() -> Path:
     return _index_cache_dir() / "hermes-index.json"
 
 
-def _load_hermes_index() -> Optional[dict]:
+def _load_fabric_index() -> Optional[dict]:
     """Fetch the centralized skills index, with local cache.
 
     The index is a JSON file hosted on the docs site, rebuilt daily by CI.
@@ -9267,12 +9267,12 @@ def _load_hermes_index() -> Optional[dict]:
     downloads within a session.
     """
     # Check local cache
-    hermes_index_cache_file = _hermes_index_cache_file()
-    if hermes_index_cache_file.exists():
+    fabric_index_cache_file = _fabric_index_cache_file()
+    if fabric_index_cache_file.exists():
         try:
             with hub_mutation_scope(_skills_dir().parent):
                 cached, state = _read_bounded_json_file(
-                    hermes_index_cache_file,
+                    fabric_index_cache_file,
                 )
                 _validate_hub_mutation_binding()
             age = time.time() - state.st_mtime
@@ -9326,12 +9326,12 @@ def _load_hermes_index() -> Optional[dict]:
 
 def _load_stale_index_cache() -> Optional[dict]:
     """Fall back to stale cache when the network fetch fails."""
-    hermes_index_cache_file = _hermes_index_cache_file()
-    if hermes_index_cache_file.exists():
+    fabric_index_cache_file = _fabric_index_cache_file()
+    if fabric_index_cache_file.exists():
         try:
             with hub_mutation_scope(_skills_dir().parent):
                 cached, _state = _read_bounded_json_file(
-                    hermes_index_cache_file,
+                    fabric_index_cache_file,
                 )
                 _validate_hub_mutation_binding()
             return cached if isinstance(cached, dict) else None
@@ -9346,7 +9346,7 @@ def _load_stale_index_cache() -> Optional[dict]:
     return None
 
 
-class HermesIndexSource(SkillSource):
+class FabricIndexSource(SkillSource):
     """Skill source backed by the centralized Fabric Skills Index.
 
     The index is a JSON catalog published to the docs site and rebuilt
@@ -9368,7 +9368,7 @@ class HermesIndexSource(SkillSource):
 
     def _ensure_loaded(self) -> dict:
         if not self._loaded:
-            self._index = _load_hermes_index()
+            self._index = _load_fabric_index()
             self._loaded = True
         return self._index or {}
 
@@ -9558,7 +9558,7 @@ def create_source_router(auth: Optional[GitHubAuth] = None) -> List[SkillSource]
 
     sources: List[SkillSource] = [
         OptionalSkillSource(),  # Official optional skills (highest priority)
-        HermesIndexSource(
+        FabricIndexSource(
             auth=auth
         ),  # Centralized index (search + resolved install paths)
         SkillsShSource(auth=auth),

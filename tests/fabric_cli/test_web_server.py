@@ -39,7 +39,7 @@ _EXAMPLE_PLUGIN_FIXTURE = (
 
 
 @pytest.fixture
-def _install_example_plugin(_isolate_hermes_home):
+def _install_example_plugin(_isolate_fabric_home):
     """Drop the example-dashboard fixture into the per-test HERMES_HOME
     user-plugins directory and force the web_server's dashboard plugin
     cache + API mount to rediscover it.
@@ -165,7 +165,7 @@ class TestReloadEnv:
         os.environ.pop("TEST_RELOAD_VAR", None)
 
     def test_removes_deleted_known_vars(self, tmp_path):
-        """reload_env() removes known Hermes vars not present in .env."""
+        """reload_env() removes known Fabric vars not present in .env."""
         env_file = tmp_path / ".env"
         env_file.write_text("")  # empty .env
         # Pick a known key from OPTIONAL_ENV_VARS
@@ -177,7 +177,7 @@ class TestReloadEnv:
             assert count >= 1
 
     def test_does_not_remove_unknown_vars(self, tmp_path):
-        """reload_env() preserves non-Hermes env vars even when absent from .env."""
+        """reload_env() preserves non-Fabric env vars even when absent from .env."""
         env_file = tmp_path / ".env"
         env_file.write_text("")
         with patch.dict(reload_env.__globals__, {"get_env_path": lambda: env_file}):
@@ -245,7 +245,7 @@ class TestWebServerEndpoints:
     """Test the FastAPI REST endpoints using Starlette TestClient."""
 
     @pytest.fixture(autouse=True)
-    def _setup_test_client(self, monkeypatch, _isolate_hermes_home):
+    def _setup_test_client(self, monkeypatch, _isolate_fabric_home):
         """Create a TestClient and isolate the state DB under the test HERMES_HOME."""
         try:
             from starlette.testclient import TestClient
@@ -266,9 +266,9 @@ class TestWebServerEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert "version" in data
-        assert "hermes_home" in data
+        assert "fabric_home" in data
         assert "active_sessions" in data
-        assert data["can_update_hermes"] is True
+        assert data["can_update_fabric"] is True
 
     def test_status_active_session_count_uses_read_only_db(self, monkeypatch, tmp_path):
         import fabric_cli.web_server as web_server
@@ -424,7 +424,7 @@ class TestWebServerEndpoints:
 
         resp = self.client.get("/api/status")
         assert resp.status_code == 200
-        assert resp.json()["can_update_hermes"] is False
+        assert resp.json()["can_update_fabric"] is False
 
     def test_dashboard_update_capability_detects_generic_container(self, monkeypatch):
         import fabric_constants
@@ -437,7 +437,7 @@ class TestWebServerEndpoints:
         assert web_server._dashboard_local_update_managed_externally() is True
 
     def test_dashboard_update_capability_allows_git_in_container(self, monkeypatch):
-        """A git checkout inside a container (e.g. bind-mounted in hermes-webui)
+        """A git checkout inside a container (e.g. bind-mounted in fabric-webui)
         should still offer dashboard updates — the checkout is self-managed."""
         import fabric_constants
         import fabric_cli.web_server as web_server
@@ -1803,7 +1803,7 @@ class TestWebServerEndpoints:
         resp = self.client.post("/api/audio/speak", json={"text": "   "})
         assert resp.status_code == 400
 
-    def test_update_hermes_returns_docker_guidance_without_spawning(self, monkeypatch):
+    def test_update_fabric_returns_docker_guidance_without_spawning(self, monkeypatch):
         import fabric_cli.web_server as web_server
 
         spawned = False
@@ -1816,7 +1816,7 @@ class TestWebServerEndpoints:
         # Bypass the managed-externally gate so we reach the docker install check.
         monkeypatch.setattr(web_server, "_dashboard_local_update_managed_externally", lambda: False)
         monkeypatch.setattr(web_server, "detect_install_method", lambda _root: "docker")
-        monkeypatch.setattr(web_server, "_spawn_hermes_action", fail_spawn)
+        monkeypatch.setattr(web_server, "_spawn_fabric_action", fail_spawn)
         web_server._ACTION_PROCS.pop("hermes-update", None)
         web_server._ACTION_RESULTS.pop("hermes-update", None)
 
@@ -1839,7 +1839,7 @@ class TestWebServerEndpoints:
         assert status_data["pid"] is None
         assert any("docker compose build --pull" in line for line in status_data["lines"])
 
-    def test_update_hermes_returns_managed_runtime_guidance_without_spawning(self, monkeypatch):
+    def test_update_fabric_returns_managed_runtime_guidance_without_spawning(self, monkeypatch):
         import fabric_cli.web_server as web_server
 
         spawned = False
@@ -1857,7 +1857,7 @@ class TestWebServerEndpoints:
 
         monkeypatch.setattr(web_server, "_dashboard_local_update_managed_externally", lambda: True)
         monkeypatch.setattr(web_server, "detect_install_method", fail_detect)
-        monkeypatch.setattr(web_server, "_spawn_hermes_action", fail_spawn)
+        monkeypatch.setattr(web_server, "_spawn_fabric_action", fail_spawn)
         web_server._ACTION_PROCS.pop("hermes-update", None)
         web_server._ACTION_RESULTS.pop("hermes-update", None)
 
@@ -1881,7 +1881,7 @@ class TestWebServerEndpoints:
         assert status_data["pid"] is None
         assert any("managed outside this dashboard" in line for line in status_data["lines"])
 
-    def test_update_hermes_spawns_on_non_docker_install(self, monkeypatch):
+    def test_update_fabric_spawns_on_non_docker_install(self, monkeypatch):
         import fabric_cli.web_server as web_server
 
         class Proc:
@@ -1897,7 +1897,7 @@ class TestWebServerEndpoints:
             return Proc()
 
         monkeypatch.setattr(web_server, "detect_install_method", lambda _root: "git")
-        monkeypatch.setattr(web_server, "_spawn_hermes_action", fake_spawn)
+        monkeypatch.setattr(web_server, "_spawn_fabric_action", fake_spawn)
         web_server._ACTION_PROCS.pop("hermes-update", None)
         web_server._ACTION_RESULTS.pop("hermes-update", None)
 
@@ -2267,7 +2267,7 @@ class TestWebServerEndpoints:
 
     def test_model_set_maps_unknown_vendor_to_aggregator(self, monkeypatch):
         """A bare vendor name from analytics rows (no billing_provider) is not
-        a Hermes provider — keep the user's aggregator instead of writing a
+        a Fabric provider — keep the user's aggregator instead of writing a
         provider that can never resolve credentials."""
         monkeypatch.setattr(
             "fabric_cli.model_cost_guard.expensive_model_warning",
@@ -2314,7 +2314,7 @@ class TestWebServerEndpoints:
 
     def test_ops_import_passes_force_flag(self, tmp_path, monkeypatch):
         """force=True must append --force so the spawned non-interactive
-        `hermes import` doesn't auto-abort at the overwrite prompt."""
+        `fabric import` doesn't auto-abort at the overwrite prompt."""
         import fabric_cli.web_server as ws
 
         archive = tmp_path / "backup.zip"
@@ -2330,7 +2330,7 @@ class TestWebServerEndpoints:
             from types import SimpleNamespace as NS
             return NS(pid=12345)
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fake_spawn)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fake_spawn)
 
         resp = self.client.post(
             "/api/ops/import", json={"archive": str(archive), "force": True},
@@ -2358,7 +2358,7 @@ class TestWebServerEndpoints:
             from types import SimpleNamespace as NS
             return NS(pid=12345)
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fake_spawn)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fake_spawn)
 
         resp = self.client.post("/api/ops/backup", json={})
         assert resp.status_code == 200
@@ -2372,7 +2372,7 @@ class TestWebServerEndpoints:
         assert archive.name.startswith("fabric-backup-")
         assert archive.suffix == ".zip"
 
-    def test_ops_backup_uses_hosted_hermes_home(self, tmp_path, monkeypatch):
+    def test_ops_backup_uses_hosted_fabric_home(self, tmp_path, monkeypatch):
         from pathlib import Path
 
         import fabric_cli.web_server as ws
@@ -2387,7 +2387,7 @@ class TestWebServerEndpoints:
             from types import SimpleNamespace as NS
             return NS(pid=12345)
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fake_spawn)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fake_spawn)
 
         resp = self.client.post("/api/ops/backup", json={})
         assert resp.status_code == 200
@@ -2402,7 +2402,7 @@ class TestWebServerEndpoints:
 
         backup_dir = ws._dashboard_backup_dir()
         backup_dir.mkdir(parents=True, exist_ok=True)
-        archive = backup_dir / "hermes-backup-test.zip"
+        archive = backup_dir / "fabric-backup-test.zip"
         archive.write_bytes(b"zip bytes")
 
         resp = self.client.get(
@@ -2439,7 +2439,7 @@ class TestWebServerEndpoints:
             from types import SimpleNamespace as NS
             return NS(pid=12345)
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fake_spawn)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fake_spawn)
 
         resp = self.client.post(
             "/api/ops/import-upload",
@@ -2472,7 +2472,7 @@ class TestWebServerEndpoints:
         def fail_spawn(*_args):
             raise AssertionError("invalid uploads must not spawn import")
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fail_spawn)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fail_spawn)
 
         resp = self.client.post(
             "/api/ops/import-upload",
@@ -2850,9 +2850,9 @@ class TestWebServerEndpoints:
             return {
                 "pairing_id": "pair123",
                 "poll_token": "poll-secret",
-                "suggested_username": "hermes_pair123_bot",
-                "deep_link": "https://t.me/newbot/HermesSetupBot/hermes_pair123_bot",
-                "qr_payload": "https://t.me/newbot/HermesSetupBot/hermes_pair123_bot",
+                "suggested_username": "fabric_pair123_bot",
+                "deep_link": "https://t.me/newbot/FabricSetupBot/fabric_pair123_bot",
+                "qr_payload": "https://t.me/newbot/FabricSetupBot/fabric_pair123_bot",
                 "expires_at": "2027-05-18T00:00:00.000Z",
             }
 
@@ -2860,7 +2860,7 @@ class TestWebServerEndpoints:
 
         resp = self.client.post(
             "/api/messaging/telegram/onboarding/start",
-            json={"bot_name": "Hosted Hermes"},
+            json={"bot_name": "Hosted Fabric"},
         )
 
         assert resp.status_code == 200
@@ -2871,7 +2871,7 @@ class TestWebServerEndpoints:
             (
                 "POST",
                 "/v1/telegram/pairings",
-                {"bot_name": "Hosted Hermes"},
+                {"bot_name": "Hosted Fabric"},
                 None,
             )
         ]
@@ -2888,9 +2888,9 @@ class TestWebServerEndpoints:
                 return {
                     "pairing_id": "pair-ready",
                     "poll_token": "poll-secret",
-                    "suggested_username": "hermes_pair_ready_bot",
-                    "deep_link": "https://t.me/newbot/HermesSetupBot/hermes_pair_ready_bot",
-                    "qr_payload": "https://t.me/newbot/HermesSetupBot/hermes_pair_ready_bot",
+                    "suggested_username": "fabric_pair_ready_bot",
+                    "deep_link": "https://t.me/newbot/FabricSetupBot/fabric_pair_ready_bot",
+                    "qr_payload": "https://t.me/newbot/FabricSetupBot/fabric_pair_ready_bot",
                     "expires_at": "2027-05-18T00:00:00.000Z",
                 }
             assert method == "GET"
@@ -2898,7 +2898,7 @@ class TestWebServerEndpoints:
             assert bearer_token == "poll-secret"
             return {
                 "status": "ready",
-                "bot_username": "hermes_pair_ready_bot",
+                "bot_username": "fabric_pair_ready_bot",
                 "owner_user_id": 123456789,
                 "token": "123456:SECRET",
             }
@@ -2914,7 +2914,7 @@ class TestWebServerEndpoints:
             restart_calls.append((subcommand, name))
             return FakeRestartProc()
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fake_spawn_action)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fake_spawn_action)
 
         start = self.client.post("/api/messaging/telegram/onboarding/start", json={})
         assert start.status_code == 200
@@ -2935,7 +2935,7 @@ class TestWebServerEndpoints:
         assert applied_data == {
             "ok": True,
             "platform": "telegram",
-            "bot_username": "hermes_pair_ready_bot",
+            "bot_username": "fabric_pair_ready_bot",
             "needs_restart": False,
             "restart_started": True,
             "restart_action": "gateway-restart",
@@ -2961,9 +2961,9 @@ class TestWebServerEndpoints:
                 return {
                     "pairing_id": "pair-restart-fails",
                     "poll_token": "poll-secret",
-                    "suggested_username": "hermes_pair_restart_fails_bot",
-                    "deep_link": "https://t.me/newbot/HermesSetupBot/hermes_pair_restart_fails_bot",
-                    "qr_payload": "https://t.me/newbot/HermesSetupBot/hermes_pair_restart_fails_bot",
+                    "suggested_username": "fabric_pair_restart_fails_bot",
+                    "deep_link": "https://t.me/newbot/FabricSetupBot/fabric_pair_restart_fails_bot",
+                    "qr_payload": "https://t.me/newbot/FabricSetupBot/fabric_pair_restart_fails_bot",
                     "expires_at": "2027-05-18T00:00:00.000Z",
                 }
             assert method == "GET"
@@ -2971,7 +2971,7 @@ class TestWebServerEndpoints:
             assert bearer_token == "poll-secret"
             return {
                 "status": "ready",
-                "bot_username": "hermes_pair_restart_fails_bot",
+                "bot_username": "fabric_pair_restart_fails_bot",
                 "owner_user_id": 123456789,
                 "token": "123456:SECRET",
             }
@@ -2984,7 +2984,7 @@ class TestWebServerEndpoints:
             assert name == "gateway-restart"
             raise RuntimeError("supervisor unavailable")
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fail_spawn_action)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fail_spawn_action)
 
         start = self.client.post("/api/messaging/telegram/onboarding/start", json={})
         assert start.status_code == 200
@@ -3025,14 +3025,14 @@ class TestWebServerEndpoints:
                 return {
                     "pairing_id": "pair-reuse",
                     "poll_token": "poll-secret",
-                    "suggested_username": "hermes_pair_reuse_bot",
-                    "deep_link": "https://t.me/newbot/HermesSetupBot/hermes_pair_reuse_bot",
-                    "qr_payload": "https://t.me/newbot/HermesSetupBot/hermes_pair_reuse_bot",
+                    "suggested_username": "fabric_pair_reuse_bot",
+                    "deep_link": "https://t.me/newbot/FabricSetupBot/fabric_pair_reuse_bot",
+                    "qr_payload": "https://t.me/newbot/FabricSetupBot/fabric_pair_reuse_bot",
                     "expires_at": "2027-05-18T00:00:00.000Z",
                 }
             return {
                 "status": "ready",
-                "bot_username": "hermes_pair_reuse_bot",
+                "bot_username": "fabric_pair_reuse_bot",
                 "owner_user_id": 123456789,
                 "token": "123456:SECRET",
             }
@@ -3050,7 +3050,7 @@ class TestWebServerEndpoints:
         def fail_spawn_action(subcommand, name):
             raise AssertionError("must not spawn a second concurrent restart")
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fail_spawn_action)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fail_spawn_action)
 
         start = self.client.post("/api/messaging/telegram/onboarding/start", json={})
         assert start.status_code == 200
@@ -3078,9 +3078,9 @@ class TestWebServerEndpoints:
             return {
                 "pairing_id": "pair-waiting",
                 "poll_token": "poll-secret",
-                "suggested_username": "hermes_pair_waiting_bot",
-                "deep_link": "https://t.me/newbot/HermesSetupBot/hermes_pair_waiting_bot",
-                "qr_payload": "https://t.me/newbot/HermesSetupBot/hermes_pair_waiting_bot",
+                "suggested_username": "fabric_pair_waiting_bot",
+                "deep_link": "https://t.me/newbot/FabricSetupBot/fabric_pair_waiting_bot",
+                "qr_payload": "https://t.me/newbot/FabricSetupBot/fabric_pair_waiting_bot",
                 "expires_at": "2027-05-18T00:00:00.000Z",
             }
 
@@ -3107,9 +3107,9 @@ class TestWebServerEndpoints:
             return {
                 "pairing_id": "pair-cancel",
                 "poll_token": "poll-secret",
-                "suggested_username": "hermes_pair_cancel_bot",
-                "deep_link": "https://t.me/newbot/HermesSetupBot/hermes_pair_cancel_bot",
-                "qr_payload": "https://t.me/newbot/HermesSetupBot/hermes_pair_cancel_bot",
+                "suggested_username": "fabric_pair_cancel_bot",
+                "deep_link": "https://t.me/newbot/FabricSetupBot/fabric_pair_cancel_bot",
+                "qr_payload": "https://t.me/newbot/FabricSetupBot/fabric_pair_cancel_bot",
                 "expires_at": "2027-05-18T00:00:00.000Z",
             }
 
@@ -3958,7 +3958,7 @@ class TestNewEndpoints:
     """Tests for session detail, logs, cron, skills, tools, raw config, analytics."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, monkeypatch, _isolate_hermes_home):
+    def _setup(self, monkeypatch, _isolate_fabric_home):
         try:
             from starlette.testclient import TestClient
         except ImportError:
@@ -4036,7 +4036,7 @@ class TestNewEndpoints:
         first = blueprints[0]
         assert "fields" in first
         assert first["command"].startswith("/blueprint")
-        assert first["appUrl"].startswith("hermes://")
+        assert first["appUrl"].startswith("fabric://")
 
     def test_blueprint_instantiate_creates_job(self):
         resp = self.client.post(
@@ -4077,13 +4077,13 @@ class TestNewEndpoints:
         from fabric_constants import get_fabric_home
         import fabric_cli.profiles as profiles_mod
 
-        hermes_home = get_fabric_home()
-        hermes_home.mkdir(parents=True, exist_ok=True)
-        (hermes_home / "config.yaml").write_text(
+        fabric_home = get_fabric_home()
+        fabric_home.mkdir(parents=True, exist_ok=True)
+        (fabric_home / "config.yaml").write_text(
             "model:\n  provider: openrouter\n  name: anthropic/claude-sonnet-4.6\n",
             encoding="utf-8",
         )
-        named = hermes_home / "profiles" / "multi-agent"
+        named = fabric_home / "profiles" / "multi-agent"
         named.mkdir(parents=True)
         (named / ".env").write_text("EXAMPLE=1\n", encoding="utf-8")
         (named / "skills" / "demo").mkdir(parents=True)
@@ -4138,7 +4138,7 @@ class TestNewEndpoints:
         assert resp.status_code == 200
         assert resp.json()["command"] == "coder setup"
 
-    def test_profile_setup_command_uses_hermes_for_default_profile(self):
+    def test_profile_setup_command_uses_fabric_for_default_profile(self):
         from fabric_constants import get_fabric_home
 
         get_fabric_home().mkdir(parents=True, exist_ok=True)
@@ -4167,7 +4167,7 @@ class TestNewEndpoints:
         assert wrapper_path.exists()
         lines = [line.strip() for line in wrapper_path.read_text().splitlines() if line.strip()]
         if is_windows:
-            assert lines == ["@echo off", "hermes -p writer %*"]
+            assert lines == ["@echo off", "fabric -p writer %*"]
         else:
             assert lines == ["#!/bin/sh", 'exec /opt/hermes/bin/hermes -p writer "$@"']
 
@@ -4305,7 +4305,7 @@ class TestNewEndpoints:
             spawned.append((list(subcommand), name))
             return _FakeProc()
 
-        monkeypatch.setattr(web_server, "_spawn_hermes_action", fake_spawn)
+        monkeypatch.setattr(web_server, "_spawn_fabric_action", fake_spawn)
 
         resp = self.client.post(
             "/api/profiles",
@@ -6084,7 +6084,7 @@ class TestDeleteSessionEndpoint:
     """
 
     @pytest.fixture(autouse=True)
-    def _setup_test_client(self, monkeypatch, _isolate_hermes_home):
+    def _setup_test_client(self, monkeypatch, _isolate_fabric_home):
         try:
             from starlette.testclient import TestClient
         except ImportError:
@@ -6161,7 +6161,7 @@ class TestBulkDeleteSessionsEndpoint:
     """
 
     @pytest.fixture(autouse=True)
-    def _setup_test_client(self, monkeypatch, _isolate_hermes_home):
+    def _setup_test_client(self, monkeypatch, _isolate_fabric_home):
         try:
             from starlette.testclient import TestClient
         except ImportError:
@@ -6285,7 +6285,7 @@ class TestDeleteEmptySessionsEndpoint:
     """
 
     @pytest.fixture(autouse=True)
-    def _setup_test_client(self, monkeypatch, _isolate_hermes_home):
+    def _setup_test_client(self, monkeypatch, _isolate_fabric_home):
         try:
             from starlette.testclient import TestClient
         except ImportError:
@@ -6414,7 +6414,7 @@ class TestPluginAPIAuth:
     """Tests that plugin API routes require the session token (issue #19533)."""
 
     @pytest.fixture(autouse=True)
-    def _setup_test_client(self, monkeypatch, _isolate_hermes_home, _install_example_plugin):
+    def _setup_test_client(self, monkeypatch, _isolate_fabric_home, _install_example_plugin):
         """Create a TestClient without the session token header.
 
         Pulls in ``_install_example_plugin`` so ``test_plugin_route_allows_auth``
@@ -6667,7 +6667,7 @@ class TestDashboardPluginManifestExtensions:
 # /api/pty WebSocket — terminal bridge for the dashboard "Chat" tab.
 #
 # These tests drive the endpoint with a tiny fake command (typically ``cat``
-# or ``sh -c 'printf …'``) instead of the real ``hermes --tui`` binary.  The
+# or ``sh -c 'printf …'``) instead of the real ``fabric --tui`` binary.  The
 # endpoint resolves its argv through ``_resolve_chat_argv``, so tests
 # monkeypatch that hook.
 # ---------------------------------------------------------------------------
@@ -6683,7 +6683,7 @@ skip_on_windows = pytest.mark.skipif(
 @skip_on_windows
 class TestPtyWebSocket:
     @pytest.fixture(autouse=True)
-    def _setup(self, monkeypatch, _isolate_hermes_home):
+    def _setup(self, monkeypatch, _isolate_fabric_home):
         from starlette.testclient import TestClient
 
         import fabric_cli.web_server as ws
@@ -6755,7 +6755,7 @@ class TestPtyWebSocket:
         assert env["COLORTERM"] == "24bit"
 
     def test_resolve_chat_argv_applies_terminal_backend_config(
-        self, monkeypatch, _isolate_hermes_home
+        self, monkeypatch, _isolate_fabric_home
     ):
         import fabric_cli.main as main_mod
 
@@ -6928,7 +6928,7 @@ class TestPtyWebSocket:
             self.ws_module,
             "_resolve_chat_argv",
             lambda resume=None, sidecar_url=None, profile=None: (
-                ["/bin/sh", "-c", "printf hermes-ws-ok"],
+                ["/bin/sh", "-c", "printf fabric-ws-ok"],
                 None,
                 None,
             ),
@@ -6947,9 +6947,9 @@ class TestPtyWebSocket:
                     break
                 if frame:
                     buf += frame
-                if b"hermes-ws-ok" in buf:
+                if b"fabric-ws-ok" in buf:
                     break
-            assert b"hermes-ws-ok" in buf
+            assert b"fabric-ws-ok" in buf
 
     def test_client_input_reaches_child_stdin(self, monkeypatch):
         # ``cat`` echoes stdin back, so a write → read round-trip proves
@@ -7422,7 +7422,7 @@ class TestDashboardPluginStaticAssetAllowlist:
     """
 
     @pytest.fixture(autouse=True)
-    def _setup_test_client(self, monkeypatch, _isolate_hermes_home, _install_example_plugin):
+    def _setup_test_client(self, monkeypatch, _isolate_fabric_home, _install_example_plugin):
         """Create a TestClient and install the example-dashboard fixture.
 
         The static-asset allowlist tests need a plugin to point at —
@@ -7588,7 +7588,7 @@ class TestValidateProviderCredential:
     """Live-probe credential validation (/api/providers/validate)."""
 
     @pytest.fixture(autouse=True)
-    def _setup_test_client(self, monkeypatch, _isolate_hermes_home):
+    def _setup_test_client(self, monkeypatch, _isolate_fabric_home):
         try:
             from starlette.testclient import TestClient
         except ImportError:
@@ -7806,7 +7806,7 @@ class TestDesktopCronTicker:
 
         return TestClient(app)
 
-    def test_ticker_runs_when_desktop(self, monkeypatch, _isolate_hermes_home):
+    def test_ticker_runs_when_desktop(self, monkeypatch, _isolate_fabric_home):
         import threading
         import cron.scheduler as sched
 
@@ -7817,7 +7817,7 @@ class TestDesktopCronTicker:
         with self._client():
             assert called.wait(3.0), "expected cron tick under HERMES_DESKTOP=1"
 
-    def test_ticker_skipped_without_desktop(self, monkeypatch, _isolate_hermes_home):
+    def test_ticker_skipped_without_desktop(self, monkeypatch, _isolate_fabric_home):
         import threading
         import cron.scheduler as sched
 

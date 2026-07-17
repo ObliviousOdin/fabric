@@ -752,7 +752,7 @@ def init_agent(
     # both live under ~/.hermes/logs/.  Idempotent, so gateway mode
     # (which creates a new AIAgent per message) won't duplicate handlers.
     from fabric_logging import setup_logging, setup_verbose_logging
-    setup_logging(hermes_home=_ra()._fabric_home)
+    setup_logging(fabric_home=_ra()._fabric_home)
 
     if agent.verbose_logging:
         setup_verbose_logging()
@@ -1344,8 +1344,8 @@ def init_agent(
         os.environ["HERMES_SESSION_ID"] = agent.session_id
 
     # Session logs go into ~/.hermes/sessions/ alongside gateway sessions
-    hermes_home = get_fabric_home()
-    agent.logs_dir = hermes_home / "sessions"
+    fabric_home = get_fabric_home()
+    agent.logs_dir = fabric_home / "sessions"
     agent.logs_dir.mkdir(parents=True, exist_ok=True)
     # Per-session JSON snapshot writer (~/.hermes/sessions/session_{sid}.json)
     # is opt-in via sessions.write_json_snapshots (default False).  state.db
@@ -1516,7 +1516,7 @@ def init_agent(
                     _init_kwargs = {
                         "session_id": agent.session_id,
                         "platform": platform or "cli",
-                        "hermes_home": str(get_fabric_home()),
+                        "fabric_home": str(get_fabric_home()),
                         "agent_context": "primary",
                     }
                     if _init_kwargs["platform"] == "cli":
@@ -1643,7 +1643,7 @@ def init_agent(
             pass
 
     # Per-platform prompt-hint overrides (config.yaml → platform_hints).
-    # Lets an enterprise admin append to or replace Hermes' built-in
+    # Lets an enterprise admin append to or replace Fabric' built-in
     # platform hint for a single messaging platform (e.g. WhatsApp) without
     # affecting other platforms. Shape:
     #   platform_hints:
@@ -1749,7 +1749,7 @@ def init_agent(
     if codex_app_server_auto_compaction not in {"native", "hermes", "off"}:
         _ra().logger.warning(
             "Invalid compression.codex_app_server_auto=%r; using 'native'. "
-            "Valid values are: native, hermes, off.",
+            "Valid values are: native, fabric, off.",
             codex_app_server_auto_compaction,
         )
         codex_app_server_auto_compaction = "native"
@@ -2055,10 +2055,10 @@ def init_agent(
     # non-CLI surface to still surface the warning.)
     if not agent.quiet_mode and (agent.platform or "cli") != "cli":
         try:
-            from fabric_cli.model_switch import _check_hermes_model_warning
+            from fabric_cli.model_switch import _check_fabric_model_warning
 
-            _hermes_warn = _check_hermes_model_warning(agent.model or "")
-            if _hermes_warn:
+            _fabric_warn = _check_fabric_model_warning(agent.model or "")
+            if _fabric_warn:
                 _user_msg = (
                     "⚠ Nous Research Hermes 3 & 4 models are NOT agentic — they "
                     "lack reliable tool-calling for agent workflows (delegation, "
@@ -2069,7 +2069,7 @@ def init_agent(
                     agent._emit_warning(_user_msg)
                 else:
                     print(f"\n{_user_msg}\n", file=sys.stderr)
-                _ra().logger.warning(_hermes_warn)
+                _ra().logger.warning(_fabric_warn)
         except Exception:
             pass
 
@@ -2129,7 +2129,7 @@ def init_agent(
         try:
             agent.context_compressor.on_session_start(
                 agent.session_id,
-                hermes_home=str(get_fabric_home()),
+                fabric_home=str(get_fabric_home()),
                 platform=agent.platform or "cli",
                 model=agent.model,
                 context_length=getattr(agent.context_compressor, "context_length", 0),

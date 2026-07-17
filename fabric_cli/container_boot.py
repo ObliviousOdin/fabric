@@ -87,7 +87,7 @@ class ReconcileAction:
 
 def reconcile_profile_gateways(
     *,
-    hermes_home: Path,
+    fabric_home: Path,
     scandir: Path,
     dry_run: bool = False,
     container_argv: Sequence[str] | None = None,
@@ -109,9 +109,9 @@ def reconcile_profile_gateways(
     same way as for named profiles.
 
     Args:
-        hermes_home: The container's HERMES_HOME (typically /opt/data).
-            Profiles live under ``<hermes_home>/profiles/<name>/``;
-            the default profile lives at ``<hermes_home>`` itself.
+        fabric_home: The container's HERMES_HOME (typically /opt/data).
+            Profiles live under ``<fabric_home>/profiles/<name>/``;
+            the default profile lives at ``<fabric_home>`` itself.
         scandir: The s6 dynamic scandir (typically /run/service). Service
             directories are created at ``<scandir>/gateway-<profile>/``.
         dry_run: When True, walk and return the action list without
@@ -133,14 +133,14 @@ def reconcile_profile_gateways(
     # `gateway run` command and no state exists yet, seed that intent
     # as `running` so the s6 reconciler preserves the pre-s6 behavior.
     legacy_default_state = _maybe_migrate_legacy_gateway_run_state(
-        hermes_home,
+        fabric_home,
         container_argv=container_argv,
         dry_run=dry_run,
     )
-    default_prior_state = legacy_default_state or _read_desired_state(hermes_home)
+    default_prior_state = legacy_default_state or _read_desired_state(fabric_home)
     default_should_start = default_prior_state in _AUTOSTART_STATES
     if not dry_run:
-        _cleanup_stale_runtime_files(hermes_home)
+        _cleanup_stale_runtime_files(fabric_home)
         _register_service(scandir, "default", start=default_should_start)
     actions.append(ReconcileAction(
         profile="default",
@@ -148,7 +148,7 @@ def reconcile_profile_gateways(
         action="started" if default_should_start else "registered",
     ))
 
-    profiles_root = hermes_home / "profiles"
+    profiles_root = fabric_home / "profiles"
     if profiles_root.is_dir():
         for entry in sorted(profiles_root.iterdir()):
             if not entry.is_dir():
@@ -163,7 +163,7 @@ def reconcile_profile_gateways(
             # profile (above) — if a user has somehow created a
             # ``profiles/default/`` directory, skip it to avoid the
             # slot collision. Their gateway would still be reachable
-            # via ``hermes -p default-named gateway start`` if they
+            # via ``fabric -p default-named gateway start`` if they
             # rename the directory; we don't try to disambiguate here.
             if entry.name == "default":
                 log.warning(
@@ -186,12 +186,12 @@ def reconcile_profile_gateways(
             ))
 
     if not dry_run:
-        _write_reconcile_log(hermes_home, actions)
+        _write_reconcile_log(fabric_home, actions)
     return actions
 
 
 def _maybe_migrate_legacy_gateway_run_state(
-    hermes_home: Path,
+    fabric_home: Path,
     *,
     container_argv: Sequence[str] | None,
     dry_run: bool,
@@ -206,7 +206,7 @@ def _maybe_migrate_legacy_gateway_run_state(
     root gateway_state.json exists so explicit stopped/failed states keep
     winning across restarts.
     """
-    state_file = hermes_home / "gateway_state.json"
+    state_file = fabric_home / "gateway_state.json"
     if state_file.exists():
         return None
 
@@ -275,7 +275,7 @@ def _read_container_argv() -> tuple[str, ...]:
 
 
 def _strip_container_argv_prefix(argv: Sequence[str]) -> list[str]:
-    """Strip the s6/wrapper prefix off the container argv, leaving the hermes args.
+    """Strip the s6/wrapper prefix off the container argv, leaving the fabric args.
 
     Two container-command argv shapes are handled:
 
@@ -292,7 +292,7 @@ def _strip_container_argv_prefix(argv: Sequence[str]) -> list[str]:
     ``main-wrapper.sh`` token: that wrapper path is the stable boundary the
     image owns, and the subcommand always follows it. Pre-s6 / direct
     ``fabric`` invocations carry no wrapper, so fall back to peeling a bare
-    ``init`` prefix. The wrapper re-execs ``hermes <subcommand>``, so an
+    ``init`` prefix. The wrapper re-execs ``fabric <subcommand>``, so an
     explicit leading ``fabric`` is peeled too. Shared by the legacy-gateway
     and dashboard role detectors.
     """
@@ -311,7 +311,7 @@ def _strip_container_argv_prefix(argv: Sequence[str]) -> list[str]:
         # Defensive: an `init` prefix with no wrapper token in argv.
         args = args[1:]
 
-    # The wrapper re-execs `hermes <subcommand>`; peel an explicit hermes.
+    # The wrapper re-execs `fabric <subcommand>`; peel an explicit fabric.
     if args and Path(args[0]).name == "hermes":
         args = args[1:]
     return args
@@ -462,19 +462,19 @@ def _register_service(scandir: Path, profile: str, *, start: bool) -> None:
 
         # The presence of a `down` file tells s6-supervise to NOT
         # start the service when s6-svscan picks it up. User brings
-        # it up explicitly with `hermes -p <profile> gateway start`
+        # it up explicitly with `fabric -p <profile> gateway start`
         # (which routes through the Phase 4
         # _dispatch_via_service_manager_if_s6 helper to `s6-svc -u`).
         if not start:
             (tmp_dir / "down").touch()
 
-        # Pre-create the supervise/ skeleton with hermes ownership
+        # Pre-create the supervise/ skeleton with fabric ownership
         # BEFORE we publish the slot. Mirrors the same pre-creation
         # step in S6ServiceManager.register_profile_gateway — when
         # s6-svscan picks the published slot up, the s6-supervise it
-        # spawns will EEXIST our dirs/FIFOs and inherit hermes
+        # spawns will EEXIST our dirs/FIFOs and inherit fabric
         # ownership, so runtime s6-svc / s6-svstat / s6-svwait calls
-        # (all dispatched as the hermes user) won't hit EACCES. See
+        # (all dispatched as the fabric user) won't hit EACCES. See
         # ``_seed_supervise_skeleton`` in service_manager.py for the
         # full rationale.
         _seed_supervise_skeleton(tmp_dir)
@@ -492,7 +492,7 @@ def _register_service(scandir: Path, profile: str, *, start: bool) -> None:
 
 
 def _write_reconcile_log(
-    hermes_home: Path, actions: list[ReconcileAction],
+    fabric_home: Path, actions: list[ReconcileAction],
 ) -> None:
     """Append one line per profile to $HERMES_HOME/logs/container-boot.log.
 
@@ -510,7 +510,7 @@ def _write_reconcile_log(
     one append-only file (PR #30136 review item O3).
     """
     import time
-    log_dir = hermes_home / "logs"
+    log_dir = fabric_home / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "container-boot.log"
 
@@ -559,10 +559,10 @@ def main() -> int:
         )
         return 0
 
-    hermes_home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+    fabric_home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
     scandir = Path(os.environ.get("S6_PROFILE_GATEWAY_SCANDIR", "/run/service"))
     actions = reconcile_profile_gateways(
-        hermes_home=hermes_home, scandir=scandir,
+        fabric_home=fabric_home, scandir=scandir,
     )
     for a in actions:
         print(

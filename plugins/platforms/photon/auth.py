@@ -22,7 +22,7 @@ The ``spectrum-ts`` SDK (run by the Node sidecar) authenticates to Spectrum
 Cloud with ``(id, projectSecret)`` — the same ``id`` used in Dashboard API
 paths — which we persist as ``PHOTON_PROJECT_ID`` for the runtime.
 
-Credential storage mirrors every other Hermes channel:
+Credential storage mirrors every other Fabric channel:
 
     * runtime SDK creds  -> ``~/.fabric/.env``  (``PHOTON_PROJECT_ID`` =
       project id, ``PHOTON_PROJECT_SECRET``) via ``save_env_value``
@@ -48,7 +48,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     import httpx
-except ImportError:  # pragma: no cover - httpx is a hermes dependency
+except ImportError:  # pragma: no cover - httpx is a fabric dependency
     httpx = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class PhotonDashboardAuthError(RuntimeError):
 # endpoint — an unregistered client_id is rejected with
 # `400 {"error":"invalid_client"}`.  Use Photon's published CLI device
 # client (matches `CLI_CLIENT_ID` in photon-hq/cli) until the dashboard API
-# registers Hermes as its own client_id.
+# registers Fabric as its own client_id.
 DEFAULT_CLIENT_ID = "photon-cli"
 DEFAULT_SCOPE = "openid profile email"
 

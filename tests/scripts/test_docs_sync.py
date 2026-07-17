@@ -124,7 +124,7 @@ class DocsSyncTests(unittest.TestCase):
     def test_first_party_skill_rejects_legacy_metadata_namespace(self) -> None:
         self._write(
             "skills/example/SKILL.md",
-            "---\nname: example\nmetadata:\n  hermes:\n    tags: [Example]\n---\n",
+            "---\nname: example\nmetadata:\n  fabric:\n    tags: [Example]\n---\n",
         )
 
         errors = self.sync.audit_first_party_skill_metadata(self.root)
@@ -135,11 +135,11 @@ class DocsSyncTests(unittest.TestCase):
     def test_skill_metadata_audit_parses_indented_and_inline_yaml(self) -> None:
         self._write(
             "skills/indented/SKILL.md",
-            "---\nname: indented\nmetadata:\n    hermes:\n        tags: [Example]\n---\n",
+            "---\nname: indented\nmetadata:\n    fabric:\n        tags: [Example]\n---\n",
         )
         self._write(
             "skills/inline/SKILL.md",
-            "---\nname: inline\nmetadata: {hermes: {tags: [Example]}}\n---\n",
+            "---\nname: inline\nmetadata: {fabric: {tags: [Example]}}\n---\n",
         )
 
         errors = self.sync.audit_first_party_skill_metadata(self.root)

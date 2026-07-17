@@ -266,7 +266,7 @@ function collectDroppedPaths(t: DataTransfer): string[] {
     // Malformed in-app drag payload — fall through to OS files.
   }
 
-  const getPath = window.hermesDesktop?.getPathForFile
+  const getPath = window.fabricDesktop?.getPathForFile
 
   const addFile = (file: File | null) => {
     if (!file || !getPath) {
@@ -408,7 +408,7 @@ export function useTerminalSession({
 
   useEffect(() => {
     const host = hostRef.current
-    const terminalApi = window.hermesDesktop?.terminal
+    const terminalApi = window.fabricDesktop?.terminal
 
     if (!host || !terminalApi) {
       setStatus('closed')
@@ -437,7 +437,7 @@ export function useTerminalSession({
       fontWeightBold: 'bold',
       letterSpacing: 0,
       lineHeight: 1.12,
-      // Full-screen TUIs (hermes --tui, vim) grab the mouse, so a plain drag
+      // Full-screen TUIs (fabric --tui, vim) grab the mouse, so a plain drag
       // can't select — ⌥-drag (macOS) / Shift-drag (else) forces a native
       // selection over mouse-mode apps, which ⌘/Ctrl+L then sends to chat.
       macOptionClickForcesSelection: true,
@@ -854,7 +854,7 @@ export function useTerminalSession({
         return
       }
 
-      void window.hermesDesktop?.terminal?.write(sessionId, `${command}\r`)
+      void window.fabricDesktop?.terminal?.write(sessionId, `${command}\r`)
       $terminalInjection.set(null)
       termRef.current?.focus()
     })

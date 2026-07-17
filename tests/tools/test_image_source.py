@@ -19,8 +19,8 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 JPEG = b"\xff\xd8\xff" + b"\x00" * 64
 
 
-def _reload(monkeypatch, hermes_home: Path):
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+def _reload(monkeypatch, fabric_home: Path):
+    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
     import fabric_constants
     importlib.reload(fabric_constants)
     import tools.image_source as isrc

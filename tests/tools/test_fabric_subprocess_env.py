@@ -1,4 +1,4 @@
-"""Tests for hermes_subprocess_env() — the centralized credential-safe env
+"""Tests for fabric_subprocess_env() — the centralized credential-safe env
 builder for the non-terminal subprocess spawn surface.
 
 Covers GHSA-m4m8-xjp4-5rmm / issue #29157: subprocesses spawned by the
@@ -15,7 +15,7 @@ import os
 from unittest.mock import patch
 
 from tools.environments.local import (
-    hermes_subprocess_env,
+    fabric_subprocess_env,
     _ALWAYS_STRIP_KEYS,
     _HERMES_PROVIDER_ENV_FORCE_PREFIX,
 )
@@ -48,7 +48,7 @@ def _build(extra=None, *, inherit_credentials=False):
     if extra:
         env.update(extra)
     with patch.dict(os.environ, env, clear=True):
-        return hermes_subprocess_env(inherit_credentials=inherit_credentials)
+        return fabric_subprocess_env(inherit_credentials=inherit_credentials)
 
 
 class TestStripByDefault:
@@ -128,7 +128,7 @@ class TestProfileScopedCredentials:
         )
         try:
             with patch.dict(os.environ, launch, clear=True):
-                result = hermes_subprocess_env(inherit_credentials=True)
+                result = fabric_subprocess_env(inherit_credentials=True)
         finally:
             reset_secret_scope(token)
 
@@ -148,7 +148,7 @@ class TestProfileScopedCredentials:
         token = set_secret_scope({"OPENAI_API_KEY": "worker-openai"})
         try:
             with patch.dict(os.environ, _SAFE_SAMPLE, clear=True):
-                result = hermes_subprocess_env(inherit_credentials=False)
+                result = fabric_subprocess_env(inherit_credentials=False)
         finally:
             reset_secret_scope(token)
 
@@ -165,7 +165,7 @@ class TestProfileScopedCredentials:
                 {**_SAFE_SAMPLE, "DATABASE_URL": "postgres://launch"},
                 clear=True,
             ):
-                result = hermes_subprocess_env(inherit_credentials=True)
+                result = fabric_subprocess_env(inherit_credentials=True)
         finally:
             reset_secret_scope(token)
 
@@ -212,7 +212,7 @@ class TestBrowserPassthroughPattern:
             "TELEGRAM_BOT_TOKEN": "bot-should-go",
         }
         with patch.dict(os.environ, {**_SAFE_SAMPLE, **leaked}, clear=True):
-            env = hermes_subprocess_env(inherit_credentials=False)
+            env = fabric_subprocess_env(inherit_credentials=False)
             for key in _BROWSER_PASSTHROUGH_KEYS:
                 if key in os.environ:
                     env[key] = os.environ[key]

@@ -60,7 +60,7 @@ def _fake_warning():
     return SimpleNamespace(
         message=(
             "!!! EXPENSIVE MODEL WARNING !!!\n"
-            "openai/gpt-5.5-pro has known pricing above Hermes' safety threshold.\n"
+            "openai/gpt-5.5-pro has known pricing above Fabric' safety threshold.\n"
             "did you mean to select openai/gpt-5.5?"
         ),
     )
@@ -69,22 +69,22 @@ def _fake_warning():
 def _setup_isolated_home(tmp_path, monkeypatch, *, warn):
     import gateway.run as gateway_run
 
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    cfg_path = hermes_home / "config.yaml"
+    fabric_home = tmp_path / ".hermes"
+    fabric_home.mkdir()
+    cfg_path = fabric_home / "config.yaml"
     cfg_path.write_text(
         yaml.safe_dump({"model": {"default": "old-model", "provider": "openrouter"}, "providers": {}}),
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(gateway_run, "_fabric_home", hermes_home)
+    monkeypatch.setattr(gateway_run, "_fabric_home", fabric_home)
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
     monkeypatch.setattr(
         "fabric_cli.model_switch.switch_model",
         lambda **kw: _fake_switch_result(),
     )
-    monkeypatch.setattr("fabric_constants.get_fabric_home", lambda: hermes_home)
-    monkeypatch.setattr("fabric_cli.config.get_fabric_home", lambda: hermes_home)
+    monkeypatch.setattr("fabric_constants.get_fabric_home", lambda: fabric_home)
+    monkeypatch.setattr("fabric_cli.config.get_fabric_home", lambda: fabric_home)
     monkeypatch.setattr(
         "fabric_cli.model_cost_guard.expensive_model_warning",
         (lambda *a, **kw: _fake_warning()) if warn else (lambda *a, **kw: None),

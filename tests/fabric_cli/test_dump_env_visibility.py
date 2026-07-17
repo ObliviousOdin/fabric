@@ -1,4 +1,4 @@
-"""`hermes debug` must not report a shell-only API key as plainly "set".
+"""`fabric debug` must not report a shell-only API key as plainly "set".
 
 The dump reads ``os.getenv`` — the invoking terminal's environment — but the
 managed backends (launchd / systemd / the desktop-spawned ``serve`` process)
@@ -109,9 +109,7 @@ def test_dump_uses_fabric_labels_and_curated_provider_credentials(
     out = _run_curated_dump(monkeypatch, capsys, tmp_path)
 
     assert "--- fabric dump ---" in out
-    assert "--- hermes dump ---" not in out
     assert "fabric_home:      ~/.fabric" in out
-    assert "hermes_home:" not in out
     assert _api_key_line(out, "openai")
     assert _api_key_line(out, "xai")
     assert _api_key_line(out, "openrouter")

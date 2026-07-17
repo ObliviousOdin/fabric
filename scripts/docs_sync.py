@@ -38,7 +38,7 @@ CONTRACTS_PATH = ROOT / "docs" / "documentation-contracts.json"
 RUNTIME_JSON_PATH = ROOT / "website" / "static" / "api" / "runtime-surfaces.json"
 RUNTIME_DOC_PATH = ROOT / "website" / "docs" / "reference" / "runtime-surfaces.mdx"
 
-_TOKEN_RE = re.compile(r"(?<![A-Z0-9])(?:HERMES|FABRIC)_[A-Z0-9_]+")
+_TOKEN_RE = re.compile(r"(?<![A-Z0-9])(?:FABRIC|FABRIC)_[A-Z0-9_]+")
 _DOCS_IMPACT_RE = re.compile(
     r"(?im)^\s*Docs-impact:\s*none\s*\[([^\]]+)\]\s*(?:—|--|-|:)\s*(.+?)\s*$"
 )
@@ -760,7 +760,7 @@ def render_runtime_reference(catalog: dict[str, Any]) -> str:
             "",
             "## Toolsets",
             "",
-            "IDs beginning with `hermes-` are live pre-Fabric compatibility identifiers.",
+            "IDs beginning with `fabric-` are live pre-Fabric compatibility identifiers.",
             "Keep them for existing configuration, but use canonical `fabric-` IDs for new",
             "toolsets and integrations.",
             "",
@@ -774,7 +774,7 @@ def render_runtime_reference(catalog: dict[str, Any]) -> str:
                     f"`{row['key']}`",
                     (
                         "pre-Fabric compatibility ID"
-                        if str(row["key"]).startswith("hermes-")
+                        if str(row["key"]).startswith("fabric-")
                         else "canonical"
                     ),
                     row["label"],
@@ -896,7 +896,7 @@ def audit_documented_tokens(root: Path, contracts: dict[str, Any]) -> list[str]:
 
 
 def audit_first_party_skill_metadata(root: Path) -> list[str]:
-    """Reject newly authored legacy ``metadata.hermes`` in shipped skills."""
+    """Reject newly authored legacy ``metadata.fabric`` in shipped skills."""
 
     errors: list[str] = []
     for relative_root in ("skills", "optional-skills", "plugins"):
@@ -924,7 +924,7 @@ def audit_first_party_skill_metadata(root: Path) -> list[str]:
             if isinstance(metadata, dict) and "hermes" in metadata:
                 errors.append(
                     f"{path.relative_to(root).as_posix()}: use canonical metadata.fabric, "
-                    "not metadata.hermes"
+                    "not metadata.fabric"
                 )
     return errors
 

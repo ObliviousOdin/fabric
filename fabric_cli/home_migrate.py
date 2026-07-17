@@ -96,7 +96,7 @@ def _read_live_gateway_pid(source: Path) -> int | None:
         if pid <= 0 or pid == os.getpid() or not argv:
             continue
         is_module = any(
-            module in argv for module in ("hermes_cli.main", "fabric_cli.main")
+            module in argv for module in ("fabric_cli.main", "fabric_cli.main")
         )
         is_console = any(Path(arg).name in {"hermes", "fabric"} for arg in argv[:2])
         references_source = any(str(source) in arg for arg in argv)
@@ -383,9 +383,9 @@ def migrate_home(
 
         # Only rewrite known, byte-identical stock SOUL files. Custom identity
         # files remain byte-for-byte untouched.
-        from fabric_cli.fabric_soul_migrate import migrate_hermes_home_souls
+        from fabric_cli.fabric_soul_migrate import migrate_fabric_home_souls
 
-        souls_migrated = migrate_hermes_home_souls(staging)
+        souls_migrated = migrate_fabric_home_souls(staging)
 
         if target_nonempty:
             _merge_missing(target, staging)
@@ -409,7 +409,7 @@ def migrate_home(
             assert backup is not None
             os.replace(source, backup)
 
-        receipt = target / "migration-hermes-to-fabric.json"
+        receipt = target / "migration-fabric-to-fabric.json"
         payload = {
             "source": str(source),
             "target": str(target),

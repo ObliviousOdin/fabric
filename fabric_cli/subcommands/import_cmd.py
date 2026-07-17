@@ -1,4 +1,4 @@
-"""``hermes import`` subcommand parser.
+"""``fabric import`` subcommand parser.
 
 Extracted verbatim from ``fabric_cli/main.py:main()`` (god-file Phase 2).
 Handler injected to avoid importing ``main``.

@@ -162,7 +162,7 @@ def extract_skill_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
     """Return Fabric skill metadata with legacy namespace compatibility.
 
     ``metadata.fabric`` is the canonical namespace. Existing skills may still
-    declare ``metadata.hermes``; those keys remain valid as fallbacks while a
+    declare ``metadata.fabric``; those keys remain valid as fallbacks while a
     canonical Fabric value wins when both namespaces declare the same key.
     Malformed namespace values are ignored rather than leaking non-mappings to
     runtime readers.
@@ -283,7 +283,7 @@ def _detect_environment(env: str) -> bool:
         except Exception:
             result = False
     elif env == "s6":
-        # The Hermes Docker image runs s6-overlay as PID 1 (/init). s6 plants
+        # The Fabric Docker image runs s6-overlay as PID 1 (/init). s6 plants
         # its runtime scaffolding under /run/s6 and ships its admin tree under
         # /package/admin/s6-overlay. Either marker means we're inside an
         # s6-supervised container.
@@ -494,7 +494,7 @@ def get_external_skills_dirs() -> List[Path]:
 
     from fabric_constants import get_fabric_home
 
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     local_skills = get_skills_dir().resolve()
     seen: Set[Path] = set()
     result = []
@@ -508,7 +508,7 @@ def get_external_skills_dirs() -> List[Path]:
         p = Path(expanded)
         # Resolve relative paths against HERMES_HOME, not cwd
         if not p.is_absolute():
-            p = (hermes_home / p).resolve()
+            p = (fabric_home / p).resolve()
         else:
             p = p.resolve()
         if p == local_skills:
@@ -806,7 +806,7 @@ def extract_skill_description(frontmatter: Dict[str, Any]) -> str:
 def iter_skill_index_files(skills_dir: Path, filename: str):
     """Walk skills_dir yielding sorted paths matching *filename*.
 
-    Excludes Hermes metadata, VCS, virtualenv/dependency, cache, and skill
+    Excludes Fabric metadata, VCS, virtualenv/dependency, cache, and skill
     support directories. Support directories (references/templates/assets/
     scripts) can contain arbitrary markdown and even archived package
     ``SKILL.md`` files, but they are progressive-disclosure data loaded through

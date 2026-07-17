@@ -33,6 +33,6 @@ def test_bundled_capability_packs_uses_only_explicit_default(tmp_path, monkeypat
     )
     monkeypatch.setenv("FABRIC_BUNDLED_CAPABILITY_PACKS", str(ambient / "override"))
     monkeypatch.setenv("FABRIC_HOME", str(ambient / "fabric-home"))
-    monkeypatch.setenv("HERMES_HOME", str(ambient / "hermes-home"))
+    monkeypatch.setenv("HERMES_HOME", str(ambient / "fabric-home"))
 
     assert fabric_constants.get_bundled_capability_packs_dir(default) == default

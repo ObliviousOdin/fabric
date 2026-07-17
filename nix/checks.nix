@@ -421,9 +421,9 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
 
           # Helper: run merge then load with Python, output merged JSON
           merge_and_load() {
-            local hermes_home="$1"
-            export HERMES_HOME="$hermes_home"
-            ${configMergeScript} ${nixSettings} "$hermes_home/config.yaml"
+            local fabric_home="$1"
+            export HERMES_HOME="$fabric_home"
+            ${configMergeScript} ${nixSettings} "$fabric_home/config.yaml"
             ${fabricVenv}/bin/python3 -c '
 import json, sys
 from fabric_cli.config import load_config

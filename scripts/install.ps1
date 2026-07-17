@@ -2059,22 +2059,22 @@ function Set-PathVariable {
     Write-Info "Setting up fabric command..."
     
     if ($NoVenv) {
-        $hermesBin = "$InstallDir"
+        $fabricBin = "$InstallDir"
     } else {
-        $hermesBin = "$InstallDir\venv\Scripts"
+        $fabricBin = "$InstallDir\venv\Scripts"
     }
     
     # Add the venv Scripts dir to user PATH so fabric is globally available
     # On Windows, the fabric.exe in venv\Scripts\ has the venv Python baked in
     $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
     
-    if ($currentPath -notlike "*$hermesBin*") {
+    if ($currentPath -notlike "*$fabricBin*") {
         [Environment]::SetEnvironmentVariable(
             "Path",
-            "$hermesBin;$currentPath",
+            "$fabricBin;$currentPath",
             "User"
         )
-        Write-Success "Added to user PATH: $hermesBin"
+        Write-Success "Added to user PATH: $fabricBin"
     } else {
         Write-Info "PATH already configured"
     }
@@ -2093,7 +2093,7 @@ function Set-PathVariable {
     $env:HERMES_HOME = $FabricHome
     
     # Update current session
-    $env:Path = "$hermesBin;$env:Path"
+    $env:Path = "$fabricBin;$env:Path"
     
     Write-Success "fabric command ready"
 }
@@ -2621,7 +2621,7 @@ function Install-Desktop {
     # itself, ~150MB), then run `npm run pack` in apps/desktop which
     # produces the unpacked binary at apps/desktop/release/<os>-unpacked/.
     #
-    # The Tauri bootstrap installer's launch_hermes_desktop command
+    # The Tauri bootstrap installer's launch_fabric_desktop command
     # resolves apps/desktop/release/win-unpacked/Fabric.exe directly,
     # so an "unpacked" build (electron-builder --dir) is enough — we
     # don't need to produce an NSIS/MSI artifact here.
@@ -3063,9 +3063,9 @@ function Start-GatewayIfConfigured {
 
     if (-not $hasMessaging) { return }
 
-    $hermesCmd = "$InstallDir\venv\Scripts\fabric.exe"
-    if (-not (Test-Path $hermesCmd)) {
-        $hermesCmd = "fabric"
+    $fabricCmd = "$InstallDir\venv\Scripts\fabric.exe"
+    if (-not (Test-Path $fabricCmd)) {
+        $fabricCmd = "fabric"
     }
 
     # If WhatsApp is enabled but not yet paired, run foreground for QR scan
@@ -3083,7 +3083,7 @@ function Start-GatewayIfConfigured {
             $response = Read-Host "Pair WhatsApp now? [Y/n]"
             if ($response -eq "" -or $response -match "^[Yy]") {
                 try {
-                    & $hermesCmd whatsapp
+                    & $fabricCmd whatsapp
                 } catch {
                     # Expected after pairing completes
                 }
@@ -3113,7 +3113,7 @@ function Start-GatewayIfConfigured {
         Write-Info "Starting gateway in background..."
         try {
             $logFile = "$FabricHome\logs\gateway.log"
-            Start-Process -FilePath $hermesCmd -ArgumentList "gateway" `
+            Start-Process -FilePath $fabricCmd -ArgumentList "gateway" `
                 -RedirectStandardOutput $logFile `
                 -RedirectStandardError "$FabricHome\logs\gateway-error.log" `
                 -WindowStyle Hidden

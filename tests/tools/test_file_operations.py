@@ -77,15 +77,15 @@ class TestIsWriteDenied:
     def test_oauth_mcp_tokens_and_pairing_denied(self, path):
         """PKCE creds, mcp-tokens, and pairing entries must be write-denied."""
         from fabric_constants import get_fabric_home
-        hermes_home = get_fabric_home()
-        full_path = str(hermes_home / path)
+        fabric_home = get_fabric_home()
+        full_path = str(fabric_home / path)
         assert _is_write_denied(full_path) is True
 
     @pytest.mark.parametrize(
         "path",
         ["auth.json", "config.yaml", "webhook_subscriptions.json"],
     )
-    def test_hermes_control_files_requested_writable(self, path):
+    def test_fabric_control_files_requested_writable(self, path):
         from fabric_constants import get_fabric_home
 
         assert _is_write_denied(str(get_fabric_home() / path)) is False
@@ -99,8 +99,8 @@ class TestIsWriteDenied:
     def test_oauth_traversal_denied(self, path):
         """Path traversal attempts to protected OAuth files must be blocked."""
         from fabric_constants import get_fabric_home
-        hermes_home = get_fabric_home()
-        full_path = str(hermes_home / path)
+        fabric_home = get_fabric_home()
+        full_path = str(fabric_home / path)
         assert _is_write_denied(full_path) is True
 
     @pytest.mark.parametrize(

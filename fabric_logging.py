@@ -42,7 +42,7 @@ from typing import Optional, Sequence
 # On Windows, stdlib ``RotatingFileHandler`` calls ``os.rename()`` in
 # ``doRollover()`` and fails with ``PermissionError [WinError 32]`` whenever
 # another process holds an append-mode handle on ``agent.log`` — which is
-# essentially always in Hermes (TUI, gateway, ``hy_memory`` server, MCP
+# essentially always in Fabric (TUI, gateway, ``hy_memory`` server, MCP
 # servers, and on-demand CLI commands all log from separate processes),
 # pinning ``agent.log`` at the 5 MiB threshold and spamming stderr with
 # a traceback on every emit. ``concurrent-log-handler`` wraps the rename in a
@@ -194,7 +194,7 @@ def _install_session_record_factory() -> None:
     the module is reloaded.
     """
     current_factory = logging.getLogRecordFactory()
-    if getattr(current_factory, "_hermes_session_injector", False):
+    if getattr(current_factory, "_fabric_session_injector", False):
         return  # already installed
 
     def _session_record_factory(*args, **kwargs):
@@ -203,7 +203,7 @@ def _install_session_record_factory() -> None:
         record.session_tag = f" [{sid}]" if sid else ""  # type: ignore[attr-defined]
         return record
 
-    _session_record_factory._hermes_session_injector = True  # type: ignore[attr-defined]
+    _session_record_factory._fabric_session_injector = True  # type: ignore[attr-defined]
     logging.setLogRecordFactory(_session_record_factory)
 
 
@@ -238,7 +238,7 @@ COMPONENT_PREFIXES = {
     # out of ``gateway/platforms/`` into bundled plugins (#41112) — they are
     # still gateway components and their logs belong in gateway.log / match
     # ``fabric logs --component gateway``.
-    "gateway": ("gateway", "hermes_plugins", "plugins.platforms"),
+    "gateway": ("gateway", "fabric_plugins", "plugins.platforms"),
     "agent": ("agent", "run_agent", "model_tools", "batch_runner"),
     "tools": ("tools",),
     "cli": ("fabric_cli", "cli"),
@@ -258,21 +258,21 @@ COMPONENT_PREFIXES = {
 
 def setup_logging(
     *,
-    hermes_home: Optional[Path] = None,
+    fabric_home: Optional[Path] = None,
     log_level: Optional[str] = None,
     max_size_mb: Optional[int] = None,
     backup_count: Optional[int] = None,
     mode: Optional[str] = None,
     force: bool = False,
 ) -> Path:
-    """Configure the Hermes logging subsystem.
+    """Configure the Fabric logging subsystem.
 
     Safe to call multiple times — the second call is a no-op unless
     *force* is ``True``.
 
     Parameters
     ----------
-    hermes_home
+    fabric_home
         Override for the Fabric home directory.  Falls back to
         ``get_fabric_home()`` (profile-aware).
     log_level
@@ -300,7 +300,7 @@ def setup_logging(
         The ``logs/`` directory where files are written.
     """
     global _logging_initialized
-    home = hermes_home or get_fabric_home()
+    home = fabric_home or get_fabric_home()
     log_dir = home / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -388,13 +388,13 @@ def setup_verbose_logging() -> None:
     # Avoid adding duplicate stream handlers.
     for h in root.handlers:
         if isinstance(h, logging.StreamHandler) and not isinstance(h, RotatingFileHandler):
-            if getattr(h, "_hermes_verbose", False):
+            if getattr(h, "_fabric_verbose", False):
                 return
 
     handler = logging.StreamHandler(_safe_stderr())
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(RedactingFormatter(_LOG_FORMAT_VERBOSE, datefmt="%H:%M:%S"))
-    handler._hermes_verbose = True  # type: ignore[attr-defined]
+    handler._fabric_verbose = True  # type: ignore[attr-defined]
     root.addHandler(handler)
 
     # Lower root logger level so DEBUG records reach all handlers.
@@ -419,7 +419,7 @@ class _ManagedRotatingFileHandler(RotatingFileHandler):
     Two responsibilities:
 
     1.  In managed mode (NixOS), the stateDir uses setgid (2770) so new files
-        inherit the hermes group. However, both ``_open()`` (initial creation)
+        inherit the fabric group. However, both ``_open()`` (initial creation)
         and ``doRollover()`` create files via ``open()``, which uses the
         process umask — typically 0022, producing 0644. This subclass applies
         ``chmod 0660`` after both operations so the gateway and interactive
@@ -551,7 +551,7 @@ class _ManagedRotatingFileHandler(RotatingFileHandler):
 # Asynchronous file logging — keep the cross-process rotation lock off the loop
 #
 # The rotating file handlers serialize rollover with a cross-process lock (see
-# the module header): when several Hermes processes log to the same file, an
+# the module header): when several Fabric processes log to the same file, an
 # ``emit`` can block while another process holds that lock.  When the emitting
 # thread is an asyncio event loop, that block stalls the loop and drops
 # WebSocket clients.  To keep file I/O off the hot path, every file handler is
@@ -622,7 +622,7 @@ def _register_queued_handler(handler: logging.Handler) -> None:
         if _log_queue is None:
             _log_queue = queue.SimpleQueue()
             qh = _NonFormattingQueueHandler(_log_queue)
-            qh._hermes_queue = True  # type: ignore[attr-defined]
+            qh._fabric_queue = True  # type: ignore[attr-defined]
             # Always funnel through the root logger so records from any logger
             # (production passes root here; callers may pass a child) reach the
             # queue via propagation.
@@ -686,7 +686,7 @@ def drain_log_queue(timeout: float = 1.0) -> None:
         except Exception:
             pass
 
-    t = threading.Thread(target=_drain, name="hermes-log-drain", daemon=True)
+    t = threading.Thread(target=_drain, name="fabric-log-drain", daemon=True)
     t.start()
     t.join(timeout)
 
@@ -707,7 +707,7 @@ def _reset_queued_handlers() -> None:
         _stop_queue_listener_locked()
         root = logging.getLogger()
         for h in list(root.handlers):
-            if getattr(h, "_hermes_queue", False):
+            if getattr(h, "_fabric_queue", False):
                 root.removeHandler(h)
         for h in list(_queued_file_handlers):
             try:

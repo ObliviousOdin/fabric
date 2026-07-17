@@ -133,7 +133,7 @@ def test_sessions_prune_handles_eoferror_on_confirm(monkeypatch, capsys):
 
 
 def _run_prune(monkeypatch, capsys, argv_tail, candidates=None):
-    """Run `hermes sessions prune <argv_tail>` against a FakeDB, capturing
+    """Run `fabric sessions prune <argv_tail>` against a FakeDB, capturing
     the filter kwargs passed to list_prune_candidates. Auto-confirms."""
     import fabric_cli.main as main_mod
     import fabric_state
@@ -181,7 +181,7 @@ def _run_prune(monkeypatch, capsys, argv_tail, candidates=None):
 
 
 def test_sessions_prune_bare_keeps_90_day_default(monkeypatch, capsys):
-    """A truly bare `hermes sessions prune` keeps the implicit 90-day cutoff."""
+    """A truly bare `fabric sessions prune` keeps the implicit 90-day cutoff."""
     import time as _time
 
     filters, _out = _run_prune(monkeypatch, capsys, [])

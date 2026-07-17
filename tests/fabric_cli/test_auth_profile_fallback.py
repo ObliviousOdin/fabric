@@ -282,7 +282,7 @@ def test_provider_auth_state_returns_none_when_neither_has_it(profile_env):
 # ``resolve_nous_access_token``) call ``_load_provider_state`` directly with
 # a profile-loaded auth store rather than going through
 # ``get_provider_auth_state``. Without the fallback wired into
-# ``_load_provider_state`` itself, those helpers raise ``"Hermes is not
+# ``_load_provider_state`` itself, those helpers raise ``"Fabric is not
 # logged into Nous Portal"`` even though the user has a valid global Nous
 # login. These tests pin the per-provider shadowing into the helper.
 # ---------------------------------------------------------------------------
@@ -334,11 +334,11 @@ def test_load_provider_state_classic_mode_no_fallback(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: fake_home)
-    hermes_home = tmp_path / "classic"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "classic"
+    fabric_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
 
-    _write(hermes_home / "auth.json", _make_auth_store(providers={
+    _write(fabric_home / "auth.json", _make_auth_store(providers={
         "nous": {"access_token": "classic-token"},
     }))
 
@@ -384,11 +384,11 @@ def test_classic_mode_does_not_double_read_same_file(tmp_path, monkeypatch):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: fake_home)
-    hermes_home = tmp_path / "classic"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "classic"
+    fabric_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
 
-    _write(hermes_home / "auth.json", _make_auth_store(pool={
+    _write(fabric_home / "auth.json", _make_auth_store(pool={
         "openrouter": [{
             "id": "only",
             "label": "classic",

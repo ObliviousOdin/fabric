@@ -804,7 +804,7 @@ def test_oneshot_rejects_disabled_mcp_toolset(monkeypatch, capsys):
     valid, error = _validate_explicit_toolsets("mcp-off")
 
     assert valid is None
-    assert error == "hermes -z: --toolsets did not contain any valid toolsets.\n"
+    assert error == "fabric -z: --toolsets did not contain any valid toolsets.\n"
     err = capsys.readouterr().err
     assert "ignoring disabled MCP servers" in err
     assert "mcp-off" in err
@@ -833,7 +833,7 @@ def test_oneshot_distinguishes_disabled_mcp_from_unknown(monkeypatch, capsys):
 
 
 def test_oneshot_wires_session_db_for_recall(monkeypatch):
-    """hermes -z bypasses HermesCLI, but recall still needs SessionDB."""
+    """fabric -z bypasses FabricCLI, but recall still needs SessionDB."""
     from fabric_cli.oneshot import _run_agent
 
     captured = {}
@@ -921,12 +921,12 @@ def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
 
     with pytest.raises(SystemExit):
         main_mod._launch_tui(
-            model="nous/hermes-test", provider="nous", toolsets="web, terminal"
+            model="nous/fabric-test", provider="nous", toolsets="web, terminal"
         )
 
     env = captured["env"]
-    assert env["HERMES_MODEL"] == "nous/hermes-test"
-    assert env["HERMES_INFERENCE_MODEL"] == "nous/hermes-test"
+    assert env["HERMES_MODEL"] == "nous/fabric-test"
+    assert env["HERMES_INFERENCE_MODEL"] == "nous/fabric-test"
     assert env["HERMES_TUI_PROVIDER"] == "nous"
     assert env["HERMES_INFERENCE_PROVIDER"] == "nous"
     assert env["HERMES_TUI_TOOLSETS"] == "web,terminal"
@@ -939,7 +939,7 @@ def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
 
 
 def test_launch_tui_applies_terminal_backend_config(
-    monkeypatch, main_mod, _isolate_hermes_home
+    monkeypatch, main_mod, _isolate_fabric_home
 ):
     captured = {}
     config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
@@ -1038,7 +1038,7 @@ def test_launch_tui_sets_resume_env_from_resume_arg(monkeypatch, main_mod):
     assert captured["env"]["HERMES_TUI_RESUME"] == "20260518_000000_goodid"
 
 
-def test_make_tui_argv_dev_prebuilds_hermes_ink(monkeypatch, main_mod, tmp_path):
+def test_make_tui_argv_dev_prebuilds_fabric_ink(monkeypatch, main_mod, tmp_path):
     tui_dir = tmp_path / "ui-tui"
     tsx = tui_dir / "node_modules" / ".bin" / "tsx"
     ink_dir = tui_dir / "packages" / "fabric-ink"

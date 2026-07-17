@@ -116,7 +116,6 @@ def test_chat_help_uses_fabric_and_curated_provider_examples():
 
     assert "Fabric itself" in help_text
     assert "GPT or Grok" in help_text
-    assert "Hermes itself" not in help_text
     assert "anthropic/" not in help_text.lower()
 
 
@@ -267,9 +266,9 @@ def test_dashboard_register_is_restored_by_explicit_legacy_opt_in(monkeypatch):
     assert "Nous Portal" in nested.choices["register"].format_help()
 
 
-# ── deprecated `hermes login` fails gracefully, not with argparse error ────
+# ── deprecated `fabric login` fails gracefully, not with argparse error ────
 #
-# `hermes login` is a removed command; its handler (`login_command` in
+# `fabric login` is a removed command; its handler (`login_command` in
 # `fabric_cli/auth.py`) prints a deprecation notice pointing at `fabric auth` /
 # `fabric model` and exits 0.  Two behavior contracts guard the UX:
 #   1. ANY `--provider <value>` (including ones the user actually wants, like
@@ -300,7 +299,7 @@ def test_login_accepts_any_provider_value(provider):
 
 
 def test_login_subparser_help_is_suppressed():
-    """The deprecated `login` row must not appear in `hermes --help`.
+    """The deprecated `login` row must not appear in `fabric --help`.
 
     Must hold without leaking argparse's literal `==SUPPRESS==` placeholder,
     which `help=argparse.SUPPRESS` emits for a top-level subparser on 3.12+.

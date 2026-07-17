@@ -189,7 +189,7 @@ def test_status_uses_machine_readable_bounded_command():
 def test_setup_child_env_is_minimal_and_drops_arbitrary_secrets(monkeypatch):
     monkeypatch.setattr(tailscale, "_subprocess_env", _REAL_SUBPROCESS_ENV)
     monkeypatch.setattr(
-        "tools.environments.local.hermes_subprocess_env",
+        "tools.environments.local.fabric_subprocess_env",
         lambda **_kwargs: {
             "PATH": "/usr/bin",
             "HOME": "/tmp/home",
@@ -217,7 +217,7 @@ def test_setup_child_env_is_minimal_and_drops_arbitrary_secrets(monkeypatch):
 def test_wsl_status_child_keeps_interop_socket_but_not_secrets(monkeypatch):
     monkeypatch.setattr(tailscale, "_subprocess_env", _REAL_SUBPROCESS_ENV)
     monkeypatch.setattr(
-        "tools.environments.local.hermes_subprocess_env",
+        "tools.environments.local.fabric_subprocess_env",
         lambda **_kwargs: {
             "PATH": "/usr/bin",
             "WSL_INTEROP": "/run/WSL/987_interop",

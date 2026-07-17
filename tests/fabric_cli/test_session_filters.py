@@ -1,5 +1,5 @@
 """Tests for fabric_cli.session_filters — CLI time/filter parsing for
-`hermes sessions prune` / `hermes sessions archive`."""
+`fabric sessions prune` / `fabric sessions archive`."""
 
 import time
 from argparse import Namespace

@@ -87,7 +87,7 @@ documentation churn.
 
 ## Legacy identity audit
 
-The source audit extracts every `FABRIC_*` and `HERMES_*` token from authored
+The source audit extracts every `FABRIC_*` and `FABRIC_*` token from authored
 Markdown/MDX and requires an exact backing occurrence in non-document repository
 source. This distinguishes live compatibility identifiers from stale examples.
 
@@ -96,7 +96,7 @@ Rare wildcard families can be recorded in the explicit exemption ledger in
 Do not use the ledger to preserve a removed command or variable.
 
 First-party skills must author UI metadata under `metadata.fabric`. The runtime may
-continue reading `metadata.hermes` from user and third-party skills for backward
+continue reading `metadata.fabric` from user and third-party skills for backward
 compatibility, but the repository audit rejects that legacy namespace in shipped
 `SKILL.md` frontmatter.
 

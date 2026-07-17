@@ -33,7 +33,7 @@ from gateway.whatsapp_identity import (
     expand_whatsapp_aliases,
     normalize_whatsapp_identifier,
 )
-from fabric_constants import get_hermes_dir, get_fabric_home
+from fabric_constants import get_fabric_dir, get_fabric_home
 from utils import atomic_replace
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ LOCKOUT_SECONDS = 3600              # Lockout duration after too many failures
 MAX_PENDING_PER_PLATFORM = 3        # Max pending codes per platform
 MAX_FAILED_ATTEMPTS = 5             # Failed approvals before lockout
 
-PAIRING_DIR = get_hermes_dir("platforms/pairing", "pairing")
+PAIRING_DIR = get_fabric_dir("platforms/pairing", "pairing")
 
 
 # Platform value -> its per-platform allowlist env var. When an operator has
@@ -245,7 +245,7 @@ class PairingStore:
     ``<HERMES_HOME>/profiles/<name>/pairing/`` (per-profile, used by
     multiplexing gateways so each profile has its own whitelist).
     Without a profile, storage is the global ``<HERMES_HOME>/pairing/``
-    directory (backward-compat for the ``hermes pairing`` CLI).
+    directory (backward-compat for the ``fabric pairing`` CLI).
     """
 
     def __init__(self, profile: Optional[str] = None):

@@ -48,9 +48,9 @@ pub fn fabric_home() -> PathBuf {
             }
         }
     }
-    let (fabric, hermes) = default_home_candidates();
+    let (fabric, fabric) = default_home_candidates();
     if hermes.exists() && !fabric.exists() {
-        hermes
+        fabric
     } else {
         fabric
     }

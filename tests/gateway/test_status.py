@@ -544,9 +544,9 @@ class TestGatewayRuntimeStatus:
         monkeypatch.setattr(status, "_pid_exists", lambda pid: True)
         monkeypatch.setattr(status, "_get_process_start_time", lambda pid: 1000)
         for cmdline in (
-            "hermes -p coder gateway run --replace",
+            "fabric -p coder gateway run --replace",
             "/opt/hermes/.venv/bin/hermes --profile coder gateway run --replace",
-            "hermes_home=/opt/data/profiles/coder fabric gateway run --replace",
+            "fabric_home=/opt/data/profiles/coder fabric gateway run --replace",
         ):
             monkeypatch.setattr(status, "_read_process_cmdline", lambda pid, c=cmdline: c)
             assert (
@@ -569,7 +569,7 @@ class TestGatewayRuntimeStatus:
         monkeypatch.setattr(status, "_pid_exists", lambda pid: True)
         monkeypatch.setattr(status, "_get_process_start_time", lambda pid: None)
         monkeypatch.setattr(
-            status, "_read_process_cmdline", lambda pid: "hermes -p coder gateway run --replace"
+            status, "_read_process_cmdline", lambda pid: "fabric -p coder gateway run --replace"
         )
 
         assert (
@@ -1235,7 +1235,7 @@ class TestTakeoverMarker:
         # We are not the target — must NOT consume as planned
         assert result is False
 
-    def test_write_marker_records_replacer_hermes_home(self, tmp_path, monkeypatch):
+    def test_write_marker_records_replacer_fabric_home(self, tmp_path, monkeypatch):
         """The marker stamps the replacer's HERMES_HOME for cross-profile guard (#29092)."""
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))
         monkeypatch.setattr(status, "_get_process_start_time", lambda pid: 42)
@@ -1243,7 +1243,7 @@ class TestTakeoverMarker:
         status.write_takeover_marker(target_pid=12345)
 
         payload = json.loads((tmp_path / ".gateway-takeover.json").read_text())
-        assert payload["replacer_hermes_home"] == str(tmp_path)
+        assert payload["replacer_fabric_home"] == str(tmp_path)
 
     def test_consume_rejects_marker_from_different_profile(self, tmp_path, monkeypatch):
         """Regression (#29092): a marker written by a gateway under a DIFFERENT
@@ -1262,7 +1262,7 @@ class TestTakeoverMarker:
             "target_pid": os.getpid(),
             "target_start_time": 100,
             "replacer_pid": 99999,
-            "replacer_hermes_home": str(tmp_path / "profiles" / "other"),
+            "replacer_fabric_home": str(tmp_path / "profiles" / "other"),
             "written_at": datetime.now(timezone.utc).isoformat(),
         }))
 
@@ -1272,9 +1272,9 @@ class TestTakeoverMarker:
         # Left in place for the correct profile, not griefed away.
         assert marker_path.exists()
 
-    def test_consume_accepts_legacy_marker_without_hermes_home(self, tmp_path, monkeypatch):
-        """Back-compat (#29092): markers written by older Hermes versions have no
-        ``replacer_hermes_home`` field; an absent field is treated as same-home so
+    def test_consume_accepts_legacy_marker_without_fabric_home(self, tmp_path, monkeypatch):
+        """Back-compat (#29092): markers written by older Fabric versions have no
+        ``replacer_fabric_home`` field; an absent field is treated as same-home so
         single-profile setups and mixed old/new deployments keep working.
         """
         monkeypatch.setenv("HERMES_HOME", str(tmp_path))

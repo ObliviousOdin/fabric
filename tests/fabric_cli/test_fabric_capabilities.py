@@ -229,7 +229,7 @@ def test_classic_model_picker_requests_visible_unconfigured_providers(monkeypatc
         _open_model_picker=open_picker,
     )
 
-    cli_mod.HermesCLI._handle_model_switch(self_, "/model")
+    cli_mod.FabricCLI._handle_model_switch(self_, "/model")
 
     assert captured["kwargs"] == {
         "include_unconfigured": True,
@@ -259,7 +259,7 @@ def test_classic_model_picker_routes_unconfigured_codex_to_setup(monkeypatch):
     )
     self_._close_model_picker = lambda: setattr(self_, "_model_picker_state", None)
 
-    cli_mod.HermesCLI._handle_model_picker_selection(self_)
+    cli_mod.FabricCLI._handle_model_picker_selection(self_)
 
     assert self_._model_picker_state is None
     assert any("OpenAI Codex needs setup" in line for line in messages)

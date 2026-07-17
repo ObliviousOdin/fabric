@@ -1,7 +1,7 @@
 """Honcho client initialization and configuration.
 
 Resolution order for config file:
-  1. $HERMES_HOME/honcho.json  (instance-local, enables isolated Hermes instances)
+  1. $HERMES_HOME/honcho.json  (instance-local, enables isolated Fabric instances)
   2. ~/.honcho/config.json     (global, shared across all Honcho-enabled apps)
   3. Environment variables     (HONCHO_API_KEY, HONCHO_ENVIRONMENT)
 
@@ -58,7 +58,7 @@ def resolve_active_host() -> str:
 
     Resolution order:
       1. Profile-owned HERMES_HONCHO_HOST value (explicit override)
-      2. Active profile name via profiles system -> ``hermes.<profile>``
+      2. Active profile name via profiles system -> ``fabric.<profile>``
       3. Fallback: ``"hermes"`` (default profile)
     """
     explicit = str(profile_env("HERMES_HONCHO_HOST", "") or "").strip()
@@ -333,7 +333,7 @@ class HonchoClientConfig:
     # honcho_reasoning tool param (agentic). When false, always uses
     # dialecticReasoningLevel and ignores model-provided overrides.
     dialectic_dynamic: bool = True
-    # Max chars of dialectic result to inject into Hermes system prompt
+    # Max chars of dialectic result to inject into Fabric system prompt
     dialectic_max_chars: int = 600
     # Dialectic depth: how many .chat() calls per dialectic cycle (1-3).
     # Depth 1: single call. Depth 2: self-audit + targeted synthesis.
@@ -376,7 +376,7 @@ class HonchoClientConfig:
     sessions: dict[str, str] = field(default_factory=dict)
     # Raw global config for anything else consumers need
     raw: dict[str, Any] = field(default_factory=dict)
-    # True when Honcho was explicitly configured for this host (hosts.hermes
+    # True when Honcho was explicitly configured for this host (hosts.fabric
     # block exists or enabled was set explicitly), vs auto-enabled from a
     # stray HONCHO_API_KEY env var.
     explicitly_configured: bool = False
@@ -434,7 +434,7 @@ class HonchoClientConfig:
             return cls.from_env(host=resolved_host, config_path=path)
 
         host_block = _host_block(raw, resolved_host)
-        # A hosts.hermes block or explicit enabled flag means the user
+        # A hosts.fabric block or explicit enabled flag means the user
         # intentionally configured Honcho for this host.
         _explicitly_configured = bool(host_block) or raw.get("enabled") is True
 
@@ -690,7 +690,7 @@ class HonchoClientConfig:
 
         Resolution order:
           1. Gateway session key (stable per-chat identifier from gateway platforms)
-          2. per-session strategy — Hermes session_id ({timestamp}_{hex}); authoritative,
+          2. per-session strategy — Fabric session_id ({timestamp}_{hex}); authoritative,
              so a generated title never remaps a live conversation
           3. Manual directory override from sessions map
           4. Fabric session title (from /title command; non-per-session)
@@ -801,8 +801,8 @@ def _resolve_client_options(
         try:
             from fabric_cli.config import load_config
 
-            hermes_cfg = load_config()
-            honcho_cfg = hermes_cfg.get("honcho", {})
+            fabric_cfg = load_config()
+            honcho_cfg = fabric_cfg.get("honcho", {})
             if isinstance(honcho_cfg, dict):
                 if not resolved_base_url:
                     resolved_base_url = honcho_cfg.get("base_url", "").strip() or None

@@ -132,12 +132,12 @@ test('package metadata delegates native identity to the manifest and excludes le
   for (const excluded of [
     '!dist/nous-girl.jpg',
     '!dist/hermes.png',
-    '!dist/hermes-sprite.png',
-    '!dist/hermes-frames/**',
+    '!dist/fabric-sprite.png',
+    '!dist/fabric-frames/**',
     '!public/nous-girl.jpg',
     '!public/hermes.png',
-    '!public/hermes-sprite.png',
-    '!public/hermes-frames/**'
+    '!public/fabric-sprite.png',
+    '!public/fabric-frames/**'
   ]) {
     assert.ok(packageJson.build.files.includes(excluded), `${excluded} must be excluded from packages`)
   }
@@ -181,6 +181,6 @@ test('native shell consumes the manifest for AUMID, About, windows, and dual pro
   assert.match(source, /const DESKTOP_PROTOCOLS = Object\.freeze\(DESKTOP_BRAND\.protocols/)
   assert.match(source, /for \(const scheme of DESKTOP_PROTOCOLS\)/)
   assert.match(source, /app\.setAsDefaultProtocolClient\(scheme/)
-  assert.equal((source.match(/ipcMain\.handle\('hermes:deep-link-ready'/g) || []).length, 1)
+  assert.equal((source.match(/ipcMain\.handle\('fabric:deep-link-ready'/g) || []).length, 1)
   assert.doesNotMatch(source, /com\.nousresearch\.hermes/)
 })

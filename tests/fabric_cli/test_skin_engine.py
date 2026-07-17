@@ -192,7 +192,7 @@ class TestUserSkins:
             """name: fabric
 branding:
   agent_name: Fabric
-banner_logo: OLD-HERMES-ART
+banner_logo: OLD-FABRIC-ART
 banner_hero: OLD-CADUCEUS
 """,
             encoding="utf-8",
@@ -204,7 +204,7 @@ banner_hero: OLD-CADUCEUS
         assert skin.name == "fabric"
         assert skin.get_branding("agent_name") == "Fabric"
         assert "├────╮  fabric" in skin.banner_logo
-        assert "OLD-HERMES-ART" not in skin.banner_logo
+        assert "OLD-FABRIC-ART" not in skin.banner_logo
         assert "OLD-CADUCEUS" not in skin.banner_hero
 
     def test_load_user_skin_from_yaml(self, tmp_path, monkeypatch):

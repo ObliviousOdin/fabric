@@ -23,7 +23,7 @@ setup`):
                        Discord, …) so the same human gets one merged memory
                        store. When unset, the gateway-native id (e.g. Telegram
                        numeric id, Discord snowflake) is used instead.
-  agent_id           — Agent identifier (default: hermes)
+  agent_id           — Agent identifier (default: fabric)
 
 The matching MEM0_MODE / MEM0_USER_ID / MEM0_AGENT_ID environment variables are
 still read as a backward-compatible fallback, but mem0.json is the canonical
@@ -64,7 +64,7 @@ _CLIENT_ERROR_TYPES = ("MemoryNotFoundError", "ValidationError")
 # that legacy mem0.json files written by the setup wizard (which historically
 # wrote this exact placeholder) still allow gateway-native ids to flow
 # through instead of silently overriding them with the placeholder.
-_DEFAULT_USER_ID = "hermes-user"
+_DEFAULT_USER_ID = "fabric-user"
 
 
 def _is_client_error(exc: Exception) -> bool:
@@ -261,11 +261,11 @@ class Mem0MemoryProvider(MemoryProvider):
         # when the server runs with AUTH_DISABLED).
         return bool(cfg.get("api_key") or cfg.get("host"))
 
-    def save_config(self, values, hermes_home):
+    def save_config(self, values, fabric_home):
         """Write config to $HERMES_HOME/mem0.json."""
         import json
         from pathlib import Path
-        config_path = Path(hermes_home) / "mem0.json"
+        config_path = Path(fabric_home) / "mem0.json"
         existing = {}
         if config_path.exists():
             try:
@@ -283,14 +283,14 @@ class Mem0MemoryProvider(MemoryProvider):
         return [
             {"key": "api_key", "description": "Mem0 Platform API key", "secret": True, "required": api_key_required, "env_var": "MEM0_API_KEY", "url": "https://app.mem0.ai"},
             {"key": "host", "description": "Self-hosted Mem0 server URL (leave blank for cloud)", "required": False, "env_var": "MEM0_HOST"},
-            {"key": "user_id", "description": "User identifier", "default": "hermes-user"},
+            {"key": "user_id", "description": "User identifier", "default": "fabric-user"},
             {"key": "agent_id", "description": "Agent identifier", "default": "hermes"},
             {"key": "rerank", "description": "Enable reranking for recall", "default": "false", "choices": ["true", "false"]},
         ]
 
-    def post_setup(self, hermes_home: str, config: dict) -> None:
+    def post_setup(self, fabric_home: str, config: dict) -> None:
         from ._setup import post_setup
-        post_setup(hermes_home, config)
+        post_setup(fabric_home, config)
 
     def _create_backend(self):
         # Lazy-install the mem0 SDK on demand before either backend imports

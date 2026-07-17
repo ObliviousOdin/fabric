@@ -270,7 +270,7 @@ def test_dispatch_renders_gateway_not_registered_friendly(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """`hermes -p typo gateway start` should print a clear message and
+    """`fabric -p typo gateway start` should print a clear message and
     exit 1 — not dump a traceback at the user."""
     from fabric_cli import gateway as gw
     from fabric_cli.service_manager import GatewayNotRegisteredError

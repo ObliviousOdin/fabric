@@ -313,7 +313,7 @@ def test_setup_summary_only_probes_visible_vision_providers(tmp_path, monkeypatc
     cfg = load_config()
     cfg["model"] = {
         "provider": "nous",
-        "default": "hermes-legacy-model",
+        "default": "fabric-legacy-model",
         "base_url": "https://inference-api.nousresearch.com/v1",
     }
     cfg["providers"] = {

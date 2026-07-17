@@ -101,7 +101,7 @@ def test_format_aux_current_neutralizes_hidden_provider_by_default(monkeypatch):
     monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
     monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
 
-    task_cfg = {"provider": "nous", "model": "hermes-legacy-model"}
+    task_cfg = {"provider": "nous", "model": "fabric-legacy-model"}
 
     assert _format_aux_current(task_cfg) == (
         "configured provider (not in Fabric catalog)"
@@ -117,9 +117,9 @@ def test_format_aux_current_restores_hidden_provider_with_explicit_opt_in(monkey
     monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
     monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
 
-    task_cfg = {"provider": "nous", "model": "hermes-legacy-model"}
+    task_cfg = {"provider": "nous", "model": "fabric-legacy-model"}
 
-    assert _format_aux_current(task_cfg) == "nous · hermes-legacy-model"
+    assert _format_aux_current(task_cfg) == "nous · fabric-legacy-model"
 
 
 # ── _save_aux_choice ────────────────────────────────────────────────────────
@@ -358,7 +358,7 @@ def test_aux_menu_neutralizes_existing_hidden_provider_state(monkeypatch, capsys
             "auxiliary": {
                 "vision": {
                     "provider": "nous",
-                    "model": "hermes-legacy-model",
+                    "model": "fabric-legacy-model",
                 }
             }
         },
@@ -377,7 +377,7 @@ def test_aux_menu_neutralizes_existing_hidden_provider_state(monkeypatch, capsys
     assert "configured provider (not in Fabric catalog)" in rendered
     assert "Nous" not in rendered
     assert "nous ·" not in rendered.lower()
-    assert "hermes-legacy-model" not in rendered
+    assert "fabric-legacy-model" not in rendered
 
 
 def test_aux_provider_picker_applies_fabric_catalog_after_auth_discovery(
@@ -427,7 +427,7 @@ def test_aux_provider_picker_preserves_hidden_current_route_on_enter(
             "auxiliary": {
                 "vision": {
                     "provider": "nous",
-                    "model": "hermes-legacy-model",
+                    "model": "fabric-legacy-model",
                     "base_url": "https://inference-api.nousresearch.com/v1",
                 }
             }
@@ -464,7 +464,7 @@ def test_aux_provider_picker_preserves_hidden_current_route_on_enter(
     assert "configured provider (not in Fabric catalog)" in rendered
     assert "Nous" not in rendered
     assert "nousresearch" not in rendered.lower()
-    assert "hermes-legacy-model" not in rendered
+    assert "fabric-legacy-model" not in rendered
 
 
 def test_aux_provider_picker_restores_nous_under_explicit_legacy_opt_in(
@@ -480,7 +480,7 @@ def test_aux_provider_picker_restores_nous_under_explicit_legacy_opt_in(
             "auxiliary": {
                 "vision": {
                     "provider": "nous",
-                    "model": "hermes-legacy-model",
+                    "model": "fabric-legacy-model",
                 }
             }
         },
@@ -505,7 +505,7 @@ def test_aux_provider_picker_restores_nous_under_explicit_legacy_opt_in(
 
     rendered = "\n".join([capsys.readouterr().out, *captured["choices"]])
     assert "Nous Portal" in rendered
-    assert "nous · hermes-legacy-model" in rendered
+    assert "nous · fabric-legacy-model" in rendered
     nous_idx = next(
         i for i, label in enumerate(captured["choices"]) if "Nous Portal" in label
     )

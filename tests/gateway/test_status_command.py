@@ -606,7 +606,7 @@ async def test_status_command_bypasses_active_session_guard():
 
     async def fake_handler(event):
         handler_called_with.append(event)
-        return "📊 **Hermes Gateway Status**\n**Agent Running:** Yes ⚡"
+        return "📊 **Fabric Gateway Status**\n**Agent Running:** Yes ⚡"
 
     # Concrete subclass to avoid abstract method errors
     class _ConcreteAdapter(BasePlatformAdapter):
@@ -677,7 +677,7 @@ async def test_post_delivery_callback_generation_snapshot_happens_after_bind():
     """Regression: the callback_generation snapshot in _process_message_background
     must happen AFTER the handler runs, not before.
 
-    _hermes_run_generation is set on the interrupt event by
+    _fabric_run_generation is set on the interrupt event by
     GatewayRunner._bind_adapter_run_generation during _handle_message_with_agent.
     The earlier snapshot-at-task-start always captured None, which bypassed the
     generation-ownership check in pop_post_delivery_callback and let stale runs
@@ -705,7 +705,7 @@ async def test_post_delivery_callback_generation_snapshot_happens_after_bind():
     async def fake_handler(event):
         # Simulate what _bind_adapter_run_generation does mid-run.
         interrupt_event = adapter._active_sessions.get(session_key)
-        setattr(interrupt_event, "_hermes_run_generation", 1)
+        setattr(interrupt_event, "_fabric_run_generation", 1)
         # Stale run registers its callback at generation=1.
         adapter.register_post_delivery_callback(
             session_key,

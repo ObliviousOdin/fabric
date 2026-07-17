@@ -56,7 +56,7 @@ def test_save_config_uses_fail_closed_atomic_config_writer(tmp_path, monkeypatch
             {
                 "display": {"skin": "fabric"},
                 "plugins": {
-                    "hermes-memory-store": {"auto_extract": "false"}
+                    "fabric-memory-store": {"auto_extract": "false"}
                 },
             },
             {"sort_keys": False},
@@ -77,7 +77,7 @@ def test_save_config_preserves_unrelated_settings(tmp_path):
     assert yaml.safe_load(config_path.read_text(encoding="utf-8")) == {
         "display": {"skin": "fabric"},
         "plugins": {
-            "hermes-memory-store": {
+            "fabric-memory-store": {
                 "auto_extract": "false",
                 "default_trust": "0.7",
             }

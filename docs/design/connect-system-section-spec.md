@@ -70,7 +70,7 @@ it back (`read_runtime_status()`), so the two endpoints agree by construction.
 
 | Endpoint | Shape (verified) |
 |---|---|
-| `GET /api/status` (~L2566, profile-scoped, public liveness probe) | `{version, release_date, config_version, latest_config_version, can_update_hermes, gateway_running, gateway_state (starting\|running\|draining\|degraded\|startup_failed\|stopped\|null), gateway_platforms: {id → {state, error_code, error_message, updated_at}}, gateway_exit_reason, gateway_updated_at, active_sessions, active_agents, gateway_busy, gateway_drainable, restart_drain_timeout, auth_required, auth_providers[], nous_session_valid, egress {mode, status, available, scope, reason, allowed_private_cidr_count}, profiles[], gateway_mode}` + (loopback only) `hermes_home, config_path, env_path, gateway_pid, gateway_health_url, gateways[]`. `gateway_platforms` is **filtered to configured platforms and blanked when the gateway is down**. |
+| `GET /api/status` (~L2566, profile-scoped, public liveness probe) | `{version, release_date, config_version, latest_config_version, can_update_fabric, gateway_running, gateway_state (starting\|running\|draining\|degraded\|startup_failed\|stopped\|null), gateway_platforms: {id → {state, error_code, error_message, updated_at}}, gateway_exit_reason, gateway_updated_at, active_sessions, active_agents, gateway_busy, gateway_drainable, restart_drain_timeout, auth_required, auth_providers[], nous_session_valid, egress {mode, status, available, scope, reason, allowed_private_cidr_count}, profiles[], gateway_mode}` + (loopback only) `fabric_home, config_path, env_path, gateway_pid, gateway_health_url, gateways[]`. `gateway_platforms` is **filtered to configured platforms and blanked when the gateway is down**. |
 | `GET /api/messaging/platforms` (~L8310, profile-scoped) | `{env_path, gateway_start_command, platforms: [{id, name, description, docs_url, enabled, configured, gateway_running, state, error_code, error_message, updated_at, home_channel {platform, chat_id, name, thread_id?}\|null, env_vars: [{key, required, is_set, redacted_value, description, prompt, help, url, is_password, advanced}], whatsapp_setup? {mode, allowed_users_set, home_channel_set}}]}` |
 | `PUT /api/messaging/platforms/{id}` (~L8331) | body `{env?, clear_env?, enabled?}`; validates keys against the platform's `env_vars` (400 otherwise); writes profile `.env` values + `platforms.{id}.enabled` config. **Does not restart the gateway.** |
 | `POST /api/messaging/platforms/{id}/test` (~L8374) | `{ok, state, message}` — pure diagnostic, no side effects |
@@ -199,7 +199,7 @@ consumed by `OAuthProvidersCard` on this page; N30 freezes them.
 
 | Endpoint | Shape |
 |---|---|
-| `GET /api/system/stats` (~L2846) | `{os, os_release, os_version, platform, arch, hostname, python_version, python_impl, hermes_version, cpu_count, psutil}` + psutil-gated `{memory{}, disk{}, cpu_percent, load_avg[], uptime_seconds, process{}}` |
+| `GET /api/system/stats` (~L2846) | `{os, os_release, os_version, platform, arch, hostname, python_version, python_impl, fabric_version, cpu_count, psutil}` + psutil-gated `{memory{}, disk{}, cpu_percent, load_avg[], uptime_seconds, process{}}` |
 | `GET /api/hermes/update/check?force=` (~L3602) | `{install_method, current_version, behind (n ≥ 1 \| 0 up-to-date \| -1 behind-unknown \| null check-failed), update_available, can_apply (git/pip only), update_command, message, commits?}` |
 | `POST /api/hermes/update` (~L3510) | spawns `fabric update` → `{ok, pid, name}`; refuses when updates are managed externally / docker (`{ok: false, error, update_command}`) |
 | `POST /api/ops/doctor` (~L13177), `security-audit`, `prompt-size`, `dump`, `config-migrate` | spawn CLI → `{ok, pid, name}`; **results are text log lines only**, polled via `GET /api/actions/{name}/status` (~L3932) → `{name, running, exit_code, pid, lines[]}`. **No structured check list exists** (decision §9.1, Appendix B25). |
@@ -909,7 +909,7 @@ copy-all, failures line). Mono URLs.
 comment stays), forced re-check button + its toast matrix (`behind > 0` /
 `behind === 0` / `message`), version badge in Host (`N behind` warning /
 `latest` success), `can_apply` gating (git/pip) vs `update_command` hint,
-`can_update_hermes === false` → managed-externally message and no update UI,
+`can_update_fabric === false` → managed-externally message and no update UI,
 confirm dialog copy incl. `publicCliCommand` rewrite and the prompt-cache
 sentence, apply → action log (`hermes-update`).
 

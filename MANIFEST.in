@@ -1,5 +1,5 @@
 # License set: Apache-2.0 distribution license plus preserved third-party
-# license texts (Hermes Agent MIT). LICENSE itself is auto-included.
+# license texts (Fabric Agent MIT). LICENSE itself is auto-included.
 include NOTICE
 include THIRD_PARTY_NOTICES.md
 graft LICENSES

@@ -6,10 +6,10 @@ the active profile explicitly enables the ``kanban`` toolset for
 orchestrator work. A normal ``fabric chat`` session still sees **zero**
 kanban tools in its schema unless configured.
 
-Why tools instead of just shelling out to ``hermes kanban``?
+Why tools instead of just shelling out to ``fabric kanban``?
 
 1. **Backend portability.** A worker whose terminal tool points at Docker
-   / Modal / Singularity / SSH would run ``hermes kanban complete …``
+   / Modal / Singularity / SSH would run ``fabric kanban complete …``
    inside the container, where ``fabric`` isn't installed and the DB
    isn't mounted. Tools run in the agent's Python process, so they
    always reach ``~/.hermes/kanban.db`` regardless of terminal backend.
@@ -20,7 +20,7 @@ Why tools instead of just shelling out to ``hermes kanban``?
 3. **Better errors.** Tool-call failures return structured JSON the
    model can reason about, not stderr strings it has to parse.
 
-Humans continue to use the CLI (``hermes kanban …``), the dashboard
+Humans continue to use the CLI (``fabric kanban …``), the dashboard
 (``Fabric dashboard``), and the slash command (``/kanban …``) — all
 three bypass the agent entirely. The tools are for dispatcher-spawned
 worker handoffs and for configured orchestrator profiles that route work
@@ -173,7 +173,7 @@ def _connect(board: Optional[str] = None):
     default) preserves the legacy resolution chain
     (``HERMES_KANBAN_DB`` → ``HERMES_KANBAN_BOARD`` env → current symlink
     → ``default``). Per-tool ``board`` lets a Telegram-side agent override
-    the env-pinned active board without restarting Hermes.
+    the env-pinned active board without restarting Fabric.
     """
     from fabric_cli import kanban_db as kb
     return kb, kb.connect(board=board)
@@ -811,7 +811,7 @@ def _handle_comment(args: dict, **kw) -> str:
     # into the next worker's system prompt by ``build_worker_context``
     # as ``**{author}** (timestamp): {body}`` — accepting an
     # ``args["author"]`` override let a worker forge a comment from
-    # an authoritative-looking name like ``hermes-system`` and poison
+    # an authoritative-looking name like ``fabric-system`` and poison
     # the future-worker context with what reads as a system directive.
     # Cross-task commenting itself remains unrestricted (see #19713) —
     # comments are the deliberate handoff channel between tasks.

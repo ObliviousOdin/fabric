@@ -508,7 +508,7 @@ def _reference_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     came back — not just the agent's narration. We therefore preserve the whole
     conversation flow, but flatten it into clean user/assistant *text* turns:
 
-      - system prompt: dropped (8K of Hermes boilerplate, not advisory signal).
+      - system prompt: dropped (8K of Fabric boilerplate, not advisory signal).
       - assistant turns: kept; any ``tool_calls`` are rendered inline as
         ``[called tool: name(args)]`` text lines appended to the turn's text.
       - ``tool``-role results: NOT dropped. Each is folded (head+tail preview,

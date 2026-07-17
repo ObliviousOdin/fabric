@@ -76,9 +76,9 @@ class TestGenerateDeepLink:
         link = generate_deep_link(
             manager_bot="Bot",
             suggested_username="test_bot",
-            suggested_name="Hermes & Friends",
+            suggested_name="Fabric & Friends",
         )
-        assert "Hermes+%26+Friends" in link
+        assert "Fabric+%26+Friends" in link
 
 
 class TestPairingNonce:
@@ -119,9 +119,9 @@ class TestCreatePairing:
         mock_resp.json.return_value = {
             "pairing_id": "abcdefghijklmnop",
             "poll_token": "secret-token",
-            "suggested_username": "hermes_abcdefghijklmnop_bot",
-            "deep_link": "https://t.me/newbot/HermesSetupBot/hermes_abcdefghijklmnop_bot?name=Hermes+Agent",
-            "qr_payload": "https://t.me/newbot/HermesSetupBot/hermes_abcdefghijklmnop_bot?name=Hermes+Agent",
+            "suggested_username": "fabric_abcdefghijklmnop_bot",
+            "deep_link": "https://t.me/newbot/FabricSetupBot/fabric_abcdefghijklmnop_bot?name=Fabric+Agent",
+            "qr_payload": "https://t.me/newbot/FabricSetupBot/fabric_abcdefghijklmnop_bot?name=Fabric+Agent",
             "expires_at": "2026-05-18T00:00:00.000Z",
         }
 
@@ -133,9 +133,9 @@ class TestCreatePairing:
         assert pairing == TelegramPairing(
             pairing_id="abcdefghijklmnop",
             poll_token="secret-token",
-            suggested_username="hermes_abcdefghijklmnop_bot",
-            deep_link="https://t.me/newbot/HermesSetupBot/hermes_abcdefghijklmnop_bot?name=Hermes+Agent",
-            qr_payload="https://t.me/newbot/HermesSetupBot/hermes_abcdefghijklmnop_bot?name=Hermes+Agent",
+            suggested_username="fabric_abcdefghijklmnop_bot",
+            deep_link="https://t.me/newbot/FabricSetupBot/fabric_abcdefghijklmnop_bot?name=Fabric+Agent",
+            qr_payload="https://t.me/newbot/FabricSetupBot/fabric_abcdefghijklmnop_bot?name=Fabric+Agent",
             expires_at="2026-05-18T00:00:00.000Z",
         )
         post.assert_called_once_with(
@@ -177,16 +177,16 @@ class TestPollForToken:
         return TelegramPairing(
             pairing_id="abcdefghijklmnop",
             poll_token="secret-token",
-            suggested_username="hermes_abcdefghijklmnop_bot",
-            deep_link="https://t.me/newbot/HermesSetupBot/hermes_abcdefghijklmnop_bot",
-            qr_payload="https://t.me/newbot/HermesSetupBot/hermes_abcdefghijklmnop_bot",
+            suggested_username="fabric_abcdefghijklmnop_bot",
+            deep_link="https://t.me/newbot/FabricSetupBot/fabric_abcdefghijklmnop_bot",
+            qr_payload="https://t.me/newbot/FabricSetupBot/fabric_abcdefghijklmnop_bot",
         )
 
     def test_immediate_success(self):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
-            "bot_username": "hermes_abcdefghijklmnop_bot",
+            "bot_username": "fabric_abcdefghijklmnop_bot",
             "owner_user_id": 42,
             "status": "ready",
             "token": VALID_TOKEN,
@@ -213,7 +213,7 @@ class TestPollForToken:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
-            "bot_username": "hermes_abcdefghijklmnop_bot",
+            "bot_username": "fabric_abcdefghijklmnop_bot",
             "owner_user_id": 42,
             "status": "ready",
             "token": VALID_TOKEN,
@@ -227,7 +227,7 @@ class TestPollForToken:
 
         assert result == TelegramBotSetupResult(
             token=VALID_TOKEN,
-            bot_username="hermes_abcdefghijklmnop_bot",
+            bot_username="fabric_abcdefghijklmnop_bot",
             owner_user_id=42,
         )
 
@@ -235,7 +235,7 @@ class TestPollForToken:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
-            "bot_username": "hermes_abcdefghijklmnop_bot",
+            "bot_username": "fabric_abcdefghijklmnop_bot",
             "owner_user_id": "42",
             "status": "ready",
             "token": VALID_TOKEN,
@@ -248,7 +248,7 @@ class TestPollForToken:
 
         assert result == TelegramBotSetupResult(
             token=VALID_TOKEN,
-            bot_username="hermes_abcdefghijklmnop_bot",
+            bot_username="fabric_abcdefghijklmnop_bot",
             owner_user_id=42,
         )
 
@@ -256,7 +256,7 @@ class TestPollForToken:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
-            "bot_username": "hermes_abcdefghijklmnop_bot",
+            "bot_username": "fabric_abcdefghijklmnop_bot",
             "owner_user_id": 42,
             "status": "ready",
             "token": "not-a-real-token",
@@ -345,10 +345,10 @@ class TestSetupTelegramAuto:
         assert seen["profile_name"] == "oracle"
 
     def test_profile_name_from_home_path_handles_windows_separators(self):
-        from fabric_cli.setup import _profile_name_from_hermes_home
+        from fabric_cli.setup import _profile_name_from_fabric_home
 
         assert (
-            _profile_name_from_hermes_home(
+            _profile_name_from_fabric_home(
                 PureWindowsPath(r"C:\Users\test\AppData\Local\hermes\profiles\oracle")
             )
             == "oracle"

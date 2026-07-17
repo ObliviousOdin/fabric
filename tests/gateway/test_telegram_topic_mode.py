@@ -1,7 +1,7 @@
 """Tests for Telegram private-chat topic-mode routing.
 
 Topic mode makes the root Telegram DM a system lobby while user-created
-Telegram topics act as independent Hermes session lanes.
+Telegram topics act as independent Fabric session lanes.
 """
 
 from datetime import datetime

@@ -15,7 +15,7 @@ backend supplies only its own cache-key shape and a serializer for it.
 
 Nothing in this module ever raises out to the caller's hot path: the disk
 layer is strictly best-effort (a miss just triggers a refetch), because a
-cache problem must never block Hermes startup.
+cache problem must never block Fabric startup.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ K = TypeVar("K")
 class DiskCache(Generic[K]):
     """Best-effort, profile-aware on-disk cache for fetched secret values.
 
-    One JSON object per backend lives at ``<hermes_home>/cache/<basename>``::
+    One JSON object per backend lives at ``<fabric_home>/cache/<basename>``::
 
         {"key": "<serialized cache key>", "secrets": {...}, "fetched_at": 1.0}
 

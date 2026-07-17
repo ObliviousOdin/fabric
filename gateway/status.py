@@ -47,7 +47,7 @@ _gateway_running_pid_cache_lock = threading.Lock()
 _gateway_running_pid_cache: dict[tuple[str, bool, bool], tuple[float, tuple[Any, ...], Optional[int]]] = {}
 
 
-def _get_process_hermes_home() -> Path:
+def _get_process_fabric_home() -> Path:
     """Return the process-level HERMES_HOME, skipping context-local overrides.
 
     Gateway identity files (PID, lock, runtime status, takeover/stop markers)
@@ -65,7 +65,7 @@ def _get_process_hermes_home() -> Path:
 
 def _get_pid_path() -> Path:
     """Return the path to the gateway PID file, respecting HERMES_HOME."""
-    home = _get_process_hermes_home()
+    home = _get_process_fabric_home()
     return home / "gateway.pid"
 
 
@@ -73,7 +73,7 @@ def _get_gateway_lock_path(pid_path: Optional[Path] = None) -> Path:
     """Return the path to the runtime gateway lock file."""
     if pid_path is not None:
         return pid_path.with_name(_GATEWAY_LOCK_FILENAME)
-    home = _get_process_hermes_home()
+    home = _get_process_fabric_home()
     return home / _GATEWAY_LOCK_FILENAME
 
 
@@ -233,7 +233,7 @@ def _gateway_command_subcommand(command: str | None) -> str | None:
 
     Tokenizes quote-aware (``shlex``) so quoted Windows paths with spaces
     (``"C:\\Program Files\\...\\hermes-gateway.exe"``) survive, and strips
-    ``--profile``/``-p`` selectors from anywhere in argv -- Hermes's
+    ``--profile``/``-p`` selectors from anywhere in argv -- Fabric's
     ``_apply_profile_override`` removes them before argparse, so the profile
     flag (and a profile literally named ``gateway``) can legally appear on
     either side of the ``gateway`` subcommand.
@@ -305,7 +305,7 @@ def looks_like_gateway_runtime_command_line(command: str | None) -> bool:
     fallback executes ``run_gateway()`` in that same process, so its argv stays
     as ``gateway restart`` while it owns the webhook port and writes runtime
     state. Keep the public ``looks_like_gateway_command_line()`` strict, and
-    use this broader matcher only when validating Hermes-owned runtime records
+    use this broader matcher only when validating Fabric-owned runtime records
     or no-supervisor cleanup scans.
     """
     return _gateway_command_subcommand(command) in {"run", "restart"}
@@ -367,7 +367,7 @@ def _command_line_belongs_to_profile(command: str, profile_home: Path) -> bool:
         return (
             f"--profile {profile_lc}" in command_lc
             or f"-p {profile_lc}" in command_lc
-            or f"hermes_home={home_lc}" in command_lc
+            or f"fabric_home={home_lc}" in command_lc
         )
 
     # Default/root profile: the gateway runs with no profile flag. Accept unless
@@ -377,7 +377,7 @@ def _command_line_belongs_to_profile(command: str, profile_home: Path) -> bool:
     # absence is not disqualifying — only a conflicting explicit value is.
     if "--profile " in command_lc or " -p " in command_lc:
         return False
-    if "hermes_home=" in command_lc and f"hermes_home={home_lc}" not in command_lc:
+    if "fabric_home=" in command_lc and f"fabric_home={home_lc}" not in command_lc:
         return False
     return True
 
@@ -1170,7 +1170,7 @@ def release_all_scoped_locks(
 # unexpected kills — but that also means a --replace takeover target
 # exits 1, which tricks systemd into reviving it 30 seconds later,
 # starting a flap loop against the replacer when both services are
-# enabled in the user's systemd (e.g. ``hermes.service`` + ``hermes-
+# enabled in the user's systemd (e.g. ``hermes.service`` + ``fabric-
 # gateway.service``).
 #
 # The takeover marker breaks the loop: the replacer writes a short-lived
@@ -1189,13 +1189,13 @@ _PLANNED_STOP_MARKER_TTL_S = 60
 
 def _get_takeover_marker_path() -> Path:
     """Return the path to the --replace takeover marker file."""
-    home = _get_process_hermes_home()
+    home = _get_process_fabric_home()
     return home / _TAKEOVER_MARKER_FILENAME
 
 
 def _get_planned_stop_marker_path() -> Path:
     """Return the path to the intentional gateway stop marker file."""
-    home = _get_process_hermes_home()
+    home = _get_process_fabric_home()
     return home / _PLANNED_STOP_MARKER_FILENAME
 
 
@@ -1245,12 +1245,12 @@ def _consume_pid_marker_for_self(
     # PID + start_time by coincidence of a shared PID namespace, and make
     # profile A exit 0 — only to be revived by systemd Restart=always,
     # which then races the replacer again, flapping indefinitely. The
-    # field is absent in markers written by older Hermes versions; treat
+    # field is absent in markers written by older Fabric versions; treat
     # absent as "same home" so old markers and single-profile setups are
     # unaffected. Leave a mismatched marker in place so the correct
     # profile can still consume it.
-    replacer_home = record.get("replacer_hermes_home")
-    if replacer_home is not None and replacer_home != str(_get_process_hermes_home()):
+    replacer_home = record.get("replacer_fabric_home")
+    if replacer_home is not None and replacer_home != str(_get_process_fabric_home()):
         return False
 
     our_pid = os.getpid()
@@ -1299,7 +1299,7 @@ def write_takeover_marker(target_pid: int) -> bool:
             "target_pid": target_pid,
             "target_start_time": target_start_time,
             "replacer_pid": os.getpid(),
-            "replacer_hermes_home": str(_get_process_hermes_home()),
+            "replacer_fabric_home": str(_get_process_fabric_home()),
             "written_at": _utc_now_iso(),
         }
         _write_json_file(_get_takeover_marker_path(), record)

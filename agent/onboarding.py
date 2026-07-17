@@ -97,10 +97,10 @@ def tool_progress_hint_cli() -> str:
 
 
 def openclaw_residue_hint_cli() -> str:
-    """Banner shown the first time Hermes starts and finds ``~/.openclaw/``.
+    """Banner shown the first time Fabric starts and finds ``~/.openclaw/``.
 
-    Points users at ``hermes claw migrate`` (non-destructive port of config,
-    memory, and skills) first. ``hermes claw cleanup`` is mentioned as the
+    Points users at ``fabric claw migrate`` (non-destructive port of config,
+    memory, and skills) first. ``fabric claw cleanup`` is mentioned as the
     follow-up step for users who have already migrated and want to archive
     the old directory — with a warning that archiving breaks OpenClaw.
     """

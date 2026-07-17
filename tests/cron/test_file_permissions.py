@@ -104,7 +104,7 @@ class TestConfigFilePermissions(unittest.TestCase):
             file_mode = stat.S_IMODE(os.stat(env_path).st_mode)
             self.assertEqual(file_mode, 0o600)
 
-    def test_ensure_hermes_home_sets_0700(self):
+    def test_ensure_fabric_home_sets_0700(self):
         home = Path(self.tmpdir) / ".hermes"
         with patch("fabric_cli.config.get_fabric_home", return_value=home):
             from fabric_cli.config import ensure_fabric_home

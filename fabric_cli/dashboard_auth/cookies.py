@@ -6,7 +6,7 @@ Three cookies in play:
   - hermes_session_rt:   the OAuth refresh token
                          (HttpOnly, lifetime = 24h, ROTATING + reuse-detected)
                          Nous Portal issues a rotating refresh token for the
-                         dashboard auth-code grant (Portal NAS #293 / hermes
+                         dashboard auth-code grant (Portal NAS #293 / fabric
                          #37247). ``set_session_cookies`` writes this cookie
                          whenever the provider returns a non-empty
                          ``refresh_token``; the middleware uses it to rotate a
@@ -75,7 +75,7 @@ PKCE_COOKIE = "hermes_session_pkce"
 # Carries no secret — it's a boolean breadcrumb — but is set HttpOnly/Lax/Secure
 # like the others for consistency. Short TTL so a user who returns later gets a
 # fresh silent attempt rather than a permanently-disabled one.
-SSO_ATTEMPT_COOKIE = "hermes_sso_attempt"
+SSO_ATTEMPT_COOKIE = "fabric_sso_attempt"
 
 # Possible name variants we may have to read back. Sorted so most-strict
 # wins on iteration when both happen to be present (shouldn't happen in
@@ -156,7 +156,7 @@ def set_session_cookies(
     TTL for the access token.
 
     ``refresh_token`` is written as the RT cookie when non-empty. Nous Portal
-    issues a 24h rotating refresh token (hermes #37247); a provider that
+    issues a 24h rotating refresh token (fabric #37247); a provider that
     omits it returns ``Session.refresh_token == ""`` and we simply don't
     persist the RT cookie — the session then behaves as access-token-only
     until the AT expires. No other branch changes between the two cases.

@@ -252,7 +252,7 @@ def test_per_task_max_retries_overrides_dispatcher_limit(kanban_home, all_assign
 
     Three-tier resolution order:
       1. ``task.max_retries`` (set via ``create_task(max_retries=N)`` /
-         ``hermes kanban create --max-retries N``)
+         ``fabric kanban create --max-retries N``)
       2. ``failure_limit`` kwarg passed by the caller (gateway threads
          this from ``kanban.failure_limit`` config)
       3. ``DEFAULT_FAILURE_LIMIT``
@@ -1422,7 +1422,7 @@ def test_parse_duration_rejects_garbage():
 
 
 def test_cli_create_max_runtime_via_duration(kanban_home):
-    """`hermes kanban create --max-runtime 2h` should persist 7200 seconds."""
+    """`fabric kanban create --max-runtime 2h` should persist 7200 seconds."""
     out = run_slash("create 'long task' --max-runtime 2h --json")
     data = json.loads(out)
     tid = data["id"]
@@ -2347,7 +2347,7 @@ def test_connect_auto_inits_fresh_db(tmp_path, monkeypatch):
 
 
 def test_cli_show_json_carries_runs(kanban_home):
-    """hermes kanban show --json must include runs[] so scripts that
+    """fabric kanban show --json must include runs[] so scripts that
     inspect attempt history don't need a separate 'runs' call."""
     conn = kb.connect()
     try:
@@ -2740,18 +2740,18 @@ def test_build_worker_context_caps_prior_attempts(kanban_home):
 def test_build_worker_context_renders_author_with_safe_framing(kanban_home):
     """Author rendering wraps the operator-controlled author in code fences
     + "comment from worker" prefix so a misleading HERMES_PROFILE name
-    (e.g. "hermes-system", "operator") can't be misread as a system
+    (e.g. "fabric-system", "operator") can't be misread as a system
     directive above the comment body. Defense-in-depth — see #22452."""
     conn = kb.connect()
     try:
         tid = kb.create_task(conn, title="t", assignee="worker")
-        kb.add_comment(conn, tid, author="hermes-system", body="some note")
+        kb.add_comment(conn, tid, author="fabric-system", body="some note")
         ctx = kb.build_worker_context(conn, tid)
 
         # No bold-author rendering anywhere in the context.
-        assert "**hermes-system**" not in ctx
+        assert "**fabric-system**" not in ctx
         # Explicit provenance prefix is present.
-        assert "comment from worker `hermes-system` at " in ctx
+        assert "comment from worker `fabric-system` at " in ctx
         # The body still renders.
         assert "some note" in ctx
     finally:
@@ -2820,7 +2820,7 @@ def test_default_spawn_does_not_auto_load_any_skill(kanban_home, monkeypatch):
     when the task carries no per-task skills.
 
     We intercept Popen to capture the argv without actually spawning a
-    hermes subprocess (which would hang trying to call an LLM).
+    fabric subprocess (which would hang trying to call an LLM).
     """
     captured = {}
 
@@ -3173,7 +3173,7 @@ def test_default_spawn_passes_task_skills_verbatim(kanban_home, monkeypatch):
 
 
 def test_cli_create_skill_flag_repeatable(kanban_home):
-    """`hermes kanban create --skill a --skill b` persists the list."""
+    """`fabric kanban create --skill a --skill b` persists the list."""
     out = run_slash(
         "create 'multi-skill' --assignee linguist "
         "--skill translation --skill github-code-review --json"
@@ -3195,7 +3195,7 @@ def test_cli_create_without_skill_flag_leaves_none(kanban_home):
 
 
 def test_cli_show_renders_skills(kanban_home):
-    """`hermes kanban show <id>` prints a skills row when present."""
+    """`fabric kanban show <id>` prints a skills row when present."""
     out = run_slash(
         "create 'show-test' --assignee x "
         "--skill translation --json"
@@ -3601,7 +3601,7 @@ def test_cli_create_no_warn_unassigned(kanban_home, monkeypatch, capsys):
 
 
 def test_cli_daemon_without_force_prints_deprecation_exits_2(kanban_home, capsys):
-    """`hermes kanban daemon` (no --force) is a deprecation stub."""
+    """`fabric kanban daemon` (no --force) is a deprecation stub."""
     from fabric_cli import kanban as kb_cli
     ns = argparse.Namespace(
         force=False, interval=60.0, max=None, failure_limit=3,
@@ -3644,7 +3644,7 @@ def test_cli_daemon_help_marks_deprecated():
                     break
     assert found_deprecation, (
         "daemon subparser help should be marked DEPRECATED so users see "
-        "the migration guidance in `hermes kanban --help` output"
+        "the migration guidance in `fabric kanban --help` output"
     )
 
 

@@ -302,11 +302,11 @@ export interface Translations {
     starting: string;
     startedInBackground: string;
     stopped: string;
-    updateHermes: string;
-    updateHermesConfirmMessage?: string;
-    updateHermesConfirmNow?: string;
-    updateHermesConfirmTitle?: string;
-    updatingHermes: string;
+    updateFabric: string;
+    updateFabricConfirmMessage?: string;
+    updateFabricConfirmNow?: string;
+    updateFabricConfirmTitle?: string;
+    updatingFabric: string;
     waitingForOutput: string;
   };
 

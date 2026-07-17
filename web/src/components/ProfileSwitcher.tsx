@@ -61,7 +61,7 @@ export function ProfileSwitcher({ collapsed }: ProfileSwitcherProps) {
           isOther &&
             "[&_button]:border-amber-500/50 [&_button]:text-amber-300",
         )}
-        id="hermes-profile-switcher"
+        id="fabric-profile-switcher"
         onValueChange={setProfile}
         value={profile}
       >

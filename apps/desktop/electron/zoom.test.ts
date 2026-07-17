@@ -10,7 +10,7 @@ import test from 'node:test'
 import { clampZoomLevel, percentToZoomLevel, ZOOM_STORAGE_KEY, zoomLevelToPercent } from './zoom'
 
 test('storage key stays stable so persisted zoom survives upgrades', () => {
-  assert.equal(ZOOM_STORAGE_KEY, 'hermes:desktop:zoomLevel')
+  assert.equal(ZOOM_STORAGE_KEY, 'fabric:desktop:zoomLevel')
 })
 
 test('clampZoomLevel rejects garbage and enforces bounds', () => {

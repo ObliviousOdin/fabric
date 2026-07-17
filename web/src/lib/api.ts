@@ -1,5 +1,5 @@
 import {
-  buildHermesWebSocketUrl,
+  buildFabricWebSocketUrl,
   type ProviderAccountResult,
   type ProviderAccountSnapshot,
 } from "@fabric/shared";
@@ -307,7 +307,7 @@ export async function buildWsUrl(
   path: string,
   params?: Record<string, string>,
 ): Promise<string> {
-  return buildHermesWebSocketUrl({
+  return buildFabricWebSocketUrl({
     authParam: await buildWsAuthParam(),
     basePath: BASE,
     params,
@@ -1162,9 +1162,9 @@ export const api = {
   // Gateway / update actions
   restartGateway: () =>
     fetchJSON<ActionResponse>("/api/gateway/restart", { method: "POST" }),
-  updateHermes: () =>
+  updateFabric: () =>
     fetchJSON<ActionResponse>("/api/hermes/update", { method: "POST" }),
-  checkHermesUpdate: (force = false) =>
+  checkFabricUpdate: (force = false) =>
     fetchJSON<UpdateCheckResponse>(
       `/api/hermes/update/check${force ? "?force=true" : ""}`,
     ),
@@ -2034,7 +2034,7 @@ export interface SystemStats {
   hostname: string;
   python_version: string;
   python_impl: string;
-  hermes_version: string;
+  fabric_version: string;
   cpu_count: number | null;
   psutil: boolean;
   cpu_percent?: number;
@@ -2121,7 +2121,7 @@ export interface StatusResponse {
   auth_providers?: string[];
   /** False when the dashboard is running in a hosted/managed layout where
    * updates are handled by the outer launcher instead of ``fabric update``. */
-  can_update_hermes?: boolean;
+  can_update_fabric?: boolean;
   config_path: string;
   config_version: number;
   env_path: string;
@@ -2140,7 +2140,7 @@ export interface StatusResponse {
   gateway_running: boolean;
   gateway_state: string | null;
   gateway_updated_at: string | null;
-  hermes_home: string;
+  fabric_home: string;
   latest_config_version: number;
   release_date: string;
   version: string;
@@ -2504,7 +2504,7 @@ export interface CronJob {
   id: string;
   profile?: string | null;
   profile_name?: string | null;
-  hermes_home?: string | null;
+  fabric_home?: string | null;
   is_default_profile?: boolean;
   name?: string | null;
   prompt?: string | null;

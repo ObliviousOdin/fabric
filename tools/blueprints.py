@@ -99,7 +99,7 @@ def parse_blueprint(skill_md_text: str) -> Optional[BlueprintSpec]:
 
     A skill is a blueprint iff its merged Fabric metadata has a ``blueprint``
     mapping containing a non-empty ``schedule``. ``metadata.fabric`` is
-    canonical and ``metadata.hermes`` remains a fallback. Raises BlueprintError
+    canonical and ``metadata.fabric`` remains a fallback. Raises BlueprintError
     if the effective block exists but is structurally invalid (so a typo
     surfaces instead of silently no-op'ing).
     """

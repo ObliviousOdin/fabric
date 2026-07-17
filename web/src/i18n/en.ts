@@ -261,12 +261,12 @@ export const en: Translations = {
     starting: "Starting",
     startedInBackground: "Started in background — check logs for progress",
     stopped: "Stopped",
-    updateHermes: "Update Fabric",
-    updateHermesConfirmMessage:
+    updateFabric: "Update Fabric",
+    updateFabricConfirmMessage:
       "This runs fabric update and restarts the gateway when it finishes. Active sessions keep their prompt cache until then.",
-    updateHermesConfirmNow: "Update now",
-    updateHermesConfirmTitle: "Update Fabric?",
-    updatingHermes: "Updating Fabric…",
+    updateFabricConfirmNow: "Update now",
+    updateFabricConfirmTitle: "Update Fabric?",
+    updatingFabric: "Updating Fabric…",
     waitingForOutput: "Waiting for output…",
   },
 

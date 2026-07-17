@@ -5,13 +5,13 @@
 // SDK is TypeScript-only, so a Node sidecar is unavoidable — there is no
 // Python SDK and no public HTTP message API).
 //
-// Inbound  (gRPC -> Hermes): the SDK's `app.messages` async iterator is a
+// Inbound  (gRPC -> Fabric): the SDK's `app.messages` async iterator is a
 //   long-lived gRPC stream. We serialize each `[space, message]` to a
 //   normalized JSON event and stream it to the Python adapter over a
 //   loopback `GET /inbound` (NDJSON). We pause pulling from the stream while
 //   no consumer is attached so a backlog isn't pulled-and-lost before the
 //   gateway connects.
-// Outbound (Hermes -> gRPC): `/send` drives `space.send(...)`; `/typing`
+// Outbound (Fabric -> gRPC): `/send` drives `space.send(...)`; `/typing`
 //   sends the documented `typing("start" | "stop")` content builder.
 //
 // Protocol (all requests require `X-Hermes-Sidecar-Token: ${TOKEN}`):
@@ -52,7 +52,7 @@
 //                          adapter, which holds our stdin pipe — parent-death
 //                          detection so a dead gateway can't orphan us)
 //   PHOTON_TELEMETRY       enable Spectrum SDK telemetry ("true"/"1"/"on"/"yes";
-//                          default off — toggle with `hermes photon telemetry`)
+//                          default off — toggle with `fabric photon telemetry`)
 
 import http from "node:http";
 import crypto from "node:crypto";
@@ -503,7 +503,7 @@ function inboundStreamErrorMessage(e) {
   let out = "photon-sidecar: inbound stream errored — restarting: " + msg;
 
   // The Spectrum SDK surfaces Photon cloud CatchUpEvents failures as an
-  // iMessage internal error. Local Hermes allowlists cannot cause or fix this:
+  // iMessage internal error. Local Fabric allowlists cannot cause or fix this:
   // inbound messages stop before they reach the gateway. Add an explicit hint
   // so operators know to retry/restart or escalate to Photon support instead
   // of chasing PHOTON_ALLOWED_USERS / pairing configuration.
@@ -744,7 +744,7 @@ const server = http.createServer(async (req, res) => {
       const space = await resolveSpace(spaceId);
 
       // spectrum-ts infers name + MIME from the file extension; pass
-      // overrides only when Hermes supplied them so a known-good
+      // overrides only when Fabric supplied them so a known-good
       // inference isn't clobbered with an empty string.
       const opts = {};
       if (name) opts.name = name;

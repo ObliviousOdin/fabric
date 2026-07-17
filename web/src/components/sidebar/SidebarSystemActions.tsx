@@ -32,7 +32,7 @@ export function SidebarSystemActions({
   const navigate = useNavigate();
   const { activeAction, isBusy, isRunning, pendingAction, runAction } =
     useSystemActions();
-  const canUpdateHermes = status?.can_update_hermes === true;
+  const canUpdateFabric = status?.can_update_fabric === true;
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false);
   const [updateConfirmInfo, setUpdateConfirmInfo] =
@@ -52,7 +52,7 @@ export function SidebarSystemActions({
     setUpdateConfirmInfo(null);
     setUpdateConfirmChecking(true);
     api
-      .checkHermesUpdate(false)
+      .checkFabricUpdate(false)
       .then((info) => {
         if (updateCheckSeq.current === seq) setUpdateConfirmInfo(info);
       })
@@ -72,10 +72,10 @@ export function SidebarSystemActions({
     }
     const cmd = publicCliCommand(updateConfirmInfo?.update_command);
     return (
-      t.status.updateHermesConfirmMessage ??
+      t.status.updateFabricConfirmMessage ??
       `This will run '${cmd}' and restart the gateway when it finishes.`
     );
-  }, [t.status.updateHermesConfirmMessage, updateConfirmInfo]);
+  }, [t.status.updateFabricConfirmMessage, updateConfirmInfo]);
 
   const items: SystemActionItem[] = [
     {
@@ -86,12 +86,12 @@ export function SidebarSystemActions({
       spin: true,
     },
   ];
-  if (canUpdateHermes) {
+  if (canUpdateFabric) {
     items.push({
       action: "update",
       icon: Download,
-      label: t.status.updateHermes,
-      runningLabel: t.status.updatingHermes,
+      label: t.status.updateFabric,
+      runningLabel: t.status.updatingFabric,
       spin: false,
     });
   }
@@ -184,7 +184,7 @@ export function SidebarSystemActions({
 
       <ConfirmDialog
         cancelLabel={t.common.cancel}
-        confirmLabel={t.status.updateHermesConfirmNow ?? "Update now"}
+        confirmLabel={t.status.updateFabricConfirmNow ?? "Update now"}
         description={
           updateConfirmChecking ? t.common.loading : updateConfirmDescription
         }
@@ -192,7 +192,7 @@ export function SidebarSystemActions({
         onCancel={closeUpdateConfirm}
         onConfirm={confirmUpdate}
         open={updateConfirmOpen}
-        title={t.status.updateHermesConfirmTitle ?? `${t.status.updateHermes}?`}
+        title={t.status.updateFabricConfirmTitle ?? `${t.status.updateFabric}?`}
       />
     </>
   );

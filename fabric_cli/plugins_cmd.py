@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 def _resolve_git_executable() -> Optional[str]:
     """Resolve a git binary for subprocess use when ``PATH`` may be minimal.
 
-    Matches other Hermes subprocess resolution: :func:`shutil.which` first,
+    Matches other Fabric subprocess resolution: :func:`shutil.which` first,
     then common Git for Windows install paths and POSIX defaults.
     """
     found = shutil.which("git")
@@ -865,7 +865,7 @@ def cmd_enable(name: str, allow_tool_override: Optional[bool] = None) -> None:
         console.print(f"[dim]Plugin '{key}' is already enabled.[/dim]")
 
     # Built-in tool override is a privileged grant. Bundled plugins ship with
-    # Hermes core and are trusted; every other source needs operator opt-in.
+    # Fabric core and are trusted; every other source needs operator opt-in.
     if source == "bundled":
         return
 
@@ -1040,7 +1040,7 @@ def _discover_all_plugins() -> list:
 
 
 def _discover_entrypoint_plugins() -> list[tuple[str, str, str, str]]:
-    """Return plugin entries advertised through ``hermes_agent.plugins``.
+    """Return plugin entries advertised through ``fabric_agent.plugins``.
 
     Entry-point plugins are installed as Python packages, so they do not have a
     plugin directory under ``~/.hermes/plugins``. Include package metadata here
@@ -1179,7 +1179,7 @@ def _discover_context_engines() -> list[tuple[str, str]]:
     """Return [(name, description), ...] for available context engines.
 
     Includes repo-shipped engines from ``plugins/context_engine/`` AND
-    plugin-registered engines (third-party engines installed as Hermes
+    plugin-registered engines (third-party engines installed as Fabric
     plugins via ``ctx.register_context_engine``). Repo-shipped descriptions
     win when a plugin-registered engine collides on name.
     """

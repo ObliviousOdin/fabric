@@ -153,7 +153,7 @@ from gateway.platforms.base import (
 # Pin the logger name to the legacy module path so operator log filters,
 # grep aliases, and the gateway's bundled log views keep matching after
 # the in-tree → plugin migration. ``__name__`` resolves to
-# ``hermes_plugins.platforms__google_chat.adapter`` once the plugin
+# ``fabric_plugins.platforms__google_chat.adapter`` once the plugin
 # loader namespaces this module, which would silently break every
 # downstream log-monitor that greps for ``gateway.platforms.google_chat``.
 logger = logging.getLogger("gateway.platforms.google_chat")
@@ -309,7 +309,7 @@ def _redact_sensitive(text: str) -> str:
 
 
 def _mime_for_message_type(mime: str) -> MessageType:
-    """Map a MIME string to a hermes MessageType.
+    """Map a MIME string to a fabric MessageType.
 
     Anything not image/audio/video falls through to DOCUMENT so the agent
     still receives the file.
@@ -1535,7 +1535,7 @@ class GoogleChatAdapter(BasePlatformAdapter):
     async def _build_message_event(
         self, msg: Dict[str, Any], envelope: Dict[str, Any]
     ) -> Optional[MessageEvent]:
-        """Parse a Chat API message into a hermes MessageEvent."""
+        """Parse a Chat API message into a fabric MessageEvent."""
         space = envelope.get("space") or msg.get("space") or {}
         space_name = space.get("name") or ""  # "spaces/XXX"
         space_type = (space.get("type") or space.get("spaceType") or "").upper()
@@ -3065,7 +3065,7 @@ def interactive_setup() -> None:
     print_info("Walkthrough:")
     print_info("  1. Create or select a GCP project; enable Google Chat API + Cloud Pub/Sub API.")
     print_info("  2. Create a Service Account (no project-level IAM role needed).")
-    print_info("  3. Create a Pub/Sub topic (e.g. hermes-chat-events) and a Pull subscription.")
+    print_info("  3. Create a Pub/Sub topic (e.g. fabric-chat-events) and a Pull subscription.")
     print_info("  4. On the TOPIC: add chat-api-push@system.gserviceaccount.com as Pub/Sub Publisher.")
     print_info("  5. On the SUBSCRIPTION: grant your Service Account Pub/Sub Subscriber.")
     print_info("  6. Download the Service Account JSON key.")
@@ -3288,7 +3288,7 @@ async def _standalone_send(
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system at startup.
+    """Plugin entry point — called by the Fabric plugin system at startup.
 
     Registers the Google Chat adapter under the ``google_chat`` name.
     The gateway's ``_create_adapter`` consults the platform registry

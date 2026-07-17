@@ -13,7 +13,7 @@ or a linked OpenViking CLI config:
   OPENVIKING_API_KEY   — API key (required for authenticated servers)
   OPENVIKING_ACCOUNT   — Tenant account for local/trusted mode (default: default)
   OPENVIKING_USER      — Tenant user for local/trusted mode (default: default)
-  OPENVIKING_AGENT     — Hermes peer ID in OpenViking (default: hermes)
+  OPENVIKING_AGENT     — Fabric peer ID in OpenViking (default: fabric)
 
 Capabilities:
   - Automatic memory extraction on session commit (6 categories)
@@ -173,7 +173,7 @@ def _format_openviking_exception(error: Exception) -> str:
 
 
 def _derive_openviking_user_text(content: Any) -> str:
-    """Strip Hermes slash-skill scaffolding before sending content to OpenViking.
+    """Strip Fabric slash-skill scaffolding before sending content to OpenViking.
 
     Defense-in-depth: MemoryManager already strips skill scaffolding for the
     whole provider fan-out (see ``MemoryManager._strip_skill_scaffolding``), so
@@ -867,7 +867,7 @@ def _is_local_openviking_url(value: str) -> bool:
     return scheme == "http" and (parsed.hostname or "").lower() in _LOCAL_OPENVIKING_HOSTS
 
 
-def _load_hermes_openviking_config() -> dict:
+def _load_fabric_openviking_config() -> dict:
     try:
         from fabric_cli.config import load_config
 
@@ -1593,7 +1593,7 @@ def _link_ovcli_profile(
         os.environ.pop(key, None)
 
 
-def _save_hermes_only_config(
+def _save_fabric_only_config(
     *,
     config: dict,
     provider_config: dict,
@@ -1778,7 +1778,7 @@ def _run_create_profile_setup(
         _print_openviking_ready("Created and linked OpenViking profile.", ovcli_path)
         return True
 
-    _save_hermes_only_config(
+    _save_fabric_only_config(
         config=config,
         provider_config=provider_config,
         env_path=env_path,
@@ -1873,7 +1873,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
         """Check if OpenViking endpoint is configured. No network calls."""
         if _env_value("OPENVIKING_ENDPOINT"):
             return True
-        provider_config = _load_hermes_openviking_config()
+        provider_config = _load_fabric_openviking_config()
         if not provider_config.get("use_ovcli_config"):
             return False
         try:
@@ -2000,13 +2000,13 @@ class OpenVikingMemoryProvider(MemoryProvider):
                 display[key] = "(set)"
         return display
 
-    def post_setup(self, hermes_home: str, config: dict) -> None:
+    def post_setup(self, fabric_home: str, config: dict) -> None:
         """Custom setup that can reuse OpenViking's shared CLI config."""
         from fabric_cli.config import save_config
         from fabric_cli.memory_setup import _CANCELLED, _curses_select, _print_cancelled_setup, _prompt
 
-        hermes_home_path = Path(hermes_home)
-        env_path = hermes_home_path / ".env"
+        fabric_home_path = Path(fabric_home)
+        env_path = fabric_home_path / ".env"
         if not isinstance(config.get("memory"), dict):
             config["memory"] = {}
         provider_config = config["memory"].get("openviking", {})
@@ -2180,7 +2180,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._runtime_state = RuntimeState.UNKNOWN
-        settings = _resolve_connection_settings(_load_hermes_openviking_config())
+        settings = _resolve_connection_settings(_load_fabric_openviking_config())
         self._endpoint = settings["endpoint"]
         self._api_key = settings["api_key"]
         self._account = settings["account"]
@@ -2867,7 +2867,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
         user_content: str,
         assistant_content: str,
     ) -> List[Dict[str, Any]]:
-        """Slice the completed turn out of Hermes' full canonical transcript."""
+        """Slice the completed turn out of Fabric' full canonical transcript."""
         if not messages:
             return []
 
@@ -2986,7 +2986,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
         *,
         assistant_peer_id: str = "",
     ) -> List[Dict[str, Any]]:
-        """Convert Hermes canonical messages into OpenViking batch payloads."""
+        """Convert Fabric canonical messages into OpenViking batch payloads."""
         assistant_peer_id = str(assistant_peer_id or "").strip()
         tool_calls_by_id: Dict[str, Dict[str, Any]] = {}
         completed_tool_ids: set[str] = set()

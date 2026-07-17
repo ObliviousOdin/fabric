@@ -92,14 +92,14 @@ class TestCmdUpdatePip:
 
         mock_run.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
         monkeypatch.delenv("VIRTUAL_ENV", raising=False)
-        monkeypatch.setattr(hm.sys, "prefix", "/tmp/hermes-launcher-venv")
+        monkeypatch.setattr(hm.sys, "prefix", "/tmp/fabric-launcher-venv")
         monkeypatch.setattr(hm.sys, "base_prefix", "/usr")
 
         hm._cmd_update_pip(mock_args)
 
         assert mock_run.call_count == 1
         assert mock_run.call_args.args[0] == ["/usr/bin/uv", "pip", "install", "--upgrade", "fabric-agent"]
-        assert mock_run.call_args.kwargs["env"]["VIRTUAL_ENV"] == "/tmp/hermes-launcher-venv"
+        assert mock_run.call_args.kwargs["env"]["VIRTUAL_ENV"] == "/tmp/fabric-launcher-venv"
 
     @patch("shutil.which", return_value="/usr/bin/uv")
     @patch("subprocess.run")

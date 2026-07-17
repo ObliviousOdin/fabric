@@ -59,25 +59,25 @@ _approval_tool_call_id: contextvars.ContextVar[str] = contextvars.ContextVar(
 # thread/task-local, so each executor worker (or asyncio task) sees only its
 # own value. None = unset → fall back to the env var for legacy
 # single-threaded CLI callers that still export HERMES_INTERACTIVE.
-_hermes_interactive_ctx: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-    "hermes_interactive",
+_fabric_interactive_ctx: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "fabric_interactive",
     default=None,
 )
 
 
-def set_hermes_interactive_context(interactive: bool) -> contextvars.Token:
+def set_fabric_interactive_context(interactive: bool) -> contextvars.Token:
     """Bind interactive mode for the current context (thread or asyncio task).
 
     Use this instead of mutating ``os.environ["HERMES_INTERACTIVE"]`` from
     concurrent executor threads. When unset (default), interactive detection
     falls back to the ``HERMES_INTERACTIVE`` env var for legacy callers.
     """
-    return _hermes_interactive_ctx.set("1" if interactive else "")
+    return _fabric_interactive_ctx.set("1" if interactive else "")
 
 
-def reset_hermes_interactive_context(token: contextvars.Token) -> None:
-    """Restore the prior value from :func:`set_hermes_interactive_context`."""
-    _hermes_interactive_ctx.reset(token)
+def reset_fabric_interactive_context(token: contextvars.Token) -> None:
+    """Restore the prior value from :func:`set_fabric_interactive_context`."""
+    _fabric_interactive_ctx.reset(token)
 
 
 def _is_interactive_cli() -> bool:
@@ -86,7 +86,7 @@ def _is_interactive_cli() -> bool:
     Prefers the context-local flag (set by concurrent ACP sessions) and falls
     back to the ``HERMES_INTERACTIVE`` env var for single-threaded callers.
     """
-    ctx_val = _hermes_interactive_ctx.get()
+    ctx_val = _fabric_interactive_ctx.get()
     if ctx_val is not None:
         return is_truthy_value(ctx_val)
     return env_var_enabled("HERMES_INTERACTIVE")
@@ -204,9 +204,9 @@ def _is_gateway_approval_context() -> bool:
 # covered as a compatibility alias.
 _SSH_SENSITIVE_PATH = r'(?:~|\$home|\$\{home\})/\.ssh(?:/|$)'
 _HERMES_ENV_PATH = (
-    r'(?:~\/\.(?:fabric|hermes)/|'
-    r'(?:\$home|\$\{home\})/\.(?:fabric|hermes)/|'
-    r'(?:\$(?:fabric_home|hermes_home)|\$\{(?:fabric_home|hermes_home)\})/)'
+    r'(?:~\/\.(?:fabric|fabric)/|'
+    r'(?:\$home|\$\{home\})/\.(?:fabric|fabric)/|'
+    r'(?:\$(?:fabric_home|fabric_home)|\$\{(?:fabric_home|fabric_home)\})/)'
     r'\.env\b'
 )
 # ~/.fabric/config.yaml is the primary security policy; the legacy path remains
@@ -215,9 +215,9 @@ _HERMES_ENV_PATH = (
 # effect mid-session. Pair the write_file/patch deny with terminal-side coverage
 # so `sed -i`, `tee`, `>`, `cp`, etc. targeting it are gated too.
 _HERMES_CONFIG_PATH = (
-    r'(?:~\/\.(?:fabric|hermes)/|'
-    r'(?:\$home|\$\{home\})/\.(?:fabric|hermes)/|'
-    r'(?:\$(?:fabric_home|hermes_home)|\$\{(?:fabric_home|hermes_home)\})/)'
+    r'(?:~\/\.(?:fabric|fabric)/|'
+    r'(?:\$home|\$\{home\})/\.(?:fabric|fabric)/|'
+    r'(?:\$(?:fabric_home|fabric_home)|\$\{(?:fabric_home|fabric_home)\})/)'
     r'config\.yaml\b'
 )
 _PROJECT_ENV_PATH = r'(?:(?:/|\.{1,2}/)?(?:[^\s/"\'`]+/)*\.env(?:\.[^/\s"\'`]+)*)'
@@ -617,10 +617,10 @@ DANGEROUS_PATTERNS = [
     # Gateway lifecycle protection: prevent the agent from killing its own
     # gateway process.  These commands trigger a gateway restart/stop that
     # terminates all running agents mid-work.  Allow global flags between
-    # `fabric` and `gateway` (e.g. `hermes -p ade gateway restart`) so a
+    # `fabric` and `gateway` (e.g. `fabric -p ade gateway restart`) so a
     # profile flag can't slip the agent past the guard.
-    (r'\b(?:fabric|hermes)\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*gateway\s+(stop|restart)\b', "stop/restart fabric gateway (kills running agents)"),
-    (r'\b(?:fabric|hermes)\s+update\b', "fabric update (restarts gateway, kills running agents)"),
+    (r'\b(?:fabric|fabric)\s+(?:-{1,2}\S+(?:\s+\S+)?\s+)*gateway\s+(stop|restart)\b', "stop/restart fabric gateway (kills running agents)"),
+    (r'\b(?:fabric|fabric)\s+update\b', "fabric update (restarts gateway, kills running agents)"),
     # Docker container lifecycle — any user with docker.sock mounted (a common
     # Docker Compose pattern) gives the agent the ability to restart/stop/kill
     # containers without approval.  These are agent-initiated lifecycle operations
@@ -632,10 +632,10 @@ DANGEROUS_PATTERNS = [
     (r'gateway\s+run\b.*(&\s*$|&\s*;|\bdisown\b|\bsetsid\b)', "start gateway outside systemd (use 'systemctl --user restart Fabric-gateway')"),
     (r'\bnohup\b.*gateway\s+run\b', "start gateway outside systemd (use 'systemctl --user restart Fabric-gateway')"),
     # Self-termination protection: prevent agent from killing its own process
-    (r'\b(pkill|killall)\b.*\b(fabric|hermes|gateway|cli\.py)\b', "kill fabric/gateway process (self-termination)"),
+    (r'\b(pkill|killall)\b.*\b(fabric|fabric|gateway|cli\.py)\b', "kill fabric/gateway process (self-termination)"),
     # Self-termination via kill + command substitution (pgrep/pidof).
-    # The name-based pattern above catches `pkill hermes` but not
-    # `kill -9 $(pgrep -f hermes)` because the substitution is opaque
+    # The name-based pattern above catches `pkill fabric` but not
+    # `kill -9 $(pgrep -f fabric)` because the substitution is opaque
     # to regex at detection time. Catch the structural pattern instead.
     # `pidof` is the BSD/Linux alternative to `pgrep` and is equally
     # opaque, so include it in the same alternation.
@@ -645,7 +645,7 @@ DANGEROUS_PATTERNS = [
     # the `fabric gateway stop|restart` pattern above by driving launchd
     # directly against the service label (commonly `ai.hermes.gateway`).
     # Catch the operations that stop, restart, or unload it.
-    (r'\blaunchctl\s+(stop|kickstart|bootout|unload|kill|disable|remove)\b.*\b(fabric|hermes|ai\.fabric|ai\.hermes)\b', "stop/restart fabric launchd service (kills running agents)"),
+    (r'\blaunchctl\s+(stop|kickstart|bootout|unload|kill|disable|remove)\b.*\b(fabric|fabric|ai\.fabric|ai\.hermes)\b', "stop/restart fabric launchd service (kills running agents)"),
     # File copy/move/edit into sensitive system paths (/etc/ and macOS
     # /private/etc/ mirror).
     (rf'\b(cp|mv|install)\b.*\s{_SYSTEM_CONFIG_PATH}', "copy/move file into system config path"),
@@ -673,7 +673,7 @@ DANGEROUS_PATTERNS = [
     (rf'\b(?:perl|ruby)\b.*(?:^|\s)-[^\s]*i\b.*(?:{_USER_SENSITIVE_WRITE_TARGET})[^\s"\']*', "in-place edit of sensitive credential/SSH/shell-rc path (perl/ruby)"),
     (rf'\bsed\s+-[^\s]*i.*\s{_SYSTEM_CONFIG_PATH}', "in-place edit of system config"),
     (rf'\bsed\s+--in-place\b.*\s{_SYSTEM_CONFIG_PATH}', "in-place edit of system config (long flag)"),
-    # In-place edit of a Hermes-managed security file (~/.hermes/config.yaml or
+    # In-place edit of a Fabric-managed security file (~/.hermes/config.yaml or
     # .env). sed -i bypasses the redirection/tee patterns above because it
     # mutates the file directly. Pairs the file_tools write_file/patch deny so
     # the terminal side is not an open door. See #14639.
@@ -826,8 +826,8 @@ def _normalize_command_for_detection(command: str) -> str:
     #
     # Fold the (more specific) Fabric home first: on Windows it nests under the
     # user home (C:\Users\alice\AppData\...\hermes), so folding the user home
-    # first would eat the prefix the Hermes-home fold needs.
-    command = _rewrite_resolved_hermes_home(command)
+    # first would eat the prefix the Fabric-home fold needs.
+    command = _rewrite_resolved_fabric_home(command)
     command = _rewrite_resolved_user_home(command)
     # Strip shell backslash-escapes: r\m → rm. Prevents \-injection bypass.
     command = re.sub(r'\\([^\n])', r'\1', command)
@@ -932,7 +932,7 @@ def _rewrite_resolved_user_home(command: str) -> str:
     return _fold_home_prefixes(command, candidates, "~")
 
 
-def _rewrite_resolved_hermes_home(command: str) -> str:
+def _rewrite_resolved_fabric_home(command: str) -> str:
     """Rewrite the resolved active home prefix to ``~/.fabric/``.
 
     Resolves the active ``FABRIC_HOME``/``HERMES_HOME`` at call time (and its
@@ -1822,7 +1822,7 @@ def _get_approval_mode() -> str:
 
 
 def is_approval_bypass_active() -> bool:
-    """Return True when the user has opted out of Hermes approval prompts.
+    """Return True when the user has opted out of Fabric approval prompts.
 
     Collapses the canonical three-source bypass check used across the codebase
     into one place:

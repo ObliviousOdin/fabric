@@ -123,7 +123,7 @@ Config is read from the first file that exists:
 | 2 | `~/.fabric/honcho.json` | Default profile (shared host blocks) |
 | 3 | `~/.honcho/config.json` | Global (cross-app interop) |
 
-Host key is derived from the active Fabric profile: `fabric` (default) or `hermes_<profile>`.
+Host key is derived from the active Fabric profile: `fabric` (default) or `fabric_<profile>`.
 
 For every key, resolution order is: **host block > root > env var > default**.
 
@@ -223,7 +223,7 @@ If `sessionPeerPrefix` is `true`, the peer name is prepended: `alice-fabric-agen
 
 #### What each strategy produces
 
-- **`per-directory`** — basename of `$PWD`. Opening hermes in `~/code/myapp` and `~/code/other` gives two separate sessions. Same directory = same session across runs.
+- **`per-directory`** — basename of `$PWD`. Opening fabric in `~/code/myapp` and `~/code/other` gives two separate sessions. Same directory = same session across runs.
 - **`per-repo`** — git root directory name. All subdirectories within a repo share one session. Falls back to `per-directory` if not inside a git repo.
 - **`per-session`** — Fabric session ID (timestamp + hex). Every `fabric` invocation starts a fresh Honcho session. Falls back to `per-directory` if no session ID is available.
 - **`global`** — workspace name. One session for everything. Memory accumulates across all directories and runs.
@@ -243,7 +243,7 @@ Multiple Fabric profiles can share one workspace while maintaining separate AI i
       "recallMode": "hybrid",
       "sessionStrategy": "per-directory"
     },
-    "hermes_coder": {
+    "fabric_coder": {
       "aiPeer": "coder",
       "recallMode": "tools",
       "sessionStrategy": "per-repo"
@@ -254,7 +254,7 @@ Multiple Fabric profiles can share one workspace while maintaining separate AI i
 
 Both profiles see the same user (`yourname`) in the same shared environment (`fabric`), but each AI peer builds its own observations, conclusions, and behavior patterns. The coder's memory stays code-oriented; the main agent's stays broad.
 
-Host key is derived from the active Fabric profile: `fabric` (default) or `hermes_<profile>` (e.g. `fabric -p coder` -> host key `hermes_coder`). Older `hermes.<profile>` host blocks are still read for compatibility and are migrated when the CLI writes profile-scoped Honcho config.
+Host key is derived from the active Fabric profile: `fabric` (default) or `fabric_<profile>` (e.g. `fabric -p coder` -> host key `fabric_coder`). Older `fabric.<profile>` host blocks are still read for compatibility and are migrated when the CLI writes profile-scoped Honcho config.
 
 ### Dialectic & Reasoning
 
@@ -369,7 +369,7 @@ Presets:
       "dialecticMaxChars": 600,
       "saveMessages": true
     },
-    "hermes_coder": {
+    "fabric_coder": {
       "enabled": true,
       "aiPeer": "coder",
       "sessionStrategy": "per-repo",

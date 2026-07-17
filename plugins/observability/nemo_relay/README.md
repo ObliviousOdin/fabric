@@ -83,7 +83,7 @@ wheel from this checkout, then install the official NeMo Relay runtime extra:
 
 ```bash
 uv build --wheel
-python -m pip install --force-reinstall dist/hermes_agent-*.whl
+python -m pip install --force-reinstall dist/fabric_agent-*.whl
 python -m pip install "nemo-relay==0.3"
 fabric plugins enable observability/nemo_relay
 ```

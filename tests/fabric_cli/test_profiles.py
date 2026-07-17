@@ -128,7 +128,7 @@ class TestValidateProfileName:
 
     @pytest.mark.parametrize("name", ["hermes", "test", "tmp", "root", "sudo"])
     def test_reserved_names_rejected(self, name):
-        """Reserved names collide with the Hermes install itself or with
+        """Reserved names collide with the Fabric install itself or with
         common system binaries — reject them at validate time so
         create/install/rename all share one gate."""
         with pytest.raises(ValueError, match="reserved"):
@@ -142,7 +142,7 @@ class TestValidateProfileName:
 class TestGetProfileDir:
     """Tests for get_profile_dir()."""
 
-    def test_default_returns_hermes_home(self, profile_env):
+    def test_default_returns_fabric_home(self, profile_env):
         tmp_path = profile_env
         result = get_profile_dir("default")
         assert result == tmp_path / ".hermes"
@@ -783,7 +783,7 @@ class TestActiveProfile:
 class TestGetActiveProfileName:
     """Tests for get_active_profile_name()."""
 
-    def test_default_hermes_home_returns_default(self, profile_env):
+    def test_default_fabric_home_returns_default(self, profile_env):
         # HERMES_HOME points to tmp_path/.hermes which is the default
         assert get_active_profile_name() == "default"
 
@@ -883,7 +883,7 @@ class TestAliasCollision:
         wrapper_dir = profile_env / ".local" / "bin"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
         bat_path = wrapper_dir / "mybot.bat"
-        bat_path.write_text("@echo off\r\nhermes -p mybot %*\r\n")
+        bat_path.write_text("@echo off\r\nfabric -p mybot %*\r\n")
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0, stdout=str(bat_path),
@@ -1147,8 +1147,8 @@ class TestRenameProfile:
 
         cfg = json.loads(honcho_path.read_text())
         assert "hermes.ssi_health" not in cfg["hosts"]
-        assert cfg["hosts"]["hermes_heimdall"]["aiPeer"] == "ssi_health"
-        assert cfg["hosts"]["hermes_heimdall"]["peerName"] == "user-peer"
+        assert cfg["hosts"]["fabric_heimdall"]["aiPeer"] == "ssi_health"
+        assert cfg["hosts"]["fabric_heimdall"]["peerName"] == "user-peer"
 
     def test_pins_ai_peer_when_absent_on_honcho_host_rename(self, profile_env):
         tmp_path = profile_env
@@ -1165,8 +1165,8 @@ class TestRenameProfile:
 
         cfg = json.loads(honcho_path.read_text())
         assert "hermes.ssi_health" not in cfg["hosts"]
-        assert cfg["hosts"]["hermes_heimdall"]["aiPeer"] == "ssi_health"
-        assert cfg["hosts"]["hermes_heimdall"]["workspace"] == "hermes"
+        assert cfg["hosts"]["fabric_heimdall"]["aiPeer"] == "ssi_health"
+        assert cfg["hosts"]["fabric_heimdall"]["workspace"] == "hermes"
 
     def test_does_not_overwrite_existing_honcho_host_on_rename(self, profile_env):
         tmp_path = profile_env
@@ -1175,7 +1175,7 @@ class TestRenameProfile:
         honcho_path.write_text(json.dumps({
             "hosts": {
                 "hermes.ssi_health": {"aiPeer": "ssi_health"},
-                "hermes_heimdall": {"aiPeer": "heimdall"},
+                "fabric_heimdall": {"aiPeer": "heimdall"},
             }
         }))
 
@@ -1184,7 +1184,7 @@ class TestRenameProfile:
 
         cfg = json.loads(honcho_path.read_text())
         assert cfg["hosts"]["hermes.ssi_health"]["aiPeer"] == "ssi_health"
-        assert cfg["hosts"]["hermes_heimdall"]["aiPeer"] == "heimdall"
+        assert cfg["hosts"]["fabric_heimdall"]["aiPeer"] == "heimdall"
 
     def test_default_raises_value_error(self, profile_env):
         with pytest.raises(ValueError, match="default"):
@@ -1471,7 +1471,7 @@ class TestExportImport:
             (sub / "marker.txt").write_text("excluded")
 
         for f in ("state.db", "gateway.pid", "gateway_state.json",
-                  "processes.json", "errors.log", ".hermes_history",
+                  "processes.json", "errors.log", ".fabric_history",
                   "active_profile", ".update_check", "auth.lock"):
             (default_dir / f).write_text("excluded")
 
@@ -1498,7 +1498,7 @@ class TestExportImport:
         excluded_files = [
             "default/state.db", "default/gateway.pid",
             "default/gateway_state.json", "default/processes.json",
-            "default/errors.log", "default/.hermes_history",
+            "default/errors.log", "default/.fabric_history",
             "default/active_profile", "default/.update_check",
             "default/auth.lock",
         ]
@@ -1528,7 +1528,7 @@ class TestExportImport:
         Docker/custom deployments often set HERMES_HOME to a working
         directory that also contains unrelated user projects (``x11-dev/``,
         etc.).  The root-level allow-list filters those out so only known
-        Hermes artifacts end up in the archive. Replaces the old
+        Fabric artifacts end up in the archive. Replaces the old
         exhaustive blacklist.
         """
         default_dir = get_profile_dir("default")
@@ -1674,7 +1674,7 @@ class TestProfileIsolation:
 
 
 # ===================================================================
-# TestGetProfilesRoot / TestGetDefaultHermesHome (internal helpers)
+# TestGetProfilesRoot / TestGetDefaultFabricHome (internal helpers)
 # ===================================================================
 
 class TestInternalHelpers:
@@ -1685,7 +1685,7 @@ class TestInternalHelpers:
         root = _get_profiles_root()
         assert root == tmp_path / ".hermes" / "profiles"
 
-    def test_default_hermes_home(self, profile_env):
+    def test_default_fabric_home(self, profile_env):
         tmp_path = profile_env
         home = _get_default_fabric_home()
         assert home == tmp_path / ".hermes"
@@ -1699,7 +1699,7 @@ class TestInternalHelpers:
         root = _get_profiles_root()
         assert root == docker_home / "profiles"
 
-    def test_default_hermes_home_docker(self, tmp_path, monkeypatch):
+    def test_default_fabric_home_docker(self, tmp_path, monkeypatch):
         """In Docker, _get_default_fabric_home() returns HERMES_HOME itself."""
         docker_home = tmp_path / "opt" / "data"
         docker_home.mkdir(parents=True)
@@ -1877,7 +1877,7 @@ class TestEdgeCases:
 
     def test_gateway_running_check_rejects_pid_reused_by_other_profile(self, profile_env):
         """Regression (user report): the dashboard showed a NAMED profile's
-        gateway green while ``hermes -p <name> gateway status`` showed it
+        gateway green while ``fabric -p <name> gateway status`` showed it
         stopped.
 
         Per-profile Docker supervision: a named profile (``coder``) left a
@@ -1942,7 +1942,7 @@ class TestEdgeCases:
             "gateway.status._pid_exists", return_value=True
         ), patch("gateway.status._get_process_start_time", return_value=1000), patch(
             "gateway.status._read_process_cmdline",
-            return_value="hermes -p coder gateway run --replace",
+            return_value="fabric -p coder gateway run --replace",
         ):
             assert _check_gateway_running(coder_home) is True
 

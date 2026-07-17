@@ -129,7 +129,7 @@ and [Computer Use](https://obliviousodin.github.io/fabric/user-guide/features/co
 guides for the docked and picture-in-picture workflows.
 
 Compatibility identifiers such as `HERMES_DESKTOP_HERMES_ROOT`, the legacy
-`hermes:` URL scheme, and older managed-install markers remain readable for one
+`fabric:` URL scheme, and older managed-install markers remain readable for one
 migration window. New package identity comes from the Fabric manifest:
 `io.github.obliviousodin.fabric`, `fabric:`, `Fabric.app`, and `Fabric.exe`.
 

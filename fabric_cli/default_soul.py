@@ -1,4 +1,4 @@
-"""Default SOUL.md template seeded into HERMES_HOME on first run."""
+"""Default SOUL.md template seeded into FABRIC_HOME on first run."""
 
 DEFAULT_SOUL_MD = (
     "You are Fabric, a local-first personal AI agent. "

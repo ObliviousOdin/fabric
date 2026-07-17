@@ -119,7 +119,7 @@ describe("api OAuth helpers", () => {
   });
 
   it("starts OAuth login in gated mode without requiring an injected session token", async () => {
-    vi.stubGlobal("window", { __HERMES_AUTH_REQUIRED__: true });
+    vi.stubGlobal("window", { __FABRIC_AUTH_REQUIRED__: true });
     const fetchMock = jsonFetchMock({
       flow: "device_code",
       session_id: "oauth-session",
@@ -163,7 +163,7 @@ describe("api OAuth helpers", () => {
   });
 
   it("still sends the injected session token for OAuth login in loopback mode", async () => {
-    vi.stubGlobal("window", { __HERMES_SESSION_TOKEN__: "loopback-token" });
+    vi.stubGlobal("window", { __FABRIC_SESSION_TOKEN__: "loopback-token" });
     const fetchMock = jsonFetchMock({
       flow: "device_code",
       session_id: "oauth-session",
@@ -177,7 +177,7 @@ describe("api OAuth helpers", () => {
   });
 
   it("runs provider auth mutations in gated mode via cookie auth", async () => {
-    vi.stubGlobal("window", { __HERMES_AUTH_REQUIRED__: true });
+    vi.stubGlobal("window", { __FABRIC_AUTH_REQUIRED__: true });
     const fetchMock = jsonFetchMock({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
 

@@ -19,13 +19,13 @@ from fabric_cli.auth import (
 
 class TestPortalEnvOverrideHelper:
     def test_none_when_unset(self, monkeypatch):
-        monkeypatch.delenv("HERMES_PORTAL_BASE_URL", raising=False)
+        monkeypatch.delenv("FABRIC_PORTAL_BASE_URL", raising=False)
         monkeypatch.delenv("NOUS_PORTAL_BASE_URL", raising=False)
         assert _nous_portal_env_override() is None
 
     def test_fabric_portal_base_url_wins(self, monkeypatch):
         monkeypatch.setenv(
-            "HERMES_PORTAL_BASE_URL", "https://staging.example.invalid/"
+            "FABRIC_PORTAL_BASE_URL", "https://staging.example.invalid/"
         )
         monkeypatch.delenv("NOUS_PORTAL_BASE_URL", raising=False)
         assert (
@@ -33,7 +33,7 @@ class TestPortalEnvOverrideHelper:
         )
 
     def test_nous_portal_base_url_used_as_fallback(self, monkeypatch):
-        monkeypatch.delenv("HERMES_PORTAL_BASE_URL", raising=False)
+        monkeypatch.delenv("FABRIC_PORTAL_BASE_URL", raising=False)
         monkeypatch.setenv(
             "NOUS_PORTAL_BASE_URL", "https://staging.example.invalid"
         )
@@ -46,7 +46,7 @@ class TestPortalEnvOverrideHelper:
         _NOUS_PORTAL_ALLOWED_HOSTS, and the helper must return it anyway —
         gating happens only for network-provenance values."""
         monkeypatch.setenv(
-            "HERMES_PORTAL_BASE_URL", "https://staging.example.invalid"
+            "FABRIC_PORTAL_BASE_URL", "https://staging.example.invalid"
         )
         assert "staging.example.invalid" not in _NOUS_PORTAL_ALLOWED_HOSTS
         assert (
@@ -108,14 +108,14 @@ class TestResolveAccessTokenEnvOverrideWins:
         self, monkeypatch, tmp_path
     ):
         """The real incident: state ALSO has the staging host stored (from
-        a prior HERMES_AUTH_JSON_BOOTSTRAP seed), and the env var is set to
+        a prior FABRIC_AUTH_JSON_BOOTSTRAP seed), and the env var is set to
         the same staging host. Both must resolve to staging, and the
         allowlist-rejection warning must never fire."""
         import fabric_cli.auth as auth
 
         staging_portal = "https://staging.example.invalid"
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.setenv("HERMES_PORTAL_BASE_URL", staging_portal)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_PORTAL_BASE_URL", staging_portal)
         self._write_auth_file(tmp_path, stored_portal_url=staging_portal)
 
         seen_portal_urls, records = self._run_and_capture(monkeypatch, auth)
@@ -132,8 +132,8 @@ class TestResolveAccessTokenEnvOverrideWins:
         import fabric_cli.auth as auth
 
         staging_portal = "https://staging.example.invalid"
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.setenv("HERMES_PORTAL_BASE_URL", staging_portal)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_PORTAL_BASE_URL", staging_portal)
         self._write_auth_file(tmp_path, stored_portal_url=DEFAULT_NOUS_PORTAL_URL)
 
         seen_portal_urls, _records = self._run_and_capture(monkeypatch, auth)
@@ -149,8 +149,8 @@ class TestResolveAccessTokenEnvOverrideWins:
         import fabric_cli.auth as auth
 
         staging_portal = "https://staging.example.invalid"
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.delenv("HERMES_PORTAL_BASE_URL", raising=False)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+        monkeypatch.delenv("FABRIC_PORTAL_BASE_URL", raising=False)
         monkeypatch.delenv("NOUS_PORTAL_BASE_URL", raising=False)
         self._write_auth_file(tmp_path, stored_portal_url=staging_portal)
 
@@ -166,8 +166,8 @@ class TestResolveAccessTokenEnvOverrideWins:
         allowlist never even logs a warning (nothing was rejected)."""
         import fabric_cli.auth as auth
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.delenv("HERMES_PORTAL_BASE_URL", raising=False)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+        monkeypatch.delenv("FABRIC_PORTAL_BASE_URL", raising=False)
         monkeypatch.delenv("NOUS_PORTAL_BASE_URL", raising=False)
         self._write_auth_file(tmp_path, stored_portal_url=DEFAULT_NOUS_PORTAL_URL)
 

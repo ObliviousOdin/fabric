@@ -22,7 +22,7 @@ def _reset_backend():
     from tools.computer_use.tool import reset_backend_for_tests
     reset_backend_for_tests()
     # Force the noop backend.
-    with patch.dict(os.environ, {"HERMES_COMPUTER_USE_BACKEND": "noop"}, clear=False):
+    with patch.dict(os.environ, {"FABRIC_COMPUTER_USE_BACKEND": "noop"}, clear=False):
         yield
     reset_backend_for_tests()
 
@@ -2145,7 +2145,7 @@ class TestMcpInvocationResolution:
 
     def test_falls_back_when_manifest_missing_command(self):
         """If the manifest knows the args but not the command, keep our
-        resolved driver path (so HERMES_CUA_DRIVER_CMD still wins)."""
+        resolved driver path (so FABRIC_CUA_DRIVER_CMD still wins)."""
         from unittest.mock import patch
         from tools.computer_use.cua_backend import _resolve_mcp_invocation
 

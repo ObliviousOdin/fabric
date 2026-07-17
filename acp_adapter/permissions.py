@@ -101,7 +101,7 @@ def _map_outcome_to_fabric(outcome: object, *, allowed_option_ids: set[str]) -> 
     if option_id not in allowed_option_ids:
         logger.warning("Permission request returned unknown option_id: %s", option_id)
         return "deny"
-    return _OPTION_ID_TO_HERMES.get(option_id, "deny")
+    return _OPTION_ID_TO_FABRIC.get(option_id, "deny")
 
 
 def make_approval_callback(

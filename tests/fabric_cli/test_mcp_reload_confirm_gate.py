@@ -51,8 +51,8 @@ class TestUserConfigMerge:
         }
         cfg_path.write_text(yaml.safe_dump(legacy))
 
-        monkeypatch.setenv("HERMES_HOME", str(home))
-        # Force a fresh reimport of config.py so the HERMES_HOME is honored.
+        monkeypatch.setenv("FABRIC_HOME", str(home))
+        # Force a fresh reimport of config.py so the FABRIC_HOME is honored.
         import importlib
         import fabric_cli.config as cfg_mod
         importlib.reload(cfg_mod)
@@ -81,7 +81,7 @@ class TestUserConfigMerge:
         }
         cfg_path.write_text(yaml.safe_dump(user_cfg))
 
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
         import importlib
         import fabric_cli.config as cfg_mod
         importlib.reload(cfg_mod)

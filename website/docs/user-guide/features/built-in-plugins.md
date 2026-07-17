@@ -211,9 +211,9 @@ fabric plugins enable observability/langfuse
 Then put the credentials in `~/.fabric/.env`:
 
 ```bash
-HERMES_LANGFUSE_PUBLIC_KEY=pk-lf-...
-HERMES_LANGFUSE_SECRET_KEY=sk-lf-...
-HERMES_LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
+FABRIC_LANGFUSE_PUBLIC_KEY=pk-lf-...
+FABRIC_LANGFUSE_SECRET_KEY=sk-lf-...
+FABRIC_LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
 ```
 
 **How it works:**
@@ -223,7 +223,7 @@ HERMES_LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
 | `pre_api_request` / `pre_llm_call` | Open (or reuse) a per-turn root span "Fabric turn". Start a `generation` child observation for this API call with serialized recent messages as input. |
 | `post_api_request` / `post_llm_call` | Close the generation, attach `usage_details`, `cost_details`, `finish_reason`, assistant output + tool calls. If no tool calls and non-empty content, close the turn. |
 | `pre_tool_call` | Start a `tool` child observation with sanitized `args`. |
-| `post_tool_call` | Close the tool observation with sanitized `result`. `read_file` payloads get summarized (head + tail + omitted-line count) so a huge file read stays under `HERMES_LANGFUSE_MAX_CHARS`. |
+| `post_tool_call` | Close the tool observation with sanitized `result`. `read_file` payloads get summarized (head + tail + omitted-line count) so a huge file read stays under `FABRIC_LANGFUSE_MAX_CHARS`. |
 
 Session grouping keys off the Fabric session ID (or task ID for sub-agents) via `langfuse.propagate_attributes`, so everything in a single `fabric chat` session lives under one Langfuse session.
 
@@ -238,11 +238,11 @@ fabric chat -q "hello"              # check the Langfuse UI for a "Fabric turn" 
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HERMES_LANGFUSE_ENV` | — | Environment tag on traces (`production`, `staging`, …) |
-| `HERMES_LANGFUSE_RELEASE` | — | Release/version tag |
-| `HERMES_LANGFUSE_SAMPLE_RATE` | `1.0` | Sampling rate passed to the SDK (0.0–1.0) |
-| `HERMES_LANGFUSE_MAX_CHARS` | `12000` | Per-field truncation for message content / tool args / tool results |
-| `HERMES_LANGFUSE_DEBUG` | `false` | Verbose plugin logging to `agent.log` |
+| `FABRIC_LANGFUSE_ENV` | — | Environment tag on traces (`production`, `staging`, …) |
+| `FABRIC_LANGFUSE_RELEASE` | — | Release/version tag |
+| `FABRIC_LANGFUSE_SAMPLE_RATE` | `1.0` | Sampling rate passed to the SDK (0.0–1.0) |
+| `FABRIC_LANGFUSE_MAX_CHARS` | `12000` | Per-field truncation for message content / tool args / tool results |
+| `FABRIC_LANGFUSE_DEBUG` | `false` | Verbose plugin logging to `agent.log` |
 
 Fabric-prefixed and standard SDK env vars (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`) are both accepted — Fabric-prefixed wins when both are set.
 

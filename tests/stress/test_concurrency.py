@@ -40,7 +40,7 @@ def worker_loop(worker_id: int, fabric_home: str, result_file: str) -> None:
     repeats until the ready pool is empty. Records every claim + complete
     into its own JSON result file for later aggregation.
     """
-    os.environ["HERMES_HOME"] = fabric_home
+    os.environ["FABRIC_HOME"] = fabric_home
     os.environ["HOME"] = fabric_home
     sys.path.insert(0, WT)
 
@@ -118,10 +118,10 @@ def worker_loop(worker_id: int, fabric_home: str, result_file: str) -> None:
 
 def main():
     home = tempfile.mkdtemp(prefix="fabric_concurrency_")
-    print(f"HERMES_HOME = {home}")
+    print(f"FABRIC_HOME = {home}")
 
     # Seed.
-    os.environ["HERMES_HOME"] = home
+    os.environ["FABRIC_HOME"] = home
     os.environ["HOME"] = home
     sys.path.insert(0, WT)
     from fabric_cli import kanban_db as kb

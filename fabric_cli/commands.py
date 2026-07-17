@@ -1222,7 +1222,7 @@ _SLACK_PRIORITY_ALIASES = ("btw", "bg")
 #   - account: provider ownership/request administration; reached through the
 #     existing authenticated `/hermes account` dispatcher on Slack so it does
 #     not evict a long-standing native command from the capped manifest.
-_SLACK_VIA_HERMES_ONLY = frozenset({"credits", "billing", "moa", "debug", "account"})
+_SLACK_VIA_FABRIC_ONLY = frozenset({"credits", "billing", "moa", "debug", "account"})
 
 
 def _sanitize_slack_name(raw: str) -> str:
@@ -1274,8 +1274,8 @@ def slack_native_slashes() -> list[tuple[str, str, str]]:
             return
         if slack_name in _SLACK_RESERVED_COMMANDS:
             return
-        if slack_name in _SLACK_VIA_HERMES_ONLY:
-            # Intentionally Slack-via-/hermes only (see _SLACK_VIA_HERMES_ONLY).
+        if slack_name in _SLACK_VIA_FABRIC_ONLY:
+            # Intentionally Slack-via-/hermes only (see _SLACK_VIA_FABRIC_ONLY).
             return
         if len(entries) >= _SLACK_MAX_SLASH_COMMANDS:
             return

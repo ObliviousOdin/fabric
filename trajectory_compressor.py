@@ -48,7 +48,7 @@ from rich.console import Console
 from fabric_constants import OPENROUTER_BASE_URL, get_fabric_home
 from agent.retry_utils import jittered_backoff
 
-# Load .env from HERMES_HOME first, then project root as a dev fallback.
+# Load .env from FABRIC_HOME first, then project root as a dev fallback.
 from fabric_cli.env_loader import load_fabric_dotenv
 
 _fabric_home = get_fabric_home()

@@ -60,9 +60,9 @@ docker run -d \
 Port 8642 exposes the gateway's [OpenAI-compatible API server](./features/api-server.md) and health endpoint. It's optional if you only use chat platforms (Telegram, Discord, etc.), but required if you want the dashboard or external tools to reach the gateway.
 
 :::tip Gateway runs supervised
-Inside the official Docker image, `gateway run` is **automatically supervised by s6-overlay**: if the gateway process crashes it's restarted within a couple of seconds without losing the container, and the dashboard (when `HERMES_DASHBOARD=1` is set) is supervised alongside it. The `gateway run` CMD process itself is a `sleep infinity` heartbeat that keeps the container alive while s6 manages the actual gateway process — so `docker stop` still shuts everything down cleanly, but `docker logs` shows the supervised gateway's output.
+Inside the official Docker image, `gateway run` is **automatically supervised by s6-overlay**: if the gateway process crashes it's restarted within a couple of seconds without losing the container, and the dashboard (when `FABRIC_DASHBOARD=1` is set) is supervised alongside it. The `gateway run` CMD process itself is a `sleep infinity` heartbeat that keeps the container alive while s6 manages the actual gateway process — so `docker stop` still shuts everything down cleanly, but `docker logs` shows the supervised gateway's output.
 
-You'll see a one-line breadcrumb in `docker logs` confirming the upgrade. To opt out — and get the historical "gateway is the container's main process, container exit = gateway exit" semantics — pass `--no-supervise` or set `HERMES_GATEWAY_NO_SUPERVISE=1`. The opt-out is useful for CI smoke tests that want the container to exit with the gateway's status code; for production deployments the supervised default is strictly better.
+You'll see a one-line breadcrumb in `docker logs` confirming the upgrade. To opt out — and get the historical "gateway is the container's main process, container exit = gateway exit" semantics — pass `--no-supervise` or set `FABRIC_GATEWAY_NO_SUPERVISE=1`. The opt-out is useful for CI smoke tests that want the container to exit with the gateway's status code; for production deployments the supervised default is strictly better.
 
 This behavior applies to the s6-based image only. Earlier (tini-based) images still run `gateway run` as the foreground main process.
 :::
@@ -109,7 +109,7 @@ Opening any port on an internet facing machine is a security risk. You should no
 
 ## Running the dashboard
 
-The built-in web dashboard runs as a supervised s6-rc service alongside the gateway in the same container. Set `HERMES_DASHBOARD=1` to bring it up:
+The built-in web dashboard runs as a supervised s6-rc service alongside the gateway in the same container. Set `FABRIC_DASHBOARD=1` to bring it up:
 
 ```sh
 docker run -d \
@@ -118,7 +118,7 @@ docker run -d \
   -v ~/.fabric:/opt/data \
   -p 8642:8642 \
   -p 9119:9119 \
-  -e HERMES_DASHBOARD=1 \
+  -e FABRIC_DASHBOARD=1 \
   ghcr.io/obliviousodin/fabric gateway run
 ```
 
@@ -126,27 +126,27 @@ The dashboard is supervised by s6 — if it crashes, `s6-supervise` restarts it 
 
 | Environment variable | Description | Default |
 |---------------------|-------------|---------|
-| `HERMES_DASHBOARD` | Set to `1` (or `true` / `yes`) to enable the supervised dashboard service | *(unset — service is registered but stays down)* |
-| `HERMES_DASHBOARD_HOST` | Bind address for the dashboard HTTP server | `0.0.0.0` |
-| `HERMES_DASHBOARD_PORT` | Port for the dashboard HTTP server | `9119` |
-| `HERMES_DASHBOARD_INSECURE` | **Deprecated / no-op.** Formerly bypassed the auth gate; as of the June 2026 hardening it no longer disables authentication. A non-loopback bind always requires an auth provider | *(ignored — configure a provider instead)* |
+| `FABRIC_DASHBOARD` | Set to `1` (or `true` / `yes`) to enable the supervised dashboard service | *(unset — service is registered but stays down)* |
+| `FABRIC_DASHBOARD_HOST` | Bind address for the dashboard HTTP server | `0.0.0.0` |
+| `FABRIC_DASHBOARD_PORT` | Port for the dashboard HTTP server | `9119` |
+| `FABRIC_DASHBOARD_INSECURE` | **Deprecated / no-op.** Formerly bypassed the auth gate; as of the June 2026 hardening it no longer disables authentication. A non-loopback bind always requires an auth provider | *(ignored — configure a provider instead)* |
 
-The dashboard inside the container defaults to binding `0.0.0.0` — without it, the published `-p 9119:9119` port would not be reachable from the host. To restrict the bind to container loopback (for sidecar / reverse-proxy setups), set `HERMES_DASHBOARD_HOST=127.0.0.1`.
+The dashboard inside the container defaults to binding `0.0.0.0` — without it, the published `-p 9119:9119` port would not be reachable from the host. To restrict the bind to container loopback (for sidecar / reverse-proxy setups), set `FABRIC_DASHBOARD_HOST=127.0.0.1`.
 
 The dashboard's auth gate engages automatically for every non-loopback bind (for example, the default `0.0.0.0` inside the container). At least one `DashboardAuthProvider` must then be configured; otherwise the dashboard fails closed at startup.
 
 There are three bundled ways to satisfy the second condition:
 
-- **Username/password** — the simplest for a self-hosted / on-prem / homelab container on a trusted network or behind a VPN: set `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` + `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD` (and `HERMES_DASHBOARD_BASIC_AUTH_SECRET` for restart-stable sessions). Not suitable for direct public-internet exposure.
-- **Hosted subscription compatibility** — retained for existing deployments: the `dashboard_auth/nous` provider activates whenever `HERMES_DASHBOARD_OAUTH_CLIENT_ID` is set.
-- **Self-hosted OIDC** — to authenticate against your own identity provider via standard OpenID Connect: the `dashboard_auth/self_hosted` provider activates when `HERMES_DASHBOARD_OIDC_ISSUER` + `HERMES_DASHBOARD_OIDC_CLIENT_ID` are set.
+- **Username/password** — the simplest for a self-hosted / on-prem / homelab container on a trusted network or behind a VPN: set `FABRIC_DASHBOARD_BASIC_AUTH_USERNAME` + `FABRIC_DASHBOARD_BASIC_AUTH_PASSWORD` (and `FABRIC_DASHBOARD_BASIC_AUTH_SECRET` for restart-stable sessions). Not suitable for direct public-internet exposure.
+- **Hosted subscription compatibility** — retained for existing deployments: the `dashboard_auth/nous` provider activates whenever `FABRIC_DASHBOARD_OAUTH_CLIENT_ID` is set.
+- **Self-hosted OIDC** — to authenticate against your own identity provider via standard OpenID Connect: the `dashboard_auth/self_hosted` provider activates when `FABRIC_DASHBOARD_OIDC_ISSUER` + `FABRIC_DASHBOARD_OIDC_CLIENT_ID` are set.
 
 Whichever you choose, the gate redirects callers to a login page before they can reach any protected route. See [Web Dashboard → Authentication](features/web-dashboard.md#authentication-gated-mode) for all three providers.
 
-If no provider is registered and the bind is non-loopback, the dashboard **fails closed at startup** with a specific error pointing at the missing env var. There is no longer an escape hatch that serves the dashboard unauthenticated on a public bind: `HERMES_DASHBOARD_INSECURE=1` is now a deprecated no-op (it logs a warning and is ignored). Configure a provider, or bind `HERMES_DASHBOARD_HOST=127.0.0.1` and reach the dashboard over an SSH tunnel / Tailscale instead.
+If no provider is registered and the bind is non-loopback, the dashboard **fails closed at startup** with a specific error pointing at the missing env var. There is no longer an escape hatch that serves the dashboard unauthenticated on a public bind: `FABRIC_DASHBOARD_INSECURE=1` is now a deprecated no-op (it logs a warning and is ignored). Configure a provider, or bind `FABRIC_DASHBOARD_HOST=127.0.0.1` and reach the dashboard over an SSH tunnel / Tailscale instead.
 
 :::warning Why `--insecure` was removed
-An unauthenticated public dashboard was the entry point for the June 2026 MCP-config persistence campaign: internet scanners reached exposed dashboards (and OpenAI API servers) and drove the agent into planting an SSH-key backdoor. The auth gate is now mandatory on every non-loopback bind. For a trusted-LAN / homelab box, the bundled username/password provider (`HERMES_DASHBOARD_BASIC_AUTH_USERNAME` + `_PASSWORD`) is the zero-infra way to satisfy it.
+An unauthenticated public dashboard was the entry point for the June 2026 MCP-config persistence campaign: internet scanners reached exposed dashboards (and OpenAI API servers) and drove the agent into planting an SSH-key backdoor. The auth gate is now mandatory on every non-loopback bind. For a trusted-LAN / homelab box, the bundled username/password provider (`FABRIC_DASHBOARD_BASIC_AUTH_USERNAME` + `_PASSWORD`) is the zero-infra way to satisfy it.
 :::
 
 Running the dashboard as a separate container **is** supported. The repo's
@@ -250,7 +250,7 @@ Under the hood, `fabric gateway start/stop/restart` inside the container is inte
 
 Two different surfaces reach a profile's gateway from outside, and they behave differently — don't conflate them:
 
-**Fabric (and the web dashboard).** The Desktop app's **Remote Gateway** connection talks to a `fabric dashboard` backend (default **port 9119**, enabled by `HERMES_DASHBOARD=1`) — *not* the OpenAI API server. One dashboard backend serves **every** co-located profile: the app's profile switcher sends the target profile with each request and the backend opens that profile's `FABRIC_HOME` on disk. So you do **not** need a second port — or a second connection — per profile for Desktop; one `:9119` connection covers them all through the switcher.
+**Fabric (and the web dashboard).** The Desktop app's **Remote Gateway** connection talks to a `fabric dashboard` backend (default **port 9119**, enabled by `FABRIC_DASHBOARD=1`) — *not* the OpenAI API server. One dashboard backend serves **every** co-located profile: the app's profile switcher sends the target profile with each request and the backend opens that profile's `FABRIC_HOME` on disk. So you do **not** need a second port — or a second connection — per profile for Desktop; one `:9119` connection covers them all through the switcher.
 
 **OpenAI-compatible API clients (Open WebUI, LobeChat, `/v1/...`).** These talk to each profile's **API server**, which binds **port 8642 for every profile** (resolved from `API_SERVER_PORT` / `platforms.api_server.extra.port` — there is no auto-allocation and no `config.yaml`/`gateway.port` key). If you want a client to reach a *specific* second profile, give that profile a distinct `API_SERVER_PORT` in **its own** `.env`, otherwise its gateway tries to bind 8642 too and conflicts with the default profile:
 
@@ -327,7 +327,7 @@ The s6 container has four distinct log surfaces, and "why isn't my gateway showi
 | Source | Where it lands | How to read it |
 |---|---|---|
 | **Per-profile gateway** (`fabric gateway run` and per-profile gateways under s6) | Tee'd to two places: `docker logs <container>` (real time, no extra prefix) **and** `${FABRIC_HOME}/logs/gateways/<profile>/current` (rotated, ISO-8601 timestamped, 10 archives × 1 MB each) | `docker logs -f fabric` or `tail -F ~/.fabric/logs/gateways/default/current` on the host |
-| **Dashboard** (when `HERMES_DASHBOARD=1`) | `docker logs <container>` (no prefix) | `docker logs -f fabric` — interleaved with gateway lines |
+| **Dashboard** (when `FABRIC_DASHBOARD=1`) | `docker logs <container>` (no prefix) | `docker logs -f fabric` — interleaved with gateway lines |
 | **Boot reconciler** (records which profile gateways were restored on each container start) | `${FABRIC_HOME}/logs/container-boot.log` (append log, rotated to `.1` at 256 KiB) | `tail -F ~/.fabric/logs/container-boot.log` |
 | **Generic Fabric logs** (`agent.log`, `errors.log`) | `${FABRIC_HOME}/logs/` (profile-aware) | `docker exec fabric fabric logs --follow [--level WARNING] [--session <id>]` |
 
@@ -516,7 +516,7 @@ The official image is based on `debian:13.4` and includes:
 The image treats `/opt/hermes` as an immutable install tree at runtime. Optional Python extras, Node workspaces, and TUI assets that must be available inside Docker need to be baked during the image build. The allow-listed lazy dependency path is redirected to `/opt/data/lazy-packages`; it never writes into the sealed venv.
 
 The container's `ENTRYPOINT` is s6-overlay's `/init`. On boot it:
-1. Runs `/etc/cont-init.d/01-fabric-setup` (= `docker/stage2-hook.sh`) as root: optional UID/GID remap, fixes volume ownership, seeds `.env` / `config.yaml` / `SOUL.md` on first boot, runs non-interactive config-schema migrations unless `HERMES_SKIP_CONFIG_MIGRATION=1`, syncs bundled skills.
+1. Runs `/etc/cont-init.d/01-fabric-setup` (= `docker/stage2-hook.sh`) as root: optional UID/GID remap, fixes volume ownership, seeds `.env` / `config.yaml` / `SOUL.md` on first boot, runs non-interactive config-schema migrations unless `FABRIC_SKIP_CONFIG_MIGRATION=1`, syncs bundled skills.
 2. Runs `/etc/cont-init.d/02-reconcile-profiles` (= `fabric_cli.container_boot`): reconciles the default profile at `$FABRIC_HOME` plus named profiles under `$FABRIC_HOME/profiles/<name>/`, recreates their s6 service slots under `/run/service/gateway-<profile>/`, and auto-starts only those whose durable desired state was `running` (see [Per-profile gateway supervision](#per-profile-gateway-supervision)).
 3. Starts the static `main-fabric` and `dashboard` s6-rc services.
 4. Execs the container's CMD as the main program (`/opt/hermes/docker/main-wrapper.sh`), which routes the arguments the user passed to `docker run`:
@@ -539,7 +539,7 @@ bootstrap-only compatibility shim—it runs the stage2 hook but does **not** run
 the CMD, so it is not an equivalent replacement for `/init`. Starting `fabric
 gateway run` as root inside the official image is refused by default because it
 can leave root-owned files in `/opt/data` and break later dashboard or gateway
-starts. Set `HERMES_ALLOW_ROOT_GATEWAY=1` only when you intentionally accept
+starts. Set `FABRIC_ALLOW_ROOT_GATEWAY=1` only when you intentionally accept
 that risk.
 :::
 
@@ -562,7 +562,7 @@ Each profile created with `fabric profile create <name>` automatically gets an s
 **Supervision benefits over the pre-s6 image:**
 
 - Gateway crashes are auto-restarted by `s6-supervise` after a ~1s backoff.
-- Dashboard, when enabled with `HERMES_DASHBOARD=1`, is supervised on the same supervision tree and gets the same auto-restart treatment.
+- Dashboard, when enabled with `FABRIC_DASHBOARD=1`, is supervised on the same supervision tree and gets the same auto-restart treatment.
 - `docker restart`, image upgrades (`docker compose up -d --force-recreate`), and unexpected exits preserve running gateways: the cont-init reconciler reads `$FABRIC_HOME/profiles/<name>/gateway_state.json` and brings the slot back up if the last recorded state was `running`. Only an explicit `fabric gateway stop` records `stopped` and keeps the gateway down across the restart; the container/s6 SIGTERM sent on a restart or upgrade is treated as "still running" and auto-starts.
 - Per-profile gateway logs persist under `$FABRIC_HOME/logs/gateways/<profile>/current` (rotated by `s6-log`), and the reconciler's actions are appended to `$FABRIC_HOME/logs/container-boot.log` per boot. See [Where the logs go](#where-the-logs-go) for the full routing map.
 
@@ -593,7 +593,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Set `HERMES_SKIP_CONFIG_MIGRATION=1` only if you need to inspect or migrate the
+Set `FABRIC_SKIP_CONFIG_MIGRATION=1` only if you need to inspect or migrate the
 persisted config manually before letting the new image rewrite it.
 
 ## Skills and credential files

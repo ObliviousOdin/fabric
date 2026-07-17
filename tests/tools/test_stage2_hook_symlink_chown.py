@@ -38,7 +38,7 @@ def _run_helper(
     fabric_home = target if fabric_home is None else fabric_home
     script = (
         "set -eu\n"
-        f'HERMES_HOME="{fabric_home}"\n'
+        f'FABRIC_HOME="{fabric_home}"\n'
         f"{_chown_fabric_tree_function(text)}\n"
         f'chown() {{ printf "%s\\n" "$*" >> "{log_path}"; }}\n'
         f'chown_fabric_tree "{target}"\n'
@@ -97,7 +97,7 @@ def test_chown_helper_refuses_target_under_symlinked_home(
     )
 
     assert proc.returncode == 0, proc.stderr
-    assert not log_path.exists(), "must not chown through a symlinked HERMES_HOME"
+    assert not log_path.exists(), "must not chown through a symlinked FABRIC_HOME"
     assert "refusing recursive chown through symlinked path" in proc.stdout
 
 
@@ -131,15 +131,15 @@ def test_chown_helper_refuses_target_with_symlinked_ancestor(
 
 
 def test_stage2_uses_symlink_safe_helper_for_fabric_home_trees(stage2_text: str) -> None:
-    assert 'chown_fabric_tree "$HERMES_HOME/$sub"' in stage2_text
-    assert 'chown_fabric_tree "$HERMES_HOME/profiles"' in stage2_text
-    assert 'chown_fabric_tree "$HERMES_HOME/cron"' in stage2_text
-    assert 'chown -R fabric:fabric "$HERMES_HOME/$sub"' not in stage2_text
-    assert 'chown -R fabric:fabric "$HERMES_HOME/profiles"' not in stage2_text
-    assert 'chown -R fabric:fabric "$HERMES_HOME/cron"' not in stage2_text
+    assert 'chown_fabric_tree "$FABRIC_HOME/$sub"' in stage2_text
+    assert 'chown_fabric_tree "$FABRIC_HOME/profiles"' in stage2_text
+    assert 'chown_fabric_tree "$FABRIC_HOME/cron"' in stage2_text
+    assert 'chown -R fabric:fabric "$FABRIC_HOME/$sub"' not in stage2_text
+    assert 'chown -R fabric:fabric "$FABRIC_HOME/profiles"' not in stage2_text
+    assert 'chown -R fabric:fabric "$FABRIC_HOME/cron"' not in stage2_text
 
 
 def test_stage2_skips_top_level_chown_for_symlinked_fabric_home(
     stage2_text: str,
 ) -> None:
-    assert 'refuse_symlinked_path "chown" "$HERMES_HOME"' in stage2_text
+    assert 'refuse_symlinked_path "chown" "$FABRIC_HOME"' in stage2_text

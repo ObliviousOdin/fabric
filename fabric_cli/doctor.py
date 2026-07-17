@@ -15,7 +15,7 @@ from fabric_constants import display_fabric_home
 from fabric_constants import agent_browser_runnable
 
 PROJECT_ROOT = get_project_root()
-HERMES_HOME = get_fabric_home()
+FABRIC_HOME = get_fabric_home()
 _DHH = display_fabric_home()  # user-facing display path (e.g. ~/.fabric or ~/.fabric/profiles/coder)
 
 # Environment loading is deferred to run_doctor(), after strict policy
@@ -24,7 +24,7 @@ _DHH = display_fabric_home()  # user-facing display path (e.g. ~/.fabric or ~/.f
 
 from fabric_cli.colors import Colors, color
 from fabric_cli.fabric_capabilities import fabric_model_provider_visible
-from fabric_cli.models import _HERMES_USER_AGENT
+from fabric_cli.models import _FABRIC_USER_AGENT
 from fabric_constants import OPENROUTER_MODELS_URL
 from utils import base_url_host_matches
 
@@ -120,7 +120,7 @@ def _read_doctor_profile_config() -> dict:
     try:
         import yaml
 
-        path = HERMES_HOME / "config.yaml"
+        path = FABRIC_HOME / "config.yaml"
         if not path.is_file():
             return {}
         value = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -268,8 +268,8 @@ def _run_restricted_doctor(config: dict, egress: dict, *, should_fix: bool) -> N
 
     _section("Local Configuration")
     check_ok(f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-    config_path = HERMES_HOME / "config.yaml"
-    env_path = HERMES_HOME / ".env"
+    config_path = FABRIC_HOME / "config.yaml"
+    env_path = FABRIC_HOME / ".env"
     if config_path.exists():
         check_ok(f"{_DHH}/config.yaml exists")
     else:
@@ -297,7 +297,7 @@ def _is_kanban_worker_env_gate(item: dict) -> bool:
     """Return True when Kanban is unavailable only because this is not a worker process."""
     if item.get("name") != "kanban":
         return False
-    if os.environ.get("HERMES_KANBAN_TASK"):
+    if os.environ.get("FABRIC_KANBAN_TASK"):
         return False
 
     tools = item.get("tools") or []
@@ -306,7 +306,7 @@ def _is_kanban_worker_env_gate(item: dict) -> bool:
 
 def _doctor_tool_availability_detail(toolset: str) -> str:
     """Optional explanatory suffix for toolsets whose doctor status needs context."""
-    if toolset == "kanban" and not os.environ.get("HERMES_KANBAN_TASK"):
+    if toolset == "kanban" and not os.environ.get("FABRIC_KANBAN_TASK"):
         return "(runtime-gated; loaded only for dispatcher-spawned workers)"
     return ""
 
@@ -700,7 +700,7 @@ def managed_scope_check() -> None:
     override_var = next(
         (
             var
-            for var in ("FABRIC_MANAGED_DIR", "HERMES_MANAGED_DIR")
+            for var in ("FABRIC_MANAGED_DIR", "FABRIC_MANAGED_DIR")
             if os.environ.get(var, "").strip()
         ),
         None,
@@ -716,7 +716,7 @@ def run_doctor(args):
 
     # Doctor runs from the interactive CLI, so CLI-gated tool availability
     # checks (like cronjob management) should see the same context as `fabric`.
-    os.environ.setdefault("HERMES_INTERACTIVE", "1")
+    os.environ.setdefault("FABRIC_INTERACTIVE", "1")
 
     # Handle `fabric doctor --ack <id>` as a fast path. Persist the ack and
     # return without running the rest of the diagnostics — the user has
@@ -759,7 +759,7 @@ def run_doctor(args):
     # A strict active-profile read catches malformed/unreadable policy that the
     # best-effort general config reader cannot distinguish from absence. The
     # pure doctor snapshot remains the testable/profile-local fallback for
-    # embedders that explicitly replace HERMES_HOME in-process.
+    # embedders that explicitly replace FABRIC_HOME in-process.
     try:
         from fabric_cli.egress_status import build_egress_status_snapshot
 
@@ -943,7 +943,7 @@ def run_doctor(args):
     # Managed scope (administrator-pinned config/env), when present.
     managed_scope_check()
     # Check ~/.fabric/.env (primary location for user config)
-    env_path = HERMES_HOME / '.env'
+    env_path = FABRIC_HOME / '.env'
     if env_path.exists():
         check_ok(f"{_DHH}/.env file exists")
         
@@ -982,7 +982,7 @@ def run_doctor(args):
                 issues.append("Run 'fabric setup' to create .env")
     
     # Check ~/.fabric/config.yaml (primary) or project cli-config.yaml (fallback)
-    config_path = HERMES_HOME / 'config.yaml'
+    config_path = FABRIC_HOME / 'config.yaml'
     if config_path.exists():
         check_ok(f"{_DHH}/config.yaml exists")
 
@@ -1187,7 +1187,7 @@ def run_doctor(args):
                 check_warn("config.yaml not found", "(using defaults)")
 
     # Check config version and stale keys
-    config_path = HERMES_HOME / 'config.yaml'
+    config_path = FABRIC_HOME / 'config.yaml'
     if config_path.exists():
         try:
             from fabric_cli.config import check_config_version, migrate_config
@@ -1250,11 +1250,11 @@ def run_doctor(args):
         except Exception:
             pass
 
-        # Detect stale HERMES_MAX_ITERATIONS ghost in .env shadowing
+        # Detect stale FABRIC_MAX_ITERATIONS ghost in .env shadowing
         # agent.max_turns in config.yaml (issue #17534). The setup wizard
         # used to dual-write the iteration budget to both stores; users who
         # later edit only config.yaml are left with a .env ghost. The gateway
-        # bridge normally derives HERMES_MAX_ITERATIONS from agent.max_turns
+        # bridge normally derives FABRIC_MAX_ITERATIONS from agent.max_turns
         # at startup, but if that bridge bails (any earlier config-parse
         # error), the stale .env value silently wins and the agent runs at the
         # wrong budget — e.g. config says 400 but the activity line reads N/90.
@@ -1274,7 +1274,7 @@ def run_doctor(args):
             # Legacy root-level key counts too.
             if cfg_max_turns is None:
                 cfg_max_turns = raw_config.get("max_turns")
-            env_ghost = load_env().get("HERMES_MAX_ITERATIONS")
+            env_ghost = load_env().get("FABRIC_MAX_ITERATIONS")
             drift = (
                 cfg_max_turns is not None
                 and env_ghost is not None
@@ -1282,26 +1282,26 @@ def run_doctor(args):
             )
             if drift:
                 check_warn(
-                    f"HERMES_MAX_ITERATIONS={env_ghost} in .env shadows "
+                    f"FABRIC_MAX_ITERATIONS={env_ghost} in .env shadows "
                     f"agent.max_turns={cfg_max_turns} in config.yaml",
                     "(stale ghost from an earlier `fabric setup` run)",
                 )
                 if should_fix:
-                    if remove_env_value("HERMES_MAX_ITERATIONS"):
+                    if remove_env_value("FABRIC_MAX_ITERATIONS"):
                         check_ok(
-                            "Removed stale HERMES_MAX_ITERATIONS from .env "
+                            "Removed stale FABRIC_MAX_ITERATIONS from .env "
                             f"(config.yaml agent.max_turns={cfg_max_turns} is now authoritative)"
                         )
                         fixed_count += 1
                     else:
-                        check_warn("Could not remove HERMES_MAX_ITERATIONS from .env")
+                        check_warn("Could not remove FABRIC_MAX_ITERATIONS from .env")
                         manual_issues.append(
-                            "Manually delete the HERMES_MAX_ITERATIONS line from "
+                            "Manually delete the FABRIC_MAX_ITERATIONS line from "
                             f"{_DHH}/.env — config.yaml agent.max_turns is authoritative."
                         )
                 else:
                     issues.append(
-                        "Stale HERMES_MAX_ITERATIONS in .env shadows config.yaml — "
+                        "Stale FABRIC_MAX_ITERATIONS in .env shadows config.yaml — "
                         "run 'fabric doctor --fix'"
                     )
         except Exception:
@@ -1411,7 +1411,7 @@ def run_doctor(args):
             pass
 
     _section("Directory Structure")
-    fabric_home = HERMES_HOME
+    fabric_home = FABRIC_HOME
     if fabric_home.exists():
         check_ok(f"{_DHH} directory exists")
     elif should_fix:
@@ -1938,7 +1938,7 @@ def run_doctor(args):
         # glob (which pulls in Electron, node-pty, etc.) is never resolved
         # for a routine security check. The web and ui-tui workspaces are
         # audited separately via --workspace flags. See #38772.
-        # The WhatsApp bridge may live under a writable HERMES_HOME mirror
+        # The WhatsApp bridge may live under a writable FABRIC_HOME mirror
         # instead of the (possibly read-only) install tree in Docker — resolve
         # it through the shared helper so we audit the dir that actually holds
         # node_modules. See #49561.
@@ -2219,7 +2219,7 @@ def run_doctor(args):
             url = (base.rstrip("/") + "/models") if base else default_url
             headers = {
                 "Authorization": f"Bearer {key}",
-                "User-Agent": _HERMES_USER_AGENT,
+                "User-Agent": _FABRIC_USER_AGENT,
             }
             if base_url_host_matches(base, "api.kimi.com"):
                 headers["User-Agent"] = "claude-code/0.1.0"
@@ -2505,7 +2505,7 @@ def run_doctor(args):
         check_warn("Could not check tool availability", f"({e})")
     
     _section("Skills Hub")
-    hub_dir = HERMES_HOME / "skills" / ".hub"
+    hub_dir = FABRIC_HOME / "skills" / ".hub"
     if hub_dir.exists():
         check_ok("Skills Hub directory exists")
         lock_file = hub_dir / "lock.json"

@@ -4390,7 +4390,7 @@ def interactive_setup() -> None:
     )
 
     def _write_slack_manifest_and_instruct() -> None:
-        """Generate the Slack manifest, write it under HERMES_HOME, and print
+        """Generate the Slack manifest, write it under FABRIC_HOME, and print
         paste-into-Slack instructions. Failures are non-fatal."""
         try:
             from fabric_cli.slack_cli import _build_full_manifest

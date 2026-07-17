@@ -252,7 +252,7 @@ def test_reset_aux_to_auto_resets_plugin_tasks(tmp_path, monkeypatch, patched_ma
     from fabric_cli.config import load_config, save_config
     from fabric_cli.main import _reset_aux_to_auto
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     (tmp_path / ".hermes").mkdir(exist_ok=True)
 
@@ -288,7 +288,7 @@ def test_get_auxiliary_task_config_layers_plugin_defaults(
     from pathlib import Path
     from agent.auxiliary_client import _get_auxiliary_task_config
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     (tmp_path / ".hermes").mkdir(exist_ok=True)
 
@@ -316,7 +316,7 @@ def test_get_auxiliary_task_config_user_config_wins_over_plugin_defaults(
     from fabric_cli.config import load_config, save_config
     from agent.auxiliary_client import _get_auxiliary_task_config
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     (tmp_path / ".hermes").mkdir(exist_ok=True)
 
@@ -346,7 +346,7 @@ def test_get_auxiliary_task_config_unknown_task_returns_empty(
     from pathlib import Path
     from agent.auxiliary_client import _get_auxiliary_task_config
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     (tmp_path / ".hermes").mkdir(exist_ok=True)
 

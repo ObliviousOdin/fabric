@@ -1,4 +1,4 @@
-import { HERMES_BASE_PATH } from "@/lib/api";
+import { FABRIC_BASE_PATH } from "@/lib/api";
 
 export const FABRIC_BRAND_ASSETS = {
   mark: "/brand/fabric-mark.svg",
@@ -8,7 +8,7 @@ export const FABRIC_BRAND_ASSETS = {
 
 export function resolveFabricBrandAsset(
   assetPath: string,
-  basePath = HERMES_BASE_PATH,
+  basePath = FABRIC_BASE_PATH,
 ): string {
   return `${basePath}${assetPath}`;
 }

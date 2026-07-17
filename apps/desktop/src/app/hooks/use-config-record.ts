@@ -11,12 +11,12 @@ import type { FabricConfigRecord } from '@/types/hermes'
 //
 // Distinct from session/hooks/use-hermes-config.ts, which is side-effecting —
 // it pushes personality/cwd/voice/… into the session stores for live chat.
-export const HERMES_CONFIG_KEY = ['fabric-config-record'] as const
+export const FABRIC_CONFIG_KEY = ['fabric-config-record'] as const
 
 // staleTime 0 → serve cache instantly, background-revalidate on every mount.
 export const useFabricConfigRecord = () =>
-  useQuery({ queryKey: HERMES_CONFIG_KEY, queryFn: getFabricConfigRecord, staleTime: 0 })
+  useQuery({ queryKey: FABRIC_CONFIG_KEY, queryFn: getFabricConfigRecord, staleTime: 0 })
 
-export const setFabricConfigCache = writeCache<FabricConfigRecord>(HERMES_CONFIG_KEY)
+export const setFabricConfigCache = writeCache<FabricConfigRecord>(FABRIC_CONFIG_KEY)
 
-export const invalidateFabricConfig = () => queryClient.invalidateQueries({ queryKey: HERMES_CONFIG_KEY })
+export const invalidateFabricConfig = () => queryClient.invalidateQueries({ queryKey: FABRIC_CONFIG_KEY })

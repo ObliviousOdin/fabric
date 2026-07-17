@@ -24,13 +24,13 @@ from unittest.mock import patch
 import pytest
 
 from fabric_cli import models as M
-from fabric_cli.providers import HERMES_OVERLAYS
+from fabric_cli.providers import FABRIC_OVERLAYS
 
 
 # --- Bug 2: overlay no longer lists OPENAI_API_KEY --------------------------
 
 def test_openrouter_overlay_does_not_list_openai_api_key():
-    overlay = HERMES_OVERLAYS["openrouter"]
+    overlay = FABRIC_OVERLAYS["openrouter"]
     assert "OPENAI_API_KEY" not in overlay.extra_env_vars
 
 

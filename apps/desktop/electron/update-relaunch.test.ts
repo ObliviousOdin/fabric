@@ -10,7 +10,7 @@
  *      relaunch/claim a GUI update; AppImage/.deb/.rpm/dev/unresolved paths land
  *      on the guiSkew terminal state and do NOT claim the GUI was updated.
  *   2. Launch context is replayed on re-exec (args filtered of Electron
- *      internals; HERMES_HOME / HERMES_DESKTOP_* env + cwd preserved) and is
+ *      internals; FABRIC_HOME / FABRIC_DESKTOP_* env + cwd preserved) and is
  *      safely shell-quoted.
  *   3. The sandbox preflight: chrome-sandbox must be root-owned + setuid to be
  *      launchable; otherwise the decision degrades to a manual terminal state
@@ -159,10 +159,10 @@ test('collectRelaunchArgs drops Electron internals, keeps user/launcher args', (
 test('collectRelaunchEnv preserves both home names, Fabric and legacy desktop vars, and sandbox opt-out only', () => {
   const env = {
     FABRIC_HOME: '/home/u/.fabric',
-    HERMES_HOME: '/home/u/.fabric',
-    HERMES_DESKTOP_REMOTE_URL: 'http://box:9119',
-    HERMES_DESKTOP_REMOTE_TOKEN: 'secret',
-    HERMES_DESKTOP_HERMES_ROOT: '/home/u/dev/hermes',
+    FABRIC_HOME: '/home/u/.fabric',
+    FABRIC_DESKTOP_REMOTE_URL: 'http://box:9119',
+    FABRIC_DESKTOP_REMOTE_TOKEN: 'secret',
+    FABRIC_DESKTOP_HERMES_ROOT: '/home/u/dev/hermes',
     FABRIC_DESKTOP_REMOTE_URL: 'http://fabric-box:9119',
     FABRIC_DESKTOP_REMOTE_TOKEN: 'fabric-secret',
     ELECTRON_DISABLE_SANDBOX: '1', // sandbox opt-out — preserved
@@ -173,10 +173,10 @@ test('collectRelaunchEnv preserves both home names, Fabric and legacy desktop va
 
   assert.deepEqual(collectRelaunchEnv(env), {
     FABRIC_HOME: '/home/u/.fabric',
-    HERMES_HOME: '/home/u/.fabric',
-    HERMES_DESKTOP_REMOTE_URL: 'http://box:9119',
-    HERMES_DESKTOP_REMOTE_TOKEN: 'secret',
-    HERMES_DESKTOP_HERMES_ROOT: '/home/u/dev/hermes',
+    FABRIC_HOME: '/home/u/.fabric',
+    FABRIC_DESKTOP_REMOTE_URL: 'http://box:9119',
+    FABRIC_DESKTOP_REMOTE_TOKEN: 'secret',
+    FABRIC_DESKTOP_HERMES_ROOT: '/home/u/dev/hermes',
     FABRIC_DESKTOP_REMOTE_URL: 'http://fabric-box:9119',
     FABRIC_DESKTOP_REMOTE_TOKEN: 'fabric-secret',
     ELECTRON_DISABLE_SANDBOX: '1'
@@ -198,7 +198,7 @@ test('buildRelaunchScript embeds pid/exec/args/env/cwd and is valid bash', () =>
     pid: 4242,
     execPath: '/home/u/.hermes/fabric-agent/apps/desktop/release/linux-unpacked/Hermes',
     args: ['fabric://open/agent/42', "--note=it's fine"],
-    env: { HERMES_HOME: '/home/u/.hermes', HERMES_DESKTOP_REMOTE_URL: 'http://box:9119' },
+    env: { FABRIC_HOME: '/home/u/.hermes', FABRIC_DESKTOP_REMOTE_URL: 'http://box:9119' },
     cwd: '/home/u/work dir'
   })
 
@@ -208,8 +208,8 @@ test('buildRelaunchScript embeds pid/exec/args/env/cwd and is valid bash', () =>
   assert.match(script, /kill -9 "\$APP_PID"/)
   assert.match(script, /rm -f -- "\$0"/)
   // env exports + cwd restore + args replay are present and quoted.
-  assert.match(script, /export HERMES_HOME='\/home\/u\/\.hermes'/)
-  assert.match(script, /export HERMES_DESKTOP_REMOTE_URL='http:\/\/box:9119'/)
+  assert.match(script, /export FABRIC_HOME='\/home\/u\/\.hermes'/)
+  assert.match(script, /export FABRIC_DESKTOP_REMOTE_URL='http:\/\/box:9119'/)
   assert.match(script, /cd '\/home\/u\/work dir'/)
   assert.match(script, /exec '.*\/linux-unpacked\/Hermes' 'fabric:\/\/open\/agent\/42' '--note=it'\\''s fine'/)
 

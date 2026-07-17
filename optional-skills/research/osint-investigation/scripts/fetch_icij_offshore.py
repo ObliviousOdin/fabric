@@ -45,7 +45,7 @@ COLUMNS = [
 
 
 def _cache_dir() -> Path:
-    base = os.environ.get("FABRIC_OSINT_CACHE") or os.environ.get("HERMES_OSINT_CACHE")
+    base = os.environ.get("FABRIC_OSINT_CACHE") or os.environ.get("FABRIC_OSINT_CACHE")
     if base:
         return Path(base) / "icij"
     return Path.home() / ".cache" / "fabric-osint" / "icij"

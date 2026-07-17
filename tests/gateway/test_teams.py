@@ -380,7 +380,7 @@ class TestTeamsInteractiveSetup:
         credentials to .env without crashing.
         """
         fabric_home = tmp_path / "hermes"
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         import fabric_cli.cli_output as cli_output_mod
 

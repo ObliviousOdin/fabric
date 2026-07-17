@@ -436,7 +436,7 @@ def test_end_to_end_curated_inventory_keeps_active_bare_ollama(monkeypatch):
     # custom-endpoint branch in list_authenticated_providers().
     monkeypatch.setattr(models_dev, "PROVIDER_TO_MODELS_DEV", {})
     monkeypatch.setattr(models_dev, "fetch_models_dev", lambda: {})
-    monkeypatch.setattr(provider_catalog, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(provider_catalog, "FABRIC_OVERLAYS", {})
     monkeypatch.setattr(model_catalog, "CANONICAL_PROVIDERS", [])
     monkeypatch.setattr(model_catalog, "_PROVIDER_MODELS", {"ollama-cloud": []})
     monkeypatch.setattr(model_catalog, "get_curated_nous_model_ids", lambda: [])
@@ -1098,7 +1098,7 @@ def test_build_models_payload_keeps_static_provider_models_from_providers_dict()
     with (
         patch("fabric_cli.config.load_config", return_value=cfg),
         patch("agent.models_dev.fetch_models_dev", return_value={}),
-        patch("fabric_cli.providers.HERMES_OVERLAYS", {}),
+        patch("fabric_cli.providers.FABRIC_OVERLAYS", {}),
         patch(
             "fabric_cli.models.fetch_api_models",
             side_effect=AssertionError("fetch_api_models must not be called"),

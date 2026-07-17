@@ -215,7 +215,7 @@ jobs:
         config = self.root / "plugins/example/plugin.yaml"
         config.parent.mkdir(parents=True)
         config.write_text(
-            'description: "Store config under /home/user/.hermes and set HERMES_HOME."\n',
+            'description: "Store config under /home/user/.hermes and set FABRIC_HOME."\n',
             encoding="utf-8",
         )
 
@@ -286,7 +286,7 @@ jobs:
             "# public-release-audit: allow-legacy-compat -- one-window home migration\n"
             "LEGACY_HOME_NAMES = ('.fabric', '.hermes')\n"
             "WIRE_PROTOCOL = 'hermes.session.v1'\n"
-            "ENV_KEY = 'HERMES_HOME'\n",
+            "ENV_KEY = 'FABRIC_HOME'\n",
             encoding="utf-8",
         )
 

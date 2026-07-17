@@ -2413,7 +2413,7 @@ class Migrator:
         # Extract gateway auth token to .env if present
         auth = gateway.get("auth") or {}
         if auth.get("token") and self.migrate_secrets:
-            self._set_env_var("HERMES_GATEWAY_TOKEN", auth["token"], "gateway.auth.token")
+            self._set_env_var("FABRIC_GATEWAY_TOKEN", auth["token"], "gateway.auth.token")
 
     # ── Session config ────────────────────────────────────────
     def migrate_session_config(self, config: Optional[Dict[str, Any]] = None) -> None:
@@ -2964,7 +2964,7 @@ def parse_args() -> argparse.Namespace:
         "--target",
         default=(
             os.environ.get("FABRIC_HOME")
-            or os.environ.get("HERMES_HOME")  # Legacy compatibility.
+            or os.environ.get("FABRIC_HOME")  # Legacy compatibility.
             or str(Path.home() / ".fabric")
         ),
         help="Fabric home directory",

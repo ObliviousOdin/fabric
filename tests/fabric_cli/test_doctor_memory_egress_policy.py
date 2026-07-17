@@ -44,7 +44,7 @@ def _run_restricted_doctor(
     memories.mkdir()
     (memories / "MEMORY.md").write_text("built in", encoding="utf-8")
 
-    monkeypatch.setattr(doctor, "HERMES_HOME", home)
+    monkeypatch.setattr(doctor, "FABRIC_HOME", home)
     monkeypatch.setattr(doctor, "PROJECT_ROOT", project)
     monkeypatch.setattr(doctor, "_DHH", str(home))
     monkeypatch.setattr(doctor, "_APIKEY_PROVIDERS_CACHE", [])
@@ -200,9 +200,9 @@ def test_doctor_policy_snapshot_does_not_bleed_between_profiles(
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(doctor, "HERMES_HOME", local_home)
+    monkeypatch.setattr(doctor, "FABRIC_HOME", local_home)
     first = doctor._doctor_egress_mode(doctor._read_doctor_profile_config())
-    monkeypatch.setattr(doctor, "HERMES_HOME", online_home)
+    monkeypatch.setattr(doctor, "FABRIC_HOME", online_home)
     second = doctor._doctor_egress_mode(doctor._read_doctor_profile_config())
 
     assert (first, second) == ("local_ai", "online")

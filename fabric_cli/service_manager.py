@@ -342,8 +342,8 @@ def _profile_dir_for_gateway_service(name: str) -> Path:
     """Resolve ``gateway-<profile>`` to its persistent profile directory.
 
     s6 lifecycle commands may be invoked from any active profile, including
-    ``gateway stop --all``. Do not write the caller's HERMES_HOME blindly;
-    derive the shared profile root from the current HERMES_HOME and map the
+    ``gateway stop --all``. Do not write the caller's FABRIC_HOME blindly;
+    derive the shared profile root from the current FABRIC_HOME and map the
     service suffix to either the root default profile or
     ``<root>/profiles/<profile>``.
     """
@@ -351,7 +351,7 @@ def _profile_dir_for_gateway_service(name: str) -> Path:
 
     profile = name[len(S6_SERVICE_PREFIX):] if name.startswith(S6_SERVICE_PREFIX) else name
     validate_profile_name(profile)
-    fabric_home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+    fabric_home = Path(os.environ.get("FABRIC_HOME", "/opt/data"))
     if fabric_home.parent.name == "profiles":
         root = fabric_home.parent.parent
     else:
@@ -412,8 +412,8 @@ _S6_BIN_DIR = "/command"
 # ``stage2-hook.sh`` enforces (the runtime invariant — see also
 # tests/docker/test_uid_remap.py). The container starts s6-supervise
 # under root and immediately drops to this UID via ``s6-setuidgid``.
-_HERMES_UID = 10000
-_HERMES_GID = 10000
+_FABRIC_UID = 10000
+_FABRIC_GID = 10000
 
 
 def _seed_supervise_skeleton(svc_dir: Path) -> None:
@@ -492,7 +492,7 @@ def _seed_supervise_skeleton(svc_dir: Path) -> None:
         path.mkdir(parents=False, exist_ok=False)
         path.chmod(mode)
         try:
-            os.chown(path, _HERMES_UID, _HERMES_GID)
+            os.chown(path, _FABRIC_UID, _FABRIC_GID)
         except PermissionError:
             # Running as the fabric user already — directory is fabric-
             # owned by default. The chown is a no-op in that case, so
@@ -522,7 +522,7 @@ def _seed_supervise_skeleton(svc_dir: Path) -> None:
         os.mkfifo(control, 0o660)
         control.chmod(0o660)
         try:
-            os.chown(control, _HERMES_UID, _HERMES_GID)
+            os.chown(control, _FABRIC_UID, _FABRIC_GID)
         except PermissionError:
             pass
 
@@ -542,7 +542,7 @@ def _seed_supervise_skeleton(svc_dir: Path) -> None:
             os.mkfifo(log_control, 0o660)
             log_control.chmod(0o660)
             try:
-                os.chown(log_control, _HERMES_UID, _HERMES_GID)
+                os.chown(log_control, _FABRIC_UID, _FABRIC_GID)
             except PermissionError:
                 pass
 
@@ -631,8 +631,8 @@ class S6ServiceManager:
         """Generate the run script for a profile-gateway s6 service.
 
         The script:
-          1. Sources HERMES_HOME (and any extra env) via with-contenv —
-             so e.g. ``-e HERMES_HOME=/data/hermes`` is honored at run
+          1. Sources FABRIC_HOME (and any extra env) via with-contenv —
+             so e.g. ``-e FABRIC_HOME=/data/hermes`` is honored at run
              time, not Python-substituted at registration time (OQ8-C).
           2. Resets ``HOME`` to ``/opt/data`` before the privilege drop
              so with-contenv's root HOME does not leak into the
@@ -644,13 +644,13 @@ class S6ServiceManager:
 
         Special case: ``profile == "default"`` emits ``fabric gateway
         run`` with **no** ``-p`` flag. This is the sentinel for "the
-        root HERMES_HOME profile" (the implicit profile that exists at
-        the top of $HERMES_HOME, not under profiles/). It must be
+        root FABRIC_HOME profile" (the implicit profile that exists at
+        the top of $FABRIC_HOME, not under profiles/). It must be
         spelled this way because ``_profile_suffix()`` returns the
         empty string for the root profile, and the dispatcher in
         ``fabric_cli.gateway`` maps that empty string to the
         ``gateway-default`` service slot. Passing ``-p default`` here
-        would instead look up ``$HERMES_HOME/profiles/default/`` — a
+        would instead look up ``$FABRIC_HOME/profiles/default/`` — a
         completely different (and almost always nonexistent) profile.
 
         Port selection: the gateway binds the port resolved by
@@ -658,7 +658,7 @@ class S6ServiceManager:
         ``API_SERVER_PORT`` (or ``platforms.api_server.extra.port`` in
         that profile's ``config.yaml``), defaulting to 8642. There is
         no ``[gateway] port`` key and no Python-side allocator: because
-        each supervised profile gateway loads its own ``HERMES_HOME``,
+        each supervised profile gateway loads its own ``FABRIC_HOME``,
         two profiles that both leave the port unset will both try to
         bind 8642 — give each profile a distinct ``API_SERVER_PORT`` in
         its ``.env``. Previously this method took a ``port`` parameter
@@ -686,20 +686,20 @@ class S6ServiceManager:
         # `gateway run --replace` which would re-dispatch `gateway
         # start`, etc. See `_gateway_command_inner` for the matching
         # guard.
-        lines.append("export HERMES_S6_SUPERVISED_CHILD=1")
+        lines.append("export FABRIC_S6_SUPERVISED_CHILD=1")
         # ``--replace`` makes the supervised gateway authoritative for its
-        # profile's HERMES_HOME. Without it, a gateway started OUTSIDE s6
+        # profile's FABRIC_HOME. Without it, a gateway started OUTSIDE s6
         # (a stray ``fabric gateway run`` from a shell, an agent action, or
-        # the Open WebUI helper) grabs the per-HERMES_HOME PID lock first;
+        # the Open WebUI helper) grabs the per-FABRIC_HOME PID lock first;
         # the supervised slot then execs a bare ``gateway run``, hits the
         # "Another gateway instance is already running" guard, exits
         # non-zero, and s6 restarts it — a restart loop that floods the
         # log and never binds (NS-505). ``--replace``
         # instead reaps the stale holder (hardened takeover path: marker +
         # SIGTERM→SIGKILL-with-confirmation + scoped-lock cleanup, see
-        # gateway/run.py) so s6 always wins. The HERMES_S6_SUPERVISED_CHILD
+        # gateway/run.py) so s6 always wins. The FABRIC_S6_SUPERVISED_CHILD
         # sentinel above prevents the run→start→run redirect recursion.
-        # Each profile is scoped to its own HERMES_HOME and s6 guarantees a
+        # Each profile is scoped to its own FABRIC_HOME and s6 guarantees a
         # single supervised instance per slot, so there is no legitimate
         # supervised sibling for ``--replace`` to clobber.
         if profile == "default":
@@ -740,10 +740,10 @@ class S6ServiceManager:
     def _render_log_run(profile: str) -> str:
         """Generate the log/run script for a profile-gateway service.
 
-        OQ8-C: persist to ``${HERMES_HOME}/logs/gateways/<profile>/``.
-        CRITICAL: the HERMES_HOME path is sourced from the runtime env
+        OQ8-C: persist to ``${FABRIC_HOME}/logs/gateways/<profile>/``.
+        CRITICAL: the FABRIC_HOME path is sourced from the runtime env
         via with-contenv — NOT Python-substituted at registration time
-        — so a container started with ``-e HERMES_HOME=/data/hermes``
+        — so a container started with ``-e FABRIC_HOME=/data/hermes``
         gets its logs under /data/hermes/logs/..., not the build-time
         default.
 

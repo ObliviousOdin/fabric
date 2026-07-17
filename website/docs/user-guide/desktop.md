@@ -53,7 +53,7 @@ Useful launch controls:
 | `--fabric-root PATH` | Compatibility flag that selects an engine source checkout        |
 | `--fake-boot`        | Exercise deterministic startup states for development/QA         |
 
-`--fabric-root` and the `HERMES_DESKTOP_*` variables are internal compatibility
+`--fabric-root` and the `FABRIC_DESKTOP_*` variables are internal compatibility
 interfaces. They do not control the visible product identity.
 
 ## Interfaces that share the profile
@@ -221,9 +221,9 @@ For a trusted VPN test, put the compatibility auth variables in
 `~/.fabric/.env` on the backend:
 
 ```bash
-HERMES_DASHBOARD_BASIC_AUTH_USERNAME=admin
-HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=choose-a-strong-password
-HERMES_DASHBOARD_BASIC_AUTH_SECRET=replace-with-a-long-random-secret
+FABRIC_DASHBOARD_BASIC_AUTH_USERNAME=admin
+FABRIC_DASHBOARD_BASIC_AUTH_PASSWORD=choose-a-strong-password
+FABRIC_DASHBOARD_BASIC_AUTH_SECRET=replace-with-a-long-random-secret
 ```
 
 Then start the backend on the machine's private/VPN address:

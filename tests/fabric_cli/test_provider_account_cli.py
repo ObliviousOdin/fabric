@@ -29,7 +29,7 @@ def _run(argv: list[str]):
 def _select_home(monkeypatch, home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("FABRIC_HOME", str(home))
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
 
 @pytest.fixture(autouse=True)

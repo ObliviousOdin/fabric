@@ -351,7 +351,7 @@ def test_load_fabric_env_bridges_config_yaml_scalars(tmp_path, monkeypatch):
         "TELEGRAM_HOME_CHANNEL: '5550001111'\nnested:\n  ignored: true\n"
     )
 
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.delenv("TELEGRAM_HOME_CHANNEL", raising=False)
     monkeypatch.delenv("SOME_TOKEN", raising=False)
 
@@ -375,7 +375,7 @@ def test_load_fabric_env_does_not_override_existing(tmp_path, monkeypatch):
     fabric_home.mkdir()
     (fabric_home / "config.yaml").write_text("TELEGRAM_HOME_CHANNEL: yaml_value\n")
 
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.setenv("TELEGRAM_HOME_CHANNEL", "env_value")
 
     from importlib import reload
@@ -391,7 +391,7 @@ def test_load_fabric_env_handles_missing_files(tmp_path, monkeypatch):
     """No .env or config.yaml should be a silent no-op, not an exception."""
     fabric_home = tmp_path / ".hermes"
     fabric_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
     from importlib import reload
     import fabric_cli.config as _hc_config

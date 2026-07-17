@@ -176,7 +176,7 @@ class TestIRCGatewaySetupFreshInstall:
         import fabric_cli.gateway as gateway_mod
         from fabric_cli import setup as setup_mod
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         _register_irc_platform()
         try:
             for key in ("IRC_SERVER", "IRC_CHANNEL", "IRC_NICKNAME"):
@@ -222,7 +222,7 @@ class TestIRCGatewaySetupFreshInstall:
         import fabric_cli.gateway as gateway_mod
         from fabric_cli import setup as setup_mod
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         _register_irc_platform()
         try:
             monkeypatch.setenv("IRC_SERVER", "irc.libera.chat")

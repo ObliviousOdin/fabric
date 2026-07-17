@@ -49,7 +49,7 @@ class TestHandleUpdateCommand:
     async def test_managed_install_returns_package_manager_guidance(self, monkeypatch):
         runner = _make_runner()
         event = _make_event()
-        monkeypatch.setenv("HERMES_MANAGED", "homebrew")
+        monkeypatch.setenv("FABRIC_MANAGED", "homebrew")
 
         # Guard: prevent any accidental fall-through from spawning a real
         # `fabric update --gateway` against the CI checkout. The managed-install
@@ -394,7 +394,7 @@ class TestUpdateCommandPlatformGate:
         blocked by the allowlist gate before any side effects fire."""
         runner = _make_runner()
         event = _make_event(platform=Platform.WEBHOOK)
-        monkeypatch.setenv("HERMES_MANAGED", "")
+        monkeypatch.setenv("FABRIC_MANAGED", "")
 
         # Guard: platform gate must fire before any real subprocess spawn.
         with patch("subprocess.Popen") as mock_popen:
@@ -412,7 +412,7 @@ class TestUpdateCommandPlatformGate:
         """
         runner = _make_runner()
         event = _make_event(platform=Platform.API_SERVER)
-        monkeypatch.setenv("HERMES_MANAGED", "")
+        monkeypatch.setenv("FABRIC_MANAGED", "")
 
         with patch("subprocess.Popen") as mock_popen:
             result = await runner._handle_update_command(event)
@@ -445,7 +445,7 @@ class TestUpdateCommandPlatformGate:
 
         runner = _make_runner()
         event = _make_event(platform=Platform.DISCORD)
-        monkeypatch.setenv("HERMES_MANAGED", "")
+        monkeypatch.setenv("FABRIC_MANAGED", "")
 
         with patch("subprocess.Popen"):
             result = await runner._handle_update_command(event)
@@ -474,7 +474,7 @@ class TestUpdateCommandPlatformGate:
 
         runner = _make_runner()
         event = _make_event(platform=Platform.MATTERMOST)
-        monkeypatch.setenv("HERMES_MANAGED", "")
+        monkeypatch.setenv("FABRIC_MANAGED", "")
 
         with patch("subprocess.Popen"):
             result = await runner._handle_update_command(event)
@@ -500,7 +500,7 @@ class TestUpdateCommandPlatformGate:
 
         runner = _make_runner()
         event = _make_event(platform=Platform.HOMEASSISTANT)
-        monkeypatch.setenv("HERMES_MANAGED", "")
+        monkeypatch.setenv("FABRIC_MANAGED", "")
 
         with patch("subprocess.Popen"):
             result = await runner._handle_update_command(event)
@@ -518,7 +518,7 @@ class TestUpdateCommandPlatformGate:
 
         runner = _make_runner()
         event = _make_event(platform=Platform.TELEGRAM)
-        monkeypatch.setenv("HERMES_MANAGED", "")
+        monkeypatch.setenv("FABRIC_MANAGED", "")
 
         with patch("subprocess.Popen"):
             result = await runner._handle_update_command(event)

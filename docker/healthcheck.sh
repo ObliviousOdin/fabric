@@ -4,7 +4,7 @@
 #
 # Probes whichever HTTP surface this container is configured to serve:
 #
-#   1. Dashboard enabled (HERMES_DASHBOARD or FABRIC_DASHBOARD truthy):
+#   1. Dashboard enabled (FABRIC_DASHBOARD or FABRIC_DASHBOARD truthy):
 #      the dashboard must answer HTTP on its port. Any status < 500 counts
 #      as healthy — an auth-gated dashboard answers 401/302 while perfectly
 #      alive, so `curl --fail` would be wrong here.
@@ -35,8 +35,8 @@ fail() {
 checked=0
 
 # --- Dashboard probe -------------------------------------------------------
-if truthy "${HERMES_DASHBOARD:-}" || truthy "${FABRIC_DASHBOARD:-}"; then
-    dash_port="${HERMES_DASHBOARD_PORT:-${FABRIC_DASHBOARD_PORT:-9119}}"
+if truthy "${FABRIC_DASHBOARD:-}" || truthy "${FABRIC_DASHBOARD:-}"; then
+    dash_port="${FABRIC_DASHBOARD_PORT:-${FABRIC_DASHBOARD_PORT:-9119}}"
     code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "http://127.0.0.1:${dash_port}/" || true)"
     case "$code" in
         "" | 000) fail "dashboard on 127.0.0.1:${dash_port} not answering" ;;

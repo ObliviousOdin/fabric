@@ -443,7 +443,7 @@ def test_real_cli_air_gapped_status_repairs_and_chat_fails_closed(tmp_path):
     env.update(
         {
             "FABRIC_HOME": str(home),
-            "HERMES_HOME": str(home),
+            "FABRIC_HOME": str(home),
             "NO_COLOR": "1",
         }
     )
@@ -490,7 +490,7 @@ def test_web_dependency_install_is_after_air_gapped_import_gate(tmp_path):
     env.update(
         {
             "FABRIC_HOME": str(home),
-            "HERMES_HOME": str(home),
+            "FABRIC_HOME": str(home),
         }
     )
     script = """
@@ -556,7 +556,7 @@ def test_real_cli_local_ai_status_uses_restricted_view(tmp_path):
     env.update(
         {
             "FABRIC_HOME": str(home),
-            "HERMES_HOME": str(home),
+            "FABRIC_HOME": str(home),
             "NO_COLOR": "1",
             "HTTP_PROXY": "http://proxy.invalid:9999",
             "HTTPS_PROXY": "http://proxy.invalid:9999",

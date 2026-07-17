@@ -18,11 +18,11 @@ import pytest
 
 @pytest.fixture
 def backup_env(monkeypatch, tmp_path):
-    """Isolate HERMES_HOME + reload modules so every test starts clean."""
+    """Isolate FABRIC_HOME + reload modules so every test starts clean."""
     home = tmp_path / ".hermes"
     home.mkdir()
     (home / "skills").mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     # Reload so get_fabric_home picks up the env var fresh.
@@ -476,7 +476,7 @@ def test_dry_run_skips_snapshot(backup_env, monkeypatch):
 
 
 def _write_cron_jobs(home: Path, jobs: list) -> Path:
-    """Write a synthetic cron/jobs.json under HERMES_HOME. Returns the path.
+    """Write a synthetic cron/jobs.json under FABRIC_HOME. Returns the path.
     Mirrors cron.jobs.save_jobs() wrapper shape: `{"jobs": [...], "updated_at": ...}`.
     """
     cron_dir = home / "cron"
@@ -490,7 +490,7 @@ def _write_cron_jobs(home: Path, jobs: list) -> Path:
 
 
 def _reload_cron_jobs(home: Path):
-    """Reload cron.jobs so its module-level HERMES_DIR picks up the tmp HOME."""
+    """Reload cron.jobs so its module-level FABRIC_DIR picks up the tmp HOME."""
     import fabric_constants
     importlib.reload(fabric_constants)
     if "cron.jobs" in sys.modules:

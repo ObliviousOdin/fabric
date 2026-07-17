@@ -35,7 +35,7 @@ WORKERS_RUN_DURATION_S = 8
 
 def run() -> int:
     home = tempfile.mkdtemp(prefix="fabric_parent_gate_stress_")
-    os.environ["HERMES_HOME"] = home
+    os.environ["FABRIC_HOME"] = home
     os.environ["HOME"] = home
 
     from fabric_cli import kanban_db as kb

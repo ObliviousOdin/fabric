@@ -270,7 +270,7 @@ def test_run_uninstall_yes_keep_data_is_non_interactive(tmp_path, monkeypatch):
 
     We DO NOT spawn the real CLI here (its project_root removal would delete the
     test checkout) — we call run_uninstall in-process against a throwaway
-    HERMES_HOME with all the destructive externals stubbed out.
+    FABRIC_HOME with all the destructive externals stubbed out.
     """
     import fabric_cli.uninstall as uninstall
 
@@ -311,7 +311,7 @@ def test_run_uninstall_yes_keep_data_is_non_interactive(tmp_path, monkeypatch):
 
 
 def test_run_uninstall_yes_full_wipes_home(tmp_path, monkeypatch):
-    """``--yes --full`` removes the whole HERMES_HOME non-interactively."""
+    """``--yes --full`` removes the whole FABRIC_HOME non-interactively."""
     import fabric_cli.uninstall as uninstall
 
     fabric_home = tmp_path / ".hermes"

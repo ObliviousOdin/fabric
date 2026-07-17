@@ -164,7 +164,7 @@ _EMPTY_DIR_SWEEP_PRUNE_DIRS = frozenset({
 })
 
 
-# Paths under $HERMES_HOME that must NEVER be deleted by quick(),
+# Paths under $FABRIC_HOME that must NEVER be deleted by quick(),
 # regardless of what the stored category says.  This is a defense-in-depth
 # guard against stale tracked.json entries from before #34840.
 _PROTECTED_CRON_PATHS: set[str] = set()
@@ -182,7 +182,7 @@ def _is_protected_cron_path(p: Path) -> bool:
     protected, because deleting it wholesale erases every job's retained run
     history at once.
     """
-    # Lazily build the set once per process so HERMES_HOME is resolved
+    # Lazily build the set once per process so FABRIC_HOME is resolved
     # exactly once.
     if not _PROTECTED_CRON_PATHS:
         fabric_home = get_fabric_home()
@@ -372,9 +372,9 @@ def quick() -> Dict[str, Any]:
         else:
             new_tracked.append(item)
 
-    # Remove empty dirs under HERMES_HOME, but never recurse into known
+    # Remove empty dirs under FABRIC_HOME, but never recurse into known
     # durable state trees.  Some installs place the Fabric checkout, venv,
-    # and desktop build under HERMES_HOME; a full rglob over that tree can
+    # and desktop build under FABRIC_HOME; a full rglob over that tree can
     # stall the gateway event loop for minutes.
     fabric_home = get_fabric_home()
     empty_removed = 0

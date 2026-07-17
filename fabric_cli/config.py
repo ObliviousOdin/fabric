@@ -163,14 +163,14 @@ _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 #   ``$EDITOR``.
 # * ``SHELL`` — what subprocess uses with ``shell=True`` (we try to
 #   avoid that, but defense in depth).
-# * ``HERMES_HOME`` / ``HERMES_PROFILE`` / ``HERMES_CONFIG`` /
-#   ``HERMES_ENV`` — Fabric runtime location flags. Writing these into
+# * ``FABRIC_HOME`` / ``FABRIC_PROFILE`` / ``FABRIC_CONFIG`` /
+#   ``FABRIC_ENV`` — Fabric runtime location flags. Writing these into
 #   ``.env`` would relocate state in ways the user did not request from
 #   the dashboard. ``config.yaml`` is the supported surface for these.
 #
 # IMPORTANT: ``FABRIC_*`` overall is NOT blocked. Many legitimate
-# integration credentials follow that prefix (HERMES_LANGFUSE_PUBLIC_KEY,
-# HERMES_SPOTIFY_CLIENT_ID, ...). The
+# integration credentials follow that prefix (FABRIC_LANGFUSE_PUBLIC_KEY,
+# FABRIC_SPOTIFY_CLIENT_ID, ...). The
 # denylist is name-by-name on purpose so the gate stays narrow and
 # doesn't accidentally break provider setup wizards.
 #
@@ -193,9 +193,9 @@ _ENV_VAR_NAME_DENYLIST: frozenset[str] = frozenset({
     # Git
     "GIT_SSH_COMMAND", "GIT_EXEC_PATH", "GIT_SHELL",
     # Fabric runtime location — never via dashboard env writer.
-    # NOT a FABRIC_* blanket: integration credentials (HERMES_GEMINI_*,
-    # HERMES_LANGFUSE_*, HERMES_SPOTIFY_*, ...) ARE allowed.
-    "HERMES_HOME", "HERMES_PROFILE", "HERMES_CONFIG", "HERMES_ENV",
+    # NOT a FABRIC_* blanket: integration credentials (FABRIC_GEMINI_*,
+    # FABRIC_LANGFUSE_*, FABRIC_SPOTIFY_*, ...) ARE allowed.
+    "FABRIC_HOME", "FABRIC_PROFILE", "FABRIC_CONFIG", "FABRIC_ENV",
 })
 
 
@@ -210,7 +210,7 @@ def _reject_denylisted_env_var(key: str) -> None:
             f"Environment variable {key!r} is on the writer denylist. "
             "Names that influence subprocess execution (LD_PRELOAD, "
             "PYTHONPATH, PATH, EDITOR, ...) or Fabric runtime location "
-            "(HERMES_HOME, HERMES_PROFILE, ...) cannot be persisted via "
+            "(FABRIC_HOME, FABRIC_PROFILE, ...) cannot be persisted via "
             "the env writer. If you really need this, edit "
             "~/.fabric/.env directly."
         )
@@ -292,7 +292,7 @@ _EXTRA_ENV_KEYS = frozenset({
     # config.yaml. Kept known here so .env sanitization/reload still handle
     # them for existing users (gateway reads them as a back-compat fallback),
     # without surfacing them in user-facing OPTIONAL_ENV_VARS listings.
-    "HERMES_TOOL_PROGRESS", "HERMES_TOOL_PROGRESS_MODE",
+    "FABRIC_TOOL_PROGRESS", "FABRIC_TOOL_PROGRESS_MODE",
     "WHATSAPP_MODE", "WHATSAPP_ENABLED",
     "MATTERMOST_HOME_CHANNEL", "MATTERMOST_HOME_CHANNEL_NAME", "MATTERMOST_REPLY_MODE",
     "MATRIX_PASSWORD", "MATRIX_ENCRYPTION", "MATRIX_DEVICE_ID", "MATRIX_HOME_ROOM",
@@ -302,11 +302,11 @@ _EXTRA_ENV_KEYS = frozenset({
     # Activation is via plugins.enabled (opt-in through `fabric plugins enable
     # observability/langfuse` or `fabric tools → Langfuse`); credentials gate
     # the plugin at runtime.
-    "HERMES_LANGFUSE_ENV",
-    "HERMES_LANGFUSE_RELEASE",
-    "HERMES_LANGFUSE_SAMPLE_RATE",
-    "HERMES_LANGFUSE_MAX_CHARS",
-    "HERMES_LANGFUSE_DEBUG",
+    "FABRIC_LANGFUSE_ENV",
+    "FABRIC_LANGFUSE_RELEASE",
+    "FABRIC_LANGFUSE_SAMPLE_RATE",
+    "FABRIC_LANGFUSE_MAX_CHARS",
+    "FABRIC_LANGFUSE_DEBUG",
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
     "LANGFUSE_BASE_URL",
@@ -332,7 +332,7 @@ _MANAGED_SYSTEM_NAMES = {
 
 def get_managed_system() -> Optional[str]:
     """Return the package manager owning this install, if any."""
-    raw = (os.getenv("FABRIC_MANAGED") or os.getenv("HERMES_MANAGED") or "").strip()
+    raw = (os.getenv("FABRIC_MANAGED") or os.getenv("FABRIC_MANAGED") or "").strip()
     if raw:
         normalized = raw.lower()
         if normalized in _MANAGED_TRUE_VALUES:
@@ -348,7 +348,7 @@ def get_managed_system() -> Optional[str]:
 def is_managed() -> bool:
     """Check if Fabric is running in package-manager-managed mode.
 
-    Two signals: the FABRIC_MANAGED env var (with HERMES_MANAGED accepted for
+    Two signals: the FABRIC_MANAGED env var (with FABRIC_MANAGED accepted for
     compatibility), or a .managed marker file in the Fabric home (set by NixOS
     script, so interactive shells also see it).
     """
@@ -374,7 +374,7 @@ def _install_method_project_root(project_root: Optional[Path] = None) -> Path:
     This is the parent of ``fabric_cli/`` — i.e. the git checkout for source
     installs, ``/opt/hermes`` inside the published image, the venv's
     site-packages root for pip installs. It is a property of the running
-    interpreter, NOT of ``$HERMES_HOME``, which is why a code-scoped stamp
+    interpreter, NOT of ``$FABRIC_HOME``, which is why a code-scoped stamp
     here is immune to two installs sharing one data directory.
     """
     if project_root is not None:
@@ -388,20 +388,20 @@ def detect_install_method(project_root: Optional[Path] = None) -> str:
     Resolution order:
     1. Code-scoped stamp ``<install tree>/.install_method`` (next to the
        running code) — the authoritative marker.
-    2. Legacy home-scoped stamp ``$HERMES_HOME/.install_method`` — read for
+    2. Legacy home-scoped stamp ``$FABRIC_HOME/.install_method`` — read for
        backward compatibility, but a ``docker`` value is IGNORED when we are
        not actually running inside a container (see below).
-    3. HERMES_MANAGED env / .managed marker (NixOS, Homebrew)
+    3. FABRIC_MANAGED env / .managed marker (NixOS, Homebrew)
     4. .git directory presence -> 'git'
     5. Fallback -> 'pip'
 
     Why the stamp is code-scoped, not home-scoped (issue: shared ``~/.fabric``)
     --------------------------------------------------------------------------
     The install method describes *the binary that is running*, but
-    ``$HERMES_HOME`` is a shared DATA directory — the Docker docs deliberately
+    ``$FABRIC_HOME`` is a shared DATA directory — the Docker docs deliberately
     bind-mount it (``~/.fabric:/opt/data``) so config/sessions/memory persist
     and can be shared with a host-side Desktop/CLI install. When a
-    containerised gateway and a host install share one ``$HERMES_HOME``, a
+    containerised gateway and a host install share one ``$FABRIC_HOME``, a
     home-scoped stamp is a single slot describing two different installs:
     the container stamps ``docker`` on every boot, the host install then reads
     ``docker`` and ``fabric update`` refuses to run ("doesn't apply inside the
@@ -427,7 +427,7 @@ def detect_install_method(project_root: Optional[Path] = None) -> str:
     """
     root = _install_method_project_root(project_root)
 
-    # 1. Code-scoped stamp — authoritative, immune to shared $HERMES_HOME.
+    # 1. Code-scoped stamp — authoritative, immune to shared $FABRIC_HOME.
     try:
         method = (root / ".install_method").read_text(encoding="utf-8").strip().lower()
         if method:
@@ -437,7 +437,7 @@ def detect_install_method(project_root: Optional[Path] = None) -> str:
 
     # 2. Legacy home-scoped stamp — back-compat. Ignore a ``docker`` value
     #    when we are not actually containerised: that is the signature of a
-    #    host install whose shared $HERMES_HOME was stamped by a co-located
+    #    host install whose shared $FABRIC_HOME was stamped by a co-located
     #    container, and honouring it wrongly blocks ``fabric update``.
     try:
         method = (
@@ -485,7 +485,7 @@ def stamp_install_method(method: str, project_root: Optional[Path] = None) -> No
     """Write the install method next to the running code (code-scoped stamp).
 
     The stamp lives in the install tree (``<install tree>/.install_method``),
-    not in ``$HERMES_HOME``, so that two installs sharing one data directory
+    not in ``$FABRIC_HOME``, so that two installs sharing one data directory
     do not overwrite each other's marker. See ``detect_install_method`` for
     the full rationale.
 
@@ -649,7 +649,7 @@ def format_docker_update_message() -> str:
 def format_managed_message(action: str = "modify this Fabric installation") -> str:
     """Build a user-facing error for managed installs."""
     managed_system = get_managed_system() or "a package manager"
-    raw = (os.getenv("FABRIC_MANAGED") or os.getenv("HERMES_MANAGED") or "").strip().lower()
+    raw = (os.getenv("FABRIC_MANAGED") or os.getenv("FABRIC_MANAGED") or "").strip().lower()
 
     if managed_system == "NixOS":
         env_hint = "true" if raw in _MANAGED_TRUE_VALUES else raw or "true"
@@ -684,17 +684,17 @@ def managed_error(action: str = "modify configuration"):
 # =============================================================================
 
 def get_container_exec_info() -> Optional[dict]:
-    """Read container mode metadata from HERMES_HOME/.container-mode.
+    """Read container mode metadata from FABRIC_HOME/.container-mode.
 
     Returns a dict with keys: backend, container_name, exec_user, fabric_bin
     or None if container mode is not active, we're already inside the
-    container, or HERMES_DEV=1 is set.
+    container, or FABRIC_DEV=1 is set.
 
     The .container-mode file is written by the NixOS activation script when
     container.enable = true. It tells the host CLI to exec into the container
     instead of running locally.
     """
-    if os.environ.get("HERMES_DEV") == "1":
+    if os.environ.get("FABRIC_DEV") == "1":
         return None
 
     from fabric_constants import is_container
@@ -766,10 +766,10 @@ def _resolve_fabric_uid_gid() -> tuple[Optional[int], Optional[int]]:
     if sys.platform == "win32":
         return None, None
     uid_str = (
-        os.environ.get("FABRIC_UID") or os.environ.get("HERMES_UID") or ""
+        os.environ.get("FABRIC_UID") or os.environ.get("FABRIC_UID") or ""
     ).strip()
     gid_str = (
-        os.environ.get("FABRIC_GID") or os.environ.get("HERMES_GID") or ""
+        os.environ.get("FABRIC_GID") or os.environ.get("FABRIC_GID") or ""
     ).strip()
     try:
         uid = int(uid_str) if uid_str else None
@@ -818,9 +818,9 @@ def _secure_dir(path):
     permissions (0750) so interactive users in the fabric group can
     share state with the gateway service.
 
-    The mode can be overridden via the HERMES_HOME_MODE environment variable
-    (e.g. HERMES_HOME_MODE=0701) for deployments where a web server (nginx,
-    caddy, etc.) needs to traverse HERMES_HOME to reach a served subdirectory.
+    The mode can be overridden via the FABRIC_HOME_MODE environment variable
+    (e.g. FABRIC_HOME_MODE=0701) for deployments where a web server (nginx,
+    caddy, etc.) needs to traverse FABRIC_HOME to reach a served subdirectory.
     The execute-only bit on a directory permits cd-through without exposing
     directory listings.
 
@@ -832,7 +832,7 @@ def _secure_dir(path):
     if is_managed():
         return
     try:
-        mode_str = os.environ.get("HERMES_HOME_MODE", "").strip()
+        mode_str = os.environ.get("FABRIC_HOME_MODE", "").strip()
         mode = int(mode_str, 8) if mode_str else 0o700
     except ValueError:
         mode = 0o700
@@ -852,7 +852,7 @@ def _is_container() -> bool:
     permissions.
     """
     # Explicit opt-out
-    if os.environ.get("HERMES_CONTAINER") or os.environ.get("HERMES_SKIP_CHMOD"):
+    if os.environ.get("FABRIC_CONTAINER") or os.environ.get("FABRIC_SKIP_CHMOD"):
         return True
     # Docker / Podman marker file
     if os.path.exists("/.dockerenv"):
@@ -875,7 +875,7 @@ def _secure_file(path):
     group-readable permissions (0640) on config files.
 
     Skipped in containers — Docker/Podman volume mounts often need broader
-    permissions.  Set HERMES_SKIP_CHMOD=1 to force-skip on other systems.
+    permissions.  Set FABRIC_SKIP_CHMOD=1 to force-skip on other systems.
     """
     if is_managed() or _is_container():
         return
@@ -887,7 +887,7 @@ def _secure_file(path):
 
 
 def _ensure_default_soul_md(home: Path) -> None:
-    """Seed a default SOUL.md into HERMES_HOME, upgrading legacy empty templates.
+    """Seed a default SOUL.md into FABRIC_HOME, upgrading legacy empty templates.
 
     First run: write DEFAULT_SOUL_MD. Existing installs whose SOUL.md is still
     the old comment-only scaffold (seeded by older install.sh / install.ps1 /
@@ -923,7 +923,7 @@ def ensure_fabric_home():
     home = get_fabric_home()
     # Named profiles must be created explicitly (e.g. ``fabric profile create``).
     # If a stale process keeps running after the profile was renamed/deleted,
-    # silently mkdir-ing the old HERMES_HOME would resurrect an empty skeleton
+    # silently mkdir-ing the old FABRIC_HOME would resurrect an empty skeleton
     # and make the deleted profile reappear in Desktop/profile lists.
     if home.parent.name == "profiles" and not home.exists():
         raise FileNotFoundError(
@@ -953,7 +953,7 @@ def _ensure_fabric_home_managed(home: Path):
     """Managed-mode variant: verify dirs exist (activation creates them), seed SOUL.md."""
     if not home.is_dir():
         raise RuntimeError(
-            f"HERMES_HOME {home} does not exist. "
+            f"FABRIC_HOME {home} does not exist. "
             "Run 'sudo nixos-rebuild switch' first."
         )
     for subdir in ("cron", "sessions", "logs", "memories"):
@@ -1064,7 +1064,7 @@ DEFAULT_CONFIG = {
         # prompt's environment-hints block. Lets a host that wraps Fabric
         # (sandbox runner, managed platform) explain the runtime environment
         # — proxy, credential handling, mount layout — without editing the
-        # identity slot (SOUL.md). Empty by default. The HERMES_ENVIRONMENT_HINT
+        # identity slot (SOUL.md). Empty by default. The FABRIC_ENVIRONMENT_HINT
         # env var overrides this (build-time/container mechanism).
         "environment_hint": "",
         # Coding posture — on interactive coding surfaces (CLI, TUI, desktop
@@ -1179,9 +1179,9 @@ DEFAULT_CONFIG = {
         "env_passthrough": [],
         # HOME handling for host tool subprocesses:
         #   auto    — host keeps the real OS-user HOME; containers use
-        #             HERMES_HOME/home for persistent state (default)
+        #             FABRIC_HOME/home for persistent state (default)
         #   real    — force the real OS-user HOME
-        #   profile — force HERMES_HOME/home when it exists (old strict
+        #   profile — force FABRIC_HOME/home when it exists (old strict
         #             per-profile CLI config isolation)
         "home_mode": "auto",
         # Extra files to source in the login shell when building the
@@ -1773,12 +1773,12 @@ DEFAULT_CONFIG = {
         #   "cli" — the classic prompt_toolkit REPL (default, preserves prior behavior)
         #   "tui" — the modern Ink TUI (same as passing `--tui`)
         # Explicit flags always win over this setting: `--cli` forces the classic
-        # REPL and `--tui` (or HERMES_TUI=1) forces the TUI regardless of config.
+        # REPL and `--tui` (or FABRIC_TUI=1) forces the TUI regardless of config.
         "interface": "cli",
         # When true, `fabric --tui` auto-resumes the most recent human-
         # facing session on launch instead of forging a fresh one.
         # Mirrors `fabric -c` muscle memory.  Default off so existing
-        # users aren't surprised.  HERMES_TUI_RESUME=<id> always wins.
+        # users aren't surprised.  FABRIC_TUI_RESUME=<id> always wins.
         "tui_auto_resume_recent": False,
         # When true (default), `fabric --tui` drops a one-time hint
         # ("subagents working · /agents to watch live") the first time a turn
@@ -1874,7 +1874,7 @@ DEFAULT_CONFIG = {
         "tool_progress_grouping": "accumulate",
         # Optional custom phrases for generic long-running status messages.
         # Built-in defaults live in gateway/assets/status_phrases.yaml. Users
-        # can set `path`/`paths` to HERMES_HOME-relative YAML files/directories
+        # can set `path`/`paths` to FABRIC_HOME-relative YAML files/directories
         # (or rely on conventional status_phrases.yaml / status_phrases/*.yaml).
         # Keys: status, generic. Use
         # mode: "append" (default) to add phrases, or "replace" to fully
@@ -1977,8 +1977,8 @@ DEFAULT_CONFIG = {
         # ``--insecure`` is not). The bundled Nous Portal plugin reads
         # both keys at startup; they are the canonical surface for these
         # settings. Each can be overridden by an environment variable —
-        # ``HERMES_DASHBOARD_OAUTH_CLIENT_ID`` and
-        # ``HERMES_DASHBOARD_PORTAL_URL`` respectively — and the env var
+        # ``FABRIC_DASHBOARD_OAUTH_CLIENT_ID`` and
+        # ``FABRIC_DASHBOARD_PORTAL_URL`` respectively — and the env var
         # wins when set to a non-empty value. The override path is what
         # Fly.io's platform-secret injection uses to push the per-deploy
         # client_id at provisioning time without operators needing to
@@ -1997,7 +1997,7 @@ DEFAULT_CONFIG = {
         # either ``password_hash`` (preferred — no plaintext at rest) or
         # ``password`` (plaintext, hashed in-memory at load) are set. Each
         # key is overridable by an env var
-        # (``HERMES_DASHBOARD_BASIC_AUTH_USERNAME`` /
+        # (``FABRIC_DASHBOARD_BASIC_AUTH_USERNAME`` /
         # ``_PASSWORD_HASH`` / ``_PASSWORD`` / ``_SECRET`` /
         # ``_TTL_SECONDS``), env winning when non-empty. Leave ``username``
         # empty (the default) to keep the plugin a no-op — loopback /
@@ -2018,7 +2018,7 @@ DEFAULT_CONFIG = {
             "secret": "",  # token-signing key; blank → random per-process
             "session_ttl_seconds": 0,  # 0 → plugin default (12h)
         },
-        # Public URL override (env: ``HERMES_DASHBOARD_PUBLIC_URL``).
+        # Public URL override (env: ``FABRIC_DASHBOARD_PUBLIC_URL``).
         # When set, this is the complete authority — scheme + host +
         # optional path prefix (e.g. ``https://example.com/hermes``) —
         # the OAuth ``redirect_uri`` is built from. Set this for deploys
@@ -2313,7 +2313,7 @@ DEFAULT_CONFIG = {
     # always goes to ~/.fabric/skills/.
     "skills": {
         "external_dirs": [],   # e.g. ["~/.agents/skills", "/shared/team-skills"]
-        # Substitute ${HERMES_SKILL_DIR} and ${HERMES_SESSION_ID} in SKILL.md
+        # Substitute ${FABRIC_SKILL_DIR} and ${FABRIC_SESSION_ID} in SKILL.md
         # content with the absolute skill directory and the active session id
         # before the agent sees it.  Lets skill authors reference bundled
         # scripts without the agent having to join paths.
@@ -2589,7 +2589,7 @@ DEFAULT_CONFIG = {
         # through tools.slash_confirm — native yes/no buttons on Telegram,
         # Discord, and Slack; text fallback elsewhere.  Users click "Always
         # Approve" to silence the prompt permanently; that flips this key to
-        # false.  TUI has its own modal overlay (HERMES_TUI_NO_CONFIRM=1 to
+        # false.  TUI has its own modal overlay (FABRIC_TUI_NO_CONFIRM=1 to
         # opt out there).
         "destructive_slash_confirm": True,
     },
@@ -2625,7 +2625,7 @@ DEFAULT_CONFIG = {
     "hooks": {},
 
     # Auto-accept shell-hook registrations without a TTY prompt.  Also
-    # toggleable per-invocation via --accept-hooks or HERMES_ACCEPT_HOOKS=1.
+    # toggleable per-invocation via --accept-hooks or FABRIC_ACCEPT_HOOKS=1.
     # Gateway / cron / non-interactive runs need this (or one of the other
     # channels) to pick up newly-added hooks.
     "hooks_auto_accept": False,
@@ -2674,7 +2674,7 @@ DEFAULT_CONFIG = {
         # Active cron SCHEDULER provider (Axis B — the trigger that decides
         # WHEN a due job fires). Empty string = the built-in in-process 60s
         # ticker (default). Name an installed provider (plugins/cron_providers/<name>/ or
-        # $HERMES_HOME/plugins/<name>/) to relocate the trigger.
+        # $FABRIC_HOME/plugins/<name>/) to relocate the trigger.
         # An unknown or unavailable provider falls back to the built-in, so cron
         # never loses its trigger.
         "provider": "",
@@ -2705,7 +2705,7 @@ DEFAULT_CONFIG = {
         # Maximum number of due jobs to run in parallel per tick.
         # null/0 = unbounded (limited only by thread count).
         # 1 = serial (pre-v0.9 behaviour).
-        # Also overridable via HERMES_CRON_MAX_PARALLEL env var.
+        # Also overridable via FABRIC_CRON_MAX_PARALLEL env var.
         "max_parallel_jobs": None,
         # Per-job output-file retention: save_job_output keeps the N most
         # recent .md files and prunes older ones. 0 or negative disables
@@ -2867,7 +2867,7 @@ DEFAULT_CONFIG = {
         # if your gateway hits "discord connect timed out" / "Timeout waiting
         # for connection to Discord" restart loops. ``0`` or negative disables
         # the timeout entirely (wait indefinitely). Bridged at startup to the
-        # internal HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT env var, which still
+        # internal FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT env var, which still
         # works as a manual override and wins if set explicitly.
         "platform_connect_timeout": 30,
 
@@ -2880,7 +2880,7 @@ DEFAULT_CONFIG = {
 
         # Scale-to-zero idle detection (Phase 0). The gateway watches for idle
         # and, when an instance is opted in via the NAS "Labs" toggle (carried as
-        # the HERMES_SCALE_TO_ZERO env stamp) AND messaging is relay-only/absent
+        # the FABRIC_SCALE_TO_ZERO env stamp) AND messaging is relay-only/absent
         # AND a wakeUrl is registered, drives the relay transport dormant so the
         # platform (e.g. Fly autostop:"suspend") can suspend the now-idle machine;
         # it wakes on the connector's wakeUrl poke. This is the idle TIMEOUT only
@@ -2941,7 +2941,7 @@ DEFAULT_CONFIG = {
         # ``trust_recent_files_seconds`` window. Recommended for
         # public-facing gateways where prompt injection from one user
         # shouldn't be able to exfiltrate the host's secrets to that same
-        # user. Bridged to HERMES_MEDIA_DELIVERY_STRICT.
+        # user. Bridged to FABRIC_MEDIA_DELIVERY_STRICT.
         "strict": False,
         # Extra directories from which model-emitted bare file paths may be
         # uploaded as native gateway attachments. Files inside the Fabric
@@ -2949,7 +2949,7 @@ DEFAULT_CONFIG = {
         # are always trusted; this list adds operator-controlled roots
         # (project dirs, scratch dirs, mounted shares). Accepts a list of
         # absolute paths or a single os.pathsep-separated string. Bridged
-        # to HERMES_MEDIA_ALLOW_DIRS at gateway startup. Tilde paths are
+        # to FABRIC_MEDIA_ALLOW_DIRS at gateway startup. Tilde paths are
         # expanded. Honored in both default and strict mode.
         "media_delivery_allow_dirs": [],
         # When true, files whose mtime is within ``trust_recent_files_seconds``
@@ -2958,11 +2958,11 @@ DEFAULT_CONFIG = {
         # PDFs the agent writes into a working directory. System paths
         # (/etc, /proc, ~/.ssh, ~/.aws, etc.) remain blocked regardless.
         # Disable to fall back to pure-allowlist mode. Bridged to
-        # HERMES_MEDIA_TRUST_RECENT_FILES. Only consulted when ``strict``
+        # FABRIC_MEDIA_TRUST_RECENT_FILES. Only consulted when ``strict``
         # is true; in default mode the denylist alone gates delivery.
         "trust_recent_files": True,
         # Recency window in seconds. 600 (10 min) comfortably covers a
-        # multi-tool agent turn. Bridged to HERMES_MEDIA_TRUST_RECENT_SECONDS.
+        # multi-tool agent turn. Bridged to FABRIC_MEDIA_TRUST_RECENT_SECONDS.
         # Only consulted when ``strict`` is true.
         "trust_recent_files_seconds": 600,
 
@@ -3070,10 +3070,10 @@ DEFAULT_CONFIG = {
 
     # ``fabric update`` behaviour.
     "updates": {
-        # Run a full ``fabric backup``-style zip of HERMES_HOME before every
-        # ``fabric update``.  Backups land in ``<HERMES_HOME>/backups/`` and
+        # Run a full ``fabric backup``-style zip of FABRIC_HOME before every
+        # ``fabric update``.  Backups land in ``<FABRIC_HOME>/backups/`` and
         # can be restored with ``fabric import <path>``.  Off by default:
-        # zipping a large HERMES_HOME (sessions DB, caches, skills) can add
+        # zipping a large FABRIC_HOME (sessions DB, caches, skills) can add
         # minutes to every update.  The #48200 incident — a ``fabric update
         # --yes`` run that computed a wrong path and silently wiped the
         # user's ``.env``, ``MEMORY.md``, ``kanban.db``, custom skills, and
@@ -3135,7 +3135,7 @@ DEFAULT_CONFIG = {
 
         # How to handle missing server binaries.
         # ``"auto"`` — try to install via npm/go/pip into
-        #              ``<HERMES_HOME>/lsp/bin/`` on first use.
+        #              ``<FABRIC_HOME>/lsp/bin/`` on first use.
         # ``"manual"`` — only use binaries already on PATH.
         # ``"off"`` — alias for ``manual``.
         "install_strategy": "auto",
@@ -3296,7 +3296,7 @@ DEFAULT_CONFIG = {
         #   true    - always disable GPU acceleration (software rendering).
         #             Use on no-GPU VMs / Proxmox hosts where the GPU path hangs.
         #   false   - always keep GPU acceleration on, even over a remote display.
-        # Bridged to the HERMES_DESKTOP_DISABLE_GPU env var the Electron app reads.
+        # Bridged to the FABRIC_DESKTOP_DISABLE_GPU env var the Electron app reads.
         "disable_gpu": "auto",
     },
 
@@ -3613,7 +3613,7 @@ OPTIONAL_ENV_VARS = {
         "category": "provider",
         "advanced": True,
     },
-    "HERMES_QWEN_BASE_URL": {
+    "FABRIC_QWEN_BASE_URL": {
         "description": "Qwen Portal base URL override (default: https://portal.qwen.ai/v1)",
         "prompt": "Qwen Portal base URL (leave empty for default)",
         "url": None,
@@ -4055,21 +4055,21 @@ OPTIONAL_ENV_VARS = {
     },
 
     # ── Langfuse observability ──
-    "HERMES_LANGFUSE_PUBLIC_KEY": {
+    "FABRIC_LANGFUSE_PUBLIC_KEY": {
         "description": "Langfuse project public key (pk-lf-...)",
         "prompt": "Langfuse public key",
         "url": "https://cloud.langfuse.com",
         "password": False,
         "category": "tool",
     },
-    "HERMES_LANGFUSE_SECRET_KEY": {
+    "FABRIC_LANGFUSE_SECRET_KEY": {
         "description": "Langfuse project secret key (sk-lf-...)",
         "prompt": "Langfuse secret key",
         "url": "https://cloud.langfuse.com",
         "password": True,
         "category": "tool",
     },
-    "HERMES_LANGFUSE_BASE_URL": {
+    "FABRIC_LANGFUSE_BASE_URL": {
         "description": "Langfuse server URL (default: https://cloud.langfuse.com)",
         "prompt": "Langfuse server URL (leave empty for cloud.langfuse.com)",
         "url": None,
@@ -4244,7 +4244,7 @@ OPTIONAL_ENV_VARS = {
         "advanced": True,
     },
     "MATRIX_DEVICE_ID": {
-        "description": "Stable Matrix device ID for E2EE persistence across restarts (e.g. HERMES_BOT)",
+        "description": "Stable Matrix device ID for E2EE persistence across restarts (e.g. FABRIC_BOT)",
         "prompt": "Matrix device ID (stable across restarts)",
         "url": None,
         "password": False,
@@ -4460,21 +4460,21 @@ OPTIONAL_ENV_VARS = {
         "password": True,
         "category": "setting",
     },
-    # HERMES_TOOL_PROGRESS and HERMES_TOOL_PROGRESS_MODE are deprecated —
+    # FABRIC_TOOL_PROGRESS and FABRIC_TOOL_PROGRESS_MODE are deprecated —
     # now configured via display.tool_progress in config.yaml (off|new|all|verbose|log).
     # The gateway still falls back to these env vars for backward compatibility,
     # so they live in _EXTRA_ENV_KEYS (known to .env sanitization/reload) but
     # are intentionally NOT listed here: OPTIONAL_ENV_VARS feeds user-facing
     # surfaces (dashboard keys page, setup checklists) and deprecated knobs
     # shouldn't be offered there.
-    "HERMES_PREFILL_MESSAGES_FILE": {
+    "FABRIC_PREFILL_MESSAGES_FILE": {
         "description": "Path to JSON file with ephemeral prefill messages for few-shot priming",
         "prompt": "Prefill messages file path",
         "url": None,
         "password": False,
         "category": "setting",
     },
-    "HERMES_EPHEMERAL_SYSTEM_PROMPT": {
+    "FABRIC_EPHEMERAL_SYSTEM_PROMPT": {
         "description": "Ephemeral system prompt injected at API-call time (never persisted to sessions)",
         "prompt": "Ephemeral system prompt",
         "url": None,
@@ -5513,7 +5513,7 @@ def warn_deprecated_cwd_env_vars(config: Optional[Dict[str, Any]] = None) -> Non
             f"this is deprecated."
         )
     if lines:
-        hint_path = os.environ.get("HERMES_HOME", "~/.fabric")
+        hint_path = os.environ.get("FABRIC_HOME", "~/.fabric")
         lines.insert(0, "\033[33m⚠ Deprecated .env settings detected:\033[0m")
         lines.append(
             "  \033[2mMove to config.yaml instead:  "
@@ -5579,14 +5579,14 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
         if not isinstance(display, dict):
             display = {}
         if "tool_progress" not in display:
-            old_enabled = get_env_value("HERMES_TOOL_PROGRESS")
-            old_mode = get_env_value("HERMES_TOOL_PROGRESS_MODE")
+            old_enabled = get_env_value("FABRIC_TOOL_PROGRESS")
+            old_mode = get_env_value("FABRIC_TOOL_PROGRESS_MODE")
             if old_enabled and old_enabled.lower() in {"false", "0", "no"}:
                 display["tool_progress"] = "off"
-                results["config_added"].append("display.tool_progress=off (from HERMES_TOOL_PROGRESS=false)")
+                results["config_added"].append("display.tool_progress=off (from FABRIC_TOOL_PROGRESS=false)")
             elif old_mode and old_mode.lower() in {"new", "all", "verbose"}:
                 display["tool_progress"] = old_mode.lower()
-                results["config_added"].append(f"display.tool_progress={old_mode.lower()} (from HERMES_TOOL_PROGRESS_MODE)")
+                results["config_added"].append(f"display.tool_progress={old_mode.lower()} (from FABRIC_TOOL_PROGRESS_MODE)")
             else:
                 display["tool_progress"] = "all"
                 results["config_added"].append("display.tool_progress=all (default)")
@@ -5599,10 +5599,10 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
     if current_ver < 5:
         config = read_raw_config()
         if "timezone" not in config:
-            old_tz = os.getenv("HERMES_TIMEZONE", "")
+            old_tz = os.getenv("FABRIC_TIMEZONE", "")
             if old_tz and old_tz.strip():
                 config["timezone"] = old_tz.strip()
-                results["config_added"].append(f"timezone={old_tz.strip()} (from HERMES_TIMEZONE)")
+                results["config_added"].append(f"timezone={old_tz.strip()} (from FABRIC_TIMEZONE)")
             else:
                 config["timezone"] = ""
                 results["config_added"].append("timezone= (empty, uses server-local)")
@@ -5849,7 +5849,7 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                 disabled = []
             disabled_set = set(disabled)
 
-            # Scan ``$HERMES_HOME/plugins/`` for currently installed user plugins.
+            # Scan ``$FABRIC_HOME/plugins/`` for currently installed user plugins.
             grandfathered: List[str] = []
             try:
                 user_plugins_dir = get_fabric_home() / "plugins"
@@ -6365,12 +6365,12 @@ def _strip_dotted_keys(cfg: dict, dotted_keys: set) -> Tuple[dict, set]:
 
 def _config_env_value(name: str, default=None):
     """Read an env reference through the active profile credential boundary."""
-    # HERMES_HOME/FABRIC_HOME are deployment-global in ``secret_scope`` so
+    # FABRIC_HOME/FABRIC_HOME are deployment-global in ``secret_scope`` so
     # ordinary credential reads can safely inherit the process runtime. Config
     # templates are different: while a shared host is reading a named profile,
-    # ``${HERMES_HOME}`` must point at that profile rather than the dashboard's
+    # ``${FABRIC_HOME}`` must point at that profile rather than the dashboard's
     # launch home, or a path-valued setting can cross the profile boundary.
-    if name in {"HERMES_HOME", "FABRIC_HOME"}:
+    if name in {"FABRIC_HOME", "FABRIC_HOME"}:
         try:
             from fabric_constants import get_fabric_home_override
 
@@ -6933,7 +6933,7 @@ def load_config() -> Dict[str, Any]:
     the cached value when unchanged, since most call sites mutate the
     result (e.g. ``cfg["model"]["default"] = ...`` before ``save_config``).
     The cache is keyed on ``str(config_path)`` so profile switches
-    (which change ``HERMES_HOME`` and therefore ``get_config_path()``)
+    (which change ``FABRIC_HOME`` and therefore ``get_config_path()``)
     don't collide.
 
     Read-only callers should use ``load_config_readonly()`` to skip the
@@ -8130,14 +8130,14 @@ def show_config():
     print(f"  Model:        {redact_config_value(config.get('model', 'not set'))}")
     _cfg_max_turns = config.get('agent', {}).get('max_turns', DEFAULT_CONFIG['agent']['max_turns'])
     print(f"  Max turns:    {_cfg_max_turns}")
-    # Warn on stale HERMES_MAX_ITERATIONS ghost in .env that disagrees with
+    # Warn on stale FABRIC_MAX_ITERATIONS ghost in .env that disagrees with
     # config.yaml (issue #17534). Read the .env FILE directly so we catch the
     # ghost even when the gateway bridge already overrode os.environ.
     try:
-        _env_ghost = load_env().get("HERMES_MAX_ITERATIONS")
+        _env_ghost = load_env().get("FABRIC_MAX_ITERATIONS")
         if _env_ghost is not None and str(_env_ghost).strip() != str(_cfg_max_turns).strip():
             print(color(
-                f"                ⚠ .env has stale HERMES_MAX_ITERATIONS={_env_ghost} "
+                f"                ⚠ .env has stale FABRIC_MAX_ITERATIONS={_env_ghost} "
                 f"(run 'fabric doctor --fix' to remove)",
                 Colors.YELLOW,
             ))

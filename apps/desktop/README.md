@@ -68,7 +68,7 @@ controls, read the [desktop design contract](DESIGN.md) and the canonical
 [Fabric design foundation](../design-system/README.md).
 
 Use a disposable profile while changing onboarding, authentication, or update
-code. Legacy `HERMES_DESKTOP_*` environment names remain readable compatibility
+code. Legacy `FABRIC_DESKTOP_*` environment names remain readable compatibility
 interfaces; use the canonical Fabric names in new development instructions.
 
 ```bash
@@ -128,7 +128,7 @@ tool, prompt content, context tokens, or model calls. See the [Browser](https://
 and [Computer Use](https://obliviousodin.github.io/fabric/user-guide/features/computer-use#desktop-live-view)
 guides for the docked and picture-in-picture workflows.
 
-Compatibility identifiers such as `HERMES_DESKTOP_HERMES_ROOT`, the legacy
+Compatibility identifiers such as `FABRIC_DESKTOP_HERMES_ROOT`, the legacy
 `fabric:` URL scheme, and older managed-install markers remain readable for one
 migration window. New package identity comes from the Fabric manifest:
 `io.github.obliviousodin.fabric`, `fabric:`, `Fabric.app`, and `Fabric.exe`.
@@ -150,7 +150,7 @@ and rejects artifact names that drift from the manifest.
 ## Troubleshooting
 
 Desktop boot logs are written to `FABRIC_HOME/logs/desktop.log`. The legacy
-`HERMES_HOME` variable is still accepted as an input, but new Fabric installs
+`FABRIC_HOME` variable is still accepted as an input, but new Fabric installs
 use `FABRIC_HOME` and `~/.fabric`.
 
 On macOS, reset a stuck microphone permission for the Fabric bundle with:

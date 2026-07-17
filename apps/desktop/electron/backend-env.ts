@@ -96,7 +96,7 @@ function normalizeFabricHomeRoot(fabricHome, { pathModule = pathModuleForPlatfor
 
 /**
  * Resolve the desktop's global Fabric state root without touching Electron.
- * FABRIC_HOME is canonical; HERMES_HOME and legacy default directories remain
+ * FABRIC_HOME is canonical; FABRIC_HOME and legacy default directories remain
  * readable so an installed Fabric desktop can upgrade in place without
  * orphaning config, sessions, credentials, or logs.
  */
@@ -112,7 +112,7 @@ function resolveDesktopHome({
 }: any = {}) {
   const normalize = value => normalizeFabricHomeRoot(value, { pathModule })
   const fabricOverride = String(env?.FABRIC_HOME || '').trim()
-  const fabricOverride = String(env?.HERMES_HOME || '').trim()
+  const fabricOverride = String(env?.FABRIC_HOME || '').trim()
 
   if (fabricOverride) {
     return normalize(fabricOverride)
@@ -128,7 +128,7 @@ function resolveDesktopHome({
     // Explorer-launched apps can have a stale login-time process.env. Read the
     // live user registry in the same canonical-then-compatibility order.
     const registryFabric = String(readRegistryValue('FABRIC_HOME') || '').trim()
-    const registryFabric = String(readRegistryValue('HERMES_HOME') || '').trim()
+    const registryFabric = String(readRegistryValue('FABRIC_HOME') || '').trim()
 
     if (registryFabric) {
       return normalize(registryFabric)
@@ -170,7 +170,7 @@ function buildDesktopBackendEnv({
 
   return {
     FABRIC_HOME: fabricHome,
-    HERMES_HOME: fabricHome,
+    FABRIC_HOME: fabricHome,
     PYTHONPATH: appendUniquePathEntries([...pythonPathEntries, currentPythonPath], { delimiter }),
     [key]: buildDesktopBackendPath({
       fabricHome,

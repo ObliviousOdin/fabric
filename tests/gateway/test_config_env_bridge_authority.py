@@ -1,6 +1,6 @@
 """Regression tests for the config.yaml → env var bridge in gateway/run.py.
 
-Guards against the 60-vs-500 bug where a stale `.env HERMES_MAX_ITERATIONS=60`
+Guards against the 60-vs-500 bug where a stale `.env FABRIC_MAX_ITERATIONS=60`
 entry silently shadowed `agent.max_turns: 500` in config.yaml because the
 bridge used `if X not in os.environ` guards. After PR#18413 the bridge
 treats config.yaml as authoritative and unconditionally overwrites .env
@@ -41,13 +41,13 @@ def _run_gateway_import(fabric_home: Path, initial_env: dict[str, str]) -> dict[
             sys.exit(2)
 
         for k in (
-            "HERMES_MAX_ITERATIONS",
-            "HERMES_AGENT_TIMEOUT",
-            "HERMES_AGENT_TIMEOUT_WARNING",
-            "HERMES_GATEWAY_BUSY_INPUT_MODE",
-            "HERMES_GATEWAY_BUSY_TEXT_MODE",
-            "HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT",
-            "HERMES_TIMEZONE",
+            "FABRIC_MAX_ITERATIONS",
+            "FABRIC_AGENT_TIMEOUT",
+            "FABRIC_AGENT_TIMEOUT_WARNING",
+            "FABRIC_GATEWAY_BUSY_INPUT_MODE",
+            "FABRIC_GATEWAY_BUSY_TEXT_MODE",
+            "FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT",
+            "FABRIC_TIMEZONE",
         ):
             v = os.environ.get(k)
             if v is not None:
@@ -55,7 +55,7 @@ def _run_gateway_import(fabric_home: Path, initial_env: dict[str, str]) -> dict[
         """
     )
     env = dict(initial_env)
-    env["HERMES_HOME"] = str(fabric_home)
+    env["FABRIC_HOME"] = str(fabric_home)
     # Keep PATH / PYTHONPATH so venv imports resolve.
     for k in ("PATH", "PYTHONPATH", "VIRTUAL_ENV", "HOME"):
         if k in os.environ and k not in env:
@@ -111,12 +111,12 @@ def fabric_home(tmp_path: Path) -> Path:
 def test_config_max_turns_wins_over_stale_env(fabric_home: Path) -> None:
     """Regression: config.yaml:agent.max_turns=500 must beat .env=60."""
     _write_config(fabric_home, agent_cfg={"max_turns": 500})
-    _write_env(fabric_home, {"HERMES_MAX_ITERATIONS": "60"})
+    _write_env(fabric_home, {"FABRIC_MAX_ITERATIONS": "60"})
 
     env = _run_gateway_import(fabric_home, initial_env={})
 
-    assert env.get("HERMES_MAX_ITERATIONS") == "500", (
-        f"expected config.yaml max_turns=500 to win; got {env.get('HERMES_MAX_ITERATIONS')!r}. "
+    assert env.get("FABRIC_MAX_ITERATIONS") == "500", (
+        f"expected config.yaml max_turns=500 to win; got {env.get('FABRIC_MAX_ITERATIONS')!r}. "
         "Stale .env value is shadowing config — the bridge lost its override."
     )
 
@@ -128,41 +128,41 @@ def test_config_gateway_timeout_wins_over_stale_env(fabric_home: Path) -> None:
         "gateway_timeout_warning": 900,
     })
     _write_env(fabric_home, {
-        "HERMES_AGENT_TIMEOUT": "60",
-        "HERMES_AGENT_TIMEOUT_WARNING": "30",
+        "FABRIC_AGENT_TIMEOUT": "60",
+        "FABRIC_AGENT_TIMEOUT_WARNING": "30",
     })
 
     env = _run_gateway_import(fabric_home, initial_env={})
 
-    assert env.get("HERMES_AGENT_TIMEOUT") == "1800"
-    assert env.get("HERMES_AGENT_TIMEOUT_WARNING") == "900"
+    assert env.get("FABRIC_AGENT_TIMEOUT") == "1800"
+    assert env.get("FABRIC_AGENT_TIMEOUT_WARNING") == "900"
 
 
 def test_config_display_busy_input_mode_wins_over_stale_env(fabric_home: Path) -> None:
     _write_config(fabric_home, display_cfg={"busy_input_mode": "interrupt"})
-    _write_env(fabric_home, {"HERMES_GATEWAY_BUSY_INPUT_MODE": "queue"})
+    _write_env(fabric_home, {"FABRIC_GATEWAY_BUSY_INPUT_MODE": "queue"})
 
     env = _run_gateway_import(fabric_home, initial_env={})
 
-    assert env.get("HERMES_GATEWAY_BUSY_INPUT_MODE") == "interrupt"
+    assert env.get("FABRIC_GATEWAY_BUSY_INPUT_MODE") == "interrupt"
 
 
 def test_config_display_busy_text_mode_wins_over_stale_env(fabric_home: Path) -> None:
     _write_config(fabric_home, display_cfg={"busy_text_mode": "queue"})
-    _write_env(fabric_home, {"HERMES_GATEWAY_BUSY_TEXT_MODE": "interrupt"})
+    _write_env(fabric_home, {"FABRIC_GATEWAY_BUSY_TEXT_MODE": "interrupt"})
 
     env = _run_gateway_import(fabric_home, initial_env={})
 
-    assert env.get("HERMES_GATEWAY_BUSY_TEXT_MODE") == "queue"
+    assert env.get("FABRIC_GATEWAY_BUSY_TEXT_MODE") == "queue"
 
 
 def test_config_timezone_wins_over_stale_env(fabric_home: Path) -> None:
     _write_config(fabric_home, timezone="America/Los_Angeles")
-    _write_env(fabric_home, {"HERMES_TIMEZONE": "UTC"})
+    _write_env(fabric_home, {"FABRIC_TIMEZONE": "UTC"})
 
     env = _run_gateway_import(fabric_home, initial_env={})
 
-    assert env.get("HERMES_TIMEZONE") == "America/Los_Angeles"
+    assert env.get("FABRIC_TIMEZONE") == "America/Los_Angeles"
 
 
 def test_env_value_survives_when_config_omits_key(fabric_home: Path) -> None:
@@ -172,11 +172,11 @@ def test_env_value_survives_when_config_omits_key(fabric_home: Path) -> None:
     config key should NOT clobber the .env value.
     """
     _write_config(fabric_home, agent_cfg={})  # no max_turns
-    _write_env(fabric_home, {"HERMES_MAX_ITERATIONS": "123"})
+    _write_env(fabric_home, {"FABRIC_MAX_ITERATIONS": "123"})
 
     env = _run_gateway_import(fabric_home, initial_env={})
 
-    assert env.get("HERMES_MAX_ITERATIONS") == "123"
+    assert env.get("FABRIC_MAX_ITERATIONS") == "123"
 
 
 def test_config_platform_connect_timeout_supplies_env_when_unset(fabric_home: Path) -> None:
@@ -187,19 +187,19 @@ def test_config_platform_connect_timeout_supplies_env_when_unset(fabric_home: Pa
 
     env = _run_gateway_import(fabric_home, initial_env={})
 
-    assert env.get("HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT") == "90"
+    assert env.get("FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT") == "90"
 
 
 def test_env_platform_connect_timeout_wins_over_config(fabric_home: Path) -> None:
     """Unlike the agent.*/display.*/timezone bridges (config-authoritative),
-    HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT is the manual-override escape hatch:
+    FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT is the manual-override escape hatch:
     an explicitly-set env var WINS over config.yaml. This divergence is
     intentional (#19776) — the env var is the operator's emergency knob."""
     _write_config(fabric_home, gateway_cfg={"platform_connect_timeout": 90})
 
     env = _run_gateway_import(
         fabric_home,
-        initial_env={"HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT": "120"},
+        initial_env={"FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT": "120"},
     )
 
-    assert env.get("HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT") == "120"
+    assert env.get("FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT") == "120"

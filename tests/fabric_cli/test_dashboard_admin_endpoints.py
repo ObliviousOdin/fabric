@@ -21,7 +21,7 @@ def _client():
 
     client = TestClient(app)
     client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
-    # Keep the state DB under the isolated HERMES_HOME for any handler that
+    # Keep the state DB under the isolated FABRIC_HOME for any handler that
     # touches it.
     fabric_state.DEFAULT_DB_PATH = get_fabric_home() / "state.db"
     return client, _SESSION_HEADER_NAME

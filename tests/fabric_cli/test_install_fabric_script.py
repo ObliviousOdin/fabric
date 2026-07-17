@@ -22,7 +22,7 @@ def test_installer_help_is_fabric_only():
 def test_installer_uses_modern_home_and_safe_migration_command():
     content = INSTALLER.read_text(encoding="utf-8")
 
-    assert 'FABRIC_HOME="${FABRIC_HOME:-${HERMES_HOME:-$HOME/.fabric}}"' in content
+    assert 'FABRIC_HOME="${FABRIC_HOME:-${FABRIC_HOME:-$HOME/.fabric}}"' in content
     assert 'rm -f "$command_link_dir/fabric"' in content
     assert 'cat > "$command_link_dir/fabric" <<EOF' in content
     assert '"$command_link_dir/hermes"' not in content

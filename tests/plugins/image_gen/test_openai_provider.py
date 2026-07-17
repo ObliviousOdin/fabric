@@ -31,7 +31,7 @@ def _fake_response(*, b64=None, url=None, revised_prompt=None):
 
 @pytest.fixture(autouse=True)
 def _tmp_fabric_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     yield tmp_path
 
 
@@ -130,7 +130,7 @@ class TestSourceImageLoading:
         fabric_home.mkdir()
         auth_json = fabric_home / "auth.json"
         auth_json.write_text('{"api_key":"sk-secret"}', encoding="utf-8")
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         with pytest.raises(ValueError, match="credential store"):
             openai_plugin._load_image_bytes(str(auth_json))
@@ -143,7 +143,7 @@ class TestSourceImageLoading:
         fabric_home.mkdir()
         auth_json = fabric_home / "auth.json"
         auth_json.write_text('{"api_key":"sk-secret"}', encoding="utf-8")
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         import builtins
 
@@ -164,7 +164,7 @@ class TestSourceImageLoading:
         loads normally — proves the guard doesn't over-fire on everything."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         img = tmp_path / "pic.png"
         img.write_bytes(b"\x89PNG\r\n\x1a\nfake-image-bytes")
 
@@ -179,7 +179,7 @@ class TestSourceImageLoading:
 
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         b64 = base64.b64encode(b"xyz").decode("ascii")
         data, name = openai_plugin._load_image_bytes(f"data:image/png;base64,{b64}")
         assert data == b"xyz"

@@ -31,7 +31,7 @@ fabric [global-options] <command> [subcommand/options]
 | `--pass-session-id` | Include the session ID in the agent's system prompt. |
 | `--ignore-user-config` | Ignore `~/.fabric/config.yaml` and fall back to built-in defaults. Credentials in `.env` are still loaded. |
 | `--ignore-rules` | Skip project context (`.fabric.md`, `FABRIC.md`, compatibility context names, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`), `SOUL.md`, memory, and preloaded skills. |
-| `--tui` | Launch the [TUI](../user-guide/tui.md) instead of the classic CLI. Equivalent to `HERMES_TUI=1`. Always wins over `display.interface`. |
+| `--tui` | Launch the [TUI](../user-guide/tui.md) instead of the classic CLI. Equivalent to `FABRIC_TUI=1`. Always wins over `display.interface`. |
 | `--cli` | Force the classic prompt_toolkit REPL. Use this to override `display.interface: tui` for a single invocation. |
 | `--dev` | With `--tui`: run the TypeScript sources directly via `tsx` instead of the prebuilt bundle (for TUI contributors). |
 
@@ -156,13 +156,13 @@ Per-run overrides (no mutation to `~/.fabric/config.yaml`):
 
 | Flag | Equivalent env var | Purpose |
 |---|---|---|
-| `-m` / `--model <model>` | `HERMES_INFERENCE_MODEL` | Override the model for this run |
+| `-m` / `--model <model>` | `FABRIC_INFERENCE_MODEL` | Override the model for this run |
 | `--provider <provider>` | _(none)_ | Override the provider for this run |
 
 ```bash
 fabric -z "…" --provider openrouter --model openai/gpt-5.5
 # or:
-HERMES_INFERENCE_MODEL=anthropic/claude-sonnet-4.6 fabric -z "…"
+FABRIC_INFERENCE_MODEL=anthropic/claude-sonnet-4.6 fabric -z "…"
 ```
 
 Same agent, same tools, same skills — just strips every interactive / cosmetic layer. If you need tool output in the transcript too, use `fabric chat -q` instead; `-z` is explicitly for "I only want the final answer".
@@ -244,7 +244,7 @@ Options:
 | Option | Description |
 |--------|-------------|
 | `--all` | On `start` / `restart` / `stop`: act on **every profile's** gateway, not just the active `FABRIC_HOME`. Useful if you run multiple profiles side-by-side and want to restart them all after `fabric update`. |
-| `--no-supervise` | On `run`: inside the s6-overlay Docker image, opt out of auto-supervision and use pre-s6 foreground semantics — gateway runs as the container's main process with no auto-restart. No-op outside the s6 image. Equivalent to setting `HERMES_GATEWAY_NO_SUPERVISE=1`. |
+| `--no-supervise` | On `run`: inside the s6-overlay Docker image, opt out of auto-supervision and use pre-s6 foreground semantics — gateway runs as the container's main process with no auto-restart. No-op outside the s6 image. Equivalent to setting `FABRIC_GATEWAY_NO_SUPERVISE=1`. |
 
 `fabric gateway enroll` accepts `--token`, `--connector-url`, `--gateway-id`, and `--wake-url`. It exchanges the enrollment token with the connector and writes the resulting `GATEWAY_RELAY_ID`, `GATEWAY_RELAY_SECRET`, `GATEWAY_RELAY_DELIVERY_KEY`, optional `GATEWAY_RELAY_URL`, and (when `--wake-url` is given) `GATEWAY_RELAY_WAKE_URL` values to the active profile's `.env`.
 
@@ -641,9 +641,9 @@ Multi-profile, multi-project collaboration board. Each install can host many boa
 
 | Flag | Purpose |
 |------|---------|
-| `--board <slug>` | Operate on a specific board. Defaults to the current board (set via `fabric kanban boards switch`, the `HERMES_KANBAN_BOARD` env var, or `default`). |
+| `--board <slug>` | Operate on a specific board. Defaults to the current board (set via `fabric kanban boards switch`, the `FABRIC_KANBAN_BOARD` env var, or `default`). |
 
-**This is the human / scripting surface.** Agent workers spawned by the dispatcher drive the board through a dedicated `kanban_*` [toolset](/user-guide/features/kanban#how-workers-interact-with-the-board) (`kanban_show`, `kanban_complete`, `kanban_block`, `kanban_create`, `kanban_link`, `kanban_comment`, `kanban_heartbeat`; orchestrator profiles also get `kanban_list` and `kanban_unblock`) instead of shelling to `fabric kanban`. Workers have `HERMES_KANBAN_BOARD` pinned in their env so they physically cannot see other boards.
+**This is the human / scripting surface.** Agent workers spawned by the dispatcher drive the board through a dedicated `kanban_*` [toolset](/user-guide/features/kanban#how-workers-interact-with-the-board) (`kanban_show`, `kanban_complete`, `kanban_block`, `kanban_create`, `kanban_link`, `kanban_comment`, `kanban_heartbeat`; orchestrator profiles also get `kanban_list` and `kanban_unblock`) instead of shelling to `fabric kanban`. Workers have `FABRIC_KANBAN_BOARD` pinned in their env so they physically cannot see other boards.
 
 | Action | Purpose |
 |--------|---------|
@@ -705,7 +705,7 @@ fabric kanban boards rm atm10-server
 fabric kanban boards rm atm10-server --delete
 ```
 
-Board resolution order (highest precedence first): `--board <slug>` flag → `HERMES_KANBAN_BOARD` env var → `~/.fabric/kanban/current` file → `default`.
+Board resolution order (highest precedence first): `--board <slug>` flag → `FABRIC_KANBAN_BOARD` env var → `~/.fabric/kanban/current` file → `default`.
 
 All actions are also available as a slash command in the gateway (`/kanban …`), with the same argument surface — including `boards` subcommands and the `--board` flag.
 
@@ -1601,13 +1601,13 @@ Launch the web dashboard — a browser-based UI for managing configuration, API 
 
 ### `fabric dashboard register`
 
-Register this install as a self-hosted dashboard with your Nous Portal account. Creates an OAuth client, writes `HERMES_DASHBOARD_OAUTH_CLIENT_ID` into `~/.fabric/.env`, and prints how to engage the login gate. Requires being logged in (`fabric setup`).
+Register this install as a self-hosted dashboard with your Nous Portal account. Creates an OAuth client, writes `FABRIC_DASHBOARD_OAUTH_CLIENT_ID` into `~/.fabric/.env`, and prints how to engage the login gate. Requires being logged in (`fabric setup`).
 
 | Option | Description |
 |--------|-------------|
 | `--name` | Human-readable label for the dashboard (default: auto-generated). |
 | `--redirect-uri` | Public HTTPS OAuth redirect URI (e.g. `https://fabric.example.com/auth/callback`). Omit for localhost-only use. |
-| `--portal-url` | Override the Nous Portal base URL for registration (default: the portal you logged into). Also settable via `HERMES_DASHBOARD_PORTAL_URL`. |
+| `--portal-url` | Override the Nous Portal base URL for registration (default: the portal you logged into). Also settable via `FABRIC_DASHBOARD_PORTAL_URL`. |
 
 ```bash
 # Default — opens browser to http://127.0.0.1:9119

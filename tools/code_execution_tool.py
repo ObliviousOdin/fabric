@@ -81,10 +81,10 @@ MAX_STDERR_BYTES = 10_000    # 10 KB
 # OS-essential name.
 #
 # NB: the broad "FABRIC_" prefix was deliberately removed (#27303) — it leaked
-# FABRIC_*-named config that lacks a secret substring (e.g. HERMES_BASE_URL,
-# HERMES_KANBAN_DB, FABRIC_*_WEBHOOK).  The child only needs the few
-# location/profile vars in _HERMES_CHILD_ALLOWED below; HERMES_RPC_SOCKET /
-# HERMES_RPC_DIR / TZ / HOME are injected explicitly after scrubbing.
+# FABRIC_*-named config that lacks a secret substring (e.g. FABRIC_BASE_URL,
+# FABRIC_KANBAN_DB, FABRIC_*_WEBHOOK).  The child only needs the few
+# location/profile vars in _FABRIC_CHILD_ALLOWED below; FABRIC_RPC_SOCKET /
+# FABRIC_RPC_DIR / TZ / HOME are injected explicitly after scrubbing.
 _SAFE_ENV_PREFIXES = ("PATH", "HOME", "USER", "LANG", "LC_", "TERM",
                       "TMPDIR", "TMP", "TEMP", "SHELL", "LOGNAME",
                       "XDG_", "PYTHONPATH", "VIRTUAL_ENV", "CONDA")
@@ -104,11 +104,11 @@ _SECRET_SUBSTRINGS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL",
 # are non-secret runtime-location flags (the same set fabric_cli treats as the
 # runtime location) that repo-root modules a sandbox script imports may read at
 # import time.  None match _SECRET_SUBSTRINGS.
-_HERMES_CHILD_ALLOWED = frozenset({
-    "HERMES_HOME",
-    "HERMES_PROFILE",
-    "HERMES_CONFIG",
-    "HERMES_ENV",
+_FABRIC_CHILD_ALLOWED = frozenset({
+    "FABRIC_HOME",
+    "FABRIC_PROFILE",
+    "FABRIC_CONFIG",
+    "FABRIC_ENV",
 })
 
 # Windows-only: a handful of variables are required by the OS/CRT itself.
@@ -150,7 +150,7 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
       1. Passthrough vars (skill- or config-declared) always pass.
       2. Secret-substring names (KEY/TOKEN/DSN/WEBHOOK/etc.) are blocked.
       3. Names matching a safe prefix pass.
-      4. Operational FABRIC_* vars (_HERMES_CHILD_ALLOWED) pass by exact name.
+      4. Operational FABRIC_* vars (_FABRIC_CHILD_ALLOWED) pass by exact name.
       5. On Windows, a small OS-essential allowlist passes by exact name
          — without these the child can't even create a socket or spawn a
          subprocess.
@@ -171,7 +171,7 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
     # Non-secret FABRIC_* vars dropped by the tightened allowlist (#27303). The
     # broad "FABRIC_" prefix used to pass these through; now only the
     # operational set does. The drop is intentional (those vars can carry
-    # config like HERMES_KANBAN_DB / HERMES_BASE_URL), but a sandbox script
+    # config like FABRIC_KANBAN_DB / FABRIC_BASE_URL), but a sandbox script
     # that imports a repo module reading one at import time would otherwise see
     # it silently unset. Surface the drop once so the behavior change is
     # diagnosable and points at the env_passthrough opt-in escape hatch.
@@ -185,7 +185,7 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
         if any(k.startswith(p) for p in _SAFE_ENV_PREFIXES):
             scrubbed[k] = v
             continue
-        if k in _HERMES_CHILD_ALLOWED:
+        if k in _FABRIC_CHILD_ALLOWED:
             scrubbed[k] = v
             continue
         if is_windows and k.upper() in _WINDOWS_ESSENTIAL_ENV_VARS:
@@ -194,7 +194,7 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
         if k.startswith("FABRIC_"):
             # Non-secret (secrets were already dropped above) and not in any
             # allowlist — a deliberately-dropped FABRIC_* var.
-            _dropped_hermes.append(k)
+            _dropped_fabric.append(k)
     if _dropped_fabric:
         logger.debug(
             "execute_code: dropped %d non-allowlisted FABRIC_* var(s) from the "
@@ -358,7 +358,7 @@ _call_lock = threading.Lock()
 def _connect():
     """Connect to the parent's RPC server via the transport it picked.
 
-    HERMES_RPC_SOCKET can be either:
+    FABRIC_RPC_SOCKET can be either:
       - a filesystem path (POSIX Unix domain socket — the default on
         Linux and macOS)
       - a string of the form ``tcp://127.0.0.1:<port>`` (Windows, where
@@ -366,7 +366,7 @@ def _connect():
     """
     global _sock
     if _sock is None:
-        endpoint = os.environ["HERMES_RPC_SOCKET"]
+        endpoint = os.environ["FABRIC_RPC_SOCKET"]
         if endpoint.startswith("tcp://"):
             # tcp://host:port  (host is always 127.0.0.1 in practice — we
             # only bind loopback server-side)
@@ -385,7 +385,7 @@ def _call(tool_name, args):
     request = json.dumps({
         "tool": tool_name,
         "args": args,
-        "token": os.environ.get("HERMES_RPC_TOKEN", ""),
+        "token": os.environ.get("FABRIC_RPC_TOKEN", ""),
     }) + "\\n"
     with _call_lock:
         conn = _connect()
@@ -415,7 +415,7 @@ _FILE_TRANSPORT_HEADER = '''\
 """Auto-generated Fabric tools RPC stubs (file-based transport)."""
 import json, os, shlex, tempfile, threading, time
 
-_RPC_DIR = os.environ.get("HERMES_RPC_DIR") or os.path.join(tempfile.gettempdir(), "fabric_rpc")
+_RPC_DIR = os.environ.get("FABRIC_RPC_DIR") or os.path.join(tempfile.gettempdir(), "fabric_rpc")
 _seq = 0
 # `_seq += 1` is not atomic (read-modify-write), so concurrent _call()
 # invocations from multiple threads could allocate the same sequence number
@@ -443,7 +443,7 @@ def _call(tool_name, args):
             "tool": tool_name,
             "args": args,
             "seq": seq,
-            "token": os.environ.get("HERMES_RPC_TOKEN", ""),
+            "token": os.environ.get("FABRIC_RPC_TOKEN", ""),
         }, f)
     os.rename(tmp, req_file)
 
@@ -994,11 +994,11 @@ def _execute_remote(
 
         # Build environment variable prefix for the script
         env_prefix = (
-            f"HERMES_RPC_DIR={shlex.quote(f'{sandbox_dir}/rpc')} "
-            f"HERMES_RPC_TOKEN={shlex.quote(rpc_token)} "
+            f"FABRIC_RPC_DIR={shlex.quote(f'{sandbox_dir}/rpc')} "
+            f"FABRIC_RPC_TOKEN={shlex.quote(rpc_token)} "
             f"PYTHONDONTWRITEBYTECODE=1"
         )
-        tz = os.getenv("HERMES_TIMEZONE", "").strip()
+        tz = os.getenv("FABRIC_TIMEZONE", "").strip()
         if tz:
             env_prefix += f" TZ={shlex.quote(tz)}"
 
@@ -1208,7 +1208,7 @@ def execute_code(
     # on the same temp drive as the script).  Fall back to loopback TCP —
     # same ephemeral port, same 1-connection listen queue, same serialized
     # request/response framing.  The generated client reads the transport
-    # selector from HERMES_RPC_SOCKET (path vs. ``tcp://host:port``).
+    # selector from FABRIC_RPC_SOCKET (path vs. ``tcp://host:port``).
     _sock_tmpdir = "/tmp" if sys.platform == "darwin" else tempfile.gettempdir()
     _use_tcp_rpc = _IS_WINDOWS
     if _use_tcp_rpc:
@@ -1251,7 +1251,7 @@ def execute_code(
         #   Windows: AF_INET stream socket on 127.0.0.1 with an ephemeral
         #   port.  No filesystem permission story, but loopback-only bind
         #   means only the current user's processes (not remote) can
-        #   connect.  HERMES_RPC_SOCKET is set to ``tcp://127.0.0.1:<port>``
+        #   connect.  FABRIC_RPC_SOCKET is set to ``tcp://127.0.0.1:<port>``
         #   which the generated client parses to pick AF_INET.
         if _use_tcp_rpc:
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1288,8 +1288,8 @@ def execute_code(
         # passed through — without those, the child can't create a socket
         # or spawn a subprocess.  See ``_scrub_child_env`` for the rules.
         child_env = _scrub_child_env(os.environ)
-        child_env["HERMES_RPC_SOCKET"] = rpc_endpoint
-        child_env["HERMES_RPC_TOKEN"] = rpc_token
+        child_env["FABRIC_RPC_SOCKET"] = rpc_endpoint
+        child_env["FABRIC_RPC_TOKEN"] = rpc_token
         child_env["PYTHONDONTWRITEBYTECODE"] = "1"
         # Force UTF-8 for the child's stdio and default file encoding.
         #
@@ -1322,12 +1322,12 @@ def execute_code(
         child_env["PYTHONPATH"] = os.pathsep.join(_pp_parts)
         # Inject user's configured timezone so datetime.now() in sandboxed
         # code reflects the correct wall-clock time.  Only TZ is set —
-        # HERMES_TIMEZONE is an internal Fabric setting and must not leak
+        # FABRIC_TIMEZONE is an internal Fabric setting and must not leak
         # into child processes.
-        _tz_name = os.getenv("HERMES_TIMEZONE", "").strip()
+        _tz_name = os.getenv("FABRIC_TIMEZONE", "").strip()
         if _tz_name:
             child_env["TZ"] = _tz_name
-        child_env.pop("HERMES_TIMEZONE", None)
+        child_env.pop("FABRIC_TIMEZONE", None)
 
         from fabric_constants import apply_subprocess_home_env
         apply_subprocess_home_env(child_env)

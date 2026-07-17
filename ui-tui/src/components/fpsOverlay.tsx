@@ -1,4 +1,4 @@
-// FPS counter overlay (HERMES_TUI_FPS=1). Zero-cost when disabled.
+// FPS counter overlay (FABRIC_TUI_FPS=1). Zero-cost when disabled.
 
 import { Text } from '@fabric/ink'
 import { useStore } from '@nanostores/react'

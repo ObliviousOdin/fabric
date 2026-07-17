@@ -69,11 +69,11 @@ logger = logging.getLogger(__name__)
 # hardcoded version floor, which would rot and can't know what "latest" is.
 #
 # There is intentionally no version *pin* knob: the upstream installer always
-# fetches the latest release, so a `HERMES_CUA_DRIVER_VERSION` env var would
+# fetches the latest release, so a `FABRIC_CUA_DRIVER_VERSION` env var would
 # only have *looked* like it pinned. For a reproducible version, point
-# `HERMES_CUA_DRIVER_CMD` at a specific binary instead.
+# `FABRIC_CUA_DRIVER_CMD` at a specific binary instead.
 
-_CUA_DRIVER_CMD = os.environ.get("HERMES_CUA_DRIVER_CMD", "cua-driver")
+_CUA_DRIVER_CMD = os.environ.get("FABRIC_CUA_DRIVER_CMD", "cua-driver")
 _CUA_DRIVER_ARGS = ["mcp"]  # stdio MCP transport (fallback when the
                             # driver doesn't expose `manifest` — see
                             # `_resolve_mcp_invocation` below)
@@ -234,7 +234,7 @@ def _is_macos() -> bool:
 
 
 def cua_driver_binary_available() -> bool:
-    """True if `cua-driver` is on $PATH or HERMES_CUA_DRIVER_CMD resolves."""
+    """True if `cua-driver` is on $PATH or FABRIC_CUA_DRIVER_CMD resolves."""
     return bool(shutil.which(_CUA_DRIVER_CMD))
 
 

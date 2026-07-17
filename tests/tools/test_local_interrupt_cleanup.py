@@ -26,7 +26,7 @@ from tools.environments.local import LocalEnvironment
 
 @pytest.fixture(autouse=True)
 def _isolate_fabric_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     (tmp_path / "logs").mkdir(exist_ok=True)
 
 

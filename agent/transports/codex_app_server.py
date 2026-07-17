@@ -99,10 +99,10 @@ class CodexAppServerClient:
         # Codex sandbox on, but add the Kanban root as the only extra writable
         # root. Without this, codex-runtime workers finish their actual work
         # but crash/block when kanban_complete/kanban_block writes SQLite.
-        if spawn_env.get("HERMES_KANBAN_TASK"):
-            kanban_db = spawn_env.get("HERMES_KANBAN_DB")
+        if spawn_env.get("FABRIC_KANBAN_TASK"):
+            kanban_db = spawn_env.get("FABRIC_KANBAN_DB")
             configured_home = spawn_env.get("FABRIC_HOME") or spawn_env.get(
-                "HERMES_HOME"
+                "FABRIC_HOME"
             )
             if not configured_home:
                 from fabric_constants import get_fabric_home
@@ -112,7 +112,7 @@ class CodexAppServerClient:
                 os.path.dirname(kanban_db)
                 if kanban_db
                 else spawn_env.get(
-                    "HERMES_KANBAN_ROOT",
+                    "FABRIC_KANBAN_ROOT",
                     os.path.join(
                         configured_home,
                         "kanban",

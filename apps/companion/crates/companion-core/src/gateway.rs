@@ -11,8 +11,8 @@
 //! The server emits a `gateway.ready` event immediately after accept.
 //!
 //! Local auth is a query-string session token
-//! (`?token=<HERMES_DASHBOARD_SESSION_TOKEN>`): pin one via that env var when
-//! spawning your own backend, or scrape `window.__HERMES_SESSION_TOKEN__`
+//! (`?token=<FABRIC_DASHBOARD_SESSION_TOKEN>`): pin one via that env var when
+//! spawning your own backend, or scrape `window.__FABRIC_SESSION_TOKEN__`
 //! from `GET /` of a running `fabric dashboard`. Gated remote deployments use
 //! single-use `?ticket=` credentials instead (30 s TTL — mint right before
 //! every connect).

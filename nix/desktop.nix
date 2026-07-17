@@ -3,7 +3,7 @@
 # `fabricAgent` is the fully-built `.#default` package — it ships the
 # `fabric` binary with the venv, runtime PATH, bundled skills/plugins, etc.
 # already wired up.  We point the desktop at it via the existing
-# `HERMES_DESKTOP_HERMES` override env var, so the desktop's resolver
+# `FABRIC_DESKTOP_FABRIC` override env var, so the desktop's resolver
 # uses our fully wrapped binary at step 4 ("existing Fabric CLI").
 # No reimplementation of the agent resolution in this wrapper.
 {
@@ -163,14 +163,14 @@ stdenv.mkDerivation {
       --replace-fail "process.resourcesPath" "'$out/share/fabric-desktop'"
 
     # Wrap the nixpkgs electron binary to launch our app.  Set
-    # HERMES_DESKTOP_HERMES to the absolute path of the nix-built `fabric`
+    # FABRIC_DESKTOP_FABRIC to the absolute path of the nix-built `fabric`
     # binary so the desktop's resolver step 4 ("existing Fabric CLI on
     # PATH") uses our fully wrapped binary — venv with all deps,
     # bundled skills/plugins, runtime PATH (ripgrep/git/ffmpeg/etc).
     # No reimplementation of the agent resolver in the wrapper.
     makeWrapper ${lib.getExe electron} $out/bin/fabric-desktop \
       --add-flags "$out/share/fabric-desktop" \
-      --set HERMES_DESKTOP_HERMES "${lib.getExe fabricAgent}" \
+      --set FABRIC_DESKTOP_FABRIC "${lib.getExe fabricAgent}" \
       --set ELECTRON_IS_DEV 0
 
     runHook postInstall

@@ -41,7 +41,7 @@ def get(
     h = {
         "User-Agent": user_agent
         or os.environ.get("FABRIC_OSINT_UA")
-        or os.environ.get("HERMES_OSINT_UA")
+        or os.environ.get("FABRIC_OSINT_UA")
         or DEFAULT_UA
     }
     if headers:

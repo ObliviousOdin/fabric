@@ -17,7 +17,7 @@ import pytest
 def _isolate_home(tmp_path, monkeypatch):
     fabric_home = tmp_path / ".hermes"
     fabric_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     yield fabric_home
 
 

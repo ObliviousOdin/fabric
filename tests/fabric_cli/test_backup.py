@@ -169,7 +169,7 @@ class TestShouldExclude:
         ],
     )
     def test_excludes_regeneratable_dependency_and_cache_dirs(self, rel):
-        """Python dep trees and tool caches under HERMES_HOME must be skipped —
+        """Python dep trees and tool caches under FABRIC_HOME must be skipped —
         these are what balloon a backup to hundreds of thousands of files."""
         from fabric_cli.backup import _should_exclude
         assert _should_exclude(Path(rel))
@@ -197,7 +197,7 @@ class TestBackup:
         fabric_home.mkdir()
         _make_fabric_tree(fabric_home)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         # get_default_fabric_root needs this
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
@@ -248,7 +248,7 @@ class TestBackup:
             repair.mkdir()
             (repair / "provider-accounts.invalid.json").write_text(marker)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         out_zip = tmp_path / "provider-accounts-backup.zip"
 
@@ -285,7 +285,7 @@ class TestBackup:
         fabric_home.mkdir()
         _make_fabric_tree(fabric_home)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_dir = tmp_path / "external-drive"
@@ -316,7 +316,7 @@ class TestBackup:
         fabric_home.mkdir()
         _make_fabric_tree(fabric_home)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = fabric_home / "backups" / "pre-update-test.zip"
@@ -343,7 +343,7 @@ class TestBackup:
         fabric_home.mkdir()
         _make_fabric_tree(fabric_home)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "backup.zip"
@@ -358,7 +358,7 @@ class TestBackup:
             assert agent_files == [], f"fabric-agent files leaked into backup: {agent_files}"
 
     def test_excludes_dependency_and_cache_trees(self, tmp_path, monkeypatch):
-        """A plugin venv / site-packages / pip cache under HERMES_HOME must be
+        """A plugin venv / site-packages / pip cache under FABRIC_HOME must be
         pruned by the walk, while real data (skills, config) is preserved.
         This is the regression guard for the ballooning-backup bug."""
         fabric_home = tmp_path / ".hermes"
@@ -373,7 +373,7 @@ class TestBackup:
         pip_cache.mkdir(parents=True)
         (pip_cache / "abc.whl").write_bytes(b"\x00")
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "backup.zip"
@@ -401,7 +401,7 @@ class TestBackup:
         (nested / "sub").mkdir()
         (nested / "sub" / "item.txt").write_text("nested content\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "backup.zip"
@@ -425,7 +425,7 @@ class TestBackup:
         fabric_home.mkdir()
         _make_fabric_tree(fabric_home)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "backup.zip"
@@ -445,7 +445,7 @@ class TestBackup:
         fabric_home.mkdir()
         _make_fabric_tree(fabric_home)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "backup.zip"
@@ -465,7 +465,7 @@ class TestBackup:
         fabric_home.mkdir()
         (fabric_home / "config.yaml").write_text("model: test\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         args = Namespace(output=None)
@@ -478,7 +478,7 @@ class TestBackup:
         assert len(zips) == 1
 
     def test_skips_symlinked_files(self, tmp_path, monkeypatch):
-        """Backup must not dereference symlinks and leak files outside HERMES_HOME."""
+        """Backup must not dereference symlinks and leak files outside FABRIC_HOME."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
         _make_fabric_tree(fabric_home)
@@ -486,7 +486,7 @@ class TestBackup:
         outside.write_text("outside secret\n")
         _symlink_file_or_skip(fabric_home / "skills" / "outside-link.txt", outside)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "backup.zip"
@@ -557,7 +557,7 @@ class TestImport:
         """Import extracts files into fabric home."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -582,7 +582,7 @@ class TestImport:
         """Import strips .hermes/ prefix if all entries share it."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -603,7 +603,7 @@ class TestImport:
         """Import rejects an empty zip."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "empty.zip"
@@ -620,7 +620,7 @@ class TestImport:
         """Import rejects a zip that doesn't look like a fabric backup."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "random.zip"
@@ -639,7 +639,7 @@ class TestImport:
         """Import blocks zip entries with path traversal."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "evil.zip"
@@ -669,7 +669,7 @@ class TestImport:
         """
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         # The target (e.g. hosted container) already has its own live state.
@@ -698,7 +698,7 @@ class TestImport:
         target has none — a foreign state must never seed the reconciler."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -721,7 +721,7 @@ class TestImport:
         the same way the root profile's is."""
         fabric_home = tmp_path / ".hermes"
         (fabric_home / "profiles" / "coder").mkdir(parents=True)
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         live_state = '{"gateway_state": "running"}'
@@ -751,7 +751,7 @@ class TestImport:
         written over the target's."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         # Live runtime files belonging to the target's own processes.
@@ -785,7 +785,7 @@ class TestImport:
         fabric_home.mkdir()
         # Pre-existing config triggers the confirmation
         (fabric_home / "config.yaml").write_text("existing: true\n")
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -807,7 +807,7 @@ class TestImport:
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
         (fabric_home / "config.yaml").write_text("existing: true\n")
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -826,7 +826,7 @@ class TestImport:
         """Import exits with error for nonexistent file."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         args = Namespace(zipfile=str(tmp_path / "nonexistent.zip"), force=True)
 
@@ -839,7 +839,7 @@ class TestImport:
         """Secret files must end up at 0600 after restore (zipfile drops mode bits)."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -866,7 +866,7 @@ class TestImport:
     ):
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         zip_path = tmp_path / "backup.zip"
         rebound_homes = []
@@ -976,7 +976,7 @@ class TestImport:
 
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         zip_path = tmp_path / "backup.zip"
         self._make_backup_zip(
@@ -1024,7 +1024,7 @@ class TestRoundTrip:
         src_home.mkdir(parents=True)
         _make_fabric_tree(src_home)
 
-        monkeypatch.setenv("HERMES_HOME", str(src_home))
+        monkeypatch.setenv("FABRIC_HOME", str(src_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "source")
 
         # Backup
@@ -1037,7 +1037,7 @@ class TestRoundTrip:
         # Import into a different location
         dst_home = tmp_path / "dest" / ".hermes"
         dst_home.mkdir(parents=True)
-        monkeypatch.setenv("HERMES_HOME", str(dst_home))
+        monkeypatch.setenv("FABRIC_HOME", str(dst_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "dest")
 
         run_import(Namespace(zipfile=str(out_zip), force=True))
@@ -1173,7 +1173,7 @@ class TestBackupEdgeCases:
     def test_nonexistent_fabric_home(self, tmp_path, monkeypatch):
         """Backup exits when fabric home doesn't exist."""
         fake_home = tmp_path / "nonexistent" / ".hermes"
-        monkeypatch.setenv("HERMES_HOME", str(fake_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fake_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "nonexistent")
 
         args = Namespace(output=str(tmp_path / "out.zip"))
@@ -1188,7 +1188,7 @@ class TestBackupEdgeCases:
         fabric_home.mkdir()
         (fabric_home / "config.yaml").write_text("model: test\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_dir = tmp_path / "backups"
@@ -1208,7 +1208,7 @@ class TestBackupEdgeCases:
         fabric_home.mkdir()
         (fabric_home / "config.yaml").write_text("model: test\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_path = tmp_path / "mybackup.tar"
@@ -1228,7 +1228,7 @@ class TestBackupEdgeCases:
         (fabric_home / "__pycache__").mkdir()
         (fabric_home / "__pycache__" / "foo.pyc").write_bytes(b"\x00")
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         args = Namespace(output=str(tmp_path / "out.zip"))
@@ -1250,7 +1250,7 @@ class TestBackupEdgeCases:
         bad_file.write_text("data")
         bad_file.chmod(0o000)
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "out.zip"
@@ -1277,7 +1277,7 @@ class TestBackupEdgeCases:
         old_file.write_text("old data")
         os.utime(old_file, (0, 0))
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out_zip = tmp_path / "out.zip"
@@ -1300,7 +1300,7 @@ class TestBackupEdgeCases:
         fabric_home.mkdir()
         (fabric_home / "config.yaml").write_text("model: test\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         # Output inside fabric home
@@ -1326,7 +1326,7 @@ class TestImportEdgeCases:
         """Import rejects a non-zip file."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         not_zip = tmp_path / "fake.zip"
         not_zip.write_text("this is not a zip")
@@ -1342,7 +1342,7 @@ class TestImportEdgeCases:
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
         (fabric_home / "config.yaml").write_text("existing\n")
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -1360,7 +1360,7 @@ class TestImportEdgeCases:
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
         (fabric_home / ".env").write_text("KEY=val\n")
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -1377,7 +1377,7 @@ class TestImportEdgeCases:
         """Import handles permission errors during extraction."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         # Create a read-only directory so extraction fails
@@ -1406,7 +1406,7 @@ class TestImportEdgeCases:
         """Import shows progress with 500+ files."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "big.zip"
@@ -1439,7 +1439,7 @@ class TestProfileRestoration:
         """Import auto-creates wrapper scripts for restored profiles."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         # Mock the wrapper dir to be inside tmp_path
@@ -1475,7 +1475,7 @@ class TestProfileRestoration:
         """Import doesn't create wrappers for profile dirs without config."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         wrapper_dir = tmp_path / ".local" / "bin"
@@ -1501,7 +1501,7 @@ class TestProfileRestoration:
         """Import gracefully handles missing profiles module (fresh install)."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         zip_path = tmp_path / "backup.zip"
@@ -1580,7 +1580,7 @@ class TestSafeCopyDb:
 class TestQuickSnapshot:
     @pytest.fixture
     def fabric_home(self, tmp_path):
-        """Create a fake HERMES_HOME with critical state files."""
+        """Create a fake FABRIC_HOME with critical state files."""
         home = tmp_path / ".hermes"
         home.mkdir()
         (home / "config.yaml").write_text("model:\n  provider: openrouter\n")
@@ -1910,7 +1910,7 @@ class TestQuickSnapshot:
     def test_restore_rejects_manifest_rel_traversal(self, fabric_home):
         """A snapshot whose manifest.json contains a rel path that escapes
         the snapshot directory (e.g. ``../../outside.txt``) must skip that
-        entry rather than restoring outside HERMES_HOME."""
+        entry rather than restoring outside FABRIC_HOME."""
         from fabric_cli.backup import create_quick_snapshot, restore_quick_snapshot
 
         snap_id = create_quick_snapshot(fabric_home=fabric_home)
@@ -1942,7 +1942,7 @@ class TestQuickSnapshot:
         restore_quick_snapshot(snap_id, fabric_home=fabric_home)
 
         assert not escape_dst.exists(), (
-            f"manifest rel traversal escaped HERMES_HOME: {escape_dst} exists"
+            f"manifest rel traversal escaped FABRIC_HOME: {escape_dst} exists"
         )
 
         # Cleanup the seeded escape source so the test is hermetic.
@@ -2295,7 +2295,7 @@ class TestPreUpdateBackup:
         )
 
     def test_skips_symlinked_files(self, fabric_home, tmp_path):
-        """Pre-update backups must not dereference symlinks outside HERMES_HOME."""
+        """Pre-update backups must not dereference symlinks outside FABRIC_HOME."""
         from fabric_cli.backup import create_pre_update_backup
 
         outside = tmp_path / "outside-secret.txt"
@@ -2319,11 +2319,11 @@ class TestRunPreUpdateBackup:
         root = tmp_path / ".hermes"
         root.mkdir()
         _make_fabric_tree(root)
-        # Point HERMES_HOME at the temp dir so config + backup paths resolve here
-        monkeypatch.setenv("HERMES_HOME", str(root))
+        # Point FABRIC_HOME at the temp dir so config + backup paths resolve here
+        monkeypatch.setenv("FABRIC_HOME", str(root))
         # Make Path.home() point at tmp_path for anything that uses it
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        # Bust caches for fabric_cli.config + fabric_constants so they pick up HERMES_HOME
+        # Bust caches for fabric_cli.config + fabric_constants so they pick up FABRIC_HOME
         for mod in list(__import__("sys").modules.keys()):
             if mod.startswith("fabric_cli.config") or mod == "fabric_constants":
                 del __import__("sys").modules[mod]
@@ -2346,7 +2346,7 @@ class TestRunPreUpdateBackup:
     def test_default_disabled_is_silent(self, fabric_home, capsys):
         """With the default (``pre_update_backup: false``), ``fabric update``
         does NOT create a backup and stays silent — zipping a large
-        HERMES_HOME can add minutes to every update. Users who want the
+        FABRIC_HOME can add minutes to every update. Users who want the
         #48200 safety net opt in via the config knob or ``--backup``.
         """
         from fabric_cli.main import _run_pre_update_backup
@@ -2658,7 +2658,7 @@ class TestRestoreCronJobsIfEmptied:
 # ---------------------------------------------------------------------------
 # Memory-provider external paths (~/.honcho, ~/.hindsight, ...) — captured via
 # MemoryProvider.backup_paths() and restored to their original home-relative
-# location, NOT under HERMES_HOME. (backup/import cycle data-loss fix)
+# location, NOT under FABRIC_HOME. (backup/import cycle data-loss fix)
 # ---------------------------------------------------------------------------
 
 class TestMemoryProviderExternalPaths:
@@ -2673,14 +2673,14 @@ class TestMemoryProviderExternalPaths:
         encoded relative to the home directory."""
         fabric_home = tmp_path / ".hermes"
         self._make_min_tree(fabric_home)
-        # External provider state living OUTSIDE HERMES_HOME.
+        # External provider state living OUTSIDE FABRIC_HOME.
         honcho = tmp_path / ".honcho"
         honcho.mkdir()
         (honcho / "config.json").write_text('{"peer":"alice"}')
         (honcho / "sub").mkdir()
         (honcho / "sub" / "x.json").write_text('{"a":1}')
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         import fabric_cli.backup as backup_mod
@@ -2707,7 +2707,7 @@ class TestMemoryProviderExternalPaths:
         outside.mkdir(exist_ok=True)
         (outside / "leak.json").write_text('{"secret":1}')
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         import fabric_cli.backup as backup_mod
@@ -2726,7 +2726,7 @@ class TestMemoryProviderExternalPaths:
         outside.rmdir()
 
     def test_import_restores_external_to_home_relative_location(self, tmp_path, monkeypatch):
-        """_external/ members restore to ~/<relpath>, not under HERMES_HOME,
+        """_external/ members restore to ~/<relpath>, not under FABRIC_HOME,
         and credential-shaped files get 0600."""
         dst_home = tmp_path / "dst"
         dst_home.mkdir()
@@ -2740,7 +2740,7 @@ class TestMemoryProviderExternalPaths:
             zf.writestr("state.db", "")
             zf.writestr("_external/.honcho/config.json", '{"peer":"bob"}')
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: dst_home)
 
         from fabric_cli.backup import run_import
@@ -2751,7 +2751,7 @@ class TestMemoryProviderExternalPaths:
         assert restored.read_text() == '{"peer":"bob"}'
         # Credential-shaped file tightened.
         assert (restored.stat().st_mode & 0o777) == 0o600
-        # External state did NOT leak into HERMES_HOME.
+        # External state did NOT leak into FABRIC_HOME.
         assert not (fabric_home / "_external").exists()
 
     def test_import_blocks_external_path_traversal(self, tmp_path, monkeypatch):
@@ -2769,7 +2769,7 @@ class TestMemoryProviderExternalPaths:
             zf.writestr("state.db", "")
             zf.writestr("_external/../../PWNED", "pwned")
 
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr(Path, "home", lambda: dst_home)
 
         from fabric_cli.backup import run_import

@@ -33,7 +33,7 @@ except (ModuleNotFoundError, ImportError):
         """Return the agent home directory (default: ~/.fabric)."""
         val = (
             os.environ.get("FABRIC_HOME", "").strip()
-            or os.environ.get("HERMES_HOME", "").strip()
+            or os.environ.get("FABRIC_HOME", "").strip()
         )
         if val:
             return Path(val)

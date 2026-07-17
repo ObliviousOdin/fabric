@@ -211,10 +211,10 @@ def test_make_agent_honors_tui_launch_env_flags():
         patch.dict(
             os.environ,
             {
-                "HERMES_TUI_MAX_TURNS": "7",
-                "HERMES_TUI_CHECKPOINTS": "1",
-                "HERMES_TUI_PASS_SESSION_ID": "1",
-                "HERMES_IGNORE_RULES": "1",
+                "FABRIC_TUI_MAX_TURNS": "7",
+                "FABRIC_TUI_CHECKPOINTS": "1",
+                "FABRIC_TUI_PASS_SESSION_ID": "1",
+                "FABRIC_IGNORE_RULES": "1",
             },
         ),
         patch("tui_gateway.server._load_cfg", return_value=fake_cfg),
@@ -381,10 +381,10 @@ def test_make_agent_honors_per_session_model_override():
         patch("run_agent.AIAgent") as mock_agent,
     ):
         for var in (
-            "HERMES_MODEL",
-            "HERMES_INFERENCE_MODEL",
-            "HERMES_TUI_PROVIDER",
-            "HERMES_INFERENCE_PROVIDER",
+            "FABRIC_MODEL",
+            "FABRIC_INFERENCE_MODEL",
+            "FABRIC_TUI_PROVIDER",
+            "FABRIC_INFERENCE_PROVIDER",
         ):
             os.environ.pop(var, None)
 
@@ -432,10 +432,10 @@ def test_apply_model_switch_does_not_leak_process_env():
             self.provider = kw["new_provider"]
 
     env_keys = (
-        "HERMES_MODEL",
-        "HERMES_INFERENCE_MODEL",
-        "HERMES_TUI_PROVIDER",
-        "HERMES_INFERENCE_PROVIDER",
+        "FABRIC_MODEL",
+        "FABRIC_INFERENCE_MODEL",
+        "FABRIC_TUI_PROVIDER",
+        "FABRIC_INFERENCE_PROVIDER",
     )
 
     sess_b = {"agent": _FakeAgent(), "session_key": "k-B", "model_override": None}

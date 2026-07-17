@@ -8,7 +8,7 @@ The 4 tools (profile, search, context, conclude) are exposed through
 the MemoryProvider interface.
 
 Config: Uses the existing Honcho config chain:
-  1. $HERMES_HOME/honcho.json (profile-scoped)
+  1. $FABRIC_HOME/honcho.json (profile-scoped)
   2. ~/.honcho/config.json (legacy global)
   3. Environment variables
 """
@@ -292,7 +292,7 @@ class HonchoMemoryProvider(MemoryProvider):
             return False
 
     def save_config(self, values, fabric_home):
-        """Write config to $HERMES_HOME/honcho.json (Honcho SDK native format)."""
+        """Write config to $FABRIC_HOME/honcho.json (Honcho SDK native format)."""
         import json
         import os
         from pathlib import Path

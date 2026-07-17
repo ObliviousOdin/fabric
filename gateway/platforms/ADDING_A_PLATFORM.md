@@ -239,7 +239,7 @@ but new integrations must not mint more of them:
 ```python
 "fabric-your-platform": {
     "description": "Your Platform bot toolset",
-    "tools": _HERMES_CORE_TOOLS,
+    "tools": _FABRIC_CORE_TOOLS,
     "includes": []
 },
 ```

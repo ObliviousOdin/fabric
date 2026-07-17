@@ -436,7 +436,7 @@ def load_effective_disabled_skills(
     """Return global plus exactly one supplied platform's disabled skills.
 
     ``None`` is intentionally global-only.  Unlike the legacy runtime helper,
-    this function never consults ``HERMES_PLATFORM``, gateway session context,
+    this function never consults ``FABRIC_PLATFORM``, gateway session context,
     or any other ambient process state.
     """
 

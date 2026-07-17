@@ -649,8 +649,8 @@ class TestPayloadFilters:
 
     @pytest.mark.asyncio
     async def test_filter_accepts_nested_any_and_in_file(self, tmp_path, monkeypatch):
-        """Nested any groups can match dynamic watchlists under HERMES_HOME."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        """Nested any groups can match dynamic watchlists under FABRIC_HOME."""
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         watchlist = tmp_path / "data" / "watchlist.json"
         watchlist.parent.mkdir()
         watchlist.write_text(json.dumps(["chat-1", "chat-2"]), encoding="utf-8")
@@ -737,7 +737,7 @@ class TestPayloadFilters:
     @pytest.mark.asyncio
     async def test_script_transforms_payload_before_prompt_rendering(self, tmp_path, monkeypatch):
         """A script can replace the payload used by prompt templates."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         scripts = tmp_path / "scripts"
         scripts.mkdir()
         script = scripts / "todoist_filter.py"
@@ -782,7 +782,7 @@ class TestPayloadFilters:
         self, tmp_path, monkeypatch, home_alias
     ):
         """Modern and legacy paths resolve through the active profile home."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         scripts = tmp_path / "scripts"
         scripts.mkdir()
         (scripts / "todoist_filter.py").write_text(
@@ -822,7 +822,7 @@ class TestPayloadFilters:
     @pytest.mark.asyncio
     async def test_script_silent_stdout_ignores_without_idempotency_hit(self, tmp_path, monkeypatch):
         """Empty or [SILENT] script stdout filters the webhook out."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         scripts = tmp_path / "scripts"
         scripts.mkdir()
         (scripts / "skip.py").write_text("print('[SILENT]')\n", encoding="utf-8")
@@ -857,7 +857,7 @@ class TestPayloadFilters:
     @pytest.mark.asyncio
     async def test_script_nonzero_exit_ignores_webhook(self, tmp_path, monkeypatch):
         """A script can fail closed by exiting nonzero."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         scripts = tmp_path / "scripts"
         scripts.mkdir()
         (scripts / "skip.py").write_text(

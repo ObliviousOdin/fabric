@@ -30,7 +30,7 @@ moa:
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     calls = []
 
     def fake_call_llm(**kwargs):
@@ -107,7 +107,7 @@ moa:
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     calls = []
 
     def fake_call_llm(**kwargs):
@@ -439,7 +439,7 @@ moa:
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     calls = []
 
     def fake_call_llm(**kwargs):
@@ -505,7 +505,7 @@ moa:
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     calls = []
 
     def fake_call_llm(**kwargs):
@@ -603,7 +603,7 @@ def test_moa_facade_emits_reference_then_aggregating(monkeypatch, tmp_path):
     so frontends can render reference blocks before the aggregator acts."""
     home = tmp_path / ".hermes"
     _ref_config(home)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     def fake_call_llm(**kwargs):
         if kwargs["task"] == "moa_reference":
@@ -641,7 +641,7 @@ def test_moa_facade_reruns_references_on_new_tool_result(monkeypatch, tmp_path):
     """
     home = tmp_path / ".hermes"
     _ref_config(home)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     ref_runs = []
 
@@ -681,7 +681,7 @@ def test_moa_facade_reruns_references_on_new_turn(monkeypatch, tmp_path):
     """A genuinely new user message invalidates the cache and re-runs refs."""
     home = tmp_path / ".hermes"
     _ref_config(home)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     ref_runs = []
 
@@ -833,7 +833,7 @@ moa:
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     def fake_call_llm(**kwargs):
         if kwargs["task"] == "moa_reference":
@@ -918,7 +918,7 @@ moa:
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     def fake_call_llm(**kwargs):
         if kwargs["task"] == "moa_reference":
@@ -996,7 +996,7 @@ moa:
 """.strip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     def fake_call_llm(**kwargs):
         if kwargs["task"] == "moa_reference":

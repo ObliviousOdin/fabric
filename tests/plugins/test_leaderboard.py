@@ -33,7 +33,7 @@ def _load(path: Path, name: str):
 def _concurrent_relay_start_worker(home, port, gate, ready, spawn_log, results):
     """Start through a fresh plugin import, simulating another dashboard worker."""
     os.environ["FABRIC_HOME"] = home
-    os.environ.pop("HERMES_HOME", None)
+    os.environ.pop("FABRIC_HOME", None)
     api = _load(PLUGIN_API_PATH, f"plugin_api_worker_{os.getpid()}")
     setattr(api, "detect_tailscale", lambda: {
         "installed": False,
@@ -148,7 +148,7 @@ def api(tmp_path, monkeypatch):
     fabric_home = tmp_path / ".fabric"
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
-    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.delenv("FABRIC_HOME", raising=False)
     module = _load(PLUGIN_API_PATH, f"plugin_api_lb_{id(tmp_path)}")
     # Keep the leaderboard logic independent of the session scanner.
     monkeypatch.setattr(module, "_current_achievements", lambda: SAMPLE_ACHIEVEMENTS)

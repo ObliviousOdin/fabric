@@ -63,6 +63,6 @@ def test_fabric_help_is_customer_silent():
         "Update Fabric",
         "anthropic/claude",
         "openrouter, anthropic",
-        "HERMES_INFERENCE_MODEL",
+        "FABRIC_INFERENCE_MODEL",
     ):
         assert forbidden not in result.stdout

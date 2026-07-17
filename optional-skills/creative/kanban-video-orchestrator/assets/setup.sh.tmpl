@@ -13,7 +13,7 @@ set -euo pipefail
 PROJECT_SLUG="{{SLUG}}"
 WORKSPACE="$HOME/projects/video-pipeline/${PROJECT_SLUG}"
 TENANT="{{TENANT}}"
-FABRIC_STATE_HOME="${FABRIC_HOME:-${HERMES_HOME:-$HOME/.fabric}}"
+FABRIC_STATE_HOME="${FABRIC_HOME:-${FABRIC_HOME:-$HOME/.fabric}}"
 
 # ─────────────────────────────────────────────────────────────────────
 # 1. Verify required API keys
@@ -91,7 +91,7 @@ profile, toolsets_json, skills_json, workspace = sys.argv[1:5]
 toolsets = json.loads(toolsets_json)
 skills = json.loads(skills_json)
 
-fabric_home = os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME")
+fabric_home = os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME")
 fabric_home = os.path.expanduser(fabric_home or "~/.fabric")
 p = os.path.join(fabric_home, "profiles", profile, "config.yaml")
 if not os.path.exists(p):

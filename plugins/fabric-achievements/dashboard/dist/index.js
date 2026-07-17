@@ -6,8 +6,8 @@
   // badges and UI iteration; the in-progress scan banner below is a small addition
   // layered on top of the original dist bundle.
   // These legacy-named globals are the dashboard host's compatibility API.
-  const SDK = window.__HERMES_PLUGIN_SDK__;
-  if (!SDK || !window.__HERMES_PLUGINS__) return;
+  const SDK = window.__FABRIC_PLUGIN_SDK__;
+  if (!SDK || !window.__FABRIC_PLUGINS__) return;
 
   const React = SDK.React;
   const hooks = SDK.hooks;
@@ -1456,5 +1456,5 @@
     );
   }
 
-  window.__HERMES_PLUGINS__.register("fabric-achievements", Root);
+  window.__FABRIC_PLUGINS__.register("fabric-achievements", Root);
 })();

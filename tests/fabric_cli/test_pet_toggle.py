@@ -14,7 +14,7 @@ def boba_installed(tmp_path, monkeypatch):
 
     home = tmp_path / ".hermes"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     sheet = Image.new("RGBA", (FRAME_W * 8, FRAME_H * 9), (0, 0, 0, 0))
     pet_dir = store.pets_dir() / "boba"
@@ -64,7 +64,7 @@ def test_toggle_pet_display_uses_bundled_pet_without_profile_installs(tmp_path, 
 
     home = tmp_path / ".hermes"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     _write_config(home, enabled=False, slug="")
 
     enabled, name, err = toggle_pet_display()
@@ -79,7 +79,7 @@ def test_toggle_pet_display_uses_bundled_pet_without_profile_installs(tmp_path, 
 def empty_home(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     return home
 
 

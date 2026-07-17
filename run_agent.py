@@ -93,9 +93,9 @@ def _session_source_for_agent(platform: Optional[str]) -> str:
     try:
         from gateway.session_context import get_session_env
 
-        source = get_session_env("HERMES_SESSION_SOURCE", "")
+        source = get_session_env("FABRIC_SESSION_SOURCE", "")
     except Exception:
-        source = os.environ.get("HERMES_SESSION_SOURCE", "")
+        source = os.environ.get("FABRIC_SESSION_SOURCE", "")
     source = str(source or "").strip()
     if source:
         return source
@@ -281,10 +281,10 @@ _QWEN_CODE_VERSION = "0.14.1"
 
 def _routermint_headers() -> dict:
     """Return the User-Agent RouterMint needs to avoid Cloudflare 1010 blocks."""
-    from fabric_cli import __version__ as _HERMES_VERSION
+    from fabric_cli import __version__ as _FABRIC_VERSION
 
     return {
-        "User-Agent": f"FabricAgent/{_HERMES_VERSION}",
+        "User-Agent": f"FabricAgent/{_FABRIC_VERSION}",
     }
 
 
@@ -1189,19 +1189,19 @@ class AIAgent:
         Priority:
           1. ``providers.<id>.models.<model>.timeout_seconds`` (per-model override)
           2. ``providers.<id>.request_timeout_seconds`` (provider-wide)
-          3. ``HERMES_API_TIMEOUT`` env var (legacy escape hatch)
+          3. ``FABRIC_API_TIMEOUT`` env var (legacy escape hatch)
           4. 1800.0s default
 
         Used by OpenAI-wire chat completions (streaming and non-streaming) so
         the per-provider config knob wins over the 1800s default.  Without this
-        helper, the hardcoded ``HERMES_API_TIMEOUT`` fallback would always be
+        helper, the hardcoded ``FABRIC_API_TIMEOUT`` fallback would always be
         passed as a per-call ``timeout=`` kwarg, overriding the client-level
         timeout the AIAgent.__init__ path configured.
         """
         cfg = get_provider_request_timeout(self.provider, self.model)
         if cfg is not None:
             return cfg
-        return env_float("HERMES_API_TIMEOUT", 1800.0)
+        return env_float("FABRIC_API_TIMEOUT", 1800.0)
 
     def _resolved_api_call_stale_timeout_base(self) -> tuple[float, bool]:
         """Resolve the base non-stream stale timeout and whether it is implicit.
@@ -1209,7 +1209,7 @@ class AIAgent:
         Priority:
           1. ``providers.<id>.models.<model>.stale_timeout_seconds``
           2. ``providers.<id>.stale_timeout_seconds``
-          3. ``HERMES_API_CALL_STALE_TIMEOUT`` env var
+          3. ``FABRIC_API_CALL_STALE_TIMEOUT`` env var
           4. 90.0s default (time-to-first-byte for non-streaming / Codex
              internal-streaming requests; lowered from 300s in May 2026 so
              fallback providers kick in faster when upstream providers
@@ -1225,7 +1225,7 @@ class AIAgent:
         if cfg is not None:
             return cfg, False
 
-        env_timeout = os.getenv("HERMES_API_CALL_STALE_TIMEOUT")
+        env_timeout = os.getenv("FABRIC_API_CALL_STALE_TIMEOUT")
         if env_timeout is not None:
             return float(env_timeout), False
 
@@ -2228,7 +2228,7 @@ class AIAgent:
 
     @staticmethod
     def _hook_payload_max_chars() -> int:
-        raw = os.getenv("HERMES_PLUGIN_PAYLOAD_MAX_CHARS", "50000")
+        raw = os.getenv("FABRIC_PLUGIN_PAYLOAD_MAX_CHARS", "50000")
         try:
             return max(1000, int(raw))
         except (TypeError, ValueError):
@@ -2505,7 +2505,7 @@ class AIAgent:
         parts. Image / binary parts are left untouched; only text fields are
         passed through ``redact_sensitive_text``.
 
-        Respects ``HERMES_REDACT_SECRETS`` via ``redact_sensitive_text`` —
+        Respects ``FABRIC_REDACT_SECRETS`` via ``redact_sensitive_text`` —
         when disabled the helper is effectively a no-op.
         """
         if content is None:
@@ -2571,7 +2571,7 @@ class AIAgent:
                 # Defence-in-depth: redact credentials from every message
                 # content before persistence. Catches PATs / API keys / Bearer
                 # tokens that may have leaked into assistant responses, tool
-                # output, or user paste. Respects HERMES_REDACT_SECRETS via
+                # output, or user paste. Respects FABRIC_REDACT_SECRETS via
                 # redact_sensitive_text — no-op when disabled. (#19798, #19845)
                 if "content" in msg:
                     msg = dict(msg)
@@ -2819,13 +2819,13 @@ class AIAgent:
         """Check whether the per-turn file-mutation verifier footer is on.
 
         Config path: ``display.file_mutation_verifier`` (bool, default True).
-        ``HERMES_FILE_MUTATION_VERIFIER`` env var overrides config.  Exposed
+        ``FABRIC_FILE_MUTATION_VERIFIER`` env var overrides config.  Exposed
         as a method so tests can patch a single seam without reaching into
         the private ``_turn_failed_file_mutations`` state dict.
         """
         try:
             import os as _os
-            env = _os.environ.get("HERMES_FILE_MUTATION_VERIFIER")
+            env = _os.environ.get("FABRIC_FILE_MUTATION_VERIFIER")
             if env is not None:
                 return env.strip().lower() not in {"0", "false", "no", "off"}
             # Read from the persisted config.yaml so gateway and CLI share
@@ -2916,13 +2916,13 @@ class AIAgent:
         """Check whether the end-of-turn completion explainer footer is on.
 
         Config path: ``display.turn_completion_explainer`` (bool, default
-        True).  ``HERMES_TURN_COMPLETION_EXPLAINER`` env var overrides
+        True).  ``FABRIC_TURN_COMPLETION_EXPLAINER`` env var overrides
         config.  Exposed as a method so tests can patch a single seam,
         mirroring ``_file_mutation_verifier_enabled``.
         """
         try:
             import os as _os
-            env = _os.environ.get("HERMES_TURN_COMPLETION_EXPLAINER")
+            env = _os.environ.get("FABRIC_TURN_COMPLETION_EXPLAINER")
             if env is not None:
                 return env.strip().lower() not in {"0", "false", "no", "off"}
             # Read from the persisted config.yaml so gateway and CLI share
@@ -3041,14 +3041,14 @@ class AIAgent:
         """Update the last-activity timestamp and description (thread-safe).
 
         Also bridges to the kanban board's heartbeat fields when this
-        process is a dispatcher-spawned worker (HERMES_KANBAN_TASK set),
+        process is a dispatcher-spawned worker (FABRIC_KANBAN_TASK set),
         so the dispatcher watchdog doesn't reclaim an actively-running
         worker as stale (#31752). Bridge is rate-limited (60s) and
         best-effort — it never raises into the agent loop.
         """
         self._last_activity_ts = time.time()
         self._last_activity_desc = desc
-        if os.environ.get("HERMES_KANBAN_TASK"):
+        if os.environ.get("FABRIC_KANBAN_TASK"):
             try:
                 from tools.kanban_tools import heartbeat_current_worker_from_env
                 heartbeat_current_worker_from_env()
@@ -3090,7 +3090,7 @@ class AIAgent:
         EVALUATION/EMIT is a SEPARATE block that WARNS on failure (R1-M2): a bug in the
         depletion-notice path must not vanish silently under the parse swallow.
         """
-        # Dev test fixture (HERMES_DEV_CREDITS_FIXTURE): inject a chosen notice state
+        # Dev test fixture (FABRIC_DEV_CREDITS_FIXTURE): inject a chosen notice state
         # each turn for repeatable testing, bypassing real headers. Throwaway scaffolding.
         try:
             from agent.credits_tracker import dev_fixture_credits_state
@@ -3107,7 +3107,7 @@ class AIAgent:
             _used = _fixture.used_fraction
             logger.info(
                 "credits ▸ [FIXTURE] remaining=%d (%s) · paid=%s · denom=%s · used=%s "
-                "(real headers bypassed — `echo clear` / unset HERMES_DEV_CREDITS_FIXTURE to restore)",
+                "(real headers bypassed — `echo clear` / unset FABRIC_DEV_CREDITS_FIXTURE to restore)",
                 _fixture.remaining_micros,
                 _fixture.remaining_usd or "?",
                 _fixture.paid_access,
@@ -3121,7 +3121,7 @@ class AIAgent:
         headers = getattr(http_response, "headers", None)
         if not headers:
             return
-        _dev = is_truthy_value(os.environ.get("HERMES_DEV_CREDITS"))
+        _dev = is_truthy_value(os.environ.get("FABRIC_DEV_CREDITS"))
 
         # ── Parse (fail-open → miss; never overwrite good state with None) ──
         try:
@@ -3143,7 +3143,7 @@ class AIAgent:
         if self._credits_session_start_micros is None:
             self._credits_session_start_micros = state.remaining_micros
         if _dev:
-            # HERMES_DEV_CREDITS: stream each capture to agent.log — watch live with
+            # FABRIC_DEV_CREDITS: stream each capture to agent.log — watch live with
             # `fabric logs -f` (grep 'credits ▸'). Dev-only; silent for normal users.
             spent = self.get_credits_spent_micros()
             used = state.used_fraction
@@ -3914,7 +3914,7 @@ class AIAgent:
         preserves OS TCP defaults (including ``TCP_NODELAY``).
 
         ``verify`` carries per-provider ``ssl_ca_cert`` / ``ssl_verify`` and
-        ``HERMES_CA_BUNDLE`` settings.  It is passed on the client AND on
+        ``FABRIC_CA_BUNDLE`` settings.  It is passed on the client AND on
         the plain no-proxy mounts (a mounted transport owns the SSL context
         for its scheme).
         """
@@ -4272,7 +4272,7 @@ class AIAgent:
             from fabric_cli.auth import resolve_nous_runtime_credentials
 
             creds = resolve_nous_runtime_credentials(
-                timeout_seconds=env_float("HERMES_NOUS_TIMEOUT_SECONDS", 15),
+                timeout_seconds=env_float("FABRIC_NOUS_TIMEOUT_SECONDS", 15),
                 force_refresh=force,
             )
         except Exception as exc:

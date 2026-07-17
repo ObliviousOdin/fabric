@@ -33,7 +33,7 @@ def existing_install(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     return home
 
 
@@ -43,7 +43,7 @@ def fresh_install(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     # The global test harness exposes the full upstream catalog for broad
     # compatibility tests. First-run Fabric tests must exercise the actual
     # curated customer default instead.

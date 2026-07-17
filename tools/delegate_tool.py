@@ -2814,8 +2814,8 @@ def delegate_task(
         try:
             from gateway.session_context import get_session_env
 
-            _source = get_session_env("HERMES_SESSION_SOURCE", "")
-            _origin_ui_session_id = get_session_env("HERMES_UI_SESSION_ID", "")
+            _source = get_session_env("FABRIC_SESSION_SOURCE", "")
+            _origin_ui_session_id = get_session_env("FABRIC_UI_SESSION_ID", "")
             # In desktop/TUI, the routable session key is the durable
             # AIAgent.session_id. Context compression can rotate that id during
             # the same turn before the TUI-side session dict is re-anchored;
@@ -3230,7 +3230,7 @@ def _load_config() -> dict:
     """Load delegation config from the active Fabric config.
 
     Prefer the shared persistent loader because it follows the active
-    HERMES_HOME/profile. ``cli.CLI_CONFIG`` is a legacy fallback for entry
+    FABRIC_HOME/profile. ``cli.CLI_CONFIG`` is a legacy fallback for entry
     points that cannot import the shared loader; importing it first can return
     an old default ``delegation`` block and hide user-set keys such as
     ``max_concurrent_children``.
@@ -3240,12 +3240,12 @@ def _load_config() -> dict:
     rebuild via ``_get_max_concurrent_children``, so skipping the defensive
     deepcopy matters. Do NOT mutate the returned dict.
 
-    ``HERMES_IGNORE_USER_CONFIG=1`` (``fabric chat --ignore-user-config``) is
+    ``FABRIC_IGNORE_USER_CONFIG=1`` (``fabric chat --ignore-user-config``) is
     only honored by the legacy ``cli`` loader, not the shared one, so when the
     flag is set we keep ``cli.CLI_CONFIG`` authoritative to preserve the
     flag's contract of suppressing user config.yaml settings.
     """
-    prefer_legacy = os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
+    prefer_legacy = os.environ.get("FABRIC_IGNORE_USER_CONFIG") == "1"
     if not prefer_legacy:
         try:
             from fabric_cli.config import load_config_readonly
@@ -3456,7 +3456,7 @@ DELEGATE_TASK_SCHEMA = {
     # delegation.max_concurrent_children / max_spawn_depth, not the framework
     # defaults. Building these lazily (instead of at module import) also
     # avoids forcing cli.CLI_CONFIG to load before the test conftest can
-    # redirect HERMES_HOME.
+    # redirect FABRIC_HOME.
     "description": (
         "Spawn one or more subagents in isolated contexts. "
         "Description is rebuilt at every get_definitions() call to reflect "

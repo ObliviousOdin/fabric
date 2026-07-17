@@ -1,7 +1,7 @@
 """Honcho client initialization and configuration.
 
 Resolution order for config file:
-  1. $HERMES_HOME/honcho.json  (instance-local, enables isolated Fabric instances)
+  1. $FABRIC_HOME/honcho.json  (instance-local, enables isolated Fabric instances)
   2. ~/.honcho/config.json     (global, shared across all Honcho-enabled apps)
   3. Environment variables     (HONCHO_API_KEY, HONCHO_ENVIRONMENT)
 
@@ -57,11 +57,11 @@ def resolve_active_host() -> str:
     """Derive the Honcho host key from the active Fabric profile.
 
     Resolution order:
-      1. Profile-owned HERMES_HONCHO_HOST value (explicit override)
+      1. Profile-owned FABRIC_HONCHO_HOST value (explicit override)
       2. Active profile name via profiles system -> ``fabric.<profile>``
       3. Fallback: ``"hermes"`` (default profile)
     """
-    explicit = str(profile_env("HERMES_HONCHO_HOST", "") or "").strip()
+    explicit = str(profile_env("FABRIC_HONCHO_HOST", "") or "").strip()
     if explicit:
         return explicit
 
@@ -83,7 +83,7 @@ def resolve_config_path() -> Path:
     """Return the active Honcho config path.
 
     Resolution order:
-      1. $HERMES_HOME/honcho.json      (profile-local, if it exists)
+      1. $FABRIC_HOME/honcho.json      (profile-local, if it exists)
       2. ~/.hermes/honcho.json          (default profile — shared host blocks live here)
       3. ~/.honcho/config.json          (global, cross-app interop)
 
@@ -418,7 +418,7 @@ class HonchoClientConfig:
     ) -> HonchoClientConfig:
         """Create config from the resolved Honcho config path.
 
-        Resolution: $HERMES_HOME/honcho.json -> ~/.honcho/config.json -> env vars.
+        Resolution: $FABRIC_HOME/honcho.json -> ~/.honcho/config.json -> env vars.
         When host is None, derives it from the active Fabric profile.
         """
         resolved_host = host or resolve_active_host()

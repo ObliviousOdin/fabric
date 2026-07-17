@@ -2,7 +2,7 @@
 
 Covers the store (add/dedup/cap/accept/dismiss/latch), catalog seeding, the
 blueprint->suggestion bridge, and the shared command handler. Uses an isolated
-HERMES_HOME so the real suggestions.json is never touched.
+FABRIC_HOME so the real suggestions.json is never touched.
 """
 
 import importlib
@@ -15,10 +15,10 @@ import pytest
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
-    """A cron.suggestions module bound to an isolated HERMES_HOME."""
+    """A cron.suggestions module bound to an isolated FABRIC_HOME."""
     home = tmp_path / ".hermes"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     # Reload so module-level CRON_DIR/SUGGESTIONS_FILE pick up the temp home.
     import fabric_constants
     importlib.reload(fabric_constants)

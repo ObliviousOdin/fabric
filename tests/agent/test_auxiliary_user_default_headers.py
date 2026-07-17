@@ -16,10 +16,10 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path, monkeypatch):
-    """Redirect HERMES_HOME so load_config() reads our test config.yaml."""
+    """Redirect FABRIC_HOME so load_config() reads our test config.yaml."""
     fabric_home = tmp_path / ".hermes"
     fabric_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     (fabric_home / "config.yaml").write_text("model:\n  default: test-model\n")
 
 

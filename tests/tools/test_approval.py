@@ -258,7 +258,7 @@ class TestSessionKeyContext:
     def test_context_session_key_overrides_process_env(self):
         token = approval_module.set_current_session_key("alice")
         try:
-            with mock_patch.dict("os.environ", {"HERMES_SESSION_KEY": "bob"}, clear=False):
+            with mock_patch.dict("os.environ", {"FABRIC_SESSION_KEY": "bob"}, clear=False):
                 assert approval_module.get_current_session_key() == "alice"
         finally:
             approval_module.reset_current_session_key(token)
@@ -484,12 +484,12 @@ class TestTeePattern:
         assert key is not None
 
     def test_tee_custom_fabric_home_env(self):
-        dangerous, key, desc = detect_dangerous_command("echo x | tee $HERMES_HOME/.env")
+        dangerous, key, desc = detect_dangerous_command("echo x | tee $FABRIC_HOME/.env")
         assert dangerous is True
         assert key is not None
 
     def test_tee_quoted_custom_fabric_home_env(self):
-        dangerous, key, desc = detect_dangerous_command('echo x | tee "$HERMES_HOME/.env"')
+        dangerous, key, desc = detect_dangerous_command('echo x | tee "$FABRIC_HOME/.env"')
         assert dangerous is True
         assert key is not None
 
@@ -567,7 +567,7 @@ class TestFabricConfigWriteProtection:
         assert "fabric config" in desc.lower() or "in-place" in desc.lower()
 
     def test_custom_fabric_home(self):
-        dangerous, key, desc = detect_dangerous_command("echo x | tee $HERMES_HOME/config.yaml")
+        dangerous, key, desc = detect_dangerous_command("echo x | tee $FABRIC_HOME/config.yaml")
         assert dangerous is True
 
     def test_perl_in_place_config(self):
@@ -676,7 +676,7 @@ class TestSensitiveRedirectPattern:
     """Detect shell redirection writes to sensitive user-managed paths."""
 
     def test_redirect_to_custom_fabric_home_env(self):
-        dangerous, key, desc = detect_dangerous_command("echo x > $HERMES_HOME/.env")
+        dangerous, key, desc = detect_dangerous_command("echo x > $FABRIC_HOME/.env")
         assert dangerous is True
         assert key is not None
 
@@ -920,7 +920,7 @@ class TestWindowsAbsolutePathFolding:
     SSH, and Fabric config/env files returned "safe" without an approval prompt.
     The OS-specific ``Path.home()`` / ``get_fabric_home()`` tests above only
     exercise this branch on a Windows host; these monkeypatch a Windows-style
-    HOME/HERMES_HOME so the fold is verified on the POSIX CI runner too."""
+    HOME/FABRIC_HOME so the fold is verified on the POSIX CI runner too."""
 
     def test_windows_home_bashrc_folds(self, monkeypatch):
         monkeypatch.setenv("HOME", r"C:\Users\tester")
@@ -952,7 +952,7 @@ class TestWindowsAbsolutePathFolding:
         # Fabric home nests under the user home on Windows; it must fold before
         # the user-home rewrite eats its prefix.
         monkeypatch.setenv("HOME", r"C:\Users\tester")
-        monkeypatch.setenv("HERMES_HOME", r"C:\Users\tester\.hermes")
+        monkeypatch.setenv("FABRIC_HOME", r"C:\Users\tester\.hermes")
         dangerous, key, _ = detect_dangerous_command(
             r"sed -i 's/manual/off/' C:\Users\tester\.hermes\config.yaml"
         )
@@ -2081,18 +2081,18 @@ class TestApprovalTimeoutIsNotConsent:
 
         self._saved_env = {
             k: os.environ.get(k)
-            for k in ("HERMES_GATEWAY_SESSION", "HERMES_CRON_SESSION",
-                      "HERMES_YOLO_MODE",
-                      "HERMES_SESSION_KEY", "HERMES_INTERACTIVE")
+            for k in ("FABRIC_GATEWAY_SESSION", "FABRIC_CRON_SESSION",
+                      "FABRIC_YOLO_MODE",
+                      "FABRIC_SESSION_KEY", "FABRIC_INTERACTIVE")
         }
-        os.environ.pop("HERMES_YOLO_MODE", None)
-        os.environ.pop("HERMES_INTERACTIVE", None)
-        # HERMES_CRON_SESSION takes priority over HERMES_GATEWAY_SESSION in
+        os.environ.pop("FABRIC_YOLO_MODE", None)
+        os.environ.pop("FABRIC_INTERACTIVE", None)
+        # FABRIC_CRON_SESSION takes priority over FABRIC_GATEWAY_SESSION in
         # _is_gateway_approval_context(); a leaked value from a parent cron
         # process would force the cron path and break these gateway tests.
-        os.environ.pop("HERMES_CRON_SESSION", None)
-        os.environ["HERMES_GATEWAY_SESSION"] = "1"
-        os.environ["HERMES_SESSION_KEY"] = self.SESSION_KEY
+        os.environ.pop("FABRIC_CRON_SESSION", None)
+        os.environ["FABRIC_GATEWAY_SESSION"] = "1"
+        os.environ["FABRIC_SESSION_KEY"] = self.SESSION_KEY
 
     def teardown_method(self):
         from tools import approval as mod
@@ -2246,7 +2246,7 @@ class TestTirithImportErrorFailOpenPolicy:
         with _patch("builtins.__import__", side_effect=self._make_failing_import(real_import)):
             with _patch("fabric_cli.config.load_config", return_value=cfg):
                 with _patch("tools.approval.detect_dangerous_command", return_value=(False, None, None)):
-                    with mock_patch.dict("os.environ", {"HERMES_INTERACTIVE": "1"}, clear=False):
+                    with mock_patch.dict("os.environ", {"FABRIC_INTERACTIVE": "1"}, clear=False):
                         result = check_all_command_guards("echo hello", "local")
 
         assert result.get("approved") is True
@@ -2271,7 +2271,7 @@ class TestTirithImportErrorFailOpenPolicy:
         with _patch("builtins.__import__", side_effect=self._make_failing_import(real_import)):
             with _patch("fabric_cli.config.load_config", return_value=cfg):
                 with _patch("tools.approval.detect_dangerous_command", return_value=(False, None, None)):
-                    with mock_patch.dict("os.environ", {"HERMES_INTERACTIVE": "1"}, clear=False):
+                    with mock_patch.dict("os.environ", {"FABRIC_INTERACTIVE": "1"}, clear=False):
                         result = check_all_command_guards(
                             "echo hello",
                             "local",
@@ -2302,7 +2302,7 @@ class TestTirithImportErrorFailOpenPolicy:
         with _patch("builtins.__import__", side_effect=self._make_failing_import(real_import)):
             with _patch("fabric_cli.config.load_config", return_value=cfg):
                 with _patch("tools.approval.detect_dangerous_command", return_value=(False, None, None)):
-                    with mock_patch.dict("os.environ", {"HERMES_INTERACTIVE": "1"}, clear=False):
+                    with mock_patch.dict("os.environ", {"FABRIC_INTERACTIVE": "1"}, clear=False):
                         result = check_all_command_guards("echo hello", "local")
 
         assert result.get("approved") is True

@@ -218,14 +218,14 @@ RUN mkdir -p /opt/hermes/bin && \
     chmod 0755 /opt/hermes/bin/fabric && \
     printf 'docker\n' > /opt/hermes/.install_method
 # The ``.install_method`` stamp is baked next to the running code (the install
-# tree), NOT into $HERMES_HOME. $HERMES_HOME (/opt/data) is a shared data
+# tree), NOT into $FABRIC_HOME. $FABRIC_HOME (/opt/data) is a shared data
 # volume that is commonly bind-mounted from the host and even shared with a
 # host-side Desktop/CLI install; stamping it at boot used to clobber that
 # host install's marker and wrongly block its ``fabric update``. A code-scoped
 # stamp is read first by detect_install_method() and is immune to the share.
 # Start as root so the s6-overlay stage2 hook can usermod/groupmod and chown
 # the data volume. Each supervised service then drops to the fabric user via
-# `s6-setuidgid fabric` in its run script. If HERMES_UID is unset, services
+# `s6-setuidgid fabric` in its run script. If FABRIC_UID is unset, services
 # run as the default fabric user (UID 10000).
 
 # ---------- Bake build-time git revision ----------
@@ -246,8 +246,8 @@ RUN mkdir -p /opt/hermes/bin && \
 # (.github/workflows/docker.yml) passes ${{ github.sha }} so
 # every published image has it.
 ARG FABRIC_GIT_SHA=
-ARG HERMES_GIT_SHA=
-RUN build_sha="${FABRIC_GIT_SHA:-${HERMES_GIT_SHA}}"; \
+ARG FABRIC_GIT_SHA=
+RUN build_sha="${FABRIC_GIT_SHA:-${FABRIC_GIT_SHA}}"; \
     if [ -n "${build_sha}" ]; then \
         printf '%s\n' "${build_sha}" > /opt/hermes/.hermes_build_sha; \
     fi
@@ -266,7 +266,7 @@ COPY docker/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
 # runs before user services start.
 #
 # 02-reconcile-profiles re-creates per-profile gateway s6 service
-# slots from $HERMES_HOME/profiles/<name>/ after a container restart
+# slots from $FABRIC_HOME/profiles/<name>/ after a container restart
 # (the /run/service/ scandir is tmpfs and wiped on restart). Phase 4.
 RUN mkdir -p /etc/cont-init.d && \
     printf '#!/command/with-contenv sh\nexec /opt/hermes/docker/stage2-hook.sh\n' \
@@ -294,13 +294,13 @@ ENV FABRIC_WEB_DIST=/opt/hermes/fabric_cli/web_dist
 # 502 / "[session ended]". Pointing at the prebuilt bundle sidesteps the whole
 # check. (A separate launcher hardening is tracked independently.)
 ENV FABRIC_TUI_DIR=/opt/hermes/ui-tui
-ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
+ENV FABRIC_TUI_DIR=/opt/hermes/ui-tui
 ENV FABRIC_HOME=/opt/data
-ENV HERMES_HOME=/opt/data
+ENV FABRIC_HOME=/opt/data
 ENV FABRIC_WRITE_SAFE_ROOT=/opt/data
-ENV HERMES_WRITE_SAFE_ROOT=/opt/data
+ENV FABRIC_WRITE_SAFE_ROOT=/opt/data
 ENV FABRIC_DISABLE_LAZY_INSTALLS=1
-ENV HERMES_DISABLE_LAZY_INSTALLS=1
+ENV FABRIC_DISABLE_LAZY_INSTALLS=1
 # The published image seals /opt/hermes (root-owned, read-only) so a runtime
 # lazy install can't mutate the agent's own venv and brick it. But opt-in
 # backends (Firecrawl web search, Exa, Feishu, …) keep their SDKs in
@@ -314,7 +314,7 @@ ENV HERMES_DISABLE_LAZY_INSTALLS=1
 # on the /opt/data volume, so it persists across container recreates / image
 # updates (an ABI stamp invalidates it if a rebuild bumps the interpreter).
 ENV FABRIC_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
-ENV HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
+ENV FABRIC_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
 
 # `docker exec` privilege-drop shim. When operators run
 # `docker exec <c> fabric ...` they default to root, and any file the

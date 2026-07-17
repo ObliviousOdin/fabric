@@ -276,10 +276,10 @@ class TestSpawnEnvIsolation:
 
         monkeypatch.setattr(subprocess, "Popen", FakePopen)
         monkeypatch.setenv("HOME", "/users/alice")
-        monkeypatch.setenv("HERMES_HOME", "/users/alice/.hermes/profiles/backend-worker")
-        monkeypatch.setenv("HERMES_KANBAN_TASK", "t_smoke")
+        monkeypatch.setenv("FABRIC_HOME", "/users/alice/.hermes/profiles/backend-worker")
+        monkeypatch.setenv("FABRIC_KANBAN_TASK", "t_smoke")
         monkeypatch.setenv(
-            "HERMES_KANBAN_DB",
+            "FABRIC_KANBAN_DB",
             "/users/alice/.hermes/kanban/boards/smoke/kanban.db",
         )
 
@@ -349,7 +349,7 @@ class TestSpawnEnvSecretStripping:
             "GH_TOKEN": "ghp-secret",
             "TELEGRAM_BOT_TOKEN": "bot-secret",
             "MODAL_TOKEN_SECRET": "modal-secret",
-            "HERMES_DASHBOARD_SESSION_TOKEN": "dash-secret",
+            "FABRIC_DASHBOARD_SESSION_TOKEN": "dash-secret",
             "AUXILIARY_VISION_API_KEY": "aux-secret",
             "GATEWAY_RELAY_SECRET": "relay-secret",
             "GATEWAY_RELAY_ID": "relay-id",
@@ -360,7 +360,7 @@ class TestSpawnEnvSecretStripping:
         env = self._capture_spawn_env(monkeypatch)
         for var in (
             "GH_TOKEN", "TELEGRAM_BOT_TOKEN", "MODAL_TOKEN_SECRET",
-            "HERMES_DASHBOARD_SESSION_TOKEN", "AUXILIARY_VISION_API_KEY",
+            "FABRIC_DASHBOARD_SESSION_TOKEN", "AUXILIARY_VISION_API_KEY",
             "GATEWAY_RELAY_SECRET", "GATEWAY_RELAY_ID", "GATEWAY_RELAY_DELIVERY_KEY",
         ):
             assert var not in env, f"{var} leaked into codex app-server spawn env"

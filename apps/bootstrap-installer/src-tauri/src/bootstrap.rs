@@ -3,7 +3,7 @@
 //! Direct port of `runBootstrap` from `apps/desktop/electron/bootstrap-runner.ts`.
 //! Drives install.ps1 / install.sh stage-by-stage, emits progress events
 //! over the Tauri `bootstrap` channel, writes a forensic log to
-//! HERMES_HOME/logs/bootstrap-<timestamp>.log.
+//! FABRIC_HOME/logs/bootstrap-<timestamp>.log.
 //!
 //! Lifecycle:
 //!   1. `start_bootstrap` (Tauri command) → spawns the worker task.
@@ -43,7 +43,7 @@ pub struct StartBootstrapArgs {
     /// bootstrap-runner passes false to avoid building-while-running.
     #[serde(default = "default_true")]
     pub include_desktop: bool,
-    /// Optional override for HERMES_HOME. Tests use this; production
+    /// Optional override for FABRIC_HOME. Tests use this; production
     /// almost always falls back to the OS default.
     pub fabric_home: Option<String>,
 }
@@ -708,10 +708,10 @@ async fn run_bootstrap(
         .unwrap_or_else(|| crate::paths::fabric_home().to_string_lossy().into_owned());
     let install_root = crate::paths::install_root_for_home(Path::new(&fabric_home));
 
-    // Stage both HERMES_HOME/fabric-setup and its hermes-setup compatibility
+    // Stage both FABRIC_HOME/fabric-setup and its hermes-setup compatibility
     // copy so new and legacy desktops can hand off to the same updater.
     if let Err(err) = crate::paths::copy_self_to_fabric_home() {
-        tracing::warn!(?err, "failed to copy installer into HERMES_HOME (non-fatal)");
+        tracing::warn!(?err, "failed to copy installer into FABRIC_HOME (non-fatal)");
         emit_log(&format!(
             "[bootstrap] warning: could not stage updater binary: {err}"
         ));

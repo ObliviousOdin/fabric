@@ -498,7 +498,7 @@ def _write_through_provider_state_to_global_root(
         # Classic mode (profile == root); the profile save already hit root.
         return
     # Seat belt: under pytest, refuse to write the real user's
-    # ~/.hermes/auth.json even when HERMES_HOME points at a profile path
+    # ~/.hermes/auth.json even when FABRIC_HOME points at a profile path
     # (mirrors the read-side guard in _load_global_auth_store). Uses the
     # unmodified HOME env, not Path.home() which fixtures may monkeypatch.
     if os.environ.get("PYTEST_CURRENT_TEST"):
@@ -1000,7 +1000,7 @@ class CredentialPool:
         # picks up the rotated token the winner persisted and skips the POST.
         if self.provider == "openai-codex":
             refresh_timeout_seconds = auth_mod.env_float(
-                "HERMES_CODEX_REFRESH_TIMEOUT_SECONDS", 20
+                "FABRIC_CODEX_REFRESH_TIMEOUT_SECONDS", 20
             )
             lock_timeout = max(
                 float(auth_mod.AUTH_LOCK_TIMEOUT_SECONDS),

@@ -108,7 +108,7 @@ def _disk_cache_path(home_path: Optional[Path] = None) -> Path:
     """Return the disk cache path under fabric_home/cache/.
 
     Thin wrapper over the shared DiskCache, kept for tests and any direct
-    callers; falls back to `$HERMES_HOME` / `~/.hermes` when home is None.
+    callers; falls back to `$FABRIC_HOME` / `~/.hermes` when home is None.
     """
     return _DISK_CACHE.path(home_path)
 
@@ -375,7 +375,7 @@ def fetch_bitwarden_secrets(
     ``<fabric_home>/cache/bws_cache.json`` (for back-to-back CLI invocations).
     Both share the same TTL.  Pass ``home_path`` so disk cache lookups find
     the right directory in tests / non-standard installs; otherwise we fall
-    back to ``$HERMES_HOME`` / ``~/.hermes``.
+    back to ``$FABRIC_HOME`` / ``~/.hermes``.
 
     ``force_refresh`` skips both cache reads but still writes a successful
     fresh pull back to memory and disk.  This is distinct from

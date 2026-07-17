@@ -195,7 +195,7 @@ def build_dashboard_parser(
             help=(
                 "Override the Nous Portal base URL for registration (default: the "
                 "portal you logged into). The access token must be valid at this "
-                "portal. Also settable via HERMES_DASHBOARD_PORTAL_URL. Mainly for "
+                "portal. Also settable via FABRIC_DASHBOARD_PORTAL_URL. Mainly for "
                 "testing against a staging/preview portal."
             ),
         )

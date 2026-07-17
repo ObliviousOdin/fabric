@@ -31,60 +31,60 @@ class TestGetDefaultFabricRoot:
     """Tests for get_default_fabric_root() — Docker/custom deployment awareness."""
 
     def test_no_fabric_home_returns_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is not set, returns ~/.fabric."""
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        """When FABRIC_HOME is not set, returns ~/.fabric."""
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         assert get_default_fabric_root() == tmp_path / ".fabric"
 
     def test_fabric_home_is_native(self, tmp_path, monkeypatch):
-        """When HERMES_HOME = ~/.hermes, returns ~/.hermes."""
+        """When FABRIC_HOME = ~/.hermes, returns ~/.hermes."""
         native = tmp_path / ".hermes"
         native.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(native))
+        monkeypatch.setenv("FABRIC_HOME", str(native))
         assert get_default_fabric_root() == native
 
     def test_fabric_home_is_profile(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is a profile under ~/.hermes, returns ~/.hermes."""
+        """When FABRIC_HOME is a profile under ~/.hermes, returns ~/.hermes."""
         native = tmp_path / ".hermes"
         profile = native / "profiles" / "coder"
         profile.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(profile))
+        monkeypatch.setenv("FABRIC_HOME", str(profile))
         assert get_default_fabric_root() == native
 
     def test_fabric_home_is_docker(self, tmp_path, monkeypatch):
-        """When HERMES_HOME points outside ~/.hermes (Docker), returns HERMES_HOME."""
+        """When FABRIC_HOME points outside ~/.hermes (Docker), returns FABRIC_HOME."""
         docker_home = tmp_path / "opt" / "data"
         docker_home.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(docker_home))
+        monkeypatch.setenv("FABRIC_HOME", str(docker_home))
         assert get_default_fabric_root() == docker_home
 
     def test_fabric_home_is_custom_path(self, tmp_path, monkeypatch):
-        """Any HERMES_HOME outside ~/.hermes is treated as the root."""
+        """Any FABRIC_HOME outside ~/.hermes is treated as the root."""
         custom = tmp_path / "my-fabric-data"
         custom.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(custom))
+        monkeypatch.setenv("FABRIC_HOME", str(custom))
         assert get_default_fabric_root() == custom
 
     def test_docker_profile_active(self, tmp_path, monkeypatch):
-        """When a Docker profile is active (HERMES_HOME=<root>/profiles/<name>),
+        """When a Docker profile is active (FABRIC_HOME=<root>/profiles/<name>),
         returns the Docker root, not the profile dir."""
         docker_root = tmp_path / "opt" / "data"
         profile = docker_root / "profiles" / "coder"
         profile.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(profile))
+        monkeypatch.setenv("FABRIC_HOME", str(profile))
         assert get_default_fabric_root() == docker_root
 
     def test_no_fabric_home_returns_localappdata_root_on_windows(self, tmp_path, monkeypatch):
         """Native Windows falls back to %LOCALAPPDATA%\\fabric, not ~/.fabric."""
         local_appdata = tmp_path / "LocalAppData"
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
@@ -95,7 +95,7 @@ class TestGetDefaultFabricRoot:
     def test_no_fabric_home_uses_windows_path_when_localappdata_missing(self, tmp_path, monkeypatch):
         """Windows fallback still uses AppData/Local/fabric without LOCALAPPDATA."""
         home = tmp_path / "Home"
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.setattr(Path, "home", lambda: home)
@@ -108,9 +108,9 @@ class TestGetFabricHome:
     """Tests for get_fabric_home() platform-aware fallback."""
 
     def test_windows_fallback_uses_localappdata(self, tmp_path, monkeypatch):
-        """When HERMES_HOME is unset on Windows, use %LOCALAPPDATA%\\fabric."""
+        """When FABRIC_HOME is unset on Windows, use %LOCALAPPDATA%\\fabric."""
         local_appdata = tmp_path / "LocalAppData"
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
@@ -128,7 +128,7 @@ class TestFabricManagedNode:
         node_dir.mkdir(parents=True)
         bin_dir.mkdir()
         monkeypatch.setattr(fabric_constants.sys, "platform", "win32")
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
 
         assert iter_fabric_node_dirs() == [node_dir, bin_dir]
 
@@ -139,7 +139,7 @@ class TestFabricManagedNode:
         npm_cmd = node_dir / "npm.cmd"
         npm_cmd.write_text("@echo off\n")
         monkeypatch.setattr(fabric_constants.sys, "platform", "win32")
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
         monkeypatch.setattr(fabric_constants, "node_tool_runnable", lambda path: True)
 
         assert find_fabric_node_executable("npm") == str(npm_cmd)
@@ -168,7 +168,7 @@ class TestFabricManagedNode:
         extensionless.write_text("#!/usr/bin/env node\n")
         npm_cmd.write_text("@echo off\n")
         monkeypatch.setattr(fabric_constants.sys, "platform", "win32")
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
         monkeypatch.setenv("PATH", str(bin_dir))
 
         assert find_node_executable("npm") == str(npm_cmd)
@@ -183,7 +183,7 @@ class TestFabricManagedNode:
         path_npm = bin_dir / "npm.cmd"
         path_npm.write_text("@echo off\n")
         monkeypatch.setattr(fabric_constants.sys, "platform", "win32")
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
         monkeypatch.setenv("PATH", str(bin_dir))
         monkeypatch.setattr(fabric_constants, "_managed_node_heal_attempted", False)
         monkeypatch.setattr(fabric_constants, "heal_fabric_managed_node", lambda: False)
@@ -204,7 +204,7 @@ class TestFabricManagedNode:
         node_dir.mkdir(parents=True)
         bin_dir.mkdir()
         monkeypatch.setattr(fabric_constants.sys, "platform", "win32")
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
 
         env = with_fabric_node_path({"PATH": "system-node"})
         parts = env["PATH"].split(os.pathsep)
@@ -248,7 +248,7 @@ class TestNodeToolRunnable:
         system_bin.mkdir()
         self._stub(system_bin, "npm", "#!/bin/sh\necho '11.10.0'\nexit 0\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
         monkeypatch.setenv("PATH", str(system_bin))
         monkeypatch.setattr(fabric_constants, "_managed_node_heal_attempted", False)
 
@@ -276,7 +276,7 @@ class TestNodeToolRunnable:
         system_bin.mkdir()
         good_npm = self._stub(system_bin, "npm", "#!/bin/sh\necho '11.10.0'\nexit 0\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
         monkeypatch.setenv("PATH", str(system_bin))
         monkeypatch.setattr(fabric_constants, "_managed_node_heal_attempted", False)
 
@@ -301,7 +301,7 @@ class TestNodeToolRunnable:
         system_bin.mkdir()
         self._stub(system_bin, "npm", "#!/bin/sh\necho '11.10.0'\nexit 0\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
         monkeypatch.setenv("PATH", str(system_bin))
         monkeypatch.setattr(fabric_constants, "_managed_node_heal_attempted", False)
         monkeypatch.setattr(fabric_constants, "heal_fabric_managed_node", lambda: False)
@@ -318,7 +318,7 @@ class TestNodeToolRunnable:
         system_bin.mkdir()
         self._stub(system_bin, "npm", "#!/bin/sh\necho '11.10.0'\nexit 0\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
         monkeypatch.setenv("PATH", str(system_bin))
 
         assert find_node_executable("npm") == str(managed_npm)
@@ -676,7 +676,7 @@ class TestGetFabricDir:
     """
 
     def _set_home(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
     def test_neither_exists_returns_new(self, tmp_path, monkeypatch):
         self._set_home(tmp_path, monkeypatch)

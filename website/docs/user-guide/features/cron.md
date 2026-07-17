@@ -411,7 +411,7 @@ cron:
   script_timeout_seconds: 1800   # 30 minutes
 ```
 
-Or set the `HERMES_CRON_SCRIPT_TIMEOUT` environment variable. The resolution order is: env var → config.yaml → 3600s default.
+Or set the `FABRIC_CRON_SCRIPT_TIMEOUT` environment variable. The resolution order is: env var → config.yaml → 3600s default.
 
 ## No-agent mode (script-only jobs)
 

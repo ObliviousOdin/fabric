@@ -30,8 +30,8 @@
     ]
   },
   "documented_token_exemptions": {
-    "HERMES_NEMO_RELAY_ATIF_": "Documentation wildcard for the backed HERMES_NEMO_RELAY_ATIF_* variable family.",
-    "HERMES_NEMO_RELAY_ATOF_": "Documentation wildcard for the backed HERMES_NEMO_RELAY_ATOF_* variable family."
+    "FABRIC_NEMO_RELAY_ATIF_": "Documentation wildcard for the backed FABRIC_NEMO_RELAY_ATIF_* variable family.",
+    "FABRIC_NEMO_RELAY_ATOF_": "Documentation wildcard for the backed FABRIC_NEMO_RELAY_ATOF_* variable family."
   },
   "impact_contracts": [
     {

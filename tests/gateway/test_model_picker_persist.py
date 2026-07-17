@@ -15,7 +15,7 @@ across sessions like a typed one.
 These tests drive the real ``_handle_model_command`` with a fake picker-capable
 adapter that captures the ``on_model_selected`` callback, then invoke that
 callback and assert ``config.yaml`` is (or isn't) updated — exercising the exact
-closure the PR changed, against a real temp ``HERMES_HOME``.
+closure the PR changed, against a real temp ``FABRIC_HOME``.
 """
 
 import types

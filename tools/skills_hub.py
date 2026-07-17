@@ -204,7 +204,7 @@ def _index_cache_dir() -> Path:
 
 
 _DYNAMIC_PATH_RESOLVERS = {
-    "HERMES_HOME": _fabric_home,
+    "FABRIC_HOME": _fabric_home,
     "SKILLS_DIR": _skills_dir,
     "HUB_DIR": _hub_dir,
     "LOCK_FILE": _lock_file,
@@ -1783,7 +1783,7 @@ class HubSourceKind(str, Enum):
     """Authenticated adapter identity, never derived from a package slug."""
 
     OFFICIAL_OPTIONAL = "official"
-    HERMES_INDEX = "hermes-index"
+    FABRIC_INDEX = "hermes-index"
     SKILLS_SH = "skills-sh"
     WELL_KNOWN = "well-known"
     URL = "url"
@@ -1798,7 +1798,7 @@ class HubSourceKind(str, Enum):
 _AUTHORITY_TRUST_LEVELS = frozenset({"builtin", "trusted", "community"})
 _AUTHORITY_BUNDLE_SOURCES = {
     HubSourceKind.OFFICIAL_OPTIONAL: "official",
-    HubSourceKind.HERMES_INDEX: "hermes-index",
+    HubSourceKind.FABRIC_INDEX: "hermes-index",
     HubSourceKind.SKILLS_SH: "skills.sh",
     HubSourceKind.WELL_KNOWN: "well-known",
     HubSourceKind.URL: "url",
@@ -1958,7 +1958,7 @@ def _concrete_adapter_identity(
 
     identity = {
         OptionalSkillSource: (HubSourceKind.OFFICIAL_OPTIONAL, "official"),
-        FabricIndexSource: (HubSourceKind.HERMES_INDEX, "hermes-index"),
+        FabricIndexSource: (HubSourceKind.FABRIC_INDEX, "hermes-index"),
         SkillsShSource: (HubSourceKind.SKILLS_SH, "skills.sh"),
         WellKnownSkillSource: (HubSourceKind.WELL_KNOWN, "well-known"),
         UrlSource: (HubSourceKind.URL, "url"),
@@ -2113,7 +2113,7 @@ def fetch_snapshot_bundle(
     if not isinstance(source_revision, str) or not source_revision:
         raise HubInstallError("Snapshot source revision is invalid")
 
-    if authority.adapter is HubSourceKind.HERMES_INDEX:
+    if authority.adapter is HubSourceKind.FABRIC_INDEX:
         if source_revision == authority.remote_identifier:
             raise HubInstallError(
                 "Legacy centralized-index snapshot has no exact resolved source"
@@ -9155,7 +9155,7 @@ def check_for_skill_updates(
             continue
         if recorded_authority.adapter is HubSourceKind.UNVERIFIED:
             legacy_kind = {
-                "hermes-index": HubSourceKind.HERMES_INDEX,
+                "hermes-index": HubSourceKind.FABRIC_INDEX,
                 "skills.sh": HubSourceKind.SKILLS_SH,
                 "well-known": HubSourceKind.WELL_KNOWN,
                 "url": HubSourceKind.URL,
@@ -9251,8 +9251,8 @@ def check_for_skill_updates(
 # Fabric centralized index source
 # ---------------------------------------------------------------------------
 
-HERMES_INDEX_URL = "https://obliviousodin.github.io/fabric/api/skills-index.json"
-HERMES_INDEX_TTL = 6 * 3600  # 6 hours
+FABRIC_INDEX_URL = "https://obliviousodin.github.io/fabric/api/skills-index.json"
+FABRIC_INDEX_TTL = 6 * 3600  # 6 hours
 
 
 def _fabric_index_cache_file() -> Path:
@@ -9263,7 +9263,7 @@ def _load_fabric_index() -> Optional[dict]:
     """Fetch the centralized skills index, with local cache.
 
     The index is a JSON file hosted on the docs site, rebuilt daily by CI.
-    We cache it locally for HERMES_INDEX_TTL seconds to avoid repeated
+    We cache it locally for FABRIC_INDEX_TTL seconds to avoid repeated
     downloads within a session.
     """
     # Check local cache
@@ -9276,7 +9276,7 @@ def _load_fabric_index() -> Optional[dict]:
                 )
                 _validate_hub_mutation_binding()
             age = time.time() - state.st_mtime
-            if age < HERMES_INDEX_TTL:
+            if age < FABRIC_INDEX_TTL:
                 return cached if isinstance(cached, dict) else None
         except (
             OSError,
@@ -9293,7 +9293,7 @@ def _load_fabric_index() -> Optional[dict]:
     # chunked responses from allocating beyond the catalog budget.
     try:
         resp = _bounded_http_get(
-            HERMES_INDEX_URL,
+            FABRIC_INDEX_URL,
             timeout=15,
             max_bytes=MAX_HUB_CATALOG_BYTES,
             follow_redirects=True,

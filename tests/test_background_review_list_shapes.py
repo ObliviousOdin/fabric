@@ -47,7 +47,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _isolate_fabric_home():
-    os.environ.setdefault("HERMES_HOME", "/tmp/fabric-bg-review-test")
+    os.environ.setdefault("FABRIC_HOME", "/tmp/fabric-bg-review-test")
 
 
 def _load_module():

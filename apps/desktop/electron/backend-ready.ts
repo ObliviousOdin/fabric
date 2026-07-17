@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 
-// `fabric serve` announces HERMES_BACKEND_READY; the legacy `Fabric dashboard`
-// backend announces HERMES_DASHBOARD_READY. Accept either so the desktop spawn
+// `fabric serve` announces FABRIC_BACKEND_READY; the legacy `Fabric dashboard`
+// backend announces FABRIC_DASHBOARD_READY. Accept either so the desktop spawn
 // works against both the headless backend and old/dashboard runtimes.
 const _READY_RE = /^FABRIC_(?:BACKEND|DASHBOARD)_READY port=(\d+)/m
 
@@ -32,12 +32,12 @@ function backendProcessUnavailable(child) {
 
 /**
  * Resolve the port-announcement deadline. Honors the
- * HERMES_DESKTOP_PORT_ANNOUNCE_TIMEOUT_MS env override (for users on slow
+ * FABRIC_DESKTOP_PORT_ANNOUNCE_TIMEOUT_MS env override (for users on slow
  * disks / aggressive AV who need an even longer cold-start window), clamped
  * to a sane floor so a bad value can't make boot flakier than the default.
  */
 function resolvePortAnnounceTimeoutMs(env = process.env) {
-  const parsed = Number(env.HERMES_DESKTOP_PORT_ANNOUNCE_TIMEOUT_MS)
+  const parsed = Number(env.FABRIC_DESKTOP_PORT_ANNOUNCE_TIMEOUT_MS)
 
   if (Number.isFinite(parsed) && parsed > 0) {
     return Math.max(MIN_PORT_ANNOUNCE_TIMEOUT_MS, Math.round(parsed))

@@ -21,7 +21,7 @@ _MOCK_VALIDATION = {
 def test_list_authenticated_providers_includes_custom_providers(monkeypatch):
     """No-args /model menus should include saved custom_providers entries."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="openai-codex",
@@ -47,7 +47,7 @@ def test_list_authenticated_providers_includes_custom_providers(monkeypatch):
 
 def test_list_authenticated_providers_can_skip_custom_provider_live_probe(monkeypatch):
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
     fetch = lambda *a, **k: (_ for _ in ()).throw(AssertionError("unexpected probe"))
     monkeypatch.setattr("fabric_cli.models.fetch_api_models", fetch)
 
@@ -71,7 +71,7 @@ def test_list_authenticated_providers_can_skip_custom_provider_live_probe(monkey
 
 def test_list_authenticated_providers_can_probe_only_current_custom_provider(monkeypatch):
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     calls = []
 
@@ -142,7 +142,7 @@ def test_list_authenticated_providers_includes_active_bare_custom_endpoint(monke
     ignored.
     """
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="custom",
@@ -164,7 +164,7 @@ def test_list_authenticated_providers_includes_active_bare_custom_endpoint(monke
 
 def test_list_authenticated_providers_can_probe_active_bare_custom_endpoint(monkeypatch):
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
     monkeypatch.setattr(
         "fabric_cli.models.fetch_api_models",
         lambda api_key, api_url, **kwargs: ["gpt-4o", "gpt-4o-mini"],
@@ -279,7 +279,7 @@ def test_list_groups_same_name_custom_providers_into_one_row(monkeypatch):
     """Multiple custom_providers entries sharing a name should produce one row
     with all models collected, not N duplicate rows."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="openrouter",
@@ -310,7 +310,7 @@ def test_list_deduplicates_same_model_in_group(monkeypatch):
     """Duplicate model entries under the same provider name should not produce
     duplicate entries in the models list."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="openrouter",
@@ -339,7 +339,7 @@ def test_list_enumerates_dict_format_models_alongside_default(monkeypatch):
     to have only the active model.
     """
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="openai-codex",
@@ -369,7 +369,7 @@ def test_list_enumerates_dict_format_models_without_singular_model(monkeypatch):
     """Dict-format ``models:`` with no singular ``model:`` should still
     enumerate every dict key (previously the picker reported 0 models)."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="openai-codex",
@@ -402,7 +402,7 @@ def test_list_dedupes_dict_model_matching_singular_default(monkeypatch):
     """When the singular ``model:`` is also a key in the ``models:`` dict,
     it must appear exactly once in the picker."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="openai-codex",
@@ -436,7 +436,7 @@ def test_list_authenticated_providers_groups_same_endpoint(monkeypatch):
     """Multiple custom_providers entries sharing a base_url+api_key must be
     returned as a single picker row with all their models merged."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="custom",
@@ -471,7 +471,7 @@ def test_list_authenticated_providers_current_endpoint_uses_current_slug(monkeyp
     credential pipeline — provided current_provider is a real slug, not
     the corrupt bare "custom" (see #17478)."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="custom:ollama",
@@ -497,7 +497,7 @@ def test_list_authenticated_providers_bare_custom_slug_recovers(monkeypatch):
     that broken slug. It must fall back to the canonical
     ``custom:<name>`` form so the picker stays usable."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="custom",
@@ -522,7 +522,7 @@ def test_list_authenticated_providers_distinct_endpoints_stay_separate(monkeypat
     """Entries with different base_urls must produce separate picker rows
     even if some display names happen to be similar."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         user_providers={},
@@ -551,7 +551,7 @@ def test_list_authenticated_providers_same_url_different_keys_disambiguated(monk
     api_keys (and identical cleaned names) must both stay visible in the
     picker — slug is suffixed to disambiguate."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         user_providers={},
@@ -578,7 +578,7 @@ def test_list_authenticated_providers_same_url_different_keys_disambiguated(monk
 def test_list_authenticated_providers_same_url_different_key_env_and_api_mode_stay_separate(monkeypatch):
     """Same gateway host but different key_env/api_mode entries are distinct providers."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="custom:gpt",
@@ -617,7 +617,7 @@ def test_list_authenticated_providers_total_models_reflects_grouped_count(monkey
     """After grouping six entries into one row, total_models must reflect
     the full count, and every grouped model appears in the list."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
 
     entries = [
         {"name": f"Ollama \u2014 Model {i}", "base_url": "http://localhost:11434/v1",
@@ -645,7 +645,7 @@ def test_lmstudio_picker_probes_active_config_base_url(monkeypatch):
     with LM Studio on a lab box saw the wrong (or empty) model list.
     """
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
     monkeypatch.delenv("LM_BASE_URL", raising=False)
     monkeypatch.delenv("LM_API_KEY", raising=False)
 
@@ -673,7 +673,7 @@ def test_lmstudio_picker_lm_base_url_env_wins_over_active_config(monkeypatch):
     config.yaml.
     """
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
     monkeypatch.setenv("LM_BASE_URL", "http://override.local:9999/v1")
     monkeypatch.delenv("LM_API_KEY", raising=False)
 
@@ -699,7 +699,7 @@ def test_lmstudio_picker_skips_probe_when_not_configured(monkeypatch):
     just to discover LM Studio is unavailable.
     """
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr(providers_mod, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(providers_mod, "FABRIC_OVERLAYS", {})
     monkeypatch.delenv("LM_BASE_URL", raising=False)
     monkeypatch.delenv("LM_API_KEY", raising=False)
 
@@ -729,7 +729,7 @@ def test_custom_providers_uses_live_models_for_multi_model_endpoint(monkeypatch)
     models from the endpoint.
     """
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr("fabric_cli.providers.HERMES_OVERLAYS", {})
+    monkeypatch.setattr("fabric_cli.providers.FABRIC_OVERLAYS", {})
 
     calls = []
 
@@ -783,7 +783,7 @@ def test_custom_providers_uses_live_models_for_multi_model_endpoint(monkeypatch)
 def test_custom_provider_live_model_probe_uses_extra_headers(monkeypatch):
     """custom_providers[].extra_headers must apply to live /models probes."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr("fabric_cli.providers.HERMES_OVERLAYS", {})
+    monkeypatch.setattr("fabric_cli.providers.FABRIC_OVERLAYS", {})
 
     calls = []
 
@@ -841,7 +841,7 @@ def test_same_endpoint_different_extra_headers_not_collapsed(monkeypatch):
     header-authenticated endpoint (e.g. per-tenant routing behind one proxy)
     and must probe /models with its own headers."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr("fabric_cli.providers.HERMES_OVERLAYS", {})
+    monkeypatch.setattr("fabric_cli.providers.FABRIC_OVERLAYS", {})
 
     calls = []
 
@@ -899,7 +899,7 @@ def test_custom_providers_discover_models_false_keeps_explicit_subset(monkeypatc
     serve a configured subset.
     """
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr("fabric_cli.providers.HERMES_OVERLAYS", {})
+    monkeypatch.setattr("fabric_cli.providers.FABRIC_OVERLAYS", {})
 
     calls = []
 
@@ -955,7 +955,7 @@ def test_custom_providers_discover_models_false_string_is_normalised(monkeypatch
     must be treated as a disable, same as the boolean ``False`` and section 3.
     """
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr("fabric_cli.providers.HERMES_OVERLAYS", {})
+    monkeypatch.setattr("fabric_cli.providers.FABRIC_OVERLAYS", {})
 
     calls = []
 
@@ -997,7 +997,7 @@ def test_custom_providers_discover_models_false_list_of_dict_ids(monkeypatch):
     """List-of-dicts ``models: [{id: ...}]`` must be preserved as configured
     model IDs when discovery is disabled."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr("fabric_cli.providers.HERMES_OVERLAYS", {})
+    monkeypatch.setattr("fabric_cli.providers.FABRIC_OVERLAYS", {})
 
     calls = []
 
@@ -1041,7 +1041,7 @@ def test_custom_providers_discover_models_false_list_of_dict_ids(monkeypatch):
 
 def test_list_of_dict_models_prefers_id_over_label(monkeypatch):
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
-    monkeypatch.setattr("fabric_cli.providers.HERMES_OVERLAYS", {})
+    monkeypatch.setattr("fabric_cli.providers.FABRIC_OVERLAYS", {})
 
     providers = list_authenticated_providers(
         current_provider="openrouter",

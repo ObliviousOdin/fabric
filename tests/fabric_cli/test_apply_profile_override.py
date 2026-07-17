@@ -1,10 +1,10 @@
-"""Regression tests for _apply_profile_override HERMES_HOME guard (issue #22502).
+"""Regression tests for _apply_profile_override FABRIC_HOME guard (issue #22502).
 
-When HERMES_HOME is set to the fabric root (e.g. systemd hardcodes
-HERMES_HOME=/root/.hermes), _apply_profile_override must still read
-active_profile and update HERMES_HOME to the profile directory.
+When FABRIC_HOME is set to the fabric root (e.g. systemd hardcodes
+FABRIC_HOME=/root/.hermes), _apply_profile_override must still read
+active_profile and update FABRIC_HOME to the profile directory.
 
-When HERMES_HOME is already a profile directory (.../profiles/<name>),
+When FABRIC_HOME is already a profile directory (.../profiles/<name>),
 _apply_profile_override must trust it and return without re-reading
 active_profile (child-process inheritance contract).
 """
@@ -24,7 +24,7 @@ def _run_apply_profile_override(
 ):
     """Run _apply_profile_override in isolation.
 
-    Returns the value of os.environ["HERMES_HOME"] after the call,
+    Returns the value of os.environ["FABRIC_HOME"] after the call,
     or None if unset.
     """
     fabric_root = tmp_path / ".hermes"
@@ -38,33 +38,33 @@ def _run_apply_profile_override(
 
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     if fabric_home is not None:
-        monkeypatch.setenv("HERMES_HOME", fabric_home)
+        monkeypatch.setenv("FABRIC_HOME", fabric_home)
     else:
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
 
     monkeypatch.setattr(sys, "argv", argv or ["hermes", "gateway", "start"])
 
     from fabric_cli.main import _apply_profile_override
     _apply_profile_override()
 
-    return os.environ.get("HERMES_HOME")
+    return os.environ.get("FABRIC_HOME")
 
 
 class TestApplyProfileOverrideFabricHomeGuard:
     """Regression guard for issue #22502.
 
-    Verifies that HERMES_HOME pointing to the fabric root does NOT suppress
-    the active_profile check, while HERMES_HOME already pointing to a
+    Verifies that FABRIC_HOME pointing to the fabric root does NOT suppress
+    the active_profile check, while FABRIC_HOME already pointing to a
     profile directory IS trusted as-is.
     """
 
     def test_fabric_home_at_root_with_active_profile_is_redirected(
         self, tmp_path, monkeypatch
     ):
-        """HERMES_HOME=/root/.hermes + active_profile=coder must redirect
-        HERMES_HOME to .../profiles/coder.
+        """FABRIC_HOME=/root/.hermes + active_profile=coder must redirect
+        FABRIC_HOME to .../profiles/coder.
 
-        Bug scenario from #22502: systemd sets HERMES_HOME to the fabric root
+        Bug scenario from #22502: systemd sets FABRIC_HOME to the fabric root
         and the user switches to a profile via `fabric profile use`.
         Before the fix, the guard returned early and active_profile was ignored.
         """
@@ -78,20 +78,20 @@ class TestApplyProfileOverrideFabricHomeGuard:
             active_profile="coder",
         )
 
-        assert result is not None, "HERMES_HOME must be set after profile redirect"
+        assert result is not None, "FABRIC_HOME must be set after profile redirect"
         assert "profiles" in result, (
-            f"Expected HERMES_HOME to point into profiles/ dir, got: {result!r}"
+            f"Expected FABRIC_HOME to point into profiles/ dir, got: {result!r}"
         )
         assert result.endswith("coder"), (
-            f"Expected HERMES_HOME to end with 'coder', got: {result!r}"
+            f"Expected FABRIC_HOME to end with 'coder', got: {result!r}"
         )
 
     def test_fabric_home_already_profile_dir_is_trusted(self, tmp_path, monkeypatch):
-        """HERMES_HOME=.../profiles/coder must not be overridden even when
+        """FABRIC_HOME=.../profiles/coder must not be overridden even when
         active_profile says something different.
 
         Preserves the child-process inheritance contract: a subprocess spawned
-        with HERMES_HOME already set to a specific profile must stay in that
+        with FABRIC_HOME already set to a specific profile must stay in that
         profile.
         """
         fabric_root = tmp_path / ".hermes"
@@ -101,7 +101,7 @@ class TestApplyProfileOverrideFabricHomeGuard:
         (fabric_root / "active_profile").write_text("other")
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(profile_dir))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_dir))
         monkeypatch.setattr(sys, "argv", ["hermes", "gateway", "start"])
 
         from fabric_cli.main import _apply_profile_override
@@ -110,14 +110,14 @@ class TestApplyProfileOverrideFabricHomeGuard:
         assert os.environ.get("FABRIC_HOME") == str(profile_dir), (
             "FABRIC_HOME must mirror an inherited legacy profile directory"
         )
-        assert os.environ.get("HERMES_HOME") == str(profile_dir), (
-            "HERMES_HOME must remain unchanged when already pointing to a profile dir"
+        assert os.environ.get("FABRIC_HOME") == str(profile_dir), (
+            "FABRIC_HOME must remain unchanged when already pointing to a profile dir"
         )
 
     def test_fabric_home_unset_reads_active_profile(self, tmp_path, monkeypatch):
         """Sticky profile resolution must synchronize both home env names.
 
-        Classic case: HERMES_HOME unset + active_profile=coder must resolve
+        Classic case: FABRIC_HOME unset + active_profile=coder must resolve
         the profile directory without regressing transition-era consumers.
         """
         result = _run_apply_profile_override(
@@ -143,7 +143,7 @@ class TestApplyProfileOverrideFabricHomeGuard:
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("FABRIC_HOME", str(inherited_home))
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "legacy-home"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "legacy-home"))
         monkeypatch.setattr(
             sys,
             "argv",
@@ -155,13 +155,13 @@ class TestApplyProfileOverrideFabricHomeGuard:
         _apply_profile_override()
 
         assert os.environ.get("FABRIC_HOME") == str(selected_home)
-        assert os.environ.get("HERMES_HOME") == str(selected_home)
+        assert os.environ.get("FABRIC_HOME") == str(selected_home)
         assert sys.argv == ["hermes", "gateway", "start"]
 
     def test_inherited_fabric_profile_precedes_legacy_root(
         self, tmp_path, monkeypatch
     ):
-        """FABRIC_HOME decides the inherited profile before HERMES_HOME."""
+        """FABRIC_HOME decides the inherited profile before FABRIC_HOME."""
         fabric_root = tmp_path / ".fabric"
         selected_home = fabric_root / "profiles" / "coder"
         other_home = fabric_root / "profiles" / "other"
@@ -171,7 +171,7 @@ class TestApplyProfileOverrideFabricHomeGuard:
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         monkeypatch.setenv("FABRIC_HOME", str(selected_home))
-        monkeypatch.setenv("HERMES_HOME", str(fabric_root))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_root))
         monkeypatch.setattr(sys, "argv", ["hermes", "gateway", "start"])
 
         from fabric_cli.main import _apply_profile_override
@@ -179,7 +179,7 @@ class TestApplyProfileOverrideFabricHomeGuard:
         _apply_profile_override()
 
         assert os.environ.get("FABRIC_HOME") == str(selected_home)
-        assert os.environ.get("HERMES_HOME") == str(selected_home)
+        assert os.environ.get("FABRIC_HOME") == str(selected_home)
 
     def test_sudo_explicit_profile_resolves_invoking_users_profile(self, tmp_path, monkeypatch):
         """sudo elias ... should resolve `-p elias` under SUDO_USER, not root."""
@@ -191,7 +191,7 @@ class TestApplyProfileOverrideFabricHomeGuard:
 
         monkeypatch.setattr(Path, "home", lambda: root_home)
         monkeypatch.setenv("SUDO_USER", "hermes")
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setattr(os, "geteuid", lambda: 0, raising=False)
         monkeypatch.setattr(sys, "argv", ["hermes", "-p", "elias", "gateway", "install", "--system"])
 
@@ -202,23 +202,23 @@ class TestApplyProfileOverrideFabricHomeGuard:
         from fabric_cli.main import _apply_profile_override
         _apply_profile_override()
 
-        assert os.environ.get("HERMES_HOME") == str(profile_dir)
+        assert os.environ.get("FABRIC_HOME") == str(profile_dir)
         assert sys.argv == ["hermes", "gateway", "install", "--system"]
 
     def test_fabric_home_unset_default_profile_no_redirect(self, tmp_path, monkeypatch):
-        """active_profile=default must not redirect HERMES_HOME."""
+        """active_profile=default must not redirect FABRIC_HOME."""
         fabric_root = tmp_path / ".hermes"
         fabric_root.mkdir(parents=True, exist_ok=True)
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setattr(sys, "argv", ["hermes", "gateway", "start"])
         (fabric_root / "active_profile").write_text("default")
 
         from fabric_cli.main import _apply_profile_override
         _apply_profile_override()
 
-        assert os.environ.get("HERMES_HOME") is None
+        assert os.environ.get("FABRIC_HOME") is None
 
     def test_subcommand_profile_flag_is_not_consumed(self, tmp_path, monkeypatch):
         """Command argv flags named --profile must stay with that command.
@@ -246,13 +246,13 @@ class TestApplyProfileOverrideFabricHomeGuard:
         ]
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.delenv("HERMES_HOME", raising=False)
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setattr(sys, "argv", list(argv))
 
         from fabric_cli.main import _apply_profile_override
         _apply_profile_override()
 
-        assert os.environ.get("HERMES_HOME") is None
+        assert os.environ.get("FABRIC_HOME") is None
         assert sys.argv == argv
 
     def test_profile_after_chat_subcommand_is_still_consumed(self, tmp_path, monkeypatch):
@@ -302,8 +302,8 @@ class TestSupervisedChildIgnoresStickyProfile:
     """The reserved default gateway s6 slot must not follow active_profile.
 
     Inside the Docker s6 image the ``gateway-default`` service slot runs a
-    bare ``fabric gateway run`` (no ``-p``) to mean "the root HERMES_HOME
-    profile". The run-script exports ``HERMES_S6_SUPERVISED_CHILD=1``.
+    bare ``fabric gateway run`` (no ``-p``) to mean "the root FABRIC_HOME
+    profile". The run-script exports ``FABRIC_S6_SUPERVISED_CHILD=1``.
     Without a guard, ``_apply_profile_override`` would read the sticky
     ``active_profile`` file (set by e.g. the dashboard profile switcher) and
     redirect the reserved default gateway into that profile — producing a
@@ -313,11 +313,11 @@ class TestSupervisedChildIgnoresStickyProfile:
     def test_supervised_child_does_not_follow_active_profile(
         self, tmp_path, monkeypatch
     ):
-        """HERMES_S6_SUPERVISED_CHILD + active_profile=briefer must NOT redirect.
+        """FABRIC_S6_SUPERVISED_CHILD + active_profile=briefer must NOT redirect.
 
         Reproduces the Docker/profile scoping bug: the supervised default
         gateway is launched as bare ``fabric gateway run`` with
-        HERMES_HOME=/opt/data (the container root, whose parent is NOT
+        FABRIC_HOME=/opt/data (the container root, whose parent is NOT
         ``profiles``), and a sticky ``active_profile`` of another profile.
         The reserved default slot must stay on the root profile.
         """
@@ -327,18 +327,18 @@ class TestSupervisedChildIgnoresStickyProfile:
         (fabric_root / "profiles" / "briefer").mkdir(parents=True, exist_ok=True)
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        # Container root HERMES_HOME: parent dir is NOT "profiles", so the
+        # Container root FABRIC_HOME: parent dir is NOT "profiles", so the
         # #22502 guard does not short-circuit — step 2 (active_profile) runs.
-        monkeypatch.setenv("HERMES_HOME", str(fabric_root))
-        monkeypatch.setenv("HERMES_S6_SUPERVISED_CHILD", "1")
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_root))
+        monkeypatch.setenv("FABRIC_S6_SUPERVISED_CHILD", "1")
         monkeypatch.setattr(sys, "argv", ["hermes", "gateway", "run"])
 
         from fabric_cli.main import _apply_profile_override
         _apply_profile_override()
 
-        assert os.environ.get("HERMES_HOME") == str(fabric_root), (
+        assert os.environ.get("FABRIC_HOME") == str(fabric_root), (
             "Supervised default gateway must stay on the root profile, not be "
-            f"hijacked by active_profile; got {os.environ.get('HERMES_HOME')!r}"
+            f"hijacked by active_profile; got {os.environ.get('FABRIC_HOME')!r}"
         )
 
     def test_non_supervised_run_still_follows_active_profile(
@@ -368,13 +368,13 @@ class TestSupervisedChildIgnoresStickyProfile:
         (fabric_root / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.delenv("HERMES_HOME", raising=False)
-        monkeypatch.setenv("HERMES_S6_SUPERVISED_CHILD", "1")
+        monkeypatch.delenv("FABRIC_HOME", raising=False)
+        monkeypatch.setenv("FABRIC_S6_SUPERVISED_CHILD", "1")
         monkeypatch.setattr(sys, "argv", ["hermes", "-p", "coder", "gateway", "run"])
 
         from fabric_cli.main import _apply_profile_override
         _apply_profile_override()
 
-        result = os.environ.get("HERMES_HOME")
+        result = os.environ.get("FABRIC_HOME")
         assert result is not None
         assert result.endswith("coder")

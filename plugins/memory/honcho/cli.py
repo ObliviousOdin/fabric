@@ -253,7 +253,7 @@ def _config_path() -> Path:
 def _local_config_path() -> Path:
     """Return the instance-local Honcho config path for writing.
 
-    Always returns $HERMES_HOME/honcho.json so each profile/instance gets
+    Always returns $FABRIC_HOME/honcho.json so each profile/instance gets
     its own config file.  The global ~/.honcho/config.json is only used as
     a read fallback (via resolve_config_path) for cross-app interop.
     """
@@ -1261,10 +1261,10 @@ def cmd_peer(args) -> None:
         # Show current values
         hosts = cfg.get("hosts", {})
         fabric = hosts.get(_host_key(), {})
-        user = hermes.get('peerName') or cfg.get('peerName') or '(not set)'
-        ai = hermes.get('aiPeer') or cfg.get('aiPeer') or _host_key()
-        lvl = hermes.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
-        max_chars = hermes.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
+        user = fabric.get('peerName') or cfg.get('peerName') or '(not set)'
+        ai = fabric.get('aiPeer') or cfg.get('aiPeer') or _host_key()
+        lvl = fabric.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
+        max_chars = fabric.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
         print("\nHoncho peers\n" + "─" * 40)
         print(f"  User peer:   {user}")
         print("    Your identity in Honcho. Messages you send build this peer's card.")
@@ -1381,9 +1381,9 @@ def cmd_tokens(args) -> None:
     dialectic = getattr(args, "dialectic", None)
 
     if context is None and dialectic is None:
-        ctx_tokens = hermes.get("contextTokens") or cfg.get("contextTokens") or "(Honcho default)"
-        d_chars = hermes.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
-        d_level = hermes.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
+        ctx_tokens = fabric.get("contextTokens") or cfg.get("contextTokens") or "(Honcho default)"
+        d_chars = fabric.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
+        d_level = fabric.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
         print("\nHoncho budgets\n" + "─" * 40)
         print()
         print(f"  Context     {ctx_tokens} tokens")

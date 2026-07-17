@@ -488,7 +488,7 @@ Enable/disable via `fabric tools` (interactive) or `fabric tools enable/disable 
 | `yuanbao` | Yuanbao integration tools |
 | `rl` | Reinforcement learning tools (off by default) |
 
-Full enumeration lives in `toolsets.py` as the `TOOLSETS` dict; `_HERMES_CORE_TOOLS` is the default bundle most platforms inherit from.
+Full enumeration lives in `toolsets.py` as the `TOOLSETS` dict; `_FABRIC_CORE_TOOLS` is the default bundle most platforms inherit from.
 
 Tool changes take effect on `/reset` (new session). They do NOT apply mid-conversation to preserve prompt caching.
 
@@ -556,7 +556,7 @@ Secret redaction is **on by default** — tool output (terminal stdout, `read_fi
 fabric config set security.redact_secrets true       # keep enabled globally
 ```
 
-**Restart required.** `security.redact_secrets` is snapshotted at import time — toggling it mid-session (e.g. via `export HERMES_REDACT_SECRETS=false` from a tool call) will NOT take effect for the running process. Tell the user to change it in config from a terminal, then start a new session. This is deliberate — it prevents an LLM from flipping the toggle on itself mid-task.
+**Restart required.** `security.redact_secrets` is snapshotted at import time — toggling it mid-session (e.g. via `export FABRIC_REDACT_SECRETS=false` from a tool call) will NOT take effect for the running process. Tell the user to change it in config from a terminal, then start a new session. This is deliberate — it prevents an LLM from flipping the toggle on itself mid-task.
 
 Disable only when you deliberately need raw credential-like strings for debugging or redactor development:
 ```bash
@@ -587,7 +587,7 @@ fabric config set approvals.mode off         # bypass everything (not recommende
 
 Per-invocation bypass without changing config:
 - `fabric --yolo …`
-- `export HERMES_YOLO_MODE=1`
+- `export FABRIC_YOLO_MODE=1`
 
 Note: YOLO / `approvals.mode: off` does NOT turn off secret redaction. They are independent.
 
@@ -794,7 +794,7 @@ User docs: https://obliviousodin.github.io/fabric/user-guide/features/curator
 
 Durable SQLite board for multi-profile / multi-worker collaboration.
 Users drive it via `fabric kanban <verb>`; dispatcher-spawned workers
-see a focused `kanban_*` toolset gated by `HERMES_KANBAN_TASK`, and
+see a focused `kanban_*` toolset gated by `FABRIC_KANBAN_TASK`, and
 orchestrator profiles can opt into the broader `kanban` toolset. Normal
 sessions still have zero `kanban_*` schema footprint unless configured.
 
@@ -814,7 +814,7 @@ sessions still have zero `kanban_*` schema footprint unless configured.
   (default 2; configurable via `kanban.failure_limit` or per-task
   `max_retries`).
 - **Isolation:** board is the hard boundary (workers get
-  `HERMES_KANBAN_BOARD` pinned in env); tenant is a soft namespace
+  `FABRIC_KANBAN_BOARD` pinned in env); tenant is a soft namespace
   within a board for workspace-path + memory-key isolation.
 
 User docs: https://obliviousodin.github.io/fabric/user-guide/features/kanban
@@ -1048,7 +1048,7 @@ registry.register(
 ```
 
 **2. Wire it into a toolset in `toolsets.py`** — add the name to
-`_HERMES_CORE_TOOLS` (every platform) or to a specific toolset.
+`_FABRIC_CORE_TOOLS` (every platform) or to a specific toolset.
 
 All handlers must return JSON strings. Use `get_fabric_home()` for paths,
 never hardcode `~/.fabric`. For custom/local-only tools, write a plugin in

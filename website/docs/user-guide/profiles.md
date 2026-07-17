@@ -297,7 +297,7 @@ subprocesses with `HOME={FABRIC_HOME}/home`; you then need to initialize or link
 the profile-specific `~/.ssh`, `~/.gitconfig`, `~/.config/gh`, cloud CLI auth,
 Claude/Codex auth, npm state, and similar files inside that profile home.
 
-Fabric also exposes `HERMES_REAL_HOME` to subprocesses so scripts can still find
+Fabric also exposes `FABRIC_REAL_HOME` to subprocesses so scripts can still find
 the actual account home when `home_mode: profile` is active.
 
 The default profile is simply `~/.fabric` itself. No migration needed — existing installs work identically.

@@ -618,9 +618,9 @@ class MemoryManager:
         # (#40466). Reject it here, at the door, so it never enters the routing
         # table at all — matching the built-ins-always-win invariant used by
         # the TTS/browser/search provider registries.
-        from toolsets import _HERMES_CORE_TOOLS
+        from toolsets import _FABRIC_CORE_TOOLS
 
-        _core_tool_names = set(_HERMES_CORE_TOOLS)
+        _core_tool_names = set(_FABRIC_CORE_TOOLS)
 
         # Index tool names → provider for routing.  External schema discovery
         # is part of the write-capable tool surface: the current provider ABI
@@ -963,9 +963,9 @@ class MemoryManager:
         :meth:`add_provider`, so the manager must not advertise a schema it
         will never route. Built-ins always win (#40466).
         """
-        from toolsets import _HERMES_CORE_TOOLS
+        from toolsets import _FABRIC_CORE_TOOLS
 
-        _core_tool_names = set(_HERMES_CORE_TOOLS)
+        _core_tool_names = set(_FABRIC_CORE_TOOLS)
         schemas = []
         seen = set()
         for provider in self._providers:

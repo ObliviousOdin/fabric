@@ -20,7 +20,7 @@ JPEG = b"\xff\xd8\xff" + b"\x00" * 64
 
 
 def _reload(monkeypatch, fabric_home: Path):
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     import fabric_constants
     importlib.reload(fabric_constants)
     import tools.image_source as isrc

@@ -30,7 +30,7 @@ def _check_config():
     if missing:
         fabric_home = (
             os.environ.get("FABRIC_HOME")
-            or os.environ.get("HERMES_HOME")
+            or os.environ.get("FABRIC_HOME")
             or os.path.expanduser("~/.fabric")
         )
         fabric_env = os.path.join(fabric_home, ".env")

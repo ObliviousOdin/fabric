@@ -4,12 +4,12 @@ Wires three behaviours:
 
 1. ``post_tool_call`` hook — inspects ``write_file`` and ``terminal``
    tool results for newly-created paths matching test/temp patterns
-   under ``HERMES_HOME`` and tracks them silently.  Zero agent
+   under ``FABRIC_HOME`` and tracks them silently.  Zero agent
    compliance required.
 
 2. ``on_session_end`` hook — when any test files were auto-tracked
    during the just-finished turn, runs :func:`disk_cleanup.quick` and
-   logs a single line to ``$HERMES_HOME/disk-cleanup/cleanup.log``.
+   logs a single line to ``$FABRIC_HOME/disk-cleanup/cleanup.log``.
 
 3. ``/disk-cleanup`` slash command — manual ``status``, ``dry-run``,
    ``quick``, ``deep``, ``track``, ``forget``.
@@ -287,7 +287,7 @@ def _handle_slash(raw_args: str) -> Optional[str]:
         if dg.track(path_arg, category, silent=True):
             return f"Tracked {path_arg} as '{category}'."
         return (
-            f"Not tracked (already present, missing, or outside HERMES_HOME): "
+            f"Not tracked (already present, missing, or outside FABRIC_HOME): "
             f"{path_arg}"
         )
 

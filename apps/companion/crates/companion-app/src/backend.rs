@@ -125,7 +125,7 @@ pub fn spawn_backend(fabric_bin: &str) -> Result<(String, BackendGuard), String>
     }
 }
 
-/// Parse `HERMES_BACKEND_READY port=<n>` (legacy `HERMES_DASHBOARD_READY`).
+/// Parse `FABRIC_BACKEND_READY port=<n>` (legacy `FABRIC_DASHBOARD_READY`).
 fn parse_ready_line(line: &str) -> Option<u16> {
     // public-release-audit: allow-legacy-compat -- the backend announces readiness with these exact pre-rename stdout markers
     let rest = line.strip_prefix("HERMES_BACKEND_READY").or_else(|| {
@@ -144,12 +144,12 @@ mod tests {
     fn parses_ready_lines() {
         // public-release-audit: allow-legacy-compat -- exercising the legacy ready markers
         assert_eq!(
-            parse_ready_line("HERMES_BACKEND_READY port=51234"),
+            parse_ready_line("FABRIC_BACKEND_READY port=51234"),
             Some(51234)
         );
         // public-release-audit: allow-legacy-compat -- exercising the legacy ready markers
         assert_eq!(
-            parse_ready_line("HERMES_DASHBOARD_READY port=9119"),
+            parse_ready_line("FABRIC_DASHBOARD_READY port=9119"),
             Some(9119)
         );
         assert_eq!(parse_ready_line("something else"), None);

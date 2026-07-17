@@ -320,7 +320,7 @@ Presets:
 | `HONCHO_API_KEY` | `apiKey` |
 | `HONCHO_BASE_URL` | `baseUrl` |
 | `HONCHO_ENVIRONMENT` | `environment` |
-| `HERMES_HONCHO_HOST` | Host key override |
+| `FABRIC_HONCHO_HOST` | Host key override |
 | `HONCHO_OAUTH_DASHBOARD` | OAuth authorize origin (default: cloud dashboard; local-dev `localhost:3000`) |
 | `HONCHO_OAUTH_AUTHORIZE_URL` | Full authorize URL (overrides the dashboard origin) |
 | `HONCHO_OAUTH_TOKEN_URL` | Token endpoint (default: cloud API; local-dev `localhost:8000`) |

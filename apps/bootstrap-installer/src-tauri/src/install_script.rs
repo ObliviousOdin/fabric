@@ -2,7 +2,7 @@
 //!
 //! Resolution order:
 //!   1. Dev shortcut: a sibling repo checkout via $FABRIC_SETUP_DEV_REPO_ROOT
-//!      (or the legacy $HERMES_SETUP_DEV_REPO_ROOT) env var.
+//!      (or the legacy $FABRIC_SETUP_DEV_REPO_ROOT) env var.
 //!   2. Bundled fallback: if the installer was bundled with a script (e.g.
 //!      tauri's `resource` mechanism), serve from there. Not used today.
 //!   3. Network: download from GitHub raw at a pinned commit or branch.
@@ -85,7 +85,7 @@ pub async fn resolve(
     let dev_repo_root = std::env::var("FABRIC_SETUP_DEV_REPO_ROOT")
         .ok()
         .filter(|v| !v.trim().is_empty())
-        .or_else(|| std::env::var("HERMES_SETUP_DEV_REPO_ROOT").ok());
+        .or_else(|| std::env::var("FABRIC_SETUP_DEV_REPO_ROOT").ok());
     if let Some(repo_root) = dev_repo_root {
         let candidate = PathBuf::from(repo_root).join("scripts").join(kind.filename());
         if candidate.exists() {

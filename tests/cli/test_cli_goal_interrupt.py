@@ -26,13 +26,13 @@ import pytest
 
 @pytest.fixture
 def fabric_home(tmp_path, monkeypatch):
-    """Isolated HERMES_HOME so SessionDB.state_meta writes stay hermetic."""
+    """Isolated FABRIC_HOME so SessionDB.state_meta writes stay hermetic."""
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
-    # Bust the goal module's DB cache so it re-resolves HERMES_HOME each test.
+    # Bust the goal module's DB cache so it re-resolves FABRIC_HOME each test.
     from fabric_cli import goals
     goals._DB_CACHE.clear()
     yield home

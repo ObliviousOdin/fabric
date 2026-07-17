@@ -12,7 +12,7 @@
 (function () {
   "use strict";
 
-  const SDK = window.__FABRIC_PLUGIN_SDK__ || window.__HERMES_PLUGIN_SDK__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__ || window.__FABRIC_PLUGIN_SDK__;
   if (!SDK) return;
 
   const { React } = SDK;
@@ -967,7 +967,7 @@
         if (wsClosedRef.current) return;
         // Build the WS URL via the host SDK so the correct auth param is used
         // in BOTH modes: single-use ?ticket= in gated OAuth mode, ?token= in
-        // loopback. Reading window.__HERMES_SESSION_TOKEN__ directly (the old
+        // loopback. Reading window.__FABRIC_SESSION_TOKEN__ directly (the old
         // path) sends an empty token and is rejected in gated mode. buildWsUrl
         // also applies the dashboard base-path prefix for reverse-proxied
         // deployments, which the old inline URL did not. It's async (gated
@@ -6160,7 +6160,7 @@
   // Register
   // -------------------------------------------------------------------------
 
-  const pluginRegistry = window.__FABRIC_PLUGINS__ || window.__HERMES_PLUGINS__;
+  const pluginRegistry = window.__FABRIC_PLUGINS__ || window.__FABRIC_PLUGINS__;
   if (pluginRegistry && typeof pluginRegistry.register === "function") {
     pluginRegistry.register("kanban", KanbanPage);
   }

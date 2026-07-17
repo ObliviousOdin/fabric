@@ -66,7 +66,7 @@ class TestGetRandomTip:
         assert "OpenRouter" in rendered
         assert "Anthropic" in rendered
         # Functional compatibility identifiers remain truthful.
-        assert "HERMES_HOME" in rendered
+        assert "FABRIC_HOME" in rendered
 
     def test_explicit_legacy_opt_in_restores_nous_tips(self, monkeypatch):
         monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)

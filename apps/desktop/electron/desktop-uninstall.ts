@@ -157,7 +157,7 @@ function buildPosixCleanupScript({ desktopPid, pythonExe, pythonPath, agentRoot,
     '  done',
     'fi',
     `export FABRIC_HOME=${q(fabricHome)}`,
-    `export HERMES_HOME=${q(fabricHome)}`
+    `export FABRIC_HOME=${q(fabricHome)}`
   ]
 
   if (pythonPath) {
@@ -214,7 +214,7 @@ function buildWindowsCleanupScript({
     '@echo off',
     'setlocal enableextensions',
     `set "FABRIC_HOME=${String(fabricHome).replace(/"/g, '')}"`,
-    `set "HERMES_HOME=${String(fabricHome).replace(/"/g, '')}"`,
+    `set "FABRIC_HOME=${String(fabricHome).replace(/"/g, '')}"`,
     `set "PID=${pid}"`
   ]
 

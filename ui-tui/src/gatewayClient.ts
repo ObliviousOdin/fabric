@@ -22,8 +22,8 @@ const MAX_SIDECAR_FIELD_CHARS = 8 * 1024
 const MAX_SIDECAR_EVENT_TYPE_CHARS = 128
 const MAX_SIDECAR_SESSION_ID_CHARS = 512
 const MAX_LOG_PREVIEW = 240
-const STARTUP_TIMEOUT_MS = Math.max(5000, parseInt(process.env.HERMES_TUI_STARTUP_TIMEOUT_MS ?? '15000', 10) || 15000)
-const REQUEST_TIMEOUT_MS = Math.max(30000, parseInt(process.env.HERMES_TUI_RPC_TIMEOUT_MS ?? '120000', 10) || 120000)
+const STARTUP_TIMEOUT_MS = Math.max(5000, parseInt(process.env.FABRIC_TUI_STARTUP_TIMEOUT_MS ?? '15000', 10) || 15000)
+const REQUEST_TIMEOUT_MS = Math.max(30000, parseInt(process.env.FABRIC_TUI_RPC_TIMEOUT_MS ?? '120000', 10) || 120000)
 const WS_CONNECTING = 0
 const WS_OPEN = 1
 const WS_CLOSING = 2
@@ -297,19 +297,19 @@ const describeChild = (proc: ChildProcess | null) => {
 }
 
 const resolveGatewayAttachUrl = () => {
-  const raw = process.env.HERMES_TUI_GATEWAY_URL?.trim()
+  const raw = process.env.FABRIC_TUI_GATEWAY_URL?.trim()
 
   return raw ? raw : null
 }
 
 const resolveSidecarUrl = () => {
-  const raw = process.env.HERMES_TUI_SIDECAR_URL?.trim()
+  const raw = process.env.FABRIC_TUI_SIDECAR_URL?.trim()
 
   return raw ? raw : null
 }
 
 const resolvePython = (root: string) => {
-  const configured = process.env.HERMES_PYTHON?.trim() || process.env.PYTHON?.trim()
+  const configured = process.env.FABRIC_PYTHON?.trim() || process.env.PYTHON?.trim()
 
   if (configured) {
     return configured
@@ -748,14 +748,14 @@ export class GatewayClient extends EventEmitter {
 
   private startSpawnedGateway(root: string) {
     const python = resolvePython(root)
-    const cwd = process.env.HERMES_CWD || root
+    const cwd = process.env.FABRIC_CWD || root
     const env = { ...process.env }
     const pyPath = env.PYTHONPATH?.trim()
 
     env.PYTHONPATH = pyPath ? `${root}${delimiter}${pyPath}` : root
     // Tell the gateway child where the Fabric source root is so its import
     // guard can force it ahead of any same-named package in the launch cwd.
-    env.HERMES_PYTHON_SRC_ROOT = root
+    env.FABRIC_PYTHON_SRC_ROOT = root
     this.startReadyTimer(python, cwd)
     this.proc = spawn(python, ['-m', 'tui_gateway.entry'], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
     this.lifecycle(`[lifecycle] spawned gateway child ${describeChild(this.proc)} python=${python} cwd=${cwd}`)
@@ -925,7 +925,7 @@ export class GatewayClient extends EventEmitter {
   }
 
   start() {
-    const root = process.env.HERMES_PYTHON_SRC_ROOT ?? resolve(import.meta.dirname, '../../')
+    const root = process.env.FABRIC_PYTHON_SRC_ROOT ?? resolve(import.meta.dirname, '../../')
     const attachUrl = resolveGatewayAttachUrl()
     const sidecarUrl = resolveSidecarUrl()
 

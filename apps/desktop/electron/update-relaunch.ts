@@ -224,14 +224,14 @@ function collectRelaunchArgs(argv) {
 
 // Env keys whose values define the relaunched instance's context (which
 // backend/profile/root it talks to). Canonical FABRIC_DESKTOP_* values and
-// HERMES_DESKTOP_* compatibility aliases are preserved, together with both
+// FABRIC_DESKTOP_* compatibility aliases are preserved, together with both
 // home names. We snapshot the values, not the live env, so the new instance
 // comes up pointed at the same place this one was.
 // ELECTRON_DISABLE_SANDBOX is preserved for the same reason --no-sandbox is kept
 // in the replayed args: if a relaunch is only safe because the user opted out of
 // the SUID sandbox, the relaunched instance must inherit that opt-out too.
-const PRESERVED_ENV_KEYS = ['FABRIC_HOME', 'HERMES_HOME', 'ELECTRON_DISABLE_SANDBOX']
-const PRESERVED_ENV_PREFIXES = ['FABRIC_DESKTOP_', 'HERMES_DESKTOP_']
+const PRESERVED_ENV_KEYS = ['FABRIC_HOME', 'FABRIC_HOME', 'ELECTRON_DISABLE_SANDBOX']
+const PRESERVED_ENV_PREFIXES = ['FABRIC_DESKTOP_', 'FABRIC_DESKTOP_']
 
 function collectRelaunchEnv(env) {
   const out = {}

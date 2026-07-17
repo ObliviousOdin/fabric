@@ -35,7 +35,7 @@ def _state_dir() -> Path:
     # Default: $FABRIC_HOME/watcher-state/, falling back to ~/.fabric/watcher-state/.
     fabric_home = (
         os.environ.get("FABRIC_HOME")
-        or os.environ.get("HERMES_HOME")
+        or os.environ.get("FABRIC_HOME")
         or str(Path.home() / ".fabric")
     )
     return Path(fabric_home) / "watcher-state"

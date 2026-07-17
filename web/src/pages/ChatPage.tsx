@@ -179,8 +179,8 @@ export default function ChatPage({
   // so a missing token there is expected, not an error.
   const [banner, setBanner] = useState<string | null>(() =>
     typeof window !== "undefined" &&
-    !window.__HERMES_SESSION_TOKEN__ &&
-    !window.__HERMES_AUTH_REQUIRED__
+    !window.__FABRIC_SESSION_TOKEN__ &&
+    !window.__FABRIC_AUTH_REQUIRED__
       ? "Session token unavailable. Open this page through `Fabric dashboard`, not directly."
       : null,
   );
@@ -483,8 +483,8 @@ export default function ChatPage({
     const host = hostRef.current;
     if (!host) return;
 
-    const token = window.__HERMES_SESSION_TOKEN__;
-    const gated = !!window.__HERMES_AUTH_REQUIRED__;
+    const token = window.__FABRIC_SESSION_TOKEN__;
+    const gated = !!window.__FABRIC_AUTH_REQUIRED__;
     // Banner already initialised above; just bail before wiring xterm/WS.
     // In gated mode the token is absent by design — api.buildWsUrl() mints
     // a WS ticket instead, so don't bail; let the effect reach that path.
@@ -764,7 +764,7 @@ export default function ChatPage({
       });
     });
 
-    // WebSocket. In gated mode (``window.__HERMES_AUTH_REQUIRED__``) this
+    // WebSocket. In gated mode (``window.__FABRIC_AUTH_REQUIRED__``) this
     // awaits a single-use ticket via /api/auth/ws-ticket before opening;
     // in loopback mode it resolves synchronously against the injected
     // session token. The IIFE keeps the outer effect synchronous so its
@@ -800,12 +800,12 @@ export default function ChatPage({
       // refresh/transient drops. A forced-fresh start rotates the token so
       // the previous keep-alive PTY is not reattached (registry reaps it).
       params.attach = ptyAttachToken(forceFresh);
-      // Profile-scoped chat: the PTY child gets HERMES_HOME pointed at the
+      // Profile-scoped chat: the PTY child gets FABRIC_HOME pointed at the
       // selected profile, so the conversation runs with that profile's model,
       // skills, memory, and sessions (see web_server._resolve_chat_argv).
       if (chatProfile) params.profile = chatProfile;
       // Terminal canvas hint: the server forwards this as
-      // HERMES_TUI_BACKGROUND so the TUI child picks the light/dark
+      // FABRIC_TUI_BACKGROUND so the TUI child picks the light/dark
       // palette matching the xterm canvas it will actually render on.
       params.bg = terminalSessionTheme.background;
       const url = await api.buildWsUrl("/api/pty", params);
@@ -1239,7 +1239,7 @@ export default function ChatPage({
 
 declare global {
   interface Window {
-    __HERMES_SESSION_TOKEN__?: string;
-    __HERMES_AUTH_REQUIRED__?: boolean;
+    __FABRIC_SESSION_TOKEN__?: string;
+    __FABRIC_AUTH_REQUIRED__?: boolean;
   }
 }

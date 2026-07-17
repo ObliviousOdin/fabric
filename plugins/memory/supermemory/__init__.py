@@ -585,7 +585,7 @@ class SupermemoryMemoryProvider(MemoryProvider):
 
     def get_config_schema(self):
         # Only prompt for the API key during `fabric memory setup`.
-        # All other options are documented for $HERMES_HOME/supermemory.json
+        # All other options are documented for $FABRIC_HOME/supermemory.json
         # or the SUPERMEMORY_CONTAINER_TAG env var.
         return [
             {"key": "api_key", "description": "Supermemory API key", "secret": True, "required": True, "env_var": "SUPERMEMORY_API_KEY", "url": _API_KEY_URL},

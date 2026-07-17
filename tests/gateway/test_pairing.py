@@ -360,7 +360,7 @@ class TestRateLimiting:
             json.dumps("15551234567@s.whatsapp.net"),
             encoding="utf-8",
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
         with patch("gateway.pairing.PAIRING_DIR", tmp_path):
             store = PairingStore()
@@ -469,7 +469,7 @@ class TestApprovalFlow:
             json.dumps("15551234567@s.whatsapp.net"),
             encoding="utf-8",
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
         with patch("gateway.pairing.PAIRING_DIR", tmp_path):
             store = PairingStore()
@@ -491,7 +491,7 @@ class TestApprovalFlow:
             json.dumps("15551234567@s.whatsapp.net"),
             encoding="utf-8",
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
         approved_path = tmp_path / "whatsapp-approved.json"
         approved_path.write_text(
@@ -768,7 +768,7 @@ class TestUnreadablePairingFile:
 
 class TestProfileScopedStorage:
     """PairingStore(profile="<name>") should isolate per-profile whitelists
-    under <HERMES_HOME>/profiles/<name>/pairing/ so a multiplexing gateway
+    under <FABRIC_HOME>/profiles/<name>/pairing/ so a multiplexing gateway
     can keep each profile's allowlist separate.
     """
 
@@ -788,7 +788,7 @@ class TestProfileScopedStorage:
 
     def test_profile_store_uses_profiles_subdir(self, tmp_path, monkeypatch):
         """PairingStore(profile="yangyang") puts files under
-        <HERMES_HOME>/profiles/yangyang/pairing/."""
+        <FABRIC_HOME>/profiles/yangyang/pairing/."""
         from fabric_constants import get_fabric_home
         monkeypatch.setattr("fabric_constants.get_fabric_home", lambda: tmp_path)
         store = PairingStore(profile="yangyang")

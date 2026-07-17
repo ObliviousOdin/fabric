@@ -143,7 +143,7 @@ python3 SKILL_DIR/scripts/fetch_wayback.py --url "example.com" \
     --match host --collapse digest --out data/wayback.csv
 
 # Wikipedia + Wikidata — narrative bio + structured facts
-# Set HERMES_OSINT_UA=your-app/1.0 (your@email) to identify yourself
+# Set FABRIC_OSINT_UA=your-app/1.0 (your@email) to identify yourself
 python3 SKILL_DIR/scripts/fetch_wikipedia.py --query "Bill Gates" \
     --out data/wp.csv
 

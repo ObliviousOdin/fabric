@@ -23,8 +23,8 @@ param(
     # exact ref.  Precedence: Commit > Tag > Branch.
     [string]$Commit = "",
     [string]$Tag = "",
-    [string]$FabricHome = $(if ($env:FABRIC_HOME) { $env:FABRIC_HOME } elseif ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:LOCALAPPDATA\fabric" }),
-    [string]$InstallDir = $(if ($env:FABRIC_INSTALL_DIR) { $env:FABRIC_INSTALL_DIR } elseif ($env:FABRIC_HOME) { "$env:FABRIC_HOME\fabric-agent" } elseif ($env:HERMES_HOME) { "$env:HERMES_HOME\fabric-agent" } else { "$env:LOCALAPPDATA\fabric\fabric-agent" }),
+    [string]$FabricHome = $(if ($env:FABRIC_HOME) { $env:FABRIC_HOME } elseif ($env:FABRIC_HOME) { $env:FABRIC_HOME } else { "$env:LOCALAPPDATA\fabric" }),
+    [string]$InstallDir = $(if ($env:FABRIC_INSTALL_DIR) { $env:FABRIC_INSTALL_DIR } elseif ($env:FABRIC_HOME) { "$env:FABRIC_HOME\fabric-agent" } elseif ($env:FABRIC_HOME) { "$env:FABRIC_HOME\fabric-agent" } else { "$env:LOCALAPPDATA\fabric\fabric-agent" }),
 
     # --- Stage protocol (additive; default invocation behaves as before) ----
     # See the "Stage protocol" section near the bottom of the file for the
@@ -552,7 +552,7 @@ function Resolve-UvCmd {
     }
 
     # Fall back to PATH (covers edge cases where the installer ran in a
-    # sibling process and HERMES_HOME wasn't propagated).
+    # sibling process and FABRIC_HOME wasn't propagated).
     if (Get-Command uv -ErrorAction SilentlyContinue) {
         $script:UvCmd = "uv"
         return
@@ -734,7 +734,7 @@ function Install-Git {
     and re-running this installer fully recovers.
 
     After install we locate ``bash.exe`` and persist the path in
-    ``HERMES_GIT_BASH_PATH`` (User scope) so Fabric can find it in a fresh
+    ``FABRIC_GIT_BASH_PATH`` (User scope) so Fabric can find it in a fresh
     shell without a second PATH refresh.
     #>
     Write-Info "Checking Git..."
@@ -869,7 +869,7 @@ function Set-GitBashEnvVar {
     <#
     .SYNOPSIS
     Locate ``bash.exe`` from an already-installed Git and persist the path in
-    ``HERMES_GIT_BASH_PATH`` (User env scope) so Fabric can find it even before
+    ``FABRIC_GIT_BASH_PATH`` (User env scope) so Fabric can find it even before
     PATH propagation completes in a newly-spawned shell.
     #>
     $candidates = @()
@@ -906,15 +906,15 @@ function Set-GitBashEnvVar {
 
     foreach ($candidate in $candidates) {
         if ($candidate -and (Test-Path $candidate)) {
-            [Environment]::SetEnvironmentVariable("HERMES_GIT_BASH_PATH", $candidate, "User")
-            $env:HERMES_GIT_BASH_PATH = $candidate
-            Write-Info "Set HERMES_GIT_BASH_PATH=$candidate"
+            [Environment]::SetEnvironmentVariable("FABRIC_GIT_BASH_PATH", $candidate, "User")
+            $env:FABRIC_GIT_BASH_PATH = $candidate
+            Write-Info "Set FABRIC_GIT_BASH_PATH=$candidate"
             return
         }
     }
 
     Write-Warn "Could not locate bash.exe -- Fabric may not find Git Bash."
-    Write-Info "If needed, set HERMES_GIT_BASH_PATH manually to your bash.exe path."
+    Write-Info "If needed, set FABRIC_GIT_BASH_PATH manually to your bash.exe path."
 }
 
 # The desktop build runs Vite ^8, which refuses to start on Node outside
@@ -2088,9 +2088,9 @@ function Set-PathVariable {
         Write-Success "Set FABRIC_HOME=$FabricHome"
     }
     # Keep the legacy runtime variable in sync for compatibility modules.
-    [Environment]::SetEnvironmentVariable("HERMES_HOME", $FabricHome, "User")
+    [Environment]::SetEnvironmentVariable("FABRIC_HOME", $FabricHome, "User")
     $env:FABRIC_HOME = $FabricHome
-    $env:HERMES_HOME = $FabricHome
+    $env:FABRIC_HOME = $FabricHome
     
     # Update current session
     $env:Path = "$fabricBin;$env:Path"
@@ -2178,7 +2178,7 @@ function Write-BootstrapMarker {
 function Copy-ConfigTemplates {
     Write-Info "Setting up configuration files..."
     
-    # Create the HERMES_HOME directory structure ($FabricHome, default %LOCALAPPDATA%\fabric)
+    # Create the FABRIC_HOME directory structure ($FabricHome, default %LOCALAPPDATA%\fabric)
     New-Item -ItemType Directory -Force -Path "$FabricHome\cron" | Out-Null
     New-Item -ItemType Directory -Force -Path "$FabricHome\sessions" | Out-Null
     New-Item -ItemType Directory -Force -Path "$FabricHome\logs" | Out-Null

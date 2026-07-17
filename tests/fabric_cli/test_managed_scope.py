@@ -25,7 +25,7 @@ def test_get_managed_dir_fabric_override_wins_legacy(tmp_path, monkeypatch):
     fabric_managed.mkdir()
     legacy_managed.mkdir()
     monkeypatch.setenv("FABRIC_MANAGED_DIR", str(fabric_managed))
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(legacy_managed))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(legacy_managed))
     assert managed_scope.get_managed_dir() == fabric_managed
 
 
@@ -35,7 +35,7 @@ def test_get_managed_dir_legacy_env_override_remains_supported(tmp_path, monkeyp
     managed = tmp_path / "managed"
     managed.mkdir()
     monkeypatch.delenv("FABRIC_MANAGED_DIR", raising=False)
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(managed))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(managed))
     assert managed_scope.get_managed_dir() == managed
 
 
@@ -48,14 +48,14 @@ def test_get_managed_dir_invalid_fabric_override_does_not_use_legacy(
     legacy_managed = tmp_path / "fabric-managed"
     legacy_managed.mkdir()
     monkeypatch.setenv("FABRIC_MANAGED_DIR", str(tmp_path / "nope"))
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(legacy_managed))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(legacy_managed))
     assert managed_scope.get_managed_dir() is None
 
 
 def test_get_managed_dir_absent_override_returns_none(tmp_path, monkeypatch):
     from fabric_cli import managed_scope
 
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(tmp_path / "nope"))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(tmp_path / "nope"))
     # Override points at a non-existent dir → no managed scope.
     assert managed_scope.get_managed_dir() is None
 
@@ -63,7 +63,7 @@ def test_get_managed_dir_absent_override_returns_none(tmp_path, monkeypatch):
 def test_get_managed_dir_empty_override_falls_through(tmp_path, monkeypatch):
     from fabric_cli import managed_scope
 
-    monkeypatch.setenv("HERMES_MANAGED_DIR", "   ")  # whitespace = unset
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", "   ")  # whitespace = unset
     # Under pytest the system defaults are ignored, so this is None; the
     # assertion that matters is that it does NOT raise.
     result = managed_scope.get_managed_dir()
@@ -75,7 +75,7 @@ def test_get_managed_dir_default_ignored_under_pytest(monkeypatch):
     from fabric_cli import managed_scope
 
     monkeypatch.delenv("FABRIC_MANAGED_DIR", raising=False)
-    monkeypatch.delenv("HERMES_MANAGED_DIR", raising=False)
+    monkeypatch.delenv("FABRIC_MANAGED_DIR", raising=False)
     assert managed_scope.get_managed_dir() is None
 
 
@@ -83,7 +83,7 @@ def test_get_managed_dir_prefers_fabric_system_default(monkeypatch):
     from fabric_cli import managed_scope
 
     monkeypatch.delenv("FABRIC_MANAGED_DIR", raising=False)
-    monkeypatch.delenv("HERMES_MANAGED_DIR", raising=False)
+    monkeypatch.delenv("FABRIC_MANAGED_DIR", raising=False)
     monkeypatch.setattr(managed_scope, "_under_pytest", lambda: False)
     monkeypatch.setattr(
         Path,
@@ -98,7 +98,7 @@ def test_get_managed_dir_falls_back_to_legacy_system_default(monkeypatch):
     from fabric_cli import managed_scope
 
     monkeypatch.delenv("FABRIC_MANAGED_DIR", raising=False)
-    monkeypatch.delenv("HERMES_MANAGED_DIR", raising=False)
+    monkeypatch.delenv("FABRIC_MANAGED_DIR", raising=False)
     monkeypatch.setattr(managed_scope, "_under_pytest", lambda: False)
     monkeypatch.setattr(Path, "is_dir", lambda path: path == Path("/etc/hermes"))
 
@@ -139,7 +139,7 @@ def test_load_managed_config(tmp_path, monkeypatch):
 def test_load_managed_config_absent_is_empty(tmp_path, monkeypatch):
     from fabric_cli import managed_scope
 
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(tmp_path / "nope"))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(tmp_path / "nope"))
     managed_scope.invalidate_managed_cache()
     assert managed_scope.load_managed_config() == {}
 
@@ -206,4 +206,4 @@ def test_managed_dir_env_scrubbed_by_default():
     import os
 
     assert "FABRIC_MANAGED_DIR" not in os.environ
-    assert "HERMES_MANAGED_DIR" not in os.environ
+    assert "FABRIC_MANAGED_DIR" not in os.environ

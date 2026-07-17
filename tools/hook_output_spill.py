@@ -26,14 +26,14 @@ Config (``config.yaml``)::
         max_chars: 10000       # default; context above this is spilled
         preview_head: 500      # chars shown at the start of the preview
         preview_tail: 500      # chars shown at the end of the preview
-        directory: null        # default: <HERMES_HOME>/hook_outputs
+        directory: null        # default: <FABRIC_HOME>/hook_outputs
 
 Design invariants
 -----------------
 * Behaviour-preserving when ``enabled: false`` or when content is under
   the cap — return the input string unchanged.
 * Never raises. Any I/O error (disk full, permission denied, missing
-  HERMES_HOME, etc.) falls back to a byte-length truncation with an
+  FABRIC_HOME, etc.) falls back to a byte-length truncation with an
   in-prompt notice — the hook context still reaches the model, just
   bounded in size.
 * Spill files are grouped by session so a ``/new`` session doesn't grow
@@ -121,8 +121,8 @@ def _resolve_spill_dir(directory_override: Optional[str], session_id: Optional[s
             from fabric_constants import get_fabric_home
             base = Path(get_fabric_home()) / "hook_outputs"
         except Exception:
-            # Last-resort fallback: HERMES_HOME env var, then ~/.fabric
-            home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.fabric")
+            # Last-resort fallback: FABRIC_HOME env var, then ~/.fabric
+            home = os.environ.get("FABRIC_HOME") or os.path.expanduser("~/.fabric")
             base = Path(home) / "hook_outputs"
 
     # Group by session so spills are contained per conversation.

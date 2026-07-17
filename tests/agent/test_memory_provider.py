@@ -147,7 +147,7 @@ class TestMemoryProviderABC:
         monkeypatch.setattr("fabric_cli.config.load_env", lambda: {})
         named_home = tmp_path / "profiles" / "worker"
         monkeypatch.setenv("FABRIC_HOME", str(named_home))
-        monkeypatch.setenv("HERMES_HOME", str(named_home))
+        monkeypatch.setenv("FABRIC_HOME", str(named_home))
 
         assert get_profile_env_value("MEMORY_TEST_KEY") is None
 
@@ -172,7 +172,7 @@ class TestMemoryProviderABC:
         named_home = tmp_path / "profiles" / "worker"
         other_home = tmp_path / "profiles" / "other"
         monkeypatch.setenv("FABRIC_HOME", str(named_home))
-        monkeypatch.setenv("HERMES_HOME", str(named_home))
+        monkeypatch.setenv("FABRIC_HOME", str(named_home))
         monkeypatch.setenv("MEMORY_TEST_KEY", "launch-profile-secret")
         monkeypatch.setattr("fabric_cli.config.load_env", lambda: {})
         scoped_values = {
@@ -680,7 +680,7 @@ class TestPluginMemoryDiscovery:
 
 
 class TestUserInstalledProviderDiscovery:
-    """Memory providers installed to $HERMES_HOME/plugins/ should be found.
+    """Memory providers installed to $FABRIC_HOME/plugins/ should be found.
 
     Regression test for issues #4956 and #9099: load_memory_provider() and
     discover_memory_providers() only scanned the bundled plugins/memory/
@@ -721,7 +721,7 @@ class TestUserInstalledProviderDiscovery:
         assert "holographic" in names  # bundled still found
 
     def test_load_user_plugin(self, tmp_path, monkeypatch):
-        """load_memory_provider() can load from $HERMES_HOME/plugins/."""
+        """load_memory_provider() can load from $FABRIC_HOME/plugins/."""
         from plugins.memory import load_memory_provider
         self._make_user_memory_plugin(tmp_path, "myexternal")
         monkeypatch.setattr(

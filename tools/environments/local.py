@@ -93,7 +93,7 @@ def _resolve_safe_cwd(cwd: str) -> str:
 
 
 # Fabric-internal env vars that should NOT leak into terminal subprocesses.
-_HERMES_PROVIDER_ENV_FORCE_PREFIX = "_HERMES_FORCE_"
+_FABRIC_PROVIDER_ENV_FORCE_PREFIX = "_FABRIC_FORCE_"
 
 # Fabric-managed AWS *inference* credentials for ``auth_type="aws_sdk"``
 # providers (Bedrock).  Scoped DELIBERATELY NARROW: this lists only the
@@ -199,7 +199,7 @@ def _build_provider_env_blocklist() -> frozenset:
         "EMAIL_SMTP_HOST",
         "EMAIL_HOME_ADDRESS",
         "EMAIL_HOME_ADDRESS_NAME",
-        "HERMES_DASHBOARD_SESSION_TOKEN",
+        "FABRIC_DASHBOARD_SESSION_TOKEN",
         "GATEWAY_ALLOWED_USERS",
         "GH_TOKEN",
         "GITHUB_APP_ID",
@@ -225,7 +225,7 @@ def _build_provider_env_blocklist() -> frozenset:
     return frozenset(blocked)
 
 
-_HERMES_PROVIDER_ENV_BLOCKLIST = _build_provider_env_blocklist()
+_FABRIC_PROVIDER_ENV_BLOCKLIST = _build_provider_env_blocklist()
 
 
 _PROFILE_CREDENTIAL_SUFFIXES = (
@@ -261,7 +261,7 @@ def _is_profile_scoped_credential_env(key: str) -> bool:
     """
     upper = str(key).upper()
     return (
-        key in _HERMES_PROVIDER_ENV_BLOCKLIST
+        key in _FABRIC_PROVIDER_ENV_BLOCKLIST
         or upper in _PROFILE_CREDENTIAL_EXACT
         or upper.startswith("OP_SESSION_")
         or upper.endswith(_PROFILE_CREDENTIAL_SUFFIXES)
@@ -282,7 +282,7 @@ def _launch_profile_secret_names() -> set[str]:
 
         raw_home = (
             os.environ.get("FABRIC_HOME")
-            or os.environ.get("HERMES_HOME")
+            or os.environ.get("FABRIC_HOME")
             or ""
         ).strip()
         launch_home = Path(raw_home) if raw_home else get_default_fabric_root()
@@ -358,7 +358,7 @@ _ACTIVE_VENV_MARKER_VARS = ("VIRTUAL_ENV", "CONDA_PREFIX")
 def _is_fabric_internal_secret(key: str) -> bool:
     """Return True for Fabric-internal secrets injected under *dynamic* names.
 
-    ``_HERMES_PROVIDER_ENV_BLOCKLIST`` is name-based and derived from the
+    ``_FABRIC_PROVIDER_ENV_BLOCKLIST`` is name-based and derived from the
     provider/tool registries, but the gateway and CLI also inject secrets into
     ``os.environ`` at runtime under names no static registry knows about:
 
@@ -407,7 +407,7 @@ def _inject_context_fabric_home(env: dict) -> None:
 
         value = get_fabric_home_override()
         if value:
-            env["HERMES_HOME"] = value
+            env["FABRIC_HOME"] = value
     except Exception:
         pass
 
@@ -416,7 +416,7 @@ def _inject_session_context_env(env: dict) -> None:
     """Bridge gateway session ContextVars into a subprocess environment dict.
 
     ContextVars don't propagate to child processes, so the live session vars
-    (HERMES_SESSION_*) are bridged onto the child env here.
+    (FABRIC_SESSION_*) are bridged onto the child env here.
 
     🔴 Cross-session leak guard. The session vars also have a process-global
     os.environ mirror (written last-writer-wins as a CLI/cron fallback, never
@@ -487,19 +487,19 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
     sanitized: dict[str, str] = {}
 
     for key, value in (base_env or {}).items():
-        if key.startswith(_HERMES_PROVIDER_ENV_FORCE_PREFIX):
+        if key.startswith(_FABRIC_PROVIDER_ENV_FORCE_PREFIX):
             continue
         if _is_fabric_internal_secret(key):
             continue
         scoped_value = _scoped_passthrough_value(key, value)
         if scoped_value is None:
             continue
-        if key not in _HERMES_PROVIDER_ENV_BLOCKLIST or _is_passthrough(key):
+        if key not in _FABRIC_PROVIDER_ENV_BLOCKLIST or _is_passthrough(key):
             sanitized[key] = scoped_value
 
     for key, value in (extra_env or {}).items():
-        if key.startswith(_HERMES_PROVIDER_ENV_FORCE_PREFIX):
-            real_key = key[len(_HERMES_PROVIDER_ENV_FORCE_PREFIX):]
+        if key.startswith(_FABRIC_PROVIDER_ENV_FORCE_PREFIX):
+            real_key = key[len(_FABRIC_PROVIDER_ENV_FORCE_PREFIX):]
             if _is_fabric_internal_secret(real_key):
                 continue
             sanitized[real_key] = value
@@ -509,7 +509,7 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
             scoped_value = _scoped_passthrough_value(key, value)
             if scoped_value is None:
                 continue
-            if key not in _HERMES_PROVIDER_ENV_BLOCKLIST or _is_passthrough(key):
+            if key not in _FABRIC_PROVIDER_ENV_BLOCKLIST or _is_passthrough(key):
                 sanitized[key] = scoped_value
 
     _inject_context_fabric_home(sanitized)
@@ -535,7 +535,7 @@ def _sanitize_subprocess_env(base_env: dict | None, extra_env: dict | None = Non
 # legitimate child Fabric spawns needs them, and they are the highest-value
 # secrets to keep out of a compromised dependency's reach (gateway bot tokens,
 # GitHub auth, remote-compute tokens, dashboard session secret).  The set is a
-# narrow subset of _HERMES_PROVIDER_ENV_BLOCKLIST; provider keys are handled by
+# narrow subset of _FABRIC_PROVIDER_ENV_BLOCKLIST; provider keys are handled by
 # the conditional Tier-2 strip in fabric_subprocess_env().
 _ALWAYS_STRIP_KEYS: frozenset[str] = frozenset({
     # GitHub auth
@@ -564,7 +564,7 @@ _ALWAYS_STRIP_KEYS: frozenset[str] = frozenset({
     "GATEWAY_RELAY_DELIVERY_KEY",
     "HASS_TOKEN",
     "EMAIL_PASSWORD",
-    "HERMES_DASHBOARD_SESSION_TOKEN",
+    "FABRIC_DASHBOARD_SESSION_TOKEN",
     # Remote-compute / infrastructure secrets
     "MODAL_TOKEN_ID",
     "MODAL_TOKEN_SECRET",
@@ -584,7 +584,7 @@ def fabric_subprocess_env(
     ACP/CLI executors, computer-use driver, dep-ensure, TUI Node host,
     detached gateway).  Use this instead of copying ``os.environ`` directly
     so strip-by-default is the uniform policy across every spawn site, with a
-    single source of truth (``_HERMES_PROVIDER_ENV_BLOCKLIST``).  The terminal
+    single source of truth (``_FABRIC_PROVIDER_ENV_BLOCKLIST``).  The terminal
     / execute_code path keeps using :func:`_sanitize_subprocess_env`, which is
     skill-aware (``env_passthrough``); this helper is for spawns that have no
     skill-passthrough concept.
@@ -594,7 +594,7 @@ def fabric_subprocess_env(
     * **Tier 1 (always):** ``_ALWAYS_STRIP_KEYS`` — gateway bot tokens, GitHub
       auth, and remote-compute secrets are removed regardless of
       ``inherit_credentials``.  No child Fabric spawns legitimately needs them.
-    * **Tier 2 (conditional):** the rest of ``_HERMES_PROVIDER_ENV_BLOCKLIST``
+    * **Tier 2 (conditional):** the rest of ``_FABRIC_PROVIDER_ENV_BLOCKLIST``
       (LLM provider API keys, tool secrets) is removed unless the caller passes
       ``inherit_credentials=True``.
 
@@ -647,7 +647,7 @@ def fabric_subprocess_env(
             for key, value in scoped_credentials.items():
                 if (
                     (
-                        key in _HERMES_PROVIDER_ENV_BLOCKLIST
+                        key in _FABRIC_PROVIDER_ENV_BLOCKLIST
                         or key in scoped_allowlist
                     )
                     and key not in _ALWAYS_STRIP_KEYS
@@ -664,14 +664,14 @@ def fabric_subprocess_env(
     # regardless of ``inherit_credentials`` — a model-driving CLI has no
     # legitimate use for them. See :func:`_is_fabric_internal_secret`.
     for key in list(env):
-        if key.startswith(_HERMES_PROVIDER_ENV_FORCE_PREFIX):
+        if key.startswith(_FABRIC_PROVIDER_ENV_FORCE_PREFIX):
             env.pop(key, None)
         elif _is_fabric_internal_secret(key):
             env.pop(key, None)
 
     if not inherit_credentials:
         # Tier 2 — strip provider/tool credentials unless explicitly inherited.
-        for key in _HERMES_PROVIDER_ENV_BLOCKLIST:
+        for key in _FABRIC_PROVIDER_ENV_BLOCKLIST:
             env.pop(key, None)
 
     # Windows UTF-8 safety for spawned processes (#31420).
@@ -688,7 +688,7 @@ def fabric_subprocess_env(
     _apply_windows_msys_bash_env_defaults(env)
 
     # Cross-session leak guard, same as the terminal spawn paths: this helper
-    # copies os.environ, whose HERMES_SESSION_* mirror is a last-writer-wins
+    # copies os.environ, whose FABRIC_SESSION_* mirror is a last-writer-wins
     # global under a concurrent multi-session host. A caller that re-binds the
     # session identity explicitly (slash_worker/ACP via --session-key argv) is
     # unaffected — bound ContextVars win here — but a caller that spawns without
@@ -711,7 +711,7 @@ def _find_bash() -> str:
             or "/bin/sh"
         )
 
-    custom = os.environ.get("HERMES_GIT_BASH_PATH")
+    custom = os.environ.get("FABRIC_GIT_BASH_PATH")
     if custom and os.path.isfile(custom):
         return custom
 
@@ -753,7 +753,7 @@ def _find_bash() -> str:
     raise RuntimeError(
         "Git Bash not found. Fabric requires Git for Windows on Windows.\n"
         "Install it from: https://git-scm.com/download/win\n"
-        "Or set HERMES_GIT_BASH_PATH to your bash.exe location."
+        "Or set FABRIC_GIT_BASH_PATH to your bash.exe location."
     )
 
 
@@ -815,7 +815,7 @@ _SANE_PATH = (
 # Cached directory containing the ``fabric`` console-script.
 # ``_SENTINEL`` distinguishes "not resolved yet" from a resolved ``None``.
 _SENTINEL = object()
-_HERMES_BIN_DIR: "str | None | object" = _SENTINEL
+_FABRIC_BIN_DIR: "str | None | object" = _SENTINEL
 
 
 def _resolve_fabric_bin_dir() -> str | None:
@@ -841,9 +841,9 @@ def _resolve_fabric_bin_dir() -> str | None:
       3. The directory of ``sys.executable`` — the running interpreter's
          venv ``bin``/``Scripts`` is where its console-scripts live.
     """
-    global _HERMES_BIN_DIR
-    if _HERMES_BIN_DIR is not _SENTINEL:
-        return _HERMES_BIN_DIR  # type: ignore[return-value]
+    global _FABRIC_BIN_DIR
+    if _FABRIC_BIN_DIR is not _SENTINEL:
+        return _FABRIC_BIN_DIR  # type: ignore[return-value]
 
     candidate: str | None = None
 
@@ -871,7 +871,7 @@ def _resolve_fabric_bin_dir() -> str | None:
     if candidate and not os.path.isdir(candidate):
         candidate = None
 
-    _HERMES_BIN_DIR = candidate
+    _FABRIC_BIN_DIR = candidate
     return candidate
 
 
@@ -1001,8 +1001,8 @@ def _make_run_env(env: dict) -> dict:
     merged = dict(os.environ | env)
     run_env = {}
     for k, v in merged.items():
-        if k.startswith(_HERMES_PROVIDER_ENV_FORCE_PREFIX):
-            real_key = k[len(_HERMES_PROVIDER_ENV_FORCE_PREFIX):]
+        if k.startswith(_FABRIC_PROVIDER_ENV_FORCE_PREFIX):
+            real_key = k[len(_FABRIC_PROVIDER_ENV_FORCE_PREFIX):]
             if _is_fabric_internal_secret(real_key):
                 continue
             run_env[real_key] = v
@@ -1014,7 +1014,7 @@ def _make_run_env(env: dict) -> dict:
             # value must come from the active profile scope.
             if _is_passthrough(k) and k in profile_scope:
                 run_env[k] = profile_scope[k]
-        elif k not in _HERMES_PROVIDER_ENV_BLOCKLIST or _is_passthrough(k):
+        elif k not in _FABRIC_PROVIDER_ENV_BLOCKLIST or _is_passthrough(k):
             run_env[k] = v
     path_key = _path_env_key(run_env)
     if path_key is not None:
@@ -1155,11 +1155,11 @@ class LocalEnvironment(BaseEnvironment):
         can't open the path, and the Windows default temp (``%TEMP%``) often
         contains spaces (``C:\\Users\\Some Name\\AppData\\Local\\Temp``) that
         break unquoted bash interpolations.  Use a dedicated cache dir under
-        ``HERMES_HOME`` instead — single-word path, guaranteed to exist, same
+        ``FABRIC_HOME`` instead — single-word path, guaranteed to exist, same
         string resolves in both Git Bash and native Python.
         """
         if _IS_WINDOWS:
-            # Derive a Windows-safe temp dir under HERMES_HOME.  Using
+            # Derive a Windows-safe temp dir under FABRIC_HOME.  Using
             # forward slashes makes the same string work unchanged in bash
             # command interpolations AND in Python ``open()`` — Windows
             # accepts forward slashes in filesystem paths, and we control

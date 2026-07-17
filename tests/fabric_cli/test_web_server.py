@@ -40,7 +40,7 @@ _EXAMPLE_PLUGIN_FIXTURE = (
 
 @pytest.fixture
 def _install_example_plugin(_isolate_fabric_home):
-    """Drop the example-dashboard fixture into the per-test HERMES_HOME
+    """Drop the example-dashboard fixture into the per-test FABRIC_HOME
     user-plugins directory and force the web_server's dashboard plugin
     cache + API mount to rediscover it.
 
@@ -49,10 +49,10 @@ def _install_example_plugin(_isolate_fabric_home):
     user's sidebar. It is now a tests-only fixture: any test that needs
     ``/api/plugins/example/hello`` or ``/dashboard-plugins/example/...``
     requests this fixture so the plugin appears only for that test's
-    isolated ``HERMES_HOME``.
+    isolated ``FABRIC_HOME``.
 
     The user-plugin source is preferred over a transient
-    ``HERMES_BUNDLED_PLUGINS`` override because the bundled dir is
+    ``FABRIC_BUNDLED_PLUGINS`` override because the bundled dir is
     resolved per-call (other tests in the suite implicitly rely on the
     real bundled plugins — kanban, fabric-achievements, model providers
     — being available, and globally swapping that root would yank them
@@ -91,7 +91,7 @@ def _install_example_plugin(_isolate_fabric_home):
     #   1. Identify the routes the mount call appends.
     #   2. Restore the original list on teardown — otherwise leftover
     #      ``/api/plugins/example/*`` routes leak into subsequent tests
-    #      and start serving requests against a torn-down HERMES_HOME.
+    #      and start serving requests against a torn-down FABRIC_HOME.
     app = web_server.app
     original_routes = list(app.router.routes)
 
@@ -208,7 +208,7 @@ class TestRedactKey:
 
 
 class TestSessionTokenInjection:
-    """The desktop shell mints HERMES_DASHBOARD_SESSION_TOKEN and signs its
+    """The desktop shell mints FABRIC_DASHBOARD_SESSION_TOKEN and signs its
     /api + /api/ws calls with it. The backend must adopt that token, else every
     desktop request 401s ("gateway is offline"). A main-merge once silently
     dropped this read — this guards the contract, not a literal value.
@@ -218,19 +218,19 @@ class TestSessionTokenInjection:
         import importlib
         import fabric_cli.web_server as ws
 
-        monkeypatch.setenv("HERMES_DASHBOARD_SESSION_TOKEN", "desktop-seeded-token")
+        monkeypatch.setenv("FABRIC_DASHBOARD_SESSION_TOKEN", "desktop-seeded-token")
         try:
             importlib.reload(ws)
             assert ws._SESSION_TOKEN == "desktop-seeded-token"
         finally:
-            monkeypatch.delenv("HERMES_DASHBOARD_SESSION_TOKEN", raising=False)
+            monkeypatch.delenv("FABRIC_DASHBOARD_SESSION_TOKEN", raising=False)
             importlib.reload(ws)
 
     def test_falls_back_to_random_token(self, monkeypatch):
         import importlib
         import fabric_cli.web_server as ws
 
-        monkeypatch.delenv("HERMES_DASHBOARD_SESSION_TOKEN", raising=False)
+        monkeypatch.delenv("FABRIC_DASHBOARD_SESSION_TOKEN", raising=False)
         importlib.reload(ws)
 
         assert ws._SESSION_TOKEN and len(ws._SESSION_TOKEN) >= 32
@@ -246,7 +246,7 @@ class TestWebServerEndpoints:
 
     @pytest.fixture(autouse=True)
     def _setup_test_client(self, monkeypatch, _isolate_fabric_home):
-        """Create a TestClient and isolate the state DB under the test HERMES_HOME."""
+        """Create a TestClient and isolate the state DB under the test FABRIC_HOME."""
         try:
             from starlette.testclient import TestClient
         except ImportError:
@@ -2378,7 +2378,7 @@ class TestWebServerEndpoints:
         import fabric_cli.web_server as ws
 
         hosted_home = tmp_path / "opt-data"
-        monkeypatch.setenv("HERMES_HOME", str(hosted_home))
+        monkeypatch.setenv("FABRIC_HOME", str(hosted_home))
         captured = {}
 
         def fake_spawn(subcommand, name):
@@ -3255,7 +3255,7 @@ class TestWebServerEndpoints:
         assert icon.content == b"fabric-icon"
 
     def test_headless_serve_disables_spa_even_with_a_dist(self, monkeypatch, tmp_path):
-        """`fabric serve` (HERMES_SERVE_HEADLESS) must NOT serve the SPA even
+        """`fabric serve` (FABRIC_SERVE_HEADLESS) must NOT serve the SPA even
         when a built dist is present — only the API/WS surface is reachable."""
         from fastapi import FastAPI
         from starlette.testclient import TestClient
@@ -3266,7 +3266,7 @@ class TestWebServerEndpoints:
         (dist / "index.html").write_text("<html><body>UI</body></html>", encoding="utf-8")
 
         monkeypatch.setattr(ws, "WEB_DIST", dist)
-        monkeypatch.setenv("HERMES_SERVE_HEADLESS", "1")
+        monkeypatch.setenv("FABRIC_SERVE_HEADLESS", "1")
         app_ = FastAPI()
         ws.mount_spa(app_)
 
@@ -5734,7 +5734,7 @@ class TestGatewayBusyReadout:
             "platforms": {},
             "active_agents": 0,
         })
-        monkeypatch.setenv("HERMES_RESTART_DRAIN_TIMEOUT", "90")
+        monkeypatch.setenv("FABRIC_RESTART_DRAIN_TIMEOUT", "90")
 
         data = self.client.get("/api/status").json()
         assert "restart_drain_timeout" in data
@@ -5899,12 +5899,12 @@ class TestDiscoverUserThemes:
     """Tests for _discover_user_themes() — scans ~/.hermes/dashboard-themes/."""
 
     def test_returns_empty_when_dir_missing(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         from fabric_cli import web_server
         assert web_server._discover_user_themes() == []
 
     def test_loads_and_normalises_yaml(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         themes_dir = tmp_path / "dashboard-themes"
         themes_dir.mkdir()
         (themes_dir / "ocean.yaml").write_text(
@@ -5928,7 +5928,7 @@ class TestDiscoverUserThemes:
         assert "fontSans" in results[0]["typography"]
 
     def test_malformed_yaml_skipped(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         themes_dir = tmp_path / "dashboard-themes"
         themes_dir.mkdir()
         (themes_dir / "bad.yaml").write_text("::: not valid yaml :::\n\tindent wrong")
@@ -6295,7 +6295,7 @@ class TestDeleteEmptySessionsEndpoint:
         from fabric_constants import get_fabric_home
         from fabric_cli.web_server import app, _SESSION_HEADER_NAME, _SESSION_TOKEN
 
-        # Pin the SessionDB to the isolated HERMES_HOME so each test
+        # Pin the SessionDB to the isolated FABRIC_HOME so each test
         # starts with a clean state.db.
         monkeypatch.setattr(
             fabric_state, "DEFAULT_DB_PATH", get_fabric_home() / "state.db"
@@ -6420,7 +6420,7 @@ class TestPluginAPIAuth:
         Pulls in ``_install_example_plugin`` so ``test_plugin_route_allows_auth``
         has the ``/api/plugins/example/hello`` endpoint available — the
         example plugin is no longer a bundled plugin, so the fixture
-        installs it into the per-test ``HERMES_HOME``.
+        installs it into the per-test ``FABRIC_HOME``.
         """
         try:
             from starlette.testclient import TestClient
@@ -6447,7 +6447,7 @@ class TestPluginAPIAuth:
         """Plugin API routes should work with a valid session token.
 
         Uses ``/api/plugins/example/hello`` from the example-dashboard
-        test fixture (installed into HERMES_HOME by the class-level
+        test fixture (installed into FABRIC_HOME by the class-level
         ``_install_example_plugin`` fixture) — a stable, side-effect-free
         GET that's only loaded for tests. With a valid token the handler
         should run (200); without one the middleware should 401 before
@@ -6539,7 +6539,7 @@ class TestDashboardPluginManifestExtensions:
         return plug_dir
 
     def test_override_hidden_layout_and_aliases_carried_through(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         self._write_plugin(tmp_path, "skin-home", {
             "name": "skin-home",
             "label": "Skin Home",
@@ -6565,7 +6565,7 @@ class TestDashboardPluginManifestExtensions:
         assert entry["slots"] == ["sidebar", "header-left"]
 
     def test_layout_rejects_unknown_value(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         self._write_plugin(tmp_path, "bad-layout", {
             "name": "bad-layout",
             "label": "Bad layout",
@@ -6579,7 +6579,7 @@ class TestDashboardPluginManifestExtensions:
         assert "layout" not in entry["tab"]
 
     def test_override_requires_leading_slash(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         self._write_plugin(tmp_path, "bad-override", {
             "name": "bad-override",
             "label": "Bad",
@@ -6593,7 +6593,7 @@ class TestDashboardPluginManifestExtensions:
         assert "override" not in entry["tab"]
 
     def test_slots_default_empty(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         self._write_plugin(tmp_path, "no-slots", {
             "name": "no-slots",
             "label": "No Slots",
@@ -6609,7 +6609,7 @@ class TestDashboardPluginManifestExtensions:
         assert "override" not in entry["tab"]
 
     def test_slots_filters_non_string_entries(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         self._write_plugin(tmp_path, "mixed-slots", {
             "name": "mixed-slots",
             "label": "Mixed",
@@ -6628,7 +6628,7 @@ class TestDashboardPluginManifestExtensions:
         the manifest loader untouched.  The backend has no allowlist — the
         frontend ``<PluginSlot name="...">`` placements decide what actually
         renders — but the loader must not mangle colons in slot names."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         self._write_plugin(tmp_path, "page-slots", {
             "name": "page-slots",
             "label": "Page Slots",
@@ -6717,9 +6717,9 @@ class TestPtyWebSocket:
 
         _argv, _cwd, env = self.ws_module._resolve_chat_argv()
 
-        assert env["HERMES_TUI_DASHBOARD"] == "1"
-        assert env["HERMES_TUI_INLINE"] == "1"
-        assert env["HERMES_TUI_DISABLE_MOUSE"] == "1"
+        assert env["FABRIC_TUI_DASHBOARD"] == "1"
+        assert env["FABRIC_TUI_INLINE"] == "1"
+        assert env["FABRIC_TUI_DISABLE_MOUSE"] == "1"
 
     def test_resolve_chat_argv_backfills_colorterm_truecolor(self, monkeypatch):
         """Headless servers (cloud/systemd) have no COLORTERM, which made
@@ -6759,7 +6759,7 @@ class TestPtyWebSocket:
     ):
         import fabric_cli.main as main_mod
 
-        config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
+        config_path = Path(os.environ["FABRIC_HOME"]) / "config.yaml"
         config_path.write_text(
             "\n".join(
                 [
@@ -7057,7 +7057,7 @@ class TestPtyWebSocket:
 
     def test_channel_param_propagates_sidecar_url(self, monkeypatch):
         """When /api/pty is opened with ?channel=, the PTY child gets a
-        HERMES_TUI_SIDECAR_URL env var pointing back at /api/pub on the
+        FABRIC_TUI_SIDECAR_URL env var pointing back at /api/pub on the
         same channel — which is how tool events reach the dashboard sidebar."""
         captured: dict = {}
 
@@ -7403,7 +7403,7 @@ def test_resolve_chat_argv_injects_gateway_ws_url(monkeypatch):
     _argv, _cwd, env = ws._resolve_chat_argv()
 
     assert env is not None
-    gateway_url = env.get("HERMES_TUI_GATEWAY_URL", "")
+    gateway_url = env.get("FABRIC_TUI_GATEWAY_URL", "")
     assert gateway_url.startswith("ws://127.0.0.1:9119/api/ws?")
     assert "token=" in gateway_url
 
@@ -7430,7 +7430,7 @@ class TestDashboardPluginStaticAssetAllowlist:
         is served while ``plugin_api.py`` and ``__pycache__/*.pyc``
         from the same directory are not. Since the example plugin is
         no longer bundled, ``_install_example_plugin`` lays it down in
-        the per-test ``HERMES_HOME`` user-plugins dir.
+        the per-test ``FABRIC_HOME`` user-plugins dir.
         """
         try:
             from starlette.testclient import TestClient
@@ -7812,10 +7812,10 @@ class TestDesktopCronTicker:
 
         called = threading.Event()
         monkeypatch.setattr(sched, "tick", lambda *a, **k: called.set())
-        monkeypatch.setenv("HERMES_DESKTOP", "1")
+        monkeypatch.setenv("FABRIC_DESKTOP", "1")
 
         with self._client():
-            assert called.wait(3.0), "expected cron tick under HERMES_DESKTOP=1"
+            assert called.wait(3.0), "expected cron tick under FABRIC_DESKTOP=1"
 
     def test_ticker_skipped_without_desktop(self, monkeypatch, _isolate_fabric_home):
         import threading
@@ -7823,7 +7823,7 @@ class TestDesktopCronTicker:
 
         called = threading.Event()
         monkeypatch.setattr(sched, "tick", lambda *a, **k: called.set())
-        monkeypatch.delenv("HERMES_DESKTOP", raising=False)
+        monkeypatch.delenv("FABRIC_DESKTOP", raising=False)
 
         with self._client():
             assert not called.wait(0.5), "ticker must not run outside the desktop app"

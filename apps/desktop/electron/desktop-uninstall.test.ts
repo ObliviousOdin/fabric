@@ -154,7 +154,7 @@ test('buildPosixCleanupScript waits for the PID, runs the uninstall module, remo
   assert.match(script, /seq 1 60/)
   assert.match(script, /'-m' 'fabric_cli\.uninstall' '--mode' 'gui'/)
   assert.match(script, /rm -rf '\/opt\/hermes\/linux-unpacked'/)
-  assert.match(script, /export HERMES_HOME='\/home\/x\/\.hermes'/)
+  assert.match(script, /export FABRIC_HOME='\/home\/x\/\.hermes'/)
   assert.match(script, /export FABRIC_HOME='\/home\/x\/\.hermes'/)
 })
 
@@ -236,7 +236,7 @@ test('buildWindowsCleanupScript waits (bounded) for PID, runs uninstall, rmdir b
   assert.match(script, /@echo off/)
   assert.match(script, /set "PID=9988"/)
   assert.match(script, /set "FABRIC_HOME=C:\\Users\\x\\AppData\\Local\\hermes"/)
-  assert.match(script, /set "HERMES_HOME=C:\\Users\\x\\AppData\\Local\\hermes"/)
+  assert.match(script, /set "FABRIC_HOME=C:\\Users\\x\\AppData\\Local\\hermes"/)
   // PYTHONPATH set so a system python can import fabric_cli from source.
   assert.match(script, /set "PYTHONPATH=C:\\hermes;%PYTHONPATH%"/)
   assert.match(script, /"C:\\Python313\\python.exe" "-m" "fabric_cli\.uninstall" "--mode" "full"/)

@@ -2508,7 +2508,7 @@ class TestOptionalSkillSourceMetadata:
             "---\nname: evil\ndescription: injected\n---\n",
             encoding="utf-8",
         )
-        monkeypatch.setenv("HERMES_OPTIONAL_SKILLS", str(attacker_root))
+        monkeypatch.setenv("FABRIC_OPTIONAL_SKILLS", str(attacker_root))
 
         with (
             patch("fabric_constants._get_packaged_data_dir", return_value=None),
@@ -2657,7 +2657,7 @@ class TestQuarantineBundleBinaryAssets:
         assert meta.trust_level == "community"
         assert bundle.source == "hermes-index"
         assert bundle.trust_level == "community"
-        assert authority.adapter is hub.HubSourceKind.HERMES_INDEX
+        assert authority.adapter is hub.HubSourceKind.FABRIC_INDEX
         assert authority.trust_level == "community"
 
         # Exact snapshot replay uses the persisted resolved revision and does
@@ -6641,7 +6641,7 @@ class TestLoadFabricIndex:
         cache_file = self._isolate_cache(monkeypatch, tmp_path)
         cache_file.write_text(json.dumps({"skills": [{"name": "stale"}]}))
         # Force the cache to look expired so the network path runs.
-        old = time.time() - (hub.HERMES_INDEX_TTL + 100)
+        old = time.time() - (hub.FABRIC_INDEX_TTL + 100)
         import os
 
         os.utime(cache_file, (old, old))

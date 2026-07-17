@@ -59,7 +59,7 @@ describe("fabric-achievements leaderboard bundle", () => {
     });
 
     exposePluginSDK();
-    const sdk = window.__HERMES_PLUGIN_SDK__ as unknown as {
+    const sdk = window.__FABRIC_PLUGIN_SDK__ as unknown as {
       fetchJSON: typeof fetchJSON;
     };
     sdk.fetchJSON = fetchJSON;

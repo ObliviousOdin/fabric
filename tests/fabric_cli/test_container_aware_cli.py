@@ -23,11 +23,11 @@ from fabric_cli.config import (
 
 @pytest.fixture
 def container_env(tmp_path, monkeypatch):
-    """Set up a fake HERMES_HOME with .container-mode file."""
+    """Set up a fake FABRIC_HOME with .container-mode file."""
     fabric_home = tmp_path / ".hermes"
     fabric_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
-    monkeypatch.delenv("HERMES_DEV", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    monkeypatch.delenv("FABRIC_DEV", raising=False)
 
     container_mode = fabric_home / ".container-mode"
     container_mode.write_text(
@@ -64,8 +64,8 @@ def test_get_container_exec_info_none_without_file(tmp_path, monkeypatch):
     """Returns None when .container-mode doesn't exist (native mode)."""
     fabric_home = tmp_path / ".hermes"
     fabric_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
-    monkeypatch.delenv("HERMES_DEV", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    monkeypatch.delenv("FABRIC_DEV", raising=False)
 
     with patch("fabric_constants.is_container", return_value=False):
         info = get_container_exec_info()
@@ -74,8 +74,8 @@ def test_get_container_exec_info_none_without_file(tmp_path, monkeypatch):
 
 
 def test_get_container_exec_info_skipped_when_fabric_dev(container_env, monkeypatch):
-    """Returns None when HERMES_DEV=1 is set (dev mode bypass)."""
-    monkeypatch.setenv("HERMES_DEV", "1")
+    """Returns None when FABRIC_DEV=1 is set (dev mode bypass)."""
+    monkeypatch.setenv("FABRIC_DEV", "1")
 
     with patch("fabric_constants.is_container", return_value=False):
         info = get_container_exec_info()
@@ -84,8 +84,8 @@ def test_get_container_exec_info_skipped_when_fabric_dev(container_env, monkeypa
 
 
 def test_get_container_exec_info_not_skipped_when_fabric_dev_zero(container_env, monkeypatch):
-    """HERMES_DEV=0 does NOT trigger bypass — only '1' does."""
-    monkeypatch.setenv("HERMES_DEV", "0")
+    """FABRIC_DEV=0 does NOT trigger bypass — only '1' does."""
+    monkeypatch.setenv("FABRIC_DEV", "0")
 
     with patch("fabric_constants.is_container", return_value=False):
         info = get_container_exec_info()
@@ -107,7 +107,7 @@ def test_get_container_exec_info_defaults():
         with patch("fabric_constants.is_container", return_value=False), \
              patch.dict(get_container_exec_info.__globals__, {"get_fabric_home": lambda: fabric_home}), \
              patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_DEV", None)
+            os.environ.pop("FABRIC_DEV", None)
             info = get_container_exec_info()
 
         assert info is not None

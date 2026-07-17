@@ -15,21 +15,21 @@
 # Usage:
 #   source scripts/lib/node-bootstrap.sh
 #   ensure_node   # returns 0 on success, non-zero on failure
-#   if [ "$HERMES_NODE_AVAILABLE" = true ]; then ...; fi
+#   if [ "$FABRIC_NODE_AVAILABLE" = true ]; then ...; fi
 #
 # Env inputs (set before sourcing to override defaults):
-#   HERMES_NODE_MIN_VERSION   (default: 20)   — accepted on PATH
-#   HERMES_NODE_TARGET_MAJOR  (default: 22)   — installed when we install
+#   FABRIC_NODE_MIN_VERSION   (default: 20)   — accepted on PATH
+#   FABRIC_NODE_TARGET_MAJOR  (default: 22)   — installed when we install
 #   FABRIC_HOME               (default: $HOME/.fabric)
 # ============================================================================
 
-HERMES_NODE_MIN_VERSION="${HERMES_NODE_MIN_VERSION:-20}"
-HERMES_NODE_TARGET_MAJOR="${HERMES_NODE_TARGET_MAJOR:-22}"
+FABRIC_NODE_MIN_VERSION="${FABRIC_NODE_MIN_VERSION:-20}"
+FABRIC_NODE_TARGET_MAJOR="${FABRIC_NODE_TARGET_MAJOR:-22}"
 # public-release-audit: allow-legacy-compat -- reads the previous home variable during upgrades
 _LEGACY_HOME_ENV="HERMES_HOME"
 _legacy_home="${!_LEGACY_HOME_ENV:-}"
 FABRIC_HOME="${FABRIC_HOME:-${_legacy_home:-$HOME/.fabric}}"
-HERMES_NODE_AVAILABLE=false
+FABRIC_NODE_AVAILABLE=false
 
 # ---------------------------------------------------------------------------
 # Logging — prefer the host script's log_* helpers when present
@@ -81,7 +81,7 @@ _nb_node_major() {
 
 _nb_have_modern_node() {
     command -v node >/dev/null 2>&1 || return 1
-    [ "$(_nb_node_major)" -ge "$HERMES_NODE_MIN_VERSION" ]
+    [ "$(_nb_node_major)" -ge "$FABRIC_NODE_MIN_VERSION" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -90,10 +90,10 @@ _nb_have_modern_node() {
 
 _nb_try_fnm() {
     command -v fnm >/dev/null 2>&1 || return 1
-    _nb_log "fnm detected — installing Node $HERMES_NODE_TARGET_MAJOR..."
+    _nb_log "fnm detected — installing Node $FABRIC_NODE_TARGET_MAJOR..."
     eval "$(fnm env 2>/dev/null)" || true
-    fnm install "$HERMES_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
-    fnm use     "$HERMES_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
+    fnm install "$FABRIC_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
+    fnm use     "$FABRIC_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
     _nb_have_modern_node || return 1
     _nb_ok "Node $(node --version) activated via fnm"
     return 0
@@ -101,8 +101,8 @@ _nb_try_fnm() {
 
 _nb_try_proto() {
     command -v proto >/dev/null 2>&1 || return 1
-    _nb_log "proto detected — installing Node $HERMES_NODE_TARGET_MAJOR..."
-    proto install node "$HERMES_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
+    _nb_log "proto detected — installing Node $FABRIC_NODE_TARGET_MAJOR..."
+    proto install node "$FABRIC_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
     _nb_have_modern_node || return 1
     _nb_ok "Node $(node --version) activated via proto"
     return 0
@@ -113,9 +113,9 @@ _nb_try_nvm() {
     [ -s "$nvm_sh" ] || return 1
     # shellcheck source=/dev/null
     \. "$nvm_sh" >/dev/null 2>&1 || return 1
-    _nb_log "nvm detected — installing Node $HERMES_NODE_TARGET_MAJOR..."
-    nvm install "$HERMES_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
-    nvm use     "$HERMES_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
+    _nb_log "nvm detected — installing Node $FABRIC_NODE_TARGET_MAJOR..."
+    nvm install "$FABRIC_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
+    nvm use     "$FABRIC_NODE_TARGET_MAJOR" >/dev/null 2>&1 || return 1
     _nb_have_modern_node || return 1
     _nb_ok "Node $(node --version) activated via nvm"
     return 0
@@ -138,10 +138,10 @@ _nb_try_brew() {
     [ "$(uname -s)" = "Darwin" ] || return 1
     command -v brew >/dev/null 2>&1 || return 1
     _nb_log "Installing Node via Homebrew..."
-    brew install "node@${HERMES_NODE_TARGET_MAJOR}" >/dev/null 2>&1 \
+    brew install "node@${FABRIC_NODE_TARGET_MAJOR}" >/dev/null 2>&1 \
         || brew install node >/dev/null 2>&1 \
         || return 1
-    brew link --overwrite --force "node@${HERMES_NODE_TARGET_MAJOR}" >/dev/null 2>&1 || true
+    brew link --overwrite --force "node@${FABRIC_NODE_TARGET_MAJOR}" >/dev/null 2>&1 || true
     _nb_have_modern_node || return 1
     _nb_ok "Node $(node --version) installed via Homebrew"
     return 0
@@ -174,18 +174,18 @@ _nb_install_bundled_node() {
             ;;
     esac
 
-    local index_url="https://nodejs.org/dist/latest-v${HERMES_NODE_TARGET_MAJOR}.x/"
+    local index_url="https://nodejs.org/dist/latest-v${FABRIC_NODE_TARGET_MAJOR}.x/"
     local tarball
     tarball=$(curl -fsSL "$index_url" \
-        | grep -oE "node-v${HERMES_NODE_TARGET_MAJOR}\.[0-9]+\.[0-9]+-${node_os}-${node_arch}\.tar\.xz" \
+        | grep -oE "node-v${FABRIC_NODE_TARGET_MAJOR}\.[0-9]+\.[0-9]+-${node_os}-${node_arch}\.tar\.xz" \
         | head -1)
     if [ -z "$tarball" ]; then
         tarball=$(curl -fsSL "$index_url" \
-            | grep -oE "node-v${HERMES_NODE_TARGET_MAJOR}\.[0-9]+\.[0-9]+-${node_os}-${node_arch}\.tar\.gz" \
+            | grep -oE "node-v${FABRIC_NODE_TARGET_MAJOR}\.[0-9]+\.[0-9]+-${node_os}-${node_arch}\.tar\.gz" \
             | head -1)
     fi
     if [ -z "$tarball" ]; then
-        _nb_warn "Could not resolve Node $HERMES_NODE_TARGET_MAJOR binary for $node_os-$node_arch"
+        _nb_warn "Could not resolve Node $FABRIC_NODE_TARGET_MAJOR binary for $node_os-$node_arch"
         return 1
     fi
 
@@ -280,7 +280,7 @@ heal_managed_node() {
 # ---------------------------------------------------------------------------
 
 ensure_node() {
-    HERMES_NODE_AVAILABLE=false
+    FABRIC_NODE_AVAILABLE=false
 
     # Repair pre-existing managed installs where `npm install -g` lands off
     # PATH. No-op when there's no managed Node, so it's safe to run first.
@@ -288,7 +288,7 @@ ensure_node() {
 
     if _nb_have_modern_node; then
         _nb_ok "Node $(node --version) found"
-        HERMES_NODE_AVAILABLE=true
+        FABRIC_NODE_AVAILABLE=true
         return 0
     fi
 
@@ -296,24 +296,24 @@ ensure_node() {
         export PATH="$FABRIC_HOME/node/bin:$PATH"
         if _nb_have_modern_node; then
             _nb_ok "Node $(node --version) found (Fabric-managed)"
-            HERMES_NODE_AVAILABLE=true
+            FABRIC_NODE_AVAILABLE=true
             return 0
         fi
     fi
 
     # Version managers first — respect the user's existing setup.
-    _nb_try_fnm   && { HERMES_NODE_AVAILABLE=true; return 0; }
-    _nb_try_proto && { HERMES_NODE_AVAILABLE=true; return 0; }
-    _nb_try_nvm   && { HERMES_NODE_AVAILABLE=true; return 0; }
+    _nb_try_fnm   && { FABRIC_NODE_AVAILABLE=true; return 0; }
+    _nb_try_proto && { FABRIC_NODE_AVAILABLE=true; return 0; }
+    _nb_try_nvm   && { FABRIC_NODE_AVAILABLE=true; return 0; }
 
     # Platform package managers.
-    _nb_try_termux_pkg && { HERMES_NODE_AVAILABLE=true; return 0; }
-    _nb_try_brew       && { HERMES_NODE_AVAILABLE=true; return 0; }
+    _nb_try_termux_pkg && { FABRIC_NODE_AVAILABLE=true; return 0; }
+    _nb_try_brew       && { FABRIC_NODE_AVAILABLE=true; return 0; }
 
     # Last resort: pinned nodejs.org tarball.
-    _nb_install_bundled_node && { HERMES_NODE_AVAILABLE=true; return 0; }
+    _nb_install_bundled_node && { FABRIC_NODE_AVAILABLE=true; return 0; }
 
     _nb_warn "Node.js install failed — TUI and browser tools will be unavailable."
-    _nb_warn "Install manually: https://nodejs.org/en/download/  (or: \`brew install node\`, \`fnm install $HERMES_NODE_TARGET_MAJOR\`, etc.)"
+    _nb_warn "Install manually: https://nodejs.org/en/download/  (or: \`brew install node\`, \`fnm install $FABRIC_NODE_TARGET_MAJOR\`, etc.)"
     return 1
 }

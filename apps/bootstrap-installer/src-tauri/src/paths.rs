@@ -4,7 +4,7 @@
 //!   Windows: %LOCALAPPDATA%\fabric
 //!   macOS:   ~/.fabric
 //!   Linux:   ~/.fabric
-//! `FABRIC_HOME` is canonical. `HERMES_HOME` and legacy default directories
+//! `FABRIC_HOME` is canonical. `FABRIC_HOME` and legacy default directories
 //! remain readable so existing installations upgrade in place.
 //!
 //! NOTE (macOS): the CLI installer and Electron desktop use a dot-directory;
@@ -24,7 +24,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 
 /// Returns the canonical Fabric home directory while preserving legacy homes.
 pub fn fabric_home() -> PathBuf {
-    for key in ["FABRIC_HOME", "HERMES_HOME"] {
+    for key in ["FABRIC_HOME", "FABRIC_HOME"] {
         if let Ok(override_path) = std::env::var(key) {
             if !override_path.trim().is_empty() {
                 return PathBuf::from(override_path);
@@ -192,8 +192,8 @@ fn repair_macos_installer_helper(_path: &Path) {}
 
 /// Where install.ps1 writes the bootstrap-complete marker (existence-only file
 /// the Electron app also checks). Per main.ts:
-///   const BOOTSTRAP_COMPLETE_MARKER = path.join(ACTIVE_HERMES_ROOT, '.hermes-bootstrap-complete')
-/// We don't always know ACTIVE_HERMES_ROOT until install.ps1 reports it, so
+///   const BOOTSTRAP_COMPLETE_MARKER = path.join(ACTIVE_FABRIC_ROOT, '.hermes-bootstrap-complete')
+/// We don't always know ACTIVE_FABRIC_ROOT until install.ps1 reports it, so
 /// this is a probe helper, not a definitive path.
 pub fn likely_bootstrap_marker(install_root: &Path) -> PathBuf {
     install_root.join(".hermes-bootstrap-complete")
@@ -214,7 +214,7 @@ pub fn init_logging() -> Option<WorkerGuard> {
     let file_appender = tracing_appender::rolling::never(&dir, "bootstrap-installer.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_env("HERMES_BOOTSTRAP_LOG")
+    let env_filter = tracing_subscriber::EnvFilter::try_from_env("FABRIC_BOOTSTRAP_LOG")
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
 
     tracing_subscriber::fmt()

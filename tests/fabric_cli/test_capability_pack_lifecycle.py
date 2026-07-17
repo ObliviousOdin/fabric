@@ -241,8 +241,8 @@ def test_disabled_skills_are_profile_scoped_global_plus_exact_platform(
 """,
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_PLATFORM", "discord")
-    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
+    monkeypatch.setenv("FABRIC_PLATFORM", "discord")
+    monkeypatch.setenv("FABRIC_SESSION_PLATFORM", "discord")
 
     assert load_effective_disabled_skills(home, None) == {"global-skill"}
     assert load_effective_disabled_skills(home, "telegram") == {
@@ -622,8 +622,8 @@ def test_planning_does_not_mutate_ambient_profile_or_platform_environment(
     home = tmp_path / "profile"
     catalog, *_ = _installed_fixture(home)
     monkeypatch.setenv("FABRIC_HOME", "/unrelated/fabric")
-    monkeypatch.setenv("HERMES_HOME", "/unrelated/hermes")
-    monkeypatch.setenv("HERMES_PLATFORM", "discord")
+    monkeypatch.setenv("FABRIC_HOME", "/unrelated/hermes")
+    monkeypatch.setenv("FABRIC_PLATFORM", "discord")
     before = dict(os.environ)
 
     _plan(home, catalog, session_platform=None)

@@ -27,9 +27,9 @@ Security model:
 * **Venv-scoped by default.** Installs target ``sys.executable`` in the
   active venv. We never touch the system Python.
 * **Durable-target mode (immutable images).** When the deployment seals the
-  agent's own venv (the Docker image sets ``HERMES_DISABLE_LAZY_INSTALLS=1``
+  agent's own venv (the Docker image sets ``FABRIC_DISABLE_LAZY_INSTALLS=1``
   and makes ``/opt/hermes`` read-only), setting
-  ``HERMES_LAZY_INSTALL_TARGET`` redirects lazy installs to a writable
+  ``FABRIC_LAZY_INSTALL_TARGET`` redirects lazy installs to a writable
   directory on the durable data volume (e.g. ``/opt/data/lazy-packages``).
   That directory is **appended to the end of ``sys.path``** — never
   prepended, never exported via ``PYTHONPATH`` — so the agent's own
@@ -146,7 +146,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     "memory.hindsight": ("hindsight-client==0.6.1",),
     # supermemory + mem0 are opt-in cloud memory providers with their own
     # SDKs. On the published Docker image the agent venv is sealed
-    # (HERMES_DISABLE_LAZY_INSTALLS=1) and lazy installs are redirected to the
+    # (FABRIC_DISABLE_LAZY_INSTALLS=1) and lazy installs are redirected to the
     # durable target — so, like honcho/hindsight, these MUST go through
     # ensure() to be installable there. Without an allowlist entry + an
     # ensure() call at the import site, the SDK never installs on a hosted
@@ -298,9 +298,9 @@ class _InstallResult:
 # security.allow_lazy_installs in config.yaml. When unset, lazy installs go
 # into the active venv as before.
 _LAZY_TARGET_ENV = "FABRIC_LAZY_INSTALL_TARGET"
-_LEGACY_LAZY_TARGET_ENV = "HERMES_LAZY_INSTALL_TARGET"
+_LEGACY_LAZY_TARGET_ENV = "FABRIC_LAZY_INSTALL_TARGET"
 _DISABLE_LAZY_INSTALLS_ENV = "FABRIC_DISABLE_LAZY_INSTALLS"
-_LEGACY_DISABLE_LAZY_INSTALLS_ENV = "HERMES_DISABLE_LAZY_INSTALLS"
+_LEGACY_DISABLE_LAZY_INSTALLS_ENV = "FABRIC_DISABLE_LAZY_INSTALLS"
 
 # Name of the stamp file written into the target dir recording the Python
 # X.Y + ABI it was populated for. If a container rebuild bumps the
@@ -435,7 +435,7 @@ def _allow_lazy_installs() -> bool:
     1. ``security.allow_lazy_installs: false`` in config.yaml is an absolute
        opt-out — it disables installs in BOTH venv-scoped and durable-target
        modes. This is the user-facing kill switch.
-    2. ``HERMES_DISABLE_LAZY_INSTALLS=1`` seals the *agent venv* (set by the
+    2. ``FABRIC_DISABLE_LAZY_INSTALLS=1`` seals the *agent venv* (set by the
        immutable Docker image). It blocks venv-scoped installs — UNLESS a
        durable install target is configured, in which case installs are
        redirected there (a path that structurally cannot break the sealed

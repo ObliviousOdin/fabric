@@ -12,10 +12,10 @@ import pytest
 
 @pytest.fixture
 def fabric_home(tmp_path, monkeypatch):
-    """Set up an isolated HERMES_HOME with minimal logs."""
+    """Set up an isolated FABRIC_HOME with minimal logs."""
     home = tmp_path / ".hermes"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     # Create log files
     logs_dir = home / "logs"
@@ -155,7 +155,7 @@ class TestCaptureLogSnapshot:
     def test_returns_none_for_missing(self, tmp_path, monkeypatch):
         home = tmp_path / ".hermes"
         home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
 
         from fabric_cli.debug import _capture_log_snapshot
         snap = _capture_log_snapshot("agent", tail_lines=10)
@@ -278,7 +278,7 @@ class TestCaptureLogSnapshot:
 
 
 # ---------------------------------------------------------------------------
-# Capture log redaction (force=True applies regardless of HERMES_REDACT_SECRETS)
+# Capture log redaction (force=True applies regardless of FABRIC_REDACT_SECRETS)
 # ---------------------------------------------------------------------------
 
 # A vendor-prefixed token used across redaction tests. Long enough to clear
@@ -291,16 +291,16 @@ class TestCaptureLogSnapshotRedaction:
 
     @pytest.fixture
     def fabric_home_with_secret(self, tmp_path, monkeypatch):
-        """Isolated HERMES_HOME whose agent.log contains a vendor-prefixed token."""
+        """Isolated FABRIC_HOME whose agent.log contains a vendor-prefixed token."""
         home = tmp_path / ".hermes"
         home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
         # Baseline fixture: no explicit env-var opinion. With the post-#17691
         # default of ON, the default-path tests below exercise the
         # secure-default behaviour. The `force=True` regression test
         # setenvs to "false" inline to prove force=True works even when
         # the runtime flag is disabled.
-        monkeypatch.delenv("HERMES_REDACT_SECRETS", raising=False)
+        monkeypatch.delenv("FABRIC_REDACT_SECRETS", raising=False)
 
         logs_dir = home / "logs"
         logs_dir.mkdir()
@@ -337,18 +337,18 @@ class TestCaptureLogSnapshotRedaction:
 
         If a future refactor drops `force=True` from `_redact_log_text`, this
         test fails immediately. Without `force=True`, the redactor returns the
-        input unchanged when HERMES_REDACT_SECRETS=false, and the share-time
+        input unchanged when FABRIC_REDACT_SECRETS=false, and the share-time
         redaction feature ships silently broken for users who opted out of
         runtime redaction (e.g. developers working on the redactor itself).
         """
 
         # Force the runtime flag off so we're exercising the force=True path,
         # not the default-on path.
-        monkeypatch.setenv("HERMES_REDACT_SECRETS", "false")
+        monkeypatch.setenv("FABRIC_REDACT_SECRETS", "false")
 
         from fabric_cli.debug import _capture_log_snapshot
 
-        assert os.environ.get("HERMES_REDACT_SECRETS", "") == "false"
+        assert os.environ.get("FABRIC_REDACT_SECRETS", "") == "false"
 
         snap = _capture_log_snapshot("agent", tail_lines=10)
 
@@ -478,7 +478,7 @@ class TestCollectDebugReport:
     def test_missing_logs_handled(self, tmp_path, monkeypatch):
         home = tmp_path / ".hermes"
         home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
 
         from fabric_cli.debug import collect_debug_report
 
@@ -653,7 +653,7 @@ class TestRunDebugShare:
         """Only uploads logs that exist."""
         home = tmp_path / ".hermes"
         home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
 
         from fabric_cli.debug import run_debug_share
 
@@ -732,11 +732,11 @@ class TestRunDebugShareRedaction:
 
     @pytest.fixture
     def fabric_home_with_secret(self, tmp_path, monkeypatch):
-        """Isolated HERMES_HOME whose agent.log contains a vendor-prefixed token."""
+        """Isolated FABRIC_HOME whose agent.log contains a vendor-prefixed token."""
         home = tmp_path / ".hermes"
         home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(home))
-        monkeypatch.delenv("HERMES_REDACT_SECRETS", raising=False)
+        monkeypatch.setenv("FABRIC_HOME", str(home))
+        monkeypatch.delenv("FABRIC_REDACT_SECRETS", raising=False)
 
         logs_dir = home / "logs"
         logs_dir.mkdir()

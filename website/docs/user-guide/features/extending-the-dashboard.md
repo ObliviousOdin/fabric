@@ -405,8 +405,8 @@ Write the JS bundle (a plain IIFE — no build step needed):
 (function () {
   "use strict";
 
-  const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
-  const Plugins = window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__FABRIC_PLUGIN_SDK__;
+  const Plugins = window.__FABRIC_PLUGINS__ ?? window.__FABRIC_PLUGINS__;
   const { React } = SDK;
   const { Card, CardHeader, CardTitle, CardContent } = SDK.components;
 
@@ -515,11 +515,11 @@ Need a different icon? Open a PR to `web/src/components/sidebar/nav-model.ts`'s
 ### The Plugin SDK
 
 Everything a plugin needs is on `window.__FABRIC_PLUGIN_SDK__`. The legacy
-`window.__HERMES_PLUGIN_SDK__` global points to the same object for compatibility.
+`window.__FABRIC_PLUGIN_SDK__` global points to the same object for compatibility.
 Plugins should never bundle their own React renderer.
 
 ```javascript
-const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
+const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__FABRIC_PLUGIN_SDK__;
 
 SDK.sdkVersion               // host SDK contract version
 
@@ -600,9 +600,9 @@ Slots let a plugin inject components into named locations of the app shell — t
 Register from inside the plugin bundle:
 
 ```javascript
-(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+(window.__FABRIC_PLUGINS__ ?? window.__FABRIC_PLUGINS__)
   .registerSlot("my-plugin", "sidebar", MySidebar);
-(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+(window.__FABRIC_PLUGINS__ ?? window.__FABRIC_PLUGINS__)
   .registerSlot("my-plugin", "header-left", MyCrest);
 ```
 
@@ -647,7 +647,7 @@ function PinnedSessionsBanner() {
   );
 }
 
-(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+(window.__FABRIC_PLUGINS__ ?? window.__FABRIC_PLUGINS__)
   .registerSlot("my-plugin", "sessions:top", PinnedSessionsBanner);
 ```
 
@@ -710,8 +710,8 @@ Minimal example — pin a banner to the top of the Sessions page:
 ```javascript
 // ~/.fabric/plugins/session-notes/dashboard/dist/index.js
 (function () {
-  const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
-  const Plugins = window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__FABRIC_PLUGIN_SDK__;
+  const Plugins = window.__FABRIC_PLUGINS__ ?? window.__FABRIC_PLUGINS__;
   const { React } = SDK;
   const { Card, CardContent } = SDK.components;
 
@@ -928,7 +928,7 @@ If a plugin's script fails to load (404, syntax error, exception during IIFE), t
 | `window.__FABRIC_PLUGIN_SDK__` | object | `registry.ts` — SDK version, host React/ReactDOM, hooks, UI components, icons, authenticated API/WS helpers, and utils. |
 | `window.__FABRIC_PLUGINS__.register(name, Component)` | function | Register a plugin's main component for the host to mount. |
 | `window.__FABRIC_PLUGINS__.registerSlot(name, slot, Component)` | function | Register into a named shell slot. |
-| `window.__HERMES_PLUGIN_SDK__`, `window.__HERMES_PLUGINS__` | aliases | Backward-compatible aliases of the Fabric globals. |
+| `window.__FABRIC_PLUGIN_SDK__`, `window.__FABRIC_PLUGINS__` | aliases | Backward-compatible aliases of the Fabric globals. |
 
 ---
 

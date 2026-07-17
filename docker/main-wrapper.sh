@@ -6,7 +6,7 @@
 # stderr from the container.
 #
 # Shebang note: /init scrubs env before invoking CMD, so a plain
-# `#!/bin/sh` wrapper sees an empty environ and `ENV HERMES_HOME=/opt/data`
+# `#!/bin/sh` wrapper sees an empty environ and `ENV FABRIC_HOME=/opt/data`
 # from the Dockerfile never reaches `fabric`. with-contenv repopulates
 # the env from /run/s6/container_environment before exec'ing, which is
 # what s6-supervised services use too (see main-fabric/run).
@@ -58,7 +58,7 @@ export HOME=/opt/data
 # Save the Docker -w (or default) working directory before init
 # scripts cd to /opt/data, so the container starts in the
 # directory the user requested.
-_fabric_orig_cwd="${HERMES_ORIG_CWD:-$PWD}"
+_fabric_orig_cwd="${FABRIC_ORIG_CWD:-$PWD}"
 
 cd /opt/data
 # shellcheck disable=SC1091

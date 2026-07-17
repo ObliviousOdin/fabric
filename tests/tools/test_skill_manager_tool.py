@@ -630,7 +630,7 @@ class TestSkillManageDispatcher:
     ):
         """Background creates become drafts; promotion owns provenance."""
         from tools.skill_provenance import set_current_write_origin, BACKGROUND_REVIEW
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
         token = set_current_write_origin(BACKGROUND_REVIEW)
         try:
             with _skill_dir(tmp_path):
@@ -686,7 +686,7 @@ class TestSkillManageDispatcher:
             set_current_write_origin,
         )
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
         token = set_current_write_origin(LEARN_FOLLOWUP)
         try:
             with _skill_dir(tmp_path):
@@ -1290,7 +1290,7 @@ class TestDeleteSkillRmtreeGuard:
 def _curator_pass(tmp_path, *, monkeypatch):
     """Run the body as the curator/background-review fork.
 
-    Points HERMES_HOME at ``tmp_path/.hermes`` so skill_usage's archive path
+    Points FABRIC_HOME at ``tmp_path/.hermes`` so skill_usage's archive path
     (``get_fabric_home()``) resolves into the same tree the skill manager
     searches, and flips ``is_autonomous_skill_writer()`` → True so the consolidation
     guard fires.
@@ -1298,7 +1298,7 @@ def _curator_pass(tmp_path, *, monkeypatch):
     fabric_home = tmp_path / ".hermes"
     skills_root = fabric_home / "skills"
     skills_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     with patch("tools.skill_manager_tool.SKILLS_DIR", skills_root), \
          patch("tools.skills_tool.SKILLS_DIR", skills_root), \
          patch("agent.skill_utils.get_all_skills_dirs", return_value=[skills_root]), \

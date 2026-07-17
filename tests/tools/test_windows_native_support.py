@@ -35,7 +35,7 @@ class TestConfigureWindowsStdio:
     - set PYTHONIOENCODING / PYTHONUTF8 without overriding explicit user settings
     - reconfigure sys.stdout/stderr/stdin to UTF-8 on Windows
     - flip the console code page to CP_UTF8 (65001) via ctypes
-    - respect HERMES_DISABLE_WINDOWS_UTF8 opt-out
+    - respect FABRIC_DISABLE_WINDOWS_UTF8 opt-out
     """
 
     @pytest.fixture(autouse=True)
@@ -71,7 +71,7 @@ class TestConfigureWindowsStdio:
         # Pretend the user has no prior setting
         monkeypatch.delenv("PYTHONIOENCODING", raising=False)
         monkeypatch.delenv("PYTHONUTF8", raising=False)
-        monkeypatch.delenv("HERMES_DISABLE_WINDOWS_UTF8", raising=False)
+        monkeypatch.delenv("FABRIC_DISABLE_WINDOWS_UTF8", raising=False)
         monkeypatch.delenv("EDITOR", raising=False)
         monkeypatch.delenv("VISUAL", raising=False)
 
@@ -149,7 +149,7 @@ class TestConfigureWindowsStdio:
         from fabric_cli import stdio
 
         monkeypatch.setattr(stdio, "is_windows", lambda: True)
-        monkeypatch.setenv("HERMES_DISABLE_WINDOWS_UTF8", optout)
+        monkeypatch.setenv("FABRIC_DISABLE_WINDOWS_UTF8", optout)
 
         reconfigure_hit = []
         monkeypatch.setattr(
@@ -711,7 +711,7 @@ class TestCodeExecutionTransportTcpFallback:
 
     We can't easily execute the sandbox on Linux CI in Windows mode, but we
     CAN assert that the generated client module supports both AF_UNIX and
-    AF_INET endpoints based on the HERMES_RPC_SOCKET format.
+    AF_INET endpoints based on the FABRIC_RPC_SOCKET format.
     """
 
     def test_generated_client_handles_tcp_endpoint(self):
@@ -1057,7 +1057,7 @@ class TestGatewayDetachedWatcherWindowsFlags:
         )
         assert '_popen_kwargs["env"]' in block, (
             "Inlined respawn must overlay env (VIRTUAL_ENV / PYTHONPATH / "
-            "HERMES_HOME) so the windowless base pythonw resolves fabric_cli."
+            "FABRIC_HOME) so the windowless base pythonw resolves fabric_cli."
         )
 
 

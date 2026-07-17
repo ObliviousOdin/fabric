@@ -248,7 +248,7 @@ async def test_startup_aborts_after_registered_adapter_restart(tmp_path, monkeyp
 
 @pytest.mark.asyncio
 async def test_start_gateway_does_not_start_cron_after_aborted_startup(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     cron_started = False
 
     class AbortedStartupRunner:

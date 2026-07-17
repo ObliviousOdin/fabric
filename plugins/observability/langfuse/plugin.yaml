@@ -3,8 +3,8 @@ version: "1.0.0"
 description: "Optional Langfuse observability for Fabric — traces conversations, LLM calls, and tool usage. Opt-in via `fabric plugins enable observability/langfuse` or `fabric tools → Langfuse Observability`."
 author: NousResearch
 requires_env:
-  - HERMES_LANGFUSE_PUBLIC_KEY
-  - HERMES_LANGFUSE_SECRET_KEY
+  - FABRIC_LANGFUSE_PUBLIC_KEY
+  - FABRIC_LANGFUSE_SECRET_KEY
 hooks:
   - pre_api_request
   - post_api_request

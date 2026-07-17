@@ -55,7 +55,7 @@ pub async fn run_script(
 
     if let Some(home) = fabric_home_override {
         cmd.env("FABRIC_HOME", home);
-        cmd.env("HERMES_HOME", home);
+        cmd.env("FABRIC_HOME", home);
     }
 
     cmd.stdin(Stdio::null())

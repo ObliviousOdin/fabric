@@ -115,7 +115,7 @@ def test_terminal_output_transform_still_truncates_long_replacement(monkeypatch,
 
 
 def test_terminal_output_transform_still_runs_strip_and_redact(monkeypatch, tmp_path):
-    # Ensure redaction is active regardless of host HERMES_REDACT_SECRETS state
+    # Ensure redaction is active regardless of host FABRIC_REDACT_SECRETS state
     # or collection-time import order (the module snapshots env at import).
     monkeypatch.setattr("agent.redact._REDACT_ENABLED", True)
 
@@ -180,7 +180,7 @@ def test_terminal_output_transform_does_not_change_approval_or_exit_code_meaning
 def test_terminal_output_transform_integration_with_real_plugin(monkeypatch, tmp_path):
     import yaml
 
-    fabric_home = Path(os.environ["HERMES_HOME"])
+    fabric_home = Path(os.environ["FABRIC_HOME"])
     plugins_dir = fabric_home / "plugins"
     plugin_dir = plugins_dir / "terminal_transform"
     plugin_dir.mkdir(parents=True)

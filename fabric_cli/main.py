@@ -132,7 +132,7 @@ def _config_default_interface_early() -> str:
         return _EARLY_INTERFACE_CACHE[0]
     value = "cli"
     try:
-        home = os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME")
+        home = os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME")
         if home:
             cfg_path = os.path.join(home, "config.yaml")
         else:
@@ -164,13 +164,13 @@ def _wants_tui_early(argv: "list[str] | None" = None) -> bool:
     """Earliest TUI decision, usable before argparse/config imports.
 
     Precedence: explicit ``--cli`` wins (forces classic REPL), then
-    ``--tui``/``HERMES_TUI=1``, then ``display.interface`` in config.
+    ``--tui``/``FABRIC_TUI=1``, then ``display.interface`` in config.
     """
     if argv is None:
         argv = sys.argv[1:]
     if "--cli" in argv:
         return False
-    if os.environ.get("HERMES_TUI") == "1" or "--tui" in argv:
+    if os.environ.get("FABRIC_TUI") == "1" or "--tui" in argv:
         return True
     return _config_default_interface_early() == "tui"
 
@@ -181,10 +181,10 @@ def _wants_tui_early(argv: "list[str] | None" = None) -> bool:
 # before the Node TUI takes stdin into raw mode). During that window any
 # incoming bytes are echoed straight back to the user's shell scrollback as
 # ``^[[<…M`` text. The TUI itself runs `resetTerminalModes()` again in
-# `entry.tsx`; this is just the earlier cousin. ``HERMES_TUI_NO_EARLY_DISABLE``
+# `entry.tsx`; this is just the earlier cousin. ``FABRIC_TUI_NO_EARLY_DISABLE``
 # escapes the behaviour for diagnostics.
 def _suppress_mouse_residue_early() -> None:
-    if os.environ.get("HERMES_TUI_NO_EARLY_DISABLE") == "1":
+    if os.environ.get("FABRIC_TUI_NO_EARLY_DISABLE") == "1":
         return
     if not _wants_tui_early():
         return
@@ -264,7 +264,7 @@ def _print_fast_version_info() -> None:
 
 def _try_termux_ultrafast_version() -> bool:
     """Handle ``fabric --version`` before config/logging imports on Termux."""
-    if os.environ.get("HERMES_TERMUX_DISABLE_FAST_CLI") == "1":
+    if os.environ.get("FABRIC_TERMUX_DISABLE_FAST_CLI") == "1":
         return False
     if not _is_termux_startup_environment_fast():
         return False
@@ -356,7 +356,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # ---------------------------------------------------------------------------
 # Profile override — MUST happen before any fabric module import.
 #
-# Many modules cache FABRIC_HOME/HERMES_HOME at import time (module-level
+# Many modules cache FABRIC_HOME/FABRIC_HOME at import time (module-level
 # constants). We intercept --profile/-p from sys.argv here and set both env
 # vars so every subsequent home lookup resolves to the same profile.
 # The flag is stripped from sys.argv so argparse never sees it.
@@ -473,39 +473,39 @@ def _apply_profile_override() -> None:
             consume = 0
             profile_index = None
 
-    # 1.5 If FABRIC_HOME/HERMES_HOME is already set and no explicit flag was
+    # 1.5 If FABRIC_HOME/FABRIC_HOME is already set and no explicit flag was
     # given, trust the preferred value only when it already points to a
     # specific profile directory. FABRIC_HOME is authoritative during the
     # compatibility window, matching fabric_constants.get_fabric_home(). The
     # distinguishing heuristic: a profile path has "profiles" as its immediate
     # parent directory name (e.g. ~/.fabric/profiles/coder or
     # /opt/data/profiles/coder). If the preferred home points to the root
-    # instead (e.g. systemd hardcodes HERMES_HOME=/root/.hermes), we must
+    # instead (e.g. systemd hardcodes FABRIC_HOME=/root/.hermes), we must
     # still read active_profile — the user may have switched profiles via
     # `fabric profile use` and the gateway should honour that choice.
     # See issue #22502.
     profile_home_env = (
-        os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or ""
+        os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME") or ""
     ).strip()
     if profile_name is None and profile_home_env:
         if Path(profile_home_env).parent.name == "profiles":
             os.environ["FABRIC_HOME"] = profile_home_env
-            os.environ["HERMES_HOME"] = profile_home_env
+            os.environ["FABRIC_HOME"] = profile_home_env
             return
 
     # 2. If no flag, check active_profile in the fabric root.
     #
     # EXCEPTION: a supervised s6 gateway child (exported by the container
-    # run-script as HERMES_S6_SUPERVISED_CHILD=1) must NOT follow the sticky
+    # run-script as FABRIC_S6_SUPERVISED_CHILD=1) must NOT follow the sticky
     # active_profile. Each supervised slot has a fixed profile identity: named
     # slots pass ``-p <name>`` explicitly (handled in step 1 above), and the
     # reserved ``gateway-default`` slot runs bare ``fabric gateway run`` to mean
-    # "the root HERMES_HOME profile". If the reserved default child read
+    # "the root FABRIC_HOME profile". If the reserved default child read
     # active_profile here, switching the active profile (e.g. via the dashboard)
     # would silently redirect the default gateway into that profile — yielding a
     # duplicate gateway for the active profile and no real default gateway. See
     # the "Docker & Profiles & Dashboard" report.
-    if profile_name is None and not os.environ.get("HERMES_S6_SUPERVISED_CHILD"):
+    if profile_name is None and not os.environ.get("FABRIC_S6_SUPERVISED_CHILD"):
         try:
             from fabric_constants import get_default_fabric_root
 
@@ -520,7 +520,7 @@ def _apply_profile_override() -> None:
 
     # 3. If we found a profile, resolve it once and keep both transition-era
     # home variables synchronized. FABRIC_HOME is read first by current code;
-    # HERMES_HOME remains required by compatibility paths and child processes.
+    # FABRIC_HOME remains required by compatibility paths and child processes.
     if profile_name is not None:
         try:
             from fabric_cli.profiles import resolve_profile_env
@@ -542,7 +542,7 @@ def _apply_profile_override() -> None:
             )
             return
         os.environ["FABRIC_HOME"] = fabric_home
-        os.environ["HERMES_HOME"] = fabric_home
+        os.environ["FABRIC_HOME"] = fabric_home
         # Strip the flag from argv so argparse doesn't choke
         if consume > 0 and profile_index is not None:
             start = profile_index + 1  # +1 because argv is sys.argv[1:]
@@ -618,7 +618,7 @@ _EARLY_LOCAL_AI_DIAGNOSTIC = bool(
 if _EARLY_NETWORK_BOOTSTRAP_PERMITTED and not _EARLY_LOCAL_AI_DIAGNOSTIC:
     load_fabric_dotenv(project_env=PROJECT_ROOT / ".env")
 
-# Bridge security.redact_secrets from config.yaml → HERMES_REDACT_SECRETS env
+# Bridge security.redact_secrets from config.yaml → FABRIC_REDACT_SECRETS env
 # var BEFORE fabric_logging imports agent.redact (which snapshots the flag at
 # module-import time). Without this, config.yaml's toggle is ignored because
 # the setup_logging() call below imports agent.redact, which reads the env var
@@ -647,12 +647,12 @@ try:
             _early_cfg_raw = managed_scope.apply_managed_overlay(_early_cfg_raw)
         except Exception:
             pass
-        if "HERMES_REDACT_SECRETS" not in os.environ:
+        if "FABRIC_REDACT_SECRETS" not in os.environ:
             _early_sec_cfg = _early_cfg_raw.get("security", {})
             if isinstance(_early_sec_cfg, dict):
                 _early_redact = _early_sec_cfg.get("redact_secrets")
                 if _early_redact is not None:
-                    os.environ["HERMES_REDACT_SECRETS"] = str(_early_redact).lower()
+                    os.environ["FABRIC_REDACT_SECRETS"] = str(_early_redact).lower()
         _early_net_cfg = _early_cfg_raw.get("network", {})
         if isinstance(_early_net_cfg, dict) and _early_net_cfg.get("force_ipv4"):
             _FORCE_IPV4_EARLY = True
@@ -821,7 +821,7 @@ def _termux_bundled_skills_stamp_path() -> Path:
 def _termux_bundled_skills_sync_needed() -> bool:
     if not _is_termux_startup_environment():
         return True
-    if os.environ.get("HERMES_TERMUX_FORCE_SKILLS_SYNC") == "1":
+    if os.environ.get("FABRIC_TERMUX_FORCE_SKILLS_SYNC") == "1":
         return True
     try:
         stamp = _termux_bundled_skills_stamp_path()
@@ -861,7 +861,7 @@ def _sync_bundled_skills_for_startup() -> bool:
 def _termux_should_prefetch_update_check() -> bool:
     if not _is_termux_startup_environment():
         return True
-    return os.environ.get("HERMES_TERMUX_PREFETCH_UPDATES") == "1"
+    return os.environ.get("FABRIC_TERMUX_PREFETCH_UPDATES") == "1"
 
 
 def _relative_time(ts) -> str:
@@ -1673,9 +1673,9 @@ def _tui_need_rebuild(root: Path) -> bool:
     The TUI bundle is self-contained. Rebuilding it on every launch adds a
     visible cold-start tax on slow Termux CPUs, while a simple mtime freshness
     check still rebuilds immediately after source updates, dependency updates,
-    or local edits. Set ``HERMES_TUI_FORCE_BUILD=1`` to force the old behaviour.
+    or local edits. Set ``FABRIC_TUI_FORCE_BUILD=1`` to force the old behaviour.
     """
-    force = (os.environ.get("HERMES_TUI_FORCE_BUILD") or "").strip().lower()
+    force = (os.environ.get("FABRIC_TUI_FORCE_BUILD") or "").strip().lower()
     if force in {"1", "true", "yes", "on"}:
         return True
 
@@ -1705,11 +1705,11 @@ def _ensure_tui_node() -> None:
     was used (nvm, fnm, proto, brew, or the bundled fallback).
 
     Idempotent no-op when node+npm are already discoverable. Set
-    ``HERMES_SKIP_NODE_BOOTSTRAP=1`` to disable auto-install.
+    ``FABRIC_SKIP_NODE_BOOTSTRAP=1`` to disable auto-install.
     """
     if shutil.which("node") and shutil.which("npm"):
         return
-    if os.environ.get("HERMES_SKIP_NODE_BOOTSTRAP"):
+    if os.environ.get("FABRIC_SKIP_NODE_BOOTSTRAP"):
         return
 
     helper = PROJECT_ROOT / "scripts" / "lib" / "node-bootstrap.sh"
@@ -1801,7 +1801,7 @@ def _ensure_tui_workspace(tui_dir: Path) -> None:
         return
 
     if _restore_tui_workspace(tui_dir):
-        if not os.environ.get("HERMES_QUIET"):
+        if not os.environ.get("FABRIC_QUIET"):
             print(f"Restored missing TUI workspace: {tui_dir}")
         return
 
@@ -1825,7 +1825,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
 
     def _node_bin(bin: str) -> str:
         if bin == "node":
-            env_node = os.environ.get("HERMES_NODE")
+            env_node = os.environ.get("FABRIC_NODE")
             if env_node and os.path.isfile(env_node) and os.access(env_node, os.X_OK):
                 return env_node
         path = shutil.which(bin)
@@ -1842,7 +1842,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         return path
 
     # Footgun: --dev against a prebuilt bundle that has no source/node_modules.
-    ext_dir = os.environ.get("FABRIC_TUI_DIR") or os.environ.get("HERMES_TUI_DIR")
+    ext_dir = os.environ.get("FABRIC_TUI_DIR") or os.environ.get("FABRIC_TUI_DIR")
     if tui_dev and ext_dir:
         print(
             f"Error: --dev is incompatible with FABRIC_TUI_DIR={ext_dir}\n"
@@ -1888,7 +1888,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         and _tui_need_npm_install(tui_dir)
     ):
         npm = _node_bin("npm")
-        if not os.environ.get("HERMES_QUIET"):
+        if not os.environ.get("FABRIC_QUIET"):
             print("Installing TUI dependencies…")
         npm_cwd = _workspace_root(tui_dir)
         # --workspace ui-tui avoids resolving apps/desktop (Electron + node-pty).
@@ -2115,12 +2115,12 @@ def _launch_tui(
         prefix="fabric-tui-active-session-", suffix=".json"
     )
     os.close(active_session_fd)
-    env["HERMES_TUI_ACTIVE_SESSION_FILE"] = active_session_file
-    env["HERMES_PYTHON_SRC_ROOT"] = os.environ.get(
-        "HERMES_PYTHON_SRC_ROOT", str(PROJECT_ROOT)
+    env["FABRIC_TUI_ACTIVE_SESSION_FILE"] = active_session_file
+    env["FABRIC_PYTHON_SRC_ROOT"] = os.environ.get(
+        "FABRIC_PYTHON_SRC_ROOT", str(PROJECT_ROOT)
     )
-    env.setdefault("HERMES_PYTHON", sys.executable)
-    env.setdefault("HERMES_CWD", os.getcwd())
+    env.setdefault("FABRIC_PYTHON", sys.executable)
+    env.setdefault("FABRIC_CWD", os.getcwd())
     env.setdefault("NODE_ENV", "development" if tui_dev else "production")
 
     wt_info = None
@@ -2142,18 +2142,18 @@ def _launch_tui(
             wt_info = None
         if not wt_info:
             sys.exit(1)
-        env["HERMES_CWD"] = wt_info["path"]
+        env["FABRIC_CWD"] = wt_info["path"]
         env["TERMINAL_CWD"] = wt_info["path"]
 
     if model:
-        env["HERMES_MODEL"] = model
-        env["HERMES_INFERENCE_MODEL"] = model
+        env["FABRIC_MODEL"] = model
+        env["FABRIC_INFERENCE_MODEL"] = model
     if provider:
-        env["HERMES_TUI_PROVIDER"] = provider
-        env["HERMES_INFERENCE_PROVIDER"] = provider
+        env["FABRIC_TUI_PROVIDER"] = provider
+        env["FABRIC_INFERENCE_PROVIDER"] = provider
     tui_toolsets = _normalize_tui_toolsets(toolsets)
     if tui_toolsets:
-        env["HERMES_TUI_TOOLSETS"] = ",".join(tui_toolsets)
+        env["FABRIC_TUI_TOOLSETS"] = ",".join(tui_toolsets)
     if skills:
         if isinstance(skills, (list, tuple)):
             flattened = []
@@ -2162,27 +2162,27 @@ def _launch_tui(
                     part.strip() for part in str(item).split(",") if part.strip()
                 )
             if flattened:
-                env["HERMES_TUI_SKILLS"] = ",".join(flattened)
+                env["FABRIC_TUI_SKILLS"] = ",".join(flattened)
         else:
             value = str(skills).strip()
             if value:
-                env["HERMES_TUI_SKILLS"] = value
+                env["FABRIC_TUI_SKILLS"] = value
     if query:
-        env["HERMES_TUI_QUERY"] = query
+        env["FABRIC_TUI_QUERY"] = query
     if image:
-        env["HERMES_TUI_IMAGE"] = image
+        env["FABRIC_TUI_IMAGE"] = image
     if checkpoints:
-        env["HERMES_TUI_CHECKPOINTS"] = "1"
+        env["FABRIC_TUI_CHECKPOINTS"] = "1"
     if pass_session_id:
-        env["HERMES_TUI_PASS_SESSION_ID"] = "1"
+        env["FABRIC_TUI_PASS_SESSION_ID"] = "1"
     if max_turns is not None:
-        env["HERMES_TUI_MAX_TURNS"] = str(max_turns)
+        env["FABRIC_TUI_MAX_TURNS"] = str(max_turns)
     if verbose:
-        env["HERMES_TUI_TOOL_PROGRESS"] = "verbose"
+        env["FABRIC_TUI_TOOL_PROGRESS"] = "verbose"
     elif quiet:
-        env["HERMES_TUI_TOOL_PROGRESS"] = "off"
+        env["FABRIC_TUI_TOOL_PROGRESS"] = "off"
     if accept_hooks:
-        env["HERMES_ACCEPT_HOOKS"] = "1"
+        env["FABRIC_ACCEPT_HOOKS"] = "1"
     # Guarantee a generous V8 heap for the TUI. Default node cap is ~1.5–4GB
     # depending on version and can fatal-OOM on long sessions with large
     # transcripts / reasoning blobs. We target 8GB on an unconstrained host,
@@ -2201,16 +2201,16 @@ def _launch_tui(
     if not any(t.startswith("--max-old-space-size=") for t in _tokens):
         _tokens.append(f"--max-old-space-size={_resolve_tui_heap_mb()}")
     env["NODE_OPTIONS"] = " ".join(_tokens)
-    # HERMES_TUI_RESUME is an internal hand-off from the Python wrapper to the
+    # FABRIC_TUI_RESUME is an internal hand-off from the Python wrapper to the
     # Ink app.  Because we start from os.environ.copy(), an exported/stale value
     # in the user's shell would otherwise make a plain `fabric --tui` try to
     # resume a non-existent session and leave the UI at "error: session not
     # found" with no live session.  Only forward a resume id that argparse
     # resolved for this invocation; direct `node ui-tui/dist/entry.js` users can
-    # still set HERMES_TUI_RESUME themselves.
-    env.pop("HERMES_TUI_RESUME", None)
+    # still set FABRIC_TUI_RESUME themselves.
+    env.pop("FABRIC_TUI_RESUME", None)
     if resume_session_id:
-        env["HERMES_TUI_RESUME"] = resume_session_id
+        env["FABRIC_TUI_RESUME"] = resume_session_id
 
     argv, cwd = _make_tui_argv(tui_dir, tui_dev)
     code: Optional[int] = None
@@ -2249,7 +2249,7 @@ def _launch_tui(
 
 
 def _pin_kanban_board_env() -> None:
-    """Pin the active kanban board into ``HERMES_KANBAN_BOARD`` for the chat session.
+    """Pin the active kanban board into ``FABRIC_KANBAN_BOARD`` for the chat session.
 
     Without this, in-process tools (``kanban_*``) and shelled-out CLI calls
     (``fabric kanban …``) resolve the board on different paths: the env-pin if
@@ -2259,12 +2259,12 @@ def _pin_kanban_board_env() -> None:
     calls hit board B (#20074). Pinning at chat boot mirrors what the
     dispatcher already does for spawned workers.
     """
-    if os.environ.get("HERMES_KANBAN_BOARD"):
+    if os.environ.get("FABRIC_KANBAN_BOARD"):
         return
     try:
         from fabric_cli.kanban_db import get_current_board
 
-        os.environ["HERMES_KANBAN_BOARD"] = get_current_board()
+        os.environ["FABRIC_KANBAN_BOARD"] = get_current_board()
     except Exception:
         pass
 
@@ -2294,7 +2294,7 @@ def _resolve_use_tui(args) -> bool:
 
     Precedence (highest first):
       1. ``--cli`` flag         → always classic REPL
-      2. ``--tui`` flag / ``HERMES_TUI=1`` → always TUI
+      2. ``--tui`` flag / ``FABRIC_TUI=1`` → always TUI
       3. ``display.interface`` config value ("cli" | "tui")
       4. default → classic REPL
 
@@ -2303,7 +2303,7 @@ def _resolve_use_tui(args) -> bool:
     """
     if getattr(args, "cli", False):
         return False
-    if getattr(args, "tui", False) or os.environ.get("HERMES_TUI") == "1":
+    if getattr(args, "tui", False) or os.environ.get("FABRIC_TUI") == "1":
         return True
     try:
         from fabric_cli.config import load_config
@@ -2428,7 +2428,7 @@ def cmd_chat(args):
 
     # --yolo: bypass all dangerous command approvals
     if getattr(args, "yolo", False):
-        os.environ["HERMES_YOLO_MODE"] = "1"
+        os.environ["FABRIC_YOLO_MODE"] = "1"
 
     # --ignore-user-config: make load_cli_config() / load_config() skip the
     # user's ~/.hermes/config.yaml and return built-in defaults. Set BEFORE
@@ -2436,17 +2436,17 @@ def cmd_chat(args):
     # import time). Credentials in .env are still loaded — this flag only
     # ignores behavioral/config settings.
     if getattr(args, "ignore_user_config", False):
-        os.environ["HERMES_IGNORE_USER_CONFIG"] = "1"
+        os.environ["FABRIC_IGNORE_USER_CONFIG"] = "1"
 
     # --ignore-rules: skip auto-injection of AGENTS.md/SOUL.md/.cursorrules
     # (rules), memory entries, and any preloaded skills coming from user config.
     # Maps to AIAgent(skip_context_files=True, skip_memory=True).
     if getattr(args, "ignore_rules", False):
-        os.environ["HERMES_IGNORE_RULES"] = "1"
+        os.environ["FABRIC_IGNORE_RULES"] = "1"
 
     # --source: tag session source for filtering (e.g. 'tool' for third-party integrations)
     if getattr(args, "source", None):
-        os.environ["HERMES_SESSION_SOURCE"] = args.source
+        os.environ["FABRIC_SESSION_SOURCE"] = args.source
 
     _pin_kanban_board_env()
 
@@ -2871,7 +2871,7 @@ def select_provider_and_model(args=None):
         config_provider = model_cfg.get("provider")
 
     effective_provider = (
-        config_provider or os.getenv("HERMES_INFERENCE_PROVIDER") or "auto"
+        config_provider or os.getenv("FABRIC_INFERENCE_PROVIDER") or "auto"
     )
     compatible_custom_providers = get_compatible_custom_providers(config)
     def _named_custom_provider_map(cfg) -> dict[str, dict[str, str]]:
@@ -5166,7 +5166,7 @@ def _desktop_dist_exists(desktop_dir: Path) -> bool:
 #   - ``Fabric desktop`` (interactive launch) skips the build when the
 #     stamp matches, making repeated launches fast
 #
-# Stamp file: $HERMES_HOME/desktop-build-stamp.json
+# Stamp file: $FABRIC_HOME/desktop-build-stamp.json
 # Schema:
 #   {
 #     "contentHash": "<sha256 hex of source files>",
@@ -5235,7 +5235,7 @@ def _compute_desktop_content_hash(project_root: Path) -> str:
 
 
 def _desktop_stamp_path() -> Path:
-    """Return the path to the desktop build stamp file under $HERMES_HOME."""
+    """Return the path to the desktop build stamp file under $FABRIC_HOME."""
     from fabric_constants import get_fabric_home
     return get_fabric_home() / "desktop-build-stamp.json"
 
@@ -5771,7 +5771,7 @@ def _desktop_launch_options() -> tuple[list[str], str]:
 
     Returns ``(electron_flags, disable_gpu)`` where ``electron_flags`` is a list
     of extra Electron CLI flags and ``disable_gpu`` is one of "auto"/"1"/"0"
-    (normalized for the HERMES_DESKTOP_DISABLE_GPU env var the Electron app
+    (normalized for the FABRIC_DESKTOP_DISABLE_GPU env var the Electron app
     reads). Best-effort: any config error yields the safe defaults
     ``([], "auto")`` so a malformed config never blocks the launch.
     """
@@ -5822,23 +5822,23 @@ def cmd_gui(args: argparse.Namespace):
     # with_fabric_node_path() copies os.environ when called with no arg.
     env = with_fabric_node_path()
     if getattr(args, "fake_boot", False):
-        env["HERMES_DESKTOP_BOOT_FAKE"] = "1"
+        env["FABRIC_DESKTOP_BOOT_FAKE"] = "1"
     if getattr(args, "ignore_existing", False):
-        env["HERMES_DESKTOP_IGNORE_EXISTING"] = "1"
+        env["FABRIC_DESKTOP_IGNORE_EXISTING"] = "1"
     if getattr(args, "fabric_root", None):
-        env["HERMES_DESKTOP_HERMES_ROOT"] = str(Path(args.fabric_root).expanduser().resolve())
+        env["FABRIC_DESKTOP_HERMES_ROOT"] = str(Path(args.fabric_root).expanduser().resolve())
     if getattr(args, "cwd", None):
-        env["HERMES_DESKTOP_CWD"] = str(Path(args.cwd).expanduser().resolve())
+        env["FABRIC_DESKTOP_CWD"] = str(Path(args.cwd).expanduser().resolve())
     else:
-        env["HERMES_DESKTOP_CWD"] = os.getcwd()
+        env["FABRIC_DESKTOP_CWD"] = os.getcwd()
 
     # Desktop launch options from config.yaml (`desktop.electron_flags`,
     # `desktop.disable_gpu`). The GPU policy is bridged to the env var the
     # Electron app already reads; an explicit env var still wins over config so
-    # `HERMES_DESKTOP_DISABLE_GPU=... Fabric desktop` keeps working.
+    # `FABRIC_DESKTOP_DISABLE_GPU=... Fabric desktop` keeps working.
     config_electron_flags, config_disable_gpu = _desktop_launch_options()
-    if config_disable_gpu != "auto" and "HERMES_DESKTOP_DISABLE_GPU" not in os.environ:
-        env["HERMES_DESKTOP_DISABLE_GPU"] = config_disable_gpu
+    if config_disable_gpu != "auto" and "FABRIC_DESKTOP_DISABLE_GPU" not in os.environ:
+        env["FABRIC_DESKTOP_DISABLE_GPU"] = config_disable_gpu
 
     source_mode = getattr(args, "source", False)
     skip_build = getattr(args, "skip_build", False)
@@ -6049,7 +6049,7 @@ def _find_stale_dashboard_pids(
     backend child process: when the desktop spawns ``fabric serve`` as
     a backend and triggers an auto-update, the update must not kill the
     backend that the desktop itself manages.  The desktop sets the
-    environment variable ``HERMES_DESKTOP_CHILD_PID`` on the spawned
+    environment variable ``FABRIC_DESKTOP_CHILD_PID`` on the spawned
     backend process; ``_kill_stale_dashboard_processes`` reads it and
     passes it here.  (#37532)
 
@@ -6297,10 +6297,10 @@ def _kill_stale_dashboard_processes(
     restarts it manually; a hint is printed.
     """
     # When the Fabric Electron app spawns this dashboard as a
-    # backend child, it sets HERMES_DESKTOP_CHILD_PID so that the update
+    # backend child, it sets FABRIC_DESKTOP_CHILD_PID so that the update
     # path can skip killing the desktop-managed process.  (#37532)
     exclude: set[int] | None = None
-    raw_pid = os.environ.get("HERMES_DESKTOP_CHILD_PID")
+    raw_pid = os.environ.get("FABRIC_DESKTOP_CHILD_PID")
     if raw_pid:
         # The desktop may manage several backends (one per active profile) and
         # passes them comma-separated; a lone int still parses for back-compat.
@@ -7172,7 +7172,7 @@ def _load_installable_optional_extras(group: str = "all") -> list[str]:
 # kills the update mid-install (Ctrl-C, terminal close, WSL OOM), the marker
 # survives and the next ``fabric`` launch finishes the install instead of
 # limping along on a half-built venv (e.g. pip wiped, a core dep like Pillow
-# never landed).  Lives next to the venv (not under $HERMES_HOME) because the
+# never landed).  Lives next to the venv (not under $FABRIC_HOME) because the
 # venv is shared across all profiles, so a single marker covers every profile.
 def _update_marker_path() -> Path:
     return PROJECT_ROOT / ".update-incomplete"
@@ -8279,7 +8279,7 @@ def _ensure_uv_for_termux(pip_cmd: list[str]) -> str | None:
     """Best-effort uv bootstrap on Termux for faster update installs.
 
     The normal path (``ensure_uv()`` in managed_uv) installs the managed
-    standalone uv into ``$HERMES_HOME/bin/uv``, but on Termux the official
+    standalone uv into ``$FABRIC_HOME/bin/uv``, but on Termux the official
     installer may not work (glibc vs bionic).  Prefer a uv already on PATH
     (e.g. ``pkg install uv``); only if there is none do we fall back to a
     wheel-only ``pip install uv`` so we never source-build the Rust crate.
@@ -8869,11 +8869,11 @@ def _ensure_fhs_path_guard() -> None:
 
 
 def _run_pre_update_backup(args) -> None:
-    """Create a full zip backup of HERMES_HOME before running the update.
+    """Create a full zip backup of FABRIC_HOME before running the update.
 
     Gated on ``updates.pre_update_backup`` in config (default false).  Off
     by default because the zip can add minutes to every update on large
-    HERMES_HOME directories.  The ``--backup`` flag on ``fabric update``
+    FABRIC_HOME directories.  The ``--backup`` flag on ``fabric update``
     opts in for a single run; ``--no-backup`` forces it off when config
     has it enabled.  Never raises — a backup failure should not block the
     update itself.
@@ -8900,7 +8900,7 @@ def _run_pre_update_backup(args) -> None:
     # The default config ships with ``pre_update_backup: false`` (see
     # ``fabric_cli/config.py``). Fall back to false if the key is missing
     # so the default behaviour matches the shipped config: zipping a large
-    # HERMES_HOME can add minutes to every update. Users who want the
+    # FABRIC_HOME can add minutes to every update. Users who want the
     # #48200 safety net opt in via the config knob or ``--backup``.
     enabled = updates_cfg.get("pre_update_backup", False)
     keep = updates_cfg.get("backup_keep", 5)
@@ -9959,7 +9959,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Snapshot critical state (state.db, config, pairing JSONs, etc.)
         # before pulling so a user can recover if something goes wrong.
         # Issue #15733 reported missing pairing data after an update; even
-        # though `git pull` can't touch $HERMES_HOME, this is cheap
+        # though `git pull` can't touch $FABRIC_HOME, this is cheap
         # belt-and-suspenders insurance and gives the user something to
         # restore from via `/snapshot list` / `/snapshot restore <id>`.
         pre_update_snapshot_id = None
@@ -10259,10 +10259,10 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("Skills sync during update failed: %s", e)
 
         # Sync bundled skills to all profiles (including the active one).
-        # seed_profile_skills() uses subprocess with an explicit HERMES_HOME so
-        # it is not affected by sync_skills()'s module-level HERMES_HOME cache,
+        # seed_profile_skills() uses subprocess with an explicit FABRIC_HOME so
+        # it is not affected by sync_skills()'s module-level FABRIC_HOME cache,
         # which means the active profile is reliably synced regardless of whether
-        # the caller's HERMES_HOME env var points at the default or a named profile.
+        # the caller's FABRIC_HOME env var points at the default or a named profile.
         try:
             from fabric_cli.profiles import (
                 list_profiles,
@@ -12094,7 +12094,7 @@ def _maybe_setup_dashboard_auth_interactively(args) -> None:
             "the dashboard again:\n"
             "    fabric dashboard register\n"
             "  It provisions a Nous Portal OAuth client and writes "
-            "HERMES_DASHBOARD_OAUTH_CLIENT_ID into ~/.fabric/.env for you.\n"
+            "FABRIC_DASHBOARD_OAUTH_CLIENT_ID into ~/.fabric/.env for you.\n"
             "  Docs: https://obliviousodin.github.io/fabric/"
         )
         sys.exit(0)
@@ -12222,7 +12222,7 @@ def cmd_dashboard(args):
     # profile via the per-request ?profile= scoping. Running one dashboard
     # per profile just fragments that (port collisions, N processes, and a
     # "which dashboard am I on?" guessing game). So when a NAMED profile
-    # launches the dashboard (`worker dashboard` → HERMES_HOME points into
+    # launches the dashboard (`worker dashboard` → FABRIC_HOME points into
     # profiles/), default to the machine dashboard:
     #   - already running → open the browser at ?profile=<name> and exit
     #   - not running     → re-exec as the machine dashboard (pinned to the
@@ -12241,7 +12241,7 @@ def cmd_dashboard(args):
         and not getattr(args, "isolated", False)
         and not getattr(args, "open_profile", "")
         # Desktop pool backends are intentionally per-profile.
-        and os.environ.get("HERMES_DESKTOP") != "1"
+        and os.environ.get("FABRIC_DESKTOP") != "1"
     ):
         url = f"http://{args.host or '127.0.0.1'}:{args.port}/?profile={_launch_profile}"
         if _dashboard_listening(args.host, args.port):
@@ -12277,10 +12277,10 @@ def cmd_dashboard(args):
             reexec_argv.append("--skip-build")
         env = os.environ.copy()
         # Pin the child to the machine ROOT, not the launching profile's
-        # HERMES_HOME.  We must resolve the root explicitly instead of just
-        # dropping HERMES_HOME: in the Docker layout the machine root is
-        # /opt/data (set via `ENV HERMES_HOME=/opt/data`), so an unset
-        # HERMES_HOME falls back to $HOME/.hermes = /opt/data/.hermes — an
+        # FABRIC_HOME.  We must resolve the root explicitly instead of just
+        # dropping FABRIC_HOME: in the Docker layout the machine root is
+        # /opt/data (set via `ENV FABRIC_HOME=/opt/data`), so an unset
+        # FABRIC_HOME falls back to $HOME/.hermes = /opt/data/.hermes — an
         # empty, auto-seeded home where the dashboard sees only the default
         # profile and the install-method stamp is missing (so the Docker
         # update-button guard also misfires).  get_default_fabric_root()
@@ -12289,11 +12289,11 @@ def cmd_dashboard(args):
         # See the support report for the double-mount workaround this avoids.
         try:
             from fabric_constants import get_default_fabric_root
-            env["HERMES_HOME"] = str(get_default_fabric_root())
+            env["FABRIC_HOME"] = str(get_default_fabric_root())
         except Exception:
             # Best-effort: if root resolution fails, fall back to the prior
-            # behaviour (drop HERMES_HOME) rather than block the reroute.
-            env.pop("HERMES_HOME", None)
+            # behaviour (drop FABRIC_HOME) rather than block the reroute.
+            env.pop("FABRIC_HOME", None)
         # On Windows, os.execvpe() does not truly replace the process — it
         # spawns via CreateProcess then the parent exits.  Under Python 3.14+
         # this can crash with STATUS_ACCESS_VIOLATION (0xC0000005) when
@@ -12337,9 +12337,9 @@ def cmd_dashboard(args):
         # Don't build the SPA, and tell mount_spa() (read at web_server import
         # below) to disable it even if a stray dist exists. Set it first.
         os.environ["FABRIC_SERVE_HEADLESS"] = "1"
-        os.environ["HERMES_SERVE_HEADLESS"] = "1"
+        os.environ["FABRIC_SERVE_HEADLESS"] = "1"
     _web_dist_override = os.environ.get("FABRIC_WEB_DIST") or os.environ.get(
-        "HERMES_WEB_DIST"
+        "FABRIC_WEB_DIST"
     )
     if (
         not _headless_backend
@@ -12707,7 +12707,7 @@ _AGENT_SUBCOMMANDS = {
 
 
 def _is_tui_chat_launch(args) -> bool:
-    return bool(getattr(args, "tui", False) or os.environ.get("HERMES_TUI") == "1")
+    return bool(getattr(args, "tui", False) or os.environ.get("FABRIC_TUI") == "1")
 
 
 def _command_has_dedicated_mcp_startup(args) -> bool:
@@ -12798,9 +12798,9 @@ def _prepare_agent_startup(args) -> None:
 def _apply_safe_mode(args) -> None:
     if not getattr(args, "safe_mode", False):
         return
-    os.environ["HERMES_SAFE_MODE"] = "1"
-    os.environ["HERMES_IGNORE_USER_CONFIG"] = "1"
-    os.environ["HERMES_IGNORE_RULES"] = "1"
+    os.environ["FABRIC_SAFE_MODE"] = "1"
+    os.environ["FABRIC_IGNORE_USER_CONFIG"] = "1"
+    os.environ["FABRIC_IGNORE_RULES"] = "1"
 
 
 def _set_chat_arg_defaults(args) -> None:
@@ -12822,7 +12822,7 @@ def _try_termux_fast_cli_launch() -> bool:
     """Run obvious Termux non-TUI chat/oneshot/version paths on a light parser."""
     if not _is_termux_startup_environment():
         return False
-    if os.environ.get("HERMES_TERMUX_DISABLE_FAST_CLI") == "1":
+    if os.environ.get("FABRIC_TERMUX_DISABLE_FAST_CLI") == "1":
         return False
 
     argv = sys.argv[1:]
@@ -12880,10 +12880,10 @@ def _try_termux_fast_cli_launch() -> bool:
             # Bare Termux CLI should reach the prompt first and do agent-only
             # discovery on the first submitted turn instead of before input.
             setattr(args, "compact", True)
-            os.environ["HERMES_DEFER_AGENT_STARTUP"] = "1"
-            os.environ["HERMES_FAST_STARTUP_BANNER"] = "1"
+            os.environ["FABRIC_DEFER_AGENT_STARTUP"] = "1"
+            os.environ["FABRIC_FAST_STARTUP_BANNER"] = "1"
             if getattr(args, "accept_hooks", False):
-                os.environ["HERMES_ACCEPT_HOOKS"] = "1"
+                os.environ["FABRIC_ACCEPT_HOOKS"] = "1"
         else:
             _prepare_agent_startup(args)
         cmd_chat(args)
@@ -13802,7 +13802,7 @@ def main():
             import shutil
             import subprocess
             from fabric_cli.tools_config import _cua_driver_cmd
-            # Honor HERMES_CUA_DRIVER_CMD for local-build testing — same
+            # Honor FABRIC_CUA_DRIVER_CMD for local-build testing — same
             # resolver `install_cua_driver` and the runtime backend use,
             # so `status` reports what `computer_use` will actually invoke.
             driver_cmd = _cua_driver_cmd()

@@ -67,7 +67,7 @@ test('desktop backend launches console python so child consoles are inherited, n
   )
 
   // Console python restores stdout, so the port is announced on the normal
-  // HERMES_DASHBOARD_READY stdout line — no ready-file side channel is set.
+  // FABRIC_DASHBOARD_READY stdout line — no ready-file side channel is set.
   assert.doesNotMatch(source, /readyFile: true/, 'no backend should opt into the pythonw ready-file path')
 
   // Both desktop backend launches must still go through hiddenWindowsChildOptions

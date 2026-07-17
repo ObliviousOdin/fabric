@@ -99,7 +99,7 @@ def _setup_logging() -> None:
 
 
 def _load_env() -> None:
-    """Load .env from HERMES_HOME (default ``~/.fabric``)."""
+    """Load .env from FABRIC_HOME (default ``~/.fabric``)."""
     from fabric_cli.env_loader import load_fabric_dotenv
 
     fabric_home = get_fabric_home()

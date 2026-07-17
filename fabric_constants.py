@@ -13,6 +13,27 @@ from contextvars import ContextVar, Token
 from pathlib import Path
 
 
+def _mirror_legacy_brand_env() -> None:
+    """Backward-compat: mirror legacy ``HERMES_*`` <-> ``FABRIC_*`` env vars.
+
+    Fabric renamed its environment variables from the pre-rebrand ``HERMES_*``
+    prefix to ``FABRIC_*``. Existing deployments — user shells, docker
+    ``ENV``/``-e``, systemd ``Environment=`` — may still export the legacy
+    ``HERMES_*`` names. Mirror both directions once at process start (each
+    process that imports this module runs it) so either name works, without
+    overwriting a value that is already set under the other name.
+    """
+    for key, value in list(os.environ.items()):
+        # public-release-audit: allow-legacy-compat -- accept pre-rebrand HERMES_* env var names
+        if key.startswith("HERMES_"):
+            os.environ.setdefault("FABRIC_" + key[len("HERMES_"):], value)
+        elif key.startswith("FABRIC_"):
+            os.environ.setdefault("HERMES_" + key[len("FABRIC_"):], value)
+
+
+_mirror_legacy_brand_env()
+
+
 _profile_fallback_warned: bool = False
 _UNSET = object()
 _FABRIC_HOME_OVERRIDE: ContextVar[str | object] = ContextVar(
@@ -55,16 +76,16 @@ def _get_platform_default_fabric_home() -> Path:
 def get_fabric_home() -> Path:
     """Return the Fabric home directory (default: platform-native path).
 
-    Reads HERMES_HOME env var, falls back to the platform-native default.
+    Reads FABRIC_HOME env var, falls back to the platform-native default.
     This is the single source of truth — all other copies should import this.
 
-    When ``HERMES_HOME`` is unset but an ``active_profile`` file indicates
+    When ``FABRIC_HOME`` is unset but an ``active_profile`` file indicates
     a non-default profile is active, logs a loud one-shot warning to
     ``errors.log`` so cross-profile data corruption is diagnosable instead
     of silent.  Behavior is unchanged otherwise — we still return
     the platform-native default — because raising here would brick 30+ module-level
     callers that import this at load time.  Subprocess spawners are
-    expected to propagate ``HERMES_HOME`` explicitly (see the systemd
+    expected to propagate ``FABRIC_HOME`` explicitly (see the systemd
     template in ``fabric_cli/gateway.py`` and the kanban dispatcher in
     ``fabric_cli/kanban_db.py``).  See https://github.com/ObliviousOdin/fabric/issues/18594.
     """
@@ -72,8 +93,9 @@ def get_fabric_home() -> Path:
     if override:
         return Path(override)
 
-    # Prefer FABRIC_HOME; accept HERMES_HOME for one transition window / docker compat.
-    val = (os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or "").strip()
+    # FABRIC_HOME (legacy HERMES_HOME is mirrored onto it at import — see
+    # _mirror_legacy_brand_env).
+    val = (os.environ.get("FABRIC_HOME") or "").strip()
     if val:
         return Path(val)
 
@@ -113,11 +135,11 @@ def get_fabric_home() -> Path:
             # configured, and (b) root-logger propagation would double-emit
             # on consoles where a StreamHandler is already attached.
             msg = (
-                f"[HERMES_HOME fallback] HERMES_HOME is unset but active "
+                f"[FABRIC_HOME fallback] FABRIC_HOME is unset but active "
                 f"profile is {active!r}. Falling back to {fallback_home}, which "
                 f"is the DEFAULT profile — not {active!r}. Any data this "
                 f"process writes will land in the wrong profile. The "
-                f"subprocess spawner should pass HERMES_HOME explicitly "
+                f"subprocess spawner should pass FABRIC_HOME explicitly "
                 f"(see issue #18594)."
             )
             try:
@@ -135,11 +157,11 @@ def get_default_fabric_root() -> Path:
     In standard deployments this is the platform-native Fabric home
     (``~/.hermes`` on POSIX, ``%LOCALAPPDATA%\\hermes`` on native Windows).
 
-    In Docker or custom deployments where ``HERMES_HOME`` points outside
-    ``~/.hermes`` (e.g. ``/opt/data``), returns ``HERMES_HOME`` directly
+    In Docker or custom deployments where ``FABRIC_HOME`` points outside
+    ``~/.hermes`` (e.g. ``/opt/data``), returns ``FABRIC_HOME`` directly
     — that IS the root.
 
-    In profile mode where ``HERMES_HOME`` is ``<root>/profiles/<name>``,
+    In profile mode where ``FABRIC_HOME`` is ``<root>/profiles/<name>``,
     returns ``<root>`` so that ``profile list`` can see all profiles.
     Works both for standard (``~/.hermes/profiles/coder``) and Docker
     (``/opt/data/profiles/coder``) layouts.
@@ -147,7 +169,7 @@ def get_default_fabric_root() -> Path:
     Import-safe — no dependencies beyond stdlib.
     """
     native_home = _get_platform_default_fabric_home()
-    env_home = os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or ""
+    env_home = os.environ.get("FABRIC_HOME") or ""
     if not env_home:
         # Match get_fabric_home(): keep reading legacy ~/.hermes while present.
         if sys.platform == "win32":
@@ -171,7 +193,7 @@ def get_default_fabric_root() -> Path:
     env_path = Path(env_home)
     try:
         env_path.resolve().relative_to(native_home.resolve())
-        # HERMES_HOME is under ~/.hermes (normal or profile mode)
+        # FABRIC_HOME is under ~/.hermes (normal or profile mode)
         return native_home
     except ValueError:
         pass
@@ -183,7 +205,7 @@ def get_default_fabric_root() -> Path:
     if env_path.parent.name == "profiles":
         return env_path.parent.parent
 
-    # Not a profile path — HERMES_HOME itself is the root
+    # Not a profile path — FABRIC_HOME itself is the root
     return env_path
 
 
@@ -227,9 +249,9 @@ def get_optional_mcps_dir(default: Path | None = None) -> Path:
     Mirrors :func:`get_optional_skills_dir` for the MCP catalog (Fabric-curated
     Model Context Protocol servers shipped with the repo but disabled by
     default). Packaged installs may ship ``optional-mcps`` outside the Python
-    package tree and expose it via ``HERMES_OPTIONAL_MCPS``.
+    package tree and expose it via ``FABRIC_OPTIONAL_MCPS``.
     """
-    override = os.getenv("HERMES_OPTIONAL_MCPS", "").strip()
+    override = os.getenv("FABRIC_OPTIONAL_MCPS", "").strip()
     if override:
         return Path(override)
     packaged = _get_packaged_data_dir("optional-mcps")
@@ -248,7 +270,7 @@ def get_bundled_skills_dir(default: Path | None = None) -> Path:
         2. Caller-supplied ``default`` (typically the source-checkout path)
 
     Bundled skills are copied into a profile as built-in code, so neither an
-    environment override nor ``HERMES_HOME`` may nominate this trust root.
+    environment override nor ``FABRIC_HOME`` may nominate this trust root.
     """
     packaged = _get_packaged_data_dir("skills")
     if packaged is not None:
@@ -264,7 +286,7 @@ def get_bundled_capability_packs_dir(default: Path) -> Path:
     Capability packs are immutable distribution data, not profile state.  The
     resolver therefore checks wheel-installed data first and otherwise uses
     the caller's explicit source/install default.  It intentionally has no
-    environment-variable or ``FABRIC_HOME``/``HERMES_HOME`` fallback.
+    environment-variable or ``FABRIC_HOME``/``FABRIC_HOME`` fallback.
     """
     packaged = _get_packaged_data_dir("capability-packs")
     if packaged is not None:
@@ -288,8 +310,8 @@ def get_fabric_dir(new_subpath: str, old_name: str) -> Path:
     ``platforms/pairing/``.
 
     Args:
-        new_subpath: Preferred path relative to HERMES_HOME (e.g. ``"cache/images"``).
-        old_name: Legacy path relative to HERMES_HOME (e.g. ``"image_cache"``).
+        new_subpath: Preferred path relative to FABRIC_HOME (e.g. ``"cache/images"``).
+        old_name: Legacy path relative to FABRIC_HOME (e.g. ``"image_cache"``).
 
     Returns:
         Absolute ``Path`` — legacy location if it exists with content,
@@ -307,7 +329,7 @@ def iter_fabric_node_dirs(home: Path | None = None) -> list[Path]:
 
     Windows installs from ``scripts/install.ps1`` unpack portable Node directly
     into ``%LOCALAPPDATA%\\hermes\\node``. POSIX installs use
-    ``$HERMES_HOME/node/bin``. Include both shapes on every platform so mixed
+    ``$FABRIC_HOME/node/bin``. Include both shapes on every platform so mixed
     or migrated installs still work.
     """
     root = home or get_fabric_home()
@@ -336,7 +358,7 @@ def _candidate_node_command_names(command: str) -> list[str]:
     return [f"{base}.cmd", f"{base}.exe", base]
 
 
-_HERMES_NODE_TARGET_MAJOR = int(os.environ.get("HERMES_NODE_TARGET_MAJOR", "22"))
+_FABRIC_NODE_TARGET_MAJOR = int(os.environ.get("FABRIC_NODE_TARGET_MAJOR", "22"))
 _managed_node_heal_attempted = False
 _NODE_BOOTSTRAP_SCRIPT = Path(__file__).resolve().parent / "scripts" / "lib" / "node-bootstrap.sh"
 
@@ -344,8 +366,8 @@ _NODE_BOOTSTRAP_SCRIPT = Path(__file__).resolve().parent / "scripts" / "lib" / "
 def node_tool_runnable(path: str | None) -> bool:
     """Return True only when *path* is a Node/npm/npx binary that actually runs.
 
-    Fabric-managed Node trees live under ``$HERMES_HOME/node`` (or a profile's
-    ``HERMES_HOME``). A partial upgrade or interrupted install can leave
+    Fabric-managed Node trees live under ``$FABRIC_HOME/node`` (or a profile's
+    ``FABRIC_HOME``). A partial upgrade or interrupted install can leave
     ``bin/npm`` behind while ``lib/cli.js`` is missing — the wrapper exists but
     immediately throws ``MODULE_NOT_FOUND``. ``find_fabric_node_executable``
     used to trust file presence alone, so ``fabric update`` would pick that
@@ -396,7 +418,7 @@ def fabric_managed_node_tree_present(home: Path | None = None) -> bool:
 
 
 def _heal_managed_node_windows() -> bool:
-    """Redownload the portable Node zip into ``%HERMES_HOME%\\node`` on Windows."""
+    """Redownload the portable Node zip into ``%FABRIC_HOME%\\node`` on Windows."""
     import re
     import tempfile
     import urllib.request
@@ -413,7 +435,7 @@ def _heal_managed_node_windows() -> bool:
         return False
 
     home = get_fabric_home()
-    index_url = f"https://nodejs.org/dist/latest-v{_HERMES_NODE_TARGET_MAJOR}.x/"
+    index_url = f"https://nodejs.org/dist/latest-v{_FABRIC_NODE_TARGET_MAJOR}.x/"
     try:
         with urllib.request.urlopen(index_url, timeout=60) as response:
             index_html = response.read().decode("utf-8", errors="replace")
@@ -421,7 +443,7 @@ def _heal_managed_node_windows() -> bool:
         return False
 
     match = re.search(
-        rf"node-v{_HERMES_NODE_TARGET_MAJOR}\.\d+\.\d+-win-{node_arch}\.zip",
+        rf"node-v{_FABRIC_NODE_TARGET_MAJOR}\.\d+\.\d+-win-{node_arch}\.zip",
         index_html,
     )
     if not match:
@@ -486,7 +508,7 @@ def heal_fabric_managed_node() -> bool:
                 "-c",
                 f'source "{_NODE_BOOTSTRAP_SCRIPT}" && heal_managed_node',
             ],
-            env={**os.environ, "HERMES_HOME": str(get_fabric_home())},
+            env={**os.environ, "FABRIC_HOME": str(get_fabric_home())},
             capture_output=True,
             timeout=300,
             check=False,
@@ -678,7 +700,7 @@ def _legacy_path_has_content(path: Path) -> bool:
 
 
 def display_fabric_home() -> str:
-    """Return a user-friendly display string for the current HERMES_HOME.
+    """Return a user-friendly display string for the current FABRIC_HOME.
 
     Uses ``~/`` shorthand for readability::
 
@@ -702,7 +724,7 @@ def secure_parent_dir(path: Path) -> None:
 
     Refuses to chmod ``/`` or any top-level directory (resolved parent with
     fewer than 3 parts, i.e. ``/`` or any direct child like ``/usr``) to
-    prevent catastrophic host bricking when ``HERMES_HOME`` or other path
+    prevent catastrophic host bricking when ``FABRIC_HOME`` or other path
     env vars resolve to an unexpected location.
 
     See https://github.com/ObliviousOdin/fabric/issues/25821.
@@ -729,8 +751,8 @@ def _norm_home_path(path: str | None) -> str:
 
 
 def _profile_home_path(env: dict[str, str] | None = None) -> str | None:
-    """Return ``{HERMES_HOME}/home`` when the profile-home directory exists."""
-    fabric_home = get_fabric_home_override() or (env or {}).get("HERMES_HOME") or os.getenv("HERMES_HOME")
+    """Return ``{FABRIC_HOME}/home`` when the profile-home directory exists."""
+    fabric_home = get_fabric_home_override() or (env or {}).get("FABRIC_HOME") or os.getenv("FABRIC_HOME")
     if not fabric_home:
         return None
     profile_home = os.path.join(fabric_home, "home")
@@ -747,7 +769,7 @@ def _iter_real_home_candidates(env: dict[str, str] | None = None) -> list[str]:
     """Return likely OS-user home candidates in trust order."""
     env = env or {}
     candidates: list[str] = []
-    explicit = str(env.get("HERMES_REAL_HOME") or os.getenv("HERMES_REAL_HOME", "")).strip()
+    explicit = str(env.get("FABRIC_REAL_HOME") or os.getenv("FABRIC_REAL_HOME", "")).strip()
     if explicit:
         candidates.append(explicit)
     home = str(env.get("HOME") or os.getenv("HOME", "")).strip()
@@ -777,9 +799,9 @@ def _iter_real_home_candidates(env: dict[str, str] | None = None) -> list[str]:
 def get_real_home(env: dict[str, str] | None = None) -> str:
     """Return the OS user's real home directory, avoiding Fabric profile HOME.
 
-    ``HERMES_HOME`` scopes Fabric state. ``HOME`` is reserved for the OS/user
+    ``FABRIC_HOME`` scopes Fabric state. ``HOME`` is reserved for the OS/user
     account and the many external CLIs that store credentials under ``~``.
-    If a parent process is already running with ``HOME={HERMES_HOME}/home``,
+    If a parent process is already running with ``HOME={FABRIC_HOME}/home``,
     this helper repairs back to the account home when possible.
     """
     profile_home = _profile_home_path(env)
@@ -801,10 +823,10 @@ def get_subprocess_home(env: dict[str, str] | None = None) -> str | None:
     ``TERMINAL_HOME_MODE``):
 
     * ``auto`` (default): host installs keep the real user HOME; containers use
-      ``{HERMES_HOME}/home`` for persistent state. If a host parent already has
+      ``{FABRIC_HOME}/home`` for persistent state. If a host parent already has
       HOME pointed at the profile home, repair subprocesses back to real HOME.
     * ``real``: always prefer the real OS-user HOME.
-    * ``profile``: use ``{HERMES_HOME}/home`` when it exists, preserving the
+    * ``profile``: use ``{FABRIC_HOME}/home`` when it exists, preserving the
       older strict per-profile tool-config isolation.
     """
     env = env or {}
@@ -834,7 +856,7 @@ def apply_subprocess_home_env(env: dict[str, str]) -> None:
     """Apply Fabric' subprocess HOME contract to *env* in-place."""
     real_home = get_real_home(env)
     if real_home:
-        env["HERMES_REAL_HOME"] = real_home
+        env["FABRIC_REAL_HOME"] = real_home
     home = get_subprocess_home(env)
     if home:
         env["HOME"] = home
@@ -961,7 +983,7 @@ def is_container() -> bool:
 
 
 def get_config_path() -> Path:
-    """Return the path to ``config.yaml`` under HERMES_HOME.
+    """Return the path to ``config.yaml`` under FABRIC_HOME.
 
     Replaces the ``get_fabric_home() / "config.yaml"`` pattern repeated
     in 7+ files (skill_utils.py, fabric_logging.py, fabric_time.py, etc.).
@@ -970,13 +992,13 @@ def get_config_path() -> Path:
 
 
 def get_skills_dir() -> Path:
-    """Return the path to the skills directory under HERMES_HOME."""
+    """Return the path to the skills directory under FABRIC_HOME."""
     return get_fabric_home() / "skills"
 
 
 
 def get_env_path() -> Path:
-    """Return the path to the ``.env`` file under HERMES_HOME."""
+    """Return the path to the ``.env`` file under FABRIC_HOME."""
     return get_fabric_home() / ".env"
 
 

@@ -47,14 +47,14 @@ def _isolated_oauth_service_registry(tmp_path, monkeypatch):
 
     # Personal-provider starts now reserve durable profile-owned generations;
     # never let a focused web test touch the developer's real Fabric home.
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     ws._provider_oauth_service.reset_for_tests()
     yield
     ws._provider_oauth_service.reset_for_tests()
 
 
 def _make_profile_home(tmp_path, monkeypatch, profile="coder"):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     profile_home = tmp_path / "profiles" / profile
     profile_home.mkdir(parents=True)
     return profile_home
@@ -723,7 +723,7 @@ def test_nous_dashboard_device_flow_ignores_legacy_scope_override(monkeypatch):
         requested_scopes.append(kwargs["scope"])
         return _fake_nous_device_data()
 
-    monkeypatch.setenv("HERMES_AGENT_USE_LEGACY_SESSION_KEYS", "true")
+    monkeypatch.setenv("FABRIC_AGENT_USE_LEGACY_SESSION_KEYS", "true")
     monkeypatch.setattr(auth_mod, "_request_device_code", fake_request_device_code)
     monkeypatch.setattr(ws, "_nous_poller", lambda sid: None)
 
@@ -811,7 +811,7 @@ def test_nous_dashboard_device_flow_does_not_retry_legacy_scope_on_invoke_refusa
         requested_scopes.append(kwargs["scope"])
         raise _invoke_scope_refusal()
 
-    monkeypatch.delenv("HERMES_AGENT_USE_LEGACY_SESSION_KEYS", raising=False)
+    monkeypatch.delenv("FABRIC_AGENT_USE_LEGACY_SESSION_KEYS", raising=False)
     monkeypatch.setattr(auth_mod, "_request_device_code", fake_request_device_code)
     monkeypatch.setattr(ws, "_nous_poller", lambda sid: None)
 
@@ -862,7 +862,7 @@ def test_codex_dashboard_worker_persists_runtime_provider(tmp_path, monkeypatch)
                 "refresh_token": "codex-refresh",
             })
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setattr(httpx, "Client", _Client)
     monkeypatch.setattr(ws.time, "sleep", lambda _: None)
 
@@ -2417,8 +2417,8 @@ def test_xai_dashboard_poller_seeds_single_entry_and_clears_suppression(tmp_path
     from fabric_cli import web_server as ws
     from agent.credential_pool import load_pool
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("HERMES_XAI_BASE_URL", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+    monkeypatch.delenv("FABRIC_XAI_BASE_URL", raising=False)
     monkeypatch.delenv("XAI_BASE_URL", raising=False)
 
     # Prior `fabric auth remove xai-oauth` left the source suppressed.

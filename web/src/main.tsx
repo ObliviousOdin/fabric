@@ -7,7 +7,7 @@ import { I18nProvider } from "./i18n";
 import { exposePluginSDK } from "./plugins";
 import { applyPersistedThemeEarly } from "./themes/apply";
 import { ThemeProvider } from "./themes";
-import { HERMES_BASE_PATH } from "./lib/api";
+import { FABRIC_BASE_PATH } from "./lib/api";
 
 // Apply the persisted theme before the first paint so theme-overridden
 // installs never flash the default palette; ThemeProvider re-applies and
@@ -19,7 +19,7 @@ applyPersistedThemeEarly();
 exposePluginSDK();
 
 createRoot(document.getElementById("root")!).render(
-  <BrowserRouter basename={HERMES_BASE_PATH || undefined}>
+  <BrowserRouter basename={FABRIC_BASE_PATH || undefined}>
     <I18nProvider>
       <ThemeProvider>
         <SystemActionsProvider>

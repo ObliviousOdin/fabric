@@ -406,7 +406,7 @@ the workflow genuinely needs routing. In both cases the plugin owns the
 Vite-built with `react`/`react-dom` externalised to the SDK:
 
 ```ts
-const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
+const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__FABRIC_PLUGIN_SDK__;
 const { React, ReactDOM } = SDK;
 
 function StudioRoot({ navigate, location }) {

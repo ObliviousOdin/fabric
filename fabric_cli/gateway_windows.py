@@ -86,12 +86,12 @@ def _assert_windows() -> None:
 
 
 def _preserve_fabric_home_path(path: str | Path) -> str:
-    """Render Fabric-owned paths under the configured HERMES_HOME spelling.
+    """Render Fabric-owned paths under the configured FABRIC_HOME spelling.
 
     Windows installs may keep ``%LOCALAPPDATA%\\hermes`` as a symlink/junction to
     another drive. Runtime state should still identify itself by the configured
     AppData path, so launcher files must not bake in the resolved target when a
-    path lives under HERMES_HOME.
+    path lives under FABRIC_HOME.
     """
     candidate = Path(path)
     try:
@@ -244,15 +244,15 @@ def _launch_elevated_install(
     start_on_login: bool | None = None,
 ) -> bool:
     """Launch an elevated gateway install via UAC and return True on handoff."""
-    old_start_now = os.environ.get("HERMES_GATEWAY_INSTALL_START_NOW")
-    old_start_on_login = os.environ.get("HERMES_GATEWAY_INSTALL_START_ON_LOGIN")
-    old_handoff = os.environ.get("HERMES_GATEWAY_ELEVATED_HANDOFF")
+    old_start_now = os.environ.get("FABRIC_GATEWAY_INSTALL_START_NOW")
+    old_start_on_login = os.environ.get("FABRIC_GATEWAY_INSTALL_START_ON_LOGIN")
+    old_handoff = os.environ.get("FABRIC_GATEWAY_ELEVATED_HANDOFF")
     try:
         if start_now is not None:
-            os.environ["HERMES_GATEWAY_INSTALL_START_NOW"] = "1" if start_now else "0"
+            os.environ["FABRIC_GATEWAY_INSTALL_START_NOW"] = "1" if start_now else "0"
         if start_on_login is not None:
-            os.environ["HERMES_GATEWAY_INSTALL_START_ON_LOGIN"] = "1" if start_on_login else "0"
-        os.environ["HERMES_GATEWAY_ELEVATED_HANDOFF"] = "1"
+            os.environ["FABRIC_GATEWAY_INSTALL_START_ON_LOGIN"] = "1" if start_on_login else "0"
+        os.environ["FABRIC_GATEWAY_ELEVATED_HANDOFF"] = "1"
         extra_args = ["--elevated-handoff"]
         if force:
             extra_args.append("--force")
@@ -263,9 +263,9 @@ def _launch_elevated_install(
         return _launch_elevated_gateway_command("install", extra_args)
     finally:
         for key, old in (
-            ("HERMES_GATEWAY_INSTALL_START_NOW", old_start_now),
-            ("HERMES_GATEWAY_INSTALL_START_ON_LOGIN", old_start_on_login),
-            ("HERMES_GATEWAY_ELEVATED_HANDOFF", old_handoff),
+            ("FABRIC_GATEWAY_INSTALL_START_NOW", old_start_now),
+            ("FABRIC_GATEWAY_INSTALL_START_ON_LOGIN", old_start_on_login),
+            ("FABRIC_GATEWAY_ELEVATED_HANDOFF", old_handoff),
         ):
             if old is None:
                 os.environ.pop(key, None)
@@ -307,7 +307,7 @@ def get_task_script_path() -> Path:
     """The generated ``gateway.cmd`` wrapper kept beside the VBS launcher.
 
     Lives under ``%LOCALAPPDATA%\\hermes\\gateway-service\\<task_name>.cmd``
-    (or ``<HERMES_HOME>/gateway-service/<task_name>.cmd`` so per-profile
+    (or ``<FABRIC_HOME>/gateway-service/<task_name>.cmd`` so per-profile
     Fabric installs stay self-contained).
     """
     _assert_windows()
@@ -354,10 +354,10 @@ def _legacy_startup_entry_path() -> Path:
 def _stable_gateway_working_dir(project_root: Path) -> str:
     """Return a stable cwd for detached/startup gateway runs.
 
-    Mirror the POSIX service invariant: anchor at ``HERMES_HOME`` whenever it
+    Mirror the POSIX service invariant: anchor at ``FABRIC_HOME`` whenever it
     exists so Scheduled Task / Startup launches do not fail at the ``cd`` step
     after a transient checkout or worktree is moved away. Fall back to the
-    source checkout only if ``HERMES_HOME`` cannot be used yet. Preserve the
+    source checkout only if ``FABRIC_HOME`` cannot be used yet. Preserve the
     configured spelling instead of resolving symlinks so AppData installs backed
     by a junction/symlink still identify themselves as AppData.
     """
@@ -388,7 +388,7 @@ def _build_gateway_cmd_script(
 
     The script:
       - cd's into a stable working directory
-      - exports HERMES_HOME, PYTHONIOENCODING, VIRTUAL_ENV
+      - exports FABRIC_HOME, PYTHONIOENCODING, VIRTUAL_ENV
       - invokes ``pythonw -m fabric_cli.main [--profile X] gateway run``
         directly so the wrapper cmd.exe exits without a visible gateway console
 
@@ -398,9 +398,9 @@ def _build_gateway_cmd_script(
     """
     lines = ["@echo off", f"rem {_TASK_DESCRIPTION}"]
     lines.append(f"cd /d {_quote_cmd_script_arg(working_dir)}")
-    lines.append(f'set "HERMES_HOME={fabric_home}"')
+    lines.append(f'set "FABRIC_HOME={fabric_home}"')
     lines.append('set "PYTHONIOENCODING=utf-8"')
-    lines.append('set "HERMES_GATEWAY_DETACHED=1"')
+    lines.append('set "FABRIC_GATEWAY_DETACHED=1"')
     pythonw_path, venv_dir, extra_pythonpath = _resolve_detached_python(python_path)
     # VIRTUAL_ENV lets the gateway's own python detection find the venv
     # if someone imports fabric_constants-based logic during startup.
@@ -480,9 +480,9 @@ def _build_gateway_vbs_script(
         "Dim sh, env, existing_pp",
         'Set sh = CreateObject("WScript.Shell")',
         'Set env = sh.Environment("PROCESS")',
-        f"env.Item({_quote_vbs_string('HERMES_HOME')}) = {_quote_vbs_string(fabric_home)}",
+        f"env.Item({_quote_vbs_string('FABRIC_HOME')}) = {_quote_vbs_string(fabric_home)}",
         f"env.Item({_quote_vbs_string('PYTHONIOENCODING')}) = {_quote_vbs_string('utf-8')}",
-        f"env.Item({_quote_vbs_string('HERMES_GATEWAY_DETACHED')}) = {_quote_vbs_string('1')}",
+        f"env.Item({_quote_vbs_string('FABRIC_GATEWAY_DETACHED')}) = {_quote_vbs_string('1')}",
         f"env.Item({_quote_vbs_string('VIRTUAL_ENV')}) = {_quote_vbs_string(_preserve_fabric_home_path(venv_dir))}",
         # Mirror the cmd wrapper's ``PYTHONPATH=<static>;%PYTHONPATH%``: chain onto
         # whatever PYTHONPATH the task environment already carries, at runtime.
@@ -795,9 +795,9 @@ def _build_gateway_argv() -> tuple[list[str], str, dict[str, str]]:
     argv.extend(["gateway", "run"])
 
     env_overlay = {
-        "HERMES_HOME": fabric_home,
+        "FABRIC_HOME": fabric_home,
         "PYTHONIOENCODING": "utf-8",
-        "HERMES_GATEWAY_DETACHED": "1",
+        "FABRIC_GATEWAY_DETACHED": "1",
         "VIRTUAL_ENV": _preserve_fabric_home_path(venv_dir),
     }
     _prepend_pythonpath(
@@ -868,11 +868,11 @@ def windowless_gateway_restart_spec(
 
     env_overlay: dict[str, str] = {
         "PYTHONIOENCODING": "utf-8",
-        "HERMES_GATEWAY_DETACHED": "1",
+        "FABRIC_GATEWAY_DETACHED": "1",
         "VIRTUAL_ENV": str(venv_dir),
     }
     if fabric_home:
-        env_overlay["HERMES_HOME"] = fabric_home
+        env_overlay["FABRIC_HOME"] = fabric_home
     _prepend_pythonpath(
         env_overlay,
         [project_root, *extra_pythonpath] if extra_pythonpath else [project_root],
@@ -973,8 +973,8 @@ def _prompt_install_choices(
     start_on_login: bool | None = None,
 ) -> tuple[bool, bool]:
     """Return (start_now, start_on_login), asking before any UAC escalation."""
-    env_start_now = _install_choice_from_env("HERMES_GATEWAY_INSTALL_START_NOW")
-    env_start_on_login = _install_choice_from_env("HERMES_GATEWAY_INSTALL_START_ON_LOGIN")
+    env_start_now = _install_choice_from_env("FABRIC_GATEWAY_INSTALL_START_NOW")
+    env_start_on_login = _install_choice_from_env("FABRIC_GATEWAY_INSTALL_START_ON_LOGIN")
     if start_now is None:
         start_now = env_start_now
     if start_on_login is None:

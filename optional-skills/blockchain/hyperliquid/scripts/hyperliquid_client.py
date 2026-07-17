@@ -46,7 +46,7 @@ DEFAULT_API_BASE = "https://api.hyperliquid.xyz"
 
 
 def _fabric_home() -> Path:
-    configured = os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME")
+    configured = os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME")
     return Path(configured or "~/.fabric").expanduser()
 
 

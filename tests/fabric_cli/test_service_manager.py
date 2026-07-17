@@ -554,7 +554,7 @@ def test_s6_register_creates_service_dir_and_triggers_scan(
     # it, the supervised `gateway run` would re-enter the s6 redirect
     # in `_gateway_command_inner` and recurse. See the matching guard
     # in fabric_cli/gateway.py::_gateway_command_inner.
-    assert "export HERMES_S6_SUPERVISED_CHILD=1" in run_text
+    assert "export FABRIC_S6_SUPERVISED_CHILD=1" in run_text
 
     log_run = svc_dir / "log" / "run"
     assert log_run.is_file()
@@ -685,13 +685,13 @@ def test_render_run_script_uses_replace_to_take_over_stale_holder() -> None:
 
     Without ``--replace`` a gateway started OUTSIDE s6 (a stray shell
     ``fabric gateway run``, an agent action, the Open WebUI helper) holds
-    the per-HERMES_HOME PID lock; the supervised slot then execs a bare
+    the per-FABRIC_HOME PID lock; the supervised slot then execs a bare
     ``gateway run``, hits the "Another gateway instance is already
     running" guard, exits non-zero, and s6 restarts it — a restart loop
     that never binds. ``--replace`` makes the supervised gateway reap the
     stale holder and win, so s6 is authoritative for the slot.
 
-    Covers both the default (root HERMES_HOME, no ``-p``) and named-profile
+    Covers both the default (root FABRIC_HOME, no ``-p``) and named-profile
     render paths.
     """
     default_text = S6ServiceManager._render_run_script("default", {})
@@ -847,7 +847,7 @@ def test_s6_lifecycle_persists_named_profile_desired_state(
     profile_dir = fabric_home / "profiles" / "coder"
     profile_dir.mkdir(parents=True)
     (s6_scandir / "gateway-coder").mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
     mgr = S6ServiceManager(scandir=s6_scandir)
     mgr.start("gateway-coder")
@@ -869,7 +869,7 @@ def test_s6_lifecycle_persists_default_profile_desired_state(
     fabric_home = tmp_path / "fabric-home"
     fabric_home.mkdir()
     (s6_scandir / "gateway-default").mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home / "profiles" / "coder"))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home / "profiles" / "coder"))
 
     mgr = S6ServiceManager(scandir=s6_scandir)
     mgr.start("gateway-default")

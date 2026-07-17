@@ -4,7 +4,7 @@ from fabric_cli.status import show_status
 
 
 def test_show_status_all_does_not_print_tavily_key_value(monkeypatch, capsys, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     sentinel = "NONSECRET_SENTINEL_VALUE_DO_NOT_PRINT_123456"
     monkeypatch.setenv("TAVILY_API_KEY", sentinel)
 
@@ -370,7 +370,7 @@ def test_curated_status_skips_only_hidden_provider_probes_and_rows(
 
     monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
     monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setattr(status_mod, "get_env_path", lambda: tmp_path / ".env")
     monkeypatch.setattr(status_mod, "get_fabric_home", lambda: tmp_path)
     monkeypatch.setattr(status_mod, "load_config", lambda: {})
@@ -408,7 +408,7 @@ def test_legacy_status_restores_nous_surface(monkeypatch, capsys, tmp_path):
     from fabric_cli import status as status_mod
 
     monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-codex,xai-oauth,nous")
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setattr(status_mod, "get_env_path", lambda: tmp_path / ".env")
     monkeypatch.setattr(status_mod, "get_fabric_home", lambda: tmp_path)
     monkeypatch.setattr(status_mod, "load_config", lambda: {})

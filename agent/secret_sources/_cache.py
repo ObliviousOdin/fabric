@@ -80,7 +80,7 @@ def resolve_cache_home(home_path: Optional[Path] = None) -> Path:
     """Resolve the Fabric home used for cache paths.
 
     ``home_path`` is whatever ``load_fabric_dotenv()`` already resolved;
-    falling back to ``$HERMES_HOME`` / ``~/.hermes`` keeps direct callers
+    falling back to ``$FABRIC_HOME`` / ``~/.hermes`` keeps direct callers
     (and tests that don't thread a home through) working.
     """
     if home_path is None:
@@ -178,7 +178,7 @@ class DiskCache(Generic[K]):
             cache_dir = path.parent
             cache_dir.mkdir(parents=True, exist_ok=True)
             # mkdir's mode is umask-subject; chmod the dir to 0700 so cache
-            # metadata isn't exposed if HERMES_HOME is ever made traversable.
+            # metadata isn't exposed if FABRIC_HOME is ever made traversable.
             try:
                 os.chmod(cache_dir, 0o700)
             except OSError:

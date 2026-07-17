@@ -68,7 +68,7 @@ def test_loopback_index_injects_session_token(client_loopback):
     r = client_loopback.get("/")
     if r.status_code == 404:
         pytest.skip("WEB_DIST not built in this env")
-    assert "__HERMES_SESSION_TOKEN__" in r.text
+    assert "__FABRIC_SESSION_TOKEN__" in r.text
 
 
 def test_loopback_host_header_validation_still_enforced(client_loopback):
@@ -263,7 +263,7 @@ def test_start_server_surfaces_nous_skip_reason_when_unconfigured(monkeypatch):
     """When the bundled Nous plugin loaded but skipped registration (no
     env vars set), the gate's fail-closed message should surface the
     plugin's LAST_SKIP_REASON so the operator knows the config fix is
-    'set HERMES_DASHBOARD_OAUTH_CLIENT_ID', not 'install a plugin'."""
+    'set FABRIC_DASHBOARD_OAUTH_CLIENT_ID', not 'install a plugin'."""
     from fabric_cli.dashboard_auth import clear_providers
     from plugins.dashboard_auth import nous as nous_plugin
 
@@ -272,11 +272,11 @@ def test_start_server_surfaces_nous_skip_reason_when_unconfigured(monkeypatch):
     # Simulate the plugin running and skipping for "no client_id".
     clear_providers()
     _stub_uvicorn_run(monkeypatch)
-    monkeypatch.delenv("HERMES_DASHBOARD_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("HERMES_DASHBOARD_PORTAL_URL", raising=False)
+    monkeypatch.delenv("FABRIC_DASHBOARD_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("FABRIC_DASHBOARD_PORTAL_URL", raising=False)
     from unittest.mock import MagicMock
     nous_plugin.register(MagicMock())  # populates LAST_SKIP_REASON
-    assert "HERMES_DASHBOARD_OAUTH_CLIENT_ID" in nous_plugin.LAST_SKIP_REASON
+    assert "FABRIC_DASHBOARD_OAUTH_CLIENT_ID" in nous_plugin.LAST_SKIP_REASON
 
     web_server.app.state.auth_required = None
     with pytest.raises(SystemExit) as exc_info:
@@ -287,7 +287,7 @@ def test_start_server_surfaces_nous_skip_reason_when_unconfigured(monkeypatch):
     # The error message embeds the plugin's specific skip reason rather
     # than the generic "Install the default Nous provider" boilerplate.
     msg = str(exc_info.value)
-    assert "HERMES_DASHBOARD_OAUTH_CLIENT_ID" in msg
+    assert "FABRIC_DASHBOARD_OAUTH_CLIENT_ID" in msg
     assert "nous:" in msg
 
 
@@ -299,8 +299,8 @@ def test_start_server_default_gate_hides_legacy_nous_registration_hint(monkeypat
     monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
     clear_providers()
     _stub_uvicorn_run(monkeypatch)
-    monkeypatch.delenv("HERMES_DASHBOARD_OAUTH_CLIENT_ID", raising=False)
-    monkeypatch.delenv("HERMES_DASHBOARD_PORTAL_URL", raising=False)
+    monkeypatch.delenv("FABRIC_DASHBOARD_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("FABRIC_DASHBOARD_PORTAL_URL", raising=False)
     from unittest.mock import MagicMock
 
     nous_plugin.register(MagicMock())

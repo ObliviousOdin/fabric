@@ -22,7 +22,7 @@ def fabric_home(monkeypatch):
     d = tempfile.mkdtemp(prefix="fabric_wa_test_")
     home = os.path.join(d, ".hermes")
     os.makedirs(home)
-    monkeypatch.setenv("HERMES_HOME", home)
+    monkeypatch.setenv("FABRIC_HOME", home)
     yield home
     shutil.rmtree(d, ignore_errors=True)
 
@@ -1170,7 +1170,7 @@ def test_skill_gate_on_always_stages(fabric_home):
 
 def test_skill_gate_on_then_apply_writes_file(fabric_home):
     # SKILLS_DIR is resolved at import time, so reload the skill module under
-    # this test's HERMES_HOME to exercise the real on-disk write path.
+    # this test's FABRIC_HOME to exercise the real on-disk write path.
     import importlib
     import tools.skill_manager_tool as smt
     importlib.reload(smt)
@@ -2258,7 +2258,7 @@ def test_gateway_context_stages_not_prompts(fabric_home, monkeypatch):
     from tools.memory_tool import memory_tool, MemoryStore
     from tools import write_approval as wa
     _set_approval("memory", True)
-    monkeypatch.setenv("HERMES_GATEWAY_SESSION", "1")
+    monkeypatch.setenv("FABRIC_GATEWAY_SESSION", "1")
 
     store = MemoryStore(); store.load_from_disk()
     r = json.loads(memory_tool("add", "memory", "gateway fact", store=store))

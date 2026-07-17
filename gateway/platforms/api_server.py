@@ -398,7 +398,7 @@ class ResponseStore:
             self._conn = sqlite3.connect(":memory:", check_same_thread=False)
             self._db_path = None
         # Use shared WAL-fallback helper so response_store.db degrades
-        # gracefully on NFS/SMB/FUSE-mounted HERMES_HOME (same filesystem
+        # gracefully on NFS/SMB/FUSE-mounted FABRIC_HOME (same filesystem
         # issue addressed for state.db/kanban.db — see
         # fabric_state._WAL_INCOMPAT_MARKERS).
         from fabric_state import apply_wal_with_fallback

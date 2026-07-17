@@ -16,8 +16,8 @@ def homes(tmp_path, monkeypatch):
     home.mkdir()
     managed = tmp_path / "managed"
     managed.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(managed))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(managed))
     import fabric_cli.config as cfg
     from fabric_cli import managed_scope
 
@@ -58,7 +58,7 @@ def test_gateway_config_loader_honors_managed(homes, monkeypatch):
     )
     import gateway.config as gc
 
-    # load_gateway_config resolves home via get_fabric_home() (HERMES_HOME env).
+    # load_gateway_config resolves home via get_fabric_home() (FABRIC_HOME env).
     cfg = gc.load_gateway_config()
     # Managed value should have flowed into the GatewayConfig.
     assert cfg.group_sessions_per_user is True
@@ -105,7 +105,7 @@ def test_logging_config_honors_managed(homes, monkeypatch):
 def test_timezone_honors_managed(homes, monkeypatch):
     home, managed = homes
     # fabric_time checks an env override first; ensure it's unset so config wins.
-    monkeypatch.delenv("HERMES_TIMEZONE", raising=False)
+    monkeypatch.delenv("FABRIC_TIMEZONE", raising=False)
     monkeypatch.delenv("TZ", raising=False)
     _seed(home, managed, user="timezone: America/New_York\n", mgd="timezone: Asia/Tokyo\n")
     import fabric_time
@@ -117,7 +117,7 @@ def test_gateway_env_bridge_honors_managed(homes, monkeypatch):
     """The gateway config→env bridge must bridge MANAGED values, not user ones.
 
     gateway/run.py bridges config.yaml settings into os.environ at startup and on
-    every turn (HERMES_TIMEZONE, HERMES_REDACT_SECRETS, HERMES_MAX_ITERATIONS,
+    every turn (FABRIC_TIMEZONE, FABRIC_REDACT_SECRETS, FABRIC_MAX_ITERATIONS,
     ...). A managed value must win at that env layer too — otherwise the bridge
     writes the user's value into the env that the whole process then reads. This
     is the regression that manual verification caught (managed timezone was
@@ -134,7 +134,7 @@ def test_gateway_env_bridge_honors_managed(homes, monkeypatch):
 
     managed_scope.invalidate_managed_cache()
     # The bridge loads config.yaml, expands env, then applies this overlay before
-    # writing HERMES_TIMEZONE = cfg["timezone"]. Prove the overlay flips the value.
+    # writing FABRIC_TIMEZONE = cfg["timezone"]. Prove the overlay flips the value.
     import yaml
 
     raw = yaml.safe_load((home / "config.yaml").read_text())

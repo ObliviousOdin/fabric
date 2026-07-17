@@ -1,8 +1,8 @@
 """Regression tests for the Fabric-managed Node's npm global prefix.
 
-When the installer falls back to a bundled Node under ``$HERMES_HOME/node``,
+When the installer falls back to a bundled Node under ``$FABRIC_HOME/node``,
 npm's default global prefix is that Node dir, so ``npm install -g <pkg>``
-drops the package binary in ``$HERMES_HOME/node/bin`` — which is NOT on PATH
+drops the package binary in ``$FABRIC_HOME/node/bin`` — which is NOT on PATH
 (only the command link dir is) and is wiped on every Node upgrade. Users then
 report "I can ``npm i -g`` but the package isn't usable on the command line".
 
@@ -26,7 +26,7 @@ def test_install_sh_redirects_bundled_npm_global_prefix_to_link_dir() -> None:
     # <parent>/bin == the command link dir (node/npm/npx live there and it is
     # guaranteed on PATH by the installer's PATH setup).
     assert "configure_managed_node_npm_prefix()" in text
-    assert 'printf \'prefix=%s\\n\' "$(dirname "$link_dir")" > "$HERMES_HOME/node/etc/npmrc"' in text
+    assert 'printf \'prefix=%s\\n\' "$(dirname "$link_dir")" > "$FABRIC_HOME/node/etc/npmrc"' in text
 
 
 def test_install_sh_repairs_existing_managed_node_on_rerun() -> None:
@@ -39,7 +39,7 @@ def test_install_sh_repairs_existing_managed_node_on_rerun() -> None:
     assert "configure_managed_node_npm_prefix" in check_node_body
 
     # No-op guard so it's safe to call when there is no managed Node.
-    assert '[ -x "$HERMES_HOME/node/bin/npm" ] || return 0' in text
+    assert '[ -x "$FABRIC_HOME/node/bin/npm" ] || return 0' in text
 
 
 def test_node_bootstrap_redirects_bundled_npm_global_prefix_to_link_dir() -> None:

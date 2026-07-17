@@ -60,14 +60,14 @@ let
 
   # Import bundled plugins (memory, context_engine, platforms/*).  Keeping
   # them out of the Python site-packages keeps import semantics identical
-  # to a dev checkout — the loader reads them from HERMES_BUNDLED_PLUGINS.
+  # to a dev checkout — the loader reads them from FABRIC_BUNDLED_PLUGINS.
   bundledPlugins = lib.cleanSourceWith {
     src = ../plugins;
     filter = path: _type: !(lib.hasInfix "/__pycache__/" path);
   };
 
   # i18n locale catalogs (locales/*.yaml). Shipped into the store and pointed
-  # at by HERMES_BUNDLED_LOCALES so the wrapped binary always resolves human
+  # at by FABRIC_BUNDLED_LOCALES so the wrapped binary always resolves human
   # strings instead of raw i18n keys (#23943 / #27632 / #35374).
   #
   # Defense-in-depth, not load-bearing: the wheel already declares locales/ as
@@ -168,13 +168,13 @@ stdenv.mkDerivation (finalAttrs: {
       (name: ''
         makeWrapper ${fabricVenv}/bin/${name} $out/bin/${name} \
           --suffix PATH : "${runtimePath}" \
-          --set HERMES_BUNDLED_PLUGINS $out/share/fabric-agent/plugins \
-          --set HERMES_BUNDLED_LOCALES $out/share/fabric-agent/locales \
+          --set FABRIC_BUNDLED_PLUGINS $out/share/fabric-agent/plugins \
+          --set FABRIC_BUNDLED_LOCALES $out/share/fabric-agent/locales \
           --set FABRIC_WEB_DIST $out/share/fabric-agent/web_dist \
           --set FABRIC_TUI_DIR $out/ui-tui \
-          --set HERMES_PYTHON ${fabricVenv}/bin/python3 \
-          --set HERMES_NODE ${lib.getExe nodejs} \
-          ${lib.optionalString (rev != null) ''--set HERMES_REVISION ${rev} \''}
+          --set FABRIC_PYTHON ${fabricVenv}/bin/python3 \
+          --set FABRIC_NODE ${lib.getExe nodejs} \
+          ${lib.optionalString (rev != null) ''--set FABRIC_REVISION ${rev} \''}
           ${lib.optionalString (extraPythonPackages != [ ]) ''--suffix PYTHONPATH : "${pythonPath}"''}
       '')
       [
@@ -218,7 +218,7 @@ stdenv.mkDerivation (finalAttrs: {
       };
 
       devShellHook = ''
-        export HERMES_PYTHON=${devPython}/bin/python3
+        export FABRIC_PYTHON=${devPython}/bin/python3
       '';
 
       devDeps = runtimeDeps ++ [ devPython ];

@@ -7,7 +7,7 @@
 # Container mode: fabric runs from /nix/store bind-mounted read-only into a
 # plain Ubuntu container. The writable layer (apt/pip/npm installs) persists
 # across restarts and agent updates. Only image/volume/options changes trigger
-# container recreation. Environment variables are written to $HERMES_HOME/.env
+# container recreation. Environment variables are written to $FABRIC_HOME/.env
 # and read by fabric at startup — no container recreation needed for env changes.
 #
 # Tool resolution: the fabric wrapper uses --suffix PATH for nix store tools,
@@ -50,7 +50,7 @@
     configMergeScript = pkgs.callPackage ./configMergeScript.nix { };
 
     # config.yaml mode: group-writable (0660) when interactive users share this
-    # HERMES_HOME via addToSystemPackages, so they can save settings through the
+    # FABRIC_HOME via addToSystemPackages, so they can save settings through the
     # CLI/TUI without hitting EACCES; otherwise group-read-only (0640). Secrets
     # (.env) stay 0640 regardless — see below.
     configYamlMode = if cfg.addToSystemPackages then "0660" else "0640";
@@ -67,7 +67,7 @@
         lib.mapAttrsToList (name: value:
           if builtins.isPath value || lib.isStorePath value
           then "cp ${value} $out/${name}"
-          else "cat > $out/${name} <<'HERMES_DOC_EOF'\n${value}\nHERMES_DOC_EOF"
+          else "cat > $out/${name} <<'FABRIC_DOC_EOF'\n${value}\nFABRIC_DOC_EOF"
         ) cfg.documents
       )
     );
@@ -87,26 +87,26 @@
     containerEntrypoint = pkgs.writeShellScript "fabric-container-entrypoint" ''
       set -eu
 
-      HERMES_UID="''${HERMES_UID:?HERMES_UID must be set}"
-      HERMES_GID="''${HERMES_GID:?HERMES_GID must be set}"
+      FABRIC_UID="''${FABRIC_UID:?FABRIC_UID must be set}"
+      FABRIC_GID="''${FABRIC_GID:?FABRIC_GID must be set}"
 
-      # ── Group: ensure a group with GID=$HERMES_GID exists ──
+      # ── Group: ensure a group with GID=$FABRIC_GID exists ──
       # Check by GID (not name) to avoid collisions with pre-existing groups
       # (e.g. GID 100 = "users" on Ubuntu)
-      EXISTING_GROUP=$(getent group "$HERMES_GID" 2>/dev/null | cut -d: -f1 || true)
+      EXISTING_GROUP=$(getent group "$FABRIC_GID" 2>/dev/null | cut -d: -f1 || true)
       if [ -n "$EXISTING_GROUP" ]; then
         GROUP_NAME="$EXISTING_GROUP"
       else
         GROUP_NAME="fabric"
         if command -v groupadd >/dev/null 2>&1; then
-          groupadd -g "$HERMES_GID" "$GROUP_NAME"
+          groupadd -g "$FABRIC_GID" "$GROUP_NAME"
         elif command -v addgroup >/dev/null 2>&1; then
-          addgroup -g "$HERMES_GID" "$GROUP_NAME" 2>/dev/null || true
+          addgroup -g "$FABRIC_GID" "$GROUP_NAME" 2>/dev/null || true
         fi
       fi
 
-      # ── User: ensure a user with UID=$HERMES_UID exists ──
-      PASSWD_ENTRY=$(getent passwd "$HERMES_UID" 2>/dev/null || true)
+      # ── User: ensure a user with UID=$FABRIC_UID exists ──
+      PASSWD_ENTRY=$(getent passwd "$FABRIC_UID" 2>/dev/null || true)
       if [ -n "$PASSWD_ENTRY" ]; then
         TARGET_USER=$(echo "$PASSWD_ENTRY" | cut -d: -f1)
         TARGET_HOME=$(echo "$PASSWD_ENTRY" | cut -d: -f6)
@@ -114,22 +114,22 @@
         TARGET_USER="fabric"
         TARGET_HOME="/home/fabric"
         if command -v useradd >/dev/null 2>&1; then
-          useradd -u "$HERMES_UID" -g "$HERMES_GID" -m -d "$TARGET_HOME" -s /bin/bash "$TARGET_USER"
+          useradd -u "$FABRIC_UID" -g "$FABRIC_GID" -m -d "$TARGET_HOME" -s /bin/bash "$TARGET_USER"
         elif command -v adduser >/dev/null 2>&1; then
-          adduser -u "$HERMES_UID" -D -h "$TARGET_HOME" -s /bin/sh -G "$GROUP_NAME" "$TARGET_USER" 2>/dev/null || true
+          adduser -u "$FABRIC_UID" -D -h "$TARGET_HOME" -s /bin/sh -G "$GROUP_NAME" "$TARGET_USER" 2>/dev/null || true
         fi
       fi
       mkdir -p "$TARGET_HOME"
-      chown "$HERMES_UID:$HERMES_GID" "$TARGET_HOME"
+      chown "$FABRIC_UID:$FABRIC_GID" "$TARGET_HOME"
       chmod 0750 "$TARGET_HOME"
 
-      # Ensure HERMES_HOME is owned by the target user.
+      # Ensure FABRIC_HOME is owned by the target user.
       # Use find instead of chown -R: chown strips the setgid bit (kernel
       # behavior), destroying the 2770 permissions the NixOS activation
       # script sets for group access by hostUsers.  Only touch files with
       # wrong ownership so correctly-owned dirs keep their permission bits.
-      if [ -n "''${HERMES_HOME:-}" ] && [ -d "$HERMES_HOME" ]; then
-        find "$HERMES_HOME" \! -user "$HERMES_UID" -exec chown "$HERMES_UID:$HERMES_GID" {} +
+      if [ -n "''${FABRIC_HOME:-}" ] && [ -d "$FABRIC_HOME" ]; then
+        find "$FABRIC_HOME" \! -user "$FABRIC_UID" -exec chown "$FABRIC_UID:$FABRIC_GID" {} +
       fi
 
       # ── Provision apt packages (first boot only, cached in writable layer) ──
@@ -179,7 +179,7 @@
       fi
 
       if command -v setpriv >/dev/null 2>&1; then
-        exec setpriv --reuid="$HERMES_UID" --regid="$HERMES_GID" --init-groups "$@"
+        exec setpriv --reuid="$FABRIC_UID" --regid="$FABRIC_GID" --init-groups "$@"
       elif command -v su >/dev/null 2>&1; then
         exec su -s /bin/sh "$TARGET_USER" -c 'exec "$0" "$@"' -- "$@"
       else
@@ -190,7 +190,7 @@
 
     # Identity hash — only recreate container when structural config changes.
     # Package and entrypoint use stable symlinks (current-package, current-entrypoint)
-    # so they can update without recreation. Env vars go through $HERMES_HOME/.env.
+    # so they can update without recreation. Env vars go through $FABRIC_HOME/.env.
     containerIdentity = builtins.hashString "sha256" (builtins.toJSON {
       schema = 4; # bump when identity inputs change (4: Node 18→22 via NodeSource)
       image = cfg.container.image;
@@ -241,7 +241,7 @@
       stateDir = mkOption {
         type = types.str;
         default = "/var/lib/fabric";
-        description = "State directory. Contains .fabric/ subdir (HERMES_HOME).";
+        description = "State directory. Contains .fabric/ subdir (FABRIC_HOME).";
       };
 
       workingDirectory = mkOption {
@@ -284,7 +284,7 @@
         default = [ ];
         description = ''
           Paths to environment files containing secrets (API keys, tokens).
-          Contents are merged into $HERMES_HOME/.env at activation time.
+          Contents are merged into $FABRIC_HOME/.env at activation time.
           Fabric reads this file on every startup via load_fabric_dotenv().
         '';
       };
@@ -293,7 +293,7 @@
         type = types.attrsOf types.str;
         default = { };
         description = ''
-          Non-secret environment variables. Merged into $HERMES_HOME/.env
+          Non-secret environment variables. Merged into $FABRIC_HOME/.env
           at activation time. Do NOT put secrets here — use environmentFiles.
         '';
       };
@@ -368,7 +368,7 @@
               default = null;
               description = ''
                 Authentication method. Set to "oauth" for OAuth 2.1 PKCE flow
-                (remote MCP servers). Tokens are stored in $HERMES_HOME/mcp-tokens/.
+                (remote MCP servers). Tokens are stored in $FABRIC_HOME/mcp-tokens/.
               '';
             };
 
@@ -556,7 +556,7 @@
         default = false;
         description = ''
           Add the fabric CLI to environment.systemPackages and export
-          HERMES_HOME system-wide (via environment.variables) so interactive
+          FABRIC_HOME system-wide (via environment.variables) so interactive
           shells share state with the gateway service.
         '';
       };
@@ -649,12 +649,12 @@
       })
 
       # ── Host CLI ──────────────────────────────────────────────────────
-      # Add the fabric CLI to system PATH and export HERMES_HOME system-wide
+      # Add the fabric CLI to system PATH and export FABRIC_HOME system-wide
       # so interactive shells share state (sessions, skills, cron) with the
       # gateway service instead of creating a separate ~/.fabric/.
       (lib.mkIf cfg.addToSystemPackages {
         environment.systemPackages = [ effectivePackage ];
-        environment.variables.HERMES_HOME = "${cfg.stateDir}/.fabric";
+        environment.variables.FABRIC_HOME = "${cfg.stateDir}/.fabric";
       })
 
       # ── Host user group membership ─────────────────────────────────────
@@ -769,13 +769,13 @@
           # container instead of running locally. Removed when container mode
           # is disabled so the host CLI falls back to native execution.
           ${if cfg.container.enable then ''
-            cat > ${cfg.stateDir}/.fabric/.container-mode <<'HERMES_CONTAINER_MODE_EOF'
+            cat > ${cfg.stateDir}/.fabric/.container-mode <<'FABRIC_CONTAINER_MODE_EOF'
     # Written by NixOS activation script. Do not edit manually.
     backend=${cfg.container.backend}
     container_name=${containerName}
     exec_user=${cfg.user}
     fabric_bin=${containerDataDir}/current-package/bin/fabric
-    HERMES_CONTAINER_MODE_EOF
+    FABRIC_CONTAINER_MODE_EOF
             chown ${cfg.user}:${cfg.group} ${cfg.stateDir}/.fabric/.container-mode
             chmod 0644 ${cfg.stateDir}/.fabric/.container-mode
           '' else ''
@@ -830,14 +830,14 @@
           ''}
 
           # Seed .env from Nix-declared environment + environmentFiles.
-          # Fabric reads $HERMES_HOME/.env at startup via load_fabric_dotenv(),
+          # Fabric reads $FABRIC_HOME/.env at startup via load_fabric_dotenv(),
           # so this is the single source of truth for both native and container mode.
           ${lib.optionalString (cfg.environment != {} || cfg.environmentFiles != []) ''
             ENV_FILE="${cfg.stateDir}/.fabric/.env"
             install -o ${cfg.user} -g ${cfg.group} -m 0640 /dev/null "$ENV_FILE"
-            cat > "$ENV_FILE" <<'HERMES_NIX_ENV_EOF'
+            cat > "$ENV_FILE" <<'FABRIC_NIX_ENV_EOF'
     ${envFileContent}
-    HERMES_NIX_ENV_EOF
+    FABRIC_NIX_ENV_EOF
             ${lib.concatStringsSep "\n" (map (f: ''
               if [ -f "${f}" ]; then
                 echo "" >> "$ENV_FILE"
@@ -881,7 +881,7 @@
 
           environment = {
             HOME = cfg.stateDir;
-            HERMES_HOME = "${cfg.stateDir}/.fabric";
+            FABRIC_HOME = "${cfg.stateDir}/.fabric";
             FABRIC_MANAGED = "true";
             MESSAGING_CWD = cfg.workingDirectory;
           };
@@ -892,7 +892,7 @@
             WorkingDirectory = cfg.workingDirectory;
 
             # cfg.environment and cfg.environmentFiles are written to
-            # $HERMES_HOME/.env by the activation script. load_fabric_dotenv()
+            # $FABRIC_HOME/.env by the activation script. load_fabric_dotenv()
             # reads them at Python startup — no systemd EnvironmentFile needed.
 
             ExecStart = lib.concatStringsSep " " ([
@@ -963,8 +963,8 @@
 
             if [ "$NEED_CREATE" = "true" ]; then
               # Resolve numeric UID/GID — passed to entrypoint for in-container user setup
-              HERMES_UID=$(${pkgs.coreutils}/bin/id -u ${cfg.user})
-              HERMES_GID=$(${pkgs.coreutils}/bin/id -g ${cfg.user})
+              FABRIC_UID=$(${pkgs.coreutils}/bin/id -u ${cfg.user})
+              FABRIC_GID=$(${pkgs.coreutils}/bin/id -g ${cfg.user})
 
               echo "Creating container..."
               ${containerBin} create \
@@ -975,9 +975,9 @@
                 --volume ${cfg.stateDir}:${containerDataDir} \
                 --volume ${cfg.stateDir}/home:${containerHomeDir} \
                 ${lib.concatStringsSep " " (map (v: "--volume ${v}") cfg.container.extraVolumes)} \
-                --env HERMES_UID="$HERMES_UID" \
-                --env HERMES_GID="$HERMES_GID" \
-                --env HERMES_HOME=${containerDataDir}/.fabric \
+                --env FABRIC_UID="$FABRIC_UID" \
+                --env FABRIC_GID="$FABRIC_GID" \
+                --env FABRIC_HOME=${containerDataDir}/.fabric \
                 --env FABRIC_MANAGED=true \
                 --env HOME=${containerHomeDir} \
                 --env MESSAGING_CWD=${containerWorkDir} \

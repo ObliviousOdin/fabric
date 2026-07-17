@@ -10,7 +10,7 @@ import type { PluginManifest } from "./types";
 const { getPlugins } = vi.hoisted(() => ({ getPlugins: vi.fn() }));
 vi.mock("@/lib/api", () => ({
   api: { getPlugins },
-  HERMES_BASE_PATH: "",
+  FABRIC_BASE_PATH: "",
 }));
 
 import { shouldLoadPluginAssets, usePlugins } from "./usePlugins";

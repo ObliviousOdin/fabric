@@ -81,7 +81,7 @@ class TestEnvFileReadBlocking:
             assert error is None, f"{path} should be allowed"
 
     def test_allowed_fabric_env(self):
-        """Hermes' own .env inside HERMES_HOME is NOT blocked by this rule
+        """Hermes' own .env inside FABRIC_HOME is NOT blocked by this rule
         (it's handled by other mechanisms). Only project-local .env is blocked."""
         # Note: fabric internal .env is in ~/.hermes/.env which is NOT a project-local
         # path, but the basename check applies to ANY .env. This is intentional —
@@ -214,7 +214,7 @@ class TestCombinedGuards:
     """Both guards should work independently without interference."""
 
     def test_env_guard_works_regardless_of_fabric_home(self, tmp_path):
-        """The env basename guard does not depend on HERMES_HOME resolution."""
+        """The env basename guard does not depend on FABRIC_HOME resolution."""
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
 

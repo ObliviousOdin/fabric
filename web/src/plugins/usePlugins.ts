@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { api, HERMES_BASE_PATH } from "@/lib/api";
+import { api, FABRIC_BASE_PATH } from "@/lib/api";
 import { canonicalPluginTargetPath } from "@/app/routes";
 import type { PluginManifest, RegisteredPlugin } from "./types";
 import {
@@ -54,7 +54,7 @@ export function usePlugins() {
     for (const manifest of assetManifests) {
       // Inject CSS if specified.
       if (manifest.css) {
-        const cssUrl = `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.css}`;
+        const cssUrl = `${FABRIC_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.css}`;
         if (!document.querySelector(`link[href="${cssUrl}"]`)) {
           const link = document.createElement("link");
           link.rel = "stylesheet";
@@ -66,7 +66,7 @@ export function usePlugins() {
       // Load JS bundle. In dev, cache-bust so Vite HMR can clear the
       // in-memory registry while the browser would otherwise never
       // re-execute a previously cached <script> URL.
-      const baseUrl = `${HERMES_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.entry}`;
+      const baseUrl = `${FABRIC_BASE_PATH}/dashboard-plugins/${manifest.name}/${manifest.entry}`;
       const scriptSrc = import.meta.env.DEV
         ? `${baseUrl}?fabric_dv=${Date.now()}`
         : baseUrl;

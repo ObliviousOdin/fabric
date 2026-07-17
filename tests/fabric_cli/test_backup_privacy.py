@@ -56,7 +56,7 @@ def _seed_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     fabric_home = tmp_path / ".fabric"
     fabric_home.mkdir()
     (fabric_home / "config.yaml").write_text("model: local\n", encoding="utf-8")
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     return fabric_home
 
@@ -182,14 +182,14 @@ def test_marked_custom_backup_is_blocked_from_model_and_gateway_paths(
         assert get_read_block_error(str(archive)) is not None
 
     # Private classification must beat even an explicit gateway media allowlist.
-    monkeypatch.setattr("gateway.platforms.base._HERMES_HOME", fabric_home)
-    monkeypatch.setattr("gateway.platforms.base._HERMES_ROOT", fabric_home)
+    monkeypatch.setattr("gateway.platforms.base._FABRIC_HOME", fabric_home)
+    monkeypatch.setattr("gateway.platforms.base._FABRIC_ROOT", fabric_home)
     monkeypatch.setattr(
         "gateway.platforms.base.MEDIA_DELIVERY_SAFE_ROOTS",
         (archive.parent,),
     )
-    monkeypatch.setenv("HERMES_MEDIA_DELIVERY_STRICT", "1")
-    monkeypatch.setenv("HERMES_MEDIA_TRUST_RECENT_FILES", "0")
+    monkeypatch.setenv("FABRIC_MEDIA_DELIVERY_STRICT", "1")
+    monkeypatch.setenv("FABRIC_MEDIA_TRUST_RECENT_FILES", "0")
     assert BasePlatformAdapter.validate_media_delivery_path(str(archive)) is None
 
 

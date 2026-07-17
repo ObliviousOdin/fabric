@@ -132,14 +132,14 @@ _USER_SKIPPED_SENTINEL = "__fabric_user_skipped__"
 def _get_token_dir() -> Path:
     """Return the directory for MCP OAuth token files.
 
-    Uses HERMES_HOME so each profile gets its own OAuth tokens.
-    Layout: ``HERMES_HOME/mcp-tokens/``
+    Uses FABRIC_HOME so each profile gets its own OAuth tokens.
+    Layout: ``FABRIC_HOME/mcp-tokens/``
     """
     try:
         from fabric_constants import get_fabric_home
         base = Path(get_fabric_home())
     except ImportError:
-        base = Path(os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or Path.home() / ".fabric")
+        base = Path(os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME") or Path.home() / ".fabric")
     return base / "mcp-tokens"
 
 
@@ -291,9 +291,9 @@ class FabricTokenStorage:
 
     File layout::
 
-        HERMES_HOME/mcp-tokens/<server_name>.json         -- tokens
-        HERMES_HOME/mcp-tokens/<server_name>.client.json   -- client info
-        HERMES_HOME/mcp-tokens/<server_name>.meta.json     -- oauth server metadata
+        FABRIC_HOME/mcp-tokens/<server_name>.json         -- tokens
+        FABRIC_HOME/mcp-tokens/<server_name>.client.json   -- client info
+        FABRIC_HOME/mcp-tokens/<server_name>.meta.json     -- oauth server metadata
     """
 
     def __init__(self, server_name: str):

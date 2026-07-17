@@ -17,11 +17,11 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
-from fabric_cli import __version__ as _HERMES_VERSION
+from fabric_cli import __version__ as _FABRIC_VERSION
 
 # Identify ourselves so endpoints fronted by Cloudflare's Browser Integrity
 # Check (error 1010) don't reject the default ``Python-urllib/*`` signature.
-_HERMES_USER_AGENT = f"fabric-cli/{_HERMES_VERSION}"
+_FABRIC_USER_AGENT = f"fabric-cli/{_FABRIC_VERSION}"
 
 COPILOT_BASE_URL = "https://api.githubcopilot.com"
 COPILOT_MODELS_URL = f"{COPILOT_BASE_URL}/models"
@@ -103,7 +103,7 @@ def _codex_curated_models() -> list[str]:
 
 # Static fallback for xAI when the models.dev disk cache is empty (fresh
 # install, offline first run, etc.). Mirrors the xAI-direct model IDs from
-# $HERMES_HOME/models_dev_cache.json as of 2026-04-28. Whenever xAI renames
+# $FABRIC_HOME/models_dev_cache.json as of 2026-04-28. Whenever xAI renames
 # or retires a model, the disk cache picks it up on the next refresh and the
 # fallback here only matters until that refresh lands.
 #
@@ -152,7 +152,7 @@ def _xai_merge_curated_extras(ids: list[str]) -> list[str]:
 def _xai_curated_models() -> list[str]:
     """Derive the xAI-direct curated list from models.dev disk cache.
 
-    Reads $HERMES_HOME/models_dev_cache.json directly (no network) so this
+    Reads $FABRIC_HOME/models_dev_cache.json directly (no network) so this
     runs at import time without blocking. Falls back to ``_XAI_STATIC_FALLBACK``
     when the cache is empty or unreadable. Fabric refreshes the cache from
     https://models.dev/api.json on normal use, so this list self-heals as
@@ -881,7 +881,7 @@ def fetch_nous_recommended_models(
     ``force_refresh=True`` to bypass the in-process cache.
 
     A successful live fetch is also persisted to a per-base disk cache
-    (``$HERMES_HOME/cache/nous_recommended_cache.json``) as last-known-good.
+    (``$FABRIC_HOME/cache/nous_recommended_cache.json``) as last-known-good.
     When the live fetch fails (network, parse, non-2xx) and the in-process
     cache is empty, the disk copy is returned instead of ``{}`` — so a
     transient Portal hiccup no longer silently drops the free/paid model
@@ -1516,7 +1516,7 @@ def fetch_models_with_pricing(
     url = cache_key.rstrip("/") + "/v1/models"
     headers: dict[str, str] = {
         "Accept": "application/json",
-        "User-Agent": _HERMES_USER_AGENT,
+        "User-Agent": _FABRIC_USER_AGENT,
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -1632,7 +1632,7 @@ def _fetch_novita_pricing(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
-        "User-Agent": _HERMES_USER_AGENT,
+        "User-Agent": _FABRIC_USER_AGENT,
     }
 
     try:
@@ -2526,7 +2526,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
 # HTTP roundtrips just to render the provider list.
 #
 # Cache strategy:
-#   - One JSON file at $HERMES_HOME/provider_models_cache.json
+#   - One JSON file at $FABRIC_HOME/provider_models_cache.json
 #   - Per-provider entries keyed by (provider, credential fingerprint)
 #   - Credential fingerprint = sha256 of env-var values that the provider
 #     normally reads. Swap your OPENAI_API_KEY and the entry invalidates.
@@ -2553,7 +2553,7 @@ def _credential_fingerprint(provider: str) -> str:
     for that provider. We hash AT LEAST the api-key + base-url env vars
     declared in ``PROVIDER_REGISTRY``. For OAuth-backed providers
     (codex, copilot, anthropic-via-claude-code, nous portal), the
-    relevant tokens live in ``$HERMES_HOME/auth.json`` and external
+    relevant tokens live in ``$FABRIC_HOME/auth.json`` and external
     credential files. Rather than parse every shape, we additionally
     fold the mtime of those files into the fingerprint so refreshes
     after re-auth bust the cache.
@@ -2959,7 +2959,7 @@ def _lmstudio_server_root(base_url: Optional[str]) -> Optional[str]:
 
 def _lmstudio_request_headers(api_key: Optional[str] = None) -> dict:
     """Build HTTP headers for LM Studio native API requests."""
-    headers = {"User-Agent": _HERMES_USER_AGENT}
+    headers = {"User-Agent": _FABRIC_USER_AGENT}
     token = str(api_key or "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -3575,7 +3575,7 @@ def probe_api_models(
         candidates.append((alternate_base, True))
 
     tried: list[str] = []
-    headers: dict[str, str] = {"User-Agent": _HERMES_USER_AGENT}
+    headers: dict[str, str] = {"User-Agent": _FABRIC_USER_AGENT}
     if api_key and api_mode == "anthropic_messages":
         headers["x-api-key"] = api_key
         headers["anthropic-version"] = "2023-06-01"

@@ -9,10 +9,10 @@
  *   import { runBootstrap }from './bootstrap-runner.ts'
  *   const result = await runBootstrap({
  *     installStamp,        // INSTALL_STAMP from main.ts (may be null in dev)
- *     activeRoot,          // ACTIVE_HERMES_ROOT
+ *     activeRoot,          // ACTIVE_FABRIC_ROOT
  *     sourceRepoRoot,      // SOURCE_REPO_ROOT (for dev install.ps1 lookup)
- *     fabricHome,          // HERMES_HOME
- *     logRoot,             // HERMES_HOME/logs
+ *     fabricHome,          // FABRIC_HOME
+ *     logRoot,             // FABRIC_HOME/logs
  *     emit: ev => {...}    // event sink (sender.send or similar)
  *   })
  *
@@ -344,9 +344,9 @@ function spawnPowerShell(scriptPath, args, { emit, stageName, abortSignal, fabri
         stdio: ['ignore', 'pipe', 'pipe'],
         env: {
           ...process.env,
-          // Pass HERMES_HOME through so install.ps1 respects the caller's
+          // Pass FABRIC_HOME through so install.ps1 respects the caller's
           // choice rather than re-computing the default.
-          HERMES_HOME: fabricHome || process.env.HERMES_HOME || ''
+          FABRIC_HOME: fabricHome || process.env.FABRIC_HOME || ''
         }
       })
     )
@@ -440,7 +440,7 @@ function spawnBash(scriptPath, args, { emit, stageName, abortSignal, fabricHome 
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        HERMES_HOME: fabricHome || process.env.HERMES_HOME || ''
+        FABRIC_HOME: fabricHome || process.env.FABRIC_HOME || ''
       }
     })
 

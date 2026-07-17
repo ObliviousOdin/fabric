@@ -70,7 +70,7 @@ test('buildDesktopBackendEnv extends PYTHONPATH and backend PATH together', () =
 
   assert.equal(env.PYTHONPATH, '/repo/fabric-agent:/existing/pythonpath')
   assert.equal(env.FABRIC_HOME, '/Users/test/.hermes')
-  assert.equal(env.HERMES_HOME, '/Users/test/.hermes')
+  assert.equal(env.FABRIC_HOME, '/Users/test/.hermes')
   assert.ok(
     env.PATH.startsWith(
       '/Users/test/.hermes/node/bin:/Users/test/.hermes/fabric-agent/venv/bin:/Users/test/.local/bin:'
@@ -133,10 +133,10 @@ test('appendUniquePathEntries drops empty entries and keeps first occurrence', (
   assert.equal(appendUniquePathEntries([':/a::/b', ['/a', '/c']], { delimiter: ':' }), '/a:/b:/c')
 })
 
-test('resolveDesktopHome prefers FABRIC_HOME while preserving HERMES_HOME compatibility', () => {
+test('resolveDesktopHome prefers FABRIC_HOME while preserving FABRIC_HOME compatibility', () => {
   assert.equal(
     resolveDesktopHome({
-      env: { FABRIC_HOME: '/data/fabric', HERMES_HOME: '/data/hermes' },
+      env: { FABRIC_HOME: '/data/fabric', FABRIC_HOME: '/data/hermes' },
       home: '/Users/test',
       platform: 'darwin',
       pathModule: path.posix
@@ -145,7 +145,7 @@ test('resolveDesktopHome prefers FABRIC_HOME while preserving HERMES_HOME compat
   )
   assert.equal(
     resolveDesktopHome({
-      env: { HERMES_HOME: '/data/hermes/profiles/work' },
+      env: { FABRIC_HOME: '/data/hermes/profiles/work' },
       home: '/Users/test',
       platform: 'darwin',
       pathModule: path.posix
@@ -182,7 +182,7 @@ test('resolveDesktopHome uses modern defaults and only falls back for existing l
 test('resolveDesktopHome reads live Windows FABRIC_HOME before legacy registry and default', () => {
   const registry = {
     FABRIC_HOME: 'F:\\Fabric\\data',
-    HERMES_HOME: 'H:\\Hermes\\data'
+    FABRIC_HOME: 'H:\\Hermes\\data'
   }
   assert.equal(
     resolveDesktopHome({

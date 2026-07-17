@@ -8,7 +8,7 @@
 # `hermes` service user (UID 10000). When an operator runs
 # `docker exec <c> fabric ...`
 # the default UID is root (0), and any file the command writes under
-# $HERMES_HOME — auth.json, .env, config.yaml — ends up root-owned and
+# $FABRIC_HOME — auth.json, .env, config.yaml — ends up root-owned and
 # unreadable to the supervised gateway. The most common manifestation: the
 # user runs `docker exec <c> fabric login`, this writes
 # /opt/data/auth.json as root:root mode 0600, and from then on the gateway
@@ -23,7 +23,7 @@
 # This shim sits at /opt/hermes/bin/fabric and is placed earliest on PATH.
 # When invoked as root, it drops to the fabric user (via s6-setuidgid)
 # before exec'ing the real venv binary, so anything that writes under
-# $HERMES_HOME is uid-aligned with the supervised processes. When invoked
+# $FABRIC_HOME is uid-aligned with the supervised processes. When invoked
 # as any non-root UID — including the supervised processes themselves,
 # `docker exec --user fabric`, kanban subagents, etc. — it short-circuits
 # straight to the venv binary with no privilege change. Net: one extra
@@ -57,7 +57,7 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 # Root, with opt-out set? Honor it.
-case "${FABRIC_DOCKER_EXEC_AS_ROOT:-${HERMES_DOCKER_EXEC_AS_ROOT:-}}" in
+case "${FABRIC_DOCKER_EXEC_AS_ROOT:-${FABRIC_DOCKER_EXEC_AS_ROOT:-}}" in
     1|true|TRUE|True|yes|YES|Yes)
         exec "$REAL" "$@"
         ;;

@@ -67,7 +67,7 @@ def test_fabric_manifest_owns_native_desktop_identity_and_assets() -> None:
 
 
 def test_customer_desktop_guides_use_fabric_routes_and_fabric_commands() -> None:
-    command_pattern = re.compile(r"(?m)^[ \t]*hermes(?:[ \t]|$)", re.IGNORECASE)
+    command_pattern = re.compile(r"(?m)^[ \t]*fabric(?:[ \t]|$)", re.IGNORECASE)
 
     for path in CUSTOMER_GUIDES:
         text = path.read_text(encoding="utf-8")
@@ -82,7 +82,7 @@ def test_customer_desktop_guides_use_fabric_routes_and_fabric_commands() -> None
         assert REQUIRED_PUBLIC_ROUTE in text, f"missing public Fabric route: {relative}"
         for route in FORBIDDEN_CUSTOMER_ROUTES:
             assert route not in text, f"upstream customer route in {relative}: {route}"
-        assert "com.nousresearch.hermes" not in text
+        assert "com.nousresearch.fabric" not in text
 
 
 def test_desktop_docs_do_not_claim_unsigned_ci_packages_are_releases() -> None:
@@ -135,7 +135,7 @@ def test_packaging_workflow_derives_names_and_checks_all_native_formats() -> Non
         expected_mapping = json.dumps(artifact_arches, separators=(",", ":"))
         assert f"artifact_arches: '{expected_mapping}'" in workflow
 
-    assert "legacy Hermes artifacts" in workflow
+    assert "legacy Fabric artifacts" in workflow
     assert "SHA256SUMS" in workflow
     assert "apps/desktop/verified-artifacts/*" in workflow
     assert "apps/desktop/release/${{" not in workflow
@@ -156,7 +156,7 @@ def test_apache_license_and_upstream_mit_attribution_are_preserved() -> None:
     assert "Apache License" in license_text
     assert "MIT License" in upstream_license_text
     assert "Copyright (c) 2025 Nous Research" in upstream_license_text
-    assert "Hermes Agent by Nous Research" in notice_text
+    assert "Fabric Agent by Nous Research" in notice_text
     assert "Apache License 2.0" in desktop_readme
     assert "upstream MIT notice" in desktop_readme
     assert "[`NOTICE`](../../NOTICE)" in desktop_readme

@@ -141,7 +141,7 @@ import { readWindowsUserEnvVar } from './windows-user-env'
 import { isPackagedInstallPath as isPackagedInstallPathUnderRoots } from './workspace-cwd'
 import { readWslWindowsClipboardImage } from './wsl-clipboard-image'
 
-const USER_DATA_OVERRIDE = process.env.HERMES_DESKTOP_USER_DATA_DIR
+const USER_DATA_OVERRIDE = process.env.FABRIC_DESKTOP_USER_DATA_DIR
 const DESKTOP_BRAND = validateDesktopBrand(__FABRIC_DESKTOP_BRAND__, {
   source: '<embedded Fabric desktop brand>'
 })
@@ -152,8 +152,8 @@ if (USER_DATA_OVERRIDE) {
   app.setPath('userData', resolvedUserData)
 }
 
-const DEV_SERVER = process.env.HERMES_DESKTOP_DEV_SERVER
-const IS_PACKAGED = app.isPackaged || Boolean(process.env.HERMES_DESKTOP_IS_PACKAGED)
+const DEV_SERVER = process.env.FABRIC_DESKTOP_DEV_SERVER
+const IS_PACKAGED = app.isPackaged || Boolean(process.env.FABRIC_DESKTOP_IS_PACKAGED)
 const IS_MAC = process.platform === 'darwin'
 const IS_WINDOWS = process.platform === 'win32'
 const IS_WSL = isWslEnvironment()
@@ -182,7 +182,7 @@ function hiddenWindowsChildOptions(options: any = {}): ExecFileSyncOptionsWithSt
 // GPU and never see it. Fall back to software rendering when a remote display
 // is detected; it's rock-steady over the wire and the CPU cost is negligible
 // next to the connection's latency. Must run before app `ready` — these
-// switches only apply pre-launch. Override with HERMES_DESKTOP_DISABLE_GPU
+// switches only apply pre-launch. Override with FABRIC_DESKTOP_DISABLE_GPU
 // (1/true → always disable, 0/false → keep GPU on).
 const REMOTE_DISPLAY_REASON = detectRemoteDisplay()
 
@@ -296,7 +296,7 @@ if (INSTALL_STAMP) {
 }
 
 // FABRIC_HOME is canonical for new installs. resolveDesktopHome preserves
-// HERMES_HOME and legacy default directories for a transition window, and
+// FABRIC_HOME and legacy default directories for a transition window, and
 // reads live Windows user-registry values for Explorer-launched apps.
 function resolveFabricHome() {
   return resolveDesktopHome({
@@ -314,14 +314,14 @@ function resolveFabricHome() {
 const FABRIC_HOME = resolveFabricHome()
 // Internal compatibility alias: upstream backend paths and IPC still use the
 // Fabric symbol, while every child receives both environment variable names.
-const HERMES_HOME = FABRIC_HOME
-const FABRIC_HOME_ENV = Object.freeze({ FABRIC_HOME, HERMES_HOME })
+const FABRIC_HOME = FABRIC_HOME
+const FABRIC_HOME_ENV = Object.freeze({ FABRIC_HOME, FABRIC_HOME })
 
 function fabricManagedNodePathEntries() {
   // NOTE: keep this ordering in sync with iter_fabric_node_dirs() in
   // fabric_constants.py — this Node main process cannot import the Python
   // module, so the platform-ordering rule is mirrored here.
-  const root = path.join(HERMES_HOME, 'node')
+  const root = path.join(FABRIC_HOME, 'node')
   const bin = path.join(root, 'bin')
   const entries = IS_WINDOWS ? [root, bin] : [bin, root]
 
@@ -332,12 +332,12 @@ function pathWithFabricManagedNode(...entries) {
   return [...fabricManagedNodePathEntries(), ...entries, process.env.PATH].filter(Boolean).join(path.delimiter)
 }
 
-// ACTIVE_HERMES_ROOT — the canonical mutable Fabric install. Same path
+// ACTIVE_FABRIC_ROOT — the canonical mutable Fabric install. Same path
 // install.ps1 / install.sh use, so a desktop-only user and a CLI-only user end
 // up with identical layouts and can share one install.
-const ACTIVE_HERMES_ROOT = path.join(HERMES_HOME, 'fabric-agent')
+const ACTIVE_FABRIC_ROOT = path.join(FABRIC_HOME, 'fabric-agent')
 // VENV_ROOT — venv lives inside the repo, exactly like install.ps1 does it.
-const VENV_ROOT = path.join(ACTIVE_HERMES_ROOT, 'venv')
+const VENV_ROOT = path.join(ACTIVE_FABRIC_ROOT, 'venv')
 // BOOTSTRAP_COMPLETE_MARKER — written by the first-launch bootstrap runner
 // (Phase 1D) after install.ps1 has completed all stages and the user has
 // finished initial configuration. Presence of this marker means the install
@@ -346,10 +346,10 @@ const VENV_ROOT = path.join(ACTIVE_HERMES_ROOT, 'venv')
 // means we re-run the bootstrap; install.ps1's stages are idempotent so a
 // re-run on an already-good install just discovers everything in place.
 //
-// We deliberately put the marker INSIDE ACTIVE_HERMES_ROOT (not alongside)
+// We deliberately put the marker INSIDE ACTIVE_FABRIC_ROOT (not alongside)
 // so that deleting the checkout to start fresh also deletes the marker --
 // avoids the confusing "marker exists but checkout is gone" state.
-const BOOTSTRAP_COMPLETE_MARKER = path.join(ACTIVE_HERMES_ROOT, '.hermes-bootstrap-complete')
+const BOOTSTRAP_COMPLETE_MARKER = path.join(ACTIVE_FABRIC_ROOT, '.hermes-bootstrap-complete')
 const BOOTSTRAP_MARKER_SCHEMA_VERSION = 1
 
 const DESKTOP_CONNECTION_CONFIG_PATH = path.join(app.getPath('userData'), 'connection.json')
@@ -357,7 +357,7 @@ const DESKTOP_UPDATE_CONFIG_PATH = path.join(app.getPath('userData'), 'updates.j
 const DESKTOP_WINDOW_STATE_PATH = path.join(app.getPath('userData'), 'window-state.json')
 // active-profile.json records which Fabric profile the desktop launches its
 // local backend as. When set, startFabric() passes `fabric --profile <name>
-// dashboard …`, which deterministically pins HERMES_HOME (see
+// dashboard …`, which deterministically pins FABRIC_HOME (see
 // _apply_profile_override in fabric_cli/main.py) and bypasses the sticky
 // ~/.hermes/active_profile file. Unset (null) preserves the legacy behavior:
 // no --profile flag, so the backend honors active_profile / default.
@@ -369,10 +369,10 @@ const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
 // tracks main. User can also override at runtime via
 // fabricDesktop.updates.setBranch().
 const DEFAULT_UPDATE_BRANCH = 'main'
-// desktop.log lives under HERMES_HOME/logs/ so it sits next to agent.log,
+// desktop.log lives under FABRIC_HOME/logs/ so it sits next to agent.log,
 // errors.log, gateway.log produced by fabric_logging.setup_logging — one log
 // directory per user, regardless of which UI surface produced the line.
-const DESKTOP_LOG_PATH = path.join(HERMES_HOME, 'logs', 'desktop.log')
+const DESKTOP_LOG_PATH = path.join(FABRIC_HOME, 'logs', 'desktop.log')
 const DESKTOP_LOG_FLUSH_MS = 120
 const DESKTOP_LOG_BUFFER_MAX_CHARS = 64 * 1024
 // Bound desktop.log on disk. It is an append-only forensic log, so a boot loop
@@ -394,10 +394,10 @@ const DESKTOP_LOG_MAX_BYTES = 10 * 1024 * 1024
 const DESKTOP_LOG_BACKUP_COUNT = 3
 const DESKTOP_LOG_DISCARD_BYTES = DESKTOP_LOG_MAX_BYTES * 4
 const desktopLogBackupPath = n => `${DESKTOP_LOG_PATH}.${n}`
-const BOOT_FAKE_MODE = process.env.HERMES_DESKTOP_BOOT_FAKE === '1'
+const BOOT_FAKE_MODE = process.env.FABRIC_DESKTOP_BOOT_FAKE === '1'
 
 const BOOT_FAKE_STEP_MS = (() => {
-  const raw = Number.parseInt(String(process.env.HERMES_DESKTOP_BOOT_FAKE_STEP_MS || ''), 10)
+  const raw = Number.parseInt(String(process.env.FABRIC_DESKTOP_BOOT_FAKE_STEP_MS || ''), 10)
 
   if (!Number.isFinite(raw) || raw <= 0) {
     return 650
@@ -797,8 +797,8 @@ const backendPool = new Map() // profile -> { process, port, token, connectionPr
 // Keep the pool light: cap concurrent profile backends (LRU eviction) and reap
 // idle ones. A user idles at exactly the primary backend; pool backends only
 // exist while a non-primary profile is actively being chatted through.
-const POOL_MAX_BACKENDS = Math.max(1, Number(process.env.HERMES_DESKTOP_POOL_MAX) || 3)
-const POOL_IDLE_MS = Math.max(60_000, Number(process.env.HERMES_DESKTOP_POOL_IDLE_MS) || 10 * 60_000)
+const POOL_MAX_BACKENDS = Math.max(1, Number(process.env.FABRIC_DESKTOP_POOL_MAX) || 3)
+const POOL_IDLE_MS = Math.max(60_000, Number(process.env.FABRIC_DESKTOP_POOL_IDLE_MS) || 10 * 60_000)
 // A backend touched within this window has a live renderer socket (the keepalive
 // pings every 60s for every open profile). LRU eviction must spare these — a
 // concurrent multi-profile session keeps several backends "fresh" at once, and
@@ -1402,7 +1402,7 @@ function directoryExists(filePath) {
 }
 
 // --- in-app update mutual exclusion (#50238) -------------------------------
-// The Tauri updater writes HERMES_HOME/.hermes-update-in-progress for the whole
+// The Tauri updater writes FABRIC_HOME/.hermes-update-in-progress for the whole
 // duration of an `--update` run (see update.rs UpdateMarkerGuard). If the user
 // relaunches the desktop mid-update — because the window vanished with no
 // progress and looks crashed — a fresh instance must NOT spawn its own local
@@ -1432,7 +1432,7 @@ const UPDATE_HANDOFF_DWELL_MS = 2500
 // Emits a boot-progress phase so the renderer shows "Update in progress…"
 // rather than a frozen splash. Returns true if it parked at all.
 async function waitForUpdateToFinish() {
-  let marker = readLiveUpdateMarker(HERMES_HOME)
+  let marker = readLiveUpdateMarker(FABRIC_HOME)
 
   if (!marker) {
     return false
@@ -1448,7 +1448,7 @@ async function waitForUpdateToFinish() {
       12
     )
     await new Promise(r => setTimeout(r, UPDATE_WAIT_POLL_MS))
-    marker = readLiveUpdateMarker(HERMES_HOME)
+    marker = readLiveUpdateMarker(FABRIC_HOME)
   }
 
   if (marker) {
@@ -1569,7 +1569,7 @@ function unwrapWindowsVenvFabricCommand(command, backendArgs) {
     args: ['-m', 'fabric_cli.main', ...backendArgs],
     bootstrap: false,
     env: buildDesktopBackendEnv({
-      fabricHome: HERMES_HOME,
+      fabricHome: FABRIC_HOME,
       pythonPathEntries: [...(directoryExists(root) ? [root] : []), ...getVenvSitePackagesEntries(venvRoot)],
       venvRoot
     }),
@@ -1693,7 +1693,7 @@ function isFabricSourceRoot(root) {
 }
 
 function findPythonForRoot(root) {
-  const override = process.env.HERMES_DESKTOP_PYTHON
+  const override = process.env.FABRIC_DESKTOP_PYTHON
 
   if (override && fileExists(override)) {
     return override
@@ -1917,7 +1917,7 @@ function getVenvPython(venvRoot) {
 // This makes "no flashing windows" a property of the one backend launch rather
 // than a flag that has to be remembered at every descendant spawn site. Restoring
 // console python also restores stdout, so the backend announces its port on the
-// normal HERMES_DASHBOARD_READY stdout line and no ready-file side channel is
+// normal FABRIC_DASHBOARD_READY stdout line and no ready-file side channel is
 // needed.
 
 function getVenvSitePackagesEntries(venvRoot) {
@@ -2097,16 +2097,16 @@ function persistWindowState() {
 const schedulePersistWindowState = debounce(persistWindowState, 250)
 
 // Match the backend's source resolution but bias toward a real git checkout.
-// Dev → SOURCE_REPO_ROOT. Packaged/CLI install → ACTIVE_HERMES_ROOT.
-// HERMES_DESKTOP_HERMES_ROOT always wins so devs can pin a worktree.
+// Dev → SOURCE_REPO_ROOT. Packaged/CLI install → ACTIVE_FABRIC_ROOT.
+// FABRIC_DESKTOP_HERMES_ROOT always wins so devs can pin a worktree.
 function resolveUpdateRoot() {
   const candidates = [
-    process.env.HERMES_DESKTOP_HERMES_ROOT && path.resolve(process.env.HERMES_DESKTOP_HERMES_ROOT),
+    process.env.FABRIC_DESKTOP_HERMES_ROOT && path.resolve(process.env.FABRIC_DESKTOP_HERMES_ROOT),
     !IS_PACKAGED && isFabricSourceRoot(SOURCE_REPO_ROOT) ? SOURCE_REPO_ROOT : null,
-    isFabricSourceRoot(ACTIVE_HERMES_ROOT) ? ACTIVE_HERMES_ROOT : null
+    isFabricSourceRoot(ACTIVE_FABRIC_ROOT) ? ACTIVE_FABRIC_ROOT : null
   ].filter(Boolean)
 
-  return candidates.find(c => directoryExists(path.join(c, '.git'))) || candidates[0] || ACTIVE_HERMES_ROOT
+  return candidates.find(c => directoryExists(path.join(c, '.git'))) || candidates[0] || ACTIVE_FABRIC_ROOT
 }
 
 function runGit(args, options: any = {}): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -2343,7 +2343,7 @@ function resolveUpdaterBinary() {
   const names = IS_WINDOWS ? ['fabric-setup.exe', 'hermes-setup.exe'] : ['fabric-setup', 'hermes-setup']
 
   for (const name of names) {
-    const candidate = path.join(HERMES_HOME, name)
+    const candidate = path.join(FABRIC_HOME, name)
 
     if (fileExists(candidate)) {
       return candidate
@@ -2662,7 +2662,7 @@ async function applyUpdates(opts = {}) {
     // Detached so the updater outlives this process — it needs us GONE before
     // `fabric update` will run (the venv shim is locked while we live).
     const child = spawn(updater, updaterArgs, {
-      cwd: HERMES_HOME,
+      cwd: FABRIC_HOME,
       env: {
         ...process.env,
         ...FABRIC_HOME_ENV,
@@ -2683,7 +2683,7 @@ async function applyUpdates(opts = {}) {
     // waitForUpdateToFinish() gate sees a live update and parks instead.
     // The updater overwrites this with its own PID later; same format.
     if (Number.isInteger(child.pid)) {
-      writeUpdateMarker(HERMES_HOME, child.pid)
+      writeUpdateMarker(FABRIC_HOME, child.pid)
     }
 
     rememberLog(`[updates] launched updater: ${updater} ${updaterArgs.join(' ')}; exiting desktop to release venv shim`)
@@ -2744,7 +2744,7 @@ async function handOffWindowsBootstrapRecovery(reason) {
   await releaseBackendLockForUpdate(updateRoot)
 
   const child = spawn(updater, updaterArgs, {
-    cwd: HERMES_HOME,
+    cwd: FABRIC_HOME,
     env: {
       ...process.env,
       ...FABRIC_HOME_ENV,
@@ -2761,7 +2761,7 @@ async function handOffWindowsBootstrapRecovery(reason) {
   // hand-off has the same window where the renderer can respawn a backend
   // before the updater writes its own marker.
   if (Number.isInteger(child.pid)) {
-    writeUpdateMarker(HERMES_HOME, child.pid)
+    writeUpdateMarker(FABRIC_HOME, child.pid)
   }
 
   rememberLog(
@@ -2879,7 +2879,7 @@ async function applyUpdatesPosixInApp(opts: any) {
   // mid-update produces the boot→kill→crash loop in #37532 — the desktop
   // already restarts its own backend via the rebuild+relaunch below, so the
   // reap must spare it. Hand the live backend's PID to the update process;
-  // _kill_stale_dashboard_processes reads HERMES_DESKTOP_CHILD_PID and excludes
+  // _kill_stale_dashboard_processes reads FABRIC_DESKTOP_CHILD_PID and excludes
   // it while still reaping any genuinely-orphaned backends. (#37532)
   // Exclude every desktop-managed backend (primary + all pool profiles) from
   // the update reaper. _kill_stale_dashboard_processes accepts a comma-separated
@@ -2897,7 +2897,7 @@ async function applyUpdatesPosixInApp(opts: any) {
   }
 
   if (desktopChildPids.length) {
-    env.HERMES_DESKTOP_CHILD_PID = desktopChildPids.join(',')
+    env.FABRIC_DESKTOP_CHILD_PID = desktopChildPids.join(',')
   }
 
   // Branch-pin so a non-main checkout doesn't get switched to main (and self-heal
@@ -3175,7 +3175,7 @@ function readBootstrapMarker() {
   return readJson(BOOTSTRAP_COMPLETE_MARKER)
 }
 
-// Marker-independent: is the canonical install at ACTIVE_HERMES_ROOT actually
+// Marker-independent: is the canonical install at ACTIVE_FABRIC_ROOT actually
 // runnable right now? A complete CLI install (`install.sh --include-desktop`)
 // or a DMG launch over a prior CLI install satisfies this WITHOUT the desktop
 // ever having written the bootstrap marker -- so we must be able to recognise
@@ -3184,12 +3184,12 @@ function isActiveRuntimeUsable() {
   const venvPython = getVenvPython(VENV_ROOT)
 
   return (
-    isFabricSourceRoot(ACTIVE_HERMES_ROOT) &&
+    isFabricSourceRoot(ACTIVE_FABRIC_ROOT) &&
     fileExists(venvPython) &&
     canImportFabricCli(venvPython, {
       env: {
         ...FABRIC_HOME_ENV,
-        PYTHONPATH: [ACTIVE_HERMES_ROOT, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+        PYTHONPATH: [ACTIVE_FABRIC_ROOT, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
       }
     })
   )
@@ -3237,7 +3237,7 @@ function writeBootstrapMarker(payload) {
 }
 
 function resolveWebDist() {
-  const override = process.env.HERMES_DESKTOP_WEB_DIST
+  const override = process.env.FABRIC_DESKTOP_WEB_DIST
 
   if (override && directoryExists(path.resolve(override))) {
     return path.resolve(override)
@@ -3261,7 +3261,7 @@ function resolveWebDist() {
     rememberLog(
       `[web-dist] dashboard frontend dir resolved to an asar-internal path that ` +
         `is not a real directory: ${fallback}. Static routes will 404. ` +
-        `Ensure dist/** is unpacked (asarUnpack) or set HERMES_DESKTOP_WEB_DIST.`
+        `Ensure dist/** is unpacked (asarUnpack) or set FABRIC_DESKTOP_WEB_DIST.`
     )
   }
 
@@ -3312,7 +3312,7 @@ function resolveFabricCwd() {
   // real directory), then the home dir.
   const candidates = [
     readDefaultProjectDir(),
-    process.env.HERMES_DESKTOP_CWD,
+    process.env.FABRIC_DESKTOP_CWD,
     IS_PACKAGED ? null : process.env.INIT_CWD,
     IS_PACKAGED ? null : process.cwd(),
     !IS_PACKAGED ? SOURCE_REPO_ROOT : null,
@@ -3416,7 +3416,7 @@ function createPythonBackend(root, label, backendArgs, options: any = {}) {
     command,
     args: ['-m', 'fabric_cli.main', ...backendArgs],
     env: buildDesktopBackendEnv({
-      fabricHome: HERMES_HOME,
+      fabricHome: FABRIC_HOME,
       pythonPathEntries: [root, ...getVenvSitePackagesEntries(venvRoot)],
       venvRoot
     }),
@@ -3426,7 +3426,7 @@ function createPythonBackend(root, label, backendArgs, options: any = {}) {
   }
 }
 
-// createActiveBackend — build a backend pointing at ACTIVE_HERMES_ROOT, the
+// createActiveBackend — build a backend pointing at ACTIVE_FABRIC_ROOT, the
 // canonical install location shared with the CLI installer. The venv at
 // VENV_ROOT may not exist yet on first run; bootstrap=true tells
 // ensureRuntime() to create / refresh it before launch.
@@ -3436,15 +3436,15 @@ function createActiveBackend(backendArgs) {
 
   return {
     kind: 'python',
-    label: `${PRODUCT_NAME} at ${ACTIVE_HERMES_ROOT}`,
+    label: `${PRODUCT_NAME} at ${ACTIVE_FABRIC_ROOT}`,
     command,
     args: ['-m', 'fabric_cli.main', ...backendArgs],
     env: buildDesktopBackendEnv({
-      fabricHome: HERMES_HOME,
-      pythonPathEntries: [ACTIVE_HERMES_ROOT, ...getVenvSitePackagesEntries(VENV_ROOT)],
+      fabricHome: FABRIC_HOME,
+      pythonPathEntries: [ACTIVE_FABRIC_ROOT, ...getVenvSitePackagesEntries(VENV_ROOT)],
       venvRoot: VENV_ROOT
     }),
-    root: ACTIVE_HERMES_ROOT,
+    root: ACTIVE_FABRIC_ROOT,
     bootstrap: true,
     shell: false
   }
@@ -3453,7 +3453,7 @@ function createActiveBackend(backendArgs) {
 function resolveFabricBackend(backendArgs) {
   // 1. Explicit developer checkout override. The Fabric name is canonical;
   //    the older environment key remains valid for existing launchers.
-  const overrideRootValue = process.env.FABRIC_DESKTOP_ROOT || process.env.HERMES_DESKTOP_HERMES_ROOT
+  const overrideRootValue = process.env.FABRIC_DESKTOP_ROOT || process.env.FABRIC_DESKTOP_HERMES_ROOT
   const overrideRoot = overrideRootValue && path.resolve(overrideRootValue)
 
   if (overrideRoot && isFabricSourceRoot(overrideRoot)) {
@@ -3476,7 +3476,7 @@ function resolveFabricBackend(backendArgs) {
     }
   }
 
-  // 3. Bootstrap-complete ACTIVE_HERMES_ROOT -- the canonical install at
+  // 3. Bootstrap-complete ACTIVE_FABRIC_ROOT -- the canonical install at
   //    %LOCALAPPDATA%\hermes\fabric-agent (Windows) or ~/.hermes/fabric-agent.
   //    The bootstrap marker means install.ps1 stages finished and the user
   //    completed initial configuration; we trust the install and go straight
@@ -3492,11 +3492,11 @@ function resolveFabricBackend(backendArgs) {
   //    don't want to take ownership of an install we didn't perform.
   //    FABRIC_DESKTOP_IGNORE_EXISTING=1 forces the bootstrap path for testing;
   //    the legacy key remains supported.
-  const ignoreExisting = process.env.FABRIC_DESKTOP_IGNORE_EXISTING || process.env.HERMES_DESKTOP_IGNORE_EXISTING
+  const ignoreExisting = process.env.FABRIC_DESKTOP_IGNORE_EXISTING || process.env.FABRIC_DESKTOP_IGNORE_EXISTING
 
   if (ignoreExisting !== '1') {
     let fabricCommand = null
-    const fabricOverride = process.env.FABRIC_DESKTOP_CLI || process.env.HERMES_DESKTOP_HERMES
+    const fabricOverride = process.env.FABRIC_DESKTOP_CLI || process.env.FABRIC_DESKTOP_FABRIC
 
     if (fabricOverride) {
       const resolvedOverride = findOnPath(fabricOverride)
@@ -3545,7 +3545,7 @@ function resolveFabricBackend(backendArgs) {
             // Finder/Dock launches do not inherit ~/.local/bin. Build the same
             // sane PATH as managed runtimes so companion binaries installed
             // beside a user CLI (notably cua-driver) remain discoverable.
-            env: buildDesktopBackendEnv({ fabricHome: HERMES_HOME }),
+            env: buildDesktopBackendEnv({ fabricHome: FABRIC_HOME }),
             kind: 'command',
             shell: shellForProbe
           }
@@ -3579,7 +3579,7 @@ function resolveFabricBackend(backendArgs) {
         command: python,
         args: ['-m', 'fabric_cli.main', ...backendArgs],
         bootstrap: false,
-        env: buildDesktopBackendEnv({ fabricHome: HERMES_HOME }),
+        env: buildDesktopBackendEnv({ fabricHome: FABRIC_HOME }),
         shell: false
       }
     }
@@ -3606,7 +3606,7 @@ function resolveFabricBackend(backendArgs) {
     env: {},
     shell: false,
     // Hints for the bootstrap runner / UI layer:
-    activeRoot: ACTIVE_HERMES_ROOT,
+    activeRoot: ACTIVE_FABRIC_ROOT,
     installStamp: INSTALL_STAMP, // may be null in dev
     isPackaged: IS_PACKAGED,
     platform: process.platform
@@ -3665,8 +3665,8 @@ async function ensureRuntime(backend) {
       installStamp: backend.installStamp,
       activeRoot: backend.activeRoot,
       sourceRepoRoot: SOURCE_REPO_ROOT,
-      fabricHome: HERMES_HOME,
-      logRoot: path.join(HERMES_HOME, 'logs'),
+      fabricHome: FABRIC_HOME,
+      logRoot: path.join(FABRIC_HOME, 'logs'),
       abortSignal: bootstrapAbortController.signal,
       onEvent: ev => {
         // Tee every bootstrap event to (a) the desktop log for forensics
@@ -3702,7 +3702,7 @@ async function ensureRuntime(backend) {
       const bootstrapError = new Error(
         `${PRODUCT_NAME} setup failed${bootstrapResult.failedStage ? ` at stage '${bootstrapResult.failedStage}'` : ''}: ` +
           `${bootstrapResult.error || 'unknown error'}. ` +
-          `Check ${path.join(HERMES_HOME, 'logs', 'desktop.log')} for the full transcript.`
+          `Check ${path.join(FABRIC_HOME, 'logs', 'desktop.log')} for the full transcript.`
       ) as any
 
       bootstrapError.isBootstrapFailure = true
@@ -3727,9 +3727,9 @@ async function ensureRuntime(backend) {
   // sync flow exited through, minus all the factory/pip/marker machinery
   // (install.ps1 owns those concerns now and the bootstrap-complete marker
   // attests they ran successfully).
-  if (!isFabricSourceRoot(ACTIVE_HERMES_ROOT)) {
+  if (!isFabricSourceRoot(ACTIVE_FABRIC_ROOT)) {
     throw new Error(
-      `${PRODUCT_NAME} install at ${ACTIVE_HERMES_ROOT} is missing or incomplete. ` +
+      `${PRODUCT_NAME} install at ${ACTIVE_FABRIC_ROOT} is missing or incomplete. ` +
         'Reinstall via the desktop installer or scripts/install.ps1.'
     )
   }
@@ -3766,7 +3766,7 @@ async function ensureRuntime(backend) {
   }
 
   backend.command = getVenvPython(VENV_ROOT)
-  backend.label = `${PRODUCT_NAME} at ${ACTIVE_HERMES_ROOT} (venv: ${VENV_ROOT})`
+  backend.label = `${PRODUCT_NAME} at ${ACTIVE_FABRIC_ROOT} (venv: ${VENV_ROOT})`
   updateBootProgress({
     phase: 'runtime.ready',
     message: `${PRODUCT_NAME} runtime is ready`,
@@ -5574,7 +5574,7 @@ function writeDesktopConnectionConfig(config) {
 }
 
 // Returns the desktop's chosen profile name, or null when unset. "default" is
-// a valid stored value (pins the root HERMES_HOME explicitly); null means "no
+// a valid stored value (pins the root FABRIC_HOME explicitly); null means "no
 // preference" and preserves the legacy launch (no --profile flag).
 function readActiveDesktopProfile() {
   try {
@@ -5612,7 +5612,7 @@ function desktopRemoteEnv(name) {
     return canonical
   }
 
-  return String(process.env[`HERMES_DESKTOP_REMOTE_${name}`] || '').trim()
+  return String(process.env[`FABRIC_DESKTOP_REMOTE_${name}`] || '').trim()
 }
 
 // Sanitize a connection config into the renderer-facing shape. With no
@@ -6211,7 +6211,7 @@ async function spawnPoolBackend(profile, entry) {
   }
 
   const token = crypto.randomBytes(32).toString('base64url')
-  // --profile wins over the inherited HERMES_HOME env (see _apply_profile_override
+  // --profile wins over the inherited FABRIC_HOME env (see _apply_profile_override
   // step 3 in fabric_cli/main.py), so the child re-homes to this profile.
   // --port 0: the OS assigns an ephemeral port; the child announces it on stdout.
   const backendArgs = ['--profile', profile, 'serve', '--host', '127.0.0.1', '--port', '0']
@@ -6237,12 +6237,12 @@ async function spawnPoolBackend(profile, entry) {
         // the child process. Inherited TERMINAL_CWD (or a stale config bridge)
         // can still point at the install dir even when spawn cwd is home.
         TERMINAL_CWD: fabricCwd,
-        HERMES_DASHBOARD_SESSION_TOKEN: token,
+        FABRIC_DASHBOARD_SESSION_TOKEN: token,
         // Marks this dashboard backend as desktop-spawned so it runs the cron
         // scheduler tick loop (the gateway isn't running under the app).
-        HERMES_DESKTOP: '1',
-        HERMES_WEB_DIST: webDist,
-        ...(readyFile ? { HERMES_DESKTOP_READY_FILE: readyFile } : {})
+        FABRIC_DESKTOP: '1',
+        FABRIC_WEB_DIST: webDist,
+        ...(readyFile ? { FABRIC_DESKTOP_READY_FILE: readyFile } : {})
       },
       shell: backend.shell,
       stdio: ['ignore', 'pipe', 'pipe']
@@ -6461,7 +6461,7 @@ async function startFabric() {
     const backendArgs = ['serve', '--host', '127.0.0.1', '--port', '0']
     // Pin the desktop's chosen profile via the global --profile flag. This is
     // deterministic (it wins over the sticky ~/.hermes/active_profile file) and
-    // resolves HERMES_HOME the same way `fabric -p <name>` does on the CLI. An
+    // resolves FABRIC_HOME the same way `fabric -p <name>` does on the CLI. An
     // unset preference keeps the legacy launch so existing installs are
     // unaffected.
     const activeProfile = readActiveDesktopProfile()
@@ -6488,23 +6488,23 @@ async function startFabric() {
         cwd: fabricCwd,
         env: {
           ...process.env,
-          // Explicitly pin HERMES_HOME for the child so Python's get_fabric_home()
+          // Explicitly pin FABRIC_HOME for the child so Python's get_fabric_home()
           // resolves to the SAME location our resolveFabricHome() picked. Without
           // this pin, Python falls back to ~/.hermes on every platform — fine on
           // mac/linux (where our default matches), but on Windows our default is
           // %LOCALAPPDATA%\hermes, which differs from C:\Users\<u>\.hermes.
           // Mismatch would split config / sessions / .env / logs across two
-          // directories. install.ps1 sets HERMES_HOME via setx; the desktop
+          // directories. install.ps1 sets FABRIC_HOME via setx; the desktop
           // can't reliably do that, so we set it inline for every spawn.
           ...FABRIC_HOME_ENV,
           ...backend.env,
           TERMINAL_CWD: fabricCwd,
-          HERMES_DASHBOARD_SESSION_TOKEN: token,
+          FABRIC_DASHBOARD_SESSION_TOKEN: token,
           // Marks this dashboard backend as desktop-spawned so it runs the cron
           // scheduler tick loop (the gateway isn't running under the app).
-          HERMES_DESKTOP: '1',
-          HERMES_WEB_DIST: webDist,
-          ...(readyFile ? { HERMES_DESKTOP_READY_FILE: readyFile } : {})
+          FABRIC_DESKTOP: '1',
+          FABRIC_WEB_DIST: webDist,
+          ...(readyFile ? { FABRIC_DESKTOP_READY_FILE: readyFile } : {})
         },
         shell: backend.shell,
         stdio: ['ignore', 'pipe', 'pipe']
@@ -7439,7 +7439,7 @@ ipcMain.handle('fabric:profile:set', async (_event, name) => {
   const next = writeActiveDesktopProfile(name)
 
   // Switching profiles is a backend re-home: relaunch the dashboard under the
-  // new HERMES_HOME. Pool backends keep their own homes, so only the primary
+  // new FABRIC_HOME. Pool backends keep their own homes, so only the primary
   // is torn down.
   await teardownPrimaryBackendAndWait()
   mainWindow?.reload()
@@ -8011,13 +8011,13 @@ function windowsShellSpec() {
 // override wins, otherwise auto-detect the best one installed for the platform.
 function terminalShellCommand() {
   // FABRIC_DESKTOP_SHELL is the cross-platform escape hatch (a path or a bare
-  // name on PATH); HERMES_DESKTOP_SHELL remains as a compatibility alias.
+  // name on PATH); FABRIC_DESKTOP_SHELL remains as a compatibility alias.
   // $SHELL is honored on POSIX, where it's the user's canonical choice, but
   // ignored on Windows, where it's usually a stray MSYS/Git path node-pty can't
   // spawn natively.
   const override = (
     process.env.FABRIC_DESKTOP_SHELL ||
-    process.env.HERMES_DESKTOP_SHELL ||
+    process.env.FABRIC_DESKTOP_SHELL ||
     (IS_WINDOWS ? '' : process.env.SHELL) ||
     ''
   ).trim()
@@ -8085,10 +8085,10 @@ function terminalShellEnv() {
   env.TERM_PROGRAM_VERSION = app.getVersion()
 
   // Let a fabric/--tui launched in this pane know it's embedded in the desktop
-  // GUI (build_environment_hints surfaces this). Distinct from HERMES_DESKTOP /
+  // GUI (build_environment_hints surfaces this). Distinct from FABRIC_DESKTOP /
   // FABRIC_DESKTOP, which mark the agent *backend* and gate cron/gateway behavior.
   env.FABRIC_DESKTOP_TERMINAL = '1'
-  env.HERMES_DESKTOP_TERMINAL = '1'
+  env.FABRIC_DESKTOP_TERMINAL = '1'
 
   return env
 }
@@ -8494,12 +8494,12 @@ function uninstallVenvPython() {
 
 async function getUninstallSummary() {
   const py = uninstallVenvPython()
-  const agentRoot = ACTIVE_HERMES_ROOT
+  const agentRoot = ACTIVE_FABRIC_ROOT
 
   // Fast JS-side fallback used when the agent venv is gone (lite client) or the
   // probe fails — the renderer still needs *something* to render options from.
   const fallback = () => ({
-    fabric_home: HERMES_HOME,
+    fabric_home: FABRIC_HOME,
     agent_installed: isFabricSourceRoot(agentRoot) && fileExists(py),
     gui_installed: true,
     source_built_artifacts: [],
@@ -8600,7 +8600,7 @@ async function runDesktopUninstall(mode) {
 
     if (sysPy) {
       py = sysPy
-      pythonPath = ACTIVE_HERMES_ROOT
+      pythonPath = ACTIVE_FABRIC_ROOT
     } else if (IS_WINDOWS) {
       rememberLog(
         '[uninstall] no system Python found for lite/full on Windows; falling back ' +
@@ -8620,7 +8620,7 @@ async function runDesktopUninstall(mode) {
   // lock would make the script's rmdir half-fail (#37532 for the update path).
   // Reuses the incident-hardened update teardown; no-op on macOS/Linux.
   try {
-    await releaseBackendLock(ACTIVE_HERMES_ROOT, 'uninstall')
+    await releaseBackendLock(ACTIVE_FABRIC_ROOT, 'uninstall')
   } catch (error) {
     rememberLog(`[uninstall] backend teardown errored (continuing): ${error.message}`)
   }
@@ -8629,10 +8629,10 @@ async function runDesktopUninstall(mode) {
     desktopPid: process.pid,
     pythonExe: py,
     pythonPath,
-    agentRoot: ACTIVE_HERMES_ROOT,
+    agentRoot: ACTIVE_FABRIC_ROOT,
     uninstallArgs,
     appPath: removeBundle,
-    fabricHome: HERMES_HOME
+    fabricHome: FABRIC_HOME
   }
 
   let scriptPath

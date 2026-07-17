@@ -13,10 +13,10 @@ import pytest
 def fabric_home(tmp_path, monkeypatch):
     home = tmp_path / "fabric_home"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     # No managed dir: point the override at a guaranteed-absent path so a real
     # /etc/hermes on the dev/CI box can't influence the test.
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(tmp_path / "no_such_managed_dir"))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(tmp_path / "no_such_managed_dir"))
     # Clear caches so each test re-reads from disk.
     import fabric_cli.config as cfg
 

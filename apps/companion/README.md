@@ -57,7 +57,7 @@ cargo run --release -- --url ... --token <TOKEN> --resume-recent
 
 - `--spawn` runs `fabric serve --host 127.0.0.1 --port 0` with a pinned
   session token (passed through the backend's legacy-compatibility
-  `HERMES_DASHBOARD_SESSION_TOKEN` environment variable, the same handshake
+  `FABRIC_DASHBOARD_SESSION_TOKEN` environment variable, the same handshake
   the Electron desktop uses) and reads the announced port from its stdout.
 - For `--url`, the token is the per-process dashboard session token. The
   dashboard injects it into its served page; you can also pin your own by

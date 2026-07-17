@@ -139,7 +139,7 @@ except ImportError:
             f"Install with: {sys.executable} -m pip install 'fastapi' 'uvicorn[standard]'"
         )
 
-_WEB_DIST_OVERRIDE = os.environ.get("FABRIC_WEB_DIST") or os.environ.get("HERMES_WEB_DIST")
+_WEB_DIST_OVERRIDE = os.environ.get("FABRIC_WEB_DIST") or os.environ.get("FABRIC_WEB_DIST")
 WEB_DIST = Path(_WEB_DIST_OVERRIDE) if _WEB_DIST_OVERRIDE else Path(__file__).parent / "web_dist"
 _log = logging.getLogger(__name__)
 
@@ -178,7 +178,7 @@ def _start_desktop_cron_ticker(stop_event: "threading.Event", interval: int = 60
 
     Cross-process safe: the built-in provider's ``cron.scheduler.tick`` takes
     the ``cron/.tick.lock`` file lock, so this never double-fires alongside a
-    real gateway on the same HERMES_HOME — whichever process grabs the lock
+    real gateway on the same FABRIC_HOME — whichever process grabs the lock
     first wins the tick.
     """
     from cron.scheduler_provider import resolve_cron_scheduler
@@ -217,19 +217,19 @@ async def _lifespan(app: "FastAPI"):
     app.state.chat_argv_lock = asyncio.Lock()
 
     # Fire fabric_cli.gateway import into a background thread so the event
-    # loop is not blocked and HERMES_DASHBOARD_READY fires without delay.
+    # loop is not blocked and FABRIC_DASHBOARD_READY fires without delay.
     # On a cold Windows install the module chain triggers .pyc compilation
     # and Defender real-time scans that can stall the event loop for 15-30s.
     # Running in an executor means the cost is paid in a worker thread while
     # the server socket is already open and accepting probes.
     asyncio.get_event_loop().run_in_executor(None, _warm_gateway_module)
 
-    # Desktop-spawned backends (HERMES_DESKTOP=1) fire cron jobs themselves,
+    # Desktop-spawned backends (FABRIC_DESKTOP=1) fire cron jobs themselves,
     # since the app has no gateway running the scheduler. Server `fabric
     # dashboard` is unaffected — it relies on its own gateway.
     cron_stop: "threading.Event | None" = None
     cron_thread: "threading.Thread | None" = None
-    if os.getenv("HERMES_DESKTOP") == "1":
+    if os.getenv("FABRIC_DESKTOP") == "1":
         cron_stop = threading.Event()
         cron_thread = threading.Thread(
             target=_start_desktop_cron_ticker,
@@ -370,12 +370,12 @@ app.include_router(design_system_router())
 # ---------------------------------------------------------------------------
 # Session token for protecting sensitive endpoints (reveal).
 # The desktop shell mints the token and injects it via
-# HERMES_DASHBOARD_SESSION_TOKEN so its main process can authenticate the
+# FABRIC_DASHBOARD_SESSION_TOKEN so its main process can authenticate the
 # /api calls it makes on the user's behalf; otherwise we generate one fresh
 # on every server start. Either way it dies when the process exits and is
 # injected into the SPA HTML so only the legitimate web UI can use it.
 # ---------------------------------------------------------------------------
-_SESSION_TOKEN = os.environ.get("HERMES_DASHBOARD_SESSION_TOKEN") or secrets.token_urlsafe(32)
+_SESSION_TOKEN = os.environ.get("FABRIC_DASHBOARD_SESSION_TOKEN") or secrets.token_urlsafe(32)
 _SESSION_HEADER_NAME = "X-Fabric-Session-Token"
 _SESSION_HEADER_NAME_LEGACY = "X-Hermes-Session-Token"
 
@@ -1379,7 +1379,7 @@ _MEDIA_CONTENT_TYPES = {
     ".ico": "image/x-icon",
 }
 _MEDIA_MAX_BYTES = 25 * 1024 * 1024
-_MANAGED_FILES_ROOT_ENV = "HERMES_DASHBOARD_FILES_ROOT"
+_MANAGED_FILES_ROOT_ENV = "FABRIC_DASHBOARD_FILES_ROOT"
 _MANAGED_FILE_MAX_BYTES = 100 * 1024 * 1024
 _HOSTED_MANAGED_FILES_ROOT = Path("/opt/data")
 
@@ -1415,7 +1415,7 @@ _FS_READDIR_HIDDEN = {
 # (agent.file_safety.get_read_block_error and
 # gateway.platforms.base._ROOT_CREDENTIAL_FILES) so the dashboard Files tab
 # doesn't lag behind them — an operator can point the managed root at
-# HERMES_HOME itself, at which point every one of these basenames is a live
+# FABRIC_HOME itself, at which point every one of these basenames is a live
 # secret store sitting in the browsable tree.
 _SENSITIVE_MANAGED_FILE_BASENAMES = frozenset({
     "auth.json",
@@ -1443,7 +1443,7 @@ _SENSITIVE_MANAGED_FILE_BASENAMES = frozenset({
 # basename-only guard would still expose e.g. ``mcp-tokens/<server>.json``
 # (live MCP OAuth tokens) and ``pairing/<x>``. We match on ANY path component
 # so these trees are blocked wherever they appear under the browsable root,
-# without needing to resolve them relative to HERMES_HOME.
+# without needing to resolve them relative to FABRIC_HOME.
 _SENSITIVE_MANAGED_DIR_NAMES = frozenset({
     "mcp-tokens",
     "pairing",
@@ -1485,7 +1485,7 @@ def _is_sensitive_path(path: Path) -> bool:
     credential-directory-tree check: a path is sensitive if its own basename
     is sensitive OR any of its path components is a credential directory
     (``mcp-tokens`` / ``pairing``). The component match is case-insensitive
-    and needs no HERMES_HOME resolution, so it blocks these trees wherever
+    and needs no FABRIC_HOME resolution, so it blocks these trees wherever
     they sit under the operator-configured managed root — closing the gap
     the canonical guards cover as directory trees but a basename-only check
     would miss.
@@ -1763,7 +1763,7 @@ def _local_dashboard_request(request: Request) -> bool:
 
 
 def _default_fabric_root_is_opt_data() -> bool:
-    raw = os.environ.get("HERMES_HOME", "").strip()
+    raw = os.environ.get("FABRIC_HOME", "").strip()
     if not raw:
         return False
     try:
@@ -1823,7 +1823,7 @@ def _managed_files_policy(request: Request, *, create_root: bool = True) -> Mana
     # local dashboard through the auth gate (for example a macOS launchd install)
     # and still expect the Files page to browse their local home directory. Lock
     # to /opt/data only when the installation's Fabric root is actually /opt/data
-    # (the container/hosted layout) or when HERMES_DASHBOARD_FILES_ROOT is set.
+    # (the container/hosted layout) or when FABRIC_DASHBOARD_FILES_ROOT is set.
     if _default_fabric_root_is_opt_data():
         root = _ensure_managed_root(_HOSTED_MANAGED_FILES_ROOT) if create_root else _HOSTED_MANAGED_FILES_ROOT
         return ManagedFilesPolicy(default_path=root, locked_root=root, can_change_path=False)
@@ -3302,7 +3302,7 @@ def _spawn_fabric_action(subcommand: List[str], name: str) -> subprocess.Popen:
         "stdin": subprocess.DEVNULL,
         "stdout": log_file,
         "stderr": subprocess.STDOUT,
-        "env": {**os.environ, "HERMES_NONINTERACTIVE": "1"},
+        "env": {**os.environ, "FABRIC_NONINTERACTIVE": "1"},
     }
     if sys.platform == "win32":
         popen_kwargs["creationflags"] = windows_detach_flags()
@@ -8343,7 +8343,7 @@ async def get_messaging_platforms(profile: Optional[str] = None):
     # Profile-scoped so the dashboard's global profile switcher shows the
     # TARGET profile's channel credentials/state, not the root install's.
     # Inside _profile_scope, load_env()/read_runtime_status()/get_running_pid()
-    # all resolve against the requested profile's HERMES_HOME.
+    # all resolve against the requested profile's FABRIC_HOME.
     with _profile_scope(profile) as scoped_dir:
         env_on_disk = load_env()
         runtime = read_runtime_status()
@@ -9521,7 +9521,7 @@ async def _start_device_code_flow(
         import httpx
         pconfig = PROVIDER_REGISTRY["nous"]
         portal_base_url = (
-            os.getenv("HERMES_PORTAL_BASE_URL")
+            os.getenv("FABRIC_PORTAL_BASE_URL")
             or os.getenv("NOUS_PORTAL_BASE_URL")
             or pconfig.portal_base_url
         ).rstrip("/")
@@ -11420,7 +11420,7 @@ def _cron_profile_dicts() -> List[Dict[str, Any]]:
 
 
 def _cron_profile_home(profile: Optional[str]) -> Tuple[str, Path]:
-    """Resolve a profile query value to (profile_name, HERMES_HOME)."""
+    """Resolve a profile query value to (profile_name, FABRIC_HOME)."""
     from fabric_cli import profiles as profiles_mod
 
     raw = (profile or "default").strip() or "default"
@@ -11447,7 +11447,7 @@ def _call_cron_for_profile(target_profile: Optional[str], func_name: str, *args,
     """Run cron.jobs helpers against the selected profile's cron directory.
 
     cron.jobs keeps CRON_DIR/JOBS_FILE/OUTPUT_DIR as module globals resolved
-    from the process HERMES_HOME at import time. The dashboard is a single
+    from the process FABRIC_HOME at import time. The dashboard is a single
     process that can inspect many profiles, so temporarily retarget those
     globals while holding a lock and restore them immediately after the call.
     """
@@ -12409,7 +12409,7 @@ async def test_mcp_server(name: str, profile: Optional[str] = None):
         # skills lock for its ENTIRE body. Holding that across the probe
         # serialized every other endpoint (config/skills/toolsets all take the
         # same lock), so a slow server made unrelated requests time out at 15s.
-        # The probe touches no skills globals; it needs the HERMES_HOME and
+        # The probe touches no skills globals; it needs the FABRIC_HOME and
         # isolated secret scopes for .env interpolation + OAuth token
         # resolution. Both ContextVars are copied into this to_thread worker,
         # and _run_on_mcp_loop re-wraps them onto the MCP event-loop thread.
@@ -12692,7 +12692,7 @@ async def install_mcp_catalog_entry(body: MCPCatalogInstall, profile: Optional[s
 
     # Git-bootstrap entries can take a while to clone — run via the background
     # action path so the request returns immediately and the UI can tail logs.
-    # The -p subprocess rebinds HERMES_HOME-derived paths in the child.
+    # The -p subprocess rebinds FABRIC_HOME-derived paths in the child.
     if entry.install is not None:
         # Unique per-entry action name: a shared "mcp-install" would let a
         # re-click (or a second entry) overwrite the tracked process/log while
@@ -14142,7 +14142,7 @@ class ProfileCreate(BaseModel):
     keep_skills: List[str] = []
     # Skills-hub identifiers to install into the new profile. Installed async
     # via a subprocess scoped to the profile (`fabric -p <name> skills install`)
-    # because skills_hub.SKILLS_DIR is import-time-bound and the HERMES_HOME
+    # because skills_hub.SKILLS_DIR is import-time-bound and the FABRIC_HOME
     # override can't redirect it. Returns spawned PIDs for the UI to poll.
     hub_skills: List[str] = []
 
@@ -14274,7 +14274,7 @@ def _write_profile_model(profile_dir: Path, provider: str, model: str) -> None:
     """Write the main model assignment into a specific profile's config.yaml.
 
     Scopes ``load_config``/``save_config`` to ``profile_dir`` via the
-    context-local HERMES_HOME override so the write lands in the target
+    context-local FABRIC_HOME override so the write lands in the target
     profile's config rather than the dashboard process's active profile.
     Clears any stale ``base_url`` / ``context_length`` the same way
     ``POST /api/model/set`` does, since the new model may differ.
@@ -14295,7 +14295,7 @@ def _write_profile_mcp_servers(profile_dir: Path, servers: List["MCPServerCreate
     """Write MCP server entries into a specific profile's config.yaml.
 
     Scopes ``load_config``/``save_config`` to ``profile_dir`` via the
-    context-local HERMES_HOME override (same mechanism as
+    context-local FABRIC_HOME override (same mechanism as
     ``_write_profile_model``) so the entries land in the target profile's
     config rather than the dashboard process's active profile.
 
@@ -14356,7 +14356,7 @@ def _disable_unselected_skills(profile_dir: Path, keep: List[str]) -> int:
     uses "replace" semantics: the user picks exactly which seeded built-in /
     optional skills stay active, and everything else gets added to the disabled
     list. (Hub skills are installed separately via subprocess and are active on
-    install.) Scoped to the profile via the HERMES_HOME override. Returns the
+    install.) Scoped to the profile via the FABRIC_HOME override. Returns the
     number of skills newly disabled.
     """
     from fabric_constants import set_fabric_home_override, reset_fabric_home_override
@@ -14482,7 +14482,7 @@ async def create_profile_endpoint(body: ProfileCreate):
 
     # Optional skills-hub installs. Spawned async, scoped to the new profile
     # via `-p <name>` (a fresh subprocess re-binds skills_hub.SKILLS_DIR to the
-    # profile's HERMES_HOME at import). Returns PIDs for the UI to poll.
+    # profile's FABRIC_HOME at import). Returns PIDs for the UI to poll.
     hub_installs: List[Dict[str, Any]] = []
     for identifier in body.hub_skills:
         ident = (identifier or "").strip()
@@ -14520,7 +14520,7 @@ async def get_active_profile_endpoint():
 
     ``active`` is the sticky default written by ``fabric profile use`` —
     the profile new CLI invocations pick up. ``current`` is the profile
-    the running dashboard/gateway is scoped to (derived from HERMES_HOME).
+    the running dashboard/gateway is scoped to (derived from FABRIC_HOME).
     """
     from fabric_cli import profiles as profiles_mod
     try:
@@ -14696,7 +14696,7 @@ async def update_profile_model_endpoint(name: str, body: ProfileModelUpdate):
     """Set the main model (``model.default`` + ``model.provider``) for a
     specific profile's config.yaml, without touching the dashboard's own
     active profile. Mirrors ``POST /api/model/set`` (main scope) but scoped
-    to the named profile via the HERMES_HOME override.
+    to the named profile via the FABRIC_HOME override.
     """
     profile_dir = _resolve_profile_dir(name)
     provider = (body.provider or "").strip()
@@ -14778,7 +14778,7 @@ def _profile_scope(
     config resolution is untouched, but the skill-module globals are still
     retargeted to the *current* ``get_fabric_home()`` so writes land in the
     live home even when the import-time binding is stale (e.g. the process
-    imported the modules before a HERMES_HOME override, or under test
+    imported the modules before a FABRIC_HOME override, or under test
     isolation).
     """
     requested = (profile or "").strip()
@@ -14828,20 +14828,20 @@ def _profile_scope(
         raise
 
     with _SKILLS_PROFILE_LOCK:
-        old_home = _skills_tool.HERMES_HOME
+        old_home = _skills_tool.FABRIC_HOME
         old_skills_dir = _skills_tool.SKILLS_DIR
-        old_mgr_home = _skill_mgr.HERMES_HOME
+        old_mgr_home = _skill_mgr.FABRIC_HOME
         old_mgr_skills_dir = _skill_mgr.SKILLS_DIR
-        _skills_tool.HERMES_HOME = profile_dir
+        _skills_tool.FABRIC_HOME = profile_dir
         _skills_tool.SKILLS_DIR = profile_dir / "skills"
-        _skill_mgr.HERMES_HOME = profile_dir
+        _skill_mgr.FABRIC_HOME = profile_dir
         _skill_mgr.SKILLS_DIR = profile_dir / "skills"
         try:
             yield profile_dir if token is not None else None
         finally:
-            _skills_tool.HERMES_HOME = old_home
+            _skills_tool.FABRIC_HOME = old_home
             _skills_tool.SKILLS_DIR = old_skills_dir
-            _skill_mgr.HERMES_HOME = old_mgr_home
+            _skill_mgr.FABRIC_HOME = old_mgr_home
             _skill_mgr.SKILLS_DIR = old_mgr_skills_dir
             try:
                 if secret_token is not None:
@@ -15460,7 +15460,7 @@ async def run_toolset_post_setup(
     ``profile`` spawns the hook as ``fabric -p <profile> tools post-setup``.
     Most hooks install machine-level artifacts (repo node_modules, shared
     pip packages) where the scope is inert, but hooks that read config or
-    write per-profile state must see the same HERMES_HOME the rest of the
+    write per-profile state must see the same FABRIC_HOME the rest of the
     drawer's writes targeted — so the scope is threaded for consistency.
     """
     from fabric_cli.tools_config import (
@@ -16213,32 +16213,32 @@ def _resolve_chat_argv(
     function to inject a tiny fake command (``cat``, ``sh -c 'printf …'``)
     so nothing has to build Node or the TUI bundle.
 
-    Session resume is propagated via the ``HERMES_TUI_RESUME`` env var —
+    Session resume is propagated via the ``FABRIC_TUI_RESUME`` env var —
     matching what ``fabric_cli.main._launch_tui`` does for the CLI path.
     Appending ``--resume <id>`` to argv doesn't work because ``ui-tui`` does
     not parse its argv.
 
-    ``HERMES_TUI_GATEWAY_URL`` is injected so the PTY child can attach to
+    ``FABRIC_TUI_GATEWAY_URL`` is injected so the PTY child can attach to
     this process's in-memory ``tui_gateway`` instance instead of spawning
     its own Python gateway subprocess.
 
-    `sidecar_url` (when set) is forwarded as ``HERMES_TUI_SIDECAR_URL`` so
+    `sidecar_url` (when set) is forwarded as ``FABRIC_TUI_SIDECAR_URL`` so
     the spawned ``tui_gateway.entry`` can mirror dispatcher emits to the
     dashboard's ``/api/pub`` endpoint (see :func:`pub_ws`).
 
     `active_session_file` (when set) is forwarded as
-    ``HERMES_TUI_ACTIVE_SESSION_FILE``. The TUI writes the current session id
+    ``FABRIC_TUI_ACTIVE_SESSION_FILE``. The TUI writes the current session id
     there whenever it creates/resumes/switches sessions, giving the dashboard a
     small cross-process breadcrumb for reconnecting after an unexpected browser
     WebSocket close.
 
     `profile` (when set) scopes the ENTIRE chat to that profile by pointing
-    ``HERMES_HOME`` at the profile dir in the child env. Every spawned
+    ``FABRIC_HOME`` at the profile dir in the child env. Every spawned
     process (the TUI and the ``tui_gateway.entry`` it launches) resolves
     ``get_fabric_home()`` from that env var at its own import, so the child
     binds the profile's config, skills, memory, and state.db from the start
     — the same propagation ``fabric -p <name>`` performs. The in-process
-    ``HERMES_TUI_GATEWAY_URL`` attach is SKIPPED for scoped chats: the
+    ``FABRIC_TUI_GATEWAY_URL`` attach is SKIPPED for scoped chats: the
     dashboard's in-memory gateway runs under the dashboard's own profile,
     so a profile-scoped chat must spawn its own gateway subprocess.
     """
@@ -16263,8 +16263,8 @@ def _resolve_chat_argv(
     # makes browser-side transcript scrolling feel broken. Keep the terminal
     # build unchanged for native CLI usage; only disable mouse tracking for
     # the dashboard PTY path.
-    env.setdefault("HERMES_TUI_DISABLE_MOUSE", "1")
-    env.setdefault("HERMES_TUI_INLINE", "1")
+    env.setdefault("FABRIC_TUI_DISABLE_MOUSE", "1")
+    env.setdefault("FABRIC_TUI_INLINE", "1")
     # The dashboard terminal is xterm.js, which always renders 24-bit RGB.
     # But chalk inside the TUI child decides its color depth from the
     # SERVER process env — and hosted/cloud deploys run the dashboard under
@@ -16276,22 +16276,22 @@ def _resolve_chat_argv(
     # COLORTERM=truecolor into os.environ. Backfill it for the PTY child;
     # setdefault so an explicit operator value still wins.
     env.setdefault("COLORTERM", "truecolor")
-    env["HERMES_TUI_DASHBOARD"] = "1"
+    env["FABRIC_TUI_DASHBOARD"] = "1"
     # The TUI decides its light/dark palette from the child env at import
     # (ui-tui detectLightMode), and the PTY child inherits the SERVER's
     # env — not the browser's theme. Without a hint, a light dashboard
     # theme renders the TUI's dark palette on a near-white xterm canvas
     # (the "white-washed" chat). The client sends its xterm background via
-    # the `bg` query param; HERMES_TUI_BACKGROUND ranks below the explicit
-    # HERMES_TUI_LIGHT / HERMES_TUI_THEME operator overrides, so those
+    # the `bg` query param; FABRIC_TUI_BACKGROUND ranks below the explicit
+    # FABRIC_TUI_LIGHT / FABRIC_TUI_THEME operator overrides, so those
     # still win when set.
     if terminal_background and re.fullmatch(
         r"#[0-9a-fA-F]{6}", terminal_background
     ):
-        env["HERMES_TUI_BACKGROUND"] = terminal_background
+        env["FABRIC_TUI_BACKGROUND"] = terminal_background
 
     if profile_dir is not None:
-        env["HERMES_HOME"] = str(profile_dir)
+        env["FABRIC_HOME"] = str(profile_dir)
 
     if resume:
         _resume_db = _open_session_db_for_profile(
@@ -16303,21 +16303,21 @@ def _resolve_chat_argv(
             _resume_db.close()
         if latest_resume:
             resume = latest_resume
-        env["HERMES_TUI_RESUME"] = resume
+        env["FABRIC_TUI_RESUME"] = resume
 
     if sidecar_url:
-        env["HERMES_TUI_SIDECAR_URL"] = sidecar_url
+        env["FABRIC_TUI_SIDECAR_URL"] = sidecar_url
 
     if active_session_file:
-        env["HERMES_TUI_ACTIVE_SESSION_FILE"] = active_session_file
+        env["FABRIC_TUI_ACTIVE_SESSION_FILE"] = active_session_file
 
     # Profile-scoped chats must NOT attach to the dashboard's in-memory
     # gateway — it runs under the dashboard's own profile. Without the
     # attach URL, gatewayClient spawns its own `tui_gateway.entry`, which
-    # inherits the profile HERMES_HOME set above.
+    # inherits the profile FABRIC_HOME set above.
     if profile_dir is None:
         if gateway_ws_url := _build_gateway_ws_url():
-            env["HERMES_TUI_GATEWAY_URL"] = gateway_ws_url
+            env["FABRIC_TUI_GATEWAY_URL"] = gateway_ws_url
 
     return list(argv), str(cwd) if cwd else None, env
 
@@ -16337,7 +16337,7 @@ def _resolve_client_ws_host() -> Optional[str]:
 
     Resolution order:
 
-    1. Explicit ``HERMES_DASHBOARD_WS_HOST`` env var — wins always. Operators
+    1. Explicit ``FABRIC_DASHBOARD_WS_HOST`` env var — wins always. Operators
        running the dashboard behind a forward proxy can pin a routable host
        (e.g. ``127.0.0.1``, the container's internal IP, or a sidecar DNS
        name) and bypass auto-detection entirely.
@@ -16346,7 +16346,7 @@ def _resolve_client_ws_host() -> Optional[str]:
        run in the same container.
     3. Any other bind host (loopback or LAN IP) — preserved verbatim.
     """
-    explicit = os.environ.get("HERMES_DASHBOARD_WS_HOST", "").strip()
+    explicit = os.environ.get("FABRIC_DASHBOARD_WS_HOST", "").strip()
     if explicit:
         return explicit
 
@@ -17455,7 +17455,7 @@ async def gateway_ws(ws: WebSocket) -> None:
 # /api/pub + /api/events — chat-tab event broadcast.
 #
 # The PTY-side ``tui_gateway.entry`` opens /api/pub at startup (driven by
-# HERMES_TUI_SIDECAR_URL set in /api/pty's PTY env) and writes every
+# FABRIC_TUI_SIDECAR_URL set in /api/pty's PTY env) and writes every
 # dispatcher emit through it.  The dashboard fans those frames out to any
 # subscriber that opened /api/events on the same channel id.  This is what
 # gives the React sidebar its tool-call feed without breaking the PTY
@@ -17565,7 +17565,7 @@ def mount_spa(application: FastAPI):
     ``mission-control.tilos.com/hermes/*`` -> local Caddy -> :9119), the
     proxy injects ``X-Forwarded-Prefix: /hermes`` on every request. We
     rewrite the served ``index.html`` so absolute asset URLs (``/assets/...``)
-    and the SPA's runtime ``__HERMES_BASE_PATH__`` honour that prefix
+    and the SPA's runtime ``__FABRIC_BASE_PATH__`` honour that prefix
     without rebuilding the bundle.
     """
     # `fabric serve` is the headless backend: it must NEVER serve the browser
@@ -17573,7 +17573,7 @@ def mount_spa(application: FastAPI):
     # the no-frontend path so only the JSON-RPC/WS/API surface is reachable.
     _headless = (
         os.environ.get("FABRIC_SERVE_HEADLESS") == "1"
-        or os.environ.get("HERMES_SERVE_HEADLESS") == "1"
+        or os.environ.get("FABRIC_SERVE_HEADLESS") == "1"
     )
     if _headless or not WEB_DIST.exists():
         _msg = (
@@ -17599,7 +17599,7 @@ def mount_spa(application: FastAPI):
         When the OAuth auth gate is active (``app.state.auth_required``),
         the legacy ``_SESSION_TOKEN`` is NOT injected — the SPA reads
         identity from ``/api/auth/me`` over cookie auth instead.  The
-        ``__HERMES_AUTH_REQUIRED__`` flag lets the SPA pick the right
+        ``__FABRIC_AUTH_REQUIRED__`` flag lets the SPA pick the right
         auth scheme for /api/pty and /api/ws (ticket vs token).
         """
         html = _index_path.read_text(encoding="utf-8")
@@ -17609,17 +17609,17 @@ def mount_spa(application: FastAPI):
         if gated:
             bootstrap_script = (
                 f"<script>"
-                f"window.__HERMES_DASHBOARD_EMBEDDED_CHAT__={chat_js};"
-                f'window.__HERMES_BASE_PATH__="{prefix}";'
-                f"window.__HERMES_AUTH_REQUIRED__={gated_js};"
+                f"window.__FABRIC_DASHBOARD_EMBEDDED_CHAT__={chat_js};"
+                f'window.__FABRIC_BASE_PATH__="{prefix}";'
+                f"window.__FABRIC_AUTH_REQUIRED__={gated_js};"
                 f"</script>"
             )
         else:
             bootstrap_script = (
-                f'<script>window.__HERMES_SESSION_TOKEN__="{_SESSION_TOKEN}";'
-                f"window.__HERMES_DASHBOARD_EMBEDDED_CHAT__={chat_js};"
-                f'window.__HERMES_BASE_PATH__="{prefix}";'
-                f"window.__HERMES_AUTH_REQUIRED__={gated_js};"
+                f'<script>window.__FABRIC_SESSION_TOKEN__="{_SESSION_TOKEN}";'
+                f"window.__FABRIC_DASHBOARD_EMBEDDED_CHAT__={chat_js};"
+                f'window.__FABRIC_BASE_PATH__="{prefix}";'
+                f"window.__FABRIC_AUTH_REQUIRED__={gated_js};"
                 f"</script>"
             )
         if prefix:
@@ -18214,7 +18214,7 @@ def _discover_dashboard_plugins() -> list:
     # ``fabric_cli/plugins.py`` and the documented user contract.
     project_plugins_enabled = env_var_enabled(
         "FABRIC_ENABLE_PROJECT_PLUGINS"
-    ) or env_var_enabled("HERMES_ENABLE_PROJECT_PLUGINS")  # legacy compatibility
+    ) or env_var_enabled("FABRIC_ENABLE_PROJECT_PLUGINS")  # legacy compatibility
     if project_plugins_enabled:
         search_dirs.append((Path.cwd() / ".fabric" / "plugins", "project"))
         # public-release-audit: allow-legacy-compat -- discovers project plugins created before the Fabric directory migration
@@ -18879,10 +18879,10 @@ def _write_dashboard_ready_file(actual_port: int) -> None:
 
     Windows Desktop can launch dashboard backends with ``pythonw.exe`` to avoid
     console flashes. That path cannot rely on stdout for the port announcement,
-    so Electron passes ``HERMES_DESKTOP_READY_FILE`` and waits for this JSON.
+    so Electron passes ``FABRIC_DESKTOP_READY_FILE`` and waits for this JSON.
     Normal CLI/dashboard launches still use the stdout READY line below.
     """
-    target = os.environ.get("HERMES_DESKTOP_READY_FILE")
+    target = os.environ.get("FABRIC_DESKTOP_READY_FILE")
     if not target:
         return
 
@@ -19031,7 +19031,7 @@ def start_server(
 
             show_legacy_nous = fabric_model_provider_visible("nous")
             # Surface the *specific* reason any bundled provider declined
-            # to register (e.g. missing HERMES_DASHBOARD_OAUTH_CLIENT_ID).
+            # to register (e.g. missing FABRIC_DASHBOARD_OAUTH_CLIENT_ID).
             # Each provider plugin that ships with Fabric exposes a
             # module-level ``LAST_SKIP_REASON`` string for this purpose;
             # without it the operator would only see "no providers" which
@@ -19094,7 +19094,7 @@ def start_server(
     # We use uvicorn.Server directly (not uvicorn.run) so we can split
     # startup from the main loop.  After startup() the socket is actually
     # bound — we read the OS-assigned port from the live socket, print
-    # HERMES_DASHBOARD_READY, open the browser, *then* serve.
+    # FABRIC_DASHBOARD_READY, open the browser, *then* serve.
     #
     # This eliminates the TOCTOU of the old pre-bind-then-close approach
     # (bind port 0 → close → uvicorn rebind): the socket is held by
@@ -19160,7 +19160,7 @@ def start_server(
             # Port-discovery sentinel parsed by the desktop spawn. `serve` is a
             # plain backend, not a dashboard, so it announces a neutral token;
             # `dashboard` keeps the legacy one. The desktop matches either.
-            ready_token = "HERMES_BACKEND_READY" if headless else "HERMES_DASHBOARD_READY"
+            ready_token = "FABRIC_BACKEND_READY" if headless else "FABRIC_DASHBOARD_READY"
             print(f"{ready_token} port={actual_port}", flush=True)
             if headless:
                 # No SPA, and the JSON-RPC/WS endpoints are auth-gated — don't

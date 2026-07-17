@@ -31,9 +31,9 @@ class TestWriteDenyExactPaths:
 
 
     def test_fabric_env(self):
-        # ``.env`` under the active HERMES_HOME (profile-aware, not just
+        # ``.env`` under the active FABRIC_HOME (profile-aware, not just
         # ``~/.hermes``) must be write-denied. The hermetic test conftest
-        # points HERMES_HOME at a tempdir — resolve via get_fabric_home()
+        # points FABRIC_HOME at a tempdir — resolve via get_fabric_home()
         # to match the denylist.
         from fabric_constants import get_fabric_home
         path = str(get_fabric_home() / ".env")
@@ -55,9 +55,9 @@ class TestWriteDenyExactPaths:
         global_env = root / ".env"
         global_env.write_text("OPENAI_API_KEY=sk-real\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
-        # Sanity check: HERMES_HOME does point to the profile dir, not the root.
+        # Sanity check: FABRIC_HOME does point to the profile dir, not the root.
         from fabric_constants import get_fabric_home, get_default_fabric_root
         assert get_fabric_home() == profile_home
         assert get_default_fabric_root() == root

@@ -131,7 +131,7 @@ class TestFromGlobalConfig:
             }
         }))
         # Isolate from real ~/.hermes/honcho.json
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "isolated"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "isolated"))
 
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.api_key == "***"
@@ -360,12 +360,12 @@ class TestResolveConfigPath:
         local_cfg = fabric_home / "honcho.json"
         local_cfg.write_text('{"apiKey": "local"}')
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(fabric_home)}):
+        with patch.dict(os.environ, {"FABRIC_HOME": str(fabric_home)}):
             result = resolve_config_path()
         assert result == local_cfg
 
     def test_falls_back_to_default_profile_when_no_local(self, tmp_path, monkeypatch):
-        # Profile mode: HERMES_HOME points at ~/.hermes/profiles/<name>, so
+        # Profile mode: FABRIC_HOME points at ~/.hermes/profiles/<name>, so
         # _get_default_fabric_home() must resolve back to ~/.hermes — that's
         # the bug the HOME-anchored helper fixes (vs. blindly using Path.home()).
         fake_home = tmp_path / "fakehome"
@@ -377,7 +377,7 @@ class TestResolveConfigPath:
         default_cfg.write_text('{"apiKey": "default-key"}')
 
         monkeypatch.setattr(Path, "home", lambda: fake_home)
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
         result = resolve_config_path()
 
@@ -390,7 +390,7 @@ class TestResolveConfigPath:
 
         with patch.dict(os.environ, {}, clear=False), \
              patch.object(Path, "home", return_value=fake_home):
-            os.environ.pop("HERMES_HOME", None)
+            os.environ.pop("FABRIC_HOME", None)
             result = resolve_config_path()
         assert result == fake_home / ".honcho" / "config.json"
 
@@ -400,7 +400,7 @@ class TestResolveConfigPath:
         fabric_home = tmp_path / "hermes"
         fabric_home.mkdir()
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(fabric_home)}), \
+        with patch.dict(os.environ, {"FABRIC_HOME": str(fabric_home)}), \
              patch.object(Path, "home", return_value=fake_home):
             assert resolve_global_config_path() == fake_home / ".honcho" / "config.json"
             assert resolve_config_path() == fake_home / ".honcho" / "config.json"
@@ -420,7 +420,7 @@ class TestResolveConfigPath:
         }))
 
         monkeypatch.setattr(Path, "home", lambda: fake_home)
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
         config = HonchoClientConfig.from_global_config()
 
@@ -436,7 +436,7 @@ class TestResolveConfigPath:
             "workspace": "local-ws",
         }))
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(fabric_home)}), \
+        with patch.dict(os.environ, {"FABRIC_HOME": str(fabric_home)}), \
              patch.object(Path, "home", return_value=tmp_path):
             config = HonchoClientConfig.from_global_config()
         assert config.api_key == "***"
@@ -450,12 +450,12 @@ class TestResolveActiveHost:
 
     def test_default_returns_fabric(self):
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            os.environ.pop("HERMES_HOME", None)
+            os.environ.pop("FABRIC_HONCHO_HOST", None)
+            os.environ.pop("FABRIC_HOME", None)
             assert resolve_active_host() == "hermes"
 
     def test_explicit_env_var_wins(self):
-        with patch.dict(os.environ, {"HERMES_HONCHO_HOST": "hermes.coder"}):
+        with patch.dict(os.environ, {"FABRIC_HONCHO_HOST": "hermes.coder"}):
             assert resolve_active_host() == "hermes.coder"
 
     def test_named_profile_does_not_inherit_launch_host_selector(
@@ -463,8 +463,8 @@ class TestResolveActiveHost:
     ):
         named_home = tmp_path / "profiles" / "worker"
         monkeypatch.setenv("FABRIC_HOME", str(named_home))
-        monkeypatch.setenv("HERMES_HOME", str(named_home))
-        monkeypatch.setenv("HERMES_HONCHO_HOST", "fabric_launch")
+        monkeypatch.setenv("FABRIC_HOME", str(named_home))
+        monkeypatch.setenv("FABRIC_HONCHO_HOST", "fabric_launch")
         monkeypatch.setattr("fabric_cli.config.load_env", lambda: {})
 
         with patch("fabric_cli.profiles.get_active_profile_name", return_value="worker"):
@@ -472,32 +472,32 @@ class TestResolveActiveHost:
 
         monkeypatch.setattr(
             "fabric_cli.config.load_env",
-            lambda: {"HERMES_HONCHO_HOST": "fabric_worker_override"},
+            lambda: {"FABRIC_HONCHO_HOST": "fabric_worker_override"},
         )
         assert resolve_active_host() == "fabric_worker_override"
 
     def test_profile_name_derives_host(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
+            os.environ.pop("FABRIC_HONCHO_HOST", None)
             with patch("fabric_cli.profiles.get_active_profile_name", return_value="coder"):
                 assert resolve_active_host() == "fabric_coder"
 
     def test_default_profile_returns_fabric(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
+            os.environ.pop("FABRIC_HONCHO_HOST", None)
             with patch("fabric_cli.profiles.get_active_profile_name", return_value="default"):
                 assert resolve_active_host() == "hermes"
 
     def test_custom_profile_returns_fabric(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
+            os.environ.pop("FABRIC_HONCHO_HOST", None)
             with patch("fabric_cli.profiles.get_active_profile_name", return_value="custom"):
                 assert resolve_active_host() == "hermes"
 
     def test_profiles_import_failure_falls_back(self):
         import sys
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
+            os.environ.pop("FABRIC_HONCHO_HOST", None)
             # Temporarily remove fabric_cli.profiles to simulate import failure
             saved = sys.modules.get("fabric_cli.profiles")
             sys.modules["fabric_cli.profiles"] = None  # type: ignore

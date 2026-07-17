@@ -99,8 +99,8 @@ FABRIC_MARK = _resolve_fallback_banner_art(FABRIC_MARK_TEMPLATE)
 
 # Legacy export names remain for plugin compatibility; both now resolve to
 # the canonical Fabric lockups above.
-HERMES_AGENT_LOGO = FABRIC_AGENT_LOGO
-HERMES_CADUCEUS = FABRIC_MARK
+FABRIC_AGENT_LOGO = FABRIC_AGENT_LOGO
+FABRIC_CADUCEUS = FABRIC_MARK
 
 def _resolve_banner_art(markup: str) -> str:
     """Resolve semantic art colors against the active skin.
@@ -329,7 +329,7 @@ def check_via_pypi() -> Optional[int]:
 def check_for_updates() -> Optional[int]:
     """Check whether a Fabric update is available.
 
-    Two paths: if ``HERMES_REVISION`` is set (nix builds embed it), compare
+    Two paths: if ``FABRIC_REVISION`` is set (nix builds embed it), compare
     it to upstream main via ``git ls-remote``. Otherwise look for a local
     git checkout and count commits behind ``origin/main``.
 
@@ -339,11 +339,11 @@ def check_for_updates() -> Optional[int]:
     """
     fabric_home = get_fabric_home()
     cache_file = fabric_home / ".update_check"
-    embedded_rev = os.environ.get("HERMES_REVISION") or None
+    embedded_rev = os.environ.get("FABRIC_REVISION") or None
 
     # Docker images have no working tree to count commits against — the
     # published image excludes `.git` (see .dockerignore) and sets no
-    # HERMES_REVISION (that's nix-only). Without this guard the checks below
+    # FABRIC_REVISION (that's nix-only). Without this guard the checks below
     # fall through to `check_via_pypi()`, whose PyPI-version mismatch flag (1)
     # then gets rendered by the CLI banner and the TUI badge as a phantom
     # "1 commit behind" — even though no git repo or commit math is involved,
@@ -382,7 +382,7 @@ def check_for_updates() -> Optional[int]:
         behind = _check_via_rev(embedded_rev)
     else:
         # Prefer the running code's location over the profile-scoped path.
-        # $HERMES_HOME/fabric-agent/ may be a stale copy from --clone-all;
+        # $FABRIC_HOME/fabric-agent/ may be a stale copy from --clone-all;
         # Path(__file__) always resolves to the actual installed checkout.
         repo_dir = Path(__file__).parent.parent.resolve()
         if not (repo_dir / ".git").exists():
@@ -406,7 +406,7 @@ def _resolve_repo_dir() -> Optional[Path]:
     """Return the active Fabric git checkout, or None if this isn't a git install.
 
     Prefers the running code's location over the profile-scoped path
-    because ``$HERMES_HOME/fabric-agent/`` may be a stale copy carried
+    because ``$FABRIC_HOME/fabric-agent/`` may be a stale copy carried
     over by ``--clone-all``.
     """
     repo_dir = Path(__file__).parent.parent.resolve()
@@ -715,7 +715,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
         left_lines.append(f"[{accent}]{model_short}[/]{ctx_str} [dim {dim}]·[/] [dim {dim}]{_vendor}[/]")
 
-    if os.getenv("HERMES_YOLO_MODE"):
+    if os.getenv("FABRIC_YOLO_MODE"):
         left_lines.append(f"[bold red]⚠ YOLO mode[/] [dim {dim}]— all approval prompts bypassed[/]")
     left_lines.append(f"[dim {dim}]{cwd}[/]")
     if session_id:

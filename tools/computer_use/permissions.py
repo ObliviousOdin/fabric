@@ -43,7 +43,7 @@ def _driver_cmd(override: Optional[str]) -> str:
 
         return _cua_driver_cmd()
     except Exception:
-        return os.environ.get("HERMES_CUA_DRIVER_CMD", "").strip() or "cua-driver"
+        return os.environ.get("FABRIC_CUA_DRIVER_CMD", "").strip() or "cua-driver"
 
 
 def _child_env() -> Dict[str, str]:

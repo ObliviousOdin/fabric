@@ -164,7 +164,7 @@ export function exposePluginSDK() {
     fetchJSON,
     // Authenticated fetch for non-JSON endpoints (uploads / blob downloads).
     // Handles loopback-token vs gated-cookie auth so plugins never read
-    // window.__HERMES_SESSION_TOKEN__ directly.
+    // window.__FABRIC_SESSION_TOKEN__ directly.
     authedFetch,
     // Build a ws(s):// URL with the correct auth param for the active mode
     // (single-use ticket in gated mode, token in loopback). Use this for any
@@ -236,6 +236,6 @@ export function exposePluginSDK() {
   // existing third-party plugin bundles keep working without a flag day.
   window.__FABRIC_PLUGINS__ = pluginRegistry;
   window.__FABRIC_PLUGIN_SDK__ = pluginSDK;
-  window.__HERMES_PLUGINS__ = pluginRegistry;
-  window.__HERMES_PLUGIN_SDK__ = pluginSDK;
+  window.__FABRIC_PLUGINS__ = pluginRegistry;
+  window.__FABRIC_PLUGIN_SDK__ = pluginSDK;
 }

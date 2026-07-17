@@ -62,7 +62,7 @@ left user-settable. `fabric doctor` reports the *resolved* managed directory so
 a redirect is visible.
 :::
 
-Existing deployments that set `HERMES_MANAGED_DIR` remain supported as a
+Existing deployments that set `FABRIC_MANAGED_DIR` remain supported as a
 compatibility fallback. New deployments should use `FABRIC_MANAGED_DIR`.
 
 ## Precedence

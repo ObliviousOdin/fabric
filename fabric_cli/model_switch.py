@@ -235,7 +235,7 @@ def _bare_custom_provider_def(current_base_url: str) -> Optional[ProviderDef]:
 # Non-agentic model warning
 # ---------------------------------------------------------------------------
 
-_HERMES_MODEL_WARNING = (
+_FABRIC_MODEL_WARNING = (
     "Nous Research Hermes 3 & 4 models are NOT agentic and are not designed "
     "for use with Fabric. They lack the tool-calling capabilities "
     "required for agent workflows. Consider using an agentic model instead "
@@ -251,7 +251,7 @@ _HERMES_MODEL_WARNING = (
 #   NousResearch/Hermes-3-Llama-3.1-70B, hermes-4-405b, openrouter/hermes3:70b
 # Negative examples it must NOT match:
 #   fabric-brain:qwen3-14b-ctx16k, qwen3:14b, claude-opus-4-6
-_NOUS_HERMES_NON_AGENTIC_RE = re.compile(
+_NOUS_FABRIC_NON_AGENTIC_RE = re.compile(
     r"(?:^|[/:])fabric[-_ ]?[34](?:[-_.:]|$)",
     re.IGNORECASE,
 )
@@ -266,13 +266,13 @@ def is_nous_fabric_non_agentic(model_name: str) -> bool:
     """
     if not model_name:
         return False
-    return bool(_NOUS_HERMES_NON_AGENTIC_RE.search(model_name))
+    return bool(_NOUS_FABRIC_NON_AGENTIC_RE.search(model_name))
 
 
 def _check_fabric_model_warning(model_name: str) -> str:
     """Return a warning string if *model_name* is a Nous Hermes 3/4 chat model."""
     if is_nous_fabric_non_agentic(model_name):
-        return _HERMES_MODEL_WARNING
+        return _FABRIC_MODEL_WARNING
     return ""
 
 
@@ -548,7 +548,7 @@ def _resolve_restricted_provider(
     """
 
     from fabric_cli.providers import (
-        HERMES_OVERLAYS,
+        FABRIC_OVERLAYS,
         normalize_provider,
         resolve_custom_provider,
         resolve_user_provider,
@@ -572,7 +572,7 @@ def _resolve_restricted_provider(
     if custom_provider is not None:
         return custom_provider
 
-    overlay = HERMES_OVERLAYS.get(canonical)
+    overlay = FABRIC_OVERLAYS.get(canonical)
     if overlay is not None:
         return ProviderDef(
             id=canonical,
@@ -2789,7 +2789,7 @@ def list_authenticated_providers(
         # minimax-cn → MINIMAX_API_KEY instead of MINIMAX_CN_API_KEY).
         pconfig = PROVIDER_REGISTRY.get(fabric_id)
         # Skip non-API-key auth providers here — they are handled in
-        # section 2 (HERMES_OVERLAYS) with proper auth store checking.
+        # section 2 (FABRIC_OVERLAYS) with proper auth store checking.
         if pconfig and pconfig.auth_type != "api_key":
             continue
         if pconfig and pconfig.api_key_env_vars:
@@ -2845,20 +2845,20 @@ def list_authenticated_providers(
         _record_builtin_endpoint(slug)
 
     # --- 2. Check Fabric-only providers (nous, openai-codex, copilot, opencode-go) ---
-    from fabric_cli.providers import HERMES_OVERLAYS
+    from fabric_cli.providers import FABRIC_OVERLAYS
     from fabric_cli.auth import PROVIDER_REGISTRY as _auth_registry
 
     # Build reverse mapping: models.dev ID → Fabric provider ID.
-    # HERMES_OVERLAYS keys may be models.dev IDs (e.g. "github-copilot")
+    # FABRIC_OVERLAYS keys may be models.dev IDs (e.g. "github-copilot")
     # while _PROVIDER_MODELS and config.yaml use Fabric IDs ("copilot").
     _mdev_to_fabric = {v: k for k, v in PROVIDER_TO_MODELS_DEV.items()}
 
-    for pid, overlay in HERMES_OVERLAYS.items():
+    for pid, overlay in FABRIC_OVERLAYS.items():
         if pid.lower() in seen_slugs:
             continue
 
         # Resolve Fabric slug — e.g. "github-copilot" → "copilot"
-        fabric_slug = _mdev_to_hermes.get(pid, pid)
+        fabric_slug = _mdev_to_fabric.get(pid, pid)
         if fabric_slug.lower() in seen_slugs:
             continue
 
@@ -3034,7 +3034,7 @@ def list_authenticated_providers(
 
     # --- 2b. Cross-check canonical provider list ---
     # Catches providers that are in CANONICAL_PROVIDERS but weren't found
-    # in PROVIDER_TO_MODELS_DEV or HERMES_OVERLAYS (keeps /model in sync
+    # in PROVIDER_TO_MODELS_DEV or FABRIC_OVERLAYS (keeps /model in sync
     # with `fabric model`).
     try:
         from fabric_cli.models import CANONICAL_PROVIDERS as _canon_provs

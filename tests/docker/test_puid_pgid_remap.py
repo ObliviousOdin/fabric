@@ -3,7 +3,7 @@
 Build the real image and verify the actual runtime behavior:
 
   1. PUID/PGID env vars remap the fabric user UID/GID at boot
-  2. HERMES_UID/HERMES_GID take precedence over PUID/PGID aliases
+  2. FABRIC_UID/FABRIC_GID take precedence over PUID/PGID aliases
   3. NAS-style low UIDs (99:100) are accepted and remapped
   4. Invalid UIDs are rejected
   5. The remapped user can write to the data volume
@@ -41,17 +41,17 @@ def test_puid_pgid_remaps_fabric_user(
 def test_fabric_uid_gid_take_precedence_over_aliases(
     built_image: str, container_name: str,
 ) -> None:
-    """HERMES_UID/HERMES_GID must win over PUID/PGID when both are set."""
-    start_container(built_image, container_name, "HERMES_UID=2000", "HERMES_GID=2001", "PUID=1000", "PGID=1000")
+    """FABRIC_UID/FABRIC_GID must win over PUID/PGID when both are set."""
+    start_container(built_image, container_name, "FABRIC_UID=2000", "FABRIC_GID=2001", "PUID=1000", "PGID=1000")
 
     r = docker_exec_sh(container_name, "id -u fabric", timeout=10)
     assert r.stdout.strip() == "2000", (
-        f"expected fabric UID 2000 (HERMES_UID wins), got: {r.stdout.strip()}"
+        f"expected fabric UID 2000 (FABRIC_UID wins), got: {r.stdout.strip()}"
     )
 
     r = docker_exec_sh(container_name, "id -g fabric", timeout=10)
     assert r.stdout.strip() == "2001", (
-        f"expected fabric GID 2001 (HERMES_GID wins), got: {r.stdout.strip()}"
+        f"expected fabric GID 2001 (FABRIC_GID wins), got: {r.stdout.strip()}"
     )
 
 

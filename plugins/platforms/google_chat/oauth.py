@@ -43,15 +43,15 @@ familiar with that flow can read this without surprises.
 Token storage layout
 --------------------
 - Per-user tokens (keyed by sender email):
-    ``${HERMES_HOME}/google_chat_user_tokens/<sanitized_email>.json``
+    ``${FABRIC_HOME}/google_chat_user_tokens/<sanitized_email>.json``
 - Legacy single-user token (fallback, untouched for backward compat):
-    ``${HERMES_HOME}/google_chat_user_token.json``
+    ``${FABRIC_HOME}/google_chat_user_token.json``
 - Per-user pending OAuth state during /setup-files start → exchange:
-    ``${HERMES_HOME}/google_chat_user_oauth_pending/<sanitized_email>.json``
+    ``${FABRIC_HOME}/google_chat_user_oauth_pending/<sanitized_email>.json``
 - Legacy pending state:
-    ``${HERMES_HOME}/google_chat_user_oauth_pending.json``
+    ``${FABRIC_HOME}/google_chat_user_oauth_pending.json``
 - OAuth client secret (profile-scoped — each profile registers its own):
-    ``${HERMES_HOME}/google_chat_user_client_secret.json``
+    ``${FABRIC_HOME}/google_chat_user_client_secret.json``
 """
 
 from __future__ import annotations
@@ -76,8 +76,8 @@ _LEGACY_HOME_ENV = "HERMES_HOME"
 # after the in-tree → plugin migration. See adapter.py for context.
 logger = logging.getLogger("gateway.platforms.google_chat_user_oauth")
 
-# Use the project's HERMES_HOME helper so the token follows the user's
-# profile (e.g. tests can override via HERMES_HOME=/tmp/...).
+# Use the project's FABRIC_HOME helper so the token follows the user's
+# profile (e.g. tests can override via FABRIC_HOME=/tmp/...).
 try:
     from fabric_constants import display_fabric_home, get_fabric_home
 except (ModuleNotFoundError, ImportError):
@@ -103,9 +103,9 @@ from utils import atomic_replace
 
 
 def _fabric_home() -> Path:
-    """Resolve HERMES_HOME at call time (NOT module import).
+    """Resolve FABRIC_HOME at call time (NOT module import).
 
-    Tests and ``HERMES_HOME=...`` env overrides need this to be late-
+    Tests and ``FABRIC_HOME=...`` env overrides need this to be late-
     binding. If we cached the path at import time, switching profiles
     or tweaking env vars in tests would silently keep using the old
     path."""
@@ -421,7 +421,7 @@ def check_auth(email: Optional[str] = None) -> bool:
 
 
 def store_client_secret(path: str) -> None:
-    """Validate and copy the user's OAuth client_secret.json into HERMES_HOME."""
+    """Validate and copy the user's OAuth client_secret.json into FABRIC_HOME."""
     src = Path(path).expanduser().resolve()
     if not src.exists():
         print(f"ERROR: File not found: {src}")

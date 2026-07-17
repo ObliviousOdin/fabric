@@ -231,7 +231,7 @@ entry points you'll actually edit.
 fabric-agent/
 ├── run_agent.py          # AIAgent class — core conversation loop (~12k LOC)
 ├── model_tools.py        # Tool orchestration, discover_builtin_tools(), handle_function_call()
-├── toolsets.py           # Toolset definitions, _HERMES_CORE_TOOLS list
+├── toolsets.py           # Toolset definitions, _FABRIC_CORE_TOOLS list
 ├── cli.py                # FabricCLI class — interactive CLI orchestrator (~11k LOC)
 ├── fabric_state.py       # SessionDB — SQLite session store (FTS5 search)
 ├── fabric_constants.py   # get_fabric_home(), display_fabric_home() — profile-aware paths
@@ -432,7 +432,7 @@ if canonical == "mycommand":
 
 ## TUI Architecture (ui-tui + tui_gateway)
 
-The TUI is a full replacement for the classic (prompt_toolkit) CLI, activated via `fabric --tui` or `HERMES_TUI=1`.
+The TUI is a full replacement for the classic (prompt_toolkit) CLI, activated via `fabric --tui` or `FABRIC_TUI=1`.
 
 ### Process Model
 
@@ -496,7 +496,7 @@ The dashboard embeds the real `fabric --tui` — **not** a rewrite.  See `fabric
 
 ### Electron Desktop Chat App (`apps/desktop/`)
 
-A **separate** chat surface from both the classic CLI and the dashboard's embedded TUI. It is an Electron + React + nanostore renderer (`@assistant-ui/react`) that talks to a `tui_gateway` backend over JSON-RPC (`requestGateway(method, params)`). The WebSocket/JSON-RPC transport lives in the framework-agnostic `apps/shared` package (`@fabric/shared` — `JsonRpcGatewayClient` + WS URL helpers), which the web dashboard (`web/`) also consumes; **desktop has no build/runtime dependency on the dashboard frontend** — it spawns a headless `fabric serve` backend server (the same gateway `dashboard` serves, minus the browser UI entirely: `serve` sets `headless_backend=True`, so `cmd_dashboard` skips `_build_web_ui` AND exports `HERMES_SERVE_HEADLESS=1` so `mount_spa()` disables the SPA even if a stray `web_dist/` exists — only the JSON-RPC/WS/API surface is reachable). `dashboard` and `serve` share `cmd_dashboard`/`start_server` but are independent surfaces — neither launches the other. The one exception is a backward-compat *fallback*: `serve` is newer, so the desktop spawn (`electron/backend-command.cjs` + `backendSupportsServe()` in `main.cjs`) detects whether the resolved runtime registers `serve` and, only when it does not (an older managed install / PATH `fabric` the app hasn't updated yet), rewrites the argv to the legacy `dashboard --no-open`. Without that, a new app against an un-upgraded runtime would crash on an unknown subcommand and brick every mid-upgrade user. It does NOT embed `fabric --tui` — it has its own composer, transcript, and slash-command pipeline. Route desktop bugs to the `fabric-desktop-app-work` skill, not `fabric-dashboard-work`.
+A **separate** chat surface from both the classic CLI and the dashboard's embedded TUI. It is an Electron + React + nanostore renderer (`@assistant-ui/react`) that talks to a `tui_gateway` backend over JSON-RPC (`requestGateway(method, params)`). The WebSocket/JSON-RPC transport lives in the framework-agnostic `apps/shared` package (`@fabric/shared` — `JsonRpcGatewayClient` + WS URL helpers), which the web dashboard (`web/`) also consumes; **desktop has no build/runtime dependency on the dashboard frontend** — it spawns a headless `fabric serve` backend server (the same gateway `dashboard` serves, minus the browser UI entirely: `serve` sets `headless_backend=True`, so `cmd_dashboard` skips `_build_web_ui` AND exports `FABRIC_SERVE_HEADLESS=1` so `mount_spa()` disables the SPA even if a stray `web_dist/` exists — only the JSON-RPC/WS/API surface is reachable). `dashboard` and `serve` share `cmd_dashboard`/`start_server` but are independent surfaces — neither launches the other. The one exception is a backward-compat *fallback*: `serve` is newer, so the desktop spawn (`electron/backend-command.cjs` + `backendSupportsServe()` in `main.cjs`) detects whether the resolved runtime registers `serve` and, only when it does not (an older managed install / PATH `fabric` the app hasn't updated yet), rewrites the argv to the legacy `dashboard --no-open`. Without that, a new app against an un-upgraded runtime would crash on an unknown subcommand and brick every mid-upgrade user. It does NOT embed `fabric --tui` — it has its own composer, transcript, and slash-command pipeline. Route desktop bugs to the `fabric-desktop-app-work` skill, not `fabric-dashboard-work`.
 
 **Agent Live View is supporting UI, not another chat surface.** Browser and
 Computer Use activity renders beside the existing Desktop conversation or in a
@@ -559,7 +559,7 @@ registry.register(
 )
 ```
 
-**2. Add to `toolsets.py`** — either `_HERMES_CORE_TOOLS` (all platforms) or a new toolset. **This step is required:** auto-discovery imports the tool and registers its schema, but the tool is only *exposed to an agent* if its name appears in a toolset. `_HERMES_CORE_TOOLS` is not dead code — it's the default bundle every platform's base toolset inherits from.
+**2. Add to `toolsets.py`** — either `_FABRIC_CORE_TOOLS` (all platforms) or a new toolset. **This step is required:** auto-discovery imports the tool and registers its schema, but the tool is only *exposed to an agent* if its name appears in a toolset. `_FABRIC_CORE_TOOLS` is not dead code — it's the default bundle every platform's base toolset inherits from.
 
 Auto-discovery: any `tools/*.py` file with a top-level `registry.register()` call is imported automatically — no manual import list to maintain. Wiring into a toolset is still a deliberate, manual step.
 
@@ -982,7 +982,7 @@ contributor skill PRs.
 
 All toolsets are defined in `toolsets.py` as a single `TOOLSETS` dict.
 Each platform's adapter picks a base toolset (e.g. Telegram uses
-`"messaging"`); `_HERMES_CORE_TOOLS` is the default bundle most
+`"messaging"`); `_FABRIC_CORE_TOOLS` is the default bundle most
 platforms inherit from.
 
 Current toolset keys: `browser`, `clarify`, `code_execution`, `cronjob`,
@@ -1129,7 +1129,7 @@ kanban task.
 
 Isolation model:
 - **Board** is the hard boundary — workers are spawned with
-  `HERMES_KANBAN_BOARD` pinned in their env so they can't see other
+  `FABRIC_KANBAN_BOARD` pinned in their env so they can't see other
   boards.
 - **Tenant** is a soft namespace *within* a board — one specialist
   fleet can serve multiple businesses with workspace-path + memory-key
@@ -1163,7 +1163,7 @@ invalidation. See `/skills install --now` for the canonical pattern.
 When `terminal(background=true, notify_on_complete=true)` is used, the gateway runs a watcher that
 detects process completion and triggers a new agent turn. Control verbosity of background process
 messages with `display.background_process_notifications`
-in config.yaml (or `HERMES_BACKGROUND_NOTIFICATIONS` env var):
+in config.yaml (or `FABRIC_BACKGROUND_NOTIFICATIONS` env var):
 
 - `all` — running-output updates + final message (default)
 - `result` — only the final completion message

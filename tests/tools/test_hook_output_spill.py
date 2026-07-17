@@ -180,10 +180,10 @@ class SpillIfOversizedTests(unittest.TestCase):
         self.assertIn("truncated", result)
 
     def test_default_directory_uses_fabric_home(self):
-        """When no directory override, spill under HERMES_HOME/hook_outputs."""
+        """When no directory override, spill under FABRIC_HOME/hook_outputs."""
         test_home = tempfile.mkdtemp(prefix="fabric-home-")
         try:
-            with patch.dict(os.environ, {"HERMES_HOME": test_home}):
+            with patch.dict(os.environ, {"FABRIC_HOME": test_home}):
                 # Also patch get_fabric_home to the env var to mirror production.
                 cfg = self._cfg(directory=None, max_chars=5)
                 hos.spill_if_oversized("x" * 200, session_id="sess", config=cfg)

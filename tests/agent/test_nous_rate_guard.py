@@ -12,7 +12,7 @@ def rate_guard_env(tmp_path, monkeypatch):
     """Isolate rate guard state to a temp directory."""
     fabric_home = str(tmp_path / ".hermes")
     os.makedirs(fabric_home, exist_ok=True)
-    monkeypatch.setenv("HERMES_HOME", fabric_home)
+    monkeypatch.setenv("FABRIC_HOME", fabric_home)
     # Clear any cached module-level imports
     return fabric_home
 

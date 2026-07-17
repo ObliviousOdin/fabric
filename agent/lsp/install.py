@@ -2,7 +2,7 @@
 
 Tries to install missing servers using whatever package manager is
 appropriate.  All installs go to a Fabric-owned bin staging dir,
-``<HERMES_HOME>/lsp/bin/``, so we don't pollute the user's global
+``<FABRIC_HOME>/lsp/bin/``, so we don't pollute the user's global
 toolchain.
 
 Strategies:
@@ -42,7 +42,7 @@ logger = logging.getLogger("agent.lsp.install")
 # Package-name → install-strategy hint registry.  Each entry is a
 # tuple of strategy name + package name + executable name.  When the
 # install completes, we look for the executable in
-# ``<HERMES_HOME>/lsp/bin/`` first, then on PATH.
+# ``<FABRIC_HOME>/lsp/bin/`` first, then on PATH.
 #
 # Optional fields:
 #   - ``extra_pkgs``: list of sibling packages to install alongside
@@ -252,7 +252,7 @@ def _install_npm(
     if npm is None:
         logger.info("[install] cannot install %s: npm not on PATH", pkg)
         return None
-    staging = fabric_lsp_bin_dir().parent  # <HERMES_HOME>/lsp/
+    staging = fabric_lsp_bin_dir().parent  # <FABRIC_HOME>/lsp/
     install_targets = [pkg] + list(extra_pkgs or [])
     try:
         logger.info(

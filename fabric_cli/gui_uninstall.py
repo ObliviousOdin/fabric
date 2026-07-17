@@ -6,13 +6,13 @@ remove the artifacts of both, on Linux, macOS, and Windows, WITHOUT touching
 the Python agent or the user's config/data:
 
   1. Source-built GUI (``Fabric desktop`` / ``fabric gui``)
-     Built inside the agent checkout under ``$HERMES_HOME/fabric-agent/``:
+     Built inside the agent checkout under ``$FABRIC_HOME/fabric-agent/``:
        - ``apps/desktop/dist``      (compiled renderer)
        - ``apps/desktop/release``   (electron-builder unpacked app + installers)
        - ``apps/desktop/node_modules`` and the workspace-root ``node_modules``
          (Electron itself, ~200MB) — only removed on a GUI uninstall because
          the agent does not need them.
-       - ``$HERMES_HOME/desktop-build-stamp.json`` (the build freshness stamp)
+       - ``$FABRIC_HOME/desktop-build-stamp.json`` (the build freshness stamp)
 
   2. Packaged distributable (DMG / NSIS / AppImage / deb / rpm)
      Installed by the OS to a standard application location and carrying its
@@ -177,7 +177,7 @@ def packaged_gui_app_paths() -> "list[Path]":
 
 
 def agent_is_installed(fabric_home: Path) -> bool:
-    """Return True when a usable Python agent install exists under HERMES_HOME.
+    """Return True when a usable Python agent install exists under FABRIC_HOME.
 
     Used by the desktop UI to decide which uninstall options to offer: if the
     agent isn't present (a future "lite" GUI-only client), the "remove agent"
@@ -264,7 +264,7 @@ def uninstall_gui(fabric_home: "Path | None" = None, *, remove_userdata: bool = 
       - the Electron ``userData`` directory (unless ``remove_userdata=False``)
 
     Never touches ``fabric-agent/fabric_cli`` (agent source), ``venv/``, or any
-    config / sessions / .env under ``$HERMES_HOME``.
+    config / sessions / .env under ``$FABRIC_HOME``.
 
     Returns the list of paths actually removed.
     """

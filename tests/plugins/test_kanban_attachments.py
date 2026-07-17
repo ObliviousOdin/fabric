@@ -46,7 +46,7 @@ def _load_plugin_router():
 def kanban_home(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     kb.init_db()
     return home
@@ -147,14 +147,14 @@ def test_attachments_root_is_per_board(kanban_home, monkeypatch):
     default_root = kb.attachments_root(board="default")
     assert default_root.name == "attachments"
     # a named board nests under its board dir
-    monkeypatch.delenv("HERMES_KANBAN_ATTACHMENTS_ROOT", raising=False)
+    monkeypatch.delenv("FABRIC_KANBAN_ATTACHMENTS_ROOT", raising=False)
     named = kb.attachments_root(board="default")
     assert named == default_root
 
 
 def test_attachments_root_env_override(kanban_home, monkeypatch, tmp_path):
     override = tmp_path / "custom-attach"
-    monkeypatch.setenv("HERMES_KANBAN_ATTACHMENTS_ROOT", str(override))
+    monkeypatch.setenv("FABRIC_KANBAN_ATTACHMENTS_ROOT", str(override))
     assert kb.attachments_root() == override
     assert kb.task_attachments_dir("t_abc") == override / "t_abc"
 

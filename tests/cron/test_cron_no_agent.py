@@ -19,13 +19,13 @@ import pytest
 
 @pytest.fixture
 def fabric_env(tmp_path, monkeypatch):
-    """Isolate HERMES_HOME for each test so jobs/scripts don't leak."""
+    """Isolate FABRIC_HOME for each test so jobs/scripts don't leak."""
     home = tmp_path / ".hermes"
     home.mkdir()
     (home / "scripts").mkdir()
     (home / "cron").mkdir()
 
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     # Reload modules that cache get_fabric_home() at import time.
     import importlib

@@ -145,8 +145,8 @@ PROVIDER_ENV_VARS = (
     "GMI_API_KEY", "GMI_BASE_URL",
     "DASHSCOPE_API_KEY", "OPENCODE_ZEN_API_KEY", "OPENCODE_GO_API_KEY",
     "NOUS_API_KEY", "GITHUB_TOKEN", "GH_TOKEN",
-    "OPENAI_BASE_URL", "HERMES_COPILOT_ACP_COMMAND", "COPILOT_CLI_PATH",
-    "HERMES_COPILOT_ACP_ARGS", "COPILOT_ACP_BASE_URL",
+    "OPENAI_BASE_URL", "FABRIC_COPILOT_ACP_COMMAND", "COPILOT_CLI_PATH",
+    "FABRIC_COPILOT_ACP_ARGS", "COPILOT_ACP_BASE_URL",
 )
 
 
@@ -361,7 +361,7 @@ class TestApiKeyProviderStatus:
         assert status["provider"] == "minimax"
 
     def test_copilot_acp_status_detects_local_cli(self, monkeypatch):
-        monkeypatch.setenv("HERMES_COPILOT_ACP_ARGS", "--acp --stdio --debug")
+        monkeypatch.setenv("FABRIC_COPILOT_ACP_ARGS", "--acp --stdio --debug")
         monkeypatch.setattr("fabric_cli.auth.shutil.which", lambda command: f"/usr/local/bin/{command}")
 
         status = get_external_process_provider_status("copilot-acp")
@@ -476,7 +476,7 @@ class TestResolveApiKeyProviderCredentials:
         assert calls == [["/opt/homebrew/bin/gh", "auth", "token"]]
 
     def test_resolve_copilot_acp_with_local_cli(self, monkeypatch):
-        monkeypatch.setenv("HERMES_COPILOT_ACP_ARGS", "--acp --stdio")
+        monkeypatch.setenv("FABRIC_COPILOT_ACP_ARGS", "--acp --stdio")
         monkeypatch.setattr("fabric_cli.auth.shutil.which", lambda command: f"/usr/local/bin/{command}")
 
         creds = resolve_external_process_provider_credentials("copilot-acp")
@@ -680,7 +680,7 @@ class TestRuntimeProviderResolution:
 
     def test_runtime_copilot_acp_uses_process_runtime(self, monkeypatch):
         monkeypatch.setattr("fabric_cli.auth.shutil.which", lambda command: f"/usr/local/bin/{command}")
-        monkeypatch.setenv("HERMES_COPILOT_ACP_ARGS", "--acp --stdio --debug")
+        monkeypatch.setenv("FABRIC_COPILOT_ACP_ARGS", "--acp --stdio --debug")
 
         from fabric_cli.runtime_provider import resolve_runtime_provider
 
@@ -773,7 +773,7 @@ class TestHasAnyProviderConfigured:
         }))
         monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
         monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         # Clear all provider env vars
         for var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                      "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"):
@@ -793,7 +793,7 @@ class TestHasAnyProviderConfigured:
         }))
         monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
         monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         for var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                      "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"):
             monkeypatch.delenv(var, raising=False)
@@ -812,7 +812,7 @@ class TestHasAnyProviderConfigured:
         }))
         monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
         monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         for var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                      "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"):
             monkeypatch.delenv(var, raising=False)
@@ -832,7 +832,7 @@ class TestHasAnyProviderConfigured:
         }))
         monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
         monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         monkeypatch.setattr("fabric_cli.copilot_auth.resolve_copilot_token", lambda: ("", ""))
         _all_vars = {"OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                       "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"}
@@ -857,7 +857,7 @@ class TestHasAnyProviderConfigured:
         config_file.write_text(yaml.dump({"model": {"default": "my-local-model"}}))
         monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
         monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         # Clear all provider env vars
         for var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
                      "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"):

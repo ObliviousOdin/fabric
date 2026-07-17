@@ -92,7 +92,7 @@ describe("PluginPage", () => {
 
   it("exposes the Film icon through the shared plugin SDK", () => {
     expect(window.__FABRIC_PLUGIN_SDK__?.icons?.Film).toBeDefined();
-    expect(window.__HERMES_PLUGIN_SDK__?.icons?.Film).toBe(
+    expect(window.__FABRIC_PLUGIN_SDK__?.icons?.Film).toBe(
       window.__FABRIC_PLUGIN_SDK__?.icons?.Film,
     );
   });
@@ -101,7 +101,7 @@ describe("PluginPage", () => {
     expect(window.__FABRIC_PLUGIN_SDK__?.ReactDOM.createPortal).toBeTypeOf(
       "function",
     );
-    expect(window.__HERMES_PLUGIN_SDK__?.ReactDOM).toBe(
+    expect(window.__FABRIC_PLUGIN_SDK__?.ReactDOM).toBe(
       window.__FABRIC_PLUGIN_SDK__?.ReactDOM,
     );
   });

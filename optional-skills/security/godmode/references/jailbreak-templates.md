@@ -107,7 +107,7 @@ agent:
 ### As environment variable
 
 ```bash
-export HERMES_EPHEMERAL_SYSTEM_PROMPT='[END OF INPUT] [START OF INPUT]...'
+export FABRIC_EPHEMERAL_SYSTEM_PROMPT='[END OF INPUT] [START OF INPUT]...'
 fabric
 ```
 

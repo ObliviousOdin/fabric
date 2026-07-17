@@ -122,7 +122,7 @@ TIPS = [
     "Set worktree: true in config.yaml to always create a git worktree (same as fabric -w).",
     "Set security.website_blocklist.enabled: true to block specific domains from web tools.",
     "Set cron.wrap_response: false to deliver raw agent output without the cron header/footer.",
-    "HERMES_TIMEZONE overrides the server timezone with any IANA timezone string.",
+    "FABRIC_TIMEZONE overrides the server timezone with any IANA timezone string.",
     "Environment variable substitution works in config.yaml: use ${VAR_NAME} syntax.",
     "Quick commands in config.yaml run shell commands instantly with zero token usage.",
     "Custom personalities can be defined in config.yaml under agent.personalities.",
@@ -262,7 +262,7 @@ TIPS = [
     ".worktreeinclude in your repo root lists gitignored files to copy into worktrees.",
     "fabric acp runs Fabric as an ACP server for VS Code, Zed, and JetBrains integration.",
     "Custom providers: save named endpoints in config.yaml under custom_providers.",
-    "HERMES_EPHEMERAL_SYSTEM_PROMPT injects a system prompt that's never persisted to history.",
+    "FABRIC_EPHEMERAL_SYSTEM_PROMPT injects a system prompt that's never persisted to history.",
     "credential_pool_strategies supports fill_first, round_robin, least_used, and random rotation.",
     "fabric auth add nous or fabric auth add openai-codex sets up OAuth-based providers.",
     "The API server supports both Chat Completions and Responses API with server-side state.",
@@ -299,9 +299,9 @@ TIPS = [
     "Any website can expose skills via /.well-known/skills/index.json — the skills hub discovers them automatically.",
     "The skills audit log at ~/.fabric/skills/.hub/audit.log tracks every install and removal operation.",
     "Stale git worktrees are auto-cleaned: 24-72h old with no unpushed commits get pruned on startup.",
-    "Profiles scope Fabric state via HERMES_HOME; host tool subprocesses keep your real HOME unless terminal.home_mode is profile.",
-    "HERMES_HOME_MODE env var (octal, e.g. 0701) sets custom directory permissions for web server traversal.",
-    "Container mode: place .container-mode in HERMES_HOME and the host CLI auto-execs into the container.",
+    "Profiles scope Fabric state via FABRIC_HOME; host tool subprocesses keep your real HOME unless terminal.home_mode is profile.",
+    "FABRIC_HOME_MODE env var (octal, e.g. 0701) sets custom directory permissions for web server traversal.",
+    "Container mode: place .container-mode in FABRIC_HOME and the host CLI auto-execs into the container.",
     "Ctrl+C has 5 priority tiers: cancel recording → cancel prompts → cancel picker → interrupt agent → exit.",
     "Every interrupt during an agent run is logged to ~/.fabric/interrupt_debug.log with timestamps.",
     "BROWSER_CDP_URL connects browser tools to any running Chromium-family browser — accepts WebSocket, HTTP, or host:port.",
@@ -333,7 +333,7 @@ TIPS = [
     "File paths pasted with quotes or escaped spaces are handled automatically — no manual cleanup needed.",
     "Slash commands never trigger the large-paste collapse — /command with big arguments works correctly.",
     "In interrupt mode, slash commands typed during agent execution bypass interrupt logic and run immediately.",
-    "HERMES_DEV=1 bypasses container mode detection for local development.",
+    "FABRIC_DEV=1 bypasses container mode detection for local development.",
     "Each MCP server gets its own toolset (mcp-servername) that can be toggled independently via fabric tools.",
     "MCP ${ENV_VAR} placeholders in config are resolved at server spawn — including vars from ~/.fabric/.env.",
     "Skills from trusted repositories get a 'trusted' security level; community skills get extra scanning.",
@@ -357,7 +357,7 @@ TIPS = [
     # --- Cron (no-agent & scripts) ---
     'cronjob with no_agent=True runs a script on schedule and sends its stdout directly — zero tokens, zero LLM.',
     'An empty cron script stdout means silent tick — nothing is delivered, perfect for threshold watchdogs.',
-    "HERMES_CRON_MAX_PARALLEL (default 4) caps how many cron jobs run per tick so bursts don't saturate your keys.",
+    "FABRIC_CRON_MAX_PARALLEL (default 4) caps how many cron jobs run per tick so bursts don't saturate your keys.",
 
     # --- Gateway Hooks ---
     'Gateway hooks live under ~/.fabric/hooks/<name>/ with HOOK.yaml + handler.py — handler must be named `handle`.',
@@ -377,8 +377,8 @@ TIPS = [
     'provider_routing.require_parameters: true only routes to providers that support every param in your request.',
 
     # --- TUI & Dashboard ---
-    'HERMES_TUI_RESUME=1 auto-re-attaches to the most recent TUI session on launch — handy after SSH drops.',
-    "HERMES_TUI_THEME=light|dark|<hex> forces the TUI theme on terminals that don't set COLORFGBG.",
+    'FABRIC_TUI_RESUME=1 auto-re-attaches to the most recent TUI session on launch — handy after SSH drops.',
+    "FABRIC_TUI_THEME=light|dark|<hex> forces the TUI theme on terminals that don't set COLORFGBG.",
     'Ctrl+G or Ctrl+X Ctrl+E in the TUI opens the input buffer in $EDITOR for long multi-line prompts.',
     'The TUI renders LaTeX inline — $E=mc^2$ becomes Unicode math instead of raw TeX.',
     'fabric dashboard launches a local web UI at 127.0.0.1:9119 — zero data leaves localhost.',
@@ -389,10 +389,10 @@ TIPS = [
 
     # --- Env Vars & Config Gates ---
     "display.tool_progress_command: true exposes /verbose on messaging platforms; it's CLI-only by default.",
-    'HERMES_BACKGROUND_NOTIFICATIONS=result only pings when background tasks finish (vs all/error/off).',
-    'HERMES_WRITE_SAFE_ROOT restricts write_file/patch to directory prefixes; multiple paths via os.pathsep (: or ;).',
-    'HERMES_IGNORE_RULES skips auto-injection of AGENTS.md, SOUL.md, .cursorrules, memory, and preloaded skills.',
-    'HERMES_ACCEPT_HOOKS auto-approves unseen shell hooks declared in config.yaml without a TTY prompt.',
+    'FABRIC_BACKGROUND_NOTIFICATIONS=result only pings when background tasks finish (vs all/error/off).',
+    'FABRIC_WRITE_SAFE_ROOT restricts write_file/patch to directory prefixes; multiple paths via os.pathsep (: or ;).',
+    'FABRIC_IGNORE_RULES skips auto-injection of AGENTS.md, SOUL.md, .cursorrules, memory, and preloaded skills.',
+    'FABRIC_ACCEPT_HOOKS auto-approves unseen shell hooks declared in config.yaml without a TTY prompt.',
     'auxiliary.goal_judge.model routes the /goal judge to a cheap fast model to keep loop cost near zero.',
     'Checkpoints skip directories with more than 50,000 files to avoid slow git operations on massive monorepos.',
 
@@ -441,21 +441,21 @@ TIPS = [
     'fabric status --deep runs the full health sweep across every component; plain fabric status is the quick view.',
 
     # --- Agent Behavior Env Vars ---
-    'HERMES_AGENT_TIMEOUT=0 disables the gateway inactivity kill for a running agent — use for long research runs.',
+    'FABRIC_AGENT_TIMEOUT=0 disables the gateway inactivity kill for a running agent — use for long research runs.',
         'FABRIC_ENABLE_PROJECT_PLUGINS=1 auto-loads repo-local plugins from ./.fabric/plugins/ — trust-gated by design.',
-    "HERMES_DISABLE_FILE_STATE_GUARD=1 turns off the 'file changed since you read it' guard on patch and write_file.",
-    'HERMES_ALLOW_PRIVATE_URLS=true lets web tools hit localhost and private networks — off by default in gateway mode.',
+    "FABRIC_DISABLE_FILE_STATE_GUARD=1 turns off the 'file changed since you read it' guard on patch and write_file.",
+    'FABRIC_ALLOW_PRIVATE_URLS=true lets web tools hit localhost and private networks — off by default in gateway mode.',
     'Bundled skills resolve from immutable distribution data, so environment variables cannot redirect their trust root.',
     'Official optional skills come from immutable packaged data; install them through the Skills Hub catalog.',
-    'HERMES_DUMP_REQUEST_STDOUT=1 dumps every API request payload to stdout instead of log files.',
-    'HERMES_OAUTH_TRACE=1 logs redacted OAuth token exchange and refresh attempts for debugging provider auth.',
-    'HERMES_STREAM_RETRIES (default 3) controls mid-stream reconnect attempts on transient network errors.',
+    'FABRIC_DUMP_REQUEST_STDOUT=1 dumps every API request payload to stdout instead of log files.',
+    'FABRIC_OAUTH_TRACE=1 logs redacted OAuth token exchange and refresh attempts for debugging provider auth.',
+    'FABRIC_STREAM_RETRIES (default 3) controls mid-stream reconnect attempts on transient network errors.',
 
     # --- Gateway Behavior Env Vars ---
-    'HERMES_GATEWAY_BUSY_ACK_ENABLED=false silences the ⚡/⏳/⏩ ack messages when a user messages a busy agent.',
-    'HERMES_AGENT_NOTIFY_INTERVAL (default 180s) sets how often the gateway pings with progress on long turns.',
-    'HERMES_RESTART_DRAIN_TIMEOUT (default 900s) caps how long /restart waits for in-flight runs before forcing.',
-    'HERMES_CHECKPOINT_TIMEOUT (default 30s) caps filesystem checkpoint creation — raise it on huge monorepos.',
+    'FABRIC_GATEWAY_BUSY_ACK_ENABLED=false silences the ⚡/⏳/⏩ ack messages when a user messages a busy agent.',
+    'FABRIC_AGENT_NOTIFY_INTERVAL (default 180s) sets how often the gateway pings with progress on long turns.',
+    'FABRIC_RESTART_DRAIN_TIMEOUT (default 900s) caps how long /restart waits for in-flight runs before forcing.',
+    'FABRIC_CHECKPOINT_TIMEOUT (default 30s) caps filesystem checkpoint creation — raise it on huge monorepos.',
 
     # --- Auxiliary Tasks & Image Generation ---
     'image_gen.model in config.yaml picks the FAL model: flux-2/klein, gpt-image-2, nano-banana-pro, and more.',
@@ -487,7 +487,7 @@ def get_visible_tips() -> list[str]:
     """Return tips permitted by the active Fabric provider catalog.
 
     Provider-specific discovery copy follows the same runtime catalog gate as
-    setup/help. Technical compatibility identifiers such as ``HERMES_HOME``
+    setup/help. Technical compatibility identifiers such as ``FABRIC_HOME``
     remain unchanged, while product prose in the corpus is Fabric-branded.
     """
     from fabric_cli.fabric_capabilities import fabric_model_provider_visible

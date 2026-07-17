@@ -294,7 +294,7 @@ Make sure the key matches the provider. An OpenAI key won't work with OpenRouter
 fabric model
 
 # Set a valid model
-fabric config set HERMES_MODEL anthropic/claude-opus-4.7
+fabric config set FABRIC_MODEL anthropic/claude-opus-4.7
 
 # Or specify per-session
 fabric chat --model openrouter/meta-llama/llama-3.1-70b-instruct

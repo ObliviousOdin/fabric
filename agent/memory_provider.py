@@ -98,7 +98,7 @@ def get_profile_env_value(name: str, default: Optional[str] = None) -> Optional[
             # secret scope or home-qualified secret source may still supply an
             # injected credential, but never fall through to another profile's
             # process-global value. Normal
-            # ``fabric -p`` startup scopes through FABRIC_HOME/HERMES_HOME,
+            # ``fabric -p`` startup scopes through FABRIC_HOME/FABRIC_HOME,
             # while shared backends use the context-local override; both paths
             # must enforce the same isolation boundary.
             return default
@@ -219,7 +219,7 @@ class MemoryProvider(ABC):
         establish connections, start background threads, etc.
 
         kwargs always include:
-          - fabric_home (str): The active HERMES_HOME directory path. Use this
+          - fabric_home (str): The active FABRIC_HOME directory path. Use this
             for profile-scoped storage instead of hardcoding ``~/.hermes``.
           - platform (str): "cli", "telegram", "discord", "cron", etc.
 
@@ -437,7 +437,7 @@ class MemoryProvider(ABC):
 
         Called by 'fabric memory setup' after collecting user inputs.
         ``values`` contains only non-secret fields (secrets go to .env).
-        ``fabric_home`` is the active HERMES_HOME directory path.
+        ``fabric_home`` is the active FABRIC_HOME directory path.
 
         Providers with native config files (JSON, YAML) should override
         this to write to their expected location. Providers that use only
@@ -469,9 +469,9 @@ class MemoryProvider(ABC):
         """
 
     def backup_paths(self) -> List[str]:
-        """Return extra on-disk paths this provider stores OUTSIDE HERMES_HOME.
+        """Return extra on-disk paths this provider stores OUTSIDE FABRIC_HOME.
 
-        ``fabric backup`` only walks HERMES_HOME, so any provider state kept
+        ``fabric backup`` only walks FABRIC_HOME, so any provider state kept
         under ``~/.honcho``, ``~/.hindsight``, ``~/.openviking``, etc. is lost
         across a backup/import cycle unless it's declared here.
 

@@ -753,7 +753,7 @@ fn update_child_env(install_root: &Path) -> Vec<(String, OsString)> {
             fabric_home.as_os_str().to_os_string(),
         ),
         (
-            "HERMES_HOME".to_string(),
+            "FABRIC_HOME".to_string(),
             fabric_home.as_os_str().to_os_string(),
         ),
     ];

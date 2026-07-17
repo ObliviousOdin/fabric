@@ -162,7 +162,7 @@ jobs:
           }
 
           const files = filesBelow(releaseRoot)
-          const legacyArtifacts = files.filter(file => /^Fabric(?:[-_.]|$)/i.test(path.basename(file)))
+          const legacyArtifacts = files.filter(file => /^Hermes(?:[-_.]|$)/i.test(path.basename(file)))
           const failures = []
           const verifiedPackages = []
 

@@ -165,9 +165,9 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
             (echo "FAIL: irc plugin manifest missing"; exit 1)
           echo "PASS: irc plugin manifest present"
 
-          grep -q "HERMES_BUNDLED_PLUGINS" ${fabric-agent}/bin/fabric || \
-            (echo "FAIL: HERMES_BUNDLED_PLUGINS not in wrapper"; exit 1)
-          echo "PASS: HERMES_BUNDLED_PLUGINS set in wrapper"
+          grep -q "FABRIC_BUNDLED_PLUGINS" ${fabric-agent}/bin/fabric || \
+            (echo "FAIL: FABRIC_BUNDLED_PLUGINS not in wrapper"; exit 1)
+          echo "PASS: FABRIC_BUNDLED_PLUGINS set in wrapper"
 
           echo "=== All bundled plugins checks passed ==="
           mkdir -p $out
@@ -190,16 +190,16 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           test -f ${fabric-agent}/share/fabric-agent/locales/en.yaml || (echo "FAIL: en.yaml missing"; exit 1)
           echo "PASS: en.yaml present"
 
-          grep -q "HERMES_BUNDLED_LOCALES" ${fabric-agent}/bin/fabric || \
-            (echo "FAIL: HERMES_BUNDLED_LOCALES not in wrapper"; exit 1)
-          echo "PASS: HERMES_BUNDLED_LOCALES set in wrapper"
+          grep -q "FABRIC_BUNDLED_LOCALES" ${fabric-agent}/bin/fabric || \
+            (echo "FAIL: FABRIC_BUNDLED_LOCALES not in wrapper"; exit 1)
+          echo "PASS: FABRIC_BUNDLED_LOCALES set in wrapper"
 
-          echo "=== Rendering via the wrapper override (HERMES_BUNDLED_LOCALES) ==="
+          echo "=== Rendering via the wrapper override (FABRIC_BUNDLED_LOCALES) ==="
           export HOME=$(mktemp -d)
-          RENDERED=$(cd "$HOME" && HERMES_BUNDLED_LOCALES=${fabric-agent}/share/fabric-agent/locales \
+          RENDERED=$(cd "$HOME" && FABRIC_BUNDLED_LOCALES=${fabric-agent}/share/fabric-agent/locales \
             ${fabricVenv}/bin/python3 -c "from agent import i18n; print(i18n.t('gateway.reset.header_default', lang='en'))")
           echo "rendered: $RENDERED"
-          test "$RENDERED" != "gateway.reset.header_default" || (echo "FAIL: i18n returned the raw key with HERMES_BUNDLED_LOCALES set"; exit 1)
+          test "$RENDERED" != "gateway.reset.header_default" || (echo "FAIL: i18n returned the raw key with FABRIC_BUNDLED_LOCALES set"; exit 1)
           echo "PASS: i18n renders a human string via the wrapper override"
 
           # Defense-in-depth check: the sealed venv must ALSO resolve catalogs
@@ -213,7 +213,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "resolved dir (no env var): $BARE_DIR"
           echo "rendered: $BARE"
           test "$BARE" != "gateway.reset.header_default" || \
-            (echo "FAIL: sealed venv could not resolve locales without HERMES_BUNDLED_LOCALES — data-files materialization regressed"; exit 1)
+            (echo "FAIL: sealed venv could not resolve locales without FABRIC_BUNDLED_LOCALES — data-files materialization regressed"; exit 1)
           echo "PASS: sealed venv resolves locales via data-files without the env var"
 
           echo "=== All bundled locales checks passed ==="
@@ -242,25 +242,25 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "ok" > $out/result
         '';
 
-        # Verify HERMES_NODE is set in wrapper and points to Node 20+
+        # Verify FABRIC_NODE is set in wrapper and points to Node 20+
         # (string-width uses the /v regex flag which requires Node 20+)
         fabric-node = pkgs.runCommand "fabric-node-version" { } ''
           set -e
-          echo "=== Checking HERMES_NODE in wrapper ==="
-          grep -q "HERMES_NODE" ${fabric-agent}/bin/fabric || \
-            (echo "FAIL: HERMES_NODE not set in wrapper"; exit 1)
-          echo "PASS: HERMES_NODE present in wrapper"
+          echo "=== Checking FABRIC_NODE in wrapper ==="
+          grep -q "FABRIC_NODE" ${fabric-agent}/bin/fabric || \
+            (echo "FAIL: FABRIC_NODE not set in wrapper"; exit 1)
+          echo "PASS: FABRIC_NODE present in wrapper"
 
-          HERMES_NODE=$(sed -n "s/^export HERMES_NODE='\(.*\)'/\1/p" ${fabric-agent}/bin/fabric)
-          test -x "$HERMES_NODE" || (echo "FAIL: HERMES_NODE=$HERMES_NODE not executable"; exit 1)
-          echo "PASS: HERMES_NODE executable at $HERMES_NODE"
+          FABRIC_NODE=$(sed -n "s/^export FABRIC_NODE='\(.*\)'/\1/p" ${fabric-agent}/bin/fabric)
+          test -x "$FABRIC_NODE" || (echo "FAIL: FABRIC_NODE=$FABRIC_NODE not executable"; exit 1)
+          echo "PASS: FABRIC_NODE executable at $FABRIC_NODE"
 
-          NODE_MAJOR=$("$HERMES_NODE" --version | sed 's/^v//' | cut -d. -f1)
+          NODE_MAJOR=$("$FABRIC_NODE" --version | sed 's/^v//' | cut -d. -f1)
           test "$NODE_MAJOR" -ge 20 || \
             (echo "FAIL: Node v$NODE_MAJOR < 20, TUI needs /v regex flag support"; exit 1)
           echo "PASS: Node v$NODE_MAJOR >= 20"
 
-          echo "=== All HERMES_NODE checks passed ==="
+          echo "=== All FABRIC_NODE checks passed ==="
           mkdir -p $out
           echo "ok" > $out/result
         '';
@@ -422,7 +422,7 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           # Helper: run merge then load with Python, output merged JSON
           merge_and_load() {
             local fabric_home="$1"
-            export HERMES_HOME="$fabric_home"
+            export FABRIC_HOME="$fabric_home"
             ${configMergeScript} ${nixSettings} "$fabric_home/config.yaml"
             ${fabricVenv}/bin/python3 -c '
 import json, sys

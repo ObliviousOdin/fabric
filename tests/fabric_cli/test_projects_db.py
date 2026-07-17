@@ -155,7 +155,7 @@ def test_branch_name_for_is_deterministic():
 
 
 def test_per_profile_isolation(tmp_path):
-    # Two distinct DB paths stand in for two profiles' HERMES_HOME.
+    # Two distinct DB paths stand in for two profiles' FABRIC_HOME.
     a = pdb.connect(db_path=tmp_path / "a" / "projects.db")
     b = pdb.connect(db_path=tmp_path / "b" / "projects.db")
     try:
@@ -169,6 +169,6 @@ def test_per_profile_isolation(tmp_path):
 
 
 def test_db_path_under_fabric_home():
-    # Resolves under HERMES_HOME (set by the autouse isolation fixture).
+    # Resolves under FABRIC_HOME (set by the autouse isolation fixture).
     assert pdb.projects_db_path().name == "projects.db"
     assert os.path.basename(str(pdb.projects_db_path().parent))  # non-empty parent

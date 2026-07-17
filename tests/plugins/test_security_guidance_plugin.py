@@ -28,7 +28,7 @@ import pytest
 def _isolate_env(tmp_path, monkeypatch):
     fabric_home = tmp_path / ".hermes"
     fabric_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.delenv("SECURITY_GUIDANCE_BLOCK", raising=False)
     monkeypatch.delenv("SECURITY_GUIDANCE_DISABLE", raising=False)
     yield fabric_home

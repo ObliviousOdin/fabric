@@ -375,10 +375,10 @@ def _scan_gateway_pids(
             )
 
         # Default-profile case: no profile flag in argv. Accept as long as
-        # the command doesn't advertise *some other* profile. HERMES_HOME
+        # the command doesn't advertise *some other* profile. FABRIC_HOME
         # may be passed via env (not visible in wmic/CIM command line) so
         # its absence is NOT disqualifying — only a non-matching explicit
-        # HERMES_HOME= in argv is.
+        # FABRIC_HOME= in argv is.
         if "--profile " in command_lc or " -p " in command_lc:
             return False
         if (
@@ -705,7 +705,7 @@ def launch_detached_gateway_restart_by_cmdline(
 
     Companion to ``launch_detached_profile_gateway_restart`` for gateways that
     have no profile→PID-file mapping (Scheduled-Task / manually-launched
-    ``gateway run`` whose HERMES_HOME or argv doesn't match a known profile).
+    ``gateway run`` whose FABRIC_HOME or argv doesn't match a known profile).
     Uses the identical detached-watcher mechanism; only the respawn argv
     differs (the process's own argv instead of a profile-derived one).
     """
@@ -816,7 +816,7 @@ def _spawn_gateway_restart_watcher(old_pid: int, run_argv: list[str]) -> bool:
             "stderr": subprocess.DEVNULL,
         }}
         # Anchor the respawned gateway at the stable working dir and overlay
-        # the env (VIRTUAL_ENV / PYTHONPATH / HERMES_HOME) the windowless
+        # the env (VIRTUAL_ENV / PYTHONPATH / FABRIC_HOME) the windowless
         # base interpreter needs to import fabric_cli.  Empty on POSIX, where
         # the venv python resolves imports without help.
         if _respawn_cwd:
@@ -942,7 +942,7 @@ def _read_systemd_unit_environment(system: bool = False) -> dict[str, str]:
 
 
 def _fabric_home_from_systemd_unit_file(system: bool = False) -> str | None:
-    """Read ``HERMES_HOME`` from the on-disk unit file (not ``systemctl show``).
+    """Read ``FABRIC_HOME`` from the on-disk unit file (not ``systemctl show``).
 
     Prefer the file when refreshing/comparing: under ``sudo``, ``systemctl``
     may be slow/unavailable in tests, and the on-disk unit is what
@@ -961,18 +961,18 @@ def _fabric_home_from_systemd_unit_file(system: bool = False) -> str | None:
         if not stripped.startswith("Environment="):
             continue
         body = stripped[len("Environment=") :].strip().strip('"')
-        if body.startswith("HERMES_HOME="):
+        if body.startswith("FABRIC_HOME="):
             value = body.split("=", 1)[1].strip().strip('"')
             return value or None
     return None
 
 
 def _sync_fabric_home_from_systemd_unit(system: bool) -> None:
-    """When acting on a system-scope unit, adopt its ``HERMES_HOME``.
+    """When acting on a system-scope unit, adopt its ``FABRIC_HOME``.
 
-    Under ``sudo``, ``HERMES_HOME`` is stripped and ``HOME=/root``, so
+    Under ``sudo``, ``FABRIC_HOME`` is stripped and ``HOME=/root``, so
     :func:`get_fabric_home` falls back to ``/root/.hermes`` — the wrong
-    profile. The unit file pins ``HERMES_HOME`` for the actual gateway
+    profile. The unit file pins ``FABRIC_HOME`` for the actual gateway
     process, so we mirror that into our own environment to make
     ``read_runtime_status`` / ``get_running_pid`` read the correct files.
     """
@@ -982,13 +982,13 @@ def _sync_fabric_home_from_systemd_unit(system: bool) -> None:
     # back to ``systemctl show`` for units that only exist in the manager.
     unit_home = (_fabric_home_from_systemd_unit_file(system=True) or "").strip()
     if not unit_home:
-        unit_home = _read_systemd_unit_environment(system=True).get("HERMES_HOME", "").strip()
+        unit_home = _read_systemd_unit_environment(system=True).get("FABRIC_HOME", "").strip()
     if not unit_home:
         return
-    current = os.environ.get("HERMES_HOME", "").strip()
+    current = os.environ.get("FABRIC_HOME", "").strip()
     if current == unit_home:
         return
-    os.environ["HERMES_HOME"] = unit_home
+    os.environ["FABRIC_HOME"] = unit_home
 
 
 def _read_systemd_unit_properties(
@@ -1554,7 +1554,7 @@ def _reap_unsupervised_gateway_orphans() -> bool:
 
 
 def stop_profile_gateway() -> bool:
-    """Stop only the gateway for the current profile (HERMES_HOME-scoped).
+    """Stop only the gateway for the current profile (FABRIC_HOME-scoped).
 
     Uses the PID file written by start_gateway(), so it only kills the
     gateway belonging to this profile — not gateways from other profiles.
@@ -1683,13 +1683,13 @@ def _windows_gateway_should_absorb_console_controls() -> bool:
 
     Foreground ``fabric gateway run`` must remain interruptible from
     PowerShell/CMD. Detached service-style launches opt in via
-    ``HERMES_GATEWAY_DETACHED=1``; older wrappers without the env marker are
+    ``FABRIC_GATEWAY_DETACHED=1``; older wrappers without the env marker are
     treated as detached when no interactive stdin is attached.
     """
     if not is_windows():
         return False
 
-    detached = os.getenv("HERMES_GATEWAY_DETACHED", "").strip().lower()
+    detached = os.getenv("FABRIC_GATEWAY_DETACHED", "").strip().lower()
     if detached in {"1", "true", "yes", "on"}:
         return True
 
@@ -1708,11 +1708,11 @@ SERVICE_DESCRIPTION = "Fabric Gateway - Messaging Platform Integration"
 
 
 def _profile_suffix() -> str:
-    """Derive a service-name suffix from the current HERMES_HOME.
+    """Derive a service-name suffix from the current FABRIC_HOME.
 
     Returns ``""`` for the default root, the profile name for
     ``<root>/profiles/<name>``, or a short hash for any other path.
-    Works correctly in Docker (HERMES_HOME=/opt/data) and standard deployments.
+    Works correctly in Docker (FABRIC_HOME=/opt/data) and standard deployments.
     """
     import hashlib
     import re
@@ -1731,18 +1731,18 @@ def _profile_suffix() -> str:
             return parts[0]
     except ValueError:
         pass
-    # Fallback: short hash for arbitrary HERMES_HOME paths
+    # Fallback: short hash for arbitrary FABRIC_HOME paths
     return hashlib.sha256(str(home).encode()).hexdigest()[:8]
 
 
 def _profile_arg(fabric_home: str | None = None, default_root: str | Path | None = None) -> str:
-    """Return ``--profile <name>`` only when HERMES_HOME is a named profile.
+    """Return ``--profile <name>`` only when FABRIC_HOME is a named profile.
 
     For ``~/.fabric/profiles/<name>``, returns ``"--profile <name>"``.
     For the default profile or hash-based custom paths, returns the empty string.
 
     Args:
-        fabric_home: Optional explicit HERMES_HOME path. Defaults to the current
+        fabric_home: Optional explicit FABRIC_HOME path. Defaults to the current
             ``get_fabric_home()`` value. Should be passed when generating a
             service definition for a different user (e.g. system service).
         default_root: Optional Fabric root to compare against. Used when
@@ -2626,7 +2626,7 @@ def _fabric_home_for_target_user(target_home_dir: str) -> str:
         if current_fabric == current_default:
             return str(target_default)
         try:
-            relative = current_hermes.relative_to(current_default)
+            relative = current_fabric.relative_to(current_default)
             return str(target_default / relative)
         except ValueError:
             continue
@@ -2683,9 +2683,9 @@ def _stable_service_working_dir() -> str:
     loads, so the on-boot ``refresh_systemd_unit_if_needed()`` self-heal never
     runs and ``Restart=always`` crash-loops forever on a dead directory.
 
-    ``HERMES_HOME`` is the stable anchor: it is where config/state/logs live,
+    ``FABRIC_HOME`` is the stable anchor: it is where config/state/logs live,
     it never moves, and it is guaranteed to exist whenever the gateway is
-    meaningfully installed. Fall back to ``PROJECT_ROOT`` only if HERMES_HOME
+    meaningfully installed. Fall back to ``PROJECT_ROOT`` only if FABRIC_HOME
     cannot be resolved (it always can in practice).
     """
     try:
@@ -2743,7 +2743,7 @@ def generate_systemd_unit(system: bool = False, run_as_user: str | None = None) 
         # (e.g. /root/) to the target user's home so the service can
         # actually access them.
         python_path = _remap_path_for_user(python_path, home_dir)
-        # Anchor cwd to the target user's HERMES_HOME (stable, always exists)
+        # Anchor cwd to the target user's FABRIC_HOME (stable, always exists)
         # rather than a remapped source-checkout path that can rot. See
         # _stable_service_working_dir() for the full rationale.
         working_dir = str(fabric_home) if fabric_home else _remap_path_for_user(working_dir, home_dir)
@@ -2771,7 +2771,7 @@ Environment="LOGNAME={username}"
 Environment="PATH={sane_path}"
 Environment="VIRTUAL_ENV={venv_dir}"
 Environment="FABRIC_HOME={fabric_home}"
-Environment="HERMES_HOME={fabric_home}"
+Environment="FABRIC_HOME={fabric_home}"
 Restart=always
 RestartSec=5
 RestartForceExitStatus={GATEWAY_SERVICE_RESTART_EXIT_CODE}
@@ -2806,7 +2806,7 @@ WorkingDirectory={working_dir}
 Environment="PATH={sane_path}"
 Environment="VIRTUAL_ENV={venv_dir}"
 Environment="FABRIC_HOME={fabric_home}"
-Environment="HERMES_HOME={fabric_home}"
+Environment="FABRIC_HOME={fabric_home}"
 Restart=always
 RestartSec=5
 RestartForceExitStatus={GATEWAY_SERVICE_RESTART_EXIT_CODE}
@@ -2863,24 +2863,24 @@ def _normalize_launchd_plist_for_comparison(text: str) -> str:
     normalized = _normalize_service_definition(text)
     return re.sub(
         r"(<key>PATH</key>\s*<string>)(.*?)(</string>)",
-        r"\1__HERMES_PATH__\3",
+        r"\1__FABRIC_PATH__\3",
         normalized,
         flags=re.S,
     )
 
 
 def systemd_unit_is_current(system: bool = False) -> bool:
-    # ── HERMES_HOME sync chokepoint ──────────────────────────────────────
+    # ── FABRIC_HOME sync chokepoint ──────────────────────────────────────
     # Every path that compares OR regenerates the unit funnels through here:
     # ``refresh_systemd_unit_if_needed`` gates on this before rewriting, and
     # ``systemd_status`` / ``systemd_install`` call it directly. Doing the
     # sync here — and ONLY here — enforces the invariant "the operator's
-    # pinned HERMES_HOME is adopted before any compare/regenerate" at a single
+    # pinned FABRIC_HOME is adopted before any compare/regenerate" at a single
     # site, so a future callsite cannot regress it by forgetting to pre-sync.
     #
-    # Under ``sudo Fabric gateway … --system``, HERMES_HOME is often stripped
+    # Under ``sudo Fabric gateway … --system``, FABRIC_HOME is often stripped
     # and falls back to ``/root/.hermes``. Adopting the unit's pinned home
-    # first makes TimeoutStopSec / WorkingDirectory / HERMES_HOME comparisons
+    # first makes TimeoutStopSec / WorkingDirectory / FABRIC_HOME comparisons
     # use the real operator config — otherwise start/restart "refresh" rewrites
     # a correct unit from root's defaults and ``status`` keeps warning forever.
     # ``_sync_...`` is idempotent (early-returns once os.environ matches), so
@@ -2908,29 +2908,29 @@ def systemd_unit_is_current(system: bool = False) -> bool:
 
 
 def _temp_home_in_service_definition(definition: str) -> str | None:
-    """Return the temp-dir HERMES_HOME baked into a service definition, or None.
+    """Return the temp-dir FABRIC_HOME baked into a service definition, or None.
 
-    A generated systemd unit / launchd plist carries the resolved HERMES_HOME
+    A generated systemd unit / launchd plist carries the resolved FABRIC_HOME
     in its environment block. If that path lives under the system temp dir,
     the definition was almost certainly generated by a test/E2E harness that
-    exported a throwaway ``HERMES_HOME=/tmp/...`` — writing it to the real
+    exported a throwaway ``FABRIC_HOME=/tmp/...`` — writing it to the real
     service file silently breaks the user's gateway on the next (re)start:
     the gateway comes back "active (running)" but pointed at an empty temp
     home ("No messaging platforms enabled"), deaf to every platform.
     Seen live 2026-06-11: an E2E guard probe ran ``fabric gateway restart``
-    with ``HERMES_HOME=/tmp/fabric-e2e-<pr>`` exported; the restart path's
+    with ``FABRIC_HOME=/tmp/fabric-e2e-<pr>`` exported; the restart path's
     unit refresh baked the temp path into the production unit and the
     post-update restart produced a zombie gateway for 7+ hours.
 
-    Matches both systemd ``Environment="HERMES_HOME=..."`` lines and launchd
-    ``<key>HERMES_HOME</key><string>...</string>`` pairs.
+    Matches both systemd ``Environment="FABRIC_HOME=..."`` lines and launchd
+    ``<key>FABRIC_HOME</key><string>...</string>`` pairs.
     """
     import re
     import tempfile
 
-    candidates = re.findall(r'(?:FABRIC_HOME|HERMES_HOME)=([^"\n]+)', definition)
+    candidates = re.findall(r'(?:FABRIC_HOME|FABRIC_HOME)=([^"\n]+)', definition)
     candidates += re.findall(
-        r"<key>(?:FABRIC_HOME|HERMES_HOME)</key>\s*<string>(.*?)</string>", definition, flags=re.S
+        r"<key>(?:FABRIC_HOME|FABRIC_HOME)</key>\s*<string>(.*?)</string>", definition, flags=re.S
     )
     temp_roots = {
         Path(tempfile.gettempdir()).resolve(),
@@ -2951,16 +2951,16 @@ def _temp_home_in_service_definition(definition: str) -> str | None:
 
 
 def _refuse_temp_home_service_write(definition: str, kind: str) -> bool:
-    """Refuse (with guidance) when a service definition carries a temp HERMES_HOME."""
+    """Refuse (with guidance) when a service definition carries a temp FABRIC_HOME."""
     temp_home = _temp_home_in_service_definition(definition)
     if temp_home is None:
         return False
     print(
-        f"✗ Refusing to write the gateway {kind}: HERMES_HOME resolves to a "
+        f"✗ Refusing to write the gateway {kind}: FABRIC_HOME resolves to a "
         f"temporary directory ({temp_home})."
     )
     print(
-        "  This usually means a test/E2E environment exported HERMES_HOME. "
+        "  This usually means a test/E2E environment exported FABRIC_HOME. "
         "Unset it (or run from a clean shell) and retry."
     )
     return True
@@ -2973,7 +2973,7 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
         return False
 
     # The gate below funnels through ``systemd_unit_is_current``, which is the
-    # single HERMES_HOME-sync chokepoint (adopts the unit's pinned home before
+    # single FABRIC_HOME-sync chokepoint (adopts the unit's pinned home before
     # any compare/regenerate). No separate pre-sync needed here — and the env
     # mutation it performs persists for the regenerate path below.
     if systemd_unit_is_current(system=system):
@@ -2984,10 +2984,10 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
 
     # ── Test-environment safety belt ─────────────────────────────────────
     # The user-scope unit path resolves under ``Path.home()``, which is NOT
-    # sandboxed by the test conftest (only HERMES_HOME is). If a test
-    # exercises ``run_gateway()`` with a pytest-tmp HERMES_HOME, the freshly
+    # sandboxed by the test conftest (only FABRIC_HOME is). If a test
+    # exercises ``run_gateway()`` with a pytest-tmp FABRIC_HOME, the freshly
     # generated unit bakes that ``/tmp/pytest-of-.../fabric_test`` path into
-    # ``Environment="HERMES_HOME=..."``. Writing that to the developer's
+    # ``Environment="FABRIC_HOME=..."``. Writing that to the developer's
     # real user systemd unit file silently breaks their gateway on the next
     # reboot (systemd loads the polluted env, the gateway looks at an empty
     # tmp dir, and Telegram/Discord/etc. all show as "not configured").
@@ -3004,7 +3004,7 @@ def refresh_systemd_unit_if_needed(system: bool = False) -> bool:
         return False
 
     # Structural variant of the same belt: refuse to bake ANY temp-dir
-    # HERMES_HOME into the unit (manual E2E homes like /tmp/fabric-e2e-NNN
+    # FABRIC_HOME into the unit (manual E2E homes like /tmp/fabric-e2e-NNN
     # don't carry the pytest markers above but poison the unit identically).
     if _refuse_temp_home_service_write(new_unit, "systemd unit"):
         return False
@@ -3125,7 +3125,7 @@ def _print_system_scope_remediation(action: str) -> None:
 
 def _get_restart_drain_timeout() -> float:
     """Return the configured gateway restart drain timeout in seconds."""
-    raw = os.getenv("HERMES_RESTART_DRAIN_TIMEOUT", "").strip()
+    raw = os.getenv("FABRIC_RESTART_DRAIN_TIMEOUT", "").strip()
     if not raw:
         cfg = read_raw_config()
         agent_cfg = cfg.get("agent", {}) if isinstance(cfg, dict) else {}
@@ -3163,7 +3163,7 @@ def systemd_install(
     unit_path = get_systemd_unit_path(system=system)
     scope_flag = " --system" if system else ""
 
-    # Existing system units already pin HERMES_HOME; adopt it before any
+    # Existing system units already pin FABRIC_HOME; adopt it before any
     # regenerate. This pre-sync is NOT redundant with the systemd_unit_is_current
     # chokepoint: the ``--force`` path below skips the is_current gate and calls
     # generate_systemd_unit() directly (line ~3172), so without this a
@@ -3262,7 +3262,7 @@ def systemd_start(system: bool = False):
         # Raises UserSystemdUnavailableError with a remediation message.
         _preflight_user_systemd()
     _require_service_installed("start", system=system)
-    # HERMES_HOME sync happens inside refresh_systemd_unit_if_needed's
+    # FABRIC_HOME sync happens inside refresh_systemd_unit_if_needed's
     # systemd_unit_is_current gate (the single chokepoint), and the unit is
     # guaranteed to exist here by _require_service_installed, so the gate runs.
     refresh_systemd_unit_if_needed(system=system)
@@ -3305,7 +3305,7 @@ def systemd_restart(system: bool = False):
     else:
         _preflight_user_systemd()
     _require_service_installed("restart", system=system)
-    # HERMES_HOME sync happens inside refresh_systemd_unit_if_needed's
+    # FABRIC_HOME sync happens inside refresh_systemd_unit_if_needed's
     # systemd_unit_is_current gate (the single chokepoint). The unit exists
     # here (_require_service_installed), so the gate runs and its os.environ
     # mutation persists for the get_running_pid / drain-timeout reads below —
@@ -3812,7 +3812,7 @@ def _launchd_unsupported_marker_exists() -> bool:
 def _gateway_run_command() -> list[str]:
     """Build the `python -m fabric_cli.main [--profile X] gateway run --replace` argv.
 
-    Profile-aware: honors the active HERMES_HOME via `_profile_arg()` so the
+    Profile-aware: honors the active FABRIC_HOME via `_profile_arg()` so the
     detached fallback launches into the same profile as the CLI invocation.
     """
     cmd = [get_python_path(), "-m", "fabric_cli.main"]
@@ -3963,7 +3963,7 @@ def generate_launchd_plist() -> str:
         <string>{venv_dir}</string>
         <key>FABRIC_HOME</key>
         <string>{fabric_home}</string>
-        <key>HERMES_HOME</key>
+        <key>FABRIC_HOME</key>
         <string>{fabric_home}</string>
     </dict>
 
@@ -4288,7 +4288,7 @@ def _wait_for_gateway_exit(
 
     Uses the PID from the gateway.pid file — not launchd labels — so this
     works correctly when multiple gateway instances run under separate
-    HERMES_HOME directories.
+    FABRIC_HOME directories.
 
     Args:
         timeout: Total seconds to wait before giving up.
@@ -4516,11 +4516,11 @@ def _running_under_gateway_supervisor() -> bool:
         marker ``gateway/run.py`` already uses to pick the restart path).
       - launchd sets ``XPC_SERVICE_NAME`` to the job label for jobs it spawns;
         interactive shells inherit the sentinel ``"0"`` instead.
-      - the s6-overlay container longrun exports ``HERMES_S6_SUPERVISED_CHILD``.
+      - the s6-overlay container longrun exports ``FABRIC_S6_SUPERVISED_CHILD``.
     """
     if os.environ.get("INVOCATION_ID"):
         return True
-    if os.environ.get("HERMES_S6_SUPERVISED_CHILD"):
+    if os.environ.get("FABRIC_S6_SUPERVISED_CHILD"):
         return True
     xpc_service = os.environ.get("XPC_SERVICE_NAME", "")
     if xpc_service and xpc_service != "0":
@@ -4670,7 +4670,7 @@ def _guard_existing_gateway_process_conflict(replace: bool = False) -> None:
     ``fabric gateway run`` can burn memory/CPU just to fail with "already
     running" after plugin discovery. This cheap PID-file preflight preserves the
     same user-facing contract while avoiding that startup work without scanning
-    unrelated gateway processes from other HERMES_HOME roots.
+    unrelated gateway processes from other FABRIC_HOME roots.
     """
     if replace or _running_under_gateway_supervisor():
         return
@@ -4697,7 +4697,7 @@ def _guard_official_docker_root_gateway() -> None:
     """Refuse gateway startup when the official Docker privilege drop was bypassed."""
     if not hasattr(os, "geteuid") or os.geteuid() != 0:
         return
-    if _truthy_env(os.getenv("HERMES_ALLOW_ROOT_GATEWAY")):
+    if _truthy_env(os.getenv("FABRIC_ALLOW_ROOT_GATEWAY")):
         return
     if not _is_official_docker_checkout():
         return
@@ -4712,10 +4712,10 @@ def _guard_official_docker_root_gateway() -> None:
     )
     print(
         "  Running the gateway as root can leave root-owned files in "
-        "$HERMES_HOME and break later non-root dashboard/gateway runs."
+        "$FABRIC_HOME and break later non-root dashboard/gateway runs."
     )
     print(
-        "  Set HERMES_ALLOW_ROOT_GATEWAY=1 only if you intentionally accept this risk."
+        "  Set FABRIC_ALLOW_ROOT_GATEWAY=1 only if you intentionally accept this risk."
     )
     sys.exit(1)
 
@@ -4741,7 +4741,7 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     # Detached Windows gateway runs must ignore console-control broadcasts
     # from sibling CLI processes, but foreground `fabric gateway run` still
     # needs to obey the banner's "Press Ctrl+C to stop" contract.
-    # Service-style launchers set HERMES_GATEWAY_DETACHED=1; older wrappers
+    # Service-style launchers set FABRIC_GATEWAY_DETACHED=1; older wrappers
     # without the marker are handled by the non-TTY fallback.
     try:
         _stdin_is_tty = bool(sys.stdin and sys.stdin.isatty())
@@ -4814,14 +4814,14 @@ def run_gateway(verbose: int = 0, quiet: bool = False, replace: bool = False, fo
     # the next silent death yields evidence instead of a mystery. This
     # is diagnostic scaffolding; cheap to keep on, costs nothing during
     # normal operation, and the emitted lines are opt-in via the
-    # HERMES_GATEWAY_EXIT_DIAG env var (default: on while we're still
+    # FABRIC_GATEWAY_EXIT_DIAG env var (default: on while we're still
     # chasing the Windows lifecycle bug).
     import atexit as _atexit
     import traceback as _traceback
     from datetime import datetime as _dt, timezone as _tz
 
     def _exit_diag(tag: str, **extra: object) -> None:
-        if os.environ.get("HERMES_GATEWAY_EXIT_DIAG", "1") != "1":
+        if os.environ.get("FABRIC_GATEWAY_EXIT_DIAG", "1") != "1":
             return
         try:
             from fabric_constants import get_fabric_home as _ghh
@@ -6388,7 +6388,7 @@ def _dispatch_via_service_manager_if_s6(
         return False
     if profile is None:
         # _profile_suffix() returns the bare profile name for
-        # HERMES_HOME=<root>/profiles/<name>, "" for the default root,
+        # FABRIC_HOME=<root>/profiles/<name>, "" for the default root,
         # or a hash for unrelated paths. Map "" → "default" so the
         # default-profile gateway is reachable as gateway-default.
         profile = _profile_suffix() or "default"
@@ -6504,24 +6504,24 @@ def _maybe_redirect_run_to_s6_supervision(args) -> bool:
       1. ``_dispatch_via_service_manager_if_s6`` returns False unless
          we're in a container with s6 as PID 1. Host runs of
          ``fabric gateway run`` are unaffected.
-      2. ``HERMES_S6_SUPERVISED_CHILD`` is exported by
+      2. ``FABRIC_S6_SUPERVISED_CHILD`` is exported by
          ``S6ServiceManager._render_run_script`` for the supervised
          process itself — i.e. when s6-supervise execs ``fabric gateway
          run --replace`` as a longrun, this guard short-circuits the
          redirect so the supervised gateway actually runs in
          foreground (otherwise we'd recurse: run → start → run → start
          → ...).
-      3. ``--no-supervise`` (or ``HERMES_GATEWAY_NO_SUPERVISE=1``) opts
+      3. ``--no-supervise`` (or ``FABRIC_GATEWAY_NO_SUPERVISE=1``) opts
          out for users who genuinely want pre-s6 semantics — CI smoke
          tests, debugging the foreground startup path, etc.
 
     Returns True iff dispatched (caller should ``return``).
     """
     no_supervise = getattr(args, "no_supervise", False) or \
-        os.environ.get("HERMES_GATEWAY_NO_SUPERVISE", "").lower() in ("1", "true", "yes")
+        os.environ.get("FABRIC_GATEWAY_NO_SUPERVISE", "").lower() in ("1", "true", "yes")
     if no_supervise:
         return False
-    if os.environ.get("HERMES_S6_SUPERVISED_CHILD"):
+    if os.environ.get("FABRIC_S6_SUPERVISED_CHILD"):
         # We ARE the supervised child s6-supervise is running. Fall
         # through to the foreground code path so the gateway actually
         # starts.
@@ -6531,15 +6531,15 @@ def _maybe_redirect_run_to_s6_supervision(args) -> bool:
     # Loud breadcrumb: explain the upgrade and how to opt out. Print to
     # stderr so it doesn't pollute stdout-parsing scripts. The
     # supervised gateway's own logs are routed by s6-log to both
-    # `docker logs` and ${HERMES_HOME}/logs/gateways/<profile>/current,
+    # `docker logs` and ${FABRIC_HOME}/logs/gateways/<profile>/current,
     # so the user sees a clear sequence: this banner first, then the
     # gateway's own stdout/stderr from the supervisor.
     print(
         "→ gateway is now running under s6 supervision (auto-restart on crash,\n"
-        "  dashboard supervised alongside if HERMES_DASHBOARD is set).\n"
+        "  dashboard supervised alongside if FABRIC_DASHBOARD is set).\n"
         "  This is the recommended setup for the s6 container image — the\n"
         "  gateway will keep running even if it crashes.\n"
-        "  Use `--no-supervise` (or HERMES_GATEWAY_NO_SUPERVISE=1) to opt out\n"
+        "  Use `--no-supervise` (or FABRIC_GATEWAY_NO_SUPERVISE=1) to opt out\n"
         "  and get the pre-s6 foreground behavior instead.",
         file=sys.stderr,
         flush=True,
@@ -6842,7 +6842,7 @@ def _gateway_command_inner(args):
     elif subcmd == "stop":
         # Defense: refuse self-targeting gateway stop from inside the gateway.
         # Prevents agent-initiated kill loops when combined with supervisor KeepAlive.
-        if os.getenv("_HERMES_GATEWAY") == "1":
+        if os.getenv("_FABRIC_GATEWAY") == "1":
             print_error(
                 "Refusing to stop the gateway from inside the gateway process.\n"
                 "This command was blocked to prevent restart loops.\n"
@@ -6935,7 +6935,7 @@ def _gateway_command_inner(args):
     elif subcmd == "restart":
         # Defense: refuse self-targeting gateway restart from inside the gateway.
         # Prevents agent-initiated kill loops when combined with supervisor KeepAlive.
-        if os.getenv("_HERMES_GATEWAY") == "1":
+        if os.getenv("_FABRIC_GATEWAY") == "1":
             print_error(
                 "Refusing to restart the gateway from inside the gateway process.\n"
                 "This command was blocked to prevent restart loops.\n"

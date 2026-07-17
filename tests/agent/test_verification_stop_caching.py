@@ -28,7 +28,7 @@ def _fresh_run_agent(fabric_home):
 
 
 def test_verification_flags_registered_as_ephemeral(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
     ra = _fresh_run_agent(tmp_path)
 
     assert "_verification_stop_synthetic" in ra._EPHEMERAL_SCAFFOLDING_FLAGS
@@ -65,7 +65,7 @@ def _make_agent(ra, session_id, tmp_path):
 
 
 def test_db_flush_drops_verification_scaffolding(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
     ra = _fresh_run_agent(tmp_path)
     agent = _make_agent(ra, "sess_db", tmp_path)
 
@@ -89,7 +89,7 @@ def test_db_flush_drops_verification_scaffolding(tmp_path, monkeypatch):
 
 
 def test_json_log_drops_verification_scaffolding(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".hermes"))
     ra = _fresh_run_agent(tmp_path)
     agent = _make_agent(ra, "sess_json", tmp_path)
 

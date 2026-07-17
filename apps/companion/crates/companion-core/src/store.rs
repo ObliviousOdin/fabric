@@ -33,7 +33,7 @@ const DEFAULT_BUNDLED_PET_SLUG: &str = "fabric-mascot";
 
 /// Resolve the fabric state directory, mirroring `get_fabric_home()`:
 ///
-/// 1. env `FABRIC_HOME`, then env `HERMES_HOME` (non-empty, stripped)
+/// 1. env `FABRIC_HOME`, then env `FABRIC_HOME` (non-empty, stripped)
 /// 2. legacy compat: the old `hermes` directory if it exists and the new
 ///    `fabric` one does not
 /// 3. platform default: `~/.fabric` on POSIX, `%LOCALAPPDATA%\fabric` on

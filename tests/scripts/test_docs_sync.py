@@ -83,13 +83,13 @@ class DocsSyncTests(unittest.TestCase):
             },
             "documented_token_exemptions": {},
         }
-        self._write("website/docs/guide.md", "Use `FABRIC_REAL_TOKEN` and `HERMES_GHOST`.\n")
+        self._write("website/docs/guide.md", "Use `FABRIC_REAL_TOKEN` and `FABRIC_GHOST`.\n")
         self._write("src/runtime.py", 'TOKEN = "FABRIC_REAL_TOKEN"\n')
 
         errors = self.sync.audit_documented_tokens(self.root, contracts)
 
         self.assertEqual(len(errors), 1)
-        self.assertIn("HERMES_GHOST", errors[0])
+        self.assertIn("FABRIC_GHOST", errors[0])
 
     def test_test_fixture_cannot_back_a_documented_token(self) -> None:
         contracts = {
@@ -99,22 +99,22 @@ class DocsSyncTests(unittest.TestCase):
             },
             "documented_token_exemptions": {},
         }
-        self._write("website/docs/guide.md", "Use `HERMES_TEST_ONLY_GHOST`.\n")
-        self._write("tests/fixture.py", 'TOKEN = "HERMES_TEST_ONLY_GHOST"\n')
+        self._write("website/docs/guide.md", "Use `FABRIC_TEST_ONLY_GHOST`.\n")
+        self._write("tests/fixture.py", 'TOKEN = "FABRIC_TEST_ONLY_GHOST"\n')
 
         errors = self.sync.audit_documented_tokens(self.root, contracts)
 
         self.assertEqual(len(errors), 1)
-        self.assertIn("HERMES_TEST_ONLY_GHOST", errors[0])
+        self.assertIn("FABRIC_TEST_ONLY_GHOST", errors[0])
 
     def test_token_exemption_requires_an_explicit_reason(self) -> None:
         contracts = {
             "authored_docs": {"include": ["**/*.md"], "exclude": []},
             "documented_token_exemptions": {
-                "HERMES_PREFIX_": "Wildcard family whose concrete members are source-backed."
+                "FABRIC_PREFIX_": "Wildcard family whose concrete members are source-backed."
             },
         }
-        self._write("website/docs/guide.md", "`HERMES_PREFIX_*`\n")
+        self._write("website/docs/guide.md", "`FABRIC_PREFIX_*`\n")
 
         self.assertEqual(
             self.sync.audit_documented_tokens(self.root, contracts),

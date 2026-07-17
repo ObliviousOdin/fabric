@@ -26,8 +26,8 @@ def store(tmp_path, monkeypatch):
 
     Pin DEFAULT_DB_PATH to tmp_path so SessionDB() can't write to the real
     ~/.hermes/state.db. (DEFAULT_DB_PATH is a module-level constant computed
-    at fabric_state import time, before pytest's HERMES_HOME monkeypatch
-    fires — the autouse fixture's HERMES_HOME override doesn't help here.)
+    at fabric_state import time, before pytest's FABRIC_HOME monkeypatch
+    fires — the autouse fixture's FABRIC_HOME override doesn't help here.)
     """
     import fabric_state
     monkeypatch.setattr(fabric_state, "DEFAULT_DB_PATH", tmp_path / "state.db")

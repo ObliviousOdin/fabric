@@ -24,7 +24,7 @@ def fabric_home(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     # Clear any cached fabric_home computation
     import fabric_constants
     if hasattr(fabric_constants, "_fabric_home_cache"):
@@ -49,7 +49,7 @@ def test_save_conversation_writes_under_fabric_home(fabric_home, tmp_path, monke
     work.mkdir()
     monkeypatch.chdir(work)
 
-    # Import fresh to pick up the HERMES_HOME fixture
+    # Import fresh to pick up the FABRIC_HOME fixture
     for mod in [m for m in sys.modules if m.startswith("cli") or m == "fabric_constants"]:
         sys.modules.pop(mod, None)
 

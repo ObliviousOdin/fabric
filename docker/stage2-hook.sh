@@ -17,8 +17,8 @@
 
 set -eu
 
-HERMES_HOME="${FABRIC_HOME:-${HERMES_HOME:-/opt/data}}"
-export FABRIC_HOME="$HERMES_HOME"
+FABRIC_HOME="${FABRIC_HOME:-${FABRIC_HOME:-/opt/data}}"
+export FABRIC_HOME="$FABRIC_HOME"
 INSTALL_DIR="/opt/hermes"
 
 # Drop to fabric via s6-setuidgid, but skip it when already non-root.
@@ -33,7 +33,7 @@ as_fabric() { [ "$(id -u)" = 0 ] || { "$@"; return; }; s6-setuidgid fabric "$@";
 # ownership, config seeding) requires root, and it is skipped when the container
 # starts non-root. The baked install tree under /opt/hermes is intentionally
 # root-owned and non-writable; mutable runtime state must live under
-# $HERMES_HOME. An arbitrary `--user` UID therefore cannot repair or populate
+# $FABRIC_HOME. An arbitrary `--user` UID therefore cannot repair or populate
 # the data volume, and startup fails with EACCES. See #34837 for the
 # supervision-tree side of this.
 #
@@ -74,17 +74,17 @@ EOF
     exit 1
 fi
 
-# --- Bootstrap HERMES_HOME as root ---
+# --- Bootstrap FABRIC_HOME as root ---
 # Create the directory (and any missing parents) while we still have root
 # privileges so the chown checks below see real metadata and the later
 # `s6-setuidgid fabric mkdir -p` block doesn't EACCES on root-owned
-# ancestors. Without this, custom HERMES_HOME paths whose parents only
-# root can create (e.g. `HERMES_HOME=/home/hermes/.hermes` in a Compose
+# ancestors. Without this, custom FABRIC_HOME paths whose parents only
+# root can create (e.g. `FABRIC_HOME=/home/hermes/.hermes` in a Compose
 # file, or any path under a fresh / not pre-populated by the image)
 # fail on first boot with `mkdir: cannot create directory '/...': Permission
 # denied` and the cont-init hook exits non-zero. Idempotent — `mkdir -p`
 # is a no-op if the dir already exists. (#18482, salvages #18488)
-mkdir -p "$HERMES_HOME"
+mkdir -p "$FABRIC_HOME"
 
 # Numeric UID/GID validation: must be digits only, non-root, 1-65534.
 # NAS hosts such as Unraid commonly use low non-root IDs (99:100).
@@ -102,18 +102,18 @@ validate_uid_gid() {
 # this alias those vars are silently ignored and the s6-setuidgid drop to
 # UID 10000 leaves the runtime unable to read the volume. FABRIC_UID/
 # FABRIC_GID win when both current and compatibility names are set.
-HERMES_UID="${FABRIC_UID:-${HERMES_UID:-${PUID:-}}}"
-HERMES_GID="${FABRIC_GID:-${HERMES_GID:-${PGID:-}}}"
+FABRIC_UID="${FABRIC_UID:-${FABRIC_UID:-${PUID:-}}}"
+FABRIC_GID="${FABRIC_GID:-${FABRIC_GID:-${PGID:-}}}"
 
-if [ -n "${HERMES_UID:-}" ] && validate_uid_gid "$HERMES_UID" && [ "$HERMES_UID" != "$(id -u fabric)" ]; then
-    echo "[stage2] Changing service-user UID to $HERMES_UID"
-    usermod -u "$HERMES_UID" fabric
+if [ -n "${FABRIC_UID:-}" ] && validate_uid_gid "$FABRIC_UID" && [ "$FABRIC_UID" != "$(id -u fabric)" ]; then
+    echo "[stage2] Changing service-user UID to $FABRIC_UID"
+    usermod -u "$FABRIC_UID" fabric
 fi
-if [ -n "${HERMES_GID:-}" ] && validate_uid_gid "$HERMES_GID" && [ "$HERMES_GID" != "$(id -g fabric)" ]; then
-    echo "[stage2] Changing service-user GID to $HERMES_GID"
+if [ -n "${FABRIC_GID:-}" ] && validate_uid_gid "$FABRIC_GID" && [ "$FABRIC_GID" != "$(id -g fabric)" ]; then
+    echo "[stage2] Changing service-user GID to $FABRIC_GID"
     # -o allows non-unique GID (e.g. macOS GID 20 "staff" may already
     # exist as "dialout" in the Debian-based container image).
-    groupmod -o -g "$HERMES_GID" hermes 2>/dev/null || true
+    groupmod -o -g "$FABRIC_GID" hermes 2>/dev/null || true
 fi
 
 # --- Docker socket group membership (docker-in-docker / DooD) ---
@@ -173,9 +173,9 @@ for sock in /var/run/docker.sock /run/docker.sock; do
 done
 
 # --- Fix ownership of data volume ---
-# When HERMES_UID is remapped or the top-level $HERMES_HOME isn't owned by
+# When FABRIC_UID is remapped or the top-level $FABRIC_HOME isn't owned by
 # the runtime fabric UID, restore ownership to fabric — but ONLY for the
-# directories fabric actually writes to. The full $HERMES_HOME may be a
+# directories fabric actually writes to. The full $FABRIC_HOME may be a
 # host-mounted bind containing unrelated user files; `chown -R` would
 # silently destroy host ownership of those (see issue #19788).
 #
@@ -185,7 +185,7 @@ actual_fabric_uid=$(id -u fabric)
 
 path_has_symlink_component() {
     path="$1"
-    root="${2:-$HERMES_HOME}"
+    root="${2:-$FABRIC_HOME}"
     while [ -n "$path" ] && [ "$path" != "/" ]; do
         if [ -L "$path" ]; then
             return 0
@@ -222,30 +222,30 @@ chown_fabric_tree() {
 }
 
 needs_chown=false
-if [ "$(stat -c %u "$HERMES_HOME" 2>/dev/null)" != "$actual_fabric_uid" ]; then
+if [ "$(stat -c %u "$FABRIC_HOME" 2>/dev/null)" != "$actual_fabric_uid" ]; then
     needs_chown=true
 fi
 if [ "$needs_chown" = true ]; then
-    echo "[stage2] Fixing ownership of $HERMES_HOME (targeted) to fabric ($actual_fabric_uid)"
+    echo "[stage2] Fixing ownership of $FABRIC_HOME (targeted) to fabric ($actual_fabric_uid)"
     # In rootless Podman the container's "root" is mapped to an
     # unprivileged host UID — chown will fail. That's fine: the volume
     # is already owned by the mapped user on the host side.
     #
-    # Top-level $HERMES_HOME: chown the directory itself (not its contents)
+    # Top-level $FABRIC_HOME: chown the directory itself (not its contents)
     # so fabric can mkdir new subdirs but bind-mounted host files keep
     # their existing ownership.
-    if refuse_symlinked_path "chown" "$HERMES_HOME"; then
+    if refuse_symlinked_path "chown" "$FABRIC_HOME"; then
         :
     else
-        chown fabric:fabric "$HERMES_HOME" 2>/dev/null || \
-            echo "[stage2] Warning: chown $HERMES_HOME failed (rootless container?) — continuing"
+        chown fabric:fabric "$FABRIC_HOME" 2>/dev/null || \
+            echo "[stage2] Warning: chown $FABRIC_HOME failed (rootless container?) — continuing"
     fi
     # Fabric-owned subdirs: recursive chown is safe here because these are
     # created and managed exclusively by fabric (see the s6-setuidgid mkdir
     # -p block below for the canonical list).
     for sub in cron sessions logs hooks memories skills skins plans workspace home profiles pairing platforms/pairing lazy-packages; do
-        if [ -e "$HERMES_HOME/$sub" ]; then
-            chown_fabric_tree "$HERMES_HOME/$sub"
+        if [ -e "$FABRIC_HOME/$sub" ]; then
+            chown_fabric_tree "$FABRIC_HOME/$sub"
         fi
     done
 fi
@@ -253,15 +253,15 @@ fi
 # --- Immutable install tree ---
 # Do not chown runtime code or dependency trees under $INSTALL_DIR back to the
 # fabric user. Hosted/container instances keep mutable state under
-# $HERMES_HOME (/opt/data) and run with PYTHONDONTWRITEBYTECODE plus
-# HERMES_DISABLE_LAZY_INSTALLS=1. Keeping /opt/hermes root-owned and
+# $FABRIC_HOME (/opt/data) and run with PYTHONDONTWRITEBYTECODE plus
+# FABRIC_DISABLE_LAZY_INSTALLS=1. Keeping /opt/hermes root-owned and
 # non-writable prevents an agent session from self-modifying the installed
 # source, venv, TUI bundle, or node_modules and bricking the gateway.
 #
 # Lazy-installable optional backends (Firecrawl, Exa, Feishu, etc.) cannot
 # install into the sealed venv, so they are redirected to the writable
-# $HERMES_HOME/lazy-packages dir on the data volume (Dockerfile sets
-# HERMES_LAZY_INSTALL_TARGET). That dir is appended to the END of sys.path,
+# $FABRIC_HOME/lazy-packages dir on the data volume (Dockerfile sets
+# FABRIC_LAZY_INSTALL_TARGET). That dir is appended to the END of sys.path,
 # so a package installed there can only ADD modules — it can never shadow or
 # break a core module, which is what keeps the sealed-venv guarantee intact
 # even though installs are re-enabled. The dir is seeded + chowned to fabric
@@ -269,23 +269,23 @@ fi
 # unprivileged runtime user, and it persists across container recreates /
 # image updates (an ABI stamp wipes it if a rebuild bumps the interpreter).
 
-# Always reset ownership of $HERMES_HOME/profiles to fabric on every
+# Always reset ownership of $FABRIC_HOME/profiles to fabric on every
 # boot. Profile dirs and files can land owned by root when commands
 # are invoked via `docker exec <container> fabric …` (which defaults
 # to root unless `-u` is passed), and that breaks the cont-init
 # reconciler (02-reconcile-profiles) which runs as fabric and walks
 # the profiles dir. Idempotent; skipped on rootless containers where
 # chown would fail.
-if [ -d "$HERMES_HOME/profiles" ]; then
-    chown_fabric_tree "$HERMES_HOME/profiles"
+if [ -d "$FABRIC_HOME/profiles" ]; then
+    chown_fabric_tree "$FABRIC_HOME/profiles"
 fi
 
-# Always reset ownership of $HERMES_HOME/cron on every boot for the same
+# Always reset ownership of $FABRIC_HOME/cron on every boot for the same
 # docker-exec/root-write reason as profiles/. The cron scheduler state
 # (jobs.json) must stay readable by the unprivileged fabric runtime even
 # after root-context maintenance commands or scheduler writes.
-if [ -d "$HERMES_HOME/cron" ]; then
-    chown_fabric_tree "$HERMES_HOME/cron"
+if [ -d "$FABRIC_HOME/cron" ]; then
+    chown_fabric_tree "$FABRIC_HOME/cron"
 fi
 
 # Always reset ownership of pairing data on every boot, same docker-exec/
@@ -293,21 +293,21 @@ fi
 # fabric pairing approve …` defaults to uid=0 and writes 0600 root-owned
 # approval files that the unprivileged fabric gateway cannot read,
 # silently leaving the approved user unauthorized (#10270). The targeted
-# data-volume chown above only runs when the top-level $HERMES_HOME is
+# data-volume chown above only runs when the top-level $FABRIC_HOME is
 # mis-owned, so warm boots skip it — this block makes a container restart
 # self-heal. Tiny directory (a handful of small JSON files), so the cost
 # is negligible.
-if [ -d "$HERMES_HOME/platforms/pairing" ]; then
-    chown_fabric_tree "$HERMES_HOME/platforms/pairing"
+if [ -d "$FABRIC_HOME/platforms/pairing" ]; then
+    chown_fabric_tree "$FABRIC_HOME/platforms/pairing"
 fi
 # Legacy location (pre-consolidated layout).
-if [ -d "$HERMES_HOME/pairing" ]; then
-    chown_fabric_tree "$HERMES_HOME/pairing"
+if [ -d "$FABRIC_HOME/pairing" ]; then
+    chown_fabric_tree "$FABRIC_HOME/pairing"
 fi
 
 # Reset ownership of fabric-owned top-level state files on every boot.
 # The targeted data-volume chown above only covers fabric-owned
-# *subdirectories*; loose state files living directly under $HERMES_HOME
+# *subdirectories*; loose state files living directly under $FABRIC_HOME
 # are missed. When those files are created or rewritten by
 # `docker exec <container> fabric …` (root unless `-u` is passed) they
 # land root-owned, and the unprivileged fabric runtime then hits
@@ -315,7 +315,7 @@ fi
 # auth.json), producing a gateway restart loop.
 #
 # We use an explicit allowlist rather than a blanket `find -user root`
-# sweep so host-owned files in a bind-mounted $HERMES_HOME are never
+# sweep so host-owned files in a bind-mounted $FABRIC_HOME are never
 # touched — same targeted-ownership contract as the subdir chown above
 # (issue #19788, PR #19795). The list mirrors the top-level *file*
 # entries of fabric_cli.profile_distribution.USER_OWNED_EXCLUDE plus the
@@ -327,11 +327,11 @@ for f in \
     response_store.db response_store.db-shm response_store.db-wal \
     gateway.pid gateway.lock gateway_state.json processes.json \
     active_profile; do
-    if [ -e "$HERMES_HOME/$f" ]; then
-        if refuse_symlinked_path "chown" "$HERMES_HOME/$f"; then
+    if [ -e "$FABRIC_HOME/$f" ]; then
+        if refuse_symlinked_path "chown" "$FABRIC_HOME/$f"; then
             :
         else
-            chown fabric:fabric "$HERMES_HOME/$f" 2>/dev/null || true
+            chown fabric:fabric "$FABRIC_HOME/$f" 2>/dev/null || true
         fi
     fi
 done
@@ -339,12 +339,12 @@ done
 # --- config.yaml permissions ---
 # Ensure config.yaml is readable by the fabric runtime user even if it
 # was edited on the host after initial ownership setup.
-if [ -f "$HERMES_HOME/config.yaml" ]; then
-    if refuse_symlinked_path "chown/chmod" "$HERMES_HOME/config.yaml"; then
+if [ -f "$FABRIC_HOME/config.yaml" ]; then
+    if refuse_symlinked_path "chown/chmod" "$FABRIC_HOME/config.yaml"; then
         :
     else
-        chown fabric:fabric "$HERMES_HOME/config.yaml" 2>/dev/null || true
-        chmod 640 "$HERMES_HOME/config.yaml" 2>/dev/null || true
+        chown fabric:fabric "$FABRIC_HOME/config.yaml" 2>/dev/null || true
+        chmod 640 "$FABRIC_HOME/config.yaml" 2>/dev/null || true
     fi
 fi
 
@@ -353,42 +353,42 @@ fi
 # under rootless Podman where chown back to root would fail).
 #
 # Use direct `mkdir -p` invocation (no `sh -c "..."` wrapper) so the
-# shell isn't a second interpreter — defends against $HERMES_HOME values
+# shell isn't a second interpreter — defends against $FABRIC_HOME values
 # containing shell metacharacters. PR #30136 review item O2.
 as_fabric mkdir -p \
-    "$HERMES_HOME/backups" \
-    "$HERMES_HOME/cron" \
-    "$HERMES_HOME/sessions" \
-    "$HERMES_HOME/logs" \
-    "$HERMES_HOME/logs/gateways" \
-    "$HERMES_HOME/hooks" \
-    "$HERMES_HOME/memories" \
-    "$HERMES_HOME/skills" \
-    "$HERMES_HOME/skins" \
-    "$HERMES_HOME/plans" \
-    "$HERMES_HOME/workspace" \
-    "$HERMES_HOME/home" \
-    "$HERMES_HOME/pairing" \
-    "$HERMES_HOME/platforms/pairing" \
-    "$HERMES_HOME/lazy-packages"
+    "$FABRIC_HOME/backups" \
+    "$FABRIC_HOME/cron" \
+    "$FABRIC_HOME/sessions" \
+    "$FABRIC_HOME/logs" \
+    "$FABRIC_HOME/logs/gateways" \
+    "$FABRIC_HOME/hooks" \
+    "$FABRIC_HOME/memories" \
+    "$FABRIC_HOME/skills" \
+    "$FABRIC_HOME/skins" \
+    "$FABRIC_HOME/plans" \
+    "$FABRIC_HOME/workspace" \
+    "$FABRIC_HOME/home" \
+    "$FABRIC_HOME/pairing" \
+    "$FABRIC_HOME/platforms/pairing" \
+    "$FABRIC_HOME/lazy-packages"
 
 # --- Install-method stamp ---
 # The 'docker' stamp is baked into the immutable install tree at
 # /opt/hermes/.install_method (see Dockerfile), NOT written here into
-# $HERMES_HOME. detect_install_method() reads the code-scoped stamp first.
+# $FABRIC_HOME. detect_install_method() reads the code-scoped stamp first.
 #
-# Why we no longer stamp $HERMES_HOME: it is a shared DATA volume, commonly
+# Why we no longer stamp $FABRIC_HOME: it is a shared DATA volume, commonly
 # bind-mounted from the host (~/.fabric:/opt/data) and sometimes shared with a
 # host-side Desktop/CLI install. Stamping 'docker' here clobbered that host
 # install's marker, so its in-app updater read 'docker' and refused to run
 # 'fabric update'. To heal homes already poisoned by older images, remove a
-# stale 'docker' stamp from $HERMES_HOME if one is present (the host install's
+# stale 'docker' stamp from $FABRIC_HOME if one is present (the host install's
 # own installer re-creates its code-scoped stamp; a genuine container relies on
 # the baked /opt/hermes stamp, so deleting the data-dir copy is safe).
-if [ -f "$HERMES_HOME/.install_method" ]; then
-    stamped="$(tr -d '[:space:]' < "$HERMES_HOME/.install_method" 2>/dev/null || true)"
+if [ -f "$FABRIC_HOME/.install_method" ]; then
+    stamped="$(tr -d '[:space:]' < "$FABRIC_HOME/.install_method" 2>/dev/null || true)"
     if [ "$stamped" = "docker" ]; then
-        rm -f "$HERMES_HOME/.install_method" 2>/dev/null || true
+        rm -f "$FABRIC_HOME/.install_method" 2>/dev/null || true
     fi
 fi
 
@@ -396,11 +396,11 @@ fi
 seed_one() {
     dest=$1
     src=$2
-    if [ ! -f "$HERMES_HOME/$dest" ] && [ -f "$INSTALL_DIR/$src" ]; then
-        if refuse_symlinked_path "seed" "$HERMES_HOME/$dest"; then
+    if [ ! -f "$FABRIC_HOME/$dest" ] && [ -f "$INSTALL_DIR/$src" ]; then
+        if refuse_symlinked_path "seed" "$FABRIC_HOME/$dest"; then
             :
         else
-            as_fabric cp "$INSTALL_DIR/$src" "$HERMES_HOME/$dest"
+            as_fabric cp "$INSTALL_DIR/$src" "$FABRIC_HOME/$dest"
         fi
     fi
 }
@@ -411,22 +411,22 @@ seed_one "SOUL.md" "docker/SOUL.md"
 # .env holds API keys and secrets — restrict to owner-only access. Applied
 # unconditionally (not only on first-seed) so a host-mounted .env that was
 # created with a permissive umask gets tightened on every container start.
-if [ -f "$HERMES_HOME/.env" ]; then
-    if refuse_symlinked_path "chown/chmod" "$HERMES_HOME/.env"; then
+if [ -f "$FABRIC_HOME/.env" ]; then
+    if refuse_symlinked_path "chown/chmod" "$FABRIC_HOME/.env"; then
         :
     else
-        chown fabric:fabric "$HERMES_HOME/.env" 2>/dev/null || true
-        chmod 600 "$HERMES_HOME/.env" 2>/dev/null || true
+        chown fabric:fabric "$FABRIC_HOME/.env" 2>/dev/null || true
+        chmod 600 "$FABRIC_HOME/.env" 2>/dev/null || true
     fi
 fi
 
 # --- Migrate persisted config schema ---
 # Docker image upgrades replace the code under $INSTALL_DIR but preserve
-# $HERMES_HOME on the mounted volume. Run the same safe, non-interactive
+# $FABRIC_HOME on the mounted volume. Run the same safe, non-interactive
 # config-schema migrations that `fabric update` runs for non-Docker installs,
 # after first-boot seeding and before supervised gateway services start.
-# Set HERMES_SKIP_CONFIG_MIGRATION=1 for controlled/manual migrations.
-if [ -f "$HERMES_HOME/config.yaml" ]; then
+# Set FABRIC_SKIP_CONFIG_MIGRATION=1 for controlled/manual migrations.
+if [ -f "$FABRIC_HOME/config.yaml" ]; then
     s6-setuidgid fabric "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/docker_config_migrate.py" \
         || echo "[stage2] Warning: docker_config_migrate.py failed; continuing"
 fi
@@ -434,13 +434,13 @@ fi
 # auth.json: bootstrap from env on first boot only. Same semantics as the
 # pre-s6 entrypoint — the [ ! -f ] guard is critical to avoid clobbering
 # rotated refresh tokens on container restart.
-if [ ! -f "$HERMES_HOME/auth.json" ] && [ -n "${HERMES_AUTH_JSON_BOOTSTRAP:-}" ]; then
-    if refuse_symlinked_path "seed" "$HERMES_HOME/auth.json"; then
+if [ ! -f "$FABRIC_HOME/auth.json" ] && [ -n "${FABRIC_AUTH_JSON_BOOTSTRAP:-}" ]; then
+    if refuse_symlinked_path "seed" "$FABRIC_HOME/auth.json"; then
         :
     else
-        printf '%s' "$HERMES_AUTH_JSON_BOOTSTRAP" > "$HERMES_HOME/auth.json"
-        chown fabric:fabric "$HERMES_HOME/auth.json" 2>/dev/null || true
-        chmod 600 "$HERMES_HOME/auth.json"
+        printf '%s' "$FABRIC_AUTH_JSON_BOOTSTRAP" > "$FABRIC_HOME/auth.json"
+        chown fabric:fabric "$FABRIC_HOME/auth.json" 2>/dev/null || true
+        chmod 600 "$FABRIC_HOME/auth.json"
     fi
 fi
 
@@ -454,14 +454,14 @@ fi
 # freshly-provisioned container comes up with the gateway down until
 # someone starts it (e.g. from the dashboard). An orchestrator that
 # provisions a fresh volume and wants the gateway running from first boot
-# can set HERMES_GATEWAY_BOOTSTRAP_STATE=running; we seed the state file
+# can set FABRIC_GATEWAY_BOOTSTRAP_STATE=running; we seed the state file
 # here, BEFORE 02-reconcile-profiles runs (cont-init.d scripts run in
 # lexicographic order), so the reconciler sees prior_state=running and
 # brings the supervised slot up on the very first boot.
 #
 # This is a generic container contract, not specific to any host: it seeds
 # the SAME gateway_state.json the reconciler already consults, exactly as
-# HERMES_AUTH_JSON_BOOTSTRAP seeds auth.json. The [ ! -f ] guard is the
+# FABRIC_AUTH_JSON_BOOTSTRAP seeds auth.json. The [ ! -f ] guard is the
 # load-bearing part — on every subsequent boot the persisted state wins,
 # so a gateway the operator deliberately stopped stays stopped across
 # restarts and we never clobber real runtime state.
@@ -469,14 +469,14 @@ fi
 # Only a literal "running" is honoured (the sole value in the reconciler's
 # _AUTOSTART_STATES); any other value is ignored so a typo can't write a
 # bogus state the reconciler would treat as "no prior state" anyway.
-if [ ! -f "$HERMES_HOME/gateway_state.json" ] && \
-        [ "${HERMES_GATEWAY_BOOTSTRAP_STATE:-}" = "running" ]; then
-    if refuse_symlinked_path "seed" "$HERMES_HOME/gateway_state.json"; then
+if [ ! -f "$FABRIC_HOME/gateway_state.json" ] && \
+        [ "${FABRIC_GATEWAY_BOOTSTRAP_STATE:-}" = "running" ]; then
+    if refuse_symlinked_path "seed" "$FABRIC_HOME/gateway_state.json"; then
         :
     else
-        printf '{"gateway_state":"running"}\n' > "$HERMES_HOME/gateway_state.json"
-        chown fabric:fabric "$HERMES_HOME/gateway_state.json" 2>/dev/null || true
-        chmod 644 "$HERMES_HOME/gateway_state.json"
+        printf '{"gateway_state":"running"}\n' > "$FABRIC_HOME/gateway_state.json"
+        chown fabric:fabric "$FABRIC_HOME/gateway_state.json" 2>/dev/null || true
+        chmod 644 "$FABRIC_HOME/gateway_state.json"
     fi
 fi
 

@@ -113,11 +113,11 @@ model:
 # client rebuilds during credential rotation.  For OpenAI-wire chat
 # completions (streaming and non-streaming) the configured value is also
 # used as the per-request ``timeout=`` kwarg so it wins over the legacy
-# HERMES_API_TIMEOUT env var (which still applies when no config is set).
+# FABRIC_API_TIMEOUT env var (which still applies when no config is set).
 # ``stale_timeout_seconds`` controls the non-streaming stale-call detector and
-# wins over the legacy HERMES_API_CALL_STALE_TIMEOUT env var. Leaving these
-# unset keeps the legacy defaults (HERMES_API_TIMEOUT=1800s,
-# HERMES_API_CALL_STALE_TIMEOUT=90s, native Anthropic 900s). The
+# wins over the legacy FABRIC_API_CALL_STALE_TIMEOUT env var. Leaving these
+# unset keeps the legacy defaults (FABRIC_API_TIMEOUT=1800s,
+# FABRIC_API_CALL_STALE_TIMEOUT=90s, native Anthropic 900s). The
 # implicit non-stream stale detector is auto-disabled for local endpoints
 # and can scale upward for very large contexts.
 #
@@ -711,7 +711,7 @@ agent:
   # coding surfaces (CLI, TUI, desktop) and programmatic callers, and disables
   # it on conversational messaging surfaces (Telegram, Discord, etc.) where the
   # verification summary would reach a human as chat noise. Set true or false to
-  # force it on or off; the HERMES_VERIFY_ON_STOP env var (1/0) takes precedence.
+  # force it on or off; the FABRIC_VERIFY_ON_STOP env var (1/0) takes precedence.
   # verify_on_stop: auto
 
   # Standing operator instructions for the coding posture (when Fabric is in a
@@ -1285,7 +1285,7 @@ display:
 #
 # First-use consent: each (event, command) pair prompts once on a TTY, then
 # is persisted to ~/.fabric/shell-hooks-allowlist.json.  Non-interactive
-# runs (gateway, cron) need --accept-hooks, HERMES_ACCEPT_HOOKS=1, or the
+# runs (gateway, cron) need --accept-hooks, FABRIC_ACCEPT_HOOKS=1, or the
 # hooks_auto_accept key below.
 #
 # See website/docs/user-guide/features/hooks.md for the full JSON wire
@@ -1335,9 +1335,9 @@ updates:
 # The bundled Nous Portal plugin reads these on startup; settings here are
 # the canonical surface. Each can be overridden by an environment variable:
 #
-#   dashboard.oauth.client_id   <-  HERMES_DASHBOARD_OAUTH_CLIENT_ID
-#   dashboard.oauth.portal_url  <-  HERMES_DASHBOARD_PORTAL_URL
-#   dashboard.public_url        <-  HERMES_DASHBOARD_PUBLIC_URL
+#   dashboard.oauth.client_id   <-  FABRIC_DASHBOARD_OAUTH_CLIENT_ID
+#   dashboard.oauth.portal_url  <-  FABRIC_DASHBOARD_PORTAL_URL
+#   dashboard.public_url        <-  FABRIC_DASHBOARD_PUBLIC_URL
 #
 # Env wins when set to a non-empty value. This is what Fly.io's platform-
 # secret injection uses to push per-deploy client_ids without needing to
@@ -1376,10 +1376,10 @@ updates:
 # nous block above when gating the dashboard with your own identity provider.
 # Each setting can be overridden by an environment variable:
 #
-#   dashboard.oauth.self_hosted.issuer         <-  HERMES_DASHBOARD_OIDC_ISSUER
-#   dashboard.oauth.self_hosted.client_id      <-  HERMES_DASHBOARD_OIDC_CLIENT_ID
-#   dashboard.oauth.self_hosted.scopes         <-  HERMES_DASHBOARD_OIDC_SCOPES
-#   dashboard.oauth.self_hosted.client_secret  <-  HERMES_DASHBOARD_OIDC_CLIENT_SECRET
+#   dashboard.oauth.self_hosted.issuer         <-  FABRIC_DASHBOARD_OIDC_ISSUER
+#   dashboard.oauth.self_hosted.client_id      <-  FABRIC_DASHBOARD_OIDC_CLIENT_ID
+#   dashboard.oauth.self_hosted.scopes         <-  FABRIC_DASHBOARD_OIDC_SCOPES
+#   dashboard.oauth.self_hosted.client_secret  <-  FABRIC_DASHBOARD_OIDC_CLIENT_SECRET
 #
 # dashboard:
 #   oauth:
@@ -1396,7 +1396,7 @@ updates:
 #       # IDP's discovery doc) IN ADDITION to PKCE. Leave unset for a public
 #       # (PKCE-only) client — the common case.
 #       #
-#       # This is a CREDENTIAL: prefer setting HERMES_DASHBOARD_OIDC_CLIENT_SECRET
+#       # This is a CREDENTIAL: prefer setting FABRIC_DASHBOARD_OIDC_CLIENT_SECRET
 #       # in ~/.fabric/.env over putting it here in config.yaml.
 #       #   client_secret: ""
 

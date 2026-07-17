@@ -45,14 +45,14 @@ private support requests. Route code contributions to `CONTRIBUTING.md` and the
 
 ## How to Run
 
-This skill's cross-platform helper is `${HERMES_SKILL_DIR}/scripts/fabric_issue.py`.
-Fabric replaces `${HERMES_SKILL_DIR}` with the absolute loaded skill directory,
+This skill's cross-platform helper is `${FABRIC_SKILL_DIR}/scripts/fabric_issue.py`.
+Fabric replaces `${FABRIC_SKILL_DIR}` with the absolute loaded skill directory,
 so commands work regardless of the process working directory.
 
 Before searching or posting, verify the selected account:
 
 ```text
-python "${HERMES_SKILL_DIR}/scripts/fabric_issue.py" status
+python "${FABRIC_SKILL_DIR}/scripts/fabric_issue.py" status
 ```
 
 If status fails, stop and ask the user to run `fabric setup github`. Never read,
@@ -64,11 +64,11 @@ directory.
 | Task | Command or file |
 |---|---|
 | Authenticate | `fabric setup github` |
-| Check account | `python "${HERMES_SKILL_DIR}/scripts/fabric_issue.py" status` |
-| Search issues | `python "${HERMES_SKILL_DIR}/scripts/fabric_issue.py" search "<keywords>"` |
+| Check account | `python "${FABRIC_SKILL_DIR}/scripts/fabric_issue.py" status` |
+| Search issues | `python "${FABRIC_SKILL_DIR}/scripts/fabric_issue.py" search "<keywords>"` |
 | Bug template | `templates/bug-report.md` |
 | Feature template | `templates/feature-request.md` |
-| Create after approval | `python "${HERMES_SKILL_DIR}/scripts/fabric_issue.py" create ... --confirmed` |
+| Create after approval | `python "${FABRIC_SKILL_DIR}/scripts/fabric_issue.py" create ... --confirmed` |
 | Repository | `ObliviousOdin/fabric` |
 
 ## Procedure
@@ -98,7 +98,7 @@ and the draft contains no credential values or unrelated private data.
 Search existing issues first and show the user anything similar:
 
 ```text
-python "${HERMES_SKILL_DIR}/scripts/fabric_issue.py" search "the user's summary in a few keywords"
+python "${FABRIC_SKILL_DIR}/scripts/fabric_issue.py" search "the user's summary in a few keywords"
 ```
 
 If a matching issue exists, share its URL and ask whether the user wants to add
@@ -122,7 +122,7 @@ specific, searchable, under about 80 characters, and have no trailing period.
 Only after explicit approval, run:
 
 ```text
-python "${HERMES_SKILL_DIR}/scripts/fabric_issue.py" create \
+python "${FABRIC_SKILL_DIR}/scripts/fabric_issue.py" create \
   --title "Concise, specific title" \
   --body-file /path/to/body.md \
   --label enhancement \

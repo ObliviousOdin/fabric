@@ -38,7 +38,7 @@ def test_resolve_max_concurrent_sessions_values(caplog):
 
 def test_active_session_lease_blocks_until_release(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     cfg = {"max_concurrent_sessions": 1}
 
     lease, message = active_sessions.try_acquire_active_session(
@@ -78,7 +78,7 @@ def test_active_session_lease_blocks_until_release(tmp_path, monkeypatch):
 
 def test_active_session_registry_prunes_dead_pids(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(
         "gateway.status._pid_exists",
         lambda pid: int(pid) != 99999999,
@@ -115,7 +115,7 @@ def test_active_session_registry_prunes_dead_pids(tmp_path, monkeypatch):
 
 def test_transfer_active_session_reanchors_existing_lease(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     lease, message = active_sessions.try_acquire_active_session(
         session_id="session-old",
@@ -159,10 +159,10 @@ def test_pid_alive_uses_safe_pid_exists_without_signalling(monkeypatch):
 
 def test_active_session_hard_exit_is_reclaimed(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     repo_root = Path(__file__).resolve().parents[2]
     env = os.environ.copy()
-    env["HERMES_HOME"] = str(home)
+    env["FABRIC_HOME"] = str(home)
     env["PYTHONPATH"] = str(repo_root)
     child = subprocess.run(
         [
@@ -204,7 +204,7 @@ def test_active_session_hard_exit_is_reclaimed(tmp_path, monkeypatch):
 
 def test_concurrent_acquire_claims_only_one_last_slot(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     cfg = {"max_concurrent_sessions": 1}
 
     def _claim(index: int):
@@ -231,7 +231,7 @@ def test_concurrent_acquire_claims_only_one_last_slot(tmp_path, monkeypatch):
 
 def test_cross_process_acquire_claims_only_one_last_slot(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     repo_root = Path(__file__).resolve().parents[2]
     ready_dir = tmp_path / "ready"
     ready_dir.mkdir()
@@ -239,7 +239,7 @@ def test_cross_process_acquire_claims_only_one_last_slot(tmp_path, monkeypatch):
     results_dir.mkdir()
     go_file = tmp_path / "go"
     env = os.environ.copy()
-    env["HERMES_HOME"] = str(home)
+    env["FABRIC_HOME"] = str(home)
     env["PYTHONPATH"] = str(repo_root)
     script = (
         "import os, time\n"
@@ -322,7 +322,7 @@ def test_cross_process_acquire_claims_only_one_last_slot(tmp_path, monkeypatch):
 
 def test_pid_start_time_mismatch_prunes_reused_pid(tmp_path, monkeypatch):
     home = tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr("gateway.status._pid_exists", lambda _pid: True)
     monkeypatch.setattr(active_sessions, "_process_start_time", lambda _pid: 200.0)
     runtime = home / "runtime"

@@ -741,7 +741,7 @@ plugins:
 """,
             encoding="utf-8",
         )
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         from fabric_cli import config as _config_mod
         _config_mod._config_cache = None  # type: ignore[attr-defined]
 
@@ -760,7 +760,7 @@ plugins:
         fabric_home = tmp_path / ".hermes"
         fabric_home.mkdir()
         (fabric_home / "config.yaml").write_text("plugins: {}\n", encoding="utf-8")
-        monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
         from fabric_cli import config as _config_mod
         _config_mod._config_cache = None  # type: ignore[attr-defined]
 

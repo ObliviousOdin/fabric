@@ -36,7 +36,7 @@ def _seed_skill(fabric_home, name, description):
 def isolated_home(tmp_path, monkeypatch):
     fabric_home = tmp_path / ".hermes"
     fabric_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.chdir(tmp_path)  # avoid picking up the repo's AGENTS.md
     return fabric_home
 

@@ -6,7 +6,7 @@ free models, Ollama Cloud, custom OpenAI-compatible endpoints) truncated long
 generations with `finish_reason="length"`.
 
 Precedence verified here:
-    HERMES_MAX_TOKENS env  >  model.max_tokens  >  per-provider
+    FABRIC_MAX_TOKENS env  >  model.max_tokens  >  per-provider
     max_output_tokens  >  None
 """
 
@@ -20,7 +20,7 @@ import pytest
 
 @pytest.fixture
 def isolated_home(tmp_path, monkeypatch):
-    """Isolated HERMES_HOME with a writable config.yaml and a clean module cache.
+    """Isolated FABRIC_HOME with a writable config.yaml and a clean module cache.
 
     These tests deliberately re-import ``fabric_cli`` / ``gateway`` so each
     config write is read fresh. To avoid leaking that purge into sibling test
@@ -29,8 +29,8 @@ def isolated_home(tmp_path, monkeypatch):
     """
     fabric_home = tmp_path / ".hermes"
     fabric_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(fabric_home))
-    monkeypatch.delenv("HERMES_MAX_TOKENS", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    monkeypatch.delenv("FABRIC_MAX_TOKENS", raising=False)
 
     _saved = {
         k: v
@@ -118,9 +118,9 @@ def test_global_max_tokens_beats_per_provider(isolated_home):
 
 
 def test_env_override_beats_everything(isolated_home, monkeypatch):
-    """HERMES_MAX_TOKENS is the internal override mechanism (highest priority)."""
+    """FABRIC_MAX_TOKENS is the internal override mechanism (highest priority)."""
     write_cfg, fresh_gateway = isolated_home
-    monkeypatch.setenv("HERMES_MAX_TOKENS", "2048")
+    monkeypatch.setenv("FABRIC_MAX_TOKENS", "2048")
     write_cfg(
         """
         model:

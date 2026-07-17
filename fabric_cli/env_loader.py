@@ -50,7 +50,7 @@ _RESOLVED_SECRET_SOURCE_HOMES: set[str] = set()
 # vault key without deleting a local replacement written in the meantime.
 _LEGACY_APPLIED_SECRET_VALUES: dict[str, dict[str, str]] = {}
 
-# HERMES_HOME paths we've already pulled external secrets for during this
+# FABRIC_HOME paths we've already pulled external secrets for during this
 # process.  ``load_fabric_dotenv()`` is called at module-import time from
 # several hot modules (cli.py, fabric_cli/main.py, run_agent.py,
 # trajectory_compressor.py, gateway/run.py, ...), so without this guard the
@@ -221,7 +221,7 @@ def get_legacy_applied_secret_names(
         if home_path is None:
             raw_home = (
                 os.environ.get("FABRIC_HOME")
-                or os.environ.get("HERMES_HOME")
+                or os.environ.get("FABRIC_HOME")
                 or ""
             ).strip()
             if raw_home:
@@ -238,7 +238,7 @@ def get_legacy_applied_secret_names(
 
 
 def reset_secret_source_cache() -> None:
-    """Forget which HERMES_HOME paths have already had external secrets applied.
+    """Forget which FABRIC_HOME paths have already had external secrets applied.
 
     The first call to ``_apply_external_secret_sources(home_path)`` in a
     process pulls from Bitwarden (or other configured backend), records the
@@ -956,7 +956,7 @@ def load_fabric_dotenv(
     if fabric_home is not None:
         home_path = Path(fabric_home)
     else:
-        env_home = (os.getenv("FABRIC_HOME") or os.getenv("HERMES_HOME") or "").strip()
+        env_home = (os.getenv("FABRIC_HOME") or os.getenv("FABRIC_HOME") or "").strip()
         if env_home:
             home_path = Path(env_home)
         else:
@@ -1008,7 +1008,7 @@ def load_fabric_dotenv(
 def _apply_managed_env() -> None:
     """Apply the managed-scope .env last, with override, so it beats user/shell.
 
-    Managed scope is machine-global (independent of HERMES_HOME / profile). v1
+    Managed scope is machine-global (independent of FABRIC_HOME / profile). v1
     enforcement is "applied last with override=True" — at the end of startup load
     ``os.environ`` holds the managed value for every managed key, beating both the
     user ``.env`` and any pre-existing shell export. This deliberately inverts the

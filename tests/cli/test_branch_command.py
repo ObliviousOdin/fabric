@@ -19,7 +19,7 @@ import pytest
 @pytest.fixture
 def session_db(tmp_path):
     """Create a real SessionDB for testing."""
-    os.environ["HERMES_HOME"] = str(tmp_path / ".hermes")
+    os.environ["FABRIC_HOME"] = str(tmp_path / ".hermes")
     os.makedirs(tmp_path / ".hermes", exist_ok=True)
     from fabric_state import SessionDB
     db = SessionDB(db_path=tmp_path / ".hermes" / "test_sessions.db")
@@ -172,18 +172,18 @@ class TestBranchCommandCLI:
         from gateway.session_context import _UNSET, _VAR_MAP, get_session_env
 
         old_session_id = cli_instance.session_id
-        os.environ["HERMES_SESSION_ID"] = old_session_id
-        _VAR_MAP["HERMES_SESSION_ID"].set(old_session_id)
+        os.environ["FABRIC_SESSION_ID"] = old_session_id
+        _VAR_MAP["FABRIC_SESSION_ID"].set(old_session_id)
 
         try:
             FabricCLI._handle_branch_command(cli_instance, "/branch")
 
             assert cli_instance.session_id != old_session_id
-            assert os.environ["HERMES_SESSION_ID"] == cli_instance.session_id
-            assert get_session_env("HERMES_SESSION_ID") == cli_instance.session_id
+            assert os.environ["FABRIC_SESSION_ID"] == cli_instance.session_id
+            assert get_session_env("FABRIC_SESSION_ID") == cli_instance.session_id
         finally:
-            os.environ.pop("HERMES_SESSION_ID", None)
-            _VAR_MAP["HERMES_SESSION_ID"].set(_UNSET)
+            os.environ.pop("FABRIC_SESSION_ID", None)
+            _VAR_MAP["FABRIC_SESSION_ID"].set(_UNSET)
 
     def test_branch_fires_on_session_switch_hook(self, cli_instance, session_db):
         """The /branch command must notify memory providers of the rotation.

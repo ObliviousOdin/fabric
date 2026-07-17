@@ -47,7 +47,7 @@ def real_file(tmp_path) -> str:
 
 def _patch_safe_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Use the normal private-gateway policy for temporary test artifacts."""
-    monkeypatch.delenv("HERMES_MEDIA_DELIVERY_STRICT", raising=False)
+    monkeypatch.delenv("FABRIC_MEDIA_DELIVERY_STRICT", raising=False)
 
 
 def _assert_materialized(snapshot: str, source: str | Path) -> None:

@@ -635,9 +635,9 @@ def _auto_continue_freshness_window() -> float:
     Thin wrapper that delegates to the canonical implementation in
     ``gateway.session`` (the single source of truth shared with the
     routing-time zombie gate in ``get_or_create_session``).  Reads
-    ``HERMES_AUTO_CONTINUE_FRESHNESS`` (bridged from ``config.yaml``
+    ``FABRIC_AUTO_CONTINUE_FRESHNESS`` (bridged from ``config.yaml``
     ``agent.gateway_auto_continue_freshness`` at gateway startup, same
-    pattern as ``HERMES_AGENT_TIMEOUT``).  Falls back to the module default
+    pattern as ``FABRIC_AGENT_TIMEOUT``).  Falls back to the module default
     when unset or malformed.  Non-positive values disable the freshness gate
     (restores the pre-fix "always fresh" behaviour for users who want to opt
     out).  Kept here so existing call sites and test patches importing it
@@ -650,7 +650,7 @@ def _auto_continue_freshness_window() -> float:
 def _float_env(name: str, default: float) -> float:
     """Read an env var as float, falling back to ``default`` on typos/empty.
 
-    A misconfigured env var (e.g. ``HERMES_AGENT_TIMEOUT=abc``) must not
+    A misconfigured env var (e.g. ``FABRIC_AGENT_TIMEOUT=abc``) must not
     crash the gateway or an agent turn.  Unset/empty also falls back.
     """
     raw = os.environ.get(name)
@@ -1298,14 +1298,14 @@ def _clear_planned_restart_notification() -> None:
 
 # Mark this process as a gateway so cli.py's module-level load_cli_config()
 # knows not to clobber TERMINAL_CWD if lazily imported.
-os.environ["_HERMES_GATEWAY"] = "1"
+os.environ["_FABRIC_GATEWAY"] = "1"
 
 _ensure_ssl_certs()
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Resolve Fabric home directory (respects HERMES_HOME override)
+# Resolve Fabric home directory (respects FABRIC_HOME override)
 from fabric_constants import get_fabric_home, get_fabric_home_override
 from utils import atomic_json_write, atomic_yaml_write, base_url_host_matches, is_truthy_value
 _fabric_home = get_fabric_home()
@@ -1327,7 +1327,7 @@ def _reload_runtime_env_preserving_config_authority() -> None:
 
     Gateway processes are long-lived, so per-turn code reloads ~/.hermes/.env to
     pick up rotated API keys. config.yaml remains authoritative for agent budget
-    settings such as agent.max_turns; otherwise a stale HERMES_MAX_ITERATIONS in
+    settings such as agent.max_turns; otherwise a stale FABRIC_MAX_ITERATIONS in
     .env can replace the startup bridge on later turns.
 
     In multiplex mode this is a NO-OP for the credential reload: secrets come
@@ -1352,7 +1352,7 @@ def _reload_runtime_env_preserving_config_authority() -> None:
 
 
 def _bridge_max_turns_from_config(home: "Path") -> None:
-    """Bridge config.yaml agent.max_turns into HERMES_MAX_ITERATIONS (a global)."""
+    """Bridge config.yaml agent.max_turns into FABRIC_MAX_ITERATIONS (a global)."""
     config_path = home / 'config.yaml'
     if not config_path.exists():
         return
@@ -1376,14 +1376,14 @@ def _bridge_max_turns_from_config(home: "Path") -> None:
 
     agent_cfg = cfg.get("agent", {})
     if isinstance(agent_cfg, dict) and "max_turns" in agent_cfg:
-        os.environ["HERMES_MAX_ITERATIONS"] = str(agent_cfg["max_turns"])
+        os.environ["FABRIC_MAX_ITERATIONS"] = str(agent_cfg["max_turns"])
 
 
 def _current_max_iterations() -> int:
     """Return the current per-turn iteration budget after runtime env refresh."""
     _reload_runtime_env_preserving_config_authority()
     try:
-        return int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
+        return int(os.getenv("FABRIC_MAX_ITERATIONS", "90"))
     except (TypeError, ValueError):
         return 90
 
@@ -1394,7 +1394,7 @@ def _max_iterations_for_turn(config: dict, *, multiplexed: bool) -> int:
     Single-profile mode keeps the established runtime-env refresh behavior.
     Multiplexed turns read their already-scoped config snapshot directly so
     concurrent profiles cannot race through process-global
-    ``HERMES_MAX_ITERATIONS``.
+    ``FABRIC_MAX_ITERATIONS``.
     """
     if not multiplexed:
         return _current_max_iterations()
@@ -1638,59 +1638,59 @@ if _config_path.exists():
         # config.yaml is the documented, authoritative source for these
         # settings — it unconditionally wins over .env values. Previously
         # the guards below read `if X not in os.environ` and let stale
-        # .env entries (e.g. HERMES_MAX_ITERATIONS=60 written by an old
+        # .env entries (e.g. FABRIC_MAX_ITERATIONS=60 written by an old
         # `fabric setup` run) silently shadow the user's current config.
         # See PR #18413 / the 60-vs-500 max_turns incident.
         _agent_cfg = _cfg.get("agent", {})
         if _agent_cfg and isinstance(_agent_cfg, dict):
             if "max_turns" in _agent_cfg:
-                os.environ["HERMES_MAX_ITERATIONS"] = str(_agent_cfg["max_turns"])
+                os.environ["FABRIC_MAX_ITERATIONS"] = str(_agent_cfg["max_turns"])
             if "gateway_timeout" in _agent_cfg:
-                os.environ["HERMES_AGENT_TIMEOUT"] = str(_agent_cfg["gateway_timeout"])
+                os.environ["FABRIC_AGENT_TIMEOUT"] = str(_agent_cfg["gateway_timeout"])
             if "gateway_timeout_warning" in _agent_cfg:
-                os.environ["HERMES_AGENT_TIMEOUT_WARNING"] = str(_agent_cfg["gateway_timeout_warning"])
+                os.environ["FABRIC_AGENT_TIMEOUT_WARNING"] = str(_agent_cfg["gateway_timeout_warning"])
             if "gateway_notify_interval" in _agent_cfg:
-                os.environ["HERMES_AGENT_NOTIFY_INTERVAL"] = str(_agent_cfg["gateway_notify_interval"])
+                os.environ["FABRIC_AGENT_NOTIFY_INTERVAL"] = str(_agent_cfg["gateway_notify_interval"])
             if "restart_drain_timeout" in _agent_cfg:
-                os.environ["HERMES_RESTART_DRAIN_TIMEOUT"] = str(_agent_cfg["restart_drain_timeout"])
+                os.environ["FABRIC_RESTART_DRAIN_TIMEOUT"] = str(_agent_cfg["restart_drain_timeout"])
             if "gateway_auto_continue_freshness" in _agent_cfg:
-                os.environ["HERMES_AUTO_CONTINUE_FRESHNESS"] = str(
+                os.environ["FABRIC_AUTO_CONTINUE_FRESHNESS"] = str(
                     _agent_cfg["gateway_auto_continue_freshness"]
                 )
         _display_cfg = _cfg.get("display", {})
         if _display_cfg and isinstance(_display_cfg, dict):
             if "busy_input_mode" in _display_cfg:
-                os.environ["HERMES_GATEWAY_BUSY_INPUT_MODE"] = str(_display_cfg["busy_input_mode"])
+                os.environ["FABRIC_GATEWAY_BUSY_INPUT_MODE"] = str(_display_cfg["busy_input_mode"])
             if "busy_text_mode" in _display_cfg:
-                os.environ["HERMES_GATEWAY_BUSY_TEXT_MODE"] = str(_display_cfg["busy_text_mode"])
+                os.environ["FABRIC_GATEWAY_BUSY_TEXT_MODE"] = str(_display_cfg["busy_text_mode"])
             if "busy_ack_enabled" in _display_cfg:
-                os.environ["HERMES_GATEWAY_BUSY_ACK_ENABLED"] = str(_display_cfg["busy_ack_enabled"])
+                os.environ["FABRIC_GATEWAY_BUSY_ACK_ENABLED"] = str(_display_cfg["busy_ack_enabled"])
             # This process-level env var is documented as an override for
             # service managers, so preserve it when already set. Other display
             # bridges stay config-authoritative for backwards compatibility.
             if (
                 "busy_steer_ack_enabled" in _display_cfg
-                and "HERMES_GATEWAY_BUSY_STEER_ACK_ENABLED" not in os.environ
+                and "FABRIC_GATEWAY_BUSY_STEER_ACK_ENABLED" not in os.environ
             ):
-                os.environ["HERMES_GATEWAY_BUSY_STEER_ACK_ENABLED"] = str(
+                os.environ["FABRIC_GATEWAY_BUSY_STEER_ACK_ENABLED"] = str(
                     _display_cfg["busy_steer_ack_enabled"]
                 )
-        # Timezone: bridge config.yaml → HERMES_TIMEZONE env var.
+        # Timezone: bridge config.yaml → FABRIC_TIMEZONE env var.
         _tz_cfg = _cfg.get("timezone", "")
         if _tz_cfg and isinstance(_tz_cfg, str):
-            os.environ["HERMES_TIMEZONE"] = _tz_cfg.strip()
+            os.environ["FABRIC_TIMEZONE"] = _tz_cfg.strip()
         # Security settings
         _security_cfg = _cfg.get("security", {})
         if isinstance(_security_cfg, dict):
             _redact = _security_cfg.get("redact_secrets")
             if _redact is not None:
-                os.environ["HERMES_REDACT_SECRETS"] = str(_redact).lower()
+                os.environ["FABRIC_REDACT_SECRETS"] = str(_redact).lower()
         # Gateway settings (media delivery allowlist + recency trust + strict mode)
         _gateway_cfg = _cfg.get("gateway", {})
         if isinstance(_gateway_cfg, dict):
             _strict = _gateway_cfg.get("strict")
             if _strict is not None:
-                os.environ["HERMES_MEDIA_DELIVERY_STRICT"] = (
+                os.environ["FABRIC_MEDIA_DELIVERY_STRICT"] = (
                     "1" if _strict else "0"
                 )
             _allow_dirs = _gateway_cfg.get("media_delivery_allow_dirs")
@@ -1702,15 +1702,15 @@ if _config_path.exists():
                 else:
                     _allow_dirs_str = ""
                 if _allow_dirs_str:
-                    os.environ["HERMES_MEDIA_ALLOW_DIRS"] = _allow_dirs_str
+                    os.environ["FABRIC_MEDIA_ALLOW_DIRS"] = _allow_dirs_str
             _trust_recent = _gateway_cfg.get("trust_recent_files")
             if _trust_recent is not None:
-                os.environ["HERMES_MEDIA_TRUST_RECENT_FILES"] = (
+                os.environ["FABRIC_MEDIA_TRUST_RECENT_FILES"] = (
                     "1" if _trust_recent else "0"
                 )
             _trust_recent_seconds = _gateway_cfg.get("trust_recent_files_seconds")
             if _trust_recent_seconds is not None:
-                os.environ["HERMES_MEDIA_TRUST_RECENT_SECONDS"] = str(_trust_recent_seconds)
+                os.environ["FABRIC_MEDIA_TRUST_RECENT_SECONDS"] = str(_trust_recent_seconds)
             # Bridge gateway.platform_connect_timeout → the internal env var the
             # connect path + Discord adapter ready-wait both read (#19776).
             # Unlike the agent.*/display.* bridges above (config-authoritative),
@@ -1718,9 +1718,9 @@ if _config_path.exists():
             # already set explicitly; otherwise config.yaml supplies the value.
             if (
                 "platform_connect_timeout" in _gateway_cfg
-                and not os.environ.get("HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT", "").strip()
+                and not os.environ.get("FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT", "").strip()
             ):
-                os.environ["HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT"] = str(
+                os.environ["FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT"] = str(
                     _gateway_cfg["platform_connect_timeout"]
                 )
     except Exception as _bridge_err:
@@ -1766,10 +1766,10 @@ except Exception as _bootstrap_exc:
     print(f"  Warning: deprecation check failed: {_bootstrap_exc}", file=sys.stderr)
 
 # Gateway runs in quiet mode - suppress debug output and use cwd directly (no temp dirs)
-os.environ["HERMES_QUIET"] = "1"
+os.environ["FABRIC_QUIET"] = "1"
 
 # Enable interactive exec approval for dangerous commands on messaging platforms
-os.environ["HERMES_EXEC_ASK"] = "1"
+os.environ["FABRIC_EXEC_ASK"] = "1"
 
 # Set terminal working directory for messaging platforms.
 # config.yaml terminal.cwd is the canonical source (bridged to TERMINAL_CWD
@@ -1943,7 +1943,7 @@ def _resolve_runtime_agent_kwargs() -> dict:
 
     model_cfg = _get_model_config()
     max_tokens = None
-    _env_mt = os.environ.get("HERMES_MAX_TOKENS")
+    _env_mt = os.environ.get("FABRIC_MAX_TOKENS")
     if _env_mt:
         try:
             max_tokens = int(_env_mt)
@@ -3198,7 +3198,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         except Exception as e:
             # WARNING (not DEBUG) so the failure appears in errors.log — matches
             # cli.py's handling of the same init path.  Users hitting NFS-mounted
-            # HERMES_HOME silently lost /resume, /title, /history, /branch, and
+            # FABRIC_HOME silently lost /resume, /title, /history, /branch, and
             # session search without this.  The underlying cause (usually
             # "locking protocol" from NFS) is now also captured by
             # fabric_state.get_last_init_error() for slash-command error strings.
@@ -3530,7 +3530,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         cleanup, so the next start dies with "PID file race lost" (#14128).
 
         Each await is wrapped in the existing per-adapter timeout budget
-        (``HERMES_GATEWAY_ADAPTER_DISCONNECT_TIMEOUT``). On timeout we log
+        (``FABRIC_GATEWAY_ADAPTER_DISCONNECT_TIMEOUT``). On timeout we log
         and force forward progress; the loop never hangs regardless of any
         adapter's internal behavior. Never raises.
         """
@@ -3573,13 +3573,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
 
     def _adapter_disconnect_timeout_secs(self) -> float:
         """Return the per-adapter disconnect timeout used during shutdown."""
-        raw = os.getenv("HERMES_GATEWAY_ADAPTER_DISCONNECT_TIMEOUT", "").strip()
+        raw = os.getenv("FABRIC_GATEWAY_ADAPTER_DISCONNECT_TIMEOUT", "").strip()
         if raw:
             try:
                 timeout = float(raw)
             except ValueError:
                 logger.warning(
-                    "Ignoring invalid HERMES_GATEWAY_ADAPTER_DISCONNECT_TIMEOUT=%r",
+                    "Ignoring invalid FABRIC_GATEWAY_ADAPTER_DISCONNECT_TIMEOUT=%r",
                     raw,
                 )
             else:
@@ -3588,13 +3588,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
 
     def _platform_connect_timeout_secs(self) -> float:
         """Return the per-platform connect timeout used during startup/retry."""
-        raw = os.getenv("HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT", "").strip()
+        raw = os.getenv("FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT", "").strip()
         if raw:
             try:
                 timeout = float(raw)
             except ValueError:
                 logger.warning(
-                    "Ignoring invalid HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT=%r",
+                    "Ignoring invalid FABRIC_GATEWAY_PLATFORM_CONNECT_TIMEOUT=%r",
                     raw,
                 )
             else:
@@ -4417,7 +4417,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
     def _log_scale_to_zero_not_armed_reason(self) -> None:
         """Log why the idle watcher did NOT arm — but only for an OPTED-IN instance.
 
-        A non-opted instance (no HERMES_SCALE_TO_ZERO stamp) not arming is the normal
+        A non-opted instance (no FABRIC_SCALE_TO_ZERO stamp) not arming is the normal
         case and must stay silent. When the Labs stamp IS set but the watcher still
         didn't arm, that's the surprising case worth one INFO line so "why won't it
         suspend/wake?" is a log grep, not a box-dive.
@@ -4499,7 +4499,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         """Watch for idle and drive the relay dormant so the platform can suspend.
 
         Started ONLY when _scale_to_zero_should_arm() (opted in via the Labs
-        HERMES_SCALE_TO_ZERO stamp + relay-only/absent messaging + a wakeUrl).
+        FABRIC_SCALE_TO_ZERO stamp + relay-only/absent messaging + a wakeUrl).
         On a sustained idle window it runs the DORMANT sequence (D12/F12/F14):
           - mark runtime status `draining` (composes with the existing state
             machine, §3.4(6); does NOT set _running=False),
@@ -4784,7 +4784,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         observe-the-marker latency the live-validation gate checks (point a).
         Reconciles once at startup. A marker stamped with a PRIOR
         instantiation epoch (one that survived a machine restart on the durable
-        HERMES_HOME volume — NS-570) is treated as absent by ``drain_requested``
+        FABRIC_HOME volume — NS-570) is treated as absent by ``drain_requested``
         and is NOT honoured; only a marker from the current instantiation flips
         the gateway into drain. Best-effort: any tick error is logged and the
         loop continues (a transient stat() failure must not wedge the gateway).
@@ -4900,13 +4900,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
     ) -> List[Dict[str, Any]]:
         """Load ephemeral prefill messages from config or env var.
         
-        Checks HERMES_PREFILL_MESSAGES_FILE env var first, then falls back to
+        Checks FABRIC_PREFILL_MESSAGES_FILE env var first, then falls back to
         the top-level prefill_messages_file key in ~/.hermes/config.yaml.
         agent.prefill_messages_file is accepted as a legacy fallback.
         Relative paths are resolved from ~/.hermes/.
         """
         file_path = (
-            os.getenv("HERMES_PREFILL_MESSAGES_FILE", "")
+            os.getenv("FABRIC_PREFILL_MESSAGES_FILE", "")
             if allow_process_env
             else ""
         )
@@ -4942,11 +4942,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
     ) -> str:
         """Load ephemeral system prompt from config or env var.
         
-        Checks HERMES_EPHEMERAL_SYSTEM_PROMPT env var first, then falls back to
+        Checks FABRIC_EPHEMERAL_SYSTEM_PROMPT env var first, then falls back to
         agent.system_prompt in ~/.hermes/config.yaml.
         """
         prompt = (
-            os.getenv("HERMES_EPHEMERAL_SYSTEM_PROMPT", "")
+            os.getenv("FABRIC_EPHEMERAL_SYSTEM_PROMPT", "")
             if allow_process_env
             else ""
         )
@@ -5122,7 +5122,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
     @staticmethod
     def _load_busy_input_mode() -> str:
         """Load gateway drain-time busy-input behavior from config/env."""
-        mode = os.getenv("HERMES_GATEWAY_BUSY_INPUT_MODE", "").strip().lower()
+        mode = os.getenv("FABRIC_GATEWAY_BUSY_INPUT_MODE", "").strip().lower()
         if not mode:
             cfg = _load_gateway_runtime_config()
             mode = str(cfg_get(cfg, "display", "busy_input_mode", default="") or "").strip().lower()
@@ -5144,7 +5144,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         ``busy_input_mode`` and maps to non-queue text handling here).
         """
         # Legacy explicit override wins for backward compat.
-        legacy = os.getenv("HERMES_GATEWAY_BUSY_TEXT_MODE", "").strip().lower()
+        legacy = os.getenv("FABRIC_GATEWAY_BUSY_TEXT_MODE", "").strip().lower()
         if not legacy:
             cfg = _load_gateway_runtime_config()
             legacy = str(cfg_get(cfg, "display", "busy_text_mode", default="") or "").strip().lower()
@@ -5159,7 +5159,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
     @staticmethod
     def _load_restart_drain_timeout() -> float:
         """Load graceful gateway restart/stop drain timeout in seconds."""
-        raw = os.getenv("HERMES_RESTART_DRAIN_TIMEOUT", "").strip()
+        raw = os.getenv("FABRIC_RESTART_DRAIN_TIMEOUT", "").strip()
         if not raw:
             cfg = _load_gateway_runtime_config()
             raw = str(cfg_get(cfg, "agent", "restart_drain_timeout", default="") or "").strip()
@@ -5185,7 +5185,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
           - ``error``  — only the final message when exit code is non-zero
           - ``off``    — no watcher messages at all
         """
-        mode = os.getenv("HERMES_BACKGROUND_NOTIFICATIONS", "")
+        mode = os.getenv("FABRIC_BACKGROUND_NOTIFICATIONS", "")
         if not mode:
             cfg = _load_gateway_runtime_config()
             raw = cfg_get(cfg, "display", "background_process_notifications")
@@ -5738,7 +5738,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # Check if busy ack is disabled — skip sending but still process the input.
         # Placed before debounce so we don't stamp a "last ack" timestamp that was
         # never actually delivered.
-        busy_ack_enabled = os.environ.get("HERMES_GATEWAY_BUSY_ACK_ENABLED", "true").lower() == "true"
+        busy_ack_enabled = os.environ.get("FABRIC_GATEWAY_BUSY_ACK_ENABLED", "true").lower() == "true"
         if not busy_ack_enabled:
             logger.debug("Busy ack suppressed for session %s", session_key)
             return True  # input still processed, just no ack sent
@@ -5760,7 +5760,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # like STT transcript echo suppression: keep the behavior, drop only
         # the confirmation bubble.
         if is_steer_mode:
-            steer_ack_env = os.environ.get("HERMES_GATEWAY_BUSY_STEER_ACK_ENABLED")
+            steer_ack_env = os.environ.get("FABRIC_GATEWAY_BUSY_STEER_ACK_ENABLED")
             if steer_ack_env is not None:
                 steer_ack_enabled = steer_ack_env.strip().lower() in {"1", "true", "yes", "on"}
             else:
@@ -6483,7 +6483,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             # This watcher is intentionally outside the running gateway. If it
             # inherits the gateway marker, `fabric gateway restart` refuses to
             # run as a self-restart loop guard and the gateway stays stopped.
-            watcher_env.pop("_HERMES_GATEWAY", None)
+            watcher_env.pop("_FABRIC_GATEWAY", None)
             project_root = Path(__file__).resolve().parent.parent
             watcher_python = sys.executable
             try:
@@ -6523,11 +6523,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         )
         # Same marker scrub as the Windows watcher above: this watcher runs
         # `fabric gateway restart` from outside the gateway, but it inherits
-        # _HERMES_GATEWAY=1 from us, and the CLI's self-restart loop guard
+        # _FABRIC_GATEWAY=1 from us, and the CLI's self-restart loop guard
         # refuses to run when that marker is set — silently (DEVNULL), so the
         # gateway stops and never comes back.
         watcher_env = os.environ.copy()
-        watcher_env.pop("_HERMES_GATEWAY", None)
+        watcher_env.pop("_FABRIC_GATEWAY", None)
         setsid_bin = shutil.which("setsid")
         if setsid_bin:
             subprocess.Popen(
@@ -7000,10 +7000,10 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # config.yaml → env bridge did the right thing at a glance (instead
         # of silently running at a stale .env value for weeks).
         try:
-            _effective_max_iter = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
+            _effective_max_iter = int(os.getenv("FABRIC_MAX_ITERATIONS", "90"))
             logger.info(
                 "Agent budget: max_iterations=%d (agent.max_turns from config.yaml, "
-                "or HERMES_MAX_ITERATIONS from .env, or default 90)",
+                "or FABRIC_MAX_ITERATIONS from .env, or default 90)",
                 _effective_max_iter,
             )
         except Exception:
@@ -7014,7 +7014,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # state at import time, so this log line is the source of truth
         # for this process's lifetime.
         try:
-            _redact_raw = os.getenv("HERMES_REDACT_SECRETS", "true")
+            _redact_raw = os.getenv("FABRIC_REDACT_SECRETS", "true")
             _redact_on = _redact_raw.lower() in {"1", "true", "yes", "on"}
             if _redact_on:
                 logger.info(
@@ -7023,7 +7023,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 )
             else:
                 logger.warning(
-                    "Secret redaction: DISABLED (HERMES_REDACT_SECRETS=%s). "
+                    "Secret redaction: DISABLED (FABRIC_REDACT_SECRETS=%s). "
                     "API keys and tokens may appear verbatim in chat output, "
                     "session JSONs, and logs. Set security.redact_secrets: true "
                     "in config.yaml to re-enable.",
@@ -7208,7 +7208,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
 
         # Register declarative shell hooks from cli-config.yaml.  Gateway
         # has no TTY, so consent has to come from one of the three opt-in
-        # channels (--accept-hooks on launch, HERMES_ACCEPT_HOOKS env var,
+        # channels (--accept-hooks on launch, FABRIC_ACCEPT_HOOKS env var,
         # or hooks_auto_accept: true in config.yaml).  We pass
         # accept_hooks=False here and let register_from_config resolve
         # the effective value from env + config itself — the CLI-side
@@ -7657,7 +7657,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         asyncio.create_task(self._async_delegation_watcher())
 
         # Start the scale-to-zero idle watcher ONLY when this instance is opted
-        # in (the NAS "Labs" HERMES_SCALE_TO_ZERO stamp), messaging is
+        # in (the NAS "Labs" FABRIC_SCALE_TO_ZERO stamp), messaging is
         # relay-only/absent, and a wakeUrl is registered (decisions.md D1/D11/
         # §3.4(1)). A non-opted instance never starts it, so behaviour is exactly
         # as today. When armed, the watcher drives the relay dormant on sustained
@@ -8767,7 +8767,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         0) unless ``gateway.multiplex_profiles`` is on.
 
         Each profile's adapters are created and connected under that profile's
-        HERMES_HOME + secret scope (``_profile_runtime_scope``), stored in
+        FABRIC_HOME + secret scope (``_profile_runtime_scope``), stored in
         ``self._profile_adapters[profile]``, and given a message handler that
         stamps ``source.profile`` before delegating to the shared
         ``_handle_message`` — so the agent turn resolves that profile's config,
@@ -8818,7 +8818,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             served = [active] + sorted(self._profile_adapters.keys())
             # Per-profile PairingStores so authz_mixin can route pairing
             # checks to the right whitelist. The active profile gets a store
-            # at its HERMES_HOME; additional served profiles get one under
+            # at its FABRIC_HOME; additional served profiles get one under
             # profiles/<name>/pairing/. See gateway.pairing.PairingStore.
             for name in served:
                 if name and name not in self.pairing_stores:
@@ -9378,7 +9378,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # asyncio task created via create_task(), which snapshots the spawning
         # context with copy_context(). If a *concurrent* message had already
         # bound its session via set_session_vars() when this task was created,
-        # we inherited ITS HERMES_SESSION_* ContextVars. Until we bind our own
+        # we inherited ITS FABRIC_SESSION_* ContextVars. Until we bind our own
         # (a few steps down, in _set_session_env), any subprocess spawned here
         # would read the foreign session's identity via the subprocess-env
         # bridge — the _UNSET-strip guard there can't help because the vars are
@@ -9681,7 +9681,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # wall-clock age alone isn't sufficient.  Evict only when the agent
         # has been *idle* beyond the inactivity threshold (or when the agent
         # object has no activity tracker and wall-clock age is extreme).
-        _raw_stale_timeout = _float_env("HERMES_AGENT_TIMEOUT", 1800)
+        _raw_stale_timeout = _float_env("FABRIC_AGENT_TIMEOUT", 1800)
         _stale_ts = self._running_agents_ts.get(_quick_key, 0)
         if _quick_key in self._running_agents and _stale_ts:
             _stale_age = time.time() - _stale_ts
@@ -10005,7 +10005,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 return None
 
             _telegram_followup_grace = float(
-                os.getenv("HERMES_TELEGRAM_FOLLOWUP_GRACE_SECONDS", "3.0")
+                os.getenv("FABRIC_TELEGRAM_FOLLOWUP_GRACE_SECONDS", "3.0")
             )
             _started_at = self._running_agents_ts.get(_quick_key, 0)
             if (
@@ -17626,7 +17626,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             )
 
     def _resolve_profile_home_for_source(self, source: SessionSource) -> "Path":
-        """Resolve which profile's HERMES_HOME should serve this inbound source.
+        """Resolve which profile's FABRIC_HOME should serve this inbound source.
 
         Prefers the profile the source was routed to (``source.profile`` — set
         by the /p/<profile>/ URL prefix or a per-credential adapter), falling
@@ -17774,7 +17774,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # Tool progress mode — resolved per-platform with env var fallback
         _resolved_tp = resolve_display_setting(user_config, platform_key, "tool_progress")
         _env_tp = (
-            None if multiplexed else os.getenv("HERMES_TOOL_PROGRESS_MODE")
+            None if multiplexed else os.getenv("FABRIC_TOOL_PROGRESS_MODE")
         )
         _display_cfg = display_config if isinstance(display_config, dict) else {}
         _platforms_cfg = _display_cfg.get("platforms") or {}
@@ -18679,7 +18679,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             # session_key is propagated via contextvars in _set_session_env()
             # (_SESSION_KEY) and via set_current_session_key() (_approval_session_key)
             # below — both concurrency-safe and inherited by tool worker threads.
-            # We deliberately do NOT write os.environ["HERMES_SESSION_KEY"] here:
+            # We deliberately do NOT write os.environ["FABRIC_SESSION_KEY"] here:
             # os.environ is process-global, so concurrent gateway sessions (e.g.
             # two Discord threads) would clobber each other's value, and a tool
             # thread whose contextvar is unset would fall back to os.environ and
@@ -18687,7 +18687,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             # the wrong thread (#24100). The non-gateway surfaces don't depend on
             # this write: CLI and cron bind the session via contextvars
             # (set_current_session_key / session context), and only the TUI
-            # slash-worker *subprocess* exports HERMES_SESSION_KEY (from its own
+            # slash-worker *subprocess* exports FABRIC_SESSION_KEY (from its own
             # --session-key argv, a separate process) — so removing this in-process
             # gateway write does not affect any of them.
 
@@ -20053,9 +20053,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         # Periodic "still working" notifications for long-running tasks.
         # Fires every N seconds so the user knows the agent hasn't died.
         # Config: agent.gateway_notify_interval in config.yaml, or
-        # HERMES_AGENT_NOTIFY_INTERVAL env var.  Default 180s (3 min).
+        # FABRIC_AGENT_NOTIFY_INTERVAL env var.  Default 180s (3 min).
         # 0 = disable notifications.
-        _NOTIFY_INTERVAL_RAW = _float_env("HERMES_AGENT_NOTIFY_INTERVAL", 180)
+        _NOTIFY_INTERVAL_RAW = _float_env("FABRIC_AGENT_NOTIFY_INTERVAL", 180)
         _NOTIFY_INTERVAL = _NOTIFY_INTERVAL_RAW if _NOTIFY_INTERVAL_RAW > 0 else None
         _long_running_mode = _display_surface_mode(
             "long_running_notifications",
@@ -20186,11 +20186,11 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             # configured duration is caught and killed.  (#4815)
             #
             # Config: agent.gateway_timeout in config.yaml, or
-            # HERMES_AGENT_TIMEOUT env var (env var takes precedence).
+            # FABRIC_AGENT_TIMEOUT env var (env var takes precedence).
             # Default 1800s (30 min inactivity).  0 = unlimited.
-            _agent_timeout_raw = _float_env("HERMES_AGENT_TIMEOUT", 1800)
+            _agent_timeout_raw = _float_env("FABRIC_AGENT_TIMEOUT", 1800)
             _agent_timeout = _agent_timeout_raw if _agent_timeout_raw > 0 else None
-            _agent_warning_raw = _float_env("HERMES_AGENT_TIMEOUT_WARNING", 900)
+            _agent_warning_raw = _float_env("FABRIC_AGENT_TIMEOUT_WARNING", 900)
             _agent_warning = _agent_warning_raw if _agent_warning_raw > 0 else None
             _warning_fired = False
             _executor_task = asyncio.ensure_future(
@@ -21134,9 +21134,9 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
     record_boot_fingerprint()
 
     # ── Duplicate-instance guard ──────────────────────────────────────
-    # Prevent two gateways from running under the same HERMES_HOME.
-    # The PID file is scoped to HERMES_HOME, so future multi-profile
-    # setups (each profile using a distinct HERMES_HOME) will naturally
+    # Prevent two gateways from running under the same FABRIC_HOME.
+    # The PID file is scoped to FABRIC_HOME, so future multi-profile
+    # setups (each profile using a distinct FABRIC_HOME) will naturally
     # allow concurrent instances without tripping this guard.
     from gateway.status import (
         acquire_gateway_runtime_lock,
@@ -21257,7 +21257,7 @@ async def start_gateway(config: Optional[GatewayConfig] = None, replace: bool = 
         else:
             fabric_home = str(get_fabric_home())
             logger.error(
-                "Another gateway instance is already running (PID %d, HERMES_HOME=%s). "
+                "Another gateway instance is already running (PID %d, FABRIC_HOME=%s). "
                 "Use 'fabric gateway restart' to replace it, or 'fabric gateway stop' first.",
                 existing_pid, fabric_home,
             )

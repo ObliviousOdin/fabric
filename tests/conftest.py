@@ -5,13 +5,13 @@ Hermetic-test invariants enforced here (see AGENTS.md for rationale):
 1. **No credential env vars.** All provider/credential-shaped env vars
    (ending in _API_KEY, _TOKEN, _SECRET, _PASSWORD, _CREDENTIALS, etc.)
    are unset before every test. Local developer keys cannot leak in.
-2. **Isolated HERMES_HOME.** HERMES_HOME points to a per-test tempdir so
+2. **Isolated FABRIC_HOME.** FABRIC_HOME points to a per-test tempdir so
    code reading ``~/.hermes/*`` via ``get_fabric_home()`` can't see the
    real one. (We do NOT also redirect HOME — that broke subprocesses in
    CI. Code using ``Path.home() / ".hermes"`` instead of the canonical
    ``get_fabric_home()`` is a bug to fix at the callsite.)
 3. **Deterministic runtime.** TZ=UTC, LANG=C.UTF-8, PYTHONHASHSEED=0.
-4. **No HERMES_SESSION_* inheritance** — the agent's current gateway
+4. **No FABRIC_SESSION_* inheritance** — the agent's current gateway
    session must not leak into tests.
 
 These invariants make the local test run match CI closely. Gaps that
@@ -168,61 +168,61 @@ def _looks_like_credential(name: str) -> bool:
 
 # FABRIC_* vars that change test behavior by being set. Unset all of these
 # unconditionally — individual tests that need them set do so explicitly.
-_HERMES_BEHAVIORAL_VARS = frozenset({
-    "HERMES_YOLO_MODE",
-    "HERMES_INTERACTIVE",
-    "HERMES_QUIET",
-    "HERMES_TOOL_PROGRESS",
-    "HERMES_TOOL_PROGRESS_MODE",
-    "HERMES_MAX_ITERATIONS",
-    "HERMES_SESSION_PLATFORM",
-    "HERMES_SESSION_CHAT_ID",
-    "HERMES_SESSION_CHAT_NAME",
-    "HERMES_SESSION_THREAD_ID",
-    "HERMES_SESSION_SOURCE",
-    "HERMES_SESSION_KEY",
-    "HERMES_GATEWAY_SESSION",
-    "HERMES_CRON_SESSION",
-    "_HERMES_GATEWAY",
-    "HERMES_PLATFORM",
-    "HERMES_MODEL",
-    "HERMES_INFERENCE_MODEL",
-    "HERMES_INFERENCE_PROVIDER",
-    "HERMES_TUI_PROVIDER",
-    "HERMES_MANAGED",
+_FABRIC_BEHAVIORAL_VARS = frozenset({
+    "FABRIC_YOLO_MODE",
+    "FABRIC_INTERACTIVE",
+    "FABRIC_QUIET",
+    "FABRIC_TOOL_PROGRESS",
+    "FABRIC_TOOL_PROGRESS_MODE",
+    "FABRIC_MAX_ITERATIONS",
+    "FABRIC_SESSION_PLATFORM",
+    "FABRIC_SESSION_CHAT_ID",
+    "FABRIC_SESSION_CHAT_NAME",
+    "FABRIC_SESSION_THREAD_ID",
+    "FABRIC_SESSION_SOURCE",
+    "FABRIC_SESSION_KEY",
+    "FABRIC_GATEWAY_SESSION",
+    "FABRIC_CRON_SESSION",
+    "_FABRIC_GATEWAY",
+    "FABRIC_PLATFORM",
+    "FABRIC_MODEL",
+    "FABRIC_INFERENCE_MODEL",
+    "FABRIC_INFERENCE_PROVIDER",
+    "FABRIC_TUI_PROVIDER",
+    "FABRIC_MANAGED",
     "FABRIC_MANAGED_DIR",
-    "HERMES_MANAGED_DIR",
-    "HERMES_DEV",
-    "HERMES_CONTAINER",
-    "HERMES_EPHEMERAL_SYSTEM_PROMPT",
-    "HERMES_TIMEZONE",
-    "HERMES_REDACT_SECRETS",
-    "HERMES_BACKGROUND_NOTIFICATIONS",
-    "HERMES_EXEC_ASK",
-    "HERMES_HOME_MODE",
-    "HERMES_AGENT_USE_LEGACY_SESSION_KEYS",
+    "FABRIC_MANAGED_DIR",
+    "FABRIC_DEV",
+    "FABRIC_CONTAINER",
+    "FABRIC_EPHEMERAL_SYSTEM_PROMPT",
+    "FABRIC_TIMEZONE",
+    "FABRIC_REDACT_SECRETS",
+    "FABRIC_BACKGROUND_NOTIFICATIONS",
+    "FABRIC_EXEC_ASK",
+    "FABRIC_HOME_MODE",
+    "FABRIC_AGENT_USE_LEGACY_SESSION_KEYS",
     # Kanban path/board pins must never leak from a developer shell or
     # dispatched worker into tests; otherwise tests can write fake tasks to
-    # the real ~/.hermes/kanban.db instead of the per-test HERMES_HOME.
-    "HERMES_KANBAN_DB",
-    "HERMES_KANBAN_BOARD",
-    "HERMES_KANBAN_HOME",
-    "HERMES_KANBAN_WORKSPACES_ROOT",
-    "HERMES_KANBAN_LOGS_ROOT",
-    "HERMES_KANBAN_TASK",
-    "HERMES_KANBAN_WORKSPACE",
-    "HERMES_KANBAN_RUN_ID",
-    "HERMES_KANBAN_CLAIM_LOCK",
-    "HERMES_KANBAN_DISPATCH_IN_GATEWAY",
-    "HERMES_TENANT",
+    # the real ~/.hermes/kanban.db instead of the per-test FABRIC_HOME.
+    "FABRIC_KANBAN_DB",
+    "FABRIC_KANBAN_BOARD",
+    "FABRIC_KANBAN_HOME",
+    "FABRIC_KANBAN_WORKSPACES_ROOT",
+    "FABRIC_KANBAN_LOGS_ROOT",
+    "FABRIC_KANBAN_TASK",
+    "FABRIC_KANBAN_WORKSPACE",
+    "FABRIC_KANBAN_RUN_ID",
+    "FABRIC_KANBAN_CLAIM_LOCK",
+    "FABRIC_KANBAN_DISPATCH_IN_GATEWAY",
+    "FABRIC_TENANT",
     # Dashboard OAuth auth gate (PR #30156). When set, the bundled
     # dashboard-auth `nous` plugin auto-registers itself on plugin discovery,
     # which is triggered by any `/api/status` call. That leaks a provider
     # into the dashboard_auth registry across tests in the same worker and
     # makes assertions like `auth_providers == []` flaky. CI never sets
     # these, so production tests must not see them either.
-    "HERMES_DASHBOARD_OAUTH_CLIENT_ID",
-    "HERMES_DASHBOARD_PORTAL_URL",
+    "FABRIC_DASHBOARD_OAUTH_CLIENT_ID",
+    "FABRIC_DASHBOARD_PORTAL_URL",
     "TERMINAL_CWD",
     "TERMINAL_ENV",
     "TERMINAL_CONTAINER_CPU",
@@ -330,7 +330,7 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
 def _hermetic_environment(tmp_path, monkeypatch):
     """Blank out all credential/behavioral env vars so local and CI match.
 
-    Also redirects HOME and HERMES_HOME to per-test tempdirs so code that
+    Also redirects HOME and FABRIC_HOME to per-test tempdirs so code that
     reads ``~/.hermes/*`` can't touch the real one, and pins TZ/LANG so
     datetime/locale-sensitive tests are deterministic.
     """
@@ -340,10 +340,10 @@ def _hermetic_environment(tmp_path, monkeypatch):
             monkeypatch.delenv(name, raising=False)
 
     # 2. Blank behavioral FABRIC_* vars that could change test semantics.
-    for name in _HERMES_BEHAVIORAL_VARS:
+    for name in _FABRIC_BEHAVIORAL_VARS:
         monkeypatch.delenv(name, raising=False)
 
-    # 3. Redirect HERMES_HOME to a per-test tempdir. Code that reads
+    # 3. Redirect FABRIC_HOME to a per-test tempdir. Code that reads
     #    ``~/.hermes/*`` via ``get_fabric_home()`` now gets the tempdir.
     #
     #    NOTE: We do NOT also redirect HOME. Doing so broke CI because
@@ -359,10 +359,10 @@ def _hermetic_environment(tmp_path, monkeypatch):
     (fake_fabric_home / "cron").mkdir()
     (fake_fabric_home / "memories").mkdir()
     (fake_fabric_home / "skills").mkdir()
-    # Tests historically patch HERMES_HOME; dual-read prefers FABRIC_HOME then
-    # HERMES_HOME, so isolate via HERMES_HOME only (leave FABRIC_HOME unset).
+    # Tests historically patch FABRIC_HOME; dual-read prefers FABRIC_HOME then
+    # FABRIC_HOME, so isolate via FABRIC_HOME only (leave FABRIC_HOME unset).
     monkeypatch.delenv("FABRIC_HOME", raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(fake_fabric_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fake_fabric_home))
 
     # 4. Deterministic locale / timezone / hashseed. CI runs in UTC with
     #    C.UTF-8 locale; local dev often doesn't. Pin everything.
@@ -664,7 +664,7 @@ def _live_system_guard(request, monkeypatch):
         monkeypatch.setattr(_os, "killpg", _guarded_killpg)
 
     # ── Subprocess command-string inspection (whole-line) ──────────
-    _HERMES_TOKENS = (
+    _FABRIC_TOKENS = (
         "fabric-gateway",
         "hermes.service",
         "fabric_cli.main gateway",
@@ -698,7 +698,7 @@ def _live_system_guard(request, monkeypatch):
 
     def _matches_fabric_gateway(cmd_str: str) -> bool:
         low = cmd_str.lower()
-        return any(tok in low for tok in _HERMES_TOKENS)
+        return any(tok in low for tok in _FABRIC_TOKENS)
 
     def _is_blocked_systemctl(cmd) -> bool:
         cmd_str = _cmd_to_string(cmd)

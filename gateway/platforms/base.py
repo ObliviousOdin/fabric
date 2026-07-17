@@ -964,36 +964,36 @@ _CACHE_DIR_IMPORT_DEFAULTS = {
     "SCREENSHOT_CACHE_DIR": SCREENSHOT_CACHE_DIR,
 }
 
-_HERMES_HOME = get_fabric_home()
-_HERMES_ROOT = get_default_fabric_root()
-MEDIA_DELIVERY_ALLOW_DIRS_ENV = "HERMES_MEDIA_ALLOW_DIRS"
-MEDIA_DELIVERY_TRUST_RECENT_ENV = "HERMES_MEDIA_TRUST_RECENT_FILES"
-MEDIA_DELIVERY_TRUST_RECENT_SECONDS_ENV = "HERMES_MEDIA_TRUST_RECENT_SECONDS"
+_FABRIC_HOME = get_fabric_home()
+_FABRIC_ROOT = get_default_fabric_root()
+MEDIA_DELIVERY_ALLOW_DIRS_ENV = "FABRIC_MEDIA_ALLOW_DIRS"
+MEDIA_DELIVERY_TRUST_RECENT_ENV = "FABRIC_MEDIA_TRUST_RECENT_FILES"
+MEDIA_DELIVERY_TRUST_RECENT_SECONDS_ENV = "FABRIC_MEDIA_TRUST_RECENT_SECONDS"
 # Strict mode toggles the original allowlist+recency path-validation behavior.
 # Off by default — symmetric with inbound (we accept any document type the
 # user uploads), and with the denylist still blocking obvious credential /
 # system paths. Operators running public-facing gateways where prompt
 # injection from one user could exfiltrate the host's secrets to that same
 # user should set this to true.
-MEDIA_DELIVERY_STRICT_ENV = "HERMES_MEDIA_DELIVERY_STRICT"
+MEDIA_DELIVERY_STRICT_ENV = "FABRIC_MEDIA_DELIVERY_STRICT"
 MEDIA_DELIVERY_SAFE_ROOTS = (
     IMAGE_CACHE_DIR,
     AUDIO_CACHE_DIR,
     VIDEO_CACHE_DIR,
     DOCUMENT_CACHE_DIR,
     SCREENSHOT_CACHE_DIR,
-    _HERMES_HOME / "image_cache",
-    _HERMES_HOME / "audio_cache",
-    _HERMES_HOME / "video_cache",
-    _HERMES_HOME / "document_cache",
-    _HERMES_HOME / "browser_screenshots",
+    _FABRIC_HOME / "image_cache",
+    _FABRIC_HOME / "audio_cache",
+    _FABRIC_HOME / "video_cache",
+    _FABRIC_HOME / "document_cache",
+    _FABRIC_HOME / "browser_screenshots",
     # Canonical cache layout — listed alongside the legacy *_cache dirs so
     # generated artifacts deliver on installs that have both (#31733).
-    _HERMES_HOME / "cache" / "images",
-    _HERMES_HOME / "cache" / "audio",
-    _HERMES_HOME / "cache" / "videos",
-    _HERMES_HOME / "cache" / "documents",
-    _HERMES_HOME / "cache" / "screenshots",
+    _FABRIC_HOME / "cache" / "images",
+    _FABRIC_HOME / "cache" / "audio",
+    _FABRIC_HOME / "cache" / "videos",
+    _FABRIC_HOME / "cache" / "documents",
+    _FABRIC_HOME / "cache" / "screenshots",
 )
 
 # Default recency window for trusting freshly-produced files (seconds).
@@ -1056,16 +1056,16 @@ def _profile_cache_roots() -> List[Path]:
 
     Profile gateways write generated artifacts to
     ``<root>/profiles/<name>/cache/{images,audio,...}``. The static safe-roots
-    list only covers the *active* HERMES_HOME's cache, so a gateway running at
-    the root (e.g. ``HERMES_HOME=/opt/data``) while the model emits a
+    list only covers the *active* FABRIC_HOME's cache, so a gateway running at
+    the root (e.g. ``FABRIC_HOME=/opt/data``) while the model emits a
     profile-scoped path silently fails delivery. Enumerated dynamically at
     check time so profiles created after startup are covered, and so the
     resolved profile path is allowlisted *before* the ``/root`` system denylist
-    is consulted (which otherwise wins when HERMES_HOME is symlinked under a
+    is consulted (which otherwise wins when FABRIC_HOME is symlinked under a
     denied prefix and $HOME is not that prefix). See issue #31733.
     """
     roots: List[Path] = []
-    profiles_dir = _HERMES_ROOT / "profiles"
+    profiles_dir = _FABRIC_ROOT / "profiles"
     try:
         profile_dirs = [p for p in profiles_dir.iterdir() if p.is_dir()]
     except OSError:
@@ -1137,7 +1137,7 @@ def _media_delivery_denied_paths() -> List[Path]:
     # validate_media_delivery_path, so generated media still delivers).
     #
     # These are the per-file credential / secret stores that live at the
-    # HERMES_HOME root. The set mirrors the canonical read guard in
+    # FABRIC_HOME root. The set mirrors the canonical read guard in
     # agent/file_safety.py (get_read_block_error / build_write_denied_*) so the
     # delivery (read/exfil) side can't trail the write side: a credential the
     # agent is forbidden to write or read must also never be auto-attached to a
@@ -1176,7 +1176,7 @@ def _media_delivery_denied_paths() -> List[Path]:
         "pairing",
         "mcp-tokens",
     )
-    for fabric_root in (_HERMES_HOME, _HERMES_ROOT):
+    for fabric_root in (_FABRIC_HOME, _FABRIC_ROOT):
         for rel in _ROOT_CREDENTIAL_FILES:
             denied.append(fabric_root / rel)
         for rel in _ROOT_CREDENTIAL_DIRS:
@@ -1194,14 +1194,14 @@ def _is_private_provider_delivery_path(path: Path, *, capability=None) -> bool:
     return (
         classify_pinned_provider_account_path(
             capability,
-            active_home=_HERMES_HOME,
-            fabric_root=_HERMES_ROOT,
+            active_home=_FABRIC_HOME,
+            fabric_root=_FABRIC_ROOT,
         )
         if capability is not None
         else is_private_provider_account_path(
             path,
-            active_home=_HERMES_HOME,
-            fabric_root=_HERMES_ROOT,
+            active_home=_FABRIC_HOME,
+            fabric_root=_FABRIC_ROOT,
         )
     )
 
@@ -1282,9 +1282,9 @@ def _validated_media_delivery_capability(path: str):
     back any file that isn't a credential.
 
     Strict mode (opt-in via ``gateway.strict`` in ``config.yaml`` or
-    ``HERMES_MEDIA_DELIVERY_STRICT=1``): the file MUST live under a
+    ``FABRIC_MEDIA_DELIVERY_STRICT=1``): the file MUST live under a
     Fabric-managed cache, under an operator-allowlisted root
-    (``HERMES_MEDIA_ALLOW_DIRS``), or be freshly produced inside the
+    (``FABRIC_MEDIA_ALLOW_DIRS``), or be freshly produced inside the
     configured recency window. Suitable for public-facing bots where
     prompt injection from one user shouldn't be able to exfiltrate the
     host's secrets to that same user.
@@ -2682,7 +2682,7 @@ class BasePlatformAdapter(ABC):
     # the watcher/drain loops). False for stateless request/response adapters
     # (the API server): every route closes its channel when the turn ends, so
     # there is nowhere to push a later completion. The gateway propagates this
-    # into the ``HERMES_SESSION_ASYNC_DELIVERY`` contextvar at session-bind
+    # into the ``FABRIC_SESSION_ASYNC_DELIVERY`` contextvar at session-bind
     # time; tools read it via ``async_delivery_supported()`` and refuse to make
     # a delivery promise they can't keep. A new stateless adapter only needs to
     # set this to False to stay correct-by-default.
@@ -2753,14 +2753,14 @@ class BasePlatformAdapter(ABC):
         # pre-sync read matches the single-knob default rather than silently
         # queueing.
         self._busy_text_mode: str = (
-            os.environ.get("HERMES_GATEWAY_BUSY_TEXT_MODE", "interrupt").strip().lower()
+            os.environ.get("FABRIC_GATEWAY_BUSY_TEXT_MODE", "interrupt").strip().lower()
             or "interrupt"
         )
         self._busy_text_debounce_seconds: float = _float_env(
-            "HERMES_GATEWAY_BUSY_TEXT_DEBOUNCE_SECONDS", 0.35
+            "FABRIC_GATEWAY_BUSY_TEXT_DEBOUNCE_SECONDS", 0.35
         )
         self._busy_text_hard_cap_seconds: float = _float_env(
-            "HERMES_GATEWAY_BUSY_TEXT_HARD_CAP_SECONDS", 1.0
+            "FABRIC_GATEWAY_BUSY_TEXT_HARD_CAP_SECONDS", 1.0
         )
         self._text_debounce: dict[str, TextDebounceState] = {}
         # Background message-processing tasks spawned by handle_message().
@@ -5184,11 +5184,11 @@ class BasePlatformAdapter(ABC):
         Return a random delay in seconds for human-like response pacing.
 
         Reads from env vars:
-          HERMES_HUMAN_DELAY_MODE: "off" (default) | "natural" | "custom"
-          HERMES_HUMAN_DELAY_MIN_MS: minimum delay in ms (default 800, custom mode)
-          HERMES_HUMAN_DELAY_MAX_MS: maximum delay in ms (default 2500, custom mode)
+          FABRIC_HUMAN_DELAY_MODE: "off" (default) | "natural" | "custom"
+          FABRIC_HUMAN_DELAY_MIN_MS: minimum delay in ms (default 800, custom mode)
+          FABRIC_HUMAN_DELAY_MAX_MS: maximum delay in ms (default 2500, custom mode)
         """
-        mode = os.getenv("HERMES_HUMAN_DELAY_MODE", "off").lower()
+        mode = os.getenv("FABRIC_HUMAN_DELAY_MODE", "off").lower()
         if mode == "off":
             return 0.0
         if mode == "natural":
@@ -5196,11 +5196,11 @@ class BasePlatformAdapter(ABC):
             return random.uniform(min_ms / 1000.0, max_ms / 1000.0)
         # custom mode — tolerate malformed env vars instead of crashing.
         try:
-            min_ms = int(os.getenv("HERMES_HUMAN_DELAY_MIN_MS", "800"))
+            min_ms = int(os.getenv("FABRIC_HUMAN_DELAY_MIN_MS", "800"))
         except (TypeError, ValueError):
             min_ms = 800
         try:
-            max_ms = int(os.getenv("HERMES_HUMAN_DELAY_MAX_MS", "2500"))
+            max_ms = int(os.getenv("FABRIC_HUMAN_DELAY_MAX_MS", "2500"))
         except (TypeError, ValueError):
             max_ms = 2500
         return random.uniform(min_ms / 1000.0, max_ms / 1000.0)

@@ -313,10 +313,16 @@ Adds a **Steam-style achievements tab to the dashboard** — 60+ collectible, ti
 | `POST /reset-state` | Clear unlock history and cached snapshot |
 | `GET /team`, `GET /team/leaderboard` | Team leaderboard state / ranked roster (opt-in; see below) |
 | `POST /team/create`, `/team/join`, `/team/leave`, `/team/settings`, `/team/publish`, `/team/rotate`, `/team/kick` | Team lifecycle, sharing toggle, and owner controls |
+| `GET /team/host/status`, `POST /team/host/probe` | Detect a running relay + this machine's Tailscale identity to auto-fill a shareable URL; validate a candidate relay URL (see hosting below) |
+| `POST /team/host/start`, `POST /team/host/stop` | Start / stop a dashboard-managed relay on this machine |
 
 **Team leaderboard (opt-in cross-user sharing):** A second **Team Leaderboard** tab lets several Fabric users compare achievements. It keeps the local-first promise — the achievement scanner still never sends session history anywhere. When you opt into a team, the *only* data that leaves your machine is an **aggregate profile**: a tier-weighted score, unlock/tier/category counts, up to five unlocked-badge names from the static catalogue, and a display name you choose. Session titles, transcripts, file paths, and raw metrics are never sent — enforced by `build_leaderboard_profile`, re-validated by the relay's `sanitize_profile`, and pinned by a golden test (`tests/plugins/test_leaderboard_privacy.py`).
 
 Members connect through a small **relay** — a stdlib-only, self-hostable service (`python -m relay` from `plugins/fabric-achievements/`; see its [README](https://github.com/ObliviousOdin/fabric/tree/main/plugins/fabric-achievements/relay)). Creating a team returns a shareable invite code (`fbl1_…`) that others paste to join. The browser never contacts the relay directly — each dashboard proxies server-to-server through the routes above, so the loopback/OAuth auth model is untouched. Sharing is a toggle; the team owner can reset the invite (rotate) or remove members. Scores are self-reported, so it's a friendly board for teams that trust each other, not an adversarial ranking. The `/team/*` routes stay behind the dashboard auth gate (they carry secrets and write state) and are deliberately **not** in the public-paths allowlist.
+
+**Hosting the board from the dashboard:** the tab's **Advanced: host a private leaderboard (Tailscale)** panel makes being the host one click. **Host on this machine** starts the relay for you (`POST /team/host/start`), supervises it (pid + start-time recorded in `relay.json`, so **Stop** and status survive a dashboard restart), and health-checks it — no copy-paste terminal command. The dashboard then **auto-fills the Relay URL**, preferring this machine's Tailscale MagicDNS name (`something.ts.net`) and verifying that the resulting tailnet URL answers as a Fabric relay from the host machine; a relay bound only to `127.0.0.1` is reported as not tailnet-reachable instead. The probe validates DNS and binding, not each teammate's Tailscale ACL access. Without Tailscale it falls back to `http://127.0.0.1:9137` for a same-machine trial. **Detect** re-checks read-only. Reading Tailscale identity and connecting reuse `fabric_cli.tailscale_setup` (the code behind `fabric setup tailscale`); the interactive QR login stays that CLI command, which the panel surfaces when Tailscale is installed but not connected. If a relay is already answering on the port, **Host** adopts it rather than starting a second one.
+
+The managed relay binds narrowly to this node's connected Tailscale IPv4 address, or to `127.0.0.1` when Tailscale is unavailable. It does not expose the plain-HTTP relay to every LAN interface by default. The relay is designed to sit behind Tailscale (or a TLS proxy), never directly on the public internet (see the [relay README](https://github.com/ObliviousOdin/fabric/tree/main/plugins/fabric-achievements/relay)).
 
 **State files** — live under `$FABRIC_HOME/plugins/fabric-achievements/`:
 
@@ -326,6 +332,8 @@ Members connect through a small **relay** — a stdlib-only, self-hostable servi
 | `scan_snapshot.json` | Last completed scan payload (served immediately on dashboard load) |
 | `scan_checkpoint.json` | Per-session stats cache keyed by fingerprint (makes warm rescans fast) |
 | `team.json` | Team leaderboard membership (relay URL, team/member ids, per-member token, sharing toggle). Only present if you join a team. |
+| `relay.json` | Dashboard-managed relay's pid, port, and start-time. Only present if you host a relay from the dashboard; lets **Stop** and status survive a restart. |
+| `roster.json` | The relay's own persisted team rosters (aggregate profiles only). Only present if you host a relay from the dashboard. |
 
 **Performance notes:**
 

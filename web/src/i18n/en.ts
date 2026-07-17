@@ -1029,11 +1029,14 @@ export const en: Translations = {
         "Compare Fabric achievements with people you know. Joining and sharing is one explicit opt-in; your private session content always stays on this machine.",
       loading: "Loading team…",
       working: "Working…",
+      starting: "Starting…",
       generic_error: "Something went wrong.",
       create_title: "Create a team",
       create_lead:
         "Start a leaderboard and invite people with a link. You choose which relay hosts it.",
       create_button: "Create team",
+      checking_relay: "Checking relay…",
+      relay_unreachable: "That relay is not reachable.",
       join_title: "Join a leaderboard",
       join_lead:
         "Paste an invite from someone you trust. Fabric will connect to the private leaderboard named in that invite.",
@@ -1048,7 +1051,7 @@ export const en: Translations = {
       join_viewer: "Join without sharing",
       relay_label: "Relay URL",
       relay_hint:
-        "The address of a running leaderboard relay (see the plugin docs to host one). Use http://127.0.0.1:9137 to try it locally.",
+        "Use Detect above to fill this in, or paste a relay address. http://127.0.0.1:9137 works for a same-machine trial; a Tailscale name (ends in .ts.net) can be shared with teammates allowed by your tailnet ACLs.",
       team_name_label: "Team name",
       team_name_placeholder: "Acme Crew",
       display_name_label: "Your display name",
@@ -1061,10 +1064,53 @@ export const en: Translations = {
       privacy_header: "What is shared",
       privacy_body:
         "Your score, unlock and tier counts, per-category tallies, and up to five unlocked badge names — plus a display name you pick. Session titles, transcripts, file paths, and raw metrics are never sent.",
-      hosting_summary: "Advanced: host a private leaderboard",
+      hosting_summary: "Advanced: host a private leaderboard (Tailscale)",
       hosting_header: "Self-hosted and account-free",
       hosting_body:
-        "Run the small leaderboard relay for your group, then create a team and share its invite. Use a TLS proxy or Tailscale outside your LAN.",
+        "You host the board — there is no Fabric cloud. The simplest setup: 1) install Tailscale on this machine and your teammates' (tailscale.com/download), 2) click Host on this machine to start the small relay here, 3) the dashboard auto-fills a Tailscale address and verifies it from this machine, then create a team and share the invite. Teammate access still follows your tailnet ACLs.",
+      detect_button: "Detect",
+      detecting: "Detecting…",
+      detect_hint:
+        "Auto-fills the relay URL from this machine — no need to look up your address.",
+      host_button: "Host on this machine",
+      host_hint:
+        "Starts the relay here and fills in a shareable URL. Detect re-checks without starting anything.",
+      host_manage_hint:
+        "Starts, checks, or stops the relay hosted by this dashboard.",
+      host_running: "Relay hosted on this machine — PID {pid}, port {port}{state}.",
+      host_starting: " (starting…)",
+      host_stop: "Stop",
+      stopping: "Stopping…",
+      host_ownership_unknown:
+        "A saved relay process cannot be verified, so Fabric will not replace or stop it.",
+      detect_ts_ok: "Tailscale: {name}",
+      detect_ts_down:
+        "Tailscale is installed but not connected — connect it below for a shareable address.",
+      detect_ts_none:
+        "Tailscale not found. Install it (tailscale.com/download) so teammates allowed by your tailnet ACLs can reach this relay with no port-forwarding.",
+      detect_relay_ok: "Relay is answering on this machine (port {port}).",
+      detect_relay_none:
+        "No relay is running yet — click Host on this machine to start one.",
+      detect_relay_external:
+        "A relay is answering on this machine (port {port}) — not managed by the dashboard.",
+      detect_filled:
+        "Filled in {url}. It answers over Tailscale from this machine; teammate access depends on your tailnet ACLs.",
+      detect_filled_unreachable:
+        "Filled in {url}, but that tailnet address is not answering. If you started the relay manually, bind it to 0.0.0.0 or your Tailscale address.",
+      detect_filled_local:
+        "Filled in {url} — this only works on this machine (fine for a solo trial). Connect Tailscale to share.",
+      detect_filled_pending:
+        "Filled in {url} — start the relay (Host on this machine) to make it reachable on your tailnet.",
+      detect_nofill:
+        "Host the relay (and connect Tailscale), then the URL fills in automatically.",
+      tailscale_connect_hint:
+        "Connect Tailscale with Fabric's built-in setup (it shows a QR to scan). Run this in a terminal:",
+      copy_cmd: "Copy command",
+      command_label: "Command",
+      copy_failed: "Copy failed",
+      relay_manage_summary: "Relay hosting on this machine",
+      relay_manage_body:
+        "This local relay keeps running independently of team membership. Check or stop the process hosted by this dashboard here.",
       member_summary: "You are {name} · {role}",
       role_owner: "owner",
       role_member: "member",
@@ -1073,6 +1119,15 @@ export const en: Translations = {
       leave: "Leave team",
       on_board: "On the leaderboard",
       viewing_only: "Viewing only",
+      retraction_pending: "Retraction pending",
+      retraction_pending_title: "Your score may still be visible",
+      retraction_pending_body:
+        "Fabric saved your opt-out locally and will retry removing the remote row. Retry when the relay is reachable.",
+      retry_retraction: "Retry retraction",
+      sharing_needs_attention: "Sharing needs attention",
+      sharing_error_title: "Sharing could not be confirmed",
+      sharing_error_body:
+        "The latest publish failed. Your previous row may still be visible; retry with Publish now.",
       sharing_on_title: "Your score is being shared",
       sharing_off_title: "Share your score when you are ready",
       sharing_on:
@@ -1094,13 +1149,15 @@ export const en: Translations = {
         "Anyone with this code can view the board and join. Share it only with people you want on your team.",
       leave_title: "Leave this leaderboard",
       leave_body:
-        "Your shared score will be removed from the relay and this machine will forget the membership.",
+        "Fabric removes your shared score from the relay and forgets the membership locally. If the relay is unavailable, Fabric leaves locally and retries the remote removal.",
       board_empty:
         "No one has shared stats yet. Turn on sharing above to appear on the board.",
+      board_label: "Team leaderboard",
       col_member: "Member",
       col_score: "Score",
       col_unlocked: "Unlocked",
       col_tier: "Top tier",
+      col_actions: "Actions",
       owner_badge: "owner",
       you_badge: "you",
       not_shared: "not shared",

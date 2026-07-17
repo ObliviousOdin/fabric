@@ -1,0 +1,62 @@
+# Fabric-curated MCP catalog entry.
+# Presence in this directory = approval. Merged via PR review.
+manifest_version: 1
+
+name: ros2
+description: Drive ROS 1/ROS 2 robots and Gazebo sims via ros-mcp-server over rosbridge.
+source: https://github.com/robotmcp/ros-mcp-server
+
+# robotmcp/ros-mcp-server (Apache-2.0, ~1.3k stars) bridges any MCP client
+# to a running ROS graph over a rosbridge websocket: topic pub/sub, service
+# calls, actions, parameters, and message-type discovery — with no changes
+# to robot source code. It works against ROS 1 and ROS 2 (Humble/Jazzy),
+# and against Gazebo sims bridged with ros_gz_bridge, so the same agent
+# tool surface drives simulation and hardware.
+#
+# The server is published on PyPI as `ros-mcp`; uvx both installs and runs
+# it, pinned to a reviewed release (no git clone needed).
+transport:
+  type: stdio
+  command: "uvx"
+  args:
+    - "ros-mcp==3.1.0"
+    - "--transport=stdio"
+
+# The server itself needs no credentials — it connects to the rosbridge
+# websocket you point it at after connecting (see post_install).
+auth:
+  type: none
+
+# Tool selection at install time:
+# The install-time probe lists the server's tools (connect, topic pub/sub,
+# service/action calls, params). Publishing to topics and calling services
+# ACTUATES the robot — prune the write tools if you want a read-only
+# introspection surface first, then re-run `fabric mcp configure ros2`.
+
+post_install: |
+  This entry launches ros-mcp-server locally (via uvx) and bridges to a
+  ROS graph over rosbridge. On the robot (or sim host):
+
+    1. Install rosbridge for your distro:
+         sudo apt install ros-<distro>-rosbridge-server
+    2. Launch it inside your sourced workspace:
+         ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+       (default websocket port: 9090)
+    3. In a Fabric session, ask the agent to connect to the robot —
+       the server's connect tool takes the rosbridge host/port.
+
+  Gazebo tip: run headless sims with `gz sim -s` and bridge topics with
+  ros_gz_bridge so the agent sees the same ROS 2 surface in sim and on
+  hardware. Long-running launches belong in Fabric's terminal tool with
+  background=true and watch_patterns — not inside MCP tool calls.
+
+  Safety: topic publish / service call tools actuate real hardware. Keep
+  safety-critical control (watchdogs, e-stop, joint limits) in ROS 2
+  controllers — never in the LLM loop. Tool calls run serially by design;
+  do not enable parallel tool calls for this server.
+
+  Requires `uv` (https://docs.astral.sh/uv/) on PATH. Start rosbridge
+  BEFORE Fabric so the install probe can list tools.
+
+  Re-run the tool checklist any time with:
+    fabric mcp configure ros2

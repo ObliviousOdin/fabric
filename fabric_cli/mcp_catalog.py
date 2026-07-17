@@ -77,6 +77,12 @@ class TransportSpec:
     args: List[str] = field(default_factory=list)
     url: Optional[str] = None
     version: Optional[str] = None  # informational, pinned
+    # HTTP-only: request headers written verbatim into the server config.
+    # Values may reference env vars as ${VAR} — the MCP client interpolates
+    # them at connect time (tools/mcp_tool.py _interpolate_env_vars), so a
+    # manifest can carry `Authorization: "Bearer ${HASS_TOKEN}"` without the
+    # secret ever living in config.yaml.
+    headers: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -184,17 +190,27 @@ def _parse_manifest(path: Path) -> CatalogEntry:
     args = transport_raw.get("args") or []
     if not isinstance(args, list):
         raise CatalogError(f"{path}: transport.args must be a list")
+    headers_raw = transport_raw.get("headers") or {}
+    if not isinstance(headers_raw, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in headers_raw.items()
+    ):
+        raise CatalogError(
+            f"{path}: transport.headers must be a mapping of string to string"
+        )
     transport = TransportSpec(
         type=t_type,
         command=transport_raw.get("command"),
         args=[str(a) for a in args],
         url=transport_raw.get("url"),
         version=transport_raw.get("version"),
+        headers=dict(headers_raw),
     )
     if t_type == "stdio" and not transport.command:
         raise CatalogError(f"{path}: stdio transport requires 'command'")
     if t_type == "http" and not transport.url:
         raise CatalogError(f"{path}: http transport requires 'url'")
+    if transport.headers and t_type != "http":
+        raise CatalogError(f"{path}: transport.headers is only valid for http transport")
 
     auth_raw = data.get("auth") or {"type": "none"}
     if not isinstance(auth_raw, dict):
@@ -470,6 +486,10 @@ def _build_server_config(
             cfg["args"] = [_expand_install_dir(a, install_dir) for a in t.args]
     elif t.type == "http":
         cfg["url"] = t.url
+        if t.headers:
+            # ${VAR} values are interpolated from env at connect time by
+            # tools/mcp_tool.py, so secrets stay in ~/.fabric/.env.
+            cfg["headers"] = dict(t.headers)
         if entry.auth.type == "oauth":
             cfg["auth"] = "oauth"
     return cfg

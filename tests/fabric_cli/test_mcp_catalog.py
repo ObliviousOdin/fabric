@@ -197,6 +197,41 @@ class TestManifestParsing:
         assert get_entry("official/demo") is not None
         assert get_entry("missing") is None
 
+    def test_http_headers_parsed(self, catalog_dir):
+        body = _basic_manifest(
+            transport={
+                "type": "http",
+                "url": "${DEMO_URL}/api/mcp",
+                "headers": {"Authorization": "Bearer ${DEMO_TOKEN}"},
+            }
+        )
+        _write_manifest(catalog_dir, "demo", body)
+        from fabric_cli.mcp_catalog import list_catalog
+
+        e = list_catalog()[0]
+        assert e.transport.headers == {"Authorization": "Bearer ${DEMO_TOKEN}"}
+
+    def test_headers_on_stdio_rejected(self, catalog_dir):
+        body = _basic_manifest()
+        body["transport"]["headers"] = {"Authorization": "Bearer x"}
+        _write_manifest(catalog_dir, "demo", body)
+        from fabric_cli.mcp_catalog import list_catalog
+
+        assert list_catalog() == []
+
+    def test_non_string_headers_rejected(self, catalog_dir):
+        body = _basic_manifest(
+            transport={
+                "type": "http",
+                "url": "http://x/mcp",
+                "headers": {"Authorization": 42},
+            }
+        )
+        _write_manifest(catalog_dir, "demo", body)
+        from fabric_cli.mcp_catalog import list_catalog
+
+        assert list_catalog() == []
+
 
 # ---------------------------------------------------------------------------
 # Install flow
@@ -306,6 +341,26 @@ class TestInstall:
         server = load_config()["mcp_servers"]["demo"]
         assert server["url"] == "https://mcp.example.com/sse"
         assert server["auth"] == "oauth"
+
+    def test_install_http_headers_written_to_config(self, catalog_dir):
+        body = _basic_manifest(
+            transport={
+                "type": "http",
+                "url": "${DEMO_URL}/api/mcp",
+                "headers": {"Authorization": "Bearer ${DEMO_TOKEN}"},
+            }
+        )
+        _write_manifest(catalog_dir, "demo", body)
+        from fabric_cli.mcp_catalog import install_entry
+        from fabric_cli.config import load_config
+
+        install_entry(_entry("demo"), enable=True)
+
+        servers = load_config()["mcp_servers"]
+        assert servers["demo"]["url"] == "${DEMO_URL}/api/mcp"
+        # Placeholder (not a resolved secret) must be what lands on disk —
+        # interpolation happens at connect time from ~/.fabric/.env.
+        assert servers["demo"]["headers"] == {"Authorization": "Bearer ${DEMO_TOKEN}"}
 
     def test_install_required_env_missing_raises(self, catalog_dir, monkeypatch):
         body = _basic_manifest(

@@ -1,0 +1,66 @@
+# Fabric-curated MCP catalog entry.
+# Presence in this directory = approval. Merged via PR review.
+manifest_version: 1
+
+name: home-assistant
+description: Control Home Assistant via its official MCP Server integration (Assist API tools).
+source: https://www.home-assistant.io/integrations/mcp_server/
+
+# Home Assistant ships an official MCP Server integration (core since
+# 2025.2). It serves MCP over Streamable HTTP at /api/mcp on the HA
+# instance and exposes Assist API tools scoped to the entities the user
+# has explicitly exposed on the voice-assistants "exposed entities" page —
+# a deliberate, user-controlled permission boundary for agent actuation.
+#
+# ${HASS_URL} and ${HASS_TOKEN} are resolved from ~/.fabric/.env at connect
+# time by the MCP client, so the token never lands in config.yaml. Both are
+# prompted at install (and skipped if already set — users of the built-in
+# ha_* tools already have them).
+transport:
+  type: http
+  url: "${HASS_URL}/api/mcp"
+  headers:
+    Authorization: "Bearer ${HASS_TOKEN}"
+
+auth:
+  type: api_key
+  env:
+    - name: HASS_URL
+      prompt: "Home Assistant base URL (no trailing slash)"
+      default: "http://homeassistant.local:8123"
+      required: true
+      secret: false
+    - name: HASS_TOKEN
+      prompt: "Home Assistant Long-Lived Access Token (Profile → Security)"
+      required: true
+      secret: true
+
+# Tool selection at install time:
+# The server's tool surface is generated from the Assist API (turn on/off,
+# set temperature, GetLiveContext, etc.) and depends on which entities the
+# user exposed — leave default_enabled unset so the install-time probe lists
+# whatever the live instance offers and users prune from there.
+
+post_install: |
+  This entry connects to Home Assistant's OFFICIAL MCP Server integration.
+  Before Fabric can connect:
+
+    1. In Home Assistant: Settings → Devices & Services → Add Integration →
+       search "Model Context Protocol Server" and add it (HA 2025.2+).
+    2. Expose the entities the agent may touch: Settings → Voice assistants →
+       Exposed entities. The MCP server can only see and control these —
+       start small (a few lights) and widen deliberately.
+    3. Create a Long-Lived Access Token under your user Profile → Security
+       (the token you were just prompted for).
+
+  Notes:
+  - Endpoint is ${HASS_URL}/api/mcp (Streamable HTTP). A 404 means the
+    integration isn't configured; a 401 means the token is wrong.
+  - Sampling and notifications are not supported by the HA server.
+  - Fabric's built-in ha_* tools (ha_call_service etc.) remain available
+    and independent — they use the REST API with a security blocklist and
+    can reach entities that are not voice-exposed. Prefer this MCP entry
+    when you want HA's exposed-entities boundary to govern the agent.
+
+  Re-run the tool checklist any time with:
+    fabric mcp configure home-assistant

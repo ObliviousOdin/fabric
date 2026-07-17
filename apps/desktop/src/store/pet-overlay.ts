@@ -2,7 +2,17 @@ import { atom } from 'nanostores'
 
 import { persistBoolean, persistString, storedBoolean, storedString } from '@/lib/storage'
 import { $petActivity, $petInfo, $petUnread, clearPetUnread, type PetActivity, type PetInfo } from '@/store/pet'
-import { $awaitingResponse, $busy } from '@/store/session'
+import { buildPetOverlaySessions, type PetOverlaySession } from '@/store/pet-overlay-sessions'
+import {
+  $attentionSessionIds,
+  $awaitingResponse,
+  $busy,
+  $cronSessions,
+  $messagingSessions,
+  $selectedStoredSessionId,
+  $sessions,
+  $workingSessionIds
+} from '@/store/session'
 
 /**
  * Controller for the pop-out pet overlay (main-renderer side).
@@ -44,6 +54,7 @@ export interface PetOverlayStatePayload {
   activity: PetActivity
   busy: boolean
   awaiting: boolean
+  sessions: PetOverlaySession[]
   /** Drives the overlay's mail icon: a finish landed while you were away. */
   unread: boolean
 }
@@ -52,6 +63,7 @@ export type PetOverlayControl =
   | { type: 'pop-in' }
   | { type: 'ready' }
   | { type: 'submit'; text: string }
+  | { type: 'open-session'; sessionId: string }
   | { type: 'bounds'; bounds: PetOverlayBounds }
   | { type: 'open-app' }
   | { type: 'toggle-app' }
@@ -100,9 +112,9 @@ function saveBounds(bounds: PetOverlayBounds): void {
 // drag area, and the pop-up composer all have room; the pet sits near the
 // bottom and the rest of the rectangle is transparent + click-through.
 const OVERLAY_PAD_X = 100
-const OVERLAY_PAD_Y = 200
-const OVERLAY_MIN_W = 240
-const OVERLAY_MIN_H = 300
+const OVERLAY_PAD_Y = 320
+const OVERLAY_MIN_W = 280
+const OVERLAY_MIN_H = 460
 
 /**
  * Window bounds (width/height) that fully contain the pet at a given scale, plus
@@ -121,14 +133,23 @@ let stateUnsubs: Array<() => void> = []
 let controlUnsub: (() => void) | null = null
 let submitHandler: ((text: string) => void) | null = null
 let openAppHandler: (() => void) | null = null
+let openSessionHandler: ((sessionId: string) => void) | null = null
 let scaleHandler: ((scale: number) => void) | null = null
 
 function currentPayload(): PetOverlayStatePayload {
+  const selectedSessionId = $selectedStoredSessionId.get()
+
   return {
     info: $petInfo.get(),
     activity: $petActivity.get(),
     busy: $busy.get(),
     awaiting: $awaitingResponse.get(),
+    sessions: buildPetOverlaySessions({
+      activeId: selectedSessionId,
+      attentionIds: $attentionSessionIds.get(),
+      groups: [$sessions.get(), $messagingSessions.get(), $cronSessions.get()],
+      workingIds: $workingSessionIds.get()
+    }),
     unread: $petUnread.get()
   }
 }
@@ -165,7 +186,13 @@ function openOverlay(request: PetOverlayOpenRequest): void {
     $petActivity.subscribe(pushNow),
     $busy.subscribe(pushNow),
     $awaitingResponse.subscribe(pushNow),
-    $petUnread.subscribe(pushNow)
+    $petUnread.subscribe(pushNow),
+    $sessions.subscribe(pushNow),
+    $messagingSessions.subscribe(pushNow),
+    $cronSessions.subscribe(pushNow),
+    $workingSessionIds.subscribe(pushNow),
+    $attentionSessionIds.subscribe(pushNow),
+    $selectedStoredSessionId.subscribe(pushNow)
   ]
 }
 
@@ -240,6 +267,11 @@ export function setPetOverlayOpenAppHandler(fn: (() => void) | null): void {
   openAppHandler = fn
 }
 
+/** Register the handler that raises Fabric on a session selected from the pet. */
+export function setPetOverlayOpenSessionHandler(fn: ((sessionId: string) => void) | null): void {
+  openSessionHandler = fn
+}
+
 /** Register the handler that persists a scale resized via the overlay's Alt+wheel gesture. */
 export function setPetOverlayScaleHandler(fn: ((scale: number) => void) | null): void {
   scaleHandler = fn
@@ -277,6 +309,9 @@ export function initPetOverlayBridge(): () => void {
       // focused the window before forwarding this) and mark it read.
       clearPetUnread()
       openAppHandler?.()
+    } else if (payload?.type === 'open-session' && typeof payload.sessionId === 'string') {
+      clearPetUnread()
+      openSessionHandler?.(payload.sessionId)
     }
   })
 

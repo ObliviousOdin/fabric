@@ -17,6 +17,12 @@ Fabric is a local-first AI agent runtime for terminal, desktop, web, and messagi
 
 ## Install
 
+Deploying on a single-board computer? See the step-by-step
+[Raspberry Pi](website/docs/getting-started/raspberry-pi.md) and
+[Jetson Nano](website/docs/getting-started/jetson-nano.md) install guides,
+and the [low-memory guide](website/docs/getting-started/low-memory.md) for
+the lean 1 GB profile and embedding-free memory options.
+
 Linux, macOS, WSL, and Termux:
 
 ```bash

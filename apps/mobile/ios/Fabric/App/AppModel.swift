@@ -1,10 +1,11 @@
 import Foundation
 import Observation
 
-/// Root app state: connection settings, the shared gateway client, and the
-/// connect/disconnect lifecycle. One socket serves the whole app (the
-/// desktop renderer does the same); per-screen models subscribe to its
-/// event stream.
+/// Root app state: the saved-gateway library, the shared gateway client, and
+/// the connect/disconnect lifecycle. One socket is active at a time (the
+/// desktop renderer is single-socket too); switching servers closes the
+/// current socket and opens the next. The library lets the app hold many
+/// Fabric servers and auto-login to token ones.
 @Observable
 @MainActor
 final class AppModel {
@@ -15,20 +16,22 @@ final class AppModel {
     }
 
     private(set) var phase: Phase = .disconnected
-    private(set) var settings: ConnectionSettings?
+    private(set) var gateways: [SavedGateway] = []
+    private(set) var activeGatewayId: String?
     private(set) var lastConnectError: String?
 
     let client = JsonRpcGatewayClient()
     var api: GatewayAPI { GatewayAPI(client: client) }
 
+    var activeGateway: SavedGateway? {
+        gateways.first { $0.id == activeGatewayId }
+    }
+
     init() {
-        settings = ConnectionStore.load()
-        // The client dispatches state changes on the main queue.
+        gateways = GatewayStore.all()
         client.onStateChange = { [weak self] state in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                // Server-side close or transport error while connected drops
-                // the app back to the connect screen with the state as context.
                 if self.phase == .connected, state == .closed || state == .error {
                     self.phase = .disconnected
                     self.lastConnectError = "Connection lost (\(state.rawValue))."
@@ -37,69 +40,106 @@ final class AppModel {
         }
     }
 
-    /// Token-mode connect: loopback/tunnel gateways where the session token
-    /// is the credential (`?token=` on the WS upgrade).
-    func connect(settings: ConnectionSettings) async {
-        phase = .connecting
-        lastConnectError = nil
-        do {
-            // Probe first: fail fast with a readable error and refuse the
-            // token path against a gated gateway instead of dying on an
-            // opaque 4401 at WS upgrade.
-            let status = try await GatewayAPI.probeStatus(baseURL: settings.baseURL)
+    // MARK: - Library management
+
+    func reloadGateways() {
+        gateways = GatewayStore.all()
+    }
+
+    /// Save a token-mode server (and its token) into the library.
+    func saveTokenGateway(label: String, baseURL: URL, token: String) -> SavedGateway {
+        let gateway = SavedGateway(
+            label: label.isEmpty ? SavedGateway.defaultLabel(for: baseURL) : label,
+            baseURL: baseURL,
+            authMode: .token
+        )
+        gateways = GatewayStore.upsert(gateway, token: token)
+        return gateway
+    }
+
+    /// Save a gated (sign-in) server. No token; the password is entered at
+    /// connect time and never persisted.
+    func saveGatedGateway(label: String, baseURL: URL, username: String) -> SavedGateway {
+        let gateway = SavedGateway(
+            label: label.isEmpty ? SavedGateway.defaultLabel(for: baseURL) : label,
+            baseURL: baseURL,
+            authMode: .gated,
+            username: username
+        )
+        gateways = GatewayStore.upsert(gateway)
+        return gateway
+    }
+
+    func removeGateway(id: String) {
+        GatewayStore.remove(id: id)
+        gateways = GatewayStore.all()
+        if activeGatewayId == id { disconnect() }
+    }
+
+    func canAutoConnect(_ gateway: SavedGateway) -> Bool {
+        GatewayStore.canAutoConnect(gateway)
+    }
+
+    // MARK: - Connect
+
+    /// Connect to a saved token-mode server using its stored token. Suitable
+    /// for one-tap / auto reconnect.
+    func connectToken(_ gateway: SavedGateway) async {
+        guard let token = GatewayStore.token(id: gateway.id), !token.isEmpty else {
+            lastConnectError = "No saved token for \(gateway.label)."
+            return
+        }
+        await connect(gateway: gateway) {
+            let status = try await GatewayAPI.probeStatus(baseURL: gateway.baseURL)
             if status.authRequired {
                 throw GatewayClientError.rpc(
-                    message: "This gateway requires a sign-in (it rejects token auth). Use the username/password form."
+                    message: "This server now requires sign-in — edit it and switch to a username and password."
                 )
             }
-            let wsURL = try GatewayAPI.websocketURL(baseURL: settings.baseURL, token: settings.token)
-            try await client.connect(to: wsURL)
-            ConnectionStore.save(settings)
-            self.settings = settings
-            phase = .connected
-        } catch {
-            lastConnectError = error.localizedDescription
-            phase = .disconnected
+            return try await GatewayAPI.websocketURL(baseURL: gateway.baseURL, token: token)
         }
     }
 
-    /// Gated-mode connect: provider login (username/password) → cookie
-    /// session → single-use WS ticket → `?ticket=` upgrade.
-    ///
-    /// Tries the ticket mint first: URLSession's cookie storage may still
-    /// hold a live session from a previous run, in which case no password
-    /// prompt round-trip is needed. Falls back to `passwordLogin` on 401.
+    /// Connect to a saved gated server. Tries the ticket mint first (a live
+    /// cookie session from earlier this run needs no password); falls back to
+    /// `passwordLogin` when a password is supplied, else surfaces a re-auth
+    /// prompt to the caller.
     func connectGated(
-        baseURL: URL,
+        _ gateway: SavedGateway,
         provider: String,
-        username: String,
-        password: String
+        password: String?
     ) async {
+        await connect(gateway: gateway) {
+            do {
+                let ticket = try await GatewayAPI.mintWsTicket(baseURL: gateway.baseURL)
+                return try await GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
+            } catch {
+                guard let password, !password.isEmpty else {
+                    throw GatewayClientError.rpc(message: "Sign in to \(gateway.label) to connect.")
+                }
+                try await GatewayAPI.passwordLogin(
+                    baseURL: gateway.baseURL,
+                    provider: provider,
+                    username: gateway.username,
+                    password: password
+                )
+                let ticket = try await GatewayAPI.mintWsTicket(baseURL: gateway.baseURL)
+                return try await GatewayAPI.websocketURL(baseURL: gateway.baseURL, ticket: ticket)
+            }
+        }
+    }
+
+    /// Shared connect scaffold: close any current socket, run `resolveWsURL`,
+    /// open the socket, and record the active gateway on success.
+    private func connect(gateway: SavedGateway, resolveWsURL: () async throws -> URL) async {
+        if phase == .connected { client.close() }
         phase = .connecting
         lastConnectError = nil
         do {
-            var ticket: String
-            do {
-                ticket = try await GatewayAPI.mintWsTicket(baseURL: baseURL)
-            } catch {
-                try await GatewayAPI.passwordLogin(
-                    baseURL: baseURL,
-                    provider: provider,
-                    username: username,
-                    password: password
-                )
-                ticket = try await GatewayAPI.mintWsTicket(baseURL: baseURL)
-            }
-            let wsURL = try GatewayAPI.websocketURL(baseURL: baseURL, ticket: ticket)
+            let wsURL = try await resolveWsURL()
             try await client.connect(to: wsURL)
-            let saved = ConnectionSettings(
-                baseURL: baseURL,
-                token: "",
-                authMode: .gated,
-                username: username
-            )
-            ConnectionStore.save(saved)
-            self.settings = saved
+            activeGatewayId = gateway.id
+            GatewayStore.setLastActive(gateway.id)
             phase = .connected
         } catch {
             lastConnectError = error.localizedDescription
@@ -109,12 +149,7 @@ final class AppModel {
 
     func disconnect() {
         client.close()
+        activeGatewayId = nil
         phase = .disconnected
-    }
-
-    func forgetGateway() {
-        disconnect()
-        ConnectionStore.clear()
-        settings = nil
     }
 }

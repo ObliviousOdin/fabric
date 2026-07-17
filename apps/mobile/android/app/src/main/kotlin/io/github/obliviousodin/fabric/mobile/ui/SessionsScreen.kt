@@ -79,13 +79,18 @@ fun SessionsScreen(viewModel: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Sessions") },
+                // Title names the connected server; disconnect() returns to
+                // the library, which is the switcher for other saved servers.
+                title = { Text(viewModel.activeGateway?.label ?: "Sessions", maxLines = 1) },
                 actions = {
                     IconButton(onClick = { reloadKey++ }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
                     IconButton(onClick = viewModel::disconnect) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Disconnect")
+                        Icon(
+                            Icons.AutoMirrored.Filled.Logout,
+                            contentDescription = "Switch server",
+                        )
                     }
                 },
             )

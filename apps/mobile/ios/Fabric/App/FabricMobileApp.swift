@@ -21,7 +21,9 @@ struct RootView: View {
     var body: some View {
         switch appModel.phase {
         case .disconnected, .connecting:
-            ConnectView()
+            // The saved-server library is home; connecting shows an overlay
+            // there rather than a separate screen.
+            GatewayListView()
         case .connected:
             NavigationStack {
                 SessionListView()

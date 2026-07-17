@@ -11,7 +11,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import io.github.obliviousodin.fabric.mobile.ui.ChatScreen
-import io.github.obliviousodin.fabric.mobile.ui.ConnectScreen
+import io.github.obliviousodin.fabric.mobile.ui.GatewayListScreen
 import io.github.obliviousodin.fabric.mobile.ui.SessionsScreen
 import io.github.obliviousodin.fabric.mobile.ui.theme.FabricTheme
 
@@ -37,7 +37,9 @@ private fun FabricRoot(viewModel: AppViewModel) {
 
     when (phase) {
         ConnectionPhase.Disconnected, ConnectionPhase.Connecting -> {
-            ConnectScreen(viewModel)
+            // The saved-server library is home; connecting shows an overlay
+            // there rather than a separate screen.
+            GatewayListScreen(viewModel)
         }
 
         ConnectionPhase.Connected -> when (val current = screen) {

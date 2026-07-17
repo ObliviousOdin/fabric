@@ -67,6 +67,13 @@ data class SlashCommandCategory(
     val commands: List<SlashCommand>,
 )
 
+/** A read-only screen capture from `computer.screenshot`. */
+data class ScreenCapture(
+    val pngBase64: String,
+    val width: Int,
+    val height: Int,
+)
+
 /**
  * Row shape from `process.list` — background processes owned by a session
  * (`_session_processes` / tools/process_registry.py).
@@ -440,6 +447,23 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
                 put("session_id", sessionId)
                 put("process_id", processId)
             },
+        )
+    }
+
+    // -- Computer use (live view) --------------------------------------------
+
+    /**
+     * A read-only screen capture from the gateway host (`computer.screenshot`).
+     * The gateway returns a plain PNG (no overlays, no accessibility data).
+     */
+    suspend fun captureScreen(): ScreenCapture {
+        val result = client.requestObject("computer.screenshot")
+        val b64 = result.string("png_b64")
+            ?: throw GatewayRpcException("Live view unavailable on this server.")
+        return ScreenCapture(
+            pngBase64 = b64,
+            width = (result["width"] as? JsonPrimitive)?.intOrNull ?: 0,
+            height = (result["height"] as? JsonPrimitive)?.intOrNull ?: 0,
         )
     }
 

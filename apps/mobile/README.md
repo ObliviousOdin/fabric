@@ -82,6 +82,7 @@ RPC methods the v1 slice uses (of ~120 registered in
 - `session.interrupt` — `{session_id}`
 - `slash.exec` / `commands.catalog` — the TUI's slash-command dispatch surface and its registry-backed catalog
 - `process.list` / `process.kill` — session-owned background processes (preview servers, watchers)
+- `computer.screenshot` — read-only PNG capture of the gateway host's screen (the live-view "PiP"); returns `{png_b64, width, height, mime}` or error 5040 when the host can't capture
 - `approval.respond` — `{session_id, choice: "allow"|"deny", all?: bool}`
 - `clarify.respond` / `sudo.respond` / `secret.respond` — `{request_id, answer|password|value}`, unblocking the agent's blocking prompts
 
@@ -123,15 +124,26 @@ apps/mobile/
 
 The v1 vertical slice on both platforms:
 
-1. **Connect** — enter gateway URL + session token, probe `GET /api/status`,
-   persist credentials (iOS Keychain; Android app-private prefs, Keystore
-   encryption tracked as follow-up).
+0. **Servers** — a saved-gateway library. Add a server by scanning its
+   pairing QR or entering the address; the app remembers each one and its
+   auth mode. Token servers reconnect in one tap (auto-login from the
+   stored token); gated servers reconnect silently while their cookie
+   session is alive, else prompt for the password. Switching servers is
+   "disconnect → pick another" — one active socket at a time (see the
+   roadmap for simultaneous connections). See **Saved servers** below.
+1. **Connect** — QR pairing or manual URL + token / username+password,
+   probe `GET /api/status` to pick the auth mode. Tokens live in the
+   Keychain (iOS) / app-private prefs (Android); passwords never persist.
 2. **Sessions** — `session.list` to resume or start new, plus an
    **Active now** monitor (`session.active_list`) showing live runtime
-   status with interrupt control per session.
+   status with interrupt control per session. The title names the
+   connected server.
 3. **Chat** — `session.create`/`session.resume` → `prompt.submit` → live
    streamed transcript (`message.delta`), status/tool activity line,
    interrupt, and approval prompts (`approval.request` → `approval.respond`).
+   The overflow menu also opens a **live screen view** — a read-only
+   picture-in-picture of the gateway host's screen for watching a
+   `computer_use` turn, polling `computer.screenshot`.
 
 Plus the dispatch/remote-control surface the TUI composer has, driven from
 the same chat screen:
@@ -184,6 +196,37 @@ binds embed the session token, so scanning connects with zero typing.
    Traffic reaches the gateway from loopback, so token auth applies and the
    QR embeds the token. Treat that QR like a password.
 
+## Saved servers
+
+The app holds a library of Fabric servers rather than a single connection.
+Metadata (id, label, URL, auth mode, username) is stored locally; the
+session token for a token-mode server is kept in the Keychain (iOS) /
+app-private prefs (Android), keyed per server. Passwords are never stored.
+
+- **Auto-login** — a token server reconnects with no prompt from its saved
+  token. A gated server reconnects silently if its in-process cookie
+  session is still alive; otherwise the app asks only for the password
+  (the username is remembered).
+- **Switching** — one socket is active at a time. "Switch server"
+  disconnects and returns to the library, where another server is one tap
+  away. Truly simultaneous connections (several live sockets, a server
+  switcher that keeps them all attached) are a deliberate follow-up: the
+  app is built around one shared client today, and multi-client is a larger
+  change tracked in the roadmap.
+
+Stores: `GatewayStore.swift` (iOS), `core/GatewayStore.kt` (Android).
+
+## Live screen view (computer use)
+
+When an agent runs the `computer_use` tool, the chat overflow menu opens a
+read-only live view of the gateway host's screen. It polls the gateway's
+`computer.screenshot` RPC (~1.5s cadence) and renders the returned PNG; no
+input is ever sent back from the phone. Hosts that can't capture
+(unsupported OS, `cua-driver` not installed) return error 5040 and the view
+says so instead of spinning. This is a **view**, not remote control —
+driving the desktop stays with the agent, and the phone's levers are the
+existing approve / steer / interrupt / prompt controls.
+
 ## Build & run
 
 Both apps need a reachable backend — see the pairing section above for the
@@ -232,12 +275,21 @@ Dependencies: Compose (BOM), OkHttp, kotlinx-serialization.
    Custom Tabs) for hosted gateways, and automatic ticket re-mint inside a
    reconnect loop (today a drop returns to the connect screen; the cookie
    session usually survives so reconnect is one tap, no password).
-3. **Push notifications** — APNs/FCM for `approval.request` and turn
+3. ~~**Saved servers + auto-login**~~ — done: the gateway library, per-server
+   token storage, one-tap token reconnect, silent gated reconnect on a live
+   session. Remaining here: **simultaneous connections** — one live socket
+   per server with a switcher that keeps them all attached — which needs the
+   app moved off its single shared client to a client-per-gateway.
+4. ~~**Computer-use live view**~~ — done (read-only screen mirror via
+   `computer.screenshot`). Interactive control from the phone (tap/type
+   injected into the host) is intentionally out of scope pending a
+   permission model.
+5. **Push notifications** — APNs/FCM for `approval.request` and turn
    completion while backgrounded; requires a small gateway-side notifier
    (new server work — the only item here that is).
-4. **Attachments & voice** — `image.attach_bytes`, `voice.*` methods already
+6. **Attachments & voice** — `image.attach_bytes`, `voice.*` methods already
    exist server-side; wire camera roll + mic.
-5. **Reconnect/resilience** — background socket teardown is normal on
+7. **Reconnect/resilience** — background socket teardown is normal on
    mobile; add resume-on-foreground with `session.history` replay.
-6. **Release contract** — signing, store metadata, and a
+8. **Release contract** — signing, store metadata, and a
    `platform-support.md` tier entry before any public build.

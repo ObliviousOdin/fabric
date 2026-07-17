@@ -3,13 +3,14 @@ package io.github.obliviousodin.fabric.mobile
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.obliviousodin.fabric.mobile.core.ConnectionSettings
-import io.github.obliviousodin.fabric.mobile.core.ConnectionStore
 import io.github.obliviousodin.fabric.mobile.core.GatewayApi
 import io.github.obliviousodin.fabric.mobile.core.GatewayAuthMode
 import io.github.obliviousodin.fabric.mobile.core.GatewayConnectionState
 import io.github.obliviousodin.fabric.mobile.core.GatewayRpcException
+import io.github.obliviousodin.fabric.mobile.core.GatewayStore
 import io.github.obliviousodin.fabric.mobile.core.JsonRpcGatewayClient
+import io.github.obliviousodin.fabric.mobile.core.SavedGateway
+import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,9 +29,10 @@ sealed interface ConnectionPhase {
 }
 
 /**
- * App-level state: one gateway client/socket for the whole app (the desktop
- * renderer uses the same shape), connect/disconnect lifecycle, and which
- * screen is showing. Lives in a ViewModel so it survives rotation.
+ * App-level state: the saved-gateway library, one shared client/socket, the
+ * connect/disconnect lifecycle, and which screen is showing. One socket is
+ * active at a time (the desktop renderer is single-socket too); switching
+ * servers closes the current socket and opens the next.
  */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     val client = JsonRpcGatewayClient()
@@ -45,12 +47,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _connectError = MutableStateFlow<String?>(null)
     val connectError: StateFlow<String?> = _connectError.asStateFlow()
 
-    val savedSettings: ConnectionSettings?
-        get() = ConnectionStore.load(getApplication<Application>())
+    private val _gateways = MutableStateFlow<List<SavedGateway>>(emptyList())
+    val gateways: StateFlow<List<SavedGateway>> = _gateways.asStateFlow()
+
+    private val _activeGatewayId = MutableStateFlow<String?>(null)
+    val activeGatewayId: StateFlow<String?> = _activeGatewayId.asStateFlow()
+
+    val activeGateway: SavedGateway?
+        get() = _gateways.value.firstOrNull { it.id == _activeGatewayId.value }
 
     init {
-        // Server-side close or transport error drops back to the connect
-        // screen with the socket state as context.
+        _gateways.value = GatewayStore.all(app())
         viewModelScope.launch {
             client.state.collect { state ->
                 if (_phase.value == ConnectionPhase.Connected &&
@@ -64,67 +71,94 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Token-mode connect: loopback/tunnel gateways where the session token
-     * is the credential (`?token=` on the WS upgrade).
-     */
-    fun connect(settings: ConnectionSettings) {
-        if (_phase.value == ConnectionPhase.Connecting) return
-        _phase.value = ConnectionPhase.Connecting
-        _connectError.value = null
-        viewModelScope.launch {
-            try {
-                // Probe first: fail fast with a readable error and refuse the
-                // token path against a gated gateway instead of dying on an
-                // opaque 4401 at WS upgrade.
-                val status = GatewayApi.probeStatus(settings.baseUrl)
-                if (status.authRequired) {
-                    throw GatewayRpcException(
-                        "This gateway requires a sign-in (it rejects token auth). " +
-                            "Use the username/password form."
-                    )
-                }
-                client.connect(GatewayApi.websocketUrl(settings.baseUrl, settings.token))
-                ConnectionStore.save(getApplication<Application>(), settings)
-                _phase.value = ConnectionPhase.Connected
-                _screen.value = Screen.Sessions
-            } catch (e: Exception) {
-                _connectError.value = e.message ?: e.toString()
-                _phase.value = ConnectionPhase.Disconnected
+    private fun app() = getApplication<Application>()
+
+    // ── Library management ──────────────────────────────────────────────────
+
+    fun canAutoConnect(gateway: SavedGateway): Boolean =
+        GatewayStore.canAutoConnect(app(), gateway)
+
+    fun saveTokenGateway(label: String, baseUrl: String, token: String): SavedGateway {
+        val gateway = SavedGateway(
+            id = UUID.randomUUID().toString(),
+            label = label.ifBlank { SavedGateway.defaultLabel(baseUrl) },
+            baseUrl = baseUrl,
+            authMode = GatewayAuthMode.TOKEN,
+        )
+        _gateways.value = GatewayStore.upsert(app(), gateway, token = token)
+        return gateway
+    }
+
+    fun saveGatedGateway(label: String, baseUrl: String, username: String): SavedGateway {
+        val gateway = SavedGateway(
+            id = UUID.randomUUID().toString(),
+            label = label.ifBlank { SavedGateway.defaultLabel(baseUrl) },
+            baseUrl = baseUrl,
+            authMode = GatewayAuthMode.GATED,
+            username = username,
+        )
+        _gateways.value = GatewayStore.upsert(app(), gateway)
+        return gateway
+    }
+
+    fun removeGateway(id: String) {
+        GatewayStore.remove(app(), id)
+        _gateways.value = GatewayStore.all(app())
+        if (_activeGatewayId.value == id) disconnect()
+    }
+
+    // ── Connect ─────────────────────────────────────────────────────────────
+
+    /** Connect to a saved token server using its stored token (one-tap). */
+    fun connectToken(gateway: SavedGateway) {
+        val token = GatewayStore.token(app(), gateway.id)
+        if (token.isNullOrEmpty()) {
+            _connectError.value = "No saved token for ${gateway.label}."
+            return
+        }
+        connect(gateway) {
+            val status = GatewayApi.probeStatus(gateway.baseUrl)
+            if (status.authRequired) {
+                throw GatewayRpcException(
+                    "This server now requires sign-in — edit it and switch to a username and password."
+                )
             }
+            GatewayApi.websocketUrl(gateway.baseUrl, token)
         }
     }
 
     /**
-     * Gated-mode connect: provider login (username/password) → cookie
-     * session → single-use WS ticket → `?ticket=` upgrade.
-     *
-     * Tries the ticket mint first: the cookie jar may still hold a live
-     * session from an earlier connect, in which case no password round-trip
-     * is needed. Falls back to `passwordLogin` on failure.
+     * Connect to a saved gated server. Tries the ticket mint first (a live
+     * cookie session needs no password); with a password, signs in then
+     * mints. A null/blank password with no live session surfaces a re-auth
+     * error so the caller can prompt.
      */
-    fun connectGated(baseUrl: String, provider: String, username: String, password: String) {
+    fun connectGated(gateway: SavedGateway, provider: String, password: String?) {
+        connect(gateway) {
+            try {
+                val ticket = api.mintWsTicket(gateway.baseUrl)
+                GatewayApi.websocketUrlWithTicket(gateway.baseUrl, ticket)
+            } catch (_: Exception) {
+                if (password.isNullOrEmpty()) {
+                    throw GatewayRpcException("Sign in to ${gateway.label} to connect.")
+                }
+                api.passwordLogin(gateway.baseUrl, provider, gateway.username, password)
+                val ticket = api.mintWsTicket(gateway.baseUrl)
+                GatewayApi.websocketUrlWithTicket(gateway.baseUrl, ticket)
+            }
+        }
+    }
+
+    private fun connect(gateway: SavedGateway, resolveWsUrl: suspend () -> String) {
         if (_phase.value == ConnectionPhase.Connecting) return
+        if (_phase.value == ConnectionPhase.Connected) client.close()
         _phase.value = ConnectionPhase.Connecting
         _connectError.value = null
         viewModelScope.launch {
             try {
-                val ticket = try {
-                    api.mintWsTicket(baseUrl)
-                } catch (_: Exception) {
-                    api.passwordLogin(baseUrl, provider, username, password)
-                    api.mintWsTicket(baseUrl)
-                }
-                client.connect(GatewayApi.websocketUrlWithTicket(baseUrl, ticket))
-                ConnectionStore.save(
-                    getApplication<Application>(),
-                    ConnectionSettings(
-                        baseUrl = baseUrl,
-                        token = "",
-                        authMode = GatewayAuthMode.GATED,
-                        username = username,
-                    ),
-                )
+                client.connect(resolveWsUrl())
+                _activeGatewayId.value = gateway.id
+                GatewayStore.setLastActive(app(), gateway.id)
                 _phase.value = ConnectionPhase.Connected
                 _screen.value = Screen.Sessions
             } catch (e: Exception) {
@@ -137,9 +171,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() {
         activeChat()?.stop()
         client.close()
+        _activeGatewayId.value = null
         _screen.value = Screen.Sessions
         _phase.value = ConnectionPhase.Disconnected
     }
+
+    // ── In-server navigation ─────────────────────────────────────────────────
 
     fun openNewChat() = openChat(resumeStoredSessionId = null, title = "New chat")
 

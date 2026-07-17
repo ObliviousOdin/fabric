@@ -1,14 +1,11 @@
 import SwiftUI
 
-/// First-run / reconnect screen. Three ways in:
-///
-/// 1. **Scan** the pairing QR from `fabric serve --qr` — token QRs connect
-///    immediately; gated QRs drop into the sign-in form.
-/// 2. Type a URL + session token (loopback/tunnel gateways).
-/// 3. Type a URL + username/password (gated gateways, e.g. a direct
-///    Tailscale bind with the bundled password provider).
-struct ConnectView: View {
+/// Add a server to the library. Scan a pairing QR or enter the address plus
+/// a token (loopback/tunnel) or username/password (gated). Saving stores the
+/// server and connects; the library remembers it for next time.
+struct AddGatewayView: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.dismiss) private var dismiss
 
     private enum Mode: String, CaseIterable, Identifiable {
         case token = "Token"
@@ -16,6 +13,7 @@ struct ConnectView: View {
         var id: String { rawValue }
     }
 
+    @State private var label = ""
     @State private var urlText = ""
     @State private var mode: Mode = .token
     @State private var token = ""
@@ -35,13 +33,11 @@ struct ConnectView: View {
         return url
     }
 
-    private var canConnect: Bool {
+    private var canSave: Bool {
         guard parsedURL != nil, appModel.phase != .connecting else { return false }
         switch mode {
-        case .token:
-            return !token.trimmingCharacters(in: .whitespaces).isEmpty
-        case .password:
-            return !username.isEmpty && !password.isEmpty
+        case .token: return !token.trimmingCharacters(in: .whitespaces).isEmpty
+        case .password: return !username.isEmpty && !password.isEmpty
         }
     }
 
@@ -55,10 +51,12 @@ struct ConnectView: View {
                         Label("Scan pairing QR", systemImage: "qrcode.viewfinder")
                     }
                 } footer: {
-                    Text("On the machine running Fabric: `fabric serve --qr` (or `--qr-url` for a tunnel). Tailscale, LAN, and SSH-tunnel addresses all work.")
+                    Text("On the machine: `fabric serve --qr` (add `--qr-url` for a tunnel).")
                 }
 
-                Section("Gateway") {
+                Section("Server") {
+                    TextField("Name (optional)", text: $label)
+                        .autocorrectionDisabled()
                     TextField("http://my-machine:9119", text: $urlText)
                         .keyboardType(.URL)
                         .textContentType(.URL)
@@ -66,9 +64,7 @@ struct ConnectView: View {
                         .textInputAutocapitalization(.never)
 
                     Picker("Auth", selection: $mode) {
-                        ForEach(Mode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
+                        ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
 
@@ -85,7 +81,7 @@ struct ConnectView: View {
                         if let providerName {
                             Text("Provider: \(providerName)")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FabricTheme.textMuted)
                         }
                     }
                 }
@@ -94,41 +90,43 @@ struct ConnectView: View {
                     Button {
                         Task { await probe() }
                     } label: {
-                        if probing {
-                            ProgressView()
-                        } else {
-                            Text("Test connection")
-                        }
+                        if probing { ProgressView() } else { Text("Test connection") }
                     }
                     .disabled(parsedURL == nil || probing)
 
                     if let probeResult {
                         Text(probeResult)
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FabricTheme.textMuted)
                     }
                 }
 
                 Section {
                     Button {
-                        Task { await connect() }
+                        Task { await save() }
                     } label: {
                         if appModel.phase == .connecting {
                             ProgressView()
                         } else {
-                            Text("Connect")
+                            Text("Save and connect")
                         }
                     }
-                    .disabled(!canConnect)
+                    .disabled(!canSave)
 
                     if let error = appModel.lastConnectError {
                         Text(error)
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(FabricTheme.danger)
                     }
                 }
             }
-            .navigationTitle("Fabric")
+            .navigationTitle("Add server")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
             .sheet(isPresented: $showScanner) {
                 NavigationStack {
                     QRScannerView { scanned in
@@ -145,14 +143,6 @@ struct ConnectView: View {
                     }
                 }
             }
-            .onAppear {
-                if let saved = appModel.settings {
-                    urlText = saved.baseURL.absoluteString
-                    token = saved.token
-                    username = saved.username
-                    mode = saved.authMode == .gated ? .password : .token
-                }
-            }
         }
     }
 
@@ -165,50 +155,42 @@ struct ConnectView: View {
         if let scannedToken = payload.token {
             mode = .token
             token = scannedToken
-            // Token QRs are complete credentials — connect immediately.
-            Task { await connect() }
+            Task { await save() }
         } else {
             mode = .password
-            probeResult = "Gateway requires sign-in — enter your username and password."
+            probeResult = "Server requires sign-in — enter your username and password."
             Task { await resolvePasswordProvider() }
         }
     }
 
-    /// Find the gateway's password-capable provider (`/api/auth/providers`).
     private func resolvePasswordProvider() async {
         guard let url = parsedURL else { return }
-        do {
-            let providers = try await GatewayAPI.listAuthProviders(baseURL: url)
-            if let passwordProvider = providers.first(where: { $0.supportsPassword }) {
-                providerName = passwordProvider.name
-            } else if !providers.isEmpty {
-                probeResult = "This gateway only offers OAuth sign-in (\(providers.map(\.displayName).joined(separator: ", "))), which the app does not support yet."
-            }
-        } catch {
-            // Non-fatal: connect() re-resolves and surfaces a real error.
+        if let provider = try? await GatewayAPI.listAuthProviders(baseURL: url)
+            .first(where: { $0.supportsPassword }) {
+            providerName = provider.name
         }
     }
 
-    private func connect() async {
+    private func save() async {
         guard let url = parsedURL else { return }
         switch mode {
         case .token:
-            await appModel.connect(settings: ConnectionSettings(
+            let gateway = appModel.saveTokenGateway(
+                label: label,
                 baseURL: url,
                 token: token.trimmingCharacters(in: .whitespaces)
-            ))
-        case .password:
-            if providerName == nil {
-                await resolvePasswordProvider()
-            }
-            guard let providerName else { return }
-            await appModel.connectGated(
-                baseURL: url,
-                provider: providerName,
-                username: username,
-                password: password
             )
+            await appModel.connectToken(gateway)
+        case .password:
+            if providerName == nil { await resolvePasswordProvider() }
+            guard let providerName else {
+                probeResult = "This server offers no password sign-in (OAuth-only isn't supported yet)."
+                return
+            }
+            let gateway = appModel.saveGatedGateway(label: label, baseURL: url, username: username)
+            await appModel.connectGated(gateway, provider: providerName, password: password)
         }
+        if appModel.phase == .connected { dismiss() }
     }
 
     private func probe() async {
@@ -218,15 +200,85 @@ struct ConnectView: View {
         do {
             let status = try await GatewayAPI.probeStatus(baseURL: url)
             if status.authRequired {
-                probeResult = "Gateway reachable — sign-in required."
                 mode = .password
                 await resolvePasswordProvider()
+                probeResult = providerName == nil
+                    ? "Reachable, but no password sign-in is offered (OAuth-only isn't supported yet)."
+                    : "Reachable — sign-in required."
             } else {
-                probeResult = "Gateway reachable — token auth."
                 mode = .token
+                probeResult = "Reachable — token auth."
             }
         } catch {
             probeResult = "Unreachable: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// Password re-auth for a saved gated server whose cookie session has lapsed.
+struct SignInSheet: View {
+    @Environment(AppModel.self) private var appModel
+    @Environment(\.dismiss) private var dismiss
+
+    let gateway: SavedGateway
+
+    @State private var password = ""
+    @State private var providerName: String?
+    @State private var working = false
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(gateway.label).font(.headline)
+                    Text(gateway.baseURL.absoluteString)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(FabricTheme.textMuted)
+                }
+                Section("Sign in") {
+                    LabeledContent("Username", value: gateway.username)
+                    SecureField("Password", text: $password)
+                        .textContentType(.password)
+                }
+                Section {
+                    Button {
+                        Task { await signIn() }
+                    } label: {
+                        if working { ProgressView() } else { Text("Sign in and connect") }
+                    }
+                    .disabled(password.isEmpty || working)
+                    if let error {
+                        Text(error).font(.footnote).foregroundStyle(FabricTheme.danger)
+                    }
+                }
+            }
+            .navigationTitle("Sign in")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+            .task {
+                providerName = try? await GatewayAPI.listAuthProviders(baseURL: gateway.baseURL)
+                    .first(where: { $0.supportsPassword })?.name
+            }
+        }
+    }
+
+    private func signIn() async {
+        working = true
+        defer { working = false }
+        guard let providerName else {
+            error = "This server offers no password sign-in."
+            return
+        }
+        await appModel.connectGated(gateway, provider: providerName, password: password)
+        if appModel.phase == .connected {
+            dismiss()
+        } else {
+            error = appModel.lastConnectError ?? "Sign-in failed."
         }
     }
 }

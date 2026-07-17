@@ -84,6 +84,7 @@ fun ChatScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var showCommands by remember { mutableStateOf(false) }
     var showProcesses by remember { mutableStateOf(false) }
+    var showLiveView by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(messages.size, (messages.lastOrNull()?.text ?: "").length) {
@@ -108,6 +109,13 @@ fun ChatScreen(
             api = controller.api,
             sessionId = controller.sessionId,
             onDismiss = { showProcesses = false },
+        )
+    }
+
+    if (showLiveView) {
+        LiveViewSheet(
+            api = controller.api,
+            onDismiss = { showLiveView = false },
         )
     }
 
@@ -147,6 +155,13 @@ fun ChatScreen(
                             onClick = {
                                 menuOpen = false
                                 showProcesses = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Live screen view…") },
+                            onClick = {
+                                menuOpen = false
+                                showLiveView = true
                             },
                         )
                     }

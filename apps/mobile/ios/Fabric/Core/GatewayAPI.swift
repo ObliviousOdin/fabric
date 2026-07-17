@@ -52,6 +52,13 @@ struct SlashCommandCategory: Identifiable, Hashable {
     var id: String { name }
 }
 
+/// A read-only screen capture from `computer.screenshot`.
+struct ScreenCapture {
+    let image: Data
+    let width: Int
+    let height: Int
+}
+
 /// Row shape from `process.list` — background processes owned by a session
 /// (see `_session_processes` / `tools/process_registry.py`).
 struct BackgroundProcess: Identifiable, Hashable {
@@ -370,6 +377,25 @@ struct GatewayAPI {
         _ = try await client.request(
             "process.kill",
             params: ["session_id": sessionId, "process_id": processId]
+        )
+    }
+
+    // MARK: - Computer use (live view)
+
+    /// A read-only screen capture from the gateway host (`computer.screenshot`).
+    /// The gateway returns a plain PNG (no overlays, no accessibility data).
+    func captureScreen() async throws -> ScreenCapture {
+        let result = try await client.requestObject("computer.screenshot")
+        guard
+            let b64 = result["png_b64"] as? String,
+            let data = Data(base64Encoded: b64)
+        else {
+            throw GatewayClientError.rpc(message: "Live view unavailable on this server.")
+        }
+        return ScreenCapture(
+            image: data,
+            width: (result["width"] as? NSNumber)?.intValue ?? 0,
+            height: (result["height"] as? NSNumber)?.intValue ?? 0
         )
     }
 

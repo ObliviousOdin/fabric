@@ -44,6 +44,7 @@ private struct ChatContentView: View {
 
     @State private var showCommandCatalog = false
     @State private var showProcesses = false
+    @State private var showLiveView = false
     @State private var promptAnswer = ""
 
     var body: some View {
@@ -102,6 +103,11 @@ private struct ChatContentView: View {
                     } label: {
                         Label("Background processes…", systemImage: "terminal")
                     }
+                    Button {
+                        showLiveView = true
+                    } label: {
+                        Label("Live screen view…", systemImage: "display")
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -116,6 +122,9 @@ private struct ChatContentView: View {
         }
         .sheet(isPresented: $showProcesses) {
             ProcessListSheet(api: model.api, sessionId: model.sessionId)
+        }
+        .sheet(isPresented: $showLiveView) {
+            LiveViewSheet(api: model.api)
         }
     }
 

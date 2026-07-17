@@ -69,11 +69,25 @@ struct SessionListView: View {
                 }
             }
         }
-        .navigationTitle("Sessions")
+        .navigationTitle(appModel.activeGateway?.label ?? "Sessions")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Disconnect") {
-                    appModel.disconnect()
+                Menu {
+                    // disconnect() returns to the gateway library, which is
+                    // the server switcher — pick another saved server there.
+                    Button {
+                        appModel.disconnect()
+                    } label: {
+                        Label("Switch server", systemImage: "arrow.left.arrow.right")
+                    }
+                    Button(role: .destructive) {
+                        appModel.disconnect()
+                    } label: {
+                        Label("Disconnect", systemImage: "bolt.horizontal")
+                    }
+                } label: {
+                    Image(systemName: "server.rack")
                 }
             }
         }

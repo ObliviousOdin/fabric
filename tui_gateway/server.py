@@ -184,6 +184,10 @@ _LONG_HANDLERS = frozenset({
     "billing.step_up",
     "browser.manage",
     "cli.exec",
+    # Screen capture shells out to cua-driver and can take a second or two;
+    # inline it would stall prompt.submit/interrupt behind the poll loop of
+    # a mobile live view.
+    "computer.screenshot",
     # Completion RPCs run inline on the reader thread by default, but both
     # can block it for seconds: complete.path spawns `git ls-files` and
     # fuzzy-ranks the whole repo (slow on large repos / WSL2 mounts), and
@@ -15005,6 +15009,47 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 4015, f"unknown action: {action}")
 
     return _browser_connect(rid, params)
+
+
+@method("computer.screenshot")
+def _(rid, params: dict) -> dict:
+    """Read-only screen capture for remote clients' live view (mobile PiP).
+
+    Returns a plain PNG (mode="vision" — no SoM overlays, no element tree)
+    of the current screen via the computer_use backend. Strictly read-only:
+    no input is injected and no accessibility data leaves the machine. The
+    gateway's normal auth gates the call, and a client with RPC access
+    already holds far stronger levers (cli.exec, prompt.submit), so this
+    does not widen the trust boundary. Runs on the pool (_LONG_HANDLERS):
+    cua-driver capture can take a second or two.
+
+    Error 5040 uniformly means "live view unavailable" (unsupported host,
+    cua-driver missing, or capture failure) so clients can degrade to the
+    event-based activity card without special-casing.
+    """
+    try:
+        from tools.computer_use.tool import (
+            _get_backend,
+            check_computer_use_requirements,
+        )
+
+        if not check_computer_use_requirements():
+            return _err(rid, 5040, "computer use is not available on this host")
+
+        cap = _get_backend().capture(mode="vision")
+        if not cap.png_b64:
+            return _err(rid, 5040, "screen capture returned no image")
+        return _ok(
+            rid,
+            {
+                "png_b64": cap.png_b64,
+                "width": cap.width,
+                "height": cap.height,
+                "mime": cap.image_mime_type or "image/png",
+            },
+        )
+    except Exception as e:
+        return _err(rid, 5040, f"screen capture unavailable: {e}")
 
 
 def _browser_connect(rid, params: dict) -> dict:

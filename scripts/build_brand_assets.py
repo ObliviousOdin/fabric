@@ -38,7 +38,8 @@ MARK_GRADIENT_STOPS = (
     (0.72, "#5A47D8"),
     (1.00, "#5F5CEE"),
 )
-GENERATOR_VERSION = 2
+MARK_GRADIENT_X_RANGE = (20.0, 108.0)
+GENERATOR_VERSION = 3
 PINNED_PILLOW_VERSION = "12.2.0"
 SVG_SOURCE_NAMES = (
     "mark.svg",
@@ -96,6 +97,25 @@ def _canonical_geometry(
     mark_root = ET.parse(mark_path).getroot()
     mono_root = ET.parse(mono_path).getroot()
     view_box = _parse_view_box(mark_root)
+
+    gradient = next(
+        (
+            element
+            for element in mark_root.iter()
+            if element.attrib.get("id") == "fabric-mark-gradient"
+        ),
+        None,
+    )
+    if gradient is None or gradient.attrib.get("gradientUnits") != "userSpaceOnUse":
+        raise ValueError("mark.svg must define the canonical user-space gradient")
+    try:
+        gradient_x_range = tuple(
+            float(gradient.attrib[name]) for name in ("x1", "x2")
+        )
+    except (KeyError, ValueError) as exc:
+        raise ValueError("mark.svg must define numeric gradient x bounds") from exc
+    if gradient_x_range != MARK_GRADIENT_X_RANGE:
+        raise ValueError("mark.svg gradient x bounds do not match the raster contract")
 
     mark_elements = [
         element
@@ -271,8 +291,13 @@ def _render_master(
             (offset, ImageColor.getrgb(color))
             for offset, color in MARK_GRADIENT_STOPS
         ]
+        gradient_start, gradient_end = MARK_GRADIENT_X_RANGE
         for pixel_x in range(MASTER_SIZE):
-            position = pixel_x / (MASTER_SIZE - 1)
+            user_x = x + pixel_x / (MASTER_SIZE - 1) * width
+            position = max(
+                0.0,
+                min(1.0, (user_x - gradient_start) / (gradient_end - gradient_start)),
+            )
             for index, (right_offset, right_color) in enumerate(stops[1:], start=1):
                 if position <= right_offset:
                     left_offset, left_color = stops[index - 1]

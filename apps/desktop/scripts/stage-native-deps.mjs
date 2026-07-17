@@ -159,8 +159,13 @@ export function stageNodePty({ platform = process.platform, arch = process.arch 
  * Walk a packed app tree for node-pty `spawn-helper` binaries and force +x.
  * Used by afterPack so electron-builder never ships a non-executable helper.
  * Safe no-op when the tree is missing (thin/dev layouts).
+ *
+ * electron-builder's `appOutDir` layout differs by platform:
+ *   - linux/win: resources/ lives directly under appOutDir
+ *   - macOS: appOutDir is the parent of `${productFilename}.app`, and
+ *     Contents/Resources is inside the .app (see notarize.mjs)
  */
-export function ensurePackedNodePtyHelpersExecutable(appOutDir) {
+export function ensurePackedNodePtyHelpersExecutable(appOutDir, options = {}) {
   if (!appOutDir || typeof appOutDir !== 'string') {
     return []
   }
@@ -169,15 +174,58 @@ export function ensurePackedNodePtyHelpersExecutable(appOutDir) {
     join(appOutDir, 'resources', 'app.asar.unpacked', 'dist', 'node_modules', 'node-pty'),
     // Linux sometimes stages under resources/app/ when asar is disabled in tests
     join(appOutDir, 'resources', 'app', 'dist', 'node_modules', 'node-pty'),
-    // macOS .app bundle: Contents/Resources/...
+    // When appOutDir itself is the .app bundle (rare / tests)
     join(appOutDir, 'Contents', 'Resources', 'app.asar.unpacked', 'dist', 'node_modules', 'node-pty')
   ]
 
+  const productFilename =
+    typeof options.productFilename === 'string' && options.productFilename.trim()
+      ? options.productFilename.trim()
+      : ''
+  if (productFilename) {
+    roots.push(
+      join(
+        appOutDir,
+        `${productFilename}.app`,
+        'Contents',
+        'Resources',
+        'app.asar.unpacked',
+        'dist',
+        'node_modules',
+        'node-pty'
+      )
+    )
+  }
+
+  // Discover any .app sibling under appOutDir (darwin afterPack layout).
+  try {
+    for (const entry of readdirSync(appOutDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.endsWith('.app')) {
+        roots.push(
+          join(
+            appOutDir,
+            entry.name,
+            'Contents',
+            'Resources',
+            'app.asar.unpacked',
+            'dist',
+            'node_modules',
+            'node-pty'
+          )
+        )
+      }
+    }
+  } catch {
+    // appOutDir unreadable — roots already cover the common cases.
+  }
+
   const fixed = []
+  const seen = new Set()
   for (const root of roots) {
-    if (!existsSync(root)) {
+    if (!existsSync(root) || seen.has(root)) {
       continue
     }
+    seen.add(root)
     const stack = [root]
     while (stack.length) {
       const dir = stack.pop()

@@ -51,3 +51,41 @@ test('ensurePackedNodePtyHelpersExecutable chmods spawn-helper under app.asar.un
     fs.rmSync(appOutDir, { recursive: true, force: true })
   }
 })
+
+test('ensurePackedNodePtyHelpersExecutable finds spawn-helper inside macOS .app under appOutDir', () => {
+  // electron-builder afterPack on darwin: appOutDir is the parent of Fabric.app
+  // (see notarize.mjs: path.join(appOutDir, `${appName}.app`)).
+  const appOutDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fabric-after-pack-mac-'))
+  try {
+    const helperDir = path.join(
+      appOutDir,
+      'Fabric.app',
+      'Contents',
+      'Resources',
+      'app.asar.unpacked',
+      'dist',
+      'node_modules',
+      'node-pty',
+      'prebuilds',
+      'darwin-arm64'
+    )
+    fs.mkdirSync(helperDir, { recursive: true })
+    const helper = path.join(helperDir, 'spawn-helper')
+    fs.writeFileSync(helper, '#!/bin/sh\necho ok\n', { mode: 0o644 })
+
+    const fixedByName = ensurePackedNodePtyHelpersExecutable(appOutDir, {
+      productFilename: 'Fabric'
+    })
+    assert.equal(fixedByName.length, 1)
+    assert.equal(fixedByName[0], helper)
+    assert.notEqual(fs.statSync(helper).mode & 0o111, 0)
+
+    // Reset and ensure bare discovery via readdir of *.app still works.
+    fs.chmodSync(helper, 0o644)
+    const fixedByDiscover = ensurePackedNodePtyHelpersExecutable(appOutDir)
+    assert.equal(fixedByDiscover.length, 1)
+    assert.notEqual(fs.statSync(helper).mode & 0o111, 0)
+  } finally {
+    fs.rmSync(appOutDir, { recursive: true, force: true })
+  }
+})

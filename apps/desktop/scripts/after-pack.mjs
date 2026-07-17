@@ -25,7 +25,13 @@ import { ensurePackedNodePtyHelpersExecutable } from './stage-native-deps.mjs'
 import { stampExeIdentity } from './set-exe-identity.mjs'
 
 export default async function afterPack(context) {
-  const fixedHelpers = ensurePackedNodePtyHelpersExecutable(context?.appOutDir)
+  const brand = loadDesktopBrand()
+  const productName = context.packager?.appInfo?.productFilename || brand.executableName
+  // Pass productFilename so macOS (appOutDir parent of Fabric.app) is covered;
+  // linux/win use resources/ directly under appOutDir.
+  const fixedHelpers = ensurePackedNodePtyHelpersExecutable(context?.appOutDir, {
+    productFilename: productName
+  })
   if (fixedHelpers.length) {
     console.log(`[after-pack] ensured executable bit on ${fixedHelpers.length} node-pty spawn-helper(s)`)
   }
@@ -34,8 +40,6 @@ export default async function afterPack(context) {
     return
   }
 
-  const brand = loadDesktopBrand()
-  const productName = context.packager?.appInfo?.productFilename || brand.executableName
   const exe = path.join(context.appOutDir, `${productName}.exe`)
   const desktopRoot = path.resolve(import.meta.dirname, '..')
 

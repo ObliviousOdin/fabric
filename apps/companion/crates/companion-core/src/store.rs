@@ -13,7 +13,12 @@
 //! <FABRIC_HOME>/pets/<slug>/pet.json
 //! <FABRIC_HOME>/pets/<slug>/spritesheet.webp   (or .png, or sprite.{webp,png})
 //! <FABRIC_HOME>/config.yaml                    (display.pet.* block)
+//! <install>/agent/pet/assets/<slug>/...        (read-only first-party packages)
 //! ```
+//!
+//! Profile packages take precedence when they have a usable spritesheet. An
+//! incomplete profile directory does not hide a valid bundled package — the
+//! same rule as `agent/pet/store.py`.
 
 use std::path::{Path, PathBuf};
 
@@ -21,6 +26,10 @@ use serde_json::Value as JsonValue;
 use serde_yaml::Value as YamlValue;
 
 use crate::atlas::{clamp_scale, DEFAULT_SCALE};
+
+/// Official first-party pet shipped with Fabric (mirrors Python
+/// `_DEFAULT_BUNDLED_PET_SLUG`).
+const DEFAULT_BUNDLED_PET_SLUG: &str = "fabric-mascot";
 
 /// Resolve the fabric state directory, mirroring `get_fabric_home()`:
 ///
@@ -87,17 +96,20 @@ fn safe_slug(slug: &str) -> Option<&str> {
     Some(name)
 }
 
-/// One installed pet, resolved from `pets/<slug>/`.
+/// One installed or bundled pet with a resolvable spritesheet.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InstalledPet {
     pub slug: String,
     pub display_name: String,
     pub description: String,
     /// Resolved spritesheet path; guaranteed to exist for pets returned by
-    /// [`installed_pets`] / [`resolve_active_pet`].
+    /// [`installed_pets`] / [`resolve_active_pet`] / [`load_pet`].
     pub spritesheet: PathBuf,
     /// True for locally hatched pets (`"createdBy": "generator"`).
     pub generated: bool,
+    /// True when the package came from Fabric's read-only first-party assets
+    /// rather than `<FABRIC_HOME>/pets/`.
+    pub bundled: bool,
     /// The full `pet.json` document. Upstream petdex documents may carry keys
     /// beyond the ones parsed above; keep the raw value so nothing is lost.
     pub meta: JsonValue,
@@ -140,7 +152,10 @@ fn resolve_spritesheet(dir: &Path, meta: &JsonValue) -> Option<PathBuf> {
     None
 }
 
-fn load_pet(dir: &Path, slug: &str) -> Option<InstalledPet> {
+fn load_pet_from(dir: &Path, slug: &str, bundled: bool) -> Option<InstalledPet> {
+    if !dir.is_dir() {
+        return None;
+    }
     let meta = read_pet_meta(dir);
     let spritesheet = resolve_spritesheet(dir, &meta)?;
     let text = |key: &str| -> Option<String> {
@@ -155,12 +170,94 @@ fn load_pet(dir: &Path, slug: &str) -> Option<InstalledPet> {
         description: text("description").unwrap_or_default(),
         spritesheet,
         generated: meta.get("createdBy").and_then(JsonValue::as_str) == Some("generator"),
+        bundled,
         meta,
     })
 }
 
+fn is_bundled_pets_dir(dir: &Path) -> bool {
+    // Accept either the known first-party package or any child package that
+    // has a usable spritesheet (future first-party pets).
+    if load_pet_from(&dir.join(DEFAULT_BUNDLED_PET_SLUG), DEFAULT_BUNDLED_PET_SLUG, true).is_some() {
+        return true;
+    }
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| !name.starts_with('.'))
+        .any(|slug| load_pet_from(&dir.join(&slug), &slug, true).is_some())
+}
+
+/// Locate Fabric's read-only first-party pet packages (`agent/pet/assets`).
+///
+/// Resolution order:
+/// 1. `FABRIC_BUNDLED_PETS` when it points at an existing directory
+/// 2. Walk ancestors of the process cwd, the executable, and the compile-time
+///    crate path looking for `agent/pet/assets` (source checkouts and package
+///    layouts that ship the Python assets next to the install root)
+pub fn bundled_pets_dir() -> Option<PathBuf> {
+    // Explicit override wins even when the path is missing: tests and
+    // packagers can force "no bundled pets" without accidentally falling
+    // through to a source-tree discovery hit.
+    if let Ok(raw) = std::env::var("FABRIC_BUNDLED_PETS") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let path = PathBuf::from(trimmed);
+            return path.is_dir().then_some(path);
+        }
+    }
+
+    let mut starts: Vec<PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        starts.push(cwd);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            starts.push(parent.to_path_buf());
+        }
+    }
+    // Useful for `cargo test` / local checkouts; ignored when the compile-time
+    // path no longer exists on the runtime machine.
+    starts.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+
+    for start in starts {
+        for ancestor in start.ancestors().take(12) {
+            let candidate = ancestor.join("agent").join("pet").join("assets");
+            if is_bundled_pets_dir(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+/// Resolve a usable profile pet, falling back to a same-slug bundled package.
+/// Incomplete profile directories (no spritesheet) do not hide the bundle.
+pub fn load_pet(home: &Path, slug: &str) -> Option<InstalledPet> {
+    load_pet_with_bundled(home, slug, bundled_pets_dir().as_deref())
+}
+
+/// Like [`load_pet`], but with an explicit bundled-assets root (test helper /
+/// alternate install layouts).
+pub fn load_pet_with_bundled(
+    home: &Path,
+    slug: &str,
+    bundled_root: Option<&Path>,
+) -> Option<InstalledPet> {
+    let slug = safe_slug(slug)?;
+    if let Some(pet) = load_pet_from(&pets_dir(home).join(slug), slug, false) {
+        return Some(pet);
+    }
+    let root = bundled_root?;
+    load_pet_from(&root.join(slug), slug, true)
+}
+
 /// All pets installed under *home*, sorted by slug. Only directories whose
-/// resolved spritesheet file exists are included.
+/// resolved spritesheet file exists are included. Does not list read-only
+/// bundled pets (see [`bundled_pets`]).
 pub fn installed_pets(home: &Path) -> Vec<InstalledPet> {
     let mut slugs: Vec<String> = std::fs::read_dir(pets_dir(home))
         .into_iter()
@@ -173,20 +270,63 @@ pub fn installed_pets(home: &Path) -> Vec<InstalledPet> {
     slugs.sort();
     slugs
         .into_iter()
-        .filter_map(|slug| load_pet(&pets_dir(home).join(&slug), &slug))
+        .filter_map(|slug| load_pet_from(&pets_dir(home).join(&slug), &slug, false))
         .collect()
 }
 
-/// The pet the companion should show: the configured slug when it is
-/// installed with an existing spritesheet, else the first installed pet
-/// alphabetically, else None. Mirrors `resolve_active_pet`.
+/// Usable first-party pets shipped with Fabric.
+pub fn bundled_pets() -> Vec<InstalledPet> {
+    bundled_pets_in(bundled_pets_dir().as_deref())
+}
+
+fn bundled_pets_in(root: Option<&Path>) -> Vec<InstalledPet> {
+    let Some(root) = root else {
+        return Vec::new();
+    };
+    let mut slugs: Vec<String> = std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| !name.starts_with('.'))
+        .collect();
+    slugs.sort();
+    slugs
+        .into_iter()
+        .filter_map(|slug| load_pet_from(&root.join(&slug), &slug, true))
+        .collect()
+}
+
+/// The pet the companion should show.
+///
+/// Precedence (mirrors Python `resolve_active_pet`):
+/// 1. configured slug when a usable profile or bundled package exists
+/// 2. first profile-installed pet alphabetically
+/// 3. the official bundled Fabric Mascot
+/// 4. any other bundled pet
 pub fn resolve_active_pet(home: &Path, configured_slug: &str) -> Option<InstalledPet> {
+    resolve_active_pet_with_bundled(home, configured_slug, bundled_pets_dir().as_deref())
+}
+
+/// Like [`resolve_active_pet`], with an explicit bundled-assets root.
+pub fn resolve_active_pet_with_bundled(
+    home: &Path,
+    configured_slug: &str,
+    bundled_root: Option<&Path>,
+) -> Option<InstalledPet> {
     if let Some(slug) = safe_slug(configured_slug) {
-        if let Some(pet) = load_pet(&pets_dir(home).join(slug), slug) {
+        if let Some(pet) = load_pet_with_bundled(home, slug, bundled_root) {
             return Some(pet);
         }
     }
-    installed_pets(home).into_iter().next()
+    if let Some(pet) = installed_pets(home).into_iter().next() {
+        return Some(pet);
+    }
+    if let Some(pet) = load_pet_with_bundled(home, DEFAULT_BUNDLED_PET_SLUG, bundled_root) {
+        return Some(pet);
+    }
+    bundled_pets_in(bundled_root).into_iter().next()
 }
 
 /// The `display.pet.*` block of `config.yaml`, with the same defaults the
@@ -326,12 +466,104 @@ mod tests {
     fn active_pet_falls_back_to_first_installed() {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path();
-        assert_eq!(resolve_active_pet(home, ""), None);
+        // No bundled root: pure profile-store behavior.
+        assert_eq!(resolve_active_pet_with_bundled(home, "", None), None);
         install_fake_pet(home, "beta", "{}", "spritesheet.webp");
         install_fake_pet(home, "alpha", "{}", "spritesheet.webp");
-        assert_eq!(resolve_active_pet(home, "").unwrap().slug, "alpha");
-        assert_eq!(resolve_active_pet(home, "beta").unwrap().slug, "beta");
-        assert_eq!(resolve_active_pet(home, "missing").unwrap().slug, "alpha");
+        assert_eq!(
+            resolve_active_pet_with_bundled(home, "", None)
+                .unwrap()
+                .slug,
+            "alpha"
+        );
+        assert_eq!(
+            resolve_active_pet_with_bundled(home, "beta", None)
+                .unwrap()
+                .slug,
+            "beta"
+        );
+        assert_eq!(
+            resolve_active_pet_with_bundled(home, "missing", None)
+                .unwrap()
+                .slug,
+            "alpha"
+        );
+    }
+
+    fn install_bundled_fake(root: &Path, slug: &str, meta: &str, sheet_name: &str) {
+        let dir = root.join(slug);
+        write(&dir.join("pet.json"), meta);
+        write(&dir.join(sheet_name), "not-a-real-image");
+    }
+
+    #[test]
+    fn incomplete_profile_dir_does_not_hide_bundled_pet() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let bundled = tmp.path().join("bundled-assets");
+        install_bundled_fake(
+            &bundled,
+            "fabric-mascot",
+            r#"{"displayName": "Fabric Mascot"}"#,
+            "spritesheet.webp",
+        );
+
+        // Incomplete profile package: pet.json only, no spritesheet.
+        write(
+            &pets_dir(home).join("fabric-mascot").join("pet.json"),
+            r#"{"displayName": "Interrupted Install"}"#,
+        );
+
+        let pet = load_pet_with_bundled(home, "fabric-mascot", Some(&bundled))
+            .expect("bundled fallback");
+        assert!(pet.bundled);
+        assert_eq!(pet.display_name, "Fabric Mascot");
+        assert!(pet.spritesheet.ends_with("spritesheet.webp"));
+
+        let active =
+            resolve_active_pet_with_bundled(home, "fabric-mascot", Some(&bundled)).unwrap();
+        assert_eq!(active.slug, "fabric-mascot");
+        assert!(active.bundled);
+    }
+
+    #[test]
+    fn usable_profile_package_shadows_bundled_pet() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let bundled = tmp.path().join("bundled-assets");
+        install_bundled_fake(
+            &bundled,
+            "fabric-mascot",
+            r#"{"displayName": "Fabric Mascot"}"#,
+            "spritesheet.webp",
+        );
+        install_fake_pet(
+            home,
+            "fabric-mascot",
+            r#"{"displayName": "Local Override"}"#,
+            "spritesheet.webp",
+        );
+
+        let pet = load_pet_with_bundled(home, "fabric-mascot", Some(&bundled)).unwrap();
+        assert!(!pet.bundled);
+        assert_eq!(pet.display_name, "Local Override");
+    }
+
+    #[test]
+    fn active_pet_falls_back_to_bundled_mascot_when_nothing_installed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let bundled = tmp.path().join("bundled-assets");
+        install_bundled_fake(
+            &bundled,
+            "fabric-mascot",
+            r#"{"displayName": "Fabric Mascot"}"#,
+            "spritesheet.webp",
+        );
+
+        let pet = resolve_active_pet_with_bundled(home, "", Some(&bundled)).unwrap();
+        assert_eq!(pet.slug, "fabric-mascot");
+        assert!(pet.bundled);
     }
 
     #[test]

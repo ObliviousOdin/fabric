@@ -18,8 +18,6 @@ export type AppearancePref = "dark" | "light" | "system";
 /** Contrast preference — applies to the generated theme pair. */
 export type ContrastPref = ThemeContrast;
 
-export type { TerminalFontSize, TerminalPrefs };
-export { DEFAULT_TERMINAL_PREFS };
 
 export interface ThemeContextValue {
   availableThemes: ThemeListEntry[];

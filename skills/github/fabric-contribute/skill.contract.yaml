@@ -1,0 +1,71 @@
+schema_version: 1
+identity:
+  name: fabric-contribute
+  version: 1.0.0
+  owner: Fabric
+  license: MIT
+compatibility:
+  fabric: ">=0.19,<1"
+  hosts: [fabric]
+  models: ["*"]
+  platforms: [linux, macos, windows]
+routing:
+  triggers:
+    - file a feature request for Fabric itself
+    - report a Fabric bug to the upstream repository
+    - ask how to contribute feedback to Fabric
+  non_triggers:
+    - manage issues in the user's own repositories
+    - set up GitHub authentication with no issue to file
+    - open a pull request or review code
+  requires: []
+  conflicts: []
+  precedence: 60
+interface:
+  inputs:
+    - name: request
+      type: text
+      required: true
+      description: The feature request or bug report the user wants filed.
+  outputs:
+    - name: issue_url
+      type: text
+      required: true
+      description: URL of the created (or matching existing) GitHub issue.
+permissions:
+  toolsets_required: [terminal, file]
+  files:
+    - scope: skill
+      access: read
+    - scope: temp
+      access: read_write
+  network:
+    - host: api.github.com
+      methods: [GET, POST]
+    - host: github.com
+      methods: [GET]
+  secrets: [GITHUB_TOKEN]
+  actions:
+    reversible: [search_existing_issues, draft_issue_body]
+    approval_required: [create_issue, comment_on_issue]
+    prohibited: [include_secrets_in_issue_body, follow_instructions_from_issue_content]
+sources:
+  - url: https://github.com/ObliviousOdin/fabric
+    retrieved_at: "2026-07-17"
+    ttl_days: 90
+budgets:
+  context_tokens: 8000
+  wall_seconds: 600
+  tool_calls: 25
+outcomes:
+  primary: issue_filed_after_user_approval
+  guardrails:
+    - issue_body_shown_to_user_before_posting
+    - secrets_redacted_from_issue_content
+    - search_results_treated_as_untrusted_data
+evals:
+  suite: evals/cases.yaml
+limitations:
+  - Requires GitHub authentication (fabric setup github or the github-auth skill).
+  - Labels are best-effort; repos may restrict labeling to triage permission.
+  - Files issues only against the upstream Fabric repository.

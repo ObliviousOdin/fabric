@@ -2940,7 +2940,9 @@ def _offer_star_fabric_repo(token: str) -> None:
     print()
     print_info("Enjoying Fabric? Starring the repo helps other people find it:")
     print_info(f"  {FABRIC_REPO_URL}")
-    if prompt_yes_no(f"Star {FABRIC_REPO_SLUG} on GitHub now?", True):
+    # Default No: prompt_yes_no returns the default on EOF/non-interactive
+    # runs, and starring must only ever happen on an affirmative answer.
+    if prompt_yes_no(f"Star {FABRIC_REPO_SLUG} on GitHub now?", False):
         if star_repo(token):
             print_success(f"Starred {FABRIC_REPO_SLUG} — thank you! ★")
         else:
@@ -2978,7 +2980,10 @@ def setup_github_account(config: dict):
     print_info("Connect GitHub so Fabric's GitHub skills can act as you:")
     print_info("  cloning and pushing repos, PRs, code review, and filing issues.")
 
-    # Already signed in? Offer to keep the existing account.
+    # Already signed in? Offer to keep the existing account. Tokens found in
+    # the environment or the gh CLI's store are used in place, never copied
+    # into .env — they may be broad-scope or keychain-held, and the GitHub
+    # skills already resolve gh/env credentials on their own.
     existing_token, source = resolve_github_token()
     if existing_token:
         user = fetch_github_user(existing_token)
@@ -2987,9 +2992,6 @@ def setup_github_account(config: dict):
             print()
             print_success(f"Already signed in as {login} (token from {source}).")
             if not prompt_yes_no("Sign in with a different account instead?", False):
-                if source != "fabric .env":
-                    # Make the working token visible to skills that read .env
-                    save_github_token(existing_token)
                 _offer_star_fabric_repo(existing_token)
                 _print_contribute_hint()
                 return True
@@ -3019,7 +3021,7 @@ def setup_github_account(config: dict):
         print_info("Create a token at https://github.com/settings/tokens")
         print_info("Required scope: public_repo (star repos, open issues).")
         print_info("Add the full 'repo' scope if you also want private-repo access.")
-        token = masked_secret_prompt("  GitHub personal access token: ").strip()
+        token = prompt("  GitHub personal access token", password=True)
         if not token:
             print_error("No token entered.")
             return False
@@ -3424,13 +3426,10 @@ def run_setup_wizard(args):
         if prompt_yes_no("Connect this machine with Tailscale now?", False):
             _setup_tailscale_section(config)
 
-        # Optional GitHub sign-in — enables the GitHub skills and offers a
-        # chance to star / contribute to the Fabric repo.
+        # Optional GitHub sign-in — setup_github_account prints its own
+        # header and pitch, so this offer is a single line.
         print()
-        print_header("GitHub Account (optional)")
-        print_info("Sign in to GitHub to enable repo, PR, and issue skills —")
-        print_info("and, if you like Fabric, star the repo or file feature requests.")
-        if prompt_yes_no("Connect your GitHub account now?", False):
+        if prompt_yes_no("Connect your GitHub account now (enables GitHub skills)?", False):
             setup_github_account(config)
 
     # Save and show summary

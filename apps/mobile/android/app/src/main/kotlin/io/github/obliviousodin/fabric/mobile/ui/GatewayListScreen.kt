@@ -36,7 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,9 +65,17 @@ fun GatewayListScreen(viewModel: AppViewModel) {
     val phase by viewModel.phase.collectAsState()
     val gateways by viewModel.gateways.collectAsState()
     val connectError by viewModel.connectError.collectAsState()
+    val pendingSignIn by viewModel.pendingSignInGateway.collectAsState()
 
     var showAdd by remember { mutableStateOf(false) }
     var signInFor by remember { mutableStateOf<SavedGateway?>(null) }
+
+    androidx.compose.runtime.LaunchedEffect(pendingSignIn?.id) {
+        pendingSignIn?.let {
+            signInFor = it
+            viewModel.consumePendingSignInGateway()
+        }
+    }
 
     if (showAdd) {
         AddGatewaySheet(viewModel = viewModel, onDismiss = { showAdd = false })
@@ -98,7 +106,7 @@ fun GatewayListScreen(viewModel: AppViewModel) {
                 )
                 if (gateways.isEmpty()) {
                     Text(
-                        "Add the machine running `fabric serve`. Scan its `--qr` code or enter the address and credential.",
+                        "Run `fabric mobile` on the machine, then scan its QR or enter the address and credential.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(16.dp),
@@ -200,13 +208,14 @@ private fun SignInDialog(
     gateway: SavedGateway,
     onDismiss: () -> Unit,
 ) {
+    var username by remember(gateway.id) { mutableStateOf(gateway.username) }
     var password by remember { mutableStateOf("") }
     var otp by remember { mutableStateOf("") }
     var providerName by remember { mutableStateOf<String?>(null) }
     var requiresTotp by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val phase by viewModel.phase.collectAsState()
-    val scope = rememberCoroutineScope()
+    val connectError by viewModel.connectError.collectAsState()
 
     // Resolve the provider (and whether it needs a code) when the dialog opens.
     androidx.compose.runtime.LaunchedEffect(gateway.id) {
@@ -216,8 +225,11 @@ private fun SignInDialog(
         providerName = provider?.name
         requiresTotp = provider?.requiresTotp ?: false
     }
-    androidx.compose.runtime.LaunchedEffect(phase) {
+    androidx.compose.runtime.LaunchedEffect(phase, connectError) {
         if (phase == ConnectionPhase.Connected) onDismiss()
+        if (phase == ConnectionPhase.Disconnected && connectError != null) {
+            error = connectError
+        }
     }
 
     AlertDialog(
@@ -225,7 +237,13 @@ private fun SignInDialog(
         title = { Text(gateway.label) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Signed in as ${gateway.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text("Username") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
@@ -249,7 +267,8 @@ private fun SignInDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = password.isNotEmpty() && phase != ConnectionPhase.Connecting &&
+                enabled = username.isNotBlank() && password.isNotEmpty() &&
+                    phase != ConnectionPhase.Connecting &&
                     (!requiresTotp || otp.length >= 6),
                 onClick = {
                     val provider = providerName
@@ -257,12 +276,13 @@ private fun SignInDialog(
                         error = "This server offers no password sign-in."
                         return@TextButton
                     }
-                    scope.launch {
-                        viewModel.connectGated(gateway, provider, password, otp.trim())
-                        if (viewModel.phase.value != ConnectionPhase.Connected) {
-                            error = viewModel.connectError.value ?: "Sign-in failed."
-                        }
-                    }
+                    error = null
+                    val updated = viewModel.saveGatedGateway(
+                        gateway.label,
+                        gateway.baseUrl,
+                        username.trim(),
+                    )
+                    viewModel.connectGated(updated, provider, password, otp.trim())
                 },
             ) { Text("Sign in") }
         },

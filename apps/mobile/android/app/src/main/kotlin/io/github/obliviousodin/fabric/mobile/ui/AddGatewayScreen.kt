@@ -89,17 +89,23 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
     fun save() {
         val base = url.trim().trimEnd('/')
         scope.launch {
-            if (passwordMode) {
-                val provider = resolveProvider(base)
-                if (provider == null) {
-                    probeResult = "This server offers no password sign-in (OAuth-only isn't supported yet)."
-                    return@launch
+            try {
+                if (passwordMode) {
+                    val provider = resolveProvider(base)
+                    if (provider == null) {
+                        probeResult = "This server offers no password sign-in (OAuth-only isn't supported yet)."
+                        return@launch
+                    }
+                    val gateway = viewModel.saveGatedGateway(label, base, username.trim())
+                    viewModel.connectGated(gateway, provider, password, otp.trim())
+                } else {
+                    val gateway = viewModel.saveTokenGateway(label, base, token.trim())
+                    viewModel.connectToken(gateway)
                 }
-                val gateway = viewModel.saveGatedGateway(label, base, username.trim())
-                viewModel.connectGated(gateway, provider, password, otp.trim())
-            } else {
-                val gateway = viewModel.saveTokenGateway(label, base, token.trim())
-                viewModel.connectToken(gateway)
+            } catch (_: Exception) {
+                // Credential errors are intentionally generic; never surface
+                // token material or keystore internals in UI or logs.
+                probeResult = "Couldn't protect this server credential. Unlock the device and try again."
             }
         }
     }

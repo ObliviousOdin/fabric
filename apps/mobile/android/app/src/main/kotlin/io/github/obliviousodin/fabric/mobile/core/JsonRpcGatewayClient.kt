@@ -3,6 +3,7 @@ package io.github.obliviousodin.fabric.mobile.core
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -45,7 +46,18 @@ data class GatewayEvent(
 private fun kotlinx.serialization.json.JsonPrimitive.contentOrNullSafe(): String? =
     if (this is kotlinx.serialization.json.JsonNull) null else content
 
-class GatewayRpcException(message: String) : Exception(message)
+class GatewayRpcException(
+    message: String,
+    val code: Int? = null,
+    val data: JsonElement? = null,
+) : Exception(message)
+
+internal fun gatewayRpcException(error: JsonObject): GatewayRpcException {
+    val message = (error["message"] as? kotlinx.serialization.json.JsonPrimitive)
+        ?.contentOrNullSafe() ?: "Fabric RPC failed"
+    val code = (error["code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()
+    return GatewayRpcException(message, code, error["data"])
+}
 
 class GatewayNotConnectedException : Exception("gateway not connected")
 
@@ -86,7 +98,13 @@ class JsonRpcGatewayClient(
     @Volatile
     private var socket: WebSocket? = null
 
+    @Volatile
+    private var socketUrl: String? = null
+
+    @Volatile
     private var connectHandshake: CompletableDeferred<Unit>? = null
+
+    private val connectionLock = Any()
 
     private val _state = MutableStateFlow(GatewayConnectionState.IDLE)
     val state: StateFlow<GatewayConnectionState> = _state.asStateFlow()
@@ -95,38 +113,71 @@ class JsonRpcGatewayClient(
     val events: SharedFlow<GatewayEvent> = _events.asSharedFlow()
 
     suspend fun connect(wsUrl: String, timeoutMs: Long = DEFAULT_CONNECT_TIMEOUT_MS) {
-        if (_state.value == GatewayConnectionState.CONNECTING ||
-            (_state.value == GatewayConnectionState.OPEN && socket != null)
-        ) {
-            return
+        lateinit var handshake: CompletableDeferred<Unit>
+        lateinit var attemptSocket: WebSocket
+        synchronized(connectionLock) {
+            if (_state.value == GatewayConnectionState.OPEN &&
+                socket != null &&
+                socketUrl == wsUrl
+            ) return
+
+            connectHandshake?.completeExceptionally(
+                GatewayConnectException("WebSocket connection superseded")
+            )
+            socket?.cancel()
+            rejectAllPending(GatewayNotConnectedException())
+            _state.value = GatewayConnectionState.CONNECTING
+            handshake = CompletableDeferred()
+            connectHandshake = handshake
+            socketUrl = wsUrl
+
+            val request = Request.Builder().url(wsUrl).build()
+            attemptSocket = client.newWebSocket(request, listener)
+            socket = attemptSocket
         }
-
-        _state.value = GatewayConnectionState.CONNECTING
-        val handshake = CompletableDeferred<Unit>()
-        connectHandshake = handshake
-
-        val request = Request.Builder().url(wsUrl).build()
-        socket = client.newWebSocket(request, listener)
 
         try {
             withTimeout(timeoutMs) { handshake.await() }
         } catch (e: TimeoutCancellationException) {
             // Drop the half-open socket so the next connect() starts clean.
-            socket?.cancel()
-            socket = null
-            _state.value = GatewayConnectionState.ERROR
+            synchronized(connectionLock) {
+                if (socket === attemptSocket) {
+                    attemptSocket.cancel()
+                    socket = null
+                    socketUrl = null
+                    _state.value = GatewayConnectionState.ERROR
+                }
+            }
             throw GatewayConnectException("WebSocket connection timed out", e)
+        } catch (e: CancellationException) {
+            synchronized(connectionLock) {
+                if (socket === attemptSocket) {
+                    attemptSocket.cancel()
+                    socket = null
+                    socketUrl = null
+                    _state.value = GatewayConnectionState.CLOSED
+                }
+            }
+            throw e
         } finally {
-            connectHandshake = null
+            synchronized(connectionLock) {
+                if (connectHandshake === handshake) connectHandshake = null
+            }
         }
     }
 
     fun close() {
-        val current = socket ?: return
-        socket = null
-        current.close(1000, null)
-        _state.value = GatewayConnectionState.CLOSED
-        rejectAllPending(GatewayNotConnectedException())
+        synchronized(connectionLock) {
+            val current = socket
+            socket = null
+            socketUrl = null
+            val handshake = connectHandshake
+            connectHandshake = null
+            current?.cancel()
+            _state.value = GatewayConnectionState.CLOSED
+            handshake?.completeExceptionally(GatewayNotConnectedException())
+            rejectAllPending(GatewayNotConnectedException())
+        }
     }
 
     /**
@@ -180,9 +231,11 @@ class JsonRpcGatewayClient(
 
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            if (webSocket !== socket) return
-            _state.value = GatewayConnectionState.OPEN
-            connectHandshake?.complete(Unit)
+            synchronized(connectionLock) {
+                if (webSocket !== socket) return
+                _state.value = GatewayConnectionState.OPEN
+                connectHandshake?.complete(Unit)
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -196,23 +249,29 @@ class JsonRpcGatewayClient(
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            if (webSocket !== socket) return
-            socket = null
-            _state.value = GatewayConnectionState.CLOSED
-            connectHandshake?.completeExceptionally(
-                GatewayConnectException("WebSocket closed during connect (code $code)")
-            )
-            rejectAllPending(GatewayNotConnectedException())
+            synchronized(connectionLock) {
+                if (webSocket !== socket) return
+                socket = null
+                socketUrl = null
+                _state.value = GatewayConnectionState.CLOSED
+                connectHandshake?.completeExceptionally(
+                    GatewayConnectException("WebSocket closed during connect (code $code)")
+                )
+                rejectAllPending(GatewayNotConnectedException())
+            }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            if (webSocket !== socket) return
-            socket = null
-            _state.value = GatewayConnectionState.ERROR
-            connectHandshake?.completeExceptionally(
-                GatewayConnectException("WebSocket connection failed", t)
-            )
-            rejectAllPending(t)
+            synchronized(connectionLock) {
+                if (webSocket !== socket) return
+                socket = null
+                socketUrl = null
+                _state.value = GatewayConnectionState.ERROR
+                connectHandshake?.completeExceptionally(
+                    GatewayConnectException("WebSocket connection failed", t)
+                )
+                rejectAllPending(t)
+            }
         }
     }
 
@@ -227,9 +286,7 @@ class JsonRpcGatewayClient(
             val call = pending.remove(id) ?: return
             val error = frame["error"] as? JsonObject
             if (error != null) {
-                val message = (error["message"] as? kotlinx.serialization.json.JsonPrimitive)
-                    ?.contentOrNullSafe() ?: "Fabric RPC failed"
-                call.completeExceptionally(GatewayRpcException(message))
+                call.completeExceptionally(gatewayRpcException(error))
             } else {
                 call.complete(frame["result"])
             }

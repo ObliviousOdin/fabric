@@ -5,19 +5,31 @@ import SwiftUI
 /// first decoded payload. Requires `NSCameraUsageDescription` (set in
 /// project.yml); the capture session triggers the system permission prompt.
 struct QRScannerView: UIViewControllerRepresentable {
+    @Binding var isActive: Bool
     let onScan: (String) -> Void
 
     func makeUIViewController(context: Context) -> QRScannerViewController {
         let controller = QRScannerViewController()
         controller.onScan = onScan
+        controller.isActive = { isActive }
         return controller
     }
 
-    func updateUIViewController(_ uiViewController: QRScannerViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: QRScannerViewController, context: Context) {
+        uiViewController.isActive = { isActive }
+    }
+
+    static func dismantleUIViewController(
+        _ uiViewController: QRScannerViewController,
+        coordinator: Void
+    ) {
+        uiViewController.deactivate()
+    }
 }
 
 final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
     var onScan: ((String) -> Void)?
+    var isActive: (() -> Bool)?
 
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
@@ -64,6 +76,12 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        deactivate()
+    }
+
+    func deactivate() {
+        delivered = true
+        onScan = nil
         if session.isRunning {
             DispatchQueue.global(qos: .userInitiated).async { [session] in
                 session.stopRunning()
@@ -78,6 +96,7 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
     ) {
         guard
             !delivered,
+            isActive?() == true,
             let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
             let value = object.stringValue, !value.isEmpty
         else { return }
@@ -88,7 +107,7 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
     private func showUnavailableLabel() {
         let label = UILabel()
         label.text = "Camera unavailable.\nCheck camera permission in Settings."
-        label.textColor = .white
+        label.textColor = UIColor(red: 1, green: 1, blue: 1, alpha: 1)
         label.numberOfLines = 0
         label.textAlignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false

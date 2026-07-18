@@ -1,6 +1,14 @@
 import Foundation
 import Security
 
+enum GatewayStoreError: LocalizedError {
+    case credentialStorageUnavailable
+
+    var errorDescription: String? {
+        "Couldn't protect this server credential. Unlock the device and try again."
+    }
+}
+
 /// How the app authenticates to a gateway.
 enum GatewayAuthMode: String, Codable {
     /// Loopback/tunnel deployments: the session token is the credential.
@@ -39,6 +47,32 @@ struct SavedGateway: Identifiable, Codable, Equatable {
     static func defaultLabel(for url: URL) -> String {
         url.host() ?? url.absoluteString
     }
+
+    /// Stable identity for a server regardless of cosmetic URL differences.
+    /// Pairing the same endpoint again updates its saved row instead of adding
+    /// a confusing duplicate with stale credentials.
+    static func endpointKey(for url: URL) -> String {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        if (components.scheme == "http" && components.port == 80)
+            || (components.scheme == "https" && components.port == 443) {
+            components.port = nil
+        }
+        while components.path.count > 1, components.path.hasSuffix("/") {
+            components.path.removeLast()
+        }
+        if components.path == "/" { components.path = "" }
+        return components.string ?? url.absoluteString
+    }
+
+    var endpointKey: String { Self.endpointKey(for: baseURL) }
 }
 
 /// The saved-server library: an ordered list plus the id last connected to.
@@ -56,7 +90,26 @@ enum GatewayStore {
             let data = UserDefaults.standard.data(forKey: listKey),
             let list = try? JSONDecoder().decode([SavedGateway].self, from: data)
         else { return [] }
-        return list
+
+        // Older builds appended a new row on every scan. Keep the newest row
+        // per endpoint and migrate the library in place so stale duplicates do
+        // not keep sending the user to an obsolete auth record.
+        var seenEndpoints = Set<String>()
+        let deduplicated = Array(list.reversed().filter {
+            seenEndpoints.insert($0.endpointKey).inserted
+        }.reversed())
+        guard deduplicated.count != list.count else { return list }
+
+        let keptIDs = Set(deduplicated.map(\.id))
+        let removed = list.filter { !keptIDs.contains($0.id) }
+        persist(deduplicated)
+        for gateway in removed { deleteToken(id: gateway.id) }
+        if let lastActive = lastActiveId(),
+           let removedActive = removed.first(where: { $0.id == lastActive }),
+           let replacement = deduplicated.first(where: { $0.endpointKey == removedActive.endpointKey }) {
+            setLastActive(replacement.id)
+        }
+        return deduplicated
     }
 
     static func lastActiveId() -> String? {
@@ -71,18 +124,41 @@ enum GatewayStore {
         }
     }
 
-    /// Insert or update by id, then persist. Returns the stored list.
+    /// Insert or update non-secret metadata, then persist it.
     @discardableResult
-    static func upsert(_ gateway: SavedGateway, token: String? = nil) -> [SavedGateway] {
+    static func upsert(_ gateway: SavedGateway) -> [SavedGateway] {
+        upsertMetadata(gateway, deleteCurrentToken: gateway.authMode == .gated)
+    }
+
+    /// Protect a token before publishing metadata that makes the server appear
+    /// auto-connectable. Keychain failure leaves no partially saved server.
+    @discardableResult
+    static func upsert(_ gateway: SavedGateway, token: String) throws -> [SavedGateway] {
+        try saveToken(token, id: gateway.id)
+        return upsertMetadata(gateway, deleteCurrentToken: false)
+    }
+
+    private static func upsertMetadata(
+        _ gateway: SavedGateway,
+        deleteCurrentToken: Bool
+    ) -> [SavedGateway] {
         var list = all()
         if let index = list.firstIndex(where: { $0.id == gateway.id }) {
             list[index] = gateway
         } else {
             list.append(gateway)
         }
+        let duplicateIDs = list
+            .filter { $0.id != gateway.id && $0.endpointKey == gateway.endpointKey }
+            .map(\.id)
+        list.removeAll { duplicateIDs.contains($0.id) }
         persist(list)
-        if let token {
-            saveToken(token, id: gateway.id)
+        for id in duplicateIDs { deleteToken(id: id) }
+        if let lastActive = lastActiveId(), duplicateIDs.contains(lastActive) {
+            setLastActive(gateway.id)
+        }
+        if deleteCurrentToken {
+            deleteToken(id: gateway.id)
         }
         return list
     }
@@ -130,16 +206,26 @@ enum GatewayStore {
         return String(data: data, encoding: .utf8)
     }
 
-    private static func saveToken(_ token: String, id: String) {
+    private static func saveToken(_ token: String, id: String) throws {
         let data = Data(token.utf8)
         var addQuery = tokenQuery(id: id)
         addQuery[kSecValueData as String] = data
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        if SecItemAdd(addQuery as CFDictionary, nil) == errSecDuplicateItem {
-            SecItemUpdate(
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        let status: OSStatus
+        if addStatus == errSecDuplicateItem {
+            status = SecItemUpdate(
                 tokenQuery(id: id) as CFDictionary,
-                [kSecValueData as String: data] as CFDictionary
+                [
+                    kSecValueData as String: data,
+                    kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                ] as CFDictionary
             )
+        } else {
+            status = addStatus
+        }
+        guard status == errSecSuccess else {
+            throw GatewayStoreError.credentialStorageUnavailable
         }
     }
 

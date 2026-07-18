@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
@@ -115,6 +115,48 @@ def build_pairing_uri(base_url: str, *, token: str | None = None) -> str:
     return uri
 
 
+def build_pairing_page_url(base_url: str, pairing_uri: str) -> str:
+    """Return the browser-safe landing URL encoded by the terminal QR.
+
+    The pairing payload belongs in the URL fragment so credentials in a
+    token-mode URI are never sent in the HTTP request, reverse-proxy logs,
+    cookies, or referrer headers. The mobile web client removes the fragment
+    from browser history as soon as it has read it.
+    """
+    return f"{base_url.rstrip('/')}/mobile/pair#pair={quote(pairing_uri, safe='')}"
+
+
+def validate_pairing_base_url(value: str) -> str:
+    """Return a safe pairing base URL or raise ``ValueError``.
+
+    Native release clients and installable PWAs require HTTPS. Plain HTTP is
+    accepted only for loopback development, where the credential cannot cross
+    the network. Query strings, fragments, and URL userinfo are never valid
+    gateway coordinates.
+    """
+    raw = value.strip().rstrip("/")
+    if not raw or any(ord(character) <= 32 for character in raw):
+        raise ValueError("--qr-url must be an absolute http:// or https:// URL")
+    parsed = urlsplit(raw)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("--qr-url must be an absolute http:// or https:// URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("--qr-url must not contain embedded credentials")
+    if "?" in raw or "#" in raw:
+        raise ValueError("--qr-url must not contain a query string or fragment")
+    if parsed.path:
+        raise ValueError("--qr-url must be an origin without a path")
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("--qr-url contains an invalid port") from exc
+    if parsed.scheme == "http" and parsed.hostname not in _LOOPBACK_HOSTS:
+        raise ValueError(
+            "--qr-url must use HTTPS unless it targets loopback-only development"
+        )
+    return raw
+
+
 def _render_qr(data: str) -> str | None:
     """ASCII QR via the optional ``qrcode`` package; None when unavailable."""
     try:
@@ -168,7 +210,10 @@ def print_pairing_info(
         # In gated mode the session token is NOT a usable (or safe) credential
         # for remote clients — the QR carries only the URL and the phone asks
         # for the provider login.
-        uri = build_pairing_uri(base_url, token=None if auth_required else session_token)
+        uri = build_pairing_uri(
+            base_url, token=None if auth_required else session_token
+        )
+        page_url = build_pairing_page_url(base_url, uri)
 
         print(f"\n  Mobile pairing → {base_url}", flush=True)
         if auth_required:
@@ -183,7 +228,7 @@ def print_pairing_info(
                 flush=True,
             )
 
-        rendered = _render_qr(uri)
+        rendered = _render_qr(page_url)
         if rendered:
             print(rendered, flush=True)
         else:
@@ -191,7 +236,9 @@ def print_pairing_info(
                 "  (Install the `qrcode` package to render this as a scannable QR.)",
                 flush=True,
             )
-        print(f"  {uri}\n", flush=True)
+        print("  Scan with the phone camera to open Fabric Mobile, or with the")
+        print("  Fabric app's scanner to pair directly:", flush=True)
+        print(f"  {page_url}\n", flush=True)
     except Exception:
         # Advisory output only — never let pairing display break serving.
         pass

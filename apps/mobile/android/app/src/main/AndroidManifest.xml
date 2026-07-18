@@ -7,13 +7,13 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
-    <!-- Cleartext is allowed because `fabric serve` on a LAN/tailnet host is
-         plain http today, matching the desktop's local-networking posture.
-         Tighten to a network-security-config before any store release. -->
     <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:label="@string/app_name"
         android:theme="@style/Theme.FabricMobile"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:supportsRtl="true">
 
         <activity
@@ -23,6 +23,12 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="fabric" android:host="pair" />
             </intent-filter>
         </activity>
     </application>

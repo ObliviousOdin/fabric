@@ -40,6 +40,17 @@ Nightly and support validation:
 Tier 2 failures block a claim that the affected platform is fully supported, but
 do not block an unrelated Tier 1 hotfix.
 
+## Mobile remote clients — preview
+
+Fabric provides an installable PWA plus source-checkout SwiftUI and Jetpack
+Compose clients for remotely controlling a gateway that runs on a supported
+computer. Simulator builds and native unit tests run in CI, but signed store
+artifacts and physical-device acceptance evidence are not yet published. This
+preview is separate from running Fabric itself through Android/Termux.
+
+See [Mobile access](/user-guide/mobile) for the supported pairing, security,
+and installation paths.
+
 ## Tier 3 — experimental
 
 - Android through Termux

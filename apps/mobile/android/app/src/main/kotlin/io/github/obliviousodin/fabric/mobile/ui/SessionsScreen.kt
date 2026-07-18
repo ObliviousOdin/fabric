@@ -44,6 +44,9 @@ import io.github.obliviousodin.fabric.mobile.AppViewModel
 import io.github.obliviousodin.fabric.mobile.core.ActiveSession
 import io.github.obliviousodin.fabric.mobile.core.SessionSummary
 import io.github.obliviousodin.fabric.mobile.ui.theme.FabricTheme
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /**
@@ -52,7 +55,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SessionsScreen(viewModel: AppViewModel) {
+fun SessionsScreen(viewModel: AppViewModel, enabled: Boolean) {
     var sessions by remember { mutableStateOf<List<SessionSummary>>(emptyList()) }
     var activeSessions by remember { mutableStateOf<List<ActiveSession>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -60,15 +63,32 @@ fun SessionsScreen(viewModel: AppViewModel) {
     var reloadKey by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(reloadKey) {
+    LaunchedEffect(reloadKey, enabled) {
+        if (!enabled) {
+            loading = false
+            return@LaunchedEffect
+        }
         loading = true
         try {
-            sessions = viewModel.api.listSessions()
-            // Live sessions are best-effort decoration; the historical list
-            // is the primary content.
-            activeSessions = runCatching { viewModel.api.activeSessions() }
-                .getOrDefault(emptyList())
+            coroutineScope {
+                val recent = async { viewModel.api.listSessions() }
+                val active = async {
+                    try {
+                        viewModel.api.activeSessions()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+                sessions = recent.await()
+                // Live sessions are best-effort decoration; the historical
+                // list is the primary content.
+                activeSessions = active.await()
+            }
             loadError = null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             loadError = e.message ?: e.toString()
         } finally {
@@ -83,7 +103,7 @@ fun SessionsScreen(viewModel: AppViewModel) {
                 // the library, which is the switcher for other saved servers.
                 title = { Text(viewModel.activeGateway?.label ?: "Sessions", maxLines = 1) },
                 actions = {
-                    IconButton(onClick = { reloadKey++ }) {
+                    IconButton(onClick = { reloadKey++ }, enabled = enabled) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                     }
                     IconButton(onClick = viewModel::disconnect) {
@@ -96,14 +116,14 @@ fun SessionsScreen(viewModel: AppViewModel) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = viewModel::openNewChat) {
+            FloatingActionButton(onClick = { if (enabled) viewModel.openNewChat() }) {
                 Icon(Icons.Filled.Add, contentDescription = "New chat")
             }
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             when {
-                loading && sessions.isEmpty() -> {
+                loading && sessions.isEmpty() && activeSessions.isEmpty() -> {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(24.dp),
                         horizontalArrangement = Arrangement.Center,
@@ -121,7 +141,7 @@ fun SessionsScreen(viewModel: AppViewModel) {
                     )
                 }
 
-                sessions.isEmpty() -> {
+                sessions.isEmpty() && activeSessions.isEmpty() -> {
                     Text(
                         "No sessions yet — start one with the + button.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -141,25 +161,37 @@ fun SessionsScreen(viewModel: AppViewModel) {
                                 )
                             }
                             items(activeSessions, key = { "active-${it.id}" }) { session ->
-                                ActiveSessionRow(session) {
-                                    scope.launch {
-                                        runCatching { viewModel.api.interrupt(session.id) }
-                                        reloadKey++
-                                    }
-                                }
+                                ActiveSessionRow(
+                                    session = session,
+                                    enabled = enabled,
+                                    onClick = {
+                                        viewModel.openSession(
+                                            session.sessionKey,
+                                            session.title.ifEmpty { "Untitled session" },
+                                        )
+                                    },
+                                    onInterrupt = {
+                                        scope.launch {
+                                            runCatching { viewModel.api.interrupt(session.id) }
+                                            reloadKey++
+                                        }
+                                    },
+                                )
                                 HorizontalDivider()
                             }
-                            item(key = "recent-header") {
-                                Text(
-                                    "Recent sessions",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                )
+                            if (sessions.isNotEmpty()) {
+                                item(key = "recent-header") {
+                                    Text(
+                                        "Recent sessions",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
                             }
                         }
                         items(sessions, key = { it.id }) { session ->
-                            SessionRow(session) {
+                            SessionRow(session, enabled = enabled) {
                                 viewModel.openSession(session.id, session.displayTitle)
                             }
                             HorizontalDivider()
@@ -172,11 +204,16 @@ fun SessionsScreen(viewModel: AppViewModel) {
 }
 
 /**
- * A live gateway session with its runtime status and an interrupt control —
- * the "remote control" row: watch a working agent, stop it from the phone.
+ * A live gateway session that can be reopened by tapping the row. Running
+ * sessions retain a separate interrupt control.
  */
 @Composable
-private fun ActiveSessionRow(session: ActiveSession, onInterrupt: () -> Unit) {
+private fun ActiveSessionRow(
+    session: ActiveSession,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    onInterrupt: () -> Unit,
+) {
     // Contract status language: working rides the active-thread purple,
     // waiting is amber, starting is info; idle stays neutral.
     val statusColor = FabricTheme.extras.sessionStatusColor(session.status)
@@ -185,6 +222,7 @@ private fun ActiveSessionRow(session: ActiveSession, onInterrupt: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Column(
@@ -226,7 +264,7 @@ private fun ActiveSessionRow(session: ActiveSession, onInterrupt: () -> Unit) {
         }
 
         if (session.status == "working" || session.status == "starting") {
-            IconButton(onClick = onInterrupt) {
+            IconButton(onClick = onInterrupt, enabled = enabled) {
                 Icon(Icons.Filled.StopCircle, contentDescription = "Interrupt")
             }
         }
@@ -234,11 +272,15 @@ private fun ActiveSessionRow(session: ActiveSession, onInterrupt: () -> Unit) {
 }
 
 @Composable
-private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
+private fun SessionRow(
+    session: SessionSummary,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {

@@ -24,6 +24,7 @@ struct GatewayListView: View {
                             )
                         }
                         .foregroundStyle(.primary)
+                        .disabled(appModel.phase == .connecting)
                     }
                     .onDelete { indexSet in
                         for index in indexSet {
@@ -54,6 +55,7 @@ struct GatewayListView: View {
                     } label: {
                         Label("Add server", systemImage: "plus")
                     }
+                    .disabled(appModel.phase == .connecting)
                 }
             }
             .overlay {
@@ -68,6 +70,10 @@ struct GatewayListView: View {
             }
             .sheet(item: $signIn) { gateway in
                 SignInSheet(gateway: gateway)
+            }
+            .onChange(of: appModel.pendingSignInGateway?.id, initial: true) {
+                guard appModel.pendingSignInGateway != nil else { return }
+                signIn = appModel.takePendingSignInGateway()
             }
         }
     }

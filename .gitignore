@@ -66,6 +66,9 @@ environments/benchmarks/evals/
 
 # Web UI build output
 fabric_cli/web_dist/
+fabric_cli/mobile_web_dist/
+apps/mobile-web/dist/
+apps/mobile-web/tsconfig.tsbuildinfo
 apps/desktop/build/
 apps/desktop/dist/
 apps/desktop/release/

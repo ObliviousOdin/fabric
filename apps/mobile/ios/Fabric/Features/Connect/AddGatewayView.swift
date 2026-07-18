@@ -55,7 +55,7 @@ struct AddGatewayView: View {
                         Label("Scan pairing QR", systemImage: "qrcode.viewfinder")
                     }
                 } footer: {
-                    Text("On the machine: `fabric serve --qr` (add `--qr-url` for a tunnel).")
+                    Text("On the machine: `fabric mobile` (add `--qr-url` for a tunnel).")
                 }
 
                 Section("Server") {
@@ -140,7 +140,7 @@ struct AddGatewayView: View {
             }
             .sheet(isPresented: $showScanner) {
                 NavigationStack {
-                    QRScannerView { scanned in
+                    QRScannerView(isActive: $showScanner) { scanned in
                         showScanner = false
                         handleScan(scanned)
                     }
@@ -187,12 +187,18 @@ struct AddGatewayView: View {
         guard let url = parsedURL else { return }
         switch mode {
         case .token:
-            let gateway = appModel.saveTokenGateway(
-                label: label,
-                baseURL: url,
-                token: token.trimmingCharacters(in: .whitespaces)
-            )
-            await appModel.connectToken(gateway)
+            do {
+                let gateway = try appModel.saveTokenGateway(
+                    label: label,
+                    baseURL: url,
+                    token: token.trimmingCharacters(in: .whitespaces)
+                )
+                await appModel.connectToken(gateway)
+            } catch {
+                // Keep credential errors generic: no token or Security status
+                // should enter UI text, analytics, or logs.
+                probeResult = GatewayStoreError.credentialStorageUnavailable.localizedDescription
+            }
         case .password:
             if providerName == nil { await resolvePasswordProvider() }
             guard let providerName else {
@@ -239,12 +245,18 @@ struct SignInSheet: View {
 
     let gateway: SavedGateway
 
+    @State private var username: String
     @State private var password = ""
     @State private var otp = ""
     @State private var providerName: String?
     @State private var requiresTotp = false
     @State private var working = false
     @State private var error: String?
+
+    init(gateway: SavedGateway) {
+        self.gateway = gateway
+        _username = State(initialValue: gateway.username)
+    }
 
     var body: some View {
         NavigationStack {
@@ -256,7 +268,9 @@ struct SignInSheet: View {
                         .foregroundStyle(FabricTheme.textMuted)
                 }
                 Section("Sign in") {
-                    LabeledContent("Username", value: gateway.username)
+                    TextField("Username", text: $username)
+                        .textInputAutocapitalization(.never)
+                        .textContentType(.username)
                     SecureField("Password", text: $password)
                         .textContentType(.password)
                     if requiresTotp {
@@ -272,7 +286,8 @@ struct SignInSheet: View {
                         if working { ProgressView() } else { Text("Sign in and connect") }
                     }
                     .disabled(
-                        password.isEmpty || working
+                        username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || password.isEmpty || working
                             || (requiresTotp && otp.trimmingCharacters(in: .whitespaces).count < 6)
                     )
                     if let error {
@@ -304,8 +319,13 @@ struct SignInSheet: View {
             error = "This server offers no password sign-in."
             return
         }
+        let updated = appModel.saveGatedGateway(
+            label: gateway.label,
+            baseURL: gateway.baseURL,
+            username: username.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
         await appModel.connectGated(
-            gateway,
+            updated,
             provider: providerName,
             password: password,
             otp: otp.trimmingCharacters(in: .whitespaces)

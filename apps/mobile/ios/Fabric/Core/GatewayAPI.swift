@@ -17,10 +17,154 @@ struct SessionSummary: Identifiable, Hashable {
     }
 }
 
+/// One visible transcript row returned in `session.resume.messages`.
+struct SessionTranscriptMessage: Equatable {
+    enum Role: String, Equatable {
+        case user
+        case assistant
+        case system
+        case tool
+    }
+
+    let role: Role
+    let text: String
+    let reasoning: String?
+
+    init(role: Role, text: String, reasoning: String? = nil) {
+        self.role = role
+        self.text = text
+        self.reasoning = reasoning
+    }
+
+    init?(payload: [String: Any]) {
+        guard
+            let rawRole = payload["role"] as? String,
+            let role = Role(rawValue: rawRole)
+        else { return nil }
+
+        let text: String
+        if role == .tool {
+            text = (payload["context"] as? String)
+                ?? (payload["name"] as? String)
+                ?? ""
+        } else {
+            text = (payload["text"] as? String)
+                ?? (payload["content"] as? String)
+                ?? ""
+        }
+
+        let reasoning = role == .assistant
+            ? Self.firstReasoning(
+                in: payload,
+                keys: ["reasoning", "reasoning_content", "reasoning_details", "codex_reasoning_items"]
+            )
+            : nil
+        guard
+            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !(reasoning?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        else {
+            return nil
+        }
+        self.role = role
+        self.text = text
+        self.reasoning = reasoning
+    }
+
+    private static func firstReasoning(in payload: [String: Any], keys: [String]) -> String? {
+        keys.lazy.compactMap { reasoningText(payload[$0]) }.first
+    }
+
+    private static func reasoningText(_ value: Any?) -> String? {
+        if let text = value as? String {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+        }
+        if let values = value as? [Any] {
+            let parts = values.compactMap(reasoningText)
+            return parts.isEmpty ? nil : parts.joined(separator: "\n")
+        }
+        if let object = value as? [String: Any] {
+            for key in ["text", "summary", "content", "reasoning"] {
+                if let text = reasoningText(object[key]) { return text }
+            }
+            guard JSONSerialization.isValidJSONObject(object),
+                  let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+            else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        return nil
+    }
+}
+
+/// Current turn returned by `session.resume.inflight` when the agent is active.
+struct SessionInflight: Equatable {
+    let user: String
+    let assistant: String
+    let streaming: Bool
+
+    init(user: String, assistant: String, streaming: Bool) {
+        self.user = user
+        self.assistant = assistant
+        self.streaming = streaming
+    }
+
+    init?(payload: [String: Any]) {
+        user = payload["user"] as? String ?? ""
+        assistant = payload["assistant"] as? String ?? ""
+        streaming = payload["streaming"] as? Bool ?? false
+        guard !user.isEmpty || !assistant.isEmpty || streaming else { return nil }
+    }
+}
+
 /// Result of `session.create` / `session.resume`.
 struct LiveSession {
     let sessionId: String
     let storedSessionId: String?
+    let messages: [SessionTranscriptMessage]
+    let running: Bool
+    let inflight: SessionInflight?
+    let historyVersion: Int?
+    let pendingInteractions: [GatewayEvent]
+
+    init(
+        sessionId: String,
+        storedSessionId: String?,
+        messages: [SessionTranscriptMessage] = [],
+        running: Bool = false,
+        inflight: SessionInflight? = nil,
+        historyVersion: Int? = nil,
+        pendingInteractions: [GatewayEvent] = []
+    ) {
+        self.sessionId = sessionId
+        self.storedSessionId = storedSessionId
+        self.messages = messages
+        self.running = running
+        self.inflight = inflight
+        self.historyVersion = historyVersion
+        self.pendingInteractions = pendingInteractions
+    }
+
+    init(resumePayload: [String: Any], storedSessionId: String) {
+        let runtimeSessionId = resumePayload["session_id"] as? String ?? storedSessionId
+        sessionId = runtimeSessionId
+        self.storedSessionId = (resumePayload["session_key"] as? String)
+            ?? (resumePayload["stored_session_id"] as? String)
+            ?? (resumePayload["resumed"] as? String)
+            ?? storedSessionId
+        let rows = resumePayload["messages"] as? [[String: Any]] ?? []
+        messages = rows.compactMap(SessionTranscriptMessage.init(payload:))
+        running = resumePayload["running"] as? Bool ?? false
+        inflight = (resumePayload["inflight"] as? [String: Any]).flatMap(SessionInflight.init(payload:))
+        historyVersion = (resumePayload["history_version"] as? NSNumber)?.intValue
+        pendingInteractions = (resumePayload["pending_interactions"] as? [[String: Any]] ?? [])
+            .compactMap { interaction in
+                guard let type = interaction["type"] as? String else { return nil }
+                return GatewayEvent(
+                    type: type,
+                    sessionId: runtimeSessionId,
+                    payload: interaction["payload"] as? [String: Any] ?? [:]
+                )
+            }
+    }
 }
 
 /// Row shape returned by the `session.active_list` RPC — live in-memory
@@ -28,6 +172,7 @@ struct LiveSession {
 /// (see `_session_live_item` in `tui_gateway/server.py`).
 struct ActiveSession: Identifiable, Hashable {
     let id: String
+    let sessionKey: String
     let title: String
     let preview: String
     /// "working" | "waiting" | "starting" | "idle" (`_session_live_status`).
@@ -36,6 +181,19 @@ struct ActiveSession: Identifiable, Hashable {
     let messageCount: Int
     let lastActive: TimeInterval
     let current: Bool
+
+    init?(payload: [String: Any]) {
+        guard let id = payload["id"] as? String else { return nil }
+        self.id = id
+        sessionKey = payload["session_key"] as? String ?? id
+        title = payload["title"] as? String ?? ""
+        preview = payload["preview"] as? String ?? ""
+        status = payload["status"] as? String ?? "idle"
+        model = payload["model"] as? String ?? ""
+        messageCount = (payload["message_count"] as? NSNumber)?.intValue ?? 0
+        lastActive = (payload["last_active"] as? NSNumber)?.doubleValue ?? 0
+        current = payload["current"] as? Bool ?? false
+    }
 }
 
 /// One slash command from `commands.catalog` (name includes the leading `/`).
@@ -110,6 +268,22 @@ enum GatewayAPIError: LocalizedError {
 struct GatewayAPI {
     let client: JsonRpcGatewayClient
 
+    /// Process-scoped, non-persistent cookie session for gated login. The
+    /// access and refresh cookies never enter URLSession's shared on-disk jar.
+    static let httpSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpShouldSetCookies = true
+        configuration.httpCookieAcceptPolicy = .always
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        return URLSession(configuration: configuration)
+    }()
+
+    static func clearAuthSession() {
+        let storage = httpSession.configuration.httpCookieStorage
+        storage?.cookies?.forEach { storage?.deleteCookie($0) }
+    }
+
     // MARK: - REST (pre-socket)
 
     /// Public liveness probe; also classifies the gateway's auth mode.
@@ -117,7 +291,7 @@ struct GatewayAPI {
         let statusURL = baseURL.appending(path: "api/status")
         var request = URLRequest(url: statusURL, timeoutInterval: 10)
         request.httpMethod = "GET"
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await httpSession.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw GatewayAPIError.badURL
         }
@@ -155,14 +329,15 @@ struct GatewayAPI {
     }
 
     // MARK: - Gated auth (provider login + WS tickets)
-    // URLSession.shared stores the session cookies (`hermes_session_at`/`_rt`)
-    // that `/auth/password-login` sets, so the ticket mint below is
-    // automatically authenticated — mirroring the browser SPA's flow.
+    // The ephemeral session stores the cookies set by `/auth/password-login`,
+    // so ticket minting is authenticated without persistence across launches.
 
     /// `GET /api/auth/providers` — which sign-in options this gateway offers.
     static func listAuthProviders(baseURL: URL) async throws -> [AuthProviderInfo] {
         let url = baseURL.appending(path: "api/auth/providers")
-        let (data, response) = try await URLSession.shared.data(from: url)
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.httpMethod = "GET"
+        let (data, response) = try await httpSession.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             throw GatewayAPIError.httpStatus(code, body: String(decoding: data, as: UTF8.self))
@@ -199,7 +374,7 @@ struct GatewayAPI {
             "password": password,
             "otp": otp,
         ])
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await httpSession.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
@@ -214,7 +389,7 @@ struct GatewayAPI {
         let url = baseURL.appending(path: "api/auth/ws-ticket")
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpMethod = "POST"
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await httpSession.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             throw GatewayAPIError.httpStatus(code, body: String(decoding: data, as: UTF8.self))
@@ -257,12 +432,9 @@ struct GatewayAPI {
     func resumeSession(storedSessionId: String) async throws -> LiveSession {
         let result = try await client.requestObject(
             "session.resume",
-            params: ["session_id": storedSessionId, "cols": 96]
+            params: ["session_id": storedSessionId, "cols": 96, "source": "mobile"]
         )
-        return LiveSession(
-            sessionId: result["session_id"] as? String ?? storedSessionId,
-            storedSessionId: storedSessionId
-        )
+        return LiveSession(resumePayload: result, storedSessionId: storedSessionId)
     }
 
     // MARK: - Turns
@@ -280,10 +452,20 @@ struct GatewayAPI {
 
     /// `choice` is "allow" or "deny"; `all` resolves every queued approval
     /// (see `tools/approval.py`, `resolve_gateway_approval`).
-    func respondToApproval(sessionId: String, choice: String, all: Bool = false) async throws {
+    func respondToApproval(
+        sessionId: String,
+        requestId: String,
+        choice: String,
+        all: Bool = false
+    ) async throws {
         _ = try await client.request(
             "approval.respond",
-            params: ["session_id": sessionId, "choice": choice, "all": all]
+            params: [
+                "session_id": sessionId,
+                "request_id": requestId,
+                "choice": choice,
+                "all": all,
+            ]
         )
     }
 
@@ -343,19 +525,7 @@ struct GatewayAPI {
         if let currentSessionId { params["current_session_id"] = currentSessionId }
         let result = try await client.requestObject("session.active_list", params: params)
         let rows = result["sessions"] as? [[String: Any]] ?? []
-        return rows.compactMap { row in
-            guard let id = row["id"] as? String else { return nil }
-            return ActiveSession(
-                id: id,
-                title: row["title"] as? String ?? "",
-                preview: row["preview"] as? String ?? "",
-                status: row["status"] as? String ?? "idle",
-                model: row["model"] as? String ?? "",
-                messageCount: (row["message_count"] as? NSNumber)?.intValue ?? 0,
-                lastActive: (row["last_active"] as? NSNumber)?.doubleValue ?? 0,
-                current: row["current"] as? Bool ?? false
-            )
-        }
+        return rows.compactMap(ActiveSession.init(payload:))
     }
 
     /// Background processes owned by a session (preview servers, watchers…).

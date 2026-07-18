@@ -26,7 +26,7 @@ enum GatewayClientError: LocalizedError {
     case connectFailed(underlying: String?)
     case socketClosed
     case requestTimedOut(method: String)
-    case rpc(message: String)
+    case rpc(message: String, code: Int? = nil, data: Any? = nil)
 
     var errorDescription: String? {
         switch self {
@@ -39,9 +39,17 @@ enum GatewayClientError: LocalizedError {
             return "WebSocket closed"
         case .requestTimedOut(let method):
             return "request timed out: \(method)"
-        case .rpc(let message):
+        case .rpc(let message, _, _):
             return message
         }
+    }
+
+    static func rpc(body: [String: Any]) -> GatewayClientError {
+        .rpc(
+            message: body["message"] as? String ?? "Fabric RPC failed",
+            code: body["code"] as? Int,
+            data: body["data"]
+        )
     }
 }
 
@@ -71,11 +79,13 @@ final class JsonRpcGatewayClient: NSObject {
     )
 
     private var socket: URLSessionWebSocketTask?
+    private var socketURL: URL?
     private var state: GatewayConnectionState = .idle
     private var nextId = 0
     private var pendingRequests: [String: (Result<Any?, Error>) -> Void] = [:]
     private var pendingTimeouts: [String: DispatchWorkItem] = [:]
-    private var connectContinuation: CheckedContinuation<Void, Error>?
+    private var connectAttemptId = 0
+    private var connectContinuation: (id: Int, continuation: CheckedContinuation<Void, Error>)?
     private var connectTimeoutItem: DispatchWorkItem?
 
     var connectionState: GatewayConnectionState {
@@ -85,32 +95,64 @@ final class JsonRpcGatewayClient: NSObject {
     // MARK: - Connect / close
 
     func connect(to wsURL: URL, timeout: TimeInterval = JsonRpcGatewayClient.defaultConnectTimeout) async throws {
-        let shouldProceed: Bool = stateQueue.sync {
-            if state == .connecting { return false }
-            if let socket, socket.state == .running, state == .open { return false }
-            return true
-        }
-        guard shouldProceed else { return }
+        let attemptId: Int? = stateQueue.sync {
+            if let socket,
+               socket.state == .running,
+               state == .open,
+               socketURL == wsURL {
+                return nil
+            }
 
-        setState(.connecting)
+            connectAttemptId += 1
+            let attemptId = connectAttemptId
+            connectTimeoutItem?.cancel()
+            connectTimeoutItem = nil
+            let previousConnect = connectContinuation
+            connectContinuation = nil
+            socket?.cancel()
+            socket = nil
+            socketURL = nil
+            previousConnect?.continuation.resume(
+                throwing: GatewayClientError.connectFailed(
+                    underlying: "superseded by a newer connection"
+                )
+            )
+            rejectAllPendingLocked(with: GatewayClientError.socketClosed)
+            setStateLocked(.connecting)
+            return attemptId
+        }
+        guard let attemptId else { return }
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             stateQueue.async {
+                guard self.state == .connecting,
+                      self.connectAttemptId == attemptId else {
+                    continuation.resume(throwing: GatewayClientError.socketClosed)
+                    return
+                }
                 let task = self.urlSession.webSocketTask(with: wsURL)
                 self.socket = task
-                self.connectContinuation = continuation
+                self.socketURL = wsURL
+                self.connectContinuation = (attemptId, continuation)
 
                 // A reconnect after sleep/wake must not hang in `.connecting`
                 // forever (same rationale as DEFAULT_CONNECT_TIMEOUT_MS in the
                 // shared TS client): fail to `.error` so callers can retry.
                 let timeoutItem = DispatchWorkItem { [weak self] in
                     guard let self else { return }
-                    guard let pending = self.connectContinuation else { return }
+                    guard self.connectAttemptId == attemptId,
+                          self.socket === task,
+                          let pending = self.connectContinuation,
+                          pending.id == attemptId else { return }
                     self.connectContinuation = nil
-                    self.socket?.cancel()
+                    self.connectTimeoutItem = nil
+                    task.cancel()
                     self.socket = nil
+                    self.socketURL = nil
                     self.setStateLocked(.error)
-                    pending.resume(throwing: GatewayClientError.connectFailed(underlying: "timed out"))
+                    pending.continuation.resume(
+                        throwing: GatewayClientError.connectFailed(underlying: "timed out")
+                    )
                 }
                 self.connectTimeoutItem = timeoutItem
                 self.stateQueue.asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
@@ -122,10 +164,16 @@ final class JsonRpcGatewayClient: NSObject {
 
     func close() {
         stateQueue.async {
-            guard let socket = self.socket else { return }
-            socket.cancel(with: .normalClosure, reason: nil)
+            self.connectAttemptId += 1
+            self.connectTimeoutItem?.cancel()
+            self.connectTimeoutItem = nil
+            let pendingConnect = self.connectContinuation
+            self.connectContinuation = nil
+            self.socket?.cancel(with: .normalClosure, reason: nil)
             self.socket = nil
+            self.socketURL = nil
             self.setStateLocked(.closed)
+            pendingConnect?.continuation.resume(throwing: GatewayClientError.socketClosed)
             self.rejectAllPendingLocked(with: GatewayClientError.socketClosed)
         }
     }
@@ -208,21 +256,22 @@ final class JsonRpcGatewayClient: NSObject {
     private func startReceiveLoop(for socket: URLSessionWebSocketTask) {
         socket.receive { [weak self] result in
             guard let self else { return }
-            switch result {
-            case .failure:
-                // The delegate close/error callbacks own state transitions;
-                // stopping the loop here is enough.
-                break
-            case .success(let message):
-                switch message {
-                case .string(let text):
-                    self.handleMessage(text)
-                case .data(let data):
-                    self.handleMessage(String(decoding: data, as: UTF8.self))
-                @unknown default:
+            self.stateQueue.async {
+                guard self.socket === socket else { return }
+                switch result {
+                case .failure:
+                    // The delegate close/error callbacks own state transitions;
+                    // stopping the loop here is enough.
                     break
-                }
-                self.stateQueue.async {
+                case .success(let message):
+                    switch message {
+                    case .string(let text):
+                        self.handleMessageLocked(text)
+                    case .data(let data):
+                        self.handleMessageLocked(String(decoding: data, as: UTF8.self))
+                    @unknown default:
+                        break
+                    }
                     guard self.socket === socket else { return }
                     self.startReceiveLoop(for: socket)
                 }
@@ -230,7 +279,9 @@ final class JsonRpcGatewayClient: NSObject {
         }
     }
 
-    private func handleMessage(_ text: String) {
+    /// Parses a frame only after the receive loop has proved it belongs to the
+    /// current socket. Must run on `stateQueue`.
+    private func handleMessageLocked(_ text: String) {
         guard
             let data = text.data(using: .utf8),
             let frame = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -238,15 +289,12 @@ final class JsonRpcGatewayClient: NSObject {
 
         // Response frame: routed to the matching pending request.
         if let id = frame["id"] as? String {
-            stateQueue.async {
-                self.pendingTimeouts.removeValue(forKey: id)?.cancel()
-                guard let pending = self.pendingRequests.removeValue(forKey: id) else { return }
-                if let errorBody = frame["error"] as? [String: Any] {
-                    let message = errorBody["message"] as? String ?? "Fabric RPC failed"
-                    pending(.failure(GatewayClientError.rpc(message: message)))
-                } else {
-                    pending(.success(frame["result"]))
-                }
+            pendingTimeouts.removeValue(forKey: id)?.cancel()
+            guard let pending = pendingRequests.removeValue(forKey: id) else { return }
+            if let errorBody = frame["error"] as? [String: Any] {
+                pending(.failure(GatewayClientError.rpc(body: errorBody)))
+            } else {
+                pending(.success(frame["result"]))
             }
             return
         }
@@ -263,16 +311,11 @@ final class JsonRpcGatewayClient: NSObject {
             sessionId: params["session_id"] as? String,
             payload: params["payload"] as? [String: Any] ?? [:]
         )
-        DispatchQueue.main.async {
-            self.onEvent?(event)
-        }
+        let handler = onEvent
+        DispatchQueue.main.async { handler?(event) }
     }
 
     // MARK: - State plumbing
-
-    private func setState(_ newState: GatewayConnectionState) {
-        stateQueue.async { self.setStateLocked(newState) }
-    }
 
     /// Must run on `stateQueue`.
     private func setStateLocked(_ newState: GatewayConnectionState) {
@@ -308,7 +351,7 @@ extension JsonRpcGatewayClient: URLSessionWebSocketDelegate {
             self.connectTimeoutItem = nil
             self.setStateLocked(.open)
             self.startReceiveLoop(for: webSocketTask)
-            self.connectContinuation?.resume()
+            self.connectContinuation?.continuation.resume()
             self.connectContinuation = nil
         }
     }
@@ -322,12 +365,17 @@ extension JsonRpcGatewayClient: URLSessionWebSocketDelegate {
         stateQueue.async {
             guard self.socket === webSocketTask else { return }
             self.socket = nil
+            self.socketURL = nil
             self.connectTimeoutItem?.cancel()
             self.connectTimeoutItem = nil
             if let pending = self.connectContinuation {
                 self.connectContinuation = nil
                 self.setStateLocked(.error)
-                pending.resume(throwing: GatewayClientError.connectFailed(underlying: "closed (code \(closeCode.rawValue))"))
+                pending.continuation.resume(
+                    throwing: GatewayClientError.connectFailed(
+                        underlying: "closed (code \(closeCode.rawValue))"
+                    )
+                )
             } else {
                 self.setStateLocked(.closed)
             }
@@ -344,12 +392,15 @@ extension JsonRpcGatewayClient: URLSessionWebSocketDelegate {
         stateQueue.async {
             guard self.socket === task else { return }
             self.socket = nil
+            self.socketURL = nil
             self.connectTimeoutItem?.cancel()
             self.connectTimeoutItem = nil
             if let pending = self.connectContinuation {
                 self.connectContinuation = nil
                 self.setStateLocked(.error)
-                pending.resume(throwing: GatewayClientError.connectFailed(underlying: error.localizedDescription))
+                pending.continuation.resume(
+                    throwing: GatewayClientError.connectFailed(underlying: error.localizedDescription)
+                )
             } else {
                 self.setStateLocked(.error)
             }

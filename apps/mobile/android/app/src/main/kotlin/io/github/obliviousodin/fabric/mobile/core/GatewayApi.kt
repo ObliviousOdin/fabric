@@ -4,6 +4,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -32,11 +34,115 @@ data class SessionSummary(
         get() = title.ifEmpty { preview.ifEmpty { "Untitled session" } }
 }
 
+/** One visible transcript row returned in `session.resume.messages`. */
+data class SessionTranscriptMessage(
+    val role: Role,
+    val text: String,
+    val reasoning: String? = null,
+) {
+    enum class Role { USER, ASSISTANT, SYSTEM, TOOL }
+
+    companion object {
+        internal fun fromJson(payload: JsonObject): SessionTranscriptMessage? {
+            val role = when (payload.string("role")) {
+                "user" -> Role.USER
+                "assistant" -> Role.ASSISTANT
+                "system" -> Role.SYSTEM
+                "tool" -> Role.TOOL
+                else -> return null
+            }
+            val text = if (role == Role.TOOL) {
+                payload.string("context") ?: payload.string("name")
+            } else {
+                payload.string("text") ?: payload.string("content")
+            }.orEmpty()
+            val reasoning = if (role == Role.ASSISTANT) {
+                listOf("reasoning", "reasoning_content", "reasoning_details", "codex_reasoning_items")
+                    .firstNotNullOfOrNull { key -> reasoningText(payload[key]) }
+            } else {
+                null
+            }
+            if (text.isBlank() && reasoning.isNullOrBlank()) return null
+            return SessionTranscriptMessage(role = role, text = text, reasoning = reasoning)
+        }
+
+        private fun reasoningText(value: JsonElement?): String? = when (value) {
+            is JsonNull -> null
+            is JsonPrimitive -> value.content.takeIf { it.isNotBlank() }
+            is JsonArray -> value.mapNotNull(::reasoningText)
+                .takeIf { it.isNotEmpty() }
+                ?.joinToString("\n")
+            is JsonObject -> {
+                listOf("text", "summary", "content", "reasoning")
+                    .firstNotNullOfOrNull { key -> reasoningText(value[key]) }
+                    ?: value.toString().takeIf { value.isNotEmpty() }
+            }
+            else -> null
+        }
+    }
+}
+
+/** Current turn returned by `session.resume.inflight` while the agent is active. */
+data class SessionInflight(
+    val user: String,
+    val assistant: String,
+    val streaming: Boolean,
+) {
+    companion object {
+        internal fun fromJson(payload: JsonObject): SessionInflight? {
+            val inflight = SessionInflight(
+                user = payload.string("user").orEmpty(),
+                assistant = payload.string("assistant").orEmpty(),
+                streaming = (payload["streaming"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            )
+            return inflight.takeIf { it.user.isNotEmpty() || it.assistant.isNotEmpty() || it.streaming }
+        }
+    }
+}
+
 /** Result of `session.create` / `session.resume`. */
 data class LiveSession(
     val sessionId: String,
     val storedSessionId: String?,
-)
+    val messages: List<SessionTranscriptMessage> = emptyList(),
+    val running: Boolean = false,
+    val inflight: SessionInflight? = null,
+    val historyVersion: Int? = null,
+    val pendingInteractions: List<GatewayEvent> = emptyList(),
+) {
+    companion object {
+        internal fun fromResumePayload(
+            payload: JsonObject,
+            storedSessionId: String,
+        ): LiveSession {
+            val rows = (payload["messages"] as? JsonArray).orEmpty()
+            return LiveSession(
+                sessionId = payload.string("session_id") ?: storedSessionId,
+                storedSessionId = payload.string("session_key")
+                    ?: payload.string("stored_session_id")
+                    ?: payload.string("resumed")
+                    ?: storedSessionId,
+                messages = rows.mapNotNull { row ->
+                    (row as? JsonObject)?.let { SessionTranscriptMessage.fromJson(it) }
+                },
+                running = (payload["running"] as? JsonPrimitive)?.booleanOrNull ?: false,
+                inflight = (payload["inflight"] as? JsonObject)?.let { SessionInflight.fromJson(it) },
+                historyVersion = (payload["history_version"] as? JsonPrimitive)?.intOrNull,
+                pendingInteractions = (payload["pending_interactions"] as? JsonArray)
+                    .orEmpty()
+                    .mapNotNull { interaction ->
+                        val objectValue = interaction as? JsonObject ?: return@mapNotNull null
+                        val type = objectValue.string("type") ?: return@mapNotNull null
+                        GatewayEvent(
+                            type = type,
+                            sessionId = payload.string("session_id") ?: storedSessionId,
+                            payload = objectValue["payload"] as? JsonObject ?: JsonObject(emptyMap()),
+                        )
+                    },
+            )
+        }
+    }
+}
 
 /**
  * Row shape returned by `session.active_list` — live in-memory sessions on
@@ -45,6 +151,7 @@ data class LiveSession(
  */
 data class ActiveSession(
     val id: String,
+    val sessionKey: String,
     val title: String,
     val preview: String,
     /** "working" | "waiting" | "starting" | "idle" (`_session_live_status`). */
@@ -53,7 +160,24 @@ data class ActiveSession(
     val messageCount: Int,
     val lastActive: Double,
     val current: Boolean,
-)
+) {
+    companion object {
+        internal fun fromJson(payload: JsonObject): ActiveSession? {
+            val id = payload.string("id") ?: return null
+            return ActiveSession(
+                id = id,
+                sessionKey = payload.string("session_key") ?: id,
+                title = payload.string("title").orEmpty(),
+                preview = payload.string("preview").orEmpty(),
+                status = payload.string("status") ?: "idle",
+                model = payload.string("model").orEmpty(),
+                messageCount = (payload["message_count"] as? JsonPrimitive)?.intOrNull ?: 0,
+                lastActive = (payload["last_active"] as? JsonPrimitive)?.doubleOrNull ?: 0.0,
+                current = (payload["current"] as? JsonPrimitive)?.booleanOrNull ?: false,
+            )
+        }
+    }
+}
 
 /** One slash command from `commands.catalog` (name includes the leading `/`). */
 data class SlashCommand(
@@ -104,7 +228,7 @@ data class AuthProviderInfo(
     val requiresTotp: Boolean,
 )
 
-class GatewayHttpException(message: String) : Exception(message)
+class GatewayHttpException(message: String, val statusCode: Int? = null) : Exception(message)
 
 /**
  * Typed wrappers around the raw JSON-RPC client for the methods the mobile
@@ -125,7 +249,10 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
             val request = Request.Builder().url(url).get().build()
             probeClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw GatewayHttpException("HTTP ${response.code}: ${response.body?.string().orEmpty()}")
+                    throw GatewayHttpException(
+                        "HTTP ${response.code}: ${response.body?.string().orEmpty()}",
+                        response.code,
+                    )
                 }
                 val body = response.body?.string().orEmpty()
                 val parsed = runCatching { json.parseToJsonElement(body).jsonObject }.getOrNull()
@@ -186,7 +313,10 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
                 .build()
             authClient.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw GatewayHttpException("HTTP ${response.code}: ${response.body?.string().orEmpty()}")
+                    throw GatewayHttpException(
+                        "HTTP ${response.code}: ${response.body?.string().orEmpty()}",
+                        response.code,
+                    )
                 }
                 val parsed = runCatching {
                     json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
@@ -234,7 +364,10 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
                     json.parseToJsonElement(response.body?.string().orEmpty())
                         .jsonObject.string("detail")
                 }.getOrNull()
-                throw GatewayHttpException(detail ?: "Sign-in failed (HTTP ${response.code})")
+                throw GatewayHttpException(
+                    detail ?: "Sign-in failed (HTTP ${response.code})",
+                    response.code,
+                )
             }
         }
     }
@@ -251,7 +384,10 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
         val body = ByteArray(0).toRequestBody(null)
         authClient.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
             if (!response.isSuccessful) {
-                throw GatewayHttpException("HTTP ${response.code}: ${response.body?.string().orEmpty()}")
+                throw GatewayHttpException(
+                    "HTTP ${response.code}: ${response.body?.string().orEmpty()}",
+                    response.code,
+                )
             }
             val parsed = runCatching {
                 json.parseToJsonElement(response.body?.string().orEmpty()).jsonObject
@@ -297,12 +433,10 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
         val params = buildJsonObject {
             put("session_id", storedSessionId)
             put("cols", 96)
+            put("source", "mobile")
         }
         val result = client.requestObject("session.resume", params)
-        return LiveSession(
-            sessionId = result.string("session_id") ?: storedSessionId,
-            storedSessionId = storedSessionId,
-        )
+        return LiveSession.fromResumePayload(result, storedSessionId)
     }
 
     // -- Turns --------------------------------------------------------------
@@ -325,11 +459,17 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
      * `choice` is "allow" or "deny"; `all` resolves every queued approval
      * (tools/approval.py, resolve_gateway_approval).
      */
-    suspend fun respondToApproval(sessionId: String, choice: String, all: Boolean = false) {
+    suspend fun respondToApproval(
+        sessionId: String,
+        requestId: String,
+        choice: String,
+        all: Boolean = false,
+    ) {
         client.request(
             "approval.respond",
             buildJsonObject {
                 put("session_id", sessionId)
+                put("request_id", requestId)
                 put("choice", choice)
                 put("all", all)
             },
@@ -410,18 +550,7 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
         val result = client.requestObject("session.active_list", params)
         val rows = result["sessions"] as? JsonArray ?: return emptyList()
         return rows.mapNotNull { row ->
-            val obj = row as? JsonObject ?: return@mapNotNull null
-            val id = obj.string("id") ?: return@mapNotNull null
-            ActiveSession(
-                id = id,
-                title = obj.string("title").orEmpty(),
-                preview = obj.string("preview").orEmpty(),
-                status = obj.string("status") ?: "idle",
-                model = obj.string("model").orEmpty(),
-                messageCount = (obj["message_count"] as? JsonPrimitive)?.intOrNull ?: 0,
-                lastActive = (obj["last_active"] as? JsonPrimitive)?.doubleOrNull ?: 0.0,
-                current = (obj["current"] as? JsonPrimitive)?.booleanOrNull ?: false,
-            )
+            (row as? JsonObject)?.let { ActiveSession.fromJson(it) }
         }
     }
 

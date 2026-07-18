@@ -19,7 +19,12 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 
@@ -54,4 +59,6 @@ dependencies {
 
     // Pairing-QR scanner (ScanContract activity-result API).
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
+    testImplementation("junit:junit:4.13.2")
 }

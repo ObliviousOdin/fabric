@@ -74,6 +74,7 @@ fun ChatScreen(
 ) {
     val messages by controller.messages.collectAsState()
     val statusLine by controller.statusLine.collectAsState()
+    val persistenceWarning by controller.persistenceWarning.collectAsState()
     val busy by controller.busy.collectAsState()
     val pendingApproval by controller.pendingApproval.collectAsState()
     val pendingPrompt by controller.pendingPrompt.collectAsState()
@@ -175,6 +176,17 @@ fun ChatScreen(
                 .padding(padding)
                 .imePadding(),
         ) {
+            persistenceWarning?.let { warning ->
+                Text(
+                    warning,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = FabricTheme.extras.warning,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(FabricTheme.extras.warning.copy(alpha = 0.12f))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             if (fatalError != null) {
                 Text(
                     fatalError.orEmpty(),
@@ -198,6 +210,7 @@ fun ChatScreen(
             pendingApproval?.let { approval ->
                 ApprovalBanner(
                     approval = approval,
+                    enabled = sessionReady,
                     onRespond = controller::respondToApproval,
                 )
             }
@@ -205,6 +218,7 @@ fun ChatScreen(
             pendingPrompt?.let { prompt ->
                 PromptBanner(
                     prompt = prompt,
+                    enabled = sessionReady,
                     onRespond = controller::respondToPrompt,
                 )
             }
@@ -248,7 +262,7 @@ fun ChatScreen(
                             draft = ""
                             controller.send(text)
                         },
-                        enabled = draft.isNotBlank(),
+                        enabled = sessionReady && draft.isNotBlank(),
                     ) {
                         Icon(
                             Icons.AutoMirrored.Filled.Redo,
@@ -256,7 +270,7 @@ fun ChatScreen(
                             tint = FabricTheme.extras.threadActive,
                         )
                     }
-                    IconButton(onClick = controller::interrupt) {
+                    IconButton(onClick = controller::interrupt, enabled = sessionReady) {
                         Icon(Icons.Filled.Stop, contentDescription = "Interrupt")
                     }
                 } else {
@@ -284,6 +298,7 @@ fun ChatScreen(
 @Composable
 private fun ApprovalBanner(
     approval: PendingApproval,
+    enabled: Boolean,
     onRespond: (Boolean) -> Unit,
 ) {
     val warning = FabricTheme.extras.warning
@@ -322,8 +337,8 @@ private fun ApprovalBanner(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onRespond(true) }) { Text("Allow") }
-                    OutlinedButton(onClick = { onRespond(false) }) { Text("Deny") }
+                    Button(onClick = { onRespond(true) }, enabled = enabled) { Text("Allow") }
+                    OutlinedButton(onClick = { onRespond(false) }, enabled = enabled) { Text("Deny") }
                 }
             }
         }
@@ -337,6 +352,7 @@ private fun ApprovalBanner(
 @Composable
 private fun PromptBanner(
     prompt: PendingPrompt,
+    enabled: Boolean,
     onRespond: (String) -> Unit,
 ) {
     var answer by remember(prompt.requestId) { mutableStateOf("") }
@@ -361,7 +377,7 @@ private fun PromptBanner(
             Text(prompt.question, style = MaterialTheme.typography.bodyMedium)
 
             prompt.choices.forEach { choice ->
-                OutlinedButton(onClick = { onRespond(choice) }) { Text(choice) }
+                OutlinedButton(onClick = { onRespond(choice) }, enabled = enabled) { Text(choice) }
             }
 
             Row(
@@ -372,6 +388,7 @@ private fun PromptBanner(
                     value = answer,
                     onValueChange = { answer = it },
                     placeholder = { Text("Answer") },
+                    enabled = enabled,
                     singleLine = true,
                     visualTransformation = if (prompt.isSecureEntry) {
                         PasswordVisualTransformation()
@@ -382,11 +399,11 @@ private fun PromptBanner(
                 )
                 Button(
                     onClick = { onRespond(answer) },
-                    enabled = answer.isNotEmpty(),
+                    enabled = enabled && answer.isNotEmpty(),
                 ) {
                     Text("Send")
                 }
-                TextButton(onClick = { onRespond("") }) { Text("Dismiss") }
+                TextButton(onClick = { onRespond("") }, enabled = enabled) { Text("Dismiss") }
             }
         }
     }

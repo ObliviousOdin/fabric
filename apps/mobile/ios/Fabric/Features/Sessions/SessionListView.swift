@@ -23,9 +23,25 @@ struct SessionListView: View {
             if !activeSessions.isEmpty {
                 Section("Active now") {
                     ForEach(activeSessions) { session in
-                        ActiveSessionRow(session: session) {
-                            try? await appModel.api.interrupt(sessionId: session.id)
-                            await reload()
+                        NavigationLink {
+                            ChatView(
+                                resumeStoredSessionId: session.sessionKey,
+                                title: session.title.isEmpty ? "Untitled session" : session.title
+                            )
+                        } label: {
+                            ActiveSessionRow(session: session)
+                        }
+                        .swipeActions {
+                            if session.status == "working" || session.status == "starting" {
+                                Button(role: .destructive) {
+                                    Task {
+                                        try? await appModel.api.interrupt(sessionId: session.id)
+                                        await reload()
+                                    }
+                                } label: {
+                                    Label("Interrupt", systemImage: "stop.circle")
+                                }
+                            }
                         }
                     }
                 }
@@ -89,20 +105,30 @@ struct SessionListView: View {
                 } label: {
                     Image(systemName: "server.rack")
                 }
+                .accessibilityLabel("Server menu")
             }
         }
-        .refreshable { await reload() }
-        .task { await reload() }
+        .refreshable {
+            if appModel.phase == .connected { await reload() }
+        }
+        .task(id: appModel.connectionGeneration) {
+            if appModel.phase == .connected { await reload() }
+        }
     }
 
     private func reload() async {
         loading = true
         defer { loading = false }
         do {
-            sessions = try await appModel.api.listSessions()
+            // These RPCs are independent. Loading them concurrently avoids
+            // making the initial sessions screen pay two network round trips.
+            async let recent: [SessionSummary] = appModel.api.listSessions()
+            async let active: [ActiveSession]? = try? appModel.api.activeSessions()
+            let (loadedSessions, loadedActiveSessions) = try await (recent, active)
+            sessions = loadedSessions
             // Live sessions are best-effort decoration; the historical list
             // is the primary content.
-            activeSessions = (try? await appModel.api.activeSessions()) ?? []
+            activeSessions = loadedActiveSessions ?? []
             loadError = nil
         } catch {
             loadError = error.localizedDescription
@@ -110,11 +136,10 @@ struct SessionListView: View {
     }
 }
 
-/// A live gateway session with its runtime status and an interrupt control —
-/// the "remote control" row: watch a working agent, stop it from the phone.
+/// A live gateway session reopened through its stable stored-session key.
+/// Running sessions expose interrupt as a row swipe action.
 private struct ActiveSessionRow: View {
     let session: ActiveSession
-    let onInterrupt: () async -> Void
 
     // Contract status language: working rides the active-thread purple,
     // waiting is amber, starting is info; idle stays neutral.
@@ -147,18 +172,6 @@ private struct ActiveSessionRow: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if session.status == "working" || session.status == "starting" {
-                Button {
-                    Task { await onInterrupt() }
-                } label: {
-                    Image(systemName: "stop.circle")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
         }
         .padding(.vertical, 2)

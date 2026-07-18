@@ -6065,6 +6065,33 @@ def _(rid, params: dict) -> dict:
             with contextlib.suppress(Exception):
                 db.close()
 
+    def _reuse_live_payload(sid: str, session: dict) -> dict:
+        payload = _live_session_payload(
+            sid,
+            session,
+            cols=cols,
+            touch=True,
+            transport=current_transport() or _stdio_transport,
+        )
+        payload["resumed"] = target
+        # A lazy watch session never owns a run loop, so its payload's running
+        # flag is always False — overlay the child-run registry so a reconnecting
+        # watch window keeps its busy indicator while the child is still mid-run.
+        if session.get("agent") is None and _child_run_active(target, profile_home):
+            payload["running"] = True
+            payload["status"] = "streaming"
+        return payload
+
+    # A newly-created composer is deliberately not persisted until its first
+    # prompt, but native clients can leave that composer and reopen it from
+    # session.active_list. Reattach to the in-memory session before consulting
+    # the DB so an empty-yet-live chat does not fail with "session not found".
+    with _session_resume_lock:
+        live = _find_live_session_by_key(target, profile_home=profile_home)
+        if live is not None:
+            _close_lookup_db()
+            return _ok(rid, _reuse_live_payload(*live))
+
     found = db.get_session(target)
     if not found:
         found = db.get_session_by_title(target)
@@ -6113,23 +6140,6 @@ def _(rid, params: dict) -> dict:
     profile_resume_cwd = str(found.get("cwd") or "").strip() or _profile_configured_cwd(
         profile_home
     )
-
-    def _reuse_live_payload(sid: str, session: dict) -> dict:
-        payload = _live_session_payload(
-            sid,
-            session,
-            cols=cols,
-            touch=True,
-            transport=current_transport() or _stdio_transport,
-        )
-        payload["resumed"] = target
-        # A lazy watch session never owns a run loop, so its payload's running
-        # flag is always False — overlay the child-run registry so a reconnecting
-        # watch window keeps its busy indicator while the child is still mid-run.
-        if session.get("agent") is None and _child_run_active(target, profile_home):
-            payload["running"] = True
-            payload["status"] = "streaming"
-        return payload
 
     # Fast path: if the session is already live, reuse it under the lock.
     with _session_resume_lock:
@@ -6194,6 +6204,7 @@ def _(rid, params: dict) -> dict:
         return _ok(
             rid,
             {
+                "history_version": int(record.get("history_version", 0)),
                 "session_id": sid,
                 "resumed": target,
                 "message_count": len(messages),
@@ -6286,6 +6297,7 @@ def _(rid, params: dict) -> dict:
         return _ok(
             rid,
             {
+                "history_version": int(record.get("history_version", 0)),
                 "session_id": sid,
                 "resumed": target,
                 "message_count": len(messages),
@@ -6440,6 +6452,7 @@ def _(rid, params: dict) -> dict:
     return _ok(
         rid,
         {
+            "history_version": int(session.get("history_version", 0)),
             "session_id": sid,
             "resumed": target,
             "message_count": len(messages),
@@ -6647,6 +6660,37 @@ def _fallback_session_info(session: dict) -> dict:
         _reset_profile_runtime_scope(profile_tokens)
 
 
+def _session_pending_interactions(sid: str, session: dict) -> list[dict]:
+    """Snapshot blocking prompts so reconnect/resume cannot strand a turn."""
+    interactions = []
+    with _prompt_lock:
+        pending = list(_pending.items())
+        prompt_payloads = dict(_pending_prompt_payloads)
+    for request_id, (owner_sid, _event) in pending:
+        if owner_sid != sid:
+            continue
+        event, payload = prompt_payloads.get(
+            request_id, ("input.request", {"request_id": request_id})
+        )
+        interactions.append({"type": str(event), "payload": dict(payload)})
+
+    try:
+        from gateway.run import _redact_approval_command
+        from tools.approval import get_pending_gateway_approvals
+
+        key = _session_lookup_key(session, fallback=sid)
+        for approval in get_pending_gateway_approvals(key):
+            approval = dict(approval)
+            if "command" in approval:
+                approval["command"] = _redact_approval_command(
+                    approval.get("command")
+                )
+            interactions.append({"type": "approval.request", "payload": approval})
+    except Exception:
+        pass
+    return interactions
+
+
 def _live_session_payload(
     sid: str,
     session: dict,
@@ -6665,9 +6709,11 @@ def _live_session_payload(
         history = list(session.get("display_history_prefix") or []) + list(
             session.get("history") or []
         )
+        history_version = int(session.get("history_version", 0))
         inflight = _inflight_snapshot(session)
         running = bool(session.get("running"))
     payload = {
+        "history_version": history_version,
         "info": _fallback_session_info(session),
         "message_count": len(history),
         "messages": _history_to_messages(history),
@@ -6677,6 +6723,7 @@ def _live_session_payload(
         "started_at": float(session.get("created_at") or time.time()),
         "status": _session_live_status(sid, session),
     }
+    payload["pending_interactions"] = _session_pending_interactions(sid, session)
     if inflight:
         payload["inflight"] = inflight
     return payload
@@ -9825,6 +9872,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
 
             last_reasoning = None
             status_note = None
+            history_persisted = False
             if isinstance(result, dict):
                 if isinstance(result.get("messages"), list):
                     with session["history_lock"]:
@@ -9832,6 +9880,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                         if current_version == history_version:
                             session["history"] = result["messages"]
                             session["history_version"] = history_version + 1
+                            history_persisted = True
                         else:
                             # History mutated externally during the turn
                             # (undo/compress/retry/rollback now guard on
@@ -9887,7 +9936,12 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 raw = str(result)
                 status = "complete"
 
-            payload = {"text": raw, "usage": _get_usage(agent), "status": status}
+            payload = {
+                "text": raw,
+                "usage": _get_usage(agent),
+                "status": status,
+                "history_persisted": history_persisted,
+            }
             if last_reasoning:
                 payload["reasoning"] = last_reasoning
             if status_note:
@@ -9896,6 +9950,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             if rendered:
                 payload["rendered"] = rendered
             with session["history_lock"]:
+                payload["history_version"] = int(session.get("history_version", 0))
                 _clear_inflight_turn(session)
             _emit("message.complete", sid, payload)
 
@@ -10973,6 +11028,7 @@ def _(rid, params: dict) -> dict:
                     session["session_key"],
                     params.get("choice", "deny"),
                     resolve_all=params.get("all", False),
+                    request_id=str(params.get("request_id") or "") or None,
                 )
             },
         )

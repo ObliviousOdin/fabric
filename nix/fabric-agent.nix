@@ -58,6 +58,10 @@ let
     inherit fabricNpmLib;
   };
 
+  fabricMobileWeb = callPackage ./mobile-web.nix {
+    inherit fabricNpmLib;
+  };
+
   # Import bundled plugins (memory, context_engine, platforms/*).  Keeping
   # them out of the Python site-packages keeps import semantics identical
   # to a dev checkout — the loader reads them from HERMES_BUNDLED_PLUGINS.
@@ -160,6 +164,7 @@ stdenv.mkDerivation (finalAttrs: {
     cp -r ${bundledPlugins} $out/share/fabric-agent/plugins
     cp -r ${bundledLocales} $out/share/fabric-agent/locales
     cp -r ${fabricWeb} $out/share/fabric-agent/web_dist
+    cp -r ${fabricMobileWeb} $out/share/fabric-agent/mobile_web_dist
 
     mkdir -p $out/ui-tui
     cp -r ${fabricTui}/lib/fabric-tui/* $out/ui-tui/
@@ -171,6 +176,7 @@ stdenv.mkDerivation (finalAttrs: {
           --set HERMES_BUNDLED_PLUGINS $out/share/fabric-agent/plugins \
           --set HERMES_BUNDLED_LOCALES $out/share/fabric-agent/locales \
           --set FABRIC_WEB_DIST $out/share/fabric-agent/web_dist \
+          --set FABRIC_MOBILE_WEB_DIST $out/share/fabric-agent/mobile_web_dist \
           --set FABRIC_TUI_DIR $out/ui-tui \
           --set HERMES_PYTHON ${fabricVenv}/bin/python3 \
           --set HERMES_NODE ${lib.getExe nodejs} \
@@ -201,6 +207,7 @@ stdenv.mkDerivation (finalAttrs: {
       inherit
         fabricTui
         fabricWeb
+        fabricMobileWeb
         fabricNpmLib
         fabricVenv
         ;

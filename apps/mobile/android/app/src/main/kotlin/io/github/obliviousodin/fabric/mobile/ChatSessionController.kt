@@ -2,7 +2,10 @@ package io.github.obliviousodin.fabric.mobile
 
 import io.github.obliviousodin.fabric.mobile.core.GatewayApi
 import io.github.obliviousodin.fabric.mobile.core.GatewayEvent
+import io.github.obliviousodin.fabric.mobile.core.LiveSession
+import io.github.obliviousodin.fabric.mobile.core.SessionTranscriptMessage
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -11,6 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.intOrNull
 
 enum class Role {
     USER,
@@ -34,9 +39,26 @@ data class TranscriptMessage(
     val streaming: Boolean = false,
 )
 
+internal fun SessionTranscriptMessage.toTranscriptMessage(): TranscriptMessage? {
+    if (text.isBlank()) {
+        val restoredReasoning = reasoning?.takeIf { it.isNotBlank() } ?: return null
+        return TranscriptMessage(role = Role.INFO, text = "Thinking…\n$restoredReasoning")
+    }
+    return TranscriptMessage(
+        role = when (role) {
+            SessionTranscriptMessage.Role.USER -> Role.USER
+            SessionTranscriptMessage.Role.ASSISTANT -> Role.ASSISTANT
+            SessionTranscriptMessage.Role.SYSTEM,
+            SessionTranscriptMessage.Role.TOOL -> Role.INFO
+        },
+        text = text,
+    )
+}
+
 /** A pending `approval.request` (command arrives pre-redacted server-side). */
 data class PendingApproval(
     val command: String?,
+    val requestId: String,
     val summary: String?,
 )
 
@@ -56,6 +78,37 @@ data class PendingPrompt(
     val isSecureEntry: Boolean get() = kind != Kind.CLARIFY
 }
 
+internal sealed interface PendingInteraction {
+    val identity: String
+
+    data class Approval(val value: PendingApproval) : PendingInteraction {
+        override val identity = "approval:${value.requestId}"
+    }
+
+    data class Prompt(val value: PendingPrompt) : PendingInteraction {
+        override val identity = "${value.kind}:${value.requestId}"
+    }
+}
+
+internal class PendingInteractionQueue {
+    private val mutableItems = mutableListOf<PendingInteraction>()
+    val items: List<PendingInteraction> get() = mutableItems
+    val first: PendingInteraction? get() = mutableItems.firstOrNull()
+
+    fun enqueue(interaction: PendingInteraction) {
+        mutableItems.removeAll { it.identity == interaction.identity }
+        mutableItems += interaction
+    }
+
+    fun remove(interaction: PendingInteraction) {
+        mutableItems.removeAll { it.identity == interaction.identity }
+    }
+
+    fun clear() {
+        mutableItems.clear()
+    }
+}
+
 /**
  * Wires one chat session to the gateway event stream: creates or resumes
  * the runtime session, submits prompts, and folds streaming events into a
@@ -65,13 +118,115 @@ data class PendingPrompt(
 class ChatSessionController(
     val api: GatewayApi,
     private val scope: CoroutineScope,
-    private val resumeStoredSessionId: String?,
+    resumeStoredSessionId: String?,
 ) {
+    companion object {
+        internal fun persistenceWarning(event: GatewayEvent): String? {
+            val persisted = (event.payload["history_persisted"] as? JsonPrimitive)?.booleanOrNull
+            if (persisted != false) return null
+            return event.payload.stringValue("warning")?.trim()?.takeIf { it.isNotEmpty() }
+                ?: "This response completed but could not be saved to session history."
+        }
+
+        internal fun restoredMessages(
+            live: LiveSession,
+        ): List<TranscriptMessage> {
+            val restored = live.messages.mapNotNull { it.toTranscriptMessage() }.toMutableList()
+            live.inflight?.let { inflight ->
+                if (inflight.user.isNotEmpty()) {
+                    restored += TranscriptMessage(role = Role.USER, text = inflight.user)
+                }
+                if (inflight.assistant.isNotEmpty() || inflight.streaming) {
+                    restored += TranscriptMessage(
+                        role = Role.ASSISTANT,
+                        text = inflight.assistant,
+                        streaming = inflight.streaming,
+                    )
+                }
+            }
+            return restored
+        }
+
+        /** Remove only buffered turns already represented by the resume snapshot. */
+        internal fun eventsForReplay(
+            events: List<GatewayEvent>,
+            live: LiveSession,
+            restoredMessages: List<TranscriptMessage>,
+        ): List<GatewayEvent> {
+            if (live.inflight != null) {
+                var completingSnapshotTurn = true
+                return events.filter { event ->
+                    if (event.sessionId != null && event.sessionId != live.sessionId) return@filter true
+                    if (!completingSnapshotTurn) return@filter true
+                    when (event.type) {
+                        "message.start", "message.delta" -> false
+                        "message.complete" -> {
+                            completingSnapshotTurn = false
+                            true
+                        }
+                        else -> true
+                    }
+                }
+            }
+
+            val bufferedTurnTypes = setOf(
+                "approval.request", "clarify.request", "message.delta", "message.start",
+                "reasoning.available", "reasoning.delta", "secret.request", "status.update",
+                "sudo.request", "thinking.delta", "tool.complete", "tool.generating",
+                "tool.progress", "tool.start",
+            )
+            val replay = mutableListOf<GatewayEvent>()
+            val turn = mutableListOf<GatewayEvent>()
+
+            fun flushTurn() {
+                replay += turn
+                turn.clear()
+            }
+
+            events.forEach { event ->
+                if (event.sessionId != null && event.sessionId != live.sessionId) {
+                    replay += event
+                    return@forEach
+                }
+
+                if (event.type == "message.complete") {
+                    val eventVersion = (event.payload["history_version"] as? JsonPrimitive)?.intOrNull
+                    val covered = when {
+                        live.historyVersion != null &&
+                            (event.payload["history_persisted"] as? JsonPrimitive)?.booleanOrNull == true &&
+                            eventVersion != null -> eventVersion <= live.historyVersion
+                        else -> false
+                    }
+                    if (covered) {
+                        turn.clear()
+                    } else {
+                        flushTurn()
+                        replay += event
+                    }
+                    return@forEach
+                }
+
+                if (event.type in bufferedTurnTypes) {
+                    turn += event
+                } else {
+                    flushTurn()
+                    replay += event
+                }
+            }
+
+            flushTurn()
+            return replay
+        }
+    }
+
     private val _messages = MutableStateFlow<List<TranscriptMessage>>(emptyList())
     val messages: StateFlow<List<TranscriptMessage>> = _messages.asStateFlow()
 
     private val _statusLine = MutableStateFlow<String?>(null)
     val statusLine: StateFlow<String?> = _statusLine.asStateFlow()
+
+    private val _persistenceWarning = MutableStateFlow<String?>(null)
+    val persistenceWarning: StateFlow<String?> = _persistenceWarning.asStateFlow()
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
@@ -90,8 +245,39 @@ class ChatSessionController(
 
     var sessionId: String? = null
         private set
+    var storedSessionId: String? = resumeStoredSessionId
+        private set
     private var eventJob: Job? = null
+    private var setupJob: Job? = null
     private var started = false
+    private var transportGeneration = 0L
+    private val pendingEvents = mutableListOf<GatewayEvent>()
+    private val interactionQueue = PendingInteractionQueue()
+
+    private fun enqueueInteraction(interaction: PendingInteraction) {
+        interactionQueue.enqueue(interaction)
+        publishActiveInteraction()
+    }
+
+    private fun removeInteraction(interaction: PendingInteraction) {
+        interactionQueue.remove(interaction)
+        publishActiveInteraction()
+    }
+
+    private fun clearInteractions() {
+        interactionQueue.clear()
+        publishActiveInteraction()
+    }
+
+    private fun publishActiveInteraction() {
+        _pendingApproval.value = null
+        _pendingPrompt.value = null
+        when (val interaction = interactionQueue.first) {
+            is PendingInteraction.Approval -> _pendingApproval.value = interaction.value
+            is PendingInteraction.Prompt -> _pendingPrompt.value = interaction.value
+            null -> Unit
+        }
+    }
 
     fun start() {
         if (started) return
@@ -101,28 +287,118 @@ class ChatSessionController(
             api.client.events.collect { event -> handle(event) }
         }
 
-        scope.launch {
+        setupJob = scope.launch {
+            val generation = transportGeneration
             try {
-                val live = if (resumeStoredSessionId != null) {
-                    api.resumeSession(resumeStoredSessionId)
-                } else {
-                    api.createSession()
-                }
+                val restoring = storedSessionId != null
+                val live = storedSessionId?.let { api.resumeSession(it) } ?: api.createSession()
+                if (generation != transportGeneration) return@launch
                 if (live.sessionId.isEmpty()) {
+                    pendingEvents.clear()
                     _fatalError.value = "Gateway returned no session id."
                     return@launch
                 }
+                val durableId = live.storedSessionId
+                if (durableId.isNullOrEmpty()) {
+                    pendingEvents.clear()
+                    _fatalError.value =
+                        "Gateway returned no durable session key. Check Active sessions before starting another chat."
+                    return@launch
+                }
+                storedSessionId = durableId
+                if (restoring) {
+                    _messages.value = restoredMessages(live)
+                    _busy.value = live.running
+                }
+                clearInteractions()
                 sessionId = live.sessionId
+                val events = eventsForReplay(pendingEvents, live, _messages.value) +
+                    live.pendingInteractions
+                pendingEvents.clear()
+                events.forEach(::handle)
                 _sessionReady.value = true
+                _fatalError.value = null
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _fatalError.value = e.message ?: e.toString()
+                if (generation != transportGeneration) return@launch
+                pendingEvents.clear()
+                _fatalError.value = if (storedSessionId == null) {
+                    "Session creation outcome is unknown. Check Active sessions before starting another chat."
+                } else {
+                    e.message ?: e.toString()
+                }
+            } finally {
+                setupJob = null
             }
         }
     }
 
+    fun onTransportLost() {
+        transportGeneration++
+        setupJob?.cancel()
+        setupJob = null
+        sessionId = null
+        _sessionReady.value = false
+        pendingEvents.clear()
+        clearInteractions()
+        _statusLine.value = null
+    }
+
+    suspend fun resumeAfterReconnect(): Result<Unit> {
+        val durableId = storedSessionId
+        if (durableId.isNullOrEmpty()) {
+            val message = "Session creation outcome is unknown. Check Active sessions before starting another chat."
+            _fatalError.value = message
+            return Result.failure(IllegalStateException(message))
+        }
+
+        val generation = transportGeneration
+        return try {
+            val live = api.resumeSession(durableId)
+            if (generation != transportGeneration) {
+                Result.failure(CancellationException("Transport changed during session resume"))
+            } else if (live.sessionId.isEmpty() || live.storedSessionId.isNullOrEmpty()) {
+                val message = "Gateway returned an invalid resume snapshot."
+                _fatalError.value = message
+                Result.failure(IllegalStateException(message))
+            } else {
+                val restored = restoredMessages(live)
+                _messages.value = restored
+                _busy.value = live.running
+                clearInteractions()
+                _statusLine.value = null
+                storedSessionId = live.storedSessionId
+                sessionId = live.sessionId
+                val events = eventsForReplay(pendingEvents, live, restored) + live.pendingInteractions
+                pendingEvents.clear()
+                events.forEach(::handle)
+                _sessionReady.value = true
+                _fatalError.value = null
+                Result.success(Unit)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (generation == transportGeneration) {
+                pendingEvents.clear()
+                _fatalError.value = e.message ?: e.toString()
+            }
+            Result.failure(e)
+        }
+    }
+
     fun stop() {
+        transportGeneration++
+        setupJob?.cancel()
+        setupJob = null
         eventJob?.cancel()
         eventJob = null
+        pendingEvents.clear()
+        clearInteractions()
+        started = false
+        sessionId = null
+        _sessionReady.value = false
     }
 
     /**
@@ -236,11 +512,19 @@ class ChatSessionController(
 
     fun respondToApproval(allow: Boolean) {
         val sid = sessionId ?: return
-        _pendingApproval.value = null
+        val approval = _pendingApproval.value ?: return
+        val interaction = PendingInteraction.Approval(approval)
+        val generation = transportGeneration
         scope.launch {
             try {
-                api.respondToApproval(sid, if (allow) "allow" else "deny")
+                api.respondToApproval(
+                    sid,
+                    approval.requestId,
+                    if (allow) "allow" else "deny",
+                )
+                if (generation == transportGeneration) removeInteraction(interaction)
             } catch (e: Exception) {
+                if (generation != transportGeneration) return@launch
                 _messages.value += TranscriptMessage(
                     role = Role.SYSTEM,
                     text = "Approval reply failed: ${e.message ?: e}",
@@ -255,7 +539,8 @@ class ChatSessionController(
      */
     fun respondToPrompt(answer: String) {
         val prompt = _pendingPrompt.value ?: return
-        _pendingPrompt.value = null
+        val interaction = PendingInteraction.Prompt(prompt)
+        val generation = transportGeneration
         scope.launch {
             try {
                 when (prompt.kind) {
@@ -263,7 +548,9 @@ class ChatSessionController(
                     PendingPrompt.Kind.SUDO -> api.respondToSudo(prompt.requestId, answer)
                     PendingPrompt.Kind.SECRET -> api.respondToSecret(prompt.requestId, answer)
                 }
+                if (generation == transportGeneration) removeInteraction(interaction)
             } catch (e: Exception) {
+                if (generation != transportGeneration) return@launch
                 _messages.value += TranscriptMessage(
                     role = Role.SYSTEM,
                     text = "Prompt reply failed: ${e.message ?: e}",
@@ -275,6 +562,14 @@ class ChatSessionController(
     // -- Event folding --------------------------------------------------------
 
     private fun handle(event: GatewayEvent) {
+        if (sessionId == null) {
+            // `session.resume` and live events share one socket. Buffer anything
+            // that arrives while the resume RPC is in flight, then replay it
+            // after the stored transcript is installed so history is not
+            // overwritten and live deltas are not lost.
+            pendingEvents += event
+            return
+        }
         // Events carry the runtime session id; ignore other sessions' traffic.
         val ours = sessionId
         if (event.sessionId != null && ours != null && event.sessionId != ours) return
@@ -283,6 +578,7 @@ class ChatSessionController(
             "message.start" -> {
                 _busy.value = true
                 _statusLine.value = null
+                clearInteractions()
                 _messages.value += TranscriptMessage(role = Role.ASSISTANT, text = "", streaming = true)
             }
 
@@ -297,9 +593,10 @@ class ChatSessionController(
                 val current = _messages.value
                 val last = current.lastOrNull()
                 if (last != null && last.role == Role.ASSISTANT && last.streaming) {
-                    // The complete frame carries the final text; prefer it when
-                    // the streamed buffer is empty (some paths emit complete-only).
-                    val finalText = last.text.ifEmpty { event.payloadText.orEmpty() }
+                    // The complete frame is authoritative. This also repairs a
+                    // resumed in-flight turn when deltas emitted before reconnect
+                    // are absent from the local streaming buffer.
+                    val finalText = event.payloadText?.takeIf { it.isNotEmpty() } ?: last.text
                     _messages.value = current.dropLast(1) +
                         last.copy(text = finalText, streaming = false)
                 } else {
@@ -307,6 +604,9 @@ class ChatSessionController(
                     if (!text.isNullOrEmpty()) {
                         _messages.value = current + TranscriptMessage(role = Role.ASSISTANT, text = text)
                     }
+                }
+                if (event.payload["history_persisted"] is JsonPrimitive) {
+                    _persistenceWarning.value = persistenceWarning(event)
                 }
             }
 
@@ -327,10 +627,16 @@ class ChatSessionController(
             "tool.complete" -> _statusLine.value = null
 
             "approval.request" -> {
-                _pendingApproval.value = PendingApproval(
-                    command = event.payload.stringValue("command"),
-                    summary = event.payload.stringValue("summary"),
-                )
+                val command = event.payload.stringValue("command")
+                val summary = event.payload.stringValue("summary")
+                    ?: event.payload.stringValue("description")
+                val requestId = event.payload.stringValue("request_id")
+                    ?: "legacy:${command.orEmpty()}:${summary.orEmpty()}"
+                enqueueInteraction(PendingInteraction.Approval(PendingApproval(
+                    command = command,
+                    requestId = requestId,
+                    summary = summary,
+                )))
             }
 
             "clarify.request" -> {
@@ -338,35 +644,35 @@ class ChatSessionController(
                 val choices = (event.payload["choices"] as? kotlinx.serialization.json.JsonArray)
                     ?.mapNotNull { (it as? JsonPrimitive)?.content }
                     ?: emptyList()
-                _pendingPrompt.value = PendingPrompt(
+                enqueueInteraction(PendingInteraction.Prompt(PendingPrompt(
                     kind = PendingPrompt.Kind.CLARIFY,
                     requestId = requestId,
                     question = event.payload.stringValue("question")
                         ?: "The agent has a question.",
                     choices = choices,
-                )
+                )))
             }
 
             "sudo.request" -> {
                 val requestId = event.payload.stringValue("request_id") ?: return
-                _pendingPrompt.value = PendingPrompt(
+                enqueueInteraction(PendingInteraction.Prompt(PendingPrompt(
                     kind = PendingPrompt.Kind.SUDO,
                     requestId = requestId,
                     question = event.payload.stringValue("prompt")
                         ?: "Administrator password requested.",
                     choices = emptyList(),
-                )
+                )))
             }
 
             "secret.request" -> {
                 val requestId = event.payload.stringValue("request_id") ?: return
-                _pendingPrompt.value = PendingPrompt(
+                enqueueInteraction(PendingInteraction.Prompt(PendingPrompt(
                     kind = PendingPrompt.Kind.SECRET,
                     requestId = requestId,
                     question = event.payload.stringValue("prompt")
                         ?: "A secret value was requested.",
                     choices = emptyList(),
-                )
+                )))
             }
 
             "background.complete" -> {
@@ -395,6 +701,7 @@ class ChatSessionController(
             _messages.value = current + TranscriptMessage(role = Role.ASSISTANT, text = text, streaming = true)
         }
     }
+
 }
 
 private fun kotlinx.serialization.json.JsonObject.stringValue(key: String): String? =

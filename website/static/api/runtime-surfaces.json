@@ -297,6 +297,14 @@
       {
         "alias_of": null,
         "aliases": [],
+        "help": "Install Fabric on an attached phone and start the secure mobile gateway",
+        "name": "mobile",
+        "source": "fabric_cli/subcommands/mobile.py",
+        "visibility": "public"
+      },
+      {
+        "alias_of": null,
+        "aliases": [],
         "help": "Select default model and provider",
         "name": "model",
         "source": "fabric_cli/subcommands/model.py",
@@ -7276,7 +7284,7 @@
   "generation_mode": "repository_only_no_runtime_imports",
   "schema_version": 1,
   "summary": {
-    "cli_command": 63,
+    "cli_command": 64,
     "command": 84,
     "dashboard_plugin_manifest": 3,
     "dashboard_route": 25,

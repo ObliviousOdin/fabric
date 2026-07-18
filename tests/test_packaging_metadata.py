@@ -117,6 +117,31 @@ def test_manifest_includes_bundled_skills():
     assert "graft optional-skills" in manifest
 
 
+def test_mobile_pwa_ships_in_wheel_sdist_and_release_build():
+    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    package_data = data["tool"]["setuptools"]["package-data"]["fabric_cli"]
+    manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+    release = (REPO_ROOT / ".github/workflows/release-channels.yml").read_text(
+        encoding="utf-8"
+    )
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    dockerignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+
+    assert any(pattern.startswith("mobile_web_dist/") for pattern in package_data)
+    assert "graft fabric_cli/mobile_web_dist" in manifest
+    mobile_install = release.index("--workspace apps/mobile-web")
+    mobile_build = release.index("npm run build --workspace apps/mobile-web")
+    package_build = release.index("uv build --sdist --wheel")
+    assert mobile_install < mobile_build < package_build
+    assert "COPY apps/mobile-web/ apps/mobile-web/" in dockerfile
+    assert "COPY apps/design-system/src/ apps/design-system/src/" in dockerfile
+    assert "node apps/design-system/scripts/generate-tokens.mjs" in dockerfile
+    assert "!apps/mobile-web/" in dockerignore
+    assert "!apps/mobile-web/**" in dockerignore
+    assert "!apps/design-system/src/**" in dockerignore
+    assert "!apps/design-system/scripts/**" in dockerignore
+
+
 def test_bundled_plugin_manifests_ship_in_both_wheel_and_sdist():
     """Regression test for #34034 / #28149.
 

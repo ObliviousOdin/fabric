@@ -5,12 +5,41 @@ Jetpack Compose on Android. Both connect to a running Fabric backend
 (`fabric serve`) over the same JSON-RPC/WebSocket contract the desktop app
 uses — no new server surface is required.
 
-> **Status: scaffold.** This directory contains the architecture decision
-> record, the protocol clients, and a working chat vertical slice for each
-> platform. Neither app has shipped through CI or the release contract yet,
-> and the code has not been compiled on a macOS/Android toolchain from this
-> checkout. Treat it as the reviewed starting point for the mobile track,
-> not a released surface.
+> **Status: development preview.** Both native clients compile and their unit,
+> protocol, simulator, debug, and unsigned release checks run from this
+> checkout. They are not store releases yet: physical-device accessibility,
+> signing, privacy metadata, and hosted-CI gates in `PRODUCTION.md` still apply.
+
+## Quick start
+
+From a Fabric source checkout, one command discovers an attached phone,
+installs the native debug app when exactly one target is unambiguous, starts
+the authenticated mobile gateway, serves the PWA at `/mobile/`, and prints a
+camera-friendly pairing QR:
+
+```bash
+fabric mobile
+```
+
+Useful variants:
+
+```bash
+fabric mobile --devices
+fabric mobile --install ios --ios-device <UDID> --ios-team <TEAM_ID>
+fabric mobile --install android --android-serial <ADB_SERIAL>
+fabric mobile --install none
+fabric mobile --qr-url https://<trusted-tunnel-host>
+```
+
+Native installation is source-checkout-only because released Python wheels do
+not ship Xcode and Gradle source trees. The gateway, QR landing page, and PWA
+are included in packaged Fabric installs. `auto` never guesses between devices;
+an explicit selector is required when more than one is attached.
+
+The default `0.0.0.0` bind is fail-closed and prompts for/configures an auth
+provider. Plain LAN HTTP is useful for native development but browsers normally
+require trusted HTTPS to install a PWA. Use `--qr-url` with Tailscale Serve or
+another trusted HTTPS tunnel for the installable browser path.
 
 ## Why the runtime stays off the phone
 
@@ -73,7 +102,9 @@ RPC methods the v1 slice uses (of ~120 registered in
 `tui_gateway/server.py`):
 
 - `session.create` — params `{cols, source: "mobile", cwd?, profile?, model?, provider?, reasoning_effort?, fast?}` → `{session_id, stored_session_id, info}`
-- `session.resume` — `{session_id, cols, profile?}`
+- `session.resume` — `{session_id, cols, profile?}` → authoritative stored
+  history, in-flight turn, `history_version`, durable `session_key`, and any
+  pending approval/clarification/sudo/secret interactions
 - `session.list` — → `{sessions: [{id, title, preview, started_at, message_count, source}]}`
 - `session.active_list` — live in-memory gateway sessions with runtime status (`working`/`waiting`/`starting`/`idle`)
 - `prompt.submit` — `{session_id, text}`
@@ -133,7 +164,8 @@ The v1 vertical slice on both platforms:
    roadmap for simultaneous connections). See **Saved servers** below.
 1. **Connect** — QR pairing or manual URL + token / username+password,
    probe `GET /api/status` to pick the auth mode. Tokens live in the
-   Keychain (iOS) / app-private prefs (Android); passwords never persist.
+   Keychain (iOS) / Android Keystore-backed encrypted storage; passwords never
+   persist.
 2. **Sessions** — `session.list` to resume or start new, plus an
    **Active now** monitor (`session.active_list`) showing live runtime
    status with interrupt control per session. The title names the
@@ -164,8 +196,13 @@ the same chat screen:
 
 ## Pairing (QR) and connecting over Tailscale
 
-`fabric serve --qr` prints a `fabric://pair` QR (contract in
-`fabric_cli/mobile_pairing.py`); both apps scan it from the connect screen.
+`fabric mobile` prints a normal browser URL whose `/mobile/pair` fragment
+contains the versioned `fabric://pair` payload (contract in
+`fabric_cli/mobile_pairing.py`). Phone cameras can therefore open a real landing
+page, which attempts the native app and falls back to the same-origin PWA.
+Fragments are never sent in HTTP requests, access logs, cookies, or referrers.
+Both native apps also accept a direct `fabric://pair` scan from their connect
+screens.
 Gated binds emit a URL-only QR — credentials never ride in the QR — and the
 app follows up with the username/password form. Ungated (loopback/tunnel)
 binds embed the session token, so scanning connects with zero typing.
@@ -178,7 +215,7 @@ binds embed the session token, so scanning connects with zero typing.
    # one-time: configure the bundled password provider
    #   dashboard.basic_auth.username + password_hash in config.yaml
    #   (hash with: python -c "from plugins.dashboard_auth.basic import hash_password; print(hash_password('your-password'))")
-   fabric serve --host <tailscale-ip> --port 9119 --qr
+   fabric mobile --host <tailscale-ip> --port 9119 --install none
    ```
 
    The QR carries the URL; the phone asks for the username/password. The
@@ -190,7 +227,8 @@ binds embed the session token, so scanning connects with zero typing.
 
    ```bash
    tailscale serve --bg 9119        # https://<machine>.<tailnet>.ts.net → 127.0.0.1:9119
-   fabric serve --host 127.0.0.1 --port 9119 --qr --qr-url https://<machine>.<tailnet>.ts.net
+   fabric mobile --host 127.0.0.1 --port 9119 --install none \
+     --qr-url https://<machine>.<tailnet>.ts.net
    ```
 
    Traffic reaches the gateway from loopback, so token auth applies and the
@@ -201,7 +239,8 @@ binds embed the session token, so scanning connects with zero typing.
 The app holds a library of Fabric servers rather than a single connection.
 Metadata (id, label, URL, auth mode, username) is stored locally; the
 session token for a token-mode server is kept in the Keychain (iOS) /
-app-private prefs (Android), keyed per server. Passwords are never stored.
+Android Keystore-backed encrypted storage, keyed per server. Passwords are
+never stored.
 
 - **Auto-login** — a token server reconnects with no prompt from its saved
   token. A gated server reconnects silently if its in-process cookie
@@ -230,10 +269,10 @@ existing approve / steer / interrupt / prompt controls.
 ## Build & run
 
 Both apps need a reachable backend — see the pairing section above for the
-Tailscale shapes. The plain-LAN equivalent of shape 1:
+Tailscale shapes. The plain-LAN equivalent of shape 1 is now the default:
 
 ```bash
-fabric serve --host 0.0.0.0 --port 9119 --qr   # requires a configured auth provider
+fabric mobile --install none   # requires or interactively configures an auth provider
 ```
 
 In token mode the session token is what the dashboard/desktop use; the
@@ -241,7 +280,7 @@ served value is injected into the dashboard index page
 (`window.__HERMES_SESSION_TOKEN__`, see
 `apps/desktop/electron/dashboard-token.ts`).
 
-### iOS (macOS + Xcode 16 required)
+### iOS (macOS + Xcode 16 or newer)
 
 ```bash
 brew install xcodegen
@@ -253,28 +292,39 @@ open FabricMobile.xcodeproj
 Run the `Fabric` scheme on an iOS 17+ simulator or device. No third-party
 dependencies — Foundation `URLSessionWebSocketTask` + SwiftUI only.
 
+CI-equivalent simulator verification:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild -project FabricMobile.xcodeproj -scheme Fabric \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+  CODE_SIGNING_ALLOWED=NO test
+```
+
 ### Android (Android Studio Ladybug+ or CLI)
 
 ```bash
 cd apps/mobile/android
-gradle wrapper --gradle-version 8.9   # first time only; wrapper jar is not committed
-./gradlew :app:assembleDebug
+export JAVA_HOME=/path/to/jdk-17
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 ```
 
-Or open `apps/mobile/android/` in Android Studio. minSdk 26, targetSdk 35.
-Dependencies: Compose (BOM), OkHttp, kotlinx-serialization.
+The pinned Gradle 8.9 wrapper is committed. Or open `apps/mobile/android/` in
+Android Studio. minSdk 26, targetSdk 35. Dependencies: Compose (BOM), OkHttp,
+kotlinx-serialization.
 
 ## Roadmap after the slice
 
-1. ~~**QR pairing**~~ — done: `fabric serve --qr` + in-app scanners
+1. ~~**QR pairing**~~ — done: `fabric mobile` + in-app scanners
    (`fabric_cli/mobile_pairing.py`; `PairingURI.swift` / `PairingUri.kt`).
 2. ~~**Password (gated) gateway auth**~~ — done: providers discovery,
    `POST /auth/password-login` cookie session, per-connect
    `POST /api/auth/ws-ticket` mint. Remaining from this line: **OAuth
    provider sign-in** via system browser (`ASWebAuthenticationSession` /
-   Custom Tabs) for hosted gateways, and automatic ticket re-mint inside a
-   reconnect loop (today a drop returns to the connect screen; the cookie
-   session usually survives so reconnect is one tap, no password).
+   Custom Tabs) for hosted gateways. Password-gated reconnect already mints a
+   fresh one-time ticket while the cookie session remains valid.
 3. ~~**Saved servers + auto-login**~~ — done: the gateway library, per-server
    token storage, one-tap token reconnect, silent gated reconnect on a live
    session. Remaining here: **simultaneous connections** — one live socket
@@ -289,7 +339,9 @@ Dependencies: Compose (BOM), OkHttp, kotlinx-serialization.
    (new server work — the only item here that is).
 6. **Attachments & voice** — `image.attach_bytes`, `voice.*` methods already
    exist server-side; wire camera roll + mic.
-7. **Reconnect/resilience** — background socket teardown is normal on
-   mobile; add resume-on-foreground with `session.history` replay.
-8. **Release contract** — signing, store metadata, and a
+7. ~~**Reconnect/resilience**~~ — done: background socket teardown preserves
+   gateway/chat identity; foreground reconnect performs an authoritative
+   `session.resume` before mutation controls become available.
+8. **Release contract** — CI definitions and unsigned release builds are in
+   place; signing, store metadata, physical-device QA, and a
    `platform-support.md` tier entry before any public build.

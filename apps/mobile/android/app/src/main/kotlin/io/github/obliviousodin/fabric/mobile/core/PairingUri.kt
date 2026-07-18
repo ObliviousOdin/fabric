@@ -5,7 +5,7 @@ import java.net.URLDecoder
 
 /**
  * Parsed `fabric://pair` payload from a pairing QR
- * (emitted by `fabric serve --qr`; contract in fabric_cli/mobile_pairing.py).
+ * (emitted by `fabric mobile`; contract in fabric_cli/mobile_pairing.py).
  *
  * - `gated == false`: [token] is the session credential; connect directly.
  * - `gated == true`: the gateway requires a provider login; the app asks for
@@ -30,9 +30,8 @@ data class PairingPayload(
                 "fabric" -> {
                     if (uri.authority != "pair") return null
                     val params = parseQuery(uri.rawQuery)
-                    val url = params["url"]?.takeIf {
-                        it.startsWith("http://") || it.startsWith("https://")
-                    } ?: return null
+                    if (params["v"] != "1") return null
+                    val url = params["url"]?.let(::validatedBaseUrl) ?: return null
                     val token = params["token"]
                     val gated = params["auth"] != "token" || token.isNullOrEmpty()
                     return PairingPayload(
@@ -43,9 +42,22 @@ data class PairingPayload(
                 }
 
                 "http", "https" -> {
+                    if (uri.path == "/mobile/pair" && !uri.rawFragment.isNullOrEmpty()) {
+                        val wrapped = parseQuery(uri.rawFragment)["pair"] ?: return null
+                        return parse(wrapped)
+                    }
+                    if (!uri.rawFragment.isNullOrEmpty()) return null
                     val params = parseQuery(uri.rawQuery)
                     val token = params["token"]
-                    val base = trimmed.substringBefore('?').trimEnd('/')
+                    val base = URI(
+                        uri.scheme,
+                        uri.userInfo,
+                        uri.host,
+                        uri.port,
+                        uri.path,
+                        null,
+                        null,
+                    ).toString().let(::validatedBaseUrl) ?: return null
                     return if (!token.isNullOrEmpty()) {
                         PairingPayload(baseUrl = base, gated = false, token = token)
                     } else {
@@ -55,6 +67,18 @@ data class PairingPayload(
 
                 else -> return null
             }
+        }
+
+        private fun validatedBaseUrl(raw: String): String? {
+            val uri = runCatching { URI(raw) }.getOrNull() ?: return null
+            if (
+                uri.scheme?.lowercase() !in setOf("http", "https") ||
+                uri.host.isNullOrEmpty() ||
+                uri.userInfo != null ||
+                uri.rawQuery != null ||
+                uri.rawFragment != null
+            ) return null
+            return uri.toString().trimEnd('/')
         }
 
         private fun parseQuery(rawQuery: String?): Map<String, String> {

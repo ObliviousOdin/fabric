@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import unicodedata
+import uuid
 from typing import Optional
 from fabric_cli.config import cfg_get
 
@@ -1410,11 +1411,13 @@ _permanent_approved: set = set()
 
 class _ApprovalEntry:
     """One pending dangerous-command approval inside a gateway session."""
-    __slots__ = ("event", "data", "result", "reason")
+    __slots__ = ("event", "data", "request_id", "result", "reason")
 
     def __init__(self, data: dict):
         self.event = threading.Event()
-        self.data = data          # command, description, pattern_keys, …
+        self.request_id = str(data.get("request_id") or uuid.uuid4().hex)
+        self.data = dict(data)     # command, description, pattern_keys, …
+        self.data["request_id"] = self.request_id
         self.result: Optional[str] = None  # "once"|"session"|"always"|"deny"
         # Optional free-text reason supplied with an explicit deny
         # (``/deny <reason>``) so the agent can adapt instead of only
@@ -1453,7 +1456,8 @@ def unregister_gateway_notify(session_key: str) -> None:
 
 def resolve_gateway_approval(session_key: str, choice: str,
                              resolve_all: bool = False,
-                             reason: Optional[str] = None) -> int:
+                             reason: Optional[str] = None,
+                             request_id: Optional[str] = None) -> int:
     """Called by the gateway's /approve or /deny handler to unblock
     waiting agent thread(s).
 
@@ -1474,6 +1478,15 @@ def resolve_gateway_approval(session_key: str, choice: str,
         if resolve_all:
             targets = list(queue)
             queue.clear()
+        elif request_id:
+            match = next(
+                (entry for entry in queue if entry.request_id == request_id),
+                None,
+            )
+            if match is None:
+                return 0
+            queue.remove(match)
+            targets = [match]
         else:
             targets = [queue.pop(0)]
         if not queue:
@@ -1491,6 +1504,12 @@ def has_blocking_approval(session_key: str) -> bool:
     """Check if a session has one or more blocking gateway approvals waiting."""
     with _lock:
         return bool(_gateway_queues.get(session_key))
+
+
+def get_pending_gateway_approvals(session_key: str) -> list[dict]:
+    """Return detached payload copies for transport-rebind restoration."""
+    with _lock:
+        return [dict(entry.data) for entry in _gateway_queues.get(session_key, [])]
 
 
 def submit_pending(session_key: str, approval: dict):
@@ -2453,7 +2472,7 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
 
     # Notify the user (bridges sync agent thread → async gateway)
     try:
-        notify_cb(approval_data)
+        notify_cb(entry.data)
     except Exception as exc:
         logger.warning("Gateway approval notify failed: %s", exc)
         _drop_entry()

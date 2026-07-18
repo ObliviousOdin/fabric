@@ -83,6 +83,15 @@ class TestHostHeaderValidator:
         assert _is_accepted_host("LOCALHOST", "127.0.0.1")
         assert _is_accepted_host("LocalHost:9119", "127.0.0.1")
 
+    def test_loopback_bind_accepts_only_explicit_trusted_tunnel_host(self):
+        from fabric_cli.web_server import _is_accepted_host
+
+        trusted = {"fabric.example.test"}
+        assert _is_accepted_host(
+            "fabric.example.test:443", "127.0.0.1", trusted
+        )
+        assert not _is_accepted_host("evil.example.test", "127.0.0.1", trusted)
+
 
 class TestHostHeaderMiddleware:
     """End-to-end test via the FastAPI app — verify the middleware
@@ -146,6 +155,26 @@ class TestHostHeaderMiddleware:
         resp = client.get("/api/status")
         # Should get through to the status endpoint, not a 400
         assert resp.status_code != 400
+
+    def test_explicit_tunnel_host_reaches_loopback_server(self):
+        from fastapi.testclient import TestClient
+        from fabric_cli.web_server import app
+
+        previous_host = getattr(app.state, "bound_host", None)
+        previous_trusted = getattr(app.state, "trusted_public_hosts", set())
+        app.state.bound_host = "127.0.0.1"
+        app.state.trusted_public_hosts = {"fabric.example.test"}
+        try:
+            client = TestClient(app, base_url="https://fabric.example.test")
+            response = client.get(
+                "/api/status", headers={"Host": "fabric.example.test"}
+            )
+            assert response.status_code != 400 or (
+                "Invalid Host header" not in response.json().get("detail", "")
+            )
+        finally:
+            app.state.bound_host = previous_host
+            app.state.trusted_public_hosts = previous_trusted
 
 
 class TestWebSocketHostOriginGuard:

@@ -1,0 +1,239 @@
+name: Mobile clients
+
+on:
+  pull_request:
+    paths:
+      - "apps/mobile/**"
+      - "apps/mobile-web/**"
+      - "apps/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - "fabric_cli/mobile_*.py"
+      - "fabric_cli/subcommands/mobile.py"
+      - "fabric_cli/web_server.py"
+      - "fabric_cli/dashboard_auth/middleware.py"
+      - "tui_gateway/**"
+      - "tools/approval.py"
+      - "tests/test_tui_gateway_server.py"
+      - "tests/fabric_cli/test_mobile_*.py"
+      - ".github/workflows/mobile.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "apps/mobile-web/**"
+      - "apps/shared/**"
+      - "package.json"
+      - "package-lock.json"
+      - "fabric_cli/mobile_*.py"
+      - "fabric_cli/subcommands/mobile.py"
+      - "fabric_cli/web_server.py"
+      - "fabric_cli/dashboard_auth/middleware.py"
+      - "tui_gateway/**"
+      - "tools/approval.py"
+      - "tests/test_tui_gateway_server.py"
+      - "tests/fabric_cli/test_mobile_*.py"
+      - ".github/workflows/mobile.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android unit and release build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/mobile/android
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Validate pinned Gradle wrapper
+        run: |
+          printf '%s  %s\n' \
+            '498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17' \
+            'gradle/wrapper/gradle-wrapper.jar' | sha256sum --check
+          test "$(sed -n 's#.*gradle-\([0-9.]*\)-bin.zip#\1#p' gradle/wrapper/gradle-wrapper.properties)" = "8.9"
+          grep -qx 'distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab' \
+            gradle/wrapper/gradle-wrapper.properties
+
+      - name: Test and build debug and release APKs
+        run: >-
+          ./gradlew --no-daemon --stacktrace
+          :app:testDebugUnitTest
+          :app:lintDebug
+          :app:lintVitalRelease
+          :app:assembleDebug
+          :app:assembleRelease
+
+      - name: Upload Android debug APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-android-debug-apk
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload unsigned Android release verification APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-android-unsigned-release-verification-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS unit and release build
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/mobile/ios
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Generate the Xcode project
+        run: |
+          archive="$RUNNER_TEMP/xcodegen-2.46.0.tar.gz"
+          source_dir="$RUNNER_TEMP/xcodegen-source"
+          bin_dir="$RUNNER_TEMP/xcodegen-bin"
+          curl --fail --location --silent --show-error \
+            --output "$archive" \
+            https://github.com/yonaskolb/XcodeGen/archive/refs/tags/2.46.0.tar.gz
+          printf '%s  %s\n' \
+            'c83c7bd70255b0ddf4116dadce16bdf0e5939165b43a544e124de294ec84aa27' \
+            "$archive" | shasum --algorithm 256 --check
+          rm -rf "$source_dir" "$bin_dir"
+          mkdir -p "$source_dir" "$bin_dir"
+          tar -xzf "$archive" -C "$source_dir" --strip-components=1
+          swift build --package-path "$source_dir" --disable-sandbox --configuration release
+          cp "$source_dir/.build/release/xcodegen" "$bin_dir/xcodegen"
+          "$bin_dir/xcodegen" generate
+
+      - name: Select an available iPhone simulator
+        run: |
+          device_id="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          candidates = [
+              device["udid"]
+              for runtime in devices.values()
+              for device in runtime
+              if device.get("isAvailable") and device.get("name", "").startswith("iPhone")
+          ]
+          if not candidates:
+              raise SystemExit("No available iPhone simulator")
+          print(candidates[0])
+          ')"
+          echo "FABRIC_IOS_SIMULATOR=$device_id" >> "$GITHUB_ENV"
+
+      - name: Run iOS unit tests
+        run: >-
+          xcodebuild
+          -project FabricMobile.xcodeproj
+          -scheme Fabric
+          -destination "platform=iOS Simulator,id=$FABRIC_IOS_SIMULATOR"
+          -derivedDataPath build/DerivedData
+          CODE_SIGNING_ALLOWED=NO
+          test
+
+      - name: Build the unsigned release configuration
+        run: >-
+          xcodebuild
+          -project FabricMobile.xcodeproj
+          -scheme Fabric
+          -configuration Release
+          -destination "generic/platform=iOS Simulator"
+          -derivedDataPath build/DerivedData
+          CODE_SIGNING_ALLOWED=NO
+          build
+
+      - name: Audit built iOS release metadata
+        run: |
+          app="build/DerivedData/Build/Products/Release-iphonesimulator/Fabric.app"
+          plist="$app/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "0.1.0"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" = "1"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations:0' "$plist")" = "UIInterfaceOrientationPortrait"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$plist")" = "false"
+          privacy="$app/PrivacyInfo.xcprivacy"
+          plutil -lint "$privacy"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPIType' "$privacy")" = "NSPrivacyAccessedAPICategoryUserDefaults"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSPrivacyAccessedAPITypes:0:NSPrivacyAccessedAPITypeReasons:0' "$privacy")" = "CA92.1"
+
+      - name: Upload unsigned iOS simulator app
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fabric-ios-simulator
+          path: apps/mobile/ios/build/DerivedData/Build/Products/Release-iphonesimulator/Fabric.app
+          if-no-files-found: error
+
+  web:
+    name: Mobile PWA, protocol, and delivery tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: |
+          npm ci
+          uv sync --locked --extra dev
+
+      - name: Test shared gateway client
+        run: |
+          npm run typecheck --workspace apps/shared
+          npm test --workspace apps/shared -- --run
+
+      - name: Test and build mobile PWA
+        run: |
+          npm run typecheck --workspace apps/mobile-web
+          npm test --workspace apps/mobile-web -- --run
+          npm run build --workspace apps/mobile-web
+
+      - name: Test Python mobile delivery and gateway contracts
+        run: >-
+          scripts/run_tests.sh
+          tests/fabric_cli/test_mobile_command.py
+          tests/fabric_cli/test_mobile_pairing.py
+          tests/fabric_cli/test_mobile_web_server.py
+          tests/test_tui_gateway_server.py
+          -q
+
+      - name: Audit public release workflow surface
+        run: python3 scripts/public-release-audit.py

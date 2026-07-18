@@ -317,6 +317,7 @@ from fabric_cli.subcommands.version import build_version_parser
 from fabric_cli.subcommands.update import build_update_parser
 from fabric_cli.subcommands.uninstall import build_uninstall_parser
 from fabric_cli.subcommands.dashboard import build_dashboard_parser
+from fabric_cli.subcommands.mobile import build_mobile_parser
 from fabric_cli.subcommands.gui import build_gui_parser
 from fabric_cli.subcommands.logs import build_logs_parser
 from fabric_cli.subcommands.prompt_size import build_prompt_size_parser
@@ -5145,6 +5146,69 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
             _say("  Run manually:  npm install --workspace web && npm run build -w web")
         return False
     _say("  ✓ Web UI built")
+    return True
+
+
+def _build_mobile_web_ui(web_dir: Path) -> bool:
+    """Build the mobile PWA from source, or use the packaged dist."""
+    dist_index = PROJECT_ROOT / "fabric_cli" / "mobile_web_dist" / "index.html"
+    if not (web_dir / "package.json").exists():
+        if dist_index.exists():
+            return True
+        print("Fabric Mobile frontend is not packaged in this installation.")
+        return False
+
+    shared_dir = PROJECT_ROOT / "apps" / "shared"
+    source_files = [
+        PROJECT_ROOT / "package.json",
+        PROJECT_ROOT / "package-lock.json",
+        web_dir / "package.json",
+        web_dir / "index.html",
+        web_dir / "vite.config.ts",
+        *web_dir.glob("tsconfig*.json"),
+        shared_dir / "package.json",
+        *shared_dir.glob("tsconfig*.json"),
+    ]
+    for source_dir in (web_dir / "src", web_dir / "public", shared_dir / "src"):
+        if source_dir.is_dir():
+            source_files.extend(source_dir.rglob("*"))
+    newest_source = max(
+        (path.stat().st_mtime for path in source_files if path.is_file()),
+        default=0,
+    )
+    if dist_index.exists() and dist_index.stat().st_mtime >= newest_source:
+        return True
+
+    from fabric_constants import find_node_executable, with_hermes_node_path
+
+    npm = find_node_executable("npm")
+    if not npm:
+        print("Fabric Mobile needs Node.js for the first frontend build.")
+        print("Install Node.js, then run: npm install && npm run build -w @fabric/mobile-web")
+        return False
+
+    print("→ Building Fabric Mobile web app...")
+    env = with_hermes_node_path()
+    install = _run_npm_install_deterministic(
+        npm,
+        PROJECT_ROOT,
+        extra_args=("--workspace", "apps/mobile-web", "--silent"),
+        env=env,
+    )
+    if install.returncode != 0:
+        print("  ✗ Fabric Mobile npm install failed")
+        return False
+    build = _run_with_idle_timeout(
+        [npm, "run", "build", "--workspace", "apps/mobile-web"],
+        cwd=PROJECT_ROOT,
+        env=env,
+    )
+    if build.returncode != 0 or not dist_index.exists():
+        print("  ✗ Fabric Mobile web build failed")
+        if build.stdout:
+            print("\n".join(build.stdout.strip().splitlines()[-10:]))
+        return False
+    print("  ✓ Fabric Mobile web app built")
     return True
 
 
@@ -12167,6 +12231,142 @@ def _maybe_setup_dashboard_auth_interactively(args) -> None:
     print()
 
 
+def cmd_mobile(args):
+    """Install the native app when possible and start the mobile PWA gateway."""
+    from fabric_cli.mobile_devices import discover_mobile_devices, print_mobile_devices
+
+    if getattr(args, "devices", False):
+        devices, notes = discover_mobile_devices()
+        print_mobile_devices(devices, notes)
+        return
+
+    from fabric_cli.mobile_pairing import validate_pairing_base_url
+    from fabric_cli.subcommands.mobile import validate_mobile_install_selection
+
+    try:
+        install_mode = validate_mobile_install_selection(args)
+        qr_url = str(getattr(args, "qr_url", "") or "")
+        if qr_url:
+            args.qr_url = validate_pairing_base_url(qr_url)
+    except ValueError as exc:
+        raise SystemExit(f"Fabric Mobile argument error: {exc}") from None
+
+    from agent.egress_policy import (
+        EgressPolicyConfigurationError,
+        EgressPolicyError,
+    )
+    from fabric_cli.egress_startup import require_runtime_egress_available
+
+    try:
+        require_runtime_egress_available(surface="mobile")
+    except (EgressPolicyError, EgressPolicyConfigurationError) as exc:
+        raise SystemExit(f"Fabric Mobile startup blocked: {exc}") from None
+    except Exception:
+        raise SystemExit(
+            "Fabric Mobile startup blocked: "
+            "egress_policy_config:startup_policy_unavailable"
+        ) from None
+
+    try:
+        import fastapi  # noqa: F401
+        import uvicorn  # noqa: F401
+    except ImportError as exc:
+        raise SystemExit(
+            "Fabric Mobile needs the web runtime (fastapi + uvicorn). "
+            "Reinstall Fabric into this interpreter."
+        ) from exc
+
+    try:
+        from fabric_logging import setup_logging as _setup_mobile_logging
+
+        _setup_mobile_logging(mode="gui")
+    except Exception:
+        pass
+    _sync_bundled_skills_quietly()
+
+    # Disable the dashboard's root catch-all while retaining the explicitly
+    # mounted /mobile SPA and JSON-RPC/API surfaces.
+    os.environ["FABRIC_SERVE_HEADLESS"] = "1"
+    os.environ["HERMES_SERVE_HEADLESS"] = "1"
+
+    mobile_dist_override = os.environ.get("FABRIC_MOBILE_WEB_DIST")
+    if not getattr(args, "skip_build", False) and not mobile_dist_override:
+        if not _build_mobile_web_ui(PROJECT_ROOT / "apps" / "mobile-web"):
+            raise SystemExit(1)
+    else:
+        dist_root = (
+            Path(mobile_dist_override)
+            if mobile_dist_override
+            else PROJECT_ROOT / "fabric_cli" / "mobile_web_dist"
+        )
+        if not (dist_root / "index.html").is_file():
+            raise SystemExit(
+                f"Fabric Mobile web bundle not found at {dist_root}. "
+                "Drop --skip-build to build it."
+            )
+
+    try:
+        from fabric_cli.plugins import discover_plugins
+
+        discover_plugins()
+    except Exception as exc:
+        print(f"⚠ Plugin discovery failed: {exc}", file=sys.stderr)
+
+    # Resolve or fail the non-loopback auth gate before any device build or
+    # installation. A native side effect must never precede a known server
+    # startup failure.
+    _maybe_setup_dashboard_auth_interactively(args)
+    from fabric_cli.dashboard_auth import list_providers
+    from fabric_cli.web_server import should_require_auth
+
+    if should_require_auth(args.host) and not list_providers():
+        raise SystemExit(
+            "Fabric Mobile startup blocked: non-loopback binds require an auth "
+            "provider. Configure one with `fabric dashboard --host "
+            f"{args.host}` and restart `fabric mobile`."
+        )
+
+    from fabric_cli.mobile_devices import MobileInstallError, install_native_mobile
+
+    try:
+        install_native_mobile(
+            project_root=PROJECT_ROOT,
+            install_mode=install_mode,
+            native_source=getattr(args, "native_source", "") or None,
+            android_serial=getattr(args, "android_serial", "") or "",
+            ios_device=getattr(args, "ios_device", "") or "",
+            ios_team=getattr(args, "ios_team", "") or "",
+            launch=not getattr(args, "no_launch", False),
+        )
+    except MobileInstallError as exc:
+        if install_mode != "auto":
+            raise SystemExit(f"Fabric Mobile install failed: {exc}") from None
+        print(f"⚠ Native auto-install skipped: {exc}")
+        print("  The mobile PWA and pairing QR will still start.")
+
+    try:
+        from fabric_cli.mcp_startup import start_background_mcp_discovery
+
+        start_background_mcp_discovery(
+            logger=logger,
+            thread_name="mobile-mcp-discovery",
+        )
+    except Exception:
+        logger.debug("Background MCP discovery failed", exc_info=True)
+
+    from fabric_cli.web_server import start_server
+
+    start_server(
+        host=args.host,
+        port=args.port,
+        open_browser=False,
+        headless=True,
+        pairing_qr=not getattr(args, "no_qr", False),
+        pairing_qr_url=getattr(args, "qr_url", "") or "",
+        mobile_client=True,
+    )
+
+
 def cmd_dashboard(args):
     """Start the web UI server, or (with --stop/--status) manage running ones."""
     # --status: report running dashboards and exit, no deps needed.
@@ -12515,7 +12715,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
     {
         "acp", "auth", "backup", "bundles", "checkpoints", "claw", "completion",
         "computer-use",
-        "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
+        "config", "console", "cron", "curator", "dashboard", "serve", "mobile", "debug", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
@@ -14944,6 +15144,11 @@ def main():
         cmd_dashboard=cmd_dashboard,
         cmd_dashboard_register=cmd_dashboard_register,
     )
+
+    # =========================================================================
+    # mobile command  (parser built in fabric_cli/subcommands/mobile.py)
+    # =========================================================================
+    build_mobile_parser(subparsers, cmd_mobile=cmd_mobile)
 
 
     # =========================================================================

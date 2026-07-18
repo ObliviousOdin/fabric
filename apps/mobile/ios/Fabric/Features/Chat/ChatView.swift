@@ -22,7 +22,7 @@ struct ChatView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
+        .task(id: appModel.connectionGeneration) {
             if model == nil {
                 let vm = ChatViewModel(
                     api: appModel.api,
@@ -30,6 +30,13 @@ struct ChatView: View {
                 )
                 model = vm
                 await vm.start()
+            } else if appModel.phase == .connected {
+                await model?.resumeAfterReconnect()
+            }
+        }
+        .onChange(of: appModel.phase) { oldPhase, newPhase in
+            if oldPhase == .connected, newPhase != .connected {
+                model?.connectionDidClose()
             }
         }
         .onDisappear {
@@ -49,6 +56,15 @@ private struct ChatContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let warning = model.persistenceWarning {
+                Label(warning, systemImage: "externaldrive.badge.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(FabricTheme.warning)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
+                    .background(FabricTheme.warning.fabricTint())
+            }
             if let sessionError = model.sessionError {
                 ContentUnavailableView(
                     "Session unavailable",
@@ -61,10 +77,12 @@ private struct ChatContentView: View {
 
             if let approval = model.pendingApproval {
                 approvalBanner(approval)
+                    .disabled(!model.sessionReady)
             }
 
             if let prompt = model.pendingPrompt {
                 promptBanner(prompt)
+                    .disabled(!model.sessionReady)
             }
 
             if let status = model.statusLine {
@@ -111,6 +129,7 @@ private struct ChatContentView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("Chat actions")
                 .disabled(!model.sessionReady)
             }
         }
@@ -262,6 +281,7 @@ private struct ChatContentView: View {
                         .foregroundStyle(FabricTheme.threadActive)
                         .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
+                .accessibilityLabel("Steer running turn")
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Button {
@@ -271,6 +291,7 @@ private struct ChatContentView: View {
                         .font(.title2)
                         .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
+                .accessibilityLabel("Interrupt running turn")
             } else {
                 Button {
                     let text = draft
@@ -281,6 +302,7 @@ private struct ChatContentView: View {
                         .font(.title2)
                         .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
+                .accessibilityLabel("Send message")
                 .disabled(
                     !model.sessionReady
                         || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -289,6 +311,7 @@ private struct ChatContentView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+        .disabled(!model.sessionReady)
     }
 }
 
@@ -309,6 +332,8 @@ private struct MessageBubble: View {
                     .background(FabricTheme.action)
                     .foregroundStyle(FabricTheme.textOnBrand)
                     .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
+                    .accessibilityLabel("You")
+                    .accessibilityValue(message.text)
             }
         case .assistant:
             HStack {
@@ -318,6 +343,10 @@ private struct MessageBubble: View {
                     .padding(.vertical, 10)
                     .background(FabricTheme.surfaceRaised)
                     .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radiusLarge))
+                    .accessibilityLabel("Fabric")
+                    .accessibilityValue(
+                        message.text.isEmpty && message.streaming ? "Streaming response" : message.text
+                    )
                 Spacer(minLength: 40)
             }
         // Technical output (slash results, task notices): mono on an inset
@@ -330,6 +359,8 @@ private struct MessageBubble: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(FabricTheme.surfaceInset)
                 .clipShape(RoundedRectangle(cornerRadius: FabricTheme.radius))
+                .accessibilityLabel("Information")
+                .accessibilityValue(message.text)
         // Failures read as status, not as chat: danger dot + left-aligned copy.
         case .system:
             HStack(spacing: 8) {
@@ -341,6 +372,9 @@ private struct MessageBubble: View {
                     .foregroundStyle(FabricTheme.danger)
                 Spacer(minLength: 0)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Error")
+            .accessibilityValue(message.text)
         }
     }
 }

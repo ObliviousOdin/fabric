@@ -243,6 +243,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/bundled/media/media-gif-search',
                     'user-guide/skills/bundled/media/media-heartmula',
                     'user-guide/skills/bundled/media/media-songsee',
+                    'user-guide/skills/bundled/media/media-video-frames',
                     'user-guide/skills/bundled/media/media-youtube-content',
                   ],
                 },
@@ -306,6 +307,7 @@ const sidebars: SidebarsConfig = {
                   key: 'skills-bundled-smart-home',
                   collapsed: true,
                   items: [
+                    'user-guide/skills/bundled/smart-home/smart-home-frigate',
                     'user-guide/skills/bundled/smart-home/smart-home-openhue',
                   ],
                 },
@@ -373,6 +375,20 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/blockchain/blockchain-evm',
                     'user-guide/skills/optional/blockchain/blockchain-hyperliquid',
                     'user-guide/skills/optional/blockchain/blockchain-solana',
+                  ],
+                },
+                {
+                  type: 'category',
+                  label: 'cad',
+                  key: 'skills-optional-cad',
+                  collapsed: true,
+                  items: [
+                    'user-guide/skills/optional/cad/cad-code-cad',
+                    'user-guide/skills/optional/cad/cad-dxf-drafting',
+                    'user-guide/skills/optional/cad/cad-freecad',
+                    'user-guide/skills/optional/cad/cad-fusion360',
+                    'user-guide/skills/optional/cad/cad-parts-sourcing',
+                    'user-guide/skills/optional/cad/cad-sheet-metal',
                   ],
                 },
                 {
@@ -568,6 +584,16 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/optional/research/research-qmd',
                     'user-guide/skills/optional/research/research-scrapling',
                     'user-guide/skills/optional/research/research-searxng-search',
+                  ],
+                },
+                {
+                  type: 'category',
+                  label: 'robotics',
+                  key: 'skills-optional-robotics',
+                  collapsed: true,
+                  items: [
+                    'user-guide/skills/optional/robotics/robotics-openpi',
+                    'user-guide/skills/optional/robotics/robotics-ros2-gazebo',
                   ],
                 },
                 {

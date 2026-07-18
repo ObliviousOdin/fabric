@@ -94,6 +94,7 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 | [`gif-search`](/user-guide/skills/bundled/media/media-gif-search) | Search/download GIFs from Tenor via curl + jq. | `media/gif-search` |
 | [`heartmula`](/user-guide/skills/bundled/media/media-heartmula) | HeartMuLa: Suno-like song generation from lyrics + tags. | `media/heartmula` |
 | [`songsee`](/user-guide/skills/bundled/media/media-songsee) | Audio spectrograms/features (mel, chroma, MFCC) via CLI. | `media/songsee` |
+| [`video-frames`](/user-guide/skills/bundled/media/media-video-frames) | Analyze video by sampling frames with ffmpeg and running vision_analyze per frame — for clips too large for video_analyze, frame-accurate inspection, CCTV footage review, and timelapse summaries. | `media/video-frames` |
 | [`youtube-content`](/user-guide/skills/bundled/media/media-youtube-content) | YouTube transcripts to summaries, threads, blogs. | `media/youtube-content` |
 
 ## mlops
@@ -142,6 +143,7 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 
 | Skill | Description | Path |
 |-------|-------------|------|
+| [`frigate`](/user-guide/skills/bundled/smart-home/smart-home-frigate) | Frigate NVR camera workflows — triage security alerts, analyze snapshots and clips with vision tools, search detection events, react to camera activity via MQTT or cron. | `smart-home/frigate` |
 | [`openhue`](/user-guide/skills/bundled/smart-home/smart-home-openhue) | Control Philips Hue lights, scenes, rooms via OpenHue CLI. | `smart-home/openhue` |
 
 ## social-media

@@ -45,6 +45,17 @@ fabric skills uninstall <skill-name>
 | [**hyperliquid**](/user-guide/skills/optional/blockchain/blockchain-hyperliquid) | Hyperliquid market data, account history, trade review. |
 | [**solana**](/user-guide/skills/optional/blockchain/blockchain-solana) | Query Solana blockchain data with USD pricing — wallet balances, token portfolios with values, transaction details, NFTs, whale detection, and live network stats. Uses Solana RPC + CoinGecko. No API key required. |
 
+## cad
+
+| Skill | Description |
+|-------|-------------|
+| [**code-cad**](/user-guide/skills/optional/cad/cad-code-cad) | Build parametric 3D models in Python with build123d or CadQuery — headless B-rep CAD with STEP/STL/DXF export, mass-property verification, and render-and-inspect loops. The primary agentic CAD workflow: the model is code, so it can be re... |
+| [**dxf-drafting**](/user-guide/skills/optional/cad/cad-dxf-drafting) | Create and edit DXF files in Python with ezdxf — 2D profiles for laser/waterjet/plasma cutting, dimensioned drawings, layers and blocks, R12 export for fab shops, and render-to-image verification. |
+| [**freecad**](/user-guide/skills/optional/cad/cad-freecad) | Automate FreeCAD headlessly — parametric solids, STEP/DXF import-export, TechDraw drawings, and SheetMetal unfolding via freecadcmd Python scripts, no GUI required. Open-source parametric CAD with a full Python API. |
+| [**fusion360**](/user-guide/skills/optional/cad/cad-fusion360) | Automate Autodesk Fusion (Fusion 360) via its add-in Python API — scripted modeling, parameter tables, STEP/STL/DXF export, and drawing generation. Desktop-only (Windows/macOS, no headless mode); know when to use it vs. code-CAD. |
+| [**parts-sourcing**](/user-guide/skills/optional/cad/cad-parts-sourcing) | Source mechanical parts and hardware — Misumi configurable components and meviy fabrication quotes, McMaster-Carr hardware with CAD downloads, aluminum extrusion systems, and building BOMs with part numbers, prices, and STEP models. |
+| [**sheet-metal**](/user-guide/skills/optional/cad/cad-sheet-metal) | Design sheet-metal parts for fabrication — bend allowance and K-factor math, flat-pattern development, DXF flats for laser cutting, FreeCAD SheetMetal unfolding, and design rules for bend-and-cut services (min flange, hole-to-bend distan... |
+
 ## communication
 
 | Skill | Description |
@@ -197,6 +208,13 @@ fabric skills uninstall <skill-name>
 | [**qmd**](/user-guide/skills/optional/research/research-qmd) | Search personal knowledge bases, notes, docs, and meeting transcripts locally using qmd — a hybrid retrieval engine with BM25, vector search, and LLM reranking. Supports CLI and MCP integration. |
 | [**scrapling**](/user-guide/skills/optional/research/research-scrapling) | Web scraping with Scrapling - HTTP fetching, stealth browser automation, Cloudflare bypass, and spider crawling via CLI and Python. |
 | [**searxng-search**](/user-guide/skills/optional/research/research-searxng-search) | Free meta-search via SearXNG — aggregates results from 70+ search engines. Self-hosted or use a public instance. No API key needed. Falls back automatically when the web search toolset is unavailable. |
+
+## robotics
+
+| Skill | Description |
+|-------|-------------|
+| [**openpi**](/user-guide/skills/optional/robotics/robotics-openpi) | Deploy and drive Physical Intelligence openpi VLA policies (pi0, pi0-FAST, pi0.5) — run the websocket policy server, wrap it as a ROS 2 skill server, issue language subcommands, fine-tune on LeRobot data. |
+| [**ros2-gazebo**](/user-guide/skills/optional/robotics/robotics-ros2-gazebo) | Control and introspect ROS 2 robots and Gazebo simulations — ros2 CLI, rosbridge/MCP tool access, headless gz sim runs, colcon builds, and long-running launches with background terminal processes. |
 
 ## security
 

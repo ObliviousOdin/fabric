@@ -168,13 +168,10 @@ export function HostCard({
     });
   }, []);
 
-  // Seed the first sparkline point from the prop until live polling takes over.
-  useEffect(() => {
-    if (stats && !live) pushHistory(stats);
-  }, [stats, live, pushHistory]);
-
   // Live polling loop. A transient failure keeps the last frame (the page's
   // loadAll owns the failure banner, so the card must not blank on a blip).
+  // Fire once immediately so sparklines seed from the first poll rather than
+  // from a setState-in-effect on the initial props (eslint react-hooks rule).
   useEffect(() => {
     let alive = true;
     const tick = async () => {
@@ -187,6 +184,7 @@ export function HostCard({
         /* keep the last successful frame */
       }
     };
+    void tick();
     const id = window.setInterval(tick, POLL_MS);
     return () => {
       alive = false;

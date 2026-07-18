@@ -157,3 +157,85 @@ def test_profile_query_isolates_global_remote_imports(
     )
     assert client.get("/api/design-systems?profile=work").json()["systems"]
     assert client.get("/api/design-systems").json() == {"systems": []}
+
+
+def test_inspection_returns_profile_scoped_current_revision(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    default_home = tmp_path / ".fabric"
+    work_home = default_home / "profiles" / "work"
+    work_home.mkdir(parents=True)
+    monkeypatch.setenv("FABRIC_HOME", str(default_home))
+    client = _client()
+
+    first_archive = _zip_bytes(
+        {
+            "DESIGN.md": "# Work system\nTokens live here.",
+            "package.json": '{"name":"work"}',
+            "tokens/colors.json": '{"brand":"#112233"}',
+            "preview/index.html": "<html></html>",
+            "nested/a.txt": "a",
+        }
+    )
+    imported = client.post(
+        "/api/design-systems/import?profile=work",
+        files={"file": ("work-system.zip", first_archive, "application/zip")},
+        data={"name": "Work system"},
+    )
+    assert imported.status_code == 200
+    system = imported.json()["system"]
+
+    missing = client.get("/api/design-systems/ds_00000000000000000000000000000000/inspection")
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "design_system_not_found"
+
+    invalid = client.get("/api/design-systems/not-an-id/inspection?profile=work")
+    assert invalid.status_code == 404
+
+    default_scope = client.get(f"/api/design-systems/{system['id']}/inspection")
+    assert default_scope.status_code == 404
+
+    inspected = client.get(f"/api/design-systems/{system['id']}/inspection?profile=work")
+    assert inspected.status_code == 200
+    inspection = inspected.json()["inspection"]
+    assert inspection["designSystemId"] == system["id"]
+    assert inspection["revisionSha256"] == system["activeRevision"]
+    assert inspection["fileCount"] == system["activeRevisionInfo"]["entryCount"]
+    assert inspection["expandedBytes"] == system["activeRevisionInfo"]["expandedBytes"]
+    assert inspection["entrypoints"] == {
+        "designMd": "DESIGN.md",
+        "packageJson": "package.json",
+        "html": ["preview/index.html"],
+        "tokenFiles": ["tokens/colors.json"],
+    }
+    assert {"path": "DESIGN.md", "size": len("# Work system\nTokens live here.")} in inspection[
+        "files"
+    ]
+    assert inspection["designMdPreview"]["path"] == "DESIGN.md"
+    assert inspection["designMdPreview"]["text"].startswith("# Work system")
+    assert inspection["designMdPreview"]["truncated"] is False
+    assert inspection["omittedEntrypointCount"] == 0
+
+    replaced = client.post(
+        f"/api/design-systems/{system['id']}/revisions?profile=work",
+        files={
+            "file": (
+                "work-system-v2.zip",
+                _zip_bytes({"DESIGN.md": "# Work v2", "preview/home.html": "<html>v2</html>"}),
+                "application/zip",
+            )
+        },
+        data={"generation": str(system["generation"]), "name": "Work system"},
+    )
+    assert replaced.status_code == 200
+    updated = replaced.json()["system"]
+    assert updated["activeRevision"] != system["activeRevision"]
+
+    refreshed = client.get(f"/api/design-systems/{system['id']}/inspection?profile=work")
+    assert refreshed.status_code == 200
+    next_inspection = refreshed.json()["inspection"]
+    assert next_inspection["revisionSha256"] == updated["activeRevision"]
+    assert next_inspection["designMdPreview"]["text"].startswith("# Work v2")
+    assert next_inspection["entrypoints"]["html"] == ["preview/home.html"]
+    assert "packageJson" not in next_inspection["entrypoints"]

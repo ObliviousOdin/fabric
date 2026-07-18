@@ -123,23 +123,31 @@ can use the current project's `DESIGN.md`, start a new visual language, apply a
 bundled preset, or reuse an exported Claude Design ZIP:
 
 1. Choose **Add Claude Design ZIP** and select a `.zip` archive.
-2. Select the imported system in the **Design system library**. The selected row is
-   highlighted and the source name appears below the design-system control.
-3. Enter the brief, deliverable, and fidelity, then choose **Start in chat**.
+2. Select the imported system in the **Design system library**. Fabric stays on
+   Design and shows a **Source preflight** for the validated managed revision:
+   filename and revision, file/size summary, detected entrypoints, a bounded
+   file inventory, and a short `DESIGN.md` excerpt when one exists.
+3. Enter the brief, deliverable, and fidelity, then choose **Open in a new
+   chat**. Import alone never starts the model run.
 4. Review the fresh chat. Fabric references the selected, already validated
-   design-system revision and asks the agent to materialize the reusable contract
-   in the project and maintain `DESIGN.md`.
+   design-system revision, includes a normalized inventory of what was found,
+   and asks the agent to materialize the reusable contract in the project and
+   maintain `DESIGN.md`.
 5. Choose **View outputs** to open artifacts reported by the design run.
 
 The library is profile-scoped and stored by the Fabric backend, so moving or
 deleting the original ZIP does not break an imported system. Import validates
 the ZIP, rejects traversal paths and links, applies bounded entry and size
 limits, and extracts an immutable revision without executing bundle code.
-**Replace** validates a new revision, **Show** reveals the managed copy for a
-local backend, and **Remove** deletes Fabric's managed entry without deleting
-the original ZIP. Maintained tokens, components, assets, and rationale still
-belong in the project and its `DESIGN.md`; imported revisions are read-only
-reference snapshots.
+Inspection is also bounded and read-only: it returns at most 200 inventory rows,
+40 HTML and 40 token entrypoints, and a 16 KiB `DESIGN.md` excerpt while showing
+omitted counts. It never re-extracts the archive in the renderer, never follows
+symlinks, and never embeds raw archive text into the chat prompt. **Replace**
+validates a new revision, **Show** reveals the managed copy for a local backend,
+and **Remove** deletes Fabric's managed entry without deleting the original ZIP.
+Maintained tokens, components, assets, and rationale
+still belong in the project and its `DESIGN.md`; imported revisions are
+read-only reference snapshots.
 
 Design prompts require an `Artifacts` handoff with exact output paths. Desktop
 indexes workspace-relative HTML files, images, documents, archives, and other

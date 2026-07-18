@@ -14,6 +14,7 @@ revision.
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import json
 import os
@@ -43,6 +44,9 @@ MAX_COMPRESSION_RATIO = 100
 MAX_PATH_DEPTH = 32
 MAX_PATH_LENGTH = 512
 MAX_PATH_SEGMENT_LENGTH = 255
+MAX_INSPECTION_FILES = 200
+MAX_INSPECTION_ENTRYPOINTS_PER_KIND = 40
+MAX_DESIGN_MD_PREVIEW_BYTES = 16 * 1024
 
 # Readable aliases for callers that want to advertise the limits.
 MAX_ARCHIVE_SIZE = MAX_ARCHIVE_BYTES
@@ -163,6 +167,98 @@ class DesignSystemLibrary:
             return None
         record = self._read_record(design_system_id)
         return self._public_record(record) if record is not None else None
+
+    def inspect(self, design_system_id: str) -> dict[str, Any] | None:
+        """Return a bounded inspection of the current immutable revision.
+
+        Metadata comes from the published revision manifest and a carefully
+        opened ``DESIGN.md`` preview under the verified current revision root.
+        This never re-extracts the archive and never follows symlinks.
+        """
+
+        if not isinstance(design_system_id, str) or not _ID_RE.fullmatch(
+            design_system_id
+        ):
+            return None
+        if self._existing_records_directory() is None:
+            return None
+        record = self._read_record(design_system_id)
+        if record is None:
+            return None
+        public = self._public_record(record)
+        revision_sha = str(public["sha256"])
+        revision_root = self.root / "revisions" / revision_sha
+        files_root = revision_root / "files"
+        _require_directory(revision_root, "design-system revision")
+        _require_directory(files_root, "design-system revision files")
+        manifest = _read_json_regular(revision_root / "revision.json")
+        if not isinstance(manifest, dict):
+            raise DesignSystemStorageError(
+                "design-system revision manifest is invalid"
+            )
+        if (
+            manifest.get("version") != _METADATA_VERSION
+            or manifest.get("sha256") != revision_sha
+            or manifest.get("archive_size") != public["archive_size"]
+            or manifest.get("expanded_size") != public["expanded_size"]
+            or manifest.get("file_count") != public["file_count"]
+            or not isinstance(manifest.get("files"), list)
+        ):
+            raise DesignSystemStorageError(
+                "design-system revision manifest does not match the current revision"
+            )
+
+        file_rows: list[dict[str, Any]] = []
+        for raw_row in manifest["files"]:
+            if not isinstance(raw_row, dict):
+                raise DesignSystemStorageError(
+                    "design-system revision manifest file list is invalid"
+                )
+            path_value = raw_row.get("path")
+            size_value = raw_row.get("size")
+            if not isinstance(path_value, str) or not path_value:
+                raise DesignSystemStorageError(
+                    "design-system revision manifest path is invalid"
+                )
+            if (
+                isinstance(size_value, bool)
+                or not isinstance(size_value, int)
+                or size_value < 0
+            ):
+                raise DesignSystemStorageError(
+                    "design-system revision manifest size is invalid"
+                )
+            file_rows.append({"path": path_value, "size": size_value})
+
+        if (
+            len(file_rows) != int(public["file_count"])
+            or sum(int(row["size"]) for row in file_rows)
+            != int(public["expanded_size"])
+        ):
+            raise DesignSystemStorageError(
+                "design-system revision manifest inventory does not match the current revision"
+            )
+
+        file_rows.sort(key=lambda row: str(row["path"]).casefold())
+        entrypoints, omitted_entrypoint_count = _detect_entrypoints(file_rows)
+        inventory = file_rows[:MAX_INSPECTION_FILES]
+        omitted = max(0, len(file_rows) - len(inventory))
+        design_md_preview = None
+        design_md_path = entrypoints.get("designMd")
+        if isinstance(design_md_path, str) and design_md_path:
+            design_md_preview = _read_design_md_preview(files_root, design_md_path)
+
+        return {
+            "designSystemId": public["id"],
+            "revisionSha256": revision_sha,
+            "fileCount": int(public["file_count"]),
+            "expandedBytes": int(public["expanded_size"]),
+            "entrypoints": entrypoints,
+            "files": inventory,
+            "omittedFileCount": omitted,
+            "omittedEntrypointCount": omitted_entrypoint_count,
+            "designMdPreview": design_md_preview,
+        }
 
     def import_archive(
         self,
@@ -526,12 +622,17 @@ def delete_design_system(
     )
 
 
+def inspect_design_system(design_system_id: str) -> dict[str, Any] | None:
+    return DesignSystemLibrary().inspect(design_system_id)
+
+
 # Short aliases are convenient for dependency-injected service users.
 list_library_entries = list_design_systems
 get_library_entry = get_design_system
 import_archive = import_design_system
 replace_library_entry = replace_design_system
 delete_library_entry = delete_design_system
+inspect_library_entry = inspect_design_system
 
 
 def _validated_display_name(value: str) -> str:
@@ -579,6 +680,198 @@ def _revision_descriptor(
         "expanded_size": result.expanded_size,
         "file_count": result.file_count,
     }
+
+
+def _detect_entrypoints(file_rows: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
+    design_md: str | None = None
+    package_json: str | None = None
+    html: list[str] = []
+    token_files: list[str] = []
+
+    def priority(path: str) -> tuple[int, str]:
+        return path.count("/"), path.casefold()
+
+    for row in file_rows:
+        relative = str(row["path"])
+        basename = Path(relative).name.casefold()
+        folded = relative.casefold()
+        suffix = Path(relative).suffix.casefold()
+        if basename == "design.md" and (
+            design_md is None or priority(relative) < priority(design_md)
+        ):
+            design_md = relative
+        if basename == "package.json" and (
+            package_json is None or priority(relative) < priority(package_json)
+        ):
+            package_json = relative
+        if suffix in {".htm", ".html"}:
+            html.append(relative)
+        if "token" in folded and suffix in {".css", ".json", ".toml", ".yaml", ".yml"}:
+            token_files.append(relative)
+
+    result: dict[str, Any] = {}
+    if design_md is not None:
+        result["designMd"] = design_md
+    if package_json is not None:
+        result["packageJson"] = package_json
+    sorted_html = sorted(html)
+    sorted_token_files = sorted(token_files)
+    omitted = max(0, len(sorted_html) - MAX_INSPECTION_ENTRYPOINTS_PER_KIND)
+    omitted += max(0, len(sorted_token_files) - MAX_INSPECTION_ENTRYPOINTS_PER_KIND)
+    if sorted_html:
+        result["html"] = sorted_html[:MAX_INSPECTION_ENTRYPOINTS_PER_KIND]
+    if sorted_token_files:
+        result["tokenFiles"] = sorted_token_files[:MAX_INSPECTION_ENTRYPOINTS_PER_KIND]
+    return result, omitted
+
+
+def _read_design_md_preview(files_root: Path, relative_path: str) -> dict[str, Any] | None:
+    parts = tuple(relative_path.split("/"))
+    if (
+        not parts
+        or relative_path.startswith("/")
+        or "\\" in relative_path
+        or ":" in relative_path
+        or len(relative_path) > MAX_PATH_LENGTH
+        or len(relative_path.encode("utf-8")) > MAX_PATH_LENGTH
+        or any(unicodedata.category(char).startswith("C") for char in relative_path)
+        or any(
+            not segment
+            or segment in {".", ".."}
+            or len(segment) > MAX_PATH_SEGMENT_LENGTH
+            or len(segment.encode("utf-8")) > MAX_PATH_SEGMENT_LENGTH
+            for segment in parts
+        )
+        or len(parts) > MAX_PATH_DEPTH
+    ):
+        raise DesignSystemStorageError("design-system DESIGN.md path is invalid")
+
+    try:
+        with _open_regular_beneath(files_root, parts) as handle:
+            raw = handle.read(MAX_DESIGN_MD_PREVIEW_BYTES + 1)
+    except FileNotFoundError:
+        return None
+
+    truncated = len(raw) > MAX_DESIGN_MD_PREVIEW_BYTES
+    payload = raw[:MAX_DESIGN_MD_PREVIEW_BYTES]
+    if b"\x00" in payload:
+        return None
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
+    try:
+        # ``final=False`` permits only an incomplete trailing code point caused
+        # by the hard byte cap; invalid UTF-8 anywhere else still suppresses
+        # the preview rather than silently rewriting archive content.
+        text = decoder.decode(payload, final=not truncated)
+    except UnicodeDecodeError:
+        return None
+    return {
+        "path": relative_path,
+        "text": text,
+        "truncated": truncated,
+    }
+
+
+@contextmanager
+def _open_regular_beneath(root: Path, parts: tuple[str, ...]) -> Iterator[BinaryIO]:
+    """Open a regular file without following any archive-controlled symlink.
+
+    POSIX platforms use descriptor-relative ``openat`` traversal so an attacker
+    cannot swap an intermediate directory between a path check and the final
+    open. Platforms without that support use a component-by-component fallback
+    that still rejects every visible symlink and verifies the resolved target.
+    """
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    if nofollow and directory_flag and os.open in os.supports_dir_fd:
+        directory_descriptors: list[int] = []
+        file_descriptor: int | None = None
+        directory_flags = (
+            os.O_RDONLY
+            | directory_flag
+            | nofollow
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        file_flags = (
+            os.O_RDONLY
+            | nofollow
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            directory_descriptors.append(os.open(root, directory_flags))
+            for segment in parts[:-1]:
+                directory_descriptors.append(
+                    os.open(
+                        segment,
+                        directory_flags,
+                        dir_fd=directory_descriptors[-1],
+                    )
+                )
+            file_descriptor = os.open(
+                parts[-1],
+                file_flags,
+                dir_fd=directory_descriptors[-1],
+            )
+            opened = os.fstat(file_descriptor)
+            if not stat.S_ISREG(opened.st_mode):
+                raise DesignSystemStorageError(
+                    "DESIGN.md preview target is not a regular file"
+                )
+            with os.fdopen(file_descriptor, "rb", closefd=False) as handle:
+                yield handle
+        except FileNotFoundError:
+            raise
+        except DesignSystemStorageError:
+            raise
+        except OSError as exc:
+            raise DesignSystemStorageError(
+                "could not open DESIGN.md preview safely"
+            ) from exc
+        finally:
+            if file_descriptor is not None:
+                os.close(file_descriptor)
+            for descriptor in reversed(directory_descriptors):
+                os.close(descriptor)
+        return
+
+    target = root
+    try:
+        root_metadata = root.lstat()
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise DesignSystemStorageError(
+                "design-system revision files is not a regular directory"
+            )
+        resolved_root = root.resolve(strict=True)
+        for segment in parts[:-1]:
+            target = target / segment
+            metadata = target.lstat()
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise DesignSystemStorageError(
+                    "DESIGN.md preview parent is not a regular directory"
+                )
+        target = target / parts[-1]
+        metadata = target.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise DesignSystemStorageError(
+                "DESIGN.md preview target is not a regular file"
+            )
+        try:
+            target.resolve(strict=True).relative_to(resolved_root)
+        except ValueError as exc:
+            raise DesignSystemStorageError(
+                "design-system DESIGN.md path escaped revision root"
+            ) from exc
+        with _open_regular_binary(target) as handle:
+            yield handle
+    except FileNotFoundError:
+        raise
+    except DesignSystemStorageError:
+        raise
+    except OSError as exc:
+        raise DesignSystemStorageError(
+            "could not open DESIGN.md preview safely"
+        ) from exc
 
 
 def _copy_and_hash_archive(source: Path, destination: Path) -> tuple[str, int]:
@@ -1249,14 +1542,17 @@ __all__ = [
     "MAX_ARCHIVE_BYTES",
     "MAX_ARCHIVE_ENTRIES",
     "MAX_COMPRESSION_RATIO",
+    "MAX_DESIGN_MD_PREVIEW_BYTES",
     "MAX_ENTRY_BYTES",
     "MAX_EXPANDED_BYTES",
+    "MAX_INSPECTION_FILES",
     "MAX_PATH_DEPTH",
     "MAX_PATH_LENGTH",
     "MAX_PATH_SEGMENT_LENGTH",
     "delete_design_system",
     "get_design_system",
     "import_design_system",
+    "inspect_design_system",
     "list_design_systems",
     "replace_design_system",
 ]

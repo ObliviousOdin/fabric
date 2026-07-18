@@ -70,21 +70,91 @@ _SUBSCRIPTION_MODEL_PREFERENCES = {
 }
 
 
-def _subscription_catalog(*, refresh_models: bool = True) -> dict[str, set[str]]:
-    """Return authenticated subscription-provider models only."""
-    catalog: dict[str, set[str]] = {}
-    for provider in _model_options(refresh_models=refresh_models):
-        slug = str(provider.get("slug") or "").strip().lower()
-        if slug not in {"openai-codex", "xai-oauth"}:
-            continue
-        if not provider.get("authenticated"):
-            continue
-        catalog[slug] = {
-            str(model).strip()
-            for model in provider.get("models") or []
-            if str(model).strip()
-        }
-    return catalog
+def _live_codex_model_ids() -> set[str]:
+    from fabric_cli.auth import resolve_codex_runtime_credentials
+    from fabric_cli.codex_models import fetch_live_codex_model_ids
+
+    try:
+        credentials = resolve_codex_runtime_credentials(refresh_if_expiring=True)
+        access_token = str(credentials.get("api_key") or "").strip()
+        models = fetch_live_codex_model_ids(access_token)
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not refresh the live OpenAI Codex subscription catalog. "
+            "Run `fabric auth add openai-codex` and retry."
+        ) from exc
+    if not models:
+        raise RuntimeError(
+            "The live OpenAI Codex subscription catalog returned no models; "
+            "no presets were installed."
+        )
+    return {str(model).strip() for model in models if str(model).strip()}
+
+
+def _live_xai_model_ids() -> set[str]:
+    from urllib.parse import quote
+
+    import httpx
+
+    from fabric_cli.auth import resolve_xai_oauth_runtime_credentials
+
+    try:
+        credentials = resolve_xai_oauth_runtime_credentials(refresh_if_expiring=True)
+        base_url = str(credentials.get("base_url") or "").strip().rstrip("/")
+        access_token = str(credentials.get("api_key") or "").strip()
+        if not base_url or not access_token:
+            raise RuntimeError("xAI OAuth credentials are incomplete")
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        with httpx.Client(headers=headers, timeout=15.0) as client:
+            response = client.get(f"{base_url}/models")
+            if response.status_code != 200:
+                raise RuntimeError(f"xAI model catalog returned HTTP {response.status_code}")
+            payload = response.json()
+            entries = payload.get("data") if isinstance(payload, dict) else []
+            live = {
+                str(item.get("id") or "").strip()
+                for item in entries or []
+                if isinstance(item, dict) and str(item.get("id") or "").strip()
+            }
+
+            # OAuth-only Composer/Build models may be omitted from /models even
+            # when the account can use them. The authenticated per-model
+            # metadata endpoint validates those exact preferred lanes without
+            # generating content or consuming inference output.
+            candidates = {
+                model
+                for lane in ("grok_critic", "grok_worker")
+                for model in _SUBSCRIPTION_MODEL_PREFERENCES[lane]
+            }
+            for model in sorted(candidates - live):
+                probe = client.get(f"{base_url}/models/{quote(model, safe='')}")
+                if probe.status_code == 200:
+                    live.add(model)
+                elif probe.status_code in {401, 403}:
+                    raise RuntimeError(
+                        f"xAI rejected subscription model discovery with HTTP {probe.status_code}"
+                    )
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not refresh the live xAI subscription catalog. "
+            "Run `fabric auth add xai-oauth` and retry."
+        ) from exc
+
+    if not live:
+        raise RuntimeError(
+            "The live xAI subscription catalog returned no supported models; "
+            "no presets were installed."
+        )
+    return live
+
+
+def _subscription_catalog() -> dict[str, set[str]]:
+    """Return fail-closed, live entitlement catalogs for subscription lanes."""
+    return {
+        "openai-codex": _live_codex_model_ids(),
+        "xai-oauth": _live_xai_model_ids(),
+    }
 
 
 def _preferred_model(available: set[str], preferences: tuple[str, ...], lane: str) -> str:
@@ -133,14 +203,28 @@ def build_subscription_moa_presets(
         ),
     }
 
-    def slot(provider: str, model: str, role: str, instructions: str, effort: str) -> dict[str, str]:
-        return {
+    from agent.model_metadata import grok_supports_reasoning_effort
+
+    grok_reasoning_effort = (
+        "high" if grok_supports_reasoning_effort(chosen["grok_critic"]) else None
+    )
+
+    def slot(
+        provider: str,
+        model: str,
+        role: str,
+        instructions: str,
+        effort: str | None,
+    ) -> dict[str, str]:
+        value = {
             "provider": provider,
             "model": model,
             "role": role,
             "instructions": instructions,
-            "reasoning_effort": effort,
         }
+        if effort:
+            value["reasoning_effort"] = effort
+        return value
 
     presets = {
         _SUBSCRIPTION_PLAN_PRESET: {
@@ -150,7 +234,7 @@ def build_subscription_moa_presets(
                     chosen["grok_critic"],
                     "adversarial planner",
                     "Challenge assumptions, find hidden failure modes and security risks, and explain why the preferred plan could fail.",
-                    "high",
+                    grok_reasoning_effort,
                 ),
                 slot(
                     "openai-codex",
@@ -177,7 +261,7 @@ def build_subscription_moa_presets(
                     chosen["grok_critic"],
                     "adversarial patch reviewer",
                     "Look for regressions, security issues, untested edge cases, unjustified scope, and reasons each candidate should be rejected.",
-                    "high",
+                    grok_reasoning_effort,
                 ),
                 slot(
                     "openai-codex",
@@ -263,9 +347,7 @@ def cmd_moa(args) -> None:
         if template != "subscriptions":
             raise SystemExit(f"Unknown MoA bootstrap template: {template}")
         try:
-            catalog = _subscription_catalog(
-                refresh_models=not bool(getattr(args, "cached", False))
-            )
+            catalog = _subscription_catalog()
             presets, chosen = build_subscription_moa_presets(catalog)
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc

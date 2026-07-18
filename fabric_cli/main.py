@@ -13229,11 +13229,6 @@ def main():
         help="Preset template to install (default: subscriptions)",
     )
     moa_bootstrap.add_argument(
-        "--cached",
-        action="store_true",
-        help="Use cached model catalogs instead of refreshing subscription providers",
-    )
-    moa_bootstrap.add_argument(
         "--dry-run",
         action="store_true",
         help="Show selected models and conflicts without changing config",

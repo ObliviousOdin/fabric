@@ -36,11 +36,96 @@ def test_model_options_forwards_live_refresh_to_payload(monkeypatch):
     assert seen["refresh"] is True
 
 
+def test_subscription_catalog_uses_only_live_entitlement_helpers(monkeypatch):
+    monkeypatch.setattr(moa_cmd, "_live_codex_model_ids", lambda: {"gpt-live"})
+    monkeypatch.setattr(moa_cmd, "_live_xai_model_ids", lambda: {"grok-live"})
+
+    assert moa_cmd._subscription_catalog() == {
+        "openai-codex": {"gpt-live"},
+        "xai-oauth": {"grok-live"},
+    }
+
+
+def test_live_xai_catalog_probes_hidden_oauth_models(monkeypatch):
+    import httpx
+
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, status_code, payload=None):
+            self.status_code = status_code
+            self._payload = payload or {}
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, *, headers, timeout):
+            assert headers == {"Authorization": "Bearer live-token"}
+            assert timeout == 15.0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, url):
+            calls.append(url)
+            if url.endswith("/models"):
+                return FakeResponse(200, {"data": [{"id": "grok-4.5"}]})
+            if url.endswith("/models/grok-composer-2.5-fast"):
+                return FakeResponse(200, {"id": "grok-composer-2.5-fast"})
+            return FakeResponse(404)
+
+    monkeypatch.setattr(
+        "fabric_cli.auth.resolve_xai_oauth_runtime_credentials",
+        lambda **_kwargs: {
+            "base_url": "https://api.x.ai/v1",
+            "api_key": "live-token",
+        },
+    )
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    models = moa_cmd._live_xai_model_ids()
+
+    assert models == {"grok-4.5", "grok-composer-2.5-fast"}
+    assert "https://api.x.ai/v1/models/grok-composer-2.5-fast" in calls
+
+
+def test_live_xai_catalog_fails_closed_when_collection_refresh_fails(monkeypatch):
+    import httpx
+
+    class FakeClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def get(self, _url):
+            return type("Response", (), {"status_code": 503})()
+
+    monkeypatch.setattr(
+        "fabric_cli.auth.resolve_xai_oauth_runtime_credentials",
+        lambda **_kwargs: {
+            "base_url": "https://api.x.ai/v1",
+            "api_key": "live-token",
+        },
+    )
+    monkeypatch.setattr(httpx, "Client", FakeClient)
+
+    with pytest.raises(RuntimeError, match="Could not refresh the live xAI"):
+        moa_cmd._live_xai_model_ids()
+
+
 def _args(**overrides):
     values = {
         "moa_command": "bootstrap",
         "template": "subscriptions",
-        "cached": False,
         "dry_run": False,
         "force": False,
         "keep_default": False,
@@ -64,6 +149,24 @@ def test_build_subscription_presets_selects_best_live_models():
         assert "reference_max_tokens" not in preset
         assert preset["aggregator"]["reasoning_effort"] == "high"
         assert all(slot.get("role") for slot in preset["reference_models"])
+
+
+def test_build_subscription_presets_omits_unsupported_grok_effort():
+    presets, chosen = build_subscription_moa_presets(
+        {
+            "openai-codex": {"gpt-5.5", "gpt-5.4"},
+            "xai-oauth": {
+                "grok-4.20-0309-reasoning",
+                "grok-composer-2.5-fast",
+            },
+        }
+    )
+
+    assert chosen["grok_critic"] == "grok-4.20-0309-reasoning"
+    for preset in presets.values():
+        grok_slot = preset["reference_models"][0]
+        assert grok_slot["model"] == "grok-4.20-0309-reasoning"
+        assert "reasoning_effort" not in grok_slot
 
 
 def test_build_subscription_presets_fails_closed_when_a_provider_is_missing():

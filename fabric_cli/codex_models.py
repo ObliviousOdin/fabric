@@ -79,7 +79,11 @@ def _add_forward_compat_models(model_ids: List[str]) -> List[str]:
     return ordered
 
 
-def _fetch_models_from_api(access_token: str) -> List[str]:
+def _fetch_models_from_api(
+    access_token: str,
+    *,
+    include_forward_compat: bool = True,
+) -> List[str]:
     """Fetch available models from the Codex API. Returns visible models sorted by priority."""
     try:
         import httpx
@@ -116,7 +120,20 @@ def _fetch_models_from_api(access_token: str) -> List[str]:
         sortable.append((rank, slug))
 
     sortable.sort(key=lambda x: (x[0], x[1]))
-    return _add_forward_compat_models([slug for _, slug in sortable])
+    model_ids = [slug for _, slug in sortable]
+    return _add_forward_compat_models(model_ids) if include_forward_compat else model_ids
+
+
+def fetch_live_codex_model_ids(access_token: str) -> List[str]:
+    """Return only model IDs listed by the authenticated Codex backend.
+
+    Unlike :func:`get_codex_model_ids`, this never uses local/default catalogs
+    or synthetic forward-compat entries. Callers that install unattended
+    workflows can therefore fail closed when entitlement discovery is down.
+    """
+    if not str(access_token or "").strip():
+        return []
+    return _fetch_models_from_api(access_token, include_forward_compat=False)
 
 
 def _read_default_model(codex_home: Path) -> Optional[str]:

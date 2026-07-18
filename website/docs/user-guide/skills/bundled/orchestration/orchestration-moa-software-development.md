@@ -95,12 +95,15 @@ fabric moa bootstrap subscriptions
 fabric moa list
 ```
 
-The bootstrap must find both `openai-codex` and `xai-oauth`, chooses only model
-IDs returned for the active profile, installs `subscription-plan` and
-`subscription-review`, and uses `fanout: user_turn`. It deliberately leaves
-`reference_max_tokens` unset because the ChatGPT Codex subscription endpoint
-does not accept provider-side output caps. It refuses to replace existing
-managed preset names unless the parent explicitly reviews the dry run and uses
+The bootstrap must find both `openai-codex` and `xai-oauth`, choose only model
+IDs confirmed by direct authenticated entitlement checks for the active
+profile, and fails closed rather than using static/cache fallbacks. It installs
+`subscription-plan` and `subscription-review` with `fanout: user_turn`, and
+only sends a Grok reasoning effort when the selected model is capability-
+allowlisted. It deliberately leaves `reference_max_tokens` unset because the
+ChatGPT Codex subscription endpoint does not accept provider-side output caps.
+It refuses to replace existing managed preset names unless the parent explicitly
+reviews the dry run and uses
 `--force`.
 
 The command also prints the selected Grok coding-worker model. Record all four

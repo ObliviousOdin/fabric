@@ -190,12 +190,14 @@ fabric moa bootstrap subscriptions --dry-run
 fabric moa bootstrap subscriptions
 fabric moa list
 ```
-
-The bootstrap fails closed: it never invents a model ID, never silently falls
-back to an API-billed provider, and never replaces an existing
-`subscription-plan` or `subscription-review` preset unless you rerun with
-`--force`. Use `--cached` only when you explicitly want the cached catalogs,
-and `--keep-default` to install without changing the current default preset.
+The command refreshes both authenticated subscription catalogs directly and
+fails closed if either live entitlement check is unavailable. For OAuth-only
+Grok Composer/Build models that are omitted from the collection response,
+Fabric validates the exact model through xAI's authenticated metadata endpoint
+without generating content. The bootstrap never falls back to static or
+API-billed provider lists, and never replaces an existing `subscription-plan`
+or `subscription-review` preset unless you rerun with `--force`. Use
+`--keep-default` to install without changing the current default preset.
 
 It prefers the strongest available subscription lanes for these roles:
 

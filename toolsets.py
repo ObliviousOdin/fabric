@@ -733,7 +733,7 @@ def resolve_toolset(name: str, visited: Set[str] = None, *, include_registry: bo
         # into a toolset matching the platform name. This is a registry-derived
         # view, so it only applies when registry tools are requested; the static
         # view (include_registry=False) has no plugin-platform definition.
-        if include_registry and name.startswith("fabric-"):
+        if include_registry and name.startswith("hermes-"):
             platform_name = name[len("fabric-"):]
             try:
                 from gateway.platform_registry import platform_registry

@@ -204,7 +204,7 @@ def _remove_claude_code(provider: str, removed) -> RemovalResult:
     ])
 
 
-def _remove_fabric_pkce(provider: str, removed) -> RemovalResult:
+def _remove_hermes_pkce(provider: str, removed) -> RemovalResult:
     """~/.fabric/.anthropic_oauth.json is ours — delete it outright."""
     from fabric_constants import get_fabric_home
 
@@ -403,7 +403,7 @@ def _register_all_sources() -> None:
     ))
     register(RemovalStep(
         provider="anthropic", source_id="hermes_pkce",
-        remove_fn=_remove_fabric_pkce,
+        remove_fn=_remove_hermes_pkce,
         description="~/.fabric/.anthropic_oauth.json",
     ))
     register(RemovalStep(

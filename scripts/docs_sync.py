@@ -38,7 +38,7 @@ CONTRACTS_PATH = ROOT / "docs" / "documentation-contracts.json"
 RUNTIME_JSON_PATH = ROOT / "website" / "static" / "api" / "runtime-surfaces.json"
 RUNTIME_DOC_PATH = ROOT / "website" / "docs" / "reference" / "runtime-surfaces.mdx"
 
-_TOKEN_RE = re.compile(r"(?<![A-Z0-9])(?:FABRIC|FABRIC)_[A-Z0-9_]+")
+_TOKEN_RE = re.compile(r"(?<![A-Z0-9])(?:HERMES|FABRIC)_[A-Z0-9_]+")
 _DOCS_IMPACT_RE = re.compile(
     r"(?im)^\s*Docs-impact:\s*none\s*\[([^\]]+)\]\s*(?:—|--|-|:)\s*(.+?)\s*$"
 )

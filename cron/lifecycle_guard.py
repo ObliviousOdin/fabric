@@ -51,15 +51,15 @@ _GATEWAY_LIFECYCLE_PATTERN = re.compile(
     # `start` is intentionally excluded: starting a gateway from inside a
     # gateway is benign (a no-op or "already running" error), and a
     # legitimate cron job might start a sibling profile's gateway.
-    r"(?:(?:fabric|fabric)\s+gateway\s+(?:restart|stop))"
+    r"(?:(?:hermes|fabric)\s+gateway\s+(?:restart|stop))"
     # Branch B: launchctl ops on fabric/fabric gateway labels.
     # labels look like `ai.fabric.gateway` / `fabric-gateway` (and legacy fabric).
-    r"|(?:launchctl\s+(?:kickstart|unload|load|stop|restart)\b[^\n]*\b(?:fabric|fabric)[.\-]?gateway)"
+    r"|(?:launchctl\s+(?:kickstart|unload|load|stop|restart)\b[^\n]*\b(?:hermes|fabric)[.\-]?gateway)"
     # Branch C: systemctl ops on fabric/fabric gateway units.
-    r"|(?:systemctl\s+(?:-\S+\s+)*(?:restart|stop|start)\b[^\n]*\b(?:fabric|fabric)[.\-]?gateway)"
+    r"|(?:systemctl\s+(?:-\S+\s+)*(?:restart|stop|start)\b[^\n]*\b(?:hermes|fabric)[.\-]?gateway)"
     # Branch D: pkill / kill targeting the fabric/fabric gateway process.
-    r"|(?:p?kill\b[^\n]*\b(?:fabric|fabric)\b[^\n]*\bgateway)"
-    r"|(?:p?kill\b[^\n]*\bgateway\b[^\n]*\b(?:fabric|fabric))"
+    r"|(?:p?kill\b[^\n]*\b(?:hermes|fabric)\b[^\n]*\bgateway)"
+    r"|(?:p?kill\b[^\n]*\bgateway\b[^\n]*\b(?:hermes|fabric))"
 )
 
 

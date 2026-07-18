@@ -237,11 +237,11 @@ function scopeExternalProviderCommand(provider: OAuthProvider, profile: string):
   // remaining external commands (for example `copilot /login` and
   // `claude setup-token`) own their credentials outside Fabric and must remain
   // byte-for-byte unchanged.
-  if (!/^(?:fabric|fabric)(?:\s|$)/.test(command)) {
+  if (!/^(?:hermes|fabric)(?:\s|$)/.test(command)) {
     return provider
   }
 
-  const scopedCommand = command.replace(/^(fabric|fabric)(?=\s|$)/, `$1 --profile ${shellArgument(profile)}`)
+  const scopedCommand = command.replace(/^(hermes|fabric)(?=\s|$)/, `$1 --profile ${shellArgument(profile)}`)
 
   return { ...provider, cli_command: scopedCommand }
 }

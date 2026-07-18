@@ -1519,7 +1519,7 @@ function unwrapWindowsVenvFabricCommand(command, backendArgs) {
 
   const resolved = path.resolve(String(command))
 
-  if (!/^(?:fabric|fabric)(?:\.exe)?$/i.test(path.basename(resolved))) {
+  if (!/^(?:hermes|fabric)(?:\.exe)?$/i.test(path.basename(resolved))) {
     return null
   }
 

@@ -1160,7 +1160,7 @@ class SlackAdapter(BasePlatformAdapter):
                     r"^/(?:" + "|".join(_re.escape(n) for n in _slash_names) + r")$"
                 )
             else:  # pragma: no cover - registry always non-empty
-                _slash_pattern = _re.compile(r"^/(?:fabric|fabric)$")
+                _slash_pattern = _re.compile(r"^/(?:hermes|fabric)$")
 
             @self._app.command(_slash_pattern)
             async def handle_fabric_command(ack, command):

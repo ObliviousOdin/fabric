@@ -1710,7 +1710,7 @@ def test_seed_from_singletons_respects_qwen_suppression(tmp_path, monkeypatch):
     assert active == set()
 
 
-def test_seed_from_singletons_respects_fabric_pkce_suppression(tmp_path, monkeypatch):
+def test_seed_from_singletons_respects_hermes_pkce_suppression(tmp_path, monkeypatch):
     """anthropic hermes_pkce must not re-seed from ~/.hermes/.anthropic_oauth.json when suppressed."""
     fabric_home = tmp_path / "hermes"
     fabric_home.mkdir(parents=True, exist_ok=True)

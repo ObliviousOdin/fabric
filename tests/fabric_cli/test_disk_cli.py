@@ -99,6 +99,13 @@ class TestUsage:
         disk.disk_usage(_usage_args(profile="ghost"))
         assert "No Fabric data found" in capsys.readouterr().out
 
+    def test_json_stays_json_when_home_missing(self, _isolate, capsys):
+        # --json must always emit parseable JSON, even for an absent profile.
+        disk.disk_usage(_usage_args(json_output=True, profile="ghost"))
+        data = json.loads(capsys.readouterr().out)
+        assert data["total_bytes"] == 0
+        assert data["categories"] == []
+
     def test_grand_total_equals_home_size_no_double_count(self, _isolate):
         # A top-level *_cache.json (matched by the cache glob) plus an
         # unclassified top-level file must sum to exactly the on-disk total —
@@ -241,6 +248,14 @@ class TestCleanSafety:
         assert disk._is_clean_safe(_isolate / "moa-traces", _isolate) is True
         assert disk._is_clean_safe(_isolate / "logs" / "agent.log.1", _isolate) is True
         assert disk._is_clean_safe(_isolate / "provider_models_cache.json", _isolate) is True
+
+    def test_guard_glob_is_depth_anchored(self, _isolate):
+        # A cache-glob ("*_cache.json") must NOT match a nested file under a
+        # protected directory, and a "logs/*.log.*" glob must NOT match deeper
+        # than a direct child of logs/. (Regression: fnmatch '*' crossing '/'.)
+        assert disk._is_clean_safe(_isolate / "mcp-tokens" / "oauth_cache.json", _isolate) is False
+        assert disk._is_clean_safe(_isolate / "sessions" / "history_cache.json", _isolate) is False
+        assert disk._is_clean_safe(_isolate / "logs" / "sub" / "live.log.keep", _isolate) is False
 
 
 # ---------------------------------------------------------------------------

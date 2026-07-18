@@ -6,9 +6,9 @@ directory (``~/.fabric`` / ``%LOCALAPPDATA%\\fabric``):
   * ``fabric disk usage`` (alias ``du``) — report how much space each
     Fabric store is using, largest-first, with a grand total and the free
     space left on the volume.
-  * ``fabric disk clean`` (alias ``clean``) — reclaim regenerable caches,
-    rotated log backups, diagnostic traces, and scratch directories.
-    Dry-run by default; ``--yes`` actually deletes.
+  * ``fabric disk clean`` — reclaim regenerable caches, rotated log backups,
+    diagnostic traces, and scratch directories.  Dry-run by default;
+    ``--yes`` actually deletes.
 
 Design stance is deliberately conservative.  ``clean`` only ever touches an
 explicit allow-list of regenerable data and refuses, with a hard runtime
@@ -335,12 +335,20 @@ def _is_clean_safe(target: Path, home: Path) -> bool:
     except (ValueError, OSError):
         return False
     rel_str = str(rel)
+    rel_parts = rel.parts
     prefixes, globs = _clean_allow()
     for prefix in prefixes:
         if rel_str == prefix or prefix in {str(p) for p in rel.parents}:
             return True
     for pat in globs:
-        if fnmatch.fnmatch(rel_str, pat):
+        # Match per path segment so a ``*`` in the pattern never crosses ``/``
+        # (plain fnmatch would let ``*_cache.json`` match ``sessions/x_cache.json``
+        # and ``logs/*.log.*`` match ``logs/sub/live.log``, approving protected
+        # nested paths). This keeps the glob anchored to the depth it declares.
+        pat_parts = pat.split("/")
+        if len(pat_parts) == len(rel_parts) and all(
+            fnmatch.fnmatch(rp, pp) for rp, pp in zip(rel_parts, pat_parts)
+        ):
             return True
     return False
 
@@ -409,6 +417,15 @@ def disk_usage(args) -> int:
     profile = getattr(args, "profile", None)
 
     if not home.exists():
+        if getattr(args, "json_output", False):
+            # Keep --json machine-readable even when there's nothing to report.
+            print(json.dumps({
+                "home": str(home),
+                "total_bytes": 0,
+                "total_files": 0,
+                "categories": [],
+            }, indent=2))
+            return 0
         where = f"profile {profile!r}" if profile else display_fabric_home()
         print(f"No Fabric data found for {where} ({home}).")
         return 0

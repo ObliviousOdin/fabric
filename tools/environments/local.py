@@ -856,7 +856,7 @@ def _resolve_fabric_bin_dir() -> str | None:
         base = os.path.basename(argv0).lower()
         if (
             os.path.isabs(argv0)
-            and (base == "hermes" or base.startswith("fabric."))
+            and (base in ("hermes", "fabric") or base.startswith(("hermes.", "fabric.")))
             and os.path.isfile(argv0)
         ):
             candidate = os.path.dirname(argv0)

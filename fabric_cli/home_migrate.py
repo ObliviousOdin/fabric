@@ -96,7 +96,7 @@ def _read_live_gateway_pid(source: Path) -> int | None:
         if pid <= 0 or pid == os.getpid() or not argv:
             continue
         is_module = any(
-            module in argv for module in ("fabric_cli.main", "fabric_cli.main")
+            module in argv for module in ("hermes_cli.main", "fabric_cli.main")
         )
         is_console = any(Path(arg).name in {"hermes", "fabric"} for arg in argv[:2])
         references_source = any(str(source) in arg for arg in argv)

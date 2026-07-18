@@ -20,6 +20,7 @@ All notable changes to Fabric are documented in this file.
 
 ### Fixed
 
+- The Achievements Team Leaderboard now diagnoses Tailscale, tailnet, host, relay-port/health, and invite-credential failures separately instead of showing every outage as a generic timeout. Invites are masked and preflighted before Join, Retry works without a page reload, copied diagnostics exclude credentials and session/metric data, and verified local hosts gain restart, health telemetry, and redacted log recovery controls.
 - The docs-site Skills Hub no longer falls back to a broken, near-empty legacy snapshot when the unified index is missing: the committed fallback caches were refreshed (OpenAI tap 0 → 44 skills after its `skills/.curated/` move) and the new `venture-studio` and `web-development` categories now render with proper labels and icons.
 
 ## [0.21.0] - 2026-07-16

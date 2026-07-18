@@ -29,6 +29,14 @@ so **Stop** and status survive a dashboard restart, logs to
 `$FABRIC_HOME/logs/fabric-achievements-relay.log`, and auto-fills a shareable Relay
 URL. You never have to run the command below by hand.
 
+The host card records secret-free health timestamps in
+`$FABRIC_HOME/plugins/fabric-achievements/relay-health.json` and shows process
+uptime, bind address, last successful health check, and the advertised MagicDNS
+probe. If a dashboard-managed relay for the owner's current team stops answering,
+the owner can **Restart relay** or open a bounded, redacted tail of the fixed log
+file. Restart fails closed unless Fabric can match the team URL to the exact
+saved PID/start-time fingerprint.
+
 To run it yourself instead (e.g. as a system service on an always-on box), from
 the plugin directory:
 
@@ -70,6 +78,28 @@ address answers as a Fabric relay from this machine. This does not prove every
 teammate's access: Tailscale ACLs still apply. If Tailscale isn't connected it
 falls back to `http://127.0.0.1:<port>`, which only works for a same-machine
 trial and is flagged as such in the UI.
+
+### Member connection diagnostics
+
+Pasting an invite shows a masked value plus a locally decoded team/host preview.
+Before Join is enabled, the member dashboard checks these layers in order:
+
+1. Tailscale is installed and connected when the target is a private `.ts.net`
+   relay or Tailscale IP. Because Serve and Funnel share the same `.ts.net`
+   shape, a connected matching target keeps this full diagnostic path; without
+   one, Fabric accepts only a credential-free direct-first HTTPS route check.
+   Other public HTTPS, LAN, and loopback relays skip this layer.
+2. A MagicDNS target belongs to the connected tailnet when the suffix proves it.
+3. The hostname resolves and, for Tailscale targets, `tailscale ping` reaches the
+   host.
+4. The relay port accepts TCP, `/health` identifies a Fabric relay, and the team
+   credentials can read the leaderboard.
+
+This distinguishes an offline host from the common case where Tailscale works
+but the relay on port `9137` is down. **Retry** reruns preflight without a page
+reload. **Copy diagnostic** contains only state names, pass/fail/skip checks,
+host/port, and timestamps; it never contains the raw `fbl1_…` invite, join
+secret, member token, session/transcript data, or raw achievement metrics.
 
 ## Exposing it beyond your LAN (TLS)
 

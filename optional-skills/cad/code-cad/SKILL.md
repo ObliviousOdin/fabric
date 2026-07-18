@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   fabric:
     tags: [CAD, 3D, Parametric, build123d, CadQuery, OpenSCAD, STEP, Fabrication]
-    related_skills: [dxf-drafting, sheet-metal, freecad, blender-mcp]
+    related_skills: [dxf-drafting, sheet-metal, freecad, 3d-printing, printed-joints, blender-mcp]
     homepage: https://build123d.readthedocs.io
 dependencies: [build123d]
 ---

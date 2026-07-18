@@ -383,11 +383,13 @@ const sidebars: SidebarsConfig = {
                   key: 'skills-optional-cad',
                   collapsed: true,
                   items: [
+                    'user-guide/skills/optional/cad/cad-3d-printing',
                     'user-guide/skills/optional/cad/cad-code-cad',
                     'user-guide/skills/optional/cad/cad-dxf-drafting',
                     'user-guide/skills/optional/cad/cad-freecad',
                     'user-guide/skills/optional/cad/cad-fusion360',
                     'user-guide/skills/optional/cad/cad-parts-sourcing',
+                    'user-guide/skills/optional/cad/cad-printed-joints',
                     'user-guide/skills/optional/cad/cad-sheet-metal',
                   ],
                 },

@@ -22,7 +22,7 @@ Build parametric 3D models in Python with build123d or CadQuery — headless B-r
 | Dependencies | `build123d` |
 | Platforms | linux, macos, windows |
 | Tags | `CAD`, `3D`, `Parametric`, `build123d`, `CadQuery`, `OpenSCAD`, `STEP`, `Fabrication` |
-| Related skills | [`dxf-drafting`](/user-guide/skills/optional/cad/cad-dxf-drafting), [`sheet-metal`](/user-guide/skills/optional/cad/cad-sheet-metal), [`freecad`](/user-guide/skills/optional/cad/cad-freecad), [`blender-mcp`](/user-guide/skills/optional/creative/creative-blender-mcp) |
+| Related skills | [`dxf-drafting`](/user-guide/skills/optional/cad/cad-dxf-drafting), [`sheet-metal`](/user-guide/skills/optional/cad/cad-sheet-metal), [`freecad`](/user-guide/skills/optional/cad/cad-freecad), [`3d-printing`](/user-guide/skills/optional/cad/cad-3d-printing), [`printed-joints`](/user-guide/skills/optional/cad/cad-printed-joints), [`blender-mcp`](/user-guide/skills/optional/creative/creative-blender-mcp) |
 
 ## Reference: full SKILL.md
 

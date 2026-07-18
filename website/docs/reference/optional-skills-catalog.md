@@ -49,11 +49,13 @@ fabric skills uninstall <skill-name>
 
 | Skill | Description |
 |-------|-------------|
+| [**3d-printing**](/user-guide/skills/optional/cad/cad-3d-printing) | Prepare parts for FDM 3D printing — generate and validate STL/3MF (watertight mesh checks with trimesh), design-for-printing rules (overhangs, orientation, anisotropy, hole compensation), material selection, and headless slicing via Prus... |
 | [**code-cad**](/user-guide/skills/optional/cad/cad-code-cad) | Build parametric 3D models in Python with build123d or CadQuery — headless B-rep CAD with STEP/STL/DXF export, mass-property verification, and render-and-inspect loops. The primary agentic CAD workflow: the model is code, so it can be re... |
 | [**dxf-drafting**](/user-guide/skills/optional/cad/cad-dxf-drafting) | Create and edit DXF files in Python with ezdxf — 2D profiles for laser/waterjet/plasma cutting, dimensioned drawings, layers and blocks, R12 export for fab shops, and render-to-image verification. |
 | [**freecad**](/user-guide/skills/optional/cad/cad-freecad) | Automate FreeCAD headlessly — parametric solids, STEP/DXF import-export, TechDraw drawings, and SheetMetal unfolding via freecadcmd Python scripts, no GUI required. Open-source parametric CAD with a full Python API. |
 | [**fusion360**](/user-guide/skills/optional/cad/cad-fusion360) | Automate Autodesk Fusion (Fusion 360) via its add-in Python API — scripted modeling, parameter tables, STEP/STL/DXF export, and drawing generation. Desktop-only (Windows/macOS, no headless mode); know when to use it vs. code-CAD. |
 | [**parts-sourcing**](/user-guide/skills/optional/cad/cad-parts-sourcing) | Source mechanical parts and hardware — Misumi configurable components and meviy fabrication quotes, McMaster-Carr hardware with CAD downloads, aluminum extrusion systems, and building BOMs with part numbers, prices, and STEP models. |
+| [**printed-joints**](/user-guide/skills/optional/cad/cad-printed-joints) | Design working joints and mechanisms for FDM printing — pivots and pin hinges, sliders and dovetails, snap-fits with cantilever strain math, print-in-place clearances, printed threads and heat-set inserts, ball joints and detents. Cleara... |
 | [**sheet-metal**](/user-guide/skills/optional/cad/cad-sheet-metal) | Design sheet-metal parts for fabrication — bend allowance and K-factor math, flat-pattern development, DXF flats for laser cutting, FreeCAD SheetMetal unfolding, and design rules for bend-and-cut services (min flange, hole-to-bend distan... |
 
 ## communication

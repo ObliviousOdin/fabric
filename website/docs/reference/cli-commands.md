@@ -72,6 +72,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric backup` | Back up Fabric home directory to a zip file. |
 | `fabric checkpoints` | Inspect / prune / clear `~/.fabric/checkpoints/` (the shadow store used by `/rollback`). Run with no args for a status overview. |
 | `fabric disk` | Report how much disk space Fabric is using (`usage`/`du`) and reclaim regenerable caches, rotated logs, traces, and scratch (`clean`, dry-run by default). |
+| `fabric monitor` | Live host metrics — CPU (aggregate + per-core), memory, disk, load, network throughput, and GPU (alias: `fabric top`). |
 | `fabric import` | Restore a Fabric backup from a zip file. |
 | `fabric logs` | View, tail, and filter agent/gateway/error log files. |
 | `fabric config` | Show, edit, migrate, and query configuration files. |
@@ -1015,6 +1016,35 @@ fabric disk clean                    # preview what would be reclaimed (dry-run)
 fabric disk clean --yes              # delete caches / rotated logs / traces / scratch
 fabric disk clean --only cache --yes # just clear caches
 fabric disk clean --skip logs --yes  # everything reclaimable except logs
+```
+
+## `fabric monitor`
+
+```bash
+fabric monitor [--interval SECONDS] [--once] [--json]
+fabric top                           # alias
+```
+
+Live terminal view of this machine's health. Shares the same metrics collector
+as the web dashboard Host card and the desktop Command Center host panel, so
+CPU / memory / disk / load / network throughput / GPU utilization never drift
+across surfaces.
+
+| Option | Description |
+|--------|-------------|
+| `--interval SECONDS` | Refresh period (default `2`, minimum `0.5`). |
+| `--once` | Print one frame and exit (also the behavior when stdout is not a TTY). |
+| `--json` | Emit one JSON sample (primes network counters briefly so rates are populated). |
+
+Requires `psutil` for CPU, memory, disk, and network metrics (the `psutil`
+extra). GPU metrics appear when `pynvml` is installed or `nvidia-smi` is on
+`PATH`; otherwise those tiles are omitted.
+
+```bash
+fabric monitor                 # live TUI-style panel
+fabric top --interval 1        # faster refresh
+fabric monitor --once          # single snapshot
+fabric monitor --json          # machine-readable sample
 ```
 
 ## `fabric import`

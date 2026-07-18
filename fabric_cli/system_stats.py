@@ -200,6 +200,10 @@ def collect_dynamic_stats(disk_path: Optional[str] = None) -> Dict[str, Any]:
             if per_cpu:
                 info["per_cpu_percent"] = list(per_cpu)
                 info["cpu_percent"] = round(sum(per_cpu) / len(per_cpu), 1)
+            try:
+                info["cpu_count"] = int(psutil.cpu_count() or 0) or None
+            except Exception:
+                pass
             la = getattr(psutil, "getloadavg", None)
             if la:
                 info["load_avg"] = list(la())

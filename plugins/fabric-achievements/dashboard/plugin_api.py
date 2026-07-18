@@ -12,6 +12,8 @@ import math
 import os
 import re
 import shutil
+import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -48,10 +50,12 @@ except ImportError:
 try:  # pragma: no cover - trivially importable inside the dashboard process
     from fabric_cli.tailscale_setup import (
         find_tailscale_binary as _ts_find_binary,
+        tailscale_ping as _ts_ping,
         tailscale_status as _ts_status,
     )
 except Exception:  # noqa: BLE001
     _ts_find_binary = None  # type: ignore[assignment]
+    _ts_ping = None  # type: ignore[assignment]
     _ts_status = None  # type: ignore[assignment]
 
 try:
@@ -1130,6 +1134,21 @@ async def reset_state():
 # join teams from people you trust, exactly as you would with any webhook URL.
 
 INVITE_PREFIX = "fbl1_"  # fabric-leaderboard v1
+MAX_INVITE_CODE_LENGTH = 16_384
+MAX_INVITE_PAYLOAD_LENGTH = 8_192
+
+CONNECTION_STATES = {
+    "INVITE_INVALID",
+    "TAILSCALE_MISSING",
+    "TAILSCALE_UNAVAILABLE",
+    "TAILSCALE_DISCONNECTED",
+    "WRONG_TAILNET",
+    "HOST_OFFLINE",
+    "HOST_PROBE_UNAVAILABLE",
+    "HOST_REACHABLE_RELAY_DOWN",
+    "RELAY_REACHABLE_INVITE_INVALID",
+    "CONNECTED",
+}
 
 # Points model. Each unlocked tier is worth progressively more; a
 # multi-condition ("full send") unlock has no tier and is scored as a
@@ -1139,6 +1158,17 @@ TIER_POINTS = {"Copper": 10, "Silver": 25, "Gold": 60, "Diamond": 150, "Olympian
 POINTS_PER_UNLOCK_NO_TIER = 60
 
 TEAM_HTTP_TIMEOUT = 10
+MAX_RELAY_RESPONSE_BYTES = 4 * 1024 * 1024
+PREFLIGHT_TOTAL_TIMEOUT = 20
+AMBIGUOUS_HTTPS_HEALTH_TIMEOUT = 3
+DNS_PROBE_TIMEOUT = 3
+TCP_PROBE_TIMEOUT = 3
+MAX_RELAY_REQUEST_WORKERS = 8
+MAX_NETWORK_PROBE_WORKERS = 4
+
+_NETWORK_DEADLINE = threading.local()
+_RELAY_REQUEST_SLOTS = threading.BoundedSemaphore(MAX_RELAY_REQUEST_WORKERS)
+_NETWORK_PROBE_SLOTS = threading.BoundedSemaphore(MAX_NETWORK_PROBE_WORKERS)
 
 # Serializes the load-mutate-save sequence in the team_* helpers. They run in
 # a threadpool (see _run), so concurrent dashboard requests could otherwise
@@ -1164,6 +1194,40 @@ class RelayClientError(Exception):
         super().__init__(message)
         self.message = message
         self.status = status
+
+
+_SAFE_RELAY_MESSAGES = {
+    "profile must be an object",
+    "relay is at team capacity",
+    "team not found",
+    "invalid invite secret",
+    "team is full",
+    "invalid member credentials",
+    "only the team owner may do that",
+    "use leave to remove yourself",
+    "member not found",
+    "membership proof required to view leaderboard",
+}
+
+
+def _safe_relay_error(message: Any, status: int) -> str:
+    """Map untrusted transport/relay errors to credential-safe user copy."""
+    normalized = str(message or "").strip()
+    if normalized in _SAFE_RELAY_MESSAGES:
+        return normalized
+    if status == 0:
+        return "Could not reach the relay."
+    if status in {401, 403}:
+        return "The relay rejected the team credentials or requested action."
+    if status == 404:
+        return "The relay could not find that team or member."
+    if status == 409:
+        return "The relay could not complete the request because the team state changed."
+    if status == 429:
+        return "The relay is at capacity."
+    if status >= 500:
+        return "The relay could not complete the request."
+    return f"The relay rejected the request (HTTP {status})."
 
 
 def team_config_path() -> Path:
@@ -1288,8 +1352,18 @@ def _validate_relay_url(url: Any) -> str:
         raise ValueError("Relay URL is required.")
     cleaned = url.strip()
     parsed = urllib.parse.urlparse(cleaned)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    if parsed.scheme not in ("http", "https") or not parsed.netloc or not parsed.hostname:
         raise ValueError("Relay URL must be an http(s) URL, e.g. http://host:9137.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Relay URLs cannot contain embedded credentials.")
+    if parsed.query or parsed.fragment:
+        raise ValueError("Relay URLs cannot contain a query string or fragment.")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Relay URL contains an invalid port.") from exc
+    if port is not None and not 1 <= port <= 65535:
+        raise ValueError("Relay URL contains an invalid port.")
     return cleaned.rstrip("/")
 
 
@@ -1303,7 +1377,11 @@ def encode_invite(relay_url: str, team_id: str, team_name: str, join_secret: str
 def decode_invite(code: Any) -> Dict[str, Any]:
     if not isinstance(code, str) or not code.strip():
         raise ValueError("Invite code is required.")
+    if len(code) > MAX_INVITE_CODE_LENGTH:
+        raise ValueError("Invite code is too large.")
     text = code.strip().strip('"').strip("'")
+    if len(text) > MAX_INVITE_CODE_LENGTH:
+        raise ValueError("Invite code is too large.")
     if INVITE_PREFIX not in text:
         raise ValueError("That does not look like a Fabric leaderboard invite.")
     token = text[text.index(INVITE_PREFIX) + len(INVITE_PREFIX):].strip()
@@ -1312,21 +1390,40 @@ def decode_invite(code: Any) -> Dict[str, Any]:
     token = token.split()[0] if token.split() else ""
     if not token:
         raise ValueError("Invite code is empty.")
+    if len(token) > MAX_INVITE_CODE_LENGTH or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
+        raise ValueError("Malformed invite code.")
     padding = "=" * (-len(token) % 4)
     try:
-        raw = base64.urlsafe_b64decode(token + padding)
+        raw = base64.b64decode(token + padding, altchars=b"-_", validate=True)
+        if len(raw) > MAX_INVITE_PAYLOAD_LENGTH:
+            raise ValueError("Invite payload is too large.")
         payload = json.loads(raw.decode("utf-8"))
     except Exception as exc:
-        raise ValueError(f"Malformed invite code: {exc}")
+        raise ValueError("Malformed invite code.") from exc
     if not isinstance(payload, dict):
         raise ValueError("Invite code payload is invalid.")
-    if not payload.get("team_id") or not payload.get("relay") or not payload.get("secret"):
+    if payload.get("v") != 1:
+        raise ValueError("Invite code version is not supported.")
+    if not all(
+        isinstance(payload.get(key), str) and bool(payload[key].strip())
+        for key in ("team_id", "relay", "secret")
+    ):
         raise ValueError("Invite code is missing required fields.")
+    if len(payload["team_id"]) > 256 or len(payload["secret"]) > 4_096:
+        raise ValueError("Invite code contains an invalid credential.")
+    team_name = payload.get("team_name")
+    if team_name is not None and not isinstance(team_name, str):
+        raise ValueError("Invite code contains an invalid team name.")
+    if team_name and (
+        payload["secret"] in team_name
+        or INVITE_PREFIX.casefold() in team_name.casefold()
+    ):
+        team_name = "Team"
     return {
         "relay_url": _validate_relay_url(payload.get("relay")),
-        "team_id": str(payload.get("team_id")),
-        "team_name": str(payload.get("team_name") or "Team"),
-        "join_secret": str(payload.get("secret")),
+        "team_id": payload["team_id"],
+        "team_name": (team_name or "Team")[:120],
+        "join_secret": payload["secret"],
     }
 
 
@@ -1403,22 +1500,202 @@ def build_leaderboard_profile(achievements: List[Dict[str, Any]], display_name: 
 Transport = Callable[[str, str, Dict[str, str], Optional[bytes]], Tuple[int, Dict[str, Any]]]
 
 
-def _default_transport(method: str, url: str, headers: Dict[str, str], body: Optional[bytes]) -> Tuple[int, Dict[str, Any]]:
+class _NoRelayRedirects(urllib.request.HTTPRedirectHandler):
+    """Never forward relay credentials to a redirect target."""
+
+    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
+        return None
+
+
+# Relay invitations name the destination explicitly. Bypass process-global
+# HTTP(S)_PROXY settings so a private plain-HTTP tailnet credential is never
+# disclosed to an unrelated proxy, and disable redirects so credential headers
+# cannot cross origins. TLS verification remains urllib's default.
+_DIRECT_RELAY_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    _NoRelayRedirects(),
+)
+
+
+def _relay_opener(url: str) -> Any:
+    """Select a credential-safe opener for the relay target.
+
+    Plain HTTP is always direct because a proxy would see team credentials.
+    HTTPS public names may use the environment proxy (headers remain inside
+    end-to-end TLS); private/Tailscale/local targets always bypass it.
+    """
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or "").rstrip(".")
+    direct = parsed.scheme != "https" or _is_tailnet_target(host)
+    if not direct:
+        try:
+            address = ipaddress.ip_address(host)
+            direct = bool(
+                address.is_private
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_unspecified
+                or address.is_reserved
+            )
+        except ValueError:
+            direct = host.casefold() == "localhost" or "." not in host
+    if direct:
+        return _DIRECT_RELAY_OPENER
+    # Construct at call time so current HTTP(S)_PROXY/NO_PROXY settings apply.
+    return urllib.request.build_opener(_NoRelayRedirects())
+
+
+def _proxy_aware_https_opener(url: str) -> Any:
+    """Return a redirect-blocking opener that honors HTTPS proxy settings.
+
+    For an ambiguous ``https://*.ts.net`` endpoint this route is considered
+    only after the credential-free direct health check fails. A successful
+    proxy-aware health check binds later credentials to this same route; it
+    does not classify the endpoint as Serve or Funnel.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https":
+        raise RelayClientError("Public relay probing requires HTTPS.", status=0)
+    return urllib.request.build_opener(_NoRelayRedirects())
+
+
+def _remaining_network_timeout(limit: float) -> float:
+    deadline = getattr(_NETWORK_DEADLINE, "value", None)
+    if deadline is None:
+        return max(0.0, float(limit))
+    return max(0.0, min(float(limit), float(deadline) - time.monotonic()))
+
+
+def _with_network_deadline(seconds: float) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Give nested production probes one shared monotonic deadline."""
+
+    def decorate(fn: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(fn)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            previous = getattr(_NETWORK_DEADLINE, "value", None)
+            own_deadline = time.monotonic() + max(0.0, float(seconds))
+            _NETWORK_DEADLINE.value = (
+                min(float(previous), own_deadline)
+                if previous is not None
+                else own_deadline
+            )
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                if previous is None:
+                    try:
+                        delattr(_NETWORK_DEADLINE, "value")
+                    except AttributeError:
+                        pass
+                else:
+                    _NETWORK_DEADLINE.value = previous
+
+        return wrapped
+
+    return decorate
+
+
+def _run_bounded_daemon(
+    call: Callable[[], Any],
+    *,
+    timeout: float,
+    slots: threading.BoundedSemaphore,
+    cancel_event: Optional[threading.Event] = None,
+    on_timeout: Optional[Callable[[], None]] = None,
+) -> Any:
+    """Run an uncancellable stdlib network call behind a bounded daemon pool.
+
+    Python's urllib and getaddrinfo timeouts are not total deadlines. The
+    caller always returns within ``timeout``; at most the semaphore's fixed
+    number of daemon workers can remain inside an OS resolver or slow peer.
+    """
+    timeout = max(0.0, float(timeout))
+    if timeout <= 0 or not slots.acquire(blocking=False):
+        raise TimeoutError("Network diagnostic capacity is unavailable.")
+    done = threading.Event()
+    outcome: Dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            outcome["value"] = call()
+        except Exception as exc:  # noqa: BLE001 - re-raised in caller thread
+            outcome["error"] = exc
+        finally:
+            slots.release()
+            done.set()
+
+    threading.Thread(
+        target=run,
+        name="fabric-achievements-network-probe",
+        daemon=True,
+    ).start()
+    if not done.wait(timeout):
+        if cancel_event is not None:
+            cancel_event.set()
+        if on_timeout is not None:
+            # HTTPResponse.close() can contend with an in-progress read lock;
+            # never let cleanup extend the caller's absolute deadline.
+            def cleanup() -> None:
+                try:
+                    on_timeout()
+                except Exception:  # noqa: BLE001 - timeout is authoritative
+                    pass
+
+            threading.Thread(
+                target=cleanup,
+                name="fabric-achievements-network-cleanup",
+                daemon=True,
+            ).start()
+        raise TimeoutError("Network diagnostic timed out.")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")
+
+
+def _blocking_default_transport(
+    method: str,
+    url: str,
+    headers: Dict[str, str],
+    body: Optional[bytes],
+    active: Dict[str, Any],
+    opener_selector: Callable[[str], Any],
+) -> Tuple[int, Dict[str, Any]]:
+    def read_body(response: Any) -> bytes:
+        chunks: List[bytes] = []
+        total = 0
+        while total <= MAX_RELAY_RESPONSE_BYTES:
+            if active["cancelled"].is_set() or time.monotonic() >= active["deadline"]:
+                raise TimeoutError("Relay response exceeded its total deadline.")
+            amount = min(65_536, MAX_RELAY_RESPONSE_BYTES + 1 - total)
+            reader = getattr(response, "read1", None)
+            chunk = reader(amount) if callable(reader) else response.read(amount)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        return b"".join(chunks)
+
     request = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=TEAM_HTTP_TIMEOUT) as response:
+        with opener_selector(url).open(request, timeout=TEAM_HTTP_TIMEOUT) as response:
+            active["response"] = response
+            if active["cancelled"].is_set():
+                raise TimeoutError("Relay request was cancelled.")
             status = response.getcode()
-            raw = response.read()
+            raw = read_body(response)
     except urllib.error.HTTPError as exc:  # 4xx/5xx still carry a JSON body
         status = exc.code
+        active["response"] = exc
         try:
-            raw = exc.read()
+            raw = read_body(exc)
         except Exception:
             raw = b""
-    except urllib.error.URLError as exc:
-        raise RelayClientError(f"Could not reach the relay: {exc.reason}", status=0)
-    except Exception as exc:  # noqa: BLE001
-        raise RelayClientError(f"Relay request failed: {exc}", status=0)
+    except urllib.error.URLError:
+        raise RelayClientError("Could not reach the relay.", status=0) from None
+    except Exception:  # noqa: BLE001
+        raise RelayClientError("Relay request failed.", status=0) from None
+    if len(raw) > MAX_RELAY_RESPONSE_BYTES:
+        raise RelayClientError("Relay response exceeded the size limit.", status=502)
     try:
         data = json.loads(raw.decode("utf-8")) if raw else {}
     except Exception:
@@ -1426,10 +1703,68 @@ def _default_transport(method: str, url: str, headers: Dict[str, str], body: Opt
     return status, data if isinstance(data, dict) else {}
 
 
+def _bounded_default_transport(
+    method: str,
+    url: str,
+    headers: Dict[str, str],
+    body: Optional[bytes],
+    opener_selector: Callable[[str], Any],
+) -> Tuple[int, Dict[str, Any]]:
+    timeout = _remaining_network_timeout(TEAM_HTTP_TIMEOUT)
+    cancelled = threading.Event()
+    active: Dict[str, Any] = {
+        "cancelled": cancelled,
+        "deadline": time.monotonic() + timeout,
+    }
+
+    def close_active_response() -> None:
+        response = active.get("response")
+        if response is not None:
+            response.close()
+
+    try:
+        return _run_bounded_daemon(
+            lambda: _blocking_default_transport(
+                method, url, headers, body, active, opener_selector
+            ),
+            timeout=timeout,
+            slots=_RELAY_REQUEST_SLOTS,
+            cancel_event=cancelled,
+            on_timeout=close_active_response,
+        )
+    except RelayClientError:
+        raise
+    except TimeoutError:
+        raise RelayClientError("Relay request timed out.", status=0) from None
+    except Exception:  # noqa: BLE001 - keep transport failures credential-safe
+        raise RelayClientError("Could not reach the relay.", status=0) from None
+
+
+def _default_transport(
+    method: str,
+    url: str,
+    headers: Dict[str, str],
+    body: Optional[bytes],
+) -> Tuple[int, Dict[str, Any]]:
+    return _bounded_default_transport(method, url, headers, body, _relay_opener)
+
+
+def _proxy_aware_https_transport(
+    method: str,
+    url: str,
+    headers: Dict[str, str],
+    body: Optional[bytes],
+) -> Tuple[int, Dict[str, Any]]:
+    """HTTPS-only transport considered after an anonymous direct-route miss."""
+    return _bounded_default_transport(
+        method, url, headers, body, _proxy_aware_https_opener
+    )
+
+
 class RelayClient:
     def __init__(self, base_url: str, transport: Optional[Transport] = None) -> None:
         self.base_url = _validate_relay_url(base_url)
-        self._transport = transport or _default_transport
+        self._transport = transport or _select_relay_transport(self.base_url)
 
     def _call(self, method: str, path: str, body: Optional[Dict[str, Any]] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         url = self.base_url + path
@@ -1440,10 +1775,15 @@ class RelayClient:
             request_headers["Content-Type"] = "application/json"
         if headers:
             request_headers.update(headers)
-        status, payload = self._transport(method, url, request_headers, data)
+        try:
+            status, payload = self._transport(method, url, request_headers, data)
+        except RelayClientError as exc:
+            raise RelayClientError(_safe_relay_error(exc.message, exc.status), exc.status) from None
+        except Exception:
+            raise RelayClientError("Could not reach the relay.", status=0) from None
         if status < 200 or status >= 300:
             message = payload.get("error") if isinstance(payload, dict) else None
-            raise RelayClientError(message or f"Relay returned HTTP {status}.", status=status)
+            raise RelayClientError(_safe_relay_error(message, status), status=status)
         return payload if isinstance(payload, dict) else {}
 
     def _mutate(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -1533,8 +1873,8 @@ def _require_fields(result: Dict[str, Any], keys: Tuple[str, ...]) -> None:
 #     with one click, tracked in a small state file so it survives a dashboard
 #     restart.
 # Tailscale reads reuse ``fabric_cli.tailscale_setup`` (the same code behind
-# ``fabric setup tailscale``); only this node's own name/IPs are read — never
-# peer or tailnet data. Connecting Tailscale (the interactive QR login) stays
+# ``fabric setup tailscale``); only this node's own name/IPs and the current
+# MagicDNS suffix are read — never the peer list. Connecting Tailscale stays
 # the CLI's job: the UI hands the user ``fabric setup tailscale`` rather than
 # duplicating that ceremony without a terminal.
 
@@ -1593,7 +1933,7 @@ def _reused_tailscale_identity() -> Optional[Dict[str, Any]]:
     """Read Tailscale identity via ``fabric_cli.tailscale_setup`` (reuse).
 
     Returns a normalized dict (``installed``/``running``/``backend_state``/
-    ``magicdns``/``ip``), or ``None`` when the reused module isn't importable so
+    ``magicdns``/``ip``/``tailnet_dns_suffix``), or ``None`` when the reused module isn't importable so
     ``detect_tailscale`` knows to fall back to a direct probe. Never raises.
     """
     if _ts_find_binary is None or _ts_status is None:
@@ -1603,19 +1943,37 @@ def _reused_tailscale_identity() -> Optional[Dict[str, Any]]:
     except Exception:  # noqa: BLE001
         binary = None
     if not binary:
-        return {"installed": False, "running": False, "backend_state": None, "magicdns": None, "ip": None}
+        return {
+            "installed": False,
+            "running": False,
+            "status_verified": True,
+            "backend_state": None,
+            "magicdns": None,
+            "ip": None,
+            "tailnet_dns_suffix": None,
+        }
     try:
         status = _ts_status(binary)
     except Exception:  # noqa: BLE001
         status = None
     if status is None:
-        return {"installed": True, "running": False, "backend_state": None, "magicdns": None, "ip": None}
+        return {
+            "installed": True,
+            "running": False,
+            "status_verified": False,
+            "backend_state": None,
+            "magicdns": None,
+            "ip": None,
+            "tailnet_dns_suffix": None,
+        }
     return {
         "installed": True,
         "running": bool(status.is_running),
+        "status_verified": True,
         "backend_state": status.backend_state,
         "magicdns": status.dns_name,
         "ip": status.ip,
+        "tailnet_dns_suffix": status.tailnet_dns_suffix,
     }
 
 
@@ -1626,7 +1984,8 @@ def detect_tailscale() -> Dict[str, Any]:
     helpers; falls back to a direct ``tailscale status --json`` probe when that
     module isn't importable. A machine without Tailscale reports
     ``installed: False``; an installed-but-logged-out node reports
-    ``running: False`` with no usable address. Only ``Self`` is read.
+    ``running: False`` with no usable address. Only ``Self`` and the current
+    tailnet's MagicDNS suffix are read; peer records are ignored.
     """
     reused = _reused_tailscale_identity()
     if reused is not None:
@@ -1634,7 +1993,9 @@ def detect_tailscale() -> Dict[str, Any]:
             return {
                 "installed": False,
                 "running": False,
+                "status_verified": True,
                 "magicdns": None,
+                "tailnet_dns_suffix": None,
                 "ipv4": None,
                 "ipv6": None,
                 "ips": [],
@@ -1649,8 +2010,10 @@ def detect_tailscale() -> Dict[str, Any]:
         return {
             "installed": True,
             "running": bool(reused.get("running")),
+            "status_verified": bool(reused.get("status_verified", True)),
             "backend_state": reused.get("backend_state"),
             "magicdns": reused.get("magicdns"),
+            "tailnet_dns_suffix": reused.get("tailnet_dns_suffix"),
             "ipv4": ipv4,
             "ipv6": ipv6,
             "ips": [str(parsed_ip)] if parsed_ip else [],
@@ -1660,7 +2023,9 @@ def detect_tailscale() -> Dict[str, Any]:
         return {
             "installed": False,
             "running": False,
+            "status_verified": True,
             "magicdns": None,
+            "tailnet_dns_suffix": None,
             "ipv4": None,
             "ipv6": None,
             "ips": [],
@@ -1670,7 +2035,9 @@ def detect_tailscale() -> Dict[str, Any]:
         return {
             "installed": True,
             "running": False,
+            "status_verified": False,
             "magicdns": None,
+            "tailnet_dns_suffix": None,
             "ipv4": None,
             "ipv6": None,
             "ips": [],
@@ -1681,7 +2048,9 @@ def detect_tailscale() -> Dict[str, Any]:
         return {
             "installed": True,
             "running": False,
+            "status_verified": False,
             "magicdns": None,
+            "tailnet_dns_suffix": None,
             "ipv4": None,
             "ipv6": None,
             "ips": [],
@@ -1693,13 +2062,18 @@ def detect_tailscale() -> Dict[str, Any]:
     ipv6 = next((ip for ip in ips if ":" in ip), None)
     magicdns = (self_node.get("DNSName") or "").rstrip(".") or None
     backend = data.get("BackendState") if isinstance(data, dict) else None
+    current_tailnet = data.get("CurrentTailnet") if isinstance(data, dict) else None
+    current_tailnet = current_tailnet if isinstance(current_tailnet, dict) else {}
+    tailnet_dns_suffix = (current_tailnet.get("MagicDNSSuffix") or "").rstrip(".") or None
     # Case-insensitive to match the reused path's TailscaleStatus.is_running.
     running = isinstance(backend, str) and backend.casefold() == "running" and bool(ips)
     return {
         "installed": True,
         "running": running,
+        "status_verified": True,
         "backend_state": backend,
         "magicdns": magicdns,
+        "tailnet_dns_suffix": tailnet_dns_suffix,
         "ipv4": ipv4,
         "ipv6": ipv6,
         "ips": ips,
@@ -1718,25 +2092,661 @@ def _probe_relay_health(relay_url: Any, transport: Optional[Transport] = None) -
     try:
         base = _validate_relay_url(relay_url)
     except ValueError as exc:
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "reachable": False, "error": str(exc)}
     call = transport or _default_transport
     try:
         status, payload = call("GET", base + "/health", {"Accept": "application/json"}, None)
     except RelayClientError as exc:
-        return {"ok": False, "error": exc.message}
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": f"Could not reach {base}: {exc}"}
+        reachable = bool(exc.status)
+        return {
+            "ok": False,
+            "reachable": reachable,
+            "error": (
+                f"Relay returned HTTP {exc.status}."
+                if reachable
+                else "Could not reach the relay."
+            ),
+        }
+    except Exception:  # noqa: BLE001
+        return {"ok": False, "reachable": False, "error": "Could not reach the relay."}
     if status < 200 or status >= 300:
-        return {"ok": False, "error": f"Relay returned HTTP {status}."}
+        return {"ok": False, "reachable": True, "error": f"Relay returned HTTP {status}."}
     if not isinstance(payload, dict) or "schema_version" not in payload:
-        return {"ok": False, "error": "That address answered, but it is not a Fabric leaderboard relay."}
+        return {"ok": False, "reachable": True, "error": "That address answered, but it is not a Fabric leaderboard relay."}
     return {
         "ok": True,
+        "reachable": True,
         "url": base,
         "schema_version": payload.get("schema_version"),
         "teams": payload.get("teams"),
         "members": payload.get("members"),
     }
+
+
+DnsResolver = Callable[[str, int], bool]
+HostProbe = Callable[[str], Any]
+TcpProbe = Callable[[str, int], bool]
+
+_TAILSCALE_IPV4 = ipaddress.ip_network("100.64.0.0/10")
+_TAILSCALE_IPV6 = ipaddress.ip_network("fd7a:115c:a1e0::/48")
+
+
+def _relay_target(relay_url: str) -> Tuple[str, int]:
+    parsed = urllib.parse.urlparse(_validate_relay_url(relay_url))
+    host = parsed.hostname or ""
+    port = parsed.port if parsed.port is not None else (443 if parsed.scheme == "https" else 80)
+    return host.rstrip("."), port
+
+
+def _is_tailnet_target(host: str, _relay_url: Optional[str] = None) -> bool:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        # HTTPS does not prove Funnel: private Tailscale Serve uses the same
+        # *.ts.net names. Invite v1 has no public/private flag, so classify the
+        # ambiguous form conservatively as tailnet-private.
+        return host.casefold().endswith(".ts.net")
+    return address in (_TAILSCALE_IPV4 if address.version == 4 else _TAILSCALE_IPV6)
+
+
+def _is_ambiguous_tailscale_https(relay_url: str) -> bool:
+    """Whether Serve and Funnel can share this exact URL shape."""
+    try:
+        parsed = urllib.parse.urlparse(_validate_relay_url(relay_url))
+    except ValueError:
+        return False
+    return bool(
+        parsed.scheme == "https"
+        and (parsed.hostname or "").rstrip(".").casefold().endswith(".ts.net")
+    )
+
+
+@_with_network_deadline(AMBIGUOUS_HTTPS_HEALTH_TIMEOUT)
+def _probe_ambiguous_route_health(
+    relay_url: str,
+    transport: Transport,
+) -> Dict[str, Any]:
+    """Give one candidate route its own bounded attempt."""
+    return _probe_relay_health(relay_url, transport=transport)
+
+
+def _probe_ambiguous_https_route(
+    relay_url: str,
+    *,
+    direct_transport: Transport,
+    proxy_transport: Optional[Transport] = None,
+) -> Tuple[Optional[Transport], Dict[str, Any]]:
+    """Find a usable credential route without classifying Serve vs Funnel.
+
+    Private Tailscale Serve and public Funnel have the same ``https://*.ts.net``
+    URL shape, so an anonymous response cannot distinguish them. Probe the
+    redirect-blocked direct route first and only try a proxy-aware HTTPS route
+    if direct access fails. Callers may then send credentials only through the
+    exact transport whose credential-free ``/health`` request succeeded.
+    """
+    if not _is_ambiguous_tailscale_https(relay_url):
+        return None, {
+            "ok": False,
+            "reachable": False,
+            "error": "Not an ambiguous Tailscale HTTPS URL.",
+        }
+    direct_health = _probe_ambiguous_route_health(relay_url, direct_transport)
+    if direct_health.get("ok"):
+        return direct_transport, direct_health
+    if proxy_transport is None or proxy_transport is direct_transport:
+        return None, direct_health
+    proxy_health = _probe_ambiguous_route_health(relay_url, proxy_transport)
+    if proxy_health.get("ok"):
+        return proxy_transport, proxy_health
+    return None, proxy_health
+
+
+def _select_relay_transport(relay_url: str) -> Transport:
+    """Use the first anonymous route that proves it reaches this relay."""
+    if _is_ambiguous_tailscale_https(relay_url):
+        route, _health = _probe_ambiguous_https_route(
+            relay_url,
+            direct_transport=_default_transport,
+            proxy_transport=_proxy_aware_https_transport,
+        )
+        if route is not None:
+            return route
+    return _default_transport
+
+
+def _wrong_tailnet(host: str, tailscale: Dict[str, Any]) -> bool:
+    """Return true only for a definitive MagicDNS suffix mismatch."""
+    if not host.casefold().endswith(".ts.net"):
+        return False
+    suffix = str(tailscale.get("tailnet_dns_suffix") or "").strip().rstrip(".").casefold()
+    if not suffix:
+        return False
+    normalized = host.rstrip(".").casefold()
+    return normalized != suffix and not normalized.endswith("." + suffix)
+
+
+def _bounded_getaddrinfo(host: str, port: int) -> List[Any]:
+    try:
+        result = _run_bounded_daemon(
+            lambda: socket.getaddrinfo(host, port, type=socket.SOCK_STREAM),
+            timeout=_remaining_network_timeout(DNS_PROBE_TIMEOUT),
+            slots=_NETWORK_PROBE_SLOTS,
+        )
+    except (OSError, UnicodeError, ValueError, TimeoutError):
+        return []
+    return result if isinstance(result, list) else []
+
+
+def _resolve_host(host: str, port: int) -> bool:
+    return bool(_bounded_getaddrinfo(host, port))
+
+
+def _probe_tcp_port(host: str, port: int) -> bool:
+    addresses = _bounded_getaddrinfo(host, port)
+    deadline = time.monotonic() + _remaining_network_timeout(TCP_PROBE_TIMEOUT)
+    for family, socktype, proto, _canonname, sockaddr in addresses:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            with socket.socket(family, socktype, proto) as candidate:
+                candidate.settimeout(remaining)
+                candidate.connect(sockaddr)
+                return True
+        except (OSError, UnicodeError, ValueError):
+            continue
+    return False
+
+
+def _probe_tailnet_host(host: str) -> Tuple[bool, str]:
+    """Run one bounded Tailscale peer probe without retaining CLI output."""
+    timeout = _remaining_network_timeout(8)
+    if timeout <= 0:
+        return False, "timeout"
+
+    def run() -> Tuple[bool, str]:
+        if _ts_find_binary is not None and _ts_ping is not None:
+            try:
+                result = _ts_ping(_ts_find_binary(), host)
+                return bool(result.reachable), str(result.outcome)
+            except Exception:  # noqa: BLE001 - diagnostics must degrade safely
+                return False, "unavailable"
+        code, _output = _run_tailscale(
+            ["ping", "--c=1", "--timeout=5s", host],
+            timeout=max(1, min(8, int(timeout))),
+        )
+        if code == 0:
+            return True, "reachable"
+        return (False, "unavailable") if code == -1 else (False, "unreachable")
+
+    try:
+        result = _run_bounded_daemon(
+            run,
+            timeout=timeout,
+            slots=_NETWORK_PROBE_SLOTS,
+        )
+        if isinstance(result, tuple) and len(result) == 2:
+            return bool(result[0]), str(result[1])
+    except TimeoutError:
+        return False, "timeout"
+    return False, "unavailable"
+
+
+def _safe_check(name: str, status: str) -> Dict[str, str]:
+    return {"name": name, "status": status}
+
+
+def _safe_preview_text(
+    value: Any,
+    *,
+    sensitive_values: List[Any],
+    fallback: str,
+    max_length: int,
+) -> str:
+    """Keep display previews from becoming a credential side channel."""
+    text = str(value or "").strip()
+    folded = text.casefold()
+    if not text or INVITE_PREFIX.casefold() in folded:
+        return fallback
+    for sensitive in sensitive_values:
+        credential = str(sensitive or "").strip()
+        if credential and credential.casefold() in folded:
+            return fallback
+    return text[:max_length]
+
+
+def _managed_relay_matches_membership(
+    membership: Dict[str, Any],
+    tailscale: Dict[str, Any],
+    state: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Prove that an owner membership points at this exact managed process."""
+    if str(membership.get("role") or "").casefold() != "owner":
+        return False
+    try:
+        membership_url = _validate_relay_url(membership.get("relay_url"))
+        parsed_membership = urllib.parse.urlparse(membership_url)
+        member_host, member_port = _relay_target(membership_url)
+    except ValueError:
+        return False
+    relay_state = state if isinstance(state, dict) else load_relay_state()
+    identity = _relay_state_identity(relay_state)
+    if identity not in {"same", "starting", "gone"}:
+        return False
+    if identity == "gone":
+        try:
+            recorded_pid = int(relay_state["pid"])
+            recorded_start = int(relay_state["start_time"])
+            recorded_port = int(relay_state["port"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        if (
+            recorded_pid <= 0
+            or recorded_start <= 0
+            or not 1 <= recorded_port <= 65535
+            or not str(relay_state.get("host") or "").strip()
+        ):
+            return False
+    try:
+        state_port = int(relay_state["port"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if not 1 <= state_port <= 65535:
+        return False
+    state_host = str(relay_state.get("host") or "").strip().rstrip(".").casefold()
+    if not state_host:
+        return False
+    magicdns = str(tailscale.get("magicdns") or "").strip().rstrip(".").casefold()
+    local_tailscale_aliases = {
+        "127.0.0.1",
+        "::1",
+        "localhost",
+        magicdns,
+        str(tailscale.get("ipv4") or "").strip().casefold(),
+        str(tailscale.get("ipv6") or "").strip().casefold(),
+    }
+    local_tailscale_aliases.discard("")
+    standard_https_facade = bool(
+        state_port == DEFAULT_RELAY_PORT
+        and member_port == 443
+        and parsed_membership.scheme == "https"
+        and parsed_membership.path in {"", "/"}
+        and magicdns
+        and member_host.casefold() == magicdns
+        and state_host in local_tailscale_aliases
+    )
+    if member_port != state_port and not standard_https_facade:
+        return False
+    aliases = {
+        "127.0.0.1",
+        "::1",
+        "localhost",
+        state_host,
+        magicdns,
+        str(tailscale.get("ipv4") or "").strip().casefold(),
+        str(tailscale.get("ipv6") or "").strip().casefold(),
+    }
+    aliases.discard("")
+    return member_host.casefold() in aliases
+
+
+def _connection_payload(
+    state: str,
+    *,
+    actor: str,
+    title: str,
+    message: str,
+    relay_host: Optional[str],
+    relay_port: Optional[int],
+    team_name: Optional[str],
+    checks: List[Dict[str, str]],
+    tailscale_required: bool,
+    tailscale: Optional[Dict[str, Any]] = None,
+    can_restart: bool = False,
+) -> Dict[str, Any]:
+    if state not in CONNECTION_STATES:
+        raise ValueError("Unknown connection state.")
+    checked_at = int(time.time())
+    diagnostic = {
+        "version": 1,
+        "state": state,
+        "actor": actor,
+        "relay_host": relay_host,
+        "relay_port": relay_port,
+        "tailscale_required": tailscale_required,
+        "tailscale": {
+            "installed": bool(tailscale and tailscale.get("installed")),
+            "running": bool(tailscale and tailscale.get("running")),
+        },
+        "checks": [
+            {"name": str(check.get("name") or ""), "status": str(check.get("status") or "")}
+            for check in checks
+        ],
+        "checked_at": checked_at,
+    }
+    return {
+        "state": state,
+        "title": title,
+        "message": message,
+        "actor": actor,
+        "retryable": state != "CONNECTED",
+        "can_join": state == "CONNECTED",
+        "can_restart": bool(
+            can_restart and state == "HOST_REACHABLE_RELAY_DOWN"
+        ),
+        "preview": {
+            "team_name": team_name or "Team",
+            "relay_host": relay_host,
+            "relay_port": relay_port,
+        },
+        "checks": checks,
+        # Deliberately constructed from an allowlist. Never add config, invite,
+        # credentials, relay responses, exceptions, transcripts, or metrics.
+        "diagnostic": diagnostic,
+    }
+
+
+@_with_network_deadline(PREFLIGHT_TOTAL_TIMEOUT)
+def team_preflight(
+    invite_code: Optional[str] = None,
+    transport: Optional[Transport] = None,
+    *,
+    dns_resolver: Optional[DnsResolver] = None,
+    host_probe: Optional[HostProbe] = None,
+    tcp_probe: Optional[TcpProbe] = None,
+) -> Dict[str, Any]:
+    """Diagnose relay connectivity layer-by-layer without mutating team state."""
+    config = load_team_config()
+    membership = config.get("membership")
+    current = isinstance(membership, dict) and invite_code is None
+    actor = (
+        "owner"
+        if current and str(membership.get("role") or "").casefold() == "owner"
+        else "member"
+    )
+    try:
+        if invite_code is not None:
+            target = decode_invite(invite_code)
+        elif current:
+            target = {
+                "relay_url": membership.get("relay_url"),
+                "team_id": membership.get("team_id"),
+                "team_name": membership.get("team_name") or "Team",
+                "join_secret": membership.get("join_secret"),
+                "member_id": membership.get("member_id"),
+                "member_token": membership.get("member_token"),
+            }
+        else:
+            raise ValueError("Enter an invite code to run diagnostics.")
+        relay_url = _validate_relay_url(target.get("relay_url"))
+        relay_host, relay_port = _relay_target(relay_url)
+    except (TypeError, ValueError):
+        return _connection_payload(
+            "INVITE_INVALID",
+            actor=actor,
+            title="Invite is invalid",
+            message="This invite could not be decoded. Ask the team owner for a fresh invite.",
+            relay_host=None,
+            relay_port=None,
+            team_name=None,
+            checks=[_safe_check("invite", "fail")],
+            tailscale_required=False,
+        )
+
+    checks = [_safe_check("invite", "pass")]
+    tailscale_required = _is_tailnet_target(relay_host, relay_url)
+    effective_transport = transport or _default_transport
+    routed_https_health: Optional[Dict[str, Any]] = None
+    tailscale = detect_tailscale() if tailscale_required else {
+        "installed": False,
+        "running": False,
+    }
+    if (
+        tailscale_required
+        and _is_ambiguous_tailscale_https(relay_url)
+        and not (
+            tailscale.get("status_verified", True)
+            and tailscale.get("installed")
+            and tailscale.get("running")
+            and not _wrong_tailnet(relay_host, tailscale)
+        )
+    ):
+        route, route_health = _probe_ambiguous_https_route(
+            relay_url,
+            direct_transport=effective_transport,
+            proxy_transport=(None if transport is not None else _proxy_aware_https_transport),
+        )
+        if route is not None:
+            # This is a route-availability fact, not a Serve/Funnel
+            # classification. Reuse the same route when credentials are added.
+            tailscale_required = False
+            effective_transport = route
+            routed_https_health = route_health
+    sensitive_values = [
+        target.get("join_secret"),
+        target.get("member_token"),
+        target.get("member_id"),
+        target.get("team_id"),
+        invite_code,
+    ]
+    display_host = _safe_preview_text(
+        relay_host,
+        sensitive_values=sensitive_values,
+        fallback="[redacted relay host]",
+        max_length=253,
+    )
+    display_team = _safe_preview_text(
+        target.get("team_name") or "Team",
+        sensitive_values=sensitive_values,
+        fallback="Team",
+        max_length=120,
+    )
+    can_restart = bool(
+        current
+        and isinstance(membership, dict)
+        and _managed_relay_matches_membership(membership, tailscale)
+    )
+
+    def result(state: str, title: str, message: str) -> Dict[str, Any]:
+        return _connection_payload(
+            state,
+            actor=actor,
+            title=title,
+            message=message,
+            relay_host=display_host,
+            relay_port=relay_port,
+            team_name=display_team,
+            checks=checks,
+            tailscale_required=tailscale_required,
+            tailscale=tailscale,
+            can_restart=(
+                can_restart and state == "HOST_REACHABLE_RELAY_DOWN"
+            ),
+        )
+
+    if tailscale_required:
+        if not tailscale.get("installed"):
+            checks.append(_safe_check("tailscale", "fail"))
+            return result(
+                "TAILSCALE_MISSING",
+                "Tailscale is not installed",
+                "This relay uses Tailscale. Install Tailscale, connect it, then retry.",
+            )
+        if not tailscale.get("status_verified", True):
+            checks.append(_safe_check("tailscale", "unavailable"))
+            return result(
+                "TAILSCALE_UNAVAILABLE",
+                "Tailscale status could not be verified",
+                "Fabric found Tailscale but could not read its status. Open Tailscale, then retry diagnostics.",
+            )
+        if not tailscale.get("running"):
+            checks.append(_safe_check("tailscale", "fail"))
+            return result(
+                "TAILSCALE_DISCONNECTED",
+                "Tailscale is disconnected",
+                "Tailscale is installed but not connected. Connect it, then retry.",
+            )
+        checks.append(_safe_check("tailscale", "pass"))
+        if _wrong_tailnet(relay_host, tailscale):
+            checks.append(_safe_check("tailnet", "fail"))
+            return result(
+                "WRONG_TAILNET",
+                "This relay is on another tailnet",
+                "Tailscale is connected to a different tailnet than this relay. Switch tailnets, then retry.",
+            )
+        checks.append(_safe_check("tailnet", "pass"))
+    else:
+        checks.extend([
+            _safe_check("tailscale", "skipped"),
+            _safe_check("tailnet", "skipped"),
+        ])
+
+    if tailscale_required:
+        resolve = dns_resolver or (
+            _resolve_host if transport is None else lambda _host, _port: True
+        )
+        try:
+            resolved = bool(resolve(relay_host, relay_port))
+        except Exception:  # noqa: BLE001 - a failed seam is a failed check
+            resolved = False
+        if not resolved:
+            checks.append(_safe_check("dns", "fail"))
+            return result(
+                "HOST_OFFLINE",
+                "Relay host could not be found",
+                "The relay hostname did not resolve. Check the invite or ask the team owner to verify the address.",
+            )
+        checks.append(_safe_check("dns", "pass"))
+
+        probe_host = host_probe or _probe_tailnet_host
+        try:
+            raw_host_probe = probe_host(relay_host)
+        except Exception:  # noqa: BLE001 - a failed probe is not an API failure
+            raw_host_probe = (False, "unavailable")
+        if isinstance(raw_host_probe, tuple) and len(raw_host_probe) == 2:
+            host_reachable = bool(raw_host_probe[0])
+            host_outcome = str(raw_host_probe[1])
+        else:
+            host_reachable = bool(raw_host_probe)
+            host_outcome = "reachable" if host_reachable else "unreachable"
+        if not host_reachable and host_outcome == "unreachable":
+            checks.append(_safe_check("host", "fail"))
+            return result(
+                "HOST_OFFLINE",
+                "Relay host is offline",
+                "Tailscale is connected, but the relay host is not reachable. Ask the team owner to bring it online.",
+            )
+        checks.append(
+            _safe_check("host", "pass" if host_reachable else "unavailable")
+        )
+
+        probe_port = tcp_probe or (
+            _probe_tcp_port if transport is None else lambda _host, _port: True
+        )
+        try:
+            port_reachable = bool(probe_port(relay_host, relay_port))
+        except Exception:  # noqa: BLE001 - a failed probe is not an API failure
+            port_reachable = False
+        if not port_reachable:
+            checks.append(_safe_check("tcp", "fail"))
+            if not host_reachable:
+                return result(
+                    "HOST_PROBE_UNAVAILABLE",
+                    "Relay host could not be verified",
+                    "Tailscale is connected, but Fabric could not complete the host probe or connect to the relay port. Retry diagnostics or open Tailscale.",
+                )
+            message = (
+                f"The relay host is online, but its Fabric leaderboard relay is not responding on port {relay_port}. "
+                "Your Tailscale connection is working. "
+                + (
+                    "Restart the Fabric leaderboard relay below."
+                    if can_restart
+                    else "Ask the team owner to restart it."
+                )
+            )
+            return result(
+                "HOST_REACHABLE_RELAY_DOWN",
+                "Leaderboard relay is down",
+                message,
+            )
+        checks.append(_safe_check("tcp", "pass"))
+    else:
+        # Public/custom relays may be reachable only through an HTTPS proxy.
+        # The same redirect-safe transport used for credentials is authoritative
+        # here; direct DNS/TCP probes would create false negatives.
+        checks.extend([
+            _safe_check("dns", "skipped"),
+            _safe_check("host", "skipped"),
+            _safe_check("tcp", "skipped"),
+        ])
+
+    health = (
+        routed_https_health
+        if routed_https_health and routed_https_health.get("ok")
+        else _probe_relay_health(relay_url, transport=effective_transport)
+    )
+    if not health.get("ok"):
+        checks.append(_safe_check("health", "fail"))
+        if not tailscale_required and health.get("reachable") is False:
+            return result(
+                "HOST_OFFLINE",
+                "Relay address could not be reached",
+                "Fabric could not reach the relay address. Check the invite or ask the team owner to verify the server.",
+            )
+        if tailscale_required:
+            message = (
+                f"The relay host is online, but its Fabric leaderboard relay is not responding on port {relay_port}. "
+                "Your Tailscale connection is working. "
+                + (
+                    "Restart the Fabric leaderboard relay below."
+                    if can_restart
+                    else "Ask the team owner to restart it."
+                )
+            )
+        else:
+            message = (
+                "The address answered, but Fabric could not verify a healthy leaderboard relay there. "
+                "Ask the team owner to check the relay."
+            )
+        return result("HOST_REACHABLE_RELAY_DOWN", "Leaderboard relay is down", message)
+    checks.append(_safe_check("health", "pass"))
+
+    try:
+        roster = RelayClient(relay_url, transport=effective_transport).leaderboard(
+            str(target.get("team_id") or ""),
+            join_secret=(
+                None if current else str(target.get("join_secret") or "") or None
+            ),
+            member_id=str(target.get("member_id") or "") or None,
+            member_token=str(target.get("member_token") or "") or None,
+        )
+        if not isinstance(roster.get("leaderboard"), list):
+            raise RelayClientError("Relay returned an unexpected leaderboard response.", status=502)
+    except RelayClientError as exc:
+        checks.append(_safe_check("credentials", "fail"))
+        if exc.status == 0 or exc.status == 429 or exc.status >= 500:
+            return result(
+                "HOST_REACHABLE_RELAY_DOWN",
+                "Leaderboard relay stopped responding",
+                "The relay health check passed, but its leaderboard endpoint stopped responding. Retry in a moment.",
+            )
+        return result(
+            "RELAY_REACHABLE_INVITE_INVALID",
+            "Saved team credentials were rejected" if current else "Invite was rejected",
+            (
+                "The relay is reachable, but your saved membership credentials were rejected. "
+                "Leave locally and ask the team owner for a fresh invite."
+                if current
+                else "The relay is reachable, but these team credentials were rejected. "
+                "Ask the team owner for a fresh invite."
+            ),
+        )
+    checks.append(_safe_check("credentials", "pass"))
+    return result(
+        "CONNECTED",
+        "Relay is ready",
+        "Fabric verified the relay host, relay health, and team credentials.",
+    )
 
 
 def _coerce_port(port: Any) -> int:
@@ -1780,6 +2790,7 @@ def _relay_probe_url(host: Any, port: Any) -> str:
 # It stays behind the dashboard auth gate like the rest of /team/*.
 
 _RELAY_LOCK = threading.Lock()
+_RELAY_HEALTH_LOCK = threading.Lock()
 
 # Module-level timing seams keep real process supervision bounded and let tests
 # replace delays without sleeping.
@@ -1803,6 +2814,10 @@ def relay_state_path() -> Path:
     return get_fabric_home() / "plugins" / "fabric-achievements" / "relay.json"
 
 
+def relay_health_state_path() -> Path:
+    return get_fabric_home() / "plugins" / "fabric-achievements" / "relay-health.json"
+
+
 def relay_lock_path() -> Path:
     return relay_state_path().with_suffix(".lock")
 
@@ -1813,6 +2828,72 @@ def relay_roster_path() -> Path:
 
 def relay_log_path() -> Path:
     return get_fabric_home() / "logs" / "fabric-achievements-relay.log"
+
+
+def _secure_log_parent_metadata(parent: Path) -> os.stat_result:
+    """Snapshot a real directory, rejecting Windows reparse-point parents."""
+    metadata = os.lstat(parent)
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or bool(getattr(metadata, "st_file_attributes", 0) & reparse_flag)
+    ):
+        raise OSError("Log directory links are not allowed.")
+    return metadata
+
+
+def _open_secure_log_file(path: Path, *, append: bool) -> Any:
+    """Open one log without following links, FIFOs, devices, or hardlinks."""
+    parent = path.parent
+    if append:
+        parent.mkdir(parents=True, exist_ok=True)
+    parent_before = _secure_log_parent_metadata(parent)
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    nonblock = getattr(os, "O_NONBLOCK", 0)
+    cloexec = getattr(os, "O_CLOEXEC", 0)
+    binary = getattr(os, "O_BINARY", 0)
+    flags = nofollow | nonblock | cloexec | binary
+    flags |= os.O_WRONLY | os.O_APPEND | os.O_CREAT if append else os.O_RDONLY
+    dir_fd: Optional[int] = None
+    fd: Optional[int] = None
+    try:
+        before = None
+        try:
+            before = os.lstat(path)
+        except FileNotFoundError:
+            pass
+        if os.open in getattr(os, "supports_dir_fd", set()):
+            directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow
+            dir_fd = os.open(parent, directory_flags)
+            fd = os.open(path.name, flags, 0o600, dir_fd=dir_fd)
+        else:  # Windows fallback (also exercised through a test seam)
+            if path.is_symlink():
+                raise OSError("Log links are not allowed.")
+            fd = os.open(path, flags, 0o600)
+        metadata = os.fstat(fd)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise OSError("Log must be a single regular file.")
+        parent_after = _secure_log_parent_metadata(parent)
+        after = os.lstat(path)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        if (
+            not os.path.samestat(parent_before, parent_after)
+            or not os.path.samestat(after, metadata)
+            or (before is not None and not os.path.samestat(before, metadata))
+            or bool(getattr(after, "st_file_attributes", 0) & reparse_flag)
+        ):
+            raise OSError("Log identity changed while opening.")
+        if append and hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        handle = os.fdopen(fd, "ab" if append else "rb")
+        fd = None
+        return handle
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if dir_fd is not None:
+            os.close(dir_fd)
 
 
 def _relay_plugin_dir() -> Path:
@@ -1844,6 +2925,102 @@ def save_relay_state(state: Dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(state, indent=2, sort_keys=True))
     tmp.replace(path)
+
+
+def load_relay_health_state() -> Dict[str, Any]:
+    path = relay_health_state_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except Exception:  # noqa: BLE001
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_relay_health_state(state: Dict[str, Any]) -> None:
+    """Persist health timestamps only; this file must never contain secrets."""
+    allowed = {
+        "last_health_check_at",
+        "last_successful_health_at",
+        "last_magicdns_check_at",
+        "last_successful_magicdns_at",
+        "process_pid",
+        "process_start_time",
+    }
+    safe = {key: state.get(key) for key in allowed if state.get(key) is not None}
+    path = relay_health_state_path()
+    try:
+        from utils import atomic_json_write
+        atomic_json_write(path, safe)
+        return
+    except Exception:  # noqa: BLE001 - fall back to write-then-rename
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(safe, indent=2, sort_keys=True))
+    tmp.replace(path)
+
+
+def _relay_state_fingerprint(state: Dict[str, Any]) -> Tuple[Optional[int], Optional[int]]:
+    try:
+        return int(state["pid"]), int(state["start_time"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+
+
+def _record_relay_health(
+    *,
+    healthy: bool,
+    magicdns_checked: bool,
+    magicdns_ok: bool,
+    expected_identity: Tuple[Optional[int], Optional[int]],
+) -> Dict[str, Any]:
+    acquired, process_lock = _acquire_relay_process_lock()
+    if not acquired:
+        return load_relay_health_state()
+    try:
+        if _relay_state_fingerprint(load_relay_state()) != expected_identity:
+            return load_relay_health_state()
+        with _RELAY_HEALTH_LOCK:
+            state = load_relay_health_state()
+            stored_identity = _relay_state_fingerprint({
+                "pid": state.get("process_pid"),
+                "start_time": state.get("process_start_time"),
+            })
+            if stored_identity != expected_identity:
+                state = {}
+            now = int(time.time())
+            state["last_health_check_at"] = max(
+                int(state.get("last_health_check_at") or 0),
+                now,
+            )
+            if healthy:
+                state["last_successful_health_at"] = max(
+                    int(state.get("last_successful_health_at") or 0),
+                    now,
+                )
+            if magicdns_checked:
+                state["last_magicdns_check_at"] = max(
+                    int(state.get("last_magicdns_check_at") or 0),
+                    now,
+                )
+                if magicdns_ok:
+                    state["last_successful_magicdns_at"] = max(
+                        int(state.get("last_successful_magicdns_at") or 0),
+                        now,
+                    )
+            pid, start_time = expected_identity
+            if pid is not None and start_time is not None:
+                state["process_pid"] = pid
+                state["process_start_time"] = start_time
+            else:
+                state.pop("process_pid", None)
+                state.pop("process_start_time", None)
+            save_relay_health_state(state)
+            return state
+    finally:
+        _release_relay_process_lock(process_lock)
 
 
 def clear_relay_state() -> None:
@@ -1880,7 +3057,10 @@ def _pid_exists(pid: Any) -> bool:
             return False
         except Exception:  # noqa: BLE001
             pass
-        return bool(psutil.pid_exists(value))
+        try:
+            return bool(psutil.pid_exists(value))
+        except Exception:  # noqa: BLE001 - liveness checks fail closed
+            return False
     except ImportError:
         if os.name == "nt":
             # CPython maps os.kill(pid, 0) to CTRL_C_EVENT on Windows. Never
@@ -1959,7 +3139,41 @@ def _wait_original_process_gone(pid: int, start_time: int, timeout: float) -> bo
         time.sleep(RELAY_STOP_POLL_DELAY)
 
 
-def _signal_relay_pid(pid: int, *, force: bool) -> bool:
+def _signal_relay_pid(
+    pid: int,
+    *,
+    force: bool,
+    expected_start_time: Optional[int] = None,
+) -> bool:
+    if expected_start_time is not None:
+        try:
+            import signal
+            sig = getattr(signal, "SIGKILL", signal.SIGTERM) if force else signal.SIGTERM
+            pidfd_open = getattr(os, "pidfd_open", None)
+            pidfd_send = getattr(signal, "pidfd_send_signal", None)
+            if callable(pidfd_open) and callable(pidfd_send):  # Linux
+                pidfd = pidfd_open(int(pid), 0)
+                try:
+                    if _process_start_time(int(pid)) != int(expected_start_time):
+                        return False
+                    pidfd_send(pidfd, sig)
+                    return True
+                finally:
+                    os.close(pidfd)
+        except Exception:  # noqa: BLE001 - try psutil's reuse-guarded handle
+            pass
+        try:
+            import psutil
+            process = psutil.Process(int(pid))
+            if _process_start_time(int(pid)) != int(expected_start_time):
+                return False
+            if force:
+                process.kill()
+            else:
+                process.terminate()
+            return True
+        except Exception:  # noqa: BLE001 - never fall back to a bare PID
+            return False
     try:
         from gateway.status import terminate_pid
         terminate_pid(int(pid), force=force)
@@ -1983,16 +3197,28 @@ def _terminate_relay_pid(pid: int, start_time: int) -> bool:
     signalled. State remains on disk when exit cannot be confirmed so the
     dashboard does not forget a possibly-live relay.
     """
-    if _relay_process_identity(pid, start_time) != "same":
+    identity = _relay_process_identity(pid, start_time)
+    if identity in {"gone", "other"}:
+        return True
+    if identity != "same":
         return False
-    if not _signal_relay_pid(pid, force=False):
-        return False
+    if not _signal_relay_pid(
+        pid,
+        force=False,
+        expected_start_time=start_time,
+    ):
+        return _relay_process_identity(pid, start_time) in {"gone", "other"}
     if _wait_original_process_gone(pid, start_time, RELAY_STOP_TIMEOUT):
         return True
-    if _relay_process_identity(pid, start_time) != "same":
-        return False
-    if not _signal_relay_pid(pid, force=True):
-        return False
+    identity = _relay_process_identity(pid, start_time)
+    if identity != "same":
+        return identity in {"gone", "other"}
+    if not _signal_relay_pid(
+        pid,
+        force=True,
+        expected_start_time=start_time,
+    ):
+        return _relay_process_identity(pid, start_time) in {"gone", "other"}
     return _wait_original_process_gone(pid, start_time, RELAY_FORCE_TIMEOUT)
 
 
@@ -2057,7 +3283,6 @@ def _release_relay_process_lock(lock_fh: Optional[Any]) -> None:
 
 def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> Tuple[int, int]:
     """Spawn detached and return a PID plus a verified start-time fingerprint."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
     detach_kwargs: Dict[str, Any] = {}
     try:
         from fabric_cli._subprocess_compat import windows_detach_popen_kwargs
@@ -2072,7 +3297,7 @@ def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> Tuple[
         "close_fds": True,
         **detach_kwargs,
     }
-    log_fh = open(log_path, "ab")
+    log_fh = _open_secure_log_file(log_path, append=True)
     popen_kwargs["stdout"] = log_fh
     try:
         try:
@@ -2119,6 +3344,7 @@ def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any
     This read-only path does not delete state; start/stop own cleanup.
     """
     state = load_relay_state()
+    state_fingerprint = _relay_state_fingerprint(state)
     pid = state.get("pid")
     port = state.get("port")
     host = state.get("host")
@@ -2132,6 +3358,7 @@ def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any
             "port": None,
             "healthy": False,
             "log": log,
+            "_state_fingerprint": state_fingerprint,
         }
     identity = _relay_state_identity(state)
     if identity not in {"same", "starting"}:
@@ -2143,10 +3370,17 @@ def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any
             "port": _coerce_port(port) if identity == "unknown" and port else None,
             "healthy": False,
             "log": log,
+            "_state_fingerprint": state_fingerprint,
         }
     healthy = bool(
         port and _probe_relay_health(_relay_probe_url(host, port), transport=transport).get("ok")
     )
+    health_state = load_relay_health_state()
+    started_at = state.get("started_at")
+    try:
+        uptime_seconds = max(0, int(time.time()) - int(started_at))
+    except (TypeError, ValueError):
+        uptime_seconds = None
     return {
         "managed": True,
         "running": True,
@@ -2155,9 +3389,14 @@ def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any
         "pid": int(pid),
         "port": _coerce_port(port) if port else None,
         "host": host,
-        "started_at": state.get("started_at"),
+        "bind": host,
+        "started_at": started_at,
+        "uptime_seconds": uptime_seconds,
+        "last_health_check_at": health_state.get("last_health_check_at"),
+        "last_successful_health_at": health_state.get("last_successful_health_at"),
         "healthy": healthy,
         "log": log,
+        "_state_fingerprint": state_fingerprint,
     }
 
 
@@ -2274,6 +3513,13 @@ def start_local_relay(
                                 note = f"Started the relay but could not record it ({exc}); {suffix}."
                                 action_error = note
                             else:
+                                try:
+                                    save_relay_health_state({
+                                        "process_pid": pid,
+                                        "process_start_time": start_time,
+                                    })
+                                except Exception:  # noqa: BLE001 - telemetry is best-effort
+                                    pass
                                 started_identity = (pid, start_time)
                                 do_healthcheck = True
             finally:
@@ -2310,7 +3556,10 @@ def start_local_relay(
     return host_status(port, transport=transport, extra_note=note, action_error=action_error)
 
 
-def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
+def stop_local_relay(
+    transport: Optional[Transport] = None,
+    expected_identity: Optional[Tuple[int, int]] = None,
+) -> Dict[str, Any]:
     """Stop only the exact dashboard-managed process and confirm its exit."""
     note: Optional[str] = None
     action_error: Optional[str] = None
@@ -2325,8 +3574,15 @@ def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
                 state = load_relay_state()
                 pid = state.get("pid")
                 start_time = state.get("start_time")
+                try:
+                    current_identity = (int(pid), int(start_time))
+                except (TypeError, ValueError):
+                    current_identity = None
                 identity = _relay_state_identity(state) if pid else "gone"
-                if identity == "same":
+                if expected_identity is not None and current_identity != expected_identity:
+                    note = "The managed relay changed before restart, so Fabric did not stop it. Check status and retry."
+                    action_error = note
+                elif identity == "same":
                     pid_value = int(pid or 0)
                     start_value = int(start_time or 0)
                     if _terminate_relay_pid(pid_value, start_value):
@@ -2350,6 +3606,125 @@ def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
     return host_status(port, transport=transport, extra_note=note, action_error=action_error)
 
 
+def restart_local_relay(
+    transport: Optional[Transport] = None,
+    spawner: Optional[Spawner] = None,
+) -> Dict[str, Any]:
+    """Restart only an owner's verified dashboard-managed team relay."""
+    config = load_team_config()
+    membership = config.get("membership")
+    tailscale = detect_tailscale()
+    state = load_relay_state()
+    if not isinstance(membership, dict) or not _managed_relay_matches_membership(
+        membership, tailscale, state=state
+    ):
+        return {
+            "ok": False,
+            "action_ok": False,
+            "error": (
+                "Fabric can only restart a relay when you own the team and this dashboard "
+                "can verify its exact managed local process."
+            ),
+        }
+    try:
+        expected_identity = (int(state["pid"]), int(state["start_time"]))
+    except (KeyError, TypeError, ValueError):
+        return {
+            "ok": False,
+            "action_ok": False,
+            "error": "Fabric could not verify the managed relay process identity.",
+        }
+    port = _coerce_port(state.get("port"))
+    host = str(state.get("host") or "").strip() or None
+    stopped = stop_local_relay(
+        transport=transport,
+        expected_identity=expected_identity,
+    )
+    if stopped.get("action_ok") is False or stopped.get("managed_relay", {}).get("running"):
+        return stopped
+    restarted = start_local_relay(
+        port=port,
+        host=host,
+        spawner=spawner,
+        transport=transport,
+    )
+    restarted["restarted"] = bool(
+        restarted.get("managed_relay", {}).get("running")
+        and restarted.get("action_ok", True)
+    )
+    return restarted
+
+
+_LOG_REDACTIONS = (
+    (re.compile(r"\bfbl1_[A-Za-z0-9_-]+"), "[redacted invite]"),
+    (re.compile(r"(?i)\bBearer\s+[^\s,;]+"), "Bearer [redacted]"),
+    (
+        re.compile(
+            r"(?i)\b(member_token|join_secret|authorization|secret|token)"
+            r"(\s*[\"']?\s*[:=]\s*[\"']?)([^\s,;\"'}]+)"
+        ),
+        r"\1\2[redacted]",
+    ),
+)
+
+
+def _redact_relay_log(text: str) -> str:
+    redacted = text
+    config = load_team_config()
+    known_credentials: Set[str] = set()
+    membership = config.get("membership")
+    if isinstance(membership, dict):
+        for key in ("join_secret", "member_token"):
+            value = membership.get(key)
+            if isinstance(value, str) and len(value) >= 4:
+                known_credentials.add(value)
+    pending_leaves = config.get("pending_leaves")
+    if isinstance(pending_leaves, list):
+        for record in pending_leaves:
+            if not isinstance(record, dict):
+                continue
+            value = record.get("member_token")
+            if isinstance(value, str) and len(value) >= 4:
+                known_credentials.add(value)
+    for credential in sorted(known_credentials, key=len, reverse=True):
+        redacted = redacted.replace(credential, "[redacted credential]")
+    for pattern, replacement in _LOG_REDACTIONS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
+
+
+def relay_logs(max_bytes: int = 65_536, max_lines: int = 200) -> Dict[str, Any]:
+    """Return a bounded, redacted tail of only Fabric's fixed relay log."""
+    path = relay_log_path()
+    max_bytes = max(1_024, min(int(max_bytes), 262_144))
+    max_lines = max(10, min(int(max_lines), 1_000))
+    try:
+        with _open_secure_log_file(path, append=False) as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            offset = max(0, size - max_bytes)
+            handle.seek(offset)
+            raw = handle.read(max_bytes)
+    except FileNotFoundError:
+        return {"ok": True, "log": "", "truncated": False, "note": "No relay log exists yet."}
+    except OSError:
+        return {"ok": False, "error": "The relay log path could not be verified.", "log": ""}
+    text = raw.decode("utf-8", errors="replace")
+    if offset:
+        # The key or start of a credential may be outside the byte window. Never
+        # expose an orphaned suffix from a partial first line.
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+    lines = text.splitlines()
+    line_truncated = len(lines) > max_lines
+    if line_truncated:
+        lines = lines[-max_lines:]
+    return {
+        "ok": True,
+        "log": _redact_relay_log("\n".join(lines)),
+        "truncated": bool(offset or line_truncated),
+    }
+
+
 def host_status(
     port: int = DEFAULT_RELAY_PORT,
     transport: Optional[Transport] = None,
@@ -2360,6 +3735,7 @@ def host_status(
     port = _coerce_port(port)
     tailscale = detect_tailscale()
     managed = relay_process_status(transport=transport)
+    health_identity = managed.pop("_state_fingerprint", (None, None))
     if managed.get("running") and managed.get("port"):
         port = _coerce_port(managed["port"])
         local_url = _relay_probe_url(managed.get("host"), port)
@@ -2389,6 +3765,24 @@ def host_status(
     shareable = bool(shareable_relay.get("ok"))
     relay_live = relay_live or shareable
     command_host = tailscale.get("ipv4") if tailscale.get("running") and tailscale.get("ipv4") else "127.0.0.1"
+    magicdns_checked = bool(tailscale.get("running") and tailscale.get("magicdns"))
+    try:
+        health_state = _record_relay_health(
+            healthy=bool(local_relay.get("ok") or shareable_relay.get("ok")),
+            magicdns_checked=magicdns_checked,
+            magicdns_ok=bool(magicdns_checked and shareable_relay.get("ok")),
+            expected_identity=health_identity,
+        )
+    except Exception:  # noqa: BLE001 - status remains useful if telemetry cannot persist
+        health_state = load_relay_health_state()
+    managed["last_health_check_at"] = health_state.get("last_health_check_at")
+    managed["last_successful_health_at"] = health_state.get("last_successful_health_at")
+    advertised_magicdns_probe = {
+        "url": _relay_url(tailscale.get("magicdns"), port) if magicdns_checked else None,
+        "ok": bool(magicdns_checked and shareable_relay.get("ok")),
+        "checked_at": health_state.get("last_magicdns_check_at"),
+        "last_successful_at": health_state.get("last_successful_magicdns_at"),
+    }
 
     result = {
         "ok": True,
@@ -2397,6 +3791,7 @@ def host_status(
         "local_relay": local_relay,
         "shareable_relay": shareable_relay,
         "managed_relay": managed,
+        "advertised_magicdns_probe": advertised_magicdns_probe,
         "relay_live": relay_live,
         "suggested_relay_url": suggested,
         "suggested_is_shareable": shareable,
@@ -2461,9 +3856,20 @@ def _team_state_payload(config: Dict[str, Any], extra: Optional[Dict[str, Any]] 
         "publish_opt_in": bool(config.get("publish_opt_in")),
         "pending_unpublish": bool(config.get("pending_unpublish")),
         "pending_leave_count": len(pending_leaves) if isinstance(pending_leaves, list) else 0,
-        "publish_error": config.get("publish_error"),
+        # These persisted fields are state markers, not a trusted display
+        # channel. Older builds stored raw relay/transport text here, so never
+        # echo their value back into the dashboard after an upgrade.
+        "publish_error": (
+            "The latest leaderboard publish failed."
+            if config.get("publish_error")
+            else None
+        ),
         "last_published_at": config.get("last_published_at"),
-        "last_error": config.get("last_error"),
+        "last_error": (
+            "A leaderboard action needs attention."
+            if config.get("last_error")
+            else None
+        ),
     }
     if extra:
         payload.update(extra)
@@ -2600,9 +4006,9 @@ def _retry_pending_leaves(config: Dict[str, Any], transport: Optional[Transport]
         except RelayClientError as exc:
             remaining.append(membership)
             errors.append(exc.message)
-        except Exception as exc:  # noqa: BLE001 - retain credentials for a later retry
+        except Exception:  # noqa: BLE001 - retain credentials for a later retry
             remaining.append(membership)
-            errors.append(getattr(exc, "message", None) or str(exc))
+            errors.append("Could not reach the relay.")
     config["pending_leaves"] = remaining
     config["pending_leave_error"] = errors[0] if errors else None
     save_team_config(config)
@@ -2621,8 +4027,8 @@ def team_leave(transport: Optional[Transport] = None) -> Dict[str, Any]:
             client.leave(membership["team_id"], membership["member_id"], membership["member_token"])
         except RelayClientError as exc:
             leave_error = exc.message
-        except Exception as exc:  # noqa: BLE001 - local leave must still succeed
-            leave_error = getattr(exc, "message", None) or str(exc)
+        except Exception:  # noqa: BLE001 - local leave must still succeed
+            leave_error = "Could not reach the relay."
         if leave_error:
             pending = config.get("pending_leaves")
             if not isinstance(pending, list):
@@ -2762,9 +4168,19 @@ def team_leaderboard(
             member_token=membership.get("member_token"),
         )
     except RelayClientError as exc:
-        config["last_error"] = exc.message
+        connection = team_preflight(transport=transport)
+        connection_failed = connection.get("state") != "CONNECTED"
+        message = str(exc.message)
+        config["last_error"] = message
         save_team_config(config)
-        return _team_state_payload(config, {"ok": False, "error": exc.message, "leaderboard": []})
+        failure = {
+            "ok": False,
+            "error": message,
+            "leaderboard": [],
+        }
+        if connection_failed and (exc.status == 0 or exc.status == 429 or exc.status >= 500):
+            failure["connection"] = connection
+        return _team_state_payload(config, failure)
     extra = {
         "team_name": roster.get("team_name"),
         "member_count": roster.get("member_count", 0),
@@ -2862,6 +4278,31 @@ async def post_team_join(request: Request):
             body.get("invite_code", ""),
             body.get("display_name", ""),
             bool(body.get("publish_opt_in", True)),
+        )
+    except RelayClientError as exc:
+        connection = await _run(team_preflight, body.get("invite_code", ""))
+        failure = {
+            "ok": False,
+            "error": exc.message,
+        }
+        if (
+            connection.get("state") != "CONNECTED"
+            and (exc.status == 0 or exc.status == 429 or exc.status >= 500)
+        ):
+            failure["connection"] = connection
+        return failure
+    except ValueError as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/preflight")
+async def post_team_preflight(request: Request):
+    body = await _json_body(request)
+    invite_code = body.get("invite_code")
+    try:
+        return await _run(
+            team_preflight,
+            str(invite_code) if invite_code is not None else None,
         )
     except (RelayClientError, ValueError) as exc:
         return _error_payload(exc)
@@ -2970,5 +4411,21 @@ async def post_team_host_start(request: Request):
 async def post_team_host_stop():
     try:
         return await _run(stop_local_relay)
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/host/restart")
+async def post_team_host_restart():
+    try:
+        return await _run(restart_local_relay)
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.get("/team/host/logs")
+async def get_team_host_logs():
+    try:
+        return await _run(relay_logs)
     except (RelayClientError, ValueError) as exc:
         return _error_payload(exc)

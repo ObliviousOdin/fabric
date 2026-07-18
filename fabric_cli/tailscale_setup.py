@@ -19,13 +19,15 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fabric_cli.cli_output import print_info, print_success, print_warning
 from fabric_constants import is_container, is_wsl
 
 
 _STATUS_TIMEOUT_SECONDS = 10
+_PING_PROCESS_TIMEOUT_SECONDS = 8
+_PING_ARGS = ("ping", "--c=1", "--timeout=5s")
 _LOGIN_TIMEOUT_SECONDS = 620
 _VERIFY_ATTEMPTS = 5
 _VERIFY_DELAY_SECONDS = 0.5
@@ -77,10 +79,25 @@ class TailscaleStatus:
     dns_name: str | None = None
     ip: str | None = None
     hostname: str | None = None
+    tailnet_dns_suffix: str | None = None
 
     @property
     def is_running(self) -> bool:
         return self.backend_state.casefold() == "running"
+
+
+@dataclass(frozen=True)
+class TailscalePingResult:
+    """Privacy-safe outcome of one bounded ``tailscale ping`` attempt."""
+
+    reachable: bool
+    outcome: Literal[
+        "reachable",
+        "unreachable",
+        "timeout",
+        "unavailable",
+        "invalid_target",
+    ]
 
 
 Runner = Callable[..., subprocess.CompletedProcess[Any]]
@@ -201,6 +218,45 @@ def _preferred_ip(value: object) -> str | None:
     return str(parsed[0]) if parsed else None
 
 
+def _ping_target(value: object) -> str | None:
+    """Return a CLI-safe IP address or DNS name, without resolving it."""
+
+    if not isinstance(value, str):
+        return None
+    target = value
+    if (
+        not target
+        or target != target.strip()
+        or len(target) > 253
+        or not target.isascii()
+        or not target.isprintable()
+        or target.startswith("-")
+    ):
+        return None
+
+    try:
+        return str(ipaddress.ip_address(target))
+    except ValueError:
+        pass
+
+    target = target.rstrip(".")
+    if not target or len(target) > 253:
+        return None
+    labels = target.split(".")
+    if all(character in "0123456789." for character in target):
+        return None
+    for label in labels:
+        if (
+            not label
+            or len(label) > 63
+            or not label[0].isalnum()
+            or not label[-1].isalnum()
+            or any(not character.isalnum() and character != "-" for character in label)
+        ):
+            return None
+    return target
+
+
 def parse_tailscale_status(payload: str | bytes) -> TailscaleStatus | None:
     """Parse the documented status fields while tolerating schema additions."""
 
@@ -226,11 +282,18 @@ def parse_tailscale_status(payload: str | bytes) -> TailscaleStatus | None:
     dns_name = _clean_label(self_node.get("DNSName"))
     if dns_name:
         dns_name = dns_name.rstrip(".") or None
+    current_tailnet = data.get("CurrentTailnet")
+    if not isinstance(current_tailnet, dict):
+        current_tailnet = {}
+    tailnet_dns_suffix = _clean_label(current_tailnet.get("MagicDNSSuffix"))
+    if tailnet_dns_suffix:
+        tailnet_dns_suffix = tailnet_dns_suffix.rstrip(".") or None
     return TailscaleStatus(
         backend_state=backend_state,
         dns_name=dns_name,
         ip=_preferred_ip(self_node.get("TailscaleIPs")),
         hostname=_clean_label(self_node.get("HostName")),
+        tailnet_dns_suffix=tailnet_dns_suffix,
     )
 
 
@@ -274,6 +337,45 @@ def tailscale_status(
     if completed.returncode != 0:
         return None
     return parse_tailscale_status(completed.stdout or "")
+
+
+def tailscale_ping(
+    binary: str | None,
+    target: str,
+    *,
+    runner: Runner | None = None,
+) -> TailscalePingResult:
+    """Ask Tailscale to probe one peer without exposing command output.
+
+    The CLI and process have independent time bounds.  The target is accepted
+    only as an IP address or DNS hostname, so it can never become an option or
+    add another command argument.  Output is discarded because peer details
+    and tailnet names do not belong in dashboard diagnostics.
+    """
+
+    if not binary:
+        return TailscalePingResult(False, "unavailable")
+    safe_target = _ping_target(target)
+    if safe_target is None:
+        return TailscalePingResult(False, "invalid_target")
+
+    run = runner or subprocess.run
+    try:
+        completed = run(
+            [binary, *_PING_ARGS, safe_target],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_PING_PROCESS_TIMEOUT_SECONDS,
+            check=False,
+            env=_subprocess_env(),
+        )
+    except subprocess.TimeoutExpired:
+        return TailscalePingResult(False, "timeout")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return TailscalePingResult(False, "unavailable")
+    if completed.returncode == 0:
+        return TailscalePingResult(True, "reachable")
+    return TailscalePingResult(False, "unreachable")
 
 
 def _install_url(platform: str | None, environ: Mapping[str, str]) -> str:
@@ -469,9 +571,11 @@ def setup_tailscale(
 
 
 __all__ = [
+    "TailscalePingResult",
     "TailscaleStatus",
     "find_tailscale_binary",
     "parse_tailscale_status",
     "setup_tailscale",
+    "tailscale_ping",
     "tailscale_status",
 ]

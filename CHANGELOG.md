@@ -6,6 +6,7 @@ All notable changes to Fabric are documented in this file.
 
 ### Added
 
+- New `fabric disk` command to see and reclaim Fabric's storage. `fabric disk usage` (alias `du`) breaks down how much space each store under `~/.fabric` is using — caches, sessions, memory, databases, backups, and more — largest-first, with a grand total and the free space left on the volume (`--json` for machine-readable output, `--profile NAME` to inspect another profile). `fabric disk clean` reclaims regenerable data (caches, rotated log backups, diagnostic traces, temp scratch, re-downloadable media); it is a dry-run preview by default and only deletes with `--yes`, never touching sessions, the state database, memories, credentials, config, backups, the cron control-plane, or persistent sandbox/browser/worktree state. `--only`/`--skip` choose categories.
 - The Achievements **Team Leaderboard** can now host its relay from the dashboard. A **Host on this machine** button starts and supervises the relay (surviving a dashboard restart), a **Detect** button reads a running relay plus this machine's Tailscale identity to **auto-fill a shareable Relay URL**, and the panel surfaces `fabric setup tailscale` for the Tailscale QR login — no more typing a host address you have to look up. Tailscale reads and connection reuse `fabric_cli.tailscale_setup`.
 
 ## [0.21.0] - 2026-07-16

@@ -321,6 +321,7 @@ from fabric_cli.subcommands.gui import build_gui_parser
 from fabric_cli.subcommands.logs import build_logs_parser
 from fabric_cli.subcommands.prompt_size import build_prompt_size_parser
 from fabric_cli.subcommands.memory import build_memory_parser
+from fabric_cli.subcommands.disk import build_disk_parser
 from fabric_cli.subcommands.acp import build_acp_parser
 from fabric_cli.subcommands.tools import build_tools_parser
 from fabric_cli.subcommands.insights import build_insights_parser
@@ -12513,7 +12514,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
     {
         "acp", "auth", "backup", "bundles", "checkpoints", "claw", "completion",
         "computer-use",
-        "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
+        "config", "console", "cron", "curator", "dashboard", "serve", "debug", "disk", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
@@ -13033,6 +13034,16 @@ def cmd_memory(args):
         from fabric_cli.memory_setup import memory_command
 
         memory_command(args)
+
+
+def cmd_disk(args):
+    """Inspect and reclaim Fabric's on-disk storage."""
+    from fabric_cli.disk import disk_command
+
+    exit_code = disk_command(args)
+    if exit_code:
+        raise SystemExit(exit_code)
+    return 0
 
 
 def cmd_acp(args):
@@ -13681,6 +13692,11 @@ def main():
     # memory command  (parser built in fabric_cli/subcommands/memory.py)
     # =========================================================================
     build_memory_parser(subparsers, cmd_memory=cmd_memory)
+
+    # =========================================================================
+    # disk command  (parser built in fabric_cli/subcommands/disk.py)
+    # =========================================================================
+    build_disk_parser(subparsers, cmd_disk=cmd_disk)
 
     # =========================================================================
     # tools command  (parser built in fabric_cli/subcommands/tools.py)

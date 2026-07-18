@@ -193,6 +193,21 @@ def design_system_router() -> APIRouter:
             )
         return {"system": design_system_summary(record)}
 
+    @router.get("/api/design-systems/{design_system_id}/inspection")
+    async def inspect_managed_design_system(design_system_id: str, profile: str | None = None):
+        library = _library_for_profile(profile)
+        try:
+            inspection = await run_in_threadpool(library.inspect, design_system_id)
+        except Exception as exc:
+            _raise_http_error(exc)
+            raise
+        if inspection is None:
+            raise HTTPException(
+                status_code=404,
+                detail={"code": "design_system_not_found", "message": "Design system not found"},
+            )
+        return {"inspection": inspection}
+
     @router.post("/api/design-systems/{design_system_id}/revisions")
     @router.post("/api/design-systems/import")
     async def import_managed_design_system(

@@ -1223,6 +1223,18 @@ export interface Translations {
     start: string
     contractTitle: string
     contractDescription: string
+    preflightTitle: string
+    preflightDescription: string
+    preflightLoading: string
+    preflightFailed: string
+    preflightSummary: (fileCount: number, sizeLabel: string) => string
+    preflightOmitted: (count: number) => string
+    preflightEntrypoints: string
+    preflightNoEntrypoints: string
+    preflightInventory: string
+    preflightDesignMd: string
+    preflightNoDesignMd: string
+    preflightTruncated: string
     artifact: Record<'prototype' | 'landing-page' | 'dashboard' | 'component-lab' | 'design-system', string>
     fidelity: Record<'wireframe' | 'high', string>
     system: Record<'project' | 'fresh' | 'fabric' | 'linear' | 'stripe' | 'vercel' | 'claude', string>

@@ -34,7 +34,37 @@ export interface ManagedDesignSystem {
   updatedAt: string
 }
 
+export interface DesignSystemInspectionFile {
+  path: string
+  size: number
+}
+
+export interface DesignSystemInspectionEntrypoints {
+  designMd?: string
+  html?: string[]
+  packageJson?: string
+  tokenFiles?: string[]
+}
+
+export interface DesignSystemDesignMdPreview {
+  path: string
+  text: string
+  truncated: boolean
+}
+
+export interface DesignSystemInspection {
+  designMdPreview: DesignSystemDesignMdPreview | null
+  designSystemId: string
+  entrypoints: DesignSystemInspectionEntrypoints
+  expandedBytes: number
+  fileCount: number
+  files: DesignSystemInspectionFile[]
+  omittedFileCount: number
+  revisionSha256: string
+}
+
 export type DesignSystemsStatus = 'error' | 'idle' | 'loading' | 'ready'
+export type DesignSystemInspectionStatus = 'error' | 'idle' | 'loading' | 'ready'
 
 interface DesignSystemImportResult {
   deduplicated: boolean
@@ -46,9 +76,16 @@ interface DesignSystemListResponse {
   systems: ManagedDesignSystem[]
 }
 
+interface DesignSystemInspectionResponse {
+  inspection: DesignSystemInspection
+}
+
 export const $designSystems = atom<ManagedDesignSystem[]>([])
 export const $designSystemsStatus = atom<DesignSystemsStatus>('idle')
 export const $designSystemsError = atom<null | string>(null)
+export const $designSystemInspection = atom<DesignSystemInspection | null>(null)
+export const $designSystemInspectionStatus = atom<DesignSystemInspectionStatus>('idle')
+export const $designSystemInspectionError = atom<null | string>(null)
 
 function connectionKey(connection: HermesConnection | null): string {
   if (!connection || connection.mode !== 'remote') {
@@ -80,6 +117,9 @@ function resetForScopeChange(): void {
   $designSystems.set([])
   $designSystemsError.set(null)
   $designSystemsStatus.set('idle')
+  $designSystemInspection.set(null)
+  $designSystemInspectionError.set(null)
+  $designSystemInspectionStatus.set('idle')
 }
 
 $activeGatewayProfile.subscribe(resetForScopeChange)
@@ -200,5 +240,49 @@ export async function removeDesignSystem(system: ManagedDesignSystem): Promise<v
 
   if (designSystemScopeKey() === target.scope) {
     $designSystems.set($designSystems.get().filter(item => item.id !== system.id))
+
+    if ($designSystemInspection.get()?.designSystemId === system.id) {
+      $designSystemInspection.set(null)
+      $designSystemInspectionError.set(null)
+      $designSystemInspectionStatus.set('idle')
+    }
+  }
+}
+
+export function clearDesignSystemInspection(): void {
+  $designSystemInspection.set(null)
+  $designSystemInspectionError.set(null)
+  $designSystemInspectionStatus.set('idle')
+}
+
+export async function inspectDesignSystem(system: ManagedDesignSystem): Promise<DesignSystemInspection | null> {
+  const target = captureTarget()
+  $designSystemInspectionError.set(null)
+  $designSystemInspectionStatus.set('loading')
+
+  try {
+    const response = await window.hermesDesktop.api<DesignSystemInspectionResponse>({
+      path: `/api/design-systems/${encodeURIComponent(system.id)}/inspection`,
+      profile: target.profile
+    })
+
+    const inspection = response.inspection
+
+    if (designSystemScopeKey() !== target.scope) {
+      return inspection
+    }
+
+    $designSystemInspection.set(inspection)
+    $designSystemInspectionStatus.set('ready')
+
+    return inspection
+  } catch (error) {
+    if (designSystemScopeKey() === target.scope) {
+      $designSystemInspection.set(null)
+      $designSystemInspectionError.set(messageFromError(error))
+      $designSystemInspectionStatus.set('error')
+    }
+
+    throw error
   }
 }

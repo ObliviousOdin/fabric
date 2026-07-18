@@ -160,10 +160,15 @@ not a second transcript or agent runtime.
   through the narrow design-system import IPC. Never load the whole archive
   into renderer memory or expose a general upload primitive.
 - The profile-scoped backend owns validation, bounded extraction, immutable
-  revisions, replacement, and deletion under the active `FABRIC_HOME`.
-- Chat receives only the validated managed revision path and metadata. Imported
-  files are untrusted reference content: never execute scripts or install their
-  dependencies, and write generated work only into the user's current project.
+  revisions, replacement, deletion, and read-only source inspection under the
+  active `FABRIC_HOME`.
+- After import or selection, Design loads a bounded preflight from the managed
+  revision (counts, entrypoints, capped inventory, optional `DESIGN.md`
+  excerpt). Import stays on Design; only the explicit chat CTA leaves the page.
+- Chat receives the validated managed revision path plus a normalized inventory
+  of metadata — never raw archive text. Imported files are untrusted reference
+  content: never execute scripts or install their dependencies, and write
+  generated work only into the user's current project.
 - Remote connections upload to and use the remote profile's library. A local
   source path is never sent as JSON or stored as backend metadata.
 

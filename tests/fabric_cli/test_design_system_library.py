@@ -18,6 +18,15 @@ def _write_zip(path: Path, entries: dict[str, bytes | str]) -> bytes:
     return path.read_bytes()
 
 
+def _write_zip_stored(path: Path, entries: dict[str, bytes | str]) -> bytes:
+    """Write a ZIP with stored (uncompressed) members for high-entropy fixtures."""
+
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
+        for name, contents in entries.items():
+            archive.writestr(name, contents)
+    return path.read_bytes()
+
+
 def _write_zip_members(
     path: Path, entries: list[tuple[str | zipfile.ZipInfo, bytes | str]]
 ) -> bytes:
@@ -423,3 +432,132 @@ def test_failed_atomic_record_replace_leaves_the_old_revision_selected(
     assert selected["revision"] == first["revision"]
     assert list((profile_home / "design-system-library" / "staging").iterdir()) == []
     assert not list(record_path.parent.glob("*.tmp"))
+
+
+def test_inspect_returns_bounded_manifest_inventory_and_design_md_preview(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "profile"))
+    archive_path = tmp_path / "Acme-system.zip"
+    design_md = "# Acme\n\nUse navy and gold.\n" + ("line\n" * 40)
+    entries: dict[str, bytes | str] = {
+        "DESIGN.md": design_md,
+        "package.json": '{"name":"acme"}',
+        "tokens/colors.json": '{"brand":"#123456"}',
+        "preview/index.html": "<html></html>",
+        "assets/logo.png": b"\x89PNG\r\n\x1a\n" + b"x" * 32,
+        "nested/deep/notes.txt": "notes",
+    }
+    for index in range(210):
+        entries[f"files/file-{index:03d}.txt"] = f"payload-{index}"
+    _write_zip_stored(archive_path, entries)
+
+    from fabric_cli import design_system_library as library
+
+    imported = library.import_design_system(archive_path)
+    inspection = library.inspect_design_system(imported["id"])
+
+    assert inspection["designSystemId"] == imported["id"]
+    assert inspection["revisionSha256"] == imported["revision"]
+    assert inspection["fileCount"] == imported["file_count"]
+    assert inspection["expandedBytes"] == imported["expanded_size"]
+    assert inspection["entrypoints"] == {
+        "designMd": "DESIGN.md",
+        "packageJson": "package.json",
+        "html": ["preview/index.html"],
+        "tokenFiles": ["tokens/colors.json"],
+    }
+    assert len(inspection["files"]) == library.MAX_INSPECTION_FILES
+    assert inspection["omittedFileCount"] == imported["file_count"] - library.MAX_INSPECTION_FILES
+    assert {"path": "DESIGN.md", "size": len(design_md.encode("utf-8"))} in inspection["files"]
+    assert all("sha256" not in row for row in inspection["files"])
+    assert inspection["files"] == sorted(
+        inspection["files"], key=lambda row: str(row["path"]).casefold()
+    )
+    preview = inspection["designMdPreview"]
+    assert preview is not None
+    assert preview["path"] == "DESIGN.md"
+    assert preview["text"].startswith("# Acme")
+    assert preview["truncated"] is False
+    assert len(preview["text"].encode("utf-8")) <= library.MAX_DESIGN_MD_PREVIEW_BYTES
+
+
+def test_inspect_handles_missing_design_md_and_invalid_utf8(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "profile"))
+    archive_path = tmp_path / "no-design.zip"
+    _write_zip(
+        archive_path,
+        {
+            "package.json": '{"name":"no-design"}',
+            "tokens/colors.json": '{"brand":"#abcdef"}',
+            "preview/home.html": "<html></html>",
+        },
+    )
+
+    from fabric_cli import design_system_library as library
+
+    imported = library.import_design_system(archive_path)
+    inspection = library.inspect_design_system(imported["id"])
+    assert "designMd" not in inspection["entrypoints"]
+    assert inspection["entrypoints"]["packageJson"] == "package.json"
+    assert inspection["designMdPreview"] is None
+
+    bad_archive = tmp_path / "bad-utf8.zip"
+    _write_zip(bad_archive, {"DESIGN.md": b"\xff\xfe not utf-8", "tokens/a.json": "{}"})
+    replaced = library.replace_design_system(imported["id"], bad_archive)
+    inspection = library.inspect_design_system(replaced["id"])
+    assert inspection["revisionSha256"] == replaced["revision"]
+    assert inspection["entrypoints"]["designMd"] == "DESIGN.md"
+    assert inspection["designMdPreview"] is None
+
+
+def test_inspect_tracks_current_revision_and_rejects_tampered_targets(
+    tmp_path: Path, monkeypatch
+) -> None:
+    profile_home = tmp_path / "profile"
+    monkeypatch.setenv("FABRIC_HOME", str(profile_home))
+    first_zip = tmp_path / "first.zip"
+    second_zip = tmp_path / "second.zip"
+    _write_zip(first_zip, {"DESIGN.md": "# first\n", "tokens/a.json": "{}"})
+    # Keep the large DESIGN.md above the preview cap without tripping the
+    # archive compression-ratio guard by storing members uncompressed.
+    large_design = "# second revision\n" + ("x" * 20_000)
+    _write_zip_stored(
+        second_zip,
+        {
+            "DESIGN.md": large_design,
+            "package.json": "{}",
+            "preview/index.html": "<html>v2</html>",
+        },
+    )
+
+    from fabric_cli import design_system_library as library
+
+    first = library.import_design_system(first_zip)
+    first_inspection = library.inspect_design_system(first["id"])
+    assert first_inspection["revisionSha256"] == first["revision"]
+    assert first_inspection["designMdPreview"]["text"].startswith("# first")
+
+    replaced = library.replace_design_system(first["id"], second_zip)
+    second_inspection = library.inspect_design_system(first["id"])
+    assert second_inspection["revisionSha256"] == replaced["revision"]
+    assert second_inspection["revisionSha256"] != first["revision"]
+    assert second_inspection["designMdPreview"]["truncated"] is True
+    assert (
+        len(second_inspection["designMdPreview"]["text"].encode("utf-8"))
+        <= library.MAX_DESIGN_MD_PREVIEW_BYTES
+    )
+
+    files_root = Path(replaced["files_path"])
+    design_md = files_root / "DESIGN.md"
+    files_root.chmod(0o700)
+    design_md.chmod(0o600)
+    design_md.unlink()
+    design_md.symlink_to("/etc/passwd")
+    with pytest.raises(library.DesignSystemStorageError):
+        library.inspect_design_system(first["id"])
+
+    assert library.inspect_design_system("ds_not_a_valid_id") is None
+    assert library.inspect_design_system("ds_" + ("0" * 32)) is None

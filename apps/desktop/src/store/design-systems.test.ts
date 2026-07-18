@@ -4,9 +4,14 @@ import { $activeGatewayProfile } from '@/store/profile'
 import { $connection } from '@/store/session'
 
 import {
+  $designSystemInspection,
+  $designSystemInspectionStatus,
   $designSystems,
+  clearDesignSystemInspection,
+  type DesignSystemInspection,
   designSystemScopeKey,
   importDesignSystemZip,
+  inspectDesignSystem,
   loadDesignSystems,
   type ManagedDesignSystem,
   removeDesignSystem
@@ -35,6 +40,27 @@ const system: ManagedDesignSystem = {
   updatedAt: '2026-07-16T00:00:00Z'
 }
 
+const inspection: DesignSystemInspection = {
+  designMdPreview: {
+    path: 'DESIGN.md',
+    text: '# Acme',
+    truncated: false
+  },
+  designSystemId: 'system-1',
+  entrypoints: {
+    designMd: 'DESIGN.md',
+    packageJson: 'package.json'
+  },
+  expandedBytes: 200,
+  fileCount: 2,
+  files: [
+    { path: 'DESIGN.md', size: 6 },
+    { path: 'package.json', size: 2 }
+  ],
+  omittedFileCount: 0,
+  revisionSha256: 'abc123'
+}
+
 function installBridge(api = vi.fn()) {
   const importZip = vi.fn()
 
@@ -51,6 +77,7 @@ describe('design system store', () => {
     $activeGatewayProfile.set('default')
     $connection.set(null)
     $designSystems.set([])
+    clearDesignSystemInspection()
   })
 
   it('keys libraries by connection and profile', () => {
@@ -98,5 +125,39 @@ describe('design system store', () => {
       profile: 'default'
     })
     expect($designSystems.get()).toEqual([])
+  })
+
+  it('requests inspection with the captured profile and encoded system id', async () => {
+    const { api } = installBridge(vi.fn().mockResolvedValue({ inspection }))
+    $activeGatewayProfile.set('design')
+
+    await expect(inspectDesignSystem(system)).resolves.toEqual(inspection)
+    expect(api).toHaveBeenCalledWith({
+      path: '/api/design-systems/system-1/inspection',
+      profile: 'design'
+    })
+    expect($designSystemInspection.get()).toEqual(inspection)
+    expect($designSystemInspectionStatus.get()).toBe('ready')
+  })
+
+  it('ignores stale inspection responses after the connection or profile changes', async () => {
+    let resolveRequest: ((value: { inspection: DesignSystemInspection }) => void) | undefined
+
+    const pending = new Promise<{ inspection: DesignSystemInspection }>(resolve => {
+      resolveRequest = resolve
+    })
+
+    const { api } = installBridge(vi.fn().mockReturnValue(pending))
+
+    const request = inspectDesignSystem(system)
+    expect($designSystemInspectionStatus.get()).toBe('loading')
+
+    $activeGatewayProfile.set('other')
+    resolveRequest?.({ inspection })
+    await expect(request).resolves.toEqual(inspection)
+
+    expect(api).toHaveBeenCalledTimes(1)
+    expect($designSystemInspection.get()).toBeNull()
+    expect($designSystemInspectionStatus.get()).toBe('idle')
   })
 })

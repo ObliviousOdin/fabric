@@ -686,14 +686,21 @@ def _detect_entrypoints(file_rows: list[dict[str, Any]]) -> dict[str, Any]:
     html: list[str] = []
     token_files: list[str] = []
 
+    def priority(path: str) -> tuple[int, str]:
+        return path.count("/"), path.casefold()
+
     for row in file_rows:
         relative = str(row["path"])
         basename = Path(relative).name.casefold()
         folded = relative.casefold()
         suffix = Path(relative).suffix.casefold()
-        if design_md is None and basename == "design.md":
+        if basename == "design.md" and (
+            design_md is None or priority(relative) < priority(design_md)
+        ):
             design_md = relative
-        if package_json is None and basename == "package.json":
+        if basename == "package.json" and (
+            package_json is None or priority(relative) < priority(package_json)
+        ):
             package_json = relative
         if suffix in {".htm", ".html"}:
             html.append(relative)

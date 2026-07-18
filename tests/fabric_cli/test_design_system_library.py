@@ -443,6 +443,8 @@ def test_inspect_returns_bounded_manifest_inventory_and_design_md_preview(
     entries: dict[str, bytes | str] = {
         "DESIGN.md": design_md,
         "package.json": '{"name":"acme"}',
+        "a/DESIGN.md": "# nested should not win\n",
+        "a/package.json": '{"name":"nested"}',
         "tokens/colors.json": '{"brand":"#123456"}',
         "preview/index.html": "<html></html>",
         "assets/logo.png": b"\x89PNG\r\n\x1a\n" + b"x" * 32,

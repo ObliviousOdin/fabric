@@ -956,7 +956,7 @@ def load_fabric_dotenv(
     if fabric_home is not None:
         home_path = Path(fabric_home)
     else:
-        env_home = (os.getenv("FABRIC_HOME") or os.getenv("FABRIC_HOME") or "").strip()
+        env_home = (os.getenv("FABRIC_HOME") or os.getenv("HERMES_HOME") or "").strip()
         if env_home:
             home_path = Path(env_home)
         else:

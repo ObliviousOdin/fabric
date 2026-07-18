@@ -17,7 +17,7 @@ Usage in execute_code:
 import os, sys
 from pathlib import Path
 
-_gm_home = os.getenv("FABRIC_HOME") or os.getenv("FABRIC_HOME")
+_gm_home = os.getenv("FABRIC_HOME") or os.getenv("HERMES_HOME")
 _gm_scripts_dir = (Path(_gm_home) if _gm_home else Path.home() / ".fabric") / "skills" / "red-teaming" / "godmode" / "scripts"
 
 _gm_old_argv = sys.argv

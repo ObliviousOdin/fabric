@@ -28,7 +28,7 @@ except ImportError:
 
 
 def _fabric_home() -> Path:
-    configured = os.getenv("FABRIC_HOME") or os.getenv("FABRIC_HOME")
+    configured = os.getenv("FABRIC_HOME") or os.getenv("HERMES_HOME")
     return Path(configured) if configured else Path.home() / ".fabric"
 
 # ═══════════════════════════════════════════════════════════════════

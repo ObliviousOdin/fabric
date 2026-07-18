@@ -13217,6 +13217,37 @@ def main():
     moa_subparsers.add_parser("list", aliases=["ls"], help="Show current MoA model slots")
     moa_configure = moa_subparsers.add_parser("configure", aliases=["config"], help="Interactively pick MoA models")
     moa_configure.add_argument("name", nargs="?", help="Preset name to create or update")
+    moa_bootstrap = moa_subparsers.add_parser(
+        "bootstrap",
+        help="Install a validated preset template from authenticated model catalogs",
+    )
+    moa_bootstrap.add_argument(
+        "template",
+        nargs="?",
+        default="subscriptions",
+        choices=["subscriptions"],
+        help="Preset template to install (default: subscriptions)",
+    )
+    moa_bootstrap.add_argument(
+        "--cached",
+        action="store_true",
+        help="Use cached model catalogs instead of refreshing subscription providers",
+    )
+    moa_bootstrap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show selected models and conflicts without changing config",
+    )
+    moa_bootstrap.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing managed presets with the same names",
+    )
+    moa_bootstrap.add_argument(
+        "--keep-default",
+        action="store_true",
+        help="Install presets without changing the current default preset",
+    )
     moa_delete = moa_subparsers.add_parser("delete", aliases=["rm"], help="Delete a MoA preset")
     moa_delete.add_argument("name", help="Preset name to delete")
     moa_parser.set_defaults(func=cmd_moa)

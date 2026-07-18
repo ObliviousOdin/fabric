@@ -1013,7 +1013,13 @@ export function ModelSettings({ onMainModelChanged }: ModelSettingsProps) {
             <Button
               disabled={applying}
               onClick={() =>
-                updateMoaPreset(prev => ({ ...prev, reference_models: [...prev.reference_models, prev.aggregator] }))
+                updateMoaPreset(prev => ({
+                  ...prev,
+                  reference_models: [
+                    ...prev.reference_models,
+                    { provider: prev.aggregator.provider, model: prev.aggregator.model }
+                  ]
+                }))
               }
               size="sm"
               variant="textStrong"

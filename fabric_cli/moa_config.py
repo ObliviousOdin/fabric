@@ -7,8 +7,16 @@ import json
 from copy import deepcopy
 from typing import Any
 
+from fabric_constants import parse_reasoning_effort
+
 MOA_MARKER_PREFIX = "__HERMES_MOA_TURN_V1__"
 DEFAULT_MOA_PRESET_NAME = "default"
+
+# Slot-specific role metadata is deliberately bounded. It is configuration,
+# not another unbounded prompt surface: the actual task still belongs in the
+# user turn / task brief where every advisor can see it.
+MAX_MOA_SLOT_ROLE_CHARS = 120
+MAX_MOA_SLOT_INSTRUCTIONS_CHARS = 2000
 
 DEFAULT_MOA_REFERENCE_MODELS: list[dict[str, str]] = [
     {"provider": "openai-codex", "model": "gpt-5.5"},
@@ -87,7 +95,29 @@ def _clean_slot(slot: Any) -> dict[str, str] | None:
     # an invalid slot is dropped, falling back to the preset's defaults.
     if provider.lower() == "moa":
         return None
-    return {"provider": provider, "model": model}
+
+    clean = {"provider": provider, "model": model}
+
+    role = str(slot.get("role") or "").strip()
+    if role:
+        clean["role"] = role[:MAX_MOA_SLOT_ROLE_CHARS]
+
+    instructions = str(slot.get("instructions") or "").strip()
+    if instructions:
+        clean["instructions"] = instructions[:MAX_MOA_SLOT_INSTRUCTIONS_CHARS]
+
+    # Keep one portable vocabulary in config while reusing Fabric's canonical
+    # parser for aliases such as false/disabled. Invalid values are omitted so
+    # the provider default applies, matching all other optional model controls.
+    reasoning = parse_reasoning_effort(slot.get("reasoning_effort"))
+    if reasoning is not None:
+        clean["reasoning_effort"] = (
+            str(reasoning.get("effort") or "none")
+            if reasoning.get("enabled", True)
+            else "none"
+        )
+
+    return clean
 
 
 def _default_preset() -> dict[str, Any]:

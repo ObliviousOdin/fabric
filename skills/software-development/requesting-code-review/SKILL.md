@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   fabric:
     tags: [code-review, security, verification, quality, pre-commit, auto-fix]
-    related_skills: [subagent-driven-development, plan, test-driven-development, github-code-review]
+    related_skills: [subagent-driven-development, plan, test-driven-development, github-code-review, clean-pr-gate]
 ---
 
 # Pre-Commit Code Verification

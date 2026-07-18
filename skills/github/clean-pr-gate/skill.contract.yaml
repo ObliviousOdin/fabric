@@ -1,0 +1,87 @@
+schema_version: 1
+identity:
+  name: clean-pr-gate
+  version: 1.0.0
+  owner: Fabric
+  license: MIT
+compatibility:
+  fabric: ">=0.19,<1"
+  hosts: [fabric]
+  models: ["*"]
+  platforms: [linux, macos, windows]
+routing:
+  triggers:
+    - validate committed changes before pushing and open a clean PR
+    - gate or ship a change through review, tests, and CI
+    - do a coding task and then validate it before it reaches the remote
+  non_triggers:
+    - review someone else's pull request with inline comments
+    - push documentation-only or pure-config changes with no gate
+    - open a pull request without any pre-push validation
+  requires: []
+  conflicts: []
+  precedence: 70
+interface:
+  inputs:
+    - name: intent
+      type: text
+      required: true
+      description: What the user set out to accomplish, with decisions and tradeoffs.
+    - name: task
+      type: text
+      required: false
+      description: In task-first mode, the change to make before validating.
+  outputs:
+    - name: pr_url
+      type: text
+      required: false
+      description: URL of the clean PR opened once the gate passes.
+    - name: outcome
+      type: text
+      required: true
+      description: checks-passed, passed, or failed, with the fixes applied.
+permissions:
+  toolsets_required: [terminal, file, delegation]
+  files:
+    - scope: workspace
+      access: read_write
+    - scope: skill
+      access: read
+    - scope: temp
+      access: read_write
+  network:
+    - host: api.github.com
+      methods: [GET, POST, PUT, PATCH]
+  secrets: [GH_TOKEN, GITHUB_TOKEN]
+  actions:
+    reversible: [run_review_subagent, run_tests, run_linters, commit_autofix]
+    approval_required: [push_branch, open_pull_request, merge_pull_request]
+    prohibited:
+      - resolve_ask_user_findings_without_consent
+      - push_before_gate_passes
+      - reviewer_verifies_own_work
+outcomes:
+  primary: clean_pr_opened_or_gate_failure_reported
+  guardrails:
+    - intent_supplied_to_reviewer_before_findings_are_judged
+    - ask_user_findings_escalated_verbatim
+    - review_and_fix_run_in_separate_subagent_contexts
+    - no_push_until_review_test_and_lint_are_clean
+sources:
+  - url: https://github.com/kunchenguid/no-mistakes
+    retrieved_at: "2026-07-18"
+    ttl_days: 90
+  - url: https://github.com/ObliviousOdin/fabric
+    retrieved_at: "2026-07-18"
+    ttl_days: 90
+budgets:
+  context_tokens: 14000
+  wall_seconds: 1800
+  tool_calls: 80
+evals:
+  suite: evals/cases.yaml
+limitations:
+  - Validates committed history on a non-default branch, not the dirty worktree.
+  - Opening and merging PRs requires GitHub authentication via fabric setup github.
+  - CI auto-fix is best-effort and caps at three attempts before escalating.
+  - Does not review third-party PRs; that is github-code-review.

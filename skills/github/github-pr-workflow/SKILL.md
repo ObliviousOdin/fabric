@@ -8,7 +8,7 @@ platforms: [linux, macos, windows]
 metadata:
   fabric:
     tags: [GitHub, Pull-Requests, CI/CD, Git, Automation, Merge]
-    related_skills: [github-auth, github-code-review]
+    related_skills: [github-auth, github-code-review, clean-pr-gate]
 ---
 
 # GitHub Pull Request Workflow

@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [startup, product-market-fit, mvp, customer-discovery, validation, launch]
     related_skills: [business-planning, brainstorming, d2c-smart-products]
 ---

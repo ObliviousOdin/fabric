@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [pipeline, stages, handoff, artifacts, workflow]
     related_skills: [orchestration, fan-out, adversarial-verify, plan]
 ---

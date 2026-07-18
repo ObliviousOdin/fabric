@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [website, landing-page, seo, copywriting, deployment, marketing]
     related_skills: [webapp-development, rstack, design]
 ---

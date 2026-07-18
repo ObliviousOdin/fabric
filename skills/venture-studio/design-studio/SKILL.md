@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [design-studio, concepts, critique, moodboard, divergence, workshop]
     related_skills: [design, brainstorming, product-taste]
 ---

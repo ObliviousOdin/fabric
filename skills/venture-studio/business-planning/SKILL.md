@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [business-plan, lean-canvas, unit-economics, financial-model, market-sizing, pitch]
     related_skills: [build-something-people-want, proposal-writing]
 ---

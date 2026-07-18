@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [iot, d2c, smart-products, firmware, connectivity, ecommerce]
     related_skills: [hardware-manufacturing, build-something-people-want, shopify]
 ---

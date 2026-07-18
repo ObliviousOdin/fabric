@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [verification, red-team, review, skeptics, quality-gate]
     related_skills: [orchestration, ensemble, requesting-code-review, test-driven-development]
 ---

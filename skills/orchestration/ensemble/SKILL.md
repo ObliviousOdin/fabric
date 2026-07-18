@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [ensemble, subagents, diversity, judging, synthesis]
     related_skills: [orchestration, adversarial-verify, brainstorming]
 ---

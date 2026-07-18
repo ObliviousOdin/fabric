@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [taste, product-judgment, critique, quality-bar, curation, decisions]
     related_skills: [impeccable-craft, design, design-studio]
 ---

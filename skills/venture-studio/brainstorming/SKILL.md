@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [brainstorming, ideation, scamper, crazy-8s, divergent-thinking, workshop]
     related_skills: [design-studio, build-something-people-want, business-planning]
 ---

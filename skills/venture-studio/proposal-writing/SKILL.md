@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [proposals, sow, rfp, pitch, pricing, sales]
     related_skills: [business-planning, website-building]
 ---

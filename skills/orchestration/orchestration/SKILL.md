@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [orchestration, subagents, delegation, multi-agent, routing]
     related_skills: [ensemble, fan-out, pipeline, builder-crew, adversarial-verify, subagent-driven-development]
 ---

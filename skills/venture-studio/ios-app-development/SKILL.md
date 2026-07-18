@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [ios, swift, swiftui, xcode, testflight, app-store]
     related_skills: [webapp-development, design]
 ---

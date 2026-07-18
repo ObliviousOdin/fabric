@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [polish, quality, craft, checklist, accessibility, microcopy]
     related_skills: [product-taste, design, webapp-development]
 ---

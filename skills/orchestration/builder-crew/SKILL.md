@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [crew, roles, virtual-team, founders, coordination]
     related_skills: [orchestration, pipeline, ensemble, fan-out, design-studio, webapp-development]
 ---

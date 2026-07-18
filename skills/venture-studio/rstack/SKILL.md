@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [rstack, rspack, rsbuild, rslib, rspress, rsdoctor]
     related_skills: [webapp-development, website-building]
 ---

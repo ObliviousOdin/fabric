@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [webapp, saas, full-stack, auth, payments, deployment]
     related_skills: [website-building, rstack, ios-app-development, test-driven-development]
 ---

@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [manufacturing, cad, pcb, dfm, evt-dvt-pvt, production]
     related_skills: [d2c-smart-products]
 ---

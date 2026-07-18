@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [fan-out, parallel, batch, sharding, map-reduce]
     related_skills: [orchestration, pipeline, ensemble]
 ---

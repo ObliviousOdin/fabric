@@ -2899,58 +2899,16 @@ async def get_system_stats():
         "cpu_count": os.cpu_count(),
     }
 
-    # psutil enriches the picture when present; everything below is optional.
-    try:
-        import psutil  # type: ignore
+    # Dynamic metrics (CPU / memory / disk / net / GPU) come from the shared
+    # collector so the dashboard, desktop app and `fabric monitor` never drift
+    # on which fields exist or how a throughput rate is computed. Run it off
+    # the event loop — the CPU sampling window and any nvidia-smi probe must
+    # not block other requests.
+    from fabric_cli.system_stats import collect_dynamic_stats
 
-        vm = psutil.virtual_memory()
-        info["memory"] = {
-            "total": vm.total,
-            "available": vm.available,
-            "used": vm.used,
-            "percent": vm.percent,
-        }
-        try:
-            du = psutil.disk_usage(str(get_fabric_home()))
-            info["disk"] = {
-                "total": du.total,
-                "used": du.used,
-                "free": du.free,
-                "percent": du.percent,
-            }
-        except Exception:
-            pass
-        try:
-            info["cpu_percent"] = psutil.cpu_percent(interval=0.1)
-            la = getattr(psutil, "getloadavg", None)
-            if la:
-                info["load_avg"] = list(la())
-        except Exception:
-            pass
-        try:
-            boot = psutil.boot_time()
-            info["uptime_seconds"] = int(time.time() - boot)
-        except Exception:
-            pass
-        try:
-            proc = psutil.Process()
-            info["process"] = {
-                "pid": proc.pid,
-                "rss": proc.memory_info().rss,
-                "create_time": int(proc.create_time()),
-                "num_threads": proc.num_threads(),
-            }
-        except Exception:
-            pass
-        info["psutil"] = True
-    except Exception:
-        info["psutil"] = False
-        # stdlib-only fallbacks for load average + uptime where the kernel
-        # exposes them.
-        try:
-            info["load_avg"] = list(os.getloadavg())
-        except (OSError, AttributeError):
-            pass
+    info.update(
+        await asyncio.to_thread(collect_dynamic_stats, str(get_fabric_home()))
+    )
 
     return info
 

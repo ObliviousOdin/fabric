@@ -100,6 +100,11 @@ The main window provides:
 - composer history, queued-message editing, and model controls; and
 - voice input/output when the platform grants microphone permission.
 
+Open **Command Center → System** for a live host panel (CPU, memory, disk,
+load, network throughput, and GPU when available). It uses the same
+`/api/system/stats` collector as the web dashboard Host card and
+`fabric monitor` / `fabric top`.
+
 The composer model picker changes the active chat/device selection. Set the
 profile-wide default under **Settings → Model**. Switching models in a live
 conversation invalidates the provider prompt cache, so a new chat is often the

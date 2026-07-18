@@ -709,7 +709,7 @@ class S6ServiceManager:
         # Skip the drop when already non-root (setgroups() lacks CAP_SETGID →
         # s6 boot-loop).
         lines.append(f'[ "$(id -u)" = 0 ] || exec {gateway_cmd}')
-        lines.append(f"exec s6-setuidgid fabric {gateway_cmd}")
+        lines.append(f"exec s6-setuidgid hermes {gateway_cmd}")
         return "\n".join(lines) + "\n"
 
     @staticmethod

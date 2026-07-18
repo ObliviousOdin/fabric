@@ -369,7 +369,7 @@ class TestRetainDBMemoryProvider:
         p = self._make_provider(tmp_path, monkeypatch)
         profile_home = str(tmp_path / "profiles" / "coder")
         p.initialize("test-session", fabric_home=profile_home)
-        assert p._client.project == "fabric-coder"
+        assert p._client.project == "hermes-coder"
         p.shutdown()
 
     def test_initialize_seeds_soul_md(self, tmp_path, monkeypatch):

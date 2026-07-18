@@ -1527,12 +1527,12 @@ class TestBankIdTemplate:
         assert result == "myorg-coder-cli"
 
     def test_resolve_collapses_empty_placeholders(self):
-        # When user is empty, "fabric-{user}" becomes "fabric-" -> trimmed to "hermes"
+        # When user is empty, "fabric-{user}" becomes "fabric-" -> trimmed to "fabric"
         result = _resolve_bank_id_template(
             "fabric-{user}", fallback="default",
             profile="", workspace="", platform="", user="", session="",
         )
-        assert result == "hermes"
+        assert result == "fabric"
 
     def test_resolve_collapses_double_dashes(self):
         # Two empty placeholders with a dash between them should collapse
@@ -1624,9 +1624,9 @@ class TestBankIdTemplate:
         monkeypatch.setattr("plugins.memory.hindsight.get_fabric_home", lambda: tmp_path)
 
         p = HindsightMemoryProvider()
-        # No agent_identity passed — template renders to "fabric-" which collapses to "hermes"
+        # No agent_identity passed — template renders to "fabric-" which collapses to "fabric"
         p.initialize(session_id="s1", fabric_home=str(tmp_path), platform="cli")
-        assert p._bank_id == "hermes"
+        assert p._bank_id == "fabric"
 
 
 # ---------------------------------------------------------------------------

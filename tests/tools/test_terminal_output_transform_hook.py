@@ -180,7 +180,7 @@ def test_terminal_output_transform_does_not_change_approval_or_exit_code_meaning
 def test_terminal_output_transform_integration_with_real_plugin(monkeypatch, tmp_path):
     import yaml
 
-    fabric_home = Path(os.environ["FABRIC_HOME"])
+    fabric_home = Path(os.environ["HERMES_HOME"])
     plugins_dir = fabric_home / "plugins"
     plugin_dir = plugins_dir / "terminal_transform"
     plugin_dir.mkdir(parents=True)

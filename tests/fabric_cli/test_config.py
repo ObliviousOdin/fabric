@@ -33,7 +33,7 @@ from fabric_cli.config import (
 class TestGetFabricHome:
     def test_default_path(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("FABRIC_HOME", None)
+            os.environ.pop("HERMES_HOME", None)
             os.environ.pop("FABRIC_HOME", None)
             home = get_fabric_home()
             # public distribution default is ~/.fabric; legacy ~/.hermes is dual-read when present.

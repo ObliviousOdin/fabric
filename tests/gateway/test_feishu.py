@@ -3971,7 +3971,7 @@ class TestFeishuMentionMap(unittest.TestCase):
         mention = SimpleNamespace(key="@_all", id=None, name="")
         result = _build_mentions_map(
             [mention],
-            _FeishuBotIdentity(open_id="ou_bot", name="Hermes"),
+            _FeishuBotIdentity(open_id="ou_bot", name="Fabric"),
         )
         self.assertEqual(result["@_all"], FeishuMentionRef(is_all=True))
 
@@ -3981,12 +3981,12 @@ class TestFeishuMentionMap(unittest.TestCase):
         mention = SimpleNamespace(
             key="@_user_1",
             id=SimpleNamespace(open_id="ou_bot", user_id=""),
-            name="Hermes",
+            name="Fabric",
         )
         ref = _build_mentions_map([mention], _FeishuBotIdentity(open_id="ou_bot"))["@_user_1"]
         self.assertTrue(ref.is_self)
         self.assertEqual(ref.open_id, "ou_bot")
-        self.assertEqual(ref.name, "Hermes")
+        self.assertEqual(ref.name, "Fabric")
 
     def test_build_mentions_map_marks_self_by_name_fallback(self):
         from plugins.platforms.feishu.adapter import _build_mentions_map, _FeishuBotIdentity
@@ -3994,9 +3994,9 @@ class TestFeishuMentionMap(unittest.TestCase):
         mention = SimpleNamespace(
             key="@_user_1",
             id=SimpleNamespace(open_id="", user_id=""),
-            name="Hermes",
+            name="Fabric",
         )
-        result = _build_mentions_map([mention], _FeishuBotIdentity(name="Hermes"))
+        result = _build_mentions_map([mention], _FeishuBotIdentity(name="Fabric"))
         self.assertTrue(result["@_user_1"].is_self)
 
     def test_build_mentions_map_name_match_does_not_override_mismatching_open_id(self):
@@ -4147,7 +4147,7 @@ class TestFeishuMentionHint(unittest.TestCase):
 
 
 class TestFeishuStripLeadingSelf(unittest.TestCase):
-    def _make_refs(self, *, self_name="Hermes", other_name=None):
+    def _make_refs(self, *, self_name="Fabric", other_name=None):
         from plugins.platforms.feishu.adapter import FeishuMentionRef
 
         refs = [FeishuMentionRef(name=self_name, open_id="ou_bot", is_self=True)]
@@ -4238,7 +4238,7 @@ class TestFeishuNormalizeText(unittest.TestCase):
     def test_renders_self_mention_with_name(self):
         from plugins.platforms.feishu.adapter import _normalize_feishu_text, FeishuMentionRef
 
-        refs = {"@_user_1": FeishuMentionRef(name="Hermes", open_id="ou_bot", is_self=True)}
+        refs = {"@_user_1": FeishuMentionRef(name="Fabric", open_id="ou_bot", is_self=True)}
         self.assertEqual(
             _normalize_feishu_text("stop pinging @_user_1 please", refs),
             "stop pinging @Fabric please",
@@ -4351,7 +4351,7 @@ class TestFeishuNormalizeWithMentions(unittest.TestCase):
         mention = SimpleNamespace(
             key="@_user_1",
             id=SimpleNamespace(open_id="ou_bot", user_id=""),
-            name="Hermes",
+            name="Fabric",
         )
         normalized = normalize_feishu_message(
             message_type="text",
@@ -4649,7 +4649,7 @@ class TestFeishuProcessInboundMessage(unittest.TestCase):
         bot_mention = SimpleNamespace(
             key="@_user_1",
             id=SimpleNamespace(open_id="ou_bot", user_id=""),
-            name="Hermes",
+            name="Fabric",
         )
         message = SimpleNamespace(
             content=json.dumps({"text": "stop pinging @_user_1 please"}),
@@ -4773,7 +4773,7 @@ class TestFeishuFetchMessageText(unittest.TestCase):
             key="@_user_1",
             id="ou_bot",
             id_type="open_id",
-            name="Hermes",
+            name="Fabric",
         )
         parent = SimpleNamespace(
             body=SimpleNamespace(content=json.dumps({"text": "@_user_1 hi"})),
@@ -4898,7 +4898,7 @@ class TestFeishuMentionEndToEnd(unittest.TestCase):
         event = self._run(
             adapter,
             "please don't @_user_1 anymore",
-            [{"key": "@_user_1", "open_id": "ou_bot", "name": "Hermes"}],
+            [{"key": "@_user_1", "open_id": "ou_bot", "name": "Fabric"}],
         )
         self.assertEqual(event.text, "please don't @Fabric anymore")
 

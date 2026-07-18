@@ -32,7 +32,7 @@ class TestGetDefaultFabricRoot:
 
     def test_no_fabric_home_returns_native(self, tmp_path, monkeypatch):
         """When FABRIC_HOME is not set, returns ~/.fabric."""
-        monkeypatch.delenv("FABRIC_HOME", raising=False)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
         monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
@@ -84,7 +84,7 @@ class TestGetDefaultFabricRoot:
     def test_no_fabric_home_returns_localappdata_root_on_windows(self, tmp_path, monkeypatch):
         """Native Windows falls back to %LOCALAPPDATA%\\fabric, not ~/.fabric."""
         local_appdata = tmp_path / "LocalAppData"
-        monkeypatch.delenv("FABRIC_HOME", raising=False)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
         monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
@@ -95,7 +95,7 @@ class TestGetDefaultFabricRoot:
     def test_no_fabric_home_uses_windows_path_when_localappdata_missing(self, tmp_path, monkeypatch):
         """Windows fallback still uses AppData/Local/fabric without LOCALAPPDATA."""
         home = tmp_path / "Home"
-        monkeypatch.delenv("FABRIC_HOME", raising=False)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
         monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.setattr(Path, "home", lambda: home)
@@ -110,7 +110,7 @@ class TestGetFabricHome:
     def test_windows_fallback_uses_localappdata(self, tmp_path, monkeypatch):
         """When FABRIC_HOME is unset on Windows, use %LOCALAPPDATA%\\fabric."""
         local_appdata = tmp_path / "LocalAppData"
-        monkeypatch.delenv("FABRIC_HOME", raising=False)
+        monkeypatch.delenv("HERMES_HOME", raising=False)
         monkeypatch.delenv("FABRIC_HOME", raising=False)
         monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")

@@ -298,9 +298,9 @@ class _InstallResult:
 # security.allow_lazy_installs in config.yaml. When unset, lazy installs go
 # into the active venv as before.
 _LAZY_TARGET_ENV = "FABRIC_LAZY_INSTALL_TARGET"
-_LEGACY_LAZY_TARGET_ENV = "FABRIC_LAZY_INSTALL_TARGET"
+_LEGACY_LAZY_TARGET_ENV = "HERMES_LAZY_INSTALL_TARGET"
 _DISABLE_LAZY_INSTALLS_ENV = "FABRIC_DISABLE_LAZY_INSTALLS"
-_LEGACY_DISABLE_LAZY_INSTALLS_ENV = "FABRIC_DISABLE_LAZY_INSTALLS"
+_LEGACY_DISABLE_LAZY_INSTALLS_ENV = "HERMES_DISABLE_LAZY_INSTALLS"
 
 # Name of the stamp file written into the target dir recording the Python
 # X.Y + ABI it was populated for. If a container rebuild bumps the

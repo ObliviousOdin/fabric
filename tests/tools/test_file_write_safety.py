@@ -34,7 +34,7 @@ class TestSafeWriteRoot:
         safe_root.mkdir()
 
         monkeypatch.setenv("FABRIC_WRITE_SAFE_ROOT", str(safe_root))
-        monkeypatch.delenv("FABRIC_WRITE_SAFE_ROOT", raising=False)
+        monkeypatch.delenv("HERMES_WRITE_SAFE_ROOT", raising=False)
         assert _is_write_denied(str(child)) is False
 
     def test_fabric_safe_root_wins_over_legacy(self, tmp_path: Path, monkeypatch):
@@ -44,7 +44,7 @@ class TestSafeWriteRoot:
         legacy_root.mkdir()
 
         monkeypatch.setenv("FABRIC_WRITE_SAFE_ROOT", str(fabric_root))
-        monkeypatch.setenv("FABRIC_WRITE_SAFE_ROOT", str(legacy_root))
+        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(legacy_root))
         assert _is_write_denied(str(fabric_root / "file.txt")) is False
         assert _is_write_denied(str(legacy_root / "file.txt")) is True
 

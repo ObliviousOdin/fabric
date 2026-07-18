@@ -6759,7 +6759,7 @@ class TestPtyWebSocket:
     ):
         import fabric_cli.main as main_mod
 
-        config_path = Path(os.environ["FABRIC_HOME"]) / "config.yaml"
+        config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
         config_path.write_text(
             "\n".join(
                 [

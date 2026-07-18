@@ -175,7 +175,7 @@ jobs:
         guide = self.root / "website/docs/legacy.md"
         guide.parent.mkdir(parents=True, exist_ok=True)
         guide.write_text(
-            "# Fabric CLI\n\nRun `fabric setup`.\n"
+            "# Hermes CLI\n\nRun `hermes setup`.\n"
             "https://github.com/NousResearch/" + "fabric-agent\n",
             encoding="utf-8",
         )
@@ -188,10 +188,10 @@ jobs:
     def test_rejects_standalone_labels_in_yaml_and_omitted_runtime_prefixes(self) -> None:
         locale = self.root / "locales/en.yaml"
         locale.parent.mkdir(parents=True)
-        locale.write_text('header: "Fabric Chat"\n', encoding="utf-8")
+        locale.write_text('header: "Hermes Chat"\n', encoding="utf-8")
         runtime = self.root / "gateway/run.py"
         runtime.parent.mkdir(parents=True)
-        runtime.write_text('TOPIC_TITLE = "Fabric Commands"\n', encoding="utf-8")
+        runtime.write_text('TOPIC_TITLE = "Hermes Commands"\n', encoding="utf-8")
 
         issues = self._issues()
         paths = {issue.path for issue in issues if issue.rule in {"customer-product", "customer-source"}}
@@ -202,8 +202,8 @@ jobs:
         config = self.root / "plugins/example/plugin.toml"
         config.parent.mkdir(parents=True)
         config.write_text(
-            'help = "Run `fabric brand-new-command --safe`."\n'
-            "```sh\nfabric another-future-command\n```\n",
+            'help = "Run `hermes brand-new-command --safe`."\n'
+            "```sh\nhermes another-future-command\n```\n",
             encoding="utf-8",
         )
 
@@ -215,7 +215,7 @@ jobs:
         config = self.root / "plugins/example/plugin.yaml"
         config.parent.mkdir(parents=True)
         config.write_text(
-            'description: "Store config under /home/user/.hermes and set FABRIC_HOME."\n',
+            'description: "Store config under /home/user/.hermes and set HERMES_HOME."\n',
             encoding="utf-8",
         )
 
@@ -258,7 +258,7 @@ jobs:
         script.parent.mkdir(parents=True)
         script.write_text(
             "#!/bin/sh\n"
-            "# Historical command example: `fabric setup`\n"
+            "# Historical command example: `hermes setup`\n"
             "# OLD_NAME='Hermes'\n"
             "exec fabric gateway\n",
             encoding="utf-8",
@@ -270,9 +270,9 @@ jobs:
         script = self.root / "docker/entrypoint.sh"
         script.parent.mkdir(parents=True)
         script.write_text(
-            "#!/usr/bin/env fabric\n"
+            "#!/usr/bin/env hermes\n"
             "OLD_NAME='Hermes'\n"
-            "echo 'Fabric CLI is ready'\n",
+            "echo 'Hermes CLI is ready'\n",
             encoding="utf-8",
         )
 
@@ -286,7 +286,7 @@ jobs:
             "# public-release-audit: allow-legacy-compat -- one-window home migration\n"
             "LEGACY_HOME_NAMES = ('.fabric', '.hermes')\n"
             "WIRE_PROTOCOL = 'hermes.session.v1'\n"
-            "ENV_KEY = 'FABRIC_HOME'\n",
+            "ENV_KEY = 'HERMES_HOME'\n",
             encoding="utf-8",
         )
 
@@ -370,7 +370,7 @@ jobs:
         guide = self.root / "website/docs/models.md"
         guide.parent.mkdir(parents=True)
         guide.write_text(
-            "# Fabric CLI\n\nHermes 3 is an optional model.\n",
+            "# Hermes CLI\n\nHermes 3 is an optional model.\n",
             encoding="utf-8",
         )
 

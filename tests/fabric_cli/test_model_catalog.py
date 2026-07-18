@@ -388,7 +388,7 @@ class TestIntegrationWithModelsModule:
         try:
             from fabric_cli.model_switch import list_picker_providers
 
-            active_home = Path(os.environ["FABRIC_HOME"])
+            active_home = Path(os.environ["HERMES_HOME"])
             (active_home / "auth.json").write_text(
                 json.dumps(
                     {
@@ -440,7 +440,7 @@ class TestIntegrationWithModelsModule:
                 list_picker_providers,
             )
 
-            active_home = Path(os.environ["FABRIC_HOME"])
+            active_home = Path(os.environ["HERMES_HOME"])
             (active_home / "auth.json").write_text(
                 json.dumps(
                     {

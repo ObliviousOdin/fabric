@@ -62,7 +62,7 @@ class TestRegisterTranscriptionProvider:
         from agent import transcription_registry
         transcription_registry._reset_for_tests()
 
-        fabric_home = Path(os.environ["FABRIC_HOME"])
+        fabric_home = Path(os.environ["HERMES_HOME"])
         _write_plugin(
             fabric_home / "plugins",
             "my-stt-plugin",
@@ -94,7 +94,7 @@ class TestRegisterTranscriptionProvider:
         from agent import transcription_registry
         transcription_registry._reset_for_tests()
 
-        fabric_home = Path(os.environ["FABRIC_HOME"])
+        fabric_home = Path(os.environ["HERMES_HOME"])
         _write_plugin(
             fabric_home / "plugins",
             "bad-stt-plugin",
@@ -119,7 +119,7 @@ class TestRegisterTranscriptionProvider:
         from agent import transcription_registry
         transcription_registry._reset_for_tests()
 
-        fabric_home = Path(os.environ["FABRIC_HOME"])
+        fabric_home = Path(os.environ["HERMES_HOME"])
         _write_plugin(
             fabric_home / "plugins",
             "shadow-stt-plugin",

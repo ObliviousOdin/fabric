@@ -112,7 +112,7 @@ def test_native_guide_audit_rejects_upstream_commands_and_installers(
     audit = _load_audit_module()
     guide = tmp_path / "guide.md"
     guide.write_text(
-        "# Fabric\n\n```bash\nfabric model\n```\n"
+        "# Fabric\n\n```bash\nhermes model\n```\n"
         "https://raw.githubusercontent.com/NousResearch/fabric-agent/main/scripts/install.sh\n",
         encoding="utf-8",
     )
@@ -188,7 +188,7 @@ def test_built_public_site_audit_checks_rendered_entry_points(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("Fabric", encoding="utf-8")
     (tmp_path / "index.html").write_text(
-        "<html><body>Fabric Agent</body></html>",
+        "<html><body>Hermes Agent</body></html>",
         encoding="utf-8",
     )
 

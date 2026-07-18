@@ -64,7 +64,7 @@ class TestRegisterTTSProvider:
         from agent import tts_registry
         tts_registry._reset_for_tests()
 
-        fabric_home = Path(os.environ["FABRIC_HOME"])
+        fabric_home = Path(os.environ["HERMES_HOME"])
         _write_plugin(
             fabric_home / "plugins",
             "my-tts-plugin",
@@ -97,7 +97,7 @@ class TestRegisterTTSProvider:
         from agent import tts_registry
         tts_registry._reset_for_tests()
 
-        fabric_home = Path(os.environ["FABRIC_HOME"])
+        fabric_home = Path(os.environ["HERMES_HOME"])
         _write_plugin(
             fabric_home / "plugins",
             "bad-tts-plugin",
@@ -127,7 +127,7 @@ class TestRegisterTTSProvider:
         from agent import tts_registry
         tts_registry._reset_for_tests()
 
-        fabric_home = Path(os.environ["FABRIC_HOME"])
+        fabric_home = Path(os.environ["HERMES_HOME"])
         _write_plugin(
             fabric_home / "plugins",
             "shadow-tts-plugin",

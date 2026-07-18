@@ -498,7 +498,7 @@ def test_format_connection_summary_single_fact_and_error():
         "auto_capture": True,
     })
     assert "✗ invalid API key" in err
-    assert "container: fabric" in err
+    assert "container: hermes" in err
 
 
 def test_probe_supermemory_connection_missing_key(tmp_path):
@@ -574,7 +574,7 @@ def test_get_status_config_returns_summary(monkeypatch, tmp_path):
     result = SupermemoryMemoryProvider().get_status_config({})
     assert "summary" in result
     assert "✓ Connected" in result["summary"]
-    assert "container: fabric" in result["summary"]
+    assert "container: hermes" in result["summary"]
 
 
 def test_post_setup_writes_config_and_prints_summary(monkeypatch, tmp_path, capsys):

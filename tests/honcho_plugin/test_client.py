@@ -445,7 +445,7 @@ class TestResolveConfigPath:
 
 class TestResolveActiveHost:
     def test_profile_host_key_uses_honcho_safe_separator(self):
-        assert profile_host_key("coder") == "fabric_coder"
+        assert profile_host_key("coder") == "hermes_coder"
         assert profile_host_key("default") == "hermes"
 
     def test_default_returns_fabric(self):
@@ -468,19 +468,19 @@ class TestResolveActiveHost:
         monkeypatch.setattr("fabric_cli.config.load_env", lambda: {})
 
         with patch("fabric_cli.profiles.get_active_profile_name", return_value="worker"):
-            assert resolve_active_host() == "fabric_worker"
+            assert resolve_active_host() == "hermes_worker"
 
         monkeypatch.setattr(
             "fabric_cli.config.load_env",
-            lambda: {"FABRIC_HONCHO_HOST": "fabric_worker_override"},
+            lambda: {"FABRIC_HONCHO_HOST": "hermes_worker_override"},
         )
-        assert resolve_active_host() == "fabric_worker_override"
+        assert resolve_active_host() == "hermes_worker_override"
 
     def test_profile_name_derives_host(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("FABRIC_HONCHO_HOST", None)
             with patch("fabric_cli.profiles.get_active_profile_name", return_value="coder"):
-                assert resolve_active_host() == "fabric_coder"
+                assert resolve_active_host() == "hermes_coder"
 
     def test_default_profile_returns_fabric(self):
         with patch.dict(os.environ, {}, clear=False):
@@ -567,12 +567,12 @@ class TestProfileScopedConfig:
             },
         }))
         config = HonchoClientConfig.from_global_config(
-            host="fabric_dreamer",
+            host="hermes_dreamer",
             config_path=config_file,
         )
-        assert config.host == "fabric_dreamer"
+        assert config.host == "hermes_dreamer"
         assert config.peer_name == "dreamer-user"
-        assert config.workspace_id == "fabric_dreamer"
+        assert config.workspace_id == "hermes_dreamer"
 
 
 class TestObservationModeMigration:

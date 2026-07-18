@@ -25,7 +25,7 @@ def fresh_constants(monkeypatch, tmp_path):
     import fabric_constants
     importlib.reload(fabric_constants)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.delenv("FABRIC_HOME", raising=False)
+    monkeypatch.delenv("HERMES_HOME", raising=False)
     return fabric_constants
 
 

@@ -61,7 +61,7 @@ def fabric_home(tmp_path, monkeypatch):
     Uses the same tmp_path as the autouse _isolate_fabric_home from conftest,
     reading it back from the env var to avoid double-mkdir conflicts.
     """
-    home = Path(os.environ["FABRIC_HOME"])
+    home = Path(os.environ["HERMES_HOME"])
     return home
 
 

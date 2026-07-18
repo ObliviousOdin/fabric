@@ -1178,8 +1178,8 @@ class TestFabricHomeIsolation:
 
     def test_conftest_isolation_prevents_real_home_writes(self):
         """The conftest autouse fixture sets FABRIC_HOME; verify it's active."""
-        fabric_home = os.getenv("FABRIC_HOME")
-        assert fabric_home is not None, "FABRIC_HOME should be set by conftest"
+        fabric_home = os.getenv("HERMES_HOME")
+        assert fabric_home is not None, "HERMES_HOME should be set by conftest"
         assert ("fabric_test" in fabric_home or "fabric_test" in fabric_home), "Should point to test temp dir"
 
     def test_get_fabric_home_fallback(self):

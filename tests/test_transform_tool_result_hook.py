@@ -165,7 +165,7 @@ def test_transform_tool_result_integration_with_real_plugin(monkeypatch, tmp_pat
     """End-to-end: load a real plugin from FABRIC_HOME and verify it rewrites results."""
     import yaml
 
-    fabric_home = Path(os.environ["FABRIC_HOME"])
+    fabric_home = Path(os.environ["HERMES_HOME"])
     plugins_dir = fabric_home / "plugins"
     plugin_dir = plugins_dir / "transform_result_canon"
     plugin_dir.mkdir(parents=True)

@@ -549,7 +549,7 @@ def test_s6_register_creates_service_dir_and_triggers_scan(
     run_text = run_path.read_text()
     assert "export HOME=/opt/data" in run_text
     assert "fabric -p coder gateway run" in run_text
-    assert "s6-setuidgid fabric" in run_text
+    assert "s6-setuidgid hermes" in run_text
     # Sentinel marking this as the supervised-child invocation. Without
     # it, the supervised `gateway run` would re-enter the s6 redirect
     # in `_gateway_command_inner` and recurse. See the matching guard
@@ -677,7 +677,7 @@ def test_render_run_script_resets_home_before_exec() -> None:
     run_text = S6ServiceManager._render_run_script("coder", {})
 
     assert "export HOME=/opt/data" in run_text
-    assert "exec s6-setuidgid fabric fabric -p coder gateway run --replace" in run_text
+    assert "exec s6-setuidgid hermes fabric -p coder gateway run --replace" in run_text
 
 
 def test_render_run_script_uses_replace_to_take_over_stale_holder() -> None:
@@ -1116,20 +1116,20 @@ def test_s6_log_run_chowns_gateways_parent(s6_scandir, fake_subprocess_run) -> N
 
     log_text = (s6_scandir / "gateway-coder" / "log" / "run").read_text()
 
-    parent_chown = 'chown fabric:fabric "$FABRIC_HOME/logs/gateways"'
+    parent_chown = 'chown hermes:hermes "$FABRIC_HOME/logs/gateways"'
     assert parent_chown in log_text, (
         "log/run must chown the logs/gateways parent so profiles added "
         f"after a root-context boot can create their leaf dirs. Saw: {log_text!r}"
     )
     # Non-recursive on purpose: sibling profile leaf dirs are each managed
     # by their own log/run; a recursive parent chown would race them.
-    assert 'chown -R fabric:fabric "$FABRIC_HOME/logs/gateways"' not in log_text
+    assert 'chown -R hermes:hermes "$FABRIC_HOME/logs/gateways"' not in log_text
 
     # Ordering: mkdir creates the parent, then the parent chown repairs its
     # ownership, then the leaf chown — all before s6-log execs.
     mkdir_idx = log_text.index('mkdir -p "$log_dir"')
     parent_idx = log_text.index(parent_chown)
-    leaf_idx = log_text.index('chown -R fabric:fabric "$log_dir"')
+    leaf_idx = log_text.index('chown -R hermes:hermes "$log_dir"')
     exec_idx = log_text.index("s6-log 1 ")
     assert mkdir_idx < parent_idx < leaf_idx < exec_idx
 

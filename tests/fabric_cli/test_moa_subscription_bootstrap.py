@@ -76,7 +76,9 @@ def test_live_xai_catalog_probes_hidden_oauth_models(monkeypatch):
                 return FakeResponse(200, {"data": [{"id": "grok-4.5"}]})
             if url.endswith("/models/grok-composer-2.5-fast"):
                 return FakeResponse(200, {"id": "grok-composer-2.5-fast"})
-            return FakeResponse(404)
+            # Optional preferred candidates can be unentitled even when both
+            # required lanes are available; a per-model 403 is candidate-local.
+            return FakeResponse(403)
 
     monkeypatch.setattr(
         "fabric_cli.auth.resolve_xai_oauth_runtime_credentials",

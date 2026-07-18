@@ -131,10 +131,6 @@ def _live_xai_model_ids() -> set[str]:
                 probe = client.get(f"{base_url}/models/{quote(model, safe='')}")
                 if probe.status_code == 200:
                     live.add(model)
-                elif probe.status_code in {401, 403}:
-                    raise RuntimeError(
-                        f"xAI rejected subscription model discovery with HTTP {probe.status_code}"
-                    )
     except Exception as exc:
         raise RuntimeError(
             "Could not refresh the live xAI subscription catalog. "

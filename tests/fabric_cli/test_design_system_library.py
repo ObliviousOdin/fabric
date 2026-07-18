@@ -512,6 +512,23 @@ def test_inspect_handles_missing_design_md_and_invalid_utf8(
     assert inspection["entrypoints"]["designMd"] == "DESIGN.md"
     assert inspection["designMdPreview"] is None
 
+    large_bad_archive = tmp_path / "large-bad-utf8.zip"
+    _write_zip_stored(
+        large_bad_archive,
+        {"DESIGN.md": b"# starts as text\n\xff" + (b"x" * 20_000)},
+    )
+    replaced = library.replace_design_system(imported["id"], large_bad_archive)
+    inspection = library.inspect_design_system(replaced["id"])
+    assert inspection is not None
+    assert inspection["designMdPreview"] is None
+
+    binary_archive = tmp_path / "binary-design-md.zip"
+    _write_zip_stored(binary_archive, {"DESIGN.md": b"# text-looking prefix\n\x00binary"})
+    replaced = library.replace_design_system(imported["id"], binary_archive)
+    inspection = library.inspect_design_system(replaced["id"])
+    assert inspection is not None
+    assert inspection["designMdPreview"] is None
+
 
 def test_inspect_tracks_current_revision_and_rejects_tampered_targets(
     tmp_path: Path, monkeypatch
@@ -558,6 +575,27 @@ def test_inspect_tracks_current_revision_and_rejects_tampered_targets(
     design_md.symlink_to("/etc/passwd")
     with pytest.raises(library.DesignSystemStorageError):
         library.inspect_design_system(first["id"])
+
+    nested_zip = tmp_path / "nested.zip"
+    _write_zip(nested_zip, {"nested/DESIGN.md": "# nested\n"})
+    nested_record = library.import_design_system(nested_zip)
+    nested_files_root = Path(nested_record["files_path"])
+    nested_directory = nested_files_root / "nested"
+    nested_target = nested_directory / "DESIGN.md"
+    outside_directory = tmp_path / "outside"
+    outside_directory.mkdir()
+    (outside_directory / "DESIGN.md").write_text("outside revision root")
+    nested_files_root.chmod(0o700)
+    nested_directory.chmod(0o700)
+    nested_target.chmod(0o600)
+    nested_target.unlink()
+    nested_directory.rmdir()
+    nested_directory.symlink_to(outside_directory, target_is_directory=True)
+    with pytest.raises(library.DesignSystemStorageError):
+        library.inspect_design_system(nested_record["id"])
+    monkeypatch.setattr(library.os, "supports_dir_fd", set())
+    with pytest.raises(library.DesignSystemStorageError):
+        library.inspect_design_system(nested_record["id"])
 
     assert library.inspect_design_system("ds_not_a_valid_id") is None
     assert library.inspect_design_system("ds_" + ("0" * 32)) is None

@@ -140,6 +140,18 @@ describe('design system store', () => {
     expect($designSystemInspectionStatus.get()).toBe('ready')
   })
 
+  it('rejects an inspection that does not match the selected managed revision', async () => {
+    installBridge(
+      vi.fn().mockResolvedValue({
+        inspection: { ...inspection, revisionSha256: 'unexpected-revision' }
+      })
+    )
+
+    await expect(inspectDesignSystem(system)).rejects.toThrow('did not match the selected revision')
+    expect($designSystemInspection.get()).toBeNull()
+    expect($designSystemInspectionStatus.get()).toBe('error')
+  })
+
   it('ignores stale inspection responses after the connection or profile changes', async () => {
     let resolveRequest: ((value: { inspection: DesignSystemInspection }) => void) | undefined
 
@@ -159,5 +171,52 @@ describe('design system store', () => {
     expect(api).toHaveBeenCalledTimes(1)
     expect($designSystemInspection.get()).toBeNull()
     expect($designSystemInspectionStatus.get()).toBe('idle')
+  })
+
+  it('keeps only the newest inspection when managed-system requests resolve out of order', async () => {
+    const secondSystem: ManagedDesignSystem = {
+      ...system,
+      activeRevision: 'def456',
+      activeRevisionInfo: {
+        ...system.activeRevisionInfo,
+        sha256: 'def456'
+      },
+      id: 'system-2',
+      name: 'Beta'
+    }
+
+    const secondInspection: DesignSystemInspection = {
+      ...inspection,
+      designSystemId: secondSystem.id,
+      revisionSha256: secondSystem.activeRevision
+    }
+
+    let resolveFirst: ((value: { inspection: DesignSystemInspection }) => void) | undefined
+    let resolveSecond: ((value: { inspection: DesignSystemInspection }) => void) | undefined
+
+    const firstPending = new Promise<{ inspection: DesignSystemInspection }>(resolve => {
+      resolveFirst = resolve
+    })
+
+    const secondPending = new Promise<{ inspection: DesignSystemInspection }>(resolve => {
+      resolveSecond = resolve
+    })
+
+    const { api } = installBridge(
+      vi.fn().mockReturnValueOnce(firstPending).mockReturnValueOnce(secondPending)
+    )
+
+    const firstRequest = inspectDesignSystem(system)
+    const secondRequest = inspectDesignSystem(secondSystem)
+
+    resolveSecond?.({ inspection: secondInspection })
+    await expect(secondRequest).resolves.toEqual(secondInspection)
+    expect($designSystemInspection.get()).toEqual(secondInspection)
+
+    resolveFirst?.({ inspection })
+    await expect(firstRequest).resolves.toEqual(inspection)
+    expect(api).toHaveBeenCalledTimes(2)
+    expect($designSystemInspection.get()).toEqual(secondInspection)
+    expect($designSystemInspectionStatus.get()).toBe('ready')
   })
 })

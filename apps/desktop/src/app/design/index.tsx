@@ -75,12 +75,16 @@ function SourcePreflight({
   inspection,
   inspectionError,
   inspectionStatus,
+  onRetry,
+  retryLabel,
   system
 }: {
   d: ReturnType<typeof useI18n>['t']['design']
   inspection: DesignSystemInspection | null
   inspectionError: null | string
   inspectionStatus: 'error' | 'idle' | 'loading' | 'ready'
+  onRetry: () => void
+  retryLabel: string
   system: ManagedDesignSystem
 }) {
   const revisionShort = system.activeRevision.slice(0, 8)
@@ -117,8 +121,11 @@ function SourcePreflight({
       ) : null}
 
       {inspectionStatus === 'error' ? (
-        <div className="mt-4">
+        <div className="mt-4 space-y-2">
           <ErrorBanner>{inspectionError || d.preflightFailed}</ErrorBanner>
+          <Button onClick={onRetry} size="sm" type="button" variant="outline">
+            {retryLabel}
+          </Button>
         </div>
       ) : null}
 
@@ -228,6 +235,17 @@ export function DesignView({
   const inspectionError = useStore($designSystemInspectionError)
   const selectedManagedSystem = managedSystems.find(item => item.id === selectedManagedSystemId)
 
+  const matchingInspection =
+    selectedManagedSystem &&
+    inspection &&
+    inspection.designSystemId === selectedManagedSystem.id &&
+    inspection.revisionSha256 === selectedManagedSystem.activeRevision
+      ? inspection
+      : null
+
+  const selectedSourceReady =
+    !selectedManagedSystem || (inspectionStatus === 'ready' && matchingInspection !== null)
+
   useEffect(() => {
     void loadDesignSystems().catch(error => notifyError(error, d.importFailed))
   }, [d.importFailed, designSystemScope])
@@ -265,6 +283,7 @@ export function DesignView({
 
       setImporting(true)
       const result = await importDesignSystemZip(path)
+      clearDesignSystemInspection()
       setSelectedManagedSystemId(result.system.id)
     } catch (error) {
       notifyError(error, d.importFailed)
@@ -283,6 +302,7 @@ export function DesignView({
 
       setImporting(true)
       const result = await replaceDesignSystemZip(saved, path)
+      clearDesignSystemInspection()
       setSelectedManagedSystemId(result.system.id)
     } catch (error) {
       notifyError(error, d.importFailed)
@@ -318,17 +338,9 @@ export function DesignView({
   const startDesign = () => {
     const normalizedBrief = brief.trim()
 
-    if (!normalizedBrief) {
+    if (!normalizedBrief || !selectedSourceReady) {
       return
     }
-
-    const matchingInspection =
-      selectedManagedSystem &&
-      inspection &&
-      inspection.designSystemId === selectedManagedSystem.id &&
-      inspection.revisionSha256 === selectedManagedSystem.activeRevision
-        ? inspection
-        : null
 
     const prompt = buildDesignPrompt({
       artifact,
@@ -485,15 +497,27 @@ export function DesignView({
             {selectedManagedSystem ? (
               <SourcePreflight
                 d={d}
-                inspection={inspection}
+                inspection={matchingInspection}
                 inspectionError={inspectionError}
-                inspectionStatus={inspectionStatus}
+                inspectionStatus={
+                  matchingInspection
+                    ? inspectionStatus
+                    : inspectionStatus === 'error'
+                      ? 'error'
+                      : 'loading'
+                }
+                onRetry={() => {
+                  void inspectDesignSystem(selectedManagedSystem).catch(() => {
+                    // Store already records the error state for the preflight panel.
+                  })
+                }}
+                retryLabel={t.common.retry}
                 system={selectedManagedSystem}
               />
             ) : null}
 
             <div className="flex flex-wrap items-center gap-3 border-t border-(--ui-stroke-tertiary) pt-5">
-              <Button disabled={!brief.trim()} size="lg" type="submit">
+              <Button disabled={!brief.trim() || !selectedSourceReady} size="lg" type="submit">
                 <Codicon name="wand" />
                 {d.start}
               </Button>
@@ -542,9 +566,10 @@ export function DesignView({
                       <RowButton
                         aria-checked={selected}
                         className="min-w-0 flex-1 px-2 py-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-(--ui-focus-ring)"
-                        onClick={() =>
+                        onClick={() => {
+                          clearDesignSystemInspection()
                           setSelectedManagedSystemId(current => (current === saved.id ? null : saved.id))
-                        }
+                        }}
                         role="radio"
                       >
                         <span className="block truncate text-xs font-medium text-(--ui-text-primary)">{saved.name}</span>

@@ -187,6 +187,10 @@ describe('DesignView', () => {
     render(<DesignView onStartDesign={vi.fn()} />)
     fireEvent.click(screen.getByRole('radio', { name: /claude product system/i }))
     expect(await screen.findByText('Inspecting the managed archive…')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Brief'), {
+      target: { value: 'Apply the selected system' }
+    })
+    expect(screen.getByRole('button', { name: 'Open in a new chat' })).toHaveProperty('disabled', true)
 
     resolveInspection?.({
       ...inspection,
@@ -205,6 +209,7 @@ describe('DesignView', () => {
     const preflight = screen.getByTestId('source-preflight')
     expect(preflight.textContent).toMatch(/12 more files omitted/)
     expect(preflight.textContent).toContain('No DESIGN.md detected in this archive.')
+    expect(screen.getByRole('button', { name: 'Open in a new chat' })).toHaveProperty('disabled', false)
 
     cleanup()
     clearDesignSystemInspection()
@@ -213,6 +218,11 @@ describe('DesignView', () => {
     render(<DesignView onStartDesign={vi.fn()} />)
     fireEvent.click(screen.getByRole('radio', { name: /claude product system/i }))
     expect(await screen.findByText('backend offline')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Brief'), {
+      target: { value: 'Do not hand off without source context' }
+    })
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Open in a new chat' })).toHaveProperty('disabled', true)
   })
 
   it('includes normalized inspection metadata in the chat handoff prompt', async () => {

@@ -103,6 +103,7 @@ export function designSystemScopeKey(
 }
 
 let observedScope = designSystemScopeKey()
+let inspectionRequestVersion = 0
 export const $designSystemScope = atom(observedScope)
 
 function resetForScopeChange(): void {
@@ -117,6 +118,7 @@ function resetForScopeChange(): void {
   $designSystems.set([])
   $designSystemsError.set(null)
   $designSystemsStatus.set('idle')
+  inspectionRequestVersion += 1
   $designSystemInspection.set(null)
   $designSystemInspectionError.set(null)
   $designSystemInspectionStatus.set('idle')
@@ -242,14 +244,13 @@ export async function removeDesignSystem(system: ManagedDesignSystem): Promise<v
     $designSystems.set($designSystems.get().filter(item => item.id !== system.id))
 
     if ($designSystemInspection.get()?.designSystemId === system.id) {
-      $designSystemInspection.set(null)
-      $designSystemInspectionError.set(null)
-      $designSystemInspectionStatus.set('idle')
+      clearDesignSystemInspection()
     }
   }
 }
 
 export function clearDesignSystemInspection(): void {
+  inspectionRequestVersion += 1
   $designSystemInspection.set(null)
   $designSystemInspectionError.set(null)
   $designSystemInspectionStatus.set('idle')
@@ -257,6 +258,7 @@ export function clearDesignSystemInspection(): void {
 
 export async function inspectDesignSystem(system: ManagedDesignSystem): Promise<DesignSystemInspection | null> {
   const target = captureTarget()
+  const requestVersion = ++inspectionRequestVersion
   $designSystemInspectionError.set(null)
   $designSystemInspectionStatus.set('loading')
 
@@ -268,7 +270,15 @@ export async function inspectDesignSystem(system: ManagedDesignSystem): Promise<
 
     const inspection = response.inspection
 
-    if (designSystemScopeKey() !== target.scope) {
+    if (
+      !inspection ||
+      inspection.designSystemId !== system.id ||
+      inspection.revisionSha256 !== system.activeRevision
+    ) {
+      throw new Error('Design-system inspection did not match the selected revision. Refresh and try again.')
+    }
+
+    if (designSystemScopeKey() !== target.scope || requestVersion !== inspectionRequestVersion) {
       return inspection
     }
 
@@ -277,7 +287,7 @@ export async function inspectDesignSystem(system: ManagedDesignSystem): Promise<
 
     return inspection
   } catch (error) {
-    if (designSystemScopeKey() === target.scope) {
+    if (designSystemScopeKey() === target.scope && requestVersion === inspectionRequestVersion) {
       $designSystemInspection.set(null)
       $designSystemInspectionError.set(messageFromError(error))
       $designSystemInspectionStatus.set('error')

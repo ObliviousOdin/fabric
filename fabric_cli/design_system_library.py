@@ -14,6 +14,7 @@ revision.
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import json
 import os
@@ -197,6 +198,9 @@ class DesignSystemLibrary:
         if (
             manifest.get("version") != _METADATA_VERSION
             or manifest.get("sha256") != revision_sha
+            or manifest.get("archive_size") != public["archive_size"]
+            or manifest.get("expanded_size") != public["expanded_size"]
+            or manifest.get("file_count") != public["file_count"]
             or not isinstance(manifest.get("files"), list)
         ):
             raise DesignSystemStorageError(
@@ -224,6 +228,15 @@ class DesignSystemLibrary:
                     "design-system revision manifest size is invalid"
                 )
             file_rows.append({"path": path_value, "size": size_value})
+
+        if (
+            len(file_rows) != int(public["file_count"])
+            or sum(int(row["size"]) for row in file_rows)
+            != int(public["expanded_size"])
+        ):
+            raise DesignSystemStorageError(
+                "design-system revision manifest inventory does not match the current revision"
+            )
 
         file_rows.sort(key=lambda row: str(row["path"]).casefold())
         entrypoints = _detect_entrypoints(file_rows)
@@ -700,62 +713,152 @@ def _detect_entrypoints(file_rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _read_design_md_preview(files_root: Path, relative_path: str) -> dict[str, Any] | None:
-    parts = tuple(segment for segment in relative_path.split("/") if segment)
+    parts = tuple(relative_path.split("/"))
     if (
         not parts
-        or any(segment in {".", ".."} for segment in parts)
+        or relative_path.startswith("/")
+        or "\\" in relative_path
+        or ":" in relative_path
+        or len(relative_path) > MAX_PATH_LENGTH
+        or len(relative_path.encode("utf-8")) > MAX_PATH_LENGTH
+        or any(unicodedata.category(char).startswith("C") for char in relative_path)
+        or any(
+            not segment
+            or segment in {".", ".."}
+            or len(segment) > MAX_PATH_SEGMENT_LENGTH
+            or len(segment.encode("utf-8")) > MAX_PATH_SEGMENT_LENGTH
+            for segment in parts
+        )
         or len(parts) > MAX_PATH_DEPTH
     ):
         raise DesignSystemStorageError("design-system DESIGN.md path is invalid")
 
-    target = files_root.joinpath(*parts)
     try:
-        target.relative_to(files_root)
-    except ValueError as exc:
-        raise DesignSystemStorageError("design-system DESIGN.md path escaped revision root") from exc
-
-    try:
-        before = target.lstat()
+        with _open_regular_beneath(files_root, parts) as handle:
+            raw = handle.read(MAX_DESIGN_MD_PREVIEW_BYTES + 1)
     except FileNotFoundError:
         return None
-    except OSError as exc:
-        raise DesignSystemStorageError("could not inspect DESIGN.md preview target") from exc
-    if not stat.S_ISREG(before.st_mode):
-        raise DesignSystemStorageError("DESIGN.md preview target is not a regular file")
-
-    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
-    flags |= getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(target, flags)
-    except OSError as exc:
-        raise DesignSystemStorageError("could not open DESIGN.md preview safely") from exc
-    try:
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode):
-            raise DesignSystemStorageError("DESIGN.md preview target is not a regular file")
-        if (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino):
-            raise DesignSystemStorageError("DESIGN.md preview target changed while opening")
-        with os.fdopen(descriptor, "rb", closefd=False) as handle:
-            raw = handle.read(MAX_DESIGN_MD_PREVIEW_BYTES + 1)
-    finally:
-        os.close(descriptor)
 
     truncated = len(raw) > MAX_DESIGN_MD_PREVIEW_BYTES
     payload = raw[:MAX_DESIGN_MD_PREVIEW_BYTES]
+    if b"\x00" in payload:
+        return None
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
     try:
-        text = payload.decode("utf-8")
+        # ``final=False`` permits only an incomplete trailing code point caused
+        # by the hard byte cap; invalid UTF-8 anywhere else still suppresses
+        # the preview rather than silently rewriting archive content.
+        text = decoder.decode(payload, final=not truncated)
     except UnicodeDecodeError:
-        if not truncated:
-            return None
-        # Drop an incomplete trailing multi-byte sequence after the hard byte cap.
-        text = payload.decode("utf-8", errors="ignore")
-        if not text:
-            return None
+        return None
     return {
         "path": relative_path,
         "text": text,
         "truncated": truncated,
     }
+
+
+@contextmanager
+def _open_regular_beneath(root: Path, parts: tuple[str, ...]) -> Iterator[BinaryIO]:
+    """Open a regular file without following any archive-controlled symlink.
+
+    POSIX platforms use descriptor-relative ``openat`` traversal so an attacker
+    cannot swap an intermediate directory between a path check and the final
+    open. Platforms without that support use a component-by-component fallback
+    that still rejects every visible symlink and verifies the resolved target.
+    """
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flag = getattr(os, "O_DIRECTORY", 0)
+    if nofollow and directory_flag and os.open in os.supports_dir_fd:
+        directory_descriptors: list[int] = []
+        file_descriptor: int | None = None
+        directory_flags = (
+            os.O_RDONLY
+            | directory_flag
+            | nofollow
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        file_flags = (
+            os.O_RDONLY
+            | nofollow
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
+        try:
+            directory_descriptors.append(os.open(root, directory_flags))
+            for segment in parts[:-1]:
+                directory_descriptors.append(
+                    os.open(
+                        segment,
+                        directory_flags,
+                        dir_fd=directory_descriptors[-1],
+                    )
+                )
+            file_descriptor = os.open(
+                parts[-1],
+                file_flags,
+                dir_fd=directory_descriptors[-1],
+            )
+            opened = os.fstat(file_descriptor)
+            if not stat.S_ISREG(opened.st_mode):
+                raise DesignSystemStorageError(
+                    "DESIGN.md preview target is not a regular file"
+                )
+            with os.fdopen(file_descriptor, "rb", closefd=False) as handle:
+                yield handle
+        except FileNotFoundError:
+            raise
+        except DesignSystemStorageError:
+            raise
+        except OSError as exc:
+            raise DesignSystemStorageError(
+                "could not open DESIGN.md preview safely"
+            ) from exc
+        finally:
+            if file_descriptor is not None:
+                os.close(file_descriptor)
+            for descriptor in reversed(directory_descriptors):
+                os.close(descriptor)
+        return
+
+    target = root
+    try:
+        root_metadata = root.lstat()
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise DesignSystemStorageError(
+                "design-system revision files is not a regular directory"
+            )
+        resolved_root = root.resolve(strict=True)
+        for segment in parts[:-1]:
+            target = target / segment
+            metadata = target.lstat()
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise DesignSystemStorageError(
+                    "DESIGN.md preview parent is not a regular directory"
+                )
+        target = target / parts[-1]
+        metadata = target.lstat()
+        if not stat.S_ISREG(metadata.st_mode):
+            raise DesignSystemStorageError(
+                "DESIGN.md preview target is not a regular file"
+            )
+        try:
+            target.resolve(strict=True).relative_to(resolved_root)
+        except ValueError as exc:
+            raise DesignSystemStorageError(
+                "design-system DESIGN.md path escaped revision root"
+            ) from exc
+        with _open_regular_binary(target) as handle:
+            yield handle
+    except FileNotFoundError:
+        raise
+    except DesignSystemStorageError:
+        raise
+    except OSError as exc:
+        raise DesignSystemStorageError(
+            "could not open DESIGN.md preview safely"
+        ) from exc
 
 
 def _copy_and_hash_archive(source: Path, destination: Path) -> tuple[str, int]:

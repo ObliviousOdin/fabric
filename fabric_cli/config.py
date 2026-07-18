@@ -766,10 +766,10 @@ def _resolve_fabric_uid_gid() -> tuple[Optional[int], Optional[int]]:
     if sys.platform == "win32":
         return None, None
     uid_str = (
-        os.environ.get("FABRIC_UID") or os.environ.get("FABRIC_UID") or ""
+        os.environ.get("FABRIC_UID") or os.environ.get("HERMES_UID") or ""
     ).strip()
     gid_str = (
-        os.environ.get("FABRIC_GID") or os.environ.get("FABRIC_GID") or ""
+        os.environ.get("FABRIC_GID") or os.environ.get("HERMES_GID") or ""
     ).strip()
     try:
         uid = int(uid_str) if uid_str else None

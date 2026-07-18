@@ -139,7 +139,7 @@ except ImportError:
             f"Install with: {sys.executable} -m pip install 'fastapi' 'uvicorn[standard]'"
         )
 
-_WEB_DIST_OVERRIDE = os.environ.get("FABRIC_WEB_DIST") or os.environ.get("FABRIC_WEB_DIST")
+_WEB_DIST_OVERRIDE = os.environ.get("FABRIC_WEB_DIST") or os.environ.get("HERMES_WEB_DIST")
 WEB_DIST = Path(_WEB_DIST_OVERRIDE) if _WEB_DIST_OVERRIDE else Path(__file__).parent / "web_dist"
 _log = logging.getLogger(__name__)
 

@@ -139,7 +139,7 @@ def _get_token_dir() -> Path:
         from fabric_constants import get_fabric_home
         base = Path(get_fabric_home())
     except ImportError:
-        base = Path(os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME") or Path.home() / ".fabric")
+        base = Path(os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or Path.home() / ".fabric")
     return base / "mcp-tokens"
 
 

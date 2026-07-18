@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def fabric_home() -> Path:
-    configured = os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME")
+    configured = os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME")
     return Path(configured) if configured else Path.home() / ".fabric"
 
 

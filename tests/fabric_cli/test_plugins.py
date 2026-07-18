@@ -65,7 +65,7 @@ def _make_plugin_dir(base: Path, name: str, *, register_body: str = "pass",
         # - ambient FABRIC_HOME (conftest / project-plugin discovery config root)
         import os
         homes = [base.parent]
-        env_home = os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME")
+        env_home = os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME")
         if env_home:
             homes.append(Path(env_home))
         seen: set[str] = set()

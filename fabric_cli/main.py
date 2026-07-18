@@ -1845,7 +1845,7 @@ def _make_tui_argv(tui_dir: Path, tui_dev: bool) -> tuple[list[str], Path]:
         return path
 
     # Footgun: --dev against a prebuilt bundle that has no source/node_modules.
-    ext_dir = os.environ.get("FABRIC_TUI_DIR") or os.environ.get("FABRIC_TUI_DIR")
+    ext_dir = os.environ.get("FABRIC_TUI_DIR") or os.environ.get("HERMES_TUI_DIR")
     if tui_dev and ext_dir:
         print(
             f"Error: --dev is incompatible with FABRIC_TUI_DIR={ext_dir}\n"

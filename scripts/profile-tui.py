@@ -42,13 +42,12 @@ try:
 except ImportError:
     def get_fabric_home() -> Path:  # type: ignore[misc]
         val = (
-            os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME") or ""
+            os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or ""
         ).strip()
         return Path(val) if val else Path.home() / ".fabric"
 
 DEFAULT_TUI_DIR = Path(
-    os.environ.get("FABRIC_TUI_DIR")
-    or os.environ.get("FABRIC_TUI_DIR")
+    os.environ.get("FABRIC_TUI_DIR") or os.environ.get("HERMES_TUI_DIR")
     or str(Path(__file__).resolve().parent.parent / "ui-tui")
 )
 DEFAULT_LOG = Path(os.environ.get("FABRIC_PERF_LOG", str(get_fabric_home() / "perf.log")))

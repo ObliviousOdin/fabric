@@ -102,22 +102,19 @@ delegate_task(tasks=[
         "goal": "Recommend for or against migrating shopd's background jobs from Redis/rq to Postgres SKIP LOCKED queues, arguing risk-first.",
         "context": """PROBLEM (identical for all reviewers): The app at /home/user/shopd runs ~40k background jobs/day on rq + Redis 6 (single node, no persistence). Ops wants one less datastore; a draft Postgres queue lives in /home/user/shopd/jobs/pg_queue.py. Postgres 15 already hosts the primary DB at ~30% load. Question: migrate, stay, or stage it?
 YOUR LENS — RISK-FIRST: assume the migration ships and then fails in production. Enumerate concrete failure modes (lock contention, vacuum bloat, job loss during cutover), blast radius, and rollback story. Recommend whatever minimizes the worst outcome. Ignore elegance and long-term simplicity.
-OUTPUT CONTRACT: one-line RECOMMENDATION; top 3 arguments; top 3 risks; confidence 1-5; every claim about the codebase cited by file path.""",
-        "toolsets": ["terminal", "file"]
+OUTPUT CONTRACT: one-line RECOMMENDATION; top 3 arguments; top 3 risks; confidence 1-5; every claim about the codebase cited by file path."""
     },
     {
         "goal": "Recommend for or against migrating shopd's background jobs from Redis/rq to Postgres SKIP LOCKED queues, arguing simplest-thing.",
         "context": """PROBLEM (identical for all reviewers): The app at /home/user/shopd runs ~40k background jobs/day on rq + Redis 6 (single node, no persistence). Ops wants one less datastore; a draft Postgres queue lives in /home/user/shopd/jobs/pg_queue.py. Postgres 15 already hosts the primary DB at ~30% load. Question: migrate, stay, or stage it?
 YOUR LENS — SIMPLEST-THING: champion the least total machinery that plausibly works. Count moving parts, configs, and failure domains under each option; treat every component as guilty until proven necessary. Ignore hypothetical future scale.
-OUTPUT CONTRACT: one-line RECOMMENDATION; top 3 arguments; top 3 risks; confidence 1-5; every claim about the codebase cited by file path.""",
-        "toolsets": ["terminal", "file"]
+OUTPUT CONTRACT: one-line RECOMMENDATION; top 3 arguments; top 3 risks; confidence 1-5; every claim about the codebase cited by file path."""
     },
     {
         "goal": "Recommend for or against migrating shopd's background jobs from Redis/rq to Postgres SKIP LOCKED queues, arguing maintainer-first.",
         "context": """PROBLEM (identical for all reviewers): The app at /home/user/shopd runs ~40k background jobs/day on rq + Redis 6 (single node, no persistence). Ops wants one less datastore; a draft Postgres queue lives in /home/user/shopd/jobs/pg_queue.py. Postgres 15 already hosts the primary DB at ~30% load. Question: migrate, stay, or stage it?
 YOUR LENS — MAINTAINER: optimize for the on-call engineer in year three. Weigh debuggability, monitoring, upgrade paths, and how each option fails at 3am. Ignore one-time migration effort.
-OUTPUT CONTRACT: one-line RECOMMENDATION; top 3 arguments; top 3 risks; confidence 1-5; every claim about the codebase cited by file path.""",
-        "toolsets": ["terminal", "file"]
+OUTPUT CONTRACT: one-line RECOMMENDATION; top 3 arguments; top 3 risks; confidence 1-5; every claim about the codebase cited by file path."""
     }
 ])
 ```

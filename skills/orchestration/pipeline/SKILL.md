@@ -35,12 +35,12 @@ list. Subagents start with a completely fresh conversation — zero knowledge of
 this session — so the artifact IS the handoff. The next stage reads a file,
 never a memory.
 
-| Stage | Reads | Writes | Skill to load inside | Toolsets |
+| Stage | Reads | Writes | Skill to load inside | Stage constraint (in context prose) |
 |---|---|---|---|---|
-| Research | 00-task-brief.md | 10-research-brief.md | `spike` for throwaway-prototype questions | ["file", "web"] |
-| Plan | 10-research-brief.md | 20-plan.md | `plan` | ["file"] |
-| Build | 20-plan.md | branch diff + 30-build-report.md | `test-driven-development` or `subagent-driven-development` | ["terminal", "file"] |
-| Verify | 20-plan.md + the diff | 40-verification-report.md | `requesting-code-review` | ["terminal", "file"] |
+| Research | 00-task-brief.md | 10-research-brief.md | `spike` for throwaway-prototype questions | May read repo + web; write only the research brief |
+| Plan | 10-research-brief.md | 20-plan.md | `plan` | Do not modify source files; write only the plan artifact |
+| Build | 20-plan.md | branch diff + 30-build-report.md | `test-driven-development` or `subagent-driven-development` | Implement and test per plan; write the build report |
+| Verify | 20-plan.md + the diff | 40-verification-report.md | `requesting-code-review` | Report-only: do not edit, commit, or push |
 
 Adapt the stage list to the work — a docs pipeline might be research, outline,
 draft, edit — but keep the shape: coarse stages, file artifacts, one contract
@@ -60,7 +60,7 @@ resume from the last accepted artifact cold:
 ## Workflow
 
 1. **Scope the stages.** Pick 3-5 coarse stages with a genuine context break
-   between each — different inputs, different mindset, or different toolsets.
+   between each — different inputs, different mindset, or different constraints.
    If two adjacent stages would share most of their context, merge them.
 2. **Write the contracts first.** Before dispatching anything, write
    `contracts.md`: for each boundary, the output file path, format, and a
@@ -74,8 +74,9 @@ resume from the last accepted artifact cold:
    `tasks` batch across stages — batches run in parallel and a batched build
    would read a plan that does not exist yet. The context must be
    self-contained: name the input artifact paths to read, restate the output
-   contract verbatim, name the skill to load, and pick the narrowest
-   `toolsets`. From the top-level agent the child runs in the background and
+   contract verbatim, and name the skill to load. Children inherit the
+   parent's toolsets (no per-task narrowing); put "do not modify source"
+   and similar constraints in context prose. From the top-level agent the child runs in the background and
    its summary re-enters the conversation as a new message when it finishes;
    interrupting the parent cancels it.
 5. **Review the artifact.** When the summary arrives, do not trust it — open
@@ -114,8 +115,7 @@ delegate_task(
     - numbered tasks, each 2-5 minutes of work, with exact file paths
     - a per-task test command
     - an explicit out-of-scope list
-    Do not modify any source files during this stage.""",
-    toolsets=["file"]
+    Do not modify any source files during this stage."""
 )
 ```
 

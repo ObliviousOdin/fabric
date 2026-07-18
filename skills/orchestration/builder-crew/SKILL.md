@@ -147,8 +147,7 @@ no budget for paid APIs, must run on their existing VPS via Docker.
 Write product-brief.md with sections: Problem, Target user, v1 features
 (max 5), Non-goals, Success metric, Riskiest assumption. Decide anything
 ambiguous yourself and record it under 'Assumptions' — you cannot ask
-the user questions.""",
-    toolsets=["file", "web"]
+the user questions."""
 )
 
 # Wave 2 — designer and engineering spike in parallel. Both inputs now
@@ -163,8 +162,7 @@ delegate_task(tasks=[
                    "non-goals. Deliver: core flows for the v1 features, "
                    "information hierarchy, one visual direction (type, "
                    "color, density) with rationale, as plain markdown. "
-                   "Record assumptions instead of asking questions.",
-        "toolsets": ["file"]
+                   "Record assumptions instead of asking questions."
     },
     {
         "goal": "Spike Shelfie's riskiest technical unknown; write "
@@ -178,8 +176,7 @@ delegate_task(tasks=[
                    "Constraints: free sources only, Docker on a small "
                    "VPS. Deliver: what you tried, what worked, the "
                    "recommended build approach, snippets inline. Record "
-                   "assumptions instead of asking questions.",
-        "toolsets": ["terminal", "file", "web"]
+                   "assumptions instead of asking questions."
     }
 ])
 ```

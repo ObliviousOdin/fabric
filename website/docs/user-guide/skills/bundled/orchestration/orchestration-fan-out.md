@@ -84,8 +84,9 @@ and fan out only the independent middle.
    shard list into batches of at most the limit and dispatch one batch per
    `delegate_task` call. Batches from the top-level agent run in the
    background; results re-enter the conversation as new messages when the
-   children finish. Give each shard the narrowest toolsets that suffice
-   (`["file"]` for read-only audits).
+   children finish. Children inherit the parent's toolsets and cannot be
+   narrowed per shard — put scope and "do not modify files" constraints in
+   each shard's context prose instead.
 5. **Validate each return before merging.** A shard result is acceptable
    only if it matches the required format exactly. Free prose, an error, or
    a suspiciously thin answer (zero findings from the largest module) fails
@@ -135,19 +136,16 @@ dispatch three batches of three and merge as each batch's results arrive.
 delegate_task(tasks=[
   {
     "role": "leaf",
-    "toolsets": ["file"],
     "goal": "Audit src/auth/ in /home/user/shop for call sites that dereference db.fetch_one() results without a None check. Return findings ONLY in the mandated table format.",
     "context": "Repo root: /home/user/shop (Python 3.12, SQLAlchemy). Audit ONLY files under src/auth/. db.fetch_one() returns None on a miss; flag every call site that uses the result without a None guard. Example defect: user = db.fetch_one(q); return user.id. Ignore tests/ and sites already guarded by 'if row is None'. RETURN FORMAT (mandatory): markdown table, columns file | line | severity (high/medium/low) | issue | suggested fix, absolute paths, one row per finding. If nothing found return exactly: NO_FINDINGS auth"
   },
   {
     "role": "leaf",
-    "toolsets": ["file"],
     "goal": "Audit src/billing/ in /home/user/shop for call sites that dereference db.fetch_one() results without a None check. Return findings ONLY in the mandated table format.",
     "context": "Repo root: /home/user/shop (Python 3.12, SQLAlchemy). Audit ONLY files under src/billing/. db.fetch_one() returns None on a miss; flag every call site that uses the result without a None guard. Example defect: user = db.fetch_one(q); return user.id. Ignore tests/ and sites already guarded by 'if row is None'. RETURN FORMAT (mandatory): markdown table, columns file | line | severity (high/medium/low) | issue | suggested fix, absolute paths, one row per finding. If nothing found return exactly: NO_FINDINGS billing"
   },
   {
     "role": "leaf",
-    "toolsets": ["file"],
     "goal": "Audit src/catalog/ in /home/user/shop for call sites that dereference db.fetch_one() results without a None check. Return findings ONLY in the mandated table format.",
     "context": "Repo root: /home/user/shop (Python 3.12, SQLAlchemy). Audit ONLY files under src/catalog/. db.fetch_one() returns None on a miss; flag every call site that uses the result without a None guard. Example defect: user = db.fetch_one(q); return user.id. Ignore tests/ and sites already guarded by 'if row is None'. RETURN FORMAT (mandatory): markdown table, columns file | line | severity (high/medium/low) | issue | suggested fix, absolute paths, one row per finding. If nothing found return exactly: NO_FINDINGS catalog"
   }

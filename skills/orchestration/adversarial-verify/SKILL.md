@@ -68,8 +68,9 @@ Protect it deliberately:
    `fabric-agent` skill).
 4. **Dispatch refuters.** One `delegate_task` call with a `tasks` array. Each
    task's goal and context must stand alone — fresh context, see the rule
-   above. Report-only toolsets: `["terminal", "file"]` when they must run
-   things, `["file"]` for pure reading, `["web"]` for citation checks.
+   above. Children inherit the parent's toolsets and cannot be narrowed per
+   task — put report-only constraints ("do not edit, commit, or push") and
+   the allowed investigation approach in each task's context prose.
    Delegations run in the background; verdicts re-enter the conversation as
    messages when children finish, and interrupting yourself interrupts all of
    them.
@@ -106,13 +107,13 @@ packaging failed, not the artifact.
 
 ### Lens menu
 
-| Lens | Charge | Typical toolsets |
+| Lens | Charge | Investigation approach |
 |---|---|---|
-| Repro / correctness | Reproduce the original failure before the change; prove it gone after; hunt hostile input variants | terminal, file |
-| Regression | Diff behavior before and after the change; find anything that worked and now does not | terminal, file |
-| Security | Attack the trust boundaries the change touches: authz bypass, injection, unsafe input handling | terminal, file |
-| Does-it-reproduce | Rerun an analysis or benchmark from raw inputs; compare against the published numbers | terminal, file |
-| Claim audit | Check a document's factual claims and citations against primary sources | web, file |
+| Repro / correctness | Reproduce the original failure before the change; prove it gone after; hunt hostile input variants | Run targeted repro commands and inspect source |
+| Regression | Diff behavior before and after the change; find anything that worked and now does not | Suite before/after + probe uncovered behavior |
+| Security | Attack the trust boundaries the change touches: authz bypass, injection, unsafe input handling | Hostile inputs at trust boundaries |
+| Does-it-reproduce | Rerun an analysis or benchmark from raw inputs; compare against the published numbers | Raw inputs vs published numbers |
+| Claim audit | Check a document's factual claims and citations against primary sources | Primary sources and citations |
 
 ## Worked example: gating a bugfix
 
@@ -145,8 +146,7 @@ Report only — do not edit, commit, or push anything.
 Reply with exactly this block:
 VERDICT: CONFIRMED | REFUTED | INCONCLUSIVE
 CLAIM: / ATTACKS TRIED: / EVIDENCE: / CONFIDENCE:""",
-        "role": "leaf",
-        "toolsets": ["terminal", "file"]
+        "role": "leaf"
     },
     {
         "goal": "Refute this claim: commit 4f2a91c on branch fix/date-parse of the repo at /home/user/webapp introduces no regressions in date handling or the CSV importer.",
@@ -166,8 +166,7 @@ Attack plan:
 Report only — do not edit, commit, or push anything.
 Reply with exactly the VERDICT / CLAIM / ATTACKS TRIED / EVIDENCE /
 CONFIDENCE block.""",
-        "role": "leaf",
-        "toolsets": ["terminal", "file"]
+        "role": "leaf"
     }
 ])
 ```

@@ -79,9 +79,11 @@ fabric moa list
 
 The bootstrap must find both `openai-codex` and `xai-oauth`, chooses only model
 IDs returned for the active profile, installs `subscription-plan` and
-`subscription-review`, caps each reference at 700 output tokens, and uses
-`fanout: user_turn`. It refuses to replace existing managed preset names unless
-the parent explicitly reviews the dry run and uses `--force`.
+`subscription-review`, and uses `fanout: user_turn`. It deliberately leaves
+`reference_max_tokens` unset because the ChatGPT Codex subscription endpoint
+does not accept provider-side output caps. It refuses to replace existing
+managed preset names unless the parent explicitly reviews the dry run and uses
+`--force`.
 
 The command also prints the selected Grok coding-worker model. Record all four
 selected lanes in the ledger. If OAuth is missing, authenticate the relevant

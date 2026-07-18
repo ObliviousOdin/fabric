@@ -138,11 +138,11 @@ the turn waits for the slowest advisor to finish writing. By default advisors
 are **uncapped** (`reference_max_tokens` unset), so they may write long,
 essay-length advice.
 
-Set `reference_max_tokens` on a preset to cap advisor output and give concise
-advice instead. The aggregator only needs the gist of each advisor's
-judgement, so a cap (e.g. `600`) measurably cuts per-turn wall time with little
-quality impact. It caps **advisors only** — the acting aggregator's output (the
-user-visible answer) is never capped.
+Set `reference_max_tokens` on a preset to cap advisor output when every
+selected reference transport supports provider-side output caps. The aggregator
+only needs the gist of each advisor's judgement, so a cap (e.g. `600`) can cut
+per-turn wall time with little quality impact. It caps **advisors only** — the
+acting aggregator's output (the user-visible answer) is never capped.
 
 ```yaml
 moa:
@@ -159,7 +159,10 @@ moa:
       reference_max_tokens: 600   # concise advice → faster turns
 ```
 
-Leave it unset (or `0`/blank) to keep the prior uncapped behavior.
+Leave it unset (or `0`/blank) to keep the prior uncapped behavior. The ChatGPT
+Codex subscription Responses endpoint rejects `max_output_tokens`, so Fabric's
+generated GPT/Grok subscription presets deliberately leave this field unset
+rather than promise a cap that one reference lane cannot enforce.
 
 ### Choose the fan-out cadence
 
@@ -203,10 +206,12 @@ It prefers the strongest available subscription lanes for these roles:
 | Adversarial planning / review reference | `xai-oauth` | Grok 4.5, then available reasoning fallback |
 | Independent coding worker (reported for the workflow) | `xai-oauth` | Grok Composer 2.5 Fast, then Grok Build |
 
-Both generated presets use a 700-token reference cap and
-`fanout: user_turn`. `subscription-plan` reconciles an adversarial Grok review
-with GPT implementation feasibility. `subscription-review` compares only
-deterministically viable patches and uses GPT as the merge-decision owner.
+Both generated presets use `fanout: user_turn` and deliberately leave
+`reference_max_tokens` unset because the ChatGPT Codex subscription endpoint
+does not accept provider-side output caps. `subscription-plan` reconciles an
+adversarial Grok review with GPT implementation feasibility.
+`subscription-review` compares only deterministically viable patches and uses
+GPT as the merge-decision owner.
 
 For full independent implementation, load the bundled
 `moa-software-development` skill. It writes a task brief, runs one-shot MoA at

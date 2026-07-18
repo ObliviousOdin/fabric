@@ -61,7 +61,7 @@ def test_build_subscription_presets_selects_best_live_models():
     assert set(presets) == {"subscription-plan", "subscription-review"}
     for preset in presets.values():
         assert preset["fanout"] == "user_turn"
-        assert preset["reference_max_tokens"] == 700
+        assert "reference_max_tokens" not in preset
         assert preset["aggregator"]["reasoning_effort"] == "high"
         assert all(slot.get("role") for slot in preset["reference_models"])
 
@@ -153,4 +153,4 @@ def test_bootstrap_force_installs_both_presets_and_preserves_others(monkeypatch)
     assert moa["default_preset"] == "subscription-plan"
     assert set(moa["presets"]) == {"custom", "subscription-plan", "subscription-review"}
     assert moa["presets"]["subscription-plan"]["fanout"] == "user_turn"
-    assert moa["presets"]["subscription-review"]["reference_max_tokens"] == 700
+    assert moa["presets"]["subscription-review"]["reference_max_tokens"] is None

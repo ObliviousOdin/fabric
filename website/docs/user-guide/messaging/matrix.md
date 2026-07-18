@@ -446,24 +446,6 @@ Inbound media must use Matrix `mxc://` content URIs. Fabric rejects arbitrary
 HTTP(S) media URLs in Matrix events to avoid turning a federated room into an
 unrestricted downloader.
 
-## Synapse Integration Tests
-
-Fabric includes an opt-in Synapse harness for local validation:
-
-```bash
-docker compose -f tests/e2e/matrix_synapse_gateway/docker-compose.yml up -d
-HERMES_MATRIX_SYNAPSE_INTEGRATION=1 \
-  scripts/run_tests.sh -m "integration and matrix_synapse" \
-  tests/e2e/matrix_synapse_gateway/test_gateway.py
-docker compose -f tests/e2e/matrix_synapse_gateway/docker-compose.yml down -v
-```
-
-The harness creates temporary users through Synapse shared-secret registration
-and covers private-room send/receive, named-room invite/join, media
-upload/download, bot response delivery, and startup old-event filtering. E2EE
-smoke coverage is separately marked with `matrix_e2ee` so it can stay opt-in on
-developer machines.
-
 ### Cross-Signing Verification (Recommended)
 
 If your Matrix account has cross-signing enabled (the default in Element), set the recovery key so the bot can self-sign its device on startup. Without this, other Matrix clients may refuse to share encryption sessions with the bot after a device key rotation.

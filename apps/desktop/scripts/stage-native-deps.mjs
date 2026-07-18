@@ -13,6 +13,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve, join } from 'node:path'
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -24,6 +25,24 @@ import { isMain } from './utils.mjs'
 const here = dirname(fileURLToPath(import.meta.url))
 const projectRoot = resolve(here, '..')
 const require = createRequire(import.meta.url)
+
+/**
+ * node-pty's Unix spawn path execs a sibling `spawn-helper` binary. npm's
+ * prebuild extract (and some archive tools) ship it as mode 0644, which
+ * surfaces at runtime as the opaque `posix_spawnp failed` error the first
+ * time the desktop terminal opens. Always force +x after we stage a copy.
+ */
+export function ensureExecutable(filePath) {
+  if (!filePath || !existsSync(filePath)) {
+    return false
+  }
+  try {
+    chmodSync(filePath, 0o755)
+    return true
+  } catch {
+    return false
+  }
+}
 
 /**
  * Locate node-pty's package root via real module resolution, so this
@@ -72,7 +91,11 @@ function copyBuildRelease(srcDir, destDir) {
       continue
     }
     if (entry.name === 'spawn-helper' || /\.(node|dll|exe)$/.test(entry.name)) {
-      cpSync(join(srcDir, entry.name), join(destDir, entry.name))
+      const dest = join(destDir, entry.name)
+      cpSync(join(srcDir, entry.name), dest)
+      if (entry.name === 'spawn-helper') {
+        ensureExecutable(dest)
+      }
     }
   }
 }
@@ -114,7 +137,9 @@ export function stageNodePty({ platform = process.platform, arch = process.arch 
         continue
       }
       if (entry.name === 'spawn-helper') {
-        cpSync(join(prebuildDir, entry.name), join(destPrebuild, entry.name))
+        const dest = join(destPrebuild, entry.name)
+        cpSync(join(prebuildDir, entry.name), dest)
+        ensureExecutable(dest)
       }
     }
   } else {
@@ -128,6 +153,101 @@ export function stageNodePty({ platform = process.platform, arch = process.arch 
 
   console.log(`[stage-native-deps] staged node-pty (${platform}-${arch}) -> ${destRoot}`)
   return destRoot
+}
+
+/**
+ * Walk a packed app tree for node-pty `spawn-helper` binaries and force +x.
+ * Used by afterPack so electron-builder never ships a non-executable helper.
+ * Safe no-op when the tree is missing (thin/dev layouts).
+ *
+ * electron-builder's `appOutDir` layout differs by platform:
+ *   - linux/win: resources/ lives directly under appOutDir
+ *   - macOS: appOutDir is the parent of `${productFilename}.app`, and
+ *     Contents/Resources is inside the .app (see notarize.mjs)
+ */
+export function ensurePackedNodePtyHelpersExecutable(appOutDir, options = {}) {
+  if (!appOutDir || typeof appOutDir !== 'string') {
+    return []
+  }
+
+  const roots = [
+    join(appOutDir, 'resources', 'app.asar.unpacked', 'dist', 'node_modules', 'node-pty'),
+    // Linux sometimes stages under resources/app/ when asar is disabled in tests
+    join(appOutDir, 'resources', 'app', 'dist', 'node_modules', 'node-pty'),
+    // When appOutDir itself is the .app bundle (rare / tests)
+    join(appOutDir, 'Contents', 'Resources', 'app.asar.unpacked', 'dist', 'node_modules', 'node-pty')
+  ]
+
+  const productFilename =
+    typeof options.productFilename === 'string' && options.productFilename.trim()
+      ? options.productFilename.trim()
+      : ''
+  if (productFilename) {
+    roots.push(
+      join(
+        appOutDir,
+        `${productFilename}.app`,
+        'Contents',
+        'Resources',
+        'app.asar.unpacked',
+        'dist',
+        'node_modules',
+        'node-pty'
+      )
+    )
+  }
+
+  // Discover any .app sibling under appOutDir (darwin afterPack layout).
+  try {
+    for (const entry of readdirSync(appOutDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.endsWith('.app')) {
+        roots.push(
+          join(
+            appOutDir,
+            entry.name,
+            'Contents',
+            'Resources',
+            'app.asar.unpacked',
+            'dist',
+            'node_modules',
+            'node-pty'
+          )
+        )
+      }
+    }
+  } catch {
+    // appOutDir unreadable — roots already cover the common cases.
+  }
+
+  const fixed = []
+  const seen = new Set()
+  for (const root of roots) {
+    if (!existsSync(root) || seen.has(root)) {
+      continue
+    }
+    seen.add(root)
+    const stack = [root]
+    while (stack.length) {
+      const dir = stack.pop()
+      let entries
+      try {
+        entries = readdirSync(dir, { withFileTypes: true })
+      } catch {
+        continue
+      }
+      for (const entry of entries) {
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          stack.push(full)
+          continue
+        }
+        if (entry.name === 'spawn-helper' && ensureExecutable(full)) {
+          fixed.push(full)
+        }
+      }
+    }
+  }
+  return fixed
 }
 
 // Allow direct CLI invocation: node scripts/stage-native-deps.mjs [platform] [arch]

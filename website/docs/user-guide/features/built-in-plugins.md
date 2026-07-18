@@ -2,12 +2,15 @@
 sidebar_position: 12
 sidebar_label: "Built-in Plugins"
 title: "Built-in Plugins"
-description: "Plugins shipped with Fabric that run automatically via lifecycle hooks — disk-cleanup and friends"
+description: "Runtime extensions, providers, and dashboard integrations shipped with Fabric"
 ---
 
 # Built-in Plugins
 
-Fabric ships a small set of plugins bundled with the repository. They live under `<repo>/plugins/<name>/` and load automatically alongside user-installed plugins in `~/.fabric/plugins/`. They use the same plugin surface as third-party plugins — hooks, tools, slash commands — just maintained in-tree.
+Fabric ships several extensions under `<repo>/plugins/`. Some register runtime
+hooks or tools, some provide a selectable backend, and some only add dashboard
+pages or slots. Those surfaces have different activation rules; being bundled
+does not mean arbitrary lifecycle code runs automatically.
 
 See the [Plugins](/user-guide/features/plugins) page for the general plugin system, and [Build a Fabric Plugin](/developer-guide/plugins) to write your own.
 
@@ -24,9 +27,17 @@ On name collision, later sources win — a user plugin named `disk-cleanup` woul
 
 `plugins/memory/` and `plugins/context_engine/` are deliberately excluded from bundled scanning. Those directories use their own discovery paths because memory providers and context engines are single-select providers configured through `fabric memory setup` / `context.engine` in config.
 
-## Bundled plugins are opt-in
+Dashboard discovery separately scans `dashboard/manifest.json` beneath bundled
+and user plugin directories. A dashboard manifest can provide a page, override
+a built-in route, register a shell slot, or mount a plugin API without adding
+anything to the model's tool schema.
 
-Bundled plugins ship disabled. Discovery finds them (they appear in `fabric plugins list` and the interactive `fabric plugins` UI), but none load until you explicitly enable them:
+## Activation depends on the surface
+
+### Lifecycle and tool plugins are opt-in
+
+General plugins that register hooks, slash commands, or tools do not execute
+until you explicitly enable them:
 
 ```bash
 fabric plugins enable disk-cleanup
@@ -40,33 +51,69 @@ plugins:
     - disk-cleanup
 ```
 
-This is the same mechanism user-installed plugins use. Bundled plugins are never auto-enabled — not on fresh install, not for existing users upgrading to a newer Fabric. You always opt in explicitly.
+This is the same allow-list used for user-installed runtime plugins. An entry
+in `plugins.disabled` always wins.
 
 To turn a bundled plugin off again:
 
 ```bash
 fabric plugins disable disk-cleanup
-# or: remove it from plugins.enabled in config.yaml
+# or manage plugins.enabled / plugins.disabled in config.yaml
 ```
+
+### Providers are selected, not multi-enabled
+
+Memory providers, context engines, model providers, and image/video backends
+use their category's selection contract. Discovery makes candidates available;
+configuration such as `memory.provider`, `context.engine`, or
+`image_gen.provider` chooses the active implementation.
+
+### Dashboard integrations have an independent delivery path
+
+Bundled dashboard manifests are trusted release assets and are available by
+default unless their name is in `plugins.disabled`. User-installed dashboard
+plugins must be in `plugins.enabled` before Fabric serves their JavaScript/CSS
+or imports their Python API. This is intentionally separate from model-tool
+activation: the bundled Work page can render without adding `kanban_*` to a
+normal conversation.
+
+Dashboard-only integrations that have no `plugin.yaml` do not appear as normal
+runtime plugins in every CLI flow. Disable one directly in `config.yaml`:
+
+```yaml
+plugins:
+  disabled:
+    - kanban
+```
+
+Restart the dashboard after changing the list. Remove the name from
+`plugins.disabled` to restore it. Do not use
+`dashboard.plugins.<name>.enabled`; that is not a supported activation key.
+
+`dashboard.hidden_plugins` controls dashboard presentation without changing
+agent runtime activation. Separately, a manifest can declare `tab.hidden: true`
+to provide a direct-route integration without adding primary navigation.
 
 ## Currently shipped
 
-The repo ships these bundled plugins under `plugins/`. All are opt-in — enable them via `fabric plugins enable <name>`.
+The repo ships these bundled extensions under `plugins/`. The **Activation**
+column names the governing contract.
 
-| Plugin | Kind | Purpose |
-|---|---|---|
-| `disk-cleanup` | hooks + slash command | Auto-track ephemeral files and clean them on session end |
-| `security-guidance` | hooks | Pattern-match dangerous code on `write_file`/`patch` and append a security warning (or block) — 25 rules (Apache-2.0 fork of Anthropic's `claude-plugins-official` patterns) |
-| `observability/langfuse` | hooks | Trace turns / LLM calls / tools to [Langfuse](https://langfuse.com) |
-| `observability/nemo_relay` | hooks | Relay observability events (turns / LLM calls / tools) to an NVIDIA NeMo endpoint |
-| `teams_pipeline` | standalone | Microsoft Teams meeting pipeline — Graph-backed, transcript-first meeting summaries |
-| `spotify` | backend (7 tools) | Native Spotify playback, queue, search, playlists, albums, library |
-| `google_meet` | standalone | Join Meet calls, live-caption transcription, optional realtime duplex audio |
-| `image_gen/openai` | image backend | OpenAI `gpt-image-2` image generation backend (alternative to FAL) |
-| `image_gen/openai-codex` | image backend | OpenAI image generation via Codex OAuth |
-| `image_gen/xai` | image backend | xAI `grok-2-image` backend |
-| `fabric-achievements` | dashboard tab | Steam-style collectible badges generated from your real Fabric session history, plus an opt-in team leaderboard |
-| `kanban/dashboard` | dashboard tab | Kanban board UI for the multi-agent dispatcher — tasks, comments, fan-out, board switching. See [Kanban Multi-Agent](./kanban.md). |
+| Plugin | Kind | Activation | Purpose |
+|---|---|---|---|
+| `disk-cleanup` | hooks + slash command | `plugins.enabled` | Auto-track ephemeral files and clean them on session end |
+| `security-guidance` | hooks | `plugins.enabled` | Pattern-match dangerous code on `write_file`/`patch` and append a security warning (or block) — 25 rules (Apache-2.0 fork of Anthropic's `claude-plugins-official` patterns) |
+| `observability/langfuse` | hooks | `plugins.enabled` | Trace turns / LLM calls / tools to [Langfuse](https://langfuse.com) |
+| `observability/nemo_relay` | hooks | `plugins.enabled` | Relay observability events (turns / LLM calls / tools) to an NVIDIA NeMo endpoint |
+| `teams_pipeline` | standalone | `plugins.enabled` | Microsoft Teams meeting pipeline — Graph-backed, transcript-first meeting summaries |
+| `spotify` | backend (7 tools) | `plugins.enabled` | Native Spotify playback, queue, search, playlists, albums, library |
+| `google_meet` | standalone | `plugins.enabled` | Join Meet calls, live-caption transcription, optional realtime duplex audio |
+| `image_gen/openai` | image backend | `image_gen.provider` | OpenAI `gpt-image-2` image generation backend (alternative to FAL) |
+| `image_gen/openai-codex` | image backend | `image_gen.provider` | OpenAI image generation via Codex OAuth |
+| `image_gen/xai` | image backend | `image_gen.provider` | xAI `grok-2-image` backend |
+| `fabric-achievements` | dashboard integration | Bundled dashboard discovery | Steam-style collectible badges generated from your real Fabric session history, plus an opt-in team leaderboard |
+| `kanban` | dashboard integration | Bundled dashboard discovery | Persistent Work surface at `/workspace/work` with Board, Graph, and Outline views. See [Kanban Multi-Agent](./kanban.md). |
+| `team-pages` | hidden dashboard integration | Direct route only | Optional config-driven reference pages at `/admin/integrations/team-pages`; distinct from Agents and Work. |
 
 Memory providers (`plugins/memory/*`) and context engines (`plugins/context_engine/*`) are listed separately on [Memory Providers](./memory-providers.md) — they're managed through `fabric memory` and `fabric plugins` respectively. The full per-plugin detail for the two long-running hooks-based plugins follows.
 
@@ -266,10 +313,16 @@ Adds a **Steam-style achievements tab to the dashboard** — 60+ collectible, ti
 | `POST /reset-state` | Clear unlock history and cached snapshot |
 | `GET /team`, `GET /team/leaderboard` | Team leaderboard state / ranked roster (opt-in; see below) |
 | `POST /team/create`, `/team/join`, `/team/leave`, `/team/settings`, `/team/publish`, `/team/rotate`, `/team/kick` | Team lifecycle, sharing toggle, and owner controls |
+| `GET /team/host/status`, `POST /team/host/probe` | Detect a running relay + this machine's Tailscale identity to auto-fill a shareable URL; validate a candidate relay URL (see hosting below) |
+| `POST /team/host/start`, `POST /team/host/stop` | Start / stop a dashboard-managed relay on this machine |
 
 **Team leaderboard (opt-in cross-user sharing):** A second **Team Leaderboard** tab lets several Fabric users compare achievements. It keeps the local-first promise — the achievement scanner still never sends session history anywhere. When you opt into a team, the *only* data that leaves your machine is an **aggregate profile**: a tier-weighted score, unlock/tier/category counts, up to five unlocked-badge names from the static catalogue, and a display name you choose. Session titles, transcripts, file paths, and raw metrics are never sent — enforced by `build_leaderboard_profile`, re-validated by the relay's `sanitize_profile`, and pinned by a golden test (`tests/plugins/test_leaderboard_privacy.py`).
 
 Members connect through a small **relay** — a stdlib-only, self-hostable service (`python -m relay` from `plugins/fabric-achievements/`; see its [README](https://github.com/ObliviousOdin/fabric/tree/main/plugins/fabric-achievements/relay)). Creating a team returns a shareable invite code (`fbl1_…`) that others paste to join. The browser never contacts the relay directly — each dashboard proxies server-to-server through the routes above, so the loopback/OAuth auth model is untouched. Sharing is a toggle; the team owner can reset the invite (rotate) or remove members. Scores are self-reported, so it's a friendly board for teams that trust each other, not an adversarial ranking. The `/team/*` routes stay behind the dashboard auth gate (they carry secrets and write state) and are deliberately **not** in the public-paths allowlist.
+
+**Hosting the board from the dashboard:** the tab's **Advanced: host a private leaderboard (Tailscale)** panel makes being the host one click. **Host on this machine** starts the relay for you (`POST /team/host/start`), supervises it (pid + start-time recorded in `relay.json`, so **Stop** and status survive a dashboard restart), and health-checks it — no copy-paste terminal command. The dashboard then **auto-fills the Relay URL**, preferring this machine's Tailscale MagicDNS name (`something.ts.net`) and verifying that the resulting tailnet URL answers as a Fabric relay from the host machine; a relay bound only to `127.0.0.1` is reported as not tailnet-reachable instead. The probe validates DNS and binding, not each teammate's Tailscale ACL access. Without Tailscale it falls back to `http://127.0.0.1:9137` for a same-machine trial. **Detect** re-checks read-only. Reading Tailscale identity and connecting reuse `fabric_cli.tailscale_setup` (the code behind `fabric setup tailscale`); the interactive QR login stays that CLI command, which the panel surfaces when Tailscale is installed but not connected. If a relay is already answering on the port, **Host** adopts it rather than starting a second one.
+
+The managed relay binds narrowly to this node's connected Tailscale IPv4 address, or to `127.0.0.1` when Tailscale is unavailable. It does not expose the plain-HTTP relay to every LAN interface by default. The relay is designed to sit behind Tailscale (or a TLS proxy), never directly on the public internet (see the [relay README](https://github.com/ObliviousOdin/fabric/tree/main/plugins/fabric-achievements/relay)).
 
 **State files** — live under `$FABRIC_HOME/plugins/fabric-achievements/`:
 
@@ -279,6 +332,8 @@ Members connect through a small **relay** — a stdlib-only, self-hostable servi
 | `scan_snapshot.json` | Last completed scan payload (served immediately on dashboard load) |
 | `scan_checkpoint.json` | Per-session stats cache keyed by fingerprint (makes warm rescans fast) |
 | `team.json` | Team leaderboard membership (relay URL, team/member ids, per-member token, sharing toggle). Only present if you join a team. |
+| `relay.json` | Dashboard-managed relay's pid, port, and start-time. Only present if you host a relay from the dashboard; lets **Stop** and status survive a restart. |
+| `roster.json` | The relay's own persisted team rosters (aggregate profiles only). Only present if you host a relay from the dashboard. |
 
 **Performance notes:**
 
@@ -287,9 +342,43 @@ Members connect through a small **relay** — a stdlib-only, self-hostable servi
 - Warm rescan reuses per-session stats for every session whose `started_at` + `last_active` fingerprint matches the checkpoint — completes in seconds even on large histories.
 - The in-memory snapshot TTL is 120s; stale requests serve the old snapshot immediately and kick a background refresh. You never wait on a spinner just because TTL expired.
 
-**Enabling:** Nothing to enable — `fabric-achievements` is a dashboard-only plugin (no lifecycle hooks, no model-visible tools). It auto-registers as a tab in `fabric dashboard` on first launch. The `plugins.enabled` config only gates lifecycle/tool plugins; dashboard plugins are discovered purely via their `dashboard/manifest.json`.
+**Enabling:** Nothing to enable — `fabric-achievements` is a bundled
+dashboard-only plugin (no lifecycle hooks and no model-visible tools). Its
+`dashboard/manifest.json` makes the tab available when the dashboard starts,
+unless the plugin is explicitly denied.
 
-**Opting out:** Delete or rename `plugins/fabric-achievements/dashboard/manifest.json`, or override it with a user plugin of the same name in `~/.fabric/plugins/fabric-achievements/` that ships no dashboard. The plugin's state files under `$FABRIC_HOME/plugins/fabric-achievements/` survive — reinstalling preserves your unlock history.
+**Opting out:** Add `fabric-achievements` to `plugins.disabled` in
+`config.yaml`. Its state files under
+`$FABRIC_HOME/plugins/fabric-achievements/` survive, so re-enabling preserves
+your unlock history. Do not edit the bundled manifest; an update would restore
+the shipped file.
+
+### kanban (Work)
+
+The bundled `kanban` dashboard integration overrides the reserved
+`/workspace/work` route with the persistent Work experience. Board is the
+operational column view, Graph shows goals/dependencies/agent runs/results, and
+Outline renders the same graph as a keyboard-friendly hierarchy. `/work` and
+`/kanban` are aliases.
+
+It uses the same per-board SQLite data as `fabric kanban`, `/kanban`, and the
+workflow-gated `kanban_*` tools. Loading the dashboard integration does not
+enable those tools in ordinary conversations. To disable the Work frontend and
+plugin API, add `kanban` to `plugins.disabled`; the CLI and core board data
+remain available.
+
+### team-pages
+
+`team-pages` is a bundled dashboard-only integration for static internal
+reference pages. Its manifest is intentionally hidden from primary navigation;
+open `/admin/integrations/team-pages` directly. The built-in starter can be
+replaced with `dashboard.team_pages.pages` entries in `config.yaml` using title,
+text, Markdown, links, KPI, table, and status blocks.
+
+Team Pages does not discover people, profiles, tasks, or live organization
+state. `/team` is an alias for `/workspace/agents`, while persistent work lives
+at `/workspace/work`. Keeping the reference integration separate prevents a
+config-authored page from being mistaken for operational truth.
 
 ## Adding a bundled plugin
 
@@ -302,8 +391,10 @@ Bundled plugins are written exactly like any other Fabric plugin — see [Build 
 A plugin is a good candidate for bundling when:
 
 - It has no optional dependencies (or they're already `pip install .[all]` deps)
-- The behaviour benefits most users and is opt-out rather than opt-in
-- The logic ties into lifecycle hooks that the agent would otherwise have to remember to invoke
+- Its activation contract matches its surface: runtime hooks/tools stay
+  opt-in; dashboard integrations that do not alter agent runtime may be bundled
+  and opt-out
+- Lifecycle logic is concrete and useful enough to justify an explicit opt-in
 - It complements a core capability without expanding the model-visible tool surface
 
 Counter-examples — things that should stay as user-installable plugins, not bundled: third-party integrations with API keys, niche workflows, large dependency trees, anything that would meaningfully change agent behaviour by default.

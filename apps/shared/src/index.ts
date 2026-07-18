@@ -40,4 +40,5 @@ export {
   type DesignRequest,
   type DesignSystemOption,
   type DesignSystemPreset,
+  type DesignSystemSource,
 } from "./design";

@@ -7,7 +7,7 @@ as Langfuse, OpenTelemetry-style collectors, and NeMo Relay.
 
 Observer hooks are intentionally backend-neutral. They expose stable lifecycle
 events, correlation IDs, sanitized payloads, timing, status, and error fields.
-They do not replace Fabric' planner, model providers, memory, tool registry,
+They do not replace Fabric's planner, model providers, memory, tool registry,
 approval UX, CLI, gateway behavior, or execution semantics.
 
 Behavior-changing request or execution wrappers are outside this observer
@@ -41,6 +41,10 @@ The plugin manager injects this field into every hook payload:
 ```text
 telemetry_schema_version = "hermes.observer.v1"
 ```
+
+That value is a stable protocol identifier retained for plugin compatibility;
+it is not the current product name. Changing it requires a versioned observer
+protocol migration rather than a branding-only replacement.
 
 Hook callbacks are fail-open. Fabric catches callback exceptions, logs a
 warning, and keeps the agent loop running.

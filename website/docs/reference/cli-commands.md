@@ -9,6 +9,8 @@ description: "Authoritative reference for Fabric terminal commands and command f
 This page covers the **terminal commands** you run from your shell.
 
 For in-chat slash commands, see [Slash Commands Reference](./slash-commands.md).
+For registry-derived inventories of commands, providers, platforms, toolsets,
+and product routes, see the generated [Runtime Surface Catalog](./runtime-surfaces).
 
 ## Global entrypoint
 
@@ -28,7 +30,7 @@ fabric [global-options] <command> [subcommand/options]
 | `--yolo` | Bypass dangerous-command approval prompts. |
 | `--pass-session-id` | Include the session ID in the agent's system prompt. |
 | `--ignore-user-config` | Ignore `~/.fabric/config.yaml` and fall back to built-in defaults. Credentials in `.env` are still loaded. |
-| `--ignore-rules` | Skip auto-injection of `AGENTS.md`, `SOUL.md`, `.cursorrules`, memory, and preloaded skills. |
+| `--ignore-rules` | Skip project context (`.fabric.md`, `FABRIC.md`, compatibility context names, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`), `SOUL.md`, memory, and preloaded skills. |
 | `--tui` | Launch the [TUI](../user-guide/tui.md) instead of the classic CLI. Equivalent to `HERMES_TUI=1`. Always wins over `display.interface`. |
 | `--cli` | Force the classic prompt_toolkit REPL. Use this to override `display.interface: tui` for a single invocation. |
 | `--dev` | With `--tui`: run the TypeScript sources directly via `tsx` instead of the prebuilt bundle (for TUI contributors). |
@@ -44,16 +46,18 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric gateway` | Run or manage the messaging gateway service. |
 | `fabric proxy` | Local OpenAI-compatible proxy that attaches OAuth provider credentials. See [Subscription Proxy](../user-guide/features/subscription-proxy.md). |
 | `fabric lsp` | Manage Language Server Protocol integration (semantic diagnostics for write_file/patch). |
-| `fabric setup` | Interactive setup wizard for all or one section (`model`, `tts`, `terminal`, `gateway`, `tools`, `agent`, or opt-in `tailscale`). |
+| `fabric setup` | Interactive setup wizard for all or one section (`model`, `tts`, `terminal`, `gateway`, `tools`, `github`, `agent`, or opt-in `tailscale`). |
 | `fabric whatsapp` | Configure and pair the WhatsApp bridge. |
 | `fabric whatsapp-cloud` | Configure the official Meta WhatsApp Business Cloud API adapter (Business account + public webhook required). Distinct from `fabric whatsapp` (Baileys personal-account bridge). |
 | `fabric slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |
 | `fabric auth` | Manage credentials — add, list, remove, reset, status, logout. Handles OAuth flows for Codex/Nous/Anthropic. |
 | `fabric login` / `logout` | **Deprecated** — use `fabric auth` instead. |
 | `fabric send` | Send a one-shot message to a configured messaging platform (Telegram, Discord, Slack, Signal, SMS, …). Useful from shell scripts, cron jobs, CI hooks, and monitoring daemons — no agent loop, no LLM. |
-| `fabric secrets` | Manage external secret sources (currently Bitwarden Secrets Manager) for pulling API keys at process startup instead of from `~/.fabric/.env`. |
+| `fabric secrets` | Manage Bitwarden Secrets Manager and 1Password secret sources for resolving API keys at process startup. |
 | `fabric migrate` | Diagnose and (optionally) rewrite `config.yaml` to replace references to retired models or deprecated settings (e.g. `migrate xai`). |
 | `fabric status` | Show agent, auth, and platform status. |
+| `fabric console` | Open the curated Fabric command REPL. It is not a raw shell. |
+| `fabric journey` (aliases `learning`, `memory-graph`) | View and manage the learned-skill and memory timeline. |
 | `fabric ollama` | Pull and digest-verify an Ollama model in the foreground without changing the selected model. |
 | `fabric cron` | Inspect and tick the cron scheduler. |
 | `fabric kanban` | Multi-profile collaboration board (tasks, links, dispatcher). |
@@ -67,6 +71,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric debug` | Debug tools — upload logs and system info for support. |
 | `fabric backup` | Back up Fabric home directory to a zip file. |
 | `fabric checkpoints` | Inspect / prune / clear `~/.fabric/checkpoints/` (the shadow store used by `/rollback`). Run with no args for a status overview. |
+| `fabric disk` | Report how much disk space Fabric is using (`usage`/`du`) and reclaim regenerable caches, rotated logs, traces, and scratch (`clean`, dry-run by default). |
 | `fabric import` | Restore a Fabric backup from a zip file. |
 | `fabric logs` | View, tail, and filter agent/gateway/error log files. |
 | `fabric config` | Show, edit, migrate, and query configuration files. |
@@ -86,6 +91,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric insights` | Show token/cost/activity analytics. |
 | `fabric claw` | OpenClaw migration helpers. |
 | `fabric dashboard` | Launch the web dashboard for managing config, API keys, and sessions. |
+| `fabric serve` | Run the dashboard/desktop JSON-RPC and WebSocket backend without serving the SPA. |
 | `fabric desktop` (alias `gui`) | Build and launch the native Electron desktop app. |
 | `fabric profile` | Manage profiles — multiple isolated Fabric instances. |
 | `fabric completion` | Print shell completion scripts (bash/zsh/fish). |
@@ -106,7 +112,7 @@ Common options:
 | `-q`, `--query "..."` | One-shot, non-interactive prompt. |
 | `-m`, `--model <model>` | Override the model for this run. |
 | `-t`, `--toolsets <csv>` | Enable a comma-separated set of toolsets. |
-| `--provider <provider>` | Force a provider: `auto`, `openrouter`, `nous`, `openai-codex`, `copilot-acp`, `copilot`, `anthropic`, `gemini`, `huggingface`, `novita` (aliases `novita-ai`, `novitaai`), `openai-api`, `zai`, `kimi-coding`, `kimi-coding-cn`, `minimax`, `minimax-cn`, `minimax-oauth`, `kilocode`, `xiaomi`, `arcee`, `gmi`, `alibaba`, `alibaba-coding-plan` (alias `alibaba_coding`), `deepseek`, `nvidia`, `ollama` (native local), `ollama-cloud`, `xai` (alias `grok`), `xai-oauth` (alias `grok-oauth`), `qwen-oauth`, `bedrock`, `opencode-zen`, `opencode-go`, `azure-foundry`, `lmstudio`, `stepfun`, `tencent-tokenhub` (alias `tencent`, `tokenhub`). |
+| `--provider <provider>` | Force a configured provider (or `auto`). Run `fabric chat --help` for accepted choices; the generated [Runtime Surface Catalog](./runtime-surfaces#model-providers) lists canonical provider IDs and aliases from source. |
 | `-s`, `--skills <name>` | Preload one or more skills for the session (can be repeated or comma-separated). |
 | `-v`, `--verbose` | Verbose output. |
 | `-Q`, `--quiet` | Programmatic mode: suppress banner/spinner/tool previews. |
@@ -277,7 +283,7 @@ the full guide, supported languages, and configuration knobs.
 ## `fabric setup`
 
 ```bash
-fabric setup [model|tts|terminal|gateway|tools|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
+fabric setup [model|tts|terminal|gateway|tools|github|tailscale|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
 ```
 
 Run `fabric setup` for the full interactive wizard, or use `fabric model` and
@@ -292,9 +298,12 @@ Jump into one section instead of the full wizard:
 | Section | Description |
 |---------|-------------|
 | `model` | Provider and model setup. |
+| `tts` | Text-to-speech provider and voice setup. |
 | `terminal` | Terminal backend and sandbox setup. |
 | `gateway` | Messaging platform setup. |
 | `tools` | Enable/disable tools per platform. |
+| `github` | Connect a GitHub account: browser device-code sign-in (or a personal access token), saved as `GITHUB_TOKEN` for the GitHub skills. Offers to star the Fabric repo and points at the `fabric-contribute` skill for filing feature requests and bug reports. |
+| `tailscale` | Opt-in private Tailscale access setup. |
 | `agent` | Agent behavior settings. |
 
 Options:
@@ -415,9 +424,15 @@ fabric send --list telegram         # filter by platform
 ```bash
 fabric secrets bitwarden <subcommand>
 fabric secrets bw <subcommand>          # short alias
+fabric secrets onepassword <subcommand>
+fabric secrets op <subcommand>          # aliases: op, 1password
 ```
 
-Pull API keys from an external secret manager at process startup instead of storing them in `~/.fabric/.env`. Currently supports **Bitwarden Secrets Manager**. See the full guide: [Bitwarden integration](../user-guide/secrets/bitwarden.md).
+Resolve API keys from an external secret manager at process startup. Fabric
+supports **Bitwarden Secrets Manager** and **1Password**. See the
+[Secrets overview](../user-guide/secrets/index.md),
+[Bitwarden integration](../user-guide/secrets/bitwarden.md), and
+[1Password integration](../user-guide/secrets/onepassword.md).
 
 `bitwarden` (alias `bw`) subcommands:
 
@@ -425,9 +440,20 @@ Pull API keys from an external secret manager at process startup instead of stor
 |------------|-------------|
 | `setup` | Interactive wizard: install the pinned `bws` binary, store an access token, and pick a project. Accepts `--project-id`, `--access-token`, and `--server-url` for non-interactive use. |
 | `status` | Show current config, binary path/version, and last fetch info. |
-| `sync` | Fetch secrets now and report what changed. Add `--apply` to actually export the secrets into the current shell's environment (default is dry-run). |
+| `sync` | Fetch secrets now and report what changed. Add `--apply` to exercise the startup apply path in the current Fabric process (default is dry-run); it cannot mutate its parent shell. |
 | `install` | Download and verify the pinned `bws` binary. `--force` re-downloads even if a managed copy already exists. |
 | `disable` | Turn off the Bitwarden integration. |
+
+`onepassword` (aliases `op`, `1password`) subcommands:
+
+| Subcommand | Description |
+|------------|-------------|
+| `setup` | Verify the installed `op` CLI, select an account or service-account token variable, and enable the source. Fabric does not install `op`. |
+| `status` | Show 1Password configuration, CLI/auth status, and reference mappings. |
+| `set <ENV_VAR> <op://reference>` | Map an environment variable to a 1Password item reference. |
+| `remove <ENV_VAR>` | Remove one reference mapping. |
+| `sync` | Resolve configured references now. Add `--apply` to exercise the startup apply path in the current Fabric process (default is dry-run); it cannot mutate its parent shell. |
+| `disable` | Turn off the 1Password integration. |
 
 
 ## `fabric migrate`
@@ -440,7 +466,7 @@ Diagnose and (optionally) rewrite the active `config.yaml` to replace references
 
 | Subcommand | Description |
 |------------|-------------|
-| `xai` | Scan `config.yaml` for references to xAI models scheduled for retirement on May 15, 2026 and (with `--apply`) rewrite them in-place to the official replacements per the xAI migration guide. Defaults to dry-run. |
+| `xai` | Scan `config.yaml` for references to xAI models retired on May 15, 2026 and (with `--apply`) rewrite them in-place to the official replacements per the xAI migration guide. Defaults to dry-run. |
 
 Common flags for migration subcommands:
 
@@ -526,6 +552,34 @@ fabric status [--all] [--deep]
 | `--all` | Show all details in a shareable redacted format. |
 | `--deep` | Run deeper checks that may take longer. |
 
+## `fabric console`
+
+```bash
+fabric console
+```
+
+Open a curated Fabric-command REPL. Enter supported commands without the
+leading `fabric` (for example, `status`, `sessions list`, or `cron status`).
+The console rejects shell syntax and arbitrary executables, asks for explicit
+confirmation before mutating commands, and provides `help`, `history`, `clear`,
+`exit`, and `quit` built-ins. Run `help` inside the console for the live command
+set.
+
+## `fabric journey`
+
+```bash
+fabric journey [--play] [--json]
+fabric journey list
+fabric journey edit <node-id>
+fabric journey delete <node-id> [--yes]
+```
+
+Render the same learned-skill and memory timeline used by the TUI Journey
+overlay and desktop Memory Graph. Aliases: `fabric learning` and
+`fabric memory-graph`. `list` prints stable node IDs; `edit` opens the selected
+skill or memory in `$EDITOR`; `delete` archives a learned skill or removes a
+memory after confirmation.
+
 ## `fabric ollama`
 
 ```bash
@@ -548,8 +602,8 @@ Exit codes are `0` for final digest verification, `1` for validation/pull
 failure, and `130` when Fabric's client request is cancelled. Ctrl+C does not
 claim daemon acknowledgement or delete partial layers. The command persists
 only a sanitized profile ledger; it does not edit model/fallback/session state.
-See [Use a Local Ollama Model with Fabric
-Fabric](../guides/local-ollama-setup.md) for setup and verification.
+See [Use a Local Ollama Model with Fabric](../guides/local-ollama-setup.md) for
+setup and verification.
 
 ## `fabric cron`
 
@@ -600,22 +654,37 @@ Multi-profile, multi-project collaboration board. Each install can host many boa
 | `boards switch <slug>` / `boards use` | Persist `<slug>` as the active board (writes `~/.fabric/kanban/current`). |
 | `boards show` / `boards current` | Print the currently-active board's name, DB path, and task counts. |
 | `boards rename <slug> "<name>"` | Change a board's display name. Slug is immutable. |
+| `boards set-default-workdir <slug> [path]` | Set or clear the default task workspace for a board. |
 | `boards rm <slug>` | Archive (default) or hard-delete a board. `--delete` skips the archive step. Archived boards move to `boards/_archived/<slug>-<ts>/`. Refused for `default`. |
-| `create "<title>"` | Create a new task on the active board. Flags: `--body`, `--assignee`, `--parent` (repeatable), `--workspace scratch\|worktree\|dir:<path>`, `--tenant`, `--priority`, `--triage`, `--idempotency-key`, `--max-runtime`, `--max-retries`, `--skill` (repeatable). |
-| `list` / `ls` | List tasks on the active board. Filter with `--mine`, `--assignee`, `--status`, `--tenant`, `--archived`, `--json`. |
+| `create "<title>"` | Create a task. Supports dependencies, explicit/project workspaces, branch, assignee, skills, triage, idempotency, runtime/retry limits, goal-loop mode, and initial status. Run `fabric kanban create --help` for the complete flags. |
+| `swarm "<goal>"` | Create the built-in parallel-workers → verifier → synthesizer task graph. |
+| `list` / `ls` | List and filter tasks by assignee, status, tenant, session, workflow/step, archive state, or sort order. `--json` emits machine-readable rows. |
 | `show <id>` | Show a task with comments and events. `--json` for machine output. |
 | `assign <id> <profile>` | Assign or reassign. Use `none` to unassign. Refused while task is running. |
+| `reclaim <id>` | Release an active worker claim so a stuck running task can recover. |
+| `reassign <id> <profile>` | Change the assignee, optionally reclaiming an active worker first. |
+| `diagnostics` / `diag` | Show board health findings, optionally filtered by severity or task. |
 | `link <parent> <child>` | Add a dependency. Cycle-detected. Both tasks must be on the same board. |
 | `unlink <parent> <child>` | Remove a dependency. |
 | `claim <id>` | Atomically claim a ready task. Prints resolved workspace path. |
 | `comment <id> "<text>"` | Append a comment. The next worker that claims the task reads it as part of its `kanban_show()` response. |
-| `complete <id>` | Mark task done. Flags: `--result`, `--summary`, `--metadata`. |
-| `block <id> "<reason>"` | Mark task blocked for human input. Also appends the reason as a comment. |
+| `complete <id> [id ...]` | Mark one or more tasks done. Flags: `--result`, `--summary`, `--metadata`. |
+| `edit <id> --result ...` | Backfill result/summary/metadata on an already-completed task. |
+| `block <id> "<reason>"` | Block one or more tasks with an optional typed reason (`dependency`, `needs_input`, `capability`, or `transient`). |
 | `schedule <id> "<reason>"` | Park time-delay/follow-up work in `scheduled` so it is not shown as a human blocker. |
-| `unblock <id>` | Return a blocked or scheduled task to ready (or `todo` if dependencies are still open). |
-| `archive <id>` | Hide from default list. `gc` will remove scratch workspaces. |
+| `unblock <id> [id ...]` | Return blocked or scheduled tasks to ready (or `todo` if dependencies remain open). |
+| `promote <id>` | Manually move `todo`/blocked work to ready with audit reason, dry-run, and force controls. |
+| `archive <id> [id ...]` | Hide tasks from default lists; `--rm` permanently deletes tasks that are already archived. |
 | `tail <id>` | Follow a task's event stream. |
 | `dispatch` | One dispatcher pass on the active board. Flags: `--dry-run`, `--max N`, `--failure-limit N`, `--json`. |
+| `daemon` | Deprecated standalone dispatcher. Use the gateway-embedded dispatcher. |
+| `watch` | Stream board events, optionally filtered by assignee, tenant, or event kinds. |
+| `stats` | Show per-status/per-assignee counts and oldest-ready age. |
+| `log <id>` | Print a worker log, optionally limited to its last N bytes. |
+| `runs <id>` | Show per-attempt profile, outcome, elapsed time, and handoff summary. |
+| `heartbeat <id>` | Emit a worker liveness event with an optional note. |
+| `assignees` | List known profiles and per-profile task counts. |
+| `notify-subscribe`, `notify-list`, `notify-unsubscribe` | Manage gateway delivery subscriptions for terminal task events. |
 | `context <id>` | Print the full context a worker would see (title + body + parent results + comments). |
 | `specify <id>` / `specify --all` | Flesh out a triage-column task into a concrete spec (title + body with goal, approach, acceptance criteria) via the auxiliary LLM, then promote it to `todo`. Flags: `--tenant` (scope `--all` to one tenant), `--author`, `--json`. Configure the model under `auxiliary.triage_specifier` in `config.yaml`. |
 | `decompose <id>` / `decompose --all` | Fan a triage-column task out into a graph of child tasks routed to specialist profiles by description. Falls back to specify-style single-task promotion when the LLM decides the task doesn't benefit from fan-out. Same flags as `specify`. Configure the decomposer model under `auxiliary.kanban_decomposer` in `config.yaml`; `kanban.orchestrator_profile` only controls who owns the root/orchestration task after fan-out. Also runs automatically every dispatcher tick when `kanban.auto_decompose: true` (the default). See [Auto vs Manual orchestration](/user-guide/features/kanban#auto-vs-manual-orchestration). |
@@ -641,7 +710,8 @@ Board resolution order (highest precedence first): `--board <slug>` flag → `HE
 
 All actions are also available as a slash command in the gateway (`/kanban …`), with the same argument surface — including `boards` subcommands and the `--board` flag.
 
-For the full design — comparison with Cline Kanban / Paperclip / NanoClaw / Gemini Enterprise, eight collaboration patterns, four user stories, concurrency correctness proof — see `docs/fabric-kanban-v1-spec.pdf` in the repository or the [Kanban user guide](/user-guide/features/kanban).
+For the product model, dashboard views, task lifecycle, and worker behavior,
+see the [Kanban user guide](/user-guide/features/kanban).
 
 ## `fabric project`
 
@@ -731,7 +801,7 @@ Outputs a compact, plain-text summary of your entire Fabric setup. Designed to b
 | **Identity** | Active profile name, FABRIC_HOME path |
 | **Model** | Configured default model and provider |
 | **Terminal** | Backend type (local, docker, ssh, etc.) |
-| **API keys** | Presence check for all 22 provider/tool API keys |
+| **API keys** | Presence checks for the provider/tool keys known to the current build |
 | **Features** | Enabled toolsets, MCP server count, memory provider |
 | **Services** | Gateway status, configured messaging platforms |
 | **Workload** | Cron job counts, installed skill count |
@@ -746,7 +816,7 @@ os:               Linux 6.14.0-37-generic x86_64
 python:           3.11.14
 openai_sdk:       2.24.0
 profile:          default
-hermes_home:      ~/.fabric
+fabric_home:      ~/.fabric
 model:            anthropic/claude-opus-4.6
 provider:         openrouter
 terminal:         local
@@ -894,6 +964,58 @@ fabric checkpoints clear -f                         # wipe everything
 ```
 
 See [Checkpoints and `/rollback`](../user-guide/checkpoints-and-rollback.md) for the full architecture and the in-session commands.
+
+## `fabric disk`
+
+```bash
+fabric disk <usage|clean> [options]
+```
+
+See where your Fabric home directory (`~/.fabric`, `%LOCALAPPDATA%\fabric` on Windows) is spending disk, and reclaim the parts that regenerate on their own. Safe to run any time; does not require the agent to be running.
+
+| Subcommand | Description |
+|------------|-------------|
+| `usage` (alias `du`) | Break down disk used per store (caches, sessions, memory, databases, backups, …), largest-first, with a grand total and the free space left on the volume. |
+| `clean` | Reclaim regenerable data. **Dry-run by default** — prints what it would remove and deletes nothing until you pass `--yes`. |
+
+### `fabric disk usage`
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Machine-readable JSON report (`categories`, `total_bytes`, `volume_free_bytes`). |
+| `-a`, `--all` | Include categories that are currently empty. |
+| `--profile NAME` | Report usage for another profile instead of the active home. |
+
+### `fabric disk clean`
+
+Only ever removes an explicit allow-list of regenerable data — caches, rotated
+log backups (`logs/*.log.*`, never the live logs), diagnostic traces
+(`moa-traces/`, `spawn-trees/`), temp scratch, and re-downloadable messaging
+media. It **never** touches sessions, the state database, memories, credentials,
+config, installed skills/plugins, backups, the cron control-plane, or another
+profile — nor sandboxes, browser profiles, or worktrees, which can hold
+persistent container/browser/uncommitted state. A runtime guard refuses any
+target that falls outside the reclaimable allow-list. Rollback checkpoints are
+reported but left to `fabric checkpoints prune`.
+
+| Option | Description |
+|--------|-------------|
+| `-y`, `--yes` | Actually delete (default is a dry-run preview). |
+| `-f`, `--force` | With `--yes`, skip the confirmation prompt. Required to delete on a non-interactive terminal. |
+| `--only CATEGORY …` | Clean only these categories (`cache`, `logs`, `traces`, `tmp`, `platforms`). |
+| `--skip CATEGORY …` | Clean everything reclaimable except these categories. |
+
+### Examples
+
+```bash
+fabric disk usage                    # per-store breakdown + total + free space
+fabric disk du --all                 # include empty categories
+fabric disk usage --json             # machine-readable
+fabric disk clean                    # preview what would be reclaimed (dry-run)
+fabric disk clean --yes              # delete caches / rotated logs / traces / scratch
+fabric disk clean --only cache --yes # just clear caches
+fabric disk clean --skip logs --yes  # everything reclaimable except logs
+```
 
 ## `fabric import`
 

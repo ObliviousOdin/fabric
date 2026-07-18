@@ -162,17 +162,21 @@ def _try_gh_cli_token() -> Optional[str]:
 
 # ─── OAuth Device Code Flow ────────────────────────────────────────────────
 
-def copilot_device_code_login(
+def device_code_login(
+    client_id: str,
+    scope: str,
     *,
     host: str = "github.com",
-    timeout_seconds: float = 300,
+    timeout_seconds: Optional[float] = None,
 ) -> Optional[str]:
-    """Run the GitHub OAuth device code flow for Copilot.
+    """Run the GitHub OAuth device code flow (RFC 8628) for any client app.
 
     Prints instructions for the user, polls for completion, and returns
-    the OAuth access token on success, or None on failure/cancellation.
+    the OAuth access token on success, or None on failure/cancellation
+    (including Ctrl+C while waiting).
 
-    This replicates the flow used by opencode and the Copilot CLI.
+    Shared by the Copilot provider login (``copilot_device_code_login``)
+    and the GitHub account sign-in in ``fabric setup github``.
     """
     import urllib.request
     import urllib.parse
@@ -183,8 +187,8 @@ def copilot_device_code_login(
 
     # Step 1: Request device code
     data = urllib.parse.urlencode({
-        "client_id": COPILOT_OAUTH_CLIENT_ID,
-        "scope": "read:user",
+        "client_id": client_id,
+        "scope": scope,
     }).encode()
 
     req = urllib.request.Request(
@@ -209,6 +213,9 @@ def copilot_device_code_login(
     user_code = device_data.get("user_code", "")
     device_code = device_data.get("device_code", "")
     interval = max(device_data.get("interval", _DEVICE_CODE_POLL_INTERVAL), 1)
+    expires_in = device_data.get("expires_in", 300)
+    if not isinstance(expires_in, (int, float)) or expires_in <= 0:
+        expires_in = 300
 
     if not device_code or not user_code:
         print("  ✗ GitHub did not return a device code.")
@@ -221,68 +228,95 @@ def copilot_device_code_login(
     print()
     print("  Waiting for authorization...", end="", flush=True)
 
-    # Step 3: Poll for completion
-    deadline = time.monotonic() + timeout_seconds
+    # Step 3: Poll for completion. Ctrl+C is the only way for a user to back
+    # out of an authorization they no longer want, so treat it as a clean
+    # cancel rather than letting the KeyboardInterrupt unwind the wizard.
+    try:
+        wait_seconds = expires_in if timeout_seconds is None else min(timeout_seconds, expires_in)
+        deadline = time.monotonic() + wait_seconds
 
-    while time.monotonic() < deadline:
-        time.sleep(interval + _DEVICE_CODE_POLL_SAFETY_MARGIN)
+        while time.monotonic() < deadline:
+            time.sleep(interval + _DEVICE_CODE_POLL_SAFETY_MARGIN)
 
-        poll_data = urllib.parse.urlencode({
-            "client_id": COPILOT_OAUTH_CLIENT_ID,
-            "device_code": device_code,
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-        }).encode()
+            poll_data = urllib.parse.urlencode({
+                "client_id": client_id,
+                "device_code": device_code,
+                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            }).encode()
 
-        poll_req = urllib.request.Request(
-            access_token_url,
-            data=poll_data,
-            headers={
-                "Accept": "application/json",
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "FabricAgent/1.0",
-            },
-        )
+            poll_req = urllib.request.Request(
+                access_token_url,
+                data=poll_data,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": "FabricAgent/1.0",
+                },
+            )
 
-        try:
-            with urllib.request.urlopen(poll_req, timeout=10) as resp:
-                result = json.loads(resp.read().decode())
-        except Exception:
-            print(".", end="", flush=True)
-            continue
+            try:
+                with urllib.request.urlopen(poll_req, timeout=10) as resp:
+                    result = json.loads(resp.read().decode())
+            except Exception:
+                # RFC 8628 recommends backing off after connection timeouts.
+                interval = min(interval * 2, 60)
+                print(".", end="", flush=True)
+                continue
 
-        if result.get("access_token"):
-            print(" ✓")
-            return result["access_token"]
+            if result.get("access_token"):
+                print(" ✓")
+                return result["access_token"]
 
-        error = result.get("error", "")
-        if error == "authorization_pending":
-            print(".", end="", flush=True)
-            continue
-        elif error == "slow_down":
-            # RFC 8628: add 5 seconds to polling interval
-            server_interval = result.get("interval")
-            if isinstance(server_interval, (int, float)) and server_interval > 0:
-                interval = int(server_interval)
-            else:
-                interval += 5
-            print(".", end="", flush=True)
-            continue
-        elif error == "expired_token":
-            print()
-            print("  ✗ Device code expired. Please try again.")
-            return None
-        elif error == "access_denied":
-            print()
-            print("  ✗ Authorization was denied.")
-            return None
-        elif error:
-            print()
-            print(f"  ✗ Authorization failed: {error}")
-            return None
+            error = result.get("error", "")
+            if error == "authorization_pending":
+                print(".", end="", flush=True)
+                continue
+            elif error == "slow_down":
+                # RFC 8628: add 5 seconds to polling interval
+                server_interval = result.get("interval")
+                if isinstance(server_interval, (int, float)) and server_interval > 0:
+                    interval = max(interval + 5, int(server_interval))
+                else:
+                    interval += 5
+                print(".", end="", flush=True)
+                continue
+            elif error == "expired_token":
+                print()
+                print("  ✗ Device code expired. Please try again.")
+                return None
+            elif error == "access_denied":
+                print()
+                print("  ✗ Authorization was denied.")
+                return None
+            elif error:
+                print()
+                print(f"  ✗ Authorization failed: {error}")
+                return None
+    except KeyboardInterrupt:
+        print()
+        print("  ✗ Sign-in cancelled.")
+        return None
 
     print()
     print("  ✗ Timed out waiting for authorization.")
     return None
+
+
+def copilot_device_code_login(
+    *,
+    host: str = "github.com",
+    timeout_seconds: Optional[float] = None,
+) -> Optional[str]:
+    """Run the GitHub OAuth device code flow for Copilot.
+
+    This replicates the flow used by opencode and the Copilot CLI.
+    """
+    return device_code_login(
+        COPILOT_OAUTH_CLIENT_ID,
+        "read:user",
+        host=host,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 # ─── Copilot Token Exchange ────────────────────────────────────────────────

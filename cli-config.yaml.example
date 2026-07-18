@@ -576,7 +576,7 @@ memory:
 # Users can always manually reset with /reset or /new in chat.
 #
 # Modes:
-#   "both"  - Reset on EITHER inactivity timeout or daily boundary (recommended)
+#   "both"  - Reset on EITHER inactivity timeout or daily boundary
 #   "idle"  - Reset only after N minutes of inactivity
 #   "daily" - Reset only at a fixed hour each day
 #   "none"  - Never auto-reset; context lives until /reset or compression kicks in
@@ -585,7 +585,7 @@ memory:
 # skills before the context is wiped. Persistent memory carries across sessions.
 #
 session_reset:
-  mode: both           # "both", "idle", "daily", or "none"
+  mode: none           # Default; opt into "both", "idle", or "daily" if desired
   idle_minutes: 1440   # Inactivity timeout in minutes (default: 1440 = 24 hours)
   at_hour: 4           # Daily reset hour, 0-23 local time (default: 4 AM)
 

@@ -8077,7 +8077,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     logger.debug("Idle agent sweep failed: %s", _e)
 
                 # Periodically prune stale SessionStore entries.  The
-                # in-memory dict (and sessions.json) would otherwise grow
+                # in-memory routing dict (and its persisted stores) would otherwise grow
                 # unbounded in gateways serving many rotating chats /
                 # threads / users over long time windows.  Pruning is
                 # invisible to users — a resumed session just gets a

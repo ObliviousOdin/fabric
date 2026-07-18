@@ -50,13 +50,16 @@ Usage:
 """
 
 import atexit
+from contextlib import contextmanager
 import functools
 import json
 import logging
+import math
 import os
 import re
 import subprocess
 import shutil
+import stat
 import sys
 import tempfile
 import threading
@@ -1059,7 +1062,10 @@ def _run_chrome_fallback_command(
     if "AGENT_BROWSER_IDLE_TIMEOUT_MS" not in browser_env:
         browser_env["AGENT_BROWSER_IDLE_TIMEOUT_MS"] = str(BROWSER_SESSION_INACTIVITY_TIMEOUT * 1000)
 
+    tmp_session_reset = False
+
     def _run_tmp(cmd: str, cmd_args: List[str]) -> Dict[str, Any]:
+        nonlocal tmp_session_reset
         full = base_args + [cmd] + cmd_args
         # Use temp-file stdout/stderr pattern (same as _run_browser_command)
         # to avoid pipe hang from agent-browser daemon inheriting fds.
@@ -1115,6 +1121,9 @@ def _run_chrome_fallback_command(
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+            tmp_session_reset = _terminate_timed_out_browser_daemon(
+                {"session_name": tmp_session}, task_socket_dir
+            )
             return {"success": False, "error": f"Chrome fallback '{cmd}' timed out"}
         try:
             with open(stdout_path, "r", encoding="utf-8") as f:
@@ -1143,10 +1152,11 @@ def _run_chrome_fallback_command(
 
     finally:
         # 5. Tear down the temporary Chrome session.
-        try:
-            _run_tmp("close", [])
-        except Exception:
-            pass
+        if not tmp_session_reset:
+            try:
+                _run_tmp("close", [])
+            except Exception:
+                pass
         # Clean up socket directory
         import shutil as _shutil
         _shutil.rmtree(task_socket_dir, ignore_errors=True)
@@ -1442,6 +1452,94 @@ _cleanup_running = False
 # (subagents run concurrently via ThreadPoolExecutor)
 _cleanup_lock = threading.Lock()
 
+# Browser Live View uses one-shot CDP captures rather than agent-browser's
+# full-rate screencast socket. The backend owns this gate so a buggy or hostile
+# renderer cannot increase upstream Chromium capture work above two frames per
+# second. Entries are removed with their owning browser session.
+_BROWSER_LIVE_VIEW_MIN_INTERVAL_S = 0.5
+_BROWSER_LIVE_VIEW_MAX_BASE64_CHARS = 256_000
+_browser_live_view_last_capture: Dict[str, float] = {}
+
+# Serialize commands and cleanup for one browser session key while preserving
+# full concurrency between different tasks/subagents.  agent-browser keeps a
+# detached daemon per named session and every CLI invocation for that session
+# shares one socket directory.  Without this guard, inactivity cleanup and
+# turn-end cleanup can both run ``close`` at once: one invocation removes the
+# directory while the other is still reading ``_stdout_close``.  A timed-out
+# command has the same race with cleanup while it tears down the wedged daemon.
+#
+# Entries are reference-counted so the map does not grow for every task ever
+# seen by a long-lived gateway.  Waiters increment the count before acquiring
+# the RLock, which makes it safe to remove an entry only when the final holder
+# or waiter exits.  RLock is required because Lightpanda fallback and cleanup
+# may issue a nested command for the same session on the same thread.
+_browser_session_locks_guard = threading.Lock()
+_browser_session_locks: dict[str, list[Any]] = {}
+
+# Status probes are out-of-band observers. They must not hold, or wait on, the
+# model-action lock while their CLI subprocess is running. A separate per-key
+# guard prevents overlapping probes from colliding in one socket directory and
+# gives explicit cleanup a lifecycle lease to wait on without putting UI work
+# in front of the next model browser action.
+_browser_observer_locks_guard = threading.Lock()
+_browser_observer_locks: dict[str, list[Any]] = {}
+
+
+@contextmanager
+def _browser_session_guard(task_id: str, *, blocking: bool = True):
+    """Serialize agent-browser lifecycle operations for one session key.
+
+    Normal model-tool work uses the default blocking acquisition. Out-of-band
+    UI probes can request a non-blocking acquisition so they never queue in
+    front of, or behind, a browser action that affects model latency.
+    """
+    session_key = task_id or "default"
+    with _browser_session_locks_guard:
+        entry = _browser_session_locks.get(session_key)
+        if entry is None:
+            entry = [threading.RLock(), 0]
+            _browser_session_locks[session_key] = entry
+        entry[1] += 1
+
+    lock = entry[0]
+    acquired = lock.acquire(blocking=blocking)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            lock.release()
+        with _browser_session_locks_guard:
+            entry[1] -= 1
+            if entry[1] == 0 and _browser_session_locks.get(session_key) is entry:
+                _browser_session_locks.pop(session_key, None)
+
+
+@contextmanager
+def _browser_observer_guard(task_id: str, *, blocking: bool = True):
+    """Coordinate read-only observers with cleanup, never with model actions."""
+    session_key = task_id or "default"
+    with _browser_observer_locks_guard:
+        entry = _browser_observer_locks.get(session_key)
+        if entry is None:
+            entry = [threading.RLock(), 0]
+            _browser_observer_locks[session_key] = entry
+        entry[1] += 1
+
+    lock = entry[0]
+    acquired = lock.acquire(blocking=blocking)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            lock.release()
+        with _browser_observer_locks_guard:
+            entry[1] -= 1
+            if (
+                entry[1] == 0
+                and _browser_observer_locks.get(session_key) is entry
+            ):
+                _browser_observer_locks.pop(session_key, None)
+
 
 def _emergency_cleanup_all_sessions():
     """
@@ -1471,6 +1569,7 @@ def _emergency_cleanup_all_sessions():
                 _active_sessions.clear()
                 _session_last_activity.clear()
                 _recording_sessions.clear()
+                _browser_live_view_last_capture.clear()
 
     # Sweep orphans from other crashed hermes processes.  Safe even if we
     # never used the browser — uses owner_pid liveness to avoid reaping
@@ -1508,16 +1607,37 @@ def _cleanup_inactive_browser_sessions():
     with _cleanup_lock:
         for task_id, last_time in list(_session_last_activity.items()):
             if current_time - last_time > BROWSER_SESSION_INACTIVITY_TIMEOUT:
-                sessions_to_cleanup.append(task_id)
+                sessions_to_cleanup.append((task_id, last_time))
 
-    for task_id in sessions_to_cleanup:
+    for task_id, observed_last_time in sessions_to_cleanup:
         try:
-            elapsed = int(current_time - _session_last_activity.get(task_id, current_time))
-            logger.info("Cleaning up inactive session for task: %s (inactive for %ss)", task_id, elapsed)
-            cleanup_browser(task_id)
-            with _cleanup_lock:
-                if task_id in _session_last_activity:
-                    del _session_last_activity[task_id]
+            # Selection happens before waiting for the per-session lifecycle
+            # guard. A model browser action may refresh the timestamp while the
+            # reaper waits, so revalidate the exact observation under that same
+            # guard before closing anything.
+            # Cleanup always takes the observer lease before the model-action
+            # lock. Waiting for an in-flight status probe therefore cannot
+            # leave the model-action lock occupied and delay a new tool call.
+            with _browser_observer_guard(task_id):
+                with _browser_session_guard(task_id):
+                    with _cleanup_lock:
+                        last_time = _session_last_activity.get(task_id)
+
+                    if (
+                        last_time is None
+                        or last_time != observed_last_time
+                        or current_time - last_time
+                        <= BROWSER_SESSION_INACTIVITY_TIMEOUT
+                    ):
+                        continue
+
+                    elapsed = int(current_time - last_time)
+                    logger.info(
+                        "Cleaning up inactive session for task: %s (inactive for %ss)",
+                        task_id,
+                        elapsed,
+                    )
+                    cleanup_browser(task_id)
         except Exception as e:
             logger.warning("Error cleaning up inactive session %s: %s", task_id, e)
 
@@ -2254,6 +2374,291 @@ def _extract_screenshot_path_from_text(text: str) -> Optional[str]:
     return None
 
 
+def _read_browser_daemon_identity(
+    session_info: Dict[str, Any],
+    task_socket_dir: str,
+) -> Optional[tuple[int, str]]:
+    """Read ``(pid, daemon_session_name)`` without starting a daemon."""
+    session_name = str(session_info.get("session_name") or "")
+    if not session_name:
+        return None
+
+    pid_path = Path(task_socket_dir) / f"{session_name}.pid"
+    if not pid_path.is_file():
+        # ``--cdp`` commands intentionally omit ``--session``; agent-browser
+        # then names its daemon ``default`` even though Fabric still gives it
+        # a task-isolated socket directory. Accept that sole PID file while
+        # retaining exact socket-dir process verification at each caller.
+        try:
+            pid_candidates = list(Path(task_socket_dir).glob("*.pid"))
+        except OSError:
+            pid_candidates = []
+        if len(pid_candidates) != 1:
+            return None
+        pid_path = pid_candidates[0]
+        session_name = pid_path.stem
+
+    try:
+        return int(pid_path.read_text(encoding="utf-8").strip()), session_name
+    except (ValueError, OSError):
+        return None
+
+
+def _terminate_timed_out_browser_daemon(
+    session_info: Dict[str, Any],
+    task_socket_dir: str,
+) -> bool:
+    """Terminate the detached daemon for one timed-out browser session.
+
+    Killing the foreground agent-browser CLI is insufficient: it is only an
+    IPC client and its daemon (plus Chromium tree) is detached.  Read the PID
+    file written by that daemon, verify both its identity and exact socket-dir
+    binding, then terminate the whole tree.  The socket directory is removed
+    only after the daemon is confirmed dead so a late daemon write cannot race
+    with cleanup.
+
+    Returns ``True`` when no live daemon remains and the directory was safely
+    removed.  Ambiguous identity fails closed and leaves both process and
+    directory alone rather than risking an unrelated process.
+    """
+    identity = _read_browser_daemon_identity(session_info, task_socket_dir)
+    if identity is None:
+        logger.warning(
+            "browser timeout cleanup could not read daemon pid "
+            "(session=%s, socket_dir=%s)",
+            session_info.get("session_name") or "",
+            task_socket_dir,
+        )
+        return False
+    daemon_pid, session_name = identity
+
+    from gateway.status import _pid_exists
+
+    if _pid_exists(daemon_pid):
+        if not _verify_reapable_browser_daemon(
+            daemon_pid, task_socket_dir, session_name
+        ):
+            logger.warning(
+                "browser timeout cleanup refused daemon pid %d "
+                "(session=%s): identity/binding verification failed",
+                daemon_pid,
+                session_name,
+            )
+            return False
+
+        try:
+            from tools.process_registry import ProcessRegistry
+
+            ProcessRegistry._terminate_host_pid(daemon_pid)
+        except (ProcessLookupError, PermissionError, OSError) as exc:
+            logger.warning(
+                "browser timeout cleanup could not terminate daemon pid %d: %s",
+                daemon_pid,
+                exc,
+            )
+            return False
+
+    # ``_terminate_host_pid`` escalates stubborn processes to SIGKILL, but the
+    # process-table entry can remain visible for a few scheduler ticks after
+    # the signal.  Confirm disappearance before deleting daemon-owned files.
+    reap_deadline = time.monotonic() + 1.0
+    while _pid_exists(daemon_pid) and time.monotonic() < reap_deadline:
+        time.sleep(0.05)
+
+    if _pid_exists(daemon_pid):
+        logger.warning(
+            "browser timeout cleanup left daemon pid %d alive; "
+            "preserving socket dir %s",
+            daemon_pid,
+            task_socket_dir,
+        )
+        return False
+
+    shutil.rmtree(task_socket_dir, ignore_errors=True)
+    logger.info(
+        "Reset timed-out browser daemon pid %d (session=%s)",
+        daemon_pid,
+        session_name,
+    )
+    return True
+
+
+def _forget_reset_local_browser_session(
+    task_id: str,
+    session_info: Dict[str, Any],
+) -> None:
+    """Drop tracking for a local browser whose daemon was forcibly reset.
+
+    The caller holds the session guard, so a waiting cleanup/command cannot
+    observe a half-updated lifecycle.  Compare object identity/session name so
+    a stale timeout can never discard a replacement session.
+    """
+    session_name = session_info.get("session_name")
+    owner_task_id = str(session_info.get("owner_task_id") or task_id)
+    forgot_session = False
+    with _cleanup_lock:
+        current = _active_sessions.get(task_id)
+        if current is session_info or (
+            current is not None
+            and current.get("session_name") == session_name
+        ):
+            _active_sessions.pop(task_id, None)
+            _session_last_activity.pop(task_id, None)
+            _recording_sessions.discard(task_id)
+            _browser_live_view_last_capture.pop(task_id, None)
+            forgot_session = True
+        if _last_active_session_key.get(owner_task_id) == task_id:
+            _last_active_session_key.pop(owner_task_id, None)
+
+    # The reset killed this local session's Chrome tree. Discard its persistent
+    # CDP client after releasing the state lock so the supervisor's reconnect
+    # loop cannot retry the dead endpoint forever. Only stop when we removed
+    # the matching session; a stale timeout must not tear down a replacement.
+    if forgot_session:
+        _stop_cdp_supervisor(task_id)
+
+
+def _existing_browser_daemon_is_live(session_info: Dict[str, Any]) -> bool:
+    """Return whether an active-map entry still has its original daemon.
+
+    ``agent-browser stream status`` auto-starts a daemon when none exists. The
+    out-of-band viewer must not do that, so validate the PID and exact socket
+    binding before issuing the status command.
+    """
+    session_name = str(session_info.get("session_name") or "")
+    if not session_name:
+        return False
+    socket_dir = os.path.join(
+        _socket_safe_tmpdir(), f"agent-browser-{session_name}"
+    )
+    identity = _read_browser_daemon_identity(session_info, socket_dir)
+    if identity is None:
+        return False
+    daemon_pid, daemon_session_name = identity
+
+    from gateway.status import _pid_exists
+
+    return _pid_exists(daemon_pid) and _verify_reapable_browser_daemon(
+        daemon_pid, socket_dir, daemon_session_name
+    )
+
+
+def _discover_local_browser_cdp_url(
+    session_info: Dict[str, Any],
+) -> Optional[str]:
+    """Read local Chrome's CDP URL without touching agent-browser IPC.
+
+    Every agent-browser command is serialized behind the daemon's state mutex,
+    including read-only ``get cdp-url``. A Desktop status probe using that
+    command could therefore get ahead of a newly arriving model action even
+    though Fabric's own locks are separate. Local Chrome already publishes the
+    same endpoint in ``DevToolsActivePort`` inside its ``--user-data-dir``.
+
+    Resolve only descendants of the already-verified daemon, require Chrome's
+    remote-debugging launch flag, reject symlinked or oversized port files, and
+    accept only a loopback port plus a browser-target path. This is bounded,
+    read-only process/file inspection and never starts a daemon.
+    """
+    session_name = str(session_info.get("session_name") or "")
+    if not session_name:
+        return None
+    socket_dir = os.path.join(
+        _socket_safe_tmpdir(), f"agent-browser-{session_name}"
+    )
+    identity = _read_browser_daemon_identity(session_info, socket_dir)
+    if identity is None:
+        return None
+    daemon_pid, daemon_session_name = identity
+
+    # Re-verify after rereading the PID. The earlier status check is not a
+    # security boundary here: the pid file could be replaced, or the PID could
+    # be recycled, between calls.
+    from gateway.status import _pid_exists
+
+    if not _pid_exists(daemon_pid) or not _verify_reapable_browser_daemon(
+        daemon_pid, socket_dir, daemon_session_name
+    ):
+        return None
+
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        descendants = psutil.Process(daemon_pid).children(recursive=True)
+    except (psutil.Error, OSError):
+        return None
+
+    for child in descendants:
+        try:
+            cmdline = child.cmdline() or []
+        except (psutil.Error, OSError):
+            continue
+        if not any(arg.startswith("--remote-debugging-port=") for arg in cmdline):
+            continue
+
+        profile_arg = next(
+            (
+                arg.removeprefix("--user-data-dir=")
+                for arg in reversed(cmdline)
+                if arg.startswith("--user-data-dir=")
+            ),
+            "",
+        )
+        if not profile_arg:
+            continue
+
+        profile_dir = Path(profile_arg).expanduser()
+        if not profile_dir.is_absolute():
+            try:
+                profile_dir = Path(child.cwd()) / profile_dir
+            except (psutil.Error, OSError):
+                continue
+        try:
+            profile_dir = profile_dir.resolve(strict=True)
+        except OSError:
+            continue
+        if not profile_dir.is_dir():
+            continue
+
+        port_path = profile_dir / "DevToolsActivePort"
+        try:
+            if port_path.is_symlink():
+                continue
+            flags = os.O_RDONLY
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            if hasattr(os, "O_NONBLOCK"):
+                flags |= os.O_NONBLOCK
+            if hasattr(os, "O_CLOEXEC"):
+                flags |= os.O_CLOEXEC
+            fd = os.open(port_path, flags)
+            try:
+                file_stat = os.fstat(fd)
+                if not stat.S_ISREG(file_stat.st_mode) or file_stat.st_size > 1024:
+                    continue
+                raw = os.read(fd, 1025)
+            finally:
+                os.close(fd)
+        except OSError:
+            continue
+        if len(raw) > 1024:
+            continue
+        try:
+            lines = raw.decode("ascii").splitlines()
+            port = int(lines[0].strip())
+            ws_path = lines[1].strip()
+        except (IndexError, UnicodeDecodeError, ValueError):
+            continue
+        if not 1 <= port <= 65535:
+            continue
+        if not re.fullmatch(r"/devtools/browser/[A-Za-z0-9._~-]{1,160}", ws_path):
+            continue
+        return f"ws://127.0.0.1:{port}{ws_path}"
+
+    return None
+
+
 def _run_browser_command(
     task_id: str,
     command: str,
@@ -2276,7 +2681,40 @@ def _run_browser_command(
 
     Returns:
         Parsed JSON response from agent-browser
+
+    The serialized implementation retains the existing ``returned no output``
+    failure contract for non-empty-required commands.
     """
+    with _browser_session_guard(task_id):
+        return _run_browser_command_serialized(
+            task_id,
+            command,
+            args,
+            timeout,
+            _engine_override,
+        )
+
+
+def _run_browser_command_serialized(
+    task_id: str,
+    command: str,
+    args: List[str] = None,
+    timeout: Optional[int] = None,
+    _engine_override: Optional[str] = None,
+    _existing_session_only: bool = False,
+    _preserve_session_on_timeout: bool = False,
+    _observer_probe: bool = False,
+) -> Dict[str, Any]:
+    """Run one browser CLI command under its owning coordination guard.
+
+    Model actions call this while holding :func:`_browser_session_guard`.
+    Read-only UI probes instead hold :func:`_browser_observer_guard`
+    and set ``_observer_probe`` so they cannot create, reset, or fall back to a
+    browser session and use collision-free output files.
+    """
+    if _observer_probe:
+        _existing_session_only = True
+        _preserve_session_on_timeout = True
     if timeout is None:
         timeout = _safe_command_timeout()
     args = args or []
@@ -2297,7 +2735,8 @@ def _run_browser_command(
     # message instead of hanging for _command_timeout seconds per call.
     # Skip when engine=lightpanda — LP doesn't need Chromium for navigation.
     if (
-        _is_local_mode()
+        not _observer_probe
+        and _is_local_mode()
         and not _chromium_installed()
         and _get_browser_engine() != "lightpanda"
         and not _maybe_autoinstall_chromium()
@@ -2321,12 +2760,20 @@ def _run_browser_command(
     if is_interrupted():
         return {"success": False, "error": "Interrupted"}
 
-    # Get session info (creates Browserbase session with proxies if needed)
-    try:
-        session_info = _get_session_info(task_id)
-    except Exception as e:
-        logger.warning("Failed to create browser session for task=%s: %s", task_id, e)
-        return {"success": False, "error": f"Failed to create browser session: {str(e)}"}
+    # Normal model-tool commands create a session lazily. Out-of-band status
+    # consumers (Desktop live view) can opt into strict inspection so a UI poll
+    # can never launch a browser or extend its activity lifetime.
+    if _existing_session_only:
+        with _cleanup_lock:
+            session_info = _active_sessions.get(task_id)
+        if session_info is None:
+            return {"success": False, "error": "No active browser session"}
+    else:
+        try:
+            session_info = _get_session_info(task_id)
+        except Exception as e:
+            logger.warning("Failed to create browser session for task=%s: %s", task_id, e)
+            return {"success": False, "error": f"Failed to create browser session: {str(e)}"}
 
     # Build the command with the appropriate backend flag.
     # Cloud mode: --cdp <websocket_url> connects to Browserbase.
@@ -2371,10 +2818,19 @@ def _run_browser_command(
             _socket_safe_tmpdir(),
             f"agent-browser-{session_info['session_name']}"
         )
-        os.makedirs(task_socket_dir, mode=0o700, exist_ok=True)
-        # Record this hermes PID as the session owner (cross-process safe
-        # orphan detection — see _write_owner_pid).
-        _write_owner_pid(task_socket_dir, session_info['session_name'])
+        if _observer_probe:
+            # The probe is inspection-only. Never recreate a socket directory
+            # after cleanup or refresh ownership metadata for a stale daemon.
+            if not os.path.isdir(task_socket_dir):
+                return {
+                    "success": False,
+                    "error": "Existing browser socket directory is unavailable",
+                }
+        else:
+            os.makedirs(task_socket_dir, mode=0o700, exist_ok=True)
+            # Record this hermes PID as the session owner (cross-process safe
+            # orphan detection — see _write_owner_pid).
+            _write_owner_pid(task_socket_dir, session_info['session_name'])
         logger.debug("browser cmd=%s task=%s socket_dir=%s (%d chars)",
                      command, task_id, task_socket_dir, len(task_socket_dir))
 
@@ -2420,8 +2876,15 @@ def _run_browser_command(
         # descriptors.  With capture_output=True (pipes), the daemon keeps
         # the pipe fds open after the CLI exits, so communicate() never
         # sees EOF and blocks until the timeout fires.
-        stdout_path = os.path.join(task_socket_dir, f"_stdout_{command}")
-        stderr_path = os.path.join(task_socket_dir, f"_stderr_{command}")
+        output_suffix = ""
+        if _observer_probe:
+            output_suffix = f"_{threading.get_ident()}_{time.monotonic_ns()}"
+        stdout_path = os.path.join(
+            task_socket_dir, f"_stdout_{command}{output_suffix}"
+        )
+        stderr_path = os.path.join(
+            task_socket_dir, f"_stderr_{command}{output_suffix}"
+        )
         stdout_fd = os.open(stdout_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         stderr_fd = os.open(stderr_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
@@ -2460,6 +2923,18 @@ def _run_browser_command(
             proc.wait()
             stdout, stderr = _read_command_output_files(stdout_path, stderr_path)
             _unlink_command_output_files(stdout_path, stderr_path)
+            # Local agent-browser commands are IPC clients.  Their detached
+            # daemon and Chromium tree survive ``proc.kill()`` unless we reap
+            # them explicitly.  This runs while holding the per-session guard,
+            # so cleanup cannot remove the socket directory out from under us.
+            daemon_reset = False
+            if not _preserve_session_on_timeout:
+                daemon_reset = _terminate_timed_out_browser_daemon(
+                    session_info, task_socket_dir
+                )
+                if daemon_reset:
+                    if not session_info.get("cdp_url"):
+                        _forget_reset_local_browser_session(task_id, session_info)
             if stderr and stderr.strip():
                 logger.warning(
                     "browser '%s' stderr after timeout: %s",
@@ -2472,6 +2947,19 @@ def _run_browser_command(
                 "success": False,
                 "error": _format_browser_timeout_error(command, timeout, stdout, stderr),
             }
+            if daemon_reset and command != "close":
+                if session_info.get("cdp_url"):
+                    result["browser_transport_reset"] = True
+                    result["error"] += (
+                        "\nThe browser command transport was reset after the "
+                        "timeout. Retry the browser action."
+                    )
+                else:
+                    result["browser_session_reset"] = True
+                    result["error"] += (
+                        "\nThe local browser session was reset after the timeout. "
+                        "Call browser_navigate again before the next browser action."
+                    )
             # Fall through to fallback check below
         else:
             with open(stdout_path, "r", encoding="utf-8") as f:
@@ -2557,9 +3045,20 @@ def _run_browser_command(
         logger.warning("browser '%s' exception: %s", command, e, exc_info=True)
         result = {"success": False, "error": str(e)}
 
+    # Observer failures are terminal for the probe. In particular, never turn
+    # a read-only Desktop poll into a Lightpanda-to-Chrome fallback session.
+    if _observer_probe:
+        return result
+
     # --- Lightpanda automatic Chrome fallback ---
     # If engine is lightpanda and the result looks broken, retry with Chrome.
     # This runs for ALL exit paths (timeout, empty, non-JSON, nonzero rc, parsed).
+    # A local timeout reset destroys the page state.  A Lightpanda fallback
+    # would have to create a new blank session to discover the old URL, so it
+    # cannot recover this command and would only add more browser work.
+    if result.get("browser_session_reset"):
+        return result
+
     fallback_reason = _lightpanda_fallback_reason(engine, command, result)
     if fallback_reason:
         logger.info(
@@ -2577,6 +3076,206 @@ def _run_browser_command(
         return _annotate_lightpanda_fallback(fallback_result, fallback_reason)
 
     return result
+
+
+def get_browser_stream_status(
+    task_id: Optional[str] = None,
+    *,
+    timeout: int = 2,
+) -> Dict[str, Any]:
+    """Prepare a bounded one-shot Browser Live View capture path.
+
+    This is deliberately *not* registered as a model tool. It never calls the
+    lazy session creator, never enables agent-browser's full-rate screencast,
+    and never returns the raw agent-browser error or a provider/CDP URL. The
+    CDP endpoint remains backend-only; authenticated clients receive frames
+    through ``visual.frame`` at a server-enforced maximum of two captures per
+    second.
+    """
+    if _is_camofox_mode():
+        return {"available": False, "reason": "camofox_stream_unavailable"}
+
+    requested_key = str(task_id or "default")
+    effective_key = _last_session_key(requested_key)
+    with _browser_observer_guard(
+        effective_key, blocking=False
+    ) as probe_acquired:
+        if not probe_acquired:
+            return {"available": False, "reason": "browser_session_busy"}
+
+        # Take the model-action guard only for a nonblocking lifecycle
+        # snapshot. Releasing it before subprocess I/O is the performance
+        # invariant: an observer that started first can never delay the next
+        # model browser action.
+        with _browser_session_guard(effective_key, blocking=False) as acquired:
+            if not acquired:
+                return {"available": False, "reason": "browser_session_busy"}
+            with _cleanup_lock:
+                current_session_info = _active_sessions.get(effective_key)
+                if current_session_info is None:
+                    return {
+                        "available": False,
+                        "reason": "no_active_browser_session",
+                    }
+                session_info = dict(current_session_info)
+
+        # Process/config inspection stays outside the model-action guard. The
+        # observer lease prevents cleanup, while the snapshot prevents a
+        # concurrent model command from mutating what this probe validates.
+        # The configured engine applies only to local sessions. Cloud and
+        # explicit-CDP sessions still use Chromium and may expose a stream even
+        # when local fallback is configured for Lightpanda.
+        if _using_lightpanda_engine() and not session_info.get("cdp_url"):
+            return {
+                "available": False,
+                "reason": "lightpanda_stream_unavailable",
+            }
+        if not _existing_browser_daemon_is_live(session_info):
+            return {
+                "available": False,
+                "reason": "browser_daemon_unavailable",
+            }
+
+        # Reuse an existing supervisor when normal browser setup already made
+        # one for an explicit/cloud CDP endpoint.
+        from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
+
+        supervisor = SUPERVISOR_REGISTRY.get(effective_key)
+        if supervisor is not None and supervisor.snapshot().active:
+            return {
+                "available": True,
+                "transport": "gateway_pull",
+                "min_interval_ms": int(_BROWSER_LIVE_VIEW_MIN_INTERVAL_S * 1000),
+            }
+
+        # Default local agent-browser sessions do not publish their internal
+        # CDP endpoint in Fabric's session map. Resolve it out-of-band from the
+        # verified daemon's Chrome descendant + DevToolsActivePort; even
+        # read-only agent-browser IPC takes the daemon's global state mutex and
+        # could otherwise delay a newly arriving model action.
+        command_timeout = max(1, min(int(timeout), 3))
+        cdp_url = str(session_info.get("cdp_url") or "")
+        if not cdp_url:
+            cdp_url = str(_discover_local_browser_cdp_url(session_info) or "")
+
+        if not cdp_url.startswith(("ws://", "wss://")):
+            return {"available": False, "reason": "cdp_status_unavailable"}
+
+        try:
+            policy, dialog_timeout_s = _get_dialog_policy_config()
+            supervisor = SUPERVISOR_REGISTRY.get_or_start(
+                task_id=effective_key,
+                cdp_url=cdp_url,
+                dialog_policy=policy,
+                dialog_timeout_s=dialog_timeout_s,
+                start_timeout=command_timeout,
+            )
+        except Exception as exc:
+            # CDPSupervisor redacts endpoint credentials before re-raising.
+            logger.debug(
+                "Browser Live View supervisor attach failed for task=%s: %s",
+                effective_key,
+                exc,
+            )
+            return {"available": False, "reason": "cdp_attach_failed"}
+
+    if not supervisor.snapshot().active:
+        return {"available": False, "reason": "cdp_attach_failed"}
+    return {
+        "available": True,
+        "transport": "gateway_pull",
+        "min_interval_ms": int(_BROWSER_LIVE_VIEW_MIN_INTERVAL_S * 1000),
+    }
+
+
+def get_browser_stream_frame(
+    task_id: Optional[str] = None,
+    *,
+    timeout: float = 2.0,
+) -> Dict[str, Any]:
+    """Capture at most one backend-only viewport frame every 500 ms.
+
+    The observer lease serializes UI captures with cleanup and other observers.
+    The model-action guard is acquired only briefly and non-blockingly to
+    validate lifecycle state; it is released before CDP I/O, so a capture that
+    starts first never puts itself in front of the next model browser action.
+    """
+    if _is_camofox_mode():
+        return {"available": False, "reason": "camofox_stream_unavailable"}
+
+    requested_key = str(task_id or "default")
+    effective_key = _last_session_key(requested_key)
+    with _browser_observer_guard(effective_key, blocking=False) as observer_acquired:
+        if not observer_acquired:
+            return {"available": False, "reason": "browser_session_busy"}
+
+        with _browser_session_guard(effective_key, blocking=False) as acquired:
+            if not acquired:
+                return {"available": False, "reason": "browser_session_busy"}
+            with _cleanup_lock:
+                current_session_info = _active_sessions.get(effective_key)
+                session_info = (
+                    dict(current_session_info)
+                    if current_session_info is not None
+                    else None
+                )
+            if session_info is None:
+                return {"available": False, "reason": "no_active_browser_session"}
+
+        if _using_lightpanda_engine() and not session_info.get("cdp_url"):
+            return {
+                "available": False,
+                "reason": "lightpanda_stream_unavailable",
+            }
+        if not _existing_browser_daemon_is_live(session_info):
+            return {
+                "available": False,
+                "reason": "browser_daemon_unavailable",
+            }
+
+        now = time.monotonic()
+        with _cleanup_lock:
+            last_capture = _browser_live_view_last_capture.get(effective_key)
+            if last_capture is not None:
+                remaining = _BROWSER_LIVE_VIEW_MIN_INTERVAL_S - (now - last_capture)
+                if remaining > 0:
+                    return {
+                        "available": False,
+                        "reason": "frame_throttled",
+                        "retry_after_ms": max(1, math.ceil(remaining * 1000)),
+                    }
+            # Reserve before issuing CDP so concurrent/malicious callers cannot
+            # multiply upstream work even when this capture later fails.
+            _browser_live_view_last_capture[effective_key] = now
+
+        try:
+            from tools.browser_supervisor import SUPERVISOR_REGISTRY  # type: ignore[import-not-found]
+
+            supervisor = SUPERVISOR_REGISTRY.get(effective_key)
+            if supervisor is None:
+                return {"available": False, "reason": "cdp_supervisor_unavailable"}
+            result = supervisor.capture_viewport_jpeg(
+                quality=40,
+                max_base64_chars=_BROWSER_LIVE_VIEW_MAX_BASE64_CHARS,
+                timeout=max(0.1, min(float(timeout), 3.0)),
+            )
+        except Exception:
+            return {"available": False, "reason": "frame_capture_failed"}
+
+    if result.get("ok") is not True:
+        if result.get("reason") == "frame_throttled":
+            retry_after_ms = result.get("retry_after_ms")
+            if isinstance(retry_after_ms, int) and retry_after_ms > 0:
+                return {
+                    "available": False,
+                    "reason": "frame_throttled",
+                    "retry_after_ms": retry_after_ms,
+                }
+        return {"available": False, "reason": "frame_capture_failed"}
+    data = result.get("data")
+    if not isinstance(data, str) or not data or len(data) > _BROWSER_LIVE_VIEW_MAX_BASE64_CHARS:
+        return {"available": False, "reason": "invalid_frame"}
+    return {"available": True, "data": data, "mime_type": "image/jpeg"}
 
 
 def _extract_relevant_content(
@@ -4283,7 +4982,17 @@ def cleanup_browser(task_id: Optional[str] = None) -> None:
 
 
 def _cleanup_single_browser_session(task_id: str) -> None:
-    """Internal: reap a single browser session by its exact session key."""
+    """Reap one session without racing an active command or second cleanup."""
+    # Always wait for observers before acquiring the model-action lock. If a
+    # probe is slow, cleanup waits outside the model critical path and cannot
+    # put that probe in front of a newly arriving browser action.
+    with _browser_observer_guard(task_id):
+        with _browser_session_guard(task_id):
+            _cleanup_single_browser_session_serialized(task_id)
+
+
+def _cleanup_single_browser_session_serialized(task_id: str) -> None:
+    """Internal cleanup implementation under the per-session guard."""
     # Stop the CDP supervisor for this task FIRST so we close our WebSocket
     # before the backend tears down the underlying CDP endpoint.
     _stop_cdp_supervisor(task_id)
@@ -4326,6 +5035,7 @@ def _cleanup_single_browser_session(task_id: str) -> None:
         with _cleanup_lock:
             _active_sessions.pop(task_id, None)
             _session_last_activity.pop(task_id, None)
+            _browser_live_view_last_capture.pop(task_id, None)
 
         # Cloud mode: close the cloud browser session via provider API.
         # Local sidecars have bb_session_id=None so this no-ops for them.

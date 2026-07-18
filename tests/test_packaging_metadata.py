@@ -112,9 +112,12 @@ def test_faster_whisper_is_not_a_base_dependency():
 
 def test_manifest_includes_bundled_skills():
     manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+    setup_source = (REPO_ROOT / "setup.py").read_text(encoding="utf-8")
 
     assert "graft skills" in manifest
     assert "graft optional-skills" in manifest
+    assert '_data_file_tree("skills")' in setup_source
+    assert '_data_file_tree("optional-skills")' in setup_source
 
 
 def test_bundled_plugin_manifests_ship_in_both_wheel_and_sdist():
@@ -164,6 +167,7 @@ def test_bundled_plugin_manifests_ship_in_both_wheel_and_sdist():
 # [dev]) so we pin it directly in every extra that exposes a server surface and
 # enforce the floor in both pyproject and the committed lockfile.
 _STARLETTE_CVE_FLOOR = (1, 0, 1)
+_MCP_CVE_FLOOR = (1, 28, 1)
 
 
 def _version_tuple(spec: str) -> tuple[int, ...]:
@@ -241,6 +245,51 @@ def test_locked_starlette_is_not_vulnerable_to_cve_2026_48710():
         )
 
 
+def test_mcp_pinned_above_2026_cve_floor_in_every_declared_extra():
+    """Every MCP extra must exact-pin the SDK at the shared patched floor.
+
+    MCP 1.28.1 closes cross-principal HTTP sessions, cross-session task access,
+    and missing WebSocket Host/Origin validation (CVE-2026-52869,
+    CVE-2026-52870, and CVE-2026-59950). Keep every installation route on the
+    same audited version instead of allowing one optional extra to regress.
+    """
+    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = data["project"]["optional-dependencies"]
+    found = {}
+    for extra, specs in extras.items():
+        for spec in specs:
+            if _distribution_name(spec) != "mcp":
+                continue
+            assert "==" in spec, f"[{extra}] must exact-pin mcp, got {spec!r}"
+            found[extra] = spec.split("==", 1)[1].split(";", 1)[0].strip()
+
+    for extra in ("dev", "mcp", "computer-use"):
+        assert extra in found, f"[{extra}] must declare the patched MCP SDK directly"
+
+    for extra, ver in found.items():
+        assert _version_tuple(ver) >= _MCP_CVE_FLOOR, (
+            f"[{extra}] pins mcp=={ver}, below the shared security floor "
+            f"{'.'.join(map(str, _MCP_CVE_FLOOR))}"
+        )
+
+
+def test_locked_mcp_is_not_vulnerable_to_2026_transport_cves():
+    """The committed lockfile must resolve MCP to the patched release."""
+    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
+    versions = [
+        package["version"]
+        for package in lock["package"]
+        if package.get("name") == "mcp"
+    ]
+
+    assert versions, "mcp not found in uv.lock"
+    for ver in versions:
+        assert _version_tuple(ver) >= _MCP_CVE_FLOOR, (
+            f"uv.lock resolves mcp=={ver}, below the shared security floor "
+            f"{'.'.join(map(str, _MCP_CVE_FLOOR))}"
+        )
+
+
 def test_locale_catalogs_ship_in_both_wheel_and_sdist():
     """Regression test for #27632 / #35374 / #23943.
 
@@ -250,12 +299,9 @@ def test_locale_catalogs_ship_in_both_wheel_and_sdist():
     (sdist). Without both, sealed installs drop the catalogs and gateway/CLI
     commands surface raw i18n keys like `gateway.reset.header_default`.
     """
-    data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    data_files = data["tool"]["setuptools"].get("data-files", {})
-    assert data_files.get("locales") == ["locales/*.yaml"], (
-        "pyproject [tool.setuptools.data-files] must declare "
-        'locales = ["locales/*.yaml"] so the wheel ships i18n catalogs'
-    )
+    setup_source = (REPO_ROOT / "setup.py").read_text(encoding="utf-8")
+    assert '_data_file_tree("locales")' in setup_source
+    assert '_data_file_tree("optional-mcps")' in setup_source
 
     manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
     assert "graft locales" in manifest, (

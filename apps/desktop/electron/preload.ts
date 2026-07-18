@@ -7,6 +7,24 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   getGatewayWsUrl: profile => ipcRenderer.invoke('hermes:gateway:ws-url', profile),
   openSessionWindow: (sessionId, opts) => ipcRenderer.invoke('hermes:window:openSession', sessionId, opts),
   openNewSessionWindow: () => ipcRenderer.invoke('hermes:window:openNewSession'),
+  liveView: {
+    open: request => ipcRenderer.invoke('hermes:live-view:open', request),
+    close: sessionId => ipcRenderer.invoke('hermes:live-view:close', sessionId),
+    pushState: payload => ipcRenderer.send('hermes:live-view:state', payload),
+    control: payload => ipcRenderer.send('hermes:live-view:control', payload),
+    onState: callback => {
+      const listener = (_event, payload) => callback(payload)
+      ipcRenderer.on('hermes:live-view:state', listener)
+
+      return () => ipcRenderer.removeListener('hermes:live-view:state', listener)
+    },
+    onControl: callback => {
+      const listener = (_event, payload) => callback(payload)
+      ipcRenderer.on('hermes:live-view:control', listener)
+
+      return () => ipcRenderer.removeListener('hermes:live-view:control', listener)
+    }
+  },
   petOverlay: {
     // Main renderer → main process: window lifecycle + drag. `request` is
     // `{ bounds, screen }`; resolves with the screen bounds it actually used.
@@ -48,6 +66,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     set: name => ipcRenderer.invoke('hermes:profile:set', name)
   },
   api: request => ipcRenderer.invoke('hermes:api', request),
+  importDesignSystemZip: request => ipcRenderer.invoke('hermes:design-system:import', request),
   notify: payload => ipcRenderer.invoke('hermes:notify', payload),
   requestMicrophoneAccess: () => ipcRenderer.invoke('hermes:requestMicrophoneAccess'),
   readFileDataUrl: filePath => ipcRenderer.invoke('hermes:readFileDataUrl', filePath),
@@ -127,19 +146,19 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     }
   },
   terminal: {
-    dispose: id => ipcRenderer.invoke('hermes:terminal:dispose', id),
-    resize: (id, size) => ipcRenderer.invoke('hermes:terminal:resize', id, size),
-    start: options => ipcRenderer.invoke('hermes:terminal:start', options),
-    write: (id, data) => ipcRenderer.invoke('hermes:terminal:write', id, data),
+    dispose: id => ipcRenderer.invoke('fabric:terminal:dispose', id),
+    resize: (id, size) => ipcRenderer.invoke('fabric:terminal:resize', id, size),
+    start: options => ipcRenderer.invoke('fabric:terminal:start', options),
+    write: (id, data) => ipcRenderer.invoke('fabric:terminal:write', id, data),
     onData: (id, callback) => {
-      const channel = `hermes:terminal:${id}:data`
+      const channel = `fabric:terminal:${id}:data`
       const listener = (_event, payload) => callback(payload)
       ipcRenderer.on(channel, listener)
 
       return () => ipcRenderer.removeListener(channel, listener)
     },
     onExit: (id, callback) => {
-      const channel = `hermes:terminal:${id}:exit`
+      const channel = `fabric:terminal:${id}:exit`
       const listener = (_event, payload) => callback(payload)
       ipcRenderer.on(channel, listener)
 

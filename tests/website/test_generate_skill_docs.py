@@ -143,3 +143,19 @@ def test_skill_metadata_canonical_key_overrides_legacy_key(gen_module):
     }
 
     assert gen_module._skill_metadata(frontmatter)["tags"] == ["canonical"]
+
+
+def test_orphan_skill_pages_detects_removed_generated_source(gen_module, tmp_path, monkeypatch):
+    pages = tmp_path / "website" / "docs" / "user-guide" / "skills"
+    orphan = pages / "bundled" / "old" / "old-removed.md"
+    orphan.parent.mkdir(parents=True)
+    orphan.write_text(
+        "{/* This page is auto-generated from the skill's SKILL.md. */}\n",
+        encoding="utf-8",
+    )
+    expected = pages / "bundled" / "live" / "live-skill.md"
+    expected.parent.mkdir(parents=True)
+    expected.write_text("generated\n", encoding="utf-8")
+    monkeypatch.setattr(gen_module, "SKILLS_PAGES", pages)
+
+    assert gen_module.orphan_skill_pages({expected}) == [orphan]

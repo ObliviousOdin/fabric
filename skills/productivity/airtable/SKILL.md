@@ -9,7 +9,7 @@ prerequisites:
   env_vars: [AIRTABLE_API_KEY]
   commands: [curl]
 metadata:
-  hermes:
+  fabric:
     tags: [Airtable, Productivity, Database, API]
     homepage: https://airtable.com/developers/web/api/introduction
 ---

@@ -6,7 +6,7 @@ author: Teknium (teknium1), Fabric
 license: MIT
 platforms: [linux, macos]
 metadata:
-  hermes:
+  fabric:
     tags: [Payments, Stripe, Link, Checkout, MPP]
     related_skills: [mpp-agent, stripe-projects]
 ---

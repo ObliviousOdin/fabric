@@ -16,6 +16,7 @@ import { clearClarifyRequest, setClarifyRequest } from '@/store/clarify'
 import { setSessionCompacting } from '@/store/compaction'
 import { refreshBackgroundProcesses } from '@/store/composer-status'
 import { $gateway } from '@/store/gateway'
+import { completeLiveViewTool, finishLiveViewTurn, startLiveViewTool } from '@/store/live-view'
 import { dispatchNativeNotification } from '@/store/native-notifications'
 import { notify } from '@/store/notifications'
 import { requestDesktopOnboarding } from '@/store/onboarding'
@@ -327,6 +328,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
 
         const finalText = coerceGatewayText(payload?.text) || coerceGatewayText(payload?.rendered)
         completeAssistantMessage(sessionId, finalText)
+        finishLiveViewTurn(sessionId)
 
         if (isActiveEvent) {
           setTurnStartedAt(null)
@@ -359,6 +361,14 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
             prev.map(s => (s.id === storedId || s._lineage_root_id === storedId ? { ...s, title: nextTitle } : s))
           )
         }
+      } else if (event.type === 'visual.start') {
+        if (sessionId && payload) {
+          startLiveViewTool(sessionId, payload)
+        }
+      } else if (event.type === 'visual.complete') {
+        if (sessionId && payload) {
+          completeLiveViewTool(sessionId, payload)
+        }
       } else if (event.type === 'tool.start' || event.type === 'tool.progress' || event.type === 'tool.generating') {
         if (!sessionId) {
           return
@@ -367,6 +377,10 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         flushQueuedDeltas(sessionId)
         upsertToolCall(sessionId, toTodoPayload(payload) ?? payload, 'running', event.type)
 
+        if (event.type === 'tool.start' && payload) {
+          startLiveViewTool(sessionId, payload)
+        }
+
         if (isActiveEvent) {
           setPetActivity({ reasoning: false, toolRunning: true })
         }
@@ -374,6 +388,10 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         if (sessionId) {
           flushQueuedDeltas(sessionId)
           upsertToolCall(sessionId, toTodoPayload(payload) ?? payload, 'complete', event.type)
+
+          if (payload) {
+            completeLiveViewTool(sessionId, payload)
+          }
 
           if (isActiveEvent) {
             setPetActivity({ toolRunning: false })
@@ -602,6 +620,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
           clearActiveSessionTodos(sessionId)
           setSessionCompacting(sessionId, false)
           compactedTurnRef.current.delete(sessionId)
+          finishLiveViewTurn(sessionId, true)
         }
 
         if (isActiveEvent) {

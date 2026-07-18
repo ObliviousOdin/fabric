@@ -8,6 +8,24 @@ on:
       - "skills/**"
       - "optional-skills/**"
       - "fabric_cli/model_catalog.json"
+      - "fabric_cli/commands.py"
+      - "fabric_cli/_parser.py"
+      - "fabric_cli/kanban.py"
+      - "fabric_cli/kanban_db.py"
+      - "fabric_cli/main.py"
+      - "fabric_cli/models.py"
+      - "fabric_cli/providers.py"
+      - "fabric_cli/subcommands/**"
+      - "gateway/config.py"
+      - "plugins/**/dashboard/manifest.json"
+      - "plugins/kanban/**"
+      - "plugins/model-providers/**"
+      - "plugins/platforms/**"
+      - "providers/**"
+      - "scripts/build_capability_evidence.py"
+      - "scripts/docs_sync.py"
+      - "toolsets.py"
+      - "web/src/app/routes.tsx"
       - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
 
@@ -38,6 +56,14 @@ jobs:
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - name: Install skills-index dependency
         run: python3 -m pip install --disable-pip-version-check pyyaml==6.0.3
+      - name: Check generated documentation contracts
+        run: python3 scripts/docs_sync.py check
+      - name: Check generated skill documentation
+        run: python3 website/scripts/generate-skill-docs.py --check
+      - name: Audit documented tokens and skill metadata
+        run: python3 scripts/docs_sync.py audit
+      - name: Test documentation contracts
+        run: python3 -m unittest tests.scripts.test_docs_sync
       - name: Install documentation dependencies
         run: npm ci --prefix website
       - name: Audit public site source identity

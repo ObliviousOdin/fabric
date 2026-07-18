@@ -30,7 +30,8 @@ The following is the complete skill definition that Fabric loads when this skill
 
 ## Requirements
 
-- **AgentMail API key** (required) — sign up at https://console.agentmail.to (free tier: 3 inboxes, 3,000 emails/month; paid plans from $20/mo)
+- **AgentMail API key** (required) — sign up at https://console.agentmail.to and
+  check the pricing page for current quotas
 - Node.js 18+ (for the MCP server)
 
 ## When to Use
@@ -117,16 +118,16 @@ All 11 AgentMail tools are now available automatically.
 
 **Agent-to-human outreach:**
 ```
-1. create_inbox (username: "hermes-outreach")
+1. create_inbox (username: "fabric-outreach")
 2. send_message (to: user@example.com, subject: "Hello", text: "...")
 3. list_threads to check for replies
 ```
 
 ## Pitfalls
-- Free tier limited to 3 inboxes and 3,000 emails/month
+- Inbox and message quotas depend on the current AgentMail plan
 - Emails come from `@agentmail.to` domain on free tier (custom domains on paid plans)
 - Node.js (18+) is required for the MCP server (`npx -y agentmail-mcp`)
-- The `mcp` Python package must be installed: `pip install mcp`
+- Fabric's secure MCP extra must be installed: `pip install 'fabric-agent[mcp]'`
 - Real-time inbound email (webhooks) requires a public server — use `list_threads` polling via cronjob instead for personal use
 
 ## Verification

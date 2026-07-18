@@ -6,7 +6,7 @@ author: Hugo Sequier (Hugo-SEQUIER), Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [Hyperliquid, Blockchain, Crypto, Trading, Perpetuals, Spot, DeFi]
     related_skills: []
 ---

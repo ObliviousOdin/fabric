@@ -1,4 +1,4 @@
-"""CLI for the Hermes Kanban board — ``hermes kanban …`` subcommand.
+"""CLI for the Fabric Kanban board — ``fabric kanban …`` subcommand.
 
 Exposes the Kanban command surface. All database work is delegated to
 ``kanban_db``. This module adds:
@@ -134,14 +134,14 @@ def _parse_branch_flag(value: Optional[str]) -> Optional[str]:
 def _check_dispatcher_presence() -> tuple[bool, str]:
     """Return ``(running, message)``.
 
-    - ``running=True``: a gateway is alive for this HERMES_HOME and its
+    - ``running=True``: a gateway is alive for this Fabric home and its
       config has ``kanban.dispatch_in_gateway`` on (default). Message
       is a short status line.
     - ``running=False``: either no gateway is running, or the gateway
       is running but the config flag is off. Message is human guidance
       explaining the next step.
 
-    Used by ``hermes kanban create`` (and callers) to warn when a task
+    Used by ``fabric kanban create`` (and callers) to warn when a task
     will sit in ``ready`` because nothing is there to pick it up.
     Defensive against import failures and config-read errors — if the
     probe itself errors, we return ``(True, "")`` so we don't spam
@@ -866,7 +866,7 @@ def build_parser(parent_subparsers: argparse._SubParsersAction) -> argparse.Argu
 # ---------------------------------------------------------------------------
 
 def kanban_command(args: argparse.Namespace) -> int:
-    """Entry point from ``hermes kanban …`` argparse dispatch.
+    """Entry point from ``fabric kanban …`` argparse dispatch.
 
     Returns a shell-style exit code (0 on success, non-zero on error).
     """
@@ -923,7 +923,7 @@ def kanban_command(args: argparse.Namespace) -> int:
     # is idempotent, so running it every invocation is cheap (one
     # SELECT against sqlite_master when tables already exist) and
     # prevents "no such table: tasks" on first use from a fresh
-    # HERMES_HOME. Previously only `init` and `daemon` triggered
+    # Fabric home. Previously only `init` and `daemon` triggered
     # schema creation; `create` / `list` / every other command would
     # error out on a fresh install.
     with board_scope:
@@ -1002,16 +1002,16 @@ def _profile_author() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Boards management (hermes kanban boards …)
+# Boards management (fabric kanban boards …)
 # ---------------------------------------------------------------------------
 
 def _dispatch_boards(args: argparse.Namespace) -> int:
-    """Handle ``hermes kanban boards <action>``.
+    """Handle ``fabric kanban boards <action>``.
 
     Boards management is deliberately separate from the task-level
     commands: it operates on the filesystem (board directories,
     ``current`` pointer, ``board.json``), not on the per-board SQLite
-    DB, so a fresh HERMES_HOME that has never called ``kanban init``
+    DB, so a fresh Fabric home that has never called ``kanban init``
     can still run ``boards create`` / ``boards list``.
     """
     sub = getattr(args, "boards_action", None) or "list"
@@ -1114,7 +1114,7 @@ def _cmd_boards_create(args: argparse.Namespace) -> int:
 
 
 def _cmd_boards_rm(args: argparse.Namespace) -> int:
-    # When the user runs `hermes kanban boards delete <slug>` (alias), the
+    # When the user runs `fabric kanban boards delete <slug>` (alias), the
     # boards_action is 'delete' but args.delete is never set to True because
     # the --delete flag belongs to the 'rm' subparser only.  Detect the alias
     # and treat it identically to `boards rm --delete` (fixes #23139).
@@ -1241,7 +1241,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     # already addressable. Multica does this auto-detection on its
     # daemon start; we do it here at init time instead because our
     # dispatcher doesn't need to enumerate — we just pass the name
-    # through to `hermes -p <name>`.
+    # through to `fabric -p <name>`.
     try:
         profiles = kb.list_profiles_on_disk()
     except Exception:
@@ -1578,7 +1578,7 @@ def _cmd_show(args: argparse.Namespace) -> int:
         print(task.result)
     elif latest_summary:
         # Worker handoff lives on the latest run, not on tasks.result.
-        # Surface it at top-level so a glance at ``hermes kanban show <id>``
+        # Surface it at top-level so a glance at ``fabric kanban show <id>``
         # tells you what the worker did even if tasks.result is empty.
         print()
         print("Latest summary:")

@@ -2,7 +2,7 @@
 # GitHub environment detection helper for Fabric skills.
 #
 # Usage (via terminal tool):
-#   source skills/github/github-auth/scripts/gh-env.sh
+#   source "${FABRIC_HOME:-$HOME/.fabric}/skills/github/github-auth/scripts/gh-env.sh"
 #
 # After sourcing, these variables are set:
 #   GH_AUTH_METHOD  - "gh", "curl", or "none"
@@ -18,25 +18,39 @@ GH_AUTH_METHOD="none"
 GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 GH_USER=""
 
-if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
-    GH_AUTH_METHOD="gh"
-    GH_USER=$(gh api user --jq '.login' 2>/dev/null)
+# Match GitHub CLI precedence: GH_TOKEN, then GITHUB_TOKEN. A profile token
+# follows process credentials and precedes the gh keyring.
+_GH_SELECTED_TOKEN=""
+if [ -n "${GH_TOKEN:-}" ]; then
+    _GH_SELECTED_TOKEN="$GH_TOKEN"
 elif [ -n "$GITHUB_TOKEN" ]; then
-    GH_AUTH_METHOD="curl"
-elif _hermes_env="${HERMES_HOME:-$HOME/.hermes}/.env"; [ -f "$_hermes_env" ] && grep -q "^GITHUB_TOKEN=" "$_hermes_env" 2>/dev/null; then
-    GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" "$_hermes_env" | head -1 | cut -d= -f2 | tr -d '\n\r')
-    if [ -n "$GITHUB_TOKEN" ]; then
-        GH_AUTH_METHOD="curl"
-    fi
-elif [ -f "$HOME/.git-credentials" ] && grep -q "github.com" "$HOME/.git-credentials" 2>/dev/null; then
-    GITHUB_TOKEN=$(grep "github.com" "$HOME/.git-credentials" | head -1 | sed 's|https://[^:]*:\([^@]*\)@.*|\1|')
-    if [ -n "$GITHUB_TOKEN" ]; then
-        GH_AUTH_METHOD="curl"
-    fi
+    _GH_SELECTED_TOKEN="$GITHUB_TOKEN"
+elif _fabric_env="${FABRIC_HOME:-${HERMES_HOME:-$HOME/.fabric}}/.env"; [ -f "$_fabric_env" ]; then
+    _GH_SELECTED_TOKEN=$(grep "^GITHUB_TOKEN=" "$_fabric_env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\n\r')
+    _GH_SELECTED_TOKEN="${_GH_SELECTED_TOKEN%\"}"
+    _GH_SELECTED_TOKEN="${_GH_SELECTED_TOKEN#\"}"
 fi
 
-# Resolve username for curl method
-if [ "$GH_AUTH_METHOD" = "curl" ] && [ -z "$GH_USER" ]; then
+if [ -n "$_GH_SELECTED_TOKEN" ]; then
+    GITHUB_TOKEN="$_GH_SELECTED_TOKEN"
+    if command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+        GH_AUTH_METHOD="gh"
+    else
+        GH_AUTH_METHOD="curl"
+    fi
+elif command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; then
+    GH_AUTH_METHOD="gh"
+    GITHUB_TOKEN=$(gh auth token 2>/dev/null || true)
+elif [ -f "$HOME/.git-credentials" ] && grep -q "github.com" "$HOME/.git-credentials" 2>/dev/null; then
+    GITHUB_TOKEN=$(grep "github.com" "$HOME/.git-credentials" | head -1 | sed 's|https://[^:]*:\([^@]*\)@.*|\1|')
+    [ -n "$GITHUB_TOKEN" ] && GH_AUTH_METHOD="curl"
+fi
+unset _GH_SELECTED_TOKEN
+
+# Resolve the username through the same credential source selected above.
+if [ "$GH_AUTH_METHOD" = "gh" ] && [ -z "$GH_USER" ]; then
+    GH_USER=$(gh api user --jq '.login' 2>/dev/null || true)
+elif [ "$GH_AUTH_METHOD" = "curl" ] && [ -z "$GH_USER" ]; then
     GH_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
         https://api.github.com/user 2>/dev/null \
         | python3 -c "import sys,json; print(json.load(sys.stdin).get('login',''))" 2>/dev/null)

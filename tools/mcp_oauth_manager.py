@@ -601,7 +601,7 @@ class MCPOAuthManager:
                 entry.last_mtime_ns = mtime_ns
                 # Force the SDK's OAuthClientProvider to reload from storage
                 # on its next auth flow. `_initialized` is private API but
-                # stable across the MCP SDK versions we pin (>=1.26.0).
+                # stable across the MCP SDK versions we pin (>=1.28.1).
                 if hasattr(entry.provider, "_initialized"):
                     entry.provider._initialized = False  # noqa: SLF001
                 logger.info(

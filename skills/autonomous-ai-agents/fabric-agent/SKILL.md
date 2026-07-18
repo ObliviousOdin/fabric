@@ -483,7 +483,8 @@ Fabric injects project-level instructions into the system prompt by reading cont
 
 | File (in priority order) | Discovery | Use when |
 |---|---|---|
-| `.fabric.md` / `HERMES.md` | Walks parents up to the git root, stops at git root | You want hierarchical project rules (root + per-package overrides) |
+| `.fabric.md` / `FABRIC.md` | Canonical names; nearest file from cwd through the git root wins | You want Fabric-specific project rules |
+| `.hermes.md` / `HERMES.md` | Pre-Fabric compatibility names with the same nearest-file discovery | You are migrating an existing project |
 | `AGENTS.md` / `agents.md` | **Cwd only** — subdirectory and parent copies are ignored | You want portable agent instructions that work the same in Fabric, Claude Code, Codex, etc. |
 | `CLAUDE.md` / `claude.md` | Cwd only | Same as AGENTS.md, Claude-flavored |
 | `.cursorrules` / `.cursor/rules/*.mdc` | Cwd only | Migrating from Cursor |
@@ -492,21 +493,21 @@ Fabric injects project-level instructions into the system prompt by reading cont
 
 ### Pick the right one
 
-- **Use `.fabric.md`** when you want Fabric-specific behavior that lives above the cwd (root + subtree), or when you want rules to inherit from a parent directory. The parent walk stops at the git root, so a home-level `.fabric.md` won't leak into every project (a git repo's root is the boundary).
+- **Use `.fabric.md` or `FABRIC.md`** when you want Fabric-specific behavior. Fabric checks the cwd first and walks parents through the git root, selecting the nearest matching file. Within one directory, the name order is `.fabric.md` → `FABRIC.md` → `.hermes.md` → `HERMES.md`. The parent walk stops at the git root, so a home-level file won't leak into every project.
 - **Use `AGENTS.md`** when the same project will also be worked on by other agents (Codex, Claude Code, OpenCode). Those tools all have their own conventions for `AGENTS.md`, and the "cwd only" contract keeps the file portable.
 - **Don't put project rules in `~/.fabric/AGENTS.md`** (or any other home-level location). When Fabric runs with that directory as cwd, the file loads — but only for that one directory. For cross-project context, use `SOUL.md` (in `$FABRIC_HOME`, identity-only) or install a skill via `fabric skills install`.
 
 ### Size and truncation
 
-Each context file is capped at 20,000 characters. Files longer than that get **head + tail** truncated (the middle is dropped, with a `[...truncated...]` marker). For large project rules, prefer splitting into multiple skills over cramming one file.
+Unless `context_file_max_chars` is pinned in `config.yaml`, the startup context cap scales with the active model window (20,000-character floor, 500,000 ceiling). Longer sources get **head + tail** truncated (the middle is dropped, with a `[...truncated...]` marker). For large project rules, prefer splitting reusable procedures into skills over cramming one file.
 
 ### Security
 
-All context files pass through the threat-pattern scanner before reaching the system prompt. Patterns matching prompt injection or promptware are replaced with a `[BLOCKED: ...]` placeholder. This means an `AGENTS.md` containing obvious injection attempts won't reach the model — the scanner blocks the content, not the file, so the rest of the file still loads.
+All context files pass through the threat-pattern scanner before reaching the system prompt. If a source matches prompt-injection or promptware patterns, its content is replaced with a `[BLOCKED: ...]` placeholder; no part of that source is injected.
 
 ### Disable for one session
 
-`fabric --ignore-rules` skips auto-injection of all project context files (`.fabric.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`) **and** `SOUL.md` identity, plus user config, plugins, and MCP servers. Use it to isolate whether a problem is your setup or Fabric itself.
+`fabric --ignore-rules` skips project context (`.fabric.md`, `FABRIC.md`, the pre-Fabric compatibility names, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`), `SOUL.md`, memory, and preloaded skills for that run. It does **not** disable user config, plugins, or MCP servers. Use `fabric --safe-mode` when you need the full troubleshooting isolation; safe mode also ignores user config and disables plugins, MCP servers, and shell hooks.
 
 ### Example: a small `.fabric.md`
 

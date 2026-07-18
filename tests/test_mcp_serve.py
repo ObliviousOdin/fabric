@@ -964,17 +964,19 @@ class TestServerCreation:
     def test_create_without_mcp_sdk(self, monkeypatch):
         import mcp_serve
         monkeypatch.setattr(mcp_serve, "_MCP_SERVER_AVAILABLE", False)
-        with pytest.raises(ImportError, match="MCP server requires"):
+        with pytest.raises(ImportError, match="MCP server requires") as exc_info:
             mcp_serve.create_mcp_server()
+        assert "mcp>=1.28.1,<2" in str(exc_info.value)
 
 
 class TestRunMcpServer:
-    def test_run_without_mcp_exits(self, monkeypatch):
+    def test_run_without_mcp_exits(self, monkeypatch, capsys):
         import mcp_serve
         monkeypatch.setattr(mcp_serve, "_MCP_SERVER_AVAILABLE", False)
         with pytest.raises(SystemExit) as exc_info:
             mcp_serve.run_mcp_server()
         assert exc_info.value.code == 1
+        assert "mcp>=1.28.1,<2" in capsys.readouterr().err
 
 
 class TestCliIntegration:

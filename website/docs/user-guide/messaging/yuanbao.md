@@ -244,7 +244,8 @@ When you ask the bot to create or export a file, it sends the file directly to y
 1. Check gateway logs for error patterns
 2. Increase heartbeat timeout in connection settings
 3. Ensure stable network connection to Yuanbao API
-4. Consider enabling verbose logging: `HERMES_LOG_LEVEL=debug`
+4. Temporarily set `logging.level: DEBUG` in `~/.fabric/config.yaml`, restart
+   the gateway, and restore `INFO` after collecting diagnostics
 
 ## Access Control
 
@@ -301,9 +302,14 @@ These values are currently not configurable via environment variables. They are 
 
 Enable debug logging to troubleshoot connection issues:
 
-```bash
-HERMES_LOG_LEVEL=debug fabric gateway
+```yaml
+# ~/.fabric/config.yaml
+logging:
+  level: DEBUG
 ```
+
+Restart the gateway after changing the level. Set it back to `INFO` when you
+finish troubleshooting so routine logs do not grow unnecessarily.
 
 ## Integration with Other Features
 

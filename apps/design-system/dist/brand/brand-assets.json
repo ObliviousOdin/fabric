@@ -4,142 +4,142 @@
       "height": 1024,
       "kind": "app-icon",
       "mediaType": "image/png",
-      "sha256": "863c6c788dcea5f0e2e96ed1c0fa6b487b0333396521970003fcd0e7f227f895",
+      "sha256": "1a514b79784db3179b2f924dd81bd318cf4cd2605cc24d3fb9d9a43ff6abcfc6",
       "width": 1024
     },
     "fabric-app-icon-180.png": {
       "height": 180,
       "kind": "app-icon",
       "mediaType": "image/png",
-      "sha256": "6a90854b54ec53dfccdb7ba9130d83ff6c439079cb70cb0bcc3b128e7a3d042a",
+      "sha256": "22a05d3d24ab9058cff5554e2f173026d4d2a3a9fd6e1d333903c1499ec60131",
       "width": 180
     },
     "fabric-app-icon-192.png": {
       "height": 192,
       "kind": "app-icon",
       "mediaType": "image/png",
-      "sha256": "74fc7e170d927363fe4ec19f77f65efa13ec75ebbb4965585b98801ca811df19",
+      "sha256": "7e3dee908788136e1a8e9063d855f87583fcb55ad598581f6ea84e61ec1faaf1",
       "width": 192
     },
     "fabric-app-icon-512.png": {
       "height": 512,
       "kind": "app-icon",
       "mediaType": "image/png",
-      "sha256": "2a40fe90fd2f9fdbe8194487779d85208e095cd2a9378acf4df720d9336f3dff",
+      "sha256": "f7f37fdca4e39a731c7e58cfb694b7cc60cb434160a0fc84b9de37532465a8be",
       "width": 512
     },
     "fabric-app-icon.icns": {
       "height": 1024,
       "kind": "multi-size-app-icon",
       "mediaType": "image/icns",
-      "sha256": "e42ecf7a919ba0875fcf84b6fd8c7ea3698071dd528bba9b5a49bf42343b415d",
+      "sha256": "a96f68ea0dfc250906f52b078b2b5d07b63a999c858e30dc3721d56fc72cb684",
       "width": 1024
     },
     "fabric-favicon.ico": {
       "height": 256,
       "kind": "multi-size-favicon",
       "mediaType": "image/x-icon",
-      "sha256": "d051bc76c855d330562b24776b9e02c72a45c9867913323dd62be82d7629eaed",
+      "sha256": "5c00b2f71862baeb2e84f8ea8e1c92bce71ae4cb7cc9b2ba1fe4e0b9ac4ff5db",
       "width": 256
     },
     "fabric-mark-1024.png": {
       "height": 1024,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "01854c1c52473dd1e3add080fef8ce7b5572ecfe9a28a8f3181c2b29ecc27262",
+      "sha256": "9c917763e2d9e7b969aae688eee1ab812f0075128645a3e4075f2f83a40be466",
       "width": 1024
     },
     "fabric-mark-128.png": {
       "height": 128,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "e496526ffce7ad2e64cac689ff40b407266f73d7df5382a98689b513fc1a0854",
+      "sha256": "d9c7c1c4cd103b1f2ef6910f819a63fdc386305a71df54757e9774929310cf69",
       "width": 128
     },
     "fabric-mark-16.png": {
       "height": 16,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "b00e544e992e9f0faff9983ae9be68c487d4e7b7582aa403692fac3c0dfbeca7",
+      "sha256": "96b2be5302dc538fbd3be35e851b0f2e6b8c8a588c39aa7b0553afed93e1089b",
       "width": 16
     },
     "fabric-mark-180.png": {
       "height": 180,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "7027eba4849e24d7071911aea2fcd10f4d7d0024786ed88d53b83321dd65b5eb",
+      "sha256": "779cab10c028173ec4313b42931379bce762c45ddca7e6291c543188b7a56f3c",
       "width": 180
     },
     "fabric-mark-192.png": {
       "height": 192,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "7eb1cc84a2d74a6de931485814921ded37f2b8b109625d988c0eba459f5d6f7c",
+      "sha256": "42d966384f31dd235c5e7b635d4a5a81d031f5c2b0a5bda3f55c25fe3b12f3ba",
       "width": 192
     },
     "fabric-mark-32.png": {
       "height": 32,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "a4dcb6847809df705e186202e28bdeb2a1a557b127863b4921cbba0aeb000fe0",
+      "sha256": "e86e6a1985a411735af603c0ac15913d3a71fca938a36a331deeb020dc33f315",
       "width": 32
     },
     "fabric-mark-512.png": {
       "height": 512,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "7c27720fde5a812998c24aab0a7be50b9f49ed704e45e11da1c748d6c6dede17",
+      "sha256": "13126112ba34a885043ca5a5e6176c60ddd1edac935f6874cfcd96b803e6e73d",
       "width": 512
     },
     "fabric-mark-64.png": {
       "height": 64,
       "kind": "transparent-mark",
       "mediaType": "image/png",
-      "sha256": "e9dd39908fa92934b6369462808c1fd7a4cee2ce8af671ff177566dd9650f769",
+      "sha256": "fce19b7d1471b0bea5f2acf9a7c126b00d98cbf2aa698255427eebf6787023d4",
       "width": 64
     },
     "fabric-mark-mono.svg": {
       "height": 128,
       "kind": "vector-source",
       "mediaType": "image/svg+xml",
-      "sha256": "8de6df07b39339b5a6468688539a9db5723a5f56e5a4a77bd137ae6bdbe74105",
+      "sha256": "4b4aed7a1fb4d634f54e45334c615e2842a5b1c076af4f2c83f181c3b3899c1d",
       "width": 128
     },
     "fabric-mark.svg": {
       "height": 128,
       "kind": "vector-source",
       "mediaType": "image/svg+xml",
-      "sha256": "ae1da2c4cc7258c82114d657219ef73ecfe1a997c91ae6b2d03644f6b76e760c",
+      "sha256": "d2071caee2507897ad09e5011aac9eccb16ef8fbcfde507c25e136b235b2cab5",
       "width": 128
     },
     "fabric-maskable-512.png": {
       "height": 512,
       "kind": "maskable-app-icon",
       "mediaType": "image/png",
-      "sha256": "b18f286117b7096870cb1f71cbbfda30c5def4e5e58af552616513e681cfa541",
+      "sha256": "78ce324dba3b46cc1b058a010b202d59ca11f903a64cfc5885372c2de583eadc",
       "width": 512
     },
     "fabric-wordmark-on-dark.svg": {
       "height": 220,
       "kind": "vector-source",
       "mediaType": "image/svg+xml",
-      "sha256": "35c0b69b5f5db8c7e303106eb2997b61ae66c924eec1d86ee47faea702421842",
+      "sha256": "fcd284bbece5e826aa7f4149f51887a07adda17419c74dee86e086aa62174996",
       "width": 640
     },
     "fabric-wordmark.svg": {
       "height": 220,
       "kind": "vector-source",
       "mediaType": "image/svg+xml",
-      "sha256": "459e4516a889ff27fabc6c66d2bd2a774028b1096d71e6374090757406f6cf33",
+      "sha256": "ff10a21b3c80ee549f1b64ebc7d8468a8e58b77c91281ebcbd065971db9bf414",
       "width": 640
     }
   },
   "brand": "Fabric",
   "canonicalPrimary": "#4628CC",
-  "compactMark": "simplified lowercase f without bracket",
+  "compactMark": "stylized F with feather nib and eye dot",
   "encoder": "Pillow 12.2.0",
-  "generatorSha256": "4dcc02ce8d8d72ac8e6873789b8964a999617b7e887e3b692efc2566368eafb7",
-  "generatorVersion": 1,
+  "generatorSha256": "7d3712d2a9e03a3cf174dcf544187923eb3676d8ec306d3b18a0b7f883503d71",
+  "generatorVersion": 3,
   "schemaVersion": 1,
   "sourceViewBox": [
     0,
@@ -150,27 +150,27 @@
   "sources": {
     "mark-mono.svg": {
       "path": "apps/design-system/src/brand/fabric/mark-mono.svg",
-      "sha256": "8de6df07b39339b5a6468688539a9db5723a5f56e5a4a77bd137ae6bdbe74105"
+      "sha256": "4b4aed7a1fb4d634f54e45334c615e2842a5b1c076af4f2c83f181c3b3899c1d"
     },
     "mark.svg": {
       "path": "apps/design-system/src/brand/fabric/mark.svg",
-      "sha256": "ae1da2c4cc7258c82114d657219ef73ecfe1a997c91ae6b2d03644f6b76e760c"
+      "sha256": "d2071caee2507897ad09e5011aac9eccb16ef8fbcfde507c25e136b235b2cab5"
     },
-    "reference-wordmark.png": {
-      "height": 1008,
-      "path": "apps/design-system/src/brand/fabric/reference-wordmark.png",
+    "reference-mark.jpg": {
+      "height": 1024,
+      "path": "apps/design-system/src/brand/fabric/reference-mark.jpg",
       "role": "audit-reference-only; generated assets use vector geometry",
-      "sha256": "ed6ce701ca2ce7ceb88c70f1a2c41ce91b5783e57a0b0a017048beead1d8e7ac",
-      "width": 1792
+      "sha256": "934aebaece6894fed26fa6bb61d9672672d7091142f8096684d36ecf34fee8c4",
+      "width": 1024
     },
     "wordmark-on-dark.svg": {
       "path": "apps/design-system/src/brand/fabric/wordmark-on-dark.svg",
-      "sha256": "35c0b69b5f5db8c7e303106eb2997b61ae66c924eec1d86ee47faea702421842"
+      "sha256": "fcd284bbece5e826aa7f4149f51887a07adda17419c74dee86e086aa62174996"
     },
     "wordmark.svg": {
       "path": "apps/design-system/src/brand/fabric/wordmark.svg",
-      "sha256": "459e4516a889ff27fabc6c66d2bd2a774028b1096d71e6374090757406f6cf33"
+      "sha256": "ff10a21b3c80ee549f1b64ebc7d8468a8e58b77c91281ebcbd065971db9bf414"
     }
   },
-  "wordmark": "lowercase Fabric lockup with bracket underline"
+  "wordmark": "Fabric symbol lockup with bracket underline"
 }

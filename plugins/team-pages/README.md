@@ -4,6 +4,12 @@ Team Pages is a bundled, dashboard-only Fabric plugin for lightweight internal
 team hubs. It uses the existing dashboard plugin runtime and does not add a
 model tool or change the agent core.
 
+This plugin is not the Agents page (profile configuration) and it is not the
+Work board (persistent tasks and agent runs). It is a config-driven reference
+surface for shared links, priorities, metrics, and status. The integration is
+intentionally hidden from primary navigation; open it directly at
+`/admin/integrations/team-pages` when you choose to maintain those pages.
+
 The plugin ships a useful starter in
 `dashboard/dist/pages.default.json`. To personalize it, add page definitions to
 `~/.fabric/config.yaml`:
@@ -31,7 +37,7 @@ dashboard:
             items:
               - label: Work board
                 description: Active projects and agent work
-                href: /kanban
+                href: /workspace/work
 ```
 
 Reload the dashboard after editing the file. Config pages replace the bundled

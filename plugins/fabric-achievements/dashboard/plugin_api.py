@@ -6,9 +6,15 @@ from __future__ import annotations
 
 import base64
 import functools
+import ipaddress
 import json
 import math
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -18,12 +24,35 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None  # type: ignore[assignment]
+
+try:
     from fabric_constants import get_fabric_home
 except ImportError:
-    import os as _os
     def get_fabric_home() -> Path:  # type: ignore[misc]
-        val = (_os.environ.get("FABRIC_HOME") or "").strip()
+        val = (os.environ.get("FABRIC_HOME") or "").strip()
         return Path(val) if val else Path.home() / ".fabric"
+
+# Reuse Fabric's canonical Tailscale integration (the same code behind
+# ``fabric setup tailscale``) instead of re-implementing binary discovery and
+# status parsing. Imported optionally so the plugin still loads if the wider
+# Fabric CLI isn't importable (e.g. a standalone plugin checkout); a local probe
+# in ``detect_tailscale`` is the fallback.
+try:  # pragma: no cover - trivially importable inside the dashboard process
+    from fabric_cli.tailscale_setup import (
+        find_tailscale_binary as _ts_find_binary,
+        tailscale_status as _ts_status,
+    )
+except Exception:  # noqa: BLE001
+    _ts_find_binary = None  # type: ignore[assignment]
+    _ts_status = None  # type: ignore[assignment]
 
 try:
     from fastapi import APIRouter, Request
@@ -1145,9 +1174,34 @@ def _default_team_config() -> Dict[str, Any]:
     return {
         "membership": None,
         "publish_opt_in": False,
+        "pending_unpublish": False,
+        "pending_leaves": [],
+        "pending_leave_error": None,
+        "publish_error": None,
         "last_published_at": None,
         "last_error": None,
     }
+
+
+def _pending_leave_record(membership: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """Retain only the credentials required to retry a remote leave."""
+    keys = ("relay_url", "team_id", "member_id", "member_token")
+    if not all(isinstance(membership.get(key), str) and membership[key] for key in keys):
+        return None
+    return {key: membership[key] for key in keys}
+
+
+def _harden_team_config_permissions(path: Path) -> None:
+    """Best-effort permission upgrade for existing credential-bearing state."""
+    try:
+        path.chmod(0o600)
+    except OSError:
+        # POSIX modes are not meaningful on every supported filesystem/OS.
+        pass
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
+        pass
 
 
 def load_team_config() -> Dict[str, Any]:
@@ -1155,26 +1209,78 @@ def load_team_config() -> Dict[str, Any]:
     config = _default_team_config()
     if not path.exists():
         return config
+    _harden_team_config_permissions(path)
     try:
         data = json.loads(path.read_text())
     except Exception:
         return config
+    migrated = False
     if isinstance(data, dict):
         for key in config:
             if key in data:
                 config[key] = data[key]
+        # Older builds represented a failed opt-out as opt-in=false while
+        # leaving last_published_at set. Preserve that cleanup obligation.
+        if (
+            isinstance(config.get("membership"), dict)
+            and not config.get("publish_opt_in")
+            and config.get("last_published_at") is not None
+            and not config.get("pending_unpublish")
+        ):
+            config["pending_unpublish"] = True
+            migrated = True
+        pending = config.get("pending_leaves")
+        if isinstance(pending, list):
+            minimal = []
+            for item in pending:
+                if isinstance(item, dict):
+                    record = _pending_leave_record(item)
+                    if record is not None:
+                        minimal.append(record)
+            if minimal != pending:
+                config["pending_leaves"] = minimal
+                migrated = True
+    if migrated:
+        save_team_config(config)
     return config
 
 
 def save_team_config(config: Dict[str, Any]) -> None:
     path = team_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
+        pass
     # Write-then-rename so an interrupted or concurrent write can never leave a
     # half-written team.json (which would orphan the member: member_token is
     # only stored here and is unrecoverable if lost).
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(config, indent=2, sort_keys=True))
-    tmp.replace(path)
+    tmp: Optional[Path] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            tmp = Path(handle.name)
+            os.chmod(tmp, 0o600)
+            json.dump(config, handle, indent=2, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp.replace(path)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            pass
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def _validate_relay_url(url: Any) -> str:
@@ -1340,6 +1446,15 @@ class RelayClient:
             raise RelayClientError(message or f"Relay returned HTTP {status}.", status=status)
         return payload if isinstance(payload, dict) else {}
 
+    def _mutate(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        result = self._call("POST", path, body)
+        if result.get("ok") is not True:
+            raise RelayClientError(
+                "Relay did not confirm the requested change. Is that URL a Fabric leaderboard relay?",
+                status=502,
+            )
+        return result
+
     def create_team(self, name: str, display_name: str) -> Dict[str, Any]:
         return self._call("POST", "/api/teams", {"name": name, "display_name": display_name})
 
@@ -1351,23 +1466,31 @@ class RelayClient:
         body = {"member_id": member_id, "member_token": member_token, "profile": profile}
         if display_name is not None:
             body["display_name"] = display_name
-        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/publish", body)
+        return self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/publish", body)
 
     def leave(self, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
-        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/leave",
-                          {"member_id": member_id, "member_token": member_token})
+        return self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/leave",
+                            {"member_id": member_id, "member_token": member_token})
 
     def rotate(self, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
-        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/rotate",
-                          {"member_id": member_id, "member_token": member_token})
+        result = self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/rotate",
+                              {"member_id": member_id, "member_token": member_token})
+        join_secret = result.get("join_secret")
+        if (
+            not isinstance(join_secret, str)
+            or not join_secret.strip()
+            or join_secret != join_secret.strip()
+        ):
+            raise RelayClientError("Relay confirmed rotation without returning the new invite secret.", status=502)
+        return result
 
     def kick(self, team_id: str, member_id: str, member_token: str, target_member_id: str) -> Dict[str, Any]:
-        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/kick",
-                          {"member_id": member_id, "member_token": member_token, "target_member_id": target_member_id})
+        return self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/kick",
+                            {"member_id": member_id, "member_token": member_token, "target_member_id": target_member_id})
 
     def unpublish(self, team_id: str, member_id: str, member_token: str) -> Dict[str, Any]:
-        return self._call("POST", f"/api/teams/{urllib.parse.quote(team_id)}/unpublish",
-                          {"member_id": member_id, "member_token": member_token})
+        return self._mutate(f"/api/teams/{urllib.parse.quote(team_id)}/unpublish",
+                            {"member_id": member_id, "member_token": member_token})
 
     def leaderboard(self, team_id: str, join_secret: Optional[str] = None, member_id: Optional[str] = None, member_token: Optional[str] = None) -> Dict[str, Any]:
         headers: Dict[str, str] = {}
@@ -1394,6 +1517,902 @@ def _require_fields(result: Dict[str, Any], keys: Tuple[str, ...]) -> None:
             "Is that URL a Fabric leaderboard relay?",
             status=502,
         )
+
+
+# ---------------------------------------------------------------------------
+# Hosting helpers (detect + start/stop the relay)
+# ---------------------------------------------------------------------------
+# Being the *host* of a leaderboard means running the relay (see relay/README.md)
+# and giving teammates its URL. Two frictions: (1) the URL — on a laptop behind
+# NAT, "http://<what?>:9137" is not something a user can guess, and 127.0.0.1
+# only works on the one machine; and (2) actually starting the relay, previously
+# a copy-paste terminal command. These helpers solve both:
+#   * detect_tailscale()/host_status() read a running relay + this machine's
+#     Tailscale identity and pre-fill a URL that actually works, and
+#   * start_local_relay()/stop_local_relay() let the dashboard host the relay
+#     with one click, tracked in a small state file so it survives a dashboard
+#     restart.
+# Tailscale reads reuse ``fabric_cli.tailscale_setup`` (the same code behind
+# ``fabric setup tailscale``); only this node's own name/IPs are read — never
+# peer or tailnet data. Connecting Tailscale (the interactive QR login) stays
+# the CLI's job: the UI hands the user ``fabric setup tailscale`` rather than
+# duplicating that ceremony without a terminal.
+
+DEFAULT_RELAY_PORT = 9137
+TAILSCALE_TIMEOUT = 5
+
+# The command that runs Fabric's built-in Tailscale enrollment (QR login). The
+# UI surfaces this verbatim; it needs an interactive terminal, so the dashboard
+# can't run it headless — it reuses, not reimplements, that flow.
+TAILSCALE_SETUP_COMMAND = "fabric setup tailscale"
+
+
+def _tailscale_exe() -> Optional[str]:
+    """Path to the ``tailscale`` CLI, or ``None`` if it isn't installed.
+
+    Fallback binary discovery used only when ``fabric_cli.tailscale_setup`` is
+    unavailable; otherwise ``find_tailscale_binary`` (which also handles WSL and
+    the macOS app bundle) is reused.
+    """
+    exe = shutil.which("tailscale")
+    if exe:
+        return exe
+    for cand in (
+        "/usr/bin/tailscale",
+        "/usr/local/bin/tailscale",
+        "/opt/homebrew/bin/tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ):
+        if Path(cand).exists():
+            return cand
+    return None
+
+
+def _run_tailscale(args: List[str], timeout: int = TAILSCALE_TIMEOUT) -> Tuple[int, str]:
+    """Run ``tailscale <args>``; return ``(returncode, stdout)``. Fallback path.
+
+    Returns ``(-1, "")`` if the CLI is absent or the call fails/ times out, so
+    callers can treat "no Tailscale" and "Tailscale error" the same way.
+    """
+    exe = _tailscale_exe()
+    if not exe:
+        return -1, ""
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [exe, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except Exception:  # noqa: BLE001 - detection must never raise
+        return -1, ""
+    return proc.returncode, proc.stdout or ""
+
+
+def _reused_tailscale_identity() -> Optional[Dict[str, Any]]:
+    """Read Tailscale identity via ``fabric_cli.tailscale_setup`` (reuse).
+
+    Returns a normalized dict (``installed``/``running``/``backend_state``/
+    ``magicdns``/``ip``), or ``None`` when the reused module isn't importable so
+    ``detect_tailscale`` knows to fall back to a direct probe. Never raises.
+    """
+    if _ts_find_binary is None or _ts_status is None:
+        return None
+    try:
+        binary = _ts_find_binary()
+    except Exception:  # noqa: BLE001
+        binary = None
+    if not binary:
+        return {"installed": False, "running": False, "backend_state": None, "magicdns": None, "ip": None}
+    try:
+        status = _ts_status(binary)
+    except Exception:  # noqa: BLE001
+        status = None
+    if status is None:
+        return {"installed": True, "running": False, "backend_state": None, "magicdns": None, "ip": None}
+    return {
+        "installed": True,
+        "running": bool(status.is_running),
+        "backend_state": status.backend_state,
+        "magicdns": status.dns_name,
+        "ip": status.ip,
+    }
+
+
+def detect_tailscale() -> Dict[str, Any]:
+    """Best-effort snapshot of this machine's own Tailscale identity.
+
+    Never raises. Prefers Fabric's canonical ``fabric_cli.tailscale_setup``
+    helpers; falls back to a direct ``tailscale status --json`` probe when that
+    module isn't importable. A machine without Tailscale reports
+    ``installed: False``; an installed-but-logged-out node reports
+    ``running: False`` with no usable address. Only ``Self`` is read.
+    """
+    reused = _reused_tailscale_identity()
+    if reused is not None:
+        if not reused.get("installed"):
+            return {
+                "installed": False,
+                "running": False,
+                "magicdns": None,
+                "ipv4": None,
+                "ipv6": None,
+                "ips": [],
+            }
+        raw_ip = reused.get("ip")
+        try:
+            parsed_ip = ipaddress.ip_address(str(raw_ip)) if raw_ip else None
+        except ValueError:
+            parsed_ip = None
+        ipv4 = str(parsed_ip) if parsed_ip and parsed_ip.version == 4 else None
+        ipv6 = str(parsed_ip) if parsed_ip and parsed_ip.version == 6 else None
+        return {
+            "installed": True,
+            "running": bool(reused.get("running")),
+            "backend_state": reused.get("backend_state"),
+            "magicdns": reused.get("magicdns"),
+            "ipv4": ipv4,
+            "ipv6": ipv6,
+            "ips": [str(parsed_ip)] if parsed_ip else [],
+        }
+    # Fallback: fabric_cli.tailscale_setup unavailable — probe the CLI directly.
+    if _tailscale_exe() is None:
+        return {
+            "installed": False,
+            "running": False,
+            "magicdns": None,
+            "ipv4": None,
+            "ipv6": None,
+            "ips": [],
+        }
+    code, out = _run_tailscale(["status", "--json"])
+    if code != 0 or not out.strip():
+        return {
+            "installed": True,
+            "running": False,
+            "magicdns": None,
+            "ipv4": None,
+            "ipv6": None,
+            "ips": [],
+        }
+    try:
+        data = json.loads(out)
+    except Exception:  # noqa: BLE001
+        return {
+            "installed": True,
+            "running": False,
+            "magicdns": None,
+            "ipv4": None,
+            "ipv6": None,
+            "ips": [],
+        }
+    self_node = data.get("Self") if isinstance(data, dict) else None
+    self_node = self_node if isinstance(self_node, dict) else {}
+    ips = [ip for ip in (self_node.get("TailscaleIPs") or []) if isinstance(ip, str)]
+    ipv4 = next((ip for ip in ips if ":" not in ip), None)
+    ipv6 = next((ip for ip in ips if ":" in ip), None)
+    magicdns = (self_node.get("DNSName") or "").rstrip(".") or None
+    backend = data.get("BackendState") if isinstance(data, dict) else None
+    # Case-insensitive to match the reused path's TailscaleStatus.is_running.
+    running = isinstance(backend, str) and backend.casefold() == "running" and bool(ips)
+    return {
+        "installed": True,
+        "running": running,
+        "backend_state": backend,
+        "magicdns": magicdns,
+        "ipv4": ipv4,
+        "ipv6": ipv6,
+        "ips": ips,
+    }
+
+
+def _probe_relay_health(relay_url: Any, transport: Optional[Transport] = None) -> Dict[str, Any]:
+    """GET ``<relay_url>/health`` and confirm the responder is a Fabric relay.
+
+    Returns ``{"ok": True, "url", "schema_version", "teams", "members"}`` when a
+    relay answers, else ``{"ok": False, "error": ...}``. Never raises — detection
+    must degrade to "not found", not surface a 500. The ``/health`` payload is
+    the store's own ``stats()`` output, so the ``schema_version`` key is what
+    distinguishes a real relay from an unrelated server that happens to reply.
+    """
+    try:
+        base = _validate_relay_url(relay_url)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    call = transport or _default_transport
+    try:
+        status, payload = call("GET", base + "/health", {"Accept": "application/json"}, None)
+    except RelayClientError as exc:
+        return {"ok": False, "error": exc.message}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Could not reach {base}: {exc}"}
+    if status < 200 or status >= 300:
+        return {"ok": False, "error": f"Relay returned HTTP {status}."}
+    if not isinstance(payload, dict) or "schema_version" not in payload:
+        return {"ok": False, "error": "That address answered, but it is not a Fabric leaderboard relay."}
+    return {
+        "ok": True,
+        "url": base,
+        "schema_version": payload.get("schema_version"),
+        "teams": payload.get("teams"),
+        "members": payload.get("members"),
+    }
+
+
+def _coerce_port(port: Any) -> int:
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        return DEFAULT_RELAY_PORT
+    if port < 1 or port > 65535:
+        return DEFAULT_RELAY_PORT
+    return port
+
+
+def _relay_url(host: Any, port: Any) -> str:
+    """Build an HTTP relay URL, bracketing IPv6 authorities correctly."""
+    text = str(host or "").strip()
+    try:
+        parsed = ipaddress.ip_address(text)
+    except ValueError:
+        authority = text
+    else:
+        authority = f"[{parsed}]" if parsed.version == 6 else str(parsed)
+    return f"http://{authority}:{_coerce_port(port)}"
+
+
+def _relay_probe_url(host: Any, port: Any) -> str:
+    """Return the reachable local health URL for a persisted bind address."""
+    text = str(host or "").strip()
+    if text in {"", "0.0.0.0"}:
+        text = "127.0.0.1"
+    elif text == "::":
+        text = "::1"
+    return _relay_url(text, port)
+
+
+# --- Relay process management (host the relay from the dashboard) -----------
+# There is no generic plugin process supervisor to reuse, so this mirrors the
+# dashboard's own detached-spawn idiom (web_server._spawn_hermes_action and the
+# WhatsApp pairing supervisor): a detached child, a small JSON state file next
+# to team.json, and cross-platform detach + terminate reused from the shared
+# helpers (fabric_cli._subprocess_compat, gateway.status, utils.atomic_json_write).
+# It stays behind the dashboard auth gate like the rest of /team/*.
+
+_RELAY_LOCK = threading.Lock()
+
+# Module-level timing seams keep real process supervision bounded and let tests
+# replace delays without sleeping.
+RELAY_START_HEALTH_ATTEMPTS = 15
+RELAY_START_HEALTH_DELAY = 0.3
+RELAY_FINGERPRINT_ATTEMPTS = 20
+RELAY_FINGERPRINT_DELAY = 0.025
+RELAY_PROCESS_LOCK_TIMEOUT = 5.0
+RELAY_PROCESS_LOCK_POLL_DELAY = 0.05
+RELAY_STARTUP_OWNERSHIP_GRACE = 10.0
+RELAY_STOP_TIMEOUT = 3.0
+RELAY_FORCE_TIMEOUT = 2.0
+RELAY_STOP_POLL_DELAY = 0.05
+
+# Spawner is injectable. The production spawner returns ``(pid, start_time)``;
+# tests may return a PID and use the fingerprint seam above.
+Spawner = Callable[[List[str], Path, Path], Any]
+
+
+def relay_state_path() -> Path:
+    return get_fabric_home() / "plugins" / "fabric-achievements" / "relay.json"
+
+
+def relay_lock_path() -> Path:
+    return relay_state_path().with_suffix(".lock")
+
+
+def relay_roster_path() -> Path:
+    return get_fabric_home() / "plugins" / "fabric-achievements" / "roster.json"
+
+
+def relay_log_path() -> Path:
+    return get_fabric_home() / "logs" / "fabric-achievements-relay.log"
+
+
+def _relay_plugin_dir() -> Path:
+    # plugins/fabric-achievements — the directory ``python -m relay`` resolves
+    # its package from (this file is dashboard/plugin_api.py -> parents[1]).
+    return Path(__file__).resolve().parents[1]
+
+
+def load_relay_state() -> Dict[str, Any]:
+    path = relay_state_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except Exception:  # noqa: BLE001
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_relay_state(state: Dict[str, Any]) -> None:
+    path = relay_state_path()
+    try:
+        from utils import atomic_json_write  # reuse the shared atomic writer
+        atomic_json_write(path, state)
+        return
+    except Exception:  # noqa: BLE001 - fall back to write-then-rename
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True))
+    tmp.replace(path)
+
+
+def clear_relay_state() -> None:
+    try:
+        relay_state_path().unlink()
+    except FileNotFoundError:
+        return
+    except Exception:  # noqa: BLE001
+        save_relay_state({})
+
+
+def _process_start_time(pid: int) -> Optional[int]:
+    try:
+        from gateway.status import get_process_start_time
+        value = get_process_start_time(pid)
+        return int(value) if value is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _pid_exists(pid: Any) -> bool:
+    try:
+        value = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if value <= 0:
+        return False
+    try:
+        import psutil
+        try:
+            if psutil.Process(value).status() == psutil.STATUS_ZOMBIE:
+                return False
+        except psutil.NoSuchProcess:
+            return False
+        except Exception:  # noqa: BLE001
+            pass
+        return bool(psutil.pid_exists(value))
+    except ImportError:
+        if os.name == "nt":
+            # CPython maps os.kill(pid, 0) to CTRL_C_EVENT on Windows. Never
+            # turn a liveness check into a signal when psutil is unavailable.
+            return False
+    try:
+        os.kill(value, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _relay_process_identity(pid: Any, start_time: Any) -> str:
+    """Return ``same``, ``gone``, ``other``, or ``unknown`` for a PID record."""
+    if not _pid_exists(pid):
+        return "gone"
+    try:
+        recorded = int(start_time)
+    except (TypeError, ValueError):
+        return "unknown"
+    current = _process_start_time(int(pid))
+    if current is None:
+        return "unknown"
+    return "same" if current == recorded else "other"
+
+
+def _pid_is_alive(pid: Optional[int], start_time: Optional[int] = None) -> bool:
+    """Return True only when PID liveness and its saved fingerprint both match."""
+    return _relay_process_identity(pid, start_time) == "same"
+
+
+def _relay_state_in_startup_grace(state: Dict[str, Any], now: Optional[float] = None) -> bool:
+    """Keep a freshly persisted spawn authoritative through process-table races."""
+    if not state.get("pid") or state.get("start_time") is None:
+        return False
+    raw_started_at = state.get("started_at")
+    if raw_started_at is None:
+        return False
+    try:
+        started_at = float(raw_started_at)
+    except (TypeError, ValueError):
+        return False
+    age = float(time.time() if now is None else now) - started_at
+    return 0.0 <= age <= RELAY_STARTUP_OWNERSHIP_GRACE
+
+
+def _relay_state_identity(state: Dict[str, Any]) -> str:
+    identity = _relay_process_identity(state.get("pid"), state.get("start_time"))
+    if identity == "gone" and _relay_state_in_startup_grace(state):
+        return "starting"
+    return identity
+
+
+def _capture_process_start_time(pid: int) -> Optional[int]:
+    for attempt in range(RELAY_FINGERPRINT_ATTEMPTS + 1):
+        value = _process_start_time(pid)
+        if value is not None:
+            return value
+        if not _pid_exists(pid):
+            return None
+        if attempt < RELAY_FINGERPRINT_ATTEMPTS:
+            time.sleep(RELAY_FINGERPRINT_DELAY)
+    return None
+
+
+def _wait_original_process_gone(pid: int, start_time: int, timeout: float) -> bool:
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        identity = _relay_process_identity(pid, start_time)
+        if identity in {"gone", "other"}:
+            return True
+        if identity == "unknown" or time.monotonic() >= deadline:
+            return False
+        time.sleep(RELAY_STOP_POLL_DELAY)
+
+
+def _signal_relay_pid(pid: int, *, force: bool) -> bool:
+    try:
+        from gateway.status import terminate_pid
+        terminate_pid(int(pid), force=force)
+        return True
+    except Exception:  # noqa: BLE001
+        if os.name == "nt":
+            return False
+    try:
+        import signal
+        sig = getattr(signal, "SIGKILL", signal.SIGTERM) if force else signal.SIGTERM
+        os.kill(int(pid), sig)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _terminate_relay_pid(pid: int, start_time: int) -> bool:
+    """Terminate the exact recorded process and confirm it exited.
+
+    Identity checks fail closed: an absent/unreadable fingerprint is never
+    signalled. State remains on disk when exit cannot be confirmed so the
+    dashboard does not forget a possibly-live relay.
+    """
+    if _relay_process_identity(pid, start_time) != "same":
+        return False
+    if not _signal_relay_pid(pid, force=False):
+        return False
+    if _wait_original_process_gone(pid, start_time, RELAY_STOP_TIMEOUT):
+        return True
+    if _relay_process_identity(pid, start_time) != "same":
+        return False
+    if not _signal_relay_pid(pid, force=True):
+        return False
+    return _wait_original_process_gone(pid, start_time, RELAY_FORCE_TIMEOUT)
+
+
+def _acquire_relay_process_lock() -> Tuple[bool, Optional[Any]]:
+    """Acquire an OS advisory lock for relay state mutations.
+
+    ``gateway.status`` scoped locks intentionally reject live non-gateway
+    owners, so they cannot serialize independent dashboard workers. This lock
+    is kernel-owned and is released automatically if a process crashes.
+    """
+    path = relay_lock_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fh = open(path, "a+b")
+    except OSError:
+        return False, None
+
+    try:
+        if msvcrt is not None:
+            lock_fh.seek(0, os.SEEK_END)
+            if lock_fh.tell() == 0:
+                lock_fh.write(b"\0")
+                lock_fh.flush()
+            lock_fh.seek(0)
+
+        deadline = time.monotonic() + RELAY_PROCESS_LOCK_TIMEOUT
+        while True:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                elif msvcrt is not None:
+                    getattr(msvcrt, "locking")(
+                        lock_fh.fileno(), getattr(msvcrt, "LK_NBLCK"), 1
+                    )
+                return True, lock_fh
+            except (OSError, IOError):
+                if time.monotonic() >= deadline:
+                    lock_fh.close()
+                    return False, None
+                time.sleep(RELAY_PROCESS_LOCK_POLL_DELAY)
+    except Exception:  # noqa: BLE001
+        lock_fh.close()
+        return False, None
+
+
+def _release_relay_process_lock(lock_fh: Optional[Any]) -> None:
+    if lock_fh is None:
+        return
+    try:
+        if fcntl is not None:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+        elif msvcrt is not None:
+            lock_fh.seek(0)
+            getattr(msvcrt, "locking")(
+                lock_fh.fileno(), getattr(msvcrt, "LK_UNLCK"), 1
+            )
+    except (OSError, IOError):
+        pass
+    finally:
+        lock_fh.close()
+
+
+def _default_relay_spawner(argv: List[str], cwd: Path, log_path: Path) -> Tuple[int, int]:
+    """Spawn detached and return a PID plus a verified start-time fingerprint."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    detach_kwargs: Dict[str, Any] = {}
+    try:
+        from fabric_cli._subprocess_compat import windows_detach_popen_kwargs
+        detach_kwargs = windows_detach_popen_kwargs()
+    except Exception:  # noqa: BLE001
+        if os.name != "nt":
+            detach_kwargs = {"start_new_session": True}
+    popen_kwargs = {
+        "cwd": str(cwd),
+        "stdout": None,
+        "stderr": subprocess.STDOUT,
+        "close_fds": True,
+        **detach_kwargs,
+    }
+    log_fh = open(log_path, "ab")
+    popen_kwargs["stdout"] = log_fh
+    try:
+        try:
+            proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+                argv, stdin=subprocess.DEVNULL, **popen_kwargs
+            )
+        except OSError:
+            if "creationflags" not in detach_kwargs:
+                raise
+            # Windows job objects may deny CREATE_BREAKAWAY_FROM_JOB. Retry with
+            # the canonical no-breakaway flags rather than failing hosting.
+            from fabric_cli._subprocess_compat import windows_detach_flags_without_breakaway
+            retry_kwargs = dict(popen_kwargs)
+            retry_kwargs["creationflags"] = windows_detach_flags_without_breakaway()
+            proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+                argv, stdin=subprocess.DEVNULL, **retry_kwargs
+            )
+    finally:
+        # The child inherited its own duplicate; the parent copy is done.
+        log_fh.close()
+
+    start_time = _capture_process_start_time(int(proc.pid))
+    if start_time is None:
+        # We still own the Popen handle, so cleanup is safe even without a PID
+        # fingerprint. Never persist a killable record that cannot prove identity.
+        try:
+            proc.terminate()
+            proc.wait(timeout=1)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+                proc.wait(timeout=1)
+            except Exception:  # noqa: BLE001
+                pass
+        raise RuntimeError("Could not verify the relay process identity after spawn.")
+    return int(proc.pid), int(start_time)
+
+
+def relay_process_status(transport: Optional[Transport] = None) -> Dict[str, Any]:
+    """Status of a *dashboard-managed* relay recorded in relay.json, if any.
+
+    A record is managed only when both PID and start-time fingerprint match.
+    Unknown ownership is surfaced separately and is never treated as killable.
+    This read-only path does not delete state; start/stop own cleanup.
+    """
+    state = load_relay_state()
+    pid = state.get("pid")
+    port = state.get("port")
+    host = state.get("host")
+    log = state.get("log")
+    if not pid:
+        return {
+            "managed": False,
+            "running": False,
+            "ownership_unknown": False,
+            "pid": None,
+            "port": None,
+            "healthy": False,
+            "log": log,
+        }
+    identity = _relay_state_identity(state)
+    if identity not in {"same", "starting"}:
+        return {
+            "managed": False,
+            "running": False,
+            "ownership_unknown": identity == "unknown",
+            "pid": int(pid) if identity == "unknown" else None,
+            "port": _coerce_port(port) if identity == "unknown" and port else None,
+            "healthy": False,
+            "log": log,
+        }
+    healthy = bool(
+        port and _probe_relay_health(_relay_probe_url(host, port), transport=transport).get("ok")
+    )
+    return {
+        "managed": True,
+        "running": True,
+        "starting": identity == "starting",
+        "ownership_unknown": False,
+        "pid": int(pid),
+        "port": _coerce_port(port) if port else None,
+        "host": host,
+        "started_at": state.get("started_at"),
+        "healthy": healthy,
+        "log": log,
+    }
+
+
+def _wait_relay_healthy(host: str, port: int, transport: Optional[Transport]) -> bool:
+    health_url = _relay_probe_url(host, port)
+    health = _probe_relay_health(health_url, transport=transport)
+    attempts = 0
+    while not health.get("ok") and attempts < RELAY_START_HEALTH_ATTEMPTS:
+        time.sleep(RELAY_START_HEALTH_DELAY)
+        health = _probe_relay_health(health_url, transport=transport)
+        attempts += 1
+    return bool(health.get("ok"))
+
+
+def start_local_relay(
+    port: int = DEFAULT_RELAY_PORT,
+    host: Optional[str] = None,
+    spawner: Optional[Spawner] = None,
+    transport: Optional[Transport] = None,
+) -> Dict[str, Any]:
+    """Start one dashboard-managed relay without orphaning concurrent children.
+
+    The default bind is the connected Tailscale IPv4 address, otherwise
+    loopback. Mutation ownership is serialized across threads and dashboard
+    processes; a live record is authoritative even before health starts
+    answering. Every persisted PID has a verified start-time fingerprint.
+    """
+    port = _coerce_port(port)
+    tailscale = detect_tailscale()
+    default_host = tailscale.get("ipv4") if tailscale.get("running") else None
+    host = str(host).strip() if host and str(host).strip() else str(default_host or "127.0.0.1")
+    note: Optional[str] = None
+    action_error: Optional[str] = None
+    do_healthcheck = False
+    started_identity: Optional[Tuple[int, int]] = None
+
+    with _RELAY_LOCK:
+        acquired, process_lock = _acquire_relay_process_lock()
+        if not acquired:
+            note = "Another dashboard process is updating the relay; try again."
+            action_error = note
+        else:
+            try:
+                state = load_relay_state()
+                managed_pid = state.get("pid")
+                identity = _relay_state_identity(state) if managed_pid else "gone"
+                if identity in {"same", "starting"}:
+                    managed_port = _coerce_port(state.get("port"))
+                    if managed_port != port:
+                        note = (
+                            f"The dashboard is already hosting a relay on port {managed_port}; "
+                            "stop it before starting one on another port."
+                        )
+                        action_error = note
+                    port = managed_port
+                elif identity == "unknown":
+                    note = "Relay ownership could not be verified; refusing to replace a possibly-live process."
+                    action_error = note
+                else:
+                    probe_urls = [_relay_url("127.0.0.1", port)]
+                    bind_probe = _relay_probe_url(host, port)
+                    if bind_probe not in probe_urls:
+                        probe_urls.append(bind_probe)
+                    existing = next(
+                        (
+                            probe
+                            for probe in (
+                                _probe_relay_health(url, transport=transport)
+                                for url in probe_urls
+                            )
+                            if probe.get("ok")
+                        ),
+                        None,
+                    )
+                    if existing:
+                        note = "A relay is already running on this port (not started by the dashboard)."
+                    else:
+                        argv = [
+                            sys.executable, "-m", "relay",
+                            "--host", host, "--port", str(port),
+                            "--state", str(relay_roster_path()),
+                        ]
+                        spawn = spawner or _default_relay_spawner
+                        try:
+                            spawned = spawn(argv, _relay_plugin_dir(), relay_log_path())
+                            if isinstance(spawned, tuple):
+                                if len(spawned) != 2:
+                                    raise RuntimeError("Relay spawner returned an invalid process record.")
+                                pid, start_time = int(spawned[0]), int(spawned[1])
+                            else:
+                                spawned_pid: Any = spawned
+                                pid = int(spawned_pid)
+                                captured = _capture_process_start_time(pid)
+                                if captured is None:
+                                    _signal_relay_pid(pid, force=True)
+                                    raise RuntimeError("Could not verify the relay process identity after spawn.")
+                                start_time = captured
+                        except Exception as exc:  # noqa: BLE001
+                            note = f"Could not start the relay: {exc}"
+                            action_error = note
+                        else:
+                            try:
+                                save_relay_state({
+                                    "pid": pid,
+                                    "port": port,
+                                    "host": host,
+                                    "started_at": int(time.time()),
+                                    "start_time": start_time,
+                                    "log": str(relay_log_path()),
+                                })
+                            except Exception as exc:  # noqa: BLE001
+                                stopped = _terminate_relay_pid(pid, start_time)
+                                suffix = "stopped it to avoid an orphan" if stopped else "manual cleanup may be required"
+                                note = f"Started the relay but could not record it ({exc}); {suffix}."
+                                action_error = note
+                            else:
+                                started_identity = (pid, start_time)
+                                do_healthcheck = True
+            finally:
+                _release_relay_process_lock(process_lock)
+
+    if do_healthcheck and not _wait_relay_healthy(host, port, transport):
+        # Re-enter the cross-process critical section before clearing a dead
+        # child's record. A concurrent Stop + Start may otherwise replace the
+        # state between our identity check and unlink, orphaning the new child.
+        with _RELAY_LOCK:
+            acquired, process_lock = _acquire_relay_process_lock()
+            if not acquired:
+                note = "Another dashboard process is updating the relay; check status again."
+                action_error = note
+            else:
+                try:
+                    state = load_relay_state()
+                    raw_identity = _relay_process_identity(state.get("pid"), state.get("start_time"))
+                    owns_record = (
+                        started_identity is not None
+                        and (state.get("pid"), state.get("start_time")) == started_identity
+                    )
+                    if owns_record and raw_identity == "gone":
+                        clear_relay_state()
+                        note = "The relay process exited right after starting — see the relay log."
+                        action_error = note
+                    elif _relay_state_identity(state) in {"same", "starting"}:
+                        note = "Relay started but isn't answering yet — check the relay log if it doesn't come up."
+                    else:
+                        note = "The relay process could not be verified after starting — see the relay log."
+                        action_error = note
+                finally:
+                    _release_relay_process_lock(process_lock)
+    return host_status(port, transport=transport, extra_note=note, action_error=action_error)
+
+
+def stop_local_relay(transport: Optional[Transport] = None) -> Dict[str, Any]:
+    """Stop only the exact dashboard-managed process and confirm its exit."""
+    note: Optional[str] = None
+    action_error: Optional[str] = None
+    state: Dict[str, Any] = {}
+    with _RELAY_LOCK:
+        acquired, process_lock = _acquire_relay_process_lock()
+        if not acquired:
+            note = "Another dashboard process is updating the relay; try again."
+            action_error = note
+        else:
+            try:
+                state = load_relay_state()
+                pid = state.get("pid")
+                start_time = state.get("start_time")
+                identity = _relay_state_identity(state) if pid else "gone"
+                if identity == "same":
+                    pid_value = int(pid or 0)
+                    start_value = int(start_time or 0)
+                    if _terminate_relay_pid(pid_value, start_value):
+                        clear_relay_state()
+                    else:
+                        note = "Could not confirm the relay stopped — it may still be running; try again."
+                        action_error = note
+                elif identity == "starting":
+                    note = "The relay is still starting; try Stop again in a moment."
+                    action_error = note
+                elif identity == "unknown":
+                    note = "Relay ownership could not be verified, so it was not stopped."
+                    action_error = note
+                else:
+                    if not pid:
+                        note = "No dashboard-managed relay is running."
+                    clear_relay_state()
+            finally:
+                _release_relay_process_lock(process_lock)
+    port = _coerce_port(state.get("port") or DEFAULT_RELAY_PORT)
+    return host_status(port, transport=transport, extra_note=note, action_error=action_error)
+
+
+def host_status(
+    port: int = DEFAULT_RELAY_PORT,
+    transport: Optional[Transport] = None,
+    extra_note: Optional[str] = None,
+    action_error: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return local process health plus separately verified tailnet reachability."""
+    port = _coerce_port(port)
+    tailscale = detect_tailscale()
+    managed = relay_process_status(transport=transport)
+    if managed.get("running") and managed.get("port"):
+        port = _coerce_port(managed["port"])
+        local_url = _relay_probe_url(managed.get("host"), port)
+    else:
+        local_url = _relay_url("127.0.0.1", port)
+    local_relay = _probe_relay_health(local_url, transport=transport)
+
+    # Liveness keeps the UI in a truthful "starting" state, but only health can
+    # establish reachability or make a suggested URL shareable.
+    relay_live = bool(local_relay.get("ok")) or bool(managed.get("running"))
+    shareable_host = (
+        tailscale.get("magicdns") or tailscale.get("ipv4") or tailscale.get("ipv6")
+    ) if tailscale.get("running") else None
+    shareable_relay: Dict[str, Any] = {
+        "ok": False,
+        "error": "No connected Tailscale address is available.",
+    }
+    if shareable_host:
+        suggested = _relay_url(shareable_host, port)
+        # A manually hosted relay may bind only to its Tailscale address, so a
+        # failed loopback probe must not suppress this independent check.
+        shareable_relay = _probe_relay_health(suggested, transport=transport)
+    elif relay_live:
+        suggested = _relay_url("127.0.0.1", port)
+    else:
+        suggested = None
+    shareable = bool(shareable_relay.get("ok"))
+    relay_live = relay_live or shareable
+    command_host = tailscale.get("ipv4") if tailscale.get("running") and tailscale.get("ipv4") else "127.0.0.1"
+
+    result = {
+        "ok": True,
+        "default_port": port,
+        "tailscale": tailscale,
+        "local_relay": local_relay,
+        "shareable_relay": shareable_relay,
+        "managed_relay": managed,
+        "relay_live": relay_live,
+        "suggested_relay_url": suggested,
+        "suggested_is_shareable": shareable,
+        "tailscale_setup_command": TAILSCALE_SETUP_COMMAND,
+        "tailscale_needs_setup": bool(tailscale.get("installed") and not tailscale.get("running")),
+        "run_command": (
+            "cd plugins/fabric-achievements && "
+            f"python -m relay --host {command_host} --port {port} --state ./roster.json"
+        ),
+    }
+    if extra_note:
+        result["note"] = extra_note
+    if action_error:
+        result["action_ok"] = False
+        result["error"] = action_error
+    return result
 
 
 def _current_achievements() -> List[Dict[str, Any]]:
@@ -1435,10 +2454,14 @@ def _membership_summary(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _team_state_payload(config: Dict[str, Any], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    pending_leaves = config.get("pending_leaves")
     payload = {
         "ok": True,
         "membership": _membership_summary(config),
         "publish_opt_in": bool(config.get("publish_opt_in")),
+        "pending_unpublish": bool(config.get("pending_unpublish")),
+        "pending_leave_count": len(pending_leaves) if isinstance(pending_leaves, list) else 0,
+        "publish_error": config.get("publish_error"),
         "last_published_at": config.get("last_published_at"),
         "last_error": config.get("last_error"),
     }
@@ -1459,19 +2482,34 @@ def _publish_now(config: Dict[str, Any], transport: Optional[Transport] = None) 
         profile, display_name=membership.get("display_name"),
     )
     config["last_published_at"] = int(time.time())
+    config["pending_unpublish"] = False
+    config["publish_error"] = None
     config["last_error"] = None
     save_team_config(config)
     return result
+
+
+def _mark_unpublished(config: Dict[str, Any]) -> None:
+    config["pending_unpublish"] = False
+    config["publish_error"] = None
+    config["last_published_at"] = None
+    config["last_error"] = None
+    save_team_config(config)
 
 
 @_synchronized
 def team_create(relay_url: str, team_name: str, display_name: str, publish_opt_in: bool = True, transport: Optional[Transport] = None) -> Dict[str, Any]:
     relay_url = _validate_relay_url(relay_url)
     display_name = (display_name or "").strip() or "Owner"
+    config = load_team_config()
+    if isinstance(config.get("membership"), dict):
+        return _team_state_payload(config, {
+            "ok": False,
+            "error": "Leave your current leaderboard before creating another one.",
+        })
     client = RelayClient(relay_url, transport=transport)
     result = client.create_team(team_name, display_name)
     _require_fields(result, ("team_id", "member_id", "member_token", "join_secret"))
-    config = load_team_config()
     config["membership"] = {
         "team_id": result["team_id"],
         "team_name": result.get("team_name") or team_name or "Team",
@@ -1484,25 +2522,37 @@ def team_create(relay_url: str, team_name: str, display_name: str, publish_opt_i
         "joined_at": int(time.time()),
     }
     config["publish_opt_in"] = bool(publish_opt_in)
+    config["pending_unpublish"] = False
+    config["publish_error"] = None
     config["last_error"] = None
     save_team_config(config)
+    publish_error: Optional[str] = None
     if config["publish_opt_in"]:
         try:
             _publish_now(config, transport=transport)
         except RelayClientError as exc:
+            publish_error = exc.message
+            config["publish_error"] = exc.message
             config["last_error"] = exc.message
             save_team_config(config)
+    if publish_error:
+        return _team_state_payload(config, {"ok": False, "error": publish_error})
     return _team_state_payload(config)
 
 
 @_synchronized
 def team_join(invite_code: str, display_name: str, publish_opt_in: bool = True, transport: Optional[Transport] = None) -> Dict[str, Any]:
-    invite = decode_invite(invite_code)
     display_name = (display_name or "").strip() or "Member"
+    config = load_team_config()
+    if isinstance(config.get("membership"), dict):
+        return _team_state_payload(config, {
+            "ok": False,
+            "error": "Leave your current leaderboard before joining another one.",
+        })
+    invite = decode_invite(invite_code)
     client = RelayClient(invite["relay_url"], transport=transport)
     result = client.join_team(invite["team_id"], invite["join_secret"], display_name)
     _require_fields(result, ("team_id", "member_id", "member_token"))
-    config = load_team_config()
     config["membership"] = {
         "team_id": result["team_id"],
         "team_name": result.get("team_name") or invite["team_name"],
@@ -1515,31 +2565,83 @@ def team_join(invite_code: str, display_name: str, publish_opt_in: bool = True, 
         "joined_at": int(time.time()),
     }
     config["publish_opt_in"] = bool(publish_opt_in)
+    config["pending_unpublish"] = False
+    config["publish_error"] = None
     config["last_error"] = None
     save_team_config(config)
+    publish_error: Optional[str] = None
     if config["publish_opt_in"]:
         try:
             _publish_now(config, transport=transport)
         except RelayClientError as exc:
+            publish_error = exc.message
+            config["publish_error"] = exc.message
             config["last_error"] = exc.message
             save_team_config(config)
+    if publish_error:
+        return _team_state_payload(config, {"ok": False, "error": publish_error})
     return _team_state_payload(config)
+
+
+def _retry_pending_leaves(config: Dict[str, Any], transport: Optional[Transport] = None) -> Optional[str]:
+    """Retry remote removals retained after successful local leave actions."""
+    pending = config.get("pending_leaves")
+    if not isinstance(pending, list) or not pending:
+        config["pending_leaves"] = []
+        return None
+    remaining = []
+    errors = []
+    for membership in pending:
+        if not isinstance(membership, dict):
+            continue
+        try:
+            client = RelayClient(membership["relay_url"], transport=transport)
+            client.leave(membership["team_id"], membership["member_id"], membership["member_token"])
+        except RelayClientError as exc:
+            remaining.append(membership)
+            errors.append(exc.message)
+        except Exception as exc:  # noqa: BLE001 - retain credentials for a later retry
+            remaining.append(membership)
+            errors.append(getattr(exc, "message", None) or str(exc))
+    config["pending_leaves"] = remaining
+    config["pending_leave_error"] = errors[0] if errors else None
+    save_team_config(config)
+    return errors[0] if errors else None
 
 
 @_synchronized
 def team_leave(transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
+    previous_error = _retry_pending_leaves(config, transport=transport)
     membership = config.get("membership")
+    leave_error: Optional[str] = None
     if isinstance(membership, dict):
-        # Best-effort removal from the relay; a dead relay must not trap the
-        # user in a team they can't leave locally.
         try:
             client = RelayClient(membership["relay_url"], transport=transport)
             client.leave(membership["team_id"], membership["member_id"], membership["member_token"])
-        except Exception:
-            pass
+        except RelayClientError as exc:
+            leave_error = exc.message
+        except Exception as exc:  # noqa: BLE001 - local leave must still succeed
+            leave_error = getattr(exc, "message", None) or str(exc)
+        if leave_error:
+            pending = config.get("pending_leaves")
+            if not isinstance(pending, list):
+                pending = []
+            record = _pending_leave_record(membership)
+            if record is not None:
+                pending.append(record)
+            config["pending_leaves"] = pending
+
+    pending = config.get("pending_leaves") if isinstance(config.get("pending_leaves"), list) else []
     config = _default_team_config()
+    config["pending_leaves"] = pending
+    action_error = leave_error or previous_error
+    if action_error:
+        config["pending_leave_error"] = action_error
     save_team_config(config)
+    if action_error:
+        message = f"Left locally, but the remote row could not be removed: {action_error}. Fabric will retry."
+        return _team_state_payload(config, {"ok": False, "error": message})
     return _team_state_payload(config)
 
 
@@ -1548,6 +2650,7 @@ def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[
     config = load_team_config()
     membership = config.get("membership")
     was_opt_in = bool(config.get("publish_opt_in"))
+    pending_unpublish = bool(config.get("pending_unpublish"))
     changed_name = False
     if display_name is not None:
         cleaned = display_name.strip()
@@ -1556,21 +2659,27 @@ def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[
             changed_name = True
     if publish_opt_in is not None:
         config["publish_opt_in"] = bool(publish_opt_in)
+        if publish_opt_in:
+            config["pending_unpublish"] = False
+        else:
+            config["publish_error"] = None
+            if was_opt_in or pending_unpublish:
+                # Persist the local opt-out before contacting the relay. If the
+                # retraction fails, this marker drives truthful UI and retries.
+                config["pending_unpublish"] = True
     save_team_config(config)
     now_opt_in = bool(config.get("publish_opt_in"))
-    turned_off = publish_opt_in is False and was_opt_in
+    should_unpublish = publish_opt_in is False and bool(config.get("pending_unpublish"))
+    action_error: Optional[str] = None
 
     if isinstance(membership, dict):
-        if turned_off:
-            # Opting out must actively RETRACT the already-published row from
-            # the relay, not just stop future publishes.
+        if should_unpublish:
             try:
                 client = RelayClient(membership["relay_url"], transport=transport)
                 client.unpublish(membership["team_id"], membership["member_id"], membership["member_token"])
-                config["last_published_at"] = None
-                config["last_error"] = None
-                save_team_config(config)
+                _mark_unpublished(config)
             except RelayClientError as exc:
+                action_error = exc.message
                 config["last_error"] = exc.message
                 save_team_config(config)
         elif now_opt_in and (changed_name or (publish_opt_in and not was_opt_in)):
@@ -1578,8 +2687,12 @@ def team_settings(publish_opt_in: Optional[bool] = None, display_name: Optional[
             try:
                 _publish_now(config, transport=transport)
             except RelayClientError as exc:
+                action_error = exc.message
+                config["publish_error"] = exc.message
                 config["last_error"] = exc.message
                 save_team_config(config)
+    if action_error:
+        return _team_state_payload(config, {"ok": False, "error": action_error})
     return _team_state_payload(config)
 
 
@@ -1588,9 +2701,15 @@ def team_publish(transport: Optional[Transport] = None) -> Dict[str, Any]:
     config = load_team_config()
     if not isinstance(config.get("membership"), dict):
         return _team_state_payload(config, {"ok": False, "error": "You are not in a team."})
+    if not config.get("publish_opt_in") or config.get("pending_unpublish"):
+        return _team_state_payload(config, {
+            "ok": False,
+            "error": "Sharing is disabled. Turn on sharing before publishing.",
+        })
     try:
         _publish_now(config, transport=transport)
     except RelayClientError as exc:
+        config["publish_error"] = exc.message
         config["last_error"] = exc.message
         save_team_config(config)
         return _team_state_payload(config, {"ok": False, "error": exc.message})
@@ -1603,9 +2722,26 @@ def team_leaderboard(
     refresh_profile: bool = True,
 ) -> Dict[str, Any]:
     config = load_team_config()
+    pending_leave_error = _retry_pending_leaves(config, transport=transport)
     membership = config.get("membership")
     if not isinstance(membership, dict):
-        return _team_state_payload(config, {"leaderboard": [], "member_count": 0})
+        extra = {"leaderboard": [], "member_count": 0}
+        if pending_leave_error:
+            extra.update({
+                "ok": False,
+                "error": f"A previous leaderboard row could not be removed: {pending_leave_error}. Fabric will retry.",
+            })
+        return _team_state_payload(config, extra)
+    pending_error: Optional[str] = pending_leave_error
+    if config.get("pending_unpublish"):
+        try:
+            client = RelayClient(membership["relay_url"], transport=transport)
+            client.unpublish(membership["team_id"], membership["member_id"], membership["member_token"])
+            _mark_unpublished(config)
+        except RelayClientError as exc:
+            pending_error = exc.message
+            config["last_error"] = exc.message
+            save_team_config(config)
     # On an initial load or explicit refresh, update our row before reading so
     # the board is current. Action follow-up reads pass ``refresh_profile=False``
     # because create/join/settings already applied their profile change.
@@ -1614,6 +2750,7 @@ def team_leaderboard(
         try:
             _publish_now(config, transport=transport)
         except RelayClientError as exc:
+            config["publish_error"] = exc.message
             config["last_error"] = exc.message
             save_team_config(config)
     try:
@@ -1628,13 +2765,16 @@ def team_leaderboard(
         config["last_error"] = exc.message
         save_team_config(config)
         return _team_state_payload(config, {"ok": False, "error": exc.message, "leaderboard": []})
-    return _team_state_payload(config, {
+    extra = {
         "team_name": roster.get("team_name"),
         "member_count": roster.get("member_count", 0),
         "my_member_id": membership.get("member_id"),
         "leaderboard": roster.get("leaderboard", []),
         "roster_generated_at": roster.get("generated_at"),
-    })
+    }
+    if pending_error:
+        extra.update({"ok": False, "error": pending_error})
+    return _team_state_payload(config, extra)
 
 
 @_synchronized
@@ -1779,5 +2919,56 @@ async def post_team_kick(request: Request):
     body = await _json_body(request)
     try:
         return await _run(team_kick, str(body.get("target_member_id", "")))
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.get("/team/host/status")
+async def get_team_host_status(port: int = DEFAULT_RELAY_PORT):
+    # Detection: probes a relay on this machine, reports any dashboard-managed
+    # relay, and reads this node's own Tailscale identity so the frontend can
+    # pre-fill a working relay URL. Runs the `tailscale` CLI and touches the
+    # local network, so it stays behind the dashboard auth gate (not on the
+    # public-paths allowlist), like the rest of /team/*.
+    try:
+        return await _run(host_status, port)
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/host/probe")
+async def post_team_host_probe(request: Request):
+    # Validate a candidate relay URL (typed or auto-filled) before Create/Join,
+    # turning a bad address into a clear message instead of a mid-create failure.
+    body = await _json_body(request)
+    try:
+        return await _run(_probe_relay_health, body.get("relay_url", ""))
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/host/start")
+async def post_team_host_start(request: Request):
+    # Start (host) a dashboard-managed relay on this machine. A deliberate,
+    # user-initiated action that spawns a local listening server, so it stays
+    # behind the dashboard auth gate like the rest of /team/*.
+    body = await _json_body(request)
+    # host is optional: when omitted, start_local_relay binds this node's
+    # Tailscale IPv4 address when connected, otherwise loopback.
+    host = body.get("host")
+    try:
+        return await _run(
+            start_local_relay,
+            body.get("port", DEFAULT_RELAY_PORT),
+            str(host) if host else None,
+        )
+    except (RelayClientError, ValueError) as exc:
+        return _error_payload(exc)
+
+
+@router.post("/team/host/stop")
+async def post_team_host_stop():
+    try:
+        return await _run(stop_local_relay)
     except (RelayClientError, ValueError) as exc:
         return _error_payload(exc)

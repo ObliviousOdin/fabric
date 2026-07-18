@@ -75,7 +75,7 @@ def register_cli(parent_parser: argparse.ArgumentParser) -> None:
     sync.add_argument(
         "--apply",
         action="store_true",
-        help="Actually export the secrets into the current shell's env (default: dry-run)",
+        help="Apply secrets in this Fabric process to verify startup behavior (default: dry-run)",
     )
     sync.set_defaults(func=cmd_sync)
 
@@ -404,7 +404,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         console.print(
             "\n  This was a dry-run — secrets are picked up automatically on the "
             "next [cyan]fabric[/cyan] invocation.  Re-run with [cyan]--apply[/cyan] "
-            "to export into the current shell instead."
+            "to exercise the startup apply path in this Fabric process."
         )
     else:
         console.print(f"\n  [green]Exported {applied} secret(s) into current process.[/green]")

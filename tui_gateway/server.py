@@ -36,6 +36,10 @@ from tui_gateway.transport import (
     current_transport,
     reset_transport,
 )
+from tui_gateway.visual_events import (
+    build_visual_complete_payload,
+    build_visual_start_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -238,6 +242,10 @@ _LONG_HANDLERS = frozenset({
     "setup.runtime_check",
     "setup.status",
     "voice.tts",
+    # Resolves/captures Browser Live View through bounded backend work; never
+    # let a status or frame request block the JSON-RPC reader loop.
+    "visual.frame",
+    "visual.status",
     "session.branch",
     "session.compress",
     "session.list",
@@ -1276,6 +1284,33 @@ def _runtime_profile_scoped(handler):
             return handler(rid, params)
         finally:
             _reset_profile_runtime_scope(tokens)
+
+    return wrapper
+
+
+def _runtime_profile_home_scoped(handler):
+    """Bind only the selected session's home/config boundary.
+
+    Read-only visual polling needs the profile's browser configuration, but it
+    must not rebuild that profile's full credential scope on every frame.  An
+    explicit launch-home override also closes the inverse boundary when a
+    launch-profile request is dispatched from a context that currently carries
+    a secondary-profile override.
+    """
+
+    def wrapper(rid, params):
+        try:
+            home = _runtime_profile_home_for_params(params or {})
+        except ValueError as exc:
+            return _err(rid, 4007, str(exc))
+
+        home_token = set_fabric_home_override(
+            Path(home) if home is not None else Path(_fabric_home)
+        )
+        try:
+            return handler(rid, params)
+        finally:
+            reset_fabric_home_override(home_token)
 
     return wrapper
 
@@ -3678,7 +3713,9 @@ def _current_profile_name() -> str:
 # checkout), surfacing a one-click "update to align" prompt instead of failing
 # cryptically downstream. Bump whenever the desktop's backend contract changes.
 # v2: adds the file.attach RPC (remote-gateway non-image file upload).
-DESKTOP_BACKEND_CONTRACT = 2
+# v3: adds visual.status, visual.frame, and the visual lifecycle events used by
+# Desktop Live View.
+DESKTOP_BACKEND_CONTRACT = 3
 
 
 def _session_info(agent, session: dict | None = None) -> dict:
@@ -3974,6 +4011,11 @@ def _tool_summary(name: str, result: str, duration_s: float | None) -> str | Non
     return f"{text}{suffix}" if text else None
 
 
+def _is_live_view_visual_tool(name: str | None) -> bool:
+    """Whether a tool can drive the desktop's ephemeral visual viewer."""
+    return name == "computer_use" or bool(name and name.startswith("browser_"))
+
+
 def _on_tool_start(sid: str, tool_call_id: str, name: str, args: dict):
     session = _sessions.get(sid)
     if session is not None:
@@ -3999,10 +4041,14 @@ def _on_tool_start(sid: str, tool_call_id: str, name: str, args: dict):
         # tool.complete is the source of truth for todos (full list from the
         # tool result). args.todos here may be a partial merge update.
         _emit("tool.start", sid, payload)
+    elif _is_live_view_visual_tool(name):
+        # Transcript verbosity must not disable the separate local visual UX.
+        # This narrow event is consumed only by Live View; it does not create a
+        # transcript tool row or alter the model/tool protocol.
+        _emit("visual.start", sid, build_visual_start_payload(tool_call_id, name, args))
 
 
 def _on_tool_complete(sid: str, tool_call_id: str, name: str, args: dict, result: str):
-    payload = {"tool_id": tool_call_id, "name": name, "args": args}
     session = _sessions.get(sid)
     snapshot = None
     started_at = None
@@ -4010,6 +4056,20 @@ def _on_tool_complete(sid: str, tool_call_id: str, name: str, args: dict, result
         snapshot = session.setdefault("edit_snapshots", {}).pop(tool_call_id, None)
         started_at = session.setdefault("tool_started_at", {}).pop(tool_call_id, None)
     duration_s = time.time() - started_at if started_at else None
+    if not _tool_progress_enabled(sid) and _is_live_view_visual_tool(name):
+        # Do not build the transcript payload first: browser snapshots and
+        # Computer Use captures can be megabytes, and parsing/serialising that
+        # raw result here stalls the model loop and can expose typed secrets.
+        _emit(
+            "visual.complete",
+            sid,
+            build_visual_complete_payload(
+                tool_call_id, name, args, result, duration_s
+            ),
+        )
+        return
+
+    payload = {"tool_id": tool_call_id, "name": name, "args": args}
     if duration_s is not None:
         payload["duration_s"] = duration_s
     try:
@@ -4046,6 +4106,16 @@ def _on_tool_complete(sid: str, tool_call_id: str, name: str, args: dict, result
         pass
     if _tool_progress_enabled(sid) or payload.get("inline_diff"):
         _emit("tool.complete", sid, payload)
+    elif _is_live_view_visual_tool(name):
+        # Defensive fallback for a future caller that bypasses the early
+        # visual-only branch above.
+        _emit(
+            "visual.complete",
+            sid,
+            build_visual_complete_payload(
+                tool_call_id, name, args, result, duration_s
+            ),
+        )
 
 
 def _on_tool_progress(
@@ -7505,7 +7575,7 @@ def _(rid, params: dict) -> dict:
         except Exception:
             pet_cfg = {}
 
-        installed = {p.slug: p for p in store.installed_pets()}
+        installed = {p.slug: p for p in store.available_pets()}
 
         gallery: list[dict] = []
         seen: set[str] = set()
@@ -7528,8 +7598,10 @@ def _(rid, params: dict) -> dict:
                         # petdex exposes no popularity metric; "curated" (its
                         # hand-picked/official set, identified by the asset path)
                         # is the closest signal, so the picker can surface it first.
-                        "curated": "/curated/" in entry.spritesheet_url,
+                        "curated": "/curated/" in entry.spritesheet_url
+                        or (entry.slug in installed and installed[entry.slug].bundled),
                         "generated": entry.slug in installed and installed[entry.slug].generated,
+                        "bundled": entry.slug in installed and installed[entry.slug].bundled,
                     }
                 )
         except Exception as exc:  # noqa: BLE001 - offline: fall back to installed
@@ -7544,7 +7616,9 @@ def _(rid, params: dict) -> dict:
                         "displayName": pet.display_name,
                         "installed": True,
                         "spritesheetUrl": "",
+                        "curated": pet.bundled,
                         "generated": pet.generated,
+                        "bundled": pet.bundled,
                     }
                 )
 
@@ -7595,7 +7669,8 @@ def _(rid, params: dict) -> dict:
 
     Params: ``slug`` (required). If the removed pet was the active one, the
     display is turned off so nothing tries to render a now-missing sprite.
-    Returns ``{ok, slug}`` where ``ok`` reflects whether a directory was deleted.
+    Returns ``{ok, slug, fallback?}`` where ``ok`` reflects whether a directory
+    was deleted and ``fallback`` describes a bundled pet revealed by removal.
     """
     slug = str(params.get("slug") or "").strip()
     if not slug:
@@ -7606,13 +7681,24 @@ def _(rid, params: dict) -> dict:
 
         removed = store.remove_pet(slug)
 
-        # If that was the active pet, stop surfaces pointing at a deleted sprite.
-        try:
-            _clear_active_if(slug)
-        except Exception as exc:  # noqa: BLE001 - removal already succeeded
-            logger.debug("pet.remove config update failed: %s", exc)
+        # Stop surfaces pointing at a deleted sprite. A bundled pet is
+        # read-only, and removing a same-slug profile override reveals that
+        # bundle, so keep the active config whenever a fallback still exists.
+        fallback = store.load_pet(slug) if removed else None
+        if removed and fallback is None:
+            try:
+                _clear_active_if(slug)
+            except Exception as exc:  # noqa: BLE001 - removal already succeeded
+                logger.debug("pet.remove config update failed: %s", exc)
 
-        return _ok(rid, {"ok": removed, "slug": slug})
+        result: dict = {"ok": removed, "slug": slug}
+        if fallback is not None and fallback.exists:
+            result["fallback"] = {
+                "displayName": fallback.display_name,
+                "bundled": fallback.bundled,
+                "generated": fallback.generated,
+            }
+        return _ok(rid, result)
     except Exception as exc:  # noqa: BLE001
         logger.debug("pet.remove failed: %s", exc)
         return _err(rid, 5031, f"pet.remove failed: {exc}")
@@ -15005,6 +15091,60 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 4015, f"unknown action: {action}")
 
     return _browser_connect(rid, params)
+
+
+@method("visual.status")
+@_runtime_profile_home_scoped
+def _(rid, params: dict) -> dict:
+    """Prepare the backend-only pull transport for this chat's browser."""
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+
+    # Browser model tools use the durable conversation key as task_id. The
+    # caller supplies the ephemeral UI sid, so map it here without exposing the
+    # durable identifier back to the client.
+    session_key = str(session.get("session_key") or "")
+    if not session_key:
+        return _ok(rid, {"available": False, "reason": "session_key_unavailable"})
+    if _durable_session_key_profile_ambiguous(session_key):
+        return _ok(rid, {"available": False, "reason": "ambiguous_session_profile"})
+
+    try:
+        from tools.browser_tool import get_browser_stream_status
+
+        return _ok(rid, get_browser_stream_status(session_key, timeout=2))
+    except Exception:
+        # The helper may fail with a credential-bearing provider URL in the
+        # exception text. Keep both the RPC result and logs on controlled,
+        # non-secret reason strings.
+        logger.warning("visual.status browser stream inspection failed")
+        return _ok(rid, {"available": False, "reason": "stream_status_failed"})
+
+
+@method("visual.frame")
+@_runtime_profile_home_scoped
+def _(rid, params: dict) -> dict:
+    """Return one server-throttled Browser Live View JPEG."""
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+
+    session_key = str(session.get("session_key") or "")
+    if not session_key:
+        return _ok(rid, {"available": False, "reason": "session_key_unavailable"})
+    if _durable_session_key_profile_ambiguous(session_key):
+        return _ok(rid, {"available": False, "reason": "ambiguous_session_profile"})
+
+    try:
+        from tools.browser_tool import get_browser_stream_frame
+
+        return _ok(rid, get_browser_stream_frame(session_key, timeout=2))
+    except Exception:
+        # CDP endpoints may carry provider credentials. Never include helper
+        # exceptions in either the RPC response or gateway logs.
+        logger.warning("visual.frame browser capture failed")
+        return _ok(rid, {"available": False, "reason": "frame_capture_failed"})
 
 
 def _browser_connect(rid, params: dict) -> dict:

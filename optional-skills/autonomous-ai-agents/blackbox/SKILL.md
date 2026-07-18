@@ -6,7 +6,7 @@ author: Fabric (Nous Research)
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [Coding-Agent, Blackbox, Multi-Agent, Judge, Multi-Model]
     related_skills: [claude-code, codex, fabric-agent]
 ---

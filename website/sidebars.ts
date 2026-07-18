@@ -10,6 +10,9 @@ const sidebars: SidebarsConfig = {
         'getting-started/quickstart',
         'getting-started/installation',
         'getting-started/platform-support',
+        'getting-started/low-memory',
+        'getting-started/raspberry-pi',
+        'getting-started/jetson-nano',
         'getting-started/termux',
         'getting-started/nix-setup',
         'getting-started/updating',
@@ -228,6 +231,7 @@ const sidebars: SidebarsConfig = {
                   collapsed: true,
                   items: [
                     'user-guide/skills/bundled/github/github-codebase-inspection',
+                    'user-guide/skills/bundled/github/github-fabric-contribute',
                     'user-guide/skills/bundled/github/github-github-auth',
                     'user-guide/skills/bundled/github/github-github-code-review',
                     'user-guide/skills/bundled/github/github-github-issues',
@@ -760,6 +764,7 @@ const sidebars: SidebarsConfig = {
       collapsed: true,
       items: [
         'developer-guide/contributing',
+        'developer-guide/documentation-system',
         {
           type: 'category',
           label: 'Architecture',
@@ -819,6 +824,7 @@ const sidebars: SidebarsConfig = {
       label: 'Reference',
       items: [
         'reference/index',
+        'reference/runtime-surfaces',
         {
           type: 'category',
           label: 'Command Reference',

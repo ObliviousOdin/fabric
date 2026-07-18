@@ -29,6 +29,8 @@ import {
 } from './backend-ready'
 
 type FakeChildProcess = EventEmitter & {
+  exitCode: number | null
+  signalCode: NodeJS.Signals | null
   stdout: EventEmitter
 }
 
@@ -37,6 +39,8 @@ type FakeChildProcess = EventEmitter & {
 // (child.stdout.on('data'), child.on('exit'|'error') + the .off() teardown).
 function makeFakeChild(): FakeChildProcess {
   const child = new EventEmitter() as FakeChildProcess
+  child.exitCode = null
+  child.signalCode = null
   child.stdout = new EventEmitter()
 
   return child
@@ -96,6 +100,17 @@ test('resolves with a HERMES_BACKEND_READY port (headless `serve`)', async () =>
   const p = waitForDashboardPort(child, 1000)
   child.stdout.emit('data', 'HERMES_BACKEND_READY port=43210\n')
   assert.equal(await p, 43210)
+})
+
+test('rejects descriptively when the backend process is unavailable', async () => {
+  await assert.rejects(waitForDashboardPort(null, 1000), /process is unavailable/)
+})
+
+test('rejects immediately when the backend exited before listeners attached', async () => {
+  const child = makeFakeChild()
+  child.exitCode = 1
+
+  await assert.rejects(waitForDashboardPort(child, 1000), /exited before port announcement \(1\)/)
 })
 
 test('parses the port even when the line arrives split across chunks', async () => {

@@ -6,7 +6,7 @@ author: Fabric + Teknium
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [Coding-Agent, Claude, Anthropic, Code-Review, Refactoring, PTY, Automation]
     related_skills: [codex, fabric-agent, opencode]
 ---

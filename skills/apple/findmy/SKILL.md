@@ -6,7 +6,7 @@ author: Fabric
 license: MIT
 platforms: [macos]
 metadata:
-  hermes:
+  fabric:
     tags: [FindMy, AirTag, location, tracking, macOS, Apple]
 ---
 

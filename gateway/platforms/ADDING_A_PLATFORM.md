@@ -232,23 +232,30 @@ inappropriate formatting (e.g., markdown on platforms that don't render it).
 
 ## 7. Toolset (`toolsets.py`)
 
-Add a named toolset for your platform:
+Add a canonical `fabric-` toolset for your platform. Existing platform toolset
+IDs that already use the older namespace remain live compatibility contracts,
+but new integrations must not mint more of them:
 
 ```python
-"hermes-your-platform": {
+"fabric-your-platform": {
     "description": "Your Platform bot toolset",
     "tools": _HERMES_CORE_TOOLS,
     "includes": []
 },
 ```
 
-And add it to the `hermes-gateway` composite:
+And add it to the canonical `fabric-gateway` composite:
 
 ```python
-"hermes-gateway": {
-    "includes": [..., "hermes-your-platform"]
+"fabric-gateway": {
+    "includes": [..., "fabric-your-platform"]
 }
 ```
+
+`hermes-gateway` and existing individual `hermes-*` platform IDs remain runtime
+aliases for older configurations. New code and documentation should use the
+canonical `fabric-` namespace until a separate compatibility migration retires
+the older IDs.
 
 ---
 

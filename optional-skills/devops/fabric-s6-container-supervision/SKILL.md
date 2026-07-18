@@ -7,7 +7,7 @@ license: MIT
 platforms: [linux]
 environments: [s6]
 metadata:
-  hermes:
+  fabric:
     tags: [docker, s6, supervision, gateway, profiles]
     related_skills: [fabric-agent, fabric-agent-dev]
 ---

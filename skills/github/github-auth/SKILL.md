@@ -6,14 +6,20 @@ author: Fabric
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
-  hermes:
+  fabric:
     tags: [GitHub, Authentication, Git, gh-cli, SSH, Setup]
-    related_skills: [github-pr-workflow, github-code-review, github-issues, github-repo-management]
+    related_skills: [github-pr-workflow, github-code-review, github-issues, github-repo-management, fabric-contribute]
 ---
 
 # GitHub Authentication Setup
 
-This skill sets up authentication so the agent can work with GitHub repositories, PRs, issues, and CI. It covers two paths:
+This skill sets up authentication so the agent can work with GitHub repositories, PRs, issues, and CI.
+
+> **Easiest path:** `fabric setup github` runs a browser device-code sign-in and
+> saves the token as `GITHUB_TOKEN` in the active Fabric profile's `.env`, where
+> every GitHub skill (including this one's detection helper) finds it automatically.
+
+It covers two paths:
 
 - **`git` (always available)** — uses HTTPS personal access tokens or SSH keys
 - **`gh` CLI (if installed)** — richer GitHub API access with a simpler auth flow
@@ -220,8 +226,8 @@ if command -v gh &>/dev/null && gh auth status &>/dev/null; then
   echo "AUTH_METHOD=gh"
 elif [ -n "$GITHUB_TOKEN" ]; then
   echo "AUTH_METHOD=curl"
-elif _hermes_env="${FABRIC_HOME:-$HOME/.fabric}/.env"; [ -f "$_hermes_env" ] && grep -q "^GITHUB_TOKEN=" "$_hermes_env"; then
-  export GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" "$_hermes_env" | head -1 | cut -d= -f2 | tr -d '\n\r')
+elif _fabric_env="${FABRIC_HOME:-$HOME/.fabric}/.env"; [ -f "$_fabric_env" ] && grep -q "^GITHUB_TOKEN=" "$_fabric_env"; then
+  export GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" "$_fabric_env" | head -1 | cut -d= -f2 | tr -d '\n\r')
   echo "AUTH_METHOD=curl"
 elif grep -q "github.com" ~/.git-credentials 2>/dev/null; then
   export GITHUB_TOKEN=$(grep "github.com" ~/.git-credentials | head -1 | sed 's|https://[^:]*:\([^@]*\)@.*|\1|')

@@ -7,7 +7,7 @@ itself.
 
 This contract is intentionally backend-neutral. A plugin can use it for local
 policy, request shaping, tracing, adaptive routing, cache control, sandbox
-selection, or handoff to runtimes such as NeMo Relay without changing Fabric'
+selection, or handoff to runtimes such as NeMo Relay without changing Fabric's
 planner, model provider adapters, tool registry, memory, or CLI UX.
 
 With middleware enabled, plugins can:
@@ -39,6 +39,10 @@ Every middleware callback receives:
 - Runtime context such as `session_id`, `task_id`, `turn_id`,
   `api_request_id`, `provider`, `model`, `api_mode`, `tool_name`, and
   `tool_call_id` when applicable.
+
+Those two schema-version strings are stable protocol identifiers retained for
+plugin compatibility. They do not represent the current product name and must
+not be renamed without a versioned protocol migration.
 
 Supported middleware kinds:
 
@@ -122,7 +126,7 @@ For isolated local testing, use one `FABRIC_HOME` for plugin enablement and the
 agent run:
 
 ```bash
-export FABRIC_HOME=/tmp/hermes-middleware-test
+export FABRIC_HOME=/tmp/fabric-middleware-test
 mkdir -p "$FABRIC_HOME"
 fabric plugins enable <plugin-name>
 fabric chat --query 'Reply exactly ok'
@@ -154,7 +158,7 @@ def register(ctx):
 def tag_llm_request(**kwargs):
     request = dict(kwargs["request"])
     extra_body = dict(request.get("extra_body") or {})
-    extra_body.setdefault("metadata", {})["hermes_middleware_demo"] = True
+    extra_body.setdefault("metadata", {})["fabric_middleware_demo"] = True
     request["extra_body"] = extra_body
     return {
         "request": request,
@@ -179,7 +183,7 @@ def normalize_terminal_workdir(**kwargs):
     if kwargs.get("tool_name") != "terminal":
         return None
     args = dict(kwargs["args"])
-    args.setdefault("workdir", "/tmp/hermes-middleware-demo")
+    args.setdefault("workdir", "/tmp/fabric-middleware-demo")
     return {
         "args": args,
         "source": "middleware-demo",

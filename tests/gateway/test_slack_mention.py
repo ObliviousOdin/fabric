@@ -893,7 +893,7 @@ def test_mention_patterns_env_var_csv_fallback_splits_patterns(monkeypatch):
 
     patterns = adapter._slack_mention_patterns()
 
-    assert [pattern.pattern for pattern in patterns] == ["hey fabric", "hermes"]
+    assert [pattern.pattern for pattern in patterns] == ["hey fabric", "fabric"]
     assert adapter._slack_message_matches_mention_patterns("hey fabric") is True
 
 

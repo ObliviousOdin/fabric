@@ -34,7 +34,7 @@ def container_env(tmp_path, monkeypatch):
         "# Written by NixOS activation script. Do not edit manually.\n"
         "backend=podman\n"
         "container_name=fabric-agent\n"
-        "exec_user=fabric\n"
+        "exec_user=hermes\n"
         "fabric_bin=/data/current-package/bin/hermes\n"
     )
     return fabric_home

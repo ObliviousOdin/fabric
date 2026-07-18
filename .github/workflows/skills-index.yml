@@ -1,0 +1,72 @@
+name: Refresh skills index
+
+# Rebuilds the unified Fabric Skills Index (website/static/api/skills-index.json)
+# by crawling every hub source (skills.sh, GitHub taps, ClawHub, LobeHub,
+# Claude Marketplace, browse.sh, well-known endpoints), then redeploys the
+# documentation site so /api/skills-index.json serves the fresh catalog.
+#
+# Regular docs deploys (docs-pages.yml) do not crawl: their prebuild step
+# downloads the last published index from the live site and falls back to a
+# local-skills-only index when none exists. This workflow is what keeps that
+# published index populated and current — see website/scripts/prebuild.mjs
+# and website/scripts/extract-skills.py.
+
+on:
+  schedule:
+    # Twice daily, offset from common on-the-hour spikes.
+    - cron: "23 5,17 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Audit public release boundary
+        run: python3 scripts/public-release-audit.py
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+      - name: Install skills-index dependencies
+        run: python3 -m pip install --disable-pip-version-check pyyaml==6.0.3 httpx==0.28.1 pyjwt==2.10.1
+      - name: Build unified skills index
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/build_skills_index.py
+      - name: Install documentation dependencies
+        run: npm ci --prefix website
+      - name: Audit public site source identity
+        run: python3 scripts/fabric-brand-audit.py --mode public
+      - name: Build documentation
+        run: npm run --prefix website build
+      - name: Audit rendered public site identity
+        run: python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: website/build
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

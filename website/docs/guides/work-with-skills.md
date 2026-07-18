@@ -54,6 +54,13 @@ Official optional skills (heavier or niche skills not active by default) are ava
 /skills search blockchain
 ```
 
+Hub search also covers external community sources — skills.sh, curated GitHub
+skill packs, ClawHub, LobeHub, and more. The
+[Skills Ecosystem Directory](/reference/skills-ecosystem-directory) maps these
+sources with trust tiers and licensing notes; everything installed from an
+external source passes through the skills guard security scan and lands in
+quarantine review first.
+
 ---
 
 ## Using a Skill

@@ -75,6 +75,7 @@
   // read far better with the short form. Existing components keep using the
   // fully-qualified React.createElement.
   const h = React.createElement;
+  let inviteInputSequence = 0;
 
   function timeAgo(unixSeconds) {
     if (!unixSeconds) return null;
@@ -85,6 +86,113 @@
     const hours = Math.floor(mins / 60);
     if (hours < 24) return hours + "h ago";
     return Math.floor(hours / 24) + "d ago";
+  }
+
+  function durationLabel(seconds) {
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value < 0) return null;
+    if (value < 60) return Math.floor(value) + "s";
+    const minutes = Math.floor(value / 60);
+    if (minutes < 60) return minutes + "m";
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + "h " + (minutes % 60) + "m";
+    return Math.floor(hours / 24) + "d " + (hours % 24) + "h";
+  }
+
+  function timestampLabel(value) {
+    if (typeof value === "number") return timeAgo(value);
+    if (typeof value !== "string" || !value) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? timeAgo(parsed / 1000) : value.slice(0, 80);
+  }
+
+  // Invite payloads contain a join secret. Only return the two display-safe
+  // fields the join screen needs; never retain or render the decoded object.
+  function decodeInvitePreview(code) {
+    const trimmed = String(code || "").trim().replace(/^["']|["']$/g, "");
+    const prefixAt = trimmed.indexOf("fbl1_");
+    if (prefixAt < 0 || trimmed.length > 16384) return null;
+    const token = trimmed.slice(prefixAt + 5).trim().split(/\s+/)[0] || "";
+    if (!token || token.length > 16384 || !/^[A-Za-z0-9_-]+$/.test(token)) return null;
+    try {
+      let encoded = token.replace(/-/g, "+").replace(/_/g, "/");
+      while (encoded.length % 4) encoded += "=";
+      const payload = JSON.parse(window.atob(encoded));
+      if (
+        !payload || typeof payload !== "object" || payload.v !== 1 ||
+        typeof payload.relay !== "string" || !payload.relay.trim() ||
+        typeof payload.team_id !== "string" || !payload.team_id.trim() || payload.team_id.length > 256 ||
+        typeof payload.secret !== "string" || !payload.secret.trim() || payload.secret.length > 4096 ||
+        (payload.team_name != null && typeof payload.team_name !== "string")
+      ) return null;
+      const relay = new URL(payload.relay);
+      if ((relay.protocol !== "http:" && relay.protocol !== "https:") || relay.username || relay.password) return null;
+      const secret = typeof payload.secret === "string" ? payload.secret.trim().toLowerCase() : "";
+      let teamName = typeof payload.team_name === "string"
+        ? redactedText(payload.team_name.trim(), "Team").slice(0, 120)
+        : "";
+      let relayHost = relay.hostname;
+      if (secret && teamName.toLowerCase().includes(secret)) teamName = "Team";
+      if (secret && relayHost.toLowerCase().includes(secret)) relayHost = "[redacted relay host]";
+      return {
+        team_name: teamName,
+        relay_host: relayHost,
+        relay_port: relay.port || (relay.protocol === "https:" ? "443" : "80"),
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function redactedText(value, fallback) {
+    if (typeof value !== "string" || !value.trim()) return fallback || "";
+    return value
+      .replace(/fbl1_[A-Za-z0-9_-]+/gi, "[redacted invite]")
+      .replace(/((?:join[_ -]?secret|member[_ -]?token)\s*[:=]\s*)[^\s,;}]+/gi, "$1[redacted]");
+  }
+
+  function redactRelayLog(value) {
+    return redactedText(value, "")
+      .split("\n")
+      .map(function (line) {
+        return /(?:join[_ -]?secret|member[_ -]?token|transcript|session[_ -]?(?:content|text)|raw[_ -]?metrics)/i.test(line)
+          ? "[redacted sensitive log line]"
+          : line;
+      })
+      .join("\n");
+  }
+
+  // Rebuild copied diagnostics from a strict, display-safe allowlist instead
+  // of trusting arbitrary server fields. This keeps future backend additions
+  // from accidentally putting credentials or private profile data on the
+  // clipboard.
+  function safeDiagnostic(connection) {
+    const source = connection && connection.diagnostic && typeof connection.diagnostic === "object"
+      ? connection.diagnostic : {};
+    const preview = connection && connection.preview && typeof connection.preview === "object"
+      ? connection.preview : {};
+    const diagnostic = {
+      version: typeof source.version === "number" ? source.version : 1,
+      state: redactedText(String((connection && connection.state) || source.state || "UNKNOWN"), "UNKNOWN").slice(0, 80),
+      actor: redactedText(String((connection && connection.actor) || source.actor || "member"), "member").slice(0, 80),
+      relay_host: redactedText(String(preview.relay_host || source.relay_host || ""), ""),
+      relay_port: redactedText(String(preview.relay_port || source.relay_port || ""), ""),
+      tailscale_required: source.tailscale_required === true,
+      tailscale: {
+        installed: !!(source.tailscale && source.tailscale.installed),
+        running: !!(source.tailscale && source.tailscale.running),
+      },
+      checks: Array.isArray(connection && connection.checks)
+        ? connection.checks.slice(0, 12).map(function (check) {
+            return {
+              name: redactedText(String((check && check.name) || "unknown"), "unknown").slice(0, 80),
+              status: redactedText(String((check && check.status) || "unknown"), "unknown").slice(0, 80),
+            };
+          })
+        : [],
+    };
+    if (typeof source.checked_at === "number") diagnostic.checked_at = source.checked_at;
+    return diagnostic;
   }
 
   function AchievementIcon({ icon }) {
@@ -837,6 +945,146 @@
     return [copyFeedback.text === text ? copyFeedback.status : "idle", copy];
   }
 
+  function InviteInput({ value, onChange, onEnter, disabled, readOnly, placeholder, t }) {
+    const [revealedValue, setRevealedValue] = hooks.useState(null);
+    const idRef = React.useRef(null);
+    if (!idRef.current) idRef.current = "ha-invite-" + (++inviteInputSequence);
+    const revealed = !!value && revealedValue === value;
+    hooks.useEffect(function () {
+      if (revealedValue !== null && revealedValue !== value) setRevealedValue(null);
+    }, [value, revealedValue]);
+    return h("div", { className: "ha-field" },
+      h("label", { className: "ha-field-label", htmlFor: idRef.current }, tx(t, "team.invite_label", "Invite code")),
+      h("span", { className: "ha-invite-row" },
+        h("input", {
+          id: idRef.current,
+          className: "ha-input ha-invite-input",
+          type: revealed ? "text" : "password",
+          value: value,
+          placeholder: placeholder || "fbl1_…",
+          spellCheck: false,
+          autoComplete: "off",
+          disabled: disabled,
+          readOnly: !!readOnly,
+          "aria-label": tx(t, "team.invite_label", "Invite code"),
+          onChange: onChange ? function (event) { onChange(event.target.value); } : undefined,
+          onKeyDown: onEnter ? function (event) {
+            if (event.key === "Enter") { event.preventDefault(); onEnter(); }
+          } : undefined,
+          onFocus: readOnly ? function (event) { event.target.select(); } : undefined,
+        }),
+        h("button", {
+          type: "button",
+          className: "ha-team-btn ha-invite-reveal",
+          disabled: disabled || !value,
+          onClick: function () { setRevealedValue(revealed ? null : value); },
+          "aria-pressed": revealed,
+        }, revealed ? tx(t, "team.hide_invite", "Hide") : tx(t, "team.reveal_invite", "Reveal"))
+      )
+    );
+  }
+
+  function ConnectionRecoveryCard({ connection, preview, t, busy, isOwner, onRetry, onRestart }) {
+    const actorOwnsRelay = isOwner === true || (typeof isOwner !== "boolean" && !!(connection && (connection.actor === "owner" || connection.actor === "host")));
+    const canManageLocalRelay = !!(actorOwnsRelay && connection && connection.can_restart);
+    const [logs, setLogs] = hooks.useState(null);
+    const [logsBusy, setLogsBusy] = hooks.useState(false);
+    const [localError, setLocalError] = hooks.useState(null);
+    const diagnosticText = JSON.stringify(safeDiagnostic(connection), null, 2);
+    const [copyState, copyDiagnostic] = useCopyFeedback(diagnosticText);
+    const safePreview = (connection && connection.preview) || preview || {};
+    const state = redactedText(String((connection && connection.state) || "UNKNOWN"), "UNKNOWN").slice(0, 80);
+    const checks = Array.isArray(connection && connection.checks) ? connection.checks : [];
+    const isConnected = state === "CONNECTED";
+
+    function viewLogs() {
+      setLogsBusy(true); setLocalError(null);
+      api("/team/host/logs")
+        .then(function (res) {
+          if (!res || res.ok === false || res.action_ok === false) {
+            setLocalError(tx(t, "team.logs_failed", "Fabric could not read the relay logs."));
+            return;
+          }
+          setLogs(redactRelayLog(res.log || ""));
+        })
+        .catch(function () { setLocalError(tx(t, "team.logs_failed", "Fabric could not read the relay logs.")); })
+        .finally(function () { setLogsBusy(false); });
+    }
+
+    return h("section", {
+      className: cn("ha-connection-card", isConnected ? "is-connected" : "is-error"),
+      "data-connection-state": state,
+      role: isConnected ? "status" : "alert",
+    },
+      h("div", { className: "ha-connection-head" },
+        h("div", null,
+          h("div", { className: "ha-connection-state" }, state.replace(/_/g, " ")),
+          h("h3", null, redactedText(connection && connection.title,
+            isConnected ? tx(t, "team.connection_ready", "Relay ready") : tx(t, "team.connection_attention", "Connection needs attention")))
+        ),
+        h("span", { className: "ha-role-badge" }, actorOwnsRelay
+          ? tx(t, "team.owner_action", "owner action")
+          : tx(t, "team.member_action", "member action"))
+      ),
+      h("p", { className: "ha-connection-message" }, redactedText(connection && connection.message,
+        isConnected
+          ? tx(t, "team.connection_ready_body", "Fabric verified the relay and invite.")
+          : tx(t, "team.connection_retry_body", "Run diagnostics again after the relay or Tailscale connection changes."))),
+      (safePreview.team_name || safePreview.relay_host) && h("dl", { className: "ha-invite-preview" },
+        safePreview.team_name && h("div", null,
+          h("dt", null, tx(t, "team.preview_team", "Team")),
+          h("dd", null, redactedText(String(safePreview.team_name), "Team").slice(0, 120))),
+        safePreview.relay_host && h("div", null,
+          h("dt", null, tx(t, "team.preview_relay", "Relay")),
+          h("dd", null, redactedText(String(safePreview.relay_host), "").slice(0, 253) + (safePreview.relay_port ? ":" + redactedText(String(safePreview.relay_port), "").slice(0, 5) : ""))
+        )
+      ),
+      checks.length > 0 && h("ul", { className: "ha-connection-checks", "aria-label": tx(t, "team.diagnostic_checks", "Diagnostic checks") },
+        checks.slice(0, 12).map(function (check, index) {
+          const status = String((check && check.status) || "unknown");
+          return h("li", { key: String((check && check.name) || index), className: status === "ok" || status === "pass" || status === "passed" ? "is-ok" : "is-pending" },
+            h("span", null, redactedText(String((check && check.name) || "check"), "check").slice(0, 80)),
+            h("strong", null, redactedText(status, "unknown").slice(0, 80))
+          );
+        })
+      ),
+      h("div", { className: "ha-connection-actions" },
+        connection && connection.retryable !== false && onRetry && h("button", {
+          type: "button", className: "ha-team-btn", disabled: busy,
+          onClick: onRetry,
+        }, busy
+          ? tx(t, "team.diagnosing", "Running diagnostics…")
+          : actorOwnsRelay
+            ? tx(t, "team.run_diagnostics", "Run diagnostics")
+            : tx(t, "team.retry", "Retry")),
+        canManageLocalRelay && onRestart && h("button", {
+          type: "button", className: "ha-team-btn ha-team-btn-danger", disabled: busy,
+          onClick: onRestart,
+        }, tx(t, "team.restart_relay", "Restart relay")),
+        h("button", {
+          type: "button", className: "ha-team-btn", disabled: busy,
+          onClick: copyDiagnostic, "aria-live": "polite",
+        }, copyState === "copied"
+          ? tx(t, "team.copied", "Copied ✓")
+          : copyState === "failed"
+            ? tx(t, "team.copy_failed", "Copy failed")
+            : tx(t, "team.copy_diagnostic", "Copy diagnostic")),
+        canManageLocalRelay && !isConnected && h("button", {
+          type: "button", className: "ha-team-btn", disabled: busy || logsBusy,
+          onClick: viewLogs,
+        }, logsBusy ? tx(t, "team.loading_logs", "Loading logs…") : tx(t, "team.view_logs", "View relay logs"))
+      ),
+      localError && h("p", { className: "ha-field-hint ha-detect-warn", role: "alert" }, localError),
+      logs !== null && h("div", { className: "ha-relay-logs" },
+        h("div", { className: "ha-relay-logs-head" },
+          h("strong", null, tx(t, "team.relay_logs", "Relay logs")),
+          h("button", { type: "button", className: "ha-team-btn", onClick: function () { setLogs(null); } }, tx(t, "team.close_logs", "Close"))
+        ),
+        h("pre", null, logs || tx(t, "team.logs_empty", "No relay log output yet."))
+      )
+    );
+  }
+
   function CmdRow({ cmd, t }) {
     const [copyState, copy] = useCopyFeedback(cmd);
     const label = copyState === "copied"
@@ -854,7 +1102,8 @@
   }
 
   // Hosting control: one click to START the relay on this machine (POST
-  // /team/host/start), one to STOP it, and a read-only Detect that re-checks.
+  // /team/host/start), one to STOP it, and a Detect action that re-checks
+  // status without starting or stopping anything.
   // The backend auto-fills a shareable URL from this machine's Tailscale name,
   // so the host never has to guess "http://<what?>:9137". Connecting Tailscale
   // itself is an interactive QR login owned by the CLI, so we surface Fabric's
@@ -967,6 +1216,28 @@
       }
 
       const blocks = [h("ul", { key: "list", className: "ha-detect-list" }, items)];
+      if (hosted) {
+        const startedAt = managed.started_at;
+        const derivedUptime = typeof startedAt === "number" ? Math.max(0, Date.now() / 1000 - startedAt) : null;
+        const uptime = durationLabel(managed.uptime_seconds != null ? managed.uptime_seconds : (host.uptime_seconds != null ? host.uptime_seconds : derivedUptime));
+        const lastHealth = timestampLabel(managed.last_successful_health_at || managed.last_successful_health || host.last_successful_health_at || host.last_successful_health);
+        const bind = managed.bind || managed.bind_address || managed.host || host.bind || host.bind_address;
+        const advertisedProbe = host.advertised_magicdns_probe || host.advertised_probe || host.shareable_relay;
+        const telemetry = [];
+        if (uptime) telemetry.push(h("div", { key: "uptime" }, h("dt", null, tx(t, "team.host_uptime", "Uptime")), h("dd", null, uptime)));
+        if (lastHealth) telemetry.push(h("div", { key: "health" }, h("dt", null, tx(t, "team.host_last_health", "Last successful health")), h("dd", null, lastHealth)));
+        if (bind) telemetry.push(h("div", { key: "bind" }, h("dt", null, tx(t, "team.host_bind", "Bind")), h("dd", null, String(bind).slice(0, 253))));
+        if (advertisedProbe && typeof advertisedProbe === "object" &&
+            (advertisedProbe.url || advertisedProbe.host || advertisedProbe.checked_at || advertisedProbe.last_successful_at)) {
+          const probeTarget = advertisedProbe.url || advertisedProbe.host || host.suggested_relay_url || "MagicDNS";
+          telemetry.push(h("div", { key: "magicdns" },
+            h("dt", null, tx(t, "team.host_magicdns_probe", "Advertised MagicDNS probe")),
+            h("dd", { className: advertisedProbe.ok ? "ha-detect-ok" : "ha-detect-warn" },
+              (advertisedProbe.ok ? tx(t, "team.probe_reachable", "reachable") : tx(t, "team.probe_unreachable", "not responding")) + " · " + String(probeTarget).slice(0, 253))
+          ));
+        }
+        if (telemetry.length) blocks.push(h("dl", { key: "telemetry", className: "ha-host-telemetry" }, telemetry));
+      }
       if (host.tailscale_needs_setup && host.tailscale_setup_command) {
         blocks.push(h("div", { key: "tsconnect", className: "ha-detect-connect" },
           h("span", { className: "ha-field-hint" },
@@ -1036,7 +1307,7 @@
       setChecking(true); setProbeError(null);
       apiPost("/team/host/probe", { relay_url: relayUrl })
         .then(function (res) {
-          if (!res || res.ok === false) {
+          if (!res || res.ok === false || res.action_ok === false) {
             setProbeError((res && res.error) || tx(t, "team.relay_unreachable", "That relay is not reachable."));
             return;
           }
@@ -1096,30 +1367,130 @@
   function JoinTeamCard({ busy, onAction, t }) {
     const [code, setCode] = hooks.useState("");
     const [display, setDisplay] = hooks.useState("");
+    const [preview, setPreview] = hooks.useState(null);
+    const [connection, setConnection] = hooks.useState(null);
+    const [checking, setChecking] = hooks.useState(false);
+    const [preflightError, setPreflightError] = hooks.useState(null);
+    const preflightGeneration = React.useRef(0);
+    const joinFocusGeneration = React.useRef(null);
+    const joinButtonRef = React.useRef(null);
+    const joinButtonIdRef = React.useRef(null);
+    if (!joinButtonIdRef.current) joinButtonIdRef.current = "ha-join-" + (++inviteInputSequence);
+
+    function runPreflight(candidate, focusOnSuccess) {
+      const invite = String(candidate == null ? code : candidate).trim();
+      const decoded = decodeInvitePreview(invite);
+      if (!decoded) {
+        preflightGeneration.current += 1;
+        setConnection(null); setChecking(false);
+        setPreflightError(invite ? tx(t, "team.invite_invalid", "This does not look like a valid Fabric leaderboard invite.") : null);
+        return Promise.resolve(null);
+      }
+      const generation = ++preflightGeneration.current;
+      setChecking(true); setPreflightError(null);
+      return apiPost("/team/preflight", { invite_code: invite })
+        .then(function (res) {
+          if (generation !== preflightGeneration.current) return null;
+          const next = res && res.connection ? res.connection : res;
+          if (!next || typeof next.state !== "string") {
+            setConnection(null);
+            setPreflightError(tx(t, "team.diagnostics_failed", "Fabric could not run relay diagnostics. Try again."));
+            return null;
+          }
+          setConnection(next);
+          if (focusOnSuccess && next.state === "CONNECTED" && next.can_join === true) {
+            joinFocusGeneration.current = generation;
+          }
+          return next;
+        })
+        .catch(function () {
+          if (generation === preflightGeneration.current) {
+            setConnection(null);
+            setPreflightError(tx(t, "team.diagnostics_failed", "Fabric could not run relay diagnostics. Try again."));
+          }
+          return null;
+        })
+        .finally(function () { if (generation === preflightGeneration.current) setChecking(false); });
+    }
+
+    hooks.useEffect(function () {
+      const generation = joinFocusGeneration.current;
+      if (generation === null || checking || !connection || connection.state !== "CONNECTED" || connection.can_join !== true) return;
+      if (generation !== preflightGeneration.current) {
+        joinFocusGeneration.current = null;
+        return;
+      }
+      joinFocusGeneration.current = null;
+      const joinButton = joinButtonRef.current || document.getElementById(joinButtonIdRef.current);
+      if (joinButton) joinButton.focus();
+    }, [checking, connection]);
+
+    hooks.useEffect(function () {
+      const invite = code.trim();
+      const decoded = decodeInvitePreview(invite);
+      setPreview(decoded);
+      setConnection(null);
+      setPreflightError(null);
+      if (!invite) {
+        preflightGeneration.current += 1;
+        setChecking(false);
+        return;
+      }
+      if (!decoded) {
+        preflightGeneration.current += 1;
+        setChecking(false);
+        setPreflightError(tx(t, "team.invite_invalid", "This does not look like a valid Fabric leaderboard invite."));
+        return;
+      }
+      runPreflight(invite);
+      return function () { preflightGeneration.current += 1; };
+    }, [code]);
+
+    function changeCode(value) {
+      preflightGeneration.current += 1;
+      setConnection(null); setChecking(false); setPreflightError(null);
+      setCode(value);
+    }
+
     function submit(publishOptIn) {
-      onAction("/team/join", {
+      if (!connection || connection.state !== "CONNECTED" || connection.can_join !== true) return;
+      return Promise.resolve(onAction("/team/join", {
         invite_code: code.trim(),
         display_name: display.trim(),
         publish_opt_in: publishOptIn,
+      })).then(function (res) {
+        if (res && res.connection && typeof res.connection.state === "string") {
+          setConnection(res.connection);
+        }
+        return res;
       });
     }
-    const ready = code.trim() && !busy;
+    const ready = code.trim() && connection && connection.state === "CONNECTED" && connection.can_join === true && !busy && !checking;
     return h(C.Card, { className: "ha-team-card ha-join-card" },
       h(C.CardContent, { className: "ha-team-card-content" },
         h("h3", null, tx(t, "team.join_title", "Join a leaderboard")),
         h("p", { className: "ha-team-lead" }, tx(t, "team.join_lead", "Paste an invite from someone you trust. Fabric will connect to the private leaderboard named in that invite.")),
-        h(LabelledInput, {
-          label: tx(t, "team.invite_label", "Invite code"),
-          placeholder: "fbl1_…",
-          value: code, onChange: setCode, disabled: busy,
+        h(InviteInput, {
+          value: code, onChange: changeCode,
           onEnter: ready ? function () { submit(true); } : undefined,
+          disabled: busy, placeholder: "fbl1_…", t: t,
+        }),
+        preview && !connection && h("dl", { className: "ha-invite-preview", "aria-live": "polite" },
+          preview.team_name && h("div", null, h("dt", null, tx(t, "team.preview_team", "Team")), h("dd", null, preview.team_name)),
+          h("div", null, h("dt", null, tx(t, "team.preview_relay", "Relay")), h("dd", null, preview.relay_host + ":" + preview.relay_port))
+        ),
+        checking && h("p", { className: "ha-field-hint ha-preflight-progress", role: "status" }, tx(t, "team.checking_invite", "Checking relay and invite…")),
+        preflightError && h("p", { className: "ha-field-hint ha-detect-warn", role: "alert" }, preflightError),
+        connection && h(ConnectionRecoveryCard, {
+          connection: connection, preview: preview, t: t, busy: checking,
+          onRetry: function () { return runPreflight(undefined, true); },
         }),
         h("div", { className: "ha-join-privacy" },
           h("strong", null, tx(t, "team.join_share_title", "Shared when you join")),
           h("p", null, tx(t, "team.join_share_body", "Your Fabric Score, achievement and tier counts, category totals, top badges, and a display name. Never session titles, transcripts, file paths, prompts, or raw metrics."))
         ),
-        h(C.Button, { onClick: function () { submit(true); }, disabled: !ready, className: "ha-team-primary" },
-          busy ? tx(t, "team.working", "Working…") : tx(t, "team.join_and_share", "Join and share my score")),
+        h(C.Button, { id: joinButtonIdRef.current, ref: joinButtonRef, onClick: function () { submit(true); }, disabled: !ready, className: "ha-team-primary" },
+          checking ? tx(t, "team.checking_invite", "Checking relay and invite…") : busy ? tx(t, "team.working", "Working…") : tx(t, "team.join_and_share", "Join and share my score")),
         h("p", { className: "ha-consent-note" }, tx(t, "team.join_consent_note", "This click opts you in. You can stop sharing at any time and Fabric will retract your score from the board.")),
         h("details", { className: "ha-team-details ha-join-options" },
           h("summary", null, tx(t, "team.join_options", "Name and viewing options")),
@@ -1140,6 +1511,11 @@
   }
 
   function InviteRow({ code, t }) {
+    const [revealedValue, setRevealedValue] = hooks.useState(null);
+    const revealed = !!code && revealedValue === code;
+    hooks.useEffect(function () {
+      if (revealedValue !== null && revealedValue !== code) setRevealedValue(null);
+    }, [code, revealedValue]);
     const [copyState, copy] = useCopyFeedback(code);
     const label = copyState === "copied"
       ? tx(t, "team.copied", "Copied ✓")
@@ -1149,9 +1525,15 @@
     return h("div", { className: "ha-invite-row" },
       h("input", {
         className: "ha-input ha-invite-input", readOnly: true, value: code,
+        type: revealed ? "text" : "password",
         "aria-label": tx(t, "team.invite_label", "Invite code"),
         onFocus: function (e) { e.target.select(); },
       }),
+      h("button", {
+        type: "button", className: "ha-team-btn ha-invite-reveal",
+        onClick: function () { setRevealedValue(revealed ? null : code); },
+        "aria-pressed": revealed,
+      }, revealed ? tx(t, "team.hide_invite", "Hide") : tx(t, "team.reveal_invite", "Reveal")),
       h("button", { type: "button", className: "ha-team-btn", onClick: copy, "aria-live": "polite" }, label)
     );
   }
@@ -1204,13 +1586,16 @@
     const [data, setData] = hooks.useState(null);
     const [loading, setLoading] = hooks.useState(true);
     const [busy, setBusy] = hooks.useState(false);
+    const [recoveryBusy, setRecoveryBusy] = hooks.useState(false);
     const [actionError, setActionError] = hooks.useState(null);
     const [nameDraft, setNameDraft] = hooks.useState("");
     const reloadGeneration = React.useRef(0);
     const mounted = React.useRef(true);
+    const pageHeadingRef = React.useRef(null);
 
-    function reload(spinner, refreshProfile) {
+    function reload(spinner, refreshProfile, focusHeading) {
       const generation = ++reloadGeneration.current;
+      setRecoveryBusy(false);
       if (spinner) setLoading(true);
       const path = refreshProfile === false ? "/team/leaderboard?refresh=false" : "/team/leaderboard";
       return api(path)
@@ -1226,6 +1611,13 @@
             setActionError(payload.error || tx(t, "team.generic_error", "Something went wrong."));
           } else {
             setActionError(null);
+          }
+          if (focusHeading) {
+            setTimeout(function () {
+              if (mounted.current && generation === reloadGeneration.current && pageHeadingRef.current) {
+                pageHeadingRef.current.focus();
+              }
+            }, 0);
           }
         })
         .catch(function (err) {
@@ -1249,6 +1641,7 @@
     // that follow-up read fails.
     function runAction(path, body) {
       reloadGeneration.current += 1;
+      setRecoveryBusy(false);
       setBusy(true); setActionError(null);
       return apiPost(path, body)
         .then(function (res) {
@@ -1269,13 +1662,61 @@
         .finally(function () { if (mounted.current) setBusy(false); });
     }
 
+    function runCurrentDiagnostics() {
+      const generation = ++reloadGeneration.current;
+      setRecoveryBusy(true); setActionError(null);
+      return apiPost("/team/preflight", {})
+        .then(function (res) {
+          if (!mounted.current || generation !== reloadGeneration.current) return null;
+          const connection = res && res.connection ? res.connection : res;
+          if (!connection || typeof connection.state !== "string") {
+            setActionError(tx(t, "team.diagnostics_failed", "Fabric could not run relay diagnostics. Try again."));
+            return null;
+          }
+          setData(function (current) { return Object.assign({}, current || {}, { connection: connection }); });
+          if (connection.state === "CONNECTED") {
+            return reload(false, true, true);
+          }
+          return connection;
+        })
+        .catch(function () {
+          if (mounted.current && generation === reloadGeneration.current) setActionError(tx(t, "team.diagnostics_failed", "Fabric could not run relay diagnostics. Try again."));
+          return null;
+        })
+        .finally(function () {
+          if (mounted.current && generation === reloadGeneration.current) setRecoveryBusy(false);
+        });
+    }
+
+    function restartRelay() {
+      const generation = ++reloadGeneration.current;
+      setRecoveryBusy(true); setActionError(null);
+      return apiPost("/team/host/restart", {})
+        .then(function (res) {
+          if (!mounted.current || generation !== reloadGeneration.current) return null;
+          if (!res || res.ok === false || res.action_ok === false) {
+            setActionError(redactedText(res && res.error, tx(t, "team.restart_failed", "Fabric could not restart this relay.")));
+            return null;
+          }
+          return runCurrentDiagnostics();
+        })
+        .catch(function () {
+          if (mounted.current && generation === reloadGeneration.current) setActionError(tx(t, "team.restart_failed", "Fabric could not restart this relay."));
+          return null;
+        })
+        .finally(function () {
+          if (mounted.current && generation === reloadGeneration.current) setRecoveryBusy(false);
+        });
+    }
+
     if (loading) {
       return h("div", { className: "ha-page" },
         h("div", { className: "ha-loading" }, tx(t, "team.loading", "Loading team…")));
     }
 
     const membership = data && data.membership;
-    const errorBanner = actionError && h(C.Card, { className: "ha-error", role: "alert" }, h(C.CardContent, null, String(actionError)));
+    const connection = data && data.connection;
+    const errorBanner = actionError && h(C.Card, { className: "ha-error", role: "alert" }, h(C.CardContent, null, redactedText(String(actionError), tx(t, "team.generic_error", "Something went wrong."))));
 
     // --- Not in a team: one simple join path; hosting stays advanced. ---
     if (!membership) {
@@ -1318,7 +1759,7 @@
       h("section", { className: "ha-hero" },
         h("div", null,
           h("div", { className: "ha-kicker" }, tx(t, "team.kicker", "Shared Leaderboard")),
-          h("h1", null, membership.team_name || tx(t, "team.hero_title", "Team Leaderboard")),
+          h("h1", { ref: pageHeadingRef, tabIndex: -1 }, membership.team_name || tx(t, "team.hero_title", "Team Leaderboard")),
           h("p", null,
             tx(t, "team.member_summary", "You are {name} · {role}", {
               name: membership.display_name || "—",
@@ -1328,10 +1769,15 @@
           )
         ),
         h("div", { className: "ha-team-hero-actions" },
-          h(C.Button, { onClick: function () { reload(false, true); }, disabled: busy, className: "ha-refresh" }, tx(t, "team.refresh", "Refresh"))
+          h(C.Button, { onClick: function () { reload(false, true); }, disabled: busy || recoveryBusy, className: "ha-refresh" }, tx(t, "team.refresh", "Refresh"))
         )
       ),
       errorBanner,
+      connection && connection.state !== "CONNECTED" && h(ConnectionRecoveryCard, {
+        connection: connection, t: t, busy: busy || recoveryBusy, isOwner: isOwner,
+        onRetry: runCurrentDiagnostics,
+        onRestart: restartRelay,
+      }),
       h("details", { className: "ha-team-details ha-hosting-details" },
         h("summary", null, tx(t, "team.relay_manage_summary", "Relay hosting on this machine")),
         h("div", { className: "ha-hosting-body" },

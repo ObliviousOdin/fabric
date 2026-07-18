@@ -6370,7 +6370,7 @@ def _config_env_value(name: str, default=None):
     # templates are different: while a shared host is reading a named profile,
     # ``${FABRIC_HOME}`` must point at that profile rather than the dashboard's
     # launch home, or a path-valued setting can cross the profile boundary.
-    if name in {"FABRIC_HOME", "FABRIC_HOME"}:
+    if name in {"FABRIC_HOME", "HERMES_HOME"}:
         try:
             from fabric_constants import get_fabric_home_override
 

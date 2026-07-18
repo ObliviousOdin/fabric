@@ -700,7 +700,7 @@ def managed_scope_check() -> None:
     override_var = next(
         (
             var
-            for var in ("FABRIC_MANAGED_DIR", "FABRIC_MANAGED_DIR")
+            for var in ("FABRIC_MANAGED_DIR", "HERMES_MANAGED_DIR")
             if os.environ.get(var, "").strip()
         ),
         None,

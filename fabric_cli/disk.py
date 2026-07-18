@@ -269,19 +269,22 @@ CATEGORIES: tuple[DiskCategory, ...] = (
         note="Write-only diagnostics.",
     ),
     DiskCategory(
-        "sandboxes", "Sandboxes & worktrees",
-        usage_paths=("sandboxes", "chrome-debug", ".worktrees"),
-        clean_trees=("sandboxes", "chrome-debug", ".worktrees"),
-        note="Disposable working directories.",
-    ),
-    DiskCategory(
         "tmp", "Temp scratch",
         usage_paths=("tmp",),
         clean_dirs=("tmp",),
         note="General scratch space.",
     ),
 
-    # ----- report-only: managed by the dedicated `fabric checkpoints` command -----
+    # ----- report-only: persistent-or-managed state clean must never touch -----
+    # sandboxes/ can hold persistent container state when
+    # terminal.container_persistent is enabled (the Docker/Singularity default),
+    # chrome-debug/ is browser_connect's persistent browser profile, and
+    # .worktrees/ may contain uncommitted work — so none is auto-cleaned.
+    DiskCategory(
+        "sandboxes", "Sandboxes & worktrees",
+        usage_paths=("sandboxes", "chrome-debug", ".worktrees"),
+        note="May hold persistent container/browser/worktree state — not cleaned.",
+    ),
     DiskCategory(
         "checkpoints", "Rollback checkpoints",
         usage_paths=("checkpoints",),
@@ -491,7 +494,16 @@ def disk_usage(args) -> int:
                 Colors.DIM,
             )
         )
-    reclaimable_total = sum(u.bytes for u in usages if u.category.reclaimable)
+    # Report only what `clean` can actually remove — several reclaimable
+    # categories measure more than they delete (e.g. logs counts live logs but
+    # clean removes only rotated backups), so summing full category sizes would
+    # overstate the reclaimable space.
+    reclaimable_total = sum(
+        t.bytes
+        for cat in CATEGORIES
+        if cat.reclaimable
+        for t in _plan_category(cat, home)
+    )
     if reclaimable_total > 0:
         print(
             color(

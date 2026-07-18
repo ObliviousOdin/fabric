@@ -990,18 +990,19 @@ See where your Fabric home directory (`~/.fabric`, `%LOCALAPPDATA%\fabric` on Wi
 
 Only ever removes an explicit allow-list of regenerable data — caches, rotated
 log backups (`logs/*.log.*`, never the live logs), diagnostic traces
-(`moa-traces/`, `spawn-trees/`), sandboxes/worktrees, temp scratch, and
-re-downloadable messaging media. It **never** touches sessions, the state
-database, memories, credentials, config, installed skills/plugins, backups, the
-cron control-plane, or another profile. A runtime guard refuses any target that
-falls outside the reclaimable allow-list. Rollback checkpoints are reported but
-left to `fabric checkpoints prune`.
+(`moa-traces/`, `spawn-trees/`), temp scratch, and re-downloadable messaging
+media. It **never** touches sessions, the state database, memories, credentials,
+config, installed skills/plugins, backups, the cron control-plane, or another
+profile — nor sandboxes, browser profiles, or worktrees, which can hold
+persistent container/browser/uncommitted state. A runtime guard refuses any
+target that falls outside the reclaimable allow-list. Rollback checkpoints are
+reported but left to `fabric checkpoints prune`.
 
 | Option | Description |
 |--------|-------------|
 | `-y`, `--yes` | Actually delete (default is a dry-run preview). |
 | `-f`, `--force` | With `--yes`, skip the confirmation prompt. Required to delete on a non-interactive terminal. |
-| `--only CATEGORY …` | Clean only these categories (`cache`, `logs`, `traces`, `sandboxes`, `tmp`, `platforms`). |
+| `--only CATEGORY …` | Clean only these categories (`cache`, `logs`, `traces`, `tmp`, `platforms`). |
 | `--skip CATEGORY …` | Clean everything reclaimable except these categories. |
 
 ### Examples

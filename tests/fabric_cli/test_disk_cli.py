@@ -76,6 +76,18 @@ class TestUsage:
         keys = {c["key"] for c in data["categories"]}
         assert "cache" in keys
 
+    def test_reclaimable_total_reflects_clean_targets_only(self, _isolate, capsys):
+        # Regression (P2): a large *live* log (no rotated backups) is measured
+        # by the logs category but is NOT reclaimable, so it must not appear in
+        # the "is reclaimable" summary.
+        _seed(_isolate, "logs/agent.log", 5_000_000)  # live — not clean-able
+        disk.disk_usage(_usage_args())
+        assert "is reclaimable" not in capsys.readouterr().out
+        # Add a rotated backup and it becomes reclaimable.
+        _seed(_isolate, "logs/agent.log.1", 2_000_000)
+        disk.disk_usage(_usage_args())
+        assert "is reclaimable" in capsys.readouterr().out
+
     def test_free_space_survives_disk_usage_failure(self, _isolate, capsys, monkeypatch):
         _seed(_isolate, "cache/x.bin", 1000)
 
@@ -192,6 +204,13 @@ class TestClean:
         disk.disk_clean(_clean_args(yes=False))
         assert "fabric checkpoints prune" in capsys.readouterr().out
 
+    def test_sandboxes_not_reclaimable(self, _isolate):
+        # Regression (P1): the sandboxes category is report-only.
+        assert "sandboxes" not in disk.RECLAIMABLE_KEYS
+        sb = _seed(_isolate, "sandboxes/box/state.bin", 1000)
+        disk.disk_clean(_clean_args(yes=True, force=True))
+        assert sb.exists()
+
     def test_nothing_to_reclaim(self, _isolate, capsys):
         disk.disk_clean(_clean_args(yes=True, force=True))
         assert "Nothing to reclaim" in capsys.readouterr().out
@@ -223,6 +242,10 @@ class TestCleanSafety:
         "projects.db",
         "kanban.db",
         "checkpoints/sess/c.tar",
+        # Persistent container / browser / worktree state (P1): never auto-clean.
+        "sandboxes/box/workspace/file.txt",
+        "chrome-debug/Default/Cookies",
+        ".worktrees/task/uncommitted.py",
     ]
 
     def test_never_deletes_protected_paths(self, _isolate):

@@ -71,6 +71,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric debug` | Debug tools — upload logs and system info for support. |
 | `fabric backup` | Back up Fabric home directory to a zip file. |
 | `fabric checkpoints` | Inspect / prune / clear `~/.fabric/checkpoints/` (the shadow store used by `/rollback`). Run with no args for a status overview. |
+| `fabric disk` | Report how much disk space Fabric is using (`usage`/`du`) and reclaim regenerable caches, rotated logs, traces, and scratch (`clean`, dry-run by default). |
 | `fabric import` | Restore a Fabric backup from a zip file. |
 | `fabric logs` | View, tail, and filter agent/gateway/error log files. |
 | `fabric config` | Show, edit, migrate, and query configuration files. |
@@ -963,6 +964,57 @@ fabric checkpoints clear -f                         # wipe everything
 ```
 
 See [Checkpoints and `/rollback`](../user-guide/checkpoints-and-rollback.md) for the full architecture and the in-session commands.
+
+## `fabric disk`
+
+```bash
+fabric disk <usage|clean> [options]
+```
+
+See where your Fabric home directory (`~/.fabric`, `%LOCALAPPDATA%\fabric` on Windows) is spending disk, and reclaim the parts that regenerate on their own. Safe to run any time; does not require the agent to be running.
+
+| Subcommand | Description |
+|------------|-------------|
+| `usage` (alias `du`) | Break down disk used per store (caches, sessions, memory, databases, backups, …), largest-first, with a grand total and the free space left on the volume. |
+| `clean` | Reclaim regenerable data. **Dry-run by default** — prints what it would remove and deletes nothing until you pass `--yes`. |
+
+### `fabric disk usage`
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Machine-readable JSON report (`categories`, `total_bytes`, `volume_free_bytes`). |
+| `-a`, `--all` | Include categories that are currently empty. |
+| `--profile NAME` | Report usage for another profile instead of the active home. |
+
+### `fabric disk clean`
+
+Only ever removes an explicit allow-list of regenerable data — caches, rotated
+log backups (`logs/*.log.*`, never the live logs), diagnostic traces
+(`moa-traces/`, `spawn-trees/`), sandboxes/worktrees, temp scratch, and
+re-downloadable messaging media. It **never** touches sessions, the state
+database, memories, credentials, config, installed skills/plugins, backups, the
+cron control-plane, or another profile. A runtime guard refuses any target that
+falls outside the reclaimable allow-list. Rollback checkpoints are reported but
+left to `fabric checkpoints prune`.
+
+| Option | Description |
+|--------|-------------|
+| `-y`, `--yes` | Actually delete (default is a dry-run preview). |
+| `-f`, `--force` | With `--yes`, skip the confirmation prompt. Required to delete on a non-interactive terminal. |
+| `--only CATEGORY …` | Clean only these categories (`cache`, `logs`, `traces`, `sandboxes`, `tmp`, `platforms`). |
+| `--skip CATEGORY …` | Clean everything reclaimable except these categories. |
+
+### Examples
+
+```bash
+fabric disk usage                    # per-store breakdown + total + free space
+fabric disk du --all                 # include empty categories
+fabric disk usage --json             # machine-readable
+fabric disk clean                    # preview what would be reclaimed (dry-run)
+fabric disk clean --yes              # delete caches / rotated logs / traces / scratch
+fabric disk clean --only cache --yes # just clear caches
+fabric disk clean --skip logs --yes  # everything reclaimable except logs
+```
 
 ## `fabric import`
 

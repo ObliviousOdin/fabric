@@ -760,7 +760,7 @@ def render_runtime_reference(catalog: dict[str, Any]) -> str:
             "",
             "## Toolsets",
             "",
-            "IDs beginning with `fabric-` are live pre-Fabric compatibility identifiers.",
+            "IDs beginning with `hermes-` are live pre-Fabric compatibility identifiers.",
             "Keep them for existing configuration, but use canonical `fabric-` IDs for new",
             "toolsets and integrations.",
             "",
@@ -774,7 +774,7 @@ def render_runtime_reference(catalog: dict[str, Any]) -> str:
                     f"`{row['key']}`",
                     (
                         "pre-Fabric compatibility ID"
-                        if str(row["key"]).startswith("fabric-")
+                        if str(row["key"]).startswith("hermes-")
                         else "canonical"
                     ),
                     row["label"],

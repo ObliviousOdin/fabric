@@ -359,10 +359,10 @@ def _hermetic_environment(tmp_path, monkeypatch):
     (fake_fabric_home / "cron").mkdir()
     (fake_fabric_home / "memories").mkdir()
     (fake_fabric_home / "skills").mkdir()
-    # Tests historically patch FABRIC_HOME; dual-read prefers FABRIC_HOME then
-    # FABRIC_HOME, so isolate via FABRIC_HOME only (leave FABRIC_HOME unset).
+    # Tests historically patch HERMES_HOME; dual-read prefers FABRIC_HOME then
+    # HERMES_HOME, so isolate via HERMES_HOME only (leave FABRIC_HOME unset).
     monkeypatch.delenv("FABRIC_HOME", raising=False)
-    monkeypatch.setenv("FABRIC_HOME", str(fake_fabric_home))
+    monkeypatch.setenv("HERMES_HOME", str(fake_fabric_home))
 
     # 4. Deterministic locale / timezone / hashseed. CI runs in UTC with
     #    C.UTF-8 locale; local dev often doesn't. Pin everything.

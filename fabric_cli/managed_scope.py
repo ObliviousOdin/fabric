@@ -58,7 +58,7 @@ def get_managed_dir() -> Optional[Path]:
       1. ``$FABRIC_MANAGED_DIR`` — deployment/bootstrap path override (IT-only;
          never persisted to any .env). Honored only when set to a non-empty value
          AND the directory exists.
-      2. ``$FABRIC_MANAGED_DIR`` — legacy override, retained for compatibility.
+      2. ``$HERMES_MANAGED_DIR`` — legacy override, retained for compatibility.
       3. ``/etc/fabric`` — canonical POSIX default, when it exists.
       4. ``/etc/hermes`` — legacy POSIX fallback, when it exists.
 
@@ -67,7 +67,8 @@ def get_managed_dir() -> Optional[Path]:
     not exist resolves to None rather than silently falling through to a lower
     priority source. With no override, the first existing system default wins.
     """
-    for env_var in ("FABRIC_MANAGED_DIR", "FABRIC_MANAGED_DIR"):
+    # public-release-audit: allow-legacy-compat -- accept pre-rebrand HERMES_MANAGED_DIR override
+    for env_var in ("FABRIC_MANAGED_DIR", "HERMES_MANAGED_DIR"):
         override = os.environ.get(env_var, "").strip()
         if override:
             path = Path(override)

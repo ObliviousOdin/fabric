@@ -23,7 +23,15 @@ def _mirror_legacy_brand_env() -> None:
     process that imports this module runs it) so either name works, without
     overwriting a value that is already set under the other name.
     """
+    # HERMES_HOME/FABRIC_HOME are deliberately NOT mirrored here: the home var
+    # has explicit call-time dual-read in get_fabric_home()/get_default_fabric_root()
+    # /_apply_profile_override(), and mirroring it would populate FABRIC_HOME from
+    # HERMES_HOME, breaking the profile-resolution precedence and the test-suite's
+    # "isolate via HERMES_HOME, leave FABRIC_HOME unset" contract.
+    _skip = {"HERMES_HOME", "FABRIC_HOME"}
     for key, value in list(os.environ.items()):
+        if key in _skip:
+            continue
         # public-release-audit: allow-legacy-compat -- accept pre-rebrand HERMES_* env var names
         if key.startswith("HERMES_"):
             os.environ.setdefault("FABRIC_" + key[len("HERMES_"):], value)
@@ -93,9 +101,11 @@ def get_fabric_home() -> Path:
     if override:
         return Path(override)
 
-    # FABRIC_HOME (legacy HERMES_HOME is mirrored onto it at import — see
-    # _mirror_legacy_brand_env).
-    val = (os.environ.get("FABRIC_HOME") or "").strip()
+    # FABRIC_HOME is canonical; HERMES_HOME is read at call time as a legacy
+    # fallback (the import-time _mirror_legacy_brand_env shim only catches vars
+    # set before process start, not runtime/systemd/test overrides).
+    # public-release-audit: allow-legacy-compat -- accept pre-rebrand HERMES_HOME
+    val = (os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or "").strip()
     if val:
         return Path(val)
 
@@ -169,7 +179,8 @@ def get_default_fabric_root() -> Path:
     Import-safe — no dependencies beyond stdlib.
     """
     native_home = _get_platform_default_fabric_home()
-    env_home = os.environ.get("FABRIC_HOME") or ""
+    # public-release-audit: allow-legacy-compat -- accept pre-rebrand HERMES_HOME
+    env_home = os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or ""
     if not env_home:
         # Match get_fabric_home(): keep reading legacy ~/.hermes while present.
         if sys.platform == "win32":

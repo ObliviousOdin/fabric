@@ -2160,8 +2160,16 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
 def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) -> None:
     """Rename Honcho host blocks for a renamed profile without changing peers."""
     old_host = f"fabric_{old_name}"
-    legacy_old_host = f"fabric.{old_name}"
     new_host = f"fabric_{new_name}"
+    # Host-block keys an existing honcho.json may carry for this profile: the
+    # canonical fabric_<n>, the dotted fabric.<n>, and the pre-rebrand
+    # hermes_<n>/hermes.<n> forms. All migrate to the canonical fabric_<new>.
+    # public-release-audit: allow-legacy-compat -- migrate pre-rebrand hermes-prefixed honcho host keys
+    legacy_old_hosts = [
+        f"fabric.{old_name}",
+        f"hermes_{old_name}",
+        f"hermes.{old_name}",
+    ]
 
     candidates = [
         new_dir / "honcho.json",
@@ -2187,8 +2195,10 @@ def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) ->
         hosts = raw.get("hosts")
         if not isinstance(hosts, dict):
             continue
-        source_host = old_host if old_host in hosts else legacy_old_host
-        if source_host not in hosts:
+        source_host = old_host if old_host in hosts else next(
+            (h for h in legacy_old_hosts if h in hosts), None
+        )
+        if source_host is None:
             continue
 
         if new_host in hosts:
@@ -2197,10 +2207,11 @@ def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) ->
 
         block = hosts[source_host]
         if isinstance(block, dict) and "aiPeer" not in block:
-            if source_host.startswith("fabric_"):
-                bare = source_host.split("_", 1)[1]
-            else:
-                bare = source_host.split(".", 1)[1] if "." in source_host else source_host
+            bare = source_host
+            for _pref in ("fabric_", "fabric.", "hermes_", "hermes."):
+                if source_host.startswith(_pref):
+                    bare = source_host[len(_pref):]
+                    break
             block["aiPeer"] = bare
         hosts[new_host] = hosts.pop(source_host)
         tmp = path.with_suffix(path.suffix + ".tmp")

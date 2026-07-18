@@ -132,7 +132,8 @@ def _config_default_interface_early() -> str:
         return _EARLY_INTERFACE_CACHE[0]
     value = "cli"
     try:
-        home = os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME")
+        # public-release-audit: allow-legacy-compat -- accept pre-rebrand HERMES_HOME
+        home = os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME")
         if home:
             cfg_path = os.path.join(home, "config.yaml")
         else:
@@ -356,7 +357,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # ---------------------------------------------------------------------------
 # Profile override — MUST happen before any fabric module import.
 #
-# Many modules cache FABRIC_HOME/FABRIC_HOME at import time (module-level
+# Many modules cache FABRIC_HOME/HERMES_HOME at import time (module-level
 # constants). We intercept --profile/-p from sys.argv here and set both env
 # vars so every subsequent home lookup resolves to the same profile.
 # The flag is stripped from sys.argv so argparse never sees it.
@@ -473,24 +474,25 @@ def _apply_profile_override() -> None:
             consume = 0
             profile_index = None
 
-    # 1.5 If FABRIC_HOME/FABRIC_HOME is already set and no explicit flag was
+    # 1.5 If FABRIC_HOME/HERMES_HOME is already set and no explicit flag was
     # given, trust the preferred value only when it already points to a
     # specific profile directory. FABRIC_HOME is authoritative during the
     # compatibility window, matching fabric_constants.get_fabric_home(). The
     # distinguishing heuristic: a profile path has "profiles" as its immediate
     # parent directory name (e.g. ~/.fabric/profiles/coder or
     # /opt/data/profiles/coder). If the preferred home points to the root
-    # instead (e.g. systemd hardcodes FABRIC_HOME=/root/.hermes), we must
+    # instead (e.g. systemd hardcodes HERMES_HOME=/root/.hermes), we must
     # still read active_profile — the user may have switched profiles via
     # `fabric profile use` and the gateway should honour that choice.
     # See issue #22502.
+    # public-release-audit: allow-legacy-compat -- accept pre-rebrand HERMES_HOME
     profile_home_env = (
-        os.environ.get("FABRIC_HOME") or os.environ.get("FABRIC_HOME") or ""
+        os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or ""
     ).strip()
     if profile_name is None and profile_home_env:
         if Path(profile_home_env).parent.name == "profiles":
             os.environ["FABRIC_HOME"] = profile_home_env
-            os.environ["FABRIC_HOME"] = profile_home_env
+            os.environ["HERMES_HOME"] = profile_home_env
             return
 
     # 2. If no flag, check active_profile in the fabric root.
@@ -500,7 +502,7 @@ def _apply_profile_override() -> None:
     # active_profile. Each supervised slot has a fixed profile identity: named
     # slots pass ``-p <name>`` explicitly (handled in step 1 above), and the
     # reserved ``gateway-default`` slot runs bare ``fabric gateway run`` to mean
-    # "the root FABRIC_HOME profile". If the reserved default child read
+    # "the root HERMES_HOME profile". If the reserved default child read
     # active_profile here, switching the active profile (e.g. via the dashboard)
     # would silently redirect the default gateway into that profile — yielding a
     # duplicate gateway for the active profile and no real default gateway. See
@@ -520,7 +522,7 @@ def _apply_profile_override() -> None:
 
     # 3. If we found a profile, resolve it once and keep both transition-era
     # home variables synchronized. FABRIC_HOME is read first by current code;
-    # FABRIC_HOME remains required by compatibility paths and child processes.
+    # HERMES_HOME remains required by compatibility paths and child processes.
     if profile_name is not None:
         try:
             from fabric_cli.profiles import resolve_profile_env
@@ -542,7 +544,8 @@ def _apply_profile_override() -> None:
             )
             return
         os.environ["FABRIC_HOME"] = fabric_home
-        os.environ["FABRIC_HOME"] = fabric_home
+        # public-release-audit: allow-legacy-compat -- keep pre-rebrand HERMES_HOME in sync
+        os.environ["HERMES_HOME"] = fabric_home
         # Strip the flag from argv so argparse doesn't choke
         if consume > 0 and profile_index is not None:
             start = profile_index + 1  # +1 because argv is sys.argv[1:]

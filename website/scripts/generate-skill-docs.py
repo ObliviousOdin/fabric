@@ -698,6 +698,7 @@ def render_sidebar(entries, text: str) -> str:
     skills_items: list[Any] = [
         "reference/skills-catalog",
         "reference/optional-skills-catalog",
+        "reference/skills-ecosystem-directory",
         *skills_block,
     ]
 

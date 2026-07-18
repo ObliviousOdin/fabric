@@ -990,3 +990,132 @@
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   }
 }
+
+/* ── Recommended view: curated stacks + featured picks ─────────────── */
+
+.recoHeader {
+  margin: 0 0 1rem;
+}
+
+.recoHeader + .stacksGrid,
+.recoHeader + .grid {
+  margin-bottom: 2.25rem;
+}
+
+.recoTitle {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+
+.recoSub {
+  font-size: 0.9rem;
+  color: var(--ifm-font-color-secondary, #9a968e);
+  margin: 0;
+  max-width: 60ch;
+}
+
+.stacksGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.stackCard {
+  border: 1px solid rgba(var(--skills-accent-rgb), 0.12);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  background: rgba(var(--skills-accent-rgb), 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.stackCard:hover {
+  border-color: rgba(var(--skills-accent-rgb), 0.3);
+  transform: translateY(-2px);
+}
+
+.stackHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.stackIcon {
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.stackTitleGroup {
+  min-width: 0;
+}
+
+.stackTitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.stackTagline {
+  font-size: 0.82rem;
+  color: var(--ifm-font-color-secondary, #9a968e);
+  margin: 0.1rem 0 0;
+}
+
+.stackMembers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.memberChip {
+  font-size: 0.78rem;
+  font-family: var(--ifm-font-family-monospace);
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: none;
+  transition: filter 0.15s ease;
+}
+
+.memberChip:hover {
+  filter: brightness(1.2);
+  text-decoration: none;
+}
+
+.memberChipMissing {
+  border-style: dashed;
+}
+
+.stackWhy {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--ifm-font-color-secondary, #9a968e);
+  margin: 0;
+  border-top: 1px dashed rgba(var(--skills-accent-rgb), 0.12);
+  padding-top: 0.65rem;
+}
+
+.relatedBlock {
+  margin-top: 0.75rem;
+}
+
+.relatedChip {
+  font-size: 0.78rem;
+  font-family: var(--ifm-font-family-monospace);
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  border: 1px dashed rgba(var(--skills-accent-rgb), 0.35);
+  background: rgba(var(--skills-accent-rgb), 0.05);
+  color: var(--skills-accent);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.relatedChip:hover {
+  background: rgba(var(--skills-accent-rgb), 0.12);
+}

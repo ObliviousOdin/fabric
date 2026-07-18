@@ -61,6 +61,7 @@ CATEGORY_LABELS = {
     "migration": "Migration",
     "mlops": "MLOps",
     "note-taking": "Note-Taking",
+    "orchestration": "Orchestration",
     "productivity": "Productivity",
     "red-teaming": "Red Teaming",
     "research": "Research",
@@ -69,6 +70,8 @@ CATEGORY_LABELS = {
     "social-media": "Social Media",
     "software-development": "Software Dev",
     "translation": "Translation",
+    "venture-studio": "Venture Studio",
+    "web-development": "Web Dev",
     "other": "Other",
 }
 
@@ -100,6 +103,59 @@ GITHUB_TAP_LABELS = {
     "VoltAgent/awesome-agent-skills": "VoltAgent",
     "garrytan/gstack": "gstack",
     "MiniMax-AI/cli": "MiniMax",
+    # Runtime community taps (tools/skills_hub.py DEFAULT_TAPS)
+    "obra/superpowers": "Superpowers",
+    "EveryInc/compound-engineering-plugin": "Every",
+    "coreyhaines31/marketingskills": "MarketingSkills",
+    "shawnpang/startup-founder-skills": "FounderSkills",
+    "phuryn/pm-skills": "PMSkills",
+    "leonxlnx/taste-skill": "Taste",
+    "pbakaus/impeccable": "Impeccable",
+    "multica-ai/andrej-karpathy-skills": "Karpathy",
+    "AbdullahHameedKhan/karpathy-ponytail-skills": "Karpathy",
+    "addyosmani/agent-skills": "Addy Osmani",
+    "anthropics/knowledge-work-plugins": "Anthropic",
+    "aws/agent-toolkit-for-aws": "AWS",
+    "dotnet/skills": ".NET",
+    "flutter/agent-plugins": "Flutter",
+    "databricks/databricks-agent-skills": "Databricks",
+    "cypress-io/ai-toolkit": "Cypress",
+    "fluxcd/agent-skills": "Flux",
+    "GitGuardian/agent-skills": "GitGuardian",
+    "LambdaTest/agent-skills": "LambdaTest",
+    "antonbabenko/terraform-skill": "Terraform",
+    "deanpeters/Product-Manager-Skills": "Dean Peters",
+    "lottiefiles/motion-design-skill": "LottieFiles",
+    "antvis/chart-visualization-skills": "AntV",
+    "twostraws/swift-agent-skills": "Swift",
+    "allenai/asta-plugins": "AllenAI",
+    # Notable curated build-time taps (scripts/build_skills_index.py
+    # CURATED_TAPS) — unlisted repos fall back to the generic GitHub pill.
+    "github/awesome-copilot": "GitHub",
+    "microsoft/azure-skills": "Azure",
+    "posthog/skills": "PostHog",
+    "cloudflare/skills": "Cloudflare",
+    "stripe/ai": "Stripe",
+    "shopify/shopify-ai-toolkit": "Shopify",
+    "getsentry/skills": "Sentry",
+    "flutter/skills": "Flutter",
+    "expo/skills": "Expo",
+    "remotion-dev/skills": "Remotion",
+    "elevenlabs/skills": "ElevenLabs",
+    "runwayml/skills": "Runway",
+    "supabase/agent-skills": "Supabase",
+    "firebase/agent-skills": "Firebase",
+    "redis/agent-skills": "Redis",
+    "prisma/skills": "Prisma",
+    "mapbox/mapbox-agent-skills": "Mapbox",
+    "K-Dense-AI/scientific-agent-skills": "K-Dense",
+    "hashicorp/agent-skills": "HashiCorp",
+    "webflow/webflow-skills": "Webflow",
+    "wix/skills": "Wix",
+    "wordpress/agent-skills": "WordPress",
+    "tldraw/tldraw": "tldraw",
+    "vercel-labs/agent-skills": "Vercel",
+    "vercel/ai": "Vercel",
 }
 
 
@@ -307,6 +363,13 @@ def extract_local_skills():
             if isinstance(tags, str):
                 tags = [tags]
 
+            related = _skill_metadata(fm).get("related_skills", [])
+            if isinstance(related, str):
+                related = [related]
+            if not isinstance(related, list):
+                related = []
+            related = [str(r) for r in related if r]
+
             prereq = fm.get("prerequisites") or {}
             env_vars = []
             commands = []
@@ -337,6 +400,7 @@ def extract_local_skills():
                 "envVars": env_vars,
                 "commands": commands,
                 "docsPath": _docs_page_path(rel, source_label),
+                "related": related,
             })
 
     return skills
@@ -634,6 +698,43 @@ def _consolidate_small_categories(skills: list) -> list:
     return skills
 
 
+STACKS_PATH = os.path.join(REPO_ROOT, "website", "static", "api", "skill-stacks.json")
+
+
+def _validate_skill_stacks(all_skills):
+    """Cross-check skill-stacks.json members against the extracted catalog.
+
+    Built-in and optional members are fully under repo control, so a missing
+    name is a typo or a renamed skill — fail the build. Community members
+    arrive via the unified index crawl and may legitimately be absent from a
+    cold build, so they only warn (the Hub UI renders them as install chips).
+    """
+    if not os.path.exists(STACKS_PATH):
+        return
+    with open(STACKS_PATH, encoding="utf-8") as f:
+        stacks_data = json.load(f)
+
+    known = {(s["source"], s["name"]) for s in all_skills}
+    members = list(stacks_data.get("featured", []))
+    for stack in stacks_data.get("stacks", []):
+        members.extend(stack.get("skills", []))
+
+    errors = []
+    for m in members:
+        name, source = m.get("name", ""), m.get("source", "")
+        if source in ("built-in", "optional"):
+            if (source, name) not in known:
+                errors.append(f"{source} stack member {name!r} not in catalog")
+        elif not any(k[1] == name for k in known):
+            print(f"[extract-skills] note: community stack member {name!r} "
+                  f"not yet in the index (renders as an install chip)")
+    if errors:
+        raise SystemExit(
+            "[extract-skills] skill-stacks.json references missing skills:\n  "
+            + "\n  ".join(errors)
+        )
+
+
 def main():
     local = extract_local_skills()
 
@@ -652,6 +753,7 @@ def main():
         )
 
     all_skills = _consolidate_small_categories(local + external)
+    _validate_skill_stacks(all_skills)
 
     source_order = {"built-in": 0, "optional": 1}
     all_skills.sort(key=lambda s: (

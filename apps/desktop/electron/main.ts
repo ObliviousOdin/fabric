@@ -8010,11 +8010,17 @@ function windowsShellSpec() {
 // Resolve the interactive shell for the embedded terminal: an explicit user
 // override wins, otherwise auto-detect the best one installed for the platform.
 function terminalShellCommand() {
-  // HERMES_DESKTOP_SHELL is the cross-platform escape hatch (a path or a bare
-  // name on PATH); $SHELL is honored on POSIX, where it's the user's canonical
-  // choice, but ignored on Windows, where it's usually a stray MSYS/Git path
-  // node-pty can't spawn natively.
-  const override = (process.env.HERMES_DESKTOP_SHELL || (IS_WINDOWS ? '' : process.env.SHELL) || '').trim()
+  // FABRIC_DESKTOP_SHELL is the cross-platform escape hatch (a path or a bare
+  // name on PATH); HERMES_DESKTOP_SHELL remains as a compatibility alias.
+  // $SHELL is honored on POSIX, where it's the user's canonical choice, but
+  // ignored on Windows, where it's usually a stray MSYS/Git path node-pty can't
+  // spawn natively.
+  const override = (
+    process.env.FABRIC_DESKTOP_SHELL ||
+    process.env.HERMES_DESKTOP_SHELL ||
+    (IS_WINDOWS ? '' : process.env.SHELL) ||
+    ''
+  ).trim()
 
   if (override) {
     const resolved = isExecutableFile(override) ? override : findOnPath(override)
@@ -8046,7 +8052,15 @@ function safeTerminalCwd(cwd) {
 }
 
 function terminalShellEnv() {
-  const env: NodeJS.ProcessEnv = { ...process.env, ...FABRIC_HOME_ENV }
+  // node-pty's native spawn only accepts string env values. Electron/process
+  // env is usually clean, but filter defensively so a non-string never
+  // becomes the opaque "posix_spawnp failed".
+  const env: NodeJS.ProcessEnv = {}
+  for (const [key, value] of Object.entries({ ...process.env, ...FABRIC_HOME_ENV })) {
+    if (typeof value === 'string') {
+      env[key] = value
+    }
+  }
 
   // Electron is commonly launched through `npm run dev`; do not leak npm's
   // managed prefix into a user's interactive shell (nvm/proto warn loudly).
@@ -8058,7 +8072,7 @@ function terminalShellEnv() {
 
   // Strip color/theme-detection vars that ride along when Electron is launched
   // from a non-tty agent shell (Cursor's runner sets NO_COLOR/FORCE_COLOR=0
-  // /TERM=dumb; some terminals set COLORFGBG which would flip Hermes' TUI into
+  // /TERM=dumb; some terminals set COLORFGBG which would flip Fabric's TUI into
   // light-mode). Our PTY is a real xterm-compat terminal — force truecolor.
   delete env.NO_COLOR
   delete env.FORCE_COLOR
@@ -8070,16 +8084,62 @@ function terminalShellEnv() {
   env.TERM_PROGRAM = DESKTOP_BRAND.executableName
   env.TERM_PROGRAM_VERSION = app.getVersion()
 
-  // Let a hermes/--tui launched in this pane know it's embedded in the desktop
-  // GUI (build_environment_hints surfaces this). Distinct from HERMES_DESKTOP,
-  // which marks the agent *backend* and gates cron/gateway behavior.
+  // Let a fabric/--tui launched in this pane know it's embedded in the desktop
+  // GUI (build_environment_hints surfaces this). Distinct from HERMES_DESKTOP /
+  // FABRIC_DESKTOP, which mark the agent *backend* and gate cron/gateway behavior.
+  env.FABRIC_DESKTOP_TERMINAL = '1'
   env.HERMES_DESKTOP_TERMINAL = '1'
 
   return env
 }
 
+/**
+ * node-pty's Unix path execs a sibling `spawn-helper`. npm prebuilds often
+ * extract it mode 0644; without +x, the first terminal open fails with
+ * `posix_spawnp failed`. Stage + afterPack force the bit, and this self-heals
+ * already-installed broken trees at runtime (best-effort; no throw).
+ */
+function ensureNodePtySpawnHelperExecutable() {
+  if (IS_WINDOWS) {
+    return
+  }
+
+  const rel = ['prebuilds', `${process.platform}-${process.arch}`, 'spawn-helper']
+  const releaseRel = ['build', 'Release', 'spawn-helper']
+  const roots: string[] = []
+
+  if (process.resourcesPath) {
+    roots.push(path.join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'node_modules', 'node-pty'))
+  }
+
+  roots.push(
+    path.join(APP_ROOT, 'dist', 'node_modules', 'node-pty'),
+    path.join(APP_ROOT, 'node_modules', 'node-pty'),
+    // monorepo hoists node_modules to the repo root
+    path.join(APP_ROOT, '..', '..', 'node_modules', 'node-pty')
+  )
+
+  for (const root of roots) {
+    for (const parts of [rel, releaseRel]) {
+      const helper = path.join(root, ...parts)
+      try {
+        if (!fs.existsSync(helper)) {
+          continue
+        }
+        try {
+          fs.accessSync(helper, fs.constants.X_OK)
+        } catch {
+          fs.chmodSync(helper, 0o755)
+        }
+      } catch {
+        // Best-effort: packaged trees may be read-only after Gatekeeper seal.
+      }
+    }
+  }
+}
+
 function terminalChannel(id, suffix) {
-  return `hermes:terminal:${id}:${suffix}`
+  return `fabric:terminal:${id}:${suffix}`
 }
 
 function disposeTerminalSession(id) {
@@ -8259,20 +8319,37 @@ ipcMain.handle('hermes:git:scanRepos', async (_event, roots, options) => {
   }
 })
 
-ipcMain.handle('hermes:terminal:start', async (event, payload = {}) => {
+ipcMain.handle('fabric:terminal:start', async (event, payload = {}) => {
   const id = crypto.randomUUID()
   const { args, command, name } = terminalShellCommand()
   const cwd = safeTerminalCwd(payload?.cwd)
   const cols = Math.max(2, Number.parseInt(String(payload?.cols || 80), 10) || 80)
   const rows = Math.max(2, Number.parseInt(String(payload?.rows || 24), 10) || 24)
 
-  const ptyProcess = nodePty.spawn(command, args, {
-    cols,
-    cwd,
-    env: terminalShellEnv(),
-    name: 'xterm-256color',
-    rows
-  })
+  ensureNodePtySpawnHelperExecutable()
+
+  let ptyProcess
+  try {
+    ptyProcess = nodePty.spawn(command, args, {
+      cols,
+      cwd,
+      env: terminalShellEnv(),
+      name: 'xterm-256color',
+      rows
+    })
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    // Surface a human-readable diagnosis for the classic non-executable
+    // spawn-helper failure instead of the opaque native error alone.
+    if (/posix_spawnp failed/i.test(detail)) {
+      throw new Error(
+        `Failed to start shell (${command}): ${detail}. ` +
+          'Usually node-pty spawn-helper is not executable — rebuild the desktop app, ' +
+          'or chmod +x the spawn-helper next to pty.node under app.asar.unpacked.'
+      )
+    }
+    throw new Error(`Failed to start shell (${command}): ${detail}`)
+  }
 
   terminalSessions.set(id, { pty: ptyProcess, webContentsId: event.sender.id })
 
@@ -8294,7 +8371,7 @@ ipcMain.handle('hermes:terminal:start', async (event, payload = {}) => {
   return { cwd, id, shell: name }
 })
 
-ipcMain.handle('hermes:terminal:write', (_event, id, data) => {
+ipcMain.handle('fabric:terminal:write', (_event, id, data) => {
   const sessionInfo = terminalSessions.get(String(id || ''))
 
   if (!sessionInfo) {
@@ -8306,7 +8383,7 @@ ipcMain.handle('hermes:terminal:write', (_event, id, data) => {
   return true
 })
 
-ipcMain.handle('hermes:terminal:resize', (_event, id, size = {}) => {
+ipcMain.handle('fabric:terminal:resize', (_event, id, size = {}) => {
   const sessionInfo = terminalSessions.get(String(id || ''))
 
   if (!sessionInfo) {
@@ -8320,7 +8397,7 @@ ipcMain.handle('hermes:terminal:resize', (_event, id, size = {}) => {
 
   return true
 })
-ipcMain.handle('hermes:terminal:dispose', (_event, id) => disposeTerminalSession(String(id || '')))
+ipcMain.handle('fabric:terminal:dispose', (_event, id) => disposeTerminalSession(String(id || '')))
 
 ipcMain.handle('hermes:updates:check', async () =>
   checkUpdates().catch(error => ({

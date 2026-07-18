@@ -108,6 +108,9 @@ test('intentional or interactive desktop child processes stay documented', () =>
   assert.match(source, /'--update', '--branch'/)
   assert.match(source, /nodePty\.spawn\(command, args/)
   assert.match(source, /spawn\('cmd\.exe', \['\/c', 'start'/)
+  // Terminal IPC is fabric-branded (not legacy hermes: channels).
+  assert.match(source, /ipcMain\.handle\('fabric:terminal:start'/)
+  assert.doesNotMatch(source, /hermes:terminal:/)
 })
 
 test('bootstrap PowerShell runner hides Windows console children', () => {

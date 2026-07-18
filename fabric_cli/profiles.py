@@ -2159,16 +2159,18 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
 
 def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) -> None:
     """Rename Honcho host blocks for a renamed profile without changing peers."""
-    old_host = f"fabric_{old_name}"
-    new_host = f"fabric_{new_name}"
-    # Host-block keys an existing honcho.json may carry for this profile: the
-    # canonical fabric_<n>, the dotted fabric.<n>, and the pre-rebrand
-    # hermes_<n>/hermes.<n> forms. All migrate to the canonical fabric_<new>.
-    # public-release-audit: allow-legacy-compat -- migrate pre-rebrand hermes-prefixed honcho host keys
+    # Honcho host-block keys are ``{HOST}_{profile}`` where HOST == "hermes"
+    # (see plugins/memory/honcho/client.py profile_host_key) — a preserved
+    # Honcho wire identity, so the canonical key stays hermes_<profile>. Match
+    # the current hermes_<n>, the legacy dotted hermes.<n>, and any stray
+    # fabric_<n>/fabric.<n> a transitional build may have written.
+    # public-release-audit: allow-legacy-compat -- honcho host key uses the preserved hermes_ wire prefix
+    old_host = f"hermes_{old_name}"
+    new_host = f"hermes_{new_name}"
     legacy_old_hosts = [
-        f"fabric.{old_name}",
-        f"hermes_{old_name}",
         f"hermes.{old_name}",
+        f"fabric_{old_name}",
+        f"fabric.{old_name}",
     ]
 
     candidates = [

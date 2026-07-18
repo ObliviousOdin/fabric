@@ -385,7 +385,10 @@ def _get_session(task_id: Optional[str]) -> Dict[str, Any]:
             }
         else:
             session = {
-                "user_id": f"fabric_{uuid.uuid4().hex[:10]}",
+                # public-release-audit: allow-legacy-compat -- Camofox user-id
+                # namespace stays on the pre-rebrand hermes_ prefix (matches the
+                # managed/persistent identities the same server also receives).
+                "user_id": f"hermes_{uuid.uuid4().hex[:10]}",
                 "tab_id": None,
                 "session_key": f"task_{task_id[:16]}",
                 "managed": False,

@@ -42,6 +42,9 @@ def get_camofox_identity(task_id: Optional[str] = None) -> Dict[str, str]:
         f"camofox-session:{scope_root}:{logical_scope}",
     ).hex[:16]
     return {
-        "user_id": f"fabric_{user_digest}",
+        # public-release-audit: allow-legacy-compat -- stable persisted Camofox
+        # user identity; kept as the pre-rebrand hermes_ prefix so existing
+        # browser state/fingerprints stay continuous across the rebrand.
+        "user_id": f"hermes_{user_digest}",
         "session_key": f"task_{session_digest}",
     }

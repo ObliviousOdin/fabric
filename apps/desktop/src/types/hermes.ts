@@ -940,6 +940,9 @@ export interface AuxiliaryModelsResponse {
 export interface MoaModelSlot {
   provider: string
   model: string
+  role?: string
+  instructions?: string
+  reasoning_effort?: string
 }
 
 export interface MoaConfigResponse {
@@ -949,19 +952,23 @@ export interface MoaConfigResponse {
     string,
     {
       aggregator: MoaModelSlot
-      aggregator_temperature: number
+      aggregator_temperature: number | null
       enabled: boolean
+      fanout?: 'per_iteration' | 'user_turn'
       max_tokens: number
+      reference_max_tokens?: number | null
       reference_models: MoaModelSlot[]
-      reference_temperature: number
+      reference_temperature: number | null
     }
   >
   aggregator: MoaModelSlot
-  aggregator_temperature: number
+  aggregator_temperature: number | null
   enabled: boolean
+  fanout?: 'per_iteration' | 'user_turn'
   max_tokens: number
+  reference_max_tokens?: number | null
   reference_models: MoaModelSlot[]
-  reference_temperature: number
+  reference_temperature: number | null
 }
 
 export interface ModelAssignmentRequest {

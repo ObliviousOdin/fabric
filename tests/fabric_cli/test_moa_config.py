@@ -42,6 +42,66 @@ def test_normalize_moa_config_preserves_named_presets():
     assert cfg["reference_models"] == [{"provider": "openai-codex", "model": "gpt-5.5"}]
 
 
+def test_normalize_moa_config_preserves_bounded_slot_specialization():
+    cfg = normalize_moa_config(
+        {
+            "presets": {
+                "specialized": {
+                    "reference_models": [
+                        {
+                            "provider": "xai-oauth",
+                            "model": "grok-4.5",
+                            "role": " adversarial reviewer ",
+                            "instructions": " Challenge assumptions. ",
+                            "reasoning_effort": "HIGH",
+                        }
+                    ],
+                    "aggregator": {
+                        "provider": "openai-codex",
+                        "model": "gpt-5.6-sol",
+                        "role": "merge owner",
+                        "instructions": "Resolve disagreements against evidence.",
+                        "reasoning_effort": False,
+                    },
+                }
+            }
+        }
+    )
+
+    preset = cfg["presets"]["specialized"]
+    assert preset["reference_models"] == [
+        {
+            "provider": "xai-oauth",
+            "model": "grok-4.5",
+            "role": "adversarial reviewer",
+            "instructions": "Challenge assumptions.",
+            "reasoning_effort": "high",
+        }
+    ]
+    assert preset["aggregator"]["reasoning_effort"] == "none"
+    assert preset["aggregator"]["role"] == "merge owner"
+
+
+def test_normalize_moa_config_omits_invalid_reasoning_and_bounds_role_text():
+    cfg = normalize_moa_config(
+        {
+            "reference_models": [
+                {
+                    "provider": "openai-codex",
+                    "model": "gpt-5.6-terra",
+                    "role": "r" * 500,
+                    "instructions": "i" * 5000,
+                    "reasoning_effort": "turbo",
+                }
+            ]
+        }
+    )
+    slot = cfg["reference_models"][0]
+    assert len(slot["role"]) == 120
+    assert len(slot["instructions"]) == 2000
+    assert "reasoning_effort" not in slot
+
+
 def test_legacy_flat_config_becomes_default_preset():
     cfg = normalize_moa_config(
         {

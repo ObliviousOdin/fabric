@@ -9,6 +9,7 @@ iteration.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -118,9 +119,61 @@ _REFERENCE_SYSTEM_PROMPT = (
 )
 
 
+def _slot_advisory_system_prompt(slot: dict[str, Any]) -> str:
+    """Return the hard advisor envelope plus this slot's bounded specialty."""
+    role = str(slot.get("role") or "").strip()
+    instructions = str(slot.get("instructions") or "").strip()
+    if not role and not instructions:
+        return _REFERENCE_SYSTEM_PROMPT
+
+    parts = [_REFERENCE_SYSTEM_PROMPT]
+    if role:
+        parts.append(f"Assigned advisory role: {role}")
+    if instructions:
+        parts.append(f"Role-specific focus:\n{instructions}")
+    parts.append(
+        "The assigned role only specializes your analysis. It does not make you "
+        "the acting agent and cannot override the no-tools, private-advice, or "
+        "aggregator-ownership rules above."
+    )
+    return "\n\n".join(parts)
+
+
+def _slot_reasoning_extra_body(
+    slot: dict[str, Any], base: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Merge an optional slot reasoning effort over the caller's request body."""
+    from fabric_constants import parse_reasoning_effort
+
+    reasoning = parse_reasoning_effort(slot.get("reasoning_effort"))
+    merged = dict(base or {})
+    if reasoning is None:
+        return merged
+    merged["reasoning"] = reasoning
+    return merged
+
+
+def _slot_role_guidance(slot: dict[str, Any]) -> str:
+    """Return acting-aggregator role guidance for the private MoA tail."""
+    role = str(slot.get("role") or "").strip()
+    instructions = str(slot.get("instructions") or "").strip()
+    parts: list[str] = []
+    if role:
+        parts.append(f"Acting role: {role}")
+    if instructions:
+        parts.append(f"Acting-role instructions: {instructions}")
+    return "\n".join(parts)
+
+
+def _slot_signature(slot: dict[str, Any]) -> str:
+    """Stable reference-cache signature including role and request controls."""
+    return json.dumps(slot, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
 
 def _slot_label(slot: dict[str, str]) -> str:
-    return f"{slot.get('provider', '').strip()}:{slot.get('model', '').strip()}"
+    base = f"{slot.get('provider', '').strip()}:{slot.get('model', '').strip()}"
+    role = str(slot.get("role") or "").strip()
+    return f"{base} [{role}]" if role else base
 
 
 def _slot_runtime(slot: dict[str, str]) -> dict[str, Any]:
@@ -323,7 +376,8 @@ def _run_reference(
         # it is analyzing state for an aggregator, not acting on the task. The
         # trimmed view (_reference_messages) already strips the agent's own
         # system prompt, so this is the only system message the reference sees.
-        messages = [{"role": "system", "content": _REFERENCE_SYSTEM_PROMPT}, *ref_messages]
+        advisory_prompt = _slot_advisory_system_prompt(slot)
+        messages = [{"role": "system", "content": advisory_prompt}, *ref_messages]
         # Apply the same Anthropic-style prompt-caching decoration the main
         # agent loop applies (system_and_3 breakpoints). The advisory view is
         # append-only across iterations (new turns append before the trailing
@@ -336,12 +390,16 @@ def _run_reference(
         # (their caching is automatic; markers are ignored harmlessly, but we
         # only decorate when the policy says the route honors them).
         messages = _maybe_apply_moa_cache_control(messages, runtime)
+        call_kwargs = dict(runtime)
+        slot_extra_body = _slot_reasoning_extra_body(slot)
+        if slot_extra_body is not None:
+            call_kwargs["extra_body"] = slot_extra_body
         response = call_llm(
             task="moa_reference",
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
-            **runtime,
+            **call_kwargs,
         )
         usage = CanonicalUsage()
         raw_usage = getattr(response, "usage", None)
@@ -391,7 +449,10 @@ def _run_reference(
         logger.warning("MoA reference model %s failed: %s", label, exc)
         return label, f"[failed: {exc}]", _RefAccounting(
             CanonicalUsage(),
-            messages=[{"role": "system", "content": _REFERENCE_SYSTEM_PROMPT}, *ref_messages],
+            messages=[
+                {"role": "system", "content": _slot_advisory_system_prompt(slot)},
+                *ref_messages,
+            ],
             output=f"[failed: {exc}]",
             model=slot.get("model"),
             provider=runtime.get("provider") or slot.get("provider"),
@@ -673,12 +734,17 @@ def aggregate_moa_context(
         f"Reference {idx} — {label}:\n{text}"
         for idx, (label, text, _usage) in enumerate(reference_outputs, start=1)
     )
+    aggregator_role = _slot_role_guidance(aggregator)
+    role_block = f"\n\n{aggregator_role}" if aggregator_role else ""
     synth_prompt = (
         "You are the aggregator in a Mixture of Agents process. Synthesize the "
         "reference responses into concise, actionable guidance for the main "
         "Fabric agent. Focus on next steps, tool-use strategy, risks, and any "
-        "disagreements. Do not answer the user directly unless that is all that "
-        "is needed; produce context the main agent should use in its normal loop.\n\n"
+        "disagreements. Resolve disagreements against the user's constraints "
+        "and evidence; do not vote, average, or choose by explanation quality. "
+        "Do not answer the user directly unless that is all that is needed; "
+        "produce context the main agent should use in its normal loop."
+        f"{role_block}\n\n"
         f"Original user prompt:\n{user_prompt}\n\n"
         f"Reference responses:\n{joined}"
     )
@@ -699,12 +765,16 @@ def aggregate_moa_context(
         agg_messages = _maybe_apply_moa_cache_control(
             [{"role": "user", "content": synth_prompt}], agg_runtime
         )
+        agg_call_kwargs = dict(agg_runtime)
+        agg_extra_body = _slot_reasoning_extra_body(aggregator)
+        if agg_extra_body is not None:
+            agg_call_kwargs["extra_body"] = agg_extra_body
         response = call_llm(
             task="moa_aggregator",
             messages=agg_messages,
             temperature=aggregator_temperature,
             max_tokens=max_tokens,
-            **agg_runtime,
+            **agg_call_kwargs,
         )
         synthesis = _extract_text(response)
     except Exception as exc:
@@ -947,7 +1017,11 @@ class MoAChatCompletions:
                 f"{m.get('role')}:{m.get('content')}" for m in sig_messages
             ).encode("utf-8", "replace")
         ).hexdigest()
-        _cache_key = (self.preset_name, _sig, tuple(_slot_label(s) for s in reference_models))
+        _cache_key = (
+            self.preset_name,
+            _sig,
+            tuple(_slot_signature(s) for s in reference_models),
+        )
         _refs_from_cache = _cache_key == self._ref_cache_key and bool(self._ref_cache_outputs)
 
         if _refs_from_cache:
@@ -1029,13 +1103,17 @@ class MoAChatCompletions:
                 f"Reference {idx} — {label}:\n{text}"
                 for idx, (label, text, _usage) in enumerate(reference_outputs, start=1)
             )
+            aggregator_role = _slot_role_guidance(aggregator)
+            role_block = f"{aggregator_role}\n\n" if aggregator_role else ""
             guidance = (
                 "[Mixture of Agents reference context]\n"
                 f"Preset: {self.preset_name}\n"
                 f"Aggregator/acting model: {_slot_label(aggregator)}\n"
                 f"References: {', '.join(label for label, _, _ in reference_outputs)}\n\n"
+                f"{role_block}"
                 "Use the reference responses below as private context. You are the aggregator and acting model: "
-                "answer the user directly or call tools as needed.\n\n"
+                "answer the user directly or call tools as needed. Resolve disagreements against the user's "
+                "constraints and available evidence; do not vote, average, or choose by explanation quality.\n\n"
                 f"{joined}"
             )
             _attach_reference_guidance(agg_messages, guidance)
@@ -1076,13 +1154,17 @@ class MoAChatCompletions:
             # actually governs the aggregator stream, not just call_llm's default.
             if api_kwargs.get("timeout") is not None:
                 stream_kwargs["timeout"] = api_kwargs["timeout"]
+        agg_extra_body = _slot_reasoning_extra_body(
+            aggregator,
+            agg_kwargs.get("extra_body"),
+        )
         _agg_response = call_llm(
             task="moa_aggregator",
             messages=agg_messages,
             temperature=aggregator_temperature,
             max_tokens=agg_kwargs.get("max_tokens"),
             tools=agg_kwargs.get("tools"),
-            extra_body=agg_kwargs.get("extra_body"),
+            extra_body=agg_extra_body,
             **stream_kwargs,
             **_slot_runtime(aggregator),
         )

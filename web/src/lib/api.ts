@@ -2769,6 +2769,9 @@ export interface AuxiliaryModelsResponse {
 export interface MoaModelSlot {
   provider: string;
   model: string;
+  role?: string;
+  instructions?: string;
+  reasoning_effort?: string;
 }
 
 export interface MoaConfigResponse {
@@ -2779,17 +2782,21 @@ export interface MoaConfigResponse {
     {
       reference_models: MoaModelSlot[];
       aggregator: MoaModelSlot;
-      reference_temperature: number;
-      aggregator_temperature: number;
+      reference_temperature: number | null;
+      aggregator_temperature: number | null;
       max_tokens: number;
+      reference_max_tokens?: number | null;
+      fanout?: "per_iteration" | "user_turn";
       enabled: boolean;
     }
   >;
   reference_models: MoaModelSlot[];
   aggregator: MoaModelSlot;
-  reference_temperature: number;
-  aggregator_temperature: number;
+  reference_temperature: number | null;
+  aggregator_temperature: number | null;
   max_tokens: number;
+  reference_max_tokens?: number | null;
+  fanout?: "per_iteration" | "user_turn";
   enabled: boolean;
 }
 

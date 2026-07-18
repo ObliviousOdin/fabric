@@ -8,7 +8,7 @@ description: "Front door for multi-agent work — decide when to orchestrate at 
 
 # Orchestration
 
-Front door for multi-agent work — decide when to orchestrate at all, then route between subagent ensembles, parallel fan-out, staged pipelines, a builder crew, adversarial verification, kanban worker lanes for durable boards, and Mixture of Agents for multi-model answers. Use when a task feels too big for one context, the user asks for parallel work, subagents, a team of agents, or an ensemble.
+Front door for multi-agent work — decide when to orchestrate at all, then route between subagent ensembles, parallel fan-out, staged pipelines, a builder crew, adversarial verification, isolated GPT/Grok coding worktrees, kanban worker lanes for durable boards, and Mixture of Agents for multi-model answers. Use when a task feels too big for one context, the user asks for parallel work, subagents, a team of agents, or an ensemble.
 
 ## Skill metadata
 
@@ -21,7 +21,7 @@ Front door for multi-agent work — decide when to orchestrate at all, then rout
 | License | MIT |
 | Platforms | linux, macos, windows |
 | Tags | `orchestration`, `subagents`, `delegation`, `multi-agent`, `routing` |
-| Related skills | [`ensemble`](/user-guide/skills/bundled/orchestration/orchestration-ensemble), [`fan-out`](/user-guide/skills/bundled/orchestration/orchestration-fan-out), [`pipeline`](/user-guide/skills/bundled/orchestration/orchestration-pipeline), [`builder-crew`](/user-guide/skills/bundled/orchestration/orchestration-builder-crew), [`adversarial-verify`](/user-guide/skills/bundled/orchestration/orchestration-adversarial-verify), [`subagent-driven-development`](/user-guide/skills/optional/software-development/software-development-subagent-driven-development) |
+| Related skills | [`ensemble`](/user-guide/skills/bundled/orchestration/orchestration-ensemble), [`fan-out`](/user-guide/skills/bundled/orchestration/orchestration-fan-out), [`pipeline`](/user-guide/skills/bundled/orchestration/orchestration-pipeline), [`builder-crew`](/user-guide/skills/bundled/orchestration/orchestration-builder-crew), [`adversarial-verify`](/user-guide/skills/bundled/orchestration/orchestration-adversarial-verify), [`subagent-driven-development`](/user-guide/skills/optional/software-development/software-development-subagent-driven-development), [`moa-software-development`](/user-guide/skills/bundled/orchestration/orchestration-moa-software-development) |
 
 ## Reference: full SKILL.md
 
@@ -84,6 +84,7 @@ skill with skill_view and read it in full before spawning anything.
 | One deliverable built by distinct roles (spec, build, test, review) | `builder-crew` | Role-shaped delegations coordinated by the parent |
 | Independent judgment on work already produced | `adversarial-verify` | Fresh leaf that receives the artifact but never the author's reasoning |
 | Executing an implementation plan task-by-task with reviews | `subagent-driven-development` | Implementer plus two-stage review children per task |
+| Difficult software change needing independent GPT/Grok implementations and a gated final judge | `moa-software-development` | One-shot MoA at plan/review boundaries; acting workers in explicit worktrees; deterministic viability gates |
 | Durable or long-running board that must survive interrupts | Kanban worker lanes (see the kanban feature docs) | Board with worker lanes; workers get lifecycle guidance injected automatically |
 | Several models contributing to one reply | Mixture of Agents: `moa` provider presets | Reference models analyze, an aggregator model writes the reply; model-level, no delegate_task |
 
@@ -98,6 +99,10 @@ Two rows need care:
   response) configured as a named `moa` provider preset — not agent-level.
   "Use multiple models" routes there; "use multiple agents" routes to
   `ensemble` or `fan-out`.
+- `moa-software-development` is the deliberate exception for hard repository
+  work: it combines advisory MoA only at stage boundaries with independent
+  acting Fabric processes in isolated git worktrees. Load that skill instead
+  of improvising a persistent MoA coding loop.
 
 ## Workflow
 

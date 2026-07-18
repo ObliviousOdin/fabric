@@ -285,6 +285,7 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/bundled/orchestration/orchestration-builder-crew',
                     'user-guide/skills/bundled/orchestration/orchestration-ensemble',
                     'user-guide/skills/bundled/orchestration/orchestration-fan-out',
+                    'user-guide/skills/bundled/orchestration/orchestration-moa-software-development',
                     'user-guide/skills/bundled/orchestration/orchestration-orchestration',
                     'user-guide/skills/bundled/orchestration/orchestration-pipeline',
                   ],

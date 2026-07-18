@@ -887,6 +887,48 @@ class TestWebServerEndpoints:
         assert cfg["moa"]["reference_models"] == payload["reference_models"]
         assert cfg["moa"]["aggregator"] == payload["aggregator"]
 
+    def test_put_moa_presets_preserves_extended_slots_and_cadence(self):
+        from fabric_cli.config import load_config
+
+        payload = {
+            "default_preset": "subscription-plan",
+            "presets": {
+                "subscription-plan": {
+                    "reference_models": [
+                        {
+                            "provider": "openrouter",
+                            "model": "deepseek/deepseek-v4-pro",
+                            "role": "adversarial planner",
+                            "instructions": "Challenge assumptions.",
+                            "reasoning_effort": "high",
+                        }
+                    ],
+                    "aggregator": {
+                        "provider": "openai-codex",
+                        "model": "gpt-5.6-sol",
+                        "role": "architecture owner",
+                        "instructions": "Resolve against evidence.",
+                        "reasoning_effort": "high",
+                    },
+                    "reference_max_tokens": 600,
+                    "fanout": "user_turn",
+                    "enabled": True,
+                }
+            },
+        }
+
+        resp = self.client.put("/api/model/moa", json=payload)
+        assert resp.status_code == 200
+        preset = load_config()["moa"]["presets"]["subscription-plan"]
+        assert preset["reference_models"] == payload["presets"]["subscription-plan"][
+            "reference_models"
+        ]
+        assert preset["aggregator"] == payload["presets"]["subscription-plan"][
+            "aggregator"
+        ]
+        assert preset["reference_max_tokens"] == 600
+        assert preset["fanout"] == "user_turn"
+
     # ── GET /api/media (remote image display) ───────────────────────────
 
     def test_get_media_serves_image_in_root(self):

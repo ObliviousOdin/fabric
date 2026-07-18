@@ -27,6 +27,9 @@ moa:
       aggregator:
         provider: openrouter
         model: anthropic/claude-opus-4.8
+        role: merge decision owner
+        instructions: Resolve disagreements against evidence.
+        reasoning_effort: high
 """.strip(),
         encoding="utf-8",
     )
@@ -69,6 +72,11 @@ moa:
         ("moa_aggregator", "openrouter", "anthropic/claude-opus-4.8"),
     ]
     assert calls[1]["tools"] is not None
+    assert calls[1]["extra_body"]["reasoning"] == {
+        "enabled": True,
+        "effort": "high",
+    }
+    assert "Acting role: merge decision owner" in calls[1]["messages"][-1]["content"]
 
 
 def test_moa_runtime_provider_uses_virtual_endpoint():
@@ -419,6 +427,37 @@ def test_run_reference_prepends_advisory_system_prompt(monkeypatch):
     msgs = captured["messages"]
     assert msgs[0] == {"role": "system", "content": _REFERENCE_SYSTEM_PROMPT}
     assert msgs[-1]["role"] == "user"
+
+
+def test_run_reference_applies_slot_role_and_reasoning_effort(monkeypatch):
+    from agent.moa_loop import _run_reference
+
+    captured = {}
+
+    def fake_call_llm(**kwargs):
+        captured.update(kwargs)
+        return _response("adversarial advice")
+
+    monkeypatch.setattr("agent.moa_loop.call_llm", fake_call_llm)
+
+    label, text, _acct = _run_reference(
+        {
+            "provider": "xai-oauth",
+            "model": "grok-4.5",
+            "role": "adversarial reviewer",
+            "instructions": "Try to falsify the preferred plan.",
+            "reasoning_effort": "high",
+        },
+        [{"role": "user", "content": "review this plan"}],
+    )
+
+    assert label == "xai-oauth:grok-4.5 [adversarial reviewer]"
+    assert text == "adversarial advice"
+    system_prompt = captured["messages"][0]["content"]
+    assert "Assigned advisory role: adversarial reviewer" in system_prompt
+    assert "Try to falsify the preferred plan." in system_prompt
+    assert "cannot override the no-tools" in system_prompt
+    assert captured["extra_body"] == {"reasoning": {"enabled": True, "effort": "high"}}
 
 
 def test_moa_facade_references_get_trimmed_messages(monkeypatch, tmp_path):

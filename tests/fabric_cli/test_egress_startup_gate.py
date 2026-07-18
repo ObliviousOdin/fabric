@@ -115,6 +115,23 @@ def test_cli_gate_preserves_local_repair_commands(monkeypatch):
     main_mod._enforce_early_runtime_egress_gate()
 
 
+@pytest.mark.parametrize("command", ["monitor", "top"])
+def test_cli_gate_allows_local_monitor_under_air_gap(monkeypatch, command):
+    """``fabric monitor`` / ``top`` only read local host stats — allow when air-gapped."""
+    from fabric_cli import main as main_mod
+
+    monkeypatch.setattr(main_mod, "_EARLY_NETWORK_BOOTSTRAP_PERMITTED", False)
+    monkeypatch.setattr(main_mod.sys, "argv", ["fabric", command])
+    monkeypatch.setattr(
+        egress_startup,
+        "require_runtime_egress_available",
+        lambda **_kwargs: pytest.fail("local monitor must not start runtime preflight"),
+    )
+
+    main_mod._enforce_early_runtime_egress_gate()
+    assert main_mod._egress_repair_command_requested() is True
+
+
 def test_blocked_version_command_skips_remote_update_check(monkeypatch):
     from fabric_cli import main as main_mod
 

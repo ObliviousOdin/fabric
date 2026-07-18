@@ -12589,7 +12589,9 @@ def _first_positional_argv() -> str | None:
     return sys.argv[1:][index] if index is not None else None
 
 
-_EGRESS_REPAIR_COMMANDS = frozenset({"config", "doctor", "status", "version"})
+_EGRESS_REPAIR_COMMANDS = frozenset(
+    {"config", "doctor", "status", "version", "monitor", "top"}
+)
 
 
 def _egress_repair_command_requested() -> bool:

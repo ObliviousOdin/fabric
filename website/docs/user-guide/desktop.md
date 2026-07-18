@@ -139,11 +139,13 @@ The library is profile-scoped and stored by the Fabric backend, so moving or
 deleting the original ZIP does not break an imported system. Import validates
 the ZIP, rejects traversal paths and links, applies bounded entry and size
 limits, and extracts an immutable revision without executing bundle code.
-Inspection is also bounded and read-only: it never re-extracts the archive in
-the renderer, never follows symlinks, and never embeds raw archive text into the
-chat prompt. **Replace** validates a new revision, **Show** reveals the managed
-copy for a local backend, and **Remove** deletes Fabric's managed entry without
-deleting the original ZIP. Maintained tokens, components, assets, and rationale
+Inspection is also bounded and read-only: it returns at most 200 inventory rows,
+40 HTML and 40 token entrypoints, and a 16 KiB `DESIGN.md` excerpt while showing
+omitted counts. It never re-extracts the archive in the renderer, never follows
+symlinks, and never embeds raw archive text into the chat prompt. **Replace**
+validates a new revision, **Show** reveals the managed copy for a local backend,
+and **Remove** deletes Fabric's managed entry without deleting the original ZIP.
+Maintained tokens, components, assets, and rationale
 still belong in the project and its `DESIGN.md`; imported revisions are
 read-only reference snapshots.
 

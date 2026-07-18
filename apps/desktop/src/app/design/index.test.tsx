@@ -62,6 +62,7 @@ const inspection: DesignSystemInspection = {
     { path: 'preview/index.html', size: 16 },
     { path: 'tokens/colors.json', size: 32 }
   ],
+  omittedEntrypointCount: 0,
   omittedFileCount: 0,
   revisionSha256: 'abc123456789'
 }
@@ -200,6 +201,7 @@ describe('DesignView', () => {
         packageJson: 'package.json',
         tokenFiles: ['tokens/colors.json']
       },
+      omittedEntrypointCount: 3,
       omittedFileCount: 12
     })
     await waitFor(() => {
@@ -208,6 +210,7 @@ describe('DesignView', () => {
     })
     const preflight = screen.getByTestId('source-preflight')
     expect(preflight.textContent).toMatch(/12 more files omitted/)
+    expect(preflight.textContent).toMatch(/3 more files omitted/)
     expect(preflight.textContent).toContain('No DESIGN.md detected in this archive.')
     expect(screen.getByRole('button', { name: 'Open in a new chat' })).toHaveProperty('disabled', false)
 

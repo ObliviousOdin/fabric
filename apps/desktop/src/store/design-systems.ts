@@ -59,6 +59,7 @@ export interface DesignSystemInspection {
   expandedBytes: number
   fileCount: number
   files: DesignSystemInspectionFile[]
+  omittedEntrypointCount: number
   omittedFileCount: number
   revisionSha256: string
 }

@@ -215,6 +215,7 @@ def test_inspection_returns_profile_scoped_current_revision(
     assert inspection["designMdPreview"]["path"] == "DESIGN.md"
     assert inspection["designMdPreview"]["text"].startswith("# Work system")
     assert inspection["designMdPreview"]["truncated"] is False
+    assert inspection["omittedEntrypointCount"] == 0
 
     replaced = client.post(
         f"/api/design-systems/{system['id']}/revisions?profile=work",

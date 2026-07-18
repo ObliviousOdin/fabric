@@ -164,7 +164,9 @@ not a second transcript or agent runtime.
   active `FABRIC_HOME`.
 - After import or selection, Design loads a bounded preflight from the managed
   revision (counts, entrypoints, capped inventory, optional `DESIGN.md`
-  excerpt). Import stays on Design; only the explicit chat CTA leaves the page.
+  excerpt). The response exposes at most 200 inventory rows, 40 HTML and 40
+  token entrypoints, and 16 KiB of `DESIGN.md`; omitted counts remain visible.
+  Import stays on Design; only the explicit chat CTA leaves the page.
 - Chat receives the validated managed revision path plus a normalized inventory
   of metadata — never raw archive text. Imported files are untrusted reference
   content: never execute scripts or install their dependencies, and write

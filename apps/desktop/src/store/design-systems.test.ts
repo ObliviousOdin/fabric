@@ -57,6 +57,7 @@ const inspection: DesignSystemInspection = {
     { path: 'DESIGN.md', size: 6 },
     { path: 'package.json', size: 2 }
   ],
+  omittedEntrypointCount: 0,
   omittedFileCount: 0,
   revisionSha256: 'abc123'
 }

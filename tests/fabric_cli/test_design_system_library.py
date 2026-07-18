@@ -484,6 +484,32 @@ def test_inspect_returns_bounded_manifest_inventory_and_design_md_preview(
     assert len(preview["text"].encode("utf-8")) <= library.MAX_DESIGN_MD_PREVIEW_BYTES
 
 
+def test_inspect_caps_entrypoint_lists_and_reports_omissions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "profile"))
+    from fabric_cli import design_system_library as library
+
+    archive_path = tmp_path / "many-entrypoints.zip"
+    entries: dict[str, bytes | str] = {}
+    total_per_kind = library.MAX_INSPECTION_ENTRYPOINTS_PER_KIND + 7
+    for index in range(total_per_kind):
+        entries[f"html/page-{index:03d}.html"] = "<html></html>"
+        entries[f"tokens/token-{index:03d}.json"] = "{}"
+    _write_zip_stored(archive_path, entries)
+
+    imported = library.import_design_system(archive_path)
+    inspection = library.inspect_design_system(imported["id"])
+
+    assert inspection is not None
+    assert len(inspection["entrypoints"]["html"]) == library.MAX_INSPECTION_ENTRYPOINTS_PER_KIND
+    assert (
+        len(inspection["entrypoints"]["tokenFiles"])
+        == library.MAX_INSPECTION_ENTRYPOINTS_PER_KIND
+    )
+    assert inspection["omittedEntrypointCount"] == 14
+
+
 def test_inspect_handles_missing_design_md_and_invalid_utf8(
     tmp_path: Path, monkeypatch
 ) -> None:

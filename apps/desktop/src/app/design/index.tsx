@@ -115,13 +115,13 @@ function SourcePreflight({
 
       {inspectionStatus === 'loading' || inspectionStatus === 'idle' ? (
         <div className="mt-4 flex items-center gap-2 text-xs text-(--ui-text-tertiary)">
-          <Loader className="size-5" type="lemniscate-bloom" />
+          <Loader className="size-5" label={d.preflightLoading} type="lemniscate-bloom" />
           <span>{d.preflightLoading}</span>
         </div>
       ) : null}
 
       {inspectionStatus === 'error' ? (
-        <div className="mt-4 space-y-2">
+        <div aria-live="assertive" className="mt-4 space-y-2" role="alert">
           <ErrorBanner>{inspectionError || d.preflightFailed}</ErrorBanner>
           <Button onClick={onRetry} size="sm" type="button" variant="outline">
             {retryLabel}
@@ -139,7 +139,7 @@ function SourcePreflight({
             inspection.entrypoints.packageJson ||
             (inspection.entrypoints.html && inspection.entrypoints.html.length > 0) ||
             (inspection.entrypoints.tokenFiles && inspection.entrypoints.tokenFiles.length > 0) ? (
-              <ul className="space-y-1 text-xs leading-4 text-(--ui-text-secondary)">
+              <ul className="max-h-40 space-y-1 overflow-y-auto text-xs leading-4 text-(--ui-text-secondary)">
                 {inspection.entrypoints.designMd ? (
                   <li>
                     <span className="text-(--ui-text-tertiary)">DESIGN.md · </span>
@@ -170,6 +170,11 @@ function SourcePreflight({
             ) : (
               <p className="text-xs text-(--ui-text-tertiary)">{d.preflightNoEntrypoints}</p>
             )}
+            {inspection.omittedEntrypointCount > 0 ? (
+              <p className="mt-2 text-[11px] text-(--ui-text-tertiary)">
+                {d.preflightOmitted(inspection.omittedEntrypointCount)}
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -357,6 +362,7 @@ export function DesignView({
                   expandedBytes: matchingInspection.expandedBytes,
                   fileCount: matchingInspection.fileCount,
                   files: matchingInspection.files,
+                  omittedEntrypointCount: matchingInspection.omittedEntrypointCount,
                   omittedFileCount: matchingInspection.omittedFileCount
                 }
               : undefined,

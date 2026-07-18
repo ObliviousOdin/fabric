@@ -38,6 +38,7 @@ export interface DesignSystemSourceInspection {
   expandedBytes?: number;
   fileCount?: number;
   files?: Array<{ path: string; size?: number }>;
+  omittedEntrypointCount?: number;
   omittedFileCount?: number;
 }
 
@@ -236,6 +237,7 @@ function designSystemInstruction(request: DesignRequest): string {
     const fileCount = formatCount(inspection.fileCount);
     const expandedBytes = formatCount(inspection.expandedBytes);
     const omitted = formatCount(inspection.omittedFileCount);
+    const omittedEntrypoints = formatCount(inspection.omittedEntrypointCount);
     const inventoryBits: string[] = [];
     if (fileCount) {
       inventoryBits.push(`${fileCount} files`);
@@ -245,6 +247,9 @@ function designSystemInstruction(request: DesignRequest): string {
     }
     if (omitted && omitted !== "0") {
       inventoryBits.push(`${omitted} inventory rows omitted from this summary`);
+    }
+    if (omittedEntrypoints && omittedEntrypoints !== "0") {
+      inventoryBits.push(`${omittedEntrypoints} entrypoints omitted from this summary`);
     }
     if (inventoryBits.length > 0) {
       parts.push(`Validated inventory: ${inventoryBits.join(", ")}.`);

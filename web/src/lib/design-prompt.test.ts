@@ -75,6 +75,7 @@ describe("buildDesignPrompt", () => {
             { path: "package.json", size: 32 },
             { path: "tokens/colors.json", size: 64 },
           ],
+          omittedEntrypointCount: 3,
           omittedFileCount: 12,
         },
         kind: "managed",
@@ -85,6 +86,7 @@ describe("buildDesignPrompt", () => {
 
     expect(prompt).toContain("revision deadbeef");
     expect(prompt).toContain("Validated inventory: 42 files, 120034 expanded bytes, 12 inventory rows omitted");
+    expect(prompt).toContain("3 entrypoints omitted from this summary");
     expect(prompt).toContain("DESIGN.md=DESIGN.md");
     expect(prompt).toContain("package.json=package.json");
     expect(prompt).toContain("html=[preview/index.html, docs/unsafe.html]");

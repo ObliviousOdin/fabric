@@ -45,6 +45,7 @@ MAX_PATH_DEPTH = 32
 MAX_PATH_LENGTH = 512
 MAX_PATH_SEGMENT_LENGTH = 255
 MAX_INSPECTION_FILES = 200
+MAX_INSPECTION_ENTRYPOINTS_PER_KIND = 40
 MAX_DESIGN_MD_PREVIEW_BYTES = 16 * 1024
 
 # Readable aliases for callers that want to advertise the limits.
@@ -239,7 +240,7 @@ class DesignSystemLibrary:
             )
 
         file_rows.sort(key=lambda row: str(row["path"]).casefold())
-        entrypoints = _detect_entrypoints(file_rows)
+        entrypoints, omitted_entrypoint_count = _detect_entrypoints(file_rows)
         inventory = file_rows[:MAX_INSPECTION_FILES]
         omitted = max(0, len(file_rows) - len(inventory))
         design_md_preview = None
@@ -255,6 +256,7 @@ class DesignSystemLibrary:
             "entrypoints": entrypoints,
             "files": inventory,
             "omittedFileCount": omitted,
+            "omittedEntrypointCount": omitted_entrypoint_count,
             "designMdPreview": design_md_preview,
         }
 
@@ -680,7 +682,7 @@ def _revision_descriptor(
     }
 
 
-def _detect_entrypoints(file_rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _detect_entrypoints(file_rows: list[dict[str, Any]]) -> tuple[dict[str, Any], int]:
     design_md: str | None = None
     package_json: str | None = None
     html: list[str] = []
@@ -712,11 +714,15 @@ def _detect_entrypoints(file_rows: list[dict[str, Any]]) -> dict[str, Any]:
         result["designMd"] = design_md
     if package_json is not None:
         result["packageJson"] = package_json
-    if html:
-        result["html"] = sorted(html)
-    if token_files:
-        result["tokenFiles"] = sorted(token_files)
-    return result
+    sorted_html = sorted(html)
+    sorted_token_files = sorted(token_files)
+    omitted = max(0, len(sorted_html) - MAX_INSPECTION_ENTRYPOINTS_PER_KIND)
+    omitted += max(0, len(sorted_token_files) - MAX_INSPECTION_ENTRYPOINTS_PER_KIND)
+    if sorted_html:
+        result["html"] = sorted_html[:MAX_INSPECTION_ENTRYPOINTS_PER_KIND]
+    if sorted_token_files:
+        result["tokenFiles"] = sorted_token_files[:MAX_INSPECTION_ENTRYPOINTS_PER_KIND]
+    return result, omitted
 
 
 def _read_design_md_preview(files_root: Path, relative_path: str) -> dict[str, Any] | None:

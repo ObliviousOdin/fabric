@@ -114,6 +114,17 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 |-------|-------------|------|
 | [`obsidian`](/user-guide/skills/bundled/note-taking/note-taking-obsidian) | Read, search, create, and edit notes in the Obsidian vault. | `note-taking/obsidian` |
 
+## orchestration
+
+| Skill | Description | Path |
+|-------|-------------|------|
+| [`adversarial-verify`](/user-guide/skills/bundled/orchestration/orchestration-adversarial-verify) | Verify work with independent skeptic subagents — spawn fresh-context reviewers charged with refuting a claim, finding what breaks, or failing a ship-readiness bar before you trust or ship it. Use before merging risky changes, publishing... | `orchestration/adversarial-verify` |
+| [`builder-crew`](/user-guide/skills/bundled/orchestration/orchestration-builder-crew) | Assemble a virtual product crew of subagent specialists — product, design, engineering, quality, and growth roles with written charters, each delegated a self-contained brief, coordinated by you as the founder-proxy. Use when a founder-s... | `orchestration/builder-crew` |
+| [`ensemble`](/user-guide/skills/bundled/orchestration/orchestration-ensemble) | Run a subagent ensemble on one hard problem — spawn several specialists with deliberately different lenses on the same question, then judge and synthesize their answers into one stronger result. Use for high-stakes decisions, designs, es... | `orchestration/ensemble` |
+| [`fan-out`](/user-guide/skills/bundled/orchestration/orchestration-fan-out) | Fan independent work out to parallel subagents — decompose a big job into self-contained shards, batch them through delegate_task, then merge results deterministically. Use for many-file audits, migrations, bulk research, or any workload... | `orchestration/fan-out` |
+| [`orchestration`](/user-guide/skills/bundled/orchestration/orchestration-orchestration) | Front door for multi-agent work — decide when to orchestrate at all, then route between subagent ensembles, parallel fan-out, staged pipelines, a builder crew, adversarial verification, kanban worker lanes for durable boards, and Mixture... | `orchestration/orchestration` |
+| [`pipeline`](/user-guide/skills/bundled/orchestration/orchestration-pipeline) | Chain subagents through staged handoffs — research, plan, build, verify as separate fresh-context stages connected by explicit artifact contracts on disk. Use for multi-phase work where each phase benefits from a clean context and a revi... | `orchestration/pipeline` |
+
 ## productivity
 
 | Skill | Description | Path |

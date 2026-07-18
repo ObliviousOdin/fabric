@@ -1,7 +1,7 @@
 {
  "title": "Self-Hosted Agent Skills Directory — Curated Source Seed",
  "generated_at": "2026-07-16",
- "scope_note": "This is a curated source map, not a claim that every listed skill is safe, effective, licensed for redistribution, or expert-authored. The ecosystem changes too quickly for a static exhaustive list. The intended design is continuous ingestion, canonicalization, evaluation, and signed publication. One upstream reference implementation entry is omitted from this published copy under the project's public identity policy.",
+ "scope_note": "This is a curated source map, not a claim that every listed skill is safe, effective, licensed for redistribution, or expert-authored. The ecosystem changes too quickly for a static exhaustive list. The intended design is continuous ingestion, canonicalization, evaluation, and signed publication. One upstream reference implementation entry is omitted from this published copy under the project's public identity policy. Extended 2026-07-17 with tree-verified sources from the agent-skills atlas research pass.",
  "trust_tiers": {
   "A1": "Verified first-party, government, standards, or canonical ecosystem source. Still requires per-version license and security review.",
   "A2": "Recognized expert, academic, or specialist-maintained source with strong signal and explicit methodology.",
@@ -6469,6 +6469,2072 @@
    "recommended_wave": 3,
    "review_priority": "critical",
    "as_of": "2026-07-16"
+  },
+  {
+   "id": "a5c-ai-babysitter",
+   "name": "a5c-ai/babysitter",
+   "url": "https://github.com/a5c-ai/babysitter",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Quality Management And Audit Operations"
+   ],
+   "primary_use": "2112 skills discovered in the agent-skills atlas pass (Quality Management And Audit Operations).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 2112 skills; 1557 stars, last push 2026-07-18.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [
+    "Large collection; index-only, not tapped"
+   ],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "mohitagw15856-pm-claude-skills",
+   "name": "mohitagw15856/pm-claude-skills",
+   "url": "https://github.com/mohitagw15856/pm-claude-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Community Building And Moderation"
+   ],
+   "primary_use": "1739 skills discovered in the agent-skills atlas pass (Community Building And Moderation).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1739 skills; 1193 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [
+    "Large collection; index-only, not tapped"
+   ],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "mukul975-privacy-data-protection-skills",
+   "name": "mukul975/privacy-data-protection-skills",
+   "url": "https://github.com/mukul975/privacy-data-protection-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Cybersecurity and technical compliance engineering"
+   ],
+   "primary_use": "824 skills discovered in the agent-skills atlas pass (Cybersecurity and technical compliance engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 824 skills; 199 stars, last push 2026-03-16.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [
+    "Large collection; index-only, not tapped"
+   ],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "mukul975-anthropic-cybersecurity-skills",
+   "name": "mukul975/Anthropic-Cybersecurity-Skills",
+   "url": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Cybersecurity and technical compliance engineering"
+   ],
+   "primary_use": "817 skills discovered in the agent-skills atlas pass (Cybersecurity and technical compliance engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 817 skills; 25709 stars, last push 2026-06-26.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [
+    "Large collection; index-only, not tapped"
+   ],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "awesome-genmedia-skills",
+   "name": "awesome-genmedia/skills",
+   "url": "https://github.com/awesome-genmedia/skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Video Production Craft"
+   ],
+   "primary_use": "576 skills discovered in the agent-skills atlas pass (Video Production Craft).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 576 skills; 20 stars, last push 2026-03-22.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [
+    "Large collection; index-only, not tapped"
+   ],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "ruvnet-claude-flow",
+   "name": "ruvnet/claude-flow",
+   "url": "https://github.com/ruvnet/claude-flow",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Project, Program, and Portfolio Management"
+   ],
+   "primary_use": "346 skills discovered in the agent-skills atlas pass (Project, Program, and Portfolio Management).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 346 skills; 64883 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "borghei-claude-skills",
+   "name": "borghei/Claude-Skills",
+   "url": "https://github.com/borghei/Claude-Skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Email Marketing, CRM, and Lifecycle Messaging",
+    "Marketing Strategy & Go-To-Market",
+    "Risk Management And Incident Response"
+   ],
+   "primary_use": "344 skills discovered in the agent-skills atlas pass (Email Marketing, CRM, and Lifecycle Messaging, Marketing Strategy & Go-To-Market).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 344 skills; 384 stars, last push 2026-06-29.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [
+    "Large collection; index-only, not tapped"
+   ],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "atc-net-atc-agentic-toolkit",
+   "name": "atc-net/atc-agentic-toolkit",
+   "url": "https://github.com/atc-net/atc-agentic-toolkit",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Cybersecurity and technical compliance engineering"
+   ],
+   "primary_use": "254 skills discovered in the agent-skills atlas pass (Cybersecurity and technical compliance engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 254 skills; 2 stars, last push 2026-06-23.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "gtmagents-gtm-agents",
+   "name": "gtmagents/gtm-agents",
+   "url": "https://github.com/gtmagents/gtm-agents",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Copywriting & Conversion Writing"
+   ],
+   "primary_use": "244 skills discovered in the agent-skills atlas pass (Copywriting & Conversion Writing).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 244 skills; 337 stars, last push 2026-04-03.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "anthropics-knowledge-work-plugins",
+   "name": "anthropics/knowledge-work-plugins",
+   "url": "https://github.com/anthropics/knowledge-work-plugins",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Copywriting & Conversion Writing",
+    "Creative Direction & Brand Systems",
+    "Customer Support And Service Operations"
+   ],
+   "primary_use": "212 skills discovered in the agent-skills atlas pass (Copywriting & Conversion Writing, Creative Direction & Brand Systems).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 212 skills; 22663 stars, last push 2026-07-14.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "rampstackco-claude-skills",
+   "name": "rampstackco/claude-skills",
+   "url": "https://github.com/rampstackco/claude-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Creative Direction & Brand Systems"
+   ],
+   "primary_use": "205 skills discovered in the agent-skills atlas pass (Creative Direction & Brand Systems).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 205 skills; 466 stars, last push 2026-07-12.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "tuanductran-hr-skills",
+   "name": "tuanductran/hr-skills",
+   "url": "https://github.com/tuanductran/hr-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Organization Design And People Operations"
+   ],
+   "primary_use": "159 skills discovered in the agent-skills atlas pass (Organization Design And People Operations).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 159 skills; 27 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "databricks-databricks-agent-skills",
+   "name": "databricks/databricks-agent-skills",
+   "url": "https://github.com/databricks/databricks-agent-skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Databases, Data Engineering, Analytics, Spreadsheets, and Visualization"
+   ],
+   "primary_use": "148 skills discovered in the agent-skills atlas pass (Databases, Data Engineering, Analytics, Spreadsheets, and Visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 148 skills; 213 stars, last push 2026-07-16.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "oakoss-agent-skills",
+   "name": "oakoss/agent-skills",
+   "url": "https://github.com/oakoss/agent-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Mobile and Desktop Product Engineering"
+   ],
+   "primary_use": "132 skills discovered in the agent-skills atlas pass (Mobile and Desktop Product Engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 132 skills; 13 stars, last push 2026-03-02.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "aws-agent-toolkit-for-aws",
+   "name": "aws/agent-toolkit-for-aws",
+   "url": "https://github.com/aws/agent-toolkit-for-aws",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Cloud, DevOps, SRE"
+   ],
+   "primary_use": "131 skills discovered in the agent-skills atlas pass (Cloud, DevOps, SRE).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 131 skills; 1944 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "aaron-he-zhu-aaron-marketing-skills",
+   "name": "aaron-he-zhu/aaron-marketing-skills",
+   "url": "https://github.com/aaron-he-zhu/aaron-marketing-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Social Media Strategy And Community Growth"
+   ],
+   "primary_use": "120 skills discovered in the agent-skills atlas pass (Social Media Strategy And Community Growth).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 120 skills; 2405 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "jwynia-agent-skills",
+   "name": "jwynia/agent-skills",
+   "url": "https://github.com/jwynia/agent-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Mobile and Desktop Product Engineering"
+   ],
+   "primary_use": "119 skills discovered in the agent-skills atlas pass (Mobile and Desktop Product Engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 119 skills; 118 stars, last push 2026-02-24.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "dotnet-skills",
+   "name": "dotnet/skills",
+   "url": "https://github.com/dotnet/skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Mobile and Desktop Product Engineering"
+   ],
+   "primary_use": "106 skills discovered in the agent-skills atlas pass (Mobile and Desktop Product Engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 106 skills; 4656 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "microsoft-skills-for-fabric",
+   "name": "microsoft/skills-for-fabric",
+   "url": "https://github.com/microsoft/skills-for-fabric",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Databases, Data Engineering, Analytics, Spreadsheets, and Visualization"
+   ],
+   "primary_use": "101 skills discovered in the agent-skills atlas pass (Databases, Data Engineering, Analytics, Spreadsheets, and Visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 101 skills; 809 stars, last push 2026-07-16.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "softaworks-agent-toolkit",
+   "name": "softaworks/agent-toolkit",
+   "url": "https://github.com/softaworks/agent-toolkit",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Diagrams and technical visualization",
+    "Software Engineering Lifecycle"
+   ],
+   "primary_use": "86 skills discovered in the agent-skills atlas pass (Diagrams and technical visualization, Software Engineering Lifecycle).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 86 skills; 2203 stars, last push 2026-03-05.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "codealive-ai-ceo-ai-os",
+   "name": "CodeAlive-AI/ceo-ai-os",
+   "url": "https://github.com/CodeAlive-AI/ceo-ai-os",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "CEO and Executive Operating Systems"
+   ],
+   "primary_use": "79 skills discovered in the agent-skills atlas pass (CEO and Executive Operating Systems).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 79 skills; 2 stars, last push 2026-06-04.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "product-on-purpose-pm-skills",
+   "name": "product-on-purpose/pm-skills",
+   "url": "https://github.com/product-on-purpose/pm-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Product Management and Strategy"
+   ],
+   "primary_use": "78 skills discovered in the agent-skills atlas pass (Product Management and Strategy).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 78 skills; 476 stars, last push 2026-07-16.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "lambdatest-agent-skills",
+   "name": "LambdaTest/agent-skills",
+   "url": "https://github.com/LambdaTest/agent-skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Software Testing and QA"
+   ],
+   "primary_use": "71 skills discovered in the agent-skills atlas pass (Software Testing and QA).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 71 skills; 332 stars, last push 2026-06-18.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "deanpeters-product-manager-skills",
+   "name": "deanpeters/Product-Manager-Skills",
+   "url": "https://github.com/deanpeters/Product-Manager-Skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Product Management and Strategy"
+   ],
+   "primary_use": "70 skills discovered in the agent-skills atlas pass (Product Management and Strategy).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 70 skills; 5813 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "neolabhq-context-engineering-kit",
+   "name": "NeoLabHQ/context-engineering-kit",
+   "url": "https://github.com/NeoLabHQ/context-engineering-kit",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Software Testing and QA"
+   ],
+   "primary_use": "68 skills discovered in the agent-skills atlas pass (Software Testing and QA).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 68 skills; 1248 stars, last push 2026-07-14.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "jeffallan-claude-skills",
+   "name": "jeffallan/claude-skills",
+   "url": "https://github.com/jeffallan/claude-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Databases, Data Engineering, Analytics, Spreadsheets, and Visualization"
+   ],
+   "primary_use": "66 skills discovered in the agent-skills atlas pass (Databases, Data Engineering, Analytics, Spreadsheets, and Visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 66 skills; 10625 stars, last push 2026-05-20.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "thecraighewitt-skills",
+   "name": "TheCraigHewitt/skills",
+   "url": "https://github.com/TheCraigHewitt/skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "B2B and B2C Sales"
+   ],
+   "primary_use": "66 skills discovered in the agent-skills atlas pass (B2B and B2C Sales).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 66 skills; 121 stars, last push 2026-05-22.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "spencerpauly-awesome-cursor-skills",
+   "name": "spencerpauly/awesome-cursor-skills",
+   "url": "https://github.com/spencerpauly/awesome-cursor-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Frontend and web engineering"
+   ],
+   "primary_use": "65 skills discovered in the agent-skills atlas pass (Frontend and web engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 65 skills; 581 stars, last push 2026-04-28.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "minhnv0807-ai-business-skills",
+   "name": "minhnv0807/ai-business-skills",
+   "url": "https://github.com/minhnv0807/ai-business-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Marketing Strategy & Go-To-Market"
+   ],
+   "primary_use": "64 skills discovered in the agent-skills atlas pass (Marketing Strategy & Go-To-Market).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 64 skills; 500 stars, last push 2026-07-09.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "wondelai-skills",
+   "name": "wondelai/skills",
+   "url": "https://github.com/wondelai/skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Creative Direction & Brand Systems"
+   ],
+   "primary_use": "62 skills discovered in the agent-skills atlas pass (Creative Direction & Brand Systems).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 62 skills; 1642 stars, last push 2026-07-05.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "hack23-homepage",
+   "name": "Hack23/homepage",
+   "url": "https://github.com/Hack23/homepage",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Risk Management And Incident Response"
+   ],
+   "primary_use": "58 skills discovered in the agent-skills atlas pass (Risk Management And Incident Response).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 58 skills; 7 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "agile-v-agile_v_skills",
+   "name": "Agile-V/agile_v_skills",
+   "url": "https://github.com/Agile-V/agile_v_skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Quality Management And Audit Operations"
+   ],
+   "primary_use": "43 skills discovered in the agent-skills atlas pass (Quality Management And Audit Operations).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 43 skills; 49 stars, last push 2026-07-15.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "flutter-agent-plugins",
+   "name": "flutter/agent-plugins",
+   "url": "https://github.com/flutter/agent-plugins",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Mobile and Desktop Product Engineering"
+   ],
+   "primary_use": "36 skills discovered in the agent-skills atlas pass (Mobile and Desktop Product Engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 36 skills; 2690 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "agricidaniel-claude-seo",
+   "name": "AgriciDaniel/claude-seo",
+   "url": "https://github.com/AgriciDaniel/claude-seo",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Content Marketing And Editorial Strategy"
+   ],
+   "primary_use": "33 skills discovered in the agent-skills atlas pass (Content Marketing And Editorial Strategy).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 33 skills; 11673 stars, last push 2026-07-06.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "data-goblin-power-bi-agentic-development",
+   "name": "data-goblin/power-bi-agentic-development",
+   "url": "https://github.com/data-goblin/power-bi-agentic-development",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Databases, Data Engineering, Analytics, Spreadsheets, and Visualization"
+   ],
+   "primary_use": "32 skills discovered in the agent-skills atlas pass (Databases, Data Engineering, Analytics, Spreadsheets, and Visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 32 skills; 795 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "akin-ozer-cc-devops-skills",
+   "name": "akin-ozer/cc-devops-skills",
+   "url": "https://github.com/akin-ozer/cc-devops-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Cloud, DevOps, SRE"
+   ],
+   "primary_use": "31 skills discovered in the agent-skills atlas pass (Cloud, DevOps, SRE).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 31 skills; 276 stars, last push 2026-07-11.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "mgifford-accessibility-skills",
+   "name": "mgifford/accessibility-skills",
+   "url": "https://github.com/mgifford/accessibility-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "UX & UI Design"
+   ],
+   "primary_use": "29 skills discovered in the agent-skills atlas pass (UX & UI Design).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 29 skills; 26 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "preset-io-agent-skills",
+   "name": "preset-io/agent-skills",
+   "url": "https://github.com/preset-io/agent-skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Databases, Data Engineering, Analytics, Spreadsheets, and Visualization"
+   ],
+   "primary_use": "28 skills discovered in the agent-skills atlas pass (Databases, Data Engineering, Analytics, Spreadsheets, and Visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 28 skills; 9 stars, last push 2026-06-22.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "mblode-agent-skills",
+   "name": "mblode/agent-skills",
+   "url": "https://github.com/mblode/agent-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "UX & UI Design"
+   ],
+   "primary_use": "26 skills discovered in the agent-skills atlas pass (UX & UI Design).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 26 skills; 60 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "allenai-asta-plugins",
+   "name": "allenai/asta-plugins",
+   "url": "https://github.com/allenai/asta-plugins",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "AI, ML, Data Science & Research"
+   ],
+   "primary_use": "24 skills discovered in the agent-skills atlas pass (AI, ML, Data Science & Research).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 24 skills; 21 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "addyosmani-agent-skills",
+   "name": "addyosmani/agent-skills",
+   "url": "https://github.com/addyosmani/agent-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Frontend and web engineering",
+    "Software Engineering Lifecycle",
+    "UX & UI Design"
+   ],
+   "primary_use": "24 skills discovered in the agent-skills atlas pass (Frontend and web engineering, Software Engineering Lifecycle).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 24 skills; 78599 stars, last push 2026-07-12.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "wulaosiji-founder-skills",
+   "name": "wulaosiji/founder-skills",
+   "url": "https://github.com/wulaosiji/founder-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Startup Fundraising"
+   ],
+   "primary_use": "24 skills discovered in the agent-skills atlas pass (Startup Fundraising).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 24 skills; 5 stars, last push 2026-04-28.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "lycfyi-community-agent-plugin",
+   "name": "lycfyi/community-agent-plugin",
+   "url": "https://github.com/lycfyi/community-agent-plugin",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Community Building And Moderation"
+   ],
+   "primary_use": "21 skills discovered in the agent-skills atlas pass (Community Building And Moderation).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 21 skills; 5 stars, last push 2026-01-22.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "itsmostafa-aws-agent-skills",
+   "name": "itsmostafa/aws-agent-skills",
+   "url": "https://github.com/itsmostafa/aws-agent-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Cloud, DevOps, SRE"
+   ],
+   "primary_use": "18 skills discovered in the agent-skills atlas pass (Cloud, DevOps, SRE).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 18 skills; 1136 stars, last push 2026-07-06.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "new-silvermoon-awesome-android-agent-skills",
+   "name": "new-silvermoon/awesome-android-agent-skills",
+   "url": "https://github.com/new-silvermoon/awesome-android-agent-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Mobile and Desktop Product Engineering"
+   ],
+   "primary_use": "17 skills discovered in the agent-skills atlas pass (Mobile and Desktop Product Engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 17 skills; 892 stars, last push 2026-03-28.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "psenger-ai-agent-skills",
+   "name": "psenger/ai-agent-skills",
+   "url": "https://github.com/psenger/ai-agent-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "UX & UI Design"
+   ],
+   "primary_use": "14 skills discovered in the agent-skills atlas pass (UX & UI Design).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 14 skills; 9 stars, last push 2026-05-24.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "digitalsamba-claude-code-video-toolkit",
+   "name": "digitalsamba/claude-code-video-toolkit",
+   "url": "https://github.com/digitalsamba/claude-code-video-toolkit",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Video Production Craft"
+   ],
+   "primary_use": "13 skills discovered in the agent-skills atlas pass (Video Production Craft).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 13 skills; 1767 stars, last push 2026-07-06.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "realkimbarrett-advertising-skills",
+   "name": "realkimbarrett/advertising-skills",
+   "url": "https://github.com/realkimbarrett/advertising-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Copywriting & Conversion Writing"
+   ],
+   "primary_use": "12 skills discovered in the agent-skills atlas pass (Copywriting & Conversion Writing).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 12 skills; 696 stars, last push 2026-03-26.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "timescale-pg-aiguide",
+   "name": "timescale/pg-aiguide",
+   "url": "https://github.com/timescale/pg-aiguide",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Databases, Data Engineering, Analytics, Spreadsheets, and Visualization"
+   ],
+   "primary_use": "10 skills discovered in the agent-skills atlas pass (Databases, Data Engineering, Analytics, Spreadsheets, and Visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 10 skills; 1789 stars, last push 2026-06-26.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "oncesylvia-fundraising-skills",
+   "name": "oncesylvia/fundraising-skills",
+   "url": "https://github.com/oncesylvia/fundraising-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Startup Fundraising"
+   ],
+   "primary_use": "10 skills discovered in the agent-skills atlas pass (Startup Fundraising).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 10 skills; 1 stars, last push 2026-07-05.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "antvis-chart-visualization-skills",
+   "name": "antvis/chart-visualization-skills",
+   "url": "https://github.com/antvis/chart-visualization-skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Databases, Data Engineering, Analytics, Spreadsheets, and Visualization"
+   ],
+   "primary_use": "9 skills discovered in the agent-skills atlas pass (Databases, Data Engineering, Analytics, Spreadsheets, and Visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 9 skills; 420 stars, last push 2026-07-14.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "microsoft-win-dev-skills",
+   "name": "microsoft/win-dev-skills",
+   "url": "https://github.com/microsoft/win-dev-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Mobile and Desktop Product Engineering"
+   ],
+   "primary_use": "9 skills discovered in the agent-skills atlas pass (Mobile and Desktop Product Engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 9 skills; 356 stars, last push 2026-07-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "mikemai2awesome-agent-skills",
+   "name": "mikemai2awesome/agent-skills",
+   "url": "https://github.com/mikemai2awesome/agent-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "UX & UI Design"
+   ],
+   "primary_use": "9 skills discovered in the agent-skills atlas pass (UX & UI Design).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 9 skills; 12 stars, last push 2026-07-06.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "julianoczkowski-designer-skills",
+   "name": "julianoczkowski/designer-skills",
+   "url": "https://github.com/julianoczkowski/designer-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "UX & UI Design"
+   ],
+   "primary_use": "8 skills discovered in the agent-skills atlas pass (UX & UI Design).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 8 skills; 424 stars, last push 2026-07-06.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "mlops-courses-mlops-coding-skills",
+   "name": "MLOps-Courses/mlops-coding-skills",
+   "url": "https://github.com/MLOps-Courses/mlops-coding-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "AI, ML, Data Science & Research"
+   ],
+   "primary_use": "7 skills discovered in the agent-skills atlas pass (AI, ML, Data Science & Research).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 7 skills; 19 stars, last push 2026-07-07.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "fireredteam-firered-openstoryline",
+   "name": "FireRedTeam/FireRed-OpenStoryline",
+   "url": "https://github.com/FireRedTeam/FireRed-OpenStoryline",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Video Post-Production"
+   ],
+   "primary_use": "7 skills discovered in the agent-skills atlas pass (Video Post-Production).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 7 skills; 3107 stars, last push 2026-05-07.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "fluxcd-agent-skills",
+   "name": "fluxcd/agent-skills",
+   "url": "https://github.com/fluxcd/agent-skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Cloud, DevOps, SRE"
+   ],
+   "primary_use": "6 skills discovered in the agent-skills atlas pass (Cloud, DevOps, SRE).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 6 skills; 198 stars, last push 2026-07-10.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "gitguardian-agent-skills",
+   "name": "GitGuardian/agent-skills",
+   "url": "https://github.com/GitGuardian/agent-skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Cybersecurity and technical compliance engineering"
+   ],
+   "primary_use": "6 skills discovered in the agent-skills atlas pass (Cybersecurity and technical compliance engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 6 skills; 4 stars, last push 2026-07-06.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "fayazara-macos-app-skills",
+   "name": "fayazara/macos-app-skills",
+   "url": "https://github.com/fayazara/macos-app-skills",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Mobile and Desktop Product Engineering"
+   ],
+   "primary_use": "6 skills discovered in the agent-skills atlas pass (Mobile and Desktop Product Engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 6 skills; 626 stars, last push 2026-05-27.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "testdino-hq-playwright-skill",
+   "name": "testdino-hq/playwright-skill",
+   "url": "https://github.com/testdino-hq/playwright-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Software Testing and QA"
+   ],
+   "primary_use": "6 skills discovered in the agent-skills atlas pass (Software Testing and QA).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 6 skills; 323 stars, last push 2026-07-02.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "kkunkunya-ppt-maker-agent-plugin",
+   "name": "kkunkunya/ppt-maker-agent-plugin",
+   "url": "https://github.com/kkunkunya/ppt-maker-agent-plugin",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Presentations & Executive Communications"
+   ],
+   "primary_use": "6 skills discovered in the agent-skills atlas pass (Presentations & Executive Communications).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 6 skills; 1 stars, last push 2026-05-16.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "scalebrick-founder-marketing-skills",
+   "name": "ScaleBrick/founder-marketing-skills",
+   "url": "https://github.com/ScaleBrick/founder-marketing-skills",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Marketing Strategy & Go-To-Market"
+   ],
+   "primary_use": "4 skills discovered in the agent-skills atlas pass (Marketing Strategy & Go-To-Market).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 4 skills; 81 stars, last push 2026-05-01.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "cypress-io-ai-toolkit",
+   "name": "cypress-io/ai-toolkit",
+   "url": "https://github.com/cypress-io/ai-toolkit",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Software Testing and QA"
+   ],
+   "primary_use": "3 skills discovered in the agent-skills atlas pass (Software Testing and QA).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 3 skills; 37 stars, last push 2026-07-06.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "cookiy-ai-user-research-skill",
+   "name": "cookiy-ai/user-research-skill",
+   "url": "https://github.com/cookiy-ai/user-research-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Customer Discovery & User Research"
+   ],
+   "primary_use": "2 skills discovered in the agent-skills atlas pass (Customer Discovery & User Research).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 2 skills; 1208 stars, last push 2026-07-14.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "krayin-agent-skills",
+   "name": "krayin/agent-skills",
+   "url": "https://github.com/krayin/agent-skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Email Marketing, CRM, and Lifecycle Messaging"
+   ],
+   "primary_use": "2 skills discovered in the agent-skills atlas pass (Email Marketing, CRM, and Lifecycle Messaging).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 2 skills; 2 stars, last push 2026-06-08.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "tjboudreaux-cc-skills-vc-fundraising",
+   "name": "tjboudreaux/cc-skills-vc-fundraising",
+   "url": "https://github.com/tjboudreaux/cc-skills-vc-fundraising",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Startup Fundraising"
+   ],
+   "primary_use": "2 skills discovered in the agent-skills atlas pass (Startup Fundraising).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 2 skills; 16 stars, last push 2026-03-06.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "lukasniessen-kubernetes-skill",
+   "name": "LukasNiessen/kubernetes-skill",
+   "url": "https://github.com/LukasNiessen/kubernetes-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Cloud, DevOps, SRE"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Cloud, DevOps, SRE).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 313 stars, last push 2026-06-28.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "antonbabenko-terraform-skill",
+   "name": "antonbabenko/terraform-skill",
+   "url": "https://github.com/antonbabenko/terraform-skill",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "Cloud, DevOps, SRE"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Cloud, DevOps, SRE).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 2194 stars, last push 2026-07-03.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "pixeltable-pixeltable-skill",
+   "name": "pixeltable/pixeltable-skill",
+   "url": "https://github.com/pixeltable/pixeltable-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Databases, Data Engineering, Analytics, Spreadsheets, and Visualization"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Databases, Data Engineering, Analytics, Spreadsheets, and Visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 5 stars, last push 2026-07-11.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "konraddzbik-architecture-diagram-skill",
+   "name": "konraddzbik/architecture-diagram-skill",
+   "url": "https://github.com/konraddzbik/architecture-diagram-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Diagrams and technical visualization"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Diagrams and technical visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 32 stars, last push 2026-06-21.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "agents365-ai-excalidraw-skill",
+   "name": "Agents365-ai/excalidraw-skill",
+   "url": "https://github.com/Agents365-ai/excalidraw-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Diagrams and technical visualization"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Diagrams and technical visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 152 stars, last push 2026-07-16.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "agents365-ai-mermaid-skill",
+   "name": "Agents365-ai/mermaid-skill",
+   "url": "https://github.com/Agents365-ai/mermaid-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Diagrams and technical visualization"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Diagrams and technical visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 134 stars, last push 2026-07-16.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "agents365-ai-plantuml-skill",
+   "name": "Agents365-ai/plantuml-skill",
+   "url": "https://github.com/Agents365-ai/plantuml-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Diagrams and technical visualization"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Diagrams and technical visualization).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 36 stars, last push 2026-07-16.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "yetone-native-feel-skill",
+   "name": "yetone/native-feel-skill",
+   "url": "https://github.com/yetone/native-feel-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Mobile and Desktop Product Engineering"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Mobile and Desktop Product Engineering).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 1850 stars, last push 2026-05-30.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "lackeyjb-playwright-skill",
+   "name": "lackeyjb/playwright-skill",
+   "url": "https://github.com/lackeyjb/playwright-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "B",
+   "categories": [
+    "Software Testing and QA"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Software Testing and QA).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 2924 stars, last push 2025-12-19.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "omkamal-pypict-claude-skill",
+   "name": "omkamal/pypict-claude-skill",
+   "url": "https://github.com/omkamal/pypict-claude-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Software Testing and QA"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Software Testing and QA).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 88 stars, last push 2026-03-22.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "dadederk-ios-accessibility-agent-skill",
+   "name": "dadederk/iOS-Accessibility-Agent-Skill",
+   "url": "https://github.com/dadederk/iOS-Accessibility-Agent-Skill",
+   "source_type": "expert skill pack",
+   "publisher_type": "recognized practitioner",
+   "trust_tier": "A2",
+   "categories": [
+    "UX & UI Design"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (UX & UI Design).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 162 stars, last push 2026-03-09.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "lottiefiles-motion-design-skill",
+   "name": "lottiefiles/motion-design-skill",
+   "url": "https://github.com/lottiefiles/motion-design-skill",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "UX & UI Design"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (UX & UI Design).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 651 stars, last push 2026-05-18.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "content-designer-ux-writing-skill",
+   "name": "content-designer/ux-writing-skill",
+   "url": "https://github.com/content-designer/ux-writing-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Copywriting & Conversion Writing"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Copywriting & Conversion Writing).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 126 stars, last push 2026-05-26.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "getdex-agent-skills",
+   "name": "getdex/agent-skills",
+   "url": "https://github.com/getdex/agent-skills",
+   "source_type": "first-party skill or agent repository",
+   "publisher_type": "first-party organization",
+   "trust_tier": "A1",
+   "categories": [
+    "Email Marketing, CRM, and Lifecycle Messaging"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Email Marketing, CRM, and Lifecycle Messaging).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 1 stars, last push 2026-03-26.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 2,
+   "review_priority": "high",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "rowanbrooks100-brand-strategy-skill",
+   "name": "rowanbrooks100/brand-strategy-skill",
+   "url": "https://github.com/rowanbrooks100/brand-strategy-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Marketing Strategy & Go-To-Market"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Marketing Strategy & Go-To-Market).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 11 stars, last push 2026-01-18.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "wassermanproductions-master-canvas-hermes-plugin",
+   "name": "wassermanproductions/master-canvas-hermes-plugin",
+   "url": "https://github.com/wassermanproductions/master-canvas-hermes-plugin",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Video Pre-Production"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Video Pre-Production).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 2 stars, last push 2026-07-14.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "luojiangyong-muse-video-skill",
+   "name": "LuoJiangYong/muse-video-skill",
+   "url": "https://github.com/LuoJiangYong/muse-video-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Video Pre-Production"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Video Pre-Production).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 13 stars, last push 2026-06-30.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "hiteshk03-video-production-skill",
+   "name": "hiteshK03/video-production-skill",
+   "url": "https://github.com/hiteshK03/video-production-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Video Pre-Production"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Video Pre-Production).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 1 stars, last push 2026-03-28.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "akseolabs-seo-cinematic-ui",
+   "name": "akseolabs-seo/cinematic-ui",
+   "url": "https://github.com/akseolabs-seo/cinematic-ui",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Video Production Craft"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Video Production Craft).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 52 stars, last push 2026-04-08.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "aedev-tools-kling-3-prompting-skill",
+   "name": "aedev-tools/kling-3-prompting-skill",
+   "url": "https://github.com/aedev-tools/kling-3-prompting-skill",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Video Production Craft"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Video Production Craft).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 20 stars, last push 2026-02-09.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "murphye-agent-skills-customer-service",
+   "name": "murphye/agent-skills-customer-service",
+   "url": "https://github.com/murphye/agent-skills-customer-service",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Customer Support And Service Operations"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Customer Support And Service Operations).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 4 stars, last push 2026-02-22.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "akshaykokane-building-customer-service-agent-with-skill.md-and-agent-framework",
+   "name": "akshaykokane/Building-Customer-Service-Agent-with-Skill.md-and-Agent-Framework",
+   "url": "https://github.com/akshaykokane/Building-Customer-Service-Agent-with-Skill.md-and-Agent-Framework",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Customer Support And Service Operations"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Customer Support And Service Operations).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 0 stars, last push 2026-03-17.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
+  },
+  {
+   "id": "igorrendulic-tg-customer-support-plugin",
+   "name": "igorrendulic/tg-customer-support-plugin",
+   "url": "https://github.com/igorrendulic/tg-customer-support-plugin",
+   "source_type": "community skill pack",
+   "publisher_type": "community",
+   "trust_tier": "C",
+   "categories": [
+    "Customer Support And Service Operations"
+   ],
+   "primary_use": "1 skills discovered in the agent-skills atlas pass (Customer Support And Service Operations).",
+   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 1 stars, last push 2026-07-02.",
+   "license_status": "Verify at ingest",
+   "mirror_policy": "Mirror only after license, security, and evaluation gates",
+   "formats": [
+    "Agent Skills / SKILL.md"
+   ],
+   "risk_flags": [],
+   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
+   "recommended_wave": 3,
+   "review_priority": "normal",
+   "as_of": "2026-07-17"
   }
  ]
 }

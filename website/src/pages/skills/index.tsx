@@ -86,6 +86,42 @@ function formatRelativeTime(iso?: string): string | null {
   return `${months} month${months === 1 ? "" : "s"} ago`;
 }
 
+/** Builder-first sidebar order. Categories listed here always lead, in this
+ *  order; unlisted categories follow by descending count; CATEGORY_TAIL
+ *  entries (personal/leisure catch-alls) always sink to the bottom. */
+const CATEGORY_PRIORITY = [
+  "venture-studio",
+  "orchestration",
+  "software-development",
+  "autonomous-ai-agents",
+  "web-development",
+  "github",
+  "devops",
+  "mlops",
+  "data-science",
+  "security",
+  "creative",
+  "research",
+  "domain",
+  "productivity",
+];
+
+const CATEGORY_TAIL = [
+  "apple",
+  "media",
+  "social-media",
+  "communication",
+  "email",
+  "gaming",
+  "health",
+  "smart-home",
+  "note-taking",
+  "translation",
+  "leisure",
+  "dogfood",
+  "other",
+];
+
 const CATEGORY_ICONS: Record<string, string> = {
   apple: "\u{f179}",
   "autonomous-ai-agents": "\u{1F916}",
@@ -109,6 +145,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   migration: "\u{1F4E6}",
   mlops: "\u{1F9EA}",
   "note-taking": "\u{1F4DD}",
+  orchestration: "\u{1F39B}",
   productivity: "\u{2705}",
   "red-teaming": "\u{1F6E1}",
   research: "\u{1F50D}",
@@ -766,7 +803,25 @@ export default function SkillsDashboard() {
       }
     }
     return Array.from(map.entries())
-      .sort((a, b) => b[1].count - a[1].count)
+      .sort((a, b) => {
+        // Builder-first ordering: categories a technical founder reaches for
+        // lead; everything else follows by size; the catch-alls sink.
+        const pa = CATEGORY_PRIORITY.indexOf(a[0]);
+        const pb = CATEGORY_PRIORITY.indexOf(b[0]);
+        if (pa !== -1 || pb !== -1) {
+          if (pa === -1) return 1;
+          if (pb === -1) return -1;
+          return pa - pb;
+        }
+        const ta = CATEGORY_TAIL.indexOf(a[0]);
+        const tb = CATEGORY_TAIL.indexOf(b[0]);
+        if (ta !== -1 || tb !== -1) {
+          if (ta === -1) return -1;
+          if (tb === -1) return 1;
+          return ta - tb;
+        }
+        return b[1].count - a[1].count;
+      })
       .map(([key, { label, count }]) => ({ key, label, count }));
   }, [sourceFilter, allSkillsLocal]);
 
@@ -865,7 +920,9 @@ export default function SkillsDashboard() {
             <p className={styles.heroEyebrow}>Fabric</p>
             <h1 className={styles.heroTitle}>Skills Hub</h1>
             <p className={styles.heroSub}>
-              Discover, search, and install from{" "}
+              The skill library for technical founders and builders — from
+              first brainstorm to shipped product, with orchestration to run
+              it all in parallel.{" "}
               <strong className={styles.heroAccent}>
                 {data ? allSkillsLocal.length.toLocaleString() : "…"}
               </strong>{" "}

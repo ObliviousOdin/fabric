@@ -273,6 +273,20 @@ const sidebars: SidebarsConfig = {
                 },
                 {
                   type: 'category',
+                  label: 'orchestration',
+                  key: 'skills-bundled-orchestration',
+                  collapsed: true,
+                  items: [
+                    'user-guide/skills/bundled/orchestration/orchestration-adversarial-verify',
+                    'user-guide/skills/bundled/orchestration/orchestration-builder-crew',
+                    'user-guide/skills/bundled/orchestration/orchestration-ensemble',
+                    'user-guide/skills/bundled/orchestration/orchestration-fan-out',
+                    'user-guide/skills/bundled/orchestration/orchestration-orchestration',
+                    'user-guide/skills/bundled/orchestration/orchestration-pipeline',
+                  ],
+                },
+                {
+                  type: 'category',
                   label: 'productivity',
                   key: 'skills-bundled-productivity',
                   collapsed: true,

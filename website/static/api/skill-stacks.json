@@ -3,16 +3,42 @@
  "updated": "2026-07-17",
  "featured": [
   {"name": "brainstorming", "source": "built-in"},
+  {"name": "orchestration", "source": "built-in"},
   {"name": "karpathy-guidelines", "source": "community", "install": "multica-ai/andrej-karpathy-skills/skills/karpathy-guidelines"},
   {"name": "build-something-people-want", "source": "built-in"},
+  {"name": "ensemble", "source": "built-in"},
   {"name": "product-taste", "source": "built-in"},
   {"name": "impeccable-craft", "source": "built-in"},
-  {"name": "design", "source": "built-in"},
   {"name": "webapp-development", "source": "built-in"},
-  {"name": "plan", "source": "built-in"},
   {"name": "test-driven-development", "source": "built-in"}
  ],
  "stacks": [
+  {
+   "id": "orchestrate-the-work",
+   "icon": "🎛️",
+   "title": "Orchestrate the Work",
+   "tagline": "One founder, a fleet of subagents.",
+   "why": "Route the job through the orchestration front door: ensembles for hard calls, fan-out for parallel workloads, and independent skeptics before anything ships.",
+   "skills": [
+    {"name": "orchestration", "source": "built-in"},
+    {"name": "ensemble", "source": "built-in"},
+    {"name": "fan-out", "source": "built-in"},
+    {"name": "adversarial-verify", "source": "built-in"}
+   ]
+  },
+  {
+   "id": "founder-crew",
+   "icon": "🏗️",
+   "title": "Founder Crew",
+   "tagline": "A product team in subagents.",
+   "why": "Charter a small crew of specialist roles, pipeline their handoffs through staged artifacts, and keep the founder decisions with you.",
+   "skills": [
+    {"name": "builder-crew", "source": "built-in"},
+    {"name": "pipeline", "source": "built-in"},
+    {"name": "build-something-people-want", "source": "built-in"},
+    {"name": "adversarial-verify", "source": "built-in"}
+   ]
+  },
   {
    "id": "zero-to-one",
    "icon": "🚀",

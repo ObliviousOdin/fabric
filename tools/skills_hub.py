@@ -3012,6 +3012,7 @@ GITHUB_TAP_PROVIDERS = {
     "leonxlnx/taste-skill": "Taste",
     "pbakaus/impeccable": "Impeccable",
     "multica-ai/andrej-karpathy-skills": "Karpathy",
+    "addyosmani/agent-skills": "AddyOsmani",
 }
 
 
@@ -3084,6 +3085,7 @@ class GitHubSource(SkillSource):
         {"repo": "leonxlnx/taste-skill", "path": "skills/"},
         {"repo": "pbakaus/impeccable", "path": ".claude/skills/"},
         {"repo": "multica-ai/andrej-karpathy-skills", "path": "skills/"},
+        {"repo": "addyosmani/agent-skills", "path": "skills/"},
     ]
 
     def __init__(self, auth: GitHubAuth, extra_taps: Optional[List[Dict]] = None):

@@ -303,6 +303,7 @@ from fabric_cli.subcommands.login import build_login_parser
 from fabric_cli.subcommands.logout import build_logout_parser
 from fabric_cli.subcommands.auth import build_auth_parser
 from fabric_cli.subcommands.status import build_status_parser
+from fabric_cli.subcommands.monitor import build_monitor_parser
 from fabric_cli.subcommands.webhook import build_webhook_parser
 from fabric_cli.subcommands.hooks import build_hooks_parser
 from fabric_cli.subcommands.doctor import build_doctor_parser
@@ -606,7 +607,7 @@ def _early_local_diagnostic_command() -> bool:
             else:
                 index += 1
             continue
-        return token in {"config", "doctor", "status"}
+        return token in {"config", "doctor", "status", "monitor", "top"}
     return False
 
 
@@ -4393,6 +4394,13 @@ def cmd_status(args):
     from fabric_cli.status import show_status
 
     show_status(args)
+
+
+def cmd_monitor(args):
+    """Live host monitor (CPU / memory / disk / load / network / GPU)."""
+    from fabric_cli.monitor_cli import cmd_monitor as _run_monitor
+
+    return _run_monitor(args)
 
 
 def cmd_ollama(args):
@@ -11264,6 +11272,8 @@ def _coalesce_session_name_args(argv: list) -> list:
         "logout",
         "auth",
         "status",
+        "monitor",
+        "top",
         "ollama",
         "cron",
         "doctor",
@@ -12517,7 +12527,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
-        "model", "ollama", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
+        "model", "monitor", "top", "ollama", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
         "project", "proxy",
         "prompt-size",
         "send", "sessions", "setup",
@@ -13434,6 +13444,11 @@ def main():
     # status command  (parser built in fabric_cli/subcommands/status.py)
     # =========================================================================
     build_status_parser(subparsers, cmd_status=cmd_status)
+
+    # =========================================================================
+    # monitor command  (parser built in fabric_cli/subcommands/monitor.py)
+    # =========================================================================
+    build_monitor_parser(subparsers, cmd_monitor=cmd_monitor)
 
     # =========================================================================
     # ollama command  (parser built in fabric_cli/subcommands/ollama.py)

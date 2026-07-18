@@ -2038,10 +2038,28 @@ export interface SystemStats {
   cpu_count: number | null;
   psutil: boolean;
   cpu_percent?: number;
+  /** Per-core utilisation (0–100), one entry per logical CPU. */
+  per_cpu_percent?: number[];
   load_avg?: number[];
   uptime_seconds?: number;
   memory?: { total: number; available: number; used: number; percent: number };
   disk?: { total: number; used: number; free: number; percent: number };
+  /** Network counters + per-second throughput since the previous sample. */
+  net?: {
+    bytes_sent: number;
+    bytes_recv: number;
+    /** null on the first sample / after a counter reset. */
+    sent_per_sec: number | null;
+    recv_per_sec: number | null;
+  };
+  /** Detected GPUs (NVIDIA via pynvml/nvidia-smi); absent when none found. */
+  gpus?: Array<{
+    name: string;
+    util_percent: number;
+    mem_used: number;
+    mem_total: number;
+    mem_percent: number | null;
+  }>;
   process?: {
     pid: number;
     rss: number;

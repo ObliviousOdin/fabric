@@ -16,5 +16,14 @@ export function formatDuration(seconds: number): string {
   return `${m}m`;
 }
 
+/** Network throughput: bytes/second → human "B/s" · "KB/s" · "MB/s". */
+export function formatRate(bytesPerSec: number | null | undefined): string {
+  if (bytesPerSec == null || Number.isNaN(bytesPerSec)) return "—";
+  const v = Math.max(0, bytesPerSec);
+  if (v < 1024) return `${v.toFixed(0)} B/s`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(0)} KB/s`;
+  return `${(v / (1024 * 1024)).toFixed(1)} MB/s`;
+}
+
 /** Toast sink shape shared by the System cards (pages pass `useToast().showToast`). */
 export type ShowToast = (message: string, type: "success" | "error") => void;

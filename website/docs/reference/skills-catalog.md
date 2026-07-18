@@ -81,6 +81,7 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 | Skill | Description | Path |
 |-------|-------------|------|
 | [`codebase-inspection`](/user-guide/skills/bundled/github/github-codebase-inspection) | Inspect codebases w/ pygount: LOC, languages, ratios. | `github/codebase-inspection` |
+| [`fabric-contribute`](/user-guide/skills/bundled/github/github-fabric-contribute) | File approved Fabric bug reports and feature requests. | `github/fabric-contribute` |
 | [`github-auth`](/user-guide/skills/bundled/github/github-github-auth) | GitHub auth setup: HTTPS tokens, SSH keys, gh CLI login. | `github/github-auth` |
 | [`github-code-review`](/user-guide/skills/bundled/github/github-github-code-review) | Review PRs: diffs, inline comments via gh or REST. | `github/github-code-review` |
 | [`github-issues`](/user-guide/skills/bundled/github/github-github-issues) | Create, triage, label, assign GitHub issues via gh or REST. | `github/github-issues` |
@@ -113,6 +114,18 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 | Skill | Description | Path |
 |-------|-------------|------|
 | [`obsidian`](/user-guide/skills/bundled/note-taking/note-taking-obsidian) | Read, search, create, and edit notes in the Obsidian vault. | `note-taking/obsidian` |
+
+## orchestration
+
+| Skill | Description | Path |
+|-------|-------------|------|
+| [`adversarial-verify`](/user-guide/skills/bundled/orchestration/orchestration-adversarial-verify) | Verify work with independent skeptic subagents — spawn fresh-context reviewers charged with refuting a claim, finding what breaks, or failing a ship-readiness bar before you trust or ship it. Use before merging risky changes, publishing... | `orchestration/adversarial-verify` |
+| [`builder-crew`](/user-guide/skills/bundled/orchestration/orchestration-builder-crew) | Assemble a virtual product crew of subagent specialists — product, design, engineering, quality, and growth roles with written charters, each delegated a self-contained brief, coordinated by you as the founder-proxy. Use when a founder-s... | `orchestration/builder-crew` |
+| [`ensemble`](/user-guide/skills/bundled/orchestration/orchestration-ensemble) | Run a subagent ensemble on one hard problem — spawn several specialists with deliberately different lenses on the same question, then judge and synthesize their answers into one stronger result. Use for high-stakes decisions, designs, es... | `orchestration/ensemble` |
+| [`fan-out`](/user-guide/skills/bundled/orchestration/orchestration-fan-out) | Fan independent work out to parallel subagents — decompose a big job into self-contained shards, batch them through delegate_task, then merge results deterministically. Use for many-file audits, migrations, bulk research, or any workload... | `orchestration/fan-out` |
+| [`moa-software-development`](/user-guide/skills/bundled/orchestration/orchestration-moa-software-development) | Run a two-layer Mixture-of-Agents software workflow: one-shot GPT/Grok advisory planning, independent subscription-backed coding workers in isolated git worktrees, deterministic viability gates, and a blinded final MoA review owned by on... | `orchestration/moa-software-development` |
+| [`orchestration`](/user-guide/skills/bundled/orchestration/orchestration-orchestration) | Front door for multi-agent work — decide when to orchestrate at all, then route between subagent ensembles, parallel fan-out, staged pipelines, a builder crew, adversarial verification, isolated GPT/Grok coding worktrees, kanban worker l... | `orchestration/orchestration` |
+| [`pipeline`](/user-guide/skills/bundled/orchestration/orchestration-pipeline) | Chain subagents through staged handoffs — research, plan, build, verify as separate fresh-context stages connected by explicit artifact contracts on disk. Use for multi-phase work where each phase benefits from a clean context and a revi... | `orchestration/pipeline` |
 
 ## productivity
 
@@ -163,6 +176,24 @@ If a skill is missing from this list but present in the repo, the catalog is reg
 | [`spike`](/user-guide/skills/bundled/software-development/software-development-spike) | Throwaway experiments to validate an idea before build. | `software-development/spike` |
 | [`systematic-debugging`](/user-guide/skills/bundled/software-development/software-development-systematic-debugging) | 4-phase root cause debugging: understand bugs before fixing. | `software-development/systematic-debugging` |
 | [`test-driven-development`](/user-guide/skills/bundled/software-development/software-development-test-driven-development) | TDD: enforce RED-GREEN-REFACTOR, tests before code. | `software-development/test-driven-development` |
+
+## venture-studio
+
+| Skill | Description | Path |
+|-------|-------------|------|
+| [`brainstorming`](/user-guide/skills/bundled/venture-studio/venture-studio-brainstorming) | Structured brainstorming and ideation sessions — diverge with SCAMPER, reverse brainstorming, crazy-8s and analogy prompts, then converge with affinity mapping and weighted scoring into ranked, testable concept briefs. Use when the user... | `venture-studio/brainstorming` |
+| [`build-something-people-want`](/user-guide/skills/bundled/venture-studio/venture-studio-build-something-people-want) | Startup methodology for making something people want — pick a real problem, run customer discovery interviews, scope a minimum lovable product, measure product-market fit signals, iterate, and launch. Use when the user wants to start a c... | `venture-studio/build-something-people-want` |
+| [`business-planning`](/user-guide/skills/bundled/venture-studio/venture-studio-business-planning) | Turn an idea into a credible business plan — lean canvas, market sizing (TAM/SAM/SOM), competitive landscape, unit economics, financial projections, and an investor-ready narrative. Use when the user asks for a business plan, pitch mater... | `venture-studio/business-planning` |
+| [`d2c-smart-products`](/user-guide/skills/bundled/venture-studio/venture-studio-d2c-smart-products) | Take a direct-to-consumer smart product from concept to customers — hardware, firmware, app, and cloud architecture, connectivity choices (BLE, Wi-Fi, Thread/Matter), compliance, packaging, and a D2C storefront launch. Use when the user... | `venture-studio/d2c-smart-products` |
+| [`design-studio`](/user-guide/skills/bundled/venture-studio/venture-studio-design-studio) | Facilitate a design-studio sprint — frame the brief, gather references, generate several distinct concept directions in parallel, critique against explicit criteria, converge, and hand off an implementation-ready spec. Use for open-ended... | `venture-studio/design-studio` |
+| [`hardware-manufacturing`](/user-guide/skills/bundled/venture-studio/venture-studio-hardware-manufacturing) | Move hardware from CAD to mass production — mechanical design, PCB schematic, layout and DFM review, prototyping, EVT/DVT/PVT builds, factory selection, quality control, certification, and logistics. Use when the user asks about manufact... | `venture-studio/hardware-manufacturing` |
+| [`impeccable-craft`](/user-guide/skills/bundled/venture-studio/venture-studio-impeccable-craft) | Polish work to an impeccable, ship-ready standard — systematic passes over UI states, microcopy, accessibility, responsiveness, performance, and error handling with concrete checklists. Use before launches, demos, and releases, or when t... | `venture-studio/impeccable-craft` |
+| [`ios-app-development`](/user-guide/skills/bundled/venture-studio/venture-studio-ios-app-development) | Build and ship iOS apps — Swift and SwiftUI architecture, Xcode project setup, Human Interface Guidelines, on-device testing, signing, TestFlight beta distribution, and App Store submission. Use when the user wants an iPhone or iPad app... | `venture-studio/ios-app-development` |
+| [`product-taste`](/user-guide/skills/bundled/venture-studio/venture-studio-product-taste) | Develop and apply product taste — build reference libraries of great products, critique with precise vocabulary, set explicit quality bars, and make taste-driven calls about what to build, keep, and cut. Use when the user asks whether a... | `venture-studio/product-taste` |
+| [`proposal-writing`](/user-guide/skills/bundled/venture-studio/venture-studio-proposal-writing) | Write winning proposals — client project proposals, statements of work, RFP responses, and partnership or grant pitches with discovery-driven structure, tiered pricing, and clear scope boundaries. Use when the user needs to pitch work to... | `venture-studio/proposal-writing` |
+| [`rstack`](/user-guide/skills/bundled/venture-studio/venture-studio-rstack) | Build and ship frontend projects with the Rstack toolchain — Rspack bundling, Rsbuild app builds, Rslib libraries, Rspress docs sites, Rsdoctor build analysis, and Rstest testing — including migrations from webpack and Vite. Use when a p... | `venture-studio/rstack` |
+| [`webapp-development`](/user-guide/skills/bundled/venture-studio/venture-studio-webapp-development) | End-to-end playbook for production web apps — pick the stack, model the data, wire auth, payments, and background jobs, add tests and CI, deploy, and monitor. Use when the user wants a SaaS or internal tool built from scratch or a protot... | `venture-studio/webapp-development` |
+| [`website-building`](/user-guide/skills/bundled/venture-studio/venture-studio-website-building) | Plan, build, and launch complete websites — positioning and sitemap, page-by-page copywriting, stack selection, SEO and analytics setup, and deployment to a live URL. Use when the user wants a marketing site, landing page, portfolio, or... | `venture-studio/website-building` |
 
 ## yuanbao
 

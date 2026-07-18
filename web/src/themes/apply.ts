@@ -53,6 +53,13 @@ export const LEGACY_STORAGE_KEY = "hermes-dashboard-theme";
 export const FONT_STORAGE_KEY = "fabric-dashboard-font";
 export const LEGACY_FONT_STORAGE_KEY = "hermes-dashboard-font";
 
+/** LocalStorage key for the terminal preferences (color scheme, font,
+ *  font size) applied to the embedded xterm terminals. Holds a JSON blob —
+ *  see `themes/use-theme.ts` `TerminalPrefs`. Independent of the theme:
+ *  the scheme pins an explicit ANSI palette (catalog in
+ *  `lib/terminal-schemes.ts`) instead of deriving one from the theme. */
+export const TERMINAL_PREFS_STORAGE_KEY = "fabric-dashboard-terminal";
+
 /** LocalStorage key for the appearance preference (dark | light | system).
  *  `system` follows `prefers-color-scheme` and swaps between the generated
  *  dark/light pair; picking a hand-authored preset pins the preference to
@@ -395,7 +402,7 @@ function applyLayoutVariant(variant: ThemeLayoutVariant | undefined) {
 // Font stylesheet injection
 // ---------------------------------------------------------------------------
 
-function injectFontStylesheet(url: string | undefined) {
+export function injectFontStylesheet(url: string | undefined) {
   if (!url || typeof document === "undefined") return;
   if (INJECTED_FONT_URLS.has(url)) return;
   // Also skip if the page already has this href (e.g. SSR'd or persisted).

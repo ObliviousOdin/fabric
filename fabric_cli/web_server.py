@@ -368,8 +368,10 @@ app = FastAPI(title=dashboard_product_name(), version=__version__, lifespan=_lif
 
 # Memory-provider OAuth connect routes live in the memory layer, not here.
 from fabric_cli.memory_oauth import router as _memory_oauth_router  # noqa: E402
+from fabric_cli.design_system_routes import design_system_router  # noqa: E402
 
 app.include_router(_memory_oauth_router)
+app.include_router(design_system_router())
 
 # ---------------------------------------------------------------------------
 # Session token for protecting sensitive endpoints (reveal).
@@ -1120,6 +1122,9 @@ class LocalProviderConfigureRequest(BaseModel):
 class MoaModelSlot(BaseModel):
     provider: str = ""
     model: str = ""
+    role: str = ""
+    instructions: str = ""
+    reasoning_effort: Optional[str] = None
 
 
 class MoaPresetPayload(BaseModel):
@@ -1130,6 +1135,8 @@ class MoaPresetPayload(BaseModel):
     reference_temperature: Optional[float] = None
     aggregator_temperature: Optional[float] = None
     max_tokens: int = 4096
+    reference_max_tokens: Optional[int] = None
+    fanout: str = "per_iteration"
     enabled: bool = True
 
 
@@ -1144,6 +1151,8 @@ class MoaConfigPayload(BaseModel):
     reference_temperature: Optional[float] = None
     aggregator_temperature: Optional[float] = None
     max_tokens: int = 4096
+    reference_max_tokens: Optional[int] = None
+    fanout: str = "per_iteration"
     enabled: bool = True
     profile: Optional[str] = None
 
@@ -2911,58 +2920,16 @@ async def get_system_stats():
         "cpu_count": os.cpu_count(),
     }
 
-    # psutil enriches the picture when present; everything below is optional.
-    try:
-        import psutil  # type: ignore
+    # Dynamic metrics (CPU / memory / disk / net / GPU) come from the shared
+    # collector so the dashboard, desktop app and `fabric monitor` never drift
+    # on which fields exist or how a throughput rate is computed. Run it off
+    # the event loop — the CPU sampling window and any nvidia-smi probe must
+    # not block other requests.
+    from fabric_cli.system_stats import collect_dynamic_stats
 
-        vm = psutil.virtual_memory()
-        info["memory"] = {
-            "total": vm.total,
-            "available": vm.available,
-            "used": vm.used,
-            "percent": vm.percent,
-        }
-        try:
-            du = psutil.disk_usage(str(get_fabric_home()))
-            info["disk"] = {
-                "total": du.total,
-                "used": du.used,
-                "free": du.free,
-                "percent": du.percent,
-            }
-        except Exception:
-            pass
-        try:
-            info["cpu_percent"] = psutil.cpu_percent(interval=0.1)
-            la = getattr(psutil, "getloadavg", None)
-            if la:
-                info["load_avg"] = list(la())
-        except Exception:
-            pass
-        try:
-            boot = psutil.boot_time()
-            info["uptime_seconds"] = int(time.time() - boot)
-        except Exception:
-            pass
-        try:
-            proc = psutil.Process()
-            info["process"] = {
-                "pid": proc.pid,
-                "rss": proc.memory_info().rss,
-                "create_time": int(proc.create_time()),
-                "num_threads": proc.num_threads(),
-            }
-        except Exception:
-            pass
-        info["psutil"] = True
-    except Exception:
-        info["psutil"] = False
-        # stdlib-only fallbacks for load average + uptime where the kernel
-        # exposes them.
-        try:
-            info["load_avg"] = list(os.getloadavg())
-        except (OSError, AttributeError):
-            pass
+    info.update(
+        await asyncio.to_thread(collect_dynamic_stats, str(get_fabric_home()))
+    )
 
     return info
 
@@ -5956,6 +5923,8 @@ def set_moa_models(body: MoaConfigPayload, profile: Optional[str] = None):
                             "reference_temperature": preset.reference_temperature,
                             "aggregator_temperature": preset.aggregator_temperature,
                             "max_tokens": preset.max_tokens,
+                            "reference_max_tokens": preset.reference_max_tokens,
+                            "fanout": preset.fanout,
                             "enabled": preset.enabled,
                         }
                         for name, preset in body.presets.items()
@@ -5968,6 +5937,8 @@ def set_moa_models(body: MoaConfigPayload, profile: Optional[str] = None):
                     "reference_temperature": body.reference_temperature,
                     "aggregator_temperature": body.aggregator_temperature,
                     "max_tokens": body.max_tokens,
+                    "reference_max_tokens": body.reference_max_tokens,
+                    "fanout": body.fanout,
                     "enabled": body.enabled,
                 }
             normalized = normalize_moa_config(raw)
@@ -18127,6 +18098,85 @@ async def set_dashboard_font(body: FontSetBody):
     config["dashboard"]["font"] = font
     save_config(config)
     return {"ok": True, "font": font}
+
+
+# Terminal appearance prefs for the embedded xterm terminals (Chat TUI +
+# Fabric Console). Kept in sync with the catalogs in
+# web/src/lib/terminal-schemes.ts — the frontend owns the palettes/stacks;
+# the backend only validates ids so config.yaml never carries arbitrary
+# values back into the dashboard.
+_TERMINAL_SCHEME_DEFAULT_ID = "theme"
+_TERMINAL_SCHEME_CHOICES = frozenset({
+    "theme",
+    "dracula", "one-dark", "nord", "gruvbox-dark", "monokai",
+    "solarized-dark", "solarized-light",
+})
+_TERMINAL_FONT_DEFAULT_ID = "default"
+_TERMINAL_FONT_CHOICES = frozenset({
+    "default", "jetbrains-mono", "ibm-plex-mono", "space-mono",
+})
+_TERMINAL_SIZE_DEFAULT = "auto"
+_TERMINAL_SIZE_MIN = 8
+_TERMINAL_SIZE_MAX = 32
+
+
+def _normalize_terminal_prefs(raw: Any) -> Dict[str, Any]:
+    """Coerce stored/submitted terminal prefs to the valid shape.
+
+    Unknown ids fall back to their sentinels rather than 400'ing so a stale
+    client (or hand-edited config.yaml) can't wedge the pickers — same
+    contract as the font endpoint above.
+    """
+    prefs = raw if isinstance(raw, dict) else {}
+    scheme = prefs.get("scheme")
+    if scheme not in _TERMINAL_SCHEME_CHOICES:
+        scheme = _TERMINAL_SCHEME_DEFAULT_ID
+    font = prefs.get("font")
+    if font not in _TERMINAL_FONT_CHOICES:
+        font = _TERMINAL_FONT_DEFAULT_ID
+    # Single coercion path (mirrors normalizeTerminalFontSize in
+    # terminal-schemes.ts): anything that doesn't round to an in-range int
+    # — including "auto", bools, and garbage — falls back to the sentinel.
+    raw_size = prefs.get("size", _TERMINAL_SIZE_DEFAULT)
+    size: Any = _TERMINAL_SIZE_DEFAULT
+    if not isinstance(raw_size, bool):
+        try:
+            rounded = int(round(float(raw_size)))
+        except (TypeError, ValueError):
+            rounded = None
+        if rounded is not None and _TERMINAL_SIZE_MIN <= rounded <= _TERMINAL_SIZE_MAX:
+            size = rounded
+    return {"scheme": scheme, "font": font, "size": size}
+
+
+@app.get("/api/dashboard/terminal")
+async def get_dashboard_terminal():
+    """Return the terminal appearance prefs (scheme / font / size)."""
+    config = load_config()
+    return _normalize_terminal_prefs(
+        cfg_get(config, "dashboard", "terminal", default=None)
+    )
+
+
+class TerminalPrefsBody(BaseModel):
+    scheme: str = _TERMINAL_SCHEME_DEFAULT_ID
+    font: str = _TERMINAL_FONT_DEFAULT_ID
+    # "auto" or a px integer; anything else is coerced back to "auto".
+    size: Any = _TERMINAL_SIZE_DEFAULT
+
+
+@app.put("/api/dashboard/terminal")
+async def set_dashboard_terminal(body: TerminalPrefsBody):
+    """Set the terminal appearance prefs (persists to config.yaml)."""
+    prefs = _normalize_terminal_prefs(
+        {"scheme": body.scheme, "font": body.font, "size": body.size}
+    )
+    config = load_config()
+    if "dashboard" not in config:
+        config["dashboard"] = {}
+    config["dashboard"]["terminal"] = prefs
+    save_config(config)
+    return {"ok": True, **prefs}
 
 
 # ---------------------------------------------------------------------------

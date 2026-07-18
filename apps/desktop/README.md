@@ -14,6 +14,7 @@ with a purpose-built chat, preview, file-browser, voice, and settings experience
 | Capability        | Desktop experience                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------- |
 | Agent chat        | Streaming responses, live tool activity, structured results, and shared session history |
+| Agent Live View   | Docked Browser and Computer Use previews with action history and an always-on-top PiP    |
 | Design            | Structured briefs, deliverable and fidelity choices, and reusable system presets         |
 | Workspaces        | File browsing, side-by-side previews, multiple projects, and coding rails               |
 | Providers         | Personal OAuth/subscriptions, API keys, native Ollama, and per-profile model selection  |
@@ -117,6 +118,15 @@ The package contains an Electron shell and React renderer. It launches a local
 `fabric serve` backend and communicates over the shared JSON-RPC/WebSocket
 client in [`apps/shared`](../shared/). It does not embed the terminal TUI or
 require the web dashboard UI.
+
+Agent Live View is supporting UI around the existing conversation, not another
+chat surface. Compatible Browser sessions on a local backend pull one bounded
+frame at a time over a separate authenticated visual connection, while Computer
+Use reuses images already returned by its actions. Electron accepts PiP commands
+only from the owning renderer/window pair. Neither visual path adds a model
+tool, prompt content, context tokens, or model calls. See the [Browser](https://obliviousodin.github.io/fabric/user-guide/features/browser#desktop-live-view)
+and [Computer Use](https://obliviousodin.github.io/fabric/user-guide/features/computer-use#desktop-live-view)
+guides for the docked and picture-in-picture workflows.
 
 Compatibility identifiers such as `HERMES_DESKTOP_HERMES_ROOT`, the legacy
 `hermes:` URL scheme, and older managed-install markers remain readable for one

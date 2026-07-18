@@ -708,7 +708,15 @@ export function useTerminalSession({
         })
         .catch(error => {
           setStatus('closed')
-          term.write(`Terminal failed to start: ${error instanceof Error ? error.message : String(error)}\r\n`)
+          const raw = error instanceof Error ? error.message : String(error)
+          // Electron wraps invoke failures as
+          // "Error invoking remote method '…': Error: <message>". Unwrap so the
+          // pane shows the real diagnosis, not the IPC channel name.
+          const unwrapped =
+            raw.match(/Error invoking remote method '[^']+': Error: (.+)$/)?.[1] ??
+            raw.match(/Error invoking remote method '[^']+': (.+)$/)?.[1] ??
+            raw
+          term.write(`Terminal failed to start: ${unwrapped}\r\n`)
         })
 
     // Open + fit + start only once webfonts settle. Fitting with fallback metrics
@@ -734,7 +742,7 @@ export function useTerminalSession({
         term.loadAddon(webgl)
         webglRef.current = webgl
       } catch (err) {
-        console.warn('[hermes-terminal] WebGL unavailable; falling back to DOM', err)
+        console.warn('[fabric-terminal] WebGL unavailable; falling back to DOM', err)
       }
 
       fitAndResize()

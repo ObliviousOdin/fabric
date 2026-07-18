@@ -1,0 +1,7 @@
+{
+  "id": "fabric-mascot",
+  "displayName": "Fabric Mascot",
+  "description": "The Fabric emblem brought to life as a cheerful animated companion.",
+  "spritesheetPath": "spritesheet.webp",
+  "createdBy": "fabric"
+}

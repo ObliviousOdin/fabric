@@ -51,6 +51,13 @@ preview is separate from running Fabric itself through Android/Termux.
 See [Mobile access](/user-guide/mobile) for the supported pairing, security,
 and installation paths.
 
+Raspberry Pi, NVIDIA Jetson, and other arm64 single-board computers fall under
+**Linux arm64**. Step-by-step walkthroughs:
+[Install on Raspberry Pi](./raspberry-pi.md) and
+[Install on Jetson Nano](./jetson-nano.md). For the lean profile that fits
+1 GB devices — including memory options that avoid a local embedding stack —
+see [Low-Memory Devices](./low-memory.md).
+
 ## Tier 3 — experimental
 
 - Android through Termux

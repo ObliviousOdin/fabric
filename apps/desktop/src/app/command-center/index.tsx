@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button'
 import { SearchField } from '@/components/ui/search-field'
 import { SegmentedControl } from '@/components/ui/segmented-control'
 import { ResponsiveTabs } from '@/components/ui/tab-dropdown'
-import { getActionStatus, getLogs, getStatus, getUsageAnalytics, restartGateway, updateHermes } from '@/hermes'
-import type { ActionStatusResponse, AnalyticsResponse, StatusResponse } from '@/hermes'
+import { getActionStatus, getLogs, getStatus, getSystemStats, getUsageAnalytics, restartGateway, updateHermes } from '@/hermes'
+import type { ActionStatusResponse, AnalyticsResponse, StatusResponse, SystemStats } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { compactNumber } from '@/lib/format'
@@ -35,6 +35,7 @@ import { useRouteEnumParam } from '../hooks/use-route-enum-param'
 import { OverlayMain, OverlayNav, OverlaySplitLayout } from '../overlays/overlay-split-layout'
 import { OverlayView } from '../overlays/overlay-view'
 
+import { HostStatsPanel } from './host-stats-panel'
 import { MaintenancePanel } from './maintenance'
 
 export type CommandCenterSection = 'maintenance' | 'sessions' | 'system' | 'usage'
@@ -134,6 +135,7 @@ export function CommandCenterView({ initialSection, onClose, onDeleteSession, on
 
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<StatusResponse | null>(null)
+  const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [logFile, setLogFile] = useState<(typeof LOG_FILES)[number]>('agent')
   const [logLevel, setLogLevel] = useState<(typeof LOG_LEVELS)[number]>('ALL')
@@ -175,17 +177,21 @@ export function CommandCenterView({ initialSection, onClose, onDeleteSession, on
     setSystemError('')
 
     try {
-      const [nextStatus, nextLogs] = await Promise.all([
+      // Host stats are supplementary — a failure there must not blank the
+      // gateway status or the log tail, so it degrades to null on its own.
+      const [nextStatus, nextLogs, nextStats] = await Promise.all([
         getStatus(),
         getLogs({
           file: logFile,
           level: logLevel,
           lines: 200
-        })
+        }),
+        getSystemStats().catch(() => null)
       ])
 
       setStatus(nextStatus)
       setLogs(nextLogs.lines)
+      if (nextStats) setSystemStats(nextStats)
     } catch (error) {
       setSystemError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -229,6 +235,28 @@ export function CommandCenterView({ initialSection, onClose, onDeleteSession, on
       void refreshUsage(usagePeriod)
     }
   }, [refreshUsage, section, usagePeriod])
+
+  // Live host metrics: poll every 2s while the System section is open so the
+  // Host panel's sparklines stay current (the initial frame comes from
+  // refreshSystem). Only the stats refresh — status/logs stay fetch-on-open.
+  useEffect(() => {
+    if (section !== 'system') return
+    let alive = true
+    const id = window.setInterval(() => {
+      void getSystemStats()
+        .then(next => {
+          if (alive) setSystemStats(next)
+        })
+        .catch(() => {
+          /* keep the last successful frame */
+        })
+    }, 2000)
+
+    return () => {
+      alive = false
+      window.clearInterval(id)
+    }
+  }, [section])
 
   useRefreshHotkey(() => {
     if (section === 'system') {
@@ -404,7 +432,7 @@ export function CommandCenterView({ initialSection, onClose, onDeleteSession, on
           ) : section === 'maintenance' ? (
             <MaintenancePanel />
           ) : (
-            <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-4">
+            <div className="grid min-h-0 flex-1 grid-rows-[auto_auto_minmax(0,1fr)] gap-4">
               <div>
                 {status ? (
                   <div className="grid gap-2">
@@ -449,6 +477,8 @@ export function CommandCenterView({ initialSection, onClose, onDeleteSession, on
                   <PageLoader className="min-h-32" label={cc.loadingStatus} />
                 )}
               </div>
+
+              <HostStatsPanel stats={systemStats} />
 
               <div className="flex min-h-0 flex-col pt-2">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">

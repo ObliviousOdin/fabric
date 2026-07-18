@@ -48,11 +48,13 @@ export {
   type DesignRequest,
   type DesignSystemOption,
   type DesignSystemPreset,
+  type DesignSystemSource,
 } from "./design";
 export {
   buildRemoteGatewayWebSocketUrl,
   fetchRemoteAuthProviders,
   fetchRemoteGatewayStatus,
+  hasRemoteGatewaySession,
   loginRemoteGatewayWithPassword,
   mintRemoteGatewayTicket,
   normalizeRemoteGatewayBaseUrl,

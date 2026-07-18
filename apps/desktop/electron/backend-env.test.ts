@@ -16,6 +16,7 @@ test('desktop backend PATH adds Hermes-managed bins and missing POSIX sane entri
   const result = buildDesktopBackendPath({
     hermesHome: '/Users/test/.hermes',
     venvRoot: '/Users/test/.hermes/fabric-agent/venv',
+    home: '/Users/test',
     currentPath: '/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin',
     platform: 'darwin',
     pathModule: path.posix
@@ -24,6 +25,7 @@ test('desktop backend PATH adds Hermes-managed bins and missing POSIX sane entri
   const entries = result.split(':')
   assert.equal(entries[0], '/Users/test/.hermes/node/bin')
   assert.equal(entries[1], '/Users/test/.hermes/fabric-agent/venv/bin')
+  assert.equal(entries[2], '/Users/test/.local/bin')
   assert.ok(entries.includes('/opt/homebrew/bin'), 'Apple Silicon Homebrew bin is added')
   assert.ok(entries.includes('/opt/homebrew/sbin'), 'Apple Silicon Homebrew sbin is added')
   assert.ok(entries.includes('/usr/local/sbin'), 'missing standard sbin is added')
@@ -37,12 +39,14 @@ test('desktop backend PATH preserves first occurrence and avoids duplicates', ()
   const result = buildDesktopBackendPath({
     hermesHome: '/Users/test/.hermes',
     venvRoot: '/Users/test/.hermes/fabric-agent/venv',
-    currentPath: '/opt/homebrew/bin:/usr/bin:/opt/homebrew/bin:/bin',
+    home: '/Users/test',
+    currentPath: '/Users/test/.local/bin:/opt/homebrew/bin:/usr/bin:/opt/homebrew/bin:/bin',
     platform: 'darwin',
     pathModule: path.posix
   })
 
   const entries = result.split(':')
+  assert.equal(entries.filter(entry => entry === '/Users/test/.local/bin').length, 1)
   assert.equal(entries.filter(entry => entry === '/opt/homebrew/bin').length, 1)
   assert.ok(
     entries.indexOf('/opt/homebrew/bin') < entries.indexOf('/opt/homebrew/sbin'),
@@ -56,6 +60,7 @@ test('buildDesktopBackendEnv extends PYTHONPATH and backend PATH together', () =
     pythonPathEntries: ['/repo/fabric-agent'],
     venvRoot: '/Users/test/.hermes/fabric-agent/venv',
     currentEnv: {
+      HOME: '/Users/test',
       PATH: '/usr/bin:/bin',
       PYTHONPATH: '/existing/pythonpath'
     },
@@ -66,8 +71,29 @@ test('buildDesktopBackendEnv extends PYTHONPATH and backend PATH together', () =
   assert.equal(env.PYTHONPATH, '/repo/fabric-agent:/existing/pythonpath')
   assert.equal(env.FABRIC_HOME, '/Users/test/.hermes')
   assert.equal(env.HERMES_HOME, '/Users/test/.hermes')
-  assert.ok(env.PATH.startsWith('/Users/test/.hermes/node/bin:/Users/test/.hermes/fabric-agent/venv/bin:'))
+  assert.ok(
+    env.PATH.startsWith(
+      '/Users/test/.hermes/node/bin:/Users/test/.hermes/fabric-agent/venv/bin:/Users/test/.local/bin:'
+    )
+  )
   assert.ok(env.PATH.includes('/opt/homebrew/bin'))
+})
+
+test('Finder-style minimal PATH gains the user local bin without duplication', () => {
+  const env = buildDesktopBackendEnv({
+    hermesHome: '/Users/test/.fabric',
+    venvRoot: '/Users/test/.fabric/fabric-agent/venv',
+    currentEnv: {
+      HOME: '/Users/test',
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin'
+    },
+    platform: 'darwin',
+    pathModule: path.posix
+  })
+
+  const entries = env.PATH.split(':')
+  assert.equal(entries[2], '/Users/test/.local/bin')
+  assert.equal(entries.filter(entry => entry === '/Users/test/.local/bin').length, 1)
 })
 
 test('normalizeHermesHomeRoot maps profile homes back to the global Hermes root', () => {

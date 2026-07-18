@@ -1248,6 +1248,17 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ font }),
     }),
+  getTerminalPref: () =>
+    fetchJSON<DashboardTerminalResponse>("/api/dashboard/terminal"),
+  setTerminalPref: (prefs: DashboardTerminalResponse) =>
+    fetchJSON<{ ok: boolean } & DashboardTerminalResponse>(
+      "/api/dashboard/terminal",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prefs),
+      },
+    ),
 
   // ── Admin: MCP servers ──────────────────────────────────────────────
   getMcpServers: () => fetchJSON<{ servers: McpServer[] }>("/api/mcp/servers"),
@@ -2027,10 +2038,28 @@ export interface SystemStats {
   cpu_count: number | null;
   psutil: boolean;
   cpu_percent?: number;
+  /** Per-core utilisation (0–100), one entry per logical CPU. */
+  per_cpu_percent?: number[];
   load_avg?: number[];
   uptime_seconds?: number;
   memory?: { total: number; available: number; used: number; percent: number };
   disk?: { total: number; used: number; free: number; percent: number };
+  /** Network counters + per-second throughput since the previous sample. */
+  net?: {
+    bytes_sent: number;
+    bytes_recv: number;
+    /** null on the first sample / after a counter reset. */
+    sent_per_sec: number | null;
+    recv_per_sec: number | null;
+  };
+  /** Detected GPUs (NVIDIA via pynvml/nvidia-smi); absent when none found. */
+  gpus?: Array<{
+    name: string;
+    util_percent: number;
+    mem_used: number;
+    mem_total: number;
+    mem_percent: number | null;
+  }>;
   process?: {
     pid: number;
     rss: number;
@@ -2740,6 +2769,9 @@ export interface AuxiliaryModelsResponse {
 export interface MoaModelSlot {
   provider: string;
   model: string;
+  role?: string;
+  instructions?: string;
+  reasoning_effort?: string;
 }
 
 export interface MoaConfigResponse {
@@ -2750,17 +2782,21 @@ export interface MoaConfigResponse {
     {
       reference_models: MoaModelSlot[];
       aggregator: MoaModelSlot;
-      reference_temperature: number;
-      aggregator_temperature: number;
+      reference_temperature: number | null;
+      aggregator_temperature: number | null;
       max_tokens: number;
+      reference_max_tokens?: number | null;
+      fanout?: "per_iteration" | "user_turn";
       enabled: boolean;
     }
   >;
   reference_models: MoaModelSlot[];
   aggregator: MoaModelSlot;
-  reference_temperature: number;
-  aggregator_temperature: number;
+  reference_temperature: number | null;
+  aggregator_temperature: number | null;
   max_tokens: number;
+  reference_max_tokens?: number | null;
+  fanout?: "per_iteration" | "user_turn";
   enabled: boolean;
 }
 
@@ -2888,6 +2924,15 @@ export interface DashboardThemesResponse {
 export interface DashboardFontResponse {
   /** Active font-override id, or "theme" when no override is set. */
   font: string;
+}
+
+export interface DashboardTerminalResponse {
+  /** Terminal color-scheme id, or "theme" to derive from the active theme. */
+  scheme: string;
+  /** Terminal font id, or "default" for the built-in stack. */
+  font: string;
+  /** Terminal font size in px, or "auto" for responsive sizing. */
+  size: number | "auto";
 }
 
 // ── Dashboard plugin types ─────────────────────────────────────────────

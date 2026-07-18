@@ -20,7 +20,8 @@ def _args(**kw):
     defaults = dict(
         status=False, stop=False, host="127.0.0.1", port=9119,
         no_open=True, insecure=False, skip_build=False,
-        isolated=False, open_profile="",
+        isolated=False, open_profile="", headless_backend=False,
+        qr=False, qr_url="",
     )
     defaults.update(kw)
     return types.SimpleNamespace(**defaults)
@@ -86,6 +87,46 @@ class TestUnifiedDashboardRouting:
         # test below for why we resolve explicitly instead of popping.
         from fabric_constants import get_default_fabric_root
         assert env.get("HERMES_HOME") == str(get_default_fabric_root())
+
+    def test_profile_qr_launch_preserves_pairing_args_on_reexec(
+        self, main_mod, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "fabric_cli.profiles.get_active_profile_name", lambda: "worker_x"
+        )
+        monkeypatch.setattr(main_mod, "_dashboard_listening", lambda host, port: False)
+        execs = []
+
+        def fake_exec(exe, argv, env):
+            execs.append((exe, argv, env))
+            raise SystemExit(0)
+
+        monkeypatch.setattr(main_mod.os, "execvpe", fake_exec)
+
+        with pytest.raises(SystemExit):
+            main_mod.cmd_dashboard(
+                _args(qr=True, qr_url="https://fabric.example.test")
+            )
+
+        argv = execs[0][1]
+        assert "--qr" in argv
+        assert argv[argv.index("--qr-url") + 1] == "https://fabric.example.test"
+
+    def test_profile_qr_launch_does_not_reuse_unprepared_dashboard(
+        self, main_mod, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(
+            "fabric_cli.profiles.get_active_profile_name", lambda: "worker_x"
+        )
+        monkeypatch.setattr(main_mod, "_dashboard_listening", lambda host, port: True)
+
+        with pytest.raises(SystemExit) as exc_info:
+            main_mod.cmd_dashboard(_args(qr=True))
+
+        assert exc_info.value.code == 1
+        output = capsys.readouterr().out
+        assert "fabric dashboard --stop" in output
+        assert "--qr" in output
 
     def test_reexec_pins_docker_machine_root(self, main_mod, monkeypatch):
         """In the Docker layout (HERMES_HOME=/opt/data, profiles under
@@ -232,3 +273,50 @@ class TestUnifiedDashboardRouting:
                 "thread_name": "dashboard-mcp-discovery",
             }
         ]
+
+    @pytest.mark.parametrize("headless_backend", [False, True])
+    def test_qr_launch_builds_and_enables_mobile_spa(
+        self, main_mod, monkeypatch, headless_backend
+    ):
+        monkeypatch.setattr(
+            "fabric_cli.profiles.get_active_profile_name", lambda: "default"
+        )
+        monkeypatch.delenv("HERMES_WEB_DIST", raising=False)
+        monkeypatch.setattr(main_mod, "_sync_bundled_skills_quietly", lambda: None)
+        monkeypatch.setattr(main_mod, "_build_web_ui", lambda *_a, **_k: True)
+        mobile_builds = []
+        monkeypatch.setattr(
+            main_mod,
+            "_ensure_mobile_web_ui",
+            lambda **kwargs: mobile_builds.append(kwargs),
+        )
+        monkeypatch.setitem(sys.modules, "fastapi", types.SimpleNamespace())
+        monkeypatch.setitem(sys.modules, "uvicorn", types.SimpleNamespace())
+        monkeypatch.setitem(
+            sys.modules,
+            "fabric_logging",
+            types.SimpleNamespace(setup_logging=lambda **_k: None),
+        )
+        monkeypatch.setitem(
+            sys.modules,
+            "fabric_cli.plugins",
+            types.SimpleNamespace(discover_plugins=lambda: None),
+        )
+        monkeypatch.setattr(
+            "fabric_cli.mcp_startup.start_background_mcp_discovery",
+            lambda **_kwargs: None,
+        )
+        starts = []
+        monkeypatch.setitem(
+            sys.modules,
+            "fabric_cli.web_server",
+            types.SimpleNamespace(start_server=lambda **kwargs: starts.append(kwargs)),
+        )
+
+        main_mod.cmd_dashboard(
+            _args(qr=True, headless_backend=headless_backend)
+        )
+
+        assert mobile_builds == [{"skip_build": False}]
+        assert starts[0]["pairing_qr"] is True
+        assert starts[0]["mobile_client"] is True

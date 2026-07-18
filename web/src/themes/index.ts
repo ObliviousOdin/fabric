@@ -1,6 +1,11 @@
 export { ThemeProvider } from "./context";
 export { useTheme } from "./use-theme";
 export type { AppearancePref, ContrastPref } from "./use-theme";
+export { DEFAULT_TERMINAL_PREFS } from "@/lib/terminal-schemes";
+export type {
+  TerminalFontSize,
+  TerminalPrefs,
+} from "@/lib/terminal-schemes";
 export { BUILTIN_THEMES, defaultTheme } from "./presets";
 export { themeAppearance } from "./generate";
 export {

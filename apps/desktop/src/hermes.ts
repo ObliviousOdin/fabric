@@ -57,6 +57,7 @@ import type {
   SkillInfo,
   StarmapGraph,
   StatusResponse,
+  SystemStats,
   ToolsetConfig,
   ToolsetInfo,
   ToolsetModelsResponse
@@ -170,6 +171,8 @@ export type {
   StaleAuxAssignment,
   StarmapGraph,
   StatusResponse,
+  SystemGpu,
+  SystemStats,
   ToolsetConfig,
   ToolsetInfo,
   ToolsetModel,
@@ -345,6 +348,13 @@ export function getStatus(): Promise<StatusResponse> {
   return window.hermesDesktop.api<StatusResponse>({
     ...profileScoped(),
     path: '/api/status'
+  })
+}
+
+export function getSystemStats(): Promise<SystemStats> {
+  return window.hermesDesktop.api<SystemStats>({
+    ...profileScoped(),
+    path: '/api/system/stats'
   })
 }
 

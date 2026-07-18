@@ -127,7 +127,7 @@ All 11 AgentMail tools are now available automatically.
 - Inbox and message quotas depend on the current AgentMail plan
 - Emails come from `@agentmail.to` domain on free tier (custom domains on paid plans)
 - Node.js (18+) is required for the MCP server (`npx -y agentmail-mcp`)
-- The `mcp` Python package must be installed: `pip install mcp`
+- Fabric's secure MCP extra must be installed: `pip install 'fabric-agent[mcp]'`
 - Real-time inbound email (webhooks) requires a public server — use `list_threads` polling via cronjob instead for personal use
 
 ## Verification

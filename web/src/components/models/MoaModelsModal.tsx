@@ -39,7 +39,10 @@ export function MoaModelsModal({
 
   const presetNames = Object.keys(draft.presets || {});
   const preset = draft.presets[selected] || draft.presets[presetNames[0]];
-  const slotLabel = (slot: MoaModelSlot) => `${slot.provider || "(provider)"} · ${slot.model || "(model)"}`;
+  const slotLabel = (slot: MoaModelSlot) => {
+    const role = slot.role ? ` · ${slot.role}` : "";
+    return `${slot.provider || "(provider)"} · ${slot.model || "(model)"}${role}`;
+  };
 
   const updateSelectedPreset = (updater: (preset: MoaConfigResponse["presets"][string]) => MoaConfigResponse["presets"][string]) => {
     setDraft((prev) => ({
@@ -74,6 +77,8 @@ export function MoaModelsModal({
       reference_temperature: draft.reference_temperature,
       aggregator_temperature: draft.aggregator_temperature,
       max_tokens: draft.max_tokens,
+      reference_max_tokens: draft.reference_max_tokens,
+      fanout: draft.fanout,
       enabled: draft.enabled,
     };
     setDraft((prev) => ({
@@ -147,7 +152,13 @@ export function MoaModelsModal({
                 <Button size="sm" ghost disabled={preset.reference_models.length <= 1} onClick={() => updateSelectedPreset((prev) => ({ ...prev, reference_models: prev.reference_models.filter((_, i) => i !== index) }))}>Remove</Button>
               </div>
             ))}
-            <Button size="sm" outlined onClick={() => updateSelectedPreset((prev) => ({ ...prev, reference_models: [...prev.reference_models, prev.aggregator] }))}>Add reference model</Button>
+            <Button size="sm" outlined onClick={() => updateSelectedPreset((prev) => ({
+              ...prev,
+              reference_models: [
+                ...prev.reference_models,
+                { provider: prev.aggregator.provider, model: prev.aggregator.model },
+              ],
+            }))}>Add reference model</Button>
           </div>
 
           <div className="space-y-2">
@@ -178,10 +189,14 @@ export function MoaModelsModal({
             }
             setError(null);
             updateSelectedPreset((prev) => {
-              if (picker.kind === "aggregator") return { ...prev, aggregator: { provider, model } };
+              if (picker.kind === "aggregator") {
+                return { ...prev, aggregator: { ...prev.aggregator, provider, model } };
+              }
               return {
                 ...prev,
-                reference_models: prev.reference_models.map((slot, i) => i === picker.index ? { provider, model } : slot),
+                reference_models: prev.reference_models.map((slot, i) => (
+                  i === picker.index ? { ...slot, provider, model } : slot
+                )),
               };
             });
           }}

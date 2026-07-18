@@ -46,7 +46,9 @@ export class RemoteGatewayHttpError extends Error {
   }
 }
 
-function fetchImpl(options: RemoteGatewayFetchOptions): typeof globalThis.fetch {
+function fetchImpl(
+  options: RemoteGatewayFetchOptions,
+): typeof globalThis.fetch {
   const implementation = options.fetch ?? globalThis.fetch;
   if (!implementation) {
     throw new Error("fetch is unavailable in this runtime");
@@ -54,9 +56,15 @@ function fetchImpl(options: RemoteGatewayFetchOptions): typeof globalThis.fetch 
   return implementation;
 }
 
-async function readError(response: Response, fallback: string): Promise<string> {
+async function readError(
+  response: Response,
+  fallback: string,
+): Promise<string> {
   try {
-    const body = (await response.json()) as { detail?: unknown; message?: unknown };
+    const body = (await response.json()) as {
+      detail?: unknown;
+      message?: unknown;
+    };
     const detail = body.detail ?? body.message;
     return typeof detail === "string" && detail.trim() ? detail : fallback;
   } catch {
@@ -107,7 +115,10 @@ export async function fetchRemoteGatewayStatus(
   );
   if (!response.ok) {
     throw new RemoteGatewayHttpError(
-      await readError(response, `Gateway status failed: HTTP ${response.status}`),
+      await readError(
+        response,
+        `Gateway status failed: HTTP ${response.status}`,
+      ),
       response.status,
     );
   }
@@ -127,12 +138,45 @@ export async function fetchRemoteAuthProviders(
   );
   if (!response.ok) {
     throw new RemoteGatewayHttpError(
-      await readError(response, `Provider discovery failed: HTTP ${response.status}`),
+      await readError(
+        response,
+        `Provider discovery failed: HTTP ${response.status}`,
+      ),
       response.status,
     );
   }
   const body = (await response.json()) as RemoteAuthProvidersResponse;
   return Array.isArray(body.providers) ? body.providers : [];
+}
+
+export async function hasRemoteGatewaySession(
+  baseUrl: string,
+  options: RemoteGatewayFetchOptions = {},
+): Promise<boolean> {
+  const response = await fetchImpl(options)(
+    remoteGatewayHttpUrl(baseUrl, "/api/auth/me"),
+    {
+      credentials: "include",
+      signal: options.signal,
+    },
+  );
+  if (response.status === 401 || response.status === 403) {
+    return false;
+  }
+  if (!response.ok) {
+    throw new RemoteGatewayHttpError(
+      await readError(
+        response,
+        `Session probe failed: HTTP ${response.status}`,
+      ),
+      response.status,
+    );
+  }
+  const body = (await response.json()) as { user_id?: unknown };
+  if (typeof body.user_id !== "string" || !body.user_id) {
+    throw new Error("Gateway returned an invalid authenticated session");
+  }
+  return true;
 }
 
 export async function loginRemoteGatewayWithPassword(
@@ -178,7 +222,10 @@ export async function mintRemoteGatewayTicket(
   );
   if (!response.ok) {
     throw new RemoteGatewayHttpError(
-      await readError(response, `Session refresh failed: HTTP ${response.status}`),
+      await readError(
+        response,
+        `Session refresh failed: HTTP ${response.status}`,
+      ),
       response.status,
     );
   }

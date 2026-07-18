@@ -46,7 +46,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric gateway` | Run or manage the messaging gateway service. |
 | `fabric proxy` | Local OpenAI-compatible proxy that attaches OAuth provider credentials. See [Subscription Proxy](../user-guide/features/subscription-proxy.md). |
 | `fabric lsp` | Manage Language Server Protocol integration (semantic diagnostics for write_file/patch). |
-| `fabric setup` | Interactive setup wizard for all or one section (`model`, `tts`, `terminal`, `gateway`, `tools`, `agent`, or opt-in `tailscale`). |
+| `fabric setup` | Interactive setup wizard for all or one section (`model`, `tts`, `terminal`, `gateway`, `tools`, `github`, `agent`, or opt-in `tailscale`). |
 | `fabric whatsapp` | Configure and pair the WhatsApp bridge. |
 | `fabric whatsapp-cloud` | Configure the official Meta WhatsApp Business Cloud API adapter (Business account + public webhook required). Distinct from `fabric whatsapp` (Baileys personal-account bridge). |
 | `fabric slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |
@@ -71,6 +71,8 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric debug` | Debug tools — upload logs and system info for support. |
 | `fabric backup` | Back up Fabric home directory to a zip file. |
 | `fabric checkpoints` | Inspect / prune / clear `~/.fabric/checkpoints/` (the shadow store used by `/rollback`). Run with no args for a status overview. |
+| `fabric disk` | Report how much disk space Fabric is using (`usage`/`du`) and reclaim regenerable caches, rotated logs, traces, and scratch (`clean`, dry-run by default). |
+| `fabric monitor` | Live host metrics — CPU (aggregate + per-core), memory, disk, load, network throughput, and GPU (alias: `fabric top`). |
 | `fabric import` | Restore a Fabric backup from a zip file. |
 | `fabric logs` | View, tail, and filter agent/gateway/error log files. |
 | `fabric config` | Show, edit, migrate, and query configuration files. |
@@ -282,7 +284,7 @@ the full guide, supported languages, and configuration knobs.
 ## `fabric setup`
 
 ```bash
-fabric setup [model|tts|terminal|gateway|tools|tailscale|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
+fabric setup [model|tts|terminal|gateway|tools|github|tailscale|agent] [--non-interactive] [--reset] [--quick] [--reconfigure] [--portal]
 ```
 
 Run `fabric setup` for the full interactive wizard, or use `fabric model` and
@@ -301,6 +303,7 @@ Jump into one section instead of the full wizard:
 | `terminal` | Terminal backend and sandbox setup. |
 | `gateway` | Messaging platform setup. |
 | `tools` | Enable/disable tools per platform. |
+| `github` | Connect a GitHub account: browser device-code sign-in (or a personal access token), saved as `GITHUB_TOKEN` for the GitHub skills. Offers to star the Fabric repo and points at the `fabric-contribute` skill for filing feature requests and bug reports. |
 | `tailscale` | Opt-in private Tailscale access setup. |
 | `agent` | Agent behavior settings. |
 
@@ -962,6 +965,87 @@ fabric checkpoints clear -f                         # wipe everything
 ```
 
 See [Checkpoints and `/rollback`](../user-guide/checkpoints-and-rollback.md) for the full architecture and the in-session commands.
+
+## `fabric disk`
+
+```bash
+fabric disk <usage|clean> [options]
+```
+
+See where your Fabric home directory (`~/.fabric`, `%LOCALAPPDATA%\fabric` on Windows) is spending disk, and reclaim the parts that regenerate on their own. Safe to run any time; does not require the agent to be running.
+
+| Subcommand | Description |
+|------------|-------------|
+| `usage` (alias `du`) | Break down disk used per store (caches, sessions, memory, databases, backups, …), largest-first, with a grand total and the free space left on the volume. |
+| `clean` | Reclaim regenerable data. **Dry-run by default** — prints what it would remove and deletes nothing until you pass `--yes`. |
+
+### `fabric disk usage`
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Machine-readable JSON report (`categories`, `total_bytes`, `volume_free_bytes`). |
+| `-a`, `--all` | Include categories that are currently empty. |
+| `--profile NAME` | Report usage for another profile instead of the active home. |
+
+### `fabric disk clean`
+
+Only ever removes an explicit allow-list of regenerable data — caches, rotated
+log backups (`logs/*.log.*`, never the live logs), diagnostic traces
+(`moa-traces/`, `spawn-trees/`), temp scratch, and re-downloadable messaging
+media. It **never** touches sessions, the state database, memories, credentials,
+config, installed skills/plugins, backups, the cron control-plane, or another
+profile — nor sandboxes, browser profiles, or worktrees, which can hold
+persistent container/browser/uncommitted state. A runtime guard refuses any
+target that falls outside the reclaimable allow-list. Rollback checkpoints are
+reported but left to `fabric checkpoints prune`.
+
+| Option | Description |
+|--------|-------------|
+| `-y`, `--yes` | Actually delete (default is a dry-run preview). |
+| `-f`, `--force` | With `--yes`, skip the confirmation prompt. Required to delete on a non-interactive terminal. |
+| `--only CATEGORY …` | Clean only these categories (`cache`, `logs`, `traces`, `tmp`, `platforms`). |
+| `--skip CATEGORY …` | Clean everything reclaimable except these categories. |
+
+### Examples
+
+```bash
+fabric disk usage                    # per-store breakdown + total + free space
+fabric disk du --all                 # include empty categories
+fabric disk usage --json             # machine-readable
+fabric disk clean                    # preview what would be reclaimed (dry-run)
+fabric disk clean --yes              # delete caches / rotated logs / traces / scratch
+fabric disk clean --only cache --yes # just clear caches
+fabric disk clean --skip logs --yes  # everything reclaimable except logs
+```
+
+## `fabric monitor`
+
+```bash
+fabric monitor [--interval SECONDS] [--once] [--json]
+fabric top                           # alias
+```
+
+Live terminal view of this machine's health. Shares the same metrics collector
+as the web dashboard Host card and the desktop Command Center host panel, so
+CPU / memory / disk / load / network throughput / GPU utilization never drift
+across surfaces.
+
+| Option | Description |
+|--------|-------------|
+| `--interval SECONDS` | Refresh period (default `2`, minimum `0.5`). |
+| `--once` | Print one frame and exit (also the behavior when stdout is not a TTY). |
+| `--json` | Emit one JSON sample (primes network counters briefly so rates are populated). |
+
+Requires `psutil` for CPU, memory, disk, and network metrics (the `psutil`
+extra). GPU metrics appear when `pynvml` is installed or `nvidia-smi` is on
+`PATH`; otherwise those tiles are omitted.
+
+```bash
+fabric monitor                 # live TUI-style panel
+fabric top --interval 1        # faster refresh
+fabric monitor --once          # single snapshot
+fabric monitor --json          # machine-readable sample
+```
 
 ## `fabric import`
 

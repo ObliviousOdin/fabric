@@ -15,14 +15,18 @@ import { PairingLanding } from "./components/pairing-landing";
 import { SessionDrawer } from "./components/session-drawer";
 import { Transcript } from "./components/transcript";
 import { useMobileGateway } from "./gateway/use-mobile-gateway";
+import { createCookieAutoConnectClaim } from "./gateway/probe-auth";
 import { takePairingPayload } from "./pairing";
 
 export function App() {
   const gateway = useMobileGateway();
   const [composerText, setComposerText] = useState("");
+  const [claimCookieAutoConnect] = useState(createCookieAutoConnectClaim);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pairing] = useState(takePairingPayload);
-  const [showPairingLanding, setShowPairingLanding] = useState(Boolean(pairing));
+  const [showPairingLanding, setShowPairingLanding] = useState(
+    Boolean(pairing),
+  );
 
   const currentSummary = useMemo(
     () =>
@@ -35,7 +39,8 @@ export function App() {
   const showConnect =
     !gateway.connection ||
     gateway.connectionState === "idle" ||
-    (gateway.connectionState === "error" && !gateway.activeSession.runtimeSessionId);
+    (gateway.connectionState === "error" &&
+      !gateway.activeSession.runtimeSessionId);
 
   if (pairing && showPairingLanding) {
     return (
@@ -49,6 +54,7 @@ export function App() {
   if (showConnect) {
     return (
       <ConnectView
+        claimCookieAutoConnect={claimCookieAutoConnect}
         connecting={gateway.connectionState === "connecting"}
         error={gateway.error}
         initialConnection={pairing?.connection ?? null}
@@ -77,12 +83,15 @@ export function App() {
     }
   };
 
-  const title = currentSummary?.title ||
+  const title =
+    currentSummary?.title ||
     (gateway.activeSession.runtimeSessionId ? "New session" : "Fabric");
   const context = [
     gateway.activeSession.info.profile_name,
     gateway.activeSession.info.cwd,
-  ].filter(Boolean).join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="mobile-app">
@@ -99,17 +108,32 @@ export function App() {
 
       <main className="chat-shell">
         <header className="chat-header">
-          <button className="icon-button menu-button" type="button" aria-label="Open sessions" onClick={() => setDrawerOpen(true)}>
+          <button
+            className="icon-button menu-button"
+            type="button"
+            aria-label="Open sessions"
+            onClick={() => setDrawerOpen(true)}
+          >
             <IconMenu2 size={22} />
           </button>
           <div className="chat-title">
             <div className="chat-title-line">
               <h1>{title}</h1>
-              <span className={`connection-dot ${connected ? "online" : "offline"}`} aria-label={connected ? "Connected" : "Offline"} />
+              <span
+                className={`connection-dot ${connected ? "online" : "offline"}`}
+                aria-label={connected ? "Connected" : "Offline"}
+              />
             </div>
-            <p>{context || gateway.activeSession.info.model || "Remote gateway"}</p>
+            <p>
+              {context || gateway.activeSession.info.model || "Remote gateway"}
+            </p>
           </div>
-          <button className="icon-button header-new" type="button" aria-label="New session" onClick={() => void createNew()}>
+          <button
+            className="icon-button header-new"
+            type="button"
+            aria-label="New session"
+            onClick={() => void createNew()}
+          >
             <IconMessagePlus size={21} />
           </button>
         </header>
@@ -117,7 +141,10 @@ export function App() {
         {!connected && (
           <div className="offline-banner" role="status">
             <IconCloudOff size={17} />
-            <span>Gateway disconnected. Your draft is safe; prompts are not auto-retried.</span>
+            <span>
+              Gateway disconnected. Your draft is safe; prompts are not
+              auto-retried.
+            </span>
             <button type="button" onClick={() => void gateway.reconnect()}>
               <IconRefresh size={15} /> Reconnect
             </button>
@@ -128,7 +155,11 @@ export function App() {
           <div className="error-banner" role="alert">
             <IconAlertCircle size={17} />
             <span>{gateway.error}</span>
-            <button type="button" aria-label="Dismiss" onClick={gateway.clearError}>
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={gateway.clearError}
+            >
               <IconX size={16} />
             </button>
           </div>
@@ -154,9 +185,11 @@ export function App() {
           />
         )}
 
-        {!gateway.activeSession.runtimeSessionId && gateway.activeSession.messages.length === 0 ? (
+        {!gateway.activeSession.runtimeSessionId &&
+        gateway.activeSession.messages.length === 0 ? (
           <div className="draft-session-note">
-            <IconMessagePlus size={16} /> Your first message creates a saved Fabric session.
+            <IconMessagePlus size={16} /> Your first message creates a saved
+            Fabric session.
           </div>
         ) : null}
 

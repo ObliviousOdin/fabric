@@ -8,13 +8,16 @@ on:
       - "apps/shared/**"
       - "package.json"
       - "package-lock.json"
+      - "fabric_cli/main.py"
       - "fabric_cli/mobile_*.py"
+      - "fabric_cli/subcommands/dashboard.py"
       - "fabric_cli/subcommands/mobile.py"
       - "fabric_cli/web_server.py"
       - "fabric_cli/dashboard_auth/middleware.py"
       - "tui_gateway/**"
       - "tools/approval.py"
       - "tests/test_tui_gateway_server.py"
+      - "tests/fabric_cli/test_dashboard_unified_launch.py"
       - "tests/fabric_cli/test_mobile_*.py"
       - ".github/workflows/mobile.yml"
   push:
@@ -25,13 +28,16 @@ on:
       - "apps/shared/**"
       - "package.json"
       - "package-lock.json"
+      - "fabric_cli/main.py"
       - "fabric_cli/mobile_*.py"
+      - "fabric_cli/subcommands/dashboard.py"
       - "fabric_cli/subcommands/mobile.py"
       - "fabric_cli/web_server.py"
       - "fabric_cli/dashboard_auth/middleware.py"
       - "tui_gateway/**"
       - "tools/approval.py"
       - "tests/test_tui_gateway_server.py"
+      - "tests/fabric_cli/test_dashboard_unified_launch.py"
       - "tests/fabric_cli/test_mobile_*.py"
       - ".github/workflows/mobile.yml"
 
@@ -230,6 +236,7 @@ jobs:
         run: >-
           scripts/run_tests.sh
           tests/fabric_cli/test_mobile_command.py
+          tests/fabric_cli/test_dashboard_unified_launch.py
           tests/fabric_cli/test_mobile_pairing.py
           tests/fabric_cli/test_mobile_web_server.py
           tests/test_tui_gateway_server.py

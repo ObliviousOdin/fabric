@@ -165,6 +165,29 @@
 .ha-join-privacy strong { display: block; margin-bottom: .25rem; font-size: .74rem; text-transform: uppercase; letter-spacing: .1em; font-family: var(--font-mono, ui-monospace, monospace); }
 .ha-join-privacy p, .ha-consent-note, .ha-hosting-copy p, .ha-team-danger-zone p { margin: 0; color: var(--color-muted-foreground); font-size: .76rem; line-height: 1.45; }
 .ha-consent-note { max-width: 62ch; }
+.ha-preflight-progress { margin: 0; color: color-mix(in srgb, var(--color-foreground) 72%, #67e8f9); }
+.ha-invite-preview { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .45rem; border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 6%, transparent); padding: .6rem .7rem; }
+.ha-invite-preview > div { min-width: 0; display: flex; flex-direction: column; gap: .14rem; }
+.ha-invite-preview dt { color: var(--color-muted-foreground); font-size: .62rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .1em; }
+.ha-invite-preview dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--color-foreground); font-size: .78rem; font-family: var(--font-mono, ui-monospace, monospace); }
+
+.ha-connection-card { display: flex; flex-direction: column; gap: .7rem; border: 1px solid color-mix(in srgb, #f59e0b 50%, var(--color-border)); border-left: 3px solid #f59e0b; background: color-mix(in srgb, #f59e0b 7%, var(--color-card)); padding: .85rem .9rem; }
+.ha-connection-card.is-connected { border-color: color-mix(in srgb, #22c55e 45%, var(--color-border)); border-left-color: #22c55e; background: color-mix(in srgb, #22c55e 6%, var(--color-card)); }
+.ha-connection-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; }
+.ha-connection-head h3 { margin: .14rem 0 0; font-size: 1rem; letter-spacing: -.015em; }
+.ha-connection-state { color: color-mix(in srgb, var(--color-foreground) 65%, #f59e0b); font-size: .62rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .1em; }
+.ha-connection-card.is-connected .ha-connection-state { color: color-mix(in srgb, var(--color-foreground) 65%, #22c55e); }
+.ha-connection-message { margin: 0; max-width: 82ch; color: color-mix(in srgb, var(--color-foreground) 82%, var(--color-muted-foreground)); font-size: .82rem; line-height: 1.5; }
+.ha-connection-checks { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .35rem; }
+.ha-connection-checks li { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: .5rem; border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 76%, transparent); padding: .38rem .5rem; font-size: .7rem; }
+.ha-connection-checks li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-muted-foreground); }
+.ha-connection-checks li > strong { color: #f59e0b; font-family: var(--font-mono, ui-monospace, monospace); font-size: .64rem; text-transform: uppercase; }
+.ha-connection-checks li.is-ok > strong { color: #22c55e; }
+.ha-connection-actions { display: flex; flex-wrap: wrap; gap: .45rem; }
+.ha-relay-logs { border: 1px solid var(--color-border); background: rgba(0,0,0,.22); }
+.ha-relay-logs-head { display: flex; justify-content: space-between; align-items: center; gap: .75rem; border-bottom: 1px solid var(--color-border); padding: .45rem .55rem; }
+.ha-relay-logs-head strong { font-size: .68rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .08em; }
+.ha-relay-logs pre { max-height: 16rem; overflow: auto; margin: 0; padding: .65rem; color: color-mix(in srgb, var(--color-foreground) 78%, var(--color-muted-foreground)); font-size: .7rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .ha-field { display: flex; flex-direction: column; gap: .3rem; }
 .ha-field-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; font-family: var(--font-mono, ui-monospace, monospace); color: var(--color-muted-foreground); }
@@ -195,6 +218,27 @@
 .ha-hosting-copy { display: flex; flex-direction: column; gap: .35rem; }
 .ha-hosting-copy strong { font-size: .9rem; }
 
+/* Relay + Tailscale detection helper (auto-fills the relay URL). */
+.ha-detect { display: flex; flex-direction: column; gap: .5rem; border: 1px solid color-mix(in srgb, var(--color-primary) 22%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 6%, transparent); padding: .7rem .75rem; }
+.ha-detect-head { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+.ha-detect-head .ha-field-hint { flex: 1; min-width: 12rem; }
+.ha-detect-result { display: flex; flex-direction: column; gap: .5rem; }
+.ha-detect-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .28rem; font-size: .76rem; line-height: 1.4; }
+.ha-detect-list li { padding-left: 1.1rem; position: relative; }
+.ha-detect-list li::before { position: absolute; left: 0; top: 0; }
+.ha-detect-ok { color: color-mix(in srgb, var(--color-foreground) 70%, #22c55e); }
+.ha-detect-warn { color: color-mix(in srgb, var(--color-foreground) 66%, #f59e0b); }
+.ha-detect-list li.ha-detect-ok::before { content: "\2713"; color: #22c55e; }
+.ha-detect-list li.ha-detect-warn::before { content: "\21BB"; color: #f59e0b; }
+.ha-detect-cmd .ha-invite-input { font-family: var(--font-mono, ui-monospace, monospace); font-size: .72rem; }
+.ha-detect-host { align-self: flex-start; }
+.ha-detect-stop { margin-left: .5rem; padding: .12rem .4rem; font-size: .64rem; vertical-align: middle; }
+.ha-detect-connect { display: flex; flex-direction: column; gap: .35rem; border-top: 1px dashed color-mix(in srgb, var(--color-border) 70%, transparent); padding-top: .5rem; }
+.ha-host-telemetry { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .4rem; border-top: 1px dashed color-mix(in srgb, var(--color-border) 70%, transparent); padding-top: .5rem; }
+.ha-host-telemetry > div { min-width: 0; }
+.ha-host-telemetry dt { color: var(--color-muted-foreground); font-size: .61rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .08em; }
+.ha-host-telemetry dd { margin: .12rem 0 0; min-width: 0; overflow-wrap: anywhere; color: var(--color-foreground); font-size: .72rem; font-family: var(--font-mono, ui-monospace, monospace); }
+
 .ha-team-hero-actions { position: relative; display: flex; gap: .5rem; align-items: center; }
 .ha-team-btn { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 72%, transparent); color: var(--color-foreground); padding: .45rem .7rem; font-size: .76rem; font-family: var(--font-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .06em; cursor: pointer; white-space: nowrap; transition: border-color .12s ease, background .12s ease; }
 .ha-team-btn:hover:not(:disabled) { border-color: var(--color-ring); background: color-mix(in srgb, var(--color-primary) 16%, var(--color-card)); }
@@ -224,6 +268,7 @@
 .ha-invite-head strong { font-size: .74rem; text-transform: uppercase; letter-spacing: .12em; font-family: var(--font-mono, ui-monospace, monospace); color: var(--color-muted-foreground); }
 .ha-invite-row { display: flex; gap: .5rem; align-items: center; }
 .ha-invite-input { flex: 1; min-width: 0; color: var(--color-muted-foreground); }
+.ha-invite-reveal { flex: 0 0 auto; }
 .ha-invite-note { margin: 0; color: var(--color-muted-foreground); font-size: .74rem; line-height: 1.4; }
 
 .ha-board { border: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-card) 82%, transparent); overflow: hidden; }

@@ -149,6 +149,31 @@ Mirrors the repo TS style (see root `AGENTS.md`):
 - Prefer `interface` for public props; extend React primitives
   (`React.ComponentProps<'button'>`, `Omit<…>`).
 
+## Design workspace import boundary
+
+The **Design** route is a launcher and library around the existing chat; it is
+not a second transcript or agent runtime.
+
+- The renderer may pick a Claude Design ZIP, but it must not read or extract it
+  and must not persist source paths in `localStorage`.
+- Electron main streams the selected local file to the active Fabric backend
+  through the narrow design-system import IPC. Never load the whole archive
+  into renderer memory or expose a general upload primitive.
+- The profile-scoped backend owns validation, bounded extraction, immutable
+  revisions, replacement, deletion, and read-only source inspection under the
+  active `FABRIC_HOME`.
+- After import or selection, Design loads a bounded preflight from the managed
+  revision (counts, entrypoints, capped inventory, optional `DESIGN.md`
+  excerpt). The response exposes at most 200 inventory rows, 40 HTML and 40
+  token entrypoints, and 16 KiB of `DESIGN.md`; omitted counts remain visible.
+  Import stays on Design; only the explicit chat CTA leaves the page.
+- Chat receives the validated managed revision path plus a normalized inventory
+  of metadata — never raw archive text. Imported files are untrusted reference
+  content: never execute scripts or install their dependencies, and write
+  generated work only into the user's current project.
+- Remote connections upload to and use the remote profile's library. A local
+  source path is never sent as JSON or stored as backend metadata.
+
 ## Affordances
 
 - `cursor-pointer` at the primitive level (Button, dropdown/select) — don't

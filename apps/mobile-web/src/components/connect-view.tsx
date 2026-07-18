@@ -1,15 +1,21 @@
 import {
-  fetchRemoteAuthProviders,
-  fetchRemoteGatewayStatus,
   loginRemoteGatewayWithPassword,
   normalizeRemoteGatewayBaseUrl,
   type RemoteAuthProvider,
   type RemoteGatewayConnection,
 } from "@fabric/shared";
-import { IconArrowRight, IconKey, IconLock, IconServer2 } from "@tabler/icons-react";
+import {
+  IconArrowRight,
+  IconKey,
+  IconLock,
+  IconServer2,
+} from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
+import { probeMobileGatewayAuth } from "../gateway/probe-auth";
+
 interface ConnectViewProps {
+  claimCookieAutoConnect: () => boolean;
   connecting: boolean;
   error: null | string;
   initialConnection: RemoteGatewayConnection | null;
@@ -19,17 +25,21 @@ interface ConnectViewProps {
 type AuthTab = "cookie" | "token";
 
 function injectedAuthRequired(): boolean {
-  return window.__FABRIC_AUTH_REQUIRED__ ?? window.__HERMES_AUTH_REQUIRED__ ?? false;
+  return (
+    window.__FABRIC_AUTH_REQUIRED__ ?? window.__HERMES_AUTH_REQUIRED__ ?? false
+  );
 }
 
 export function ConnectView({
+  claimCookieAutoConnect,
   connecting,
   error,
   initialConnection,
   onConnect,
 }: ConnectViewProps) {
   const [authTab, setAuthTab] = useState<AuthTab>(
-    initialConnection?.authMode ?? (injectedAuthRequired() ? "cookie" : "token"),
+    initialConnection?.authMode ??
+      (injectedAuthRequired() ? "cookie" : "token"),
   );
   const [baseUrl] = useState(() =>
     normalizeRemoteGatewayBaseUrl(initialConnection?.baseUrl ?? ""),
@@ -55,25 +65,29 @@ export function ConnectView({
       setLocalError(null);
       try {
         const normalized = normalizeRemoteGatewayBaseUrl(baseUrl);
-        const status = await fetchRemoteGatewayStatus(normalized, {
+        const result = await probeMobileGatewayAuth(normalized, {
           signal: controller.signal,
         });
-        setAuthTab(status.auth_required ? "cookie" : "token");
-        if (status.auth_required) {
-          const discovered = await fetchRemoteAuthProviders(normalized, {
-            signal: controller.signal,
-          });
-          setProviders(discovered);
+        setAuthTab(result.authMode);
+        if (result.connection && claimCookieAutoConnect()) {
+          await onConnect(result.connection);
+          return;
+        }
+        setProviders(result.providers);
+        if (result.authMode === "cookie") {
           setSelectedProvider(
-            discovered.find((provider) => provider.supports_password)?.name ||
-              discovered[0]?.name ||
+            result.providers.find((provider) => provider.supports_password)
+              ?.name ||
+              result.providers[0]?.name ||
               "",
           );
         } else {
-          setProviders([]);
+          setSelectedProvider("");
         }
       } catch (probeError) {
-        if (!(probeError instanceof DOMException && probeError.name === "AbortError")) {
+        if (!(
+          probeError instanceof DOMException && probeError.name === "AbortError"
+        )) {
           setLocalError(
             probeError instanceof Error
               ? probeError.message
@@ -90,7 +104,7 @@ export function ConnectView({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [baseUrl]);
+  }, [baseUrl, claimCookieAutoConnect, onConnect]);
 
   const connectToken = async (event: FormEvent) => {
     event.preventDefault();
@@ -100,7 +114,9 @@ export function ConnectView({
       await onConnect({ authMode: "token", baseUrl: normalized, token });
     } catch (connectError) {
       setLocalError(
-        connectError instanceof Error ? connectError.message : String(connectError),
+        connectError instanceof Error
+          ? connectError.message
+          : String(connectError),
       );
     }
   };
@@ -123,7 +139,9 @@ export function ConnectView({
       setOtp("");
     } catch (connectError) {
       setLocalError(
-        connectError instanceof Error ? connectError.message : String(connectError),
+        connectError instanceof Error
+          ? connectError.message
+          : String(connectError),
       );
     }
   };
@@ -151,8 +169,8 @@ export function ConnectView({
         <p className="eyebrow">Remote client preview</p>
         <h1 id="connect-heading">Your agent, without the desk.</h1>
         <p className="connect-lede">
-          Resume the same Fabric sessions, watch tools run, and answer the prompts
-          that keep work moving.
+          Resume the same Fabric sessions, watch tools run, and answer the
+          prompts that keep work moving.
         </p>
         <dl className="connect-facts">
           <div>
@@ -161,7 +179,9 @@ export function ConnectView({
           </div>
           <div>
             <dt>Credentials stay transient</dt>
-            <dd>Passwords and tokens are held in memory, never browser storage.</dd>
+            <dd>
+              Passwords and tokens are held in memory, never browser storage.
+            </dd>
           </div>
         </dl>
       </section>
@@ -171,7 +191,11 @@ export function ConnectView({
           <IconServer2 size={20} stroke={1.7} />
           <div>
             <h2>Connect to Fabric</h2>
-            <p>{probing ? "Checking gateway…" : "Use the gateway that owns your sessions."}</p>
+            <p>
+              {probing
+                ? "Checking gateway…"
+                : "Use the gateway that owns your sessions."}
+            </p>
           </div>
         </div>
 
@@ -180,7 +204,11 @@ export function ConnectView({
           <code>{baseUrl}</code>
         </div>
 
-        <div className="auth-tabs" role="tablist" aria-label="Authentication method">
+        <div
+          className="auth-tabs"
+          role="tablist"
+          aria-label="Authentication method"
+        >
           <button
             className={authTab === "cookie" ? "active" : ""}
             type="button"
@@ -216,7 +244,11 @@ export function ConnectView({
               placeholder="Paste the gateway session token"
               required
             />
-            <button className="primary-button" disabled={connecting || probing} type="submit">
+            <button
+              className="primary-button"
+              disabled={connecting || probing}
+              type="submit"
+            >
               {connecting ? "Connecting…" : "Open Fabric"}
               {!connecting && <IconArrowRight size={18} />}
             </button>
@@ -284,18 +316,30 @@ export function ConnectView({
                     />
                   </>
                 )}
-                <button className="primary-button" disabled={connecting || probing} type="submit">
+                <button
+                  className="primary-button"
+                  disabled={connecting || probing}
+                  type="submit"
+                >
                   {connecting ? "Signing in…" : "Sign in and connect"}
                   {!connecting && <IconArrowRight size={18} />}
                 </button>
               </>
             ) : selected ? (
-              <button className="primary-button" type="button" onClick={startOAuth}>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={startOAuth}
+              >
                 Continue with {selected.display_name || selected.name}
                 <IconArrowRight size={18} />
               </button>
             ) : (
-              <button className="primary-button" disabled={connecting || probing} type="submit">
+              <button
+                className="primary-button"
+                disabled={connecting || probing}
+                type="submit"
+              >
                 {connecting ? "Connecting…" : "Use existing session"}
                 {!connecting && <IconArrowRight size={18} />}
               </button>
@@ -303,10 +347,15 @@ export function ConnectView({
           </form>
         )}
 
-        {visibleError && <p className="form-error" role="alert">{visibleError}</p>}
+        {visibleError && (
+          <p className="form-error" role="alert">
+            {visibleError}
+          </p>
+        )}
         <p className="connection-note">
-          Browser builds should be served from the gateway origin. The development
-          server uses a locked local proxy; production does not relax Fabric’s origin checks.
+          Browser builds should be served from the gateway origin. The
+          development server uses a locked local proxy; production does not
+          relax Fabric’s origin checks.
         </p>
       </section>
     </main>

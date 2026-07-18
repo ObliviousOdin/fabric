@@ -29,9 +29,11 @@ def _status_payload(
     dns_name: str = "fabric-box.example.ts.net.",
     hostname: str = "fabric-box",
     ips: list[str] | None = None,
+    tailnet_dns_suffix: str = "example.ts.net.",
 ) -> str:
     return json.dumps({
         "BackendState": state,
+        "CurrentTailnet": {"MagicDNSSuffix": tailnet_dns_suffix},
         "Self": {
             "DNSName": dns_name,
             "HostName": hostname,
@@ -64,6 +66,7 @@ def test_parse_status_projects_running_identity_and_prefers_ipv4():
         dns_name="fabric-box.example.ts.net",
         ip="100.64.0.9",
         hostname="fabric-box",
+        tailnet_dns_suffix="example.ts.net",
     )
     assert status.is_running is True
 
@@ -100,6 +103,19 @@ def test_parse_status_ignores_invalid_ips_and_control_characters():
     assert status.dns_name == "node.example.ts.net"
     assert status.hostname == "nodename"
     assert status.ip == "fd7a:115c:a1e0::9"
+    assert status.tailnet_dns_suffix is None
+
+
+def test_parse_status_keeps_missing_tailnet_suffix_backward_compatible():
+    status = tailscale.parse_tailscale_status(json.dumps({
+        "BackendState": "Running",
+        "Self": {"DNSName": "node.example.ts.net."},
+    }))
+
+    assert status == tailscale.TailscaleStatus(
+        backend_state="Running",
+        dns_name="node.example.ts.net",
+    )
 
 
 def test_find_binary_prefers_path_executable(tmp_path, monkeypatch):
@@ -252,6 +268,120 @@ def test_status_failures_are_unverified_not_success(failure):
         return _completed(argv, returncode=1, stdout=_status_payload("Running"))
 
     assert tailscale.tailscale_status("/opt/tailscale", runner=runner) is None
+
+
+def test_ping_uses_one_bounded_probe_and_discards_output():
+    calls: list[tuple[list[str], dict]] = []
+
+    def runner(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return _completed(argv, stdout="peer and tailnet details")
+
+    result = tailscale.tailscale_ping(
+        "/opt/tailscale",
+        "fabric-box.example.ts.net.",
+        runner=runner,
+    )
+
+    assert result == tailscale.TailscalePingResult(True, "reachable")
+    assert calls == [
+        (
+            [
+                "/opt/tailscale",
+                "ping",
+                "--c=1",
+                "--timeout=5s",
+                "fabric-box.example.ts.net",
+            ],
+            {
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+                "timeout": 8,
+                "check": False,
+                "env": {"PATH": "/usr/bin", "TAILSCALE_BE_CLI": "1"},
+            },
+        )
+    ]
+    assert vars(result) == {"reachable": True, "outcome": "reachable"}
+
+
+def test_ping_nonzero_is_unreachable_without_cli_output():
+    def runner(argv, **_kwargs):
+        return subprocess.CompletedProcess(
+            argv,
+            1,
+            stdout="sensitive peer details",
+            stderr="sensitive daemon details",
+        )
+
+    result = tailscale.tailscale_ping(
+        "/opt/tailscale",
+        "100.64.0.9",
+        runner=runner,
+    )
+
+    assert result == tailscale.TailscalePingResult(False, "unreachable")
+    assert "sensitive" not in repr(result)
+
+
+def test_ping_process_timeout_has_a_safe_outcome():
+    def runner(argv, **_kwargs):
+        raise subprocess.TimeoutExpired(argv, 8, output="private tailnet output")
+
+    result = tailscale.tailscale_ping(
+        "/opt/tailscale",
+        "fd7a:115c:a1e0::1",
+        runner=runner,
+    )
+
+    assert result == tailscale.TailscalePingResult(False, "timeout")
+    assert "private" not in repr(result)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "",
+        "--help",
+        " node.example.ts.net",
+        "node name",
+        "https://node.example.ts.net",
+        "node.example.ts.net/path",
+        "999.999.999.999",
+        "bad_label.example.ts.net",
+        "n\N{LATIN SMALL LETTER O WITH DIAERESIS}de.example.ts.net",
+        f"{'a' * 64}.example.ts.net",
+        "a" * 254,
+    ],
+)
+def test_ping_rejects_invalid_or_option_like_targets_without_running(target):
+    def runner(*_args, **_kwargs):
+        raise AssertionError("invalid target must not start a child process")
+
+    result = tailscale.tailscale_ping(
+        "/opt/tailscale",
+        target,
+        runner=runner,
+    )
+
+    assert result == tailscale.TailscalePingResult(False, "invalid_target")
+
+
+def test_ping_missing_binary_and_execution_failure_are_unavailable():
+    assert tailscale.tailscale_ping(None, "node.example.ts.net") == (
+        tailscale.TailscalePingResult(False, "unavailable")
+    )
+
+    def runner(_argv, **_kwargs):
+        raise OSError("private executable path details")
+
+    result = tailscale.tailscale_ping(
+        "/opt/tailscale",
+        "node.example.ts.net",
+        runner=runner,
+    )
+
+    assert result == tailscale.TailscalePingResult(False, "unavailable")
 
 
 def test_already_connected_is_idempotent_and_skips_login(capsys):

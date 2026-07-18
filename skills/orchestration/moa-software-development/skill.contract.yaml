@@ -1,0 +1,99 @@
+schema_version: 1
+identity:
+  name: moa-software-development
+  version: 1.0.0
+  owner: Fabric
+  license: MIT
+compatibility:
+  fabric: ">=0.19,<1"
+  hosts: [fabric]
+  models: ["*"]
+  platforms: [linux, macos, windows]
+routing:
+  triggers:
+    - run independent GPT and Grok implementations of a difficult repository change
+    - use Mixture of Agents for architecture planning and final patch selection
+    - compare validated coding candidates in isolated git worktrees
+  non_triggers:
+    - make a tiny or mechanical edit where one worker and tests are sufficient
+    - ask for advisory model opinions without implementation
+    - work outside a git repository
+  requires: []
+  conflicts: [fan-out, ensemble]
+  precedence: 85
+interface:
+  inputs:
+    - name: repository_task
+      type: text
+      required: true
+      description: Software objective, constraints, and repository context.
+  outputs:
+    - name: integrated_change_or_decision_packet
+      type: object
+      required: true
+      description: Validated candidate integration or an explicit no-viable-candidate report with run evidence.
+permissions:
+  toolsets_required: [terminal, file, todo]
+  files:
+    - scope: workspace
+      access: read_write
+    - scope: skill
+      access: read
+    - scope: temp
+      access: read_write
+  network:
+    - host: chatgpt.com
+      methods: [GET, POST]
+    - host: auth.openai.com
+      methods: [GET, POST]
+    - host: api.x.ai
+      methods: [GET, POST]
+  secrets: []
+  actions:
+    reversible:
+      - create_isolated_worktrees
+      - write_run_artifacts
+      - install_new_subscription_presets
+      - integrate_local_candidate_commit
+    approval_required:
+      - overwrite_existing_subscription_presets
+      - stash_or_snapshot_dirty_user_changes
+      - switch_to_api_billed_provider
+      - push_remote_branch
+    prohibited:
+      - worker_merge_or_push
+      - judge_nonviable_candidate
+      - expose_oauth_credentials
+sources:
+  - url: https://obliviousodin.github.io/fabric/user-guide/features/mixture-of-agents
+    retrieved_at: "2026-07-17"
+    ttl_days: 90
+  - url: https://obliviousodin.github.io/fabric/guides/chatgpt-codex-subscription
+    retrieved_at: "2026-07-17"
+    ttl_days: 90
+  - url: https://obliviousodin.github.io/fabric/guides/xai-grok-oauth
+    retrieved_at: "2026-07-17"
+    ttl_days: 90
+  - url: https://obliviousodin.github.io/fabric/user-guide/git-worktrees
+    retrieved_at: "2026-07-17"
+    ttl_days: 90
+budgets:
+  context_tokens: 30000
+  wall_seconds: 14400
+  tool_calls: 120
+outcomes:
+  primary: deterministic_evidence_precedes_single_owner_merge_decision
+  guardrails:
+    - every_writer_has_an_isolated_worktree
+    - moa_runs_only_at_stage_boundaries
+    - nonviable_candidates_never_reach_the_judge
+    - primary_worktree_not_mutated_when_dirty
+    - subscription_models_come_from_authenticated_live_catalogs
+    - worker_identity_blinded_in_final_judge_packet
+evals:
+  suite: evals/cases.yaml
+limitations:
+  - Git worktrees isolate repository files but not global credentials or arbitrary absolute-path writes.
+  - Subscription entitlements, quotas, and xAI OAuth availability may change after bootstrap.
+  - Deterministic gates are only as strong as the repository's specified checks.
+  - Model review does not replace human approval for production, security, or compliance releases.

@@ -498,6 +498,18 @@ The dashboard embeds the real `fabric --tui` — **not** a rewrite.  See `fabric
 
 A **separate** chat surface from both the classic CLI and the dashboard's embedded TUI. It is an Electron + React + nanostore renderer (`@assistant-ui/react`) that talks to a `tui_gateway` backend over JSON-RPC (`requestGateway(method, params)`). The WebSocket/JSON-RPC transport lives in the framework-agnostic `apps/shared` package (`@fabric/shared` — `JsonRpcGatewayClient` + WS URL helpers), which the web dashboard (`web/`) also consumes; **desktop has no build/runtime dependency on the dashboard frontend** — it spawns a headless `fabric serve` backend server (the same gateway `dashboard` serves, minus the browser UI entirely: `serve` sets `headless_backend=True`, so `cmd_dashboard` skips `_build_web_ui` AND exports `HERMES_SERVE_HEADLESS=1` so `mount_spa()` disables the SPA even if a stray `web_dist/` exists — only the JSON-RPC/WS/API surface is reachable). `dashboard` and `serve` share `cmd_dashboard`/`start_server` but are independent surfaces — neither launches the other. The one exception is a backward-compat *fallback*: `serve` is newer, so the desktop spawn (`electron/backend-command.cjs` + `backendSupportsServe()` in `main.cjs`) detects whether the resolved runtime registers `serve` and, only when it does not (an older managed install / PATH `fabric` the app hasn't updated yet), rewrites the argv to the legacy `dashboard --no-open`. Without that, a new app against an un-upgraded runtime would crash on an unknown subcommand and brick every mid-upgrade user. It does NOT embed `fabric --tui` — it has its own composer, transcript, and slash-command pipeline. Route desktop bugs to the `fabric-desktop-app-work` skill, not `fabric-dashboard-work`.
 
+**Agent Live View is supporting UI, not another chat surface.** Browser and
+Computer Use activity renders beside the existing Desktop conversation or in a
+PiP owned by that renderer. `tui_gateway/visual_events.py` owns the bounded,
+allow-listed lifecycle DTOs. On local backends, Browser previews use
+`visual.status` / `visual.frame` through a second authenticated gateway client
+so frame polling does not share the chat/model/tool/approval socket; keep it
+sequential, visible-only, pause-aware, and outside the model-action lock.
+Computer Use reuses at most one bounded image already returned by an action.
+Neither path may add model tools, prompt text, context tokens, or model calls.
+Keep high-frequency frames in the isolated Live View atom so route and
+transcript subscribers stay cold.
+
 **Slash commands in the desktop app are curated client-side, then dispatched to the backend.** The pipeline:
 
 - **Backend already provides everything.** `tui_gateway/server.py` `commands.catalog` (empty-query list) and `complete.slash` (typed-query completions) both include built-in commands, user `quick_commands`, AND skill-derived commands (`scan_skill_commands()` / `get_skill_commands()`). The desktop app does not need a new RPC to see skills.

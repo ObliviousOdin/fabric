@@ -10,6 +10,9 @@ const sidebars: SidebarsConfig = {
         'getting-started/quickstart',
         'getting-started/installation',
         'getting-started/platform-support',
+        'getting-started/low-memory',
+        'getting-started/raspberry-pi',
+        'getting-started/jetson-nano',
         'getting-started/termux',
         'getting-started/nix-setup',
         'getting-started/updating',
@@ -131,6 +134,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'reference/skills-catalog',
             'reference/optional-skills-catalog',
+            'reference/skills-ecosystem-directory',
             {
               type: 'category',
               label: 'Bundled',
@@ -228,6 +232,7 @@ const sidebars: SidebarsConfig = {
                   collapsed: true,
                   items: [
                     'user-guide/skills/bundled/github/github-codebase-inspection',
+                    'user-guide/skills/bundled/github/github-fabric-contribute',
                     'user-guide/skills/bundled/github/github-github-auth',
                     'user-guide/skills/bundled/github/github-github-code-review',
                     'user-guide/skills/bundled/github/github-github-issues',
@@ -269,6 +274,21 @@ const sidebars: SidebarsConfig = {
                   collapsed: true,
                   items: [
                     'user-guide/skills/bundled/note-taking/note-taking-obsidian',
+                  ],
+                },
+                {
+                  type: 'category',
+                  label: 'orchestration',
+                  key: 'skills-bundled-orchestration',
+                  collapsed: true,
+                  items: [
+                    'user-guide/skills/bundled/orchestration/orchestration-adversarial-verify',
+                    'user-guide/skills/bundled/orchestration/orchestration-builder-crew',
+                    'user-guide/skills/bundled/orchestration/orchestration-ensemble',
+                    'user-guide/skills/bundled/orchestration/orchestration-fan-out',
+                    'user-guide/skills/bundled/orchestration/orchestration-moa-software-development',
+                    'user-guide/skills/bundled/orchestration/orchestration-orchestration',
+                    'user-guide/skills/bundled/orchestration/orchestration-pipeline',
                   ],
                 },
                 {
@@ -334,6 +354,27 @@ const sidebars: SidebarsConfig = {
                     'user-guide/skills/bundled/software-development/software-development-spike',
                     'user-guide/skills/bundled/software-development/software-development-systematic-debugging',
                     'user-guide/skills/bundled/software-development/software-development-test-driven-development',
+                  ],
+                },
+                {
+                  type: 'category',
+                  label: 'venture-studio',
+                  key: 'skills-bundled-venture-studio',
+                  collapsed: true,
+                  items: [
+                    'user-guide/skills/bundled/venture-studio/venture-studio-brainstorming',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-build-something-people-want',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-business-planning',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-d2c-smart-products',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-design-studio',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-hardware-manufacturing',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-impeccable-craft',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-ios-app-development',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-product-taste',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-proposal-writing',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-rstack',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-webapp-development',
+                    'user-guide/skills/bundled/venture-studio/venture-studio-website-building',
                   ],
                 },
                 {
@@ -812,6 +853,7 @@ const sidebars: SidebarsConfig = {
             'reference/toolsets-reference',
             'reference/skills-catalog',
             'reference/optional-skills-catalog',
+            'reference/skills-ecosystem-directory',
           ],
         },
         'reference/faq',

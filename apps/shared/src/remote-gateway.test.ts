@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteGatewayWebSocketUrl,
   fetchRemoteAuthProviders,
+  hasRemoteGatewaySession,
   loginRemoteGatewayWithPassword,
   normalizeRemoteGatewayBaseUrl,
   remoteGatewayHttpUrl,
@@ -14,9 +15,9 @@ describe("remote gateway URLs", () => {
     expect(normalizeRemoteGatewayBaseUrl("fabric.local:8080/root/")).toBe(
       "http://fabric.local:8080/root",
     );
-    expect(remoteGatewayHttpUrl("https://fabric.example/root", "/api/status")).toBe(
-      "https://fabric.example/root/api/status",
-    );
+    expect(
+      remoteGatewayHttpUrl("https://fabric.example/root", "/api/status"),
+    ).toBe("https://fabric.example/root/api/status");
     expect(
       buildRemoteGatewayWebSocketUrl("https://fabric.example/root", [
         "ticket",
@@ -36,21 +37,46 @@ describe("remote gateway URLs", () => {
 });
 
 describe("remote gateway auth", () => {
+  it("distinguishes a valid cookie session from an unauthenticated response", async () => {
+    const authenticatedFetch = vi.fn(
+      async () => new Response('{"user_id":"oauth-user"}', { status: 200 }),
+    );
+    const unauthenticatedFetch = vi.fn(
+      async () => new Response('{"detail":"Unauthorized"}', { status: 401 }),
+    );
+
+    await expect(
+      hasRemoteGatewaySession("https://fabric.example", {
+        fetch: authenticatedFetch,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      hasRemoteGatewaySession("https://fabric.example", {
+        fetch: unauthenticatedFetch,
+      }),
+    ).resolves.toBe(false);
+    expect(authenticatedFetch).toHaveBeenCalledWith(
+      "https://fabric.example/api/auth/me",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
   it("discovers password and TOTP capabilities", async () => {
-    const fetch = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          providers: [
-            {
-              display_name: "Fabric Password",
-              name: "password",
-              requires_totp: true,
-              supports_password: true,
-            },
-          ],
-        }),
-        { status: 200 },
-      ),
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            providers: [
+              {
+                display_name: "Fabric Password",
+                name: "password",
+                requires_totp: true,
+                supports_password: true,
+              },
+            ],
+          }),
+          { status: 200 },
+        ),
     );
 
     await expect(
@@ -66,7 +92,9 @@ describe("remote gateway auth", () => {
   });
 
   it("posts credentials without persisting them in client state", async () => {
-    const fetch = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+    const fetch = vi.fn(
+      async () => new Response('{"ok":true}', { status: 200 }),
+    );
 
     await loginRemoteGatewayWithPassword(
       "https://fabric.example",

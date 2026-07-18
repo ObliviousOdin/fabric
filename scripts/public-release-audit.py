@@ -389,6 +389,24 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa",
         "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e",
     ),
+    ".github/workflows/skills-index.yml": (
+        "name: Refresh skills index",
+        "contents: read",
+        "pages: write",
+        "id-token: write",
+        "fetch-depth: 0",
+        "persist-credentials: false",
+        "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+        "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+        "actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b",
+        "run: python3 scripts/public-release-audit.py",
+        "run: python3 scripts/build_skills_index.py",
+        "run: python3 scripts/fabric-brand-audit.py --mode public",
+        "run: npm run --prefix website build",
+        "run: python3 scripts/fabric-brand-audit.py --mode public --build-dir website/build",
+        "uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa",
+        "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e",
+    ),
     ".github/workflows/release-channels.yml": (
         "name: Fabric release channels",
         "permissions:\n  contents: read",
@@ -444,6 +462,7 @@ EXPECTED_PUBLIC_WORKFLOWS = frozenset(
         "mobile.yml",
         "public-ci.yml",
         "release-channels.yml",
+        "skills-index.yml",
     }
 )
 PRIVATE_REPOSITORY_PREFIXES = (
@@ -466,6 +485,7 @@ WORKFLOW_WRITE_PERMISSION_RE = re.compile(
 ALLOWED_WRITE_PERMISSIONS = {
     "docs-pages.yml": frozenset({"id-token", "pages"}),
     "release-channels.yml": frozenset({"contents"}),
+    "skills-index.yml": frozenset({"id-token", "pages"}),
 }
 WORKFLOW_USES_RE = re.compile(r"(?m)^\s*(?:-\s*)?uses:\s*([^\s#]+)")
 PINNED_ACTION_RE = re.compile(r"^[^@\s]+@[0-9a-f]{40}$")

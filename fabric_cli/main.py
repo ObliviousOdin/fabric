@@ -303,6 +303,7 @@ from fabric_cli.subcommands.login import build_login_parser
 from fabric_cli.subcommands.logout import build_logout_parser
 from fabric_cli.subcommands.auth import build_auth_parser
 from fabric_cli.subcommands.status import build_status_parser
+from fabric_cli.subcommands.monitor import build_monitor_parser
 from fabric_cli.subcommands.webhook import build_webhook_parser
 from fabric_cli.subcommands.hooks import build_hooks_parser
 from fabric_cli.subcommands.doctor import build_doctor_parser
@@ -322,6 +323,7 @@ from fabric_cli.subcommands.gui import build_gui_parser
 from fabric_cli.subcommands.logs import build_logs_parser
 from fabric_cli.subcommands.prompt_size import build_prompt_size_parser
 from fabric_cli.subcommands.memory import build_memory_parser
+from fabric_cli.subcommands.disk import build_disk_parser
 from fabric_cli.subcommands.acp import build_acp_parser
 from fabric_cli.subcommands.tools import build_tools_parser
 from fabric_cli.subcommands.insights import build_insights_parser
@@ -607,7 +609,7 @@ def _early_local_diagnostic_command() -> bool:
             else:
                 index += 1
             continue
-        return token in {"config", "doctor", "status"}
+        return token in {"config", "doctor", "status", "monitor", "top"}
     return False
 
 
@@ -4396,6 +4398,13 @@ def cmd_status(args):
     show_status(args)
 
 
+def cmd_monitor(args):
+    """Live host monitor (CPU / memory / disk / load / network / GPU)."""
+    from fabric_cli.monitor_cli import cmd_monitor as _run_monitor
+
+    return _run_monitor(args)
+
+
 def cmd_ollama(args):
     """Manage local/private Ollama models."""
     if getattr(args, "ollama_action", None) != "pull":
@@ -5210,6 +5219,26 @@ def _build_mobile_web_ui(web_dir: Path) -> bool:
         return False
     print("  ✓ Fabric Mobile web app built")
     return True
+
+
+def _ensure_mobile_web_ui(*, skip_build: bool) -> None:
+    """Build or validate the mobile PWA bundle before advertising it."""
+    mobile_dist_override = os.environ.get("FABRIC_MOBILE_WEB_DIST")
+    if not skip_build and not mobile_dist_override:
+        if not _build_mobile_web_ui(PROJECT_ROOT / "apps" / "mobile-web"):
+            raise SystemExit(1)
+        return
+
+    dist_root = (
+        Path(mobile_dist_override)
+        if mobile_dist_override
+        else PROJECT_ROOT / "fabric_cli" / "mobile_web_dist"
+    )
+    if not (dist_root / "index.html").is_file():
+        raise SystemExit(
+            f"Fabric Mobile web bundle not found at {dist_root}. "
+            "Drop --skip-build to build it."
+        )
 
 
 def _desktop_dist_exists(desktop_dir: Path) -> bool:
@@ -11328,6 +11357,8 @@ def _coalesce_session_name_args(argv: list) -> list:
         "logout",
         "auth",
         "status",
+        "monitor",
+        "top",
         "ollama",
         "cron",
         "doctor",
@@ -12289,21 +12320,7 @@ def cmd_mobile(args):
     os.environ["FABRIC_SERVE_HEADLESS"] = "1"
     os.environ["HERMES_SERVE_HEADLESS"] = "1"
 
-    mobile_dist_override = os.environ.get("FABRIC_MOBILE_WEB_DIST")
-    if not getattr(args, "skip_build", False) and not mobile_dist_override:
-        if not _build_mobile_web_ui(PROJECT_ROOT / "apps" / "mobile-web"):
-            raise SystemExit(1)
-    else:
-        dist_root = (
-            Path(mobile_dist_override)
-            if mobile_dist_override
-            else PROJECT_ROOT / "fabric_cli" / "mobile_web_dist"
-        )
-        if not (dist_root / "index.html").is_file():
-            raise SystemExit(
-                f"Fabric Mobile web bundle not found at {dist_root}. "
-                "Drop --skip-build to build it."
-            )
+    _ensure_mobile_web_ui(skip_build=getattr(args, "skip_build", False))
 
     try:
         from fabric_cli.plugins import discover_plugins
@@ -12416,6 +12433,7 @@ def cmd_dashboard(args):
     # ready sentinel. Resolved once and threaded through the re-exec, the
     # build gate, and start_server.
     _headless_backend = getattr(args, "headless_backend", False)
+    _pairing_qr = getattr(args, "qr", False)
 
     # ── Unified profile launch routing ────────────────────────────────
     # The dashboard is a MACHINE management surface: it can read/write any
@@ -12445,6 +12463,13 @@ def cmd_dashboard(args):
     ):
         url = f"http://{args.host or '127.0.0.1'}:{args.port}/?profile={_launch_profile}"
         if _dashboard_listening(args.host, args.port):
+            if _pairing_qr:
+                print(
+                    "Machine dashboard already running without this launch's "
+                    "pairing context. Stop it with `fabric dashboard --stop`, "
+                    "then rerun this command with --qr."
+                )
+                sys.exit(1)
             print(f"Machine dashboard already running on port {args.port}.")
             print(f"  Managing profile '{_launch_profile}': {url}")
             if not args.no_open:
@@ -12475,6 +12500,10 @@ def cmd_dashboard(args):
             reexec_argv.append("--insecure")
         if getattr(args, "skip_build", False):
             reexec_argv.append("--skip-build")
+        if _pairing_qr:
+            reexec_argv.append("--qr")
+            if getattr(args, "qr_url", ""):
+                reexec_argv.extend(["--qr-url", args.qr_url])
         env = os.environ.copy()
         # Pin the child to the machine ROOT, not the launching profile's
         # HERMES_HOME.  We must resolve the root explicitly instead of just
@@ -12564,6 +12593,12 @@ def cmd_dashboard(args):
             sys.exit(1)
         print(f"→ Skipping web UI build (--skip-build); using dist at {_dist_root}")
 
+    # A QR points the phone camera at /mobile/pair, so the PWA bundle and
+    # route must be ready in the same process that emits it. This applies to
+    # both the browser dashboard and the otherwise-headless `fabric serve`.
+    if _pairing_qr:
+        _ensure_mobile_web_ui(skip_build=getattr(args, "skip_build", False))
+
     # Discover and load plugins so any DashboardAuthProvider plugin
     # (e.g. plugins/dashboard_auth/nous) registers BEFORE start_server's
     # fail-closed gate check runs. The top-level argparse setup skips
@@ -12619,8 +12654,9 @@ def cmd_dashboard(args):
         allow_public=getattr(args, "insecure", False),
         initial_profile=getattr(args, "open_profile", "") or "",
         headless=_headless_backend,
-        pairing_qr=getattr(args, "qr", False),
+        pairing_qr=_pairing_qr,
         pairing_qr_url=getattr(args, "qr_url", "") or "",
+        mobile_client=_pairing_qr,
     )
 
 
@@ -12715,11 +12751,11 @@ _BUILTIN_SUBCOMMANDS = frozenset(
     {
         "acp", "auth", "backup", "bundles", "checkpoints", "claw", "completion",
         "computer-use",
-        "config", "console", "cron", "curator", "dashboard", "serve", "mobile", "debug", "doctor",
+        "config", "console", "cron", "curator", "dashboard", "serve", "mobile", "debug", "disk", "doctor",
         "dump", "fallback", "gateway", "hooks", "import", "insights",
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
-        "model", "ollama", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
+        "model", "monitor", "top", "ollama", "pairing", "pets", "plugins", "portal", "postinstall", "profile",
         "project", "proxy",
         "prompt-size",
         "send", "sessions", "setup",
@@ -12780,7 +12816,9 @@ def _first_positional_argv() -> str | None:
     return sys.argv[1:][index] if index is not None else None
 
 
-_EGRESS_REPAIR_COMMANDS = frozenset({"config", "doctor", "status", "version"})
+_EGRESS_REPAIR_COMMANDS = frozenset(
+    {"config", "doctor", "status", "version", "monitor", "top"}
+)
 
 
 def _egress_repair_command_requested() -> bool:
@@ -13237,6 +13275,16 @@ def cmd_memory(args):
         memory_command(args)
 
 
+def cmd_disk(args):
+    """Inspect and reclaim Fabric's on-disk storage."""
+    from fabric_cli.disk import disk_command
+
+    exit_code = disk_command(args)
+    if exit_code:
+        raise SystemExit(exit_code)
+    return 0
+
+
 def cmd_acp(args):
     """Launch Fabric as an ACP server."""
     try:
@@ -13396,6 +13444,32 @@ def main():
     moa_subparsers.add_parser("list", aliases=["ls"], help="Show current MoA model slots")
     moa_configure = moa_subparsers.add_parser("configure", aliases=["config"], help="Interactively pick MoA models")
     moa_configure.add_argument("name", nargs="?", help="Preset name to create or update")
+    moa_bootstrap = moa_subparsers.add_parser(
+        "bootstrap",
+        help="Install a validated preset template from authenticated model catalogs",
+    )
+    moa_bootstrap.add_argument(
+        "template",
+        nargs="?",
+        default="subscriptions",
+        choices=["subscriptions"],
+        help="Preset template to install (default: subscriptions)",
+    )
+    moa_bootstrap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show selected models and conflicts without changing config",
+    )
+    moa_bootstrap.add_argument(
+        "--force",
+        action="store_true",
+        help="Replace existing managed presets with the same names",
+    )
+    moa_bootstrap.add_argument(
+        "--keep-default",
+        action="store_true",
+        help="Install presets without changing the current default preset",
+    )
     moa_delete = moa_subparsers.add_parser("delete", aliases=["rm"], help="Delete a MoA preset")
     moa_delete.add_argument("name", help="Preset name to delete")
     moa_parser.set_defaults(func=cmd_moa)
@@ -13636,6 +13710,11 @@ def main():
     # status command  (parser built in fabric_cli/subcommands/status.py)
     # =========================================================================
     build_status_parser(subparsers, cmd_status=cmd_status)
+
+    # =========================================================================
+    # monitor command  (parser built in fabric_cli/subcommands/monitor.py)
+    # =========================================================================
+    build_monitor_parser(subparsers, cmd_monitor=cmd_monitor)
 
     # =========================================================================
     # ollama command  (parser built in fabric_cli/subcommands/ollama.py)
@@ -13883,6 +13962,11 @@ def main():
     # memory command  (parser built in fabric_cli/subcommands/memory.py)
     # =========================================================================
     build_memory_parser(subparsers, cmd_memory=cmd_memory)
+
+    # =========================================================================
+    # disk command  (parser built in fabric_cli/subcommands/disk.py)
+    # =========================================================================
+    build_disk_parser(subparsers, cmd_disk=cmd_disk)
 
     # =========================================================================
     # tools command  (parser built in fabric_cli/subcommands/tools.py)

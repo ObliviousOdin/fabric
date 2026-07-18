@@ -134,6 +134,14 @@
       {
         "alias_of": null,
         "aliases": [],
+        "help": "Inspect and reclaim Fabric's on-disk storage",
+        "name": "disk",
+        "source": "fabric_cli/subcommands/disk.py",
+        "visibility": "public"
+      },
+      {
+        "alias_of": null,
+        "aliases": [],
         "help": "Check configuration and dependencies",
         "name": "doctor",
         "source": "fabric_cli/subcommands/doctor.py",
@@ -312,6 +320,16 @@
       },
       {
         "alias_of": null,
+        "aliases": [
+          "top"
+        ],
+        "help": "Live host monitor — CPU, memory, disk, load, network, GPU",
+        "name": "monitor",
+        "source": "fabric_cli/subcommands/monitor.py",
+        "visibility": "public"
+      },
+      {
+        "alias_of": null,
         "aliases": [],
         "help": "Manage local Ollama models",
         "name": "ollama",
@@ -468,6 +486,14 @@
         "help": "Configure which tools are enabled per platform",
         "name": "tools",
         "source": "fabric_cli/subcommands/tools.py",
+        "visibility": "public"
+      },
+      {
+        "alias_of": "monitor",
+        "aliases": [],
+        "help": "Live host monitor — CPU, memory, disk, load, network, GPU",
+        "name": "top",
+        "source": "fabric_cli/subcommands/monitor.py",
         "visibility": "public"
       },
       {
@@ -7284,7 +7310,7 @@
   "generation_mode": "repository_only_no_runtime_imports",
   "schema_version": 1,
   "summary": {
-    "cli_command": 64,
+    "cli_command": 67,
     "command": 84,
     "dashboard_plugin_manifest": 3,
     "dashboard_route": 25,

@@ -851,6 +851,45 @@ export interface StatusResponse {
   version: string
 }
 
+export interface SystemGpu {
+  mem_percent: number | null
+  mem_total: number
+  mem_used: number
+  name: string
+  util_percent: number
+}
+
+export interface SystemStats {
+  arch: string
+  cpu_count: number | null
+  cpu_percent?: number
+  disk?: { free: number; percent: number; total: number; used: number }
+  /** Detected GPUs (NVIDIA via pynvml/nvidia-smi); absent when none found. */
+  gpus?: SystemGpu[]
+  hermes_version: string
+  hostname: string
+  load_avg?: number[]
+  memory?: { available: number; percent: number; total: number; used: number }
+  /** Network counters + per-second throughput since the previous sample. */
+  net?: {
+    bytes_recv: number
+    bytes_sent: number
+    recv_per_sec: number | null
+    sent_per_sec: number | null
+  }
+  os: string
+  os_release: string
+  os_version: string
+  /** Per-core utilisation (0–100), one entry per logical CPU. */
+  per_cpu_percent?: number[]
+  platform: string
+  process?: { create_time: number; num_threads: number; pid: number; rss: number }
+  psutil: boolean
+  python_impl: string
+  python_version: string
+  uptime_seconds?: number
+}
+
 export interface ActionResponse {
   name: string
   ok: boolean
@@ -901,6 +940,9 @@ export interface AuxiliaryModelsResponse {
 export interface MoaModelSlot {
   provider: string
   model: string
+  role?: string
+  instructions?: string
+  reasoning_effort?: string
 }
 
 export interface MoaConfigResponse {
@@ -910,19 +952,23 @@ export interface MoaConfigResponse {
     string,
     {
       aggregator: MoaModelSlot
-      aggregator_temperature: number
+      aggregator_temperature: number | null
       enabled: boolean
+      fanout?: 'per_iteration' | 'user_turn'
       max_tokens: number
+      reference_max_tokens?: number | null
       reference_models: MoaModelSlot[]
-      reference_temperature: number
+      reference_temperature: number | null
     }
   >
   aggregator: MoaModelSlot
-  aggregator_temperature: number
+  aggregator_temperature: number | null
   enabled: boolean
+  fanout?: 'per_iteration' | 'user_turn'
   max_tokens: number
+  reference_max_tokens?: number | null
   reference_models: MoaModelSlot[]
-  reference_temperature: number
+  reference_temperature: number | null
 }
 
 export interface ModelAssignmentRequest {

@@ -114,6 +114,25 @@ def test_fetch_from_api_keeps_supported_in_api_false_models(monkeypatch):
     assert "gpt-5-internal" not in models
 
 
+def test_fetch_live_codex_models_disables_forward_compat_synthesis(monkeypatch):
+    from fabric_cli import codex_models
+
+    captured = {}
+
+    def fake_fetch(access_token, *, include_forward_compat=True):
+        captured["token"] = access_token
+        captured["include_forward_compat"] = include_forward_compat
+        return ["gpt-5.4"]
+
+    monkeypatch.setattr(codex_models, "_fetch_models_from_api", fake_fetch)
+
+    assert codex_models.fetch_live_codex_model_ids("live-token") == ["gpt-5.4"]
+    assert captured == {
+        "token": "live-token",
+        "include_forward_compat": False,
+    }
+
+
 def test_model_command_uses_runtime_access_token_for_codex_list(monkeypatch):
     from fabric_cli.main import _model_flow_openai_codex
 

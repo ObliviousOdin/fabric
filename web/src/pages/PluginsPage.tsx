@@ -14,6 +14,7 @@ import {
   PluginInstallCard,
 } from "@/components/plugins/PluginInstallCard";
 import { PluginRosterRow } from "@/components/plugins/PluginRosterRow";
+import { IntegrationCapabilityDirectory } from "@/components/plugins/IntegrationCapabilityDirectory";
 import { useI18n } from "@/i18n";
 import { PluginSlot } from "@/plugins";
 import { usePageHeader } from "@/contexts/usePageHeader";
@@ -26,11 +27,12 @@ function prefersReducedMotion() {
 }
 
 /**
- * PLUGINS — "what extends the agent" (spec §4). Loadout-first order (P1):
- * roster → orphan dashboard plugins → engines (memory/context assignment
- * surface, P3) → install (P4). All write flows are frozen (N18); the row
- * grammar and corrected state tones come from the shared CAP2/CAP3
- * primitives.
+ * PLUGINS — "what extends the agent" (spec §4). The parent-route capability
+ * directory keeps its Skills and MCP siblings discoverable, then the
+ * loadout-first order (P1) remains roster → orphan dashboard plugins →
+ * engines (memory/context assignment surface, P3) → install (P4). All write
+ * flows are frozen (N18); the row grammar and corrected state tones come from
+ * the shared CAP2/CAP3 primitives.
  */
 export default function PluginsPage() {
   const [hub, setHub] = useState<PluginsHubResponse | null>(null);
@@ -164,6 +166,8 @@ export default function PluginsPage() {
             </Button>
           </div>
         )}
+
+        <IntegrationCapabilityDirectory />
 
         {loading ? (
           // P6: layout-shaped skeletons instead of the inline spinner.

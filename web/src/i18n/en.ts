@@ -694,6 +694,17 @@ export const en: Translations = {
       noPluginsDescription: "Install one from a Git repository with the install card below.",
       installCta: "Install a plugin",
       stateEffectNote: "Takes effect when the agent next loads plugins",
+      directory: {
+        heading: "Capability library",
+        skillsName: "Skills Hub",
+        skillsDescription:
+          "Discover, activate, and create reusable skills for Fabric.",
+        skillsAction: "Browse skills",
+        mcpName: "MCP servers",
+        mcpDescription:
+          "Connect external tool servers and browse the MCP catalog.",
+        mcpAction: "Manage MCP",
+      },
     },
   },
 

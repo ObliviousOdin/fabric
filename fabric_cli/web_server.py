@@ -17592,15 +17592,16 @@ def mount_spa(application: FastAPI):
             getattr(application.state, "mobile_client_enabled", False)
         )
         mobile_bootstrap_paths = {
-            "/auth/callback",
-            "/auth/login",
-            "/auth/logout",
-            "/auth/password-login",
-            "/login",
-            "/mobile",
+            ("GET", "/auth/callback"),
+            ("GET", "/auth/login"),
+            ("GET", "/login"),
+            ("GET", "/mobile"),
+            ("POST", "/auth/logout"),
+            ("POST", "/auth/password-login"),
         }
         mobile_bootstrap_path = mobile_client_enabled and (
-            path in mobile_bootstrap_paths or path.startswith("/mobile/")
+            (request.method, path) in mobile_bootstrap_paths
+            or (request.method == "GET" and path.startswith("/mobile/"))
         )
         if (
             bool(getattr(application.state, "headless_backend", False))

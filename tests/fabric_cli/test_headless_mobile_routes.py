@@ -28,6 +28,10 @@ def _headless_client(monkeypatch, tmp_path, *, mobile: bool) -> TestClient:
     async def password_login():
         return {"route": "password-login"}
 
+    @app.post("/auth/logout")
+    async def logout():
+        return {"route": "logout"}
+
     @app.get("/mobile/pair")
     async def mobile_pair():
         return {"route": "mobile-pair"}
@@ -42,6 +46,7 @@ def test_ordinary_headless_serve_blocks_mobile_bootstrap(monkeypatch, tmp_path):
     assert client.get("/api/ping").json() == {"route": "api"}
     for method, path in (
         (client.get, "/login"),
+        (client.post, "/auth/logout"),
         (client.post, "/auth/password-login"),
         (client.get, "/mobile/pair"),
     ):
@@ -57,6 +62,7 @@ def test_headless_mobile_allows_only_mobile_bootstrap(monkeypatch, tmp_path):
     assert client.post("/auth/password-login").json() == {
         "route": "password-login"
     }
+    assert client.post("/auth/logout").json() == {"route": "logout"}
     assert client.get("/mobile/pair").json() == {"route": "mobile-pair"}
 
     blocked = client.get("/")
@@ -72,3 +78,13 @@ def test_headless_mobile_blocks_unknown_auth_path(monkeypatch, tmp_path):
     assert blocked.status_code == 404
     assert blocked.headers["content-type"].startswith("application/json")
     assert "web UI disabled" in blocked.json()["error"]
+
+
+def test_headless_mobile_blocks_wrong_method_for_auth_path(monkeypatch, tmp_path):
+    client = _headless_client(monkeypatch, tmp_path, mobile=True)
+
+    for path in ("/auth/password-login", "/auth/logout"):
+        blocked = client.get(path)
+        assert blocked.status_code == 404
+        assert blocked.headers["content-type"].startswith("application/json")
+        assert "web UI disabled" in blocked.json()["error"]

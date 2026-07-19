@@ -95,6 +95,16 @@ The main window provides:
 - composer history, queued-message editing, and model controls; and
 - voice input/output when the platform grants microphone permission.
 
+When the agent asks to run a dangerous action, the inline approval bar offers
+**Run**, **Reject**, and an options menu (**Allow this session** / **Always
+allow…**). Expand **Details** to review the full context before deciding: the
+complete, untruncated warning and command, the tool and working directory, why
+approval was triggered, and a badge when the action looks destructive or
+irreversible. The panel opens automatically for high-risk approvals. Enable
+**Settings → Notifications → Approval Sound** to hear a short cue when an
+approval needs you and Fabric is already focused on that chat — the one case no
+desktop notification is shown — respecting the global mute.
+
 Open **Command Center → System** for a live host panel (CPU, memory, disk,
 load, network throughput, and GPU when available). It uses the same
 `/api/system/stats` collector as the web dashboard Host card and

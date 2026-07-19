@@ -17175,10 +17175,27 @@ def mount_spa(application: FastAPI):
     # the JSON-RPC/WS/API surface under /api remains available.
     @application.middleware("http")
     async def block_frontend_in_headless_mode(request: Request, call_next):
+        path = request.url.path
+        mobile_client_enabled = bool(
+            getattr(application.state, "mobile_client_enabled", False)
+        )
+        mobile_bootstrap_paths = {
+            ("GET", "/auth/callback"),
+            ("GET", "/auth/login"),
+            ("GET", "/login"),
+            ("GET", "/mobile"),
+            ("POST", "/auth/logout"),
+            ("POST", "/auth/password-login"),
+        }
+        mobile_bootstrap_path = mobile_client_enabled and (
+            (request.method, path) in mobile_bootstrap_paths
+            or (request.method == "GET" and path.startswith("/mobile/"))
+        )
         if (
             bool(getattr(application.state, "headless_backend", False))
-            and not request.url.path.startswith("/api/")
-            and request.url.path != "/api"
+            and not path.startswith("/api/")
+            and path != "/api"
+            and not mobile_bootstrap_path
         ):
             return JSONResponse(
                 {

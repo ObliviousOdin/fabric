@@ -315,29 +315,30 @@ all = [
 [project.scripts]
 # public distribution: fabric is the only customer CLI entrypoint.
 fabric = "fabric_cli.main:main"
-fabric-agent = "run_agent:main"
-fabric-acp = "acp_adapter.entry:main"
 
 [tool.setuptools]
 py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajectory_compressor", "toolset_distributions", "cli", "fabric_bootstrap", "fabric_constants", "fabric_state", "fabric_time", "fabric_logging", "utils", "mcp_serve"]
 
 [tool.setuptools.package-data]
 agent = ["pet/assets/**/*"]
-fabric_cli = ["web_dist/**/*", "mobile_web_dist/**/*", "tui_dist/**/*", "scripts/install.sh", "scripts/install.ps1"]
+fabric_cli = ["web_dist/**/*", "mobile_web_dist/**/*", "tui_dist/**/*"]
 gateway = ["assets/**/*"]
 plugins = [
-  "*/dashboard/manifest.json",
-  "*/dashboard/dist/*",
-  "*/dashboard/dist/**/*",
-  # Plugin discovery (fabric_cli/plugins.py) reads a plugin.yaml/plugin.yml
-  # manifest from each bundled plugin directory to register it. Wheels only
-  # carry files declared here, so without this glob the wheel ships every
-  # plugin's Python code but none of its manifests — the scan finds zero
-  # plugins and all gateway platforms fail with "No adapter available for
-  # <platform>" (#34034), web-search providers go missing (#28149), etc.
-  "**/plugin.yaml",
-  "**/plugin.yml",
-  "**/README.md",
+  # A plugin is a complete runtime package: Python, manifests, dashboard
+  # bundles, sidecars, skills, service units, and legal files must stay
+  # together in installed wheels. Nix and other sealed installs discover this
+  # package directly beside fabric_cli; no environment override is required.
+  "**/*",
+]
+
+[tool.setuptools.exclude-package-data]
+plugins = [
+  "**/__pycache__/*",
+  "**/*.pyc",
+  "**/*.pyo",
+  "**/.DS_Store",
+  "**/node_modules/*",
+  "**/node_modules/**/*",
 ]
 
 [tool.setuptools.packages.find]
@@ -347,7 +348,7 @@ include = ["agent", "agent.*", "tools", "tools.*", "fabric_cli", "fabric_cli.*",
 testpaths = ["tests"]
 markers = [
     "integration: marks tests requiring external services (API keys, Modal, etc.)",
-    "real_concurrent_gate: opt out of the autouse stub that disables _detect_concurrent_hermes_instances",
+    "real_concurrent_gate: opt out of the autouse stub that disables concurrent-instance detection",
 ]
 # integration tests take way too long to run in the normal CI environments
 addopts = "-m 'not integration'"

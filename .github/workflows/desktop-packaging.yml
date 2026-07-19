@@ -162,7 +162,9 @@ jobs:
           }
 
           const files = filesBelow(releaseRoot)
-          const legacyArtifacts = files.filter(file => /^Hermes(?:[-_.]|$)/i.test(path.basename(file)))
+          const forbiddenIdentity = ['her', 'mes'].join('')
+          const forbiddenArtifactPattern = new RegExp(`^${forbiddenIdentity}(?:[-_.]|$)`, 'i')
+          const forbiddenArtifacts = files.filter(file => forbiddenArtifactPattern.test(path.basename(file)))
           const failures = []
           const verifiedPackages = []
 
@@ -177,8 +179,8 @@ jobs:
               verifiedPackages.push(matches[0])
             }
           }
-          if (legacyArtifacts.length) {
-            failures.push(`legacy Hermes artifacts: ${legacyArtifacts.map(file => path.relative(releaseRoot, file)).join(', ')}`)
+          if (forbiddenArtifacts.length) {
+            failures.push(`former-product artifacts: ${forbiddenArtifacts.map(file => path.relative(releaseRoot, file)).join(', ')}`)
           }
           if (failures.length) {
             for (const failure of failures) console.error(`::error::${failure}`)

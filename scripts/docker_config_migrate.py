@@ -14,9 +14,6 @@ from fabric_cli.config import (
     get_env_path,
     migrate_config,
 )
-from utils import env_var_enabled
-
-
 def _backup_path(path: Path, stamp: str) -> Path:
     base = path.with_name(f"{path.name}.bak-{stamp}")
     if not base.exists():
@@ -51,10 +48,6 @@ def _restore_backups(backups: dict[Path, Path]) -> list[Path]:
 
 
 def main() -> int:
-    if env_var_enabled("HERMES_SKIP_CONFIG_MIGRATION"):
-        print("[config-migrate] HERMES_SKIP_CONFIG_MIGRATION is set; skipping config migration")
-        return 0
-
     current_ver, latest_ver = check_config_version()
     if current_ver >= latest_ver:
         return 0

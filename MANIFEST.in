@@ -1,7 +1,9 @@
 # License set: Apache-2.0 distribution license plus preserved third-party
-# license texts (Hermes Agent MIT). LICENSE itself is auto-included.
+# license texts. LICENSE itself is auto-included.
 include NOTICE
 include THIRD_PARTY_NOTICES.md
+include scripts/install.sh
+include scripts/install.ps1
 graft LICENSES
 graft skills
 graft optional-skills
@@ -12,11 +14,10 @@ graft locales
 graft fabric_cli/web_dist
 # The same release build produces the installable same-origin mobile PWA.
 graft fabric_cli/mobile_web_dist
-# Bundled plugin manifests (plugin.yaml / plugin.yml). Without these the
-# PluginManager scan (fabric_cli/plugins.py) finds zero plugins on installs
-# built from the sdist (e.g. Homebrew, downstream packagers). package-data
-# below covers the wheel; this covers the sdist. See #34034 / #28149.
-recursive-include plugins plugin.yaml plugin.yml
+# Bundled plugins are runtime packages, not just Python modules. Ship their
+# manifests, sidecars, skills, service units, legal notices, and dashboard
+# assets through the sdist so downstream wheel builds preserve the full tree.
+graft plugins
 # Gateway assets include images plus YAML catalogs such as status_phrases.yaml.
 recursive-include gateway/assets *
 # First-party pet packages must also survive the sdist -> wheel path.

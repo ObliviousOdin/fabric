@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
-"""Drive the Fabric TUI under HERMES_DEV_PERF and summarize the pipeline.
+"""Drive the Fabric TUI profiling hooks and summarize the render pipeline.
 
 Usage:
   scripts/profile-tui.py [--session SID] [--hold KEY] [--seconds N] [--rate HZ]
 
 Defaults: picks the session with the most messages, holds PageUp for 8s at
-~30 Hz (matching xterm key-repeat), summarizes ~/.hermes/perf.log on exit.
+~30 Hz (matching xterm key-repeat), and summarizes the diagnostics log on exit.
 
 The --tui build must exist (run `npm run build` in ui-tui first). This script
-launches `node dist/entry.js` directly with HERMES_TUI_RESUME set so it
-bypasses the fabric_cli wrapper — we want repeatable timing, not the CLI's
-session-picker flow.
-
-Environment overrides:
-  HERMES_PERF_LOG     (default ~/.hermes/perf.log)
-  HERMES_PERF_NODE    (default node from $PATH)
-  FABRIC_TUI_DIR      (default: <repo>/ui-tui relative to this script)
+launches `node dist/entry.js` directly with an owner-only launch descriptor so
+it bypasses the fabric_cli wrapper — we want repeatable timing, not the CLI's
+session-picker flow. Profiling itself is enabled through direct Node-entry
+flags, not environment variables or public Fabric CLI flags.
 
 Exit code is 0 if the harness ran and parsed results, 2 if the TUI crashed
-or produced no perf data (suggests HERMES_DEV_PERF wiring is broken).
+or produced no perf data (suggests the direct-entry profiling wiring is broken).
 """
 
 from __future__ import annotations
@@ -39,19 +35,16 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 try:
     from fabric_constants import get_fabric_home
+    from fabric_cli.tui_launch_context import (
+        TuiLaunchContext,
+        write_tui_launch_context,
+    )
 except ImportError:
     def get_fabric_home() -> Path:  # type: ignore[misc]
-        val = (
-            os.environ.get("FABRIC_HOME") or os.environ.get("HERMES_HOME") or ""
-        ).strip()
-        return Path(val) if val else Path.home() / ".fabric"
+        return Path.home() / ".fabric"
 
-DEFAULT_TUI_DIR = Path(
-    os.environ.get("FABRIC_TUI_DIR")
-    or os.environ.get("HERMES_TUI_DIR")
-    or str(Path(__file__).resolve().parent.parent / "ui-tui")
-)
-DEFAULT_LOG = Path(os.environ.get("HERMES_PERF_LOG", str(get_fabric_home() / "perf.log")))
+DEFAULT_TUI_DIR = _PROJECT_ROOT / "ui-tui"
+DEFAULT_LOG = get_fabric_home() / "perf.log"
 DEFAULT_STATE_DB = get_fabric_home() / "state.db"
 
 # Keystroke escape sequences.  Matches what xterm/VT220 send when the
@@ -111,6 +104,24 @@ def hold_key(fd: int, seq: bytes, seconds: float, rate_hz: int) -> int:
     return sent
 
 
+def wait_for_exit(pid: int, timeout: float) -> bool:
+    """Reap pid within timeout without ever blocking the profiling harness."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            pid_done, _ = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return True
+        except InterruptedError:
+            continue
+
+        if pid_done == pid:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+
+
 def summarize(log: Path, since_ts_ms: int) -> dict[str, Any]:
     """Parse perf.log, keep only events newer than since_ts_ms, return stats."""
     react_events: list[dict[str, Any]] = []
@@ -154,7 +165,7 @@ def format_report(data: dict[str, Any]) -> str:
 
     out.append("═══ React Profiler ═══")
     if not react:
-        out.append("  (no react events — HERMES_DEV_PERF wired? threshold too high?)")
+        out.append("  (no react events — --tui-perf wired? threshold too high?)")
     else:
         by_id: dict[str, list[float]] = {}
         for r in react:
@@ -423,18 +434,27 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
     since_ms = int(time.time() * 1000)
 
     env = os.environ.copy()
-    env["HERMES_DEV_PERF"] = "1"
-    env["HERMES_DEV_PERF_MS"] = str(args.threshold_ms)
-    env["HERMES_DEV_PERF_LOG"] = str(log)
-    env["HERMES_TUI_RESUME"] = sid
     env["COLUMNS"] = str(args.cols)
     env["LINES"] = str(args.rows)
     env["TERM"] = env.get("TERM", "xterm-256color")
 
-    # Pass through extra flags the TUI wrapper recognizes (e.g. --no-fullscreen).
-    # Stored on args as `extra_flags` list.
-    node = os.environ.get("HERMES_PERF_NODE", "node")
-    node_args = [node, str(entry), *getattr(args, "extra_flags", [])]
+    # Pass through extra direct-entry flags after the profiling configuration.
+    node = args.node
+    launch_context_file = write_tui_launch_context(
+        TuiLaunchContext(cwd=os.getcwd(), resume=sid)
+    )
+    node_args = [
+        node,
+        str(entry),
+        "--launch-context",
+        str(launch_context_file),
+        "--tui-perf",
+        "--tui-perf-log",
+        str(log),
+        "--tui-perf-threshold-ms",
+        str(args.threshold_ms),
+        *getattr(args, "extra_flags", []),
+    ]
 
     pid, fd = pty.fork()
     if pid == 0:
@@ -455,22 +475,28 @@ def run_once(args: argparse.Namespace) -> dict[str, Any]:
 
         drain(fd, 0.5)
     finally:
-        try:
-            os.kill(pid, signal.SIGTERM)
-            for _ in range(10):
-                pid_done, _ = os.waitpid(pid, os.WNOHANG)
-                if pid_done == pid:
-                    break
-                time.sleep(0.1)
-            else:
-                os.kill(pid, signal.SIGKILL)  # windows-footgun: ok — POSIX-only script (imports pty at top)
-                os.waitpid(pid, 0)
-        except (ProcessLookupError, ChildProcessError):
-            pass
+        launch_context_file.unlink(missing_ok=True)
+        # Closing the PTY first prevents a child flushing terminal output from
+        # stalling teardown. Never use an unbounded waitpid here: a wedged Node
+        # process must not wedge the profiling harness along with it.
         try:
             os.close(fd)
         except OSError:
             pass
+
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+        if not wait_for_exit(pid, 1.0):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+            if not wait_for_exit(pid, 1.0):
+                print(f"warning: child {pid} did not exit after SIGKILL", file=sys.stderr)
 
     time.sleep(0.2)
     return summarize(log, since_ms)
@@ -483,12 +509,22 @@ def main() -> int:
     p.add_argument("--seconds", type=float, default=8.0, help="how long to hold the key")
     p.add_argument("--rate", type=int, default=30, help="keystrokes per second")
     p.add_argument("--warmup", type=float, default=3.0, help="seconds to wait after launch before input")
-    p.add_argument("--threshold-ms", type=float, default=0.0, help="HERMES_DEV_PERF_MS (0 = capture all)")
+    p.add_argument(
+        "--threshold-ms",
+        type=float,
+        default=0.0,
+        help="minimum duration to log (0 = capture all)",
+    )
     p.add_argument("--cols", type=int, default=120)
     p.add_argument("--rows", type=int, default=40)
     p.add_argument("--keep-log", action="store_true", help="don't wipe perf.log before run")
     p.add_argument("--tui-dir", default=str(DEFAULT_TUI_DIR))
     p.add_argument("--log", default=str(DEFAULT_LOG))
+    p.add_argument(
+        "--node",
+        default="node",
+        help="Node executable (default: node from PATH)",
+    )
     p.add_argument("--save", metavar="LABEL",
                    help="save the final metrics as /tmp/perf-<LABEL>.json for later --compare")
     p.add_argument("--compare", metavar="LABEL",

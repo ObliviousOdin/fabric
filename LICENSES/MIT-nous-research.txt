@@ -1,6 +1,6 @@
-The following MIT license covers the Hermes Agent software by Nous Research
-from which Fabric is derived, and those portions of Fabric that remain
-subject to it. It is preserved here unmodified as required by its terms.
+The following MIT license covers upstream software by Nous Research from
+which portions of Fabric are derived. The required copyright and permission
+notice is preserved below.
 
 MIT License
 

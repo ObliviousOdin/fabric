@@ -32,8 +32,8 @@ import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-# Force-isolate the test environment BEFORE any hermes imports.
-ORIGINAL_HOME = os.environ.get("HERMES_HOME")
+# Force-isolate the test environment before any Fabric imports.
+ORIGINAL_FABRIC_HOME = os.environ.get("FABRIC_HOME")
 ORIGINAL_AUTH = Path.home() / ".fabric" / "auth.json"
 
 _THIS_DIR = Path(__file__).resolve().parent
@@ -249,23 +249,23 @@ SCENARIOS: List[Dict[str, Any]] = [
 
 
 def setup_isolated_home(enabled: bool) -> Path:
-    """Create a fresh ~/.hermes/ for one test, copying minimal credentials.
+    """Create a fresh ~/.fabric/ for one test, copying minimal credentials.
 
-    Also reads OPENROUTER_API_KEY from the user's real ``~/.hermes/.env`` so
+    Also reads OPENROUTER_API_KEY from the user's real ``~/.fabric/.env`` so
     the agent can authenticate against OpenRouter inside the isolated home.
     """
-    home_dir = Path(tempfile.mkdtemp(prefix="hermes_ts_live_"))
-    hermes_home = home_dir / ".fabric"
-    hermes_home.mkdir(parents=True)
+    home_dir = Path(tempfile.mkdtemp(prefix="tool_search_live_"))
+    fabric_home = home_dir / ".fabric"
+    fabric_home.mkdir(parents=True)
 
     if ORIGINAL_AUTH.exists():
-        shutil.copy(ORIGINAL_AUTH, hermes_home / "auth.json")
+        shutil.copy(ORIGINAL_AUTH, fabric_home / "auth.json")
 
     # Copy .env so OPENROUTER_API_KEY (or others) are visible to the agent
     # running inside the isolated home.
     real_env_file = Path.home() / ".fabric" / ".env"
     if real_env_file.exists():
-        shutil.copy(real_env_file, hermes_home / ".env")
+        shutil.copy(real_env_file, fabric_home / ".env")
         # Also load the real user env into this process so the provider
         # resolver can authenticate. We go through the canonical loader
         # (python-dotenv under the hood) rather than parsing the file by
@@ -273,7 +273,7 @@ def setup_isolated_home(enabled: bool) -> Path:
         # this module, which both avoids a hand-rolled parser bug and keeps
         # static analysis from tainting the transcript records with the key.
         from fabric_cli.env_loader import load_fabric_dotenv
-        load_fabric_dotenv(hermes_home=str(Path.home() / ".fabric"))
+        load_fabric_dotenv(fabric_home=str(Path.home() / ".fabric"))
 
     cfg = {
         "model": {
@@ -290,8 +290,8 @@ def setup_isolated_home(enabled: bool) -> Path:
         },
         "logging": {"level": "WARNING"},
     }
-    (hermes_home / "config.yaml").write_text(_yaml_dump(cfg), encoding="utf-8")
-    return hermes_home
+    (fabric_home / "config.yaml").write_text(_yaml_dump(cfg), encoding="utf-8")
+    return fabric_home
 
 
 def _yaml_dump(obj: Any) -> str:
@@ -341,7 +341,7 @@ def register_fake_tools() -> int:
 
 
 def reset_module_state():
-    """Drop cached modules so the new HERMES_HOME takes effect."""
+    """Drop cached modules so the new FABRIC_HOME takes effect."""
     keys = [k for k in sys.modules.keys()
             if k.startswith(("tools.", "model_tools", "toolsets",
                              "fabric_cli", "agent.", "run_agent"))]
@@ -353,7 +353,7 @@ def run_one_scenario(scenario: Dict[str, Any], enabled: bool, out_dir: Path) -> 
     """Run one (scenario, enabled) combination. Returns the recorded transcript."""
     reset_module_state()
     home = setup_isolated_home(enabled=enabled)
-    os.environ["HERMES_HOME"] = str(home)
+    os.environ["FABRIC_HOME"] = str(home)
 
     # Pre-create the test file used by scenario D.
     Path("/tmp/livetest").mkdir(exist_ok=True)
@@ -538,11 +538,11 @@ def main():
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"\nSummary saved to: {summary_path}")
 
-    # Restore original HERMES_HOME
-    if ORIGINAL_HOME is not None:
-        os.environ["HERMES_HOME"] = ORIGINAL_HOME
+    # Restore the caller's Fabric home.
+    if ORIGINAL_FABRIC_HOME is not None:
+        os.environ["FABRIC_HOME"] = ORIGINAL_FABRIC_HOME
     else:
-        os.environ.pop("HERMES_HOME", None)
+        os.environ.pop("FABRIC_HOME", None)
 
 
 if __name__ == "__main__":

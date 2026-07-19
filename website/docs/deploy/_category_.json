@@ -1,0 +1,10 @@
+{
+  "label": "Deploy & Host",
+  "position": 2,
+  "collapsible": true,
+  "collapsed": false,
+  "link": {
+    "type": "generated-index",
+    "description": "Run Fabric on your own machine, self-host it on a small VPS, or follow the design for fully managed hosting and shared frontier-model compute."
+  }
+}

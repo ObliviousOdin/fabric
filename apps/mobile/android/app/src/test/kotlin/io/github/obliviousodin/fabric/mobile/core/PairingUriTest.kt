@@ -70,4 +70,42 @@ class PairingUriTest {
         assertNull(GatewayBaseUrl.parse("https://agent.example.test?token=secret"))
         assertNull(GatewayBaseUrl.parse("https://agent.example.test/#fragment"))
     }
+
+    @Test
+    fun allowsCleartextOnlyToLocalOrPrivateHosts() {
+        // Local / private / tailnet gateways may use plain http (the
+        // `fabric mobile` LAN quick-start); the app permits the cleartext
+        // socket at the OS layer only because these stay off the public net.
+        assertEquals("http://127.0.0.1:9119", GatewayBaseUrl.parse("http://127.0.0.1:9119"))
+        assertEquals("http://192.168.1.50:9119", GatewayBaseUrl.parse("http://192.168.1.50:9119"))
+        assertEquals("http://10.0.0.4:9119", GatewayBaseUrl.parse("http://10.0.0.4:9119"))
+        assertEquals("http://100.100.7.7:9119", GatewayBaseUrl.parse("http://100.100.7.7:9119"))
+        assertEquals("http://raspberrypi:9119", GatewayBaseUrl.parse("http://raspberrypi:9119"))
+        assertEquals("http://mymac.local:9119", GatewayBaseUrl.parse("http://mymac.local:9119"))
+
+        // Public hosts must use https — cleartext to them is rejected.
+        assertNull(GatewayBaseUrl.parse("http://agent.example.test"))
+        assertNull(GatewayBaseUrl.parse("http://8.8.8.8"))
+        assertNull(GatewayBaseUrl.parse("http://172.32.0.1")) // just outside 172.16/12
+        assertNull(GatewayBaseUrl.parse("http://100.63.0.1")) // just outside CGNAT /10
+
+        // https is always fine, local or public.
+        assertEquals("https://agent.example.test", GatewayBaseUrl.parse("https://agent.example.test"))
+        assertEquals("https://192.168.1.50", GatewayBaseUrl.parse("https://192.168.1.50"))
+    }
+
+    @Test
+    fun classifiesLocalAndPrivateHosts() {
+        listOf(
+            "127.0.0.1", "10.2.3.4", "172.16.0.1", "172.31.255.1", "192.168.1.50",
+            "169.254.1.1", "100.64.0.1", "100.127.9.9", "localhost", "raspberrypi",
+            "mymac.local", "::1", "[::1]", "fe80::1", "fd00::1", "fc00::abcd",
+        ).forEach { assertEquals("$it should be local", true, GatewayBaseUrl.isLocalOrPrivateHost(it)) }
+
+        listOf(
+            "8.8.8.8", "1.1.1.1", "172.32.0.1", "172.15.0.1", "192.169.0.1",
+            "100.128.0.1", "100.63.0.1", "example.com", "agent.example.test",
+            "machine.tailnet.ts.net", "2001:4860:4860::8888", "256.1.1.1", "",
+        ).forEach { assertEquals("$it should be public", false, GatewayBaseUrl.isLocalOrPrivateHost(it)) }
+    }
 }

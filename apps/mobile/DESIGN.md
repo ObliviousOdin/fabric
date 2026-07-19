@@ -51,8 +51,11 @@ mobile export target, these files become generated artifacts.
 - The woven-canvas and bracket motifs are not rendered on mobile yet;
   neutral surfaces only. Add them via the design-system assets, not ad-hoc
   drawing.
-- No custom app icon set is committed; derive from
-  `apps/design-system/dist/brand` when packaging.
+- App icons are committed for both platforms, derived from the canonical
+  `apps/design-system/dist/brand` assets: iOS uses the 1024px app icon in
+  `Fabric/Assets.xcassets/AppIcon.appiconset`; Android uses an adaptive icon
+  (maskable mark on the canonical purple) under `app/src/main/res`. Store
+  listing/marketing icons are still produced separately at packaging time.
 - Compose/SwiftUI screens are review-verified against this contract but have
   not been screenshot-diffed like the dashboard (`design-qa.md` pattern).
   A device pass should capture Connect/Sessions/Chat in both themes before

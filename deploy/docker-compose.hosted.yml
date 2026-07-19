@@ -1,0 +1,80 @@
+# =============================================================================
+# Fabric — hosted deploy (always-on gateway + dashboard behind automatic HTTPS)
+#
+#   cp .env.hosted.example .env      # edit the Required block
+#   ./provision.sh                   # generate login + secrets, write config.yaml
+#   docker compose -f docker-compose.hosted.yml up -d
+#   cat ./fabric-credentials.txt     # your dashboard login + API key
+#
+# Services share one data volume (== ~/.fabric). Caddy is the only service that
+# publishes ports (80/443); the gateway and dashboard are reached over the
+# internal Compose network by name, so they are never directly exposed.
+#
+# NOTE: exactly one gateway process writes to the data volume. The dashboard is a
+# separate read/control surface on the same volume (the supported reference
+# layout). Do NOT add a second `gateway run` container on the same volume.
+# =============================================================================
+
+services:
+  # Messaging gateway + OpenAI-compatible API server (:8642 internal).
+  fabric:
+    image: ${FABRIC_IMAGE:-ghcr.io/obliviousodin/fabric:latest}
+    container_name: fabric-gateway
+    restart: unless-stopped
+    command: ["gateway", "run"]
+    env_file: .env
+    environment:
+      - FABRIC_UID=${FABRIC_UID:-10000}
+      - FABRIC_GID=${FABRIC_GID:-10000}
+    volumes:
+      - ${FABRIC_DATA_DIR:-./data}:/opt/data
+    expose:
+      - "8642"
+    # App-level health: the API server answers /health when API_SERVER_ENABLED=true.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8642/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # Web dashboard (:9119 internal). Binds 0.0.0.0 so the non-loopback auth gate
+  # engages; provision.sh configures dashboard.basic_auth so it starts.
+  dashboard:
+    image: ${FABRIC_IMAGE:-ghcr.io/obliviousodin/fabric:latest}
+    container_name: fabric-dashboard
+    restart: unless-stopped
+    command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open"]
+    env_file: .env
+    environment:
+      - FABRIC_UID=${FABRIC_UID:-10000}
+      - FABRIC_GID=${FABRIC_GID:-10000}
+    volumes:
+      - ${FABRIC_DATA_DIR:-./data}:/opt/data
+    depends_on:
+      - fabric
+    expose:
+      - "9119"
+
+  # TLS terminator / reverse proxy — the only public-facing service.
+  caddy:
+    image: caddy:2
+    container_name: fabric-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - FABRIC_PUBLIC_DOMAIN=${FABRIC_PUBLIC_DOMAIN}
+      - ACME_EMAIL=${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - dashboard
+      - fabric
+
+volumes:
+  caddy_data:
+  caddy_config:

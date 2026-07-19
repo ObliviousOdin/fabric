@@ -9,14 +9,64 @@ object GatewayBaseUrl {
         val trimmed = raw.trim().trimEnd('/')
         if (trimmed.isEmpty() || trimmed.any { it.code <= 32 }) return null
         val uri = runCatching { URI(trimmed) }.getOrNull() ?: return null
+        val scheme = uri.scheme?.lowercase()
         if (
-            uri.scheme?.lowercase() !in setOf("http", "https") ||
+            scheme !in setOf("http", "https") ||
             uri.host.isNullOrEmpty() ||
             uri.userInfo != null ||
             uri.rawQuery != null ||
             uri.rawFragment != null
         ) return null
+        // Cleartext is only allowed to a local/private host, matching iOS's
+        // NSAllowsLocalNetworking. Android has no ATS equivalent and the
+        // release build permits cleartext at the OS layer (see
+        // res/xml/network_security_config.xml), so this is the app-layer guard
+        // that keeps a plain-http socket from ever reaching a public gateway.
+        if (scheme == "http" && !isLocalOrPrivateHost(uri.host)) return null
         return uri.toString().trimEnd('/')
+    }
+
+    private val ipv4 = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""")
+
+    /**
+     * True when cleartext http to [rawHost] stays on the local machine or a
+     * private/tailnet network: loopback, RFC1918, link-local, CGNAT
+     * (100.64.0.0/10, Tailscale), IPv6 loopback/link-local/ULA, `.local`
+     * mDNS names, and single-label hostnames. Public hosts return false and
+     * must use https.
+     */
+    internal fun isLocalOrPrivateHost(rawHost: String?): Boolean {
+        var host = rawHost?.trim()?.lowercase() ?: return false
+        if (host.startsWith("[") && host.endsWith("]")) host = host.substring(1, host.length - 1)
+        if (host.isEmpty()) return false
+        if (host.contains(':')) return isPrivateIpv6(host)
+        val match = ipv4.matchEntire(host)
+        if (match != null) return isPrivateIpv4(match)
+        if (!host.contains('.')) return true // single-label host (localhost, raspberrypi)
+        return host.endsWith(".local")
+    }
+
+    private fun isPrivateIpv4(match: MatchResult): Boolean {
+        val (a, b, c, d) = match.destructured
+        val octets = listOf(a, b, c, d).map { it.toInt() }
+        if (octets.any { it > 255 }) return false
+        val (o0, o1) = octets
+        return when {
+            o0 == 127 -> true // loopback 127.0.0.0/8
+            o0 == 10 -> true // private 10.0.0.0/8
+            o0 == 172 && o1 in 16..31 -> true // private 172.16.0.0/12
+            o0 == 192 && o1 == 168 -> true // private 192.168.0.0/16
+            o0 == 169 && o1 == 254 -> true // link-local 169.254.0.0/16
+            o0 == 100 && o1 in 64..127 -> true // CGNAT/Tailscale 100.64.0.0/10
+            else -> false
+        }
+    }
+
+    private fun isPrivateIpv6(host: String): Boolean = when {
+        host == "::1" -> true // loopback
+        Regex("^fe[89ab]").containsMatchIn(host) -> true // fe80::/10 link-local
+        host.startsWith("fc") || host.startsWith("fd") -> true // fc00::/7 ULA
+        else -> false
     }
 }
 

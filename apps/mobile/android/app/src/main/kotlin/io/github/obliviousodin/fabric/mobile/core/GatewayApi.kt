@@ -290,8 +290,21 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
 
         private fun normalizedBase(baseUrl: String): HttpUrl {
             val trimmed = baseUrl.trim().trimEnd('/')
-            return trimmed.toHttpUrlOrNull()
+            val url = trimmed.toHttpUrlOrNull()
                 ?: throw GatewayHttpException("Gateway URL must be http:// or https://")
+            // Enforce the local-only cleartext policy at the transport choke
+            // point (every probe/WS/auth/ticket call funnels through here), not
+            // just at add/scan time in GatewayBaseUrl.parse. This revalidates
+            // gateways saved before the network-security config permitted
+            // cleartext, so a previously-stored public http:// server is refused
+            // at connect instead of silently opening a plaintext socket.
+            if (url.scheme == "http" && !GatewayBaseUrl.isLocalOrPrivateHost(url.host)) {
+                throw GatewayHttpException(
+                    "Plain http is only allowed for a local or private gateway; " +
+                        "use https for ${url.host}.",
+                )
+            }
+            return url
         }
     }
 

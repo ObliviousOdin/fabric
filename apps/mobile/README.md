@@ -343,5 +343,10 @@ kotlinx-serialization.
    gateway/chat identity; foreground reconnect performs an authoritative
    `session.resume` before mutation controls become available.
 8. **Release contract** — CI definitions and unsigned release builds are in
-   place; signing, store metadata, physical-device QA, and a
-   `platform-support.md` tier entry before any public build.
+   place, and both apps now carry committed app icons and a signing scaffold:
+   Android reads `keystore.properties`/`FABRIC_ANDROID_*` (see
+   `android/keystore.properties.example`) and iOS signs automatically once a
+   `DEVELOPMENT_TEAM` is provided (see `ios/Signing.xcconfig.example`). Both
+   fall back to the unsigned CI builds when no signing material is present.
+   Remaining before any public build: real signing certificates, store
+   metadata, physical-device QA, and a `platform-support.md` tier entry.

@@ -62,3 +62,13 @@ def test_headless_mobile_allows_only_mobile_bootstrap(monkeypatch, tmp_path):
     blocked = client.get("/")
     assert blocked.status_code == 404
     assert "web UI disabled" in blocked.json()["error"]
+
+
+def test_headless_mobile_blocks_unknown_auth_path(monkeypatch, tmp_path):
+    client = _headless_client(monkeypatch, tmp_path, mobile=True)
+
+    blocked = client.get("/auth/loginx")
+
+    assert blocked.status_code == 404
+    assert blocked.headers["content-type"].startswith("application/json")
+    assert "web UI disabled" in blocked.json()["error"]

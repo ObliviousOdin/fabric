@@ -34,6 +34,12 @@ const surfaces = [
     copy: "ACP, MCP, and API surfaces that bring the same agent into editors and applications.",
     href: "/developer-guide/programmatic-integration",
   },
+  {
+    index: "06",
+    name: "Host it",
+    copy: "Run the same agent always-on: install locally, self-host on a small VPS, or follow the managed and shared-compute designs.",
+    href: "/deploy",
+  },
 ];
 
 const routes = [

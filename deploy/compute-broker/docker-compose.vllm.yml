@@ -1,0 +1,59 @@
+# =============================================================================
+# Self-host vLLM on a CUDA box — OpenAI-compatible frontier model on :8000.
+#
+# Requires an NVIDIA GPU + the NVIDIA Container Toolkit. Set VLLM_MODEL and
+# VLLM_API_KEY in a .env next to this file (or export them), then:
+#
+#   docker compose -f docker-compose.vllm.yml up -d
+#   curl -s http://localhost:8000/v1/models -H "Authorization: Bearer $VLLM_API_KEY"
+#
+# Point a Fabric agent at it as a `custom` provider (base_url .../v1). See docs:
+# /deploy/compute-broker
+# =============================================================================
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
+    restart: unless-stopped
+    ports:
+      - "${VLLM_PORT:-8000}:8000"
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    volumes:
+      # Cache model weights on the host so restarts don't re-download.
+      - ${HF_CACHE_DIR:-./hf-cache}:/root/.cache/huggingface
+    command:
+      - --model
+      - ${VLLM_MODEL:?set VLLM_MODEL to a HuggingFace model id}
+      - --served-model-name
+      - ${VLLM_MODEL}
+      - --api-key
+      - ${VLLM_API_KEY:?set VLLM_API_KEY (openssl rand -hex 32)}
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --max-model-len
+      - "${VLLM_MAX_MODEL_LEN:-65536}"       # Fabric needs >= 64k for tool use
+      - --tensor-parallel-size
+      - "${VLLM_TP:-1}"                        # = number of GPUs
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_UTIL:-0.92}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - ${VLLM_TOOL_PARSER:-hermes}            # match the model family
+    ipc: host                                   # vLLM needs a large /dev/shm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 300s                        # first boot downloads weights

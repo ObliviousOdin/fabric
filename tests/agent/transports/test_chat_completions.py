@@ -130,7 +130,7 @@ class TestChatCompletionsBasic:
         assert transport.convert_messages(msgs) is msgs
 
     def test_convert_messages_strips_internal_scaffolding_markers(self, transport):
-        """Hermes-internal ``_``-prefixed markers must never reach the wire.
+        """Fabric-internal ``_``-prefixed markers must never reach the wire.
 
         The empty-response recovery path appends synthetic messages tagged
         with ``_empty_recovery_synthetic``; permissive providers ignore the
@@ -260,14 +260,6 @@ class TestChatCompletionsBuildKwargs:
         assert kw["extra_body"]["plugins"] == [
             {"id": "pareto-router", "min_coding_score": 0.8}
         ]
-
-    def test_nous_tags(self, transport):
-        from agent.portal_tags import nous_portal_tags
-        from providers import get_provider_profile
-        profile = get_provider_profile("nous")
-        msgs = [{"role": "user", "content": "Hi"}]
-        kw = transport.build_kwargs(model="gpt-4o", messages=msgs, provider_profile=profile)
-        assert kw["extra_body"]["tags"] == nous_portal_tags()
 
     def test_reasoning_default(self, transport):
         msgs = [{"role": "user", "content": "Hi"}]
@@ -423,7 +415,7 @@ class TestChatCompletionsBuildKwargs:
     def test_gemma_does_not_receive_thinking_config(self, transport):
         # The `gemini` provider also serves Gemma (e.g. `gemma-4-31b-it`),
         # but Gemma rejects `thinking_config` with HTTP 400 (#17426). Even
-        # when Hermes has reasoning enabled, the field must be omitted for
+        # when Fabric has reasoning enabled, the field must be omitted for
         # non-Gemini models on this provider.
         msgs = [{"role": "user", "content": "Hi"}]
         kw = transport.build_kwargs(
@@ -997,50 +989,50 @@ class TestChatCompletionsCacheStats:
 
 
 class TestChatCompletionsGeminiNativeExtraBodyStrip:
-    """Profile extra_body (e.g. Nous portal tags) must not reach a native
-    Gemini endpoint — Google's REST API rejects unknown fields with HTTP 400.
-    """
+    """OpenAI-style extra_body fields must not reach native Gemini."""
 
-    def _nous_profile(self):
-        from providers import get_provider_profile
-        return get_provider_profile("nous")
+    def _profile_with_extra_body(self):
+        from providers.base import ProviderProfile
 
-    def test_tags_stripped_when_endpoint_is_native_gemini(self, transport):
+        class ExtraBodyProfile(ProviderProfile):
+            def build_extra_body(self, **context):
+                return {"synthetic_marker": "present"}
+
+        return ExtraBodyProfile(name="synthetic-extra-body")
+
+    def test_extra_body_stripped_when_endpoint_is_native_gemini(self, transport):
         kw = transport.build_kwargs(
             "anthropic/claude-sonnet-4.6",
             [{"role": "user", "content": "hi"}],
             None,
-            provider_profile=self._nous_profile(),
+            provider_profile=self._profile_with_extra_body(),
             base_url="https://generativelanguage.googleapis.com/v1beta",
             session_id="s1",
             max_tokens=None,
         )
-        eb = kw.get("extra_body")
-        assert not eb or "tags" not in eb
+        assert "extra_body" not in kw
 
-    def test_tags_preserved_on_nous_endpoint(self, transport):
+    def test_extra_body_preserved_on_openai_compatible_endpoint(self, transport):
         kw = transport.build_kwargs(
-            "hermes-3-405b",
+            "example/model",
             [{"role": "user", "content": "hi"}],
             None,
-            provider_profile=self._nous_profile(),
-            base_url="https://inference.nousresearch.com/v1",
+            provider_profile=self._profile_with_extra_body(),
+            base_url="https://api.example.com/v1",
             session_id="s1",
             max_tokens=None,
         )
-        eb = kw.get("extra_body")
-        assert eb and "tags" in eb
+        assert kw["extra_body"] == {"synthetic_marker": "present"}
 
-    def test_tags_pass_through_on_gemini_openai_compat(self, transport):
+    def test_extra_body_passes_through_on_gemini_openai_compat(self, transport):
         # /openai compat endpoint is not "native" — unchanged behavior.
         kw = transport.build_kwargs(
             "anthropic/claude-sonnet-4.6",
             [{"role": "user", "content": "hi"}],
             None,
-            provider_profile=self._nous_profile(),
+            provider_profile=self._profile_with_extra_body(),
             base_url="https://generativelanguage.googleapis.com/v1beta/openai",
             session_id="s1",
             max_tokens=None,
         )
-        eb = kw.get("extra_body")
-        assert eb and "tags" in eb
+        assert kw["extra_body"] == {"synthetic_marker": "present"}

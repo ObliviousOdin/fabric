@@ -10,7 +10,6 @@ fixture because `ssl.create_default_context(cafile=...)` parses the
 bundle and refuses stubs.
 """
 
-import os
 import shutil
 import ssl
 import subprocess
@@ -18,8 +17,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from fabric_cli.auth import _default_verify, _resolve_verify
 
@@ -83,19 +80,19 @@ class TestResolveVerifyIntegration:
 
     def test_no_ca_uses_default_verify_on_darwin(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
-        for var in ("HERMES_CA_BUNDLE", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+        for var in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
             monkeypatch.delenv(var, raising=False)
         result = _resolve_verify()
         assert isinstance(result, ssl.SSLContext)
 
     def test_no_ca_uses_default_verify_on_linux(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "linux")
-        for var in ("HERMES_CA_BUNDLE", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
+        for var in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
             monkeypatch.delenv(var, raising=False)
         assert _resolve_verify() is True
 
     def test_requests_ca_bundle_respected(self, monkeypatch, real_bundle_file):
-        for var in ("HERMES_CA_BUNDLE", "SSL_CERT_FILE"):
+        for var in ("SSL_CERT_FILE"):
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("REQUESTS_CA_BUNDLE", real_bundle_file)
         result = _resolve_verify()
@@ -103,13 +100,14 @@ class TestResolveVerifyIntegration:
 
     def test_missing_ca_path_falls_back_to_default_verify(self, monkeypatch, tmp_path):
         monkeypatch.setattr(sys, "platform", "linux")
-        monkeypatch.setenv("HERMES_CA_BUNDLE", str(tmp_path / "missing.pem"))
+        monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(tmp_path / "missing.pem"))
         for var in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"):
-            monkeypatch.delenv(var, raising=False)
+            if var != "REQUESTS_CA_BUNDLE":
+                monkeypatch.delenv(var, raising=False)
         assert _resolve_verify() is True
 
     def test_insecure_wins_over_everything(self, monkeypatch, tmp_path):
         bundle = tmp_path / "ca.pem"
         bundle.write_text("stub")
-        monkeypatch.setenv("HERMES_CA_BUNDLE", str(bundle))
+        monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(bundle))
         assert _resolve_verify(insecure=True) is False

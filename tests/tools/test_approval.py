@@ -1,9 +1,9 @@
 """Tests for the dangerous command approval module."""
 
 import ast
-import os
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch as mock_patch
@@ -21,6 +21,15 @@ from tools.approval import (
     load_permanent,
     prompt_dangerous_approval,
 )
+
+
+@contextmanager
+def _interactive_approval_context():
+    token = approval_module.set_fabric_interactive_context(True)
+    try:
+        yield
+    finally:
+        approval_module.reset_fabric_interactive_context(token)
 
 
 class TestApprovalModeParsing:
@@ -86,7 +95,7 @@ class TestDetectDangerousRm:
 class TestWindowsShellDestructiveCommands:
     def test_cmd_del_requires_approval(self):
         dangerous, key, desc = detect_dangerous_command(
-            r"cmd /c del /f /q C:\tmp\hermes-victim\file.txt"
+            r"cmd /c del /f /q C:\tmp\sample-victim\file.txt"
         )
         assert dangerous is True
         assert key is not None
@@ -94,7 +103,7 @@ class TestWindowsShellDestructiveCommands:
 
     def test_cmd_rmdir_requires_approval(self):
         dangerous, key, desc = detect_dangerous_command(
-            r"cmd.exe /k rmdir /s /q C:\tmp\hermes-victim"
+            r"cmd.exe /k rmdir /s /q C:\tmp\sample-victim"
         )
         assert dangerous is True
         assert key is not None
@@ -102,7 +111,7 @@ class TestWindowsShellDestructiveCommands:
 
     def test_powershell_remove_item_requires_approval(self):
         dangerous, key, desc = detect_dangerous_command(
-            r"powershell -NoProfile -Command Remove-Item -Recurse -Force C:\tmp\hermes-victim"
+            r"powershell -NoProfile -Command Remove-Item -Recurse -Force C:\tmp\sample-victim"
         )
         assert dangerous is True
         assert key is not None
@@ -110,7 +119,7 @@ class TestWindowsShellDestructiveCommands:
 
     def test_pwsh_rm_alias_requires_approval(self):
         dangerous, key, desc = detect_dangerous_command(
-            r"pwsh -c rm -Recurse -Force C:\tmp\hermes-victim"
+            r"pwsh -c rm -Recurse -Force C:\tmp\sample-victim"
         )
         assert dangerous is True
         assert key is not None
@@ -129,7 +138,7 @@ class TestWindowsShellDestructiveCommands:
         # so `powershell Remove-Item ...` with NO explicit -Command must still
         # be gated (the original pattern required -Command and missed this).
         dangerous, key, desc = detect_dangerous_command(
-            r"powershell Remove-Item -Recurse -Force C:\tmp\hermes-victim"
+            r"powershell Remove-Item -Recurse -Force C:\tmp\sample-victim"
         )
         assert dangerous is True
         assert key is not None
@@ -255,13 +264,16 @@ class TestApproveAndCheckSession:
 
 
 class TestSessionKeyContext:
-    def test_context_session_key_overrides_process_env(self):
+    def test_approval_context_key_overrides_general_session_context(self):
+        from gateway.session_context import clear_session_vars, set_session_vars
+
+        session_tokens = set_session_vars(session_key="bob")
         token = approval_module.set_current_session_key("alice")
         try:
-            with mock_patch.dict("os.environ", {"HERMES_SESSION_KEY": "bob"}, clear=False):
-                assert approval_module.get_current_session_key() == "alice"
+            assert approval_module.get_current_session_key() == "alice"
         finally:
             approval_module.reset_current_session_key(token)
+            clear_session_vars(session_tokens)
 
     def test_gateway_runner_binds_session_key_to_context_before_agent_run(self):
         run_py = Path(__file__).resolve().parents[2] / "gateway" / "run.py"
@@ -472,8 +484,8 @@ class TestTeePattern:
         assert dangerous is True
         assert key is not None
 
-    def test_tee_hermes_env(self):
-        dangerous, key, desc = detect_dangerous_command("echo x | tee ~/.hermes/.env")
+    def test_tee_fabric_env(self):
+        dangerous, key, desc = detect_dangerous_command("echo x | tee ~/.fabric/.env")
         assert dangerous is True
         assert key is not None
 
@@ -483,13 +495,13 @@ class TestTeePattern:
         assert dangerous is True
         assert key is not None
 
-    def test_tee_custom_hermes_home_env(self):
-        dangerous, key, desc = detect_dangerous_command("echo x | tee $HERMES_HOME/.env")
+    def test_tee_custom_fabric_home_env(self):
+        dangerous, key, desc = detect_dangerous_command("echo x | tee $FABRIC_HOME/.env")
         assert dangerous is True
         assert key is not None
 
-    def test_tee_quoted_custom_hermes_home_env(self):
-        dangerous, key, desc = detect_dangerous_command('echo x | tee "$HERMES_HOME/.env"')
+    def test_tee_quoted_custom_fabric_home_env(self):
+        dangerous, key, desc = detect_dangerous_command('echo x | tee "$FABRIC_HOME/.env"')
         assert dangerous is True
         assert key is not None
 
@@ -504,82 +516,67 @@ class TestTeePattern:
         assert key is None
 
 
-class TestHermesConfigWriteProtection:
-    """Terminal-side pairing for the file_tools write_file/patch deny on
-    the current Fabric config and the legacy compatibility location."""
-
-    def test_fabric_home_redirect_overwrite(self):
-        dangerous, key, desc = detect_dangerous_command(
-            "echo 'approvals:' > ~/.fabric/config.yaml"
-        )
-        assert dangerous is True
-        assert key is not None
-
-    def test_fabric_home_sed_in_place(self):
-        dangerous, key, desc = detect_dangerous_command(
-            "sed -i 's/manual/off/' ~/.fabric/config.yaml"
-        )
-        assert dangerous is True
-        assert key is not None
+class TestFabricConfigWriteProtection:
+    """Terminal-side pairing for file-tool protection of Fabric config."""
 
     def test_redirect_overwrite(self):
-        dangerous, key, desc = detect_dangerous_command("echo 'approvals:' > ~/.hermes/config.yaml")
+        dangerous, key, desc = detect_dangerous_command("echo 'approvals:' > ~/.fabric/config.yaml")
         assert dangerous is True
         assert key is not None
 
     def test_append(self):
-        dangerous, key, desc = detect_dangerous_command("echo '  mode: off' >> ~/.hermes/config.yaml")
+        dangerous, key, desc = detect_dangerous_command("echo '  mode: off' >> ~/.fabric/config.yaml")
         assert dangerous is True
 
     def test_tee(self):
-        dangerous, key, desc = detect_dangerous_command("echo x | tee ~/.hermes/config.yaml")
+        dangerous, key, desc = detect_dangerous_command("echo x | tee ~/.fabric/config.yaml")
         assert dangerous is True
 
     def test_cp_over_config(self):
-        dangerous, key, desc = detect_dangerous_command("cp /tmp/evil.yaml ~/.hermes/config.yaml")
+        dangerous, key, desc = detect_dangerous_command("cp /tmp/evil.yaml ~/.fabric/config.yaml")
         assert dangerous is True
 
     def test_sed_in_place(self):
         # The gap the pairing closes: sed -i mutates the file directly,
         # bypassing the redirection/tee patterns.
-        dangerous, key, desc = detect_dangerous_command("sed -i 's/manual/off/' ~/.hermes/config.yaml")
+        dangerous, key, desc = detect_dangerous_command("sed -i 's/manual/off/' ~/.fabric/config.yaml")
         assert dangerous is True
-        assert "hermes config" in desc.lower() or "in-place" in desc.lower()
+        assert "fabric config" in desc.lower() or "in-place" in desc.lower()
 
     def test_sed_in_place_long_flag(self):
-        dangerous, key, desc = detect_dangerous_command("sed --in-place 's/manual/off/' ~/.hermes/config.yaml")
+        dangerous, key, desc = detect_dangerous_command("sed --in-place 's/manual/off/' ~/.fabric/config.yaml")
         assert dangerous is True
 
-    def test_sed_in_place_absolute_hermes_home_config(self):
+    def test_sed_in_place_absolute_fabric_home_config(self):
         config_path = get_fabric_home() / "config.yaml"
         dangerous, key, desc = detect_dangerous_command(
             f"sed -i 's/manual/off/' {config_path}"
         )
         assert dangerous is True
-        assert "hermes config" in desc.lower() or "in-place" in desc.lower()
+        assert "fabric config" in desc.lower() or "in-place" in desc.lower()
 
-    def test_sed_in_place_absolute_hermes_home_env(self):
+    def test_sed_in_place_absolute_fabric_home_env(self):
         env_path = get_fabric_home() / ".env"
         dangerous, key, desc = detect_dangerous_command(
             f"sed -i 's/API_KEY=.*/API_KEY=x/' {env_path}"
         )
         assert dangerous is True
-        assert "hermes config" in desc.lower() or "in-place" in desc.lower()
+        assert "fabric config" in desc.lower() or "in-place" in desc.lower()
 
-    def test_custom_hermes_home(self):
-        dangerous, key, desc = detect_dangerous_command("echo x | tee $HERMES_HOME/config.yaml")
+    def test_custom_fabric_home(self):
+        dangerous, key, desc = detect_dangerous_command("echo x | tee $FABRIC_HOME/config.yaml")
         assert dangerous is True
 
     def test_perl_in_place_config(self):
         # perl -i performs the same in-place mutation as sed -i but was not
         # caught by the -e/-c pattern (which targets code evaluation).
         dangerous, key, desc = detect_dangerous_command(
-            "perl -i -pe 's/approvals.mode: on/approvals.mode: off/' ~/.hermes/config.yaml"
+            "perl -i -pe 's/approvals.mode: on/approvals.mode: off/' ~/.fabric/config.yaml"
         )
         assert dangerous is True
         assert "in-place" in desc.lower() or "perl" in desc.lower()
 
-    def test_perl_in_place_absolute_hermes_home_config(self):
+    def test_perl_in_place_absolute_fabric_home_config(self):
         config_path = get_fabric_home() / "config.yaml"
         dangerous, key, desc = detect_dangerous_command(
             f"perl -i -pe 's/approvals.mode: on/approvals.mode: off/' {config_path}"
@@ -589,11 +586,11 @@ class TestHermesConfigWriteProtection:
 
     def test_ruby_in_place_config(self):
         dangerous, key, desc = detect_dangerous_command(
-            "ruby -i -pe 'gsub(/manual/, \"off\")' ~/.hermes/config.yaml"
+            "ruby -i -pe 'gsub(/manual/, \"off\")' ~/.fabric/config.yaml"
         )
         assert dangerous is True
 
-    def test_ruby_in_place_absolute_hermes_home_env(self):
+    def test_ruby_in_place_absolute_fabric_home_env(self):
         env_path = get_fabric_home() / ".env"
         dangerous, key, desc = detect_dangerous_command(
             f"ruby -i -pe 'gsub(/API_KEY=.*/, \"API_KEY=x\")' {env_path}"
@@ -608,7 +605,7 @@ class TestHermesConfigWriteProtection:
 
     def test_perl_in_place_env(self):
         dangerous, key, desc = detect_dangerous_command(
-            "perl -i -pe 's/SECRET=old/SECRET=new/' ~/.hermes/.env"
+            "perl -i -pe 's/SECRET=old/SECRET=new/' ~/.fabric/.env"
         )
         assert dangerous is True
 
@@ -617,14 +614,14 @@ class TestHermesConfigWriteProtection:
         # splits the in-place flag out as its own token after -p; the pattern
         # must catch it the same as `perl -i -pe`.
         dangerous, key, desc = detect_dangerous_command(
-            "perl -p -i -e 's/approvals.mode: on/approvals.mode: off/' ~/.hermes/config.yaml"
+            "perl -p -i -e 's/approvals.mode: on/approvals.mode: off/' ~/.fabric/config.yaml"
         )
         assert dangerous is True
 
     def test_perl_in_place_backup_suffix(self):
         # `perl -i.bak` keeps a backup but still mutates the file in place.
         dangerous, key, desc = detect_dangerous_command(
-            "perl -i.bak -pe 's/x/y/' ~/.hermes/config.yaml"
+            "perl -i.bak -pe 's/x/y/' ~/.fabric/config.yaml"
         )
         assert dangerous is True
 
@@ -632,17 +629,17 @@ class TestHermesConfigWriteProtection:
         # `perl -e` with no -i flag is code evaluation, not file mutation —
         # the perl/ruby -i pattern must not fire on it.
         dangerous, key, desc = detect_dangerous_command(
-            "perl -wne 'print' ~/.hermes/config.yaml"
+            "perl -wne 'print' ~/.fabric/config.yaml"
         )
         assert dangerous is False
 
     def test_read_is_safe(self):
         # Reading config is not a write — must not trip.
-        dangerous, key, desc = detect_dangerous_command("cat ~/.hermes/config.yaml")
+        dangerous, key, desc = detect_dangerous_command("cat ~/.fabric/config.yaml")
         assert dangerous is False
 
     def test_normal_yaml_write_safe(self):
-        # A non-Hermes config.yaml in a project dir is handled by the project
+        # A non-Fabric config.yaml in a project dir is handled by the project
         # patterns, but a plain temp write must not false-positive.
         dangerous, key, desc = detect_dangerous_command("echo data > /tmp/scratch.txt")
         assert dangerous is False
@@ -675,8 +672,8 @@ class TestFindExecFullPathRm:
 class TestSensitiveRedirectPattern:
     """Detect shell redirection writes to sensitive user-managed paths."""
 
-    def test_redirect_to_custom_hermes_home_env(self):
-        dangerous, key, desc = detect_dangerous_command("echo x > $HERMES_HOME/.env")
+    def test_redirect_to_custom_fabric_home_env(self):
+        dangerous, key, desc = detect_dangerous_command("echo x > $FABRIC_HOME/.env")
         assert dangerous is True
         assert key is not None
 
@@ -839,7 +836,7 @@ class TestProjectSensitiveCopyPattern:
 
 class TestSensitiveCopyMovePattern:
     """cp/mv/install OVERWRITING ~/.ssh/*, credential files (~/.netrc etc.),
-    shell rc files, or ~/.hermes/config.yaml/.env must require approval — the
+    shell rc files, or ~/.fabric/config.yaml/.env must require approval — the
     tee/redirection forms were already gated (#14639 family / commit 4e9d886d),
     but cp/mv/install on these targets was an unpaired half-door (key implant /
     shell-rc command injection slipped through auto-approve)."""
@@ -861,8 +858,8 @@ class TestSensitiveCopyMovePattern:
         dangerous, key, desc = detect_dangerous_command("cp /tmp/e ~/.bashrc")
         assert dangerous is True
 
-    def test_cp_to_hermes_config(self):
-        dangerous, key, desc = detect_dangerous_command("cp /tmp/evil.yaml ~/.hermes/config.yaml")
+    def test_cp_to_fabric_config(self):
+        dangerous, key, desc = detect_dangerous_command("cp /tmp/evil.yaml ~/.fabric/config.yaml")
         assert dangerous is True
 
     def test_cp_from_ssh_is_safe(self):
@@ -911,16 +908,16 @@ class TestSensitiveInPlaceEditPattern:
 
 
 class TestWindowsAbsolutePathFolding:
-    """Windows absolute home / Hermes-home prefixes must fold to ~/ and
-    ~/.hermes/ in dangerous-command detection.
+    """Windows absolute home / Fabric-home prefixes must fold to ~/ and
+    ~/.fabric/ in dangerous-command detection.
 
     Regression: on native Windows the home prefix uses backslash separators
     (``C:\\Users\\alice\\.ssh\\authorized_keys``). Detection stripped backslash
     escapes *before* folding, dissolving those separators, so writes to startup,
-    SSH, and Hermes config/env files returned "safe" without an approval prompt.
+    SSH, and Fabric config/env files returned "safe" without an approval prompt.
     The OS-specific ``Path.home()`` / ``get_fabric_home()`` tests above only
     exercise this branch on a Windows host; these monkeypatch a Windows-style
-    HOME/HERMES_HOME so the fold is verified on the POSIX CI runner too."""
+    HOME/FABRIC_HOME so the fold is verified on the POSIX CI runner too."""
 
     def test_windows_home_bashrc_folds(self, monkeypatch):
         monkeypatch.setenv("HOME", r"C:\Users\tester")
@@ -948,13 +945,13 @@ class TestWindowsAbsolutePathFolding:
         assert dangerous is True
         assert key is not None
 
-    def test_windows_hermes_home_config_folds(self, monkeypatch):
-        # Hermes home nests under the user home on Windows; it must fold before
+    def test_windows_fabric_home_config_folds(self, monkeypatch):
+        # Fabric home nests under the user home on Windows; it must fold before
         # the user-home rewrite eats its prefix.
         monkeypatch.setenv("HOME", r"C:\Users\tester")
-        monkeypatch.setenv("HERMES_HOME", r"C:\Users\tester\.hermes")
+        monkeypatch.setenv("FABRIC_HOME", r"C:\Users\tester\.fabric")
         dangerous, key, _ = detect_dangerous_command(
-            r"sed -i 's/manual/off/' C:\Users\tester\.hermes\config.yaml"
+            r"sed -i 's/manual/off/' C:\Users\tester\.fabric\config.yaml"
         )
         assert dangerous is True
         assert key is not None
@@ -1090,7 +1087,7 @@ class TestGatewayProtection:
     """Prevent agents from starting the gateway outside systemd management."""
 
     def test_gateway_run_with_disown_detected(self):
-        cmd = "kill 1605 && cd ~/.hermes/fabric-agent && source venv/bin/activate && python -m fabric_cli.main gateway run --replace &disown; echo done"
+        cmd = "kill 1605 && cd ~/.fabric/fabric-agent && source venv/bin/activate && python -m fabric_cli.main gateway run --replace &disown; echo done"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "systemctl" in desc
@@ -1123,50 +1120,50 @@ class TestGatewayProtection:
         assert dangerous is True
         assert "stop/restart" in desc
 
-    def test_hermes_gateway_stop_detected(self):
+    def test_fabric_gateway_stop_detected(self):
         cmd = "fabric gateway stop"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "gateway" in desc.lower()
 
-    def test_hermes_gateway_restart_with_profile_flag_detected(self):
-        """A profile flag between `hermes` and `gateway` must not slip past
+    def test_fabric_gateway_restart_with_profile_flag_detected(self):
+        """A profile flag between `fabric` and `gateway` must not slip past
         the guard. See the 2026-04-11 ade-profile self-kill incident."""
-        cmd = "hermes -p ade gateway restart"
+        cmd = "fabric -p ade gateway restart"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "gateway" in desc.lower()
 
-    def test_hermes_gateway_stop_with_long_profile_flag_detected(self):
-        cmd = "hermes --profile ade gateway stop"
+    def test_fabric_gateway_stop_with_long_profile_flag_detected(self):
+        cmd = "fabric --profile ade gateway stop"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
 
-    def test_hermes_gateway_multiple_flags_detected(self):
-        cmd = "hermes -p cocoa --verbose gateway restart"
+    def test_fabric_gateway_multiple_flags_detected(self):
+        cmd = "fabric -p cocoa --verbose gateway restart"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
 
-    def test_hermes_gateway_status_with_profile_flag_not_flagged(self):
+    def test_fabric_gateway_status_with_profile_flag_not_flagged(self):
         """Read-only subcommands stay allowed even with a profile flag."""
-        cmd = "hermes -p ade gateway status"
+        cmd = "fabric -p ade gateway status"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is False
 
-    def test_hermes_gateway_start_not_flagged(self):
+    def test_fabric_gateway_start_not_flagged(self):
         cmd = "fabric gateway start"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is False
 
-    def test_pkill_hermes_detected(self):
-        """pkill targeting hermes/gateway processes must be caught."""
+    def test_pkill_fabric_detected(self):
+        """pkill targeting Fabric/gateway processes must be caught."""
         cmd = 'pkill -f "cli.py --gateway"'
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "self-termination" in desc
 
-    def test_killall_hermes_detected(self):
-        cmd = "killall hermes"
+    def test_killall_fabric_detected(self):
+        cmd = "killall fabric"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "self-termination" in desc
@@ -1300,8 +1297,8 @@ class TestIFSWhitespaceBypass:
         assert dangerous is True
 
     def test_ifs_sed_config_dangerous(self):
-        """In-place edit of the Hermes security config via IFS must be caught."""
-        cmd = "sed${IFS}-i ~/.hermes/config.yaml"
+        """In-place edit of the Fabric security config via IFS must be caught."""
+        cmd = "sed${IFS}-i ~/.fabric/config.yaml"
         dangerous, key, desc = detect_dangerous_command(cmd)
         assert dangerous is True
 
@@ -1387,20 +1384,20 @@ class TestHeredocScriptExecution:
 
 
 class TestPgrepKillExpansion:
-    """kill -9 $(pgrep hermes) bypasses the pkill/killall name-matching
+    """kill -9 $(pgrep fabric) bypasses the pkill/killall name-matching
     pattern because the command substitution is opaque to regex.
 
     See security audit Test 7.
     """
 
     def test_kill_dollar_pgrep_detected(self):
-        cmd = 'kill -9 $(pgrep -f "hermes.*gateway")'
+        cmd = 'kill -9 $(pgrep -f "fabric.*gateway")'
         dangerous, _, desc = detect_dangerous_command(cmd)
         assert dangerous is True
         assert "pgrep" in desc.lower()
 
     def test_kill_backtick_pgrep_detected(self):
-        cmd = "kill -9 `pgrep hermes`"
+        cmd = "kill -9 `pgrep fabric`"
         dangerous, _, desc = detect_dangerous_command(cmd)
         assert dangerous is True
 
@@ -1409,9 +1406,9 @@ class TestPgrepKillExpansion:
         dangerous, _, _ = detect_dangerous_command(cmd)
         assert dangerous is True
 
-    def test_pkill_hermes_still_detected(self):
+    def test_pkill_fabric_still_detected(self):
         """Existing pkill pattern must not regress."""
-        cmd = "pkill -9 hermes"
+        cmd = "pkill -9 fabric"
         dangerous, _, _ = detect_dangerous_command(cmd)
         assert dangerous is True
 
@@ -1422,7 +1419,7 @@ class TestPgrepKillExpansion:
         assert dangerous is False
 
     def test_kill_dollar_pidof_detected(self):
-        """`kill $(pidof hermes)` is the BSD/Linux equivalent of the
+        """`kill $(pidof fabric)` is the BSD/Linux equivalent of the
         pgrep expansion and bypasses the pkill/killall name pattern
         in the same way. See issue #33071."""
         cmd = "kill -TERM $(pidof fabric_cli.main)"
@@ -1431,34 +1428,34 @@ class TestPgrepKillExpansion:
         assert "pidof" in desc.lower() or "pgrep" in desc.lower()
 
     def test_kill_backtick_pidof_detected(self):
-        cmd = "kill -9 `pidof hermes`"
+        cmd = "kill -9 `pidof fabric`"
         dangerous, _, _ = detect_dangerous_command(cmd)
         assert dangerous is True
 
 
 class TestLaunchctlGatewayLifecycle:
-    """launchctl stop/kickstart/bootout/unload against the Hermes service
+    """launchctl stop/kickstart/bootout/unload against the Fabric service
     label achieves the same effect as `fabric gateway stop|restart` and
     must require the same approval. See issue #33071.
     """
 
-    def test_launchctl_stop_hermes_detected(self):
+    def test_launchctl_stop_fabric_detected(self):
         cmd = "launchctl stop ai.fabric.gateway"
         dangerous, _, desc = detect_dangerous_command(cmd)
         assert dangerous is True
-        assert "launchd" in desc.lower() or "hermes" in desc.lower()
+        assert "launchd" in desc.lower() or "fabric" in desc.lower()
 
-    def test_launchctl_kickstart_hermes_detected(self):
+    def test_launchctl_kickstart_fabric_detected(self):
         cmd = "launchctl kickstart -k system/ai.fabric.gateway"
         dangerous, _, _ = detect_dangerous_command(cmd)
         assert dangerous is True
 
-    def test_launchctl_bootout_hermes_detected(self):
+    def test_launchctl_bootout_fabric_detected(self):
         cmd = "launchctl bootout system/ai.fabric.gateway"
         dangerous, _, _ = detect_dangerous_command(cmd)
         assert dangerous is True
 
-    def test_launchctl_unload_hermes_detected(self):
+    def test_launchctl_unload_fabric_detected(self):
         cmd = "launchctl unload ~/Library/LaunchAgents/ai.fabric.gateway.plist"
         dangerous, _, _ = detect_dangerous_command(cmd)
         assert dangerous is True
@@ -1470,7 +1467,7 @@ class TestLaunchctlGatewayLifecycle:
         assert dangerous is False
 
     def test_launchctl_stop_unrelated_not_flagged(self):
-        """`launchctl stop` on a non-Hermes label is out of scope for the
+        """`launchctl stop` on a non-Fabric label is out of scope for the
         gateway-lifecycle guard."""
         cmd = "launchctl stop com.example.unrelated"
         dangerous, _, _ = detect_dangerous_command(cmd)
@@ -2079,30 +2076,24 @@ class TestApprovalTimeoutIsNotConsent:
         mod._permanent_approved.clear()
         mod._pending.clear()
 
-        self._saved_env = {
-            k: os.environ.get(k)
-            for k in ("HERMES_GATEWAY_SESSION", "HERMES_CRON_SESSION",
-                      "HERMES_YOLO_MODE",
-                      "HERMES_SESSION_KEY", "HERMES_INTERACTIVE")
-        }
-        os.environ.pop("HERMES_YOLO_MODE", None)
-        os.environ.pop("HERMES_INTERACTIVE", None)
-        # HERMES_CRON_SESSION takes priority over HERMES_GATEWAY_SESSION in
-        # _is_gateway_approval_context(); a leaked value from a parent cron
-        # process would force the cron path and break these gateway tests.
-        os.environ.pop("HERMES_CRON_SESSION", None)
-        os.environ["HERMES_GATEWAY_SESSION"] = "1"
-        os.environ["HERMES_SESSION_KEY"] = self.SESSION_KEY
+        self._cron_context_token = mod.set_cron_approval_context(False)
+        from gateway.session_context import set_session_vars
+
+        self._session_context_tokens = set_session_vars(
+            platform="slack",
+            session_key=self.SESSION_KEY,
+        )
+        self._approval_session_token = mod.set_current_session_key(self.SESSION_KEY)
 
     def teardown_method(self):
         from tools import approval as mod
+        from gateway.session_context import clear_session_vars
+
         mod._gateway_queues.clear()
         mod._gateway_notify_cbs.clear()
-        for k, v in self._saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+        mod.reset_cron_approval_context(self._cron_context_token)
+        mod.reset_current_session_key(self._approval_session_token)
+        clear_session_vars(self._session_context_tokens)
 
     def _force_short_timeout(self, monkeypatch, seconds=1):
         from tools import approval as mod
@@ -2162,7 +2153,20 @@ class TestApprovalTimeoutIsNotConsent:
         # Spawn the approval wait in a thread, then resolve it with "deny".
         result_holder = {}
         def _check():
-            result_holder["r"] = mod.check_all_command_guards("rm -rf .git", "local")
+            from gateway.session_context import clear_session_vars, set_session_vars
+
+            session_tokens = set_session_vars(
+                platform="slack",
+                session_key=self.SESSION_KEY,
+            )
+            approval_token = mod.set_current_session_key(self.SESSION_KEY)
+            try:
+                result_holder["r"] = mod.check_all_command_guards(
+                    "rm -rf .git", "local"
+                )
+            finally:
+                mod.reset_current_session_key(approval_token)
+                clear_session_vars(session_tokens)
         t = threading.Thread(target=_check)
         t.start()
 
@@ -2246,7 +2250,7 @@ class TestTirithImportErrorFailOpenPolicy:
         with _patch("builtins.__import__", side_effect=self._make_failing_import(real_import)):
             with _patch("fabric_cli.config.load_config", return_value=cfg):
                 with _patch("tools.approval.detect_dangerous_command", return_value=(False, None, None)):
-                    with mock_patch.dict("os.environ", {"HERMES_INTERACTIVE": "1"}, clear=False):
+                    with _interactive_approval_context():
                         result = check_all_command_guards("echo hello", "local")
 
         assert result.get("approved") is True
@@ -2271,7 +2275,7 @@ class TestTirithImportErrorFailOpenPolicy:
         with _patch("builtins.__import__", side_effect=self._make_failing_import(real_import)):
             with _patch("fabric_cli.config.load_config", return_value=cfg):
                 with _patch("tools.approval.detect_dangerous_command", return_value=(False, None, None)):
-                    with mock_patch.dict("os.environ", {"HERMES_INTERACTIVE": "1"}, clear=False):
+                    with _interactive_approval_context():
                         result = check_all_command_guards(
                             "echo hello",
                             "local",
@@ -2302,7 +2306,7 @@ class TestTirithImportErrorFailOpenPolicy:
         with _patch("builtins.__import__", side_effect=self._make_failing_import(real_import)):
             with _patch("fabric_cli.config.load_config", return_value=cfg):
                 with _patch("tools.approval.detect_dangerous_command", return_value=(False, None, None)):
-                    with mock_patch.dict("os.environ", {"HERMES_INTERACTIVE": "1"}, clear=False):
+                    with _interactive_approval_context():
                         result = check_all_command_guards("echo hello", "local")
 
         assert result.get("approved") is True
@@ -2370,7 +2374,7 @@ class TestApprovalPromptRedaction:
         )
         cfg = {"approvals": {"mode": "manual"}}
         with _patch("fabric_cli.config.load_config", return_value=cfg):
-            with _patch("tools.approval._is_gateway_approval_context",
+            with _patch("tools.approval.is_gateway_approval_context",
                         return_value=True):
                 with _patch("tools.approval._get_approval_mode",
                             return_value="manual"):

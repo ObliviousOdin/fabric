@@ -2,9 +2,9 @@
 
 The dashboard is ONE machine-level management surface: config, env, MCP,
 model, and chat-PTY endpoints accept an optional ``profile`` so the global
-profile switcher can target any profile's HERMES_HOME. These tests pin:
+profile switcher can target any profile's FABRIC_HOME. These tests pin:
 reads/writes land in the REQUESTED profile, the dashboard's own profile
-stays untouched, and the chat PTY env is scoped via HERMES_HOME.
+stays untouched, and the chat PTY env is scoped via FABRIC_HOME.
 """
 import os
 
@@ -13,7 +13,7 @@ import yaml
 
 
 @pytest.fixture
-def isolated_profiles(tmp_path, monkeypatch, _isolate_hermes_home):
+def isolated_profiles(tmp_path, monkeypatch, _isolate_fabric_home):
     """Isolated default home + one named profile, each with config + .env."""
     from fabric_constants import get_fabric_home
     from fabric_cli import profiles
@@ -149,7 +149,7 @@ class TestProfileScopedConfig:
         (managed_dir / ".env").write_text(
             "PROFILE_DISPLAY_ZONE=Admin/Managed\n", encoding="utf-8"
         )
-        monkeypatch.setenv("HERMES_MANAGED_DIR", str(managed_dir))
+        monkeypatch.setenv("FABRIC_MANAGED_DIR", str(managed_dir))
         monkeypatch.setenv("PROFILE_DISPLAY_ZONE", "Launch/Leak")
         managed_scope.invalidate_managed_cache()
 
@@ -332,7 +332,7 @@ class TestProfileScopedEnv:
 
         assert "DATABASE_URL" not in child_env
         assert "TELEGRAM_BOT_TOKEN" not in child_env
-        assert child_env["HERMES_HOME"] == str(
+        assert child_env["FABRIC_HOME"] == str(
             isolated_profiles["worker_beta"]
         )
 
@@ -576,7 +576,7 @@ class TestProfileScopedPostSetup:
         self, client, isolated_profiles, monkeypatch
     ):
         """Post-setup runs in a -p scoped subprocess so hooks that read
-        config / write per-profile state see the same HERMES_HOME the rest
+        config / write per-profile state see the same FABRIC_HOME the rest
         of the drawer's writes targeted."""
         import fabric_cli.web_server as web_server
 
@@ -587,7 +587,7 @@ class TestProfileScopedPostSetup:
 
         monkeypatch.setattr(
             web_server,
-            "_spawn_hermes_action",
+            "_spawn_fabric_action",
             lambda subcommand, name: calls.append(list(subcommand)) or _FakeProc(),
         )
         monkeypatch.setattr(
@@ -615,7 +615,7 @@ class TestProfileScopedPostSetup:
 
         monkeypatch.setattr(
             web_server,
-            "_spawn_hermes_action",
+            "_spawn_fabric_action",
             lambda subcommand, name: calls.append(list(subcommand)) or _FakeProc(),
         )
         monkeypatch.setattr(
@@ -643,7 +643,7 @@ class TestProfileScopedGateway:
 
         monkeypatch.setattr(
             web_server,
-            "_spawn_hermes_action",
+            "_spawn_fabric_action",
             lambda subcommand, name: calls.append((list(subcommand), name)) or _FakeProc(),
         )
         web_server._ACTION_PROCS.pop("gateway-restart", None)
@@ -686,7 +686,7 @@ class TestProfileScopedGateway:
 
         assert resp.status_code == 200
         assert seen_homes[0] == str(isolated_profiles["worker_beta"])
-        assert resp.json()["hermes_home"] == str(isolated_profiles["worker_beta"])
+        assert resp.json()["fabric_home"] == str(isolated_profiles["worker_beta"])
 
     def test_status_uses_runtime_pid_when_profile_pid_file_is_missing(
         self, client, isolated_profiles, monkeypatch
@@ -762,7 +762,7 @@ class TestProfileScopedTelegramOnboarding:
 
         monkeypatch.setattr(
             web_server,
-            "_spawn_hermes_action",
+            "_spawn_fabric_action",
             lambda subcommand, name: calls.append((list(subcommand), name)) or _FakeProc(),
         )
         web_server._ACTION_PROCS.pop("gateway-restart", None)
@@ -794,7 +794,7 @@ class TestProfileScopedTelegramOnboarding:
 
 
 class TestProfileScopedChatPty:
-    def test_chat_argv_scopes_hermes_home(self, isolated_profiles, monkeypatch):
+    def test_chat_argv_scopes_fabric_home(self, isolated_profiles, monkeypatch):
         import fabric_cli.web_server as web_server
 
         monkeypatch.setattr(
@@ -803,12 +803,16 @@ class TestProfileScopedChatPty:
             raising=False,
         )
         argv, cwd, env = web_server._resolve_chat_argv(profile="worker_beta")
-        assert env is not None
-        assert env["HERMES_HOME"] == str(isolated_profiles["worker_beta"])
-        # Scoped chat must NOT attach to the dashboard's in-memory gateway.
-        assert "HERMES_TUI_GATEWAY_URL" not in env
+        from fabric_cli.tui_launch_context import consume_tui_launch_context
 
-    def test_chat_argv_unscoped_keeps_legacy_env(self, isolated_profiles, monkeypatch):
+        index = argv.index("--launch-context")
+        context = consume_tui_launch_context(argv[index + 1])
+        assert env is not None
+        assert env["FABRIC_HOME"] == str(isolated_profiles["worker_beta"])
+        # Scoped chat must NOT attach to the dashboard's in-memory gateway.
+        assert context.gateway_url == ""
+
+    def test_chat_argv_unscoped_keeps_current_profile(self, isolated_profiles, monkeypatch):
         import fabric_cli.web_server as web_server
 
         monkeypatch.setattr(
@@ -817,8 +821,12 @@ class TestProfileScopedChatPty:
             raising=False,
         )
         argv, cwd, env = web_server._resolve_chat_argv()
+        from fabric_cli.tui_launch_context import consume_tui_launch_context
+
+        index = argv.index("--launch-context")
+        consume_tui_launch_context(argv[index + 1])
         assert env is not None
-        assert env.get("HERMES_HOME") != str(isolated_profiles["worker_beta"])
+        assert env.get("FABRIC_HOME") != str(isolated_profiles["worker_beta"])
 
     def test_chat_argv_unknown_profile_raises(self, isolated_profiles, monkeypatch):
         import fabric_cli.web_server as web_server

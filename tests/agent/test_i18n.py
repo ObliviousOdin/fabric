@@ -103,22 +103,8 @@ def test_normalize_lang_unknown_falls_back():
     assert i18n._normalize_lang(None) == "en"
 
 
-def test_env_var_override(monkeypatch):
-    """HERMES_LANGUAGE wins over config."""
-    i18n.reset_language_cache()
-    monkeypatch.setenv("HERMES_LANGUAGE", "ja")
-    assert i18n.get_language() == "ja"
-
-
-def test_env_var_normalized(monkeypatch):
-    i18n.reset_language_cache()
-    monkeypatch.setenv("HERMES_LANGUAGE", "Chinese")
-    assert i18n.get_language() == "zh"
-
-
 def test_default_when_nothing_set(monkeypatch):
-    """With no env var and no config override, falls back to English."""
-    monkeypatch.delenv("HERMES_LANGUAGE", raising=False)
+    """With no config override, falls back to English."""
     # Force config lookup to return None -- patch the cached reader.
     i18n.reset_language_cache()
     monkeypatch.setattr(i18n, "_config_language_cached", lambda: None)
@@ -172,34 +158,14 @@ def test_t_unknown_language_uses_english():
 # ---------------------------------------------------------------------------
 # _locales_dir resolution ladder -- regression for #23943 / #27632 / #35374.
 # Sealed installs (Nix store venv, pip wheel) have no source tree next to
-# agent/, so _locales_dir must resolve via env override or the data scheme.
+# agent/, so _locales_dir must resolve via the data scheme.
 # ---------------------------------------------------------------------------
-
-def test_locales_dir_env_override_used_when_dir_exists(tmp_path, monkeypatch):
-    """HERMES_BUNDLED_LOCALES wins when it points at a real directory."""
-    bundled = tmp_path / "bundled-locales"
-    bundled.mkdir()
-    monkeypatch.setenv("HERMES_BUNDLED_LOCALES", str(bundled))
-    assert i18n._locales_dir() == bundled
-
-
-def test_locales_dir_env_override_ignored_when_missing(tmp_path, monkeypatch):
-    """A bogus HERMES_BUNDLED_LOCALES falls through to source/wheel resolution
-    instead of returning a path that doesn't exist."""
-    monkeypatch.setenv("HERMES_BUNDLED_LOCALES", str(tmp_path / "does-not-exist"))
-    result = i18n._locales_dir()
-    assert result != tmp_path / "does-not-exist"
-    # In a source checkout this is the repo-root locales dir.
-    assert result.name == "locales"
 
 
 def test_locales_dir_falls_back_to_data_scheme(tmp_path, monkeypatch):
-    """When neither the env override nor a source-adjacent locales/ exists,
+    """When no source-adjacent locales/ exists,
     _locales_dir uses sysconfig's data scheme (the pip-wheel layout)."""
     import sysconfig
-
-    # No env override.
-    monkeypatch.delenv("HERMES_BUNDLED_LOCALES", raising=False)
 
     # Force the source-adjacent path to a location with no locales/ dir.
     fake_pkg = tmp_path / "site-packages" / "agent"

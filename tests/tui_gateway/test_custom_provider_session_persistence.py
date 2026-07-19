@@ -116,7 +116,7 @@ def _make_agent_with_override(override, monkeypatch, config, model_cfg=None):
     patched config, returning the kwargs AIAgent was constructed with."""
     monkeypatch.setattr(rp, "load_config", lambda: config)
     monkeypatch.setattr(rp, "_get_model_config", lambda: model_cfg or {})
-    # Keep credential-pool resolution off the developer's real HERMES home.
+    # Keep credential-pool resolution off the developer's real FABRIC home.
     monkeypatch.setattr(rp, "_try_resolve_from_custom_pool", lambda *a, **k: None)
 
     fake_cfg = {"agent": {"system_prompt": ""}, "model": {"default": "unused"}}
@@ -245,7 +245,6 @@ class TestBareCustomNoBaseUrlHealsFromConfig:
         # routable identity to recover; caller keeps its fallback behaviour.
         monkeypatch.setattr(rp, "load_config", lambda: {})
         monkeypatch.setattr(rp, "_get_model_config", lambda: {"provider": "custom"})
-        monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
 
         assert rp.canonical_custom_identity(base_url=None) is None
 
@@ -286,7 +285,6 @@ class TestBareCustomNoBaseUrlHealsFromConfig:
         default instead of the broken OpenRouter route."""
         monkeypatch.setattr(rp, "load_config", lambda: {})
         monkeypatch.setattr(rp, "_get_model_config", lambda: {})
-        monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
 
         from tui_gateway.server import _stored_session_runtime_overrides
 
@@ -350,5 +348,3 @@ class TestBareCustomNoBaseUrlHealsFromConfig:
 
         persisted = captured.get("model_config") or {}
         assert persisted.get("provider") == "custom:mimo-v2.5-pro"
-
-

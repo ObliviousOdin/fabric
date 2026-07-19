@@ -12,14 +12,14 @@ class TestSaveConfigValueAtomic:
     @pytest.fixture
     def config_env(self, tmp_path, monkeypatch):
         """Isolated config environment with a writable config.yaml."""
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        config_path = hermes_home / "config.yaml"
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
+        config_path = fabric_home / "config.yaml"
         config_path.write_text(yaml.dump({
             "model": {"default": "test-model", "provider": "openrouter"},
             "display": {"skin": "default"},
         }))
-        monkeypatch.setattr("cli._fabric_home", hermes_home)
+        monkeypatch.setattr("cli._fabric_home", fabric_home)
         return config_path
 
     def test_calls_roundtrip_yaml_update(self, config_env, monkeypatch):
@@ -54,10 +54,10 @@ class TestSaveConfigValueAtomic:
     def test_overwrites_existing_value(self, config_env):
         """Updating an existing key replaces the value."""
         from cli import save_config_value
-        save_config_value("display.skin", "ares")
+        save_config_value("display.skin", "slate")
 
         result = yaml.safe_load(config_env.read_text())
-        assert result["display"]["skin"] == "ares"
+        assert result["display"]["skin"] == "slate"
 
     def test_preserves_env_ref_templates_in_unrelated_fields(self, config_env):
         """The /model --global persistence path must not inline env-backed secrets."""

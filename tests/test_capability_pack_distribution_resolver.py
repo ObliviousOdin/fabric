@@ -31,8 +31,6 @@ def test_bundled_capability_packs_uses_only_explicit_default(tmp_path, monkeypat
         "get_fabric_home",
         lambda: (_ for _ in ()).throw(AssertionError("profile fallback was read")),
     )
-    monkeypatch.setenv("FABRIC_BUNDLED_CAPABILITY_PACKS", str(ambient / "override"))
     monkeypatch.setenv("FABRIC_HOME", str(ambient / "fabric-home"))
-    monkeypatch.setenv("HERMES_HOME", str(ambient / "hermes-home"))
 
     assert fabric_constants.get_bundled_capability_packs_dir(default) == default

@@ -8,6 +8,7 @@ from agent.memory_provider import (
     MemoryProviderCapabilities,
 )
 from fabric_cli.memory_status import (
+    _provider_config_values,
     build_memory_status_snapshot,
     format_memory_status_snapshot,
 )
@@ -23,6 +24,21 @@ class FakeProvider:
 
     def get_capabilities(self):
         return self._capabilities
+
+
+def test_common_provider_config_remains_below_provider_specific_values(tmp_path):
+    values = _provider_config_values(
+        "fake",
+        home=tmp_path,
+        config={
+            "memory": {
+                "provider_config": {"shared": "common", "priority": "common"},
+                "fake": {"priority": "specific"},
+            }
+        },
+    )
+
+    assert values == {"shared": "common", "priority": "specific"}
 
 
 def _snapshot(

@@ -13,7 +13,7 @@ def _write_config(tmp_path, body: str) -> None:
 
 
 def test_model_timeout_override_wins(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _write_config(
         tmp_path,
         """\
@@ -30,7 +30,7 @@ def test_model_timeout_override_wins(monkeypatch, tmp_path):
 
 
 def test_provider_timeout_used_when_no_model_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _write_config(
         tmp_path,
         """\
@@ -44,7 +44,7 @@ def test_provider_timeout_used_when_no_model_override(monkeypatch, tmp_path):
 
 
 def test_model_stale_timeout_override_wins(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _write_config(
         tmp_path,
         """\
@@ -61,7 +61,7 @@ def test_model_stale_timeout_override_wins(monkeypatch, tmp_path):
 
 
 def test_provider_stale_timeout_used_when_no_model_override(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _write_config(
         tmp_path,
         """\
@@ -75,7 +75,7 @@ def test_provider_stale_timeout_used_when_no_model_override(monkeypatch, tmp_pat
 
 
 def test_missing_timeout_returns_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _write_config(
         tmp_path,
         """\
@@ -92,7 +92,7 @@ def test_missing_timeout_returns_none(monkeypatch, tmp_path):
 
 
 def test_invalid_timeout_values_return_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _write_config(
         tmp_path,
         """\
@@ -113,7 +113,7 @@ def test_invalid_timeout_values_return_none(monkeypatch, tmp_path):
 
 
 def test_invalid_stale_timeout_values_return_none(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _write_config(
         tmp_path,
         """\
@@ -150,12 +150,12 @@ def test_anthropic_adapter_honors_timeout_kwarg():
 
 
 def test_resolved_api_call_timeout_priority(monkeypatch, tmp_path):
-    """AIAgent._resolved_api_call_timeout() honors config > env > default priority."""
-    # Isolate HERMES_HOME
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    """AIAgent._resolved_api_call_timeout() honors config > default priority."""
+    # Isolate FABRIC_HOME
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     (tmp_path / ".env").write_text("", encoding="utf-8")
 
-    # Case A: config wins over env var
+    # Case A: model and provider config take priority.
     _write_config(tmp_path, """\
         providers:
           openrouter:
@@ -164,7 +164,6 @@ def test_resolved_api_call_timeout_priority(monkeypatch, tmp_path):
               openai/gpt-4o-mini:
                 timeout_seconds: 42
         """)
-    monkeypatch.setenv("HERMES_API_TIMEOUT", "999")
 
     from run_agent import AIAgent
     agent = AIAgent(
@@ -184,7 +183,7 @@ def test_resolved_api_call_timeout_priority(monkeypatch, tmp_path):
     agent.model = "some/other-model"
     assert agent._resolved_api_call_timeout() == 77.0
 
-    # Case B: no config → env wins
+    # Case B: no config uses the built-in default.
     _write_config(tmp_path, "")
     # Clear the cached config load
     import importlib
@@ -205,16 +204,12 @@ def test_resolved_api_call_timeout_priority(monkeypatch, tmp_path):
         skip_memory=True,
         platform="cli",
     )
-    assert agent2._resolved_api_call_timeout() == 999.0
-
-    # Case C: no config, no env → 1800.0 default
-    monkeypatch.delenv("HERMES_API_TIMEOUT", raising=False)
     assert agent2._resolved_api_call_timeout() == 1800.0
 
 
 def test_resolved_api_call_stale_timeout_priority(monkeypatch, tmp_path):
-    """AIAgent stale timeout honors config > env > default priority."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    """AIAgent stale timeout honors config > default priority."""
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     (tmp_path / ".env").write_text("", encoding="utf-8")
 
     _write_config(tmp_path, """\
@@ -225,7 +220,6 @@ def test_resolved_api_call_stale_timeout_priority(monkeypatch, tmp_path):
               gpt-5.4:
                 stale_timeout_seconds: 1800
         """)
-    monkeypatch.setenv("HERMES_API_CALL_STALE_TIMEOUT", "999")
 
     from run_agent import AIAgent
     agent = AIAgent(
@@ -262,16 +256,12 @@ def test_resolved_api_call_stale_timeout_priority(monkeypatch, tmp_path):
         skip_memory=True,
         platform="cli",
     )
-    assert agent2._resolved_api_call_stale_timeout_base() == (999.0, False)
-
-    monkeypatch.delenv("HERMES_API_CALL_STALE_TIMEOUT", raising=False)
     assert agent2._resolved_api_call_stale_timeout_base() == (90.0, True)
 
 
 def test_default_non_stream_stale_timeout_auto_disables_for_local_endpoints(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     (tmp_path / ".env").write_text("", encoding="utf-8")
-    monkeypatch.delenv("HERMES_API_CALL_STALE_TIMEOUT", raising=False)
 
     from run_agent import AIAgent
     agent = AIAgent(
@@ -288,10 +278,10 @@ def test_default_non_stream_stale_timeout_auto_disables_for_local_endpoints(monk
     assert agent._compute_non_stream_stale_timeout([]) == float("inf")
 
 
-def test_explicit_non_stream_stale_timeout_is_honored_for_local_endpoints(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+def test_configured_non_stream_stale_timeout_is_honored_for_local_endpoints(monkeypatch, tmp_path):
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     (tmp_path / ".env").write_text("", encoding="utf-8")
-    monkeypatch.setenv("HERMES_API_CALL_STALE_TIMEOUT", "300")
+    monkeypatch.setattr("run_agent.get_provider_stale_timeout", lambda *_args: 300.0)
 
     from run_agent import AIAgent
     agent = AIAgent(

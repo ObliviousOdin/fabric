@@ -1,7 +1,7 @@
 """Tests for path traversal prevention in skill_view.
 
 Regression tests for issue #220: skill_view file_path parameter allowed
-reading arbitrary files (e.g., ~/.hermes/.env) via path traversal.
+reading arbitrary files (e.g., ~/.fabric/.env) via path traversal.
 """
 
 import json
@@ -29,7 +29,7 @@ def fake_skills(tmp_path):
     # Create a sensitive file outside skills dir (simulating .env)
     (tmp_path / ".env").write_text("SECRET_API_KEY=sk-do-not-leak")
 
-    with patch("tools.skills_tool.SKILLS_DIR", skills_dir):
+    with patch("tools.skills_tool._skills_dir", return_value=skills_dir):
         yield {"skills_dir": skills_dir, "skill_dir": skill_dir, "tmp_path": tmp_path}
 
 

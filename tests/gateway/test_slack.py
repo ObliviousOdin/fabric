@@ -117,7 +117,7 @@ def adapter():
 
 @pytest.fixture(autouse=True)
 def _redirect_cache(tmp_path, monkeypatch):
-    """Point document cache to tmp_path so tests don't touch ~/.hermes."""
+    """Point document cache to tmp_path so tests don't touch ~/.fabric."""
     monkeypatch.setattr(
         "gateway.platforms.base.DOCUMENT_CACHE_DIR", tmp_path / "doc_cache"
     )
@@ -135,6 +135,7 @@ class TestSlashCommandSessionIsolation:
     @pytest.mark.asyncio
     async def test_channel_slash_command_uses_group_session_semantics(self, adapter):
         command = {
+            "command": "/fabric",
             "text": "hello",
             "user_id": "U123",
             "channel_id": "C123",
@@ -152,6 +153,7 @@ class TestSlashCommandSessionIsolation:
     @pytest.mark.asyncio
     async def test_dm_slash_command_keeps_dm_session_semantics(self, adapter):
         command = {
+            "command": "/fabric",
             "text": "hello",
             "user_id": "U123",
             "channel_id": "D123",
@@ -253,7 +255,7 @@ class TestAppMentionHandler:
         import re as _re
 
         assert isinstance(slash_matcher, _re.Pattern)
-        for expected in ("/fabric", "/hermes", "/btw", "/stop", "/model", "/help"):
+        for expected in ("/fabric", "/btw", "/stop", "/model", "/help"):
             assert slash_matcher.match(
                 expected
             ), f"Slack slash regex does not match {expected}"
@@ -1184,11 +1186,11 @@ class TestBangPrefixCommands:
 
     @pytest.mark.asyncio
     async def test_bang_with_bot_suffix_resolves(self, adapter):
-        """``!stop@hermes`` matches the get_command() ``@suffix`` stripping."""
-        await adapter._handle_slack_message(self._make_event("!stop@hermes"))
+        """``!stop@fabric`` matches the get_command() ``@suffix`` stripping."""
+        await adapter._handle_slack_message(self._make_event("!stop@fabric"))
 
         msg_event = adapter.handle_message.call_args[0][0]
-        assert msg_event.text.startswith("/stop@hermes")
+        assert msg_event.text.startswith("/stop@fabric")
         assert msg_event.message_type == MessageType.COMMAND
 
     @pytest.mark.asyncio
@@ -3106,48 +3108,83 @@ class TestSlashCommands:
 
     @pytest.mark.asyncio
     async def test_compact_maps_to_compress(self, adapter):
-        command = {"text": "compact", "user_id": "U1", "channel_id": "C1"}
+        command = {
+            "command": "/fabric",
+            "text": "compact",
+            "user_id": "U1",
+            "channel_id": "C1",
+        }
         await adapter._handle_slash_command(command)
         msg = adapter.handle_message.call_args[0][0]
         assert msg.text == "/compress"
 
     @pytest.mark.asyncio
     async def test_resume_command(self, adapter):
-        command = {"text": "resume my session", "user_id": "U1", "channel_id": "C1"}
+        command = {
+            "command": "/fabric",
+            "text": "resume my session",
+            "user_id": "U1",
+            "channel_id": "C1",
+        }
         await adapter._handle_slash_command(command)
         msg = adapter.handle_message.call_args[0][0]
         assert msg.text == "/resume my session"
 
     @pytest.mark.asyncio
     async def test_background_command(self, adapter):
-        command = {"text": "background run tests", "user_id": "U1", "channel_id": "C1"}
+        command = {
+            "command": "/fabric",
+            "text": "background run tests",
+            "user_id": "U1",
+            "channel_id": "C1",
+        }
         await adapter._handle_slash_command(command)
         msg = adapter.handle_message.call_args[0][0]
         assert msg.text == "/background run tests"
 
     @pytest.mark.asyncio
     async def test_usage_command(self, adapter):
-        command = {"text": "usage", "user_id": "U1", "channel_id": "C1"}
+        command = {
+            "command": "/fabric",
+            "text": "usage",
+            "user_id": "U1",
+            "channel_id": "C1",
+        }
         await adapter._handle_slash_command(command)
         msg = adapter.handle_message.call_args[0][0]
         assert msg.text == "/usage"
 
     @pytest.mark.asyncio
     async def test_reasoning_command(self, adapter):
-        command = {"text": "reasoning", "user_id": "U1", "channel_id": "C1"}
+        command = {
+            "command": "/fabric",
+            "text": "reasoning",
+            "user_id": "U1",
+            "channel_id": "C1",
+        }
         await adapter._handle_slash_command(command)
         msg = adapter.handle_message.call_args[0][0]
         assert msg.text == "/reasoning"
 
+    @pytest.mark.asyncio
+    async def test_missing_command_is_rejected(self, adapter, caplog):
+        command = {"text": "usage", "user_id": "U1", "channel_id": "C1"}
+
+        with caplog.at_level("WARNING"):
+            await adapter._handle_slash_command(command)
+
+        adapter.handle_message.assert_not_called()
+        assert "payload without command" in caplog.text
+
     # ------------------------------------------------------------------
     # Native slash commands — /btw, /stop, /model, ... dispatched directly
-    # instead of as /hermes subcommands. This is the Discord/Telegram parity
+    # instead of as /fabric subcommands. This is the Discord/Telegram parity
     # fix: the slash name itself becomes the command.
     # ------------------------------------------------------------------
 
     @pytest.mark.asyncio
     async def test_native_btw_slash(self, adapter):
-        """/btw with args must dispatch to /background, not /hermes btw."""
+        """/btw with args must dispatch to /background, not /fabric btw."""
         command = {
             "command": "/btw",
             "text": "fix the failing test",
@@ -3186,24 +3223,6 @@ class TestSlashCommands:
         assert msg.text == "/model anthropic/claude-sonnet-4"
 
     @pytest.mark.asyncio
-    async def test_legacy_hermes_prefix_still_works(self, adapter):
-        """Backward compat: /hermes btw foo must still route to /btw foo.
-
-        Old workspace manifests only declared /hermes as the single slash.
-        After users refresh their manifest they get /btw natively, but the
-        legacy form must keep working during the transition.
-        """
-        command = {
-            "command": "/hermes",
-            "text": "btw run the tests",
-            "user_id": "U1",
-            "channel_id": "C1",
-        }
-        await adapter._handle_slash_command(command)
-        msg = adapter.handle_message.call_args[0][0]
-        assert msg.text == "/btw run the tests"
-
-    @pytest.mark.asyncio
     async def test_fabric_prefix_is_the_primary_catchall(self, adapter):
         command = {
             "command": "/fabric",
@@ -3214,20 +3233,6 @@ class TestSlashCommands:
         await adapter._handle_slash_command(command)
         msg = adapter.handle_message.call_args[0][0]
         assert msg.text == "/btw run the tests"
-
-    @pytest.mark.asyncio
-    async def test_legacy_hermes_freeform_question(self, adapter):
-        """/hermes <free-form text> must stay as the raw text (non-command)."""
-        command = {
-            "command": "/hermes",
-            "text": "what's the weather today?",
-            "user_id": "U1",
-            "channel_id": "C1",
-        }
-        await adapter._handle_slash_command(command)
-        msg = adapter.handle_message.call_args[0][0]
-        assert msg.text == "what's the weather today?"
-
 
 # ---------------------------------------------------------------------------
 # TestMessageSplitting
@@ -3927,39 +3932,8 @@ class TestSlashEphemeralAck:
         assert ("C_Q", "U_Q") in adapter._slash_command_contexts
 
     @pytest.mark.asyncio
-    async def test_legacy_hermes_slash_stashes_context(self, adapter):
-        """Legacy /hermes <subcommand> also stashes context."""
-        command = {
-            "command": "/hermes",
-            "text": "help",
-            "user_id": "U_H",
-            "channel_id": "C_H",
-            "response_url": "https://hooks.slack.com/commands/T1/3/h",
-        }
-        await adapter._handle_slash_command(command)
-
-        adapter.handle_message.assert_called_once()
-        assert ("C_H", "U_H") in adapter._slash_command_contexts
 
     @pytest.mark.asyncio
-    async def test_freeform_hermes_question_does_not_stash_context(self, adapter):
-        """Free-form /hermes <question> must NOT route agent reply ephemeral."""
-        command = {
-            "command": "/hermes",
-            "text": "what's the weather",
-            "user_id": "U_FREE",
-            "channel_id": "C_FREE",
-            "response_url": "https://hooks.slack.com/commands/T1/4/free",
-        }
-        await adapter._handle_slash_command(command)
-
-        adapter.handle_message.assert_called_once()
-        event = adapter.handle_message.call_args[0][0]
-        # Free-form text — not a command
-        assert event.message_type == MessageType.TEXT
-        assert event.text == "what's the weather"
-        # Context must NOT be stashed — agent reply should be public
-        assert len(adapter._slash_command_contexts) == 0
 
     @pytest.mark.asyncio
     async def test_concurrent_users_same_channel_isolates_contexts(self, adapter):
@@ -4212,4 +4186,3 @@ async def test_handoff_anchor_is_fabric_branded(adapter):
     assert thread_ts == "123.456"
     text = client.chat_postMessage.await_args.kwargs["text"]
     assert "Fabric handoff" in text
-    assert "Hermes" not in text

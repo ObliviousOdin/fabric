@@ -101,7 +101,7 @@ def test_clock_failure_omits_rule_but_compaction_still_runs():
     assert HISTORICAL_TASK_HEADING in prompt
 
 
-def test_anchoring_rule_uses_date_from_hermes_time_now():
+def test_anchoring_rule_uses_date_from_fabric_time_now():
     """The date is taken from fabric_time.now(), which respects the user's TZ."""
     compressor = _compressor()
     fixed = datetime(2025, 12, 31, 23, 30, tzinfo=timezone.utc)

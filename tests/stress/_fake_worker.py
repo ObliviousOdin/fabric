@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
 """Fake worker process that exercises the real subprocess contract.
 
-Reads HERMES_KANBAN_TASK from env, heartbeats periodically, does short
-work, completes via the CLI. Designed to be spawned by the dispatcher
-exactly the way `fabric chat -q` would be, minus the LLM cost.
+Receives an explicit task/workspace pair, heartbeats periodically, does short
+work, and completes via the CLI without an LLM cost.
 """
 
 import json
+import argparse
 import os
 import subprocess
 import time
 
 
 def main():
-    tid = os.environ["HERMES_KANBAN_TASK"]
-    workspace = os.environ.get("HERMES_KANBAN_WORKSPACE", "")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("task_id")
+    parser.add_argument("workspace")
+    args = parser.parse_args()
+    tid = args.task_id
+    workspace = args.workspace
 
     # Announce via CLI (goes through real argparse + init_db + etc)
     subprocess.run(
-        ["hermes", "kanban", "heartbeat", tid, "--note", "started"],
+        ["fabric", "kanban", "heartbeat", tid, "--note", "started"],
         check=True, capture_output=True,
     )
 
@@ -26,14 +30,14 @@ def main():
     for i in range(3):
         time.sleep(0.3)
         subprocess.run(
-            ["hermes", "kanban", "heartbeat", tid, "--note", f"progress {i+1}/3"],
+            ["fabric", "kanban", "heartbeat", tid, "--note", f"progress {i+1}/3"],
             check=True, capture_output=True,
         )
 
     # Complete with structured handoff
     subprocess.run(
         [
-            "hermes", "kanban", "complete", tid,
+            "fabric", "kanban", "complete", tid,
             "--summary", f"real-subprocess worker finished {tid}",
             "--metadata", json.dumps({
                 "workspace": workspace,

@@ -40,7 +40,11 @@ def _close_client(client):
 @pytest.fixture
 def forced_files_client(monkeypatch, tmp_path):
     root = tmp_path / "data"
-    monkeypatch.setenv("HERMES_DASHBOARD_FILES_ROOT", str(root))
+    monkeypatch.setattr(
+        web_server,
+        "load_config_readonly",
+        lambda: {"dashboard": {"files_root": str(root)}},
+    )
 
     client, prev_auth_required, prev_bound_host = _client_with_app_state()
     try:
@@ -54,8 +58,8 @@ def forced_files_client(monkeypatch, tmp_path):
 def local_files_client(monkeypatch, tmp_path):
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.delenv("HERMES_DASHBOARD_FILES_ROOT", raising=False)
-    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.setattr(web_server, "load_config_readonly", lambda: {})
+    monkeypatch.delenv("FABRIC_HOME", raising=False)
     monkeypatch.setenv("HOME", str(home))
 
     client, prev_auth_required, prev_bound_host = _client_with_app_state()
@@ -196,10 +200,10 @@ def test_local_mode_defaults_to_home_and_can_jump_to_absolute_path(local_files_c
 def test_gated_local_mode_still_defaults_to_home(monkeypatch, tmp_path):
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.delenv("HERMES_DASHBOARD_FILES_ROOT", raising=False)
-    monkeypatch.delenv("HERMES_MANAGED", raising=False)
+    monkeypatch.setattr(web_server, "load_config_readonly", lambda: {})
+    monkeypatch.delenv("FABRIC_MANAGED", raising=False)
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("HERMES_HOME", str(home / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(home / ".fabric"))
 
     prev_auth_required = getattr(web_server.app.state, "auth_required", None)
     prev_bound_host = getattr(web_server.app.state, "bound_host", None)
@@ -315,8 +319,8 @@ def test_query_token_does_not_authenticate_other_endpoints(forced_files_client):
 
 
 def test_hosted_policy_locks_to_opt_data(monkeypatch):
-    monkeypatch.delenv("HERMES_DASHBOARD_FILES_ROOT", raising=False)
-    monkeypatch.setenv("HERMES_HOME", "/opt/data")
+    monkeypatch.setattr(web_server, "load_config_readonly", lambda: {})
+    monkeypatch.setenv("FABRIC_HOME", "/opt/data")
     client, prev_auth_required, prev_bound_host = _client_with_app_state()
     try:
         request = SimpleNamespace(
@@ -581,7 +585,7 @@ def test_other_credential_store_basenames_blocked(forced_files_client):
     """Regression: the managed-files guard must cover the same credential
     basenames as gateway.platforms.base._ROOT_CREDENTIAL_FILES and
     agent.file_safety.get_read_block_error, not just .env — an operator can
-    point the managed root at HERMES_HOME itself (#57505), which contains
+    point the managed root at FABRIC_HOME itself (#57505), which contains
     all of these live secret stores."""
     client, root = forced_files_client
     root.mkdir(parents=True, exist_ok=True)
@@ -660,7 +664,7 @@ def test_credential_dir_trees_blocked_on_subdir_descent(forced_files_client):
     snapshot_file.write_text('{"device_label": "private-device"}\n')
 
     backups_dir = root / "backups"
-    backup_file = backups_dir / "hermes-backup-test.zip"
+    backup_file = backups_dir / "fabric-backup-test.zip"
     backup_file.parent.mkdir(parents=True)
     backup_file.write_bytes(b"private backup")
 

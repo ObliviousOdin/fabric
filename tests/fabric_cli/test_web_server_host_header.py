@@ -187,8 +187,6 @@ class TestWebSocketHostOriginGuard:
         import fabric_cli.web_server as ws
 
         monkeypatch.setattr(ws.app.state, "bound_host", "127.0.0.1", raising=False)
-        monkeypatch.setattr(ws, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
-
         client = TestClient(ws.app)
         url = f"/api/events?token={ws._SESSION_TOKEN}&channel=security-test"
         with pytest.raises(WebSocketDisconnect) as exc:
@@ -210,8 +208,6 @@ class TestWebSocketHostOriginGuard:
         import fabric_cli.web_server as ws
 
         monkeypatch.setattr(ws.app.state, "bound_host", "127.0.0.1", raising=False)
-        monkeypatch.setattr(ws, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
-
         client = TestClient(ws.app)
         url = f"/api/events?token={ws._SESSION_TOKEN}&channel=security-test"
         with pytest.raises(WebSocketDisconnect) as exc:
@@ -232,8 +228,6 @@ class TestWebSocketHostOriginGuard:
         import fabric_cli.web_server as ws
 
         monkeypatch.setattr(ws.app.state, "bound_host", "127.0.0.1", raising=False)
-        monkeypatch.setattr(ws, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
-
         client = TestClient(ws.app)
         url = f"/api/events?token={ws._SESSION_TOKEN}&channel=security-test"
         with client.websocket_connect(

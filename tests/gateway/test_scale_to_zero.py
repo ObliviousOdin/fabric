@@ -12,7 +12,6 @@ import pytest
 
 from gateway.scale_to_zero import (
     DEFAULT_IDLE_TIMEOUT_MINUTES,
-    SCALE_TO_ZERO_ENV,
     is_idle,
     messaging_is_relay_only_or_absent,
     parse_idle_timeout_seconds,
@@ -21,22 +20,27 @@ from gateway.scale_to_zero import (
 )
 
 
-# ── scale_to_zero_enabled (the Labs HERMES_SCALE_TO_ZERO stamp, D11/Q8=A) ────
+# ── scale_to_zero_enabled (config parser) ────────────────────────────────────
 
 
 @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", " On "])
 def test_enabled_truthy_values(value):
-    assert scale_to_zero_enabled({SCALE_TO_ZERO_ENV: value}) is True
+    assert scale_to_zero_enabled(value) is True
 
 
 @pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "nope"])
 def test_enabled_falsey_values(value):
-    assert scale_to_zero_enabled({SCALE_TO_ZERO_ENV: value}) is False
+    assert scale_to_zero_enabled(value) is False
 
 
-def test_enabled_absent_is_false():
-    # Fail-safe default OFF when the stamp is absent (a non-opted instance).
-    assert scale_to_zero_enabled({}) is False
+@pytest.mark.parametrize("value", [None, {}, [], object()])
+def test_enabled_invalid_is_false(value):
+    assert scale_to_zero_enabled(value) is False
+
+
+def test_enabled_accepts_boolean_config_values():
+    assert scale_to_zero_enabled(True) is True
+    assert scale_to_zero_enabled(False) is False
 
 
 # ── parse_idle_timeout_seconds (config.yaml, D2) ─────────────────────────────

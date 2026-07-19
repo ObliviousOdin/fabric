@@ -134,7 +134,7 @@ async def test_mutation_defaults_to_deny_before_provider_domain_import(
     calls = _guard_provider_imports(monkeypatch)
 
     result = await _runner(_config())._handle_account_command(
-        _event("/account request openai-codex Lobby Fabric")
+        _event("/account request openai-codex Lobby Account")
     )
 
     assert "require an explicit admin policy" in result
@@ -149,7 +149,7 @@ async def test_non_admin_remains_denied_even_when_account_status_is_allowlisted(
     runner = _runner(_config(admins=("admin",), user_commands=("account",)))
 
     result = await runner._handle_account_command(
-        _event("/account request openai-codex Lobby Fabric", user_id="member")
+        _event("/account request openai-codex Lobby Account", user_id="member")
     )
 
     assert "require an explicit admin policy" in result
@@ -165,7 +165,7 @@ async def test_dm_admin_is_not_implicitly_a_group_account_admin(account_home):
 
     result = await runner._handle_account_command(
         _event(
-            "/account request openai-codex Group Fabric",
+            "/account request openai-codex Group Account",
             user_id="admin",
             chat_type="group",
         )
@@ -187,14 +187,14 @@ async def test_explicit_group_admin_can_create_only_the_group_scoped_request(
 
     created = await runner._handle_account_command(
         _event(
-            "/account request xai-oauth Group Fabric",
+            "/account request xai-oauth Group Account",
             user_id="group-admin",
             chat_type="group",
         )
     )
     dm_denied = await runner._handle_account_command(
         _event(
-            "/account request openai-codex DM Fabric",
+            "/account request openai-codex DM Account",
             user_id="group-admin",
         )
     )
@@ -258,7 +258,7 @@ async def test_admin_request_and_handoff_are_local_only_without_remote_delivery(
 
     created = await runner._handle_account_command(
         _event(
-            "/account request openai-codex Front Desk Fabric",
+            "/account request openai-codex Front Desk Account",
             user_id="admin",
         )
     )
@@ -290,7 +290,7 @@ async def test_admin_request_and_handoff_are_local_only_without_remote_delivery(
     assert "Managed request: requested" in status
     assert "Remote handoff: not configured" in status
     assert "request is local state only" in status
-    assert "Front Desk Fabric" not in status
+    assert "Front Desk Account" not in status
     assert "par_" not in status
     assert "mailto:" not in status
 

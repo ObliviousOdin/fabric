@@ -1,4 +1,4 @@
-"""Tests for ``hermes dashboard --stop`` / ``--status`` flags.
+"""Tests for ``fabric dashboard --stop`` / ``--status`` flags.
 
 These flags share the detection + kill path with the post-``fabric update``
 cleanup, so the heavy coverage of SIGTERM / SIGKILL / Windows taskkill lives
@@ -128,7 +128,7 @@ class TestLifecycleFlagsTakePrecedence:
     """If both --stop and --status are set, --status wins (it's listed
     first in cmd_dashboard).  Neither is allowed to fall through to the
     server-start path, which is the critical safety property — a user
-    who typed ``hermes dashboard --stop`` must not end up ALSO starting
+    who typed ``fabric dashboard --stop`` must not end up ALSO starting
     a new server."""
 
     def test_status_wins_over_stop(self, capsys):
@@ -161,7 +161,7 @@ class TestLifecycleFlagsTakePrecedence:
 
 class TestArgparseWiring:
     """Confirm the flags are exposed via the real argparse tree so
-    ``hermes dashboard --stop`` / ``--status`` actually parse."""
+    ``fabric dashboard --stop`` / ``--status`` actually parse."""
 
     def test_flags_are_registered(self):
         from fabric_cli.main import main as _cli_main  # noqa: F401
@@ -212,9 +212,13 @@ class TestInteractiveDashboardAuthCatalog:
             )
         return exc_info.value.code, capsys.readouterr().out
 
-    def test_default_prompt_hides_legacy_portal_choice(self, monkeypatch, capsys):
-        monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-        monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    def test_default_prompt_uses_curated_provider_catalog(
+        self, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(
+            "fabric_cli.fabric_capabilities._load_capabilities_config",
+            lambda: {},
+        )
 
         code, output = self._run_choice_two(monkeypatch, capsys)
 
@@ -223,14 +227,57 @@ class TestInteractiveDashboardAuthCatalog:
         assert "Nous" not in output
         assert "dashboard register" not in output
 
-    def test_explicit_opt_in_restores_legacy_portal_choice(
+    def test_catalog_inclusion_adds_nous_portal_choice(
         self, monkeypatch, capsys
     ):
-        monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-        monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
+        monkeypatch.setattr(
+            "fabric_cli.fabric_capabilities._load_capabilities_config",
+            lambda: {"model_providers": ["nous"]},
+        )
 
         code, output = self._run_choice_two(monkeypatch, capsys)
 
         assert code == 0
         assert "OAuth via Nous Portal" in output
         assert "fabric dashboard register" in output
+
+    def test_password_setup_publishes_complete_config_in_one_write(
+        self, monkeypatch, capsys
+    ):
+        from fabric_cli.main import _maybe_setup_dashboard_auth_interactively
+
+        answers = iter(("1", "operator"))
+        save_config = MagicMock()
+        monkeypatch.setattr(sys, "stdin", _TTYProxy(sys.stdin))
+        monkeypatch.setattr(sys, "stdout", _TTYProxy(sys.stdout))
+        monkeypatch.setattr(
+            "fabric_cli.web_server.should_require_auth", lambda _host: True
+        )
+        monkeypatch.setattr("fabric_cli.dashboard_auth.list_providers", lambda: [])
+        monkeypatch.setattr(
+            "fabric_cli.fabric_capabilities.fabric_model_provider_visible",
+            lambda _provider: False,
+        )
+        monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
+        monkeypatch.setattr("getpass.getpass", lambda _prompt="": "strong-password")
+        monkeypatch.setattr(
+            "plugins.dashboard_auth.basic.hash_password",
+            lambda _password: "scrypt$16384$8$1$salt$hash",
+        )
+        monkeypatch.setattr("secrets.token_urlsafe", lambda _size: "stable-secret")
+        monkeypatch.setattr("fabric_cli.config.load_config", lambda: {})
+        monkeypatch.setattr("fabric_cli.config.save_config", save_config)
+        monkeypatch.setattr("fabric_cli.plugins.discover_plugins", lambda **_kw: None)
+
+        _maybe_setup_dashboard_auth_interactively(
+            SimpleNamespace(host="0.0.0.0")
+        )
+
+        save_config.assert_called_once()
+        basic_auth = save_config.call_args.args[0]["dashboard"]["basic_auth"]
+        assert basic_auth == {
+            "username": "operator",
+            "password_hash": "scrypt$16384$8$1$salt$hash",
+            "secret": "stable-secret",
+        }
+        assert "credentials saved in config.yaml" in capsys.readouterr().out

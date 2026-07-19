@@ -233,8 +233,8 @@ def main():
     for seq_idx in range(NUM_SEQUENCES):
         seed = random.randint(0, 10**9)
         rng = random.Random(seed)
-        home = tempfile.mkdtemp(prefix=f"hermes_fuzz_{seq_idx}_")
-        os.environ["HERMES_HOME"] = home
+        home = tempfile.mkdtemp(prefix=f"fabric_fuzz_{seq_idx}_")
+        os.environ["FABRIC_HOME"] = home
         os.environ["HOME"] = home
         sys.path.insert(0, WT)
 

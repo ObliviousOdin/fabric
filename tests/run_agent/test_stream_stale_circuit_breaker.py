@@ -62,7 +62,9 @@ class TestStreamStaleCircuitBreaker:
     def test_short_circuits_when_streak_at_threshold(self, monkeypatch):
         """A session already past the consecutive-stale threshold must abort
         immediately without opening a stream or waiting out the stale timeout."""
-        monkeypatch.setenv("HERMES_STREAM_STALE_GIVEUP", "3")
+        monkeypatch.setattr(
+            "agent.chat_completion_helpers._STALE_STREAM_GIVEUP_THRESHOLD", 3
+        )
 
         agent = _make_anthropic_agent()
         agent._consecutive_stale_streams = 3  # simulate prior wedged turns
@@ -80,7 +82,9 @@ class TestStreamStaleCircuitBreaker:
     def test_success_resets_streak(self, monkeypatch):
         """A stream that completes successfully clears the consecutive-stale
         streak so a recovered provider resumes normally."""
-        monkeypatch.setenv("HERMES_STREAM_STALE_GIVEUP", "3")
+        monkeypatch.setattr(
+            "agent.chat_completion_helpers._STALE_STREAM_GIVEUP_THRESHOLD", 3
+        )
 
         agent = _make_anthropic_agent()
         agent._consecutive_stale_streams = 2  # below the giveup=3 threshold
@@ -94,8 +98,13 @@ class TestStreamStaleCircuitBreaker:
     def test_stale_kill_increments_streak(self, monkeypatch):
         """Each stale-stream kill increments the consecutive-stale streak so a
         wedged session eventually trips the breaker."""
-        monkeypatch.setenv("HERMES_STREAM_STALE_TIMEOUT", "0.1")
-        monkeypatch.setenv("HERMES_STREAM_STALE_GIVEUP", "50")
+        monkeypatch.setattr(
+            "agent.chat_completion_helpers.get_provider_stale_timeout",
+            lambda *_args: 0.1,
+        )
+        monkeypatch.setattr(
+            "agent.chat_completion_helpers._STALE_STREAM_GIVEUP_THRESHOLD", 50
+        )
 
         agent = _make_anthropic_agent()
         agent._consecutive_stale_streams = 0

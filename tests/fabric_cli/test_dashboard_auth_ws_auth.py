@@ -254,7 +254,7 @@ class TestWsAuthOkGated:
 
     def test_rejection_audit_logs(self, gated_app, tmp_path, monkeypatch):
         # Point the audit log at a tmp dir so we can read what got written.
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         from fabric_cli.dashboard_auth import audit as audit_mod
 
         # The log path is resolved lazily on the first audit_log() call;
@@ -480,7 +480,7 @@ class TestWsHostOriginGuardOrigins:
         assert web_server._ws_host_origin_is_allowed(ws) is True
 
     def test_loopback_app_scheme_origin_allowed(self, loopback_app):
-        ws = self._ws(origin="app://hermes", host="127.0.0.1:8080")
+        ws = self._ws(origin="app://fabric", host="127.0.0.1:8080")
         assert web_server._ws_host_origin_is_allowed(ws) is True
 
     def test_loopback_matching_http_origin_allowed(self, loopback_app):

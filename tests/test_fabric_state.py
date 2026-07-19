@@ -1,4 +1,4 @@
-"""Tests for fabric_state.py — SessionDB SQLite CRUD, FTS5 search, export."""
+"""Tests for ``fabric_state.py`` SessionDB CRUD, search, and export."""
 
 import sqlite3
 import time
@@ -2794,7 +2794,7 @@ class TestSchemaInit:
     def test_topic_mode_schema_is_not_auto_migrated_on_open(self, tmp_path):
         """Opening an old DB should not add topic-mode columns until /topic opts in.
 
-        The gateway must remain rollback-safe: simply upgrading Hermes and starting
+        The gateway must remain rollback-safe: simply upgrading Fabric and starting
         the old bot should not eagerly mutate the state DB for this feature.
         """
         old_db = tmp_path / "old.db"
@@ -5273,9 +5273,9 @@ def test_v18_backfill_from_sessions_json(tmp_path, monkeypatch):
     """Migration backfills display_name/origin_json/expiry_finalized from sessions.json."""
     import fabric_state as hs
 
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     (home / "sessions").mkdir(parents=True)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(hs, "DEFAULT_DB_PATH", home / "state.db")
 
     # Seed a pre-v18 database: create schema, downgrade version, add a bare row.

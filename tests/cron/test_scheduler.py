@@ -965,7 +965,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1012,7 +1012,7 @@ class TestRunJobSessionPersistence:
         job = {"id": "test-job", "name": "test", "prompt": "hello"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1056,7 +1056,7 @@ class TestRunJobSessionPersistence:
         job = {"id": "test-job", "name": "test", "prompt": "hello"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1097,7 +1097,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1135,7 +1135,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1173,7 +1173,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1216,7 +1216,7 @@ class TestRunJobSessionPersistence:
         mock_agent = MagicMock()
         mock_agent.run_conversation.return_value = {"final_response": "ok"}
         base = [
-            patch("cron.scheduler._fabric_home", tmp_path),
+            patch("cron.scheduler.get_fabric_home", return_value=tmp_path),
             patch("cron.scheduler._resolve_origin", return_value=None),
             patch("fabric_cli.env_loader.load_fabric_dotenv"),
             patch("fabric_cli.env_loader.reset_secret_source_cache"),
@@ -1263,6 +1263,7 @@ class TestRunJobSessionPersistence:
         precedence over enabled_toolsets, so this stops the bypass.
         """
         (tmp_path / "config.yaml").write_text(
+            "model: test-model\n"
             "agent:\n"
             "  disabled_toolsets:\n"
             "    - terminal\n"
@@ -1303,7 +1304,7 @@ class TestRunJobSessionPersistence:
         kwargs = mock_agent_cls.call_args.kwargs
         # Resolution happened — not None, is a list.
         assert isinstance(kwargs["enabled_toolsets"], list)
-        # The cron default is _HERMES_CORE_TOOLS with _DEFAULT_OFF_TOOLSETS
+        # The cron default is _FABRIC_CORE_TOOLS with _DEFAULT_OFF_TOOLSETS
         # (``moa``, ``homeassistant``, ``rl``) removed. The most important
         # invariant: ``moa`` is NOT in the default cron toolset, so a cron
         # run cannot accidentally spin up frontier models.
@@ -1340,7 +1341,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1417,7 +1418,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1457,7 +1458,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1500,7 +1501,7 @@ class TestRunJobSessionPersistence:
         }
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1552,7 +1553,7 @@ class TestRunJobSessionPersistence:
 
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler.get_due_jobs", return_value=[job]), \
              patch("cron.scheduler.advance_next_run"), \
              patch("cron.scheduler.mark_job_run") as mock_mark, \
@@ -1580,22 +1581,19 @@ class TestRunJobSessionPersistence:
 
         (tmp_path / ".env").write_text("TELEGRAM_HOME_CHANNEL=-2002\n")
         monkeypatch.delenv("TELEGRAM_HOME_CHANNEL", raising=False)
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_PLATFORM", raising=False)
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_CHAT_ID", raising=False)
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_THREAD_ID", raising=False)
-
         class FakeAgent:
             def __init__(self, *args, **kwargs):
                 pass
 
             def run_conversation(self, *args, **kwargs):
-                from gateway.session_context import get_session_env
-                seen["platform"] = get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM") or None
-                seen["chat_id"] = get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID") or None
-                seen["thread_id"] = get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID") or None
+                from gateway.session_context import get_cron_delivery_context
+                context = get_cron_delivery_context()
+                seen["platform"] = context.platform or None
+                seen["chat_id"] = context.chat_id or None
+                seen["thread_id"] = context.thread_id or None
                 return {"final_response": "ok"}
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("fabric_state.SessionDB", return_value=fake_db), \
              patch(
                  "fabric_cli.runtime_provider.resolve_runtime_provider",
@@ -1618,9 +1616,10 @@ class TestRunJobSessionPersistence:
             "chat_id": "-2002",
             "thread_id": None,
         }
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_PLATFORM") is None
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_CHAT_ID") is None
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_THREAD_ID") is None
+        from gateway.session_context import get_cron_delivery_context
+        assert get_cron_delivery_context().platform == ""
+        assert get_cron_delivery_context().chat_id == ""
+        assert get_cron_delivery_context().thread_id == ""
         fake_db.close.assert_called_once()
 
     def test_run_job_resets_secret_source_cache_before_reload(self, tmp_path, monkeypatch):
@@ -1629,7 +1628,7 @@ class TestRunJobSessionPersistence:
         instead of leaving the startup .env placeholder in place (#33465).
 
         A bare ``load_dotenv`` re-load can't do this: startup already recorded
-        this HERMES_HOME in ``_APPLIED_HOMES``, so the external-secret pull
+        this FABRIC_HOME in ``_APPLIED_HOMES``, so the external-secret pull
         no-ops and only the placeholder is re-applied. The scheduler must call
         ``reset_secret_source_cache()`` (forcing the re-pull) and route through
         ``load_fabric_dotenv`` (which then re-applies external secret sources).
@@ -1645,7 +1644,7 @@ class TestRunJobSessionPersistence:
             call_order.append("load")
             return []
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.reset_secret_source_cache", _record_reset), \
              patch("fabric_cli.env_loader.load_fabric_dotenv", _record_load), \
@@ -1688,27 +1687,24 @@ class TestRunJobSessionPersistence:
         fake_db = MagicMock()
         seen = []
 
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_PLATFORM", raising=False)
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_CHAT_ID", raising=False)
-        monkeypatch.delenv("HERMES_CRON_AUTO_DELIVER_THREAD_ID", raising=False)
-
         class FakeAgent:
             def __init__(self, *args, **kwargs):
                 pass
 
             def run_conversation(self, *args, **kwargs):
-                from gateway.session_context import get_session_env
+                from gateway.session_context import get_cron_delivery_context
 
+                context = get_cron_delivery_context()
                 seen.append(
                     {
-                        "platform": get_session_env("HERMES_CRON_AUTO_DELIVER_PLATFORM") or None,
-                        "chat_id": get_session_env("HERMES_CRON_AUTO_DELIVER_CHAT_ID") or None,
-                        "thread_id": get_session_env("HERMES_CRON_AUTO_DELIVER_THREAD_ID") or None,
+                        "platform": context.platform or None,
+                        "chat_id": context.chat_id or None,
+                        "thread_id": context.thread_id or None,
                     }
                 )
                 return {"final_response": "ok"}
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("fabric_state.SessionDB", return_value=fake_db), \
              patch(
                  "fabric_cli.runtime_provider.resolve_runtime_provider",
@@ -1739,9 +1735,10 @@ class TestRunJobSessionPersistence:
                 "thread_id": None,
             },
         ]
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_PLATFORM") is None
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_CHAT_ID") is None
-        assert os.getenv("HERMES_CRON_AUTO_DELIVER_THREAD_ID") is None
+        from gateway.session_context import get_cron_delivery_context
+        assert get_cron_delivery_context().platform == ""
+        assert get_cron_delivery_context().chat_id == ""
+        assert get_cron_delivery_context().thread_id == ""
         assert fake_db.close.call_count == 2
 
 
@@ -1764,7 +1761,7 @@ class TestRunJobConfigLogging:
         # resolution and MCP discovery, both of which can spawn subprocesses
         # / hit the network and have caused this test to time out on CI
         # (>30s wall clock) under load. See PR #33661 follow-up.
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1788,7 +1785,10 @@ class TestRunJobConfigLogging:
         """When the prefill messages file contains invalid JSON, a warning should be logged."""
         # Valid config.yaml that points to a bad prefill file
         config_yaml = tmp_path / "config.yaml"
-        config_yaml.write_text("prefill_messages_file: prefill.json\n")
+        config_yaml.write_text(
+            "model: test-model\n"
+            "prefill_messages_file: prefill.json\n"
+        )
 
         bad_prefill = tmp_path / "prefill.json"
         bad_prefill.write_text("{not valid json!!!")
@@ -1799,7 +1799,7 @@ class TestRunJobConfigLogging:
             "prompt": "hello",
         }
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1832,13 +1832,13 @@ class TestRunJobConfigEnvVarExpansion:
 
     def test_model_env_ref_in_config_yaml_is_expanded(self, tmp_path, monkeypatch):
         """${VAR} in config.yaml model: is expanded using env after .env is loaded."""
-        (tmp_path / "config.yaml").write_text("model: ${_HERMES_TEST_CRON_MODEL}\n")
-        monkeypatch.setenv("_HERMES_TEST_CRON_MODEL", "gpt-4o-mini-cron-test")
+        (tmp_path / "config.yaml").write_text("model: ${_TEST_CRON_MODEL}\n")
+        monkeypatch.setenv("_TEST_CRON_MODEL", "gpt-4o-mini-cron-test")
 
         job = {"id": "env-job", "name": "env test", "prompt": "hi"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1859,31 +1859,59 @@ class TestRunJobConfigEnvVarExpansion:
             "config.yaml ${VAR} was not expanded in the cron execution path."
         )
 
-    def test_legacy_agent_prefill_messages_file_is_loaded(self, tmp_path, monkeypatch):
-        """Cron accepts the legacy agent.prefill_messages_file fallback."""
-        prefill = [{"role": "system", "content": "legacy cron prefill"}]
+    def test_top_level_prefill_messages_file_is_loaded(self, tmp_path):
+        """Cron loads prefill messages from the canonical top-level setting."""
+        prefill = [{"role": "system", "content": "cron prefill"}]
         (tmp_path / "prefill.json").write_text(json.dumps(prefill), encoding="utf-8")
         (tmp_path / "config.yaml").write_text(
-            "agent:\n"
-            "  prefill_messages_file: prefill.json\n",
+            "model: test-model\n"
+            "prefill_messages_file: prefill.json\n",
             encoding="utf-8",
         )
-
         job = {"id": "prefill-job", "name": "prefill test", "prompt": "hi"}
-        fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
-             patch("fabric_state.SessionDB", return_value=fake_db), \
+             patch("fabric_state.SessionDB", return_value=MagicMock()), \
              patch("fabric_cli.runtime_provider.resolve_runtime_provider",
                    return_value=self._RUNTIME), \
              patch("tools.mcp_tool.discover_mcp_tools", return_value=[]), \
              patch("run_agent.AIAgent") as mock_agent_cls:
-            mock_agent = MagicMock()
-            mock_agent.run_conversation.return_value = {"final_response": "ok"}
-            mock_agent_cls.return_value = mock_agent
+            mock_agent_cls.return_value.run_conversation.return_value = {
+                "final_response": "ok"
+            }
+            success, _, _, error = run_job(job)
+
+        assert success is True
+        assert error is None
+        assert mock_agent_cls.call_args.kwargs["prefill_messages"] == prefill
+
+    def test_agent_prefill_messages_file_schema_is_loaded(self, tmp_path):
+        """Cron preserves the previous nested config schema."""
+        prefill = [{"role": "system", "content": "cron prefill"}]
+        (tmp_path / "prefill.json").write_text(json.dumps(prefill), encoding="utf-8")
+        (tmp_path / "config.yaml").write_text(
+            "model: test-model\n"
+            "agent:\n"
+            "  prefill_messages_file: prefill.json\n",
+            encoding="utf-8",
+        )
+        job = {"id": "prefill-job", "name": "prefill test", "prompt": "hi"}
+
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
+             patch("cron.scheduler._resolve_origin", return_value=None), \
+             patch("fabric_cli.env_loader.load_fabric_dotenv"), \
+             patch("fabric_cli.env_loader.reset_secret_source_cache"), \
+             patch("fabric_state.SessionDB", return_value=MagicMock()), \
+             patch("fabric_cli.runtime_provider.resolve_runtime_provider",
+                   return_value=self._RUNTIME), \
+             patch("tools.mcp_tool.discover_mcp_tools", return_value=[]), \
+             patch("run_agent.AIAgent") as mock_agent_cls:
+            mock_agent_cls.return_value.run_conversation.return_value = {
+                "final_response": "ok"
+            }
             success, _, _, error = run_job(job)
 
         assert success is True
@@ -1896,14 +1924,14 @@ class TestRunJobConfigEnvVarExpansion:
             "model: primary-model\n"
             "fallback_providers:\n"
             "  - provider: openrouter\n"
-            "    model: ${_HERMES_TEST_CRON_FALLBACK}\n"
+            "    model: ${_TEST_CRON_FALLBACK}\n"
         )
-        monkeypatch.setenv("_HERMES_TEST_CRON_FALLBACK", "gpt-4o-fallback-test")
+        monkeypatch.setenv("_TEST_CRON_FALLBACK", "gpt-4o-fallback-test")
 
         job = {"id": "fb-job", "name": "fallback test", "prompt": "hi"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1928,6 +1956,7 @@ class TestRunJobConfigEnvVarExpansion:
     def test_fallback_chain_merges_providers_and_legacy_model(self, tmp_path, monkeypatch):
         """Cron uses get_fallback_chain so legacy fallback_model is not dropped."""
         (tmp_path / "config.yaml").write_text(
+            "model: primary-model\n"
             "fallback_providers:\n"
             "  - provider: openrouter\n"
             "    model: gpt-4o-mini\n"
@@ -1939,7 +1968,7 @@ class TestRunJobConfigEnvVarExpansion:
         job = {"id": "fb-merge", "name": "fallback merge", "prompt": "hi"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("fabric_state.SessionDB", return_value=fake_db), \
@@ -1957,13 +1986,13 @@ class TestRunJobConfigEnvVarExpansion:
 
     def test_unexpanded_ref_passthrough_when_var_unset(self, tmp_path, monkeypatch):
         """When the env var is not set, the literal ${VAR} is kept verbatim (not crashed)."""
-        (tmp_path / "config.yaml").write_text("model: ${_HERMES_TEST_CRON_UNSET_VAR}\n")
-        monkeypatch.delenv("_HERMES_TEST_CRON_UNSET_VAR", raising=False)
+        (tmp_path / "config.yaml").write_text("model: ${_TEST_CRON_UNSET_VAR}\n")
+        monkeypatch.delenv("_TEST_CRON_UNSET_VAR", raising=False)
 
         job = {"id": "unset-job", "name": "unset var test", "prompt": "hi"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -1979,7 +2008,7 @@ class TestRunJobConfigEnvVarExpansion:
         assert success is True
         kwargs = mock_agent_cls.call_args.kwargs
         # Unresolved refs are kept verbatim — _expand_env_vars contract
-        assert kwargs["model"] == "${_HERMES_TEST_CRON_UNSET_VAR}"
+        assert kwargs["model"] == "${_TEST_CRON_UNSET_VAR}"
 
 
 class TestRunJobModelResolution:
@@ -1987,9 +2016,8 @@ class TestRunJobModelResolution:
 
     Issue #23979: a cron job created without an explicit model is stored as
     ``model: null``. At fire time the scheduler must:
-      1. fall back to ``HERMES_MODEL`` env if set,
-      2. else fall back to config.yaml ``model.default`` if set,
-      3. else fail fast with an actionable error — never let an empty string
+      1. fall back to config.yaml ``model.default`` if set,
+      2. else fail fast with an actionable error — never let an empty string
          reach the provider where it surfaces as an opaque 400.
     """
 
@@ -2000,40 +2028,14 @@ class TestRunJobModelResolution:
         "api_mode": "chat_completions",
     }
 
-    def test_null_job_model_falls_back_to_env(self, tmp_path, monkeypatch):
-        """``model: null`` on the job uses HERMES_MODEL when set."""
-        (tmp_path / "config.yaml").write_text("")
-        monkeypatch.setenv("HERMES_MODEL", "env-model")
-
-        job = {"id": "null-model-job", "name": "null model", "prompt": "hi", "model": None}
-        fake_db = MagicMock()
-
-        with patch("cron.scheduler._fabric_home", tmp_path), \
-             patch("cron.scheduler._resolve_origin", return_value=None), \
-             patch("fabric_cli.env_loader.load_fabric_dotenv"), \
-             patch("fabric_cli.env_loader.reset_secret_source_cache"), \
-             patch("fabric_state.SessionDB", return_value=fake_db), \
-             patch("fabric_cli.runtime_provider.resolve_runtime_provider",
-                   return_value=self._RUNTIME), \
-             patch("run_agent.AIAgent") as mock_agent_cls:
-            mock_agent = MagicMock()
-            mock_agent.run_conversation.return_value = {"final_response": "ok"}
-            mock_agent_cls.return_value = mock_agent
-            success, _, _, error = run_job(job)
-
-        assert success is True
-        assert error is None
-        assert mock_agent_cls.call_args.kwargs["model"] == "env-model"
-
     def test_null_job_model_falls_back_to_config_default(self, tmp_path, monkeypatch):
-        """``model: null`` on the job uses config.yaml model.default when env is empty."""
+        """``model: null`` on the job uses config.yaml model.default."""
         (tmp_path / "config.yaml").write_text("model:\n  default: config-default-model\n")
-        monkeypatch.delenv("HERMES_MODEL", raising=False)
 
         job = {"id": "cfg-default-job", "name": "cfg default", "prompt": "hi", "model": None}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2050,47 +2052,14 @@ class TestRunJobModelResolution:
         assert error is None
         assert mock_agent_cls.call_args.kwargs["model"] == "config-default-model"
 
-    def test_explicit_null_model_block_in_config_does_not_overwrite_env(self, tmp_path, monkeypatch):
-        """``model: null`` in config.yaml must not overwrite a resolved HERMES_MODEL.
-
-        Regression: before #23979 the resolver coerced ``model: null`` to
-        ``{}`` only via the ``.get("model", {})`` default — which does not
-        fire when the key is present with a None value. The resolver then
-        skipped both branches and kept the env value, but a similar
-        ``model: {default: null}`` shape would call ``.get("default", model)``
-        which returns ``None`` and clobbered ``model``.
-        """
-        (tmp_path / "config.yaml").write_text("model:\n  default: null\n")
-        monkeypatch.setenv("HERMES_MODEL", "env-model")
-
-        job = {"id": "null-default-job", "name": "null default", "prompt": "hi", "model": None}
-        fake_db = MagicMock()
-
-        with patch("cron.scheduler._fabric_home", tmp_path), \
-             patch("cron.scheduler._resolve_origin", return_value=None), \
-             patch("fabric_cli.env_loader.load_fabric_dotenv"), \
-             patch("fabric_cli.env_loader.reset_secret_source_cache"), \
-             patch("fabric_state.SessionDB", return_value=fake_db), \
-             patch("fabric_cli.runtime_provider.resolve_runtime_provider",
-                   return_value=self._RUNTIME), \
-             patch("run_agent.AIAgent") as mock_agent_cls:
-            mock_agent = MagicMock()
-            mock_agent.run_conversation.return_value = {"final_response": "ok"}
-            mock_agent_cls.return_value = mock_agent
-            success, _, _, error = run_job(job)
-
-        assert success is True
-        assert mock_agent_cls.call_args.kwargs["model"] == "env-model"
-
     def test_no_model_anywhere_fails_with_actionable_error(self, tmp_path, monkeypatch):
-        """All three sources empty → fail fast with a clear message, not an opaque 400."""
+        """Both sources empty → fail fast with a clear message, not an opaque 400."""
         (tmp_path / "config.yaml").write_text("")
-        monkeypatch.delenv("HERMES_MODEL", raising=False)
 
         job = {"id": "no-model-job", "name": "no model anywhere", "prompt": "hi", "model": None}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2115,12 +2084,11 @@ class TestRunJobModelResolution:
         calls, simulating the storage update flow.
         """
         (tmp_path / "config.yaml").write_text("")
-        monkeypatch.delenv("HERMES_MODEL", raising=False)
 
         job = {"id": "updated-model-job", "name": "updated", "prompt": "hi", "model": "first-model"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2142,12 +2110,11 @@ class TestRunJobModelResolution:
     def test_config_model_as_plain_string(self, tmp_path, monkeypatch):
         """config.yaml ``model:`` given as a bare string is used directly."""
         (tmp_path / "config.yaml").write_text("model: string-form-model\n")
-        monkeypatch.delenv("HERMES_MODEL", raising=False)
 
         job = {"id": "string-cfg-job", "name": "string cfg", "prompt": "hi", "model": None}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2173,12 +2140,11 @@ class TestRunJobModelResolution:
         cron.
         """
         (tmp_path / "config.yaml").write_text("model:\n  model: alias-key-model\n")
-        monkeypatch.delenv("HERMES_MODEL", raising=False)
 
         job = {"id": "alias-job", "name": "alias", "prompt": "hi", "model": None}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2198,12 +2164,11 @@ class TestRunJobModelResolution:
     def test_corrupt_config_yaml_does_not_crash_with_job_model(self, tmp_path, monkeypatch):
         """A malformed config.yaml degrades gracefully when the job has a model."""
         (tmp_path / "config.yaml").write_text("{{{invalid yaml!!!")
-        monkeypatch.delenv("HERMES_MODEL", raising=False)
 
         job = {"id": "corrupt-job", "name": "corrupt", "prompt": "hi", "model": "explicit-model"}
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2246,7 +2211,7 @@ class TestRunJobSkillBacked:
             assert "NOTION_API_KEY" in get_all_passthrough()
             return {"final_response": "ok"}
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2306,9 +2271,9 @@ class TestRunJobSkillBacked:
             assert any("google_token.json" in v for v in registered.values())
             return {"final_response": "ok"}
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
-             patch("tools.credential_files._resolve_hermes_home", return_value=tmp_path), \
+             patch("tools.credential_files._resolve_fabric_home", return_value=tmp_path), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
              patch("fabric_state.SessionDB", return_value=fake_db), \
@@ -2346,7 +2311,7 @@ class TestRunJobSkillBacked:
 
         fake_db = MagicMock()
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2393,7 +2358,7 @@ class TestRunJobSkillBacked:
         def _skill_view(name):
             return json.dumps({"success": True, "content": f"# {name}\nInstructions for {name}."})
 
-        with patch("cron.scheduler._fabric_home", tmp_path), \
+        with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("fabric_cli.env_loader.load_fabric_dotenv"), \
              patch("fabric_cli.env_loader.reset_secret_source_cache"), \
@@ -2902,7 +2867,7 @@ class TestBuildJobPromptAbsoluteSkillPath:
                 return json.dumps({"success": True, "content": "# Alpha\nDo alpha."})
             return json.dumps({"success": False, "error": f"Skill '{name}' not found."})
 
-        with patch("tools.skills_tool.SKILLS_DIR", skills_dir), \
+        with patch("tools.skills_tool._skills_dir", return_value=skills_dir), \
              patch("tools.skills_tool.skill_view", side_effect=_skill_view):
             result = _build_job_prompt({"skills": [absolute_path], "prompt": "go"})
 
@@ -3066,7 +3031,7 @@ class TestParallelTick:
 
     def test_parallel_jobs_isolated_contextvars(self):
         """Each job's ContextVars must be isolated — no cross-contamination."""
-        from gateway.session_context import get_session_env
+        from gateway.session_context import get_session_context
         seen = {}
 
         def mock_run_job(job, *, defer_agent_teardown=None):
@@ -3079,8 +3044,9 @@ class TestParallelTick:
             )
             import time
             time.sleep(0.05)  # give other thread time to set its vars
-            platform = get_session_env("HERMES_SESSION_PLATFORM")
-            chat_id = get_session_env("HERMES_SESSION_CHAT_ID")
+            context = get_session_context()
+            platform = context.platform
+            chat_id = context.chat_id
             seen[job["id"]] = {"platform": platform, "chat_id": chat_id}
             clear_session_vars(tokens)
             return (True, "output", "response", None)
@@ -3104,9 +3070,12 @@ class TestParallelTick:
         assert seen["tg-job"] == {"platform": "telegram", "chat_id": "111"}
         assert seen["dc-job"] == {"platform": "discord", "chat_id": "222"}
 
-    def test_max_parallel_env_var(self, monkeypatch):
-        """HERMES_CRON_MAX_PARALLEL=1 should restore serial behaviour."""
-        monkeypatch.setenv("HERMES_CRON_MAX_PARALLEL", "1")
+    def test_max_parallel_config(self, monkeypatch):
+        """cron.max_parallel_jobs=1 runs due jobs serially."""
+        monkeypatch.setattr(
+            "cron.scheduler.load_config",
+            lambda: {"cron": {"max_parallel_jobs": 1}},
+        )
         call_times = []
 
         def mock_run_job(job, *, defer_agent_teardown=None):

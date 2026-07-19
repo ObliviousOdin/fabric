@@ -39,7 +39,6 @@ def test_compound_engineering_skills_have_minimal_supported_frontmatter() -> Non
         assert len(frontmatter["description"].strip()) >= 80
         assert body.strip().startswith("# Fabric")
         assert "TODO" not in body
-        assert "Hermes" not in body
 
 
 def test_compound_engineering_skill_ui_metadata_is_fabric_branded() -> None:

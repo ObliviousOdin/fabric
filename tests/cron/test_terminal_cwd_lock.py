@@ -162,7 +162,7 @@ def test_run_job_releases_cwd_lock_when_body_raises(tmp_path):
             raise RuntimeError("boom")
         return real_info(msg, *args, **kwargs)
 
-    with patch("cron.scheduler._fabric_home", tmp_path), \
+    with patch("cron.scheduler.get_fabric_home", return_value=tmp_path), \
          patch("cron.scheduler._resolve_origin", return_value=None), \
          patch("fabric_cli.env_loader.load_fabric_dotenv"), \
          patch("fabric_cli.env_loader.reset_secret_source_cache"), \

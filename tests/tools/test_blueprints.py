@@ -1,9 +1,8 @@
 """Tests for the blueprints layer (skill frontmatter <-> cron automation bridge).
 
-A blueprint is a skill with a canonical ``metadata.fabric.blueprint`` block;
-legacy ``metadata.hermes.blueprint`` remains readable. These verify parsing,
-the create-job bridge, and the export round-trip without touching the real cron
-store.
+A blueprint is a skill with a canonical ``metadata.fabric.blueprint`` block.
+These verify parsing, the create-job bridge, and the export round-trip without
+touching the real cron store.
 """
 
 import sys
@@ -27,7 +26,7 @@ name: morning-brief
 description: Summarize unread email and calendar every morning.
 version: 1.0.0
 metadata:
-  hermes:
+  fabric:
     tags: [blueprint, email]
     blueprint:
       schedule: "0 8 * * *"
@@ -44,7 +43,7 @@ PLAIN_SKILL = """---
 name: not-a-blueprint
 description: Just a regular skill.
 metadata:
-  hermes:
+  fabric:
     tags: [misc]
 ---
 
@@ -55,7 +54,7 @@ MALFORMED_BLUEPRINT = """---
 name: broken
 description: Blueprint with no schedule.
 metadata:
-  hermes:
+  fabric:
     blueprint:
       deliver: origin
 ---
@@ -76,29 +75,18 @@ class TestParseBlueprint:
     def test_plain_skill_is_not_a_blueprint(self):
         assert parse_blueprint(PLAIN_SKILL) is None
 
-    def test_parses_canonical_fabric_blueprint(self):
-        skill = BLUEPRINT_SKILL.replace("  hermes:\n", "  fabric:\n")
-        spec = parse_blueprint(skill)
-        assert spec is not None
-        assert spec.schedule == "0 8 * * *"
-
-    def test_canonical_blueprint_overrides_legacy_blueprint(self):
+    def test_non_fabric_metadata_is_not_a_blueprint(self):
         skill = """---
-name: precedence
-description: Canonical blueprint wins.
+name: unrelated
+description: Only the Fabric metadata namespace defines blueprints.
 metadata:
-  hermes:
-    blueprint:
-      schedule: "every 1h"
-  fabric:
+  vendor:
     blueprint:
       schedule: "every 2h"
 ---
-# Precedence
+# Unrelated
 """
-        spec = parse_blueprint(skill)
-        assert spec is not None
-        assert spec.schedule == "every 2h"
+        assert parse_blueprint(skill) is None
 
     def test_no_frontmatter_is_not_a_blueprint(self):
         assert parse_blueprint("just some text, no frontmatter") is None
@@ -108,13 +96,13 @@ metadata:
             parse_blueprint(MALFORMED_BLUEPRINT)
 
     def test_blueprint_not_mapping_raises(self):
-        bad = "---\nname: x\nmetadata:\n  hermes:\n    blueprint: not-a-dict\n---\n\nbody"
+        bad = "---\nname: x\nmetadata:\n  fabric:\n    blueprint: not-a-dict\n---\n\nbody"
         with pytest.raises(BlueprintError):
             parse_blueprint(bad)
 
     def test_deliver_defaults_to_origin(self):
         skill = (
-            "---\nname: r\ndescription: d\nmetadata:\n  hermes:\n"
+            "---\nname: r\ndescription: d\nmetadata:\n  fabric:\n"
             '    blueprint:\n      schedule: "every 1h"\n---\n\nbody'
         )
         spec = parse_blueprint(skill)
@@ -196,8 +184,7 @@ class TestExportBlueprint:
     def test_export_emits_canonical_fabric_metadata(self):
         job = {"name": "x", "schedule_display": "every 2h", "skills": ["x"]}
         md = export_blueprint(job, "body")
-        assert "  fabric:" in md
-        assert "  hermes:" not in md
+        assert md.count("  fabric:") == 1
 
     def test_export_interval_job_without_display(self):
         # Regression: parse_schedule stores interval periods as "minutes" —

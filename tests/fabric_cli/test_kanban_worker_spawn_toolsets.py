@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 
 def _make_task(kb, *, assignee: str):
@@ -27,13 +28,13 @@ def _make_task(kb, *, assignee: str):
 def test_default_spawn_pins_assignee_profile_cli_toolsets(monkeypatch, tmp_path):
     """Manual profile assignment should keep that profile's CLI tools.
 
-    Regression guard for dispatcher-spawned workers that boot with
-    HERMES_KANBAN_TASK: the worker must not collapse to only kanban lifecycle
+    Regression guard for dispatcher-spawned workers: the worker must not
+    collapse to only Kanban lifecycle
     tools when the assigned profile's top-level ``toolsets`` is the default
     composite. The spawned CLI gets an explicit --toolsets pin resolved from
     platform_toolsets.cli; model_tools appends task-scoped kanban tools later.
     """
-    root = tmp_path / ".hermes"
+    root = tmp_path / ".fabric"
     profile = root / "profiles" / "elias"
     profile.mkdir(parents=True)
     profile.joinpath("config.yaml").write_text(
@@ -50,18 +51,18 @@ platform_toolsets:
     - terminal
     - web
 toolsets:
-  - hermes-cli
+  - fabric-cli
 agent:
   disabled_toolsets: []
 """.lstrip(),
         encoding="utf-8",
     )
     root.joinpath("config.yaml").write_text("toolsets:\n  - kanban\n", encoding="utf-8")
-    monkeypatch.setenv("HERMES_HOME", str(root))
+    monkeypatch.setenv("FABRIC_HOME", str(root))
 
     from fabric_cli import kanban_db as kb
 
-    monkeypatch.setattr(kb, "_resolve_hermes_argv", lambda: ["hermes"])
+    monkeypatch.setattr(kb, "_resolve_fabric_argv", lambda: ["fabric"])
 
     captured = {}
 
@@ -81,8 +82,11 @@ agent:
     pid = kb._default_spawn(_make_task(kb, assignee="elias"), str(workspace))
 
     assert pid == 4242
-    assert captured["env"]["HERMES_HOME"] == str(profile)
-    assert captured["env"]["HERMES_KANBAN_TASK"] == "t_spawn_tools"
+    assert captured["env"]["FABRIC_HOME"] == str(profile)
+    assert "--kanban-worker-context" in captured["cmd"]
+    Path(
+        captured["cmd"][captured["cmd"].index("--kanban-worker-context") + 1]
+    ).unlink()
     assert "--toolsets" in captured["cmd"]
     pinned = captured["cmd"][captured["cmd"].index("--toolsets") + 1].split(",")
     for required in ("terminal", "web", "file", "skills", "code_execution", "delegation"):
@@ -90,7 +94,7 @@ agent:
 
 
 def test_resolve_worker_cli_toolsets_uses_profile_home_not_parent_config(monkeypatch, tmp_path):
-    root = tmp_path / ".hermes"
+    root = tmp_path / ".fabric"
     profile = root / "profiles" / "elias"
     profile.mkdir(parents=True)
     root.joinpath("config.yaml").write_text("platform_toolsets:\n  cli:\n    - kanban\n", encoding="utf-8")
@@ -101,11 +105,11 @@ platform_toolsets:
     - terminal
     - web
 toolsets:
-  - hermes-cli
+  - fabric-cli
 """.lstrip(),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(root))
+    monkeypatch.setenv("FABRIC_HOME", str(root))
 
     from fabric_cli import kanban_db as kb
 

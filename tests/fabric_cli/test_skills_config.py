@@ -156,17 +156,22 @@ class TestIsSkillDisabled:
         assert _is_skill_disabled("any-skill") is False
 
     @patch("fabric_cli.config.load_config")
-    @patch.dict("os.environ", {"HERMES_PLATFORM": "discord"})
-    def test_env_var_platform(self, mock_load):
+    def test_session_context_platform(self, mock_load):
         mock_load.return_value = {"skills": {
             "platform_disabled": {"discord": ["discord-skill"]}
         }}
         from tools.skills_tool import _is_skill_disabled
-        assert _is_skill_disabled("discord-skill") is True
+        from gateway.session_context import clear_session_vars, set_session_vars
+
+        tokens = set_session_vars(platform="discord")
+        try:
+            assert _is_skill_disabled("discord-skill") is True
+        finally:
+            clear_session_vars(tokens)
 
 
 # ---------------------------------------------------------------------------
-# get_disabled_skill_names — explicit platform param & env var fallback
+# get_disabled_skill_names — explicit platform param & task-local context
 # ---------------------------------------------------------------------------
 
 class TestGetDisabledSkillNames:
@@ -183,16 +188,14 @@ class TestGetDisabledSkillNames:
             "    telegram:\n"
             "      - tg-only-skill\n"
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.delenv("HERMES_PLATFORM", raising=False)
-        monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
         from agent.skill_utils import get_disabled_skill_names
         result = get_disabled_skill_names(platform="telegram")
         assert result == {"tg-only-skill", "global-skill"}
 
-    def test_session_platform_env_var(self, tmp_path, monkeypatch):
-        """HERMES_SESSION_PLATFORM should be used when HERMES_PLATFORM is unset."""
+    def test_session_platform_context(self, tmp_path, monkeypatch):
+        """Task-local session platform applies when no explicit value is passed."""
         config = tmp_path / "config.yaml"
         config.write_text(
             "skills:\n"
@@ -202,35 +205,19 @@ class TestGetDisabledSkillNames:
             "    discord:\n"
             "      - discord-skill\n"
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.delenv("HERMES_PLATFORM", raising=False)
-        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
-
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         from agent.skill_utils import get_disabled_skill_names
-        result = get_disabled_skill_names()
+        from gateway.session_context import clear_session_vars, set_session_vars
+
+        tokens = set_session_vars(platform="discord")
+        try:
+            result = get_disabled_skill_names()
+        finally:
+            clear_session_vars(tokens)
         assert result == {"discord-skill", "global-skill"}
 
-    def test_hermes_platform_takes_precedence(self, tmp_path, monkeypatch):
-        """HERMES_PLATFORM should win over HERMES_SESSION_PLATFORM."""
-        config = tmp_path / "config.yaml"
-        config.write_text(
-            "skills:\n"
-            "  platform_disabled:\n"
-            "    telegram:\n"
-            "      - tg-skill\n"
-            "    discord:\n"
-            "      - discord-skill\n"
-        )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.setenv("HERMES_PLATFORM", "telegram")
-        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "discord")
-
-        from agent.skill_utils import get_disabled_skill_names
-        result = get_disabled_skill_names()
-        assert result == {"tg-skill"}
-
-    def test_explicit_param_overrides_env_vars(self, tmp_path, monkeypatch):
-        """Explicit platform= param should override all env vars."""
+    def test_explicit_param_overrides_session_context(self, tmp_path, monkeypatch):
+        """Explicit platform= should override task-local context."""
         config = tmp_path / "config.yaml"
         config.write_text(
             "skills:\n"
@@ -240,12 +227,16 @@ class TestGetDisabledSkillNames:
             "    slack:\n"
             "      - slack-skill\n"
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.setenv("HERMES_PLATFORM", "telegram")
-        monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
         from agent.skill_utils import get_disabled_skill_names
-        result = get_disabled_skill_names(platform="slack")
+        from gateway.session_context import clear_session_vars, set_session_vars
+
+        tokens = set_session_vars(platform="telegram")
+        try:
+            result = get_disabled_skill_names(platform="slack")
+        finally:
+            clear_session_vars(tokens)
         assert result == {"slack-skill"}
 
     def test_no_platform_returns_global(self, tmp_path, monkeypatch):
@@ -259,10 +250,7 @@ class TestGetDisabledSkillNames:
             "    telegram:\n"
             "      - tg-skill\n"
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        monkeypatch.delenv("HERMES_PLATFORM", raising=False)
-        monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)
-
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         from agent.skill_utils import get_disabled_skill_names
         result = get_disabled_skill_names()
         assert result == {"global-skill"}
@@ -280,11 +268,11 @@ class TestFindAllSkillsFiltering:
         skill_dir.mkdir()
         skill_md = skill_dir / "SKILL.md"
         skill_md.write_text("---\nname: my-skill\ndescription: A test skill\n---\nContent")
-        # Point SKILLS_DIR at the real tempdir so iter_skill_index_files
+        # Point the skills resolver at the real tempdir so iter_skill_index_files
         # (which uses os.walk) can actually find the file.
         import tools.skills_tool as _st
         import agent.skill_utils as _su
-        monkeypatch.setattr(_st, "SKILLS_DIR", tmp_path)
+        monkeypatch.setattr(_st, "_skills_dir", lambda: tmp_path)
         monkeypatch.setattr(_su, "get_external_skills_dirs", lambda: [])
         from tools.skills_tool import _find_all_skills
         skills = _find_all_skills()
@@ -299,7 +287,7 @@ class TestFindAllSkillsFiltering:
         skill_md.write_text("---\nname: my-skill\ndescription: A test skill\n---\nContent")
         import tools.skills_tool as _st
         import agent.skill_utils as _su
-        monkeypatch.setattr(_st, "SKILLS_DIR", tmp_path)
+        monkeypatch.setattr(_st, "_skills_dir", lambda: tmp_path)
         monkeypatch.setattr(_su, "get_external_skills_dirs", lambda: [])
         from tools.skills_tool import _find_all_skills
         skills = _find_all_skills()
@@ -315,7 +303,7 @@ class TestFindAllSkillsFiltering:
         skill_md.write_text("---\nname: my-skill\ndescription: A test skill\n---\nContent")
         import tools.skills_tool as _st
         import agent.skill_utils as _su
-        monkeypatch.setattr(_st, "SKILLS_DIR", tmp_path)
+        monkeypatch.setattr(_st, "_skills_dir", lambda: tmp_path)
         monkeypatch.setattr(_su, "get_external_skills_dirs", lambda: [])
         from tools.skills_tool import _find_all_skills
         skills = _find_all_skills(skip_disabled=True)

@@ -168,7 +168,6 @@ def _make_runner(adapter):
 
 def _install_fakes(monkeypatch, agent_cls, *, cleanup_on: bool):
     """Wire up the module stubs every _run_agent test needs."""
-    monkeypatch.setenv("HERMES_TOOL_PROGRESS_MODE", "all")
 
     fake_dotenv = types.ModuleType("dotenv")
     fake_dotenv.load_dotenv = lambda *a, **k: None
@@ -184,13 +183,16 @@ def _install_fakes(monkeypatch, agent_cls, *, cleanup_on: bool):
 
     # Wire the per-platform cleanup_progress flag via the config loader the
     # gateway actually reads (``_load_gateway_config`` returns user config).
+    platform_cfg = {"tool_progress": "all"}
+    if cleanup_on:
+        platform_cfg["cleanup_progress"] = True
     cfg = {
         "display": {
             "platforms": {
-                "telegram": {"cleanup_progress": True},
+                "telegram": platform_cfg,
             }
         }
-    } if cleanup_on else {}
+    }
     monkeypatch.setattr(gateway_run, "_load_gateway_config", lambda: cfg)
     return gateway_run
 

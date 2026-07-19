@@ -1,4 +1,4 @@
-"""Tests for the Hermes plugin system (fabric_cli.plugins)."""
+"""Tests for the Fabric plugin system (fabric_cli.plugins)."""
 
 import logging
 import sys
@@ -39,13 +39,13 @@ def _make_plugin_dir(base: Path, name: str, *, register_body: str = "pass",
     """Create a minimal plugin directory with plugin.yaml + __init__.py.
 
     If *auto_enable* is True (default), also write the plugin's name into
-    ``<hermes_home>/config.yaml`` under ``plugins.enabled``. Plugins are
+    ``<fabric_home>/config.yaml`` under ``plugins.enabled``. Plugins are
     opt-in by default, so tests that expect the plugin to actually load
     need this. Pass ``auto_enable=False`` for tests that exercise the
     unenabled path.
 
-    *base* is expected to be ``<hermes_home>/plugins/``; we derive
-    ``<hermes_home>`` from it by walking one level up.
+    *base* is expected to be ``<fabric_home>/plugins/``; we derive
+    ``<fabric_home>`` from it by walking one level up.
     """
     plugin_dir = base / name
     plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -62,20 +62,20 @@ def _make_plugin_dir(base: Path, name: str, *, register_body: str = "pass",
     if auto_enable:
         # Seed plugins.enabled into every plausible home:
         # - base.parent (fixture homes that place plugins under a dedicated tree)
-        # - ambient HERMES_HOME (conftest / project-plugin discovery config root)
+        # - ambient FABRIC_HOME (conftest / project-plugin discovery config root)
         import os
         homes = [base.parent]
-        env_home = os.environ.get("HERMES_HOME") or os.environ.get("FABRIC_HOME")
+        env_home = os.environ.get("FABRIC_HOME")
         if env_home:
             homes.append(Path(env_home))
         seen: set[str] = set()
-        for hermes_home in homes:
-            key = str(hermes_home.resolve()) if hermes_home.exists() else str(hermes_home)
+        for fabric_home in homes:
+            key = str(fabric_home.resolve()) if fabric_home.exists() else str(fabric_home)
             if key in seen:
                 continue
             seen.add(key)
-            hermes_home.mkdir(parents=True, exist_ok=True)
-            cfg_path = hermes_home / "config.yaml"
+            fabric_home.mkdir(parents=True, exist_ok=True)
+            cfg_path = fabric_home / "config.yaml"
             cfg: dict = {}
             if cfg_path.exists():
                 try:
@@ -98,10 +98,10 @@ class TestPluginDiscovery:
     """Tests for plugin discovery from directories and entry points."""
 
     def test_discover_user_plugins(self, tmp_path, monkeypatch):
-        """Plugins in ~/.hermes/plugins/ are discovered."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        """Plugins in ~/.fabric/plugins/ are discovered."""
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(plugins_dir, "hello_plugin")
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -110,7 +110,7 @@ class TestPluginDiscovery:
         assert mgr._plugins["hello_plugin"].enabled
 
     def test_plugin_can_register_and_invoke_middleware(self, tmp_path, monkeypatch):
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir,
             "mw_plugin",
@@ -121,7 +121,7 @@ class TestPluginDiscovery:
                 "lambda **kw: {'args': {**kw['args'], 'mw': True}})"
             ),
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -326,27 +326,12 @@ class TestPluginDiscovery:
         assert result.payload["command"] == "noop"
         assert result.payload["lock"] is args["lock"]
 
-    def test_discover_project_plugins(self, tmp_path, monkeypatch):
-        """Plugins in ./.hermes/plugins/ are discovered."""
-        project_dir = tmp_path / "project"
-        project_dir.mkdir()
-        monkeypatch.chdir(project_dir)
-        monkeypatch.setenv("HERMES_ENABLE_PROJECT_PLUGINS", "true")
-        plugins_dir = project_dir / ".hermes" / "plugins"
-        _make_plugin_dir(plugins_dir, "proj_plugin")
-
-        mgr = PluginManager()
-        mgr.discover_and_load()
-
-        assert "proj_plugin" in mgr._plugins
-        assert mgr._plugins["proj_plugin"].enabled
-
     def test_discover_project_plugins_skipped_by_default(self, tmp_path, monkeypatch):
         """Project plugins are not discovered unless explicitly enabled."""
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         monkeypatch.chdir(project_dir)
-        plugins_dir = project_dir / ".hermes" / "plugins"
+        plugins_dir = project_dir / ".fabric" / "plugins"
         _make_plugin_dir(plugins_dir, "proj_plugin")
 
         mgr = PluginManager()
@@ -356,9 +341,9 @@ class TestPluginDiscovery:
 
     def test_discover_is_idempotent(self, tmp_path, monkeypatch):
         """Calling discover_and_load() twice does not duplicate plugins."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(plugins_dir, "once_plugin")
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -380,9 +365,9 @@ class TestPluginDiscovery:
         permanently, every later call would early-return against an empty
         registry ("No web provider configured") for the process lifetime.
         """
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(plugins_dir, "retry_plugin")
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
 
@@ -396,7 +381,7 @@ class TestPluginDiscovery:
 
         # A later call (with discovery healthy again) must do the real scan.
         monkeypatch.undo()
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
         mgr.discover_and_load()
         assert mgr._discovered is True
         non_bundled = {
@@ -407,9 +392,9 @@ class TestPluginDiscovery:
 
     def test_discover_skips_dir_without_manifest(self, tmp_path, monkeypatch):
         """Directories without plugin.yaml are silently skipped."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         (plugins_dir / "no_manifest").mkdir(parents=True)
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -423,7 +408,7 @@ class TestPluginDiscovery:
 
     def test_entry_points_scanned(self, tmp_path, monkeypatch):
         """Entry-point based plugins are discovered (mocked)."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         fake_module = types.ModuleType("fake_ep_plugin")
         fake_module.register = lambda ctx: None  # type: ignore[attr-defined]
@@ -498,17 +483,17 @@ class TestPluginLoading:
 
     def test_load_missing_init(self, tmp_path, monkeypatch):
         """Plugin dir without __init__.py records an error."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         plugin_dir = plugins_dir / "bad_plugin"
         plugin_dir.mkdir(parents=True)
         (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "bad_plugin"}))
         # Explicitly enable so the loader tries to import it and hits the
         # missing-init error.
-        hermes_home = tmp_path / "hermes_test"
-        (hermes_home / "config.yaml").write_text(
+        fabric_home = tmp_path / "test_home"
+        (fabric_home / "config.yaml").write_text(
             yaml.safe_dump({"plugins": {"enabled": ["bad_plugin"]}})
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -521,17 +506,17 @@ class TestPluginLoading:
 
     def test_load_missing_register_fn(self, tmp_path, monkeypatch):
         """Plugin without register() function records an error."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         plugin_dir = plugins_dir / "no_reg"
         plugin_dir.mkdir(parents=True)
         (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "no_reg"}))
         (plugin_dir / "__init__.py").write_text("# no register function\n")
         # Explicitly enable it so the loader actually tries to import.
-        hermes_home = tmp_path / "hermes_test"
-        (hermes_home / "config.yaml").write_text(
+        fabric_home = tmp_path / "test_home"
+        (fabric_home / "config.yaml").write_text(
             yaml.safe_dump({"plugins": {"enabled": ["no_reg"]}})
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -541,18 +526,18 @@ class TestPluginLoading:
         assert "no register()" in mgr._plugins["no_reg"].error
 
     def test_load_registers_namespace_module(self, tmp_path, monkeypatch):
-        """Directory plugins are importable under hermes_plugins.<name>."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        """Directory plugins are importable under fabric_plugins.<name>."""
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(plugins_dir, "ns_plugin")
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         # Clean up any prior namespace module
-        sys.modules.pop("hermes_plugins.ns_plugin", None)
+        sys.modules.pop("fabric_plugins.ns_plugin", None)
 
         mgr = PluginManager()
         mgr.discover_and_load()
 
-        assert "hermes_plugins.ns_plugin" in sys.modules
+        assert "fabric_plugins.ns_plugin" in sys.modules
 
     def test_user_memory_plugin_auto_coerced_to_exclusive(self, tmp_path, monkeypatch):
         """User-installed memory plugins must NOT be loaded by the general
@@ -567,7 +552,7 @@ class TestPluginLoading:
         does not import/register() it. The real activation happens through
         ``plugins/memory/__init__.py`` via ``memory.provider`` config.
         """
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         plugin_dir = plugins_dir / "mempalace"
         plugin_dir.mkdir(parents=True)
         # No explicit `kind:` — the heuristic should kick in.
@@ -580,11 +565,11 @@ class TestPluginLoading:
         )
         # Even if the user explicitly enables it in config, the loader
         # should still treat it as exclusive and skip general loading.
-        hermes_home = tmp_path / "hermes_test"
-        (hermes_home / "config.yaml").write_text(
+        fabric_home = tmp_path / "test_home"
+        (fabric_home / "config.yaml").write_text(
             yaml.safe_dump({"plugins": {"enabled": ["mempalace"]}})
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -604,7 +589,7 @@ class TestPluginLoading:
         manifest, the memory-provider heuristic must NOT override it —
         even if the source happens to mention ``MemoryProvider``.
         """
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         plugin_dir = plugins_dir / "not_memory"
         plugin_dir.mkdir(parents=True)
         (plugin_dir / "plugin.yaml").write_text(
@@ -614,7 +599,7 @@ class TestPluginLoading:
             "# This plugin inspects MemoryProvider docs but isn't one.\n"
             "def register(ctx):\n    pass\n"
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -642,7 +627,7 @@ class TestPluginHooks:
 
     def test_pre_gateway_dispatch_collects_action_dicts(self, tmp_path, monkeypatch):
         """pre_gateway_dispatch callbacks return action dicts (skip/rewrite/allow)."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "predispatch_plugin",
             register_body=(
@@ -650,7 +635,7 @@ class TestPluginHooks:
                 'lambda **kw: {"action": "skip", "reason": "test"})'
             ),
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -666,12 +651,12 @@ class TestPluginHooks:
 
     def test_register_and_invoke_hook(self, tmp_path, monkeypatch):
         """Registered hooks are called on invoke_hook()."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "hook_plugin",
             register_body='ctx.register_hook("pre_tool_call", lambda **kw: None)',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -681,7 +666,7 @@ class TestPluginHooks:
 
     def test_invoke_hook_adds_observer_schema_version(self, tmp_path, monkeypatch):
         """invoke_hook() supplies the observer schema version for all hooks."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir,
             "schema_plugin",
@@ -690,23 +675,23 @@ class TestPluginHooks:
                 'lambda **kw: kw.get("telemetry_schema_version"))'
             ),
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
 
         assert mgr.invoke_hook("pre_tool_call", tool_name="test", args={}) == [
-            "hermes.observer.v1"
+            "fabric.observer.v1"
         ]
 
     def test_hook_exception_does_not_propagate(self, tmp_path, monkeypatch):
         """A hook callback that raises does NOT crash the caller."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "bad_hook",
             register_body='ctx.register_hook("post_tool_call", lambda **kw: 1/0)',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -716,7 +701,7 @@ class TestPluginHooks:
 
     def test_hook_return_values_collected(self, tmp_path, monkeypatch):
         """invoke_hook() collects non-None return values from callbacks."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "ctx_plugin",
             register_body=(
@@ -724,7 +709,7 @@ class TestPluginHooks:
                 'lambda **kw: {"context": "memory from plugin"})'
             ),
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -736,12 +721,12 @@ class TestPluginHooks:
 
     def test_hook_none_returns_excluded(self, tmp_path, monkeypatch):
         """invoke_hook() excludes None returns from the result list."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "none_hook",
             register_body='ctx.register_hook("post_llm_call", lambda **kw: None)',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -751,7 +736,7 @@ class TestPluginHooks:
         assert results == []
 
     def test_request_hooks_are_invokeable(self, tmp_path, monkeypatch):
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "request_hook",
             register_body=(
@@ -760,7 +745,7 @@ class TestPluginHooks:
                 '"mc": kw.get("message_count"), "tc": kw.get("tool_count")})'
             ),
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -782,7 +767,7 @@ class TestPluginHooks:
         assert results == [{"seen": 2, "mc": 5, "tc": 3}]
 
     def test_transform_terminal_output_hook_can_be_registered_and_invoked(self, tmp_path, monkeypatch):
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "transform_hook",
             register_body=(
@@ -790,7 +775,7 @@ class TestPluginHooks:
                 'lambda **kw: f"{kw[\'command\']}|{kw[\'returncode\']}|{kw[\'env_type\']}|{kw[\'task_id\']}|{len(kw[\'output\'])}")'
             ),
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -807,12 +792,12 @@ class TestPluginHooks:
 
     def test_invalid_hook_name_warns(self, tmp_path, monkeypatch, caplog):
         """Registering an unknown hook name logs a warning."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "warn_plugin",
             register_body='ctx.register_hook("on_banana", lambda **kw: None)',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         with caplog.at_level(logging.WARNING, logger="fabric_cli.plugins"):
             mgr = PluginManager()
@@ -1193,7 +1178,7 @@ class TestPluginContext:
 
     def test_register_tool_adds_to_registry(self, tmp_path, monkeypatch):
         """PluginContext.register_tool() puts the tool in the global registry."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         plugin_dir = plugins_dir / "tool_plugin"
         plugin_dir.mkdir(parents=True)
         (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "tool_plugin"}))
@@ -1206,11 +1191,11 @@ class TestPluginContext:
             '        handler=lambda args, **kw: "echo",\n'
             '    )\n'
         )
-        hermes_home = tmp_path / "hermes_test"
-        (hermes_home / "config.yaml").write_text(
+        fabric_home = tmp_path / "test_home"
+        (fabric_home / "config.yaml").write_text(
             yaml.safe_dump({"plugins": {"enabled": ["tool_plugin"]}})
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1233,7 +1218,7 @@ class TestPluginContext:
         )
         original_handler = registry._tools["shadow_target"].handler
         try:
-            plugins_dir = tmp_path / "hermes_test" / "plugins"
+            plugins_dir = tmp_path / "test_home" / "plugins"
             plugin_dir = plugins_dir / "shadow_plugin"
             plugin_dir.mkdir(parents=True)
             (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "shadow_plugin"}))
@@ -1246,11 +1231,11 @@ class TestPluginContext:
                 '        handler=lambda args, **kw: "plugin",\n'
                 '    )\n'
             )
-            hermes_home = tmp_path / "hermes_test"
-            (hermes_home / "config.yaml").write_text(
+            fabric_home = tmp_path / "test_home"
+            (fabric_home / "config.yaml").write_text(
                 yaml.safe_dump({"plugins": {"enabled": ["shadow_plugin"]}})
             )
-            monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+            monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
             with caplog.at_level(logging.ERROR, logger="tools.registry"):
                 mgr = PluginManager()
@@ -1275,7 +1260,7 @@ class TestPluginContext:
             handler=lambda args, **kw: "built-in",
         )
         try:
-            plugins_dir = tmp_path / "hermes_test" / "plugins"
+            plugins_dir = tmp_path / "test_home" / "plugins"
             plugin_dir = plugins_dir / "override_plugin"
             plugin_dir.mkdir(parents=True)
             (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "override_plugin"}))
@@ -1289,8 +1274,8 @@ class TestPluginContext:
                 '        override=True,\n'
                 '    )\n'
             )
-            hermes_home = tmp_path / "hermes_test"
-            (hermes_home / "config.yaml").write_text(
+            fabric_home = tmp_path / "test_home"
+            (fabric_home / "config.yaml").write_text(
                 yaml.safe_dump({
                     "plugins": {
                         "enabled": ["override_plugin"],
@@ -1300,7 +1285,7 @@ class TestPluginContext:
                     }
                 })
             )
-            monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+            monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
             with caplog.at_level(logging.INFO, logger="tools.registry"):
                 mgr = PluginManager()
@@ -1323,7 +1308,7 @@ class TestPluginContext:
         """override=True on a brand-new name still registers cleanly (no existing entry to replace)."""
         from tools.registry import registry
 
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         plugin_dir = plugins_dir / "new_override_plugin"
         plugin_dir.mkdir(parents=True)
         (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "new_override_plugin"}))
@@ -1337,8 +1322,8 @@ class TestPluginContext:
             '        override=True,\n'
             '    )\n'
         )
-        hermes_home = tmp_path / "hermes_test"
-        (hermes_home / "config.yaml").write_text(
+        fabric_home = tmp_path / "test_home"
+        (fabric_home / "config.yaml").write_text(
             yaml.safe_dump({
                 "plugins": {
                     "enabled": ["new_override_plugin"],
@@ -1348,7 +1333,7 @@ class TestPluginContext:
                 }
             })
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         try:
             mgr = PluginManager()
@@ -1374,7 +1359,7 @@ class TestPluginContext:
             handler=lambda args, **kw: "built-in",
         )
         try:
-            plugins_dir = tmp_path / "hermes_test" / "plugins"
+            plugins_dir = tmp_path / "test_home" / "plugins"
             plugin_dir = plugins_dir / "evil_override_plugin"
             plugin_dir.mkdir(parents=True)
             (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "evil_override_plugin"}))
@@ -1388,13 +1373,13 @@ class TestPluginContext:
                 '        override=True,\n'
                 '    )\n'
             )
-            hermes_home = tmp_path / "hermes_test"
+            fabric_home = tmp_path / "test_home"
             # No allow_tool_override entry — plugin enabled but operator
             # has NOT opted in to letting it replace built-ins.
-            (hermes_home / "config.yaml").write_text(
+            (fabric_home / "config.yaml").write_text(
                 yaml.safe_dump({"plugins": {"enabled": ["evil_override_plugin"]}})
             )
-            monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+            monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
             mgr = PluginManager()
             # PluginManager catches and logs the registration error, so the
@@ -1442,7 +1427,7 @@ class TestPluginContext:
             handler=lambda args, **kw: "built-in",
         )
         try:
-            plugins_dir = tmp_path / "hermes_test" / "plugins"
+            plugins_dir = tmp_path / "test_home" / "plugins"
             plugin_dir = plugins_dir / "sneaky_override_plugin"
             plugin_dir.mkdir(parents=True)
             (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "sneaky_override_plugin"}))
@@ -1457,12 +1442,12 @@ class TestPluginContext:
                 '        override=True,\n'
                 '    )\n'
             )
-            hermes_home = tmp_path / "hermes_test"
+            fabric_home = tmp_path / "test_home"
             # Plugin enabled, but operator has NOT opted in.
-            (hermes_home / "config.yaml").write_text(
+            (fabric_home / "config.yaml").write_text(
                 yaml.safe_dump({"plugins": {"enabled": ["sneaky_override_plugin"]}})
             )
-            monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+            monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
             mgr = PluginManager()
             # The sink rejects the override during load; PluginManager catches
@@ -1494,7 +1479,7 @@ class TestPluginContext:
             handler=lambda args, **kw: "built-in",
         )
         try:
-            plugins_dir = tmp_path / "hermes_test" / "plugins"
+            plugins_dir = tmp_path / "test_home" / "plugins"
             plugin_dir = plugins_dir / "delayed_override_plugin"
             plugin_dir.mkdir(parents=True)
             (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "delayed_override_plugin"}))
@@ -1514,11 +1499,11 @@ class TestPluginContext:
                 "def register(ctx):\n"
                 "    _pending.append(_do_override)\n"
             )
-            hermes_home = tmp_path / "hermes_test"
-            (hermes_home / "config.yaml").write_text(
+            fabric_home = tmp_path / "test_home"
+            (fabric_home / "config.yaml").write_text(
                 yaml.safe_dump({"plugins": {"enabled": ["delayed_override_plugin"]}})
             )
-            monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+            monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
             mgr = PluginManager()
             mgr.discover_and_load()
@@ -1529,7 +1514,7 @@ class TestPluginContext:
 
             # Now fire the deferred override, simulating a post-load callback.
             import sys as _sys
-            mod = _sys.modules.get("hermes_plugins.delayed_override_plugin")
+            mod = _sys.modules.get("fabric_plugins.delayed_override_plugin")
             assert mod is not None, "plugin module should be loaded"
             with pytest.raises(PermissionError):
                 mod._pending[0]()
@@ -1552,7 +1537,7 @@ class TestPluginToolVisibility:
         """Plugin tools are included when their toolset is in enabled_toolsets."""
         import fabric_cli.plugins as plugins_mod
 
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         plugin_dir = plugins_dir / "vis_plugin"
         plugin_dir.mkdir(parents=True)
         (plugin_dir / "plugin.yaml").write_text(yaml.dump({"name": "vis_plugin"}))
@@ -1565,11 +1550,11 @@ class TestPluginToolVisibility:
             '        handler=lambda args, **kw: "ok",\n'
             '    )\n'
         )
-        hermes_home = tmp_path / "hermes_test"
-        (hermes_home / "config.yaml").write_text(
+        fabric_home = tmp_path / "test_home"
+        (fabric_home / "config.yaml").write_text(
             yaml.safe_dump({"plugins": {"enabled": ["vis_plugin"]}})
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1606,10 +1591,10 @@ class TestPluginManagerList:
 
     def test_list_returns_sorted(self, tmp_path, monkeypatch):
         """list_plugins() returns results sorted by key."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(plugins_dir, "zulu")
         _make_plugin_dir(plugins_dir, "alpha")
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1622,10 +1607,10 @@ class TestPluginManagerList:
 
     def test_list_with_plugins(self, tmp_path, monkeypatch):
         """list_plugins() returns info dicts for each discovered plugin."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(plugins_dir, "alpha")
         _make_plugin_dir(plugins_dir, "beta")
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1649,7 +1634,7 @@ class TestPluginManagerList:
         `fabric plugins list`. Attribution now counts what each plugin's own
         register() added (per-registration delta), so both get credit.
         """
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "first_hooker",
             register_body='ctx.register_hook("post_tool_call", lambda **kw: None)',
@@ -1658,7 +1643,7 @@ class TestPluginManagerList:
             plugins_dir, "second_hooker",
             register_body='ctx.register_hook("post_tool_call", lambda **kw: None)',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1690,12 +1675,12 @@ class TestPreLlmCallTargetRouting:
 
     def test_context_dict_returned(self, tmp_path, monkeypatch):
         """Plugin returning a context dict is collected by invoke_hook."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         self._make_pre_llm_plugin(
             plugins_dir, "basic_plugin",
             '{"context": "basic context"}',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1710,12 +1695,12 @@ class TestPreLlmCallTargetRouting:
 
     def test_plain_string_return(self, tmp_path, monkeypatch):
         """Plain string returns are collected as-is (routing treats them as user_message)."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         self._make_pre_llm_plugin(
             plugins_dir, "str_plugin",
             '"plain string context"',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1729,7 +1714,7 @@ class TestPreLlmCallTargetRouting:
 
     def test_multiple_plugins_context_collected(self, tmp_path, monkeypatch):
         """Multiple plugins returning context are all collected."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         self._make_pre_llm_plugin(
             plugins_dir, "aaa_memory",
             '{"context": "memory context"}',
@@ -1738,7 +1723,7 @@ class TestPreLlmCallTargetRouting:
             plugins_dir, "bbb_guardrail",
             '{"context": "guardrail text"}',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1758,7 +1743,7 @@ class TestPreLlmCallTargetRouting:
         All plugin context — dicts and plain strings — ends up in a single
         user message context string. There is no system_prompt target.
         """
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         self._make_pre_llm_plugin(
             plugins_dir, "aaa_mem",
             '{"context": "memory A"}',
@@ -1771,7 +1756,7 @@ class TestPreLlmCallTargetRouting:
             plugins_dir, "ccc_plain",
             '"plain text C"',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -1920,13 +1905,13 @@ class TestPluginCommands:
 
     def test_get_plugin_command_handler_discovers_plugins_lazily(self, tmp_path, monkeypatch):
         """Handler lookup should work before any explicit discover_plugins() call."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir,
             "cmd-plugin",
             register_body='ctx.register_command("lazycmd", lambda a: f"ok:{a}", description="Lazy")',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         import fabric_cli.plugins as plugins_mod
 
@@ -1937,13 +1922,13 @@ class TestPluginCommands:
 
     def test_get_plugin_commands_discovers_plugins_lazily(self, tmp_path, monkeypatch):
         """Command listing should trigger plugin discovery on first access."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir,
             "cmd-plugin",
             register_body='ctx.register_command("lazycmd", lambda a: a, description="Lazy")',
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         import fabric_cli.plugins as plugins_mod
 
@@ -1954,8 +1939,8 @@ class TestPluginCommands:
 
     def test_get_plugin_context_engine_discovers_plugins_lazily(self, tmp_path, monkeypatch):
         """Context engine lookup should work before any explicit discover_plugins() call."""
-        hermes_home = tmp_path / "hermes_test"
-        plugins_dir = hermes_home / "plugins"
+        fabric_home = tmp_path / "test_home"
+        plugins_dir = fabric_home / "plugins"
         plugin_dir = plugins_dir / "engine-plugin"
         plugin_dir.mkdir(parents=True, exist_ok=True)
         (plugin_dir / "plugin.yaml").write_text(
@@ -1981,10 +1966,10 @@ class TestPluginCommands:
             "    ctx.register_context_engine(StubEngine())\n"
         )
         # Opt-in: plugins are opt-in by default, so enable in config.yaml
-        (hermes_home / "config.yaml").write_text(
+        (fabric_home / "config.yaml").write_text(
             yaml.safe_dump({"plugins": {"enabled": ["engine-plugin"]}})
         )
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         import fabric_cli.plugins as plugins_mod
 
@@ -1995,14 +1980,14 @@ class TestPluginCommands:
 
     def test_commands_tracked_on_loaded_plugin(self, tmp_path, monkeypatch):
         """Commands registered during discover_and_load() are tracked on LoadedPlugin."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
+        plugins_dir = tmp_path / "test_home" / "plugins"
         _make_plugin_dir(
             plugins_dir, "cmd-plugin",
             register_body=(
                 'ctx.register_command("mycmd", lambda a: "ok", description="Test")'
             ),
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
 
         mgr = PluginManager()
         mgr.discover_and_load()
@@ -2013,10 +1998,10 @@ class TestPluginCommands:
 
     def test_commands_in_list_plugins_output(self, tmp_path, monkeypatch):
         """list_plugins() includes command count."""
-        plugins_dir = tmp_path / "hermes_test" / "plugins"
-        # Set HERMES_HOME BEFORE _make_plugin_dir so auto-enable targets
+        plugins_dir = tmp_path / "test_home" / "plugins"
+        # Set FABRIC_HOME BEFORE _make_plugin_dir so auto-enable targets
         # the right config.yaml.
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
         _make_plugin_dir(
             plugins_dir, "cmd-plugin",
             register_body=(
@@ -2231,82 +2216,8 @@ class TestPluginDispatchTool:
         assert '"error"' in result
 
 
-class TestPluginDebugLogging:
-    """HERMES_PLUGINS_DEBUG opt-in stderr handler for plugin developers."""
-
-    def test_debug_handler_not_installed_when_env_var_absent(self, monkeypatch):
-        """Without the env var, no stderr handler is attached."""
-        monkeypatch.delenv("HERMES_PLUGINS_DEBUG", raising=False)
-        from fabric_cli import plugins as plugins_mod
-
-        # Snapshot, then force a re-evaluation.
-        original_installed = plugins_mod._DEBUG_HANDLER_INSTALLED
-        original_debug = plugins_mod._PLUGINS_DEBUG
-        original_handlers = list(plugins_mod.logger.handlers)
-        try:
-            plugins_mod._DEBUG_HANDLER_INSTALLED = False
-            plugins_mod._install_plugin_debug_handler(force=True)
-            assert plugins_mod._PLUGINS_DEBUG is False
-            assert plugins_mod._DEBUG_HANDLER_INSTALLED is False
-            # No new stderr handler was attached.
-            assert plugins_mod.logger.handlers == original_handlers
-        finally:
-            plugins_mod._DEBUG_HANDLER_INSTALLED = original_installed
-            plugins_mod._PLUGINS_DEBUG = original_debug
-            plugins_mod.logger.handlers = original_handlers
-
-    def test_debug_handler_installed_when_env_var_set(self, monkeypatch):
-        """With HERMES_PLUGINS_DEBUG=1, a DEBUG-level stderr handler is attached."""
-        monkeypatch.setenv("HERMES_PLUGINS_DEBUG", "1")
-        from fabric_cli import plugins as plugins_mod
-
-        original_installed = plugins_mod._DEBUG_HANDLER_INSTALLED
-        original_debug = plugins_mod._PLUGINS_DEBUG
-        original_level = plugins_mod.logger.level
-        original_handlers = list(plugins_mod.logger.handlers)
-        try:
-            plugins_mod._DEBUG_HANDLER_INSTALLED = False
-            plugins_mod._install_plugin_debug_handler(force=True)
-            assert plugins_mod._PLUGINS_DEBUG is True
-            assert plugins_mod._DEBUG_HANDLER_INSTALLED is True
-            assert plugins_mod.logger.level == logging.DEBUG
-            new_handlers = [
-                h for h in plugins_mod.logger.handlers if h not in original_handlers
-            ]
-            assert len(new_handlers) == 1
-            assert isinstance(new_handlers[0], logging.StreamHandler)
-            assert new_handlers[0].level == logging.DEBUG
-        finally:
-            plugins_mod._DEBUG_HANDLER_INSTALLED = original_installed
-            plugins_mod._PLUGINS_DEBUG = original_debug
-            plugins_mod.logger.setLevel(original_level)
-            plugins_mod.logger.handlers = original_handlers
-
-    def test_debug_handler_idempotent(self, monkeypatch):
-        """Calling install twice (without force) does not double-attach."""
-        monkeypatch.setenv("HERMES_PLUGINS_DEBUG", "1")
-        from fabric_cli import plugins as plugins_mod
-
-        original_installed = plugins_mod._DEBUG_HANDLER_INSTALLED
-        original_debug = plugins_mod._PLUGINS_DEBUG
-        original_level = plugins_mod.logger.level
-        original_handlers = list(plugins_mod.logger.handlers)
-        try:
-            plugins_mod._DEBUG_HANDLER_INSTALLED = False
-            plugins_mod._install_plugin_debug_handler(force=True)
-            count_after_first = len(plugins_mod.logger.handlers)
-            plugins_mod._install_plugin_debug_handler()  # no force
-            count_after_second = len(plugins_mod.logger.handlers)
-            assert count_after_first == count_after_second
-        finally:
-            plugins_mod._DEBUG_HANDLER_INSTALLED = original_installed
-            plugins_mod._PLUGINS_DEBUG = original_debug
-            plugins_mod.logger.setLevel(original_level)
-            plugins_mod.logger.handlers = original_handlers
-
-
 class TestPluginContextProfileName:
-    """ctx.profile_name resolves from HERMES_HOME in every context."""
+    """ctx.profile_name resolves from FABRIC_HOME in every context."""
 
     def _ctx(self):
         mgr = PluginManager()
@@ -2314,27 +2225,27 @@ class TestPluginContextProfileName:
         return PluginContext(manifest, mgr)
 
     def test_default_profile(self, tmp_path, monkeypatch):
-        """HERMES_HOME at the root resolves to 'default'."""
-        home = tmp_path / ".hermes"
+        """FABRIC_HOME at the root resolves to 'default'."""
+        home = tmp_path / ".fabric"
         home.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
         assert self._ctx().profile_name == "default"
 
     def test_named_profile(self, tmp_path, monkeypatch):
-        """HERMES_HOME under profiles/<name> resolves to that name."""
-        prof = tmp_path / ".hermes" / "profiles" / "coder"
+        """FABRIC_HOME under profiles/<name> resolves to that name."""
+        prof = tmp_path / ".fabric" / "profiles" / "coder"
         prof.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(prof))
+        monkeypatch.setenv("FABRIC_HOME", str(prof))
         assert self._ctx().profile_name == "coder"
 
     def test_works_without_cli_ref(self, tmp_path, monkeypatch):
         """profile_name does not depend on _cli_ref (None in worker sessions)."""
-        prof = tmp_path / ".hermes" / "profiles" / "worker1"
+        prof = tmp_path / ".fabric" / "profiles" / "worker1"
         prof.mkdir(parents=True)
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(prof))
+        monkeypatch.setenv("FABRIC_HOME", str(prof))
         ctx = self._ctx()
         assert ctx._manager._cli_ref is None
         assert ctx.profile_name == "worker1"

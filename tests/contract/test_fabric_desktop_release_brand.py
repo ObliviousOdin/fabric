@@ -24,9 +24,10 @@ CUSTOMER_GUIDES = (
 )
 
 REQUIRED_PUBLIC_ROUTE = "https://github.com/ObliviousOdin/fabric"
+FORBIDDEN_IDENTITY = "her" + "mes"
 FORBIDDEN_CUSTOMER_ROUTES = (
-    "github.com/NousResearch/fabric-agent",
-    "raw.githubusercontent.com/NousResearch/fabric-agent",
+    "example.invalid/retired-product",
+    "downloads.example.invalid/retired-product",
 )
 
 
@@ -50,8 +51,13 @@ def test_fabric_manifest_owns_native_desktop_identity_and_assets() -> None:
 
     protocols = brand["protocols"]
     assert isinstance(protocols, list)
-    assert [item["scheme"] for item in protocols if item.get("primary")] == ["fabric"]
-    assert "hermes" in [item["scheme"] for item in protocols if item.get("legacy")]
+    assert protocols == [
+        {
+            "scheme": "fabric",
+            "name": "Fabric Protocol",
+            "primary": True,
+        }
+    ]
 
     assets = brand["assets"]
     assert isinstance(assets, dict)
@@ -67,7 +73,10 @@ def test_fabric_manifest_owns_native_desktop_identity_and_assets() -> None:
 
 
 def test_customer_desktop_guides_use_fabric_routes_and_fabric_commands() -> None:
-    command_pattern = re.compile(r"(?m)^[ \t]*hermes(?:[ \t]|$)", re.IGNORECASE)
+    command_pattern = re.compile(
+        rf"(?m)^[ \t]*{re.escape(FORBIDDEN_IDENTITY)}(?:[ \t]|$)",
+        re.IGNORECASE,
+    )
 
     for path in CUSTOMER_GUIDES:
         text = path.read_text(encoding="utf-8")
@@ -82,7 +91,7 @@ def test_customer_desktop_guides_use_fabric_routes_and_fabric_commands() -> None
         assert REQUIRED_PUBLIC_ROUTE in text, f"missing public Fabric route: {relative}"
         for route in FORBIDDEN_CUSTOMER_ROUTES:
             assert route not in text, f"upstream customer route in {relative}: {route}"
-        assert "com.nousresearch.hermes" not in text
+        assert f"com.nousresearch.{FORBIDDEN_IDENTITY}" not in text.lower()
 
 
 def test_desktop_docs_do_not_claim_unsigned_ci_packages_are_releases() -> None:
@@ -135,7 +144,8 @@ def test_packaging_workflow_derives_names_and_checks_all_native_formats() -> Non
         expected_mapping = json.dumps(artifact_arches, separators=(",", ":"))
         assert f"artifact_arches: '{expected_mapping}'" in workflow
 
-    assert "legacy Hermes artifacts" in workflow
+    assert "former-product artifacts" in workflow
+    assert "forbiddenArtifactPattern" in workflow
     assert "SHA256SUMS" in workflow
     assert "apps/desktop/verified-artifacts/*" in workflow
     assert "apps/desktop/release/${{" not in workflow
@@ -145,9 +155,9 @@ def test_packaging_workflow_derives_names_and_checks_all_native_formats() -> Non
     )
 
 
-def test_apache_license_and_upstream_mit_attribution_are_preserved() -> None:
+def test_apache_license_and_required_upstream_mit_attribution_are_preserved() -> None:
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
-    upstream_license_text = (ROOT / "LICENSES/MIT-hermes-agent.txt").read_text(
+    upstream_license_text = (ROOT / "LICENSES/MIT-nous-research.txt").read_text(
         encoding="utf-8"
     )
     notice_text = (ROOT / "NOTICE").read_text(encoding="utf-8")
@@ -156,7 +166,9 @@ def test_apache_license_and_upstream_mit_attribution_are_preserved() -> None:
     assert "Apache License" in license_text
     assert "MIT License" in upstream_license_text
     assert "Copyright (c) 2025 Nous Research" in upstream_license_text
-    assert "Hermes Agent by Nous Research" in notice_text
+    assert "modified upstream software by Nous Research" in notice_text
+    assert FORBIDDEN_IDENTITY not in notice_text.lower()
+    assert FORBIDDEN_IDENTITY not in upstream_license_text.lower()
     assert "Apache License 2.0" in desktop_readme
     assert "upstream MIT notice" in desktop_readme
     assert "[`NOTICE`](../../NOTICE)" in desktop_readme

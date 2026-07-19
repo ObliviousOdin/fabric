@@ -44,10 +44,10 @@ def test_main_check_prints_ok_without_starting_server(monkeypatch, capsys):
 def test_main_setup_runs_model_configuration(monkeypatch):
     calls = {}
 
-    def fake_hermes_main():
+    def fake_fabric_main():
         calls["argv"] = sys.argv[:]
 
-    monkeypatch.setattr("fabric_cli.main.main", fake_hermes_main)
+    monkeypatch.setattr("fabric_cli.main.main", fake_fabric_main)
     # Pretend stdin is not a TTY so the follow-up browser prompt is skipped.
     # That keeps this test focused on the model-setup wiring; the
     # browser-prompt path has its own test below.
@@ -95,7 +95,7 @@ def test_main_setup_skips_browser_prompt_on_no(monkeypatch):
 
 
 def test_main_setup_browser_calls_ensure_dependency(monkeypatch):
-    """`hermes-acp --setup-browser` routes through dep_ensure.ensure_dependency."""
+    """`fabric acp --setup-browser` routes through dep_ensure.ensure_dependency."""
     calls = []
 
     def fake_ensure(dep, interactive=True):

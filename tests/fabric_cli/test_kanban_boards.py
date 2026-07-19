@@ -1,16 +1,15 @@
-"""Tests for the multi-board kanban layer (``hermes kanban boards …``).
+"""Tests for the multi-board kanban layer (``fabric kanban boards …``).
 
 Covers the pieces added when boards became a first-class concept:
 
 * Slug validation and normalisation.
 * Path resolution for ``default`` (legacy ``<root>/kanban.db``) vs
   named boards (``<root>/kanban/boards/<slug>/kanban.db``).
-* Current-board persistence via ``<root>/kanban/current`` and
-  ``HERMES_KANBAN_BOARD`` env var.
+* Current-board persistence via ``<root>/kanban/current`` and typed context.
 * ``connect(board=)`` isolation — writes on one board don't leak.
 * ``create_board`` / ``list_boards`` / ``remove_board`` round trip.
-* CLI surface: ``hermes kanban boards list/create/switch/rm``.
-* ``_default_spawn`` injects ``HERMES_KANBAN_BOARD`` into worker env.
+* CLI surface: ``fabric kanban boards list/create/switch/rm``.
+* ``_default_spawn`` writes a complete owner-only worker descriptor.
 """
 
 from __future__ import annotations
@@ -29,6 +28,7 @@ if str(_WORKTREE) not in sys.path:
     sys.path.insert(0, str(_WORKTREE))
 
 from fabric_cli import kanban_db as kb
+from fabric_cli.kanban_runtime import configure_kanban_runtime_context
 
 
 # ---------------------------------------------------------------------------
@@ -37,26 +37,20 @@ from fabric_cli import kanban_db as kb
 
 @pytest.fixture
 def fresh_home(tmp_path, monkeypatch):
-    """Isolated HERMES_HOME with no prior kanban state.
+    """Isolated FABRIC_HOME with no prior kanban state.
 
     The autouse hermetic conftest already nukes credentials + TZ; this
-    fixture layers a per-test HERMES_HOME plus a path-init cache reset
+    fixture layers a per-test FABRIC_HOME plus a path-init cache reset
     so each test sees a truly empty board set.
     """
-    home = tmp_path / "hermes_home"
+    home = tmp_path / "fabric_home"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    for var in (
-        "HERMES_KANBAN_DB",
-        "HERMES_KANBAN_WORKSPACES_ROOT",
-        "HERMES_KANBAN_HOME",
-        "HERMES_KANBAN_BOARD",
-    ):
-        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(home))
+    configure_kanban_runtime_context()
     # Also reset fabric_constants cache so get_default_fabric_root() re-reads.
     try:
         import fabric_constants
-        fabric_constants._cached_default_hermes_root = None  # type: ignore[attr-defined]
+        fabric_constants._cached_default_fabric_root = None  # type: ignore[attr-defined]
     except Exception:
         pass
     # Kanban module-level init cache must not leak between tests.
@@ -126,16 +120,16 @@ class TestPathResolution:
             fresh_home / "kanban" / "boards" / "other" / "logs"
         )
 
-    def test_env_var_db_override_still_wins(self, fresh_home, tmp_path, monkeypatch):
-        """``HERMES_KANBAN_DB`` pins the file regardless of board= arg."""
+    def test_worker_context_db_override_still_wins(self, fresh_home, tmp_path):
+        """Worker context pins the file regardless of a board argument."""
         forced = tmp_path / "custom.db"
-        monkeypatch.setenv("HERMES_KANBAN_DB", str(forced))
+        configure_kanban_runtime_context(db_path=str(forced))
         assert kb.kanban_db_path() == forced
         assert kb.kanban_db_path(board="ignored") == forced
 
-    def test_env_var_workspaces_override(self, fresh_home, tmp_path, monkeypatch):
+    def test_worker_context_workspaces_override(self, fresh_home, tmp_path):
         forced = tmp_path / "ws"
-        monkeypatch.setenv("HERMES_KANBAN_WORKSPACES_ROOT", str(forced))
+        configure_kanban_runtime_context(workspaces_root=str(forced))
         assert kb.workspaces_root(board="any") == forced
 
 
@@ -147,12 +141,9 @@ class TestCurrentBoard:
     def test_default_when_unset(self, fresh_home):
         assert kb.get_current_board() == "default"
 
-    def test_env_var_takes_precedence(self, fresh_home, monkeypatch):
-        # Create the board so the env-var value is honoured (get_current_board
-        # trusts env-var validity, but the resolution chain doesn't require
-        # the board to exist; we just test that env trumps).
+    def test_worker_context_takes_precedence(self, fresh_home):
         kb.create_board("envboard")
-        monkeypatch.setenv("HERMES_KANBAN_BOARD", "envboard")
+        configure_kanban_runtime_context(board="envboard")
         assert kb.get_current_board() == "envboard"
 
     def test_file_pointer_honoured(self, fresh_home):
@@ -176,21 +167,21 @@ class TestCurrentBoard:
         assert not kb.board_exists("ghost")
         assert [b["slug"] for b in kb.list_boards()] == ["default"]
 
-    def test_env_beats_file(self, fresh_home, monkeypatch):
+    def test_context_beats_file(self, fresh_home):
         kb.create_board("a")
         kb.create_board("b")
         kb.set_current_board("a")
-        monkeypatch.setenv("HERMES_KANBAN_BOARD", "b")
+        configure_kanban_runtime_context(board="b")
         assert kb.get_current_board() == "b"
 
-    def test_stale_env_falls_through_to_file_pointer(self, fresh_home, monkeypatch):
+    def test_worker_context_remains_pinned_if_board_metadata_is_missing(self, fresh_home):
         kb.create_board("persisted")
         kb.set_current_board("persisted")
-        monkeypatch.setenv("HERMES_KANBAN_BOARD", "missing-board")
-        assert kb.get_current_board() == "persisted"
+        configure_kanban_runtime_context(board="missing-board")
+        assert kb.get_current_board() == "missing-board"
 
-    def test_invalid_env_falls_through(self, fresh_home, monkeypatch):
-        monkeypatch.setenv("HERMES_KANBAN_BOARD", "!!bad!!")
+    def test_invalid_context_falls_through(self, fresh_home):
+        configure_kanban_runtime_context(board="!!bad!!")
         # Should not crash — falls through to default.
         assert kb.get_current_board() == "default"
 
@@ -346,11 +337,11 @@ class TestConnectionIsolation:
             tasks = kb.list_tasks(conn)
         assert [t.title for t in tasks] == ["implicit"]
 
-    def test_connect_env_var_overrides_current(self, fresh_home, monkeypatch):
+    def test_connect_worker_context_overrides_current(self, fresh_home):
         kb.create_board("persist")
         kb.create_board("envwin")
         kb.set_current_board("persist")
-        monkeypatch.setenv("HERMES_KANBAN_BOARD", "envwin")
+        configure_kanban_runtime_context(board="envwin")
         with kb.connect() as conn:
             kb.create_task(conn, title="via-env", assignee="x")
         with kb.connect(board="envwin") as conn:
@@ -358,35 +349,36 @@ class TestConnectionIsolation:
         with kb.connect(board="persist") as conn:
             assert kb.list_tasks(conn) == []
 
-    def test_connect_stale_env_uses_fallback_board_without_recreating_it(
-        self, fresh_home, monkeypatch,
+    def test_connect_pinned_context_never_falls_through_to_another_board(
+        self, fresh_home,
     ):
         kb.create_board("ephemeral")
         kb.remove_board("ephemeral")
         kb.create_board("persist")
         kb.set_current_board("persist")
-        monkeypatch.setenv("HERMES_KANBAN_BOARD", "ephemeral")
+        configure_kanban_runtime_context(board="ephemeral")
 
         with kb.connect() as conn:
             kb.create_task(conn, title="via-fallback", assignee="x")
 
-        with kb.connect(board="persist") as conn:
+        with kb.connect(board="ephemeral") as conn:
             assert [t.title for t in kb.list_tasks(conn)] == ["via-fallback"]
-        assert not kb.board_exists("ephemeral")
+        with kb.connect(board="persist") as conn:
+            assert kb.list_tasks(conn) == []
 
 
 # ---------------------------------------------------------------------------
-# Worker spawn env injection
+# Worker launch descriptor
 # ---------------------------------------------------------------------------
 
-class TestWorkerSpawnEnv:
-    """Ensure the dispatcher pins ``HERMES_KANBAN_BOARD`` / DB / workspaces on spawn.
+class TestWorkerSpawnContext:
+    """Ensure the dispatcher pins board, DB, and workspaces on spawn.
 
-    We monkey-patch ``subprocess.Popen`` to capture the child env without
+    We monkey-patch ``subprocess.Popen`` to capture the child argv without
     actually spawning anything.
     """
 
-    def test_default_spawn_sets_env_vars(self, fresh_home, monkeypatch):
+    def test_default_spawn_writes_context(self, fresh_home, monkeypatch):
         captured = {}
 
         class FakeProc:
@@ -420,14 +412,21 @@ class TestWorkerSpawnEnv:
 
         kb._default_spawn(task, str(fresh_home / "ws"), board="spawntest")
 
-        env = captured["env"]
-        assert env["HERMES_KANBAN_BOARD"] == "spawntest"
-        assert env["HERMES_KANBAN_TASK"] == "t_abc"
+        cmd = captured["cmd"]
+        context_path = Path(cmd[cmd.index("--kanban-worker-context") + 1])
+        context = json.loads(context_path.read_text(encoding="utf-8"))
+        context_path.unlink()
+        assert context["board"] == "spawntest"
+        assert context["task_id"] == "t_abc"
         # DB path should match the per-board DB, not the legacy default.
         expected_db = fresh_home / "kanban" / "boards" / "spawntest" / "kanban.db"
-        assert env["HERMES_KANBAN_DB"] == str(expected_db)
+        assert context["db_path"] == str(expected_db)
         expected_ws = fresh_home / "kanban" / "boards" / "spawntest" / "workspaces"
-        assert env["HERMES_KANBAN_WORKSPACES_ROOT"] == str(expected_ws)
+        assert context["workspaces_root"] == str(expected_ws)
+        assert all(
+            key == "FABRIC_HOME" or not key.startswith("FABRIC_")
+            for key in captured["env"]
+        )
 
     def test_default_board_spawn_keeps_legacy_paths(self, fresh_home, monkeypatch):
         captured = {}
@@ -436,6 +435,7 @@ class TestWorkerSpawnEnv:
             pid = 1
 
         def fake_popen(cmd, *args, **kwargs):
+            captured["cmd"] = cmd
             captured["env"] = kwargs.get("env", {})
             return FakeProc()
 
@@ -458,9 +458,12 @@ class TestWorkerSpawnEnv:
             tenant=None,
         )
         kb._default_spawn(task, str(fresh_home / "ws"), board=None)
-        env = captured["env"]
-        assert env["HERMES_KANBAN_BOARD"] == "default"
-        assert env["HERMES_KANBAN_DB"] == str(fresh_home / "kanban.db")
+        cmd = captured["cmd"]
+        context_path = Path(cmd[cmd.index("--kanban-worker-context") + 1])
+        context = json.loads(context_path.read_text(encoding="utf-8"))
+        context_path.unlink()
+        assert context["board"] == "default"
+        assert context["db_path"] == str(fresh_home / "kanban.db")
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +471,7 @@ class TestWorkerSpawnEnv:
 # ---------------------------------------------------------------------------
 
 def _cli(args: list[str], env_extra: dict | None = None) -> subprocess.CompletedProcess:
-    """Run ``hermes kanban …`` with PYTHONPATH pinned to the worktree."""
+    """Run ``fabric kanban …`` with PYTHONPATH pinned to the worktree."""
     env = dict(os.environ)
     env["PYTHONPATH"] = str(_WORKTREE)
     if env_extra:
@@ -485,7 +488,7 @@ def _cli(args: list[str], env_extra: dict | None = None) -> subprocess.Completed
 
 class TestCLI:
     def test_boards_list_default_only(self, tmp_path):
-        env = {"HERMES_HOME": str(tmp_path)}
+        env = {"FABRIC_HOME": str(tmp_path)}
         res = _cli(["boards", "list", "--json"], env_extra=env)
         assert res.returncode == 0, res.stderr
         data = json.loads(res.stdout)
@@ -494,7 +497,7 @@ class TestCLI:
         assert data[0]["is_current"] is True
 
     def test_boards_create_and_switch(self, tmp_path):
-        env = {"HERMES_HOME": str(tmp_path)}
+        env = {"FABRIC_HOME": str(tmp_path)}
         r1 = _cli(
             ["boards", "create", "myproj", "--name", "My Project", "--switch"],
             env_extra=env,
@@ -509,7 +512,7 @@ class TestCLI:
         assert cur["slug"] == "myproj"
 
     def test_per_board_task_isolation_via_cli(self, tmp_path):
-        env = {"HERMES_HOME": str(tmp_path)}
+        env = {"FABRIC_HOME": str(tmp_path)}
         assert _cli(["boards", "create", "projA"], env_extra=env).returncode == 0
         assert _cli(["boards", "create", "projB"], env_extra=env).returncode == 0
 
@@ -533,7 +536,7 @@ class TestCLI:
         assert titlesD == []
 
     def test_board_flag_rejects_unknown(self, tmp_path):
-        env = {"HERMES_HOME": str(tmp_path)}
+        env = {"FABRIC_HOME": str(tmp_path)}
         r = _cli(["--board", "ghost", "list"], env_extra=env)
         # main.py's dispatcher doesn't propagate return codes today, so we
         # assert the user-visible signal: a stderr error message. Whether
@@ -541,14 +544,14 @@ class TestCLI:
         assert "does not exist" in r.stderr
 
     def test_board_flag_rejects_empty_board_dir(self, tmp_path):
-        env = {"HERMES_HOME": str(tmp_path)}
+        env = {"FABRIC_HOME": str(tmp_path)}
         ghost = tmp_path / "kanban" / "boards" / "ghost"
         ghost.mkdir(parents=True)
         r = _cli(["--board", "ghost", "list"], env_extra=env)
         assert "does not exist" in r.stderr
 
     def test_boards_rm_archives(self, tmp_path):
-        env = {"HERMES_HOME": str(tmp_path)}
+        env = {"FABRIC_HOME": str(tmp_path)}
         _cli(["boards", "create", "rmme"], env_extra=env)
         r = _cli(["boards", "rm", "rmme"], env_extra=env)
         assert r.returncode == 0, r.stderr

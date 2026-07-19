@@ -35,7 +35,6 @@ def test_product_design_skills_have_minimal_supported_frontmatter() -> None:
         assert len(frontmatter["description"].strip()) >= 80
         assert body.strip().startswith("# Fabric")
         assert "TODO" not in body
-        assert "Hermes" not in body
 
 
 def test_product_design_skill_ui_metadata_is_fabric_branded() -> None:

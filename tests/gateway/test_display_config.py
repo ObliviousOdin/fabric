@@ -96,13 +96,13 @@ class TestResolveDisplaySetting:
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility: tool_progress_overrides
+# Previous config schema: tool_progress_overrides
 # ---------------------------------------------------------------------------
 
-class TestBackwardCompat:
-    """Legacy tool_progress_overrides is still respected as a fallback."""
+class TestPreviousConfigSchema:
+    """Previous tool_progress_overrides values remain readable before migration."""
 
-    def test_legacy_overrides_read(self):
+    def test_previous_overrides_read(self):
         """tool_progress_overrides is read when no platforms entry exists."""
         from gateway.display_config import resolve_display_setting
 
@@ -118,7 +118,7 @@ class TestBackwardCompat:
         assert resolve_display_setting(config, "signal", "tool_progress") == "off"
         assert resolve_display_setting(config, "telegram", "tool_progress") == "verbose"
 
-    def test_new_platforms_takes_precedence_over_legacy(self):
+    def test_platforms_takes_precedence_over_previous_schema(self):
         """display.platforms beats tool_progress_overrides."""
         from gateway.display_config import resolve_display_setting
 
@@ -131,8 +131,8 @@ class TestBackwardCompat:
         }
         assert resolve_display_setting(config, "telegram", "tool_progress") == "new"
 
-    def test_legacy_overrides_only_for_tool_progress(self):
-        """Legacy overrides don't affect other settings."""
+    def test_previous_overrides_only_apply_to_tool_progress(self):
+        """Previous overrides don't affect other settings."""
         from gateway.display_config import resolve_display_setting
 
         config = {
@@ -357,8 +357,8 @@ class TestConfigMigration:
         }
         config_path.write_text(yaml.dump(config), encoding="utf-8")
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-        # Re-import to pick up the new HERMES_HOME
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+        # Re-import to pick up the new FABRIC_HOME
         import importlib
         import fabric_cli.config as cfg_mod
         importlib.reload(cfg_mod)
@@ -384,14 +384,14 @@ class TestConfigMigration:
         }
         config_path.write_text(yaml.dump(config), encoding="utf-8")
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         import importlib
         import fabric_cli.config as cfg_mod
         importlib.reload(cfg_mod)
 
         cfg_mod.migrate_config(interactive=False, quiet=True)
         updated = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-        # Existing "verbose" should NOT be overwritten by legacy "off"
+        # Existing "verbose" should not be overwritten by previous "off".
         assert updated["display"]["platforms"]["telegram"]["tool_progress"] == "verbose"
 
 

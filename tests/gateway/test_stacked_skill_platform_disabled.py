@@ -78,7 +78,7 @@ def _make_runner():
     runner._fallback_model = None
     runner._show_reasoning = False
     runner._is_user_authorized = lambda _source: True
-    runner._set_session_env = lambda _context: None
+    runner._bind_session_context = lambda _context: None
     runner._should_send_voice_reply = lambda *_args, **_kwargs: False
     from gateway.run import GatewayRunner as _GR
     runner._session_key_for_source = _GR._session_key_for_source.__get__(runner, _GR)
@@ -97,8 +97,7 @@ def _make_skill(skills_dir, name, body="content"):
 def skills_env(tmp_path, monkeypatch):
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
-    import tools.skills_tool as skills_tool_module
-    monkeypatch.setattr(skills_tool_module, "SKILLS_DIR", skills_dir)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     import agent.skill_commands as skill_commands_mod
     skill_commands_mod._skill_commands = {}
     skill_commands_mod._skill_commands_platform = None

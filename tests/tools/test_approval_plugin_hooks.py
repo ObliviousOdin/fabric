@@ -13,22 +13,21 @@ import pytest
 import tools.approval as approval_module
 from tools.approval import (
     check_all_command_guards,
-    set_current_session_key,
     clear_session,
+    reset_current_session_key,
+    set_current_session_key,
 )
 
 
 @pytest.fixture
 def isolated_session(monkeypatch, tmp_path):
     """Give each test a fresh session_key, clean approval-state, and isolated
-    HERMES_HOME so the real user's command_allowlist doesn't leak in."""
+    FABRIC_HOME so the real user's command_allowlist doesn't leak in."""
     import tools.approval as _am
 
     session_key = "test:session:approval_hooks"
     token = set_current_session_key(session_key)
-    monkeypatch.setenv("HERMES_SESSION_KEY", session_key)
     # Make sure we don't skip guards via yolo / approvals.mode=off
-    monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
     # Isolate from the real user's permanent allowlist + session state
     _saved_permanent = _am._permanent_approved.copy()
     _saved_session = {k: v.copy() for k, v in _am._session_approved.items()}
@@ -39,23 +38,26 @@ def isolated_session(monkeypatch, tmp_path):
     finally:
         _am._permanent_approved.update(_saved_permanent)
         _am._session_approved.update(_saved_session)
-        try:
-            _am._approval_session_key.reset(token)
-        except Exception:
-            pass
+        reset_current_session_key(token)
         clear_session(session_key)
 
 
+@pytest.fixture
+def interactive_client():
+    """Bind the canonical task-local interactive-client context."""
+    token = approval_module.set_fabric_interactive_context(True)
+    try:
+        yield
+    finally:
+        approval_module.reset_fabric_interactive_context(token)
+
+
 class TestCliPathFiresHooks:
-    """CLI-interactive approval path: HERMES_INTERACTIVE is set, the
-    prompt_dangerous_approval() result decides the outcome."""
+    """CLI-interactive approvals use the task-local client context."""
 
     def test_pre_and_post_fire_with_expected_kwargs(
-        self, isolated_session, monkeypatch
+        self, isolated_session, interactive_client, monkeypatch
     ):
-        monkeypatch.setenv("HERMES_INTERACTIVE", "1")
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
         # approvals.mode=manual so we actually reach the prompt site
         monkeypatch.setattr(approval_module, "_get_approval_mode", lambda: "manual")
 
@@ -93,10 +95,9 @@ class TestCliPathFiresHooks:
         assert post_kwargs["surface"] == "cli"
         assert post_kwargs["command"] == "rm -rf /tmp/test-hook"
 
-    def test_deny_reported_to_post_hook(self, isolated_session, monkeypatch):
-        monkeypatch.setenv("HERMES_INTERACTIVE", "1")
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
+    def test_deny_reported_to_post_hook(
+        self, isolated_session, interactive_client, monkeypatch
+    ):
         monkeypatch.setattr(approval_module, "_get_approval_mode", lambda: "manual")
 
         captured = []
@@ -118,14 +119,11 @@ class TestCliPathFiresHooks:
         assert post_kwargs["choice"] == "deny"
 
     def test_plugin_hook_crash_does_not_break_approval(
-        self, isolated_session, monkeypatch
+        self, isolated_session, interactive_client, monkeypatch
     ):
         """A crashing plugin must never prevent the approval flow from
         reaching the user. Hooks are observer-only and safety-critical
         behavior must be preserved."""
-        monkeypatch.setenv("HERMES_INTERACTIVE", "1")
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
         monkeypatch.setattr(approval_module, "_get_approval_mode", lambda: "manual")
 
         def boom(hook_name, **kwargs):
@@ -144,9 +142,4 @@ class TestCliPathFiresHooks:
 
 
 class TestGatewayPathFiresHooks:
-    """Async gateway approval path: HERMES_GATEWAY_SESSION is set and a
-    gateway notify callback is registered. The agent thread blocks on the
-    approval event until resolve_gateway_approval() is called from another
-    thread."""
-
-
+    """Gateway approvals use task-local routing plus a notify callback."""

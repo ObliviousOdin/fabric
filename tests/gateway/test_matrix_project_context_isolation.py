@@ -196,23 +196,24 @@ async def test_matrix_session_scope_auto_and_thread_preserve_synthetic_threads()
 @pytest.mark.asyncio
 async def test_matrix_project_context_survives_concurrent_messages():
     from gateway.run import GatewayRunner
-    from gateway.session_context import get_session_env
+    from gateway.session_context import get_session_context
 
     async def observe(room_id: str):
         adapter = _make_adapter()
         source = await _source_for(adapter, room_id, f"${room_id}")
         context = _context_for(source)
         runner = object.__new__(GatewayRunner)
-        tokens = runner._set_session_env(context)
+        tokens = runner._bind_session_context(context)
         try:
             await asyncio.sleep(0)
+            context = get_session_context()
             return SimpleNamespace(
-                chat_id=get_session_env("HERMES_SESSION_CHAT_ID"),
-                chat_name=get_session_env("HERMES_SESSION_CHAT_NAME"),
-                session_key=get_session_env("HERMES_SESSION_KEY"),
+                chat_id=context.chat_id,
+                chat_name=context.chat_name,
+                session_key=context.session_key,
             )
         finally:
-            runner._clear_session_env(tokens)
+            runner._clear_session_context(tokens)
 
     observed_a, observed_b = await asyncio.gather(
         observe(PROJECT_A_ROOM_ID),

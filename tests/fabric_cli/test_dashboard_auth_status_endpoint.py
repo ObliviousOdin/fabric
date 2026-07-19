@@ -84,14 +84,26 @@ def test_status_preserves_existing_fields(loopback_client):
     r = loopback_client.get("/api/status")
     body = r.json()
     expected_keys = {
-        "version", "release_date", "hermes_home", "config_path", "env_path",
+        "version", "release_date", "fabric_home", "config_path", "env_path",
         "config_version", "latest_config_version", "gateway_running",
         "gateway_pid", "gateway_health_url", "gateway_state",
         "gateway_platforms", "gateway_exit_reason", "gateway_updated_at",
         "active_sessions", "auth_required", "auth_providers",
+        "nous_session_valid",
     }
     missing = expected_keys - set(body.keys())
     assert not missing, f"/api/status dropped fields: {missing}"
+
+
+def test_status_reports_nous_session_validity(loopback_client, monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.auth.get_nous_session_validity", lambda: "terminal"
+    )
+
+    r = loopback_client.get("/api/status")
+
+    assert r.status_code == 200
+    assert r.json()["nous_session_valid"] == "terminal"
 
 
 # Host-local detail (absolute paths, PID, internal gateway URL) is deployment
@@ -99,7 +111,7 @@ def test_status_preserves_existing_fields(loopback_client):
 # (it is in ``PUBLIC_API_PATHS``), so on a network-exposed bind it must not
 # leak that detail to anonymous callers.
 _HOST_DETAIL_FIELDS = frozenset({
-    "hermes_home", "config_path", "env_path", "gateway_pid",
+    "fabric_home", "config_path", "env_path", "gateway_pid",
     "gateway_health_url",
 })
 

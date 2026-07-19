@@ -54,7 +54,7 @@ def test_skill_follows_bundled_authoring_contract():
     assert "source skills/github/" not in body
     assert "skills/github/fabric-contribute/scripts/" not in body
     assert "<skill-dir>" not in body
-    assert "${HERMES_SKILL_DIR}" in body
+    assert "${SKILL_DIR}" in body
     assert "fabric_issue.py" in body
 
     rendered = preprocess_skill_content(
@@ -62,7 +62,7 @@ def test_skill_follows_bundled_authoring_contract():
         SKILL_ROOT,
         skills_cfg={"template_vars": True, "inline_shell": False},
     )
-    assert "${HERMES_SKILL_DIR}" not in rendered
+    assert "${SKILL_DIR}" not in rendered
     assert str(HELPER_PATH) in rendered
 
 

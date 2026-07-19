@@ -34,7 +34,9 @@ def _make_agent(
 def test_breakdown_includes_major_categories():
     stable = (
         "base guidance\n"
-        "<available_skills>\n  demo:\n    - hello: hi\n</available_skills>"
+        '<available_skills mode="inline" count="1">\n'
+        "  demo:\n    - hello: hi\n"
+        "</available_skills>"
     )
     context = "# Project Context\nFollow AGENTS.md"
     volatile = "Current time: now"

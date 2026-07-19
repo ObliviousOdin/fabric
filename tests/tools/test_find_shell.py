@@ -93,6 +93,41 @@ class TestFindShellWindowsBehavior:
                 assert result == _find_bash()
 
 
+class TestFindBashWindowsGitPath:
+    """Git Bash follows the Git executable accepted by the installer."""
+
+    @staticmethod
+    def _discover(git_executable, existing_bash):
+        def which(executable):
+            return git_executable if executable == "git" else None
+
+        with (
+            patch("tools.environments.local._IS_WINDOWS", True),
+            patch.dict(os.environ, {}, clear=True),
+            patch("tools.environments.local.os.path.isfile", side_effect=lambda path: path == existing_bash),
+            patch("tools.environments.local.shutil.which", side_effect=which),
+        ):
+            return _find_bash()
+
+    def test_derives_bin_bash_from_custom_git_cmd_path(self):
+        assert self._discover(
+            r"D:\Developer Tools\Git\cmd\git.exe",
+            r"D:\Developer Tools\Git\bin\bash.exe",
+        ) == r"D:\Developer Tools\Git\bin\bash.exe"
+
+    def test_derives_usr_bin_bash_from_custom_git_cmd_path(self):
+        assert self._discover(
+            r"D:\Developer Tools\Git\cmd\git.exe",
+            r"D:\Developer Tools\Git\usr\bin\bash.exe",
+        ) == r"D:\Developer Tools\Git\usr\bin\bash.exe"
+
+    def test_derives_bash_from_custom_git_bin_path(self):
+        assert self._discover(
+            r"D:\Developer Tools\Git\bin\git.exe",
+            r"D:\Developer Tools\Git\bin\bash.exe",
+        ) == r"D:\Developer Tools\Git\bin\bash.exe"
+
+
 class TestFindShellReturnsString:
     """_find_shell must return a string, never None."""
 

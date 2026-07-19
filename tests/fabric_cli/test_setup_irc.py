@@ -1,7 +1,7 @@
 """Tests for IRC gateway configuration via `fabric setup gateway` UI.
 
 Covers the full plugin-platform discovery → status → configure flow so that
-a fresh Hermes install (no state, no env vars) can set up IRC through the
+a fresh Fabric install (no state, no env vars) can set up IRC through the
 interactive setup menus.
 """
 
@@ -56,7 +56,7 @@ def _unregister_irc_platform():
 
 
 class TestIRCFreshInstallDiscovery:
-    """IRC appears in the setup menu on a brand-new Hermes install."""
+    """IRC appears in the setup menu on a brand-new Fabric install."""
 
     def test_irc_appears_in_all_platforms(self, monkeypatch):
         """When the IRC plugin is registered, _all_platforms() surfaces it."""
@@ -99,8 +99,8 @@ class TestIRCFreshInstallDiscovery:
         plat = _register_irc_platform()
         try:
             monkeypatch.setenv("IRC_SERVER", "irc.libera.chat")
-            monkeypatch.setenv("IRC_CHANNEL", "#hermes")
-            monkeypatch.setenv("IRC_NICKNAME", "hermes-bot")
+            monkeypatch.setenv("IRC_CHANNEL", "#fabric")
+            monkeypatch.setenv("IRC_NICKNAME", "test-bot")
 
             status = gateway_mod._platform_status(plat)
             assert status == "configured"
@@ -176,7 +176,7 @@ class TestIRCGatewaySetupFreshInstall:
         import fabric_cli.gateway as gateway_mod
         from fabric_cli import setup as setup_mod
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         _register_irc_platform()
         try:
             for key in ("IRC_SERVER", "IRC_CHANNEL", "IRC_NICKNAME"):
@@ -222,12 +222,12 @@ class TestIRCGatewaySetupFreshInstall:
         import fabric_cli.gateway as gateway_mod
         from fabric_cli import setup as setup_mod
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         _register_irc_platform()
         try:
             monkeypatch.setenv("IRC_SERVER", "irc.libera.chat")
-            monkeypatch.setenv("IRC_CHANNEL", "#hermes")
-            monkeypatch.setenv("IRC_NICKNAME", "hermes-bot")
+            monkeypatch.setenv("IRC_CHANNEL", "#fabric")
+            monkeypatch.setenv("IRC_NICKNAME", "test-bot")
 
             monkeypatch.setattr(setup_mod, "prompt_yes_no", lambda *a, **kw: False)
             monkeypatch.setattr(setup_mod, "prompt_choice", lambda *a, **kw: 0)

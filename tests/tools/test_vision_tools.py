@@ -598,7 +598,7 @@ class TestVisionRequirements:
         assert isinstance(result, bool)
 
     def test_check_requirements_accepts_codex_auth(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         (tmp_path / "auth.json").write_text(
             '{"active_provider":"openai-codex","providers":{"openai-codex":{"tokens":{"access_token":"codex-access-token","refresh_token":"codex-refresh-token"}}}}'
         )
@@ -1174,11 +1174,9 @@ class TestVisionCpuBurstCap:
         from tools import vision_tools as vt
 
         with (
-            patch.dict(os.environ, {}, clear=False),
             patch("tools.vision_tools._detect_host_cpus", return_value=64),
             patch("fabric_cli.config.load_config", side_effect=Exception),
         ):
-            os.environ.pop("HERMES_VISION_MAX_CONCURRENCY", None)
             # No fixed ceiling: a 64-core host gets 64 encode workers. The cap
             # tracks the actual resource (cores), not a magic number.
             assert vt._resolve_vision_cpu_workers() == 64
@@ -1187,28 +1185,29 @@ class TestVisionCpuBurstCap:
         from tools import vision_tools as vt
 
         with (
-            patch.dict(os.environ, {}, clear=False),
             patch("tools.vision_tools._detect_host_cpus", return_value=2),
             patch("fabric_cli.config.load_config", side_effect=Exception),
         ):
-            os.environ.pop("HERMES_VISION_MAX_CONCURRENCY", None)
             assert vt._resolve_vision_cpu_workers() == 2
 
-    def test_resolver_env_override(self):
+    def test_resolver_config_override(self):
         from tools import vision_tools as vt
 
-        with patch.dict(os.environ, {"HERMES_VISION_MAX_CONCURRENCY": "16"}):
-            # Explicit override is honored verbatim — including ABOVE core count,
-            # so operators can raise it for heavy multi-image workloads.
+        with patch(
+            "fabric_cli.config.load_config",
+            return_value={"auxiliary": {"vision": {"max_concurrency": 16}}},
+        ):
             assert vt._resolve_vision_cpu_workers() == 16
 
     def test_resolver_rejects_sub_one_override(self):
         from tools import vision_tools as vt
 
         with (
-            patch.dict(os.environ, {"HERMES_VISION_MAX_CONCURRENCY": "0"}),
             patch("tools.vision_tools._detect_host_cpus", return_value=2),
-            patch("fabric_cli.config.load_config", side_effect=Exception),
+            patch(
+                "fabric_cli.config.load_config",
+                return_value={"auxiliary": {"vision": {"max_concurrency": 0}}},
+            ),
         ):
             # 0 is ignored (cap can never be disabled) → falls back to host cores.
             assert vt._resolve_vision_cpu_workers() == 2

@@ -22,8 +22,7 @@ def _isolate(tmp_path, monkeypatch):
     """Point the Fabric home at an isolated temp directory."""
     home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    monkeypatch.delenv("FABRIC_HOME", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     return home
 

@@ -915,21 +915,30 @@ class TestFreshnessHelpers:
         ]
         assert _last_transcript_timestamp(history) is None
 
-    def test_auto_continue_freshness_window_reads_env(self, monkeypatch):
-        monkeypatch.setenv("HERMES_AUTO_CONTINUE_FRESHNESS", "7200")
+    def test_auto_continue_freshness_window_reads_config(self, monkeypatch):
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config_readonly",
+            lambda: {"agent": {"gateway_auto_continue_freshness": 7200}},
+        )
         assert _auto_continue_freshness_window() == 7200.0
 
     def test_auto_continue_freshness_window_default_when_unset(self, monkeypatch):
-        monkeypatch.delenv("HERMES_AUTO_CONTINUE_FRESHNESS", raising=False)
+        monkeypatch.setattr("fabric_cli.config.load_config_readonly", lambda: {})
         # Default is 1 hour
         assert _auto_continue_freshness_window() == 3600.0
 
     def test_auto_continue_freshness_window_malformed_falls_back(self, monkeypatch):
-        monkeypatch.setenv("HERMES_AUTO_CONTINUE_FRESHNESS", "not-a-number")
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config_readonly",
+            lambda: {"agent": {"gateway_auto_continue_freshness": "not-a-number"}},
+        )
         assert _auto_continue_freshness_window() == 3600.0
 
     def test_auto_continue_freshness_window_empty_falls_back(self, monkeypatch):
-        monkeypatch.setenv("HERMES_AUTO_CONTINUE_FRESHNESS", "")
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config_readonly",
+            lambda: {"agent": {"gateway_auto_continue_freshness": ""}},
+        )
         assert _auto_continue_freshness_window() == 3600.0
 
 

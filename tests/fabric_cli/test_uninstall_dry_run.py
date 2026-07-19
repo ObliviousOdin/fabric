@@ -6,10 +6,10 @@ from fabric_cli import uninstall
 
 def test_dry_run_prints_plan_without_mutating(monkeypatch, tmp_path, capsys):
     project_root = tmp_path / "fabric-agent"
-    hermes_home = tmp_path / ".hermes"
+    fabric_home = tmp_path / ".fabric"
     project_root.mkdir()
-    hermes_home.mkdir()
-    (hermes_home / "config.yaml").write_text("model: {}\n")
+    fabric_home.mkdir()
+    (fabric_home / "config.yaml").write_text("model: {}\n")
 
     called = False
 
@@ -18,8 +18,8 @@ def test_dry_run_prints_plan_without_mutating(monkeypatch, tmp_path, capsys):
         called = True
 
     monkeypatch.setattr(uninstall, "get_project_root", lambda: project_root)
-    monkeypatch.setattr(uninstall, "get_fabric_home", lambda: hermes_home)
-    monkeypatch.setattr(uninstall, "_is_default_hermes_home", lambda home: False)
+    monkeypatch.setattr(uninstall, "get_fabric_home", lambda: fabric_home)
+    monkeypatch.setattr(uninstall, "_is_default_fabric_home", lambda home: False)
     monkeypatch.setattr(uninstall, "_discover_named_profiles", lambda: [])
     monkeypatch.setattr(uninstall, "_perform_uninstall", _fail_if_called)
 
@@ -29,9 +29,9 @@ def test_dry_run_prints_plan_without_mutating(monkeypatch, tmp_path, capsys):
     assert called is False
     assert "Dry run" in output
     assert str(project_root) in output
-    assert str(hermes_home) in output
+    assert str(fabric_home) in output
     assert project_root.exists()
-    assert hermes_home.exists()
+    assert fabric_home.exists()
 
 
 def test_build_uninstall_parser_accepts_dry_run():

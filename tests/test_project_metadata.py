@@ -239,9 +239,7 @@ def test_dashboard_plugin_manifests_and_assets_are_packaged():
     package_data = _load_package_data()
     plugin_data = package_data["plugins"]
 
-    assert "*/dashboard/manifest.json" in plugin_data
-    assert "*/dashboard/dist/*" in plugin_data
-    assert "*/dashboard/dist/**/*" in plugin_data
+    assert "**/*" in plugin_data
 
 
 def test_nested_bundled_plugin_metadata_is_packaged():
@@ -249,6 +247,4 @@ def test_nested_bundled_plugin_metadata_is_packaged():
     package_data = _load_package_data()
     plugin_data = package_data["plugins"]
 
-    assert "**/plugin.yaml" in plugin_data
-    assert "**/plugin.yml" in plugin_data
-    assert "**/README.md" in plugin_data
+    assert "**/*" in plugin_data

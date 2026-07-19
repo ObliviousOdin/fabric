@@ -1,3 +1,5 @@
+"""Fabric session archiving tests."""
+
 import time
 
 import pytest

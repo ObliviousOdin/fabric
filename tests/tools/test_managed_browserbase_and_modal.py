@@ -159,6 +159,7 @@ def _install_fake_tools_package():
         detect_dangerous_command=lambda *args, **kwargs: None,
         check_dangerous_command=lambda *args, **kwargs: {"approved": True},
         check_all_command_guards=lambda *args, **kwargs: {"approved": True},
+        get_current_session_key=lambda default="default": default,
         load_permanent_allowlist=lambda *args, **kwargs: [],
         DANGEROUS_PATTERNS=[],
     )
@@ -199,7 +200,7 @@ def test_browser_use_explicit_local_mode_stays_local_even_when_managed_gateway_i
     env = os.environ.copy()
     env.pop("BROWSER_USE_API_KEY", None)
     env.update({
-        "HERMES_HOME": str(tmp_path),
+        "FABRIC_HOME": str(tmp_path),
         "TOOL_GATEWAY_USER_TOKEN": "nous-token",
         "BROWSER_USE_GATEWAY_URL": "http://127.0.0.1:3009",
     })
@@ -257,7 +258,7 @@ def test_browser_use_availability_skips_refresh_for_expired_cached_gateway_token
     env = os.environ.copy()
     env.pop("BROWSER_USE_API_KEY", None)
     env.update({
-        "HERMES_HOME": str(tmp_path),
+        "FABRIC_HOME": str(tmp_path),
         "BROWSER_USE_GATEWAY_URL": "http://127.0.0.1:3009",
     })
 

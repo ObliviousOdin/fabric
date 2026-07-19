@@ -13,7 +13,7 @@ which would be a real regression for users on the existing config keys.
 
 Run from the PR worktree:
 
-    cd ~/.hermes/fabric-agent/.worktrees/browser-providers-plugin
+    cd ~/.fabric/fabric-agent/.worktrees/browser-providers-plugin
     python tests/plugins/browser/check_parity_vs_main.py
 """
 from __future__ import annotations
@@ -29,8 +29,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 # Pin one path to current main, one to the PR worktree.
 # ``REPO_ROOT`` is ``.../.worktrees/browser-providers-plugin``; the main
-# checkout lives two levels up at ``~/.hermes/fabric-agent``.
-MAIN_DIR = REPO_ROOT.parent.parent  # ~/.hermes/fabric-agent
+# checkout lives two levels up at ``~/.fabric/fabric-agent``.
+MAIN_DIR = REPO_ROOT.parent.parent  # ~/.fabric/fabric-agent
 PR_DIR = REPO_ROOT  # the worktree we're in
 assert (MAIN_DIR / "tools" / "browser_tool.py").exists(), (
     f"MAIN_DIR={MAIN_DIR} doesn't look like a fabric-agent checkout"
@@ -46,9 +46,9 @@ SUBPROCESS_SCRIPT = r"""
 import json, os, sys, tempfile
 sys.path.insert(0, sys.argv[1])
 
-# Isolated HERMES_HOME for the config write.
+# Isolated FABRIC_HOME for the config write.
 home = tempfile.mkdtemp()
-os.environ["HERMES_HOME"] = home
+os.environ["FABRIC_HOME"] = home
 
 # Clear every browser-related env var so is_available() is deterministic.
 for k in (

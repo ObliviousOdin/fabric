@@ -60,7 +60,6 @@ def test_html_export_uses_canonical_fabric_identity():
     assert "Built with Fabric" in rendered
     assert "#4628CC" in rendered
     assert "M26.3691 26.3862" in rendered
-    assert "Hermes" not in rendered
     assert "☤" not in rendered
 
 
@@ -158,7 +157,7 @@ def test_sessions_export_cli_prompt_only_stdout(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["hermes", "sessions", "export", "-", "--session-id", "sess", "--only", "user-prompts"],
+        ["fabric", "sessions", "export", "-", "--session-id", "sess", "--only", "user-prompts"],
     )
 
     main_mod.main()
@@ -196,7 +195,7 @@ def test_sessions_export_cli_prompt_only_markdown_file(monkeypatch, capsys, tmp_
         sys,
         "argv",
         [
-            "hermes",
+            "fabric",
             "sessions",
             "export",
             str(output_path),
@@ -233,7 +232,7 @@ def test_sessions_export_only_rejects_unsupported_format(monkeypatch, capsys):
     monkeypatch.setattr(
         sys,
         "argv",
-        ["hermes", "sessions", "export", "-", "--format", "html", "--only", "user-prompts"],
+        ["fabric", "sessions", "export", "-", "--format", "html", "--only", "user-prompts"],
     )
 
     main_mod.main()

@@ -1,9 +1,9 @@
-"""Regression guard for #15000: --resume <id> after compression loses messages.
+"""Regression guard for #15000: ``--resume <id>`` after compression loses messages.
 
 Context compression ends the current session and forks a new child session
 (linked by ``parent_session_id``). The SQLite flush cursor is reset, so
 only the latest descendant ends up with rows in the ``messages`` table —
-the parent row has ``message_count = 0``. ``hermes --resume <parent_id>``
+the parent row has ``message_count = 0``. ``fabric --resume <parent_id>``
 used to load zero rows and show a blank chat.
 
 ``SessionDB.resolve_resume_session_id()`` walks the parent → child chain
@@ -214,4 +214,3 @@ def test_compression_tip_handles_pre_ended_real_child_and_ws_orphan_sibling(db):
     assert "live_tip" in ids
     assert "real_cont" not in ids
     assert "ws_orphan" not in ids
-

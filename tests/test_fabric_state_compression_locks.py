@@ -1,4 +1,4 @@
-"""Tests for ``SessionDB`` compression-lock primitives.
+"""Tests for Fabric ``SessionDB`` compression-lock primitives.
 
 These cover the atomic per-session lock that prevents two compression
 paths from racing on the same ``session_id`` and producing orphan child

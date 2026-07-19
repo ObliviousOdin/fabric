@@ -191,7 +191,6 @@ def test_switch_model_opt_in_turns_preflight_failure_into_noop(monkeypatch):
     )
     monkeypatch.setattr(model_switch, "get_model_capabilities", lambda *_a, **_k: None)
     monkeypatch.setattr(model_switch, "get_model_info", lambda *_a, **_k: None)
-    monkeypatch.setattr(model_switch, "_check_hermes_model_warning", lambda _m: None)
     calls = []
     monkeypatch.setattr(
         model_switch,
@@ -242,7 +241,6 @@ def test_switch_model_default_keeps_inventory_and_legacy_callers_probe_free(
     )
     monkeypatch.setattr(model_switch, "get_model_capabilities", lambda *_a, **_k: None)
     monkeypatch.setattr(model_switch, "get_model_info", lambda *_a, **_k: None)
-    monkeypatch.setattr(model_switch, "_check_hermes_model_warning", lambda _m: None)
     monkeypatch.setattr(
         model_switch,
         "_preflight_ollama_selection",

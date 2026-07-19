@@ -3,7 +3,7 @@
 cli.py's load_cli_config() builds config separately from
 fabric_cli.config._load_config_impl, so the managed-scope merge has to be
 applied in BOTH places or the interactive CLI/TUI surface (skin, display prefs)
-silently ignores administrator-pinned values while `hermes config`/`doctor`
+silently ignores administrator-pinned values while `fabric config`/`doctor`
 honor them. This locks the cli.py path.
 """
 import importlib
@@ -17,8 +17,8 @@ def homes(tmp_path, monkeypatch):
     home.mkdir()
     managed = tmp_path / "managed"
     managed.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(managed))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(managed))
     import fabric_cli.config as cfg
     from fabric_cli import managed_scope
 
@@ -32,10 +32,10 @@ def _load_cli_config(home):
     """Call cli.py's standalone loader fresh.
 
     cli.py binds ``_fabric_home = get_fabric_home()`` at import time (module
-    singleton), so monkeypatching HERMES_HOME after import doesn't move it.
+    singleton), so monkeypatching FABRIC_HOME after import doesn't move it.
     Point the module's cached home at the test's home for the duration of the
     call. (In real use cli is imported once per process with the real home, so
-    this only matters for tests that swap HERMES_HOME.)
+    this only matters for tests that swap FABRIC_HOME.)
     """
     import cli
 

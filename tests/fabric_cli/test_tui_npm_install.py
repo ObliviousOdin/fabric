@@ -15,7 +15,7 @@ def main_mod():
 
 
 def _touch_ink(root: Path) -> None:
-    ink = root / "node_modules" / "@hermes" / "ink" / "package.json"
+    ink = root / "node_modules" / "@fabric" / "ink" / "package.json"
     ink.parent.mkdir(parents=True, exist_ok=True)
     ink.write_text("{}")
 
@@ -331,7 +331,7 @@ def test_make_tui_argv_exits_with_recovery_hint_when_workspace_unrecoverable(
     tmp_path: Path, main_mod, monkeypatch, capsys
 ) -> None:
     """Missing ui-tui + no git checkout → clean error, never touches node/npm."""
-    monkeypatch.delenv("HERMES_TUI_DIR", raising=False)
+    monkeypatch.delenv("FABRIC_TUI_DIR", raising=False)
     monkeypatch.setattr(main_mod, "_ensure_tui_node", lambda: None)
 
     # No .git beside ui-tui → _restore_tui_workspace bails, fallback message fires.
@@ -356,8 +356,7 @@ def test_make_tui_argv_restores_missing_workspace_from_git(
     tmp_path: Path, main_mod, monkeypatch, capsys
 ) -> None:
     """Missing ui-tui in a git checkout self-heals via `git restore` and continues."""
-    monkeypatch.delenv("HERMES_TUI_DIR", raising=False)
-    monkeypatch.delenv("HERMES_QUIET", raising=False)
+    monkeypatch.delenv("FABRIC_TUI_DIR", raising=False)
     monkeypatch.setattr(main_mod, "_ensure_tui_node", lambda: None)
 
     tui_dir = tmp_path / "ui-tui"

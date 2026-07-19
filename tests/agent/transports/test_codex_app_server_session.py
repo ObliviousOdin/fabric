@@ -136,6 +136,18 @@ class TestTurnInputCoercion:
         assert text == "caption\n\n[image attached]"
 
 
+class TestPermissionProfile:
+    def test_defaults_to_workspace_write(self):
+        session = make_session(FakeClient())
+
+        assert session._permission_profile == "workspace-write"
+
+    def test_explicit_profile_wins(self):
+        session = make_session(FakeClient(), permission_profile="full-access")
+
+        assert session._permission_profile == "full-access"
+
+
 # ---- lifecycle ----
 
 class TestLifecycle:
@@ -622,15 +634,15 @@ class TestServerRequestRouting:
             for (rid, code, _msg) in client.error_responses
         )
 
-    def test_mcp_elicitation_for_hermes_tools_auto_accepts(self):
-        """When codex elicits on behalf of hermes-tools (our own callback),
+    def test_mcp_elicitation_for_fabric_tools_auto_accepts(self):
+        """When codex elicits on behalf of fabric-tools (our own callback),
         accept automatically — the user already opted in by enabling the
         runtime."""
         client = FakeClient()
         client.queue_server_request(
             "mcpServer/elicitation/request", request_id="elic-1",
             threadId="t", turnId="tu1",
-            serverName="hermes-tools",
+            serverName="fabric-tools",
             mode="form",
             message="confirm",
             requestedSchema={"type": "object", "properties": {}},

@@ -25,7 +25,7 @@ from agent.trace_upload import (
 
 def _sample_messages():
     return [
-        {"role": "system", "content": "you are hermes"},
+        {"role": "system", "content": "test system prompt"},
         {"role": "user", "content": "list files"},
         {"role": "assistant", "content": "Listing.", "tool_calls": [
             {"id": "call_1", "function": {"name": "terminal", "arguments": '{"command": "ls"}'}},
@@ -247,7 +247,7 @@ def test_do_upload_missing_huggingface_hub(monkeypatch):
     """If huggingface_hub import fails, return a clear install hint."""
     # Disable lazy-install so the import path deterministically fails here
     # instead of attempting a real pip install in CI.
-    monkeypatch.setenv("HERMES_DISABLE_LAZY_INSTALLS", "1")
+    monkeypatch.setenv("FABRIC_DISABLE_LAZY_INSTALLS", "1")
     import builtins
     real_import = builtins.__import__
 

@@ -1,7 +1,7 @@
 """Tests for cold-start credits hydration at session open.
 
-The L3 cold-start seed primes agent._credits_state from /api/oauth/account (or a
-HERMES_DEV_CREDITS_FIXTURE) so depletion AND the 90% grant warning fire immediately
+The cold-start seed primes agent._credits_state from /api/oauth/account so
+depletion and the 90% grant warning fire immediately
 at session open, not only after the first inference header. These tests assert the
 notice policy fires correctly for a seed-shaped CreditsState with the warn90 latch
 primed the way conversation_loop does it.
@@ -101,29 +101,6 @@ def test_cold_start_no_cap_degrades_to_depletion_only():
     assert _cold_start_notices(healthy_no_cap) == []
 
 
-def test_dev_fixtures_drive_cold_start():
-    """Every HERMES_DEV_CREDITS_FIXTURE state produces a valid seed CreditsState."""
-    import os
-
-    from agent.credits_tracker import dev_fixture_credits_state
-
-    expected = {
-        "healthy": [],
-        "sub_90pct": ["credits.usage"],
-        "depleted": ["credits.depleted"],
-    }
-    for name, want in expected.items():
-        os.environ["HERMES_DEV_CREDITS"] = "1"  # fixtures gate on the dev flag
-        os.environ["HERMES_DEV_CREDITS_FIXTURE"] = name
-        try:
-            fx = dev_fixture_credits_state()
-            assert fx is not None, name
-            assert _cold_start_notices(fx) == want, (name, _cold_start_notices(fx))
-        finally:
-            os.environ.pop("HERMES_DEV_CREDITS_FIXTURE", None)
-            os.environ.pop("HERMES_DEV_CREDITS", None)
-
-
 # ── seed_credits_at_session_start: the shared session-open hydrator ───────────
 
 
@@ -153,56 +130,6 @@ class _FakeAgent:
             model_is_free=self._is_free(self.model),
         )
         self.emitted.append(([n.key for n in show], clear))
-
-
-def _seed(agent, fixture):
-    import os
-
-    from agent.credits_tracker import seed_credits_at_session_start
-
-    os.environ["HERMES_DEV_CREDITS"] = "1"  # fixtures gate on the dev flag
-    os.environ["HERMES_DEV_CREDITS_FIXTURE"] = fixture
-    try:
-        return seed_credits_at_session_start(agent)
-    finally:
-        os.environ.pop("HERMES_DEV_CREDITS_FIXTURE", None)
-        os.environ.pop("HERMES_DEV_CREDITS", None)
-
-
-def test_seed_fires_usage_band_at_session_open():
-    a = _FakeAgent()
-    assert _seed(a, "sub_90pct") is True
-    assert a._credits_state is not None
-    assert a.emitted == [(["credits.usage"], [])]
-
-
-def test_seed_fires_depleted_at_session_open():
-    a = _FakeAgent()
-    assert _seed(a, "depleted") is True
-    assert a.emitted == [(["credits.depleted"], [])]
-
-
-def test_seed_depleted_suppressed_on_free_model():
-    """A session that opens depleted but on a Nous ``:free`` model must NOT show
-    the depleted banner — inference works fine on the free tier."""
-    a = _FakeAgent(model="nvidia/nemotron-3-ultra:free")
-    assert _seed(a, "depleted") is True
-    assert a.emitted == [([], [])]
-
-
-def test_seed_healthy_no_notice():
-    a = _FakeAgent()
-    assert _seed(a, "healthy") is True
-    assert a.emitted == [([], [])]
-
-
-def test_seed_is_idempotent():
-    a = _FakeAgent()
-    _seed(a, "sub_90pct")
-    a.emitted = []
-    # second call must no-op (state already populated)
-    assert _seed(a, "sub_90pct") is False
-    assert a.emitted == []
 
 
 def test_seed_skips_non_nous():

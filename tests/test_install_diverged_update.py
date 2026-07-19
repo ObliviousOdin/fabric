@@ -1,6 +1,6 @@
 """Regression: installer/bootstrap must recover from diverged managed clones.
 
-When ``~/.hermes/fabric-agent`` has local-only commits (or diverged history),
+When ``~/.fabric/fabric-agent`` has local-only commits (or diverged history),
 ``git pull --ff-only`` fails with exit 128 and bootstrap aborts at the
 repository stage. ``fabric update`` already resets to ``origin/$BRANCH`` in
 that case; both installer scripts must do the same.

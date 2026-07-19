@@ -1,4 +1,4 @@
-"""Tests for ``hermes gui`` desktop launcher wiring."""
+"""Tests for ``fabric desktop`` launcher wiring."""
 
 from __future__ import annotations
 
@@ -19,13 +19,16 @@ def _ns(**kw):
         build_only=False,
         force_build=False,
         source=False,
-        fake_boot=False,
         ignore_existing=False,
-        hermes_root=None,
+        fabric_root=None,
         cwd=None,
     )
     defaults.update(kw)
     return argparse.Namespace(**defaults)
+
+
+def _workspace_switch(cwd: Path | None = None) -> str:
+    return f"--workspace-cwd={cwd or Path.cwd()}"
 
 
 def _make_desktop_tree(tmp_path: Path) -> Path:
@@ -40,11 +43,11 @@ def _make_packaged_executable(root: Path, monkeypatch, platform: str = "darwin")
     monkeypatch.setattr(cli_main.sys, "platform", platform)
     desktop_dir = root / "apps" / "desktop"
     if platform == "darwin":
-        exe = desktop_dir / "release" / "mac-arm64" / "Hermes.app" / "Contents" / "MacOS" / "Hermes"
+        exe = desktop_dir / "release" / "mac-arm64" / "Fabric.app" / "Contents" / "MacOS" / "Fabric"
     elif platform == "win32":
-        exe = desktop_dir / "release" / "win-unpacked" / "Hermes.exe"
+        exe = desktop_dir / "release" / "win-unpacked" / "Fabric.exe"
     else:
-        exe = desktop_dir / "release" / "linux-unpacked" / "hermes"
+        exe = desktop_dir / "release" / "linux-unpacked" / "Fabric"
     exe.parent.mkdir(parents=True)
     exe.write_text("", encoding="utf-8")
     return exe
@@ -53,7 +56,6 @@ def _make_packaged_executable(root: Path, monkeypatch, platform: str = "darwin")
 @pytest.mark.parametrize(
     ("platform", "relative_path"),
     [
-        ("darwin", "mac-arm64/Fabric.app/Contents/MacOS/Fabric"),
         ("darwin", "mac-arm64/Fabric.app/Contents/MacOS/Fabric"),
         ("win32", "win-unpacked/Fabric.exe"),
         ("linux", "linux-unpacked/Fabric"),
@@ -69,34 +71,6 @@ def test_desktop_packaged_executable_discovers_fabric_builds(
     monkeypatch.setattr(cli_main.sys, "platform", platform)
 
     assert cli_main._desktop_packaged_executable(desktop_dir) == executable
-
-
-@pytest.mark.parametrize(
-    ("platform", "fabric_path", "legacy_path"),
-    [
-        (
-            "darwin",
-            "mac-arm64/Fabric.app/Contents/MacOS/Fabric",
-            "mac/Hermes.app/Contents/MacOS/Hermes",
-        ),
-        ("win32", "win-unpacked/Fabric.exe", "win-arm64-unpacked/Hermes.exe"),
-        ("linux", "linux-unpacked/Fabric", "linux-arm64-unpacked/hermes"),
-    ],
-)
-def test_desktop_packaged_executable_prefers_fabric_over_newer_legacy_build(
-    tmp_path, monkeypatch, platform, fabric_path, legacy_path
-):
-    desktop_dir = tmp_path / "desktop"
-    fabric = desktop_dir / "release" / fabric_path
-    legacy = desktop_dir / "release" / legacy_path
-    for path in (fabric, legacy):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("", encoding="utf-8")
-    fabric.touch()
-    legacy.touch()
-    monkeypatch.setattr(cli_main.sys, "platform", platform)
-
-    assert cli_main._desktop_packaged_executable(desktop_dir) == fabric
 
 
 def test_gui_installs_packages_and_launches_desktop_app(tmp_path, monkeypatch):
@@ -122,18 +96,21 @@ def test_gui_installs_packages_and_launches_desktop_app(tmp_path, monkeypatch):
     mock_install.assert_called_once_with("/usr/bin/npm", root, capture_output=False, env=None)
     assert mock_run.call_args_list[0].args[0] == ["/usr/bin/npm", "run", "pack"]
     assert mock_run.call_args_list[0].kwargs["cwd"] == desktop_dir
-    assert mock_run.call_args_list[1].args[0] == [str(packaged_exe)]
+    assert mock_run.call_args_list[1].args[0] == [
+        str(packaged_exe),
+        _workspace_switch(),
+    ]
     assert mock_run.call_args_list[1].kwargs["cwd"] == desktop_dir
 
 
-def test_gui_forwards_desktop_environment_overrides(tmp_path, monkeypatch):
+def test_gui_forwards_desktop_launch_contract(tmp_path, monkeypatch):
     root = _make_desktop_tree(tmp_path)
-    hermes_root = tmp_path / "custom-hermes"
+    fabric_root = tmp_path / "custom-fabric"
     cwd = tmp_path / "project"
-    hermes_root.mkdir()
+    fabric_root.mkdir()
     cwd.mkdir()
     monkeypatch.setattr(cli_main, "PROJECT_ROOT", root)
-    _make_packaged_executable(root, monkeypatch)
+    packaged_exe = _make_packaged_executable(root, monkeypatch)
 
     ok = subprocess.CompletedProcess([], 0)
 
@@ -145,17 +122,18 @@ def test_gui_forwards_desktop_environment_overrides(tmp_path, monkeypatch):
          patch("fabric_cli.main.subprocess.run", side_effect=[ok, ok]) as mock_run, \
          pytest.raises(SystemExit):
         cli_main.cmd_gui(_ns(
-            fake_boot=True,
             ignore_existing=True,
-            hermes_root=str(hermes_root),
+            fabric_root=str(fabric_root),
             cwd=str(cwd),
         ))
 
     launch_env = mock_run.call_args_list[1].kwargs["env"]
-    assert launch_env["HERMES_DESKTOP_BOOT_FAKE"] == "1"
-    assert launch_env["HERMES_DESKTOP_IGNORE_EXISTING"] == "1"
-    assert launch_env["HERMES_DESKTOP_HERMES_ROOT"] == str(hermes_root)
-    assert launch_env["HERMES_DESKTOP_CWD"] == str(cwd)
+    assert launch_env["FABRIC_DESKTOP_ROOT"] == str(fabric_root)
+    assert mock_run.call_args_list[1].args[0] == [
+        str(packaged_exe),
+        _workspace_switch(cwd),
+        "--ignore-existing",
+    ]
 
 
 def test_gui_exits_when_npm_missing(tmp_path, monkeypatch, capsys):
@@ -199,7 +177,7 @@ def test_gui_skip_build_launches_existing_packaged_app_without_npm(tmp_path, mon
     assert exc.value.code == 0
     mock_install.assert_not_called()
     mock_run.assert_called_once()
-    assert mock_run.call_args.args[0] == [str(packaged_exe)]
+    assert mock_run.call_args.args[0] == [str(packaged_exe), _workspace_switch()]
 
 
 def test_gui_linux_configures_sandbox_before_launch(tmp_path, monkeypatch):
@@ -219,7 +197,7 @@ def test_gui_linux_configures_sandbox_before_launch(tmp_path, monkeypatch):
     assert exc.value.code == 0
     assert mock_run.call_args_list[0].args[0] == ["/usr/bin/sudo", "chown", "root:root", str(sandbox)]
     assert mock_run.call_args_list[1].args[0] == ["/usr/bin/sudo", "chmod", "4755", str(sandbox)]
-    assert mock_run.call_args_list[2].args[0] == [str(packaged_exe)]
+    assert mock_run.call_args_list[2].args[0] == [str(packaged_exe), _workspace_switch()]
 
 
 def test_gui_linux_rejects_symlink_sandbox(tmp_path, monkeypatch):
@@ -268,7 +246,7 @@ def test_gui_linux_skips_fixup_when_already_configured(tmp_path, monkeypatch):
     assert exc.value.code == 0
     # Only the launch call — no sudo chown/chmod
     mock_run.assert_called_once()
-    assert mock_run.call_args.args[0] == [str(packaged_exe)]
+    assert mock_run.call_args.args[0] == [str(packaged_exe), _workspace_switch()]
 
 
 def test_gui_linux_falls_back_to_no_sandbox_when_userns_is_restricted(tmp_path, monkeypatch):
@@ -288,7 +266,11 @@ def test_gui_linux_falls_back_to_no_sandbox_when_userns_is_restricted(tmp_path, 
 
     assert exc.value.code == 0
     mock_run.assert_called_once()
-    assert mock_run.call_args.args[0] == [str(packaged_exe), "--no-sandbox"]
+    assert mock_run.call_args.args[0] == [
+        str(packaged_exe),
+        _workspace_switch(),
+        "--no-sandbox",
+    ]
 
 
 def test_gui_linux_exits_when_sandbox_fixup_fails_without_safe_fallback(tmp_path, monkeypatch):
@@ -326,15 +308,22 @@ def test_gui_source_mode_uses_renderer_build_and_electron(tmp_path, monkeypatch)
     assert exc.value.code == 0
     assert mock_run.call_args_list[0].args[0] == ["/usr/bin/npm", "run", "build"]
     assert mock_run.call_args_list[0].kwargs["cwd"] == desktop_dir
-    assert mock_run.call_args_list[1].args[0] == ["/usr/bin/npm", "exec", "--", "electron", "."]
+    assert mock_run.call_args_list[1].args[0] == [
+        "/usr/bin/npm",
+        "exec",
+        "--",
+        "electron",
+        ".",
+        _workspace_switch(),
+    ]
     assert mock_run.call_args_list[1].kwargs["cwd"] == desktop_dir
 
 
 @pytest.mark.parametrize(
     "argv",
     [
-        ["hermes", "gui"],
-        ["hermes", "-m", "gpt5", "gui"],
+        ["fabric", "gui"],
+        ["fabric", "-m", "gpt5", "gui"],
     ],
 )
 def test_gui_is_known_builtin_for_plugin_gating(argv):
@@ -397,7 +386,7 @@ def test_compute_desktop_content_hash_stable(tmp_path, monkeypatch):
     """_compute_desktop_content_hash returns the same digest for identical trees."""
     root = _make_desktop_tree(tmp_path)
     (root / "apps" / "desktop" / "main.js").write_text("console.log('hi')", encoding="utf-8")
-    (root / "package.json").write_text('{"name":"hermes"}', encoding="utf-8")
+    (root / "package.json").write_text('{"name":"fabric"}', encoding="utf-8")
     (root / "package-lock.json").write_text('{}', encoding="utf-8")
     monkeypatch.setattr(cli_main, "PROJECT_ROOT", root)
 
@@ -561,7 +550,7 @@ def test_gui_retries_pack_once_after_purging_build_cache(tmp_path, monkeypatch):
     # signature the cache purge + retry exist for (#40187). Only the successful
     # retry produces it (via the side_effect below).
     monkeypatch.setattr(cli_main.sys, "platform", "linux")
-    packaged_exe = root / "apps" / "desktop" / "release" / "linux-unpacked" / "hermes"
+    packaged_exe = root / "apps" / "desktop" / "release" / "linux-unpacked" / "Fabric"
 
     install_ok = subprocess.CompletedProcess(["npm", "ci"], 0)
     pack_fail = subprocess.CompletedProcess(["npm", "run", "pack"], 1)
@@ -599,7 +588,7 @@ def test_gui_retries_pack_once_after_purging_build_cache(tmp_path, monkeypatch):
     assert mock_run.call_count == 3
     assert mock_run.call_args_list[0].args[0] == ["/usr/bin/npm", "run", "pack"]
     assert mock_run.call_args_list[1].args[0] == ["/usr/bin/npm", "run", "pack"]
-    assert mock_run.call_args_list[2].args[0] == [str(packaged_exe)]
+    assert mock_run.call_args_list[2].args[0] == [str(packaged_exe), _workspace_switch()]
 
 
 def test_gui_redownloads_electron_via_mirror_then_repacks(tmp_path, monkeypatch, capsys):
@@ -758,7 +747,7 @@ def test_gui_does_not_retry_after_packaged_executable_exists(tmp_path, monkeypat
     Electron-download problem the cache purge + mirror retries exist to repair.
 
     Regression for #40187: a late failure such as macOS code signing leaves
-    Hermes.app/Contents/MacOS/Hermes in place. Re-downloading Electron can't
+    Fabric.app/Contents/MacOS/Fabric in place. Re-downloading Electron can't
     repair a signing failure, so the destructive purge + slow mirror retry must
     be skipped — we fail directly instead of grinding through an identical retry.
     """
@@ -964,7 +953,7 @@ class _FakeProc:
 def test_stop_desktop_build_lock_noop_off_windows(tmp_path, monkeypatch):
     """POSIX can unlink a running binary, so the helper is a no-op there."""
     desktop_dir = tmp_path / "apps" / "desktop"
-    exe = desktop_dir / "release" / "linux-unpacked" / "hermes"
+    exe = desktop_dir / "release" / "linux-unpacked" / "Fabric"
     exe.parent.mkdir(parents=True)
     exe.write_text("", encoding="utf-8")
     monkeypatch.setattr(cli_main.sys, "platform", "linux")
@@ -980,9 +969,9 @@ def test_stop_desktop_build_lock_terminates_only_release_procs(tmp_path, monkeyp
     desktop_dir = tmp_path / "apps" / "desktop"
     release = desktop_dir / "release" / "win-unpacked"
     release.mkdir(parents=True)
-    locker_exe = release / "Hermes.exe"
+    locker_exe = release / "Fabric.exe"
     locker_exe.write_text("", encoding="utf-8")
-    other_exe = tmp_path / "elsewhere" / "Hermes.exe"
+    other_exe = tmp_path / "elsewhere" / "Fabric.exe"
     other_exe.parent.mkdir(parents=True)
     other_exe.write_text("", encoding="utf-8")
 
@@ -1062,46 +1051,43 @@ def test_force_adhoc_signing_respects_explicit_caller_flag(monkeypatch):
 
 def test_desktop_launch_options_defaults_when_no_config():
     with patch("fabric_cli.config.load_config", return_value={}):
-        flags, gpu = cli_main._desktop_launch_options()
+        flags = cli_main._desktop_launch_options()
     assert flags == []
-    assert gpu == "auto"
 
 
 def test_desktop_launch_options_reads_flags_list():
     cfg = {"desktop": {"electron_flags": ["--ozone-platform=x11", "--disable-gpu"]}}
     with patch("fabric_cli.config.load_config", return_value=cfg):
-        flags, gpu = cli_main._desktop_launch_options()
+        flags = cli_main._desktop_launch_options()
     assert flags == ["--ozone-platform=x11", "--disable-gpu"]
-    assert gpu == "auto"
 
 
 def test_desktop_launch_options_splits_flag_string():
     cfg = {"desktop": {"electron_flags": "--ozone-platform=x11 --disable-gpu"}}
     with patch("fabric_cli.config.load_config", return_value=cfg):
-        flags, _ = cli_main._desktop_launch_options()
+        flags = cli_main._desktop_launch_options()
     assert flags == ["--ozone-platform=x11", "--disable-gpu"]
 
 
 @pytest.mark.parametrize(
-    "raw,expected",
+    "raw,expected_flag",
     [
-        (True, "1"),
-        (False, "0"),
-        ("true", "1"),
-        ("off", "0"),
-        ("auto", "auto"),
-        ("garbage", "auto"),
+        (True, "--disable-gpu"),
+        (False, "--fabric-force-gpu"),
+        ("true", "--disable-gpu"),
+        ("off", "--fabric-force-gpu"),
+        ("auto", None),
+        ("garbage", None),
     ],
 )
-def test_desktop_launch_options_normalizes_disable_gpu(raw, expected):
+def test_desktop_launch_options_translates_disable_gpu(raw, expected_flag):
     cfg = {"desktop": {"disable_gpu": raw}}
     with patch("fabric_cli.config.load_config", return_value=cfg):
-        _, gpu = cli_main._desktop_launch_options()
-    assert gpu == expected
+        flags = cli_main._desktop_launch_options()
+    assert flags == ([] if expected_flag is None else [expected_flag])
 
 
 def test_desktop_launch_options_survives_config_error():
     with patch("fabric_cli.config.load_config", side_effect=RuntimeError("boom")):
-        flags, gpu = cli_main._desktop_launch_options()
+        flags = cli_main._desktop_launch_options()
     assert flags == []
-    assert gpu == "auto"

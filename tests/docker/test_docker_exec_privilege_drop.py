@@ -1,20 +1,18 @@
 """Regression tests for the Fabric docker-exec privilege-drop shim.
 
-The shim (docker/fabric-exec-shim.sh, installed at /opt/hermes/bin/fabric)
-exists to prevent the auth.json ownership-mismatch bug where
-`docker exec <c> fabric login` would write /opt/data/auth.json as
-root:root mode 0600, leaving the supervised gateway (UID 10000) unable
-to read its own credentials.
+The shim (docker/fabric-exec-shim.sh, installed at /opt/fabric/bin/fabric)
+prevents state written through a root-owned ``docker exec`` process from
+becoming unreadable to the supervised gateway (UID 10000).
 
 These tests verify:
 
 1. ``docker exec <c> fabric …`` (defaulting to root) gets dropped to the
    service user before the real binary runs.
-2. ``docker exec --user hermes <c> fabric …`` (already non-root) short-
+2. ``docker exec --user fabric <c> fabric …`` (already non-root) short-
    circuits and doesn't try to drop again.
-3. Files written under $HERMES_HOME from a ``docker exec`` session land
-   as hermes:hermes — the actual user-visible invariant.
-4. The HERMES_DOCKER_EXEC_AS_ROOT opt-out lets diagnostic sessions keep
+3. Files written under $FABRIC_HOME from a ``docker exec`` session land
+   as fabric:fabric — the actual user-visible invariant.
+4. The FABRIC_DOCKER_EXEC_AS_ROOT opt-out lets diagnostic sessions keep
    running as root deliberately.
 5. The main CMD path (``docker run <image> …``) is unaffected by the
    PATH-shim ordering — no recursion, no behavior change.
@@ -42,19 +40,19 @@ def _wait_for_cont_init(container: str) -> None:
 
     The earlier ``_wait_for_init`` only polled ``docker exec <c> true``,
     which succeeds almost immediately on s6-overlay — long before the
-    ``01-hermes-setup`` cont-init hook (docker/stage2-hook.sh) has
-    finished seeding + ``chown hermes:hermes`` config.yaml and running the
+    ``01-fabric-setup`` cont-init hook (docker/stage2-hook.sh) has
+    finished seeding + ``chown fabric:fabric`` config.yaml and running the
     Python config migration. A test that wipes config.yaml and then writes
     it as root would then race that boot-time chown: on native amd64
     stage2-hook wins in a blink and the test always passed, but under arm64
     QEMU emulation the slow Python migration was still in flight and
-    clobbered the root-written file's ownership back to hermes:hermes,
+    clobbered the root-written file's ownership back to fabric:fabric,
     failing ``test_shim_opt_out_keeps_root`` non-deterministically.
 
     The reliable "cont-init is done" signal is
-    ``$HERMES_HOME/logs/container-boot.log``: it is written by
+    ``$FABRIC_HOME/logs/container-boot.log``: it is written by
     ``02-reconcile-profiles`` (fabric_cli.container_boot), which s6 runs
-    *strictly after* ``01-hermes-setup`` in lexicographic order. The
+    *strictly after* ``01-fabric-setup`` in lexicographic order. The
     reconciler always logs at least one ``profile=default`` line even for a
     bare ``sleep infinity`` container, so once that marker appears every
     stage2-hook side effect (seed, chown, migrate) is guaranteed complete.
@@ -102,7 +100,7 @@ def sleep_container(built_image: str, container_name: str) -> Iterator[str]:
         )
 
 
-def test_shim_drops_root_to_hermes_uid(sleep_container: str) -> None:
+def test_shim_drops_root_to_fabric_uid(sleep_container: str) -> None:
     """docker exec defaults to root; the shim should drop to uid 10000.
 
     We invoke `fabric` with a Python-style `-c` shim equivalent — there's no
@@ -132,21 +130,21 @@ def test_shim_drops_root_to_hermes_uid(sleep_container: str) -> None:
     )
     assert r.returncode == 0, f"config set failed: stdout={r.stdout!r} stderr={r.stderr!r}"
 
-    # The written file must be owned by hermes, not root.
+    # The written file must be owned by fabric, not root.
     r = subprocess.run(
         ["docker", "exec", sleep_container,
          "stat", "-c", "%U:%G", "/opt/data/config.yaml"],
         capture_output=True, text=True, timeout=10,
     )
     assert r.returncode == 0, f"stat failed: {r.stderr}"
-    assert r.stdout.strip() == "hermes:hermes", (
-        f"config.yaml owned by {r.stdout.strip()!r}, expected hermes:hermes. "
+    assert r.stdout.strip() == "fabric:fabric", (
+        f"config.yaml owned by {r.stdout.strip()!r}, expected fabric:fabric. "
         "The shim did not drop privileges before invoking Fabric."
     )
 
 
 def test_shim_short_circuits_for_non_root_exec(sleep_container: str) -> None:
-    """docker exec --user hermes already runs as 10000; shim should be a no-op.
+    """docker exec --user fabric already runs as 10000; shim should be a no-op.
 
     Verified indirectly: the command must still succeed end-to-end. If the
     shim incorrectly tried to drop privileges a second time (e.g. by
@@ -160,26 +158,26 @@ def test_shim_short_circuits_for_non_root_exec(sleep_container: str) -> None:
     )
 
     r = subprocess.run(
-        ["docker", "exec", "--user", "hermes", sleep_container,
+        ["docker", "exec", "--user", "fabric", sleep_container,
          "fabric", "config", "set", "_test.shim_short_circuit", "1"],
         capture_output=True, text=True, timeout=30,
     )
     assert r.returncode == 0, (
-        f"docker exec --user hermes failed: {r.stderr!r} stdout={r.stdout!r}. "
+        f"docker exec --user fabric failed: {r.stderr!r} stdout={r.stdout!r}. "
         "If the shim mis-handled the non-root path, this would fail with EPERM."
     )
 
-    # File still ends up hermes:hermes — orthogonally confirms uid.
+    # File still ends up fabric:fabric — orthogonally confirms uid.
     r = subprocess.run(
         ["docker", "exec", sleep_container,
          "stat", "-c", "%U:%G", "/opt/data/config.yaml"],
         capture_output=True, text=True, timeout=10,
     )
-    assert r.stdout.strip() == "hermes:hermes"
+    assert r.stdout.strip() == "fabric:fabric"
 
 
 def test_shim_opt_out_keeps_root(sleep_container: str) -> None:
-    """HERMES_DOCKER_EXEC_AS_ROOT=1 should suppress the privilege drop.
+    """FABRIC_DOCKER_EXEC_AS_ROOT=1 should suppress the privilege drop.
 
     Reserved for diagnostic sessions where the operator deliberately
     wants root semantics. Verified by writing a file and checking its
@@ -193,7 +191,7 @@ def test_shim_opt_out_keeps_root(sleep_container: str) -> None:
 
     r = subprocess.run(
         ["docker", "exec",
-         "-e", "HERMES_DOCKER_EXEC_AS_ROOT=1",
+         "-e", "FABRIC_DOCKER_EXEC_AS_ROOT=1",
          sleep_container,
          "fabric", "config", "set", "_test.opt_out", "1"],
         capture_output=True, text=True, timeout=30,
@@ -206,7 +204,7 @@ def test_shim_opt_out_keeps_root(sleep_container: str) -> None:
         capture_output=True, text=True, timeout=10,
     )
     assert r.stdout.strip() == "root:root", (
-        f"With HERMES_DOCKER_EXEC_AS_ROOT=1, expected root:root, "
+        "With FABRIC_DOCKER_EXEC_AS_ROOT=1, expected root:root, "
         f"got {r.stdout.strip()!r}"
     )
 
@@ -217,9 +215,8 @@ def test_shim_opt_out_strict_truthiness(
 ) -> None:
     """Anything other than 1/true/yes (case-insensitive) does NOT opt out.
 
-    Strict truthiness so a typo (``HERMES_DOCKER_EXEC_AS_ROOT=0``) doesn't
-    silently keep the user as root. Mirrors the policy used by
-    ``HERMES_GATEWAY_NO_SUPERVISE`` in #33583.
+    Strict truthiness so a typo (``FABRIC_DOCKER_EXEC_AS_ROOT=0``) doesn't
+    silently keep the user as root.
     """
     subprocess.run(
         ["docker", "exec", "--user", "root", sleep_container,
@@ -229,7 +226,7 @@ def test_shim_opt_out_strict_truthiness(
 
     r = subprocess.run(
         ["docker", "exec",
-         "-e", f"HERMES_DOCKER_EXEC_AS_ROOT={falsy_value}",
+         "-e", f"FABRIC_DOCKER_EXEC_AS_ROOT={falsy_value}",
          sleep_container,
          "fabric", "config", "set", "_test.falsy", "1"],
         capture_output=True, text=True, timeout=30,
@@ -241,17 +238,17 @@ def test_shim_opt_out_strict_truthiness(
          "stat", "-c", "%U:%G", "/opt/data/config.yaml"],
         capture_output=True, text=True, timeout=10,
     )
-    assert r.stdout.strip() == "hermes:hermes", (
+    assert r.stdout.strip() == "fabric:fabric", (
         f"falsy opt-out value {falsy_value!r} unexpectedly suppressed the drop; "
-        f"file owner is {r.stdout.strip()!r}, expected hermes:hermes"
+        f"file owner is {r.stdout.strip()!r}, expected fabric:fabric"
     )
 
 
 def test_main_cmd_path_unaffected(built_image: str) -> None:
     """The CMD path (docker run <image> <args>) must still work.
 
-    The shim sits at /opt/hermes/bin earliest on PATH; main-wrapper.sh
-    invokes `s6-setuidgid hermes fabric <args>` which resolves `fabric`
+    The shim sits at /opt/fabric/bin earliest on PATH; main-wrapper.sh
+    invokes `s6-setuidgid fabric fabric <args>` which resolves `fabric`
     through PATH. With the shim in the way, this could regress if the
     shim recurses or interferes with TTY/exit-code propagation.
 
@@ -269,34 +266,12 @@ def test_main_cmd_path_unaffected(built_image: str) -> None:
     assert "Traceback" not in r.stderr
 
 
-def test_e2e_login_then_supervised_gateway_can_read_auth(
+def test_e2e_state_write_is_readable_by_supervised_gateway(
     sleep_container: str,
 ) -> None:
-    """End-to-end regression for the original bug.
-
-    Pre-shim: ``docker exec <c> fabric login`` (root) wrote
-    /opt/data/auth.json as root:root 0600. The supervised gateway (UID
-    10000) couldn't read it, _load_auth_store swallowed PermissionError
-    as a parse failure, and resolve_nous_runtime_credentials raised
-    "Hermes is not logged into Nous Portal" on every message.
-
-    We can't do a real OAuth login in a unit test, but we can stand in
-    for it by writing the same file shape via `fabric config set`-style
-    writes — what matters is the *file ownership invariant* downstream
-    of `_save_auth_store`. If the shim works, every file the
-    `docker exec` path produces is hermes-readable.
-
-    Specifically: pretend the operator ran `fabric login` (writes
-    auth.json) and verify (a) the file exists and (b) it's readable by
-    the hermes UID. We use `fabric auth list` since that touches the
-    auth store on the read side and would fail with the same
-    'not logged in' shape if the file was unreadable to uid 10000.
-    """
-    # Have the shim-protected `docker exec` write the auth store.
-    # `fabric auth list` is read-only but still exercises _load_auth_store
-    # under the shim's UID. We invoke `fabric config set` first to
-    # provoke a write into the agent home so we have something concrete to
-    # owner-check.
+    """State written through ``docker exec`` stays readable by Fabric."""
+    # Provoke a write into the agent home so the ownership invariant has a
+    # concrete file to check.
     r = subprocess.run(
         ["docker", "exec", sleep_container,
          "fabric", "config", "set", "_test.e2e_marker", "1"],
@@ -305,9 +280,9 @@ def test_e2e_login_then_supervised_gateway_can_read_auth(
     assert r.returncode == 0, f"config set failed: {r.stderr}"
 
     # The supervised UID (10000) must be able to read everything under
-    # HERMES_HOME that docker exec just wrote.
+    # FABRIC_HOME that docker exec just wrote.
     r = subprocess.run(
-        ["docker", "exec", "--user", "hermes", sleep_container,
+        ["docker", "exec", "--user", "fabric", sleep_container,
          "find", "/opt/data", "-maxdepth", "2", "-type", "f",
          "!", "-readable", "-print"],
         capture_output=True, text=True, timeout=15,
@@ -315,7 +290,7 @@ def test_e2e_login_then_supervised_gateway_can_read_auth(
     assert r.returncode == 0, f"find failed: {r.stderr}"
     unreadable = [ln for ln in r.stdout.splitlines() if ln.strip()]
     assert not unreadable, (
-        "Files written by `docker exec` are unreadable to the hermes user "
+        "Files written by `docker exec` are unreadable to the fabric user "
         f"(supervised gateway UID): {unreadable}. The shim failed to drop "
         "privileges before the write."
     )

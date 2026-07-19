@@ -10,7 +10,13 @@ Rules:
 _CWD_PLACEHOLDERS = (".", "auto", "cwd")
 
 
-def _resolve_cwd(terminal_config: dict, defaults: dict, env: dict):
+def _resolve_cwd(
+    terminal_config: dict,
+    defaults: dict,
+    env: dict,
+    *,
+    gateway_process: bool = False,
+):
     """Mirror the CWD resolution logic from cli.py load_cli_config()."""
     effective_backend = terminal_config.get("env_type", "local")
 
@@ -21,9 +27,8 @@ def _resolve_cwd(terminal_config: dict, defaults: dict, env: dict):
         terminal_config.pop("cwd", None)
 
     # Bridge: TERMINAL_CWD always exported in CLI, skipped in gateway
-    _is_gateway = env.get("_HERMES_GATEWAY") == "1"
     if "cwd" in terminal_config:
-        if _is_gateway:
+        if gateway_process:
             pass  # don't touch env
         else:
             env["TERMINAL_CWD"] = str(terminal_config["cwd"])
@@ -41,7 +46,7 @@ class TestLocalBackendCli:
         assert _resolve_cwd(tc, d, env) == "/fake/getcwd"
 
     def test_inherited_env_overwritten(self):
-        env = {"TERMINAL_CWD": "/parent/hermes"}
+        env = {"TERMINAL_CWD": "/parent/project"}
         tc = {"cwd": "/home/user", "env_type": "local"}
         d = {"terminal": {"cwd": "/home/user"}}
         assert _resolve_cwd(tc, d, env) == "/fake/getcwd"
@@ -85,10 +90,10 @@ class TestGatewayLazyImport:
     """Gateway lazy import of cli.py must not clobber TERMINAL_CWD."""
 
     def test_gateway_cwd_preserved(self):
-        env = {"_HERMES_GATEWAY": "1", "TERMINAL_CWD": "/home/user/project"}
+        env = {"TERMINAL_CWD": "/home/user/project"}
         tc = {"cwd": "/home/user", "env_type": "local"}
         d = {"terminal": {"cwd": "/home/user"}}
-        result = _resolve_cwd(tc, d, env)
+        result = _resolve_cwd(tc, d, env, gateway_process=True)
         assert result == "/home/user/project"
 
     def test_cli_overwrites_stale_env(self):

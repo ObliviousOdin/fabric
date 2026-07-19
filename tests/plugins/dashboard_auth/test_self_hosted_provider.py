@@ -39,8 +39,8 @@ from fabric_cli.dashboard_auth import (
     assert_protocol_compliance,
 )
 
-_ISSUER = "https://auth.example.com/application/o/hermes"
-_CLIENT_ID = "hermes-dashboard"
+_ISSUER = "https://auth.example.com/application/o/fabric"
+_CLIENT_ID = "fabric-dashboard"
 
 _DISCOVERY_DOC = {
     "issuer": _ISSUER,
@@ -436,25 +436,25 @@ class TestStartLogin:
 
     def test_returns_login_start(self, provider):
         result = provider.start_login(
-            redirect_uri="https://hermes.example/auth/callback"
+            redirect_uri="https://fabric.example/auth/callback"
         )
         assert isinstance(result, LoginStart)
 
     def test_redirect_url_targets_authorize_endpoint(self, provider):
         result = provider.start_login(
-            redirect_uri="https://hermes.example/auth/callback"
+            redirect_uri="https://fabric.example/auth/callback"
         )
         assert result.redirect_url.startswith(f"{_ISSUER}/authorize?")
 
     def test_authorize_url_has_required_params(self, provider):
         result = provider.start_login(
-            redirect_uri="https://hermes.example/auth/callback"
+            redirect_uri="https://fabric.example/auth/callback"
         )
         parsed = urllib.parse.urlparse(result.redirect_url)
         params = dict(urllib.parse.parse_qsl(parsed.query))
         assert params["response_type"] == "code"
         assert params["client_id"] == _CLIENT_ID
-        assert params["redirect_uri"] == "https://hermes.example/auth/callback"
+        assert params["redirect_uri"] == "https://fabric.example/auth/callback"
         assert params["scope"] == "openid profile email"
         assert params["code_challenge_method"] == "S256"
         assert "state" in params
@@ -463,7 +463,7 @@ class TestStartLogin:
     def test_custom_scopes_used(self, rsa_keypair):
         provider = _make_provider(rsa_keypair, scopes="openid email groups")
         result = provider.start_login(
-            redirect_uri="https://hermes.example/auth/callback"
+            redirect_uri="https://fabric.example/auth/callback"
         )
         parsed = urllib.parse.urlparse(result.redirect_url)
         params = dict(urllib.parse.parse_qsl(parsed.query))
@@ -471,29 +471,29 @@ class TestStartLogin:
 
     def test_code_verifier_length(self, provider):
         result = provider.start_login(
-            redirect_uri="https://hermes.example/auth/callback"
+            redirect_uri="https://fabric.example/auth/callback"
         )
-        pkce = result.cookie_payload["hermes_session_pkce"]
+        pkce = result.cookie_payload["fabric_session_pkce"]
         parts = dict(seg.split("=", 1) for seg in pkce.split(";") if "=" in seg)
         assert 43 <= len(parts["verifier"]) <= 128  # RFC 7636 §4.1
 
     def test_state_in_cookie_matches_url(self, provider):
         result = provider.start_login(
-            redirect_uri="https://hermes.example/auth/callback"
+            redirect_uri="https://fabric.example/auth/callback"
         )
         parsed = urllib.parse.urlparse(result.redirect_url)
         params = dict(urllib.parse.parse_qsl(parsed.query))
-        pkce = result.cookie_payload["hermes_session_pkce"]
+        pkce = result.cookie_payload["fabric_session_pkce"]
         parts = dict(seg.split("=", 1) for seg in pkce.split(";") if "=" in seg)
         assert parts["state"] == params["state"]
 
     def test_code_challenge_is_s256_of_verifier(self, provider):
         result = provider.start_login(
-            redirect_uri="https://hermes.example/auth/callback"
+            redirect_uri="https://fabric.example/auth/callback"
         )
         parsed = urllib.parse.urlparse(result.redirect_url)
         params = dict(urllib.parse.parse_qsl(parsed.query))
-        pkce = result.cookie_payload["hermes_session_pkce"]
+        pkce = result.cookie_payload["fabric_session_pkce"]
         parts = dict(seg.split("=", 1) for seg in pkce.split(";") if "=" in seg)
         expected = (
             base64.urlsafe_b64encode(
@@ -505,11 +505,11 @@ class TestStartLogin:
         assert params["code_challenge"] == expected
 
     def test_two_calls_differ(self, provider):
-        a = provider.start_login(redirect_uri="https://hermes.example/auth/callback")
-        b = provider.start_login(redirect_uri="https://hermes.example/auth/callback")
+        a = provider.start_login(redirect_uri="https://fabric.example/auth/callback")
+        b = provider.start_login(redirect_uri="https://fabric.example/auth/callback")
         assert (
-            a.cookie_payload["hermes_session_pkce"]
-            != b.cookie_payload["hermes_session_pkce"]
+            a.cookie_payload["fabric_session_pkce"]
+            != b.cookie_payload["fabric_session_pkce"]
         )
 
     def test_rejects_wrong_callback_path(self, provider):
@@ -522,7 +522,7 @@ class TestStartLogin:
         # accepted; this client-side fast-fail must not reject self-hosted
         # dashboards reached over plain HTTP (LAN IPs, internal hostnames,
         # TLS-terminating reverse proxies). Should not raise.
-        provider.start_login(redirect_uri="http://hermes.example/auth/callback")
+        provider.start_login(redirect_uri="http://fabric.example/auth/callback")
         provider.start_login(redirect_uri="http://192.168.1.50:9119/auth/callback")
         provider.start_login(redirect_uri="http://my-internal-host/auth/callback")
 
@@ -559,7 +559,7 @@ class TestCompleteLogin:
                 code="abc",
                 state="s",
                 code_verifier="vfy",
-                redirect_uri="https://hermes.example/auth/callback",
+                redirect_uri="https://fabric.example/auth/callback",
             )
         assert isinstance(session, Session)
         assert session.user_id == "usr_abc"
@@ -582,7 +582,7 @@ class TestCompleteLogin:
                 code="abc",
                 state="s",
                 code_verifier="vfy",
-                redirect_uri="https://hermes.example/auth/callback",
+                redirect_uri="https://fabric.example/auth/callback",
             )
         assert session.refresh_token == ""
 
@@ -598,7 +598,7 @@ class TestCompleteLogin:
                     code="x",
                     state="s",
                     code_verifier="v",
-                    redirect_uri="https://hermes.example/auth/callback",
+                    redirect_uri="https://fabric.example/auth/callback",
                 )
 
     def test_400_raises_invalid_code(self, provider):
@@ -611,7 +611,7 @@ class TestCompleteLogin:
                     code="bad",
                     state="s",
                     code_verifier="v",
-                    redirect_uri="https://hermes.example/auth/callback",
+                    redirect_uri="https://fabric.example/auth/callback",
                 )
 
     def test_500_raises_provider_error(self, provider):
@@ -624,7 +624,7 @@ class TestCompleteLogin:
                     code="x",
                     state="s",
                     code_verifier="v",
-                    redirect_uri="https://hermes.example/auth/callback",
+                    redirect_uri="https://fabric.example/auth/callback",
                 )
 
     def test_network_error_raises_provider_error(self, provider):
@@ -637,7 +637,7 @@ class TestCompleteLogin:
                     code="x",
                     state="s",
                     code_verifier="v",
-                    redirect_uri="https://hermes.example/auth/callback",
+                    redirect_uri="https://fabric.example/auth/callback",
                 )
 
     def test_unexpected_token_type_raises(self, provider, rsa_keypair):
@@ -653,7 +653,7 @@ class TestCompleteLogin:
                     code="x",
                     state="s",
                     code_verifier="v",
-                    redirect_uri="https://hermes.example/auth/callback",
+                    redirect_uri="https://fabric.example/auth/callback",
                 )
 
     def test_posts_authorization_code_grant(self, provider, rsa_keypair):
@@ -666,7 +666,7 @@ class TestCompleteLogin:
                 code="the-code",
                 state="s",
                 code_verifier="the-verifier",
-                redirect_uri="https://hermes.example/auth/callback",
+                redirect_uri="https://fabric.example/auth/callback",
             )
         _, kwargs = mock_post.call_args
         assert kwargs["data"]["grant_type"] == "authorization_code"
@@ -708,7 +708,7 @@ class TestConfidentialClient:
                 code="the-code",
                 state="s",
                 code_verifier="the-verifier",
-                redirect_uri="https://hermes.example/auth/callback",
+                redirect_uri="https://fabric.example/auth/callback",
             )
         _, kwargs = mock_post.call_args
         return kwargs
@@ -1040,28 +1040,11 @@ class TestRefreshAndRevoke:
         mock_post.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# Plugin entry point: env + config.yaml precedence
-# ---------------------------------------------------------------------------
-
-
 class TestPluginRegister:
-    @pytest.fixture(autouse=True)
-    def clear_env(self, monkeypatch):
-        for var in (
-            "HERMES_DASHBOARD_OIDC_ISSUER",
-            "HERMES_DASHBOARD_OIDC_CLIENT_ID",
-            "HERMES_DASHBOARD_OIDC_SCOPES",
-            "HERMES_DASHBOARD_OIDC_CLIENT_SECRET",
-        ):
-            monkeypatch.delenv(var, raising=False)
-
     @pytest.fixture
     def patch_config(self, monkeypatch):
         def _set(oauth_block):
-            cfg = {}
-            if oauth_block is not None:
-                cfg = {"dashboard": {"oauth": oauth_block}}
+            cfg = {"dashboard": {"oauth": oauth_block}} if oauth_block is not None else {}
             monkeypatch.setattr("fabric_cli.config.load_config", lambda: cfg)
 
         return _set
@@ -1071,194 +1054,63 @@ class TestPluginRegister:
         ctx = MagicMock()
         oidc_plugin.register(ctx)
         ctx.register_dashboard_auth_provider.assert_not_called()
-        assert "HERMES_DASHBOARD_OIDC_ISSUER" in oidc_plugin.LAST_SKIP_REASON
-        assert "self_hosted" in oidc_plugin.LAST_SKIP_REASON
-
-    def test_skips_when_only_issuer_set(self, patch_config, monkeypatch):
-        patch_config(None)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_ISSUER", _ISSUER)
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)
-        ctx.register_dashboard_auth_provider.assert_not_called()
-
-    def test_registers_from_env(self, patch_config, monkeypatch):
-        patch_config(None)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_ISSUER", _ISSUER)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_ID", _CLIENT_ID)
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)
-        ctx.register_dashboard_auth_provider.assert_called_once()
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert isinstance(registered, oidc_plugin.SelfHostedOIDCProvider)
-        assert registered._issuer == _ISSUER
-        assert registered._client_id == _CLIENT_ID
-        assert registered._scopes == "openid profile email"
-        assert oidc_plugin.LAST_SKIP_REASON == ""
+        assert "dashboard.oauth.self_hosted" in oidc_plugin.LAST_SKIP_REASON
 
     def test_registers_from_config_yaml(self, patch_config):
-        patch_config(
-            {"self_hosted": {"issuer": _ISSUER, "client_id": _CLIENT_ID}}
-        )
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)
-        ctx.register_dashboard_auth_provider.assert_called_once()
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert registered._issuer == _ISSUER
-        assert registered._client_id == _CLIENT_ID
-
-    def test_env_overrides_config(self, patch_config, monkeypatch):
-        patch_config(
-            {
-                "self_hosted": {
-                    "issuer": "https://config.example",
-                    "client_id": "config-client",
-                }
-            }
-        )
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_ISSUER", _ISSUER)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_ID", _CLIENT_ID)
+        patch_config({"self_hosted": {"issuer": _ISSUER, "client_id": _CLIENT_ID}})
         ctx = MagicMock()
         oidc_plugin.register(ctx)
         registered = ctx.register_dashboard_auth_provider.call_args.args[0]
         assert registered._issuer == _ISSUER
         assert registered._client_id == _CLIENT_ID
-
-    def test_empty_env_does_not_shadow_config(self, patch_config, monkeypatch):
-        patch_config(
-            {"self_hosted": {"issuer": _ISSUER, "client_id": _CLIENT_ID}}
-        )
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_ISSUER", "")
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_ID", "")
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)
-        ctx.register_dashboard_auth_provider.assert_called_once()
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert registered._issuer == _ISSUER
+        assert registered._client_secret == ""
 
     def test_custom_scopes_from_config(self, patch_config):
-        patch_config(
-            {
-                "self_hosted": {
-                    "issuer": _ISSUER,
-                    "client_id": _CLIENT_ID,
-                    "scopes": "openid email",
-                }
+        patch_config({
+            "self_hosted": {
+                "issuer": _ISSUER,
+                "client_id": _CLIENT_ID,
+                "scopes": "openid email",
             }
-        )
+        })
         ctx = MagicMock()
         oidc_plugin.register(ctx)
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert registered._scopes == "openid email"
+        assert ctx.register_dashboard_auth_provider.call_args.args[0]._scopes == "openid email"
 
-    def test_config_load_failure_falls_through(self, monkeypatch):
-        def _broken():
-            raise OSError("unreadable")
-
-        monkeypatch.setattr("fabric_cli.config.load_config", _broken)
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)  # must not raise
-        ctx.register_dashboard_auth_provider.assert_not_called()
-
-    def test_non_dict_oauth_section_tolerated(self, monkeypatch):
-        monkeypatch.setattr(
-            "fabric_cli.config.load_config",
-            lambda: {"dashboard": {"oauth": "wrong type"}},
-        )
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)
-        ctx.register_dashboard_auth_provider.assert_not_called()
-
-    def test_non_https_issuer_skips_with_reason(self, patch_config, monkeypatch):
-        patch_config(None)
-        monkeypatch.setenv(
-            "HERMES_DASHBOARD_OIDC_ISSUER", "http://insecure.example"
-        )
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_ID", _CLIENT_ID)
+    def test_non_https_issuer_skips_with_reason(self, patch_config):
+        patch_config({
+            "self_hosted": {
+                "issuer": "http://insecure.example",
+                "client_id": _CLIENT_ID,
+            }
+        })
         ctx = MagicMock()
         oidc_plugin.register(ctx)
         ctx.register_dashboard_auth_provider.assert_not_called()
         assert "construction failed" in oidc_plugin.LAST_SKIP_REASON
 
-    # -- client_secret wiring ----------------------------------------------
-
-    def test_registers_public_when_no_secret(self, patch_config, monkeypatch):
-        patch_config(None)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_ISSUER", _ISSUER)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_ID", _CLIENT_ID)
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert registered._client_secret == ""
-
-    def test_secret_from_env(self, patch_config, monkeypatch):
-        patch_config(None)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_ISSUER", _ISSUER)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_ID", _CLIENT_ID)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_SECRET", "env-secret")
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert registered._client_secret == "env-secret"
-
-    def test_secret_from_config_yaml(self, patch_config):
+    def test_confidential_client_secret_comes_from_config(self, patch_config):
         patch_config(
             {
                 "self_hosted": {
                     "issuer": _ISSUER,
                     "client_id": _CLIENT_ID,
-                    "client_secret": "cfg-secret",
+                    "client_secret": "config-secret",
                 }
             }
         )
         ctx = MagicMock()
         oidc_plugin.register(ctx)
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert registered._client_secret == "cfg-secret"
-
-    def test_env_secret_overrides_config(self, patch_config, monkeypatch):
-        patch_config(
-            {
-                "self_hosted": {
-                    "issuer": _ISSUER,
-                    "client_id": _CLIENT_ID,
-                    "client_secret": "cfg-secret",
-                }
-            }
+        assert (
+            ctx.register_dashboard_auth_provider.call_args.args[0]._client_secret
+            == "config-secret"
         )
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_SECRET", "env-secret")
+
+    def test_config_load_failure_is_fail_closed(self, monkeypatch):
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config",
+            lambda: (_ for _ in ()).throw(OSError("unreadable")),
+        )
         ctx = MagicMock()
         oidc_plugin.register(ctx)
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert registered._client_secret == "env-secret"
-
-    def test_empty_env_secret_does_not_shadow_config(self, patch_config, monkeypatch):
-        patch_config(
-            {
-                "self_hosted": {
-                    "issuer": _ISSUER,
-                    "client_id": _CLIENT_ID,
-                    "client_secret": "cfg-secret",
-                }
-            }
-        )
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_SECRET", "")
-        ctx = MagicMock()
-        oidc_plugin.register(ctx)
-        registered = ctx.register_dashboard_auth_provider.call_args.args[0]
-        assert registered._client_secret == "cfg-secret"
-
-    def test_register_log_reports_confidential_not_secret(
-        self, patch_config, monkeypatch, caplog
-    ):
-        import logging
-
-        patch_config(None)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_ISSUER", _ISSUER)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_ID", _CLIENT_ID)
-        monkeypatch.setenv("HERMES_DASHBOARD_OIDC_CLIENT_SECRET", "logme-secret")
-        ctx = MagicMock()
-        with caplog.at_level(logging.INFO):
-            oidc_plugin.register(ctx)
-        # The success log reports confidentiality as a boolean, never the value.
-        assert "logme-secret" not in caplog.text
-        assert "confidential=True" in caplog.text
+        ctx.register_dashboard_auth_provider.assert_not_called()

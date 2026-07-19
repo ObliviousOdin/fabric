@@ -69,7 +69,7 @@ def test_restricted_doctor_runs_no_external_bootstrap_or_probe(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(doctor, "HERMES_HOME", home)
+    monkeypatch.setattr(doctor, "FABRIC_HOME", home)
     monkeypatch.setattr(doctor, "PROJECT_ROOT", tmp_path / "project")
     monkeypatch.setattr(doctor, "_DHH", str(home))
     monkeypatch.setattr(
@@ -123,7 +123,7 @@ def test_malformed_policy_uses_local_repair_view(monkeypatch, tmp_path, capsys):
         "security:\n  egress_mode: definitely-not-valid\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(doctor, "HERMES_HOME", home)
+    monkeypatch.setattr(doctor, "FABRIC_HOME", home)
     monkeypatch.setattr(doctor, "PROJECT_ROOT", tmp_path / "project")
     monkeypatch.setattr(doctor, "_DHH", str(home))
     monkeypatch.setattr(

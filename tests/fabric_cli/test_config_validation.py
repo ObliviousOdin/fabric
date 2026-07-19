@@ -170,6 +170,44 @@ class TestFallbackModelValidation:
         assert any("fallback_model[0]" in i.message and "should be a dict" in i.message for i in issues)
 
 
+class TestFallbackProvidersValidation:
+    """fallback_providers is the canonical ordered-list schema."""
+
+    def test_valid_canonical_chain(self):
+        issues = validate_config_structure({
+            "fallback_providers": [
+                {"provider": "openrouter", "model": "anthropic/claude-sonnet-4"},
+                {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+            ],
+        })
+        assert not [issue for issue in issues if "fallback_providers" in issue.message]
+
+    def test_canonical_chain_requires_a_list(self):
+        issues = validate_config_structure({
+            "fallback_providers": {
+                "provider": "openrouter",
+                "model": "anthropic/claude-sonnet-4",
+            },
+        })
+        assert any(
+            "fallback_providers should be a list" in issue.message
+            for issue in issues
+        )
+
+    def test_canonical_entries_require_provider_and_model(self):
+        issues = validate_config_structure({
+            "fallback_providers": [{"provider": "openrouter"}, {"model": "backup"}],
+        })
+        assert any(
+            "fallback_providers[0]" in issue.message and "model" in issue.message
+            for issue in issues
+        )
+        assert any(
+            "fallback_providers[1]" in issue.message and "provider" in issue.message
+            for issue in issues
+        )
+
+
 class TestMissingModelSection:
     """Warn when custom_providers exists but model section is missing."""
 

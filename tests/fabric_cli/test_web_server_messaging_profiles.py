@@ -5,14 +5,14 @@ read/wrote the dashboard process's own (root) ``.env`` via ``load_env()`` /
 ``save_env_value()`` — so a dashboard switched to a freshly created profile
 still displayed and persisted the ROOT install's messaging credentials.
 These tests pin the new behavior: reads and writes land in the REQUESTED
-profile's HERMES_HOME, and the dashboard's own profile stays untouched.
+profile's FABRIC_HOME, and the dashboard's own profile stays untouched.
 """
 import pytest
 import yaml
 
 
 @pytest.fixture
-def isolated_profiles(tmp_path, monkeypatch, _isolate_hermes_home):
+def isolated_profiles(tmp_path, monkeypatch, _isolate_fabric_home):
     """Isolated default home + one named profile, each with its own .env."""
     from fabric_constants import get_fabric_home
     from fabric_cli import profiles

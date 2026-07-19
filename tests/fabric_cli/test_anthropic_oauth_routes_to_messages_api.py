@@ -34,7 +34,7 @@ class TestExplicitRuntimeForAnthropic:
     always return ``api_mode='anthropic_messages'`` regardless of
     base_url shape or stale persisted ``model.api_mode`` values.
 
-    Exercised whenever the user (or a Hermes subcommand) passes an
+    Exercised whenever the user (or a Fabric subcommand) passes an
     explicit ``--api-key`` / ``--base-url`` override to the runtime
     resolver.
     """
@@ -96,7 +96,7 @@ class TestPoolEntryForAnthropic:
         class _Entry:
             access_token = "sk-ant-oat01-pool"
             runtime_api_key = "sk-ant-oat01-pool"
-            source = "manual:hermes_pkce"
+            source = "manual:anthropic_pkce"
             base_url = "https://api.anthropic.com"
 
         resolved = rp._resolve_runtime_from_pool_entry(
@@ -117,7 +117,7 @@ class TestPoolEntryForAnthropic:
         class _Entry:
             access_token = "sk-ant-oat01-pool"
             runtime_api_key = "sk-ant-oat01-pool"
-            source = "manual:hermes_pkce"
+            source = "manual:anthropic_pkce"
             base_url = "https://api.anthropic.com"
 
         resolved = rp._resolve_runtime_from_pool_entry(

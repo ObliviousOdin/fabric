@@ -78,7 +78,7 @@ def test_step_up_requests_billing_scope_and_reuses_prior_urls(monkeypatch, _stub
             "scope": "inference:invoke tool:invoke",
             "portal_base_url": "https://preview.example.com",
             "inference_base_url": "https://inf.example.com",
-            "client_id": "hermes-cli",
+            "client_id": "registered-nous-client",
         },
     )
     captured = {}
@@ -97,12 +97,19 @@ def test_step_up_requests_billing_scope_and_reuses_prior_urls(monkeypatch, _stub
     assert "inference:invoke" in captured["scope"].split()
     # Reuses the prior credential's deployment URLs (so a preview stays a preview).
     assert captured["portal_base_url"] == "https://preview.example.com"
-    assert captured["client_id"] == "hermes-cli"
+    assert captured["client_id"] == "registered-nous-client"
 
 
 def test_step_up_returns_false_when_downscoped(monkeypatch, _stub_persist):
     # Non-admin / unticked → the server silently downscopes; token comes back WITHOUT scope.
-    monkeypatch.setattr(auth, "get_provider_auth_state", lambda p: {"scope": "inference:invoke"})
+    monkeypatch.setattr(
+        auth,
+        "get_provider_auth_state",
+        lambda p: {
+            "scope": "inference:invoke",
+            "client_id": "registered-nous-client",
+        },
+    )
     monkeypatch.setattr(
         auth,
         "_nous_device_code_login",
@@ -111,8 +118,12 @@ def test_step_up_returns_false_when_downscoped(monkeypatch, _stub_persist):
     assert step_up_nous_billing_scope() is False
 
 
-def test_step_up_falls_back_to_standard_scope_when_no_prior(monkeypatch, _stub_persist):
-    monkeypatch.setattr(auth, "get_provider_auth_state", lambda p: {})
+def test_step_up_falls_back_to_standard_scope_when_no_prior_scope(monkeypatch, _stub_persist):
+    monkeypatch.setattr(
+        auth,
+        "get_provider_auth_state",
+        lambda p: {"client_id": "registered-nous-client"},
+    )
     captured = {}
 
     def _fake_login(**kw):
@@ -127,13 +138,35 @@ def test_step_up_falls_back_to_standard_scope_when_no_prior(monkeypatch, _stub_p
     assert NOUS_BILLING_MANAGE_SCOPE in requested
 
 
+def test_step_up_requires_stored_client_id(monkeypatch, _stub_persist):
+    monkeypatch.setattr(auth, "get_provider_auth_state", lambda p: {})
+    login_attempted = False
+
+    def _unexpected_login(**_kwargs):
+        nonlocal login_attempted
+        login_attempted = True
+        raise AssertionError("step-up must stop before device login")
+
+    monkeypatch.setattr(auth, "_nous_device_code_login", _unexpected_login)
+
+    with pytest.raises(auth.AuthError) as exc:
+        step_up_nous_billing_scope()
+
+    assert exc.value.code == auth.NOUS_CLIENT_ID_REQUIRED_CODE
+    assert login_attempted is False
+
+
 # ---------------------------------------------------------------------------
 # on_verification callback plumbing (TUI surfaces the device-flow URL via this)
 # ---------------------------------------------------------------------------
 
 
 def test_step_up_forwards_on_verification_callback(monkeypatch, _stub_persist):
-    monkeypatch.setattr(auth, "get_provider_auth_state", lambda p: {})
+    monkeypatch.setattr(
+        auth,
+        "get_provider_auth_state",
+        lambda p: {"client_id": "registered-nous-client"},
+    )
     captured = {}
 
     def _fake_login(**kw):
@@ -184,7 +217,11 @@ def test_device_login_fires_on_verification_before_polling(monkeypatch):
     # validation (JWT usability checks) is out of scope and may raise on the
     # synthetic token — swallow it; the ordering assertion is what matters.
     try:
-        auth._nous_device_code_login(open_browser=False, on_verification=_cb)
+        auth._nous_device_code_login(
+            client_id="registered-nous-client",
+            open_browser=False,
+            on_verification=_cb,
+        )
     except Exception:
         pass
 

@@ -86,7 +86,6 @@ class RecordingAdapter:
 @pytest.mark.asyncio
 async def test_silence_narration_dropped_pre_send(tmp_path, monkeypatch):
     monkeypatch.setattr("gateway.delivery.get_fabric_home", lambda: tmp_path)
-    monkeypatch.delenv("HERMES_FILTER_SILENCE_NARRATION", raising=False)
     adapter = RecordingAdapter()
     router = DeliveryRouter(GatewayConfig(), adapters={Platform.DISCORD: adapter})
     target = DeliveryTarget.parse("discord:99887766")
@@ -104,7 +103,6 @@ async def test_silence_narration_dropped_pre_send(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_real_message_is_delivered(tmp_path, monkeypatch):
     monkeypatch.setattr("gateway.delivery.get_fabric_home", lambda: tmp_path)
-    monkeypatch.delenv("HERMES_FILTER_SILENCE_NARRATION", raising=False)
     adapter = RecordingAdapter()
     router = DeliveryRouter(GatewayConfig(), adapters={Platform.DISCORD: adapter})
     target = DeliveryTarget.parse("discord:99887766")
@@ -121,7 +119,6 @@ async def test_real_message_is_delivered(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_config_opt_out_lets_silence_through(tmp_path, monkeypatch):
     monkeypatch.setattr("gateway.delivery.get_fabric_home", lambda: tmp_path)
-    monkeypatch.delenv("HERMES_FILTER_SILENCE_NARRATION", raising=False)
     adapter = RecordingAdapter()
     config = GatewayConfig(filter_silence_narration=False)
     router = DeliveryRouter(config, adapters={Platform.DISCORD: adapter})
@@ -135,40 +132,8 @@ async def test_config_opt_out_lets_silence_through(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_env_override_disables_filter(tmp_path, monkeypatch):
-    monkeypatch.setattr("gateway.delivery.get_fabric_home", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_FILTER_SILENCE_NARRATION", "0")
-    adapter = RecordingAdapter()
-    # Config default is True, but env override wins.
-    router = DeliveryRouter(GatewayConfig(), adapters={Platform.DISCORD: adapter})
-    target = DeliveryTarget.parse("discord:99887766")
-
-    result = await router._deliver_to_platform(target, "🔇", metadata=None)
-
-    assert len(adapter.calls) == 1
-    assert result == {"success": True}
-
-
-@pytest.mark.asyncio
-async def test_env_override_enables_filter_over_config(tmp_path, monkeypatch):
-    monkeypatch.setattr("gateway.delivery.get_fabric_home", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_FILTER_SILENCE_NARRATION", "1")
-    adapter = RecordingAdapter()
-    # Config says off, env override forces on.
-    config = GatewayConfig(filter_silence_narration=False)
-    router = DeliveryRouter(config, adapters={Platform.DISCORD: adapter})
-    target = DeliveryTarget.parse("discord:99887766")
-
-    result = await router._deliver_to_platform(target, "*(silent)*", metadata=None)
-
-    assert adapter.calls == []
-    assert result["filtered"] == "silence_narration"
-
-
-@pytest.mark.asyncio
 async def test_local_delivery_not_filtered(tmp_path, monkeypatch):
     monkeypatch.setattr("gateway.delivery.get_fabric_home", lambda: tmp_path)
-    monkeypatch.delenv("HERMES_FILTER_SILENCE_NARRATION", raising=False)
     router = DeliveryRouter(GatewayConfig(), adapters={})
 
     results = await router.deliver(

@@ -2,26 +2,30 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import types
 
 import pytest
 
 
-_VARS = ("HERMES_SAFE_MODE", "HERMES_IGNORE_USER_CONFIG", "HERMES_IGNORE_RULES")
-
-
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch):
-    for var in _VARS:
-        monkeypatch.delenv(var, raising=False)
+def _reset_launch_context():
+    from fabric_cli.launch_context import (
+        set_ignore_rules,
+        set_ignore_user_config,
+        set_safe_mode,
+    )
+
+    set_safe_mode(False)
+    set_ignore_user_config(False)
+    set_ignore_rules(False)
     yield
-    for var in _VARS:
-        os.environ.pop(var, None)
+    set_safe_mode(False)
+    set_ignore_user_config(False)
+    set_ignore_rules(False)
 
 
-def test_cmd_chat_safe_mode_sets_env_before_startup(monkeypatch):
+def test_cmd_chat_safe_mode_sets_launch_policy_before_startup(monkeypatch):
     import fabric_cli.main as main_mod
     from fabric_cli._parser import build_top_level_parser
 
@@ -32,16 +36,22 @@ def test_cmd_chat_safe_mode_sets_env_before_startup(monkeypatch):
     fake_cli = types.ModuleType("cli")
 
     def fake_has_provider() -> bool:
-        assert os.environ["HERMES_SAFE_MODE"] == "1"
-        assert os.environ["HERMES_IGNORE_USER_CONFIG"] == "1"
-        assert os.environ["HERMES_IGNORE_RULES"] == "1"
+        from fabric_cli.launch_context import (
+            ignore_rules_enabled,
+            ignore_user_config_enabled,
+            safe_mode_enabled,
+        )
+
+        assert safe_mode_enabled()
+        assert ignore_user_config_enabled()
+        assert ignore_rules_enabled()
         return True
 
     def fake_main(**kwargs):
         captured.update(kwargs)
 
     monkeypatch.setattr(main_mod, "_has_any_provider_configured", fake_has_provider)
-    monkeypatch.setattr(main_mod, "_pin_kanban_board_env", lambda: None)
+    monkeypatch.setattr(main_mod, "_pin_kanban_board_context", lambda: None)
     monkeypatch.setattr(main_mod, "_sync_bundled_skills_for_startup", lambda: None)
     monkeypatch.setattr(main_mod, "_termux_should_prefetch_update_check", lambda: False)
     setattr(fake_cli, "main", fake_main)
@@ -60,9 +70,15 @@ def test_prepare_agent_startup_applies_safe_mode_before_plugin_discovery(monkeyp
     plugins = types.ModuleType("fabric_cli.plugins")
 
     def discover_plugins() -> None:
-        assert os.environ["HERMES_SAFE_MODE"] == "1"
-        assert os.environ["HERMES_IGNORE_USER_CONFIG"] == "1"
-        assert os.environ["HERMES_IGNORE_RULES"] == "1"
+        from fabric_cli.launch_context import (
+            ignore_rules_enabled,
+            ignore_user_config_enabled,
+            safe_mode_enabled,
+        )
+
+        assert safe_mode_enabled()
+        assert ignore_user_config_enabled()
+        assert ignore_rules_enabled()
 
     setattr(plugins, "discover_plugins", discover_plugins)
     monkeypatch.setitem(sys.modules, "fabric_cli.plugins", plugins)
@@ -73,9 +89,10 @@ def test_prepare_agent_startup_applies_safe_mode_before_plugin_discovery(monkeyp
 
 
 def test_plugin_discovery_skipped(monkeypatch):
-    monkeypatch.setenv("HERMES_SAFE_MODE", "1")
+    from fabric_cli.launch_context import set_safe_mode
     from fabric_cli.plugins import PluginManager
 
+    set_safe_mode(True)
     mgr = PluginManager()
     called = []
     monkeypatch.setattr(mgr, "_discover_and_load_inner", lambda: called.append(True))
@@ -100,9 +117,10 @@ def test_plugin_discovery_runs_without_safe_mode(monkeypatch):
 
 
 def test_mcp_servers_empty(monkeypatch):
-    monkeypatch.setenv("HERMES_SAFE_MODE", "1")
+    from fabric_cli.launch_context import set_safe_mode
     from tools.mcp_tool import _load_mcp_config
 
+    set_safe_mode(True)
     monkeypatch.setattr(
         "fabric_cli.config.load_config",
         lambda: {"mcp_servers": {"github": {"url": "https://example.com/mcp"}}},
@@ -133,9 +151,10 @@ def test_parser_accepts_safe_mode_on_root_and_chat():
 
 
 def test_shell_hooks_skipped(monkeypatch):
-    monkeypatch.setenv("HERMES_SAFE_MODE", "1")
+    from fabric_cli.launch_context import set_safe_mode
     from agent.shell_hooks import register_from_config
 
+    set_safe_mode(True)
     cfg = {
         "hooks": {
             "pre_tool_call": [{"command": "echo hooked"}],

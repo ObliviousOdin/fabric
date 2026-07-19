@@ -6,6 +6,13 @@ import types
 
 import pytest
 
+from fabric_cli.tui_launch_context import consume_tui_launch_context
+
+
+def _launch_context_from_argv(argv):
+    index = argv.index("--launch-context")
+    return consume_tui_launch_context(argv[index + 1])
+
 
 def _args(**overrides):
     base = {
@@ -221,7 +228,7 @@ def test_main_top_level_tui_accepts_toolsets(monkeypatch, main_mod):
 
     import fabric_cli.config as config_mod
 
-    monkeypatch.setattr(sys, "argv", ["hermes", "--tui", "--toolsets", "web,terminal"])
+    monkeypatch.setattr(sys, "argv", ["fabric", "--tui", "--toolsets", "web,terminal"])
     monkeypatch.setitem(
         sys.modules,
         "fabric_cli.plugins",
@@ -233,7 +240,7 @@ def test_main_top_level_tui_accepts_toolsets(monkeypatch, main_mod):
         types.SimpleNamespace(discover_mcp_tools=lambda: None),
     )
     monkeypatch.setattr(config_mod, "load_config", lambda: {})
-    monkeypatch.setattr(config_mod, "get_container_exec_info", lambda: None)
+    monkeypatch.setattr(config_mod, "get_container_exec_info", lambda **_kwargs: None)
     monkeypatch.setitem(
         sys.modules,
         "agent.shell_hooks",
@@ -257,7 +264,7 @@ def test_termux_fast_tui_launch_uses_light_parser(monkeypatch, main_mod):
 
     monkeypatch.setenv("TERMUX_VERSION", "1")
     monkeypatch.setattr(
-        sys, "argv", ["hermes", "--tui", "--toolsets", "web,terminal"]
+        sys, "argv", ["fabric", "--tui", "--toolsets", "web,terminal"]
     )
     monkeypatch.setattr(
         main_mod,
@@ -271,7 +278,7 @@ def test_termux_fast_tui_launch_uses_light_parser(monkeypatch, main_mod):
 
 def test_termux_fast_tui_launch_skips_help(monkeypatch, main_mod):
     monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.setattr(sys, "argv", ["hermes", "--tui", "--help"])
+    monkeypatch.setattr(sys, "argv", ["fabric", "--tui", "--help"])
 
     assert main_mod._try_termux_fast_tui_launch() is False
 
@@ -279,7 +286,7 @@ def test_termux_fast_tui_launch_skips_help(monkeypatch, main_mod):
 def test_fast_tui_launch_is_termux_only(monkeypatch, main_mod):
     monkeypatch.delenv("TERMUX_VERSION", raising=False)
     monkeypatch.setenv("PREFIX", "/usr")
-    monkeypatch.setattr(sys, "argv", ["hermes", "--tui"])
+    monkeypatch.setattr(sys, "argv", ["fabric", "--tui"])
 
     assert main_mod._try_termux_fast_tui_launch() is False
 
@@ -289,9 +296,8 @@ def test_termux_fast_cli_launch_chat_uses_light_parser(monkeypatch, main_mod):
     prepared = []
 
     monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.delenv("HERMES_TUI", raising=False)
     monkeypatch.setattr(
-        sys, "argv", ["hermes", "chat", "-q", "hello", "--toolsets", "web,terminal"]
+        sys, "argv", ["fabric", "chat", "-q", "hello", "--toolsets", "web,terminal"]
     )
     monkeypatch.setattr(
         main_mod, "_prepare_agent_startup", lambda args: prepared.append(args.command)
@@ -318,10 +324,7 @@ def test_termux_fast_cli_launch_bare_defers_agent_startup(monkeypatch, main_mod)
     prepared = []
 
     monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.delenv("HERMES_TUI", raising=False)
-    monkeypatch.delenv("HERMES_DEFER_AGENT_STARTUP", raising=False)
-    monkeypatch.delenv("HERMES_FAST_STARTUP_BANNER", raising=False)
-    monkeypatch.setattr(sys, "argv", ["hermes"])
+    monkeypatch.setattr(sys, "argv", ["fabric"])
     monkeypatch.setattr(
         main_mod, "_prepare_agent_startup", lambda args: prepared.append(args.command)
     )
@@ -340,8 +343,6 @@ def test_termux_fast_cli_launch_bare_defers_agent_startup(monkeypatch, main_mod)
     assert main_mod._try_termux_fast_cli_launch() is True
     assert prepared == []
     assert captured == {"query": None, "command": None, "compact": True}
-    assert os.environ["HERMES_DEFER_AGENT_STARTUP"] == "1"
-    assert os.environ["HERMES_FAST_STARTUP_BANNER"] == "1"
 
 
 def test_termux_fast_cli_launch_oneshot_uses_light_parser(monkeypatch, main_mod):
@@ -349,11 +350,10 @@ def test_termux_fast_cli_launch_oneshot_uses_light_parser(monkeypatch, main_mod)
     prepared = []
 
     monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.delenv("HERMES_TUI", raising=False)
     monkeypatch.setattr(
         sys,
         "argv",
-        ["hermes", "-z", "hello", "--model", "gpt-test", "--provider", "openai"],
+        ["fabric", "-z", "hello", "--model", "gpt-test", "--provider", "openai"],
     )
     monkeypatch.setattr(
         main_mod, "_prepare_agent_startup", lambda args: prepared.append(args.command)
@@ -387,8 +387,7 @@ def test_termux_fast_cli_launch_version_skips_update_check(monkeypatch, main_mod
     captured = []
 
     monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.delenv("HERMES_TUI", raising=False)
-    monkeypatch.setattr(sys, "argv", ["hermes", "version"])
+    monkeypatch.setattr(sys, "argv", ["fabric", "version"])
     monkeypatch.setattr(
         main_mod, "_print_version_info", lambda *, check_updates: captured.append(check_updates)
     )
@@ -401,8 +400,7 @@ def test_termux_ultrafast_version_runs_before_heavy_startup(
     monkeypatch, capsys, main_mod
 ):
     monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.delenv("HERMES_TERMUX_DISABLE_FAST_CLI", raising=False)
-    monkeypatch.setattr(sys, "argv", ["hermes", "--version"])
+    monkeypatch.setattr(sys, "argv", ["fabric", "--version"])
 
     assert main_mod._try_termux_ultrafast_version() is True
 
@@ -411,20 +409,6 @@ def test_termux_ultrafast_version_runs_before_heavy_startup(
     assert "Install directory:" in out
     assert "Python:" in out
     assert "OpenAI SDK:" in out
-
-
-def test_termux_ultrafast_version_uses_default_fabric_brand(
-    monkeypatch, capsys, main_mod
-):
-    monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.delenv("HERMES_TERMUX_DISABLE_FAST_CLI", raising=False)
-    monkeypatch.setenv("FABRIC_BRAND", "1")
-    monkeypatch.setattr(sys, "argv", ["fabric", "--version"])
-
-    assert main_mod._try_termux_ultrafast_version() is True
-
-    out = capsys.readouterr().out
-    assert "Fabric v" in out
 
 
 def test_read_openai_version_fast(monkeypatch, tmp_path, main_mod):
@@ -441,17 +425,7 @@ def test_read_openai_version_fast(monkeypatch, tmp_path, main_mod):
 
 def test_termux_fast_cli_launch_skips_help(monkeypatch, main_mod):
     monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.delenv("HERMES_TUI", raising=False)
-    monkeypatch.setattr(sys, "argv", ["hermes", "chat", "--help"])
-
-    assert main_mod._try_termux_fast_cli_launch() is False
-
-
-def test_termux_fast_cli_launch_can_be_disabled(monkeypatch, main_mod):
-    monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.setenv("HERMES_TERMUX_DISABLE_FAST_CLI", "1")
-    monkeypatch.delenv("HERMES_TUI", raising=False)
-    monkeypatch.setattr(sys, "argv", ["hermes", "version"])
+    monkeypatch.setattr(sys, "argv", ["fabric", "chat", "--help"])
 
     assert main_mod._try_termux_fast_cli_launch() is False
 
@@ -464,9 +438,6 @@ def test_termux_bundled_skills_stamp_controls_sync(monkeypatch, tmp_path, main_m
     assert main_mod._termux_bundled_skills_sync_needed() is True
     main_mod._mark_termux_bundled_skills_synced()
     assert main_mod._termux_bundled_skills_sync_needed() is False
-
-    monkeypatch.setenv("HERMES_TERMUX_FORCE_SKILLS_SYNC", "1")
-    assert main_mod._termux_bundled_skills_sync_needed() is True
 
 
 def test_termux_skips_bundled_skill_sync_when_stamp_fresh(monkeypatch, tmp_path, main_mod):
@@ -484,23 +455,6 @@ def test_termux_skips_bundled_skill_sync_when_stamp_fresh(monkeypatch, tmp_path,
 
     assert main_mod._sync_bundled_skills_for_startup() is False
     assert calls == []
-
-
-def test_termux_forced_bundled_skill_sync_runs(monkeypatch, tmp_path, main_mod):
-    calls = []
-
-    monkeypatch.setenv("TERMUX_VERSION", "1")
-    monkeypatch.setenv("HERMES_TERMUX_FORCE_SKILLS_SYNC", "1")
-    monkeypatch.setattr(main_mod, "get_fabric_home", lambda: tmp_path)
-    monkeypatch.setattr(main_mod, "_termux_bundled_skills_fingerprint", lambda: "fp1")
-    monkeypatch.setitem(
-        sys.modules,
-        "tools.skills_sync",
-        types.SimpleNamespace(sync_skills=lambda quiet: calls.append(quiet)),
-    )
-
-    assert main_mod._sync_bundled_skills_for_startup() is True
-    assert calls == [True]
 
 
 def test_read_git_revision_fingerprint_resolves_packed_refs(tmp_path, main_mod):
@@ -591,7 +545,7 @@ def test_main_top_level_oneshot_accepts_toolsets(monkeypatch, main_mod):
     import fabric_cli.config as config_mod
 
     monkeypatch.setattr(
-        sys, "argv", ["hermes", "-z", "hello", "--toolsets", "web,terminal"]
+        sys, "argv", ["fabric", "-z", "hello", "--toolsets", "web,terminal"]
     )
     monkeypatch.setitem(
         sys.modules,
@@ -604,7 +558,7 @@ def test_main_top_level_oneshot_accepts_toolsets(monkeypatch, main_mod):
         types.SimpleNamespace(discover_mcp_tools=lambda: None),
     )
     monkeypatch.setattr(config_mod, "load_config", lambda: {})
-    monkeypatch.setattr(config_mod, "get_container_exec_info", lambda: None)
+    monkeypatch.setattr(config_mod, "get_container_exec_info", lambda **_kwargs: None)
     monkeypatch.setitem(
         sys.modules,
         "agent.shell_hooks",
@@ -804,7 +758,7 @@ def test_oneshot_rejects_disabled_mcp_toolset(monkeypatch, capsys):
     valid, error = _validate_explicit_toolsets("mcp-off")
 
     assert valid is None
-    assert error == "hermes -z: --toolsets did not contain any valid toolsets.\n"
+    assert error == "fabric -z: --toolsets did not contain any valid toolsets.\n"
     err = capsys.readouterr().err
     assert "ignoring disabled MCP servers" in err
     assert "mcp-off" in err
@@ -833,7 +787,7 @@ def test_oneshot_distinguishes_disabled_mcp_from_unknown(monkeypatch, capsys):
 
 
 def test_oneshot_wires_session_db_for_recall(monkeypatch):
-    """hermes -z bypasses HermesCLI, but recall still needs SessionDB."""
+    """fabric -z bypasses FabricCLI, but recall still needs SessionDB."""
     from fabric_cli.oneshot import _run_agent
 
     captured = {}
@@ -842,6 +796,7 @@ def test_oneshot_wires_session_db_for_recall(monkeypatch):
     class FakeAgent:
         def __init__(self, **kwargs):
             captured.update(kwargs)
+            self.session_id = "oneshot-test"
             self.suppress_status_output = False
             self.stream_delta_callback = object()
             self.tool_gen_callback = object()
@@ -865,7 +820,11 @@ def test_oneshot_wires_session_db_for_recall(monkeypatch):
     monkeypatch.setitem(
         sys.modules,
         "fabric_cli.config",
-        mod("fabric_cli.config", load_config=lambda: {"model": {"default": "m"}}),
+        mod(
+            "fabric_cli.config",
+            load_config=lambda: {"model": {"default": "m"}},
+            cfg_get=lambda *_args, **_kwargs: None,
+        ),
     )
     monkeypatch.setitem(
         sys.modules,
@@ -900,7 +859,7 @@ def test_oneshot_wires_session_db_for_recall(monkeypatch):
     assert captured["prompt"] == "recall this"
 
 
-def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
+def test_launch_tui_passes_model_provider_and_toolsets_in_descriptor(monkeypatch, main_mod):
     captured = {}
     active_path_during_call = None
 
@@ -912,8 +871,9 @@ def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
 
     def fake_call(argv, cwd=None, env=None):
         nonlocal active_path_during_call
-        captured.update({"argv": argv, "cwd": cwd, "env": env})
-        active_path_during_call = Path(env["HERMES_TUI_ACTIVE_SESSION_FILE"])
+        context = _launch_context_from_argv(argv)
+        captured.update({"argv": argv, "cwd": cwd, "env": env, "context": context})
+        active_path_during_call = Path(context.active_session_file)
         assert active_path_during_call.exists()
         return 1
 
@@ -921,34 +881,81 @@ def test_launch_tui_exports_model_provider_and_toolsets(monkeypatch, main_mod):
 
     with pytest.raises(SystemExit):
         main_mod._launch_tui(
-            model="nous/hermes-test", provider="nous", toolsets="web, terminal"
+            model="nous/test-model", provider="nous", toolsets="web, terminal"
         )
 
     env = captured["env"]
-    assert env["HERMES_MODEL"] == "nous/hermes-test"
-    assert env["HERMES_INFERENCE_MODEL"] == "nous/hermes-test"
-    assert env["HERMES_TUI_PROVIDER"] == "nous"
-    assert env["HERMES_INFERENCE_PROVIDER"] == "nous"
-    assert env["HERMES_TUI_TOOLSETS"] == "web,terminal"
-    active_path = Path(env["HERMES_TUI_ACTIVE_SESSION_FILE"])
+    context = captured["context"]
+    assert context.model == "nous/test-model"
+    assert context.provider == "nous"
+    assert context.toolsets == ("web", "terminal")
+    active_path = Path(context.active_session_file)
     assert active_path.name.startswith("fabric-tui-active-session-")
     assert active_path.suffix == ".json"
     assert active_path_during_call == active_path
     assert not active_path.exists()
     assert env["NODE_ENV"] == "production"
+    assert captured["argv"][:2] == ["node", "dist/entry.js"]
+    assert "nous/test-model" not in captured["argv"]
+    assert captured["argv"][2:4] == ["--gateway-python", sys.executable]
+    assert captured["argv"][4:6] == ["--source-root", str(main_mod.PROJECT_ROOT)]
+
+
+def test_tui_runtime_args_forward_packaged_revision(monkeypatch, main_mod):
+    from fabric_cli.package_metadata import configure_packaged_revision
+
+    configure_packaged_revision("abc123")
+    try:
+        argv = main_mod._with_tui_runtime_args(["node", "dist/entry.js"])
+    finally:
+        configure_packaged_revision(None)
+
+    assert argv[-2:] == ["--package-revision", "abc123"]
+
+
+def test_tui_runtime_args_use_npm_forwarding_separator(main_mod):
+    argv = main_mod._with_tui_runtime_args(["npm", "start"])
+
+    assert argv[2] == "--"
+    assert argv[3:5] == ["--gateway-python", sys.executable]
+
+
+def test_launch_tui_descriptor_defaults_do_not_inherit_shell_state(monkeypatch, main_mod):
+    captured = {}
+    monkeypatch.setattr(
+        main_mod,
+        "_make_tui_argv",
+        lambda tui_dir, tui_dev: (["node", "dist/entry.js"], Path(".")),
+    )
+    monkeypatch.setattr(
+        main_mod.subprocess,
+        "call",
+        lambda argv, cwd=None, env=None: captured.update(
+            {"context": _launch_context_from_argv(argv)}
+        ) or 1,
+    )
+
+    with pytest.raises(SystemExit):
+        main_mod._launch_tui()
+
+    context = captured["context"]
+    assert context.model == ""
+    assert context.provider == ""
+    assert context.query == ""
+    assert context.checkpoints is False
 
 
 def test_launch_tui_applies_terminal_backend_config(
-    monkeypatch, main_mod, _isolate_hermes_home
+    monkeypatch, main_mod, _isolate_fabric_home
 ):
     captured = {}
-    config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
+    config_path = Path(os.environ["FABRIC_HOME"]) / "config.yaml"
     config_path.write_text(
         "\n".join(
             [
                 "terminal:",
                 "  backend: docker",
-                "  docker_image: example/hermes-tools:latest",
+                "  docker_image: example/fabric-tools:latest",
                 "  docker_extra_args:",
                 "    - --network=host",
             ]
@@ -974,7 +981,7 @@ def test_launch_tui_applies_terminal_backend_config(
         main_mod._launch_tui()
 
     assert captured["env"]["TERMINAL_ENV"] == "docker"
-    assert captured["env"]["TERMINAL_DOCKER_IMAGE"] == "example/hermes-tools:latest"
+    assert captured["env"]["TERMINAL_DOCKER_IMAGE"] == "example/fabric-tools:latest"
     assert captured["env"]["TERMINAL_DOCKER_EXTRA_ARGS"] == '["--network=host"]'
 
 
@@ -996,10 +1003,9 @@ def test_launch_tui_exit_code_42_relaunches_update(monkeypatch, main_mod):
     mock_relaunch.assert_called_once_with(["update"], preserve_inherited=False)
 
 
-def test_launch_tui_drops_stale_resume_env_without_resume_arg(monkeypatch, main_mod):
+def test_launch_tui_descriptor_has_no_resume_without_resume_arg(monkeypatch, main_mod):
     captured = {}
 
-    monkeypatch.setenv("HERMES_TUI_RESUME", "stale-missing-session")
     monkeypatch.setattr(
         main_mod,
         "_make_tui_argv",
@@ -1008,19 +1014,20 @@ def test_launch_tui_drops_stale_resume_env_without_resume_arg(monkeypatch, main_
     monkeypatch.setattr(
         main_mod.subprocess,
         "call",
-        lambda argv, cwd=None, env=None: captured.update({"env": env}) or 1,
+        lambda argv, cwd=None, env=None: captured.update(
+            {"context": _launch_context_from_argv(argv)}
+        ) or 1,
     )
 
     with pytest.raises(SystemExit):
         main_mod._launch_tui()
 
-    assert "HERMES_TUI_RESUME" not in captured["env"]
+    assert captured["context"].resume == ""
 
 
-def test_launch_tui_sets_resume_env_from_resume_arg(monkeypatch, main_mod):
+def test_launch_tui_sets_resume_in_descriptor_from_resume_arg(monkeypatch, main_mod):
     captured = {}
 
-    monkeypatch.setenv("HERMES_TUI_RESUME", "stale-missing-session")
     monkeypatch.setattr(
         main_mod,
         "_make_tui_argv",
@@ -1029,16 +1036,18 @@ def test_launch_tui_sets_resume_env_from_resume_arg(monkeypatch, main_mod):
     monkeypatch.setattr(
         main_mod.subprocess,
         "call",
-        lambda argv, cwd=None, env=None: captured.update({"env": env}) or 1,
+        lambda argv, cwd=None, env=None: captured.update(
+            {"context": _launch_context_from_argv(argv)}
+        ) or 1,
     )
 
     with pytest.raises(SystemExit):
         main_mod._launch_tui(resume_session_id="20260518_000000_goodid")
 
-    assert captured["env"]["HERMES_TUI_RESUME"] == "20260518_000000_goodid"
+    assert captured["context"].resume == "20260518_000000_goodid"
 
 
-def test_make_tui_argv_dev_prebuilds_hermes_ink(monkeypatch, main_mod, tmp_path):
+def test_make_tui_argv_dev_prebuilds_fabric_ink(monkeypatch, main_mod, tmp_path):
     tui_dir = tmp_path / "ui-tui"
     tsx = tui_dir / "node_modules" / ".bin" / "tsx"
     ink_dir = tui_dir / "packages" / "fabric-ink"
@@ -1048,7 +1057,7 @@ def test_make_tui_argv_dev_prebuilds_hermes_ink(monkeypatch, main_mod, tmp_path)
 
     monkeypatch.setattr(main_mod, "_ensure_tui_node", lambda: None)
     monkeypatch.setattr(main_mod, "_tui_need_npm_install", lambda _tui_dir: False)
-    monkeypatch.delenv("HERMES_TUI_DIR", raising=False)
+    monkeypatch.delenv("FABRIC_TUI_DIR", raising=False)
     monkeypatch.setattr(main_mod.shutil, "which", lambda bin_name: f"/usr/bin/{bin_name}")
 
     calls = []

@@ -25,7 +25,6 @@ def _clean_inference_env(monkeypatch):
         "ANTHROPIC_TOKEN",
         "CLAUDE_CODE_OAUTH_TOKEN",
         "NOUS_API_KEY",
-        "HERMES_INFERENCE_PROVIDER",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -56,8 +55,8 @@ def _seed_openrouter_pool(token: str = "sk-or-FAKEKEY123") -> None:
 
 def test_auto_detects_openrouter_from_pool(tmp_path, monkeypatch):
     """With only a pool credential (no env var), auto-detection finds it."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
-    (tmp_path / "hermes").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
+    (tmp_path / "fabric").mkdir(parents=True, exist_ok=True)
     _seed_openrouter_pool()
 
     from fabric_cli.auth import resolve_provider
@@ -66,9 +65,8 @@ def test_auto_detects_openrouter_from_pool(tmp_path, monkeypatch):
 
 
 def test_no_credentials_still_raises(tmp_path, monkeypatch):
-    """The failure remains actionable without leaking the legacy home path."""
+    """The failure points users to the canonical credential file."""
     monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
-    monkeypatch.delenv("HERMES_HOME", raising=False)
     (tmp_path / "fabric").mkdir(parents=True, exist_ok=True)
 
     from fabric_cli.auth import AuthError, resolve_provider
@@ -78,4 +76,3 @@ def test_no_credentials_still_raises(tmp_path, monkeypatch):
 
     message = str(exc_info.value)
     assert "~/.fabric/.env" in message
-    assert "~/.hermes" not in message

@@ -5,7 +5,7 @@ Covers the three paths changed by fix/bedrock-provider-model-ids-live-discovery:
   1. provider_model_ids("bedrock") — uses live discover_bedrock_models() instead
      of the static _PROVIDER_MODELS table, with curated fallback.
 
-  2. list_authenticated_providers() Section 2 (HERMES_OVERLAYS) — bedrock
+  2. list_authenticated_providers() Section 2 (FABRIC_OVERLAYS) — bedrock
      appears when AWS credentials are present; model list comes from live
      discovery keyed by the resolved region, NOT the static us.* table.
 
@@ -129,7 +129,7 @@ class TestProviderModelIdsBedrock:
 
 
 # ---------------------------------------------------------------------------
-# 2. list_authenticated_providers() — bedrock via HERMES_OVERLAYS (Section 2)
+# 2. list_authenticated_providers() — bedrock via FABRIC_OVERLAYS (Section 2)
 # ---------------------------------------------------------------------------
 
 class TestListAuthenticatedProvidersBedrock:
@@ -334,19 +334,19 @@ class TestBedrockRegionRouting:
 # ---------------------------------------------------------------------------
 
 class TestBedrockOverlayRegistration:
-    """bedrock entry in HERMES_OVERLAYS is correctly configured."""
+    """bedrock entry in FABRIC_OVERLAYS is correctly configured."""
 
     def test_bedrock_overlay_exists(self):
-        from fabric_cli.providers import HERMES_OVERLAYS
-        assert "bedrock" in HERMES_OVERLAYS
+        from fabric_cli.providers import FABRIC_OVERLAYS
+        assert "bedrock" in FABRIC_OVERLAYS
 
     def test_bedrock_overlay_transport(self):
-        from fabric_cli.providers import HERMES_OVERLAYS
-        assert HERMES_OVERLAYS["bedrock"].transport == "bedrock_converse"
+        from fabric_cli.providers import FABRIC_OVERLAYS
+        assert FABRIC_OVERLAYS["bedrock"].transport == "bedrock_converse"
 
     def test_bedrock_overlay_auth_type(self):
-        from fabric_cli.providers import HERMES_OVERLAYS
-        assert HERMES_OVERLAYS["bedrock"].auth_type == "aws_sdk"
+        from fabric_cli.providers import FABRIC_OVERLAYS
+        assert FABRIC_OVERLAYS["bedrock"].auth_type == "aws_sdk"
 
     def test_bedrock_label(self):
         from fabric_cli.providers import get_label

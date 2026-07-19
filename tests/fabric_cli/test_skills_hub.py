@@ -294,11 +294,10 @@ def test_do_list_enabled_only_hides_disabled(three_source_env, monkeypatch):
     assert "2 enabled shown" in output
 
 
-def test_do_list_platform_env_is_ignored(three_source_env, monkeypatch):
-    """`hermes skills list` reads the active profile's config via
-    HERMES_HOME (swapped by -p), so it must NOT pass a platform arg to
-    ``get_disabled_skill_names`` — otherwise per-platform overrides
-    would silently leak in from HERMES_PLATFORM env."""
+def test_do_list_does_not_infer_a_platform(three_source_env, monkeypatch):
+    """`fabric skills list` reads the active profile's config via
+    FABRIC_HOME (swapped by -p), so it must NOT pass a platform arg to
+    ``get_disabled_skill_names`` — list output is profile-global."""
     from agent import skill_utils
 
     seen = {}
@@ -1355,7 +1354,7 @@ def test_snapshot_export_uses_running_fabric_version(monkeypatch, tmp_path, hub_
 
     snapshot = json.loads(output.read_text(encoding="utf-8"))
     assert snapshot["schema_version"] == 2
-    assert snapshot["hermes_version"] == "9.8.7"
+    assert snapshot["fabric_version"] == "9.8.7"
 
 
 def test_snapshot_export_is_one_locked_point_in_time(monkeypatch, tmp_path, hub_env):
@@ -1516,51 +1515,13 @@ def test_do_browse_reports_live_per_source_progress():
     assert "demo" in sink.getvalue()
 
 
-def test_do_browse_neutralizes_nous_provenance_by_default(monkeypatch):
+def test_do_browse_preserves_official_provenance(monkeypatch):
     from fabric_cli.skills_hub import browse_skills, do_browse
     from tools.skills_hub import SkillMeta
 
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
     meta = SkillMeta(
         name="demo",
-        description="Nous Research made Hermes",
-        source="official",
-        identifier="official/demo",
-        trust_level="builtin",
-    )
-
-    sink = StringIO()
-    console = Console(file=sink, force_terminal=False, color_system=None, width=160)
-    with patch("tools.skills_hub.create_source_router", return_value=[]), \
-         patch("tools.skills_hub.GitHubAuth"), \
-         patch(
-             "tools.skills_hub.parallel_search_sources",
-             return_value=([meta], {"official": 1}, []),
-         ):
-        do_browse(page=1, page_size=20, console=console)
-        api_result = browse_skills(page=1, page_size=20)
-
-    output = sink.getvalue()
-    assert "bundled optional skill(s)" in output
-    assert "upstream maintainers" in output
-    assert "made Fabric" in output
-    assert "Nous" not in output
-    assert "Hermes" not in output
-    assert api_result["items"][0]["description"] == "the upstream maintainers made Fabric"
-    assert api_result["items"][0]["source"] == "official"
-    assert api_result["items"][0]["trust"] == "bundled"
-
-
-def test_do_browse_restores_nous_provenance_under_explicit_opt_in(monkeypatch):
-    from fabric_cli.skills_hub import browse_skills, do_browse
-    from tools.skills_hub import SkillMeta
-
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
-    meta = SkillMeta(
-        name="demo",
-        description="Nous Research made Hermes",
+        description="Nous Research made Fabric",
         source="official",
         identifier="official/demo",
         trust_level="builtin",
@@ -1579,14 +1540,14 @@ def test_do_browse_restores_nous_provenance_under_explicit_opt_in(monkeypatch):
 
     output = sink.getvalue()
     assert "official optional skill(s) from Nous Research" in output
-    assert "Nous Research made Hermes" in output
-    assert api_result["items"][0]["description"] == "Nous Research made Hermes"
+    assert "Nous Research made Fabric" in output
+    assert api_result["items"][0]["description"] == "Nous Research made Fabric"
     assert api_result["items"][0]["source"] == "official"
     assert api_result["items"][0]["trust"] == "official"
 
 
 # ---------------------------------------------------------------------------
-# Regression: full identifier must be recoverable from `hermes skills search`
+# Regression: full identifier must be recoverable from `fabric skills search`
 # even when the slug is too long to fit the terminal width (issue #33674).
 # ---------------------------------------------------------------------------
 

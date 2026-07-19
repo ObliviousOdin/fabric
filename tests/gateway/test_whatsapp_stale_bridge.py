@@ -97,7 +97,7 @@ def _fresh_node_modules(bridge_dir: Path) -> None:
 
     nm = bridge_dir / "node_modules"
     nm.mkdir()
-    (nm / ".hermes-pkg-hash").write_text(
+    (nm / ".fabric-pkg-hash").write_text(
         _file_content_hash(bridge_dir / "package.json")
     )
 
@@ -276,7 +276,7 @@ class TestDepRefreshStamp:
         assert "install" in mock_run.call_args[0][0]
         # Stamp updated to the new package.json hash
         from plugins.platforms.whatsapp.adapter import _file_content_hash
-        stamp = (bridge_dir / "node_modules" / ".hermes-pkg-hash").read_text().strip()
+        stamp = (bridge_dir / "node_modules" / ".fabric-pkg-hash").read_text().strip()
         assert stamp == _file_content_hash(bridge_dir / "package.json")
 
     @pytest.mark.asyncio
@@ -330,12 +330,12 @@ class TestCacheDirEnvPassthrough:
              patch.object(adapter, "_acquire_platform_lock", return_value=True, create=True):
             await adapter.connect()
 
-        env = mock_popen.call_args.kwargs["env"]
+        argv = mock_popen.call_args.args[0]
         from gateway.platforms.base import (
             get_audio_cache_dir,
             get_document_cache_dir,
             get_image_cache_dir,
         )
-        assert env["HERMES_IMAGE_CACHE_DIR"] == str(get_image_cache_dir())
-        assert env["HERMES_AUDIO_CACHE_DIR"] == str(get_audio_cache_dir())
-        assert env["HERMES_DOCUMENT_CACHE_DIR"] == str(get_document_cache_dir())
+        assert argv[argv.index("--image-cache") + 1] == str(get_image_cache_dir())
+        assert argv[argv.index("--audio-cache") + 1] == str(get_audio_cache_dir())
+        assert argv[argv.index("--document-cache") + 1] == str(get_document_cache_dir())

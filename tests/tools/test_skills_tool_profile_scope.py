@@ -21,14 +21,14 @@ def _write_skill(root: Path, category: str, name: str, description: str) -> Path
 
 
 def _reload_skills_tool(import_home: Path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(import_home))
+    monkeypatch.setenv("FABRIC_HOME", str(import_home))
     import tools.skills_tool as skills_tool
 
     return importlib.reload(skills_tool)
 
 
 def test_skill_view_uses_live_profile_home_after_module_import(tmp_path, monkeypatch):
-    """skill_view should not stay pinned to HERMES_HOME from import time."""
+    """skill_view should not stay pinned to FABRIC_HOME from import time."""
     default_home = tmp_path / "default-home"
     profile_home = tmp_path / "profiles" / "orchestrator"
     _write_skill(default_home, "autonomous-ai-agents", "default-only", "default home")
@@ -40,9 +40,9 @@ def test_skill_view_uses_live_profile_home_after_module_import(tmp_path, monkeyp
     )
 
     skills_tool = _reload_skills_tool(default_home, monkeypatch)
-    assert skills_tool.SKILLS_DIR == default_home / "skills"
+    assert skills_tool._skills_dir() == default_home / "skills"
 
-    monkeypatch.setenv("HERMES_HOME", str(profile_home))
+    monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
     result = json.loads(
         skills_tool.skill_view("kanban-orchestrator-operations", preprocess=False)
@@ -67,7 +67,7 @@ def test_skills_list_uses_live_profile_home_after_module_import(tmp_path, monkey
     )
 
     skills_tool = _reload_skills_tool(default_home, monkeypatch)
-    monkeypatch.setenv("HERMES_HOME", str(profile_home))
+    monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
     result = json.loads(skills_tool.skills_list())
     names = {skill["name"] for skill in result["skills"]}
@@ -77,29 +77,14 @@ def test_skills_list_uses_live_profile_home_after_module_import(tmp_path, monkey
     assert "default-only" not in names
 
 
-def test_explicit_skills_dir_monkeypatch_still_wins(tmp_path, monkeypatch):
-    """Existing tests can still override tools.skills_tool.SKILLS_DIR directly."""
+def test_skills_tool_has_no_import_time_path_aliases(tmp_path, monkeypatch):
+    """The profile-aware getter is the only skills-directory contract."""
     default_home = tmp_path / "default-home"
     profile_home = tmp_path / "profiles" / "orchestrator"
-    patched_root = tmp_path / "patched"
-    patched_skill_dir = _write_skill(
-        patched_root,
-        "software-development",
-        "patched-skill",
-        "patched skills dir",
-    )
-    _write_skill(
-        profile_home,
-        "software-development",
-        "profile-skill",
-        "orchestrator profile",
-    )
 
     skills_tool = _reload_skills_tool(default_home, monkeypatch)
-    monkeypatch.setenv("HERMES_HOME", str(profile_home))
-    monkeypatch.setattr(skills_tool, "SKILLS_DIR", patched_root / "skills")
+    monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
-    result = json.loads(skills_tool.skill_view("patched-skill", preprocess=False))
-
-    assert result["success"] is True
-    assert Path(result["skill_dir"]) == patched_skill_dir
+    assert not hasattr(skills_tool, "SKILLS_DIR")
+    assert not hasattr(skills_tool, "FABRIC_HOME")
+    assert skills_tool._skills_dir() == profile_home / "skills"

@@ -1,10 +1,4 @@
-"""Tests for the light-mode terminal detection + color remap in cli.py.
-
-Covers the env-override path and the SkinConfig.get_color() wrapper that
-the resize / light-mode salvage installs at module import time.  We don't
-try to fake an OSC 11 reply — the env-override branch short-circuits
-before the terminal query, which is the path most users hit.
-"""
+"""Tests for light-mode terminal detection and color remapping in cli.py."""
 
 from __future__ import annotations
 
@@ -17,61 +11,39 @@ def cli_mod(monkeypatch):
     """Import cli with the light-mode cache cleared each test."""
     import cli as _cli
 
-    # The module-level _install_skin_light_mode_hook() and import-time
-    # _detect_light_mode() prime ran once at first import.  We just reset
-    # the detection cache so the per-test env override takes effect.
+    # The module-level hook and import-time detection ran on first import.
+    # Reset the cache so each test controls the detection inputs.
     monkeypatch.setattr(_cli, "_LIGHT_MODE_CACHE", None)
     return _cli
 
 
 class TestLightModeDetection:
-    def test_hermes_light_env_true_forces_light(self, cli_mod, monkeypatch):
-        monkeypatch.setenv("HERMES_LIGHT", "1")
-        assert cli_mod._detect_light_mode() is True
-
-    def test_hermes_light_env_false_forces_dark(self, cli_mod, monkeypatch):
-        monkeypatch.setenv("HERMES_LIGHT", "0")
-        # Also blank out other signals so nothing else flips it light.
-        monkeypatch.delenv("HERMES_TUI_LIGHT", raising=False)
-        monkeypatch.delenv("HERMES_TUI_THEME", raising=False)
-        monkeypatch.delenv("HERMES_TUI_BACKGROUND", raising=False)
+    def test_defaults_to_dark_without_terminal_signals(self, cli_mod, monkeypatch):
         monkeypatch.delenv("COLORFGBG", raising=False)
+        monkeypatch.delenv("TERM_PROGRAM", raising=False)
+        monkeypatch.setattr(cli_mod, "_query_osc11_background", lambda: None)
         assert cli_mod._detect_light_mode() is False
 
-    def test_theme_hint_light(self, cli_mod, monkeypatch):
-        monkeypatch.delenv("HERMES_LIGHT", raising=False)
-        monkeypatch.delenv("HERMES_TUI_LIGHT", raising=False)
-        monkeypatch.setenv("HERMES_TUI_THEME", "light")
-        assert cli_mod._detect_light_mode() is True
-
-    def test_background_hex_hint_light(self, cli_mod, monkeypatch):
-        monkeypatch.delenv("HERMES_LIGHT", raising=False)
-        monkeypatch.delenv("HERMES_TUI_LIGHT", raising=False)
-        monkeypatch.delenv("HERMES_TUI_THEME", raising=False)
-        monkeypatch.setenv("HERMES_TUI_BACKGROUND", "#FFFFFF")
-        assert cli_mod._detect_light_mode() is True
-
-    def test_background_hex_hint_dark(self, cli_mod, monkeypatch):
-        monkeypatch.delenv("HERMES_LIGHT", raising=False)
-        monkeypatch.delenv("HERMES_TUI_LIGHT", raising=False)
-        monkeypatch.delenv("HERMES_TUI_THEME", raising=False)
-        monkeypatch.setenv("HERMES_TUI_BACKGROUND", "#1a1a2e")
+    def test_osc_background_light(self, cli_mod, monkeypatch):
         monkeypatch.delenv("COLORFGBG", raising=False)
+        monkeypatch.setattr(cli_mod, "_query_osc11_background", lambda: "#FFFFFF")
+        assert cli_mod._detect_light_mode() is True
+
+    def test_osc_background_dark(self, cli_mod, monkeypatch):
+        monkeypatch.delenv("COLORFGBG", raising=False)
+        monkeypatch.setattr(cli_mod, "_query_osc11_background", lambda: "#1a1a2e")
         assert cli_mod._detect_light_mode() is False
 
     def test_colorfgbg_light_bg_slot(self, cli_mod, monkeypatch):
-        monkeypatch.delenv("HERMES_LIGHT", raising=False)
-        monkeypatch.delenv("HERMES_TUI_LIGHT", raising=False)
-        monkeypatch.delenv("HERMES_TUI_THEME", raising=False)
-        monkeypatch.delenv("HERMES_TUI_BACKGROUND", raising=False)
         monkeypatch.setenv("COLORFGBG", "0;15")  # bg slot 15 = light
         assert cli_mod._detect_light_mode() is True
 
     def test_cache_is_sticky(self, cli_mod, monkeypatch):
-        monkeypatch.setenv("HERMES_LIGHT", "1")
+        monkeypatch.delenv("COLORFGBG", raising=False)
+        monkeypatch.setattr(cli_mod, "_query_osc11_background", lambda: "#FFFFFF")
         assert cli_mod._detect_light_mode() is True
-        # Even if the env flips, the cached result wins until reset.
-        monkeypatch.setenv("HERMES_LIGHT", "0")
+        # Even if the probe flips, the cached result wins until reset.
+        monkeypatch.setattr(cli_mod, "_query_osc11_background", lambda: "#000000")
         assert cli_mod._detect_light_mode() is True
 
 
@@ -97,14 +69,11 @@ class TestOsc11Probe:
 
 
 class TestLightModeRemap:
-    def test_remap_no_op_in_dark_mode(self, cli_mod, monkeypatch):
-        monkeypatch.setenv("HERMES_LIGHT", "0")
-        # Cache is None from the fixture; first call sticks at False.
+    def test_remap_no_op_in_dark_mode(self, cli_mod):
+        cli_mod._LIGHT_MODE_CACHE = False
         assert cli_mod._maybe_remap_for_light_mode("#FFF8DC") == "#FFF8DC"
 
-    def test_remap_known_dark_color(self, cli_mod, monkeypatch):
-        monkeypatch.setenv("HERMES_LIGHT", "1")
-        # Force the detect cache to True for this test.
+    def test_remap_known_dark_color(self, cli_mod):
         cli_mod._LIGHT_MODE_CACHE = True
         assert cli_mod._maybe_remap_for_light_mode("#FFF8DC") == "#1A1A1A"
         assert cli_mod._maybe_remap_for_light_mode("#FFD700") == "#9A6B00"
@@ -149,7 +118,7 @@ class TestSkinConfigHook:
     def test_hook_installed(self, cli_mod):
         from fabric_cli.skin_engine import SkinConfig
 
-        assert getattr(SkinConfig, "_hermes_light_mode_hook_installed", False) is True
+        assert getattr(SkinConfig, "_fabric_light_mode_hook_installed", False) is True
 
     def test_hook_is_idempotent(self, cli_mod):
         # Calling the installer twice must not double-wrap (the marker

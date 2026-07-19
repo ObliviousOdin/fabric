@@ -20,23 +20,23 @@ import pytest
 
 @pytest.fixture
 def curator_env(tmp_path, monkeypatch, capsys):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
     (home / "skills").mkdir()
     (home / "logs").mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     import fabric_constants
     importlib.reload(fabric_constants)
     from agent import curator
     importlib.reload(curator)
-    from fabric_cli import main as hermes_main
-    importlib.reload(hermes_main)
+    from fabric_cli import main as fabric_main
+    importlib.reload(fabric_main)
 
     yield {
         "curator": curator,
-        "main": hermes_main,
+        "main": fabric_main,
         "capsys": capsys,
     }
 

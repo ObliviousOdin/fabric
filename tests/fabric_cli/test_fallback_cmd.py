@@ -1,4 +1,4 @@
-"""Tests for `hermes fallback` — chain reading, add/remove/clear, legacy migration."""
+"""Tests for `fabric fallback` — chain reading, mutation, and schema migration."""
 from __future__ import annotations
 
 import types
@@ -10,25 +10,25 @@ import yaml
 
 
 # ---------------------------------------------------------------------------
-# Shared fixture — isolate HERMES_HOME so save_config writes to tmp_path
+# Shared fixture — isolate FABRIC_HOME so save_config writes to tmp_path
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
 def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir(exist_ok=True)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     return tmp_path
 
 
 def _write_config(home: Path, data: dict) -> None:
-    config_path = home / ".hermes" / "config.yaml"
+    config_path = home / ".fabric" / "config.yaml"
     config_path.write_text(yaml.safe_dump(data), encoding="utf-8")
 
 
 def _read_config(home: Path) -> dict:
-    config_path = home / ".hermes" / "config.yaml"
+    config_path = home / ".fabric" / "config.yaml"
     return yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
 
@@ -46,28 +46,28 @@ class TestReadChain:
         cfg = {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-                {"provider": "nous", "model": "Hermes-4-Llama-3.1-405B"},
+                {"provider": "nous", "model": "large-test-model"},
             ]
         }
         assert _read_chain(cfg) == [
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-            {"provider": "nous", "model": "Hermes-4-Llama-3.1-405B"},
+            {"provider": "nous", "model": "large-test-model"},
         ]
 
-    def test_merges_new_and_legacy_formats(self):
+    def test_merges_current_and_previous_schemas(self):
         from fabric_cli.fallback_cmd import _read_chain
         cfg = {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
             ],
-            "fallback_model": {"provider": "nous", "model": "Hermes-4"},
+            "fallback_model": {"provider": "nous", "model": "test-model"},
         }
         assert _read_chain(cfg) == [
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-            {"provider": "nous", "model": "Hermes-4"},
+            {"provider": "nous", "model": "test-model"},
         ]
 
-    def test_legacy_duplicate_is_deduplicated_after_merge(self):
+    def test_previous_schema_duplicate_is_deduplicated_after_merge(self):
         from fabric_cli.fallback_cmd import _read_chain
         cfg = {
             "fallback_providers": [
@@ -79,10 +79,20 @@ class TestReadChain:
             {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
         ]
 
-    def test_migrates_legacy_single_dict(self):
+    def test_reads_previous_single_entry_schema(self):
         from fabric_cli.fallback_cmd import _read_chain
         cfg = {"fallback_model": {"provider": "openrouter", "model": "gpt-5.4"}}
         assert _read_chain(cfg) == [{"provider": "openrouter", "model": "gpt-5.4"}]
+
+    def test_write_migrates_to_one_canonical_schema(self):
+        from fabric_cli.fallback_cmd import _write_chain
+
+        cfg = {"fallback_model": {"provider": "openrouter", "model": "gpt-5.4"}}
+        chain = [{"provider": "openrouter", "model": "gpt-5.4"}]
+
+        _write_chain(cfg, chain)
+
+        assert cfg == {"fallback_providers": chain}
 
     def test_skips_incomplete_entries(self):
         from fabric_cli.fallback_cmd import _read_chain
@@ -164,7 +174,7 @@ class TestListCommand:
             "model": {"provider": "anthropic", "default": "claude-sonnet-4-6"},
             "fallback_providers": [
                 {"provider": "openrouter", "model": "anthropic/claude-sonnet-4.6"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "nous", "model": "test-model"},
             ],
         })
         from fabric_cli.fallback_cmd import cmd_fallback_list
@@ -172,7 +182,7 @@ class TestListCommand:
         out = capsys.readouterr().out
         assert "Fallback chain (2 entries)" in out
         assert "anthropic/claude-sonnet-4.6" in out
-        assert "Hermes-4" in out
+        assert "test-model" in out
         # Primary should be shown too
         assert "claude-sonnet-4-6" in out
 
@@ -372,12 +382,12 @@ class TestRemoveCommand:
         _write_config(isolated_home, {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "gpt-5.4"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "nous", "model": "test-model"},
                 {"provider": "anthropic", "model": "claude-sonnet-4-6"},
             ],
         })
 
-        # Picker returns index 1 (the middle entry, "nous / Hermes-4")
+        # Picker returns index 1 (the middle entry, "nous / test-model")
         with patch("fabric_cli.setup._curses_prompt_choice", return_value=1):
             from fabric_cli.fallback_cmd import cmd_fallback_remove
             cmd_fallback_remove(types.SimpleNamespace())
@@ -389,7 +399,7 @@ class TestRemoveCommand:
         ]
         out = capsys.readouterr().out
         assert "Removed fallback" in out
-        assert "Hermes-4" in out
+        assert "test-model" in out
 
     def test_remove_cancel_keeps_chain(self, isolated_home):
         _write_config(isolated_home, {
@@ -423,7 +433,7 @@ class TestClearCommand:
         _write_config(isolated_home, {
             "fallback_providers": [
                 {"provider": "openrouter", "model": "gpt-5.4"},
-                {"provider": "nous", "model": "Hermes-4"},
+                {"provider": "nous", "model": "test-model"},
             ],
         })
         monkeypatch.setattr("builtins.input", lambda *a, **kw: "y")
@@ -485,7 +495,7 @@ class TestDispatcher:
 # ---------------------------------------------------------------------------
 
 class TestArgparseWiring:
-    """Verify `hermes fallback` is wired into main.py's argparse tree.
+    """Verify `fabric fallback` is wired into main.py's argparse tree.
 
     main() builds the parser inline, so we invoke main([...]) via subprocess
     with --help to introspect registered subcommands without side effects.

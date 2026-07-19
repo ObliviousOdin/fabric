@@ -21,7 +21,7 @@ def _client():
 
     client = TestClient(app)
     client.headers[_SESSION_HEADER_NAME] = _SESSION_TOKEN
-    # Keep the state DB under the isolated HERMES_HOME for any handler that
+    # Keep the state DB under the isolated FABRIC_HOME for any handler that
     # touches it.
     fabric_state.DEFAULT_DB_PATH = get_fabric_home() / "state.db"
     return client, _SESSION_HEADER_NAME
@@ -29,7 +29,7 @@ def _client():
 
 class TestMcpEndpoints:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, self.header = _client()
 
     def test_list_add_remove_roundtrip(self):
@@ -128,7 +128,7 @@ class TestMcpEndpoints:
 
 class TestCredentialPoolEndpoints:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_add_list_remove_and_cli_parity(self):
@@ -164,7 +164,7 @@ class TestCredentialPoolEndpoints:
 
 class TestMemoryEndpoints:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
         from fabric_constants import get_fabric_home
 
@@ -200,7 +200,7 @@ class TestMemoryEndpoints:
 
 class TestPairingEndpoints:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_list_and_bad_approve(self):
@@ -214,7 +214,7 @@ class TestPairingEndpoints:
 
 class TestWebhookEndpoints:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_list_disabled_and_create_blocked(self):
@@ -261,7 +261,7 @@ class TestWebhookEndpoints:
             restart_calls.append((subcommand, name))
             return FakeRestartProc()
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fake_spawn_action)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fake_spawn_action)
 
         r = self.client.post("/api/webhooks/enable")
 
@@ -290,7 +290,7 @@ class TestWebhookEndpoints:
             assert name == "gateway-restart"
             raise RuntimeError("supervisor unavailable")
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fail_spawn_action)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fail_spawn_action)
 
         r = self.client.post("/api/webhooks/enable")
 
@@ -321,7 +321,7 @@ class TestWebhookEndpoints:
         def fail_spawn_action(subcommand, name):
             raise AssertionError("must not spawn a second concurrent restart")
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", fail_spawn_action)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", fail_spawn_action)
 
         r = self.client.post("/api/webhooks/enable")
 
@@ -335,7 +335,7 @@ class TestWebhookEndpoints:
 
 class TestOpsEndpoints:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_hooks_list_reads_config(self):
@@ -396,7 +396,7 @@ class TestOpsEndpoints:
 
 class TestSystemStatsEndpoint:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_stats_shape(self):
@@ -404,7 +404,7 @@ class TestSystemStatsEndpoint:
         assert r.status_code == 200
         s = r.json()
         # Identity fields always present (stdlib-sourced).
-        for key in ("os", "arch", "hostname", "python_version", "hermes_version"):
+        for key in ("os", "arch", "hostname", "python_version", "fabric_version"):
             assert key in s and s[key]
         # psutil flag tells the UI whether the richer metrics are populated.
         assert "psutil" in s
@@ -412,7 +412,7 @@ class TestSystemStatsEndpoint:
 
 class TestCuratorEndpoints:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_status_and_pause_toggle(self):
@@ -430,7 +430,7 @@ class TestCuratorEndpoints:
 
 class TestPortalEndpoint:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_status_shape(self):
@@ -443,7 +443,7 @@ class TestPortalEndpoint:
 
 class TestSessionManagementEndpoints:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
         from fabric_state import SessionDB
 
@@ -509,7 +509,7 @@ class TestSessionManagementEndpoints:
 
 class TestSkillsHubSearchEndpoint:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_empty_query_returns_empty(self):
@@ -559,7 +559,7 @@ class _FakeBundle:
 
 class TestSkillsHubSourcesEndpoint:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_sources_lists_configured_hubs(self, monkeypatch):
@@ -575,12 +575,12 @@ class TestSkillsHubSourcesEndpoint:
                 return self._sid
 
             def search(self, q, limit=10):
-                return [_FakeMeta("hermes-index/featured-skill", "trusted")]
+                return [_FakeMeta("fabric-index/featured-skill", "trusted")]
 
         def _fake_router():
             srcs = [_Src("official"), _Src("github")]
-            # hermes-index source advertises availability + featured search.
-            idx = _Src("hermes-index")
+            # fabric-index source advertises availability + featured search.
+            idx = _Src("fabric-index")
             idx.is_available = True
             srcs.insert(1, idx)
             return srcs
@@ -592,7 +592,7 @@ class TestSkillsHubSourcesEndpoint:
         assert r.status_code == 200
         body = r.json()
         ids = {s["id"] for s in body["sources"]}
-        assert {"official", "github", "hermes-index"} <= ids
+        assert {"official", "github", "fabric-index"} <= ids
         # Every source carries a human label.
         assert all(s.get("label") for s in body["sources"])
         assert body["index_available"] is True
@@ -604,7 +604,7 @@ class TestSkillsHubSourcesEndpoint:
 
 class TestSkillsHubPreviewEndpoint:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_preview_requires_identifier(self):
@@ -646,7 +646,7 @@ class TestSkillsHubPreviewEndpoint:
 
 class TestSkillsHubScanEndpoint:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_scan_requires_identifier(self):
@@ -725,7 +725,7 @@ class TestSkillsHubScanEndpoint:
 
 class TestWebhookToggleEndpoint:
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
         # Enable the webhook platform so a subscription can be created.
         from fabric_cli.config import load_config, save_config
@@ -756,7 +756,7 @@ class TestAdminEndpointsAuthGate:
     """Every admin endpoint must sit behind the dashboard session-token gate."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         from starlette.testclient import TestClient
         from fabric_cli.web_server import app
 
@@ -776,7 +776,7 @@ class TestAdminEndpointsAuthGate:
             "/api/curator",
             "/api/portal",
             "/api/system/stats",
-            "/api/hermes/update/check",
+            "/api/fabric/update/check",
         ],
     )
     def test_gated(self, path):
@@ -789,15 +789,15 @@ class TestAdminEndpointsAuthGate:
 
 
 class TestUpdateCheckEndpoint:
-    """``GET /api/hermes/update/check`` reports availability without applying.
+    """``GET /api/fabric/update/check`` reports availability without applying.
 
     Powers the dashboard's check-before-you-update flow: the System page
     shows the commit-behind count and asks the user to confirm before
-    ``POST /api/hermes/update`` runs ``fabric update``.
+    ``POST /api/fabric/update`` runs ``fabric update``.
     """
 
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, _ = _client()
 
     def test_git_install_reports_behind_count(self, monkeypatch):
@@ -809,7 +809,7 @@ class TestUpdateCheckEndpoint:
 
         monkeypatch.setattr(banner, "check_for_updates", lambda: 5)
 
-        r = self.client.get("/api/hermes/update/check")
+        r = self.client.get("/api/fabric/update/check")
         assert r.status_code == 200
         body = r.json()
         assert {
@@ -834,7 +834,7 @@ class TestUpdateCheckEndpoint:
         monkeypatch.setattr(ws, "detect_install_method", lambda *a, **k: "git")
         monkeypatch.setattr(banner, "check_for_updates", lambda: 0)
 
-        body = self.client.get("/api/hermes/update/check").json()
+        body = self.client.get("/api/fabric/update/check").json()
         assert body["behind"] == 0
         assert body["update_available"] is False
 
@@ -842,7 +842,7 @@ class TestUpdateCheckEndpoint:
         import fabric_cli.web_server as ws
 
         monkeypatch.setattr(ws, "detect_install_method", lambda *a, **k: "docker")
-        body = self.client.get("/api/hermes/update/check").json()
+        body = self.client.get("/api/fabric/update/check").json()
         # Docker images are immutable — the dashboard can't apply an update.
         assert body["can_apply"] is False
         assert body["message"]
@@ -860,7 +860,7 @@ class TestUpdateCheckEndpoint:
             ),
         )
 
-        body = self.client.get("/api/hermes/update/check").json()
+        body = self.client.get("/api/fabric/update/check").json()
         assert body["install_method"] == "managed-runtime"
         assert body["can_apply"] is False
         assert body["update_available"] is False
@@ -878,7 +878,7 @@ class TestUpdateCheckEndpoint:
 
         monkeypatch.setattr(banner, "check_for_updates", _boom)
         # A failed check must not 500 — it returns behind=null with guidance.
-        r = self.client.get("/api/hermes/update/check")
+        r = self.client.get("/api/fabric/update/check")
         assert r.status_code == 200
         body = r.json()
         assert body["behind"] is None
@@ -899,7 +899,7 @@ class TestUpdateCheckEndpoint:
             ],
         )
 
-        body = self.client.get("/api/hermes/update/check").json()
+        body = self.client.get("/api/fabric/update/check").json()
         # The desktop overlay renders this as the "what's changed" list.
         assert isinstance(body["commits"], list)
         assert body["commits"][0]["sha"] == "abc1234"
@@ -912,7 +912,7 @@ class TestUpdateCheckEndpoint:
         monkeypatch.setattr(ws, "detect_install_method", lambda *a, **k: "git")
         monkeypatch.setattr(banner, "check_for_updates", lambda: 0)
 
-        body = self.client.get("/api/hermes/update/check").json()
+        body = self.client.get("/api/fabric/update/check").json()
         # No commits list when there's nothing to show (additive, non-breaking).
         assert body.get("commits", []) == []
 
@@ -922,7 +922,7 @@ class TestDebugShareEndpoint:
     dashboard can render them as copyable links (not a backgrounded log tail)."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, self.header = _client()
         from fabric_constants import get_fabric_home
 
@@ -1015,7 +1015,7 @@ class TestToolsConfigEndpoints:
     the dashboard surface that replicates the `fabric tools` configurator."""
 
     @pytest.fixture(autouse=True)
-    def _setup(self, _isolate_hermes_home):
+    def _setup(self, _isolate_fabric_home):
         self.client, self.header = _client()
 
     def test_list_toolsets_shape(self):
@@ -1114,7 +1114,7 @@ class TestToolsConfigEndpoints:
             spawned["name"] = name
             return _FakeProc()
 
-        monkeypatch.setattr(ws, "_spawn_hermes_action", _fake_spawn)
+        monkeypatch.setattr(ws, "_spawn_fabric_action", _fake_spawn)
         r = self.client.post(
             "/api/tools/toolsets/browser/post-setup",
             json={"key": "agent_browser"},

@@ -1,18 +1,18 @@
-"""Regression tests for the Telegram text-batch adaptive-delay fast-path
-and _env_float_clamped helper introduced by PR #10388 (Telegram latency
-tuning).
+"""Regression tests for Telegram's text-batch adaptive-delay fast-path and
+config-backed bounded delay parsing.
 
 The fast-path lets short replies stream near-instantly while keeping the
 configured cap as the upper bound, so an operator who tightens the cap
 gets the lower number on every tier.
 
-The env-clamped helper guarantees float env vars never produce NaN/Inf
-or out-of-bounds values that could break asyncio.sleep().
+The config parser guarantees delay values never produce NaN/Inf or
+out-of-bounds values that could break asyncio.sleep().
 """
 
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import pytest
 
@@ -24,47 +24,47 @@ def adapter():
     """Build a TelegramAdapter shell without going through __init__'s
     network-touching setup. Just need the class for static-method access
     and the instance for instance-method tests."""
-    return TelegramAdapter.__new__(TelegramAdapter)
+    instance = TelegramAdapter.__new__(TelegramAdapter)
+    instance.config = SimpleNamespace(extra={})
+    return instance
 
 
-class TestEnvFloatClamped:
-    """_env_float_clamped is the fence around every float env var the
-    adapter reads — must reject NaN/Inf and honor min/max bounds."""
+class TestConfigFloatClamped:
+    """Config-backed float parsing rejects NaN/Inf and honors bounds."""
 
-    def test_default_when_unset(self, monkeypatch):
-        monkeypatch.delenv("HERMES_TEST_VAR", raising=False)
-        assert TelegramAdapter._env_float_clamped("HERMES_TEST_VAR", 0.5) == 0.5
+    def test_default_when_unset(self, adapter):
+        assert adapter._coerce_float_extra("text_batch_delay_seconds", 0.5) == 0.5
 
-    def test_parses_valid_value(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TEST_VAR", "1.25")
-        assert TelegramAdapter._env_float_clamped("HERMES_TEST_VAR", 0.5) == 1.25
+    def test_parses_valid_value(self, adapter):
+        adapter.config.extra["text_batch_delay_seconds"] = "1.25"
+        assert adapter._coerce_float_extra("text_batch_delay_seconds", 0.5) == 1.25
 
-    def test_falls_back_to_default_on_garbage(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TEST_VAR", "not-a-float")
-        assert TelegramAdapter._env_float_clamped("HERMES_TEST_VAR", 0.5) == 0.5
+    def test_falls_back_to_default_on_garbage(self, adapter):
+        adapter.config.extra["text_batch_delay_seconds"] = "not-a-float"
+        assert adapter._coerce_float_extra("text_batch_delay_seconds", 0.5) == 0.5
 
-    def test_rejects_nan(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TEST_VAR", "nan")
-        result = TelegramAdapter._env_float_clamped("HERMES_TEST_VAR", 0.5)
+    def test_rejects_nan(self, adapter):
+        adapter.config.extra["text_batch_delay_seconds"] = "nan"
+        result = adapter._coerce_float_extra("text_batch_delay_seconds", 0.5)
         assert math.isfinite(result)
         assert result == 0.5
 
-    def test_rejects_inf(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TEST_VAR", "inf")
-        result = TelegramAdapter._env_float_clamped("HERMES_TEST_VAR", 0.5)
+    def test_rejects_inf(self, adapter):
+        adapter.config.extra["text_batch_delay_seconds"] = "inf"
+        result = adapter._coerce_float_extra("text_batch_delay_seconds", 0.5)
         assert math.isfinite(result)
         assert result == 0.5
 
-    def test_clamps_below_min(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TEST_VAR", "0.01")
-        assert TelegramAdapter._env_float_clamped(
-            "HERMES_TEST_VAR", 0.5, min_value=0.1,
+    def test_clamps_below_min(self, adapter):
+        adapter.config.extra["text_batch_delay_seconds"] = "0.01"
+        assert adapter._coerce_float_extra(
+            "text_batch_delay_seconds", 0.5, min_value=0.1,
         ) == 0.1
 
-    def test_clamps_above_max(self, monkeypatch):
-        monkeypatch.setenv("HERMES_TEST_VAR", "10.0")
-        assert TelegramAdapter._env_float_clamped(
-            "HERMES_TEST_VAR", 0.5, max_value=2.0,
+    def test_clamps_above_max(self, adapter):
+        adapter.config.extra["text_batch_delay_seconds"] = "10.0"
+        assert adapter._coerce_float_extra(
+            "text_batch_delay_seconds", 0.5, max_value=2.0,
         ) == 2.0
 
 

@@ -41,6 +41,12 @@ class TestIsOAuthToken:
     def test_api_key(self):
         assert _is_oauth_token("sk-ant-api03-abcdef1234567890") is False
 
+    def test_admin_api_key(self):
+        assert _is_oauth_token("sk-ant-admin-abcdef1234567890") is False
+
+    def test_unknown_anthropic_key_family(self):
+        assert _is_oauth_token("sk-ant-workspace-abcdef1234567890") is False
+
     def test_managed_key(self):
         # Managed keys from ~/.claude.json without a recognisable Anthropic
         # prefix are not positively identified as OAuth.  They enter the system
@@ -203,7 +209,7 @@ class TestBuildAnthropicClient:
 
     def test_disables_sdk_retries_for_api_key(self):
         """#26293: the SDK's default max_retries=2 ignores Retry-After and
-        double-retries inside hermes's outer loop. We delegate retry entirely
+        double-retries inside fabric's outer loop. We delegate retry entirely
         to the outer loop, so the client must be built with max_retries=0."""
         with patch("agent.anthropic_adapter._anthropic_sdk") as mock_sdk:
             build_anthropic_client("sk-ant-api03-something")
@@ -316,6 +322,14 @@ class TestResolveAnthropicToken:
         monkeypatch.setattr("agent.anthropic_adapter.Path.home", lambda: tmp_path)
         assert resolve_anthropic_token() == "sk-ant-api03-mykey"
 
+    def test_oauth_token_in_api_key_env_is_not_accepted(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-oat01-retired-fallback")
+        monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+        monkeypatch.setattr("agent.anthropic_adapter.Path.home", lambda: tmp_path)
+
+        assert resolve_anthropic_token() is None
+
     def test_falls_back_to_token(self, monkeypatch, tmp_path):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("ANTHROPIC_TOKEN", "sk-ant-oat01-mytoken")
@@ -360,7 +374,7 @@ class TestResolveAnthropicToken:
         monkeypatch.setattr("agent.anthropic_adapter.Path.home", lambda: tmp_path)
         # Isolate source #4 (credential_pool): ensure source #3 (Claude Code
         # creds, incl. the macOS keychain read which Path.home does not cover)
-        # returns nothing, mirroring a Hermes-PKCE-only setup.
+        # returns nothing, mirroring a Fabric-PKCE-only setup.
         monkeypatch.setattr("agent.anthropic_adapter.read_claude_code_credentials", lambda: None)
 
         pool_entry = SimpleNamespace(

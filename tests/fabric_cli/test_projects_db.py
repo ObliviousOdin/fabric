@@ -46,15 +46,15 @@ def test_record_discovered_repos_replace_drops_stale_rows(conn):
 
 
 def test_create_get_list(conn):
-    pid = pdb.create_project(conn, name="Fabric", folders=["/tmp/hermes"])
+    pid = pdb.create_project(conn, name="Fabric", folders=["/tmp/project"])
     proj = pdb.get_project(conn, pid)
 
     assert proj is not None
     assert proj.slug == "fabric"
     assert proj.name == "Fabric"
     # First folder becomes primary.
-    assert proj.primary_path == "/tmp/hermes"
-    assert [f.path for f in proj.folders] == ["/tmp/hermes"]
+    assert proj.primary_path == "/tmp/project"
+    assert [f.path for f in proj.folders] == ["/tmp/project"]
     assert proj.folders[0].is_primary is True
 
     # Lookup by slug too.
@@ -155,7 +155,7 @@ def test_branch_name_for_is_deterministic():
 
 
 def test_per_profile_isolation(tmp_path):
-    # Two distinct DB paths stand in for two profiles' HERMES_HOME.
+    # Two distinct DB paths stand in for two profiles' FABRIC_HOME.
     a = pdb.connect(db_path=tmp_path / "a" / "projects.db")
     b = pdb.connect(db_path=tmp_path / "b" / "projects.db")
     try:
@@ -168,7 +168,7 @@ def test_per_profile_isolation(tmp_path):
         b.close()
 
 
-def test_db_path_under_hermes_home():
-    # Resolves under HERMES_HOME (set by the autouse isolation fixture).
+def test_db_path_under_fabric_home():
+    # Resolves under FABRIC_HOME (set by the autouse isolation fixture).
     assert pdb.projects_db_path().name == "projects.db"
     assert os.path.basename(str(pdb.projects_db_path().parent))  # non-empty parent

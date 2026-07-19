@@ -271,12 +271,11 @@ def test_get_charge_status_requires_id():
 
 
 def test_portal_base_url_env_override(monkeypatch):
-    monkeypatch.setenv("HERMES_PORTAL_BASE_URL", "https://preview.example.com/")
+    monkeypatch.setenv("NOUS_PORTAL_BASE_URL", "https://preview.example.com/")
     assert resolve_portal_base_url() == "https://preview.example.com"
 
 
 def test_portal_base_url_falls_back_to_state(monkeypatch):
-    monkeypatch.delenv("HERMES_PORTAL_BASE_URL", raising=False)
     monkeypatch.delenv("NOUS_PORTAL_BASE_URL", raising=False)
     assert (
         resolve_portal_base_url({"portal_base_url": "https://stored.example.com/"})
@@ -285,7 +284,6 @@ def test_portal_base_url_falls_back_to_state(monkeypatch):
 
 
 def test_portal_base_url_default(monkeypatch):
-    monkeypatch.delenv("HERMES_PORTAL_BASE_URL", raising=False)
     monkeypatch.delenv("NOUS_PORTAL_BASE_URL", raising=False)
     assert resolve_portal_base_url() == nb.DEFAULT_PORTAL_BASE_URL
 

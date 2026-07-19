@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from cli import HermesCLI
+from cli import FabricCLI
 
 
 def _strict_local():
@@ -66,7 +66,7 @@ def test_typed_restricted_switch_rejects_before_expansion_or_discovery(
     output = []
     monkeypatch.setattr("cli._cprint", lambda value="": output.append(str(value)))
 
-    HermesCLI._handle_model_switch(
+    FabricCLI._handle_model_switch(
         _cli(),
         "/model remote-model --provider openrouter --session",
     )
@@ -94,7 +94,7 @@ def test_restricted_cli_picker_renders_only_configured_local_rows(monkeypatch):
         )
     )
 
-    HermesCLI._handle_model_switch(cli, "/model")
+    FabricCLI._handle_model_switch(cli, "/model")
 
     assert [row["slug"] for row in captured] == [
         "custom",

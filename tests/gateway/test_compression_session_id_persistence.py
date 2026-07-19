@@ -25,7 +25,7 @@ import textwrap
 from unittest.mock import MagicMock, call
 
 from gateway import run as gateway_run
-from gateway.session_context import set_current_session_id, get_session_env
+from gateway.session_context import get_current_session_id, set_current_session_id
 
 
 def _session_id_assignments_followed_by_save(source: str) -> list[tuple[int, bool]]:
@@ -227,7 +227,7 @@ class TestCompressionSessionPropagation:
         if agent_result.get("session_id") and agent_result["session_id"] != session_entry.session_id:
             session_entry.session_id = agent_result["session_id"]
 
-        contextvar_sid = get_session_env("HERMES_SESSION_ID", "")
+        contextvar_sid = get_current_session_id()
         assert contextvar_sid == new_sid, (
             f"Contextvar still holds old session_id '{contextvar_sid}' after "
             f"set_current_session_id('{new_sid}'). Tool calls in the next turn "

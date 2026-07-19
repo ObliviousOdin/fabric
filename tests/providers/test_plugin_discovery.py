@@ -2,7 +2,7 @@
 
 Verifies that:
  1. All bundled providers at plugins/model-providers/<name>/ are discovered
- 2. User plugins at $HERMES_HOME/plugins/model-providers/<name>/ override bundled
+ 2. User plugins at $FABRIC_HOME/plugins/model-providers/<name>/ override bundled
  3. plugin.yaml manifests with kind=model-provider are correctly categorized
 """
 
@@ -26,7 +26,7 @@ def _clear_provider_caches():
     for mod in list(sys.modules.keys()):
         if (
             mod.startswith("plugins.model_providers")
-            or mod.startswith("_hermes_user_provider")
+            or mod.startswith("_fabric_user_provider")
         ):
             del sys.modules[mod]
 
@@ -75,15 +75,15 @@ def test_all_profiles_register():
 
 def test_user_plugin_overrides_bundled(tmp_path, monkeypatch):
     """A user plugin with the same name must override the bundled profile."""
-    # Point HERMES_HOME at a fresh temp dir
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    # Point FABRIC_HOME at a fresh temp dir
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     # get_fabric_home() may be module-cached depending on codebase; ensure the
     # env var is the source of truth. Most code paths re-read it each call.
 
     # Drop a user plugin that replaces 'gmi'
-    user_gmi = hermes_home / "plugins" / "model-providers" / "gmi"
+    user_gmi = fabric_home / "plugins" / "model-providers" / "gmi"
     user_gmi.mkdir(parents=True)
     (user_gmi / "__init__.py").write_text(
         "from providers import register_provider\n"
@@ -119,17 +119,49 @@ def test_user_plugin_overrides_bundled(tmp_path, monkeypatch):
     _clear_provider_caches()
 
 
+def test_installed_single_file_provider_module_is_discovered(tmp_path, monkeypatch):
+    import providers as provider_package
+
+    extension_dir = tmp_path / "providers"
+    extension_dir.mkdir()
+    (extension_dir / "single_file_test.py").write_text(
+        "from providers import register_provider\n"
+        "from providers.base import ProviderProfile\n"
+        "register_provider(ProviderProfile(\n"
+        "    name='single-file-test',\n"
+        "    env_vars=('SINGLE_FILE_TEST_API_KEY',),\n"
+        "    base_url='https://single-file-test.example/v1',\n"
+        "    auth_type='api_key',\n"
+        "))\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        provider_package,
+        "__path__",
+        [*provider_package.__path__, str(extension_dir)],
+    )
+    sys.modules.pop("providers.single_file_test", None)
+    _clear_provider_caches()
+
+    profile = provider_package.get_provider_profile("single-file-test")
+
+    assert profile is not None
+    assert profile.base_url == "https://single-file-test.example/v1"
+    sys.modules.pop("providers.single_file_test", None)
+    _clear_provider_caches()
+
+
 def test_general_plugin_manager_skips_model_provider_kind(tmp_path, monkeypatch):
     """The general PluginManager must NOT import model-provider plugins
     (providers/__init__.py handles them). It records the manifest only."""
     from fabric_cli import plugins as plugin_mod
 
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
     # Create a user-installed plugin with an explicit kind: model-provider.
-    user_plugin = hermes_home / "plugins" / "test-model-provider"
+    user_plugin = fabric_home / "plugins" / "test-model-provider"
     user_plugin.mkdir(parents=True)
     (user_plugin / "plugin.yaml").write_text(
         "name: test-model-provider\n"

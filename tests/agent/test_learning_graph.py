@@ -67,7 +67,7 @@ def test_skill_node_timestamp_uses_iso_usage_activity(tmp_path, monkeypatch):
 
 
 def test_memory_is_cards_split_on_separator(tmp_path):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     (home / "memories").mkdir(parents=True)
     (home / "memories" / "MEMORY.md").write_text(
         "Project uses pytest with xdist\n§\nUser prefers concise responses",
@@ -106,18 +106,12 @@ def test_malformed_frontmatter_metadata_does_not_crash(tmp_path):
     assert node.related == []
 
 
-def test_skill_metadata_tolerates_non_dict_and_prefers_fabric():
-    assert learning_graph._hermes_meta({"metadata": "junk"}) == {}
-    assert learning_graph._hermes_meta({"metadata": {"hermes": "junk"}}) == {}
-    assert learning_graph._hermes_meta({"metadata": {"hermes": {"category": "x"}}}) == {"category": "x"}
-    assert learning_graph._hermes_meta(
-        {
-            "metadata": {
-                "hermes": {"category": "legacy", "related_skills": ["one"]},
-                "fabric": {"category": "canonical"},
-            }
-        }
-    ) == {"category": "canonical", "related_skills": ["one"]}
+def test_skill_metadata_tolerates_non_dict_and_reads_fabric_mapping():
+    assert learning_graph._fabric_meta({"metadata": "junk"}) == {}
+    assert learning_graph._fabric_meta({"metadata": {"fabric": "junk"}}) == {}
+    assert learning_graph._fabric_meta(
+        {"metadata": {"fabric": {"category": "x", "related_skills": ["one"]}}}
+    ) == {"category": "x", "related_skills": ["one"]}
 
 
 def test_learning_graph_reads_canonical_fabric_metadata(tmp_path):
@@ -173,7 +167,7 @@ metadata:
 
 
 def test_full_payload_shape_and_edge_integrity(tmp_path):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
     token = set_fabric_home_override(home)
     try:

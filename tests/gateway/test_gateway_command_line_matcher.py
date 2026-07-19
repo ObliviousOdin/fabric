@@ -19,7 +19,7 @@ from gateway.status import (
 
 ACCEPT = [
     "pythonw.exe -m fabric_cli.main gateway run",
-    r"C:\Users\me\hermes\venv\Scripts\pythonw.exe -m fabric_cli.main gateway run",
+    r"C:\Users\me\fabric\venv\Scripts\pythonw.exe -m fabric_cli.main gateway run",
     "python -m fabric_cli.main --profile work gateway run",
     "python -m fabric_cli.main gateway run --replace",
     "python -m fabric_cli/main.py gateway run",
@@ -33,11 +33,11 @@ ACCEPT = [
     "python -m fabric_cli.main gateway -p work run",
     "fabric gateway --profile=work run",
     # a profile literally NAMED "gateway"
-    "hermes -p gateway gateway run",
+    "fabric -p gateway gateway run",
     "python -m fabric_cli.main --profile gateway gateway run",
     # quoted Windows paths with spaces (shlex-aware tokenization)
-    r'"C:\Program Files\Hermes\fabric-gateway.exe"',
-    r'"C:\Program Files\Hermes\gateway\run.py" run',
+    r'"C:\Program Files\Fabric\fabric-gateway.exe"',
+    r'"C:\Program Files\Fabric\gateway\run.py" run',
     r'"C:\Program Files\Py\pythonw.exe" -m fabric_cli.main gateway run',
 ]
 

@@ -43,7 +43,7 @@ def test_venv_health_missing_venv_unhealthy_on_managed_install(tmp_path):
     """On a managed install (bootstrap marker) the venv IS the install —
     its absence must be reported unhealthy so the repair lane runs instead
     of 'Already up to date!'."""
-    (tmp_path / ".hermes-bootstrap-complete").write_text("done")
+    (tmp_path / ".fabric-bootstrap-complete").write_text("done")
     with patch.object(cli_main, "PROJECT_ROOT", tmp_path):
         healthy, detail = cli_main._venv_core_imports_healthy()
     assert healthy is False
@@ -179,7 +179,7 @@ def test_detect_venv_python_excludes_self_and_ancestors(_winp, tmp_path):
         process_iter=lambda attrs: iter(
             [
                 _proc(_os.getpid(), venv_py, "python.exe"),
-                _proc(555, venv_py, "hermes.exe"),
+                _proc(555, venv_py, "fabric.exe"),
             ]
         ),
         Process=lambda *a, **k: me,
@@ -214,7 +214,7 @@ def test_format_venv_holders_message_flags_desktop_backend(tmp_path):
 @patch.object(cli_main, "_is_windows", return_value=True)
 def test_detect_venv_python_catches_outside_venv_trampoline(_winp, tmp_path):
     """uv/base-interpreter trampoline: exe OUTSIDE the venv, but the cmdline
-    clearly runs Hermes from this install → must still be flagged as a holder
+    clearly runs Fabric from this install → must still be flagged as a holder
     (it imports from the venv and holds its .pyd files)."""
     base_py = "C:\\Python311\\python.exe"
     venv_path = str(tmp_path / "venv" / "Scripts" / "python.exe")
@@ -249,7 +249,7 @@ def test_detect_venv_python_catches_outside_venv_trampoline(_winp, tmp_path):
 
 
 @patch.object(cli_main, "_is_windows", return_value=True)
-def test_detect_venv_hermes_cli_cmdline_outside_install_not_matched(_winp, tmp_path):
+def test_detect_venv_fabric_cli_cmdline_outside_install_not_matched(_winp, tmp_path):
     """A fabric_cli.main process belonging to a DIFFERENT install (neither
     install root in cmdline nor cwd under it) must not be flagged."""
     base_py = "C:\\Python311\\python.exe"

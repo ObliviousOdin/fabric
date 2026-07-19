@@ -39,10 +39,10 @@ from fabric_cli import kanban_db as kb
 
 @pytest.fixture
 def kanban_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Isolated HERMES_HOME with an empty kanban DB."""
-    home = tmp_path / ".hermes"
+    """Isolated FABRIC_HOME with an empty kanban DB."""
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     kb.init_db()
     return home
@@ -176,7 +176,7 @@ def test_gave_up_event_alone_does_not_make_block_sticky(kanban_home: Path) -> No
 
 
 def test_unblock_clears_sticky_state_and_lets_block_recover(kanban_home: Path) -> None:
-    """``hermes kanban unblock`` (or the ``kanban_unblock`` tool) is
+    """``fabric kanban unblock`` (or the ``kanban_unblock`` tool) is
     the only legitimate way out of a worker-initiated block.  After
     unblock, a *subsequent* circuit-breaker block on the same task
     must again be eligible for auto-recovery."""

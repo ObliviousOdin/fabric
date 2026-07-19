@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from fabric_cli.auth import AuthError
-from fabric_cli import main as hermes_main
+from fabric_cli import main as fabric_main
 
 
 # ---------------------------------------------------------------------------
@@ -123,18 +123,18 @@ def _import_cli():
     return importlib.import_module("cli")
 
 
-def test_hermes_cli_init_does_not_eagerly_resolve_runtime_provider(monkeypatch):
+def test_fabric_cli_init_does_not_eagerly_resolve_runtime_provider(monkeypatch):
     cli = _import_cli()
     calls = {"count": 0}
 
     def _unexpected_runtime_resolve(**kwargs):
         calls["count"] += 1
-        raise AssertionError("resolve_runtime_provider should not be called in HermesCLI.__init__")
+        raise AssertionError("resolve_runtime_provider should not be called in FabricCLI.__init__")
 
     monkeypatch.setattr("fabric_cli.runtime_provider.resolve_runtime_provider", _unexpected_runtime_resolve)
     monkeypatch.setattr("fabric_cli.runtime_provider.format_runtime_provider_error", lambda exc: str(exc))
 
-    shell = cli.HermesCLI(model="gpt-5", compact=True, max_turns=1)
+    shell = cli.FabricCLI(model="gpt-5", compact=True, max_turns=1)
 
     assert shell is not None
     assert calls["count"] == 0
@@ -164,7 +164,7 @@ def test_runtime_resolution_failure_is_not_sticky(monkeypatch):
     monkeypatch.setattr("fabric_cli.runtime_provider.format_runtime_provider_error", lambda exc: str(exc))
     monkeypatch.setattr(cli, "AIAgent", _DummyAgent)
 
-    shell = cli.HermesCLI(model="gpt-5", compact=True, max_turns=1)
+    shell = cli.FabricCLI(model="gpt-5", compact=True, max_turns=1)
 
     assert shell._init_agent() is False
     assert shell._init_agent() is True
@@ -187,7 +187,7 @@ def test_runtime_resolution_rebuilds_agent_on_routing_change(monkeypatch):
     monkeypatch.setattr("fabric_cli.runtime_provider.resolve_runtime_provider", _runtime_resolve)
     monkeypatch.setattr("fabric_cli.runtime_provider.format_runtime_provider_error", lambda exc: str(exc))
 
-    shell = cli.HermesCLI(model="gpt-5", compact=True, max_turns=1)
+    shell = cli.FabricCLI(model="gpt-5", compact=True, max_turns=1)
     shell.provider = "openrouter"
     shell.api_mode = "chat_completions"
     shell.base_url = "https://same-endpoint.example/v1"
@@ -202,7 +202,7 @@ def test_runtime_resolution_rebuilds_agent_on_routing_change(monkeypatch):
 
 def test_cli_turn_routing_uses_primary_when_disabled(monkeypatch):
     cli = _import_cli()
-    shell = cli.HermesCLI(model="gpt-5", compact=True, max_turns=1)
+    shell = cli.FabricCLI(model="gpt-5", compact=True, max_turns=1)
     shell.provider = "openrouter"
     shell.api_mode = "chat_completions"
     shell.base_url = "https://openrouter.ai/api/v1"
@@ -214,10 +214,9 @@ def test_cli_turn_routing_uses_primary_when_disabled(monkeypatch):
     assert result["runtime"]["provider"] == "openrouter"
 
 
-def test_cli_prefers_config_provider_over_stale_env_override(monkeypatch):
+def test_cli_uses_configured_custom_provider(monkeypatch):
     cli = _import_cli()
 
-    monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "openrouter")
     config_copy = dict(cli.CLI_CONFIG)
     model_copy = dict(config_copy.get("model", {}))
     model_copy["provider"] = "custom"
@@ -225,7 +224,7 @@ def test_cli_prefers_config_provider_over_stale_env_override(monkeypatch):
     config_copy["model"] = model_copy
     monkeypatch.setattr(cli, "CLI_CONFIG", config_copy)
 
-    shell = cli.HermesCLI(model="fireworks/minimax-m2p5", compact=True, max_turns=1)
+    shell = cli.FabricCLI(model="fireworks/minimax-m2p5", compact=True, max_turns=1)
 
     assert shell.requested_provider == "custom"
 
@@ -260,7 +259,7 @@ def test_codex_provider_replaces_incompatible_default_model(monkeypatch):
         lambda access_token=None: ["gpt-5.2-codex", "gpt-5.1-codex-mini"],
     )
 
-    shell = cli.HermesCLI(compact=True, max_turns=1)
+    shell = cli.FabricCLI(compact=True, max_turns=1)
 
     assert shell._model_is_default is True
     assert shell._ensure_runtime_credentials() is True
@@ -300,7 +299,7 @@ def test_model_flow_nous_prints_subscription_guidance_without_mutating_explicit_
     monkeypatch.setattr("fabric_cli.auth._save_model_choice", lambda model: None)
     monkeypatch.setattr("fabric_cli.auth._update_config_for_provider", lambda provider, url: None)
 
-    hermes_main._model_flow_nous(config, current_model="claude-opus-4-6")
+    fabric_main._model_flow_nous(config, current_model="claude-opus-4-6")
 
     out = capsys.readouterr().out
     assert "Default model set to:" in out
@@ -308,12 +307,48 @@ def test_model_flow_nous_prints_subscription_guidance_without_mutating_explicit_
     assert config["browser"]["cloud_provider"] == "browser-use"
 
 
+def test_model_flow_nous_reauth_uses_stored_client_id(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        "fabric_cli.auth.get_provider_auth_state",
+        lambda _provider: {
+            "access_token": "expired-token",
+            "client_id": "registered-nous-client",
+        },
+    )
+    monkeypatch.setattr(
+        "fabric_cli.models.get_curated_nous_model_ids",
+        lambda: ["test-model"],
+    )
+
+    def _expired_credentials(*_args, **_kwargs):
+        raise AuthError(
+            "refresh required",
+            provider="nous",
+            relogin_required=True,
+        )
+
+    def _capture_login(args, _provider):
+        captured["client_id"] = args.client_id
+
+    monkeypatch.setattr(
+        "fabric_cli.auth.resolve_nous_runtime_credentials",
+        _expired_credentials,
+    )
+    monkeypatch.setattr("fabric_cli.auth._login_nous", _capture_login)
+
+    fabric_main._model_flow_nous({}, current_model="test-model")
+
+    assert captured["client_id"] == "registered-nous-client"
+
+
 def test_model_flow_nous_does_not_restore_stale_custom_api_key(tmp_path, monkeypatch):
     import yaml
 
-    config_home = tmp_path / "hermes"
+    config_home = tmp_path / "fabric"
     config_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(config_home))
+    monkeypatch.setenv("FABRIC_HOME", str(config_home))
 
     config_path = config_home / "config.yaml"
     config_path.write_text(
@@ -367,7 +402,7 @@ def test_model_flow_nous_does_not_restore_stale_custom_api_key(tmp_path, monkeyp
         lambda config: None,
     )
 
-    hermes_main._model_flow_nous(stale_config, current_model="glm-5.2")
+    fabric_main._model_flow_nous(stale_config, current_model="glm-5.2")
 
     config = yaml.safe_load(config_path.read_text()) or {}
     model = config.get("model")
@@ -381,9 +416,9 @@ def test_model_flow_nous_does_not_restore_stale_custom_api_key(tmp_path, monkeyp
 def _seed_stale_custom_model(tmp_path, monkeypatch):
     import yaml
 
-    config_home = tmp_path / "hermes"
+    config_home = tmp_path / "fabric"
     config_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(config_home))
+    monkeypatch.setenv("FABRIC_HOME", str(config_home))
     config_path = config_home / "config.yaml"
     config_path.write_text(
         yaml.safe_dump(
@@ -424,7 +459,7 @@ def test_model_flow_openrouter_clears_stale_custom_key(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("fabric_cli.auth.deactivate_provider", lambda: None)
 
-    hermes_main._model_flow_openrouter({}, current_model="glm-5.2")
+    fabric_main._model_flow_openrouter({}, current_model="glm-5.2")
 
     config = yaml.safe_load(config_path.read_text()) or {}
     model = config["model"]
@@ -459,7 +494,7 @@ def test_model_flow_anthropic_clears_stale_custom_key_and_mode(tmp_path, monkeyp
     )
     monkeypatch.setattr("fabric_cli.auth.deactivate_provider", lambda: None)
 
-    hermes_main._model_flow_anthropic({}, current_model="glm-5.2")
+    fabric_main._model_flow_anthropic({}, current_model="glm-5.2")
 
     config = yaml.safe_load(config_path.read_text()) or {}
     model = config["model"]
@@ -517,7 +552,7 @@ def test_model_flow_nous_offers_tool_gateway_prompt_when_unconfigured(monkeypatc
     monkeypatch.setattr("fabric_cli.auth._prompt_model_selection", lambda model_ids, current_model="", pricing=None, **kw: "claude-opus-4-6")
     monkeypatch.setattr("fabric_cli.auth._save_model_choice", lambda model: None)
     monkeypatch.setattr("fabric_cli.auth._update_config_for_provider", lambda provider, url: None)
-    hermes_main._model_flow_nous(config, current_model="claude-opus-4-6")
+    fabric_main._model_flow_nous(config, current_model="claude-opus-4-6")
 
     # The per-tool Tool Gateway checklist was offered.
     assert "title" in captured
@@ -557,7 +592,7 @@ def test_codex_provider_uses_config_model(monkeypatch):
         lambda access_token=None: ["gpt-5.2-codex"],
     )
 
-    shell = cli.HermesCLI(compact=True, max_turns=1)
+    shell = cli.FabricCLI(compact=True, max_turns=1)
 
     assert shell._ensure_runtime_credentials() is True
     assert shell.provider == "openai-codex"
@@ -600,7 +635,7 @@ def test_codex_config_model_not_replaced_by_normalization(monkeypatch):
         lambda access_token=None: ["gpt-5.4", "gpt-5.3-codex"],
     )
 
-    shell = cli.HermesCLI(compact=True, max_turns=1)
+    shell = cli.FabricCLI(compact=True, max_turns=1)
 
     # Config model is NOT the global default — user made a deliberate choice
     assert shell._model_is_default is False
@@ -630,7 +665,7 @@ def test_codex_provider_preserves_explicit_codex_model(monkeypatch):
     monkeypatch.setattr("fabric_cli.runtime_provider.resolve_runtime_provider", _runtime_resolve)
     monkeypatch.setattr("fabric_cli.runtime_provider.format_runtime_provider_error", lambda exc: str(exc))
 
-    shell = cli.HermesCLI(model="gpt-5.1-codex-mini", compact=True, max_turns=1)
+    shell = cli.FabricCLI(model="gpt-5.1-codex-mini", compact=True, max_turns=1)
 
     assert shell._model_is_default is False
     assert shell._ensure_runtime_credentials() is True
@@ -657,7 +692,7 @@ def test_codex_provider_strips_provider_prefix_from_model(monkeypatch):
     monkeypatch.setattr("fabric_cli.runtime_provider.resolve_runtime_provider", _runtime_resolve)
     monkeypatch.setattr("fabric_cli.runtime_provider.format_runtime_provider_error", lambda exc: str(exc))
 
-    shell = cli.HermesCLI(model="openai/gpt-5.3-codex", compact=True, max_turns=1)
+    shell = cli.FabricCLI(model="openai/gpt-5.3-codex", compact=True, max_turns=1)
 
     assert shell._ensure_runtime_credentials() is True
     assert shell.model == "gpt-5.3-codex"
@@ -678,10 +713,10 @@ def test_cmd_model_falls_back_to_auto_on_invalid_provider(monkeypatch, capsys):
         return "openrouter"
 
     monkeypatch.setattr("fabric_cli.auth.resolve_provider", _resolve_provider)
-    monkeypatch.setattr(hermes_main, "_prompt_provider_choice", lambda choices, **kwargs: len(choices) - 1)
+    monkeypatch.setattr(fabric_main, "_prompt_provider_choice", lambda choices, **kwargs: len(choices) - 1)
     monkeypatch.setattr("sys.stdin", type("FakeTTY", (), {"isatty": lambda self: True})())
 
-    hermes_main.cmd_model(SimpleNamespace())
+    fabric_main.cmd_model(SimpleNamespace())
     output = capsys.readouterr().out
 
     assert "Warning:" in output
@@ -722,7 +757,7 @@ def test_model_flow_custom_saves_verified_v1_base_url(monkeypatch, capsys):
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     monkeypatch.setattr("fabric_cli.secret_prompt.masked_secret_prompt", lambda _prompt="": next(answers))
 
-    hermes_main._model_flow_custom({})
+    fabric_main._model_flow_custom({})
     output = capsys.readouterr().out
 
     assert "Saving the working base URL instead" in output
@@ -780,7 +815,7 @@ def test_model_flow_custom_persists_selected_api_mode(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     monkeypatch.setattr("fabric_cli.secret_prompt.masked_secret_prompt", lambda _prompt="": "test-key")
 
-    hermes_main._model_flow_custom({"model": {"provider": "custom"}})
+    fabric_main._model_flow_custom({"model": {"provider": "custom"}})
 
     assert saved_cfg["model"]["provider"] == "custom"
     assert saved_cfg["model"]["base_url"] == "https://codex.example.com/v1"
@@ -790,7 +825,7 @@ def test_model_flow_custom_persists_selected_api_mode(monkeypatch):
 
 
 def test_cmd_model_forwards_nous_login_tls_options(monkeypatch):
-    monkeypatch.setattr(hermes_main, "_require_tty", lambda *a: None)
+    monkeypatch.setattr(fabric_main, "_require_tty", lambda *a: None)
     monkeypatch.setattr(
         "fabric_cli.config.load_config",
         lambda: {"model": {"default": "gpt-5", "provider": "nous"}},
@@ -800,7 +835,7 @@ def test_cmd_model_forwards_nous_login_tls_options(monkeypatch):
     monkeypatch.setattr("fabric_cli.config.save_env_value", lambda key, value: None)
     monkeypatch.setattr("fabric_cli.auth.resolve_provider", lambda requested, **kwargs: "nous")
     monkeypatch.setattr("fabric_cli.auth.get_provider_auth_state", lambda provider_id: None)
-    monkeypatch.setattr(hermes_main, "_prompt_provider_choice", lambda choices, **kwargs: 0)
+    monkeypatch.setattr(fabric_main, "_prompt_provider_choice", lambda choices, **kwargs: 0)
 
     captured = {}
 
@@ -816,11 +851,11 @@ def test_cmd_model_forwards_nous_login_tls_options(monkeypatch):
 
     monkeypatch.setattr("fabric_cli.auth._login_nous", _fake_login)
 
-    hermes_main.cmd_model(
+    fabric_main.cmd_model(
         SimpleNamespace(
             portal_url="https://portal.nousresearch.com",
             inference_url="https://inference.nousresearch.com/v1",
-            client_id="hermes-local",
+            client_id="local-client",
             scope="openid profile",
             no_browser=True,
             timeout=7.5,
@@ -832,7 +867,7 @@ def test_cmd_model_forwards_nous_login_tls_options(monkeypatch):
     assert captured == {
         "portal_url": "https://portal.nousresearch.com",
         "inference_url": "https://inference.nousresearch.com/v1",
-        "client_id": "hermes-local",
+        "client_id": "local-client",
         "scope": "openid profile",
         "no_browser": True,
         "timeout": 7.5,

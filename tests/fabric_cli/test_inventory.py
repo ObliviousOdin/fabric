@@ -32,7 +32,7 @@ from fabric_cli.inventory import (
 
 @pytest.fixture(autouse=True)
 def _upstream_catalog(monkeypatch):
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
 
 
 # ─── load_picker_context ───────────────────────────────────────────────
@@ -377,8 +377,7 @@ def test_curated_catalog_keeps_current_and_user_defined_local_providers(monkeypa
     Filtering every authenticated row by slug made the active Ollama endpoint
     disappear from the dashboard, desktop, and TUI model pickers.
     """
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "1")
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": True})
     rows = [
         {
             "slug": "custom",
@@ -430,13 +429,12 @@ def test_end_to_end_curated_inventory_keeps_active_bare_ollama(monkeypatch):
     import fabric_cli.models as model_catalog
     import fabric_cli.providers as provider_catalog
 
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "1")
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": True})
     # Keep the integration deterministic and offline while retaining the real
     # custom-endpoint branch in list_authenticated_providers().
     monkeypatch.setattr(models_dev, "PROVIDER_TO_MODELS_DEV", {})
     monkeypatch.setattr(models_dev, "fetch_models_dev", lambda: {})
-    monkeypatch.setattr(provider_catalog, "HERMES_OVERLAYS", {})
+    monkeypatch.setattr(provider_catalog, "FABRIC_OVERLAYS", {})
     monkeypatch.setattr(model_catalog, "CANONICAL_PROVIDERS", [])
     monkeypatch.setattr(model_catalog, "_PROVIDER_MODELS", {"ollama-cloud": []})
     monkeypatch.setattr(model_catalog, "get_curated_nous_model_ids", lambda: [])
@@ -473,7 +471,7 @@ def test_build_models_payload_does_not_call_provider_model_ids():
     caching). ``build_models_payload`` itself must not call the live fetcher
     directly; the test pins that boundary.
     """
-    rows = [{"slug": "nous", "name": "Nous", "models": ["hermes-4-405b"],
+    rows = [{"slug": "nous", "name": "Nous", "models": ["test-model"],
              "total_models": 1, "is_current": False, "is_user_defined": False,
              "source": "built-in"}]
     ctx = _empty_ctx()
@@ -610,7 +608,7 @@ def test_include_unconfigured_appends_canonical_skeletons(monkeypatch):
     """include_unconfigured=True adds CANONICAL_PROVIDERS rows that
     list_authenticated_providers didn't emit. Skeleton rows have empty
     models and source='canonical'."""
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
     rows = [
         {"slug": "openrouter", "name": "OpenRouter", "models": ["m1"],
          "total_models": 1, "is_current": True, "is_user_defined": False,
@@ -653,16 +651,16 @@ def test_explicit_only_filters_ambient_credentials_but_keeps_current_and_custom_
     rows = [
         {"slug": "openai-codex", "name": "OpenAI Codex", "models": ["gpt-5.4"],
          "total_models": 1, "is_current": True, "is_user_defined": False,
-         "source": "hermes"},
+         "source": "fabric"},
         {"slug": "gemini", "name": "Gemini", "models": ["gemini-2.5-pro"],
          "total_models": 1, "is_current": False, "is_user_defined": False,
          "source": "built-in"},
         {"slug": "copilot", "name": "Copilot", "models": ["gpt-5.4"],
          "total_models": 1, "is_current": False, "is_user_defined": False,
-         "source": "hermes"},
+         "source": "fabric"},
         {"slug": "nous", "name": "Nous", "models": ["anthropic/claude-sonnet-5"],
          "total_models": 1, "is_current": False, "is_user_defined": False,
-         "source": "hermes"},
+         "source": "fabric"},
         {"slug": "custom:lab", "name": "Lab", "models": ["lab-1"],
          "total_models": 1, "is_current": False, "is_user_defined": True,
          "source": "user-config"},
@@ -729,7 +727,7 @@ def test_picker_hints_adds_warning_to_skeleton_rows():
 def test_picker_hints_api_key_warning_format(monkeypatch):
     """For api_key providers with a defined env var, the warning must
     point to that env var."""
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
     rows = []
     ctx = _empty_ctx()
     with _list_auth_returning(rows):
@@ -754,7 +752,7 @@ def test_canonical_order_uses_slug_not_is_user_defined_flag(monkeypatch):
     canonical providers configured via the keyed schema get demoted to
     the tail.
     """
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
     from fabric_cli.models import CANONICAL_PROVIDERS
 
     canonical_slug = CANONICAL_PROVIDERS[2].slug  # any canonical
@@ -789,7 +787,7 @@ def test_canonical_order_with_unconfigured_preserves_full_universe(monkeypatch):
     has CANONICAL_PROVIDERS in declaration order, hints applied,
     custom rows trailing.
     """
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
     from fabric_cli.models import CANONICAL_PROVIDERS
 
     rows = [
@@ -1098,7 +1096,7 @@ def test_build_models_payload_keeps_static_provider_models_from_providers_dict()
     with (
         patch("fabric_cli.config.load_config", return_value=cfg),
         patch("agent.models_dev.fetch_models_dev", return_value={}),
-        patch("fabric_cli.providers.HERMES_OVERLAYS", {}),
+        patch("fabric_cli.providers.FABRIC_OVERLAYS", {}),
         patch(
             "fabric_cli.models.fetch_api_models",
             side_effect=AssertionError("fetch_api_models must not be called"),

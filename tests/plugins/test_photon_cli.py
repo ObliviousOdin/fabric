@@ -1,15 +1,15 @@
-"""Photon setup compatibility tests for the Fabric public distribution."""
+"""Photon setup project-selection tests."""
 
 from plugins.platforms.photon import auth, cli
 
 
-def test_default_project_uses_single_lookup_when_legacy_name_matches(monkeypatch):
+def test_default_project_uses_canonical_name(monkeypatch):
     calls = []
-    legacy = {"id": "legacy-project"}
+    canonical = {"id": "test-project"}
 
     def find_project(_token, name):
         calls.append(name)
-        return legacy if name == auth.LEGACY_DEFAULT_PROJECT_NAME else None
+        return canonical if name == auth.DEFAULT_PROJECT_NAME else None
 
     monkeypatch.setattr(auth, "find_project_by_name", find_project)
 
@@ -17,10 +17,10 @@ def test_default_project_uses_single_lookup_when_legacy_name_matches(monkeypatch
 
     assert calls == [auth.DEFAULT_PROJECT_NAME]
     assert name == auth.DEFAULT_PROJECT_NAME
-    assert project == legacy
+    assert project == canonical
 
 
-def test_explicit_project_name_never_falls_back_to_legacy(monkeypatch):
+def test_explicit_project_name_uses_requested_name(monkeypatch):
     calls = []
 
     def find_project(_token, name):

@@ -1,10 +1,10 @@
-"""Tests for get_fabric_home() profile-mode fallback warning.
+"""Tests for the get_fabric_home() profile-mode warning.
 
 Regression test for https://github.com/ObliviousOdin/fabric/issues/18594.
 
-When HERMES_HOME is unset but an active_profile file indicates a non-default
+When FABRIC_HOME is unset but an active_profile file indicates a non-default
 profile is active, get_fabric_home() should:
-  1. STILL return ~/.hermes (raising would brick 30+ module-level callers)
+  1. STILL return ~/.fabric (raising would brick 30+ module-level callers)
   2. Emit a loud one-shot warning to stderr so operators can diagnose
      cross-profile data contamination after the fact.
 
@@ -25,37 +25,37 @@ def fresh_constants(monkeypatch, tmp_path):
     import fabric_constants
     importlib.reload(fabric_constants)
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.delenv("FABRIC_HOME", raising=False)
     return fabric_constants
 
 
-class TestGetHermesHomeProfileWarning:
+class TestGetFabricHomeProfileWarning:
     def test_classic_mode_no_active_profile_no_warning(
         self, fresh_constants, tmp_path, capsys
     ):
-        """Classic mode: no active_profile file → silent, returns ~/.hermes."""
+        """Classic mode: no active_profile file → silent, returns ~/.fabric."""
         result = fresh_constants.get_fabric_home()
         assert result == tmp_path / ".fabric"
-        assert "HERMES_HOME fallback" not in capsys.readouterr().err
+        assert "FABRIC_HOME fallback" not in capsys.readouterr().err
 
     def test_default_active_profile_no_warning(
         self, fresh_constants, tmp_path, capsys
     ):
-        """active_profile=default → still no warning, returns ~/.hermes."""
-        hermes_dir = tmp_path / ".fabric"
-        hermes_dir.mkdir()
-        (hermes_dir / "active_profile").write_text("default\n")
+        """active_profile=default → still no warning, returns ~/.fabric."""
+        fabric_dir = tmp_path / ".fabric"
+        fabric_dir.mkdir()
+        (fabric_dir / "active_profile").write_text("default\n")
         result = fresh_constants.get_fabric_home()
         assert result == tmp_path / ".fabric"
-        assert "HERMES_HOME fallback" not in capsys.readouterr().err
+        assert "FABRIC_HOME fallback" not in capsys.readouterr().err
 
     def test_named_profile_unset_home_warns_once(
         self, fresh_constants, tmp_path, capsys
     ):
-        """active_profile=coder + HERMES_HOME unset → warn loudly, still return fallback."""
-        hermes_dir = tmp_path / ".fabric"
-        hermes_dir.mkdir()
-        (hermes_dir / "active_profile").write_text("coder\n")
+        """active_profile=coder + FABRIC_HOME unset → warn loudly, still return fallback."""
+        fabric_dir = tmp_path / ".fabric"
+        fabric_dir.mkdir()
+        (fabric_dir / "active_profile").write_text("coder\n")
 
         result = fresh_constants.get_fabric_home()
 
@@ -63,7 +63,7 @@ class TestGetHermesHomeProfileWarning:
         assert result == tmp_path / ".fabric"
         # 2. Stderr got the warning exactly once
         err = capsys.readouterr().err
-        assert err.count("HERMES_HOME fallback") == 1
+        assert err.count("FABRIC_HOME fallback") == 1
         assert "'coder'" in err
         assert "#18594" in err
 
@@ -71,46 +71,46 @@ class TestGetHermesHomeProfileWarning:
         fresh_constants.get_fabric_home()
         fresh_constants.get_fabric_home()
         err2 = capsys.readouterr().err
-        assert "HERMES_HOME fallback" not in err2
+        assert "FABRIC_HOME fallback" not in err2
 
-    def test_hermes_home_set_suppresses_warning(
+    def test_fabric_home_set_suppresses_warning(
         self, fresh_constants, tmp_path, capsys, monkeypatch
     ):
-        """Even if active_profile is 'coder', setting HERMES_HOME suppresses warning."""
+        """Even if active_profile is 'coder', setting FABRIC_HOME suppresses warning."""
         profile_dir = tmp_path / ".fabric" / "profiles" / "coder"
         profile_dir.mkdir(parents=True)
         (tmp_path / ".fabric" / "active_profile").write_text("coder\n")
-        monkeypatch.setenv("HERMES_HOME", str(profile_dir))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_dir))
 
         result = fresh_constants.get_fabric_home()
 
         assert result == profile_dir
-        assert "HERMES_HOME fallback" not in capsys.readouterr().err
+        assert "FABRIC_HOME fallback" not in capsys.readouterr().err
 
     def test_unreadable_active_profile_no_crash(
         self, fresh_constants, tmp_path, capsys
     ):
         """active_profile that can't be decoded → fall through silently."""
-        hermes_dir = tmp_path / ".fabric"
-        hermes_dir.mkdir()
+        fabric_dir = tmp_path / ".fabric"
+        fabric_dir.mkdir()
         # Write bytes that aren't valid utf-8
-        (hermes_dir / "active_profile").write_bytes(b"\xff\xfe\x00\x00")
+        (fabric_dir / "active_profile").write_bytes(b"\xff\xfe\x00\x00")
 
         result = fresh_constants.get_fabric_home()
 
         assert result == tmp_path / ".fabric"
         # Shouldn't crash; shouldn't warn either (can't tell what profile was intended)
-        assert "HERMES_HOME fallback" not in capsys.readouterr().err
+        assert "FABRIC_HOME fallback" not in capsys.readouterr().err
 
     def test_empty_active_profile_no_warning(
         self, fresh_constants, tmp_path, capsys
     ):
         """Empty active_profile file → treated as default, no warning."""
-        hermes_dir = tmp_path / ".fabric"
-        hermes_dir.mkdir()
-        (hermes_dir / "active_profile").write_text("")
+        fabric_dir = tmp_path / ".fabric"
+        fabric_dir.mkdir()
+        (fabric_dir / "active_profile").write_text("")
 
         result = fresh_constants.get_fabric_home()
 
         assert result == tmp_path / ".fabric"
-        assert "HERMES_HOME fallback" not in capsys.readouterr().err
+        assert "FABRIC_HOME fallback" not in capsys.readouterr().err

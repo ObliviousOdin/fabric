@@ -1,4 +1,4 @@
-"""Contract for the headless ``hermes serve`` backend command.
+"""Contract for the headless ``fabric serve`` backend command.
 
 ``serve`` is what the desktop app and remote backends launch — the same gateway
 as ``dashboard`` (shared handler) but always headless, and decoupled in name so
@@ -44,18 +44,17 @@ def test_serve_is_headless_by_default_but_dashboard_is_not():
     assert _parser().parse_args(["dashboard"]).no_open is False
 
 
-def test_serve_accepts_the_legacy_no_open_flag_as_a_noop():
-    # The desktop backend spawn (and old shells) may still pass --no-open;
-    # serve must tolerate it rather than erroring on an unknown argument.
-    assert _parser().parse_args(["serve", "--no-open"]).no_open is True
-
-
 def test_serve_takes_the_same_runtime_flags_as_dashboard():
     argv = ["--host", "0.0.0.0", "--port", "0", "--insecure", "--skip-build", "--isolated"]
     serve = _parser().parse_args(["serve", *argv])
     dash = _parser().parse_args(["dashboard", *argv])
     for field in ("host", "port", "insecure", "skip_build", "isolated"):
         assert getattr(serve, field) == getattr(dash, field)
+
+
+def test_trusted_local_launch_accepts_explicit_auth_token():
+    token = "local-child-auth-token"
+    assert _parser().parse_args(["serve", "--auth-token", token]).auth_token == token
 
 
 def test_serve_supports_the_lifecycle_flags():

@@ -4,7 +4,7 @@ from fabric_cli.status import show_status
 
 
 def test_show_status_all_does_not_print_tavily_key_value(monkeypatch, capsys, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     sentinel = "NONSECRET_SENTINEL_VALUE_DO_NOT_PRINT_123456"
     monkeypatch.setenv("TAVILY_API_KEY", sentinel)
 
@@ -51,7 +51,7 @@ def test_show_status_reports_nous_auth_error(monkeypatch, capsys, tmp_path):
     import fabric_cli.auth as auth_mod
     import fabric_cli.gateway as gateway_mod
 
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-codex,xai-oauth,nous")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-codex,xai-oauth,nous".split(",")})
 
     monkeypatch.setattr(status_mod, "get_env_path", lambda: tmp_path / ".env", raising=False)
     monkeypatch.setattr(status_mod, "get_fabric_home", lambda: tmp_path, raising=False)
@@ -80,7 +80,10 @@ def test_show_status_reports_nous_auth_error(monkeypatch, capsys, tmp_path):
     status_mod.show_status(SimpleNamespace(all=False, deep=False))
 
     output = capsys.readouterr().out
-    assert "Nous Portal   ✗ not logged in (run: fabric portal)" in output
+    assert (
+        "Nous Portal   ✗ not logged in (run: fabric portal "
+        "--client-id <registered-client-id>)"
+    ) in output
     assert "Error:      Refresh session has been revoked" in output
     assert "Access exp:" in output
     assert "Key exp:" in output
@@ -92,7 +95,7 @@ def test_show_status_reports_nous_inference_key_without_portal_login(monkeypatch
     import fabric_cli.auth as auth_mod
     import fabric_cli.gateway as gateway_mod
 
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-codex,xai-oauth,nous")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-codex,xai-oauth,nous".split(",")})
 
     monkeypatch.setattr(status_mod, "get_env_path", lambda: tmp_path / ".env", raising=False)
     monkeypatch.setattr(status_mod, "get_fabric_home", lambda: tmp_path, raising=False)
@@ -188,13 +191,13 @@ class TestShowStatusXaiOAuth:
         import fabric_cli.auth as auth_mod
         status_mod = _base_xai_mocks(monkeypatch, tmp_path)
         monkeypatch.setattr(auth_mod, "get_xai_oauth_auth_status",
-                            lambda: {"logged_in": True, "auth_store": "/home/u/.hermes/auth.json"},
+                            lambda: {"logged_in": True, "auth_store": "/home/u/.fabric/auth.json"},
                             raising=False)
 
         status_mod.show_status(SimpleNamespace(all=False, deep=False))
         out = capsys.readouterr().out
 
-        assert "Auth file:  /home/u/.hermes/auth.json" in out
+        assert "Auth file:  /home/u/.fabric/auth.json" in out
 
     def test_logged_in_shows_last_refresh(self, monkeypatch, capsys, tmp_path):
         import fabric_cli.auth as auth_mod
@@ -318,9 +321,16 @@ class TestShowStatusXaiOAuth:
     def test_import_failure_does_not_break_other_oauth_providers(self, monkeypatch, capsys, tmp_path):
         """Nous/Codex/MiniMax rows must still appear when xAI import fails."""
         import fabric_cli.auth as auth_mod
-        monkeypatch.setenv(
-            "FABRIC_MODEL_PROVIDERS",
-            "openai-codex,xai-oauth,nous,minimax-oauth",
+        monkeypatch.setattr(
+            "fabric_cli.fabric_capabilities._load_capabilities_config",
+            lambda: {
+                "model_providers": [
+                    "openai-codex",
+                    "xai-oauth",
+                    "nous",
+                    "minimax-oauth",
+                ]
+            },
         )
         status_mod = _base_xai_mocks(monkeypatch, tmp_path)
         monkeypatch.setattr(auth_mod, "get_nous_auth_status",
@@ -368,12 +378,14 @@ def test_curated_status_skips_only_hidden_provider_probes_and_rows(
     from fabric_cli import auth as auth_mod
     from fabric_cli import status as status_mod
 
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setattr(status_mod, "get_env_path", lambda: tmp_path / ".env")
     monkeypatch.setattr(status_mod, "get_fabric_home", lambda: tmp_path)
     monkeypatch.setattr(status_mod, "load_config", lambda: {})
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
     monkeypatch.setattr(status_mod, "resolve_requested_provider", lambda requested=None: "auto")
     monkeypatch.setattr(status_mod, "resolve_provider", lambda requested=None, **kwargs: "auto")
 
@@ -403,12 +415,12 @@ def test_curated_status_skips_only_hidden_provider_probes_and_rows(
     assert "Slack" in output
 
 
-def test_legacy_status_restores_nous_surface(monkeypatch, capsys, tmp_path):
+def test_explicit_nous_status_shows_nous_surface(monkeypatch, capsys, tmp_path):
     from fabric_cli import auth as auth_mod
     from fabric_cli import status as status_mod
 
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-codex,xai-oauth,nous")
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-codex,xai-oauth,nous".split(",")})
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setattr(status_mod, "get_env_path", lambda: tmp_path / ".env")
     monkeypatch.setattr(status_mod, "get_fabric_home", lambda: tmp_path)
     monkeypatch.setattr(status_mod, "load_config", lambda: {})

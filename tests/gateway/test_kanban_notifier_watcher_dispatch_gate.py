@@ -1,7 +1,6 @@
 """Tests for the dispatch_in_gateway gate on _kanban_notifier_watcher.
 
 - Non-dispatch gateways (dispatch_in_gateway=false) exit before opening any DB.
-- HERMES_KANBAN_DISPATCH_IN_GATEWAY env var disables without loading config.
 - Dispatch-owning gateways (dispatch_in_gateway=true) proceed past the gate.
 """
 
@@ -30,17 +29,6 @@ def test_notifier_watcher_skips_when_dispatch_disabled():
     with patch("fabric_cli.config.load_config", return_value=_fake_config(False)):
         with patch("fabric_cli.kanban_db.connect") as mock_connect:
             asyncio.run(runner._kanban_notifier_watcher())
-    mock_connect.assert_not_called()
-
-
-def test_notifier_watcher_env_override_disables(monkeypatch):
-    """HERMES_KANBAN_DISPATCH_IN_GATEWAY=false skips config load entirely."""
-    runner = _make_runner()
-    monkeypatch.setenv("HERMES_KANBAN_DISPATCH_IN_GATEWAY", "false")
-    with patch("fabric_cli.config.load_config") as mock_load_config:
-        with patch("fabric_cli.kanban_db.connect") as mock_connect:
-            asyncio.run(runner._kanban_notifier_watcher())
-    mock_load_config.assert_not_called()
     mock_connect.assert_not_called()
 
 

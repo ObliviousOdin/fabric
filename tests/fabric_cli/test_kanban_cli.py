@@ -16,9 +16,9 @@ from fabric_cli import kanban_db as kb
 
 @pytest.fixture
 def kanban_home(tmp_path, monkeypatch):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     kb.init_db()
     return home
@@ -195,7 +195,7 @@ def test_run_slash_tenant_filter(kanban_home):
 
 
 def test_run_slash_session_filter(kanban_home):
-    """`hermes kanban list --session <id>` filters by the originating
+    """`fabric kanban list --session <id>` filters by the originating
     chat session id stamped on tasks created from inside an ACP loop."""
     from fabric_cli import kanban_db as kb
     with kb.connect() as conn:
@@ -268,7 +268,7 @@ def test_board_override_is_isolated_per_concurrent_call(kanban_home, monkeypatch
     kb.create_board("alpha")
     kb.create_board("beta")
 
-    parser = argparse.ArgumentParser(prog="hermes", add_help=False)
+    parser = argparse.ArgumentParser(prog="fabric", add_help=False)
     sub = parser.add_subparsers(dest="command")
     kc.build_parser(sub)
 
@@ -548,14 +548,19 @@ def test_run_slash_missing_required_arg_friendly_error(kanban_home):
     assert "task_id" in out
 
 
-def test_run_slash_board_override_restores_prior_env(kanban_home, monkeypatch):
+def test_run_slash_board_override_restores_prior_context(kanban_home):
     kb.create_board("alpha")
     kb.create_board("beta")
-    monkeypatch.setenv("HERMES_KANBAN_BOARD", "beta")
+    from fabric_cli.kanban_runtime import (
+        configure_kanban_runtime_context,
+        get_kanban_runtime_context,
+    )
+
+    configure_kanban_runtime_context(board="beta")
 
     kc.run_slash("--board alpha list")
 
-    assert os.environ.get("HERMES_KANBAN_BOARD") == "beta"
+    assert get_kanban_runtime_context().board == "beta"
 
 
 def test_run_slash_board_override_does_not_change_boards_show_current(kanban_home):

@@ -281,7 +281,6 @@ def test_config_validation_rejects_string_consent():
 
 def test_environment_cannot_grant_external_write_consent(monkeypatch):
     monkeypatch.setenv("EXTERNAL_MEMORY_WRITE_CONSENT", "true")
-    monkeypatch.setenv("HERMES_EXTERNAL_MEMORY_WRITE_CONSENT", "true")
 
     assert resolve_external_memory_write_policy({}).allowed is False
     assert (

@@ -101,7 +101,7 @@ def _make_runner(*, compression_in_flight: bool):
     runner._show_reasoning = False
     runner._service_tier = None
     runner._is_user_authorized = lambda _source: True
-    runner._set_session_env = lambda _context: None
+    runner._bind_session_context = lambda _context: None
     runner._should_send_voice_reply = lambda *_args, **_kwargs: False
     runner._send_voice_reply = AsyncMock()
     runner._capture_gateway_honcho_if_configured = lambda *args, **kwargs: None
@@ -123,8 +123,7 @@ def _make_runner(*, compression_in_flight: bool):
         "max_iterations": 60,
     }
     runner._running_agents[sk] = agent_mock
-    # Past the Telegram follow-up grace window (HERMES_TELEGRAM_FOLLOWUP_
-    # GRACE_SECONDS, default 3.0s) so the message reaches the PRIORITY
+    # Past the Telegram follow-up grace window (default 3.0s) so the message reaches the PRIORITY
     # interrupt/steer/subagent-demotion block instead of the earlier
     # "just started, queue without interrupt" grace-period branch.
     runner._running_agents_ts[sk] = time.time() - 120

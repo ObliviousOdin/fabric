@@ -30,39 +30,51 @@ class TestWriteDenyExactPaths:
         assert _is_write_denied(path) is True
 
 
-    def test_hermes_env(self):
-        # ``.env`` under the active HERMES_HOME (profile-aware, not just
-        # ``~/.hermes``) must be write-denied. The hermetic test conftest
-        # points HERMES_HOME at a tempdir — resolve via get_fabric_home()
+    def test_fabric_env(self):
+        # ``.env`` under the active FABRIC_HOME (profile-aware, not just
+        # ``~/.fabric``) must be write-denied. The hermetic test conftest
+        # points FABRIC_HOME at a tempdir — resolve via get_fabric_home()
         # to match the denylist.
         from fabric_constants import get_fabric_home
         path = str(get_fabric_home() / ".env")
         assert _is_write_denied(path) is True
 
-    def test_hermes_root_env_when_running_under_profile(self, tmp_path, monkeypatch):
+    def test_fabric_root_env_when_running_under_profile(self, tmp_path, monkeypatch):
         """Top-level ``<root>/.env`` stays write-denied even when running under
         a profile (#15981).
 
         Before the fix, ``build_write_denied_paths`` only added
         ``<active_profile>/.env`` to the deny list, so the global
-        ``~/.hermes/.env`` (whose credentials are inherited by every profile)
+        ``~/.fabric/.env`` (whose credentials are inherited by every profile)
         could be silently overwritten by ``write_file`` while a profile was
         active.
         """
-        root = tmp_path / "hermes_root"
+        root = tmp_path / "fabric_root"
         profile_home = root / "profiles" / "coder"
         profile_home.mkdir(parents=True)
         global_env = root / ".env"
         global_env.write_text("OPENAI_API_KEY=sk-real\n")
 
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
-        # Sanity check: HERMES_HOME does point to the profile dir, not the root.
+        # Sanity check: FABRIC_HOME does point to the profile dir, not the root.
         from fabric_constants import get_fabric_home, get_default_fabric_root
         assert get_fabric_home() == profile_home
         assert get_default_fabric_root() == root
 
         assert _is_write_denied(str(global_env)) is True
+
+    def test_canonical_pairing_store_is_denied(self):
+        from fabric_constants import get_fabric_home
+
+        pairing_file = get_fabric_home() / "platforms" / "pairing" / "telegram.json"
+        assert _is_write_denied(str(pairing_file)) is True
+
+    def test_flat_pairing_directory_has_no_compatibility_privilege(self):
+        from fabric_constants import get_fabric_home
+
+        unrelated_file = get_fabric_home() / "pairing" / "notes.txt"
+        assert _is_write_denied(str(unrelated_file)) is False
 
     def test_shell_profiles_are_writable(self):
         home = str(Path.home())
@@ -120,7 +132,7 @@ class TestWriteAllowed:
     def test_project_file(self):
         assert _is_write_denied("/home/user/project/main.py") is False
 
-    def test_hermes_control_files_requested_writable(self):
+    def test_fabric_control_files_requested_writable(self):
         from fabric_constants import get_fabric_home
 
         home = get_fabric_home()

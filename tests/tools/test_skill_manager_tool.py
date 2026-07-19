@@ -25,9 +25,9 @@ from tools.skill_manager_tool import (
 
 @contextmanager
 def _skill_dir(tmp_path):
-    """Patch both SKILLS_DIR and get_all_skills_dirs so _find_skill searches
-    only the temp directory — not the real ~/.hermes/skills/."""
-    with patch("tools.skill_manager_tool.SKILLS_DIR", tmp_path), \
+    """Patch both path resolvers so _find_skill searches
+    only the temp directory — not the real ~/.fabric/skills/."""
+    with patch("tools.skill_manager_tool._skills_dir", return_value=tmp_path), \
          patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]):
         yield
 
@@ -267,7 +267,7 @@ class TestCreateSkill:
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir()
 
-        with patch("tools.skill_manager_tool.SKILLS_DIR", skills_dir), \
+        with patch("tools.skill_manager_tool._skills_dir", return_value=skills_dir), \
              patch("agent.skill_utils.get_all_skills_dirs", return_value=[skills_dir]):
             result = _create_skill("my-skill", VALID_SKILL_CONTENT, category="../escape")
 
@@ -280,7 +280,7 @@ class TestCreateSkill:
         skills_dir.mkdir()
         outside = tmp_path / "outside"
 
-        with patch("tools.skill_manager_tool.SKILLS_DIR", skills_dir), \
+        with patch("tools.skill_manager_tool._skills_dir", return_value=skills_dir), \
              patch("agent.skill_utils.get_all_skills_dirs", return_value=[skills_dir]):
             result = _create_skill("my-skill", VALID_SKILL_CONTENT, category=str(outside))
 
@@ -630,7 +630,7 @@ class TestSkillManageDispatcher:
     ):
         """Background creates become drafts; promotion owns provenance."""
         from tools.skill_provenance import set_current_write_origin, BACKGROUND_REVIEW
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
         token = set_current_write_origin(BACKGROUND_REVIEW)
         try:
             with _skill_dir(tmp_path):
@@ -686,7 +686,7 @@ class TestSkillManageDispatcher:
             set_current_write_origin,
         )
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
         token = set_current_write_origin(LEARN_FOLLOWUP)
         try:
             with _skill_dir(tmp_path):
@@ -863,9 +863,9 @@ class TestSecurityScanGate:
 
 @contextmanager
 def _two_roots(local_dir: Path, external_dir: Path):
-    """Patch the skill manager so local SKILLS_DIR = local_dir and
+    """Patch the skill manager so its local root is ``local_dir`` and
     get_all_skills_dirs() returns [local_dir, external_dir] in order."""
-    with patch("tools.skill_manager_tool.SKILLS_DIR", local_dir), \
+    with patch("tools.skill_manager_tool._skills_dir", return_value=local_dir), \
          patch("agent.skill_utils.get_all_skills_dirs",
                return_value=[local_dir, external_dir]):
         yield
@@ -887,7 +887,7 @@ class TestExternalSkillMutations:
 
     Regression for issues #4759 and #4381: the read-only gate used to refuse
     with 'Skill X is in an external directory and cannot be modified', which
-    caused agents to create duplicate copies in ~/.hermes/skills/ as a
+    caused agents to create duplicate copies in ~/.fabric/skills/ as a
     workaround.
     """
 
@@ -1105,7 +1105,7 @@ class TestExternalSkillMutations:
 # ---------------------------------------------------------------------------
 # Pinned-skill guard — skill_manage refuses only `delete` on pinned skills.
 # Patches and edits go through so pinned skills can still evolve as pitfalls
-# come up. The user unpins via `hermes curator unpin <name>` to delete.
+# come up. The user unpins via `fabric curator unpin <name>` to delete.
 # ---------------------------------------------------------------------------
 
 class TestPinnedGuard:
@@ -1240,7 +1240,7 @@ class TestDeleteSkillRmtreeGuard:
         evil = skills / "evil-skill"
         evil.symlink_to(victim, target_is_directory=True)
         try:
-            with patch("tools.skill_manager_tool.SKILLS_DIR", skills), \
+            with patch("tools.skill_manager_tool._skills_dir", return_value=skills), \
                  patch("agent.skill_utils.get_all_skills_dirs", return_value=[skills]), \
                  patch("tools.skill_manager_tool._find_skill",
                        return_value={"path": evil}):
@@ -1255,7 +1255,7 @@ class TestDeleteSkillRmtreeGuard:
     def test_skills_root_itself_refused(self, tmp_path):
         """If discovery ever hands back the skills root, refuse — rmtree would
         wipe every installed skill."""
-        with patch("tools.skill_manager_tool.SKILLS_DIR", tmp_path), \
+        with patch("tools.skill_manager_tool._skills_dir", return_value=tmp_path), \
              patch("agent.skill_utils.get_all_skills_dirs", return_value=[tmp_path]), \
              patch("tools.skill_manager_tool._find_skill",
                    return_value={"path": tmp_path}):
@@ -1271,7 +1271,7 @@ class TestDeleteSkillRmtreeGuard:
         outside = tmp_path / "outside_skill"
         outside.mkdir()
         (outside / "SKILL.md").write_text("x")
-        with patch("tools.skill_manager_tool.SKILLS_DIR", skills), \
+        with patch("tools.skill_manager_tool._skills_dir", return_value=skills), \
              patch("agent.skill_utils.get_all_skills_dirs", return_value=[skills]), \
              patch("tools.skill_manager_tool._find_skill",
                    return_value={"path": outside}):
@@ -1290,17 +1290,16 @@ class TestDeleteSkillRmtreeGuard:
 def _curator_pass(tmp_path, *, monkeypatch):
     """Run the body as the curator/background-review fork.
 
-    Points HERMES_HOME at ``tmp_path/.hermes`` so skill_usage's archive path
+    Points FABRIC_HOME at ``tmp_path/.fabric`` so skill_usage's archive path
     (``get_fabric_home()``) resolves into the same tree the skill manager
     searches, and flips ``is_autonomous_skill_writer()`` → True so the consolidation
     guard fires.
     """
-    hermes_home = tmp_path / ".hermes"
-    skills_root = hermes_home / "skills"
+    fabric_home = tmp_path / ".fabric"
+    skills_root = fabric_home / "skills"
     skills_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-    with patch("tools.skill_manager_tool.SKILLS_DIR", skills_root), \
-         patch("tools.skills_tool.SKILLS_DIR", skills_root), \
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    with patch("tools.skill_manager_tool._skills_dir", return_value=skills_root), \
          patch("agent.skill_utils.get_all_skills_dirs", return_value=[skills_root]), \
          patch("tools.skill_provenance.is_autonomous_skill_writer", return_value=True):
         yield skills_root
@@ -1397,7 +1396,7 @@ class TestCuratorConsolidationDeleteGuard:
     def test_dispatcher_preserves_usage_record_on_curator_archive(self, tmp_path, monkeypatch):
         # skill_manage(delete) post-action telemetry must NOT forget a
         # recoverable curator archive — the record persists as archived so
-        # `hermes curator restore` can bring it back.
+        # `fabric curator restore` can bring it back.
         from tools import skill_usage
         with _curator_pass(tmp_path, monkeypatch=monkeypatch):
             _create_skill("umbrella", _skill_content("umbrella"))
@@ -1447,7 +1446,7 @@ class TestCuratorConsolidationDeleteGuard:
         _reset_background_review_read_marks()
         with _curator_pass(tmp_path, monkeypatch=monkeypatch):
             _create_skill("reviewed", _skill_content("reviewed"))
-            ref = tmp_path / ".hermes" / "skills" / "reviewed" / "references"
+            ref = tmp_path / ".fabric" / "skills" / "reviewed" / "references"
             ref.mkdir()
             (ref / "workflow.md").write_text("old workflow\n", encoding="utf-8")
 

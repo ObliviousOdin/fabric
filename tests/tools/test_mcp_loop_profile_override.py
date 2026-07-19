@@ -1,4 +1,4 @@
-"""Regression tests for HERMES_HOME override propagation onto the MCP loop.
+"""Regression tests for FABRIC_HOME override propagation onto the MCP loop.
 
 Tasks scheduled via run_coroutine_threadsafe are created inside the MCP
 event-loop thread, so they copy THAT thread's context — not the scheduling
@@ -33,7 +33,7 @@ def test_override_propagates_to_mcp_loop(tmp_path, monkeypatch, mcp_loop):
     profile_home = tmp_path / "profile-home"
     process_home.mkdir()
     profile_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(process_home))
+    monkeypatch.setenv("FABRIC_HOME", str(process_home))
 
     async def read_home():
         return str(get_fabric_home())
@@ -57,7 +57,7 @@ def test_override_propagates_to_mcp_loop(tmp_path, monkeypatch, mcp_loop):
 
 
 def test_oauth_token_paths_follow_override(tmp_path, monkeypatch, mcp_loop):
-    """The actual symptom path: HermesTokenStorage resolving inside the
+    """The actual symptom path: FabricTokenStorage resolving inside the
     probe's MCP-loop coroutine must land in the selected profile's
     mcp-tokens dir, not the process home's."""
     from fabric_constants import (
@@ -69,12 +69,12 @@ def test_oauth_token_paths_follow_override(tmp_path, monkeypatch, mcp_loop):
     profile_home = tmp_path / "profile-home"
     process_home.mkdir()
     profile_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(process_home))
+    monkeypatch.setenv("FABRIC_HOME", str(process_home))
 
     async def token_path():
-        from tools.mcp_oauth import HermesTokenStorage
+        from tools.mcp_oauth import FabricTokenStorage
 
-        return str(HermesTokenStorage("probe-srv")._tokens_path())
+        return str(FabricTokenStorage("probe-srv")._tokens_path())
 
     token = set_fabric_home_override(str(profile_home))
     try:
@@ -101,7 +101,7 @@ def test_concurrent_scopes_do_not_interfere(tmp_path, monkeypatch, mcp_loop):
     home_b = tmp_path / "profile-b"
     for h in (process_home, home_a, home_b):
         h.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(process_home))
+    monkeypatch.setenv("FABRIC_HOME", str(process_home))
 
     async def read_home():
         return str(get_fabric_home())

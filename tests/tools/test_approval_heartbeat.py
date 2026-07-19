@@ -11,9 +11,6 @@ The fix polls the event in short slices and fires ``touch_activity_if_due``
 between slices, mirroring ``_wait_for_process`` in ``tools/environments/base.py``.
 """
 
-import os
-
-
 def _clear_approval_state():
     """Reset all module-level approval state between tests."""
     from tools import approval as mod
@@ -36,25 +33,12 @@ class TestApprovalHeartbeat:
 
     def setup_method(self):
         _clear_approval_state()
-        self._saved_env = {
-            k: os.environ.get(k)
-            for k in ("HERMES_GATEWAY_SESSION", "HERMES_YOLO_MODE",
-                      "HERMES_SESSION_KEY")
-        }
-        os.environ.pop("HERMES_YOLO_MODE", None)
-        os.environ["HERMES_GATEWAY_SESSION"] = "1"
-        # The blocking wait path reads the session key via contextvar OR
-        # os.environ fallback.  Contextvars don't propagate across threads
-        # by default, so env var is the portable way to drive this in tests.
-        os.environ["HERMES_SESSION_KEY"] = self.SESSION_KEY
+        from tools import approval as mod
+
+        self._session_token = mod.set_current_session_key(self.SESSION_KEY)
 
     def teardown_method(self):
-        for k, v in self._saved_env.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+        from tools import approval as mod
+
+        mod.reset_current_session_key(self._session_token)
         _clear_approval_state()
-
-
-

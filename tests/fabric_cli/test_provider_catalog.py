@@ -15,7 +15,7 @@ from fabric_cli.provider_catalog import (
 )
 
 
-def test_catalog_covers_every_hermes_model_provider():
+def test_catalog_covers_every_fabric_model_provider():
     """PARITY CONTRACT: the catalog == the `fabric model` universe."""
     slugs = {d.slug for d in provider_catalog()}
     for entry in CANONICAL_PROVIDERS:
@@ -24,7 +24,7 @@ def test_catalog_covers_every_hermes_model_provider():
         )
 
 
-def test_catalog_has_no_providers_outside_hermes_model():
+def test_catalog_has_no_providers_outside_fabric_model():
     """The catalog must not invent providers `fabric model` doesn't show."""
     canonical = {e.slug for e in CANONICAL_PROVIDERS}
     for d in provider_catalog():

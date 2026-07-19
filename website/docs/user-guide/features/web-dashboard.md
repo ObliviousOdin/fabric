@@ -245,6 +245,19 @@ to `plugins.disabled` and restart the dashboard; the unsupported
 `dashboard.plugins.kanban.enabled` key has no effect. See
 [Kanban (Multi-Agent Board)](./kanban) for the worker and CLI contracts.
 
+### Achievements
+
+`/workspace/achievements` tracks original Fabric milestones across session,
+tool, automation, delegation, and skill activity. It reads structured aggregate
+metadata only, keeps earned progress locally, and adds nothing to the model's
+tool schema or prompt. `/achievements` is a direct alias.
+
+Its Leaderboard tab ranks local profiles and score cards that a user explicitly
+copies and imports. There is no automatic upload or background publisher; an
+export shows the complete aggregate-only payload before it leaves the machine.
+See [Achievements and Private Leaderboards](./achievements) for the metric and
+privacy contracts.
+
 ### Connecting Fabric to a remote backend
 
 Fabric normally launches its own local backend, but it can also attach to a dashboard running on a remote machine (a VM, a homelab box, etc.) via **Settings → Gateway → Remote gateway**. This is the most common source of "Desktop says the backend is ready but chat never works" reports, because Desktop's readiness check verifies less than the live chat connection actually needs.

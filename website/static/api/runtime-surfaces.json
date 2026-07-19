@@ -6892,6 +6892,27 @@
         "manifest": {
           "api": "plugin_api.py",
           "css": "dist/style.css",
+          "description": "Private local milestones with manual score sharing.",
+          "entry": "dist/index.js",
+          "icon": "Star",
+          "label": "Achievements",
+          "name": "achievements",
+          "tab": {
+            "aliases": [
+              "/achievements"
+            ],
+            "layout": "page",
+            "path": "/workspace/achievements",
+            "position": "after:activity"
+          },
+          "version": "1.0.0"
+        },
+        "source": "plugins/achievements/dashboard/manifest.json"
+      },
+      {
+        "manifest": {
+          "api": "plugin_api.py",
+          "css": "dist/style.css",
           "description": "Plan, coordinate, and inspect goals, tasks, dependencies, and live agent runs.",
           "entry": "dist/index.js",
           "icon": "Activity",
@@ -7247,7 +7268,7 @@
   "summary": {
     "cli_command": 66,
     "command": 84,
-    "dashboard_plugin_manifest": 2,
+    "dashboard_plugin_manifest": 3,
     "dashboard_route": 25,
     "model_provider": 40,
     "platform": 33,

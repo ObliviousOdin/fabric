@@ -4,3 +4,8 @@ local.properties
 .idea/
 *.iml
 .kotlin/
+
+# Release signing material — never commit real keystores or their passwords.
+keystore.properties
+*.jks
+*.keystore

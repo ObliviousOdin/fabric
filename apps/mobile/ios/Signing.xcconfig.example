@@ -1,0 +1,19 @@
+// Release signing for the Fabric iOS client.
+//
+// The project uses automatic signing (CODE_SIGN_STYLE = Automatic in
+// project.yml); it only needs your Apple Developer Team ID. Two ways to
+// provide it — neither commits secrets:
+//
+//   1. Command line (CI-friendly), no file needed:
+//        xcodebuild -project FabricMobile.xcodeproj -scheme Fabric \
+//          -configuration Release -destination 'generic/platform=iOS' \
+//          DEVELOPMENT_TEAM=ABCDE12345 archive
+//
+//   2. Local file: copy this to `Signing.xcconfig` (gitignored), set your
+//      team below, and reference it from Xcode's build settings, or pass
+//      `-xcconfig Signing.xcconfig` to xcodebuild.
+//
+// Find your Team ID at https://developer.apple.com/account (Membership).
+
+DEVELOPMENT_TEAM = ABCDE12345
+CODE_SIGN_STYLE = Automatic

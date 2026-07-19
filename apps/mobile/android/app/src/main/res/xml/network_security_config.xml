@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext is permitted at the OS layer so plain-http Fabric gateways on a LAN
+  or tailnet (the documented `fabric mobile` quick-start) keep working in
+  release builds, matching iOS's NSAllowsLocalNetworking. Android's
+  network-security config cannot scope cleartext to private IP *ranges*, so the
+  local-only policy is enforced one layer up, in the app: GatewayBaseUrl.parse
+  rejects `http://` to any non-local host, so a cleartext socket is only ever
+  opened to a loopback, RFC1918, link-local, CGNAT/Tailscale, `.local`, or
+  single-label host. Public gateways must use https.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

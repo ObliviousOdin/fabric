@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fabric canonical primary (apps/design-system brand-assets.json). -->
+    <color name="ic_launcher_background">#4628CC</color>
+</resources>

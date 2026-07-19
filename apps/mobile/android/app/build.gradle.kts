@@ -1,9 +1,29 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
+
+// Optional release signing. Drop a `keystore.properties` next to the Gradle
+// wrapper (see keystore.properties.example) or export the matching
+// FABRIC_ANDROID_* environment variables in CI, and the release build is
+// signed. With neither present the release build stays unsigned
+// (app-release-unsigned.apk) — the default the CI verification job uploads.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        FileInputStream(keystorePropertiesFile).use { load(it) }
+    }
+}
+
+fun signingValue(propertyKey: String, envKey: String): String? =
+    keystoreProperties.getProperty(propertyKey) ?: System.getenv(envKey)
+
+val releaseStoreFile: String? = signingValue("storeFile", "FABRIC_ANDROID_KEYSTORE")
 
 android {
     namespace = "io.github.obliviousodin.fabric.mobile"
@@ -17,6 +37,17 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = signingValue("storePassword", "FABRIC_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "FABRIC_ANDROID_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "FABRIC_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -25,6 +56,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (releaseStoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

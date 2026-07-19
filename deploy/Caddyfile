@@ -1,0 +1,36 @@
+# Caddy reverse proxy for a hosted Fabric deploy.
+#
+# Terminates TLS for your domain (automatic HTTPS via Let's Encrypt) and forwards
+# X-Forwarded-Proto/Host so the dashboard's Secure cookies and OAuth callbacks
+# resolve correctly. The dashboard has no native TLS by design — a reverse proxy
+# is the expected front door.
+#
+# {$FABRIC_PUBLIC_DOMAIN} and {$ACME_EMAIL} are read from the environment
+# (docker-compose passes them in).
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$FABRIC_PUBLIC_DOMAIN} {
+	# --- OpenAI-compatible API server (Fabric gateway, :8642) ---
+	# Reachable at https://<domain>/v1/... with `Authorization: Bearer <API_SERVER_KEY>`.
+	@api path /v1 /v1/* /health /health/*
+	handle @api {
+		reverse_proxy fabric:8642
+	}
+
+	# --- Everything else = the web dashboard (:9119) ---
+	# The dashboard binds 0.0.0.0 inside its container, so the non-loopback auth
+	# gate is enforced; Caddy reaching it counts as a remote client.
+	handle {
+		reverse_proxy dashboard:9119
+	}
+
+	encode zstd gzip
+
+	log {
+		output stdout
+		format console
+	}
+}

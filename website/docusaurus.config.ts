@@ -153,6 +153,11 @@ const config: Config = {
           position: "left",
         },
         {
+          to: "/deploy",
+          label: "Deploy",
+          position: "left",
+        },
+        {
           to: "/getting-started/installation",
           label: "Install",
           position: "right",

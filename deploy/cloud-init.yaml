@@ -1,0 +1,74 @@
+#cloud-config
+# =============================================================================
+# Fabric hosted deploy — cloud-init (VPS user-data)
+#
+# Paste this into your provider's "user data / cloud-init" box when creating an
+# Ubuntu 22.04/24.04 server, after editing the three values in the
+# `write_files` block below. On first boot it will, unattended:
+#   1. install Docker + the Compose plugin
+#   2. clone the Fabric repo and use deploy/ templates
+#   3. run provision.sh (generate login + secrets, write config.yaml)
+#   4. docker compose up -d  (gateway + dashboard + Caddy TLS)
+#   5. write the login to /root/fabric-credentials.txt (mode 600)
+#
+# Point an A/AAAA DNS record for FABRIC_PUBLIC_DOMAIN at this box's IP BEFORE (or
+# shortly after) boot so Caddy can issue a certificate. Then:
+#   ssh root@<box>  &&  cat /root/fabric-credentials.txt
+#
+# This is the self-service shape of "click to deploy → get a login". The managed
+# design (docs: /deploy/managed-hosting) wraps exactly this and emails the file.
+# =============================================================================
+
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+
+write_files:
+  # ----- EDIT THESE THREE VALUES -----
+  - path: /opt/fabric-deploy/bootstrap.env
+    permissions: "0600"
+    content: |
+      FABRIC_PUBLIC_DOMAIN=agent.example.com
+      ACME_EMAIL=you@example.com
+      OPENROUTER_API_KEY=sk-or-v1-REPLACE_ME
+      # Optional: point at a shared compute broker instead of OpenRouter
+      # FABRIC_MODEL_PROVIDER=custom
+      # FABRIC_MODEL_DEFAULT=your-frontier-model-id
+      # FABRIC_MODEL_BASE_URL=https://broker.example.com/v1
+
+runcmd:
+  # 1. Install Docker Engine + Compose plugin (official convenience script).
+  - [ sh, -c, "command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh" ]
+  - [ systemctl, enable, --now, docker ]
+
+  # 2. Fetch the deploy templates.
+  - [ sh, -c, "test -d /opt/fabric-src || git clone --depth 1 https://github.com/ObliviousOdin/fabric.git /opt/fabric-src" ]
+
+  # 3. Assemble .env from the example + the three edited values, then provision.
+  - |
+    sh -c '
+      set -eu
+      SRC=/opt/fabric-src/deploy
+      cp "$SRC/.env.hosted.example" "$SRC/.env"
+      # merge the operator-edited values on top of the example
+      while IFS= read -r line; do
+        case "$line" in ""|\#*) continue;; esac
+        key=${line%%=*}
+        grep -q "^$key=" "$SRC/.env" \
+          && sed -i "s|^$key=.*|$line|" "$SRC/.env" \
+          || printf "%s\n" "$line" >> "$SRC/.env"
+      done < /opt/fabric-deploy/bootstrap.env
+      cd "$SRC"
+      ./provision.sh
+    '
+
+  # 4. Start the stack.
+  - [ sh, -c, "cd /opt/fabric-src/deploy && docker compose -f docker-compose.hosted.yml up -d" ]
+
+  # 5. Surface the credentials for the operator.
+  - [ sh, -c, "cp /opt/fabric-src/deploy/fabric-credentials.txt /root/fabric-credentials.txt && chmod 600 /root/fabric-credentials.txt" ]
+  - [ sh, -c, "echo 'Fabric ready. Run: cat /root/fabric-credentials.txt' > /etc/motd" ]
+
+final_message: "Fabric hosted deploy complete after $UPTIME s. cat /root/fabric-credentials.txt for the login."

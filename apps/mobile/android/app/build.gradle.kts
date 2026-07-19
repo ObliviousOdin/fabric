@@ -40,7 +40,9 @@ android {
     signingConfigs {
         if (releaseStoreFile != null) {
             create("release") {
-                storeFile = file(releaseStoreFile)
+                // Resolve relative to the Android root (where keystore.properties
+                // and, per the example, the .jks live), not the :app module.
+                storeFile = rootProject.file(releaseStoreFile)
                 storePassword = signingValue("storePassword", "FABRIC_ANDROID_KEYSTORE_PASSWORD")
                 keyAlias = signingValue("keyAlias", "FABRIC_ANDROID_KEY_ALIAS")
                 keyPassword = signingValue("keyPassword", "FABRIC_ANDROID_KEY_PASSWORD")

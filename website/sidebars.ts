@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
         'deploy/self-hosting',
         'deploy/managed-hosting',
         'deploy/compute-broker',
+        'deploy/paywall-ideation',
       ],
     },
     {

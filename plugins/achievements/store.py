@@ -25,6 +25,7 @@ from .catalog import Milestone
 SCHEMA_VERSION = 1
 STATE_DIRNAME = "achievements-v1"
 _MAX_STATE_BYTES = 1_048_576
+MAX_IMPORTED_CARDS = 250
 _PROCESS_LOCKS: dict[str, threading.RLock] = {}
 _PROCESS_LOCKS_GUARD = threading.Lock()
 
@@ -41,6 +42,10 @@ except ImportError:  # pragma: no cover - POSIX
 
 class AchievementStateError(RuntimeError):
     """Raised when durable achievement state cannot be trusted."""
+
+
+class AchievementImportLimitError(AchievementStateError):
+    """A profile has reached its bounded Friendly-card collection."""
 
 
 def utc_now() -> str:
@@ -345,7 +350,10 @@ class AchievementStore:
             data = self._load_leaderboard_unlocked(create=create)
             if data is None:
                 return []
-            return [dict(card) for card in data["imports"].values()]
+            return [
+                dict(data["imports"][card_id])
+                for card_id in sorted(data["imports"])[:MAX_IMPORTED_CARDS]
+            ]
 
     def upsert_import(self, card: Mapping[str, Any]) -> bool:
         """Insert or replace a self-reported card; return True when new."""
@@ -358,8 +366,19 @@ class AchievementStore:
             data = self._load_leaderboard_unlocked(create=True)
             assert data is not None
             created = card_id not in data["imports"]
+            if created and len(data["imports"]) >= MAX_IMPORTED_CARDS:
+                raise AchievementImportLimitError(
+                    f"Friendly leaderboard is limited to {MAX_IMPORTED_CARDS} imported cards"
+                )
             data["imports"][card_id] = dict(card)
-            self._atomic_write(self.leaderboard_path, data)
+            try:
+                self._atomic_write(self.leaderboard_path, data)
+            except AchievementStateError as exc:
+                if "size limit" in str(exc):
+                    raise AchievementImportLimitError(
+                        "Friendly leaderboard has reached its local storage limit"
+                    ) from exc
+                raise
             return created
 
     def delete_import(self, card_id: str) -> bool:
@@ -389,8 +408,10 @@ class AchievementStore:
 
 
 __all__ = [
+    "AchievementImportLimitError",
     "AchievementStateError",
     "AchievementStore",
+    "MAX_IMPORTED_CARDS",
     "SCHEMA_VERSION",
     "STATE_DIRNAME",
     "utc_now",

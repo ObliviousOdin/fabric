@@ -247,16 +247,19 @@ to `plugins.disabled` and restart the dashboard; the unsupported
 
 ### Achievements
 
-`/workspace/achievements` tracks original Fabric milestones across session,
-tool, automation, delegation, and skill activity. It reads structured aggregate
-metadata only, keeps earned progress locally, and adds nothing to the model's
-tool schema or prompt. `/achievements` is a direct alias.
+`/workspace/achievements` opens Fabric Journey: outcome-based onboarding,
+guided Today quests, capability Paths, permanent mastery ranks, loss-free
+Momentum, and the original achievements under Legacy. It observes a closed,
+content-free local event vocabulary and adds nothing to the model's tool schema
+or prompt. `/achievements` is a direct alias.
 
-Its Leaderboard tab ranks local profiles and score cards that a user explicitly
-copies and imports. There is no automatic upload or background publisher; an
-export shows the complete aggregate-only payload before it leaves the machine.
-See [Achievements and Private Leaderboards](./achievements) for the metric and
-privacy contracts.
+Its Leaderboard view keeps the current profile, other readable local profiles,
+and explicitly imported self-reported Friendly cards separate. There is no
+automatic upload or background publisher. Users can pause collection, disable
+active-time reflection, export their metadata, or delete it without losing
+observed mastery or Legacy milestones. See
+[Fabric Journey and Achievements](./achievements) for the mastery and privacy
+contracts.
 
 ### Connecting Fabric to a remote backend
 
@@ -421,7 +424,10 @@ agent runtimes with their own config, skills, memory, and sessions. The label
 
 `/admin/integrations` shows installed plugins, their runtime state, provider
 assignments, exposed surfaces, and available actions. Plugin pages and route
-aliases continue to use the generic dashboard extension contract.
+aliases continue to use the generic dashboard extension contract. Its
+**Capability library** ledger links directly to the Skills Hub and MCP, keeping
+both nested integration surfaces discoverable without duplicating the primary
+sidebar navigation.
 
 Runtime activation and dashboard delivery are related but distinct. General
 plugins that register hooks or tools execute only when allowed by
@@ -440,7 +446,10 @@ and it does not read or mutate Work tasks; `/team` now aliases
 
 ### Admin / Integrations / Skills
 
-Browse, search, and toggle installed skills and toolsets, and install new ones from the hub. Skills are loaded from `~/.fabric/skills/` and grouped by category.
+Open `/admin/integrations/skills` to browse, search, and toggle installed skills
+and toolsets, and install new ones from the Hub. The shorter `/skills` route
+redirects here. Skills are loaded from `~/.fabric/skills/` and grouped by
+category.
 
 - **Search** — filter installed skills and toolsets by name, description, or category
 - **Category filter** — click category pills to narrow the list (e.g. MLOps, MCP, Red Teaming, AI)

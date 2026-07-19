@@ -1,14 +1,14 @@
-"""Fabric achievements plugin.
-
-The product surface is provided by the dashboard manifest and its backend
-router.  It intentionally registers no model tools or lifecycle hooks.
-"""
+"""Fabric's private, local achievement journey plugin."""
 
 from __future__ import annotations
 
 
-def register(_ctx) -> None:
-    """General-plugin entry point; achievements add no agent-core surface."""
+def register(ctx) -> None:
+    """Register observers only; loading performs no I/O or thread creation."""
+    from .observer import HOOKS
+
+    for hook_name, callback in HOOKS.items():
+        ctx.register_hook(hook_name, callback)
     return None
 
 

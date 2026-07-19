@@ -39,8 +39,10 @@ import importlib.metadata
 import importlib.util
 import inspect
 import logging
+import math
 import sys
 import threading
+import time
 import types
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -105,6 +107,10 @@ VALID_HOOKS: Set[str] = {
     "on_session_reset",
     "subagent_start",
     "subagent_stop",
+    # Content-free product capability outcomes.  Producers must use
+    # ``emit_capability_event()`` below rather than invoking this hook directly;
+    # the helper enforces the closed metadata-only payload before dispatch.
+    "capability_event",
     # Gateway pre-dispatch hook. Fired once per incoming MessageEvent
     # after the internal-event guard but BEFORE auth/pairing and agent
     # dispatch. Plugins may return a dict to influence flow:
@@ -205,6 +211,27 @@ def _get_enabled_plugins() -> Optional[set]:
         return None
 
 
+def _manifest_is_effectively_enabled(
+    manifest: "PluginManifest",
+    enabled: Optional[set],
+    disabled: set,
+) -> bool:
+    """Return whether an ordinary plugin manifest should load.
+
+    Explicit disable always wins.  ``default_enabled`` is a trust decision made
+    by the repository, so it is honored only for the exact ``bundled`` source;
+    a user/project/entry-point manifest carrying the same YAML field remains
+    opt-in through ``plugins.enabled``.
+    """
+    lookup_key = manifest.key or manifest.name
+    aliases = {manifest.name, lookup_key}
+    if aliases & disabled:
+        return False
+    if manifest.source == "bundled" and manifest.default_enabled is True:
+        return True
+    return enabled is not None and bool(aliases & enabled)
+
+
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
@@ -247,6 +274,11 @@ class PluginManifest:
     # category plugin at ``plugins/image_gen/openai/`` the key is
     # ``image_gen/openai``. When empty, falls back to ``name``.
     key: str = ""
+    # Repository-bundled plugins may opt into loading without an explicit
+    # ``plugins.enabled`` entry.  The loader deliberately ignores this bit for
+    # user, project, and entry-point sources so an untrusted manifest can never
+    # self-enable.
+    default_enabled: bool = False
 
 
 @dataclass
@@ -1401,9 +1433,10 @@ class PluginManager:
             # entry-point plugins) is opt-in via plugins.enabled.
             # Accept both the path-derived key and the legacy bare name
             # so existing configs keep working.
-            is_enabled = (
-                enabled is not None
-                and (lookup_key in enabled or manifest.name in enabled)
+            is_enabled = _manifest_is_effectively_enabled(
+                manifest,
+                enabled,
+                disabled,
             )
             if not is_enabled:
                 loaded = LoadedPlugin(manifest=manifest, enabled=False)
@@ -1594,6 +1627,9 @@ class PluginManager:
                 path=str(plugin_dir),
                 kind=kind,
                 key=key,
+                # Strict boolean parsing is intentional.  YAML strings such as
+                # ``"true"`` must not silently become an auto-load grant.
+                default_enabled=data.get("default_enabled") is True,
             )
         except Exception as exc:
             logger.warning(
@@ -1939,6 +1975,7 @@ class PluginManager:
                     "version": loaded.manifest.version,
                     "description": loaded.manifest.description,
                     "source": loaded.manifest.source,
+                    "default_enabled": loaded.manifest.default_enabled,
                     "enabled": loaded.enabled,
                     "tools": len(loaded.tools_registered),
                     "hooks": len(loaded.hooks_registered),
@@ -2024,6 +2061,141 @@ def has_middleware(kind: str) -> bool:
 def has_hook(hook_name: str) -> bool:
     """Return True when a hook has registered callbacks."""
     return get_plugin_manager().has_hook(hook_name)
+
+
+_CAPABILITY_EVENT_OUTCOMES = frozenset({"success", "failed", "interrupted"})
+_CAPABILITY_EVENT_MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000
+_CAPABILITY_EVENT_MAX_COUNT = (1 << 31) - 1
+_CAPABILITY_EVENT_MAX_REF_CHARS = 256
+
+
+def _valid_capability_label(value: Any) -> bool:
+    """Accept only short, identifier-like labels in capability events."""
+    if not isinstance(value, str) or not (1 <= len(value) <= 128):
+        return False
+    return all(ch.isascii() and (ch.isalnum() or ch in {"_", "-"}) for ch in value)
+
+
+def _normalize_optional_capability_label(value: Any) -> Optional[str]:
+    """Normalize real provider/surface IDs while rejecting unsafe text."""
+    if not isinstance(value, str) or not (1 <= len(value) <= 256):
+        return None
+    raw = value.strip().casefold()
+    if not raw or any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in raw):
+        return None
+    normalized: list[str] = []
+    separator_pending = False
+    for ch in raw:
+        if ch.isascii() and ch.isalnum():
+            if separator_pending and normalized:
+                normalized.append("-")
+            normalized.append(ch)
+            separator_pending = False
+        elif ch in {"_", "-", ".", "/", ":", " "}:
+            separator_pending = bool(normalized)
+        else:
+            return None
+    result = "".join(normalized).rstrip("-")
+    return result if _valid_capability_label(result) else None
+
+
+def _valid_capability_ref(value: Any) -> bool:
+    """Accept bounded opaque identifiers without coercing arbitrary objects."""
+    if not isinstance(value, str) or not (1 <= len(value) <= _CAPABILITY_EVENT_MAX_REF_CHARS):
+        return False
+    return all(ord(ch) >= 0x20 and ch != "\x7f" for ch in value)
+
+
+def emit_capability_event(
+    *,
+    capability: str,
+    action: str,
+    outcome: str,
+    subject_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+    surface: Optional[str] = None,
+    provider: Optional[str] = None,
+    event_id: Optional[str] = None,
+    duration_ms: Optional[int] = None,
+    count: Optional[int] = None,
+    occurred_at: Optional[float] = None,
+) -> bool:
+    """Best-effort dispatch of one closed, content-free capability event.
+
+    The listener check intentionally happens before validation/projection so a
+    runtime with no consumer pays only the existing hook lookup and never
+    coerces producer values.  Prompts, results, paths, error text, and arbitrary
+    attributes have no place in this signature and therefore cannot leak into
+    the observer payload accidentally.
+    """
+    try:
+        if not has_hook("capability_event"):
+            return False
+        if not _valid_capability_label(capability) or not _valid_capability_label(action):
+            return False
+        if outcome not in _CAPABILITY_EVENT_OUTCOMES:
+            return False
+        refs = {
+            "subject_id": subject_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "event_id": event_id,
+        }
+        if any(value is not None and not _valid_capability_ref(value) for value in refs.values()):
+            return False
+        raw_labels = {"surface": surface, "provider": provider}
+        labels = {
+            name: _normalize_optional_capability_label(value)
+            for name, value in raw_labels.items()
+        }
+        if any(
+            raw_labels[name] is not None and value is None
+            for name, value in labels.items()
+        ):
+            return False
+        if duration_ms is not None and (
+            type(duration_ms) is not int
+            or not (0 <= duration_ms <= _CAPABILITY_EVENT_MAX_DURATION_MS)
+        ):
+            return False
+        if count is not None and (
+            type(count) is not int or not (1 <= count <= _CAPABILITY_EVENT_MAX_COUNT)
+        ):
+            return False
+        timestamp = time.time() if occurred_at is None else occurred_at
+        if (
+            isinstance(timestamp, bool)
+            or not isinstance(timestamp, (int, float))
+            or not math.isfinite(float(timestamp))
+            or not (0 < float(timestamp) <= time.time() + 300)
+        ):
+            return False
+
+        payload: Dict[str, Any] = {
+            "capability": capability,
+            "action": action,
+            "outcome": outcome,
+            "occurred_at": float(timestamp),
+        }
+        for name, value in refs.items():
+            if value is not None:
+                payload[name] = value
+        for name, value in labels.items():
+            if value is not None:
+                payload[name] = value
+        if duration_ms is not None:
+            payload["duration_ms"] = duration_ms
+        if count is not None:
+            payload["count"] = count
+        invoke_hook("capability_event", **payload)
+        return True
+    except Exception:
+        # Stable text only: producer values are intentionally excluded from
+        # logs so a malformed local identifier cannot become accidental
+        # telemetry through an exception message.
+        logger.debug("capability_event emission failed")
+        return False
 
 
 _DEFAULT_TOOL_WHITELIST_DENY = (

@@ -112,7 +112,7 @@ column names the governing contract.
 | `image_gen/openai-codex` | image backend | `image_gen.provider` | OpenAI image generation via Codex OAuth |
 | `image_gen/xai` | image backend | `image_gen.provider` | xAI `grok-2-image` backend |
 | `kanban` | dashboard integration | Bundled dashboard discovery | Persistent Work surface at `/workspace/work` with Board, Graph, and Outline views. See [Kanban Multi-Agent](./kanban.md). |
-| `achievements` | dashboard integration | Bundled dashboard discovery | Local progress milestones and explicitly exchanged, self-reported score cards at `/workspace/achievements`. See [Achievements and Private Leaderboards](./achievements.md). |
+| `achievements` | dashboard integration + content-free capability hook | Bundled and default-on; explicit disable wins | Private Fabric Journey with guided capability Paths, local mastery, preserved Legacy milestones, and separately labeled self-reported Friendly cards at `/workspace/achievements`. See [Fabric Journey and Achievements](./achievements.md). |
 | `team-pages` | hidden dashboard integration | Direct route only | Optional config-driven reference pages at `/admin/integrations/team-pages`; distinct from Agents and Work. |
 
 Memory providers (`plugins/memory/*`) and context engines (`plugins/context_engine/*`) are listed separately on [Memory Providers](./memory-providers.md) — they're managed through `fabric memory` and `fabric plugins` respectively. The full per-plugin detail for the two long-running hooks-based plugins follows.

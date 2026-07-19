@@ -15,6 +15,7 @@ from fabric_cli.plugins import (
     PluginContext,
     PluginManager,
     PluginManifest,
+    _manifest_is_effectively_enabled,
     get_plugin_command_handler,
     get_plugin_commands,
     get_pre_tool_call_block_message,
@@ -108,6 +109,119 @@ class TestPluginDiscovery:
 
         assert "hello_plugin" in mgr._plugins
         assert mgr._plugins["hello_plugin"].enabled
+
+    def test_bundled_default_enabled_plugin_loads_without_allow_list(
+        self, tmp_path, monkeypatch
+    ):
+        """Only a repository-bundled manifest may opt itself into loading."""
+        bundled_dir = tmp_path / "bundled"
+        home = tmp_path / "home"
+        home.mkdir()
+        _make_plugin_dir(
+            bundled_dir,
+            "journeys",
+            manifest_extra={"default_enabled": True},
+            auto_enable=False,
+        )
+        monkeypatch.setenv("FABRIC_HOME", str(home))
+        monkeypatch.setattr(
+            "fabric_cli.plugins.get_bundled_plugins_dir", lambda: bundled_dir
+        )
+        monkeypatch.setattr(PluginManager, "_scan_entry_points", lambda _self: [])
+
+        mgr = PluginManager()
+        mgr.discover_and_load()
+
+        loaded = mgr._plugins["journeys"]
+        assert loaded.manifest.default_enabled is True
+        assert loaded.enabled is True
+
+    def test_bundled_default_enabled_still_honors_explicit_disable(
+        self, tmp_path, monkeypatch
+    ):
+        bundled_dir = tmp_path / "bundled"
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / "config.yaml").write_text(
+            yaml.safe_dump(
+                {"plugins": {"enabled": ["journeys"], "disabled": ["journeys"]}}
+            )
+        )
+        _make_plugin_dir(
+            bundled_dir,
+            "journeys",
+            manifest_extra={"default_enabled": True},
+            auto_enable=False,
+        )
+        monkeypatch.setenv("FABRIC_HOME", str(home))
+        monkeypatch.setattr(
+            "fabric_cli.plugins.get_bundled_plugins_dir", lambda: bundled_dir
+        )
+        monkeypatch.setattr(PluginManager, "_scan_entry_points", lambda _self: [])
+
+        mgr = PluginManager()
+        mgr.discover_and_load()
+
+        loaded = mgr._plugins["journeys"]
+        assert loaded.enabled is False
+        assert loaded.error == "disabled via config"
+
+    def test_untrusted_sources_cannot_self_enable_from_manifest(self):
+        for source in ("user", "project", "entrypoint"):
+            manifest = PluginManifest(
+                name=f"{source}-plugin",
+                source=source,
+                default_enabled=True,
+            )
+            assert not _manifest_is_effectively_enabled(manifest, set(), set())
+
+    def test_user_shadow_cannot_inherit_bundled_default_enablement(
+        self, tmp_path, monkeypatch
+    ):
+        bundled_dir = tmp_path / "bundled"
+        home = tmp_path / "home"
+        _make_plugin_dir(
+            bundled_dir,
+            "journeys",
+            manifest_extra={"default_enabled": True},
+            auto_enable=False,
+        )
+        _make_plugin_dir(
+            home / "plugins",
+            "journeys",
+            manifest_extra={"default_enabled": True},
+            auto_enable=False,
+        )
+        monkeypatch.setenv("FABRIC_HOME", str(home))
+        monkeypatch.setattr(
+            "fabric_cli.plugins.get_bundled_plugins_dir", lambda: bundled_dir
+        )
+        monkeypatch.setattr(PluginManager, "_scan_entry_points", lambda _self: [])
+
+        mgr = PluginManager()
+        mgr.discover_and_load()
+
+        loaded = mgr._plugins["journeys"]
+        assert loaded.manifest.source == "user"
+        assert loaded.manifest.default_enabled is True
+        assert loaded.enabled is False
+
+    def test_manifest_default_enabled_requires_a_real_yaml_boolean(
+        self, tmp_path
+    ):
+        plugin_dir = _make_plugin_dir(
+            tmp_path / "plugins",
+            "string-default",
+            manifest_extra={"default_enabled": "true"},
+            auto_enable=False,
+        )
+
+        manifests = PluginManager()._scan_directory(
+            plugin_dir.parent, source="bundled"
+        )
+
+        assert len(manifests) == 1
+        assert manifests[0].default_enabled is False
 
     def test_plugin_can_register_and_invoke_middleware(self, tmp_path, monkeypatch):
         plugins_dir = tmp_path / "test_home" / "plugins"
@@ -746,6 +860,13 @@ class TestPluginHooks:
             ),
         )
         monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "test_home"))
+        # Isolate the synthetic plugin: the bundled achievements observer now
+        # intentionally owns post_api_request in normal discovery.
+        monkeypatch.setattr(
+            "fabric_cli.plugins.get_bundled_plugins_dir",
+            lambda: tmp_path / "no-bundled-plugins",
+        )
+        monkeypatch.setattr(PluginManager, "_scan_entry_points", lambda _self: [])
 
         mgr = PluginManager()
         mgr.discover_and_load()

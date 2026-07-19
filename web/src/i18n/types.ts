@@ -715,6 +715,16 @@ export interface Translations {
       installCta: string;
       // `needs auth` chip label lives in the shared `capabilities` group.
       stateEffectNote: string;
+      /** Parent-route links; optional so untranslated locales use fallbacks. */
+      directory?: {
+        heading: string;
+        skillsName: string;
+        skillsDescription: string;
+        skillsAction: string;
+        mcpName: string;
+        mcpDescription: string;
+        mcpAction: string;
+      };
     };
   };
 

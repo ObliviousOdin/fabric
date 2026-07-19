@@ -4280,8 +4280,20 @@ def run_conversation(
 
             try:
                 from fabric_cli.plugins import (
+                    emit_capability_event,
                     has_hook,
                     invoke_hook as _invoke_hook,
+                )
+                emit_capability_event(
+                    capability="provider",
+                    action="request_succeeded",
+                    outcome="success",
+                    session_id=agent.session_id or None,
+                    turn_id=turn_id or None,
+                    surface=agent.platform or None,
+                    provider=agent.provider or None,
+                    event_id=api_request_id or None,
+                    duration_ms=max(0, int(api_duration * 1_000)),
                 )
                 if has_hook("post_api_request"):
                     _assistant_tool_calls = (

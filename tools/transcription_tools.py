@@ -33,6 +33,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 from urllib.parse import urljoin
@@ -1628,7 +1629,7 @@ def _transcribe_elevenlabs(file_path: str, model_name: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def transcribe_audio(file_path: str, model: Optional[str] = None) -> Dict[str, Any]:
+def _transcribe_audio_impl(file_path: str, model: Optional[str] = None) -> Dict[str, Any]:
     """
     Transcribe an audio file using the configured STT provider.
 
@@ -1756,6 +1757,27 @@ def transcribe_audio(file_path: str, model: Optional[str] = None) -> Dict[str, A
             "or OPENAI_API_KEY for the OpenAI Whisper API."
         ),
     }
+
+
+def transcribe_audio(file_path: str, model: Optional[str] = None) -> Dict[str, Any]:
+    """Transcribe audio and emit a content-free success observation."""
+    started_at = time.monotonic()
+    result = _transcribe_audio_impl(file_path, model)
+    if isinstance(result, dict) and result.get("success") is True:
+        try:
+            from fabric_cli.plugins import emit_capability_event
+
+            emit_capability_event(
+                capability="voice",
+                action="transcribed",
+                outcome="success",
+                duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+                count=1,
+            )
+        except Exception:
+            # Transcription success must never depend on plugin observation.
+            pass
+    return result
 
 
 def _resolve_openai_audio_client_config() -> tuple[str, str]:

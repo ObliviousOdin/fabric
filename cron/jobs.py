@@ -114,6 +114,23 @@ _ONESHOT_RUN_CLAIM_TTL_HEADROOM = 3
 _DEFAULT_CRON_INACTIVITY_TIMEOUT = 600.0
 
 
+def _emit_cron_capability(*, action: str, outcome: str, job_id: str) -> None:
+    """Observe cron lifecycle metadata without prompts, schedules, or errors."""
+    try:
+        from fabric_cli.plugins import emit_capability_event
+
+        emit_capability_event(
+            capability="automation",
+            action=action,
+            outcome=outcome,
+            subject_id=job_id,
+            count=1,
+        )
+    except Exception:
+        # Scheduling and completion accounting must not depend on plugins.
+        pass
+
+
 def get_cron_inactivity_timeout_seconds(
     config: Optional[Dict[str, Any]] = None,
 ) -> float:
@@ -1173,6 +1190,11 @@ def create_job(
         jobs.append(job)
         save_jobs(jobs)
 
+    _emit_cron_capability(
+        action="schedule_created",
+        outcome="success",
+        job_id=job_id,
+    )
     return job
 
 
@@ -1424,6 +1446,7 @@ def mark_job_run(job_id: str, success: bool, error: Optional[str] = None,
     ``delivery_error`` is tracked separately from the agent error — a job
     can succeed (agent produced output) but fail delivery (platform down).
     """
+    recorded = False
     with _jobs_lock():
         jobs = load_jobs()
         for i, job in enumerate(jobs):
@@ -1468,7 +1491,8 @@ def mark_job_run(job_id: str, success: bool, error: Optional[str] = None,
                         # Remove the job (limit reached)
                         jobs.pop(i)
                         save_jobs(jobs)
-                        return
+                        recorded = True
+                        break
                 
                 # Compute next run
                 job["next_run_at"] = compute_next_run(job["schedule"], now)
@@ -1503,9 +1527,17 @@ def mark_job_run(job_id: str, success: bool, error: Optional[str] = None,
                     job["state"] = "scheduled"
 
                 save_jobs(jobs)
-                return
+                recorded = True
+                break
 
+    if not recorded:
         logger.warning("mark_job_run: job_id %s not found, skipping save", job_id)
+        return
+    _emit_cron_capability(
+        action="run_completed",
+        outcome="success" if success else "failed",
+        job_id=job_id,
+    )
 
 
 def claim_dispatch(job_id: str) -> bool:

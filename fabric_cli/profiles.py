@@ -980,7 +980,9 @@ def list_profiles() -> List[ProfileInfo]:
     return profiles
 
 
-def profiles_to_serve(multiplex: bool) -> List[Tuple[str, Path]]:
+def profiles_to_serve(
+    multiplex: bool, *, max_profiles: Optional[int] = None
+) -> List[Tuple[str, Path]]:
     """Return the ``(profile_name, fabric_home)`` pairs a gateway should serve.
 
     This is the single chokepoint for "which profiles does the inbound gateway
@@ -1004,11 +1006,29 @@ def profiles_to_serve(multiplex: bool) -> List[Tuple[str, Path]]:
     if not multiplex:
         return [(active, get_profile_dir(active))]
 
+    limit = None
+    if max_profiles is not None:
+        try:
+            limit = max(1, int(max_profiles))
+        except (TypeError, ValueError, OverflowError):
+            limit = 1
     serve: List[Tuple[str, Path]] = [("default", _get_default_fabric_home())]
+    if limit is not None and len(serve) >= limit:
+        return serve
 
     profiles_root = _get_profiles_root()
     if profiles_root.is_dir():
-        for entry in sorted(profiles_root.iterdir()):
+        # The ordinary gateway path preserves its sorted all-profile behavior.
+        # Privacy dashboards can request a hard cap: in that mode avoid
+        # materialising/sorting an attacker-sized directory and bound even the
+        # number of invalid entries inspected.
+        if limit is None:
+            entries = sorted(profiles_root.iterdir())
+        else:
+            import itertools
+
+            entries = itertools.islice(profiles_root.iterdir(), limit * 4)
+        for entry in entries:
             if not entry.is_dir():
                 continue
             name = entry.name
@@ -1017,6 +1037,8 @@ def profiles_to_serve(multiplex: bool) -> List[Tuple[str, Path]]:
             if not _PROFILE_ID_RE.match(name):
                 continue
             serve.append((name, entry))
+            if limit is not None and len(serve) >= limit:
+                break
 
     return serve
 

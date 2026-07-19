@@ -18389,6 +18389,8 @@ def _merged_plugins_hub() -> Dict[str, Any]:
         _discover_context_engines,
         _get_disabled_set,
         _get_enabled_set,
+        _entry_default_enabled,
+        _plugin_runtime_status,
         _read_manifest as _read_plugin_manifest_at,
     )
 
@@ -18406,18 +18408,15 @@ def _merged_plugins_hub() -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
 
     for name, version, description, source, dir_str, key in _discover_all_plugins():
-        # Both the path-derived key (nested category plugins) and the bare
-        # manifest name count for enabled/disabled state, matching the runtime
-        # loader's back-compat lookup.
-        aliases = {name}
-        if key:
-            aliases.add(key)
-        if aliases & disabled_set:
-            runtime_status = "disabled"
-        elif aliases & enabled_set:
-            runtime_status = "enabled"
-        else:
-            runtime_status = "inactive"
+        entry = (name, version, description, source, dir_str, key)
+        runtime_status = _plugin_runtime_status(
+            name,
+            enabled_set,
+            disabled_set,
+            key,
+            source=source,
+            default_enabled=_entry_default_enabled(entry),
+        )
 
         dir_path = Path(dir_str)
         dm = dash_by_name.get(name)

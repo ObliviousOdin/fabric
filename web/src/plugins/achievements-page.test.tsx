@@ -422,7 +422,8 @@ describe("Fabric Journey achievements page", () => {
 
   it("uses the host page shell and gives a new profile an outcome-first starter", async () => {
     const fetchJSON = vi.fn(
-      (url: string, _init?: FetchInit): Promise<unknown> => {
+      (url: string, init?: FetchInit): Promise<unknown> => {
+        void init;
         if (url.endsWith("/journey"))
           return Promise.resolve(journeyFixture({ firstRun: true }));
         if (url.endsWith("/settings")) return Promise.resolve({ ok: true });
@@ -497,9 +498,10 @@ describe("Fabric Journey achievements page", () => {
   });
 
   it("keeps Today bounded, excludes self-attested publishing, and shows private time", async () => {
-    const fetchJSON = vi.fn((_url: string) =>
-      Promise.resolve(journeyFixture()),
-    );
+    const fetchJSON = vi.fn((url: string) => {
+      void url;
+      return Promise.resolve(journeyFixture());
+    });
     installBundle(fetchJSON);
 
     await act(async () => {
@@ -693,9 +695,12 @@ describe("Fabric Journey achievements page", () => {
   });
 
   it("migrates legacy routes and keeps observed profiles separate from Friendly cards", async () => {
-    const fetchJSON = vi.fn((_url: string) =>
-      Promise.resolve(journeyFixture({ includeProjectedLeaderboard: true })),
-    );
+    const fetchJSON = vi.fn((url: string) => {
+      void url;
+      return Promise.resolve(
+        journeyFixture({ includeProjectedLeaderboard: true }),
+      );
+    });
     installBundle(fetchJSON);
 
     await act(async () => {

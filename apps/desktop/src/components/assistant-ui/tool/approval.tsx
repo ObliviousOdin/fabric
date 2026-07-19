@@ -27,7 +27,6 @@ import {
   clearApprovalRequest,
   registerApprovalInlineAnchor
 } from '@/store/prompts'
-import { $currentCwd } from '@/store/session'
 
 import type { ToolPart } from './fallback-model'
 
@@ -122,7 +121,6 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
   const { t } = useI18n()
   const copy = t.assistant.approval
   const gateway = useStore($gateway)
-  const cwd = useStore($currentCwd)
   const detailsId = useId()
   const [submitting, setSubmitting] = useState<ApprovalChoice | null>(null)
   // "Always allow" persists the pattern to ~/.fabric/config.yaml permanently, so
@@ -309,7 +307,7 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
 
           <ApprovalDetailRow label={copy.detailsReason} value={reason} />
           {toolName && <ApprovalDetailRow label={copy.detailsTool} value={toolName} />}
-          {cwd && <ApprovalDetailRow label={copy.detailsWorkingDir} mono value={cwd} />}
+          {request.cwd && <ApprovalDetailRow label={copy.detailsWorkingDir} mono value={request.cwd} />}
 
           {hasCommand && (
             <div className="flex flex-col gap-1">

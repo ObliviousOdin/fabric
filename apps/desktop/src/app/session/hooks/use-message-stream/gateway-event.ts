@@ -493,6 +493,9 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
           // false only when a tirith warning forbids it; backend omits the field otherwise.
           allowPermanent: payload?.allow_permanent !== false,
           command,
+          // Authoritative execution cwd from the backend (may differ from the
+          // session cwd for remote terminal backends); omitted by older backends.
+          cwd: typeof payload?.cwd === 'string' && payload.cwd ? payload.cwd : undefined,
           description,
           patternKey,
           patternKeys,

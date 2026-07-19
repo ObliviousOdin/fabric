@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { FabricGateway } from '@/fabric'
 import { $gateway } from '@/store/gateway'
 import { $approvalRequest, clearAllPrompts, setApprovalRequest } from '@/store/prompts'
-import { $activeSessionId, $currentCwd } from '@/store/session'
+import { $activeSessionId } from '@/store/session'
 
 import { PendingApprovalFallback, PendingToolApproval } from './approval'
 import type { ToolPart } from './fallback-model'
@@ -46,7 +46,6 @@ afterEach(() => {
   cleanup()
   clearAllPrompts()
   $activeSessionId.set(null)
-  $currentCwd.set('')
   $gateway.set(null)
 })
 
@@ -133,16 +132,31 @@ describe('PendingToolApproval', () => {
     expect(screen.getByText(/Destructive/i)).toBeTruthy()
   })
 
-  it('shows the tool name and working directory in the details panel when available', () => {
-    $currentCwd.set('/home/user/project')
-    setRequest('chmod -R 777 /tmp/x') // not high-risk → open the panel manually
+  it('shows the tool name and the authoritative cwd from the request when available', () => {
+    $activeSessionId.set('sess-1')
+    setApprovalRequest({
+      command: 'chmod -R 777 /tmp/x', // not high-risk → open the panel manually
+      cwd: '/remote/host/workspace',
+      description: 'dangerous command',
+      sessionId: 'sess-1'
+    })
     render(<PendingToolApproval part={part('terminal')} />)
 
     fireEvent.click(screen.getByRole('button', { name: /approval details/i }))
 
     const region = screen.getByRole('region', { name: /approval details/i })
     expect(within(region).getByText('terminal')).toBeTruthy()
-    expect(within(region).getByText('/home/user/project')).toBeTruthy()
+    expect(within(region).getByText('/remote/host/workspace')).toBeTruthy()
+  })
+
+  it('omits the working-directory row when the request carries no cwd', () => {
+    setRequest('chmod -R 777 /tmp/x')
+    render(<PendingToolApproval part={part('terminal')} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /approval details/i }))
+
+    const region = screen.getByRole('region', { name: /approval details/i })
+    expect(within(region).queryByText('Working directory')).toBeNull()
   })
 
   it('sends choice "deny" on Reject', async () => {

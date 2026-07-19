@@ -1,8 +1,8 @@
 package io.github.obliviousodin.fabric.mobile.core
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -30,6 +30,24 @@ class PairingUriTest {
     }
 
     @Test
+    fun rejectsDirectServerAddresses() {
+        assertNull(PairingPayload.parse("https://agent.example.test"))
+        assertNull(PairingPayload.parse("https://agent.example.test?token=secret"))
+    }
+
+    @Test
+    fun rejectsMissingOrContradictoryAuthenticationPayloads() {
+        val invalid = listOf(
+            "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=token",
+            "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=gated&token=unexpected",
+            "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=other",
+            "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test",
+        )
+
+        invalid.forEach { assertNull(PairingPayload.parse(it)) }
+    }
+
+    @Test
     fun rejectsUnknownVersionAndCredentialBearingGatewayUrl() {
         assertNull(
             PairingPayload.parse("fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test")
@@ -39,5 +57,17 @@ class PairingUriTest {
                 "fabric://pair?v=1&url=https%3A%2F%2Fuser%3Apass%40agent.example.test"
             )
         )
+    }
+
+    @Test
+    fun validatesManualServerAddressesSeparately() {
+        assertEquals(
+            "https://agent.example.test/fabric",
+            GatewayBaseUrl.parse(" https://agent.example.test/fabric/ "),
+        )
+        assertNull(GatewayBaseUrl.parse("fabric://pair?v=1"))
+        assertNull(GatewayBaseUrl.parse("https://user:pass@agent.example.test"))
+        assertNull(GatewayBaseUrl.parse("https://agent.example.test?token=secret"))
+        assertNull(GatewayBaseUrl.parse("https://agent.example.test/#fragment"))
     }
 }

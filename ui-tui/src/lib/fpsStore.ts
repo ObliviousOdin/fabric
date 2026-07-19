@@ -1,22 +1,17 @@
-// Tiny FPS tracker fed by ink's onFrame callback. Each entry is an Ink
-// frame (React commit + drain-only frames) — the right notion for
-// user-perceived motion.
-//
-// Zero-cost when HERMES_TUI_FPS is unset: trackFrame is undefined so the
-// onFrame callback short-circuits at the optional chain.
+// Tiny FPS tracker fed by Ink's onFrame callback. Each entry is a real Ink
+// frame (React commits and drain-only frames), matching user-perceived motion.
+// When disabled, trackFrame is undefined and entry.tsx omits onFrame entirely.
 
 import { atom } from 'nanostores'
 
-import { SHOW_FPS } from '../config/env.js'
+import { SHOW_FPS } from '../config/diagnostics.js'
 
 const WINDOW_SIZE = 30
 
-export type FpsState = {
+export interface FpsState {
   fps: number
-  /** Wraps at JS-safe int — diff pairs in a debug overlay safely. */
-  totalFrames: number
-  /** Ink render-phase total for the last frame. */
   lastDurationMs: number
+  totalFrames: number
 }
 
 export const $fpsState = atom<FpsState>({ fps: 0, lastDurationMs: 0, totalFrames: 0 })

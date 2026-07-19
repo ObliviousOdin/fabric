@@ -4,7 +4,7 @@ import { type MutableRefObject, useCallback } from 'react'
 import { writeAgentTerminalChunk } from '@/app/right-sidebar/terminal/agent-terminal-stream'
 import { readActiveTerminal } from '@/app/right-sidebar/terminal/buffer'
 import { closeAgentTerminalByProc } from '@/app/right-sidebar/terminal/terminals'
-import { brandText, desktopBrand } from '@/brand'
+import { desktopBrand } from '@/brand'
 import { translateNow } from '@/i18n'
 import { type GatewayEventPayload, textPart } from '@/lib/chat-messages'
 import { coerceGatewayText, coerceThinkingText, normalizePersonalityValue } from '@/lib/chat-runtime'
@@ -43,7 +43,7 @@ import { clearActiveSessionTodos } from '@/store/todos'
 import { recordToolDiff } from '@/store/tool-diffs'
 import { reportInstallMethodWarning } from '@/store/updates'
 import { notifyWorkspaceChanged, toolMayMutateFiles } from '@/store/workspace-events'
-import type { RpcEvent } from '@/types/hermes'
+import type { RpcEvent } from '@/types/fabric'
 
 import type { ClientSessionState } from '../../../types'
 
@@ -60,7 +60,7 @@ interface GatewayEventDeps {
   failAssistantMessage: (sessionId: string, errorMessage: string) => void
   flushQueuedDeltas: (sessionId?: string) => void
   queryClient: QueryClient
-  refreshHermesConfig: () => Promise<void>
+  refreshFabricConfig: () => Promise<void>
   sessionInterrupted: (sessionId: string) => boolean
   updateSessionState: (
     sessionId: string,
@@ -88,7 +88,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
     failAssistantMessage,
     flushQueuedDeltas,
     queryClient,
-    refreshHermesConfig,
+    refreshFabricConfig,
     sessionInterrupted,
     updateSessionState,
     upsertToolCall
@@ -223,7 +223,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
           reportInstallMethodWarning(payload?.install_warning)
         }
 
-        void refreshHermesConfig()
+        void refreshFabricConfig()
 
         if (modelChanged || providerChanged) {
           void queryClient.invalidateQueries({
@@ -608,7 +608,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
           }))
         }
       } else if (event.type === 'error') {
-        const errorMessage = payload?.message || brandText('Fabric reported an error')
+        const errorMessage = payload?.message || 'Fabric reported an error'
         const looksLikeProviderSetup = isProviderSetupErrorMessage(errorMessage)
 
         // A turn that errors out has also ended — drop any open blocking prompt
@@ -671,7 +671,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
       lastCwdInfoSessionRef,
       nativeSubagentSessionsRef,
       queryClient,
-      refreshHermesConfig,
+      refreshFabricConfig,
       sessionInterrupted,
       updateSessionState,
       upsertToolCall

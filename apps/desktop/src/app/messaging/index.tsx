@@ -1,7 +1,6 @@
 import type * as React from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { brandText } from '@/brand'
 import { PageLoader } from '@/components/page-loader'
 import { StatusDot, type StatusTone } from '@/components/status-dot'
 import { Button } from '@/components/ui/button'
@@ -14,7 +13,7 @@ import {
   type MessagingEnvVarInfo,
   type MessagingPlatformInfo,
   updateMessagingPlatform
-} from '@/hermes'
+} from '@/fabric'
 import { type Translations, useI18n } from '@/i18n'
 import { openExternalLink } from '@/lib/external-link'
 import { ExternalLink, Save, Trash2 } from '@/lib/icons'
@@ -577,7 +576,7 @@ const PLATFORM_INTRO: Record<string, string> = {
 }
 
 const introCopy = (platform: MessagingPlatformInfo, m: Translations['messaging']) =>
-  brandText(m.platformIntro[platform.id] || PLATFORM_INTRO[platform.id] || platform.description)
+  m.platformIntro[platform.id] || PLATFORM_INTRO[platform.id] || platform.description
 
 function MessagingField({
   edits,

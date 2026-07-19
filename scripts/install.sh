@@ -45,14 +45,13 @@ BOLD='\033[1m'
 # Configuration
 REPO_URL_SSH="git@github.com:ObliviousOdin/fabric.git"
 REPO_URL_HTTPS="https://github.com/ObliviousOdin/fabric"
-FABRIC_HOME="${FABRIC_HOME:-${HERMES_HOME:-$HOME/.fabric}}"
-HERMES_HOME="$FABRIC_HOME"
-export FABRIC_HOME HERMES_HOME
+FABRIC_HOME="${FABRIC_HOME:-$HOME/.fabric}"
+export FABRIC_HOME
 # INSTALL_DIR is resolved AFTER arg parsing and OS detection so we can pick an
 # FHS-style layout for root installs.  Track whether the user gave us an
 # explicit directory — if so we never override it.
-if [ -n "${FABRIC_INSTALL_DIR:-${HERMES_INSTALL_DIR:-}}" ]; then
-    INSTALL_DIR="${FABRIC_INSTALL_DIR:-$HERMES_INSTALL_DIR}"
+if [ -n "${FABRIC_INSTALL_DIR:-}" ]; then
+    INSTALL_DIR="$FABRIC_INSTALL_DIR"
     INSTALL_DIR_EXPLICIT=true
 else
     INSTALL_DIR=""
@@ -63,7 +62,7 @@ NODE_VERSION="22"
 
 # FHS-style root install layout (set by resolve_install_layout when applicable):
 #   code at /usr/local/lib/fabric-agent, command at /usr/local/bin/fabric,
-#   data still at /root/.fabric (HERMES_HOME).  Matches Claude Code / Codex CLI
+#   data still at /root/.fabric (FABRIC_HOME).  Matches Claude Code / Codex CLI
 #   and keeps Docker bind-mounted /root/ volumes lean.
 ROOT_FHS_LAYOUT=false
 DETECTED_BROWSER_EXECUTABLE=""
@@ -146,7 +145,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --fabric-home)
             FABRIC_HOME="$2"
-            HERMES_HOME="$FABRIC_HOME"
             shift 2
             ;;
         --ensure)
@@ -395,35 +393,35 @@ is_termux() {
 # symlink goes.  Called after detect_os so $OS/$DISTRO are known.
 #
 # Defaults:
-#   - Non-root, any OS:       INSTALL_DIR = $HERMES_HOME/fabric-agent
+#   - Non-root, any OS:       INSTALL_DIR = $FABRIC_HOME/fabric-agent
 #                             command link in $HOME/.local/bin
-#   - Termux (any uid):       INSTALL_DIR = $HERMES_HOME/fabric-agent
+#   - Termux (any uid):       INSTALL_DIR = $FABRIC_HOME/fabric-agent
 #                             command link in $PREFIX/bin (already on PATH)
 #   - Root on Linux (new):    INSTALL_DIR = /usr/local/lib/fabric-agent
 #                             command link in /usr/local/bin
-#                             (unless a legacy install already exists at
-#                              $HERMES_HOME/fabric-agent — then preserve it)
+#                             (unless an existing user-scoped install is at
+#                              $FABRIC_HOME/fabric-agent — then preserve it)
 #
-# Always no-op when the user set --dir or $HERMES_INSTALL_DIR.
+# Always no-op when the user set --dir or $FABRIC_INSTALL_DIR.
 resolve_install_layout() {
     if [ "$INSTALL_DIR_EXPLICIT" = true ]; then
         log_info "Install directory: $INSTALL_DIR (explicit)"
         return 0
     fi
 
-    # Termux: package manager manages /data/data/..., keep code in HERMES_HOME.
+    # Termux: package manager manages /data/data/..., keep code in FABRIC_HOME.
     if is_termux; then
-        INSTALL_DIR="$HERMES_HOME/fabric-agent"
+        INSTALL_DIR="$FABRIC_HOME/fabric-agent"
         return 0
     fi
 
-    # Root on Linux: prefer FHS layout unless a legacy install already exists.
-    # macOS root installs keep the legacy layout because /usr/local/ on macOS
+    # Root on Linux: prefer FHS layout unless a user-scoped install already exists.
+    # macOS root installs keep the user-scoped layout because /usr/local/ on macOS
     # is Homebrew territory and we don't want to fight that.
     if [ "$OS" = "linux" ] && [ "$(id -u)" -eq 0 ]; then
-        if [ -d "$HERMES_HOME/fabric-agent/.git" ]; then
-            INSTALL_DIR="$HERMES_HOME/fabric-agent"
-            log_info "Existing install detected at $INSTALL_DIR — keeping legacy layout"
+        if [ -d "$FABRIC_HOME/fabric-agent/.git" ]; then
+            INSTALL_DIR="$FABRIC_HOME/fabric-agent"
+            log_info "Existing install detected at $INSTALL_DIR — keeping its layout"
             log_info "  (new root installs use /usr/local/lib/fabric-agent)"
             return 0
         fi
@@ -439,13 +437,13 @@ resolve_install_layout() {
         log_info "Root install on Linux — using FHS layout"
         log_info "  Code:    $INSTALL_DIR"
         log_info "  Command: /usr/local/bin/fabric"
-        log_info "  Data:    $HERMES_HOME (unchanged)"
+        log_info "  Data:    $FABRIC_HOME (unchanged)"
         log_info "  uv Python: $UV_PYTHON_INSTALL_DIR (world-readable)"
         return 0
     fi
 
-    # Default: non-root, non-Termux → legacy user-scoped layout.
-    INSTALL_DIR="$HERMES_HOME/fabric-agent"
+    # Default: non-root, non-Termux → user-scoped layout.
+    INSTALL_DIR="$FABRIC_HOME/fabric-agent"
 }
 
 get_command_link_dir() {
@@ -470,7 +468,7 @@ get_command_link_display_dir() {
 
 # Point a Fabric-managed Node's `npm install -g` at a directory that is on
 # PATH. npm's default global prefix for a bundled Node is the Node dir itself,
-# so global package binaries land in $HERMES_HOME/node/bin — which is NOT on
+# so global package binaries land in $FABRIC_HOME/node/bin — which is NOT on
 # PATH (only the command link dir is) and is wiped on every Node upgrade.
 # Redirecting the prefix to the link dir's parent makes global bins resolve to
 # the command link dir (node/npm/npx live there too, already on PATH) and
@@ -480,11 +478,11 @@ get_command_link_display_dir() {
 # Idempotent and a no-op when there is no Fabric-managed npm, so calling it on
 # every install run repairs pre-existing installs, not just fresh ones.
 configure_managed_node_npm_prefix() {
-    [ -x "$HERMES_HOME/node/bin/npm" ] || return 0
+    [ -x "$FABRIC_HOME/node/bin/npm" ] || return 0
     local link_dir
     link_dir="$(get_command_link_dir)"
-    mkdir -p "$HERMES_HOME/node/etc"
-    printf 'prefix=%s\n' "$(dirname "$link_dir")" > "$HERMES_HOME/node/etc/npmrc"
+    mkdir -p "$FABRIC_HOME/node/etc"
+    printf 'prefix=%s\n' "$(dirname "$link_dir")" > "$FABRIC_HOME/node/etc/npmrc"
 }
 
 get_fabric_command_path() {
@@ -554,11 +552,11 @@ install_uv() {
         return 0
     fi
 
-    # Fabric owns its own uv at $HERMES_HOME/bin/uv.  Always install there —
+    # Fabric owns its own uv at $FABRIC_HOME/bin/uv.  Always install there —
     # no PATH probing, no conda guards, no multi-location resolution chains.
     # The runtime update path (fabric_cli/managed_uv.py) looks in the same
     # place, so install.sh and `fabric update` stay in sync.
-    local _managed_uv="$HERMES_HOME/bin/uv"
+    local _managed_uv="$FABRIC_HOME/bin/uv"
 
     if [ -x "$_managed_uv" ]; then
         UV_CMD="$_managed_uv"
@@ -567,8 +565,8 @@ install_uv() {
         return 0
     fi
 
-    log_info "Installing managed uv into $HERMES_HOME/bin ..."
-    mkdir -p "$HERMES_HOME/bin"
+    log_info "Installing managed uv into $FABRIC_HOME/bin ..."
+    mkdir -p "$FABRIC_HOME/bin"
 
     # Two-stage: download the installer, then run it.  Piping
     # `curl | sh` masks curl failures (sh exits 0 on empty stdin)
@@ -585,8 +583,8 @@ install_uv() {
         exit 1
     fi
     # UV_UNMANAGED_INSTALL tells the astral installer to place the binary
-    # directly into $HERMES_HOME/bin instead of ~/.local/bin.
-    if UV_UNMANAGED_INSTALL="$HERMES_HOME/bin" sh "$_uv_installer" >>"$_uv_install_log" 2>&1; then
+    # directly into $FABRIC_HOME/bin instead of ~/.local/bin.
+    if UV_UNMANAGED_INSTALL="$FABRIC_HOME/bin" sh "$_uv_installer" >>"$_uv_install_log" 2>&1; then
         rm -f "$_uv_installer"
         if [ -x "$_managed_uv" ]; then
             UV_CMD="$_managed_uv"
@@ -813,9 +811,9 @@ check_node() {
     fi
 
     # Prefer a Fabric-managed Node from a previous run over a too-old system one.
-    if [ -x "$HERMES_HOME/node/bin/node" ] && node_satisfies_build "$("$HERMES_HOME/node/bin/node" --version)"; then
-        export PATH="$HERMES_HOME/node/bin:$PATH"
-        log_success "Node.js $("$HERMES_HOME/node/bin/node" --version) found (Fabric-managed)"
+    if [ -x "$FABRIC_HOME/node/bin/node" ] && node_satisfies_build "$("$FABRIC_HOME/node/bin/node" --version)"; then
+        export PATH="$FABRIC_HOME/node/bin:$PATH"
+        log_success "Node.js $("$FABRIC_HOME/node/bin/node" --version) found (Fabric-managed)"
         HAS_NODE=true
         return 0
     fi
@@ -923,24 +921,24 @@ install_node() {
     # Place into ~/.fabric/node/ and symlink binaries into the same bin dir
     # the fabric command uses (get_command_link_dir): /usr/local/bin for root
     # FHS installs, $PREFIX/bin on Termux, ~/.local/bin otherwise.
-    rm -rf "$HERMES_HOME/node"
-    mkdir -p "$HERMES_HOME"
-    mv "$extracted_dir" "$HERMES_HOME/node"
+    rm -rf "$FABRIC_HOME/node"
+    mkdir -p "$FABRIC_HOME"
+    mv "$extracted_dir" "$FABRIC_HOME/node"
     rm -rf "$tmp_dir"
 
     local node_link_dir
     node_link_dir="$(get_command_link_dir)"
     mkdir -p "$node_link_dir"
-    ln -sf "$HERMES_HOME/node/bin/node" "$node_link_dir/node"
-    ln -sf "$HERMES_HOME/node/bin/npm"  "$node_link_dir/npm"
-    ln -sf "$HERMES_HOME/node/bin/npx"  "$node_link_dir/npx"
+    ln -sf "$FABRIC_HOME/node/bin/node" "$node_link_dir/node"
+    ln -sf "$FABRIC_HOME/node/bin/npm"  "$node_link_dir/npm"
+    ln -sf "$FABRIC_HOME/node/bin/npx"  "$node_link_dir/npx"
 
     configure_managed_node_npm_prefix
 
-    export PATH="$HERMES_HOME/node/bin:$PATH"
+    export PATH="$FABRIC_HOME/node/bin:$PATH"
 
     local installed_ver
-    installed_ver=$("$HERMES_HOME/node/bin/node" --version 2>/dev/null)
+    installed_ver=$("$FABRIC_HOME/node/bin/node" --version 2>/dev/null)
     log_success "Node.js $installed_ver installed to ~/.fabric/node/"
     HAS_NODE=true
 }
@@ -1604,18 +1602,18 @@ setup_path() {
     log_info "Setting up fabric command..."
 
     if [ "$USE_VENV" = true ]; then
-        HERMES_BIN="$INSTALL_DIR/venv/bin/fabric"
+        FABRIC_BIN="$INSTALL_DIR/venv/bin/fabric"
     else
-        HERMES_BIN="$(which fabric 2>/dev/null || echo "")"
-        if [ -z "$HERMES_BIN" ]; then
+        FABRIC_BIN="$(which fabric 2>/dev/null || echo "")"
+        if [ -z "$FABRIC_BIN" ]; then
             log_warn "fabric not found on PATH after install"
             return 0
         fi
     fi
 
     # Verify the entry point script was actually generated
-    if [ ! -x "$HERMES_BIN" ]; then
-        log_warn "fabric entry point not found at $HERMES_BIN"
+    if [ ! -x "$FABRIC_BIN" ]; then
+        log_warn "fabric entry point not found at $FABRIC_BIN"
         log_info "This usually means the pip install didn't complete successfully."
         if [ "$DISTRO" = "termux" ]; then
             log_info "Try: cd $INSTALL_DIR && python -m pip install -e '.[termux-all]' -c constraints-termux.txt"
@@ -1634,15 +1632,15 @@ setup_path() {
     # We intentionally clear PYTHONPATH/PYTHONHOME here so inherited env vars
     # can't make this launcher import modules from another checkout.
     mkdir -p "$command_link_dir"
-    # Older installs created this path as a symlink to $HERMES_BIN. Without
-    # the rm, `cat >` follows the symlink and overwrites the venv pip entry
-    # point with this shim — making `exec "$HERMES_BIN"` self-recurse. (#21454)
+    # This path may be a symlink to $FABRIC_BIN. Without the rm, `cat >`
+    # follows the symlink and overwrites the venv pip entry
+    # point with this shim — making `exec "$FABRIC_BIN"` self-recurse. (#21454)
     rm -f "$command_link_dir/fabric"
     cat > "$command_link_dir/fabric" <<EOF
 #!/usr/bin/env bash
 unset PYTHONPATH
 unset PYTHONHOME
-exec "$HERMES_BIN" "\$@"
+exec "$FABRIC_BIN" "\$@"
 EOF
     chmod +x "$command_link_dir/fabric"
     log_success "Installed fabric launcher → $command_link_display_dir/fabric"
@@ -1765,15 +1763,18 @@ copy_config_templates() {
     log_info "Setting up configuration files..."
 
     # Create ~/.fabric directory structure (config at top level, code in subdir)
-    mkdir -p "$HERMES_HOME"/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills}
+    mkdir -p \
+        "$FABRIC_HOME"/{cron,sessions,logs,hooks,memories,skills} \
+        "$FABRIC_HOME"/cache/{images,audio,documents} \
+        "$FABRIC_HOME/platforms/pairing"
 
     # Create .env at ~/.fabric/.env (top level, easy to find)
-    if [ ! -f "$HERMES_HOME/.env" ]; then
+    if [ ! -f "$FABRIC_HOME/.env" ]; then
         if [ -f "$INSTALL_DIR/.env.example" ]; then
-            cp "$INSTALL_DIR/.env.example" "$HERMES_HOME/.env"
+            cp "$INSTALL_DIR/.env.example" "$FABRIC_HOME/.env"
             log_success "Created ~/.fabric/.env from template"
         else
-            touch "$HERMES_HOME/.env"
+            touch "$FABRIC_HOME/.env"
             log_success "Created ~/.fabric/.env"
         fi
     else
@@ -1782,13 +1783,13 @@ copy_config_templates() {
     # Restrict .env permissions — this file holds API keys and tokens.
     # 0600 ensures only the file owner can read/write, matching standard
     # practice for credential files (.netrc, .aws/credentials, .ssh/config).
-    chmod 600 "$HERMES_HOME/.env"
+    chmod 600 "$FABRIC_HOME/.env"
     configure_browser_env_from_system_browser
 
     # Create config.yaml at ~/.fabric/config.yaml (top level, easy to find)
-    if [ ! -f "$HERMES_HOME/config.yaml" ]; then
+    if [ ! -f "$FABRIC_HOME/config.yaml" ]; then
         if [ -f "$INSTALL_DIR/cli-config.yaml.example" ]; then
-            cp "$INSTALL_DIR/cli-config.yaml.example" "$HERMES_HOME/config.yaml"
+            cp "$INSTALL_DIR/cli-config.yaml.example" "$FABRIC_HOME/config.yaml"
             log_success "Created ~/.fabric/config.yaml from template"
         fi
     else
@@ -1800,8 +1801,8 @@ copy_config_templates() {
     # runtime (_ensure_default_soul_md) treats the old comment-only scaffold as
     # "never customized" and upgrades it to this text on next run, so any drift
     # here is self-healing, but keep them in sync to avoid a churn on first run.
-    if [ ! -f "$HERMES_HOME/SOUL.md" ]; then
-        cat > "$HERMES_HOME/SOUL.md" << 'SOUL_EOF'
+    if [ ! -f "$FABRIC_HOME/SOUL.md" ]; then
+        cat > "$FABRIC_HOME/SOUL.md" << 'SOUL_EOF'
 You are Fabric, a local-first personal AI agent. You are helpful, knowledgeable, and direct. You assist users with a wide range of tasks including answering questions, writing and editing code, analyzing information, creative work, and executing actions via your tools. You communicate clearly, admit uncertainty when appropriate, and prioritize being genuinely useful over being verbose unless otherwise directed below. Be targeted and efficient in your exploration and investigations.
 SOUL_EOF
         log_success "Created ~/.fabric/SOUL.md (edit to customize personality)"
@@ -1817,8 +1818,8 @@ SOUL_EOF
         printf '%s\n' \
             "This profile opted out of bundled-skill seeding (installed with --no-skills)." \
             "Delete this file to re-enable sync on the next 'fabric update'." \
-            > "$HERMES_HOME/.no-bundled-skills" 2>/dev/null || true
-        log_info "Skipping bundled skills (--no-skills). Wrote $HERMES_HOME/.no-bundled-skills"
+            > "$FABRIC_HOME/.no-bundled-skills" 2>/dev/null || true
+        log_info "Skipping bundled skills (--no-skills). Wrote $FABRIC_HOME/.no-bundled-skills"
         log_info "  Future 'fabric update' runs will not inject bundled skills. Delete the marker to opt back in."
     else
         log_info "Syncing bundled skills to ~/.fabric/skills/ ..."
@@ -1826,8 +1827,8 @@ SOUL_EOF
             log_success "Skills synced to ~/.fabric/skills/"
         else
             # Fallback: simple directory copy if Python sync fails
-            if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$HERMES_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then
-                cp -r "$INSTALL_DIR/skills/"* "$HERMES_HOME/skills/" 2>/dev/null || true
+            if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$FABRIC_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then
+                cp -r "$INSTALL_DIR/skills/"* "$FABRIC_HOME/skills/" 2>/dev/null || true
                 log_success "Skills copied to ~/.fabric/skills/"
             fi
         fi
@@ -1877,7 +1878,7 @@ strip_snap_browser_override() {
     # snap-pointing override here (and its auto-written comment) so the bundled
     # Chromium download runs and the agent stops using the broken binary. A
     # deliberately-set non-snap override is left untouched.
-    local env_file="$HERMES_HOME/.env"
+    local env_file="$FABRIC_HOME/.env"
 
     [ -f "$env_file" ] || return 0
     grep -Eq '^AGENT_BROWSER_EXECUTABLE_PATH=/snap/' "$env_file" 2>/dev/null || return 0
@@ -2085,7 +2086,7 @@ run_playwright_install() {
 }
 
 configure_browser_env_from_system_browser() {
-    local env_file="$HERMES_HOME/.env"
+    local env_file="$FABRIC_HOME/.env"
     local browser_path="${DETECTED_BROWSER_EXECUTABLE:-}"
 
     if [ -z "$browser_path" ]; then
@@ -2096,7 +2097,7 @@ configure_browser_env_from_system_browser() {
         return 0
     fi
 
-    mkdir -p "$HERMES_HOME"
+    mkdir -p "$FABRIC_HOME"
     if [ ! -f "$env_file" ]; then
         touch "$env_file"
     fi
@@ -2280,7 +2281,7 @@ run_setup_wizard() {
 
 maybe_start_gateway() {
     # Check if any messaging platform tokens were configured
-    ENV_FILE="$HERMES_HOME/.env"
+    ENV_FILE="$FABRIC_HOME/.env"
     if [ ! -f "$ENV_FILE" ]; then
         return 0
     fi
@@ -2304,7 +2305,7 @@ maybe_start_gateway() {
 
     # If WhatsApp is enabled and no session exists yet, run foreground first for QR scan
     WHATSAPP_VAL=$(grep "^WHATSAPP_ENABLED=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
-    WHATSAPP_SESSION="$HERMES_HOME/whatsapp/session/creds.json"
+    WHATSAPP_SESSION="$FABRIC_HOME/platforms/whatsapp/session/creds.json"
     if [ "$WHATSAPP_VAL" = "true" ] && [ ! -f "$WHATSAPP_SESSION" ]; then
         if [ "$IS_INTERACTIVE" = true ]; then
             echo ""
@@ -2312,8 +2313,8 @@ maybe_start_gateway() {
             log_info "Running 'fabric whatsapp' to pair via QR code..."
             echo ""
             if prompt_yes_no "Pair WhatsApp now?" "yes"; then
-                HERMES_CMD="$(get_fabric_command_path)"
-                $HERMES_CMD whatsapp || true
+                FABRIC_CMD="$(get_fabric_command_path)"
+                $FABRIC_CMD whatsapp || true
             fi
         else
             log_info "WhatsApp pairing skipped (non-interactive). Run 'fabric whatsapp' to pair."
@@ -2341,13 +2342,13 @@ maybe_start_gateway() {
     fi
 
     if [ "$should_install_gateway" = true ]; then
-        HERMES_CMD="$(get_fabric_command_path)"
+        FABRIC_CMD="$(get_fabric_command_path)"
 
         if [ "$DISTRO" != "termux" ] && command -v systemctl &> /dev/null; then
             log_info "Installing systemd service..."
-            if $HERMES_CMD gateway install 2>/dev/null; then
+            if $FABRIC_CMD gateway install 2>/dev/null; then
                 log_success "Gateway service installed"
-                if $HERMES_CMD gateway start 2>/dev/null; then
+                if $FABRIC_CMD gateway start 2>/dev/null; then
                     log_success "Gateway started! Your bot is now online."
                 else
                     log_warn "Service installed but failed to start. Try: fabric gateway start"
@@ -2361,7 +2362,7 @@ maybe_start_gateway() {
             else
                 log_info "systemd not available — starting gateway in background..."
             fi
-            nohup $HERMES_CMD gateway > "$HERMES_HOME/logs/gateway.log" 2>&1 &
+            nohup $FABRIC_CMD gateway > "$FABRIC_HOME/logs/gateway.log" 2>&1 &
             GATEWAY_PID=$!
             log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.fabric/logs/gateway.log"
             log_info "To stop: kill $GATEWAY_PID"
@@ -2387,9 +2388,9 @@ print_success() {
     # Show file locations
     echo -e "${CYAN}${BOLD}📁 Your files:${NC}"
     echo ""
-    echo -e "   ${YELLOW}Config:${NC}    $HERMES_HOME/config.yaml"
-    echo -e "   ${YELLOW}API Keys:${NC}  $HERMES_HOME/.env"
-    echo -e "   ${YELLOW}Data:${NC}      $HERMES_HOME/cron/, sessions/, logs/"
+    echo -e "   ${YELLOW}Config:${NC}    $FABRIC_HOME/config.yaml"
+    echo -e "   ${YELLOW}API Keys:${NC}  $FABRIC_HOME/.env"
+    echo -e "   ${YELLOW}Data:${NC}      $FABRIC_HOME/cron/, sessions/, logs/"
     echo -e "   ${YELLOW}Code:${NC}      $INSTALL_DIR"
     echo ""
 
@@ -2458,9 +2459,9 @@ print_success() {
 
 ensure_browser() {
     if ! command -v node >/dev/null 2>&1; then
-        local node_bin="$HERMES_HOME/node/bin/node"
+        local node_bin="$FABRIC_HOME/node/bin/node"
         if [ -x "$node_bin" ]; then
-            export PATH="$HERMES_HOME/node/bin:$PATH"
+            export PATH="$FABRIC_HOME/node/bin:$PATH"
         else
             log_error "Node.js not found. Run with --ensure node first."
             return 1
@@ -2468,7 +2469,7 @@ ensure_browser() {
     fi
 
     local npm_bin
-    npm_bin="$(command -v npm 2>/dev/null || echo "$HERMES_HOME/node/bin/npm")"
+    npm_bin="$(command -v npm 2>/dev/null || echo "$FABRIC_HOME/node/bin/npm")"
     if [ ! -x "$npm_bin" ]; then
         log_error "npm not found"
         return 1
@@ -2479,7 +2480,7 @@ ensure_browser() {
     log_file="$(mktemp)"
     # Time-boxed (#39219): a stalled npm registry fetch here would otherwise
     # hang the installer with no progress, same class as the desktop build.
-    if ! run_with_timeout "$NODE_DEPS_TIMEOUT" "$npm_bin" install -g --prefix "$HERMES_HOME/node" --silent --ignore-scripts \
+    if ! run_with_timeout "$NODE_DEPS_TIMEOUT" "$npm_bin" install -g --prefix "$FABRIC_HOME/node" --silent --ignore-scripts \
         "agent-browser@^0.26.0" \
         "@askjo/camofox-browser@^1.5.2" \
         >"$log_file" 2>&1; then
@@ -2489,7 +2490,7 @@ ensure_browser() {
         return 1
     fi
     rm -f "$log_file"
-    export PATH="$HERMES_HOME/node/bin:$PATH"
+    export PATH="$FABRIC_HOME/node/bin:$PATH"
 
     strip_snap_browser_override
     local sys_browser
@@ -2501,7 +2502,7 @@ ensure_browser() {
     fi
 
     log_info "Installing Chromium via agent-browser install..."
-    local ab_bin="$HERMES_HOME/node/bin/agent-browser"
+    local ab_bin="$FABRIC_HOME/node/bin/agent-browser"
     if [ -x "$ab_bin" ]; then
         "$ab_bin" install 2>/dev/null || {
             log_warn "Chromium install failed. Browser tools may not work without a system browser."
@@ -2577,10 +2578,10 @@ postinstall_mode() {
         ensure_browser
     fi
 
-    HERMES_CMD="$(command -v fabric 2>/dev/null || echo "")"
-    if [ -n "$HERMES_CMD" ]; then
+    FABRIC_CMD="$(command -v fabric 2>/dev/null || echo "")"
+    if [ -n "$FABRIC_CMD" ]; then
         log_info "Running fabric setup..."
-        "$HERMES_CMD" setup
+        "$FABRIC_CMD" setup
     else
         log_warn "fabric command not found on PATH"
         log_info "Try: python -m fabric_cli.main setup"
@@ -2873,9 +2874,7 @@ install_desktop() {
         local cand
         for cand in \
             "$desktop_dir/release/linux-unpacked/Fabric" \
-            "$desktop_dir/release/linux-unpacked/fabric" \
-            "$desktop_dir/release/linux-arm64-unpacked/Fabric" \
-            "$desktop_dir/release/linux-arm64-unpacked/fabric"; do
+            "$desktop_dir/release/linux-arm64-unpacked/Fabric"; do
             if [ -x "$cand" ]; then
                 app="$cand"
                 break
@@ -3027,7 +3026,7 @@ run_stage_body() {
             resolve_install_layout
             require_install_dir
             # Each stage runs in its own process, so the Fabric-managed Node
-            # provisioned during prerequisites/node-deps (at $HERMES_HOME/node/bin)
+            # provisioned during prerequisites/node-deps (at $FABRIC_HOME/node/bin)
             # isn't on PATH here. check_node re-adds it (or installs if missing)
             # so install_desktop can find npm instead of silently skipping.
             check_node
@@ -3038,7 +3037,7 @@ run_stage_body() {
             resolve_install_layout
             print_success
             # Code-scoped stamp: write next to the install tree, not into
-            # $HERMES_HOME. $HERMES_HOME is a shared data dir (it can be
+            # $FABRIC_HOME. $FABRIC_HOME is a shared data dir (it can be
             # bind-mounted into a Docker gateway too), so a stamp there gets
             # clobbered by the container's 'docker' stamp and wrongly blocks
             # 'fabric update' on this host install. See detect_install_method().
@@ -3121,8 +3120,8 @@ main() {
 
     print_success
 
-    # Code-scoped stamp: write next to the install tree, not into $HERMES_HOME.
-    # $HERMES_HOME is a shared data dir (it can be bind-mounted into a Docker
+    # Code-scoped stamp: write next to the install tree, not into $FABRIC_HOME.
+    # $FABRIC_HOME is a shared data dir (it can be bind-mounted into a Docker
     # gateway too), so a stamp there gets clobbered by the container's 'docker'
     # stamp and wrongly blocks 'fabric update' on this host install.
     # See detect_install_method().

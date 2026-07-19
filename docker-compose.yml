@@ -6,7 +6,7 @@
 #
 # Set FABRIC_UID / FABRIC_GID to the host user that owns ~/.fabric so
 # files created inside the container stay readable/writable on the host.
-# The s6-overlay stage2 hook remaps the image's internal compatibility service
+# The s6-overlay stage2 hook remaps the image's internal service
 # account to these values via usermod/groupmod; each supervised service then
 # drops to that account via `s6-setuidgid`.
 #
@@ -17,7 +17,7 @@
 #     adds authentication — do NOT pass --insecure --host 0.0.0.0.
 #   - If you override entrypoint, keep `/init` as the first command in
 #     the chain (or let docker use the image's default ENTRYPOINT,
-#     which is `["/init", "/opt/hermes/docker/main-wrapper.sh"]`).
+#     which is `["/init", "/opt/fabric/docker/main-wrapper.sh"]`).
 #     `/init` is s6-overlay's PID 1 — it runs the cont-init.d scripts
 #     (chown, profile reconcile, dashboard toggle) and sets up the
 #     supervision tree before any service starts. Bypassing it skips

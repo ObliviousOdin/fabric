@@ -22,9 +22,9 @@
  * rename a `electron` file that no longer exists. The build dies with:
  *
  *   ENOENT: no such file or directory, rename
- *   '.../release/linux-unpacked/electron' -> '.../release/linux-unpacked/Hermes'
+ *   '.../release/linux-unpacked/electron' -> '.../release/linux-unpacked/Fabric'
  *
- * This is a hard failure with no obvious cause for the user — `Fabric desktop`
+ * This is a hard failure with no obvious cause for the user — `fabric desktop`
  * just prints "Desktop GUI build failed" and the only fix is to manually
  * `rm -rf` the release directory, which a normal user has no way to know.
  *
@@ -35,7 +35,7 @@
  * on every pack; nothing else depends on its prior contents.
  *
  * Cross-platform: the same partial-state trap exists on macOS
- * (the mac-unpacked Hermes.app bundle) and Windows (win-unpacked), so we
+ * (the mac-unpacked Fabric.app bundle) and Windows (win-unpacked), so we
  * clean whatever `appOutDir` electron-builder hands us regardless of platform.
  *
  * Best-effort: a cleanup failure must never mask the real build. We log and

@@ -36,12 +36,12 @@
           ]
           ++ self'.packages.default.passthru.devDeps;
         shellHook = ''
+          export REPO_ROOT=$(git rev-parse --show-toplevel)
           ${combinedNonNpm}
           ${fabricNpmLib.mkNpmDevShellHook npmPackageJsonPaths}
 
           # for the devshell to pick up the src
-          export HERMES_PYTHON_SRC_ROOT=$(git rev-parse --show-toplevel)
-          echo "Fabric dev shell in $HERMES_PYTHON_SRC_ROOT"
+          echo "Fabric dev shell in $REPO_ROOT"
           echo "Ready. Run 'fabric' to start."
         '';
       };

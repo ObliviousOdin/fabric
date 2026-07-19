@@ -1,8 +1,8 @@
 import { resolveGatewayWsUrl } from '@fabric/shared'
 import { useCallback, useEffect, useRef } from 'react'
 
-import type { HermesConnection } from '@/global'
-import { HermesGateway } from '@/hermes'
+import { FabricGateway } from '@/fabric'
+import type { FabricConnection } from '@/global'
 
 type VisualGatewayRequest = <T>(
   method: string,
@@ -12,11 +12,11 @@ type VisualGatewayRequest = <T>(
 ) => Promise<T>
 
 interface VisualGatewayState {
-  connection: HermesConnection | null
-  connecting: Promise<HermesGateway> | null
+  connection: FabricConnection | null
+  connecting: Promise<FabricGateway> | null
   enabled: boolean
   epoch: number
-  gateway: HermesGateway | null
+  gateway: FabricGateway | null
   lifecycle: AbortController
 }
 
@@ -74,7 +74,7 @@ export function useVisualGatewayRequest({
   connection,
   enabled
 }: {
-  connection: HermesConnection | null
+  connection: FabricConnection | null
   enabled: boolean
 }): { requestVisualGateway: VisualGatewayRequest } {
   const connectionKey = connection
@@ -119,7 +119,7 @@ export function useVisualGatewayRequest({
       }
 
       const state = stateRef.current
-      const desktop = window.hermesDesktop
+      const desktop = window.fabricDesktop
       const connection = state.connection
 
       if (!state.enabled || connection?.mode !== 'local' || !desktop) {
@@ -131,7 +131,7 @@ export function useVisualGatewayRequest({
       if (gateway?.connectionState !== 'open') {
         if (!state.connecting) {
           gateway?.close()
-          const nextGateway = new HermesGateway()
+          const nextGateway = new FabricGateway()
           state.gateway = nextGateway
           const epoch = state.epoch
           const lifecycleSignal = state.lifecycle.signal

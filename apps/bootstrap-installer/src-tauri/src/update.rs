@@ -1,13 +1,12 @@
 //! Update orchestration.
 //!
-//! Driven when the installer is launched as `Fabric-Setup.exe --update` (or a
-//! staged legacy `Hermes-Setup.exe`; see `AppMode` in lib.rs). The desktop app
-//! hands off to us — it exits, then we:
+//! Driven when the installer is launched as `Fabric-Setup.exe --update` (see
+//! `AppMode` in lib.rs). The desktop app hands off to us — it exits, then we:
 //!
-//!   1. wait for the old Fabric/Fabric desktop process to fully exit (so both
+//!   1. wait for the Fabric desktop process to fully exit (so both
 //!      the venv shim and packaged app.asar are free; otherwise `fabric update`
 //!      or repair bootstrap can race locked files),
-//!   2. run `fabric update --yes --gateway` (or the legacy CLI alias),
+//!   2. run `fabric update --yes --gateway`,
 //!   3. run `fabric desktop --build-only` (the rebuild step update skips),
 //!   4. launch the freshly-built desktop (reuses bootstrap::launch logic).
 //!
@@ -38,7 +37,7 @@ use crate::events::{BootstrapEvent, LogStream, StageInfo, StageState};
 
 /// CLI update exit code meaning "another Fabric process is holding the
 /// venv shim open / dirty precondition" — see _cmd_update_impl in
-/// hermes_cli/main.py (sys.exit(2)). We surface a targeted message for this.
+/// fabric_cli/main.py (sys.exit(2)). We surface a targeted message for this.
 const UPDATE_EXIT_CONCURRENT: i32 = 2;
 
 /// How long to wait for the old desktop process to release files under the
@@ -227,7 +226,7 @@ async fn run_update(app: AppHandle) -> Result<()> {
     // `sys.exit(2)` and dead-end the handoff). By contract the desktop has
     // already exited and waited for the install locks to clear before launching
     // us, and wait_for_install_locks_free below force-kills any straggler — so by the
-    // time update runs there is no legitimate fabric.exe/hermes.exe to protect,
+    // time update runs there is no legitimate fabric.exe to protect,
     // and the guard would only produce a false "Fabric is still running" stop.
     //
     // NOTE: --force does NOT bypass the venv-python holder guard (that needs
@@ -314,7 +313,7 @@ async fn run_update(app: AppHandle) -> Result<()> {
             let msg = format!(
                 "Fabric update failed (exit {:?}). See {} for details.",
                 other,
-                crate::paths::hermes_home()
+                crate::paths::fabric_home()
                     .join("logs")
                     .join("update.log")
                     .display()
@@ -493,13 +492,13 @@ pub(crate) async fn wait_for_install_locks_free(install_root: &Path, app: &AppHa
             return;
         }
         if Instant::now() >= deadline {
-            // Last resort: a backend fabric.exe/hermes.exe (or the desktop
+            // Last resort: a backend fabric.exe (or the desktop
             // itself) is still holding one of the update-sensitive files. The
             // desktop should have reaped its tree before handing off, but
             // SIGTERM races / detached grandchildren / AV handles can leave a
             // straggler. Rather than "proceed anyway" straight into uv's
             // "Access is denied" or install.ps1's locked app.asar failure,
-            // force-kill both current and legacy images except ourselves, then give the OS a
+            // force-kill Fabric processes except ourselves, then give the OS a
             // beat to unload the image.
             emit_log(
                 app,
@@ -574,7 +573,7 @@ fn format_locked_paths(paths: &[PathBuf]) -> String {
     paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
 }
 
-/// Force-kill current `fabric.exe` and legacy `hermes.exe` processes other than
+/// Force-kill `fabric.exe` processes other than
 /// this process. Windows-only; a no-op elsewhere (POSIX has no mandatory-lock
 /// contention). We can't selectively target "the backend" by PID here — the
 /// desktop already exited and we never knew its children — so we kill both
@@ -585,7 +584,7 @@ fn format_locked_paths(paths: &[PathBuf]) -> String {
 /// desktop the user relaunches mid-update will NOT have spawned a backend —
 /// the desktop gates local-backend startup on our
 /// update-in-progress marker and parks until we finish (#50238). So the only
-/// Fabric/Hermes images here are stragglers from the old desktop — exactly what
+/// Fabric images here are stragglers from the desktop — exactly what
 /// we want gone. (`/FI PID ne <self>` also spares this Tauri process.)
 fn force_kill_fabric_processes() {
     if !cfg!(target_os = "windows") {
@@ -595,7 +594,7 @@ fn force_kill_fabric_processes() {
     {
         let my_pid = std::process::id();
         // /FI excludes our own PID; /T kills the tree; /F forces.
-        for image in ["fabric.exe", "hermes.exe"] {
+        for image in ["fabric.exe"] {
             let _ = std::process::Command::new("taskkill")
                 .args([
                     "/F",
@@ -703,8 +702,7 @@ struct CmdResult {
     exit_code: Option<i32>,
 }
 
-/// Candidate CLI shims under an install root. Prefer the primary `fabric`
-/// command and retain the legacy executable for in-place upgrades.
+/// Candidate Fabric CLI shim under an install root.
 fn venv_cli_candidates(install_root: &Path, target_os: &str) -> Vec<PathBuf> {
     let bin = if target_os == "windows" {
         install_root.join("venv").join("Scripts")
@@ -712,14 +710,13 @@ fn venv_cli_candidates(install_root: &Path, target_os: &str) -> Vec<PathBuf> {
         install_root.join("venv").join("bin")
     };
     if target_os == "windows" {
-        vec![bin.join("fabric.exe"), bin.join("hermes.exe")]
+        vec![bin.join("fabric.exe")]
     } else {
-        vec![bin.join("fabric"), bin.join("hermes")]
+        vec![bin.join("fabric")]
     }
 }
 
-/// Resolve the CLI to drive. Prefer Fabric in the target venv, then legacy
-/// Hermes in that venv, followed by the same ordered names on PATH.
+/// Resolve the Fabric CLI from the target venv or PATH.
 fn resolve_fabric_cli(install_root: &Path) -> Option<PathBuf> {
     for shim in venv_cli_candidates(install_root, std::env::consts::OS) {
         if shim.exists() {
@@ -727,9 +724,9 @@ fn resolve_fabric_cli(install_root: &Path) -> Option<PathBuf> {
         }
     }
     let names: &[&str] = if cfg!(target_os = "windows") {
-        &["fabric.exe", "hermes.exe"]
+        &["fabric.exe"]
     } else {
-        &["fabric", "hermes"]
+        &["fabric"]
     };
     if let Some(path) = std::env::var_os("PATH") {
         let dirs: Vec<PathBuf> = env::split_paths(&path).collect();
@@ -746,19 +743,15 @@ fn resolve_fabric_cli(install_root: &Path) -> Option<PathBuf> {
 }
 
 fn update_child_env(install_root: &Path) -> Vec<(String, OsString)> {
-    let hermes_home = crate::paths::hermes_home();
+    let fabric_home = crate::paths::fabric_home();
     let mut envs = vec![
         (
             "FABRIC_HOME".to_string(),
-            hermes_home.as_os_str().to_os_string(),
-        ),
-        (
-            "HERMES_HOME".to_string(),
-            hermes_home.as_os_str().to_os_string(),
+            fabric_home.as_os_str().to_os_string(),
         ),
     ];
     if let Some(path) = path_with_prepended_entries(&[
-        hermes_home.join("node").join("bin"),
+        fabric_home.join("node").join("bin"),
         venv_bin_dir(install_root),
     ]) {
         envs.push(("PATH".to_string(), path));
@@ -832,9 +825,9 @@ async fn install_macos_app_update(
         ));
     }
 
-    let rebuilt_app = crate::bootstrap::resolve_hermes_desktop_app(install_root).ok_or_else(|| {
+    let rebuilt_app = crate::bootstrap::resolve_fabric_desktop_app(install_root).ok_or_else(|| {
         anyhow!(
-            "desktop rebuild succeeded but no Fabric or legacy Fabric app was found under {}",
+            "desktop rebuild succeeded but no Fabric app was found under {}",
             install_root.join("apps").join("desktop").join("release").display()
         )
     })?;
@@ -878,7 +871,7 @@ async fn install_macos_app_update(
     let ditto = Command::new("/usr/bin/ditto")
         .arg(&rebuilt_app)
         .arg(&tmp)
-        .current_dir(crate::paths::hermes_home())
+        .current_dir(crate::paths::fabric_home())
         .status()
         .await
         .map_err(|e| anyhow!("running ditto: {e}"))?;
@@ -898,7 +891,7 @@ async fn install_macos_app_update(
         .arg("-dr")
         .arg("com.apple.quarantine")
         .arg(target_app)
-        .current_dir(crate::paths::hermes_home())
+        .current_dir(crate::paths::fabric_home())
         .status()
         .await;
 
@@ -1058,14 +1051,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn venv_cli_candidates_prefer_fabric_and_keep_hermes() {
+    fn venv_cli_candidates_use_fabric() {
         let root = Path::new("/x/fabric-agent");
         for os in ["windows", "macos", "linux"] {
             let shims = venv_cli_candidates(root, os);
-            assert_eq!(shims.len(), 2);
+            assert_eq!(shims.len(), 1);
             assert!(shims.iter().all(|shim| shim.starts_with(root)));
             assert!(shims[0].to_string_lossy().to_ascii_lowercase().contains("fabric"));
-            assert!(shims[1].to_string_lossy().to_ascii_lowercase().contains("hermes"));
         }
     }
 
@@ -1082,22 +1074,25 @@ mod tests {
         for shim in venv_cli_candidates(root, std::env::consts::OS) {
             assert!(
                 probes.iter().any(|p| p == &shim),
-                "both current and legacy venv shims remain part of the update lock probe"
+                "the Fabric venv shim remains part of the update lock probe"
             );
         }
+        let payload_suffix = if std::env::consts::OS == "macos" {
+            Path::new("Resources/app.asar")
+        } else {
+            Path::new("resources/app.asar")
+        };
         assert!(
-            probes.iter().any(|p| p.ends_with(Path::new("resources/app.asar"))),
-            "packaged app.asar must be probed so repair/re-clone waits for the old desktop to exit"
+            probes.iter().any(|p| p.ends_with(payload_suffix)),
+            "packaged app.asar must be probed so repair/re-clone waits for the desktop to exit"
         );
     }
 
     #[test]
-    fn lock_payloads_cover_fabric_and_legacy_desktop_bundles() {
+    fn lock_payloads_cover_fabric_desktop_bundles() {
         let root = Path::new("/x/fabric-agent");
         let mac = desktop_app_payload_paths_for(root, "macos");
         assert!(mac.iter().any(|p| p.to_string_lossy().contains("Fabric.app")));
-        // public-release-audit: allow-legacy-compat -- retain lock probes for pre-Fabric desktop bundles
-        assert!(mac.iter().any(|p| p.to_string_lossy().contains("Hermes.app")));
 
         for os in ["windows", "linux"] {
             let payloads = desktop_app_payload_paths_for(root, os);
@@ -1107,14 +1102,11 @@ mod tests {
     }
 
     #[test]
-    fn cli_resolution_prefers_fabric_and_falls_back_to_legacy() {
+    fn cli_resolution_uses_fabric() {
         let root = unique_tmp_dir("cli-preference");
         let candidates = venv_cli_candidates(&root, std::env::consts::OS);
         let fabric = &candidates[0];
-        let legacy = &candidates[1];
         std::fs::create_dir_all(fabric.parent().unwrap()).unwrap();
-        std::fs::write(legacy, b"legacy").unwrap();
-        assert_eq!(resolve_fabric_cli(&root), Some(legacy.clone()));
         std::fs::write(fabric, b"current").unwrap();
         assert_eq!(resolve_fabric_cli(&root), Some(fabric.clone()));
         let _ = std::fs::remove_dir_all(root);
@@ -1132,7 +1124,7 @@ mod tests {
     fn update_marker_guard_writes_then_removes_on_drop() {
         let dir = unique_tmp_dir("marker-guard");
         std::fs::create_dir_all(&dir).unwrap();
-        let marker = dir.join(".hermes-update-in-progress");
+        let marker = dir.join(".fabric-update-in-progress");
 
         {
             let _g = UpdateMarkerGuard::acquire(marker.clone());
@@ -1158,7 +1150,7 @@ mod tests {
     fn update_marker_guard_drop_is_quiet_when_already_gone() {
         let dir = unique_tmp_dir("marker-guard-gone");
         std::fs::create_dir_all(&dir).unwrap();
-        let marker = dir.join(".hermes-update-in-progress");
+        let marker = dir.join(".fabric-update-in-progress");
 
         let guard = UpdateMarkerGuard::acquire(marker.clone());
         // Simulate an external cleanup (e.g. the desktop pruned a marker it
@@ -1228,15 +1220,6 @@ mod tests {
         assert_eq!(
             target_app_from_args(["--update", "--target-app", "/Applications/Fabric.app"]),
             Some(PathBuf::from("/Applications/Fabric.app"))
-        );
-        // public-release-audit: allow-legacy-compat -- accept update handoffs from pre-Fabric bundles
-        let legacy_app_name = "Hermes.app";
-        let legacy_app_path = PathBuf::from("/Applications").join(legacy_app_name);
-        let legacy_target_arg = format!("--target-app={}", legacy_app_path.display());
-        assert_eq!(
-            target_app_from_args([legacy_target_arg]),
-            Some(legacy_app_path),
-            "legacy installed bundles remain valid update targets"
         );
         assert_eq!(target_app_from_args(["--target-app", "/tmp/not-an-app"]), None);
     }

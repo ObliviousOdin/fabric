@@ -10,30 +10,30 @@ FROM node:22-bookworm-slim@sha256:7af03b14a13c8cdd38e45058fd957bf00a72bbe17feac4
 FROM debian:13.4
 
 # Disable Python stdout buffering to ensure logs are printed immediately.
-# Do not write .pyc files at runtime: /opt/hermes is immutable in the
+# Do not write .pyc files at runtime: /opt/fabric is immutable in the
 # published container and writable state belongs under /opt/data.
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Store Playwright browsers outside the volume mount so the build-time
 # install survives the /opt/data volume overlay at runtime.
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/hermes/.playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/fabric/.playwright
 
 # Install system dependencies in one layer, clear APT cache.
 # tini was previously PID 1 to reap orphaned zombie processes (MCP stdio
-# subprocesses, git, bun, etc.) that would otherwise accumulate when hermes
+# subprocesses, git, bun, etc.) that would otherwise accumulate when fabric
 # ran as PID 1. See #15012. Phase 2 of the s6-overlay supervision plan
 # replaces tini with s6-overlay's /init (PID 1 = s6-svscan), which reaps
-# zombies non-blockingly on SIGCHLD and additionally supervises the main
-# hermes process, the dashboard, and per-profile gateways.
+# zombies non-blockingly on SIGCHLD and additionally supervises per-profile
+# gateways.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates curl iputils-ping python3 python-is-python3 ripgrep ffmpeg gcc g++ make cmake python3-dev python3-venv libffi-dev libolm-dev procps git openssh-client docker-cli xz-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # ---------- s6-overlay install ----------
-# s6-overlay provides supervision for the main hermes process, the dashboard,
-# and per-profile gateways. /init becomes PID 1 below — see ENTRYPOINT.
+# s6-overlay provides PID-1 process management and per-profile gateway
+# supervision. /init becomes PID 1 below — see ENTRYPOINT.
 #
 # Multi-arch: BuildKit auto-populates TARGETARCH (amd64 / arm64). s6-overlay
 # uses tarball names keyed on the kernel arch string (x86_64 / aarch64), so
@@ -76,20 +76,10 @@ RUN set -eu; \
     tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz; \
     tar -C / -Jxpf /tmp/s6-overlay-arch.tar.xz; \
     tar -C / -Jxpf /tmp/s6-overlay-symlinks-noarch.tar.xz; \
-    rm /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay.sha256; \
-    # #34192: backward-compat shim for orchestration templates that still\
-    # reference the legacy /usr/bin/tini entrypoint (e.g. Hostinger's\
-    # 'Hermes WebUI' catalog). The image has moved to s6-overlay /init\
-    # as PID 1 (see ENTRYPOINT below + the migration comment at the top\
-    # of this file), but external wrappers pinned to /usr/bin/tini will\
-    # crash with 'tini: No such file or directory' on startup. The shim\
-    # symlinks /usr/bin/tini -> /init so legacy wrappers exec the right\
-    # PID-1 reaper without behavior change for users on the current\
-    # ENTRYPOINT. Safe to drop once the affected catalogs are updated.\
-    ln -sf /init /usr/bin/tini
+    rm /tmp/s6-overlay-*.tar.xz /tmp/s6-overlay.sha256
 
 # Non-root service account; UID can be overridden via FABRIC_UID at runtime.
-RUN useradd -u 10000 -m -d /opt/data hermes
+RUN useradd -u 10000 -m -d /opt/data fabric
 
 COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
 
@@ -105,7 +95,7 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && 
     ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     ln -sf /usr/local/lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack
 
-WORKDIR /opt/hermes
+WORKDIR /opt/fabric
 
 # ---------- Layer-cached dependency install ----------
 # Copy only package manifests first so npm install + Playwright are cached
@@ -165,7 +155,7 @@ RUN npm install --prefer-offline --no-audit && \
 # lazy-install access to PyPI (often blocked in containerized envs).
 #
 # The hindsight memory provider's client (hindsight-client) is baked in
-# for the same reason: it lazy-installs into /opt/hermes/.venv at first
+# for the same reason: it lazy-installs into /opt/fabric/.venv at first
 # use, which lives inside the (immutable) image layer rather than the
 # mounted /opt/data volume, so it is lost on every container recreate /
 # image update and recall/retain then fails with
@@ -204,7 +194,7 @@ RUN node apps/design-system/scripts/generate-tokens.mjs && \
 # the final read-only permissions at copy time so we skip the separate
 # `chmod -R` pass that previously walked ~30k files across the venv +
 # node_modules + source (21s amd64 / 222s arm64 — #49113).  `a+rX,go-w`
-# gives the non-root hermes user read + traverse but no write; root retains
+# gives the non-root fabric user read + traverse but no write; root retains
 # write so the build steps below don't need chmod u+w dances.
 COPY --link --chmod=a+rX,go-w . .
 
@@ -214,26 +204,25 @@ COPY --link --chmod=a+rX,go-w . .
 # resolution or downloads.
 RUN uv pip install --no-cache-dir --no-deps -e "."
 
-# Wire the exec shim and install-method stamp.  Files under /opt/hermes are
+# Wire the exec shim and install-method stamp.  Files under /opt/fabric are
 # already root-owned (COPY, uv sync, npm install all run as root) and
-# read-only for the hermes user (go-w from the --chmod above).
+# read-only for the fabric user (go-w from the --chmod above).
 
 USER root
-RUN mkdir -p /opt/hermes/bin && \
-    cp /opt/hermes/docker/fabric-exec-shim.sh /opt/hermes/bin/fabric && \
-    ln -s fabric /opt/hermes/bin/hermes && \
-    chmod 0755 /opt/hermes/bin/fabric && \
-    printf 'docker\n' > /opt/hermes/.install_method
+RUN mkdir -p /opt/fabric/bin && \
+    cp /opt/fabric/docker/fabric-exec-shim.sh /opt/fabric/bin/fabric && \
+    chmod 0755 /opt/fabric/bin/fabric && \
+    printf 'docker\n' > /opt/fabric/.install_method
 # The ``.install_method`` stamp is baked next to the running code (the install
-# tree), NOT into $HERMES_HOME. $HERMES_HOME (/opt/data) is a shared data
+# tree), NOT into $FABRIC_HOME. $FABRIC_HOME (/opt/data) is a shared data
 # volume that is commonly bind-mounted from the host and even shared with a
 # host-side Desktop/CLI install; stamping it at boot used to clobber that
 # host install's marker and wrongly block its ``fabric update``. A code-scoped
 # stamp is read first by detect_install_method() and is immune to the share.
 # Start as root so the s6-overlay stage2 hook can usermod/groupmod and chown
-# the data volume. Each supervised service then drops to the hermes user via
-# `s6-setuidgid hermes` in its run script. If HERMES_UID is unset, services
-# run as the default hermes user (UID 10000).
+# the data volume. Each supervised service then drops to the fabric user via
+# `s6-setuidgid fabric` in its run script. If FABRIC_UID is unset, services
+# run as the default fabric user (UID 10000).
 
 # ---------- Bake build-time git revision ----------
 # .dockerignore excludes .git, so `git rev-parse HEAD` from inside the
@@ -243,7 +232,7 @@ RUN mkdir -p /opt/hermes/bin && \
 # we can't tell which commit the user is actually running.
 #
 # Fix: write the commit SHA passed via the FABRIC_GIT_SHA build arg to
-# /opt/hermes/.hermes_build_sha at build time, and have
+# /opt/fabric/.fabric_build_sha at build time, and have
 # fabric_cli/build_info.py read it at runtime. Both `fabric dump` and
 # banner.get_git_banner_state() try the baked SHA first, then fall back
 # to live `git rev-parse` for source installs (unchanged behaviour).
@@ -253,14 +242,13 @@ RUN mkdir -p /opt/hermes/bin && \
 # (.github/workflows/docker.yml) passes ${{ github.sha }} so
 # every published image has it.
 ARG FABRIC_GIT_SHA=
-ARG HERMES_GIT_SHA=
-RUN build_sha="${FABRIC_GIT_SHA:-${HERMES_GIT_SHA}}"; \
+RUN build_sha="${FABRIC_GIT_SHA}"; \
     if [ -n "${build_sha}" ]; then \
-        printf '%s\n' "${build_sha}" > /opt/hermes/.hermes_build_sha; \
+        printf '%s\n' "${build_sha}" > /opt/fabric/.fabric_build_sha; \
     fi
 
 # ---------- s6-overlay service wiring ----------
-# Static services declared at build time: main-fabric + dashboard.
+# Static service declared at build time: main-fabric.
 # Per-profile gateway services are registered dynamically at runtime by
 # the profile create/delete hooks (Phase 4); they live under
 # /run/service/ (tmpfs) and are reconciled on container restart by
@@ -268,26 +256,25 @@ RUN build_sha="${FABRIC_GIT_SHA:-${HERMES_GIT_SHA}}"; \
 COPY docker/s6-rc.d/ /etc/s6-overlay/s6-rc.d/
 
 # stage2-hook handles UID/GID remap, volume chown, config seeding,
-# skills sync — all the work the old entrypoint.sh did before
+# skills sync — all container initialization before user services start.
 # `exec fabric`. Wired in as cont-init.d/01- so it
 # runs before user services start.
 #
 # 02-reconcile-profiles re-creates per-profile gateway s6 service
-# slots from $HERMES_HOME/profiles/<name>/ after a container restart
+# slots from $FABRIC_HOME/profiles/<name>/ after a container restart
 # (the /run/service/ scandir is tmpfs and wiped on restart). Phase 4.
 RUN mkdir -p /etc/cont-init.d && \
-    printf '#!/command/with-contenv sh\nexec /opt/hermes/docker/stage2-hook.sh\n' \
+    printf '#!/command/with-contenv sh\nexec /opt/fabric/docker/stage2-hook.sh\n' \
         > /etc/cont-init.d/01-fabric-setup && \
     chmod +x /etc/cont-init.d/01-fabric-setup
 COPY --chmod=0755 docker/cont-init.d/015-supervise-perms /etc/cont-init.d/015-supervise-perms
 COPY --chmod=0755 docker/cont-init.d/02-reconcile-profiles /etc/cont-init.d/02-reconcile-profiles
 
 # ---------- Runtime ----------
-ENV FABRIC_WEB_DIST=/opt/hermes/fabric_cli/web_dist
-ENV FABRIC_MOBILE_WEB_DIST=/opt/hermes/fabric_cli/mobile_web_dist
+ENV FABRIC_WEB_DIST=/opt/fabric/fabric_cli/web_dist
 # Point the TUI launcher at the prebuilt bundle baked at build time (Layer 8:
 # `ui-tui && npm run build`). This makes _make_tui_argv take the prebuilt-bundle
-# fast path (`node --expose-gc /opt/hermes/ui-tui/dist/entry.js`) and skip the
+# fast path (`node --expose-gc /opt/fabric/ui-tui/dist/entry.js`) and skip the
 # _tui_need_npm_install / runtime `npm install` branch entirely — exactly the
 # nix/packaged-release path the launcher was designed for.
 #
@@ -301,15 +288,10 @@ ENV FABRIC_MOBILE_WEB_DIST=/opt/hermes/fabric_cli/mobile_web_dist
 # embedded-chat (/api/pty) connections → ENOTEMPTY → the chat tab dies with a
 # 502 / "[session ended]". Pointing at the prebuilt bundle sidesteps the whole
 # check. (A separate launcher hardening is tracked independently.)
-ENV FABRIC_TUI_DIR=/opt/hermes/ui-tui
-ENV HERMES_TUI_DIR=/opt/hermes/ui-tui
+ENV FABRIC_TUI_DIR=/opt/fabric/ui-tui
 ENV FABRIC_HOME=/opt/data
-ENV HERMES_HOME=/opt/data
-ENV FABRIC_WRITE_SAFE_ROOT=/opt/data
-ENV HERMES_WRITE_SAFE_ROOT=/opt/data
 ENV FABRIC_DISABLE_LAZY_INSTALLS=1
-ENV HERMES_DISABLE_LAZY_INSTALLS=1
-# The published image seals /opt/hermes (root-owned, read-only) so a runtime
+# The published image seals /opt/fabric (root-owned, read-only) so a runtime
 # lazy install can't mutate the agent's own venv and brick it. But opt-in
 # backends (Firecrawl web search, Exa, Feishu, …) keep their SDKs in
 # tools/lazy_deps.py — deliberately NOT baked into [all] (see pyproject.toml
@@ -318,23 +300,22 @@ ENV HERMES_DISABLE_LAZY_INSTALLS=1
 # lazy_deps appends this dir to the END of sys.path, so a package installed
 # here can only ADD modules — it can never shadow or downgrade a core module,
 # so the sealed-venv guarantee holds even with installs re-enabled. The dir
-# is seeded + chowned to the hermes user by docker/stage2-hook.sh and lives
+# is seeded + chowned to the fabric user by docker/stage2-hook.sh and lives
 # on the /opt/data volume, so it persists across container recreates / image
 # updates (an ABI stamp invalidates it if a rebuild bumps the interpreter).
 ENV FABRIC_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
-ENV HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
 
 # `docker exec` privilege-drop shim. When operators run
 # `docker exec <c> fabric ...` they default to root, and any file the
 # command writes under the Fabric home (auth.json, .env, config.yaml) ends
 # up root-owned and unreadable to the supervised gateway (UID 10000).
-# The shim lives at /opt/hermes/bin/fabric, sits earliest on PATH, and
-# transparently re-exec's the real venv binary via `s6-setuidgid hermes`
+# The shim lives at /opt/fabric/bin/fabric, sits earliest on PATH, and
+# transparently re-exec's the real venv binary via `s6-setuidgid fabric`
 # when invoked as root. Non-root callers (supervised processes,
-# `--user hermes`, etc.) hit the short-circuit path with no overhead.
+# `--user fabric`, etc.) hit the short-circuit path with no overhead.
 # Recursion is impossible because the shim exec's the venv binary by
-# absolute path (/opt/hermes/.venv/bin/fabric). See the shim source for
-# the opt-out env var (FABRIC_DOCKER_EXEC_AS_ROOT=1).
+# absolute path (/opt/fabric/.venv/bin/fabric). See the shim source for
+# the explicit root-diagnostic opt-out (FABRIC_DOCKER_EXEC_AS_ROOT=1).
 
 # Pre-s6 entrypoint.sh did `source .venv/bin/activate` which exported
 # the venv bin onto PATH; Architecture B's main-wrapper.sh does the
@@ -343,11 +324,11 @@ ENV HERMES_LAZY_INSTALL_TARGET=/opt/data/lazy-packages
 # bin globally so `docker exec <container> fabric ...` and any
 # subprocess that doesn't activate the venv first still finds Fabric.
 #
-# /opt/hermes/bin is prepended ahead of the venv so the privilege-drop
+# /opt/fabric/bin is prepended ahead of the venv so the privilege-drop
 # shim wins PATH resolution. The shim's last act is to exec the venv
 # binary by absolute path, so this PATH ordering is transparent to
 # every other consumer.
-ENV PATH="/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
+ENV PATH="/opt/fabric/bin:/opt/fabric/.venv/bin:/opt/data/.local/bin:${PATH}"
 RUN mkdir -p /opt/data
 VOLUME [ "/opt/data" ]
 
@@ -369,9 +350,9 @@ VOLUME [ "/opt/data" ]
 #   docker run <image> --tui            → /init main-wrapper.sh --tui
 #
 # main-wrapper.sh handles arg routing (bare-exec vs. Fabric
-# subcommand vs. no-args), drops to the hermes user via s6-setuidgid,
+# subcommand vs. no-args), drops to the fabric user via s6-setuidgid,
 # and exec's the final program so its exit code becomes the container
 # exit code. Without the wrapper-as-ENTRYPOINT, leading-dash args
 # like `--version` would be intercepted by /init's POSIX shell.
-ENTRYPOINT [ "/init", "/opt/hermes/docker/main-wrapper.sh" ]
+ENTRYPOINT [ "/init", "/opt/fabric/docker/main-wrapper.sh" ]
 CMD [ ]

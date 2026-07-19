@@ -21,7 +21,7 @@ import { SidebarNavLink } from "./SidebarNavLink";
 import type { TooltipWarmRef } from "./SidebarTooltip";
 import type { NavItem, NavSection, NavSectionId } from "./nav-model";
 
-const PLUGIN_NAV_HEADING_ID = "hermes-sidebar-plugin-nav-heading";
+const PLUGIN_NAV_HEADING_ID = "fabric-sidebar-plugin-nav-heading";
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
   "a[href]",

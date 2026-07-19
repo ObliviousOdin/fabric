@@ -3,7 +3,6 @@ import { PureComponent, type ReactNode } from 'react'
 import { updateLastInteractionTime } from '../../bootstrap/state.js'
 import { logForDebugging } from '../../utils/debug.js'
 import { stopCapturingEarlyInput } from '../../utils/earlyInput.js'
-import { isMouseClicksDisabled } from '../../utils/fullscreen.js'
 import { logError } from '../../utils/log.js'
 import type { DOMElement } from '../dom.js'
 import { EventEmitter } from '../events/emitter.js'
@@ -632,11 +631,6 @@ export function handleMouseEvent(app: App, m: ParsedMouse): void {
   const col = m.col - 1
   const row = m.row - 1
   const baseButton = m.button & 0x03
-
-  // Disable app click handling without blocking wheel/right-click dispatch.
-  if (isMouseClicksDisabled() && baseButton === 0) {
-    return
-  }
 
   if (m.action === 'press') {
     if ((m.button & 0x20) !== 0 && baseButton === 3) {

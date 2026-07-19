@@ -1,6 +1,6 @@
 //! Spawn-your-own-backend support (`--spawn`), mirroring the Electron
 //! desktop's bootstrap: run `fabric serve --host 127.0.0.1 --port 0` with a
-//! pinned session token in the child environment, then read the announced
+//! pinned auth token in the child argv, then read the announced
 //! port from its stdout ready line.
 
 use std::io::{BufRead, BufReader};
@@ -9,23 +9,8 @@ use std::time::{Duration, Instant};
 
 /// Cold imports and Windows AV can delay a healthy first start for 30-60s.
 const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(90);
-/// Preserve the desktop's historical warm-start floor for bad overrides.
-const MIN_READY_TIMEOUT: Duration = Duration::from_secs(45);
-// public-release-audit: allow-legacy-compat -- mirror the desktop's existing cold-start override
-const READY_TIMEOUT_ENV: &str = "HERMES_DESKTOP_PORT_ANNOUNCE_TIMEOUT_MS";
-
-fn resolve_ready_timeout(raw: Option<&str>) -> Duration {
-    let Some(milliseconds) = raw.and_then(|value| value.parse::<f64>().ok()) else {
-        return DEFAULT_READY_TIMEOUT;
-    };
-    if !milliseconds.is_finite() || milliseconds <= 0.0 {
-        return DEFAULT_READY_TIMEOUT;
-    }
-    Duration::from_millis(milliseconds.round() as u64).max(MIN_READY_TIMEOUT)
-}
-
 fn ready_timeout() -> Duration {
-    resolve_ready_timeout(std::env::var(READY_TIMEOUT_ENV).ok().as_deref())
+    DEFAULT_READY_TIMEOUT
 }
 
 fn timeout_error(timeout: Duration) -> String {
@@ -69,9 +54,15 @@ fn random_token() -> String {
 pub fn spawn_backend(fabric_bin: &str) -> Result<(String, BackendGuard), String> {
     let token = random_token();
     let mut child = Command::new(fabric_bin)
-        .args(["serve", "--host", "127.0.0.1", "--port", "0"])
-        // public-release-audit: allow-legacy-compat -- the backend reads this exact pre-rename env name for the dashboard session token
-        .env("HERMES_DASHBOARD_SESSION_TOKEN", &token)
+        .args([
+            "serve",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "0",
+            "--auth-token",
+            token.as_str(),
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .stdin(Stdio::null())
@@ -125,15 +116,14 @@ pub fn spawn_backend(fabric_bin: &str) -> Result<(String, BackendGuard), String>
     }
 }
 
-/// Parse `HERMES_BACKEND_READY port=<n>` (legacy `HERMES_DASHBOARD_READY`).
+/// Parse the server's structured readiness record.
 fn parse_ready_line(line: &str) -> Option<u16> {
-    // public-release-audit: allow-legacy-compat -- the backend announces readiness with these exact pre-rename stdout markers
-    let rest = line.strip_prefix("HERMES_BACKEND_READY").or_else(|| {
-        // public-release-audit: allow-legacy-compat -- legacy dashboard ready marker
-        line.strip_prefix("HERMES_DASHBOARD_READY")
-    })?;
-    let port = rest.trim().strip_prefix("port=")?;
-    port.parse().ok()
+    let record: serde_json::Value = serde_json::from_str(line).ok()?;
+    if record.get("type")?.as_str()? != "backend.ready" {
+        return None;
+    }
+    let port = u16::try_from(record.get("port")?.as_u64()?).ok()?;
+    (port > 0).then_some(port)
 }
 
 #[cfg(test)]
@@ -142,19 +132,23 @@ mod tests {
 
     #[test]
     fn parses_ready_lines() {
-        // public-release-audit: allow-legacy-compat -- exercising the legacy ready markers
         assert_eq!(
-            parse_ready_line("HERMES_BACKEND_READY port=51234"),
+            parse_ready_line(r#"{"type":"backend.ready","port":51234}"#),
             Some(51234)
         );
-        // public-release-audit: allow-legacy-compat -- exercising the legacy ready markers
-        assert_eq!(
-            parse_ready_line("HERMES_DASHBOARD_READY port=9119"),
-            Some(9119)
-        );
         assert_eq!(parse_ready_line("something else"), None);
-        // public-release-audit: allow-legacy-compat -- exercising the legacy ready markers
-        assert_eq!(parse_ready_line("HERMES_BACKEND_READY port=nope"), None);
+        assert_eq!(
+            parse_ready_line(r#"{"type":"backend.ready","port":"nope"}"#),
+            None
+        );
+        assert_eq!(
+            parse_ready_line(r#"{"type":"other.ready","port":51234}"#),
+            None
+        );
+        assert_eq!(
+            parse_ready_line(r#"{"type":"backend.ready","port":0}"#),
+            None
+        );
     }
 
     #[test]
@@ -167,21 +161,6 @@ mod tests {
 
     #[test]
     fn ready_timeout_matches_desktop_cold_start_contract() {
-        assert_eq!(resolve_ready_timeout(None), Duration::from_secs(90));
-        assert_eq!(
-            resolve_ready_timeout(Some("120000")),
-            Duration::from_secs(120)
-        );
-        assert_eq!(resolve_ready_timeout(Some("1000")), Duration::from_secs(45));
-        assert_eq!(
-            resolve_ready_timeout(Some("60000.7")),
-            Duration::from_millis(60_001)
-        );
-        for invalid in ["", "abc", "0", "-5", "NaN"] {
-            assert_eq!(
-                resolve_ready_timeout(Some(invalid)),
-                Duration::from_secs(90)
-            );
-        }
+        assert_eq!(ready_timeout(), Duration::from_secs(90));
     }
 }

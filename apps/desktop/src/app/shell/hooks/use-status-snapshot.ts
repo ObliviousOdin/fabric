@@ -1,10 +1,10 @@
 import { useStore } from '@nanostores/react'
 import { useEffect, useState } from 'react'
 
-import { getStatus } from '@/hermes'
+import { getStatus } from '@/fabric'
 import { evaluateRuntimeReadiness, type RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
-import type { StatusResponse } from '@/types/hermes'
+import type { StatusResponse } from '@/types/fabric'
 
 const REFRESH_MS = 15_000
 

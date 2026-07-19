@@ -2,14 +2,8 @@
 //!
 //! Rust mirror of `agent/pet/constants.py` (geometry + taxonomy) and the
 //! display-path pieces of `agent/pet/render.py` (`_raw_frames`,
-//! `state_frame_counts`). Two atlas shapes exist in the wild:
-//!
-//! - Current petdex/Codex sheets: 1536×1872 px — 8 columns × 9 rows.
-//! - Legacy Hermes/petdex sheets: 1728×1664 px — 9 columns × 8 rows.
-//!
-//! Nothing checks exact sizes at display time; renderers floor-divide the
-//! concrete sheet into cells and pick the taxonomy from the row count, so
-//! either shape (or an odd-sized sheet) degrades gracefully.
+//! `state_frame_counts`). Canonical sheets are 1536×1872 px: 8 columns by
+//! 9 rows. Odd dimensions still degrade safely through clamped cell geometry.
 
 use image::RgbaImage;
 
@@ -43,11 +37,6 @@ pub fn clamp_scale(scale: f32) -> f32 {
     scale.clamp(MIN_SCALE, MAX_SCALE)
 }
 
-/// Legacy Hermes/petdex row order (top → bottom) for 8-row atlases.
-pub const LEGACY_STATE_ROWS: &[&str] = &[
-    "idle", "wave", "run", "failed", "review", "jump", "extra1", "extra2",
-];
-
 /// Current petdex/Codex row order (top → bottom) for 9-row atlases.
 ///
 /// `running` (row 7) is the working-in-place animation the driven states use;
@@ -80,14 +69,9 @@ pub fn state_aliases_for(state: PetState) -> &'static [&'static str] {
     }
 }
 
-/// Pick the row taxonomy for a sheet with *rows* concrete rows: 9+ rows is the
-/// current Codex shape, anything smaller (including unknown shapes) is legacy.
-pub fn state_rows_for_grid(rows: u32) -> &'static [&'static str] {
-    if rows as usize >= CODEX_STATE_ROWS.len() {
-        CODEX_STATE_ROWS
-    } else {
-        LEGACY_STATE_ROWS
-    }
+/// Return the one supported row taxonomy.
+pub fn state_rows_for_grid(_rows: u32) -> &'static [&'static str] {
+    CODEX_STATE_ROWS
 }
 
 /// Resolve *state* to a row index within the taxonomy for *rows* concrete
@@ -282,18 +266,8 @@ mod tests {
     }
 
     #[test]
-    fn legacy_shape_selects_legacy_taxonomy() {
-        let grid = AtlasGrid::from_dimensions(1728, 1664);
-        assert_eq!((grid.cols, grid.rows), (9, 8));
-        assert_eq!(grid.row_for_state(PetState::Wave), 1);
-        assert_eq!(grid.row_for_state(PetState::Run), 2);
-        // Legacy sheets have no waiting row — falls back to idle (row 0).
-        assert_eq!(grid.row_for_state(PetState::Waiting), 0);
-    }
-
-    #[test]
     fn odd_shapes_degrade_gracefully() {
-        // Smaller than one cell still yields a 1x1 grid (legacy taxonomy).
+        // Smaller than one cell still yields a safe 1x1 grid.
         let grid = AtlasGrid::from_dimensions(100, 100);
         assert_eq!((grid.cols, grid.rows), (1, 1));
         assert_eq!(grid.row_top(5), 0); // clamped — cell taller than sheet
@@ -362,23 +336,6 @@ mod tests {
         );
         assert_eq!(roam_walk_row(&codex, 0), None);
 
-        // Legacy sheets have no directional rows: fall back to the run row,
-        // mirrored for rightward travel (art faces left by convention).
-        let legacy = AtlasGrid::from_dimensions(1728, 1664);
-        assert_eq!(
-            roam_walk_row(&legacy, 1),
-            Some(WalkRow {
-                row: 2,
-                mirror: true
-            })
-        );
-        assert_eq!(
-            roam_walk_row(&legacy, -1),
-            Some(WalkRow {
-                row: 2,
-                mirror: false
-            })
-        );
     }
 
     #[test]

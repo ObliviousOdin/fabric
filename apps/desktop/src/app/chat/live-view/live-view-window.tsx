@@ -18,7 +18,7 @@ function LiveViewWindowApp() {
   const [state, setState] = useState<LiveViewState | null>(null)
 
   useEffect(() => {
-    const api = window.hermesDesktop?.liveView
+    const api = window.fabricDesktop?.liveView
 
     if (!api || !sessionId) {
       return
@@ -55,9 +55,9 @@ function LiveViewWindowApp() {
 
   return (
     <LiveViewSurface
-      onClose={() => window.hermesDesktop.liveView.control({ sessionId, type: 'hide' })}
-      onDock={() => window.hermesDesktop.liveView.control({ sessionId, type: 'dock' })}
-      onPause={paused => window.hermesDesktop.liveView.control({ paused, sessionId, type: 'pause' })}
+      onClose={() => window.fabricDesktop.liveView.control({ sessionId, type: 'hide' })}
+      onDock={() => window.fabricDesktop.liveView.control({ sessionId, type: 'dock' })}
+      onPause={paused => window.fabricDesktop.liveView.control({ paused, sessionId, type: 'pause' })}
       state={state}
       variant="pip"
     />

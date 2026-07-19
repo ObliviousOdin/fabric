@@ -85,7 +85,7 @@ Everything below exists today in `fabric_cli/web_server.py` and
 | RPC channel | `WS /api/ws?token=…` or `?ticket=…` | JSON-RPC 2.0 requests + `method: "event"` frames. Token mode uses the dashboard session token; gated mode mints a single-use ticket at `POST /api/auth/ws-ticket`. |
 | REST auth header | `X-Fabric-Session-Token` | For token-mode REST calls. |
 | Sign-in options | `GET /api/auth/providers` | Gated only: `{providers: [{name, display_name, supports_password}]}`. |
-| Password login | `POST /auth/password-login` | Gated only: `{provider, username, password}` → session cookies (`hermes_session_at`/`_rt`). |
+| Password login | `POST /auth/password-login` | Gated only: `{provider, username, password}` → dashboard access and refresh cookies. |
 
 Two auth modes, decided by the server's bind (June 2026 hardening):
 
@@ -277,7 +277,7 @@ fabric mobile --install none   # requires or interactively configures an auth pr
 
 In token mode the session token is what the dashboard/desktop use; the
 served value is injected into the dashboard index page
-(`window.__HERMES_SESSION_TOKEN__`, see
+(the dashboard bootstrap token, see
 `apps/desktop/electron/dashboard-token.ts`).
 
 ### iOS (macOS + Xcode 16 or newer)

@@ -80,7 +80,6 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           set -e
           echo "=== Checking binaries ==="
           test -x ${fabric-agent}/bin/fabric || (echo "FAIL: fabric binary missing"; exit 1)
-          test -x ${fabric-agent}/bin/fabric-agent || (echo "FAIL: fabric-agent binary missing"; exit 1)
           echo "PASS: All binaries present"
 
           echo "=== Checking version ==="
@@ -92,14 +91,14 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "ok" > $out/result
         '';
 
-        # Verify every pyproject.toml [project.scripts] entry has a wrapped binary
+        # Verify the sole pyproject.toml [project.scripts] entry is wrapped.
         entry-points-sync = pkgs.runCommand "fabric-entry-points-sync" { } ''
           set -e
           echo "=== Checking entry points match pyproject.toml [project.scripts] ==="
-          for bin in fabric fabric-agent fabric-acp; do
-            test -x ${fabric-agent}/bin/$bin || (echo "FAIL: $bin binary missing from Nix package"; exit 1)
-            echo "PASS: $bin present"
-          done
+          test -x ${fabric-agent}/bin/fabric || (echo "FAIL: fabric binary missing from Nix package"; exit 1)
+          test ! -e ${fabric-agent}/bin/fabric-agent || (echo "FAIL: fabric-agent executable alias must not ship"; exit 1)
+          test ! -e ${fabric-agent}/bin/fabric-acp || (echo "FAIL: fabric-acp executable alias must not ship"; exit 1)
+          echo "PASS: sole fabric entry point present"
 
           mkdir -p $out
           echo "ok" > $out/result
@@ -158,16 +157,22 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
         bundled-plugins = pkgs.runCommand "fabric-bundled-plugins" { } ''
           set -e
           echo "=== Checking bundled plugins ==="
-          test -d ${fabric-agent}/share/fabric-agent/plugins || (echo "FAIL: plugins directory missing"; exit 1)
+          PLUGINS_DIR=$(${fabricVenv}/bin/python3 -c \
+            'from fabric_cli.plugins import get_bundled_plugins_dir; print(get_bundled_plugins_dir())')
+          test -d "$PLUGINS_DIR" || (echo "FAIL: packaged plugins directory missing"; exit 1)
           echo "PASS: plugins directory exists"
 
-          test -f ${fabric-agent}/share/fabric-agent/plugins/platforms/irc/plugin.yaml || \
+          test -f "$PLUGINS_DIR/platforms/irc/plugin.yaml" || \
             (echo "FAIL: irc plugin manifest missing"; exit 1)
           echo "PASS: irc plugin manifest present"
 
-          grep -q "HERMES_BUNDLED_PLUGINS" ${fabric-agent}/bin/fabric || \
-            (echo "FAIL: HERMES_BUNDLED_PLUGINS not in wrapper"; exit 1)
-          echo "PASS: HERMES_BUNDLED_PLUGINS set in wrapper"
+          test -f "$PLUGINS_DIR/platforms/photon/sidecar/index.mjs" || \
+            (echo "FAIL: photon sidecar missing"; exit 1)
+          echo "PASS: photon sidecar present"
+
+          test -f "$PLUGINS_DIR/google_meet/SKILL.md" || \
+            (echo "FAIL: google_meet skill missing"; exit 1)
+          echo "PASS: google_meet skill present"
 
           echo "=== All bundled plugins checks passed ==="
           mkdir -p $out
@@ -190,31 +195,18 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           test -f ${fabric-agent}/share/fabric-agent/locales/en.yaml || (echo "FAIL: en.yaml missing"; exit 1)
           echo "PASS: en.yaml present"
 
-          grep -q "HERMES_BUNDLED_LOCALES" ${fabric-agent}/bin/fabric || \
-            (echo "FAIL: HERMES_BUNDLED_LOCALES not in wrapper"; exit 1)
-          echo "PASS: HERMES_BUNDLED_LOCALES set in wrapper"
-
-          echo "=== Rendering via the wrapper override (HERMES_BUNDLED_LOCALES) ==="
           export HOME=$(mktemp -d)
-          RENDERED=$(cd "$HOME" && HERMES_BUNDLED_LOCALES=${fabric-agent}/share/fabric-agent/locales \
-            ${fabricVenv}/bin/python3 -c "from agent import i18n; print(i18n.t('gateway.reset.header_default', lang='en'))")
-          echo "rendered: $RENDERED"
-          test "$RENDERED" != "gateway.reset.header_default" || (echo "FAIL: i18n returned the raw key with HERMES_BUNDLED_LOCALES set"; exit 1)
-          echo "PASS: i18n renders a human string via the wrapper override"
-
-          # Defense-in-depth check: the sealed venv must ALSO resolve catalogs
-          # with NO env var, via the wheel's setuptools data-files materialized
-          # into the venv data scheme. If a future uv2nix bump drops data-files,
-          # the wrapper override above would mask the regression at runtime while
-          # `pip install`/other sealed paths silently break — this catches it.
-          echo "=== Rendering WITHOUT the env var (data-files materialization) ==="
+          # The sealed venv must resolve catalogs through the wheel's setuptools
+          # data-files materialized into the venv data scheme. This is the same
+          # path used by every packaged runtime; there is no wrapper override.
+          echo "=== Rendering from packaged data-files ==="
           BARE_DIR=$(cd "$HOME" && ${fabricVenv}/bin/python3 -c "from agent import i18n; print(i18n._locales_dir())")
           BARE=$(cd "$HOME" && ${fabricVenv}/bin/python3 -c "from agent import i18n; print(i18n.t('gateway.reset.header_default', lang='en'))")
-          echo "resolved dir (no env var): $BARE_DIR"
+          echo "resolved dir: $BARE_DIR"
           echo "rendered: $BARE"
           test "$BARE" != "gateway.reset.header_default" || \
-            (echo "FAIL: sealed venv could not resolve locales without HERMES_BUNDLED_LOCALES — data-files materialization regressed"; exit 1)
-          echo "PASS: sealed venv resolves locales via data-files without the env var"
+            (echo "FAIL: sealed venv could not resolve locale data-files"; exit 1)
+          echo "PASS: sealed venv resolves locales via packaged data-files"
 
           echo "=== All bundled locales checks passed ==="
           mkdir -p $out
@@ -242,25 +234,20 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
           echo "ok" > $out/result
         '';
 
-        # Verify HERMES_NODE is set in wrapper and points to Node 20+
+        # Verify the packaged Node runtime is version 20+.
         # (string-width uses the /v regex flag which requires Node 20+)
         fabric-node = pkgs.runCommand "fabric-node-version" { } ''
           set -e
-          echo "=== Checking HERMES_NODE in wrapper ==="
-          grep -q "HERMES_NODE" ${fabric-agent}/bin/fabric || \
-            (echo "FAIL: HERMES_NODE not set in wrapper"; exit 1)
-          echo "PASS: HERMES_NODE present in wrapper"
-
-          HERMES_NODE=$(sed -n "s/^export HERMES_NODE='\(.*\)'/\1/p" ${fabric-agent}/bin/fabric)
-          test -x "$HERMES_NODE" || (echo "FAIL: HERMES_NODE=$HERMES_NODE not executable"; exit 1)
-          echo "PASS: HERMES_NODE executable at $HERMES_NODE"
-
-          NODE_MAJOR=$("$HERMES_NODE" --version | sed 's/^v//' | cut -d. -f1)
+          echo "=== Checking packaged Node runtime ==="
+          test -x ${lib.getExe pkgs.nodejs_22} || (echo "FAIL: packaged Node is not executable"; exit 1)
+          grep -q ${lib.getBin pkgs.nodejs_22}/bin ${fabric-agent}/bin/fabric || \
+            (echo "FAIL: packaged Node directory missing from fabric wrapper PATH"; exit 1)
+          NODE_MAJOR=$(${lib.getExe pkgs.nodejs_22} --version | sed 's/^v//' | cut -d. -f1)
           test "$NODE_MAJOR" -ge 20 || \
             (echo "FAIL: Node v$NODE_MAJOR < 20, TUI needs /v regex flag support"; exit 1)
           echo "PASS: Node v$NODE_MAJOR >= 20"
 
-          echo "=== All HERMES_NODE checks passed ==="
+          echo "=== All packaged Node checks passed ==="
           mkdir -p $out
           echo "ok" > $out/result
         '';
@@ -421,9 +408,9 @@ json.dump(sorted(leaf_paths(DEFAULT_CONFIG)), sys.stdout, indent=2)
 
           # Helper: run merge then load with Python, output merged JSON
           merge_and_load() {
-            local hermes_home="$1"
-            export HERMES_HOME="$hermes_home"
-            ${configMergeScript} ${nixSettings} "$hermes_home/config.yaml"
+            local fabric_home="$1"
+            export FABRIC_HOME="$fabric_home"
+            ${configMergeScript} ${nixSettings} "$fabric_home/config.yaml"
             ${fabricVenv}/bin/python3 -c '
 import json, sys
 from fabric_cli.config import load_config

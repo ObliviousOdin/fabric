@@ -111,7 +111,7 @@ export function createLiveViewController<TWindow extends LiveViewControllerWindo
     const owner = owners.get(sessionId)
 
     if (owner && !owner.isDestroyed()) {
-      owner.send('hermes:live-view:control', { sessionId, type: 'closed' })
+      owner.send('fabric:live-view:control', { sessionId, type: 'closed' })
     }
   }
 
@@ -320,7 +320,7 @@ export function createLiveViewController<TWindow extends LiveViewControllerWindo
     }
 
     latestState.set(sessionId, state)
-    win.webContents.send('hermes:live-view:state', state)
+    win.webContents.send('fabric:live-view:state', state)
   }
 
   function control(sender: TWindow['webContents'], payload: unknown): void {
@@ -349,7 +349,7 @@ export function createLiveViewController<TWindow extends LiveViewControllerWindo
       const latest = latestState.get(sessionId)
 
       if (latest) {
-        sender.send('hermes:live-view:state', latest)
+        sender.send('fabric:live-view:state', latest)
       }
 
       return
@@ -358,7 +358,7 @@ export function createLiveViewController<TWindow extends LiveViewControllerWindo
     const owner = owners.get(sessionId)
 
     if (owner && !owner.isDestroyed()) {
-      owner.send('hermes:live-view:control', cleanControl)
+      owner.send('fabric:live-view:control', cleanControl)
     }
 
     if (cleanControl.type === 'dock' || cleanControl.type === 'hide') {

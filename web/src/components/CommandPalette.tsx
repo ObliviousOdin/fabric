@@ -63,7 +63,6 @@ interface PaletteCommand {
  * (Radix Dialog restores it).
  */
 export function CommandPalette({
-  embeddedChat,
   onClose,
   onShowShortcuts,
   open,
@@ -102,21 +101,19 @@ export function CommandPalette({
     }
 
     // ── Actions ──
-    if (embeddedChat) {
-      list.push({
-        group: "actions",
-        icon: MessageSquarePlus,
-        id: "action:new-chat",
-        label: t.sessions.newChat,
-        perform: () => {
-          // A bare canonical Chat route clears any ?resume= target, spawning a fresh
-          // session (same fallback ChatSessionList uses).
-          navigate("/workspace/chat");
-          onClose();
-        },
-        searchText: `${t.sessions.newChat} chat session`,
-      });
-    }
+    list.push({
+      group: "actions",
+      icon: MessageSquarePlus,
+      id: "action:new-chat",
+      label: t.sessions.newChat,
+      perform: () => {
+        // A bare canonical Chat route clears any ?resume= target, spawning a fresh
+        // session (same fallback ChatSessionList uses).
+        navigate("/workspace/chat");
+        onClose();
+      },
+      searchText: `${t.sessions.newChat} chat session`,
+    });
     if (!isBusy) {
       list.push({
         group: "actions",
@@ -177,7 +174,6 @@ export function CommandPalette({
     return list;
   }, [
     availableThemes,
-    embeddedChat,
     isBusy,
     navigate,
     onClose,
@@ -415,7 +411,6 @@ function PaletteKbd({ children }: { children: string }) {
 }
 
 export interface CommandPaletteProps {
-  embeddedChat: boolean;
   onClose: () => void;
   /** Close the palette and open the shortcuts-help dialog. */
   onShowShortcuts: () => void;

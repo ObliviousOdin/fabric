@@ -102,17 +102,14 @@ describe('Fabric banner branding', () => {
     expect(frame).toContain('╰──────────────╮')
     expect(frame).toContain('Fabric · agentic operations engine')
     expect(frame).not.toContain('█')
-    expect(frame).not.toMatch(/Hermes|Nous Research/i)
+    expect(frame).not.toMatch(/Nous Research/i)
   })
 
   it('maps the built-in lockups and semantic skin art to theme colors', () => {
     const full = logo(DEFAULT_THEME.color)
     const mark = fabricMark(DEFAULT_THEME.color)
 
-    const semantic = logo(
-      DEFAULT_THEME.color,
-      '[bold {accent}]──fabric[/]\n[dim {muted}]╰───╮[/]'
-    )
+    const semantic = logo(DEFAULT_THEME.color, '[bold {accent}]──fabric[/]\n[dim {muted}]╰───╮[/]')
 
     expect(full.map(([color]) => color)).toEqual([
       DEFAULT_THEME.color.primary,
@@ -138,16 +135,16 @@ describe('Fabric banner branding', () => {
 
     expect(frame).toContain('Fabric')
     expect(frame).toContain('agentic operations engine')
-    expect(frame).not.toMatch(/Hermes|Nous Research/i)
+    expect(frame).not.toMatch(/Nous Research/i)
   })
 
-  it('uses Fabric as the session vendor and Fabric for the update fallback', async () => {
+  it('uses the Fabric product name and canonical update command', async () => {
     const frame = await renderFooter({ ...baseInfo([]), update_behind: 1, update_command: '' })
 
     expect(frame).toContain('test-model')
     expect(frame).toContain('Fabric')
     expect(frame).toContain('fabric update')
-    expect(frame).not.toMatch(/Hermes|Nous Research/i)
+    expect(frame).not.toMatch(/Nous Research/i)
   })
 })
 

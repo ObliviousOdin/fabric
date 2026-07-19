@@ -1,13 +1,13 @@
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getStatus } from '@/hermes'
+import { getStatus } from '@/fabric'
 import { evaluateRuntimeReadiness } from '@/lib/runtime-readiness'
 import { $activeGatewayProfile } from '@/store/profile'
 
 import { useStatusSnapshot } from './use-status-snapshot'
 
-vi.mock('@/hermes', () => ({
+vi.mock('@/fabric', () => ({
   getProfiles: vi.fn(),
   getStatus: vi.fn(),
   setApiRequestProfile: vi.fn(),

@@ -4,9 +4,7 @@ import { c as _c } from 'react/compiler-runtime'
 
 import type { Color, Styles } from '../styles.js'
 
-const ENV_ON_RE = /^(?:1|true|yes|on)$/i
-const ENV_OFF_RE = /^(?:0|false|no|off)$/i
-const LEGACY_APPLE_DIM_COLOR: Color = '#6B7280'
+const APPLE_TERMINAL_DIM_COLOR: Color = '#6B7280'
 type BaseProps = {
   /**
    * Change text color. Accepts a raw color value (rgb, hex, ansi).
@@ -67,16 +65,6 @@ type WeightProps =
 export type Props = BaseProps & WeightProps
 
 export function shouldUseAnsiDim(env: NodeJS.ProcessEnv = process.env): boolean {
-  const override = (env.HERMES_TUI_DIM ?? '').trim()
-
-  if (ENV_ON_RE.test(override)) {
-    return true
-  }
-
-  if (ENV_OFF_RE.test(override)) {
-    return false
-  }
-
   if ((env.TERM_PROGRAM ?? '').trim() === 'Apple_Terminal') {
     return false
   }
@@ -85,13 +73,7 @@ export function shouldUseAnsiDim(env: NodeJS.ProcessEnv = process.env): boolean 
 }
 
 export function dimColorFallback(env: NodeJS.ProcessEnv = process.env): Color | undefined {
-  const override = (env.HERMES_TUI_DIM ?? '').trim()
-
-  if (ENV_ON_RE.test(override) || ENV_OFF_RE.test(override)) {
-    return undefined
-  }
-
-  return (env.TERM_PROGRAM ?? '').trim() === 'Apple_Terminal' ? LEGACY_APPLE_DIM_COLOR : undefined
+  return (env.TERM_PROGRAM ?? '').trim() === 'Apple_Terminal' ? APPLE_TERMINAL_DIM_COLOR : undefined
 }
 
 const memoizedStylesForWrap: Record<NonNullable<Styles['textWrap']>, Styles> = {

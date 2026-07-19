@@ -118,12 +118,3 @@ export function buildFabricWebSocketUrl(options: FabricWebSocketUrlOptions): str
 
   return `${wsScheme}//${host}${normalizeBasePath(options.basePath)}${normalizeEndpointPath(options.path)}${suffix}`
 }
-
-/**
- * @deprecated Legacy compatibility alias. New Fabric surfaces should import
- * `buildFabricWebSocketUrl` instead.
- */
-export const buildHermesWebSocketUrl = buildFabricWebSocketUrl
-
-/** @deprecated Use `FabricWebSocketUrlOptions` in new code. */
-export type HermesWebSocketUrlOptions = FabricWebSocketUrlOptions

@@ -1,27 +1,16 @@
-// Perf instrumentation for the full render pipeline.
-//
-//   PerfPane (React.Profiler)  → per-pane commit times
-//   logFrameEvent (ink.onFrame) → yoga / renderer / diff / optimize / write
-//                                 phases + yoga counters + scroll fast-path
-//
-// Both gate on HERMES_DEV_PERF=1 and dump JSON-lines (default ~/.hermes/perf.log,
-// override HERMES_DEV_PERF_LOG). Tagged { src: 'react' | 'frame' } for jq.
-// HERMES_DEV_PERF_MS (default 2) skips sub-ms idle frames; set 0 to capture all.
-//
-// Zero cost when unset: PerfPane returns children directly, logFrameEvent is
-// undefined so ink doesn't pay the timing cost.
+// Opt-in instrumentation for the full TUI render pipeline. PerfPane records
+// React commit time per pane; logFrameEvent records Ink phase timings and
+// scroll fast-path counters. With direct-entry diagnostics disabled, children
+// pass through and entry.tsx does not install an onFrame callback.
 
 import { appendFileSync, mkdirSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 
 import type { FrameEvent } from '@fabric/ink'
 import { scrollFastPathStats } from '@fabric/ink'
 import { Profiler, type ProfilerOnRenderCallback, type ReactNode } from 'react'
 
-const ENABLED = /^(?:1|true|yes|on)$/i.test((process.env.HERMES_DEV_PERF ?? '').trim())
-const THRESHOLD_MS = Number(process.env.HERMES_DEV_PERF_MS ?? '2') || 0
-const LOG_PATH = process.env.HERMES_DEV_PERF_LOG?.trim() || join(homedir(), '.hermes', 'perf.log')
+import { PERF_ENABLED, PERF_LOG_PATH, PERF_THRESHOLD_MS } from '../config/diagnostics.js'
 
 let logReady = false
 
@@ -30,23 +19,23 @@ const writeRow = (row: Record<string, unknown>) => {
     logReady = true
 
     try {
-      mkdirSync(dirname(LOG_PATH), { recursive: true })
+      mkdirSync(dirname(PERF_LOG_PATH), { recursive: true })
     } catch {
-      // Best-effort — never crash the TUI to log a sample.
+      // Best effort: instrumentation must never crash the TUI.
     }
   }
 
   try {
-    appendFileSync(LOG_PATH, `${JSON.stringify(row)}\n`)
+    appendFileSync(PERF_LOG_PATH, `${JSON.stringify(row)}\n`)
   } catch {
-    /* best-effort */
+    // Best effort: a read-only or full diagnostics directory is non-fatal.
   }
 }
 
-const round2 = (n: number) => Math.round(n * 100) / 100
+const round2 = (value: number) => Math.round(value * 100) / 100
 
 const onRender: ProfilerOnRenderCallback = (id, phase, actualMs, baseMs, startTime, commitTime) => {
-  if (actualMs < THRESHOLD_MS) {
+  if (actualMs < PERF_THRESHOLD_MS) {
     return
   }
 
@@ -63,7 +52,7 @@ const onRender: ProfilerOnRenderCallback = (id, phase, actualMs, baseMs, startTi
 }
 
 export function PerfPane({ children, id }: { children: ReactNode; id: string }) {
-  if (!ENABLED) {
+  if (!PERF_ENABLED) {
     return children
   }
 
@@ -74,15 +63,14 @@ export function PerfPane({ children, id }: { children: ReactNode; id: string }) 
   )
 }
 
-export const logFrameEvent = ENABLED
+export const logFrameEvent = PERF_ENABLED
   ? (event: FrameEvent) => {
-      if (event.durationMs < THRESHOLD_MS) {
+      if (event.durationMs < PERF_THRESHOLD_MS) {
         return
       }
 
       writeRow({
         durationMs: round2(event.durationMs),
-        // Cumulative counters — consumers diff pairs to get per-frame deltas.
         fastPath: { ...scrollFastPathStats, declined: { ...scrollFastPathStats.declined } },
         flickers: event.flickers.length ? event.flickers : undefined,
         phases: event.phases
@@ -102,6 +90,3 @@ export const logFrameEvent = ENABLED
       })
     }
   : undefined
-
-export const PERF_ENABLED = ENABLED
-export const PERF_LOG_PATH = LOG_PATH

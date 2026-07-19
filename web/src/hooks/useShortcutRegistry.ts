@@ -14,7 +14,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
  *   ignored;
  * - events originating from editable targets (input / textarea / select /
  *   contenteditable) or from inside the embedded terminal
- *   (`.hermes-chat-xterm-host` / `.xterm`) are ignored — the terminal and
+ *   (`.fabric-chat-xterm-host` / `.xterm`) are ignored — the terminal and
  *   form fields own their own keys;
  * - when several registrations match the same combo, the most recently
  *   registered one wins (lets a focused surface shadow a global binding).
@@ -130,7 +130,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   ) {
     return true;
   }
-  if (target.closest(".hermes-chat-xterm-host, .xterm")) return true;
+  if (target.closest(".fabric-chat-xterm-host, .xterm")) return true;
   return false;
 }
 

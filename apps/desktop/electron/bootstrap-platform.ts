@@ -44,9 +44,6 @@ function bundledRuntimeImportCheck(platform = process.platform) {
   return platform === 'win32' ? 'import fastapi, uvicorn, winpty' : 'import fastapi, uvicorn, ptyprocess'
 }
 
-const GPU_OVERRIDE_ON = new Set(['1', 'true', 'yes', 'on'])
-const GPU_OVERRIDE_OFF = new Set(['0', 'false', 'no', 'off'])
-
 /**
  * Decide whether the app is being shown over a remote/forwarded display, where
  * Chromium's GPU compositor produces an unstable, flickering surface (it can't
@@ -55,26 +52,13 @@ const GPU_OVERRIDE_OFF = new Set(['0', 'false', 'no', 'off'])
  * software rendering when a remote display is detected.
  *
  * Returns a short reason string when GPU acceleration should be disabled, or
- * null to keep it enabled. `HERMES_DESKTOP_DISABLE_GPU` overrides detection
- * both ways (1/true/yes/on → always disable, 0/false/no/off → never disable).
+ * null to keep it enabled.
  *
  * Pure + dependency-free so it can be unit-tested and called before app ready.
  */
 function detectRemoteDisplay(options: { env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform } = {}) {
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
-
-  const override = String(env.HERMES_DESKTOP_DISABLE_GPU || '')
-    .trim()
-    .toLowerCase()
-
-  if (GPU_OVERRIDE_ON.has(override)) {
-    return 'override (HERMES_DESKTOP_DISABLE_GPU)'
-  }
-
-  if (GPU_OVERRIDE_OFF.has(override)) {
-    return null
-  }
 
   // Launched from an SSH session → the display is X11-forwarded or otherwise
   // remote. Covers the common `ssh user@box` + GUI-forwarding case.

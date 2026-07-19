@@ -233,13 +233,7 @@ export const applyDisplay = (
   })
 }
 
-export function useConfigSync({
-  gw,
-  setBellOnComplete,
-  setVoiceEnabled,
-  setVoiceRecordKey,
-  sid
-}: UseConfigSyncOptions) {
+export function useConfigSync({ gw, setBellOnComplete, setVoiceRecordKey, sid }: UseConfigSyncOptions) {
   const mtimeRef = useRef(0)
 
   useEffect(() => {
@@ -247,16 +241,11 @@ export function useConfigSync({
       return
     }
 
-    // Keep startup cheap: voice.toggle status probes optional audio/STT deps and
-    // can run long enough to delay prompt.submit on the single stdio RPC pipe.
-    // Environment flags are enough to initialize the UI bit; the heavier status
-    // check still runs when the user opens /voice.
-    setVoiceEnabled(process.env.HERMES_VOICE === '1')
     quietRpc<ConfigMtimeResponse>(gw, 'config.get', { key: 'mtime' }).then(r => {
       mtimeRef.current = Number(r?.mtime ?? 0)
     })
     void hydrateFullConfig(gw, setBellOnComplete, setVoiceRecordKey)
-  }, [gw, setBellOnComplete, setVoiceEnabled, setVoiceRecordKey, sid])
+  }, [gw, setBellOnComplete, setVoiceRecordKey, sid])
 
   useEffect(() => {
     if (!sid) {
@@ -295,7 +284,6 @@ export function useConfigSync({
 export interface UseConfigSyncOptions {
   gw: GatewayClient
   setBellOnComplete: (v: boolean) => void
-  setVoiceEnabled: (v: boolean) => void
   setVoiceRecordKey?: (v: ParsedVoiceRecordKey) => void
   sid: null | string
 }

@@ -69,7 +69,7 @@ export const zh: Translations = {
       loadingSettings: '正在加载 Fabric 设置',
       loadingSessions: '正在加载最近会话',
       startingDesktopConnection: '正在启动桌面连接',
-      startingHermesDesktop: '正在启动 Fabric 桌面版…'
+      startingFabricDesktop: '正在启动 Fabric 桌面版…'
     },
     errors: {
       backgroundExited: 'Fabric 后台进程已退出。',
@@ -117,7 +117,7 @@ export const zh: Translations = {
     backendOutOfDateTitle: '后端版本过旧',
     backendOutOfDateMessage: '你的 Fabric 后端早于当前桌面构建，可能无法正常工作。请更新以保持一致。',
     installMethodUnsupportedTitle: '不受支持的安装方式',
-    updateHermes: '更新 Fabric',
+    updateFabric: '更新 Fabric',
     updateReadyTitle: '有可用更新',
     updateReadyMessage: count => `有 ${count} 项新更改可用。`,
     seeWhatsNew: '查看更新内容',
@@ -1241,10 +1241,10 @@ export const zh: Translations = {
     noSessions: '暂无会话。',
     gatewayRunning: '消息网关运行中',
     gatewayStopped: '消息网关已停止',
-    hermesActiveSessions: (version, count) => `Fabric ${version} · 活跃会话 ${count}`,
+    fabricActiveSessions: (version, count) => `Fabric ${version} · 活跃会话 ${count}`,
     restartGateway: '重启网关',
     gatewayRestartFailed: '网关重启失败。',
-    updateHermes: '更新 Fabric',
+    updateFabric: '更新 Fabric',
     actionRunning: '运行中',
     actionDone: '完成',
     actionFailed: '失败',

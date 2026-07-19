@@ -108,12 +108,12 @@ describe("sidebar navigation model", () => {
     );
     const nav = buildSidebarSections(
       withoutInsights,
-      [manifest("achievements", { position: "after:analytics" })],
+      [manifest("reports", { position: "after:analytics" })],
       "workspace",
     );
 
     expect(nav.pluginItems.map((item) => item.path)).toContain(
-      "/achievements",
+      "/reports",
     );
   });
 

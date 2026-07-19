@@ -37,10 +37,10 @@ test('desktop background child processes opt into hidden Windows consoles', () =
   requireHiddenChildOptions(source, /spawn\(\s*command,\s*args/)
   requireHiddenChildOptions(source, "spawn('curl'")
   requireHiddenChildOptions(source, /spawn\(\s*backend\.command,\s*backend\.args/)
-  requireHiddenChildOptions(source, /hermesProcess = spawn\(\s*backend\.command,\s*backend\.args/)
+  requireHiddenChildOptions(source, /fabricProcess = spawn\(\s*backend\.command,\s*backend\.args/)
   requireHiddenChildOptions(source, /spawn\(\s*py,\s*\['-m', 'fabric_cli\.main', 'uninstall', '--gui-summary'\]/)
 
-  assert.match(source, /function unwrapWindowsVenvHermesCommand\(command, backendArgs\)/)
+  assert.match(source, /function unwrapWindowsVenvFabricCommand\(command, backendArgs\)/)
   assert.match(source, /function getVenvSitePackagesEntries\(venvRoot\)/)
   assert.match(source, /path\.join\(venvRoot, 'Lib', 'site-packages'\)/)
   assert.match(source, /args: \['-m', 'fabric_cli\.main', \.\.\.backendArgs\]/)
@@ -66,14 +66,10 @@ test('desktop backend launches console python so child consoles are inherited, n
     'pythonw spawn-hint rewriter should be gone'
   )
 
-  // Console python restores stdout, so the port is announced on the normal
-  // HERMES_DASHBOARD_READY stdout line — no ready-file side channel is set.
-  assert.doesNotMatch(source, /readyFile: true/, 'no backend should opt into the pythonw ready-file path')
-
   // Both desktop backend launches must still go through hiddenWindowsChildOptions
   // so the single backend console is created windowless.
   requireHiddenChildOptions(source, /spawn\(\s*backend\.command,\s*backend\.args/)
-  requireHiddenChildOptions(source, /hermesProcess = spawn\(\s*backend\.command,\s*backend\.args/)
+  requireHiddenChildOptions(source, /fabricProcess = spawn\(\s*backend\.command,\s*backend\.args/)
 })
 
 test('desktop backend teardown tree-kills Windows backend descendants', () => {
@@ -86,17 +82,17 @@ test('desktop backend teardown tree-kills Windows backend descendants', () => {
   assert.match(helperSnippet, /forceKillProcessTree\(child\.pid\)/)
   assert.match(helperSnippet, /child\.kill\('SIGTERM'\)/)
 
-  const resetIndex = source.indexOf('function resetHermesConnection()')
-  assert.notEqual(resetIndex, -1, 'missing resetHermesConnection')
+  const resetIndex = source.indexOf('function resetFabricConnection()')
+  assert.notEqual(resetIndex, -1, 'missing resetFabricConnection')
   const resetSnippet = source.slice(resetIndex, resetIndex + 300)
-  assert.match(resetSnippet, /stopBackendChild\(hermesProcess\)/)
-  assert.doesNotMatch(resetSnippet, /hermesProcess\.kill\('SIGTERM'\)/)
+  assert.match(resetSnippet, /stopBackendChild\(fabricProcess\)/)
+  assert.doesNotMatch(resetSnippet, /fabricProcess\.kill\('SIGTERM'\)/)
 
   const quitIndex = source.indexOf("app.on('before-quit'")
   assert.notEqual(quitIndex, -1, 'missing before-quit handler')
   const quitSnippet = source.slice(quitIndex, quitIndex + 900)
-  assert.match(quitSnippet, /stopBackendChild\(hermesProcess\)/)
-  assert.doesNotMatch(quitSnippet, /hermesProcess\.kill\('SIGTERM'\)/)
+  assert.match(quitSnippet, /stopBackendChild\(fabricProcess\)/)
+  assert.doesNotMatch(quitSnippet, /fabricProcess\.kill\('SIGTERM'\)/)
 })
 
 test('intentional or interactive desktop child processes stay documented', () => {
@@ -108,9 +104,8 @@ test('intentional or interactive desktop child processes stay documented', () =>
   assert.match(source, /'--update', '--branch'/)
   assert.match(source, /nodePty\.spawn\(command, args/)
   assert.match(source, /spawn\('cmd\.exe', \['\/c', 'start'/)
-  // Terminal IPC is fabric-branded (not legacy hermes: channels).
+  // Terminal IPC uses the canonical Fabric channel namespace.
   assert.match(source, /ipcMain\.handle\('fabric:terminal:start'/)
-  assert.doesNotMatch(source, /hermes:terminal:/)
 })
 
 test('bootstrap PowerShell runner hides Windows console children', () => {

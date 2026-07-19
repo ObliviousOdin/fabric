@@ -60,7 +60,7 @@ function appendUniquePathEntries(entries, { delimiter = path.delimiter } = {}) {
 }
 
 function buildDesktopBackendPath({
-  hermesHome,
+  fabricHome,
   venvRoot,
   home,
   currentPath = '',
@@ -68,7 +68,7 @@ function buildDesktopBackendPath({
   pathModule = pathModuleForPlatform(platform)
 }: any = {}) {
   const delimiter = delimiterForPlatform(platform)
-  const hermesNodeBin = hermesHome ? pathModule.join(hermesHome, 'node', 'bin') : null
+  const fabricNodeBin = fabricHome ? pathModule.join(fabricHome, 'node', 'bin') : null
   const venvBin = venvRoot ? pathModule.join(venvRoot, platform === 'win32' ? 'Scripts' : 'bin') : null
   // Finder/Dock-launched macOS apps inherit a minimal PATH even though user-level
   // installers place Fabric and companion binaries (for example cua-driver) in
@@ -77,14 +77,14 @@ function buildDesktopBackendPath({
   const userLocalBin = platform === 'win32' || !home ? null : pathModule.join(home, '.local', 'bin')
   const saneEntries = platform === 'win32' ? [] : POSIX_SANE_PATH_ENTRIES
 
-  return appendUniquePathEntries([hermesNodeBin, venvBin, userLocalBin, currentPath, saneEntries], { delimiter })
+  return appendUniquePathEntries([fabricNodeBin, venvBin, userLocalBin, currentPath, saneEntries], { delimiter })
 }
 
-function normalizeHermesHomeRoot(hermesHome, { pathModule = pathModuleForPlatform(process.platform) }: any = {}) {
-  if (!hermesHome) {
-    return hermesHome
+function normalizeFabricHomeRoot(fabricHome, { pathModule = pathModuleForPlatform(process.platform) }: any = {}) {
+  if (!fabricHome) {
+    return fabricHome
   }
-  const resolved = pathModule.resolve(String(hermesHome))
+  const resolved = pathModule.resolve(String(fabricHome))
   const parent = pathModule.dirname(resolved)
 
   if (pathModule.basename(parent).toLowerCase() === 'profiles') {
@@ -96,9 +96,7 @@ function normalizeHermesHomeRoot(hermesHome, { pathModule = pathModuleForPlatfor
 
 /**
  * Resolve the desktop's global Fabric state root without touching Electron.
- * FABRIC_HOME is canonical; HERMES_HOME and legacy default directories remain
- * readable so an installed Fabric desktop can upgrade in place without
- * orphaning config, sessions, credentials, or logs.
+ * FABRIC_HOME is the only supported state-root override.
  */
 function resolveDesktopHome({
   env = process.env,
@@ -106,19 +104,14 @@ function resolveDesktopHome({
   home,
   localAppData,
   userDataOverride,
-  directoryExists = () => false,
   readRegistryValue = () => null,
   pathModule = pathModuleForPlatform(platform)
 }: any = {}) {
-  const normalize = value => normalizeHermesHomeRoot(value, { pathModule })
+  const normalize = value => normalizeFabricHomeRoot(value, { pathModule })
   const fabricOverride = String(env?.FABRIC_HOME || '').trim()
-  const hermesOverride = String(env?.HERMES_HOME || '').trim()
 
   if (fabricOverride) {
     return normalize(fabricOverride)
-  }
-  if (hermesOverride) {
-    return normalize(hermesOverride)
   }
   if (userDataOverride) {
     return pathModule.join(pathModule.resolve(String(userDataOverride)), 'fabric-home')
@@ -126,15 +119,11 @@ function resolveDesktopHome({
 
   if (platform === 'win32') {
     // Explorer-launched apps can have a stale login-time process.env. Read the
-    // live user registry in the same canonical-then-compatibility order.
+    // live canonical value from the user registry.
     const registryFabric = String(readRegistryValue('FABRIC_HOME') || '').trim()
-    const registryHermes = String(readRegistryValue('HERMES_HOME') || '').trim()
 
     if (registryFabric) {
       return normalize(registryFabric)
-    }
-    if (registryHermes) {
-      return normalize(registryHermes)
     }
   }
 
@@ -145,18 +134,11 @@ function resolveDesktopHome({
           String(localAppData || env?.LOCALAPPDATA || pathModule.join(resolvedHome, 'AppData', 'Local'))
         )
       : resolvedHome
-  const modern = platform === 'win32' ? pathModule.join(base, 'fabric') : pathModule.join(base, '.fabric')
-  const legacy = platform === 'win32' ? pathModule.join(base, 'hermes') : pathModule.join(base, '.hermes')
-
-  if (!directoryExists(modern) && directoryExists(legacy)) {
-    return legacy
-  }
-
-  return modern
+  return platform === 'win32' ? pathModule.join(base, 'fabric') : pathModule.join(base, '.fabric')
 }
 
 function buildDesktopBackendEnv({
-  hermesHome,
+  fabricHome,
   pythonPathEntries = [],
   venvRoot,
   currentEnv = process.env,
@@ -169,11 +151,10 @@ function buildDesktopBackendEnv({
   const home = currentEnv?.HOME || (platform === process.platform ? os.homedir() : '')
 
   return {
-    FABRIC_HOME: hermesHome,
-    HERMES_HOME: hermesHome,
+    FABRIC_HOME: fabricHome,
     PYTHONPATH: appendUniquePathEntries([...pythonPathEntries, currentPythonPath], { delimiter }),
     [key]: buildDesktopBackendPath({
-      hermesHome,
+      fabricHome,
       venvRoot,
       home,
       currentPath: currentPathValue(currentEnv, platform),
@@ -188,7 +169,7 @@ export {
   buildDesktopBackendEnv,
   buildDesktopBackendPath,
   delimiterForPlatform,
-  normalizeHermesHomeRoot,
+  normalizeFabricHomeRoot,
   pathEnvKey,
   POSIX_SANE_PATH_ENTRIES,
   resolveDesktopHome

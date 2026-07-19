@@ -68,12 +68,10 @@ controls, read the [desktop design contract](DESIGN.md) and the canonical
 [Fabric design foundation](../design-system/README.md).
 
 Use a disposable profile while changing onboarding, authentication, or update
-code. Legacy `HERMES_DESKTOP_*` environment names remain readable compatibility
-interfaces; use the canonical Fabric names in new development instructions.
+code.
 
 ```bash
 FABRIC_HOME=/tmp/fabric-desktop-dev npm run dev
-FABRIC_DESKTOP_ROOT=/path/to/fabric npm run dev
 npm run dev:fake-boot
 ```
 
@@ -91,8 +89,8 @@ npm run pack         # unpacked app for the current host
 ```
 
 The checked-in Fabric manifest is the only release identity. Asset paths must
-remain inside `apps/desktop`, and the manifest retains the compatibility
-protocol required for in-place upgrades. See
+remain inside `apps/desktop`, and the manifest defines only the `fabric://`
+protocol. See
 [`branding/README.md`](branding/README.md).
 
 ### Signing and notarization
@@ -128,9 +126,7 @@ tool, prompt content, context tokens, or model calls. See the [Browser](https://
 and [Computer Use](https://obliviousodin.github.io/fabric/user-guide/features/computer-use#desktop-live-view)
 guides for the docked and picture-in-picture workflows.
 
-Compatibility identifiers such as `HERMES_DESKTOP_HERMES_ROOT`, the legacy
-`hermes:` URL scheme, and older managed-install markers remain readable for one
-migration window. New package identity comes from the Fabric manifest:
+Package identity comes from the Fabric manifest:
 `io.github.obliviousodin.fabric`, `fabric:`, `Fabric.app`, and `Fabric.exe`.
 
 ## Verification
@@ -149,8 +145,7 @@ and rejects artifact names that drift from the manifest.
 
 ## Troubleshooting
 
-Desktop boot logs are written to `FABRIC_HOME/logs/desktop.log`. The legacy
-`HERMES_HOME` variable is still accepted as an input, but new Fabric installs
+Desktop boot logs are written to `FABRIC_HOME/logs/desktop.log`. Fabric installs
 use `FABRIC_HOME` and `~/.fabric`.
 
 On macOS, reset a stuck microphone permission for the Fabric bundle with:
@@ -166,5 +161,5 @@ For product issues, use the
 
 Fabric is distributed under the repository's Apache License 2.0. The complete
 upstream MIT notice is preserved in
-[`LICENSES/MIT-hermes-agent.txt`](../../LICENSES/MIT-hermes-agent.txt), with
+[`LICENSES/MIT-nous-research.txt`](../../LICENSES/MIT-nous-research.txt), with
 the required attribution summarized in [`NOTICE`](../../NOTICE).

@@ -31,7 +31,6 @@ const TRANSLATION_LOADERS: Record<DeferredLocale, () => Promise<Translations>> =
 
 const TRANSLATION_CACHE: Partial<Record<Locale, Translations>> = { en };
 const STORAGE_KEY = "fabric-locale";
-const LEGACY_STORAGE_KEY = "hermes-locale";
 
 function isLocale(value: string): value is Locale {
   return Object.hasOwn(LOCALE_META, value);
@@ -49,12 +48,8 @@ async function loadTranslations(locale: Locale): Promise<Translations> {
 
 function getInitialLocale(): Locale {
   try {
-    const stored =
-      localStorage.getItem(STORAGE_KEY) ??
-      localStorage.getItem(LEGACY_STORAGE_KEY);
+    const stored = localStorage.getItem(STORAGE_KEY);
     if (stored && isLocale(stored)) {
-      localStorage.setItem(STORAGE_KEY, stored);
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
       return stored;
     }
   } catch {
@@ -109,7 +104,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
     try {
       localStorage.setItem(STORAGE_KEY, l);
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // ignore
     }

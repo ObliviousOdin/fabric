@@ -1,6 +1,6 @@
 import { forceRedraw, type MouseTrackingMode } from '@fabric/ink'
 
-import { DASHBOARD_TUI_MODE, NO_CONFIRM_DESTRUCTIVE } from '../../../config/env.js'
+import { DASHBOARD_TUI_MODE } from '../../../config/env.js'
 import { dailyFortune, randomFortune } from '../../../content/fortunes.js'
 import { HOTKEYS } from '../../../content/hotkeys.js'
 import { isSectionName, nextDetailsMode, parseDetailsMode, SECTION_NAMES } from '../../../domain/details.js'
@@ -192,10 +192,6 @@ export const coreCommands: SlashCommand[] = [
         ctx.session.newSession(isNew ? 'new session started' : undefined, requestedTitle || undefined)
       }
 
-      if (NO_CONFIRM_DESTRUCTIVE) {
-        return commit()
-      }
-
       patchOverlayState({
         confirm: {
           cancelLabel: 'No, keep going',
@@ -385,7 +381,7 @@ export const coreCommands: SlashCommand[] = [
         if (text) {
           return sys(`copied ${text.length} characters`)
         } else {
-          return sys('clipboard copy failed — try HERMES_TUI_FORCE_OSC52=1 to force the escape sequence')
+          return sys('clipboard copy failed — this terminal did not accept an available clipboard path')
         }
       }
 

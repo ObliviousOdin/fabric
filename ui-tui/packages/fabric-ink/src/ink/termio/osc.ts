@@ -11,8 +11,6 @@ import { BEL, ESC, ESC_TYPE, SEP } from './ansi.js'
 import type { Action, Color, TabStatusAction } from './types.js'
 
 export const OSC_PREFIX = ESC + String.fromCharCode(ESC_TYPE.OSC)
-const ENV_ON_RE = /^(?:1|true|yes|on)$/i
-const ENV_OFF_RE = /^(?:0|false|no|off)$/i
 
 /** String Terminator (ESC \) - alternative to BEL for terminating OSC */
 export const ST = ESC + '\\'
@@ -84,21 +82,6 @@ export function getClipboardPath(): ClipboardPath {
 }
 
 export function shouldEmitClipboardSequence(env: NodeJS.ProcessEnv = process.env): boolean {
-  const override = (
-    env.HERMES_TUI_FORCE_OSC52 ??
-    env.HERMES_TUI_CLIPBOARD_OSC52 ??
-    env.HERMES_TUI_COPY_OSC52 ??
-    ''
-  ).trim()
-
-  if (ENV_ON_RE.test(override)) {
-    return true
-  }
-
-  if (ENV_OFF_RE.test(override)) {
-    return false
-  }
-
   return !!env['SSH_CONNECTION'] || (!env['TMUX'] && !env['STY'])
 }
 
@@ -136,10 +119,8 @@ export function shouldEmitClipboardSequence(env: NodeJS.ProcessEnv = process.env
  *     outer-terminal forwarding depends on `set -g set-clipboard` and
  *     `allow-passthrough`, which many users don't have configured.
  *
- *     The OSC-52-will-emit guard matters too: if the user has set
- *     HERMES_TUI_FORCE_OSC52=0, no OSC 52 sequence will be written. If
- *     we ALSO skip native, the clipboard write becomes a no-op. So skip
- *     native only when OSC 52 will actually carry the data.
+ *     The OSC-52-will-emit guard matters too: when the current terminal
+ *     topology suppresses OSC 52, native is the only remaining path.
  */
 export function shouldUseNativeClipboard(
   env: NodeJS.ProcessEnv = process.env,
@@ -152,8 +133,7 @@ export function shouldUseNativeClipboard(
 
   // Inside tmux/screen, OSC 52 is normally suppressed and we rely on
   // tmux load-buffer instead — so the wl-copy/OSC-52 race usually doesn't
-  // apply. Even when HERMES_TUI_FORCE_OSC52=1 forces a tmux-passthrough
-  // OSC 52 emission, we keep native enabled as a safety net: tmux's
+  // apply. We keep native enabled as a safety net because tmux's
   // outer-terminal forwarding depends on `allow-passthrough` in the
   // user's tmux config, so a forced OSC 52 may silently never reach the
   // host terminal. Native (pbcopy/wl-copy/xclip) covers that gap.
@@ -161,7 +141,7 @@ export function shouldUseNativeClipboard(
     return true
   }
 
-  // If OSC 52 won't actually emit (user override or env state), the
+  // If OSC 52 won't actually emit for the current terminal state, the
   // native tool is the only path left — keep it on.
   if (!shouldEmitClipboardSequence(env)) {
     return true
@@ -277,12 +257,8 @@ export async function setClipboard(text: string): Promise<ClipboardResult> {
   // tmux/screen — we primarily rely on tmux load-buffer there rather
   // than raw OSC 52, so the wl-copy race usually doesn't apply, and
   // native is kept as a safety net because tmux passthrough forwarding
-  // depends on the user's `allow-passthrough` config (note: when
-  // HERMES_TUI_FORCE_OSC52=1 we DO additionally emit a tmux-passthrough
-  // OSC 52, but it can be silently dropped without that setting).
-  // Native also fires when the user has disabled OSC 52 emission via
-  // HERMES_TUI_FORCE_OSC52=0 (otherwise the clipboard write becomes a
-  // complete no-op). Fire-and-forget, but `nativeAttempted` tells us
+  // depends on the user's `allow-passthrough` config. Fire-and-forget,
+  // but `nativeAttempted` tells us
   // whether ANY native path will be tried.
   const nativeAttempted = shouldUseNativeClipboard(process.env, envModule.terminal) && copyNative(text)
 

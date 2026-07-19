@@ -131,7 +131,7 @@ function neutral(l: number, bgHex: string, minRatio: number): string {
 /**
  * Build a complete xterm theme from the active dashboard theme's terminal
  * colors. Light/dark is decided by the background's luminance, so every
- * preset — generated pair, heritage teal, YAML themes — gets a legible
+ * preset — generated pair or a user-defined YAML theme — gets a legible
  * ramp without declaring one.
  */
 export function buildTerminalTheme(

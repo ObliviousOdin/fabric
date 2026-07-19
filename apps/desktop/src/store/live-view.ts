@@ -266,7 +266,7 @@ function setLiveView(sessionId: string, updater: (current: LiveViewState | undef
 
   for (const evictedSessionId of evictedSessionIds) {
     if (typeof window !== 'undefined') {
-      void window.hermesDesktop?.liveView?.close(evictedSessionId)
+      void window.fabricDesktop?.liveView?.close(evictedSessionId)
     }
   }
 
@@ -280,7 +280,7 @@ function setLiveView(sessionId: string, updater: (current: LiveViewState | undef
 function publishLiveViewToPip(state: LiveViewState): void {
   if (state.presentation === 'pip' && typeof window !== 'undefined') {
     const streamFrame = $liveViewStreamFrames.get()[state.sessionId]
-    window.hermesDesktop?.liveView?.pushState(streamFrame ? { ...state, frameUrl: streamFrame } : state)
+    window.fabricDesktop?.liveView?.pushState(streamFrame ? { ...state, frameUrl: streamFrame } : state)
   }
 }
 
@@ -538,7 +538,7 @@ export function hideLiveView(sessionId: string): void {
   }))
 
   if (typeof window !== 'undefined') {
-    void window.hermesDesktop?.liveView?.close(sessionId)
+    void window.fabricDesktop?.liveView?.close(sessionId)
   }
 }
 
@@ -558,14 +558,14 @@ export function dockLiveView(sessionId: string): void {
   }))
 
   if (typeof window !== 'undefined') {
-    void window.hermesDesktop?.liveView?.close(sessionId)
+    void window.fabricDesktop?.liveView?.close(sessionId)
   }
 }
 
 export async function popOutLiveView(sessionId: string): Promise<boolean> {
   const current = $liveViews.get()[sessionId]
 
-  if (!current || typeof window === 'undefined' || !window.hermesDesktop?.liveView) {
+  if (!current || typeof window === 'undefined' || !window.fabricDesktop?.liveView) {
     return false
   }
 
@@ -574,7 +574,7 @@ export async function popOutLiveView(sessionId: string): Promise<boolean> {
   pendingPipRequests.set(sessionId, requestId)
 
   try {
-    const result = await window.hermesDesktop.liveView.open({ sessionId })
+    const result = await window.fabricDesktop.liveView.open({ sessionId })
     const latest = $liveViews.get()[sessionId]
 
     if (pendingPipRequests.get(sessionId) !== requestId) {
@@ -585,7 +585,7 @@ export async function popOutLiveView(sessionId: string): Promise<boolean> {
 
     if (!result.ok || !latest || latest.presentation !== 'docked') {
       if (result.ok && latest?.presentation !== 'pip') {
-        void window.hermesDesktop.liveView.close(sessionId)
+        void window.fabricDesktop.liveView.close(sessionId)
       }
 
       return false
@@ -610,7 +610,7 @@ export function initLiveViewBridge(): () => void {
     return () => {}
   }
 
-  const api = window.hermesDesktop?.liveView
+  const api = window.fabricDesktop?.liveView
 
   if (!api || controlUnsubscribe) {
     return () => {}

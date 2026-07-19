@@ -55,13 +55,12 @@ cargo run --release -- --url ws://127.0.0.1:9119/api/ws --token <TOKEN>
 cargo run --release -- --url ... --token <TOKEN> --resume-recent
 ```
 
-- `--spawn` runs `fabric serve --host 127.0.0.1 --port 0` with a pinned
-  session token (passed through the backend's legacy-compatibility
-  `HERMES_DASHBOARD_SESSION_TOKEN` environment variable, the same handshake
-  the Electron desktop uses) and reads the announced port from its stdout.
+- `--spawn` runs `fabric serve --host 127.0.0.1 --port 0 --auth-token <TOKEN>`
+  with the same explicit child-launch handshake the Electron desktop uses,
+  then reads the announced port from stdout.
 - For `--url`, the token is the per-process dashboard session token. The
-  dashboard injects it into its served page; you can also pin your own by
-  exporting that same variable before starting the backend. The flag falls
+  dashboard injects it into its served page; you can also pin your own with
+  `fabric serve --auth-token <TOKEN>`. The flag falls
   back to `$FABRIC_COMPANION_TOKEN`.
 - **Session semantics**: by default the companion creates its *own* session
   (safe). `--session <id>` / `--resume-recent` re-bind an existing session's
@@ -104,8 +103,7 @@ files:
   when no usable profile package exists for the configured slug.
 - `~/.fabric/config.yaml` → `display.pet.slug` and `display.pet.scale`
   (0.1–3.0, default 0.33).
-- `FABRIC_HOME` env var relocates the state directory (legacy fallbacks
-  honored like `fabric_constants.get_fabric_home`).
+- `FABRIC_HOME` relocates the state directory.
 - `FABRIC_BUNDLED_PETS` optionally points at an alternate bundled-assets root.
 
 CLI flags override config: `--pet <slug>`, `--scale`, `--no-roam`,

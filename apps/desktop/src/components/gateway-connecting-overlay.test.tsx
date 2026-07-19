@@ -25,7 +25,6 @@ function resetStores() {
   setGatewayState('idle')
   $desktopBoot.set({
     error: null,
-    fakeMode: false,
     message: 'ready',
     phase: 'renderer.ready',
     progress: 100,

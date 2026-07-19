@@ -187,12 +187,16 @@ export function OAuthLoginModal({
           .catch(() => {});
       }
       const conflict = String(e).includes("oauth_in_progress");
+      const nousClientIdRequired =
+        provider.id === "nous" && String(e).includes("nous_client_id_required");
       setTakeoverAvailable(conflict);
       setPhase("error");
       setErrorMsg(
         conflict
           ? "Another sign-in is already in progress for this account."
-          : `Failed to start login: ${e}`,
+          : nousClientIdRequired
+            ? "Nous Portal OAuth requires a registered client ID. Run `fabric auth add nous --client-id <registered-client-id>`."
+            : `Failed to start login: ${e}`,
       );
     }
   };

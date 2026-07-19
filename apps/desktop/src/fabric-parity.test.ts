@@ -17,15 +17,15 @@ import {
   setCuratorPaused,
   setMcpServerEnabled,
   testMcpServer
-} from './hermes'
+} from './fabric'
 
-describe('Hermes REST parity helpers (hub / mcp / maintenance)', () => {
+describe('Fabric REST parity helpers (hub / mcp / maintenance)', () => {
   let api: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     setApiRequestProfile(null)
     api = vi.fn().mockResolvedValue({})
-    Object.defineProperty(window, 'hermesDesktop', {
+    Object.defineProperty(window, 'fabricDesktop', {
       configurable: true,
       value: { api }
     })
@@ -34,7 +34,7 @@ describe('Hermes REST parity helpers (hub / mcp / maintenance)', () => {
   afterEach(() => {
     setApiRequestProfile(null)
     vi.restoreAllMocks()
-    Reflect.deleteProperty(window, 'hermesDesktop')
+    Reflect.deleteProperty(window, 'fabricDesktop')
   })
 
   it('loads hub sources with a network-tolerant timeout', async () => {

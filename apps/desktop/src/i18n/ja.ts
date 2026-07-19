@@ -69,7 +69,7 @@ export const ja = defineLocale({
       loadingSettings: 'Fabric の設定を読み込み中',
       loadingSessions: '最近のセッションを読み込み中',
       startingDesktopConnection: 'デスクトップ接続を開始中',
-      startingHermesDesktop: 'Fabric を起動中…'
+      startingFabricDesktop: 'Fabric を起動中…'
     },
     errors: {
       backgroundExited: 'Fabric バックグラウンドプロセスが終了しました。',
@@ -121,7 +121,7 @@ export const ja = defineLocale({
     backendOutOfDateMessage:
       'Fabric バックエンドがこのデスクトップビルドより古く、正常に動作しない場合があります。更新して揃えてください。',
     installMethodUnsupportedTitle: 'サポート対象外のインストール方法',
-    updateHermes: 'Fabric を更新',
+    updateFabric: 'Fabric を更新',
     updateReadyTitle: '更新の準備ができました',
     updateReadyMessage: count => `${count} 件の新しい変更が利用可能です。`,
     seeWhatsNew: '新機能を見る',
@@ -1076,10 +1076,10 @@ export const ja = defineLocale({
     noSessions: 'セッションはまだありません。',
     gatewayRunning: 'メッセージングゲートウェイが実行中',
     gatewayStopped: 'メッセージングゲートウェイが停止中',
-    hermesActiveSessions: (version, count) => `Fabric ${version} · アクティブセッション ${count}`,
+    fabricActiveSessions: (version, count) => `Fabric ${version} · アクティブセッション ${count}`,
     restartGateway: 'ゲートウェイを再起動',
     gatewayRestartFailed: 'ゲートウェイの再起動に失敗しました。',
-    updateHermes: 'Fabric を更新',
+    updateFabric: 'Fabric を更新',
     actionRunning: '実行中',
     actionDone: '完了',
     actionFailed: '失敗',

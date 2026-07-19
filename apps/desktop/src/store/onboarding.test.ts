@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { requestModelOptions } from '@/lib/model-options'
 import * as notifications from '@/store/notifications'
 import { $activeGatewayProfile } from '@/store/profile'
-import type { OAuthProvider } from '@/types/hermes'
+import type { OAuthProvider } from '@/types/fabric'
 
 import {
   $desktopOnboarding,
@@ -36,7 +36,7 @@ import {
 
 function provider(id: string, name = id): OAuthProvider {
   return {
-    cli_command: `hermes login ${id}`,
+    cli_command: `fabric login ${id}`,
     docs_url: `https://example.com/${id}`,
     flow: 'pkce',
     id,
@@ -66,7 +66,7 @@ function baseState(overrides: Partial<DesktopOnboardingState> = {}): DesktopOnbo
 
 function installApiMock(api: (request: { path: string }) => Promise<unknown>) {
   const openExternal = vi.fn(async (_url: string): Promise<unknown> => true)
-  Object.defineProperty(window, 'hermesDesktop', {
+  Object.defineProperty(window, 'fabricDesktop', {
     configurable: true,
     value: { api, openExternal }
   })
@@ -228,7 +228,7 @@ describe('refreshOnboarding', () => {
 
     installApiMock(api)
     // Simulate a returning user: cache is set and store is configured.
-    window.localStorage.setItem('hermes-desktop-onboarded-v1', '1')
+    window.localStorage.setItem('fabric-desktop-onboarded-v1', '1')
     $desktopOnboarding.set(
       baseState({
         configured: true,
@@ -245,7 +245,7 @@ describe('refreshOnboarding', () => {
     expect($desktopOnboarding.get().configured).toBe(true)
     expect($desktopOnboarding.get().reason).toBeNull()
     // The cache must survive the refresh — proving we didn't downgrade.
-    expect(window.localStorage.getItem('hermes-desktop-onboarded-v1')).toBe('1')
+    expect(window.localStorage.getItem('fabric-desktop-onboarded-v1')).toBe('1')
   })
 
   it('shows a non-blocking notification when preserving configured on fallback', async () => {
@@ -1138,7 +1138,7 @@ describe('OAuth onboarding', () => {
   })
 
   it('pins PKCE submission and post-auth completion across an active-profile switch', async () => {
-    const model = 'nous/hermes-4'
+    const model = 'test-provider/model-alpha'
     let resolveSubmit!: (value: { ok: boolean; status: 'approved' }) => void
 
     const pendingSubmit = new Promise<{ ok: boolean; status: 'approved' }>(resolve => {
@@ -1326,7 +1326,7 @@ describe('OAuth onboarding', () => {
     expect($desktopOnboarding.get().configured).toBe(false)
     expect($desktopOnboarding.get().flow).toEqual({ status: 'idle' })
     expect(onCompleted).not.toHaveBeenCalled()
-    expect(window.localStorage.getItem('hermes-desktop-onboarded-v1')).toBeNull()
+    expect(window.localStorage.getItem('fabric-desktop-onboarded-v1')).toBeNull()
   })
 
   it('does not finalize an origin confirmation after another profile becomes active', () => {
@@ -1351,7 +1351,7 @@ describe('OAuth onboarding', () => {
     expect($desktopOnboarding.get().configured).toBe(false)
     expect($desktopOnboarding.get().flow).toEqual({ status: 'idle' })
     expect(onCompleted).not.toHaveBeenCalled()
-    expect(window.localStorage.getItem('hermes-desktop-onboarded-v1')).toBeNull()
+    expect(window.localStorage.getItem('fabric-desktop-onboarded-v1')).toBeNull()
   })
 
   it('does not let a late model-change response overwrite a newer profile confirmation', async () => {

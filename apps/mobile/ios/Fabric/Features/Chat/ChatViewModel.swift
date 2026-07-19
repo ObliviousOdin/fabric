@@ -133,6 +133,19 @@ final class ChatViewModel {
     private var bootstrapGeneration = 0
     private var starting = false
 
+    static func approval(from event: GatewayEvent) -> PendingApproval? {
+        guard
+            let requestId = event.payload["request_id"] as? String,
+            !requestId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return PendingApproval(
+            command: event.payload["command"] as? String,
+            requestId: requestId,
+            summary: (event.payload["summary"] as? String)
+                ?? (event.payload["description"] as? String)
+        )
+    }
+
     init(api: GatewayAPI, resumeStoredSessionId: String?) {
         self.api = api
         self.storedSessionId = resumeStoredSessionId
@@ -490,16 +503,8 @@ final class ChatViewModel {
             statusLine = nil
 
         case "approval.request":
-            let command = event.payload["command"] as? String
-            let summary = (event.payload["summary"] as? String)
-                ?? (event.payload["description"] as? String)
-            let requestId = (event.payload["request_id"] as? String)
-                ?? "legacy:\(command ?? ""):\(summary ?? "")"
-            enqueueInteraction(.approval(PendingApproval(
-                command: command,
-                requestId: requestId,
-                summary: summary
-            )))
+            guard let approval = Self.approval(from: event) else { return }
+            enqueueInteraction(.approval(approval))
 
         case "clarify.request":
             guard let requestId = event.payload["request_id"] as? String else { return }

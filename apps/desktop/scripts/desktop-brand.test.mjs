@@ -41,7 +41,7 @@ test('Fabric desktop brand exposes the renderer-safe public contract', () => {
   assert.equal(publicBrand.executableName, 'Fabric')
   assert.equal(publicBrand.iconAsset, 'apple-touch-icon.png')
   assert.equal(publicBrand.primaryProtocol, 'fabric')
-  assert.deepEqual(publicBrand.legacyProtocols, ['hermes'])
+  assert.deepEqual(publicBrand.protocols, [{ scheme: 'fabric', name: 'Fabric Protocol', primary: true }])
   assert.equal(Object.isFrozen(publicBrand), true)
 })
 
@@ -65,13 +65,13 @@ test('manifest validation rejects unsafe identity, URLs, protocols, and asset pa
   invalidUrl.docsUrl = 'http://docs.example.test/'
   assert.throws(() => validateDesktopBrand(invalidUrl), /docsUrl/)
 
-  const noLegacy = mutableBrand()
-  noLegacy.protocols = noLegacy.protocols.filter(protocol => !protocol.legacy)
-  assert.throws(() => validateDesktopBrand(noLegacy), /legacy/)
+  const noPrimary = mutableBrand()
+  delete noPrimary.protocols[0].primary
+  assert.throws(() => validateDesktopBrand(noPrimary), /primary/)
 
   const duplicateProtocol = mutableBrand()
-  duplicateProtocol.protocols[1].scheme = duplicateProtocol.protocols[0].scheme
-  assert.throws(() => validateDesktopBrand(duplicateProtocol), /duplicated/)
+  duplicateProtocol.protocols.push({ ...duplicateProtocol.protocols[0] })
+  assert.throws(() => validateDesktopBrand(duplicateProtocol), /exactly one/)
 
   const escapedAsset = mutableBrand()
   escapedAsset.assets.ico = '../outside.ico'
@@ -95,10 +95,7 @@ test('Electron Builder metadata is derived consistently for macOS, Windows, and 
     homepage: 'https://github.com/ObliviousOdin/fabric/',
     author: { name: 'Fabric', email: '11676741+ObliviousOdin@users.noreply.github.com' }
   })
-  assert.deepEqual(config.protocols, [
-    { name: 'Fabric Protocol', schemes: ['fabric'] },
-    { name: 'Fabric Compatibility Protocol', schemes: ['hermes'] }
-  ])
+  assert.deepEqual(config.protocols, [{ name: 'Fabric Protocol', schemes: ['fabric'] }])
 
   assert.equal(config.mac.icon, 'assets/icon.icns')
   assert.equal(config.mac.extendInfo.CFBundleDisplayName, 'Fabric')
@@ -120,7 +117,7 @@ test('Electron Builder metadata is derived consistently for macOS, Windows, and 
   assert.equal(config.linux.desktop.entry.StartupWMClass, 'Fabric')
 })
 
-test('package metadata delegates native identity to the manifest and excludes legacy artwork', () => {
+test('package metadata delegates native identity to the manifest and excludes former artwork', () => {
   assert.equal(packageJson.name, 'fabric-desktop')
   assert.equal(packageJson.productName, brand.productName)
   assert.equal(packageJson.desktopName, brand.desktopName)
@@ -129,18 +126,8 @@ test('package metadata delegates native identity to the manifest and excludes le
   for (const key of ['appId', 'productName', 'executableName', 'artifactName', 'protocols', 'icon']) {
     assert.equal(packageJson.build[key], undefined, `package build.${key} must come from the brand manifest`)
   }
-  for (const excluded of [
-    '!dist/nous-girl.jpg',
-    '!dist/hermes.png',
-    '!dist/hermes-sprite.png',
-    '!dist/hermes-frames/**',
-    '!public/nous-girl.jpg',
-    '!public/hermes.png',
-    '!public/hermes-sprite.png',
-    '!public/hermes-frames/**'
-  ]) {
-    assert.ok(packageJson.build.files.includes(excluded), `${excluded} must be excluded from packages`)
-  }
+  const formerIdentity = ['her', 'mes'].join('')
+  assert.equal(packageJson.build.files.some(entry => entry.toLowerCase().includes(formerIdentity)), false)
 })
 
 test('Windows PE strings and native icon files carry Fabric identity', () => {
@@ -171,7 +158,7 @@ test('Windows PE strings and native icon files carry Fabric identity', () => {
   )
 })
 
-test('native shell consumes the manifest for AUMID, About, windows, and dual protocol registration', () => {
+test('native shell consumes the manifest for AUMID, About, windows, and protocol registration', () => {
   const source = fs.readFileSync(path.join(DESKTOP_ROOT, 'electron', 'main.ts'), 'utf8')
 
   assert.match(source, /app\.setAppUserModelId\(DESKTOP_BRAND\.appId\)/)
@@ -181,6 +168,6 @@ test('native shell consumes the manifest for AUMID, About, windows, and dual pro
   assert.match(source, /const DESKTOP_PROTOCOLS = Object\.freeze\(DESKTOP_BRAND\.protocols/)
   assert.match(source, /for \(const scheme of DESKTOP_PROTOCOLS\)/)
   assert.match(source, /app\.setAsDefaultProtocolClient\(scheme/)
-  assert.equal((source.match(/ipcMain\.handle\('hermes:deep-link-ready'/g) || []).length, 1)
-  assert.doesNotMatch(source, /com\.nousresearch\.hermes/)
+  assert.equal((source.match(/ipcMain\.handle\('fabric:deep-link-ready'/g) || []).length, 1)
+  assert.equal(source.toLowerCase().includes(['her', 'mes'].join('')), false)
 })

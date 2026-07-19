@@ -26,25 +26,25 @@ import { Switch } from '@/components/ui/switch'
 import { TextTab } from '@/components/ui/text-tab'
 import {
   authMcpServer,
+  type FabricGateway,
   getActionStatus,
   getLogs,
   getMcpCatalog,
-  type HermesGateway,
   installMcpCatalogEntry,
   type McpCatalogEntry,
   type McpTestResult,
   saveMcpServers,
   testMcpServer
-} from '@/hermes'
+} from '@/fabric'
 import { type Translations, useI18n } from '@/i18n'
 import { countEnabledTools, isToolEnabled, toggleToolInServer } from '@/lib/mcp-tool-filter'
 import { cn } from '@/lib/utils'
 import { notify, notifyError } from '@/store/notifications'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
 import { $activeSessionId } from '@/store/session'
-import type { HermesConfigRecord } from '@/types/hermes'
+import type { FabricConfigRecord } from '@/types/fabric'
 
-import { setHermesConfigCache, useHermesConfigRecord } from '../hooks/use-config-record'
+import { setFabricConfigCache, useFabricConfigRecord } from '../hooks/use-config-record'
 import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
 import { DetailPane, ICON_BUTTON, MASTER_DETAIL_WIDE_COLS } from '../master-detail'
 import { PanelAddButton, PanelEmpty } from '../overlays/panel'
@@ -99,7 +99,7 @@ function parseServersDoc(raw: string): McpServers {
   return Object.fromEntries(Object.entries(map).map(([name, entry]) => [name, normalizeEntry(entry)]))
 }
 
-function getServers(config: HermesConfigRecord | null): McpServers {
+function getServers(config: FabricConfigRecord | null): McpServers {
   const raw = config?.mcp_servers
 
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as McpServers) : {}
@@ -338,7 +338,7 @@ function scanServerBlocks(text: string): ServerBlock[] {
   return blocks
 }
 
-export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
+export function McpTab({ gateway }: { gateway: FabricGateway | null }) {
   const { t } = useI18n()
   const m = t.settings.mcp
   const activeSessionId = useStore($activeSessionId)
@@ -354,9 +354,9 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
     refetch: refetchConfig,
     dataUpdatedAt: configUpdatedAt,
     errorUpdatedAt: configErroredAt
-  } = useHermesConfigRecord()
+  } = useFabricConfigRecord()
 
-  const setConfig = setHermesConfigCache
+  const setConfig = setFabricConfigCache
 
   // True from a profile switch until the config query resettles for the new
   // profile. Until then `config` (and thus `servers`) still holds profile A's
@@ -640,7 +640,7 @@ export function McpTab({ gateway }: { gateway: HermesGateway | null }) {
     }
   }
 
-  // Whole-map replace (NOT saveHermesConfig, which deep-merges and so can never
+  // Whole-map replace (NOT saveFabricConfig, which deep-merges and so can never
   // delete a server, drop `enabled: false`, or remove a nested field). Only
   // after the replace lands do we write the cache through + reload live sessions.
   // Returns false when the profile switched mid-save: the write hit profile A's

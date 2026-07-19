@@ -4,15 +4,15 @@
 // test pattern (see windows-child-process.test.ts). They pin the two Windows
 // resolution bugs that caused desktop reinstall loops:
 //   1. findOnPath() tried the empty extension FIRST, so an extensionless
-//      Git-Bash `fabric` shim shadowed the real hermes.cmd/hermes.exe; the
+//      Git-Bash `fabric` shim shadowed the real fabric.cmd/fabric.exe; the
 //      shim then failed the --version probe and the desktop fell through to a
 //      spurious bootstrap/repair.
 //   2. handOffWindowsBootstrapRecovery() chose --update vs the destructive
-//      --repair by checking ONLY venv\Scripts\hermes.exe (the console-script
+//      --repair by checking ONLY venv\Scripts\fabric.exe (the console-script
 //      shim, written at the END of venv setup and absent in interrupted
 //      states), so it escalated to a full venv recreate even on healthy
 //      installs.
-//   3. unwrapWindowsVenvHermesCommand() returned the venv python with NO
+//   3. unwrapWindowsVenvFabricCommand() returned the venv python with NO
 //      runtime probe (bypassing the caller's --version check too), so a venv
 //      broken mid-update (e.g. missing python-dotenv) was re-selected forever:
 //      Retry / "Repair install" resolved the same dead interpreter instead of
@@ -42,23 +42,16 @@ test('findOnPath tries PATHEXT extensions before the bare (empty) name on Window
   assert.doesNotMatch(
     source,
     /\['', \.\.\.\(process\.env\.PATHEXT/,
-    'empty-extension-first order regressed: an extensionless shim can shadow hermes.cmd/.exe'
+    'empty-extension-first order regressed: an extensionless shim can shadow fabric.cmd/.exe'
   )
 })
 
-test('runtime resolution prefers the Fabric CLI and retains the legacy command fallback', () => {
+test('runtime resolution accepts only the Fabric CLI', () => {
   const source = readMain()
 
-  assert.match(
-    source,
-    /findOnPath\('fabric'\) \|\| findOnPath\('hermes'\)/,
-    'the public Fabric command must be resolved before the legacy Hermes shim'
-  )
-  assert.match(
-    source,
-    /\^\(\?:fabric\|hermes\)\(\?:\\\.exe\)\?\$/,
-    'Windows venv unwrapping must accept both current and legacy executable names'
-  )
+  assert.match(source, /const fabricOverride = process\.env\.FABRIC_DESKTOP_CLI/)
+  assert.match(source, /fabricCommand = findOnPath\('fabric'\)/)
+  assert.match(source, /\^fabric\(\?:\\\.exe\)\?\$/)
 })
 
 test('Windows bootstrap recovery chooses --update when any real-install signal is present', () => {
@@ -67,28 +60,28 @@ test('Windows bootstrap recovery chooses --update when any real-install signal i
   assert.match(source, /fileExists\(venvPython\)/, 'recovery must accept the venv interpreter as a real-install signal')
   assert.match(
     source,
-    /\.hermes-bootstrap-complete/,
+    /\.fabric-bootstrap-complete/,
     'recovery must accept the bootstrap-complete marker as a real-install signal'
   )
   assert.match(source, /updaterArgs = haveRealInstall \? \['--update'/, 'updaterArgs must gate on haveRealInstall')
-  // The old too-narrow check (only venv\Scripts\hermes.exe) must not return.
+  // Recovery must not gate solely on the console-script shim.
   assert.doesNotMatch(
     source,
-    /updaterArgs = fileExists\(venvHermes\) \?/,
-    'recovery regressed to gating only on the hermes.exe shim, which forces destructive --repair'
+    /updaterArgs = fileExists\(venvFabric\) \?/,
+    'recovery regressed to gating only on the fabric.exe shim, which forces destructive --repair'
   )
 })
 
-test('unwrapWindowsVenvHermesCommand smoke-tests the venv python before trusting it', () => {
+test('unwrapWindowsVenvFabricCommand smoke-tests the venv python before trusting it', () => {
   const source = readMain()
-  const fnStart = source.indexOf('function unwrapWindowsVenvHermesCommand(')
-  assert.notEqual(fnStart, -1, 'unwrapWindowsVenvHermesCommand must exist in main.ts')
+  const fnStart = source.indexOf('function unwrapWindowsVenvFabricCommand(')
+  assert.notEqual(fnStart, -1, 'unwrapWindowsVenvFabricCommand must exist in main.ts')
   // Slice out just the function body (up to the next top-level function decl)
   const fnEnd = source.indexOf('\nfunction ', fnStart + 1)
   const body = source.slice(fnStart, fnEnd === -1 ? undefined : fnEnd)
   assert.match(
     body,
-    /canImportHermesCli\(python/,
+    /canImportFabricCli\(python/,
     'unwrap must probe the venv interpreter; returning it unprobed re-selects a broken venv ' +
       'forever (Retry/Repair loop on a mid-update venv missing e.g. python-dotenv)'
   )

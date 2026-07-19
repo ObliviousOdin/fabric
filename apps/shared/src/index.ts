@@ -17,13 +17,11 @@ export {
 export {
   GatewayReauthRequiredError,
   buildFabricWebSocketUrl,
-  buildHermesWebSocketUrl,
   isGatewayReauthRequired,
   resolveGatewayWsUrl,
   type GatewayAuthMode,
   type GatewayWsConnection,
   type FabricWebSocketUrlOptions,
-  type HermesWebSocketUrlOptions,
   type ResolveGatewayWsUrlDeps,
   type WebSocketAuthParam,
 } from "./websocket-url";

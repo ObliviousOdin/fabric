@@ -5,8 +5,7 @@ export interface LaunchResult {
   error?: string
 }
 
-export const resolveFabricBin = (env: NodeJS.ProcessEnv = process.env) =>
-  env.FABRIC_BIN?.trim() || env.HERMES_BIN?.trim() || 'fabric'
+export const resolveFabricBin = (env: NodeJS.ProcessEnv = process.env) => env.FABRIC_BIN?.trim() || 'fabric'
 
 export const launchFabricCommand = (args: string[]): Promise<LaunchResult> =>
   new Promise(resolve => {

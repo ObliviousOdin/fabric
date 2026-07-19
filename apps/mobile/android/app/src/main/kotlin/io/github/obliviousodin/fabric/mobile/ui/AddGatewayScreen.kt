@@ -33,6 +33,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import io.github.obliviousodin.fabric.mobile.AppViewModel
 import io.github.obliviousodin.fabric.mobile.ConnectionPhase
+import io.github.obliviousodin.fabric.mobile.core.GatewayBaseUrl
 import io.github.obliviousodin.fabric.mobile.core.GatewayApi
 import io.github.obliviousodin.fabric.mobile.core.PairingPayload
 import io.github.obliviousodin.fabric.mobile.ui.theme.FabricTheme
@@ -62,8 +63,8 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
     var probeResult by remember { mutableStateOf<String?>(null) }
     var probing by remember { mutableStateOf(false) }
 
-    val urlValid = url.trim().startsWith("http://") || url.trim().startsWith("https://")
-    val canSave = urlValid && phase != ConnectionPhase.Connecting &&
+    val normalizedUrl = GatewayBaseUrl.parse(url)
+    val canSave = normalizedUrl != null && phase != ConnectionPhase.Connecting &&
         if (passwordMode) {
             username.isNotBlank() && password.isNotEmpty() &&
                 (!requiresTotp || otp.trim().length >= 6)
@@ -86,8 +87,8 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
         return provider?.name
     }
 
-    fun save() {
-        val base = url.trim().trimEnd('/')
+    fun save(baseOverride: String? = null, tokenOverride: String? = null) {
+        val base = baseOverride ?: GatewayBaseUrl.parse(url) ?: return
         scope.launch {
             try {
                 if (passwordMode) {
@@ -99,7 +100,8 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
                     val gateway = viewModel.saveGatedGateway(label, base, username.trim())
                     viewModel.connectGated(gateway, provider, password, otp.trim())
                 } else {
-                    val gateway = viewModel.saveTokenGateway(label, base, token.trim())
+                    val credential = tokenOverride ?: token.trim()
+                    val gateway = viewModel.saveTokenGateway(label, base, credential)
                     viewModel.connectToken(gateway)
                 }
             } catch (_: Exception) {
@@ -120,7 +122,7 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
         if (payload.token != null) {
             passwordMode = false
             token = payload.token
-            save()
+            save(baseOverride = payload.baseUrl, tokenOverride = payload.token)
         } else {
             passwordMode = true
             probeResult = "Server requires sign-in — enter your username and password."
@@ -216,10 +218,12 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
                     probeResult = null
                     scope.launch {
                         probeResult = try {
-                            val status = GatewayApi.probeStatus(url.trim())
+                            val base = GatewayBaseUrl.parse(url)
+                                ?: throw IllegalArgumentException("Gateway URL must be http:// or https://")
+                            val status = GatewayApi.probeStatus(base)
                             if (status.authRequired) {
                                 passwordMode = true
-                                if (resolveProvider(url.trim().trimEnd('/')) == null) {
+                                if (resolveProvider(base) == null) {
                                     "Reachable, but no password sign-in is offered (OAuth-only isn't supported yet)."
                                 } else {
                                     "Reachable — sign-in required."
@@ -235,7 +239,7 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
                         }
                     }
                 },
-                enabled = urlValid && !probing,
+                enabled = normalizedUrl != null && !probing,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (probing) CircularProgressIndicator(modifier = Modifier.padding(4.dp)) else Text("Test connection")

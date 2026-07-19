@@ -7,5 +7,5 @@ derived from this file through `../scripts/desktop-brand.mjs`.
 
 The checked-in manifest is validated and baked into the renderer and Electron
 main bundles. Asset paths remain relative to `apps/desktop`. The manifest also
-preserves the legacy protocol scheme so existing installed links keep working
+defines the single supported `fabric://` desktop protocol
 across an upgrade.

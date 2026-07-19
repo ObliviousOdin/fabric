@@ -5,6 +5,7 @@ import { type NodeApi, type NodeRendererProps, type RowRendererProps, Tree, type
 import { TreeSkeleton } from '@/components/chat/skeletons'
 import { Codicon } from '@/components/ui/codicon'
 import { useResizeObserver } from '@/hooks/use-resize-observer'
+import { SESSION_REFERENCE_MIME } from '@/lib/drag-transfer'
 import { cn } from '@/lib/utils'
 import { $repoChangeByPath, type RepoChangeKind } from '@/store/coding-status'
 import { $renamingPath, beginInlineRename } from '@/store/file-actions'
@@ -319,7 +320,7 @@ function ProjectTreeRow({
         const payload = JSON.stringify([{ isDirectory: isFolder, path: node.data.id }])
 
         event.dataTransfer.effectAllowed = 'copy'
-        event.dataTransfer.setData('application/x-hermes-paths', payload)
+        event.dataTransfer.setData(SESSION_REFERENCE_MIME, payload)
         event.dataTransfer.setData('text/plain', node.data.id)
       }}
       ref={dragHandle}

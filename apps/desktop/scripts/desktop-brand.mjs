@@ -116,12 +116,11 @@ function validateDesktopBrand(input, { source = '<memory>' } = {}) {
     fail(source, 'iconAsset must be a renderer-safe PNG basename')
   }
 
-  if (!Array.isArray(input.protocols) || input.protocols.length < 2) {
-    fail(source, 'protocols must contain a primary scheme and at least one legacy scheme')
+  if (!Array.isArray(input.protocols) || input.protocols.length !== 1) {
+    fail(source, 'protocols must contain exactly one scheme')
   }
   const schemes = new Set()
   let primaryCount = 0
-  let legacyCount = 0
   const protocols = input.protocols.map((protocol, index) => {
     if (!isPlainObject(protocol)) {
       fail(source, `protocols[${index}] must be an object`)
@@ -137,25 +136,19 @@ function validateDesktopBrand(input, { source = '<memory>' } = {}) {
       fail(source, `protocols[${index}].name must be a safe non-empty string`)
     }
     if (protocol.primary === true) primaryCount += 1
-    if (protocol.legacy === true) legacyCount += 1
-    if (protocol.primary === true && protocol.legacy === true) {
-      fail(source, `protocols[${index}] cannot be both primary and legacy`)
+    if ('legacy' in protocol) {
+      fail(source, `protocols[${index}] contains an unsupported compatibility flag`)
     }
 
     return {
       scheme: protocol.scheme,
       name: protocol.name,
-      ...(protocol.primary === true ? { primary: true } : {}),
-      ...(protocol.legacy === true ? { legacy: true } : {})
+      ...(protocol.primary === true ? { primary: true } : {})
     }
   })
   if (primaryCount !== 1) {
     fail(source, 'protocols must contain exactly one primary scheme')
   }
-  if (legacyCount < 1) {
-    fail(source, 'protocols must preserve at least one legacy scheme')
-  }
-
   if (!isPlainObject(input.assets)) {
     fail(source, 'assets must be an object')
   }
@@ -180,8 +173,7 @@ function validateDesktopBrand(input, { source = '<memory>' } = {}) {
     ...Object.fromEntries(REQUIRED_STRING_FIELDS.map(field => [field, input[field]])),
     protocols,
     assets,
-    primaryProtocol: protocols.find(protocol => protocol.primary).scheme,
-    legacyProtocols: protocols.filter(protocol => protocol.legacy).map(protocol => protocol.scheme)
+    primaryProtocol: protocols.find(protocol => protocol.primary).scheme
   }
 
   return deepFreeze(normalized)
@@ -232,7 +224,6 @@ function toPublicDesktopBrand(brandInput) {
     iconAsset: brand.iconAsset,
     protocols: brand.protocols,
     primaryProtocol: brand.primaryProtocol,
-    legacyProtocols: brand.legacyProtocols,
     assets: brand.assets
   })
 }

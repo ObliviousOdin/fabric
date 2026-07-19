@@ -4,9 +4,7 @@
  * Packaging injects the checked-in release manifest as
  * `__FABRIC_DESKTOP_BRAND__`. The fallback keeps tests and source-only Vite
  * consumers deterministic when the packaging step is not running.
- * Internal IPC channels, backend command names, and compatibility env vars
- * intentionally remain lowercase `fabric`; this module is only for rendered
- * product identity.
+ * This module is the single rendered product identity contract.
  */
 export interface DesktopBrand {
   cliName: string
@@ -48,26 +46,3 @@ export const desktopBrand: DesktopBrand = Object.freeze({
   ...DEFAULT_DESKTOP_BRAND,
   ...compiledDesktopBrand()
 })
-
-const MODEL_NAME_TOKEN = '__FABRIC_PRESERVED_HERMES_MODEL__'
-const MODEL_FAMILY_LABEL = 'Hermes models'.replace(/ models$/, '')
-
-/** Normalize legacy compatibility copy to the Fabric product identity. */
-export function brandText(value: string): string {
-  return value
-    .replace(/\bHermes(?=[ -]?[34](?:\b|\.))/g, MODEL_NAME_TOKEN)
-    .replace(/Hermes(?= (?:デスクトップ|桌面版|桌面端|桌面应用|桌面應用程式))/g, desktopBrand.desktopName)
-    .replace(
-      /\bFabric(?=\s+(?:config|desktop|doctor|gateway|logs|model|setup|skills|status|update)\b)/g,
-      desktopBrand.cliName.toLowerCase()
-    )
-    .replace(/\bFabric\b/g, desktopBrand.desktopName)
-    .replace(/\bFabric\b/g, desktopBrand.productName)
-    .replace(/\bHermes\b/g, desktopBrand.productName)
-    .replace(
-      /\bhermes(?=\s+(?:config|desktop|doctor|gateway|logs|model|setup|skills|status|update)\b)/g,
-      desktopBrand.cliName
-    )
-    .replace(/~\/\.hermes(?=\/|\b)/g, `~/${desktopBrand.homeDirectoryName}`)
-    .replaceAll(MODEL_NAME_TOKEN, MODEL_FAMILY_LABEL)
-}

@@ -92,7 +92,7 @@ enum GatewayStore {
         else { return [] }
 
         // Older builds appended a new row on every scan. Keep the newest row
-        // per endpoint and migrate the library in place so stale duplicates do
+        // per endpoint and repair the library in place so stale duplicates do
         // not keep sending the user to an obsolete auth record.
         var seenEndpoints = Set<String>()
         let deduplicated = Array(list.reversed().filter {

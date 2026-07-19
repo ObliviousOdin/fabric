@@ -808,7 +808,7 @@ export function reduceRemoteSessionEvent(
         messages: upsertLiveTool(state.messages, payload, "complete"),
       };
     case "clarify.request": {
-      const requestId = asString(payload.request_id);
+      const requestId = asString(payload.request_id).trim();
       const question = asString(payload.question);
       if (!requestId || !question) {
         return state;
@@ -832,8 +832,10 @@ export function reduceRemoteSessionEvent(
     case "approval.request": {
       const command = asString(payload.command);
       const description = asString(payload.description) || "Dangerous command";
-      const requestId =
-        asString(payload.request_id) || `legacy:${command}:${description}`;
+      const requestId = asString(payload.request_id).trim();
+      if (!requestId) {
+        return state;
+      }
       return {
         ...state,
         pendingInteractions: enqueueInteraction(state, {

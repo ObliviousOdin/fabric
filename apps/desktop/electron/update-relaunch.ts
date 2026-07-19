@@ -9,7 +9,7 @@
  *
  * Background
  * ----------
- * After `fabric update` + `Fabric desktop --build-only`, the freshly-rebuilt
+ * After `fabric update` + `fabric desktop --build-only`, the freshly-rebuilt
  * GUI lives under `apps/desktop/release/<plat>-unpacked`. We can only honestly
  * relaunch into the new GUI when the *running* binary is that rebuilt one —
  * i.e. its execPath is under the rebuilt `release/<plat>-unpacked` dir.
@@ -223,15 +223,21 @@ function collectRelaunchArgs(argv) {
 }
 
 // Env keys whose values define the relaunched instance's context (which
-// backend/profile/root it talks to). Canonical FABRIC_DESKTOP_* values and
-// HERMES_DESKTOP_* compatibility aliases are preserved, together with both
-// home names. We snapshot the values, not the live env, so the new instance
+// backend/profile/root it talks to). We snapshot the values, not the live env,
+// so the new instance
 // comes up pointed at the same place this one was.
 // ELECTRON_DISABLE_SANDBOX is preserved for the same reason --no-sandbox is kept
 // in the replayed args: if a relaunch is only safe because the user opted out of
 // the SUID sandbox, the relaunched instance must inherit that opt-out too.
-const PRESERVED_ENV_KEYS = ['FABRIC_HOME', 'HERMES_HOME', 'ELECTRON_DISABLE_SANDBOX']
-const PRESERVED_ENV_PREFIXES = ['FABRIC_DESKTOP_', 'HERMES_DESKTOP_']
+const PRESERVED_ENV_KEYS = [
+  'FABRIC_HOME',
+  'FABRIC_DESKTOP_ROOT',
+  'FABRIC_DESKTOP_SHELL',
+  // Existing canonical remote connection override.
+  'FABRIC_DESKTOP_REMOTE_URL',
+  'FABRIC_DESKTOP_REMOTE_TOKEN',
+  'ELECTRON_DISABLE_SANDBOX'
+]
 
 function collectRelaunchEnv(env) {
   const out = {}
@@ -245,7 +251,7 @@ function collectRelaunchEnv(env) {
       continue
     }
 
-    if (PRESERVED_ENV_KEYS.includes(key) || PRESERVED_ENV_PREFIXES.some(p => key.startsWith(p))) {
+    if (PRESERVED_ENV_KEYS.includes(key)) {
       out[key] = String(value)
     }
   }
@@ -304,7 +310,6 @@ export {
   decideRelaunchOutcome,
   INTERNAL_ARG_PREFIXES,
   PRESERVED_ENV_KEYS,
-  PRESERVED_ENV_PREFIXES,
   resolveUnpackedRelease,
   sandboxFallbackFromEnv,
   sandboxPreflight,

@@ -82,7 +82,7 @@ function resolveRemovableAppPath(execPath, platform, env: any = {}) {
     // …/Fabric.app/Contents/MacOS/Fabric → strip 3 segments to the .app
     const macOsDir = p.dirname(exe) // …/Contents/MacOS
     const contents = p.dirname(macOsDir) // …/Contents
-    const appBundle = p.dirname(contents) // …/Fabric.app (or a legacy bundle)
+    const appBundle = p.dirname(contents) // …/Fabric.app
 
     if (appBundle.endsWith('.app')) {
       return appBundle
@@ -93,13 +93,10 @@ function resolveRemovableAppPath(execPath, platform, env: any = {}) {
 
   if (platform === 'win32') {
     // NSIS installs the executable directly in a product-named directory.
-    // Preserve legacy names so an upstream-branded install can uninstall
-    // cleanly after upgrading to Fabric.
     const dir = p.dirname(exe)
     const basename = p.basename(dir).toLowerCase()
-    const recognizedInstallDirs = new Set(['fabric', 'fabric-desktop', 'hermes', 'hermes-desktop'])
 
-    if (recognizedInstallDirs.has(basename)) {
+    if (basename === 'fabric') {
       return dir
     }
 
@@ -110,7 +107,7 @@ function resolveRemovableAppPath(execPath, platform, env: any = {}) {
   if (env.APPIMAGE) {
     return env.APPIMAGE
   }
-  // Unpacked electron-builder tree: …/linux-unpacked/hermes
+  // Unpacked electron-builder tree: …/linux-unpacked/Fabric
   const dir = p.dirname(exe)
 
   if (/-unpacked$/.test(dir)) {
@@ -141,7 +138,7 @@ function shouldRemoveAppBundle(isPackaged, appPath) {
  * resolves from the agent source. `q()` single-quote-escapes for the shell
  * (closes-escapes-reopens any embedded apostrophe), defending against spaces.
  */
-function buildPosixCleanupScript({ desktopPid, pythonExe, pythonPath, agentRoot, uninstallArgs, appPath, hermesHome }) {
+function buildPosixCleanupScript({ desktopPid, pythonExe, pythonPath, agentRoot, uninstallArgs, appPath, fabricHome }) {
   const q = s => `'${String(s).replace(/'/g, `'\\''`)}'`
 
   const lines = [
@@ -156,8 +153,7 @@ function buildPosixCleanupScript({ desktopPid, pythonExe, pythonPath, agentRoot,
     '    sleep 0.5',
     '  done',
     'fi',
-    `export FABRIC_HOME=${q(hermesHome)}`,
-    `export HERMES_HOME=${q(hermesHome)}`
+    `export FABRIC_HOME=${q(fabricHome)}`
   ]
 
   if (pythonPath) {
@@ -202,19 +198,18 @@ function buildWindowsCleanupScript({
   agentRoot,
   uninstallArgs,
   appPath,
-  hermesHome
+  fabricHome
 }) {
   const pid = Number(desktopPid) || 0
   // cmd.exe has no string escaping inside quotes; strip embedded quotes (paths
   // under %LOCALAPPDATA% never contain them). `&`/`^` in a path would still be
-  // a problem, but Hermes install paths don't use them.
+  // a problem, but Fabric install paths don't use them.
   const q = s => `"${String(s).replace(/"/g, '')}"`
 
   const lines = [
     '@echo off',
     'setlocal enableextensions',
-    `set "FABRIC_HOME=${String(hermesHome).replace(/"/g, '')}"`,
-    `set "HERMES_HOME=${String(hermesHome).replace(/"/g, '')}"`,
+    `set "FABRIC_HOME=${String(fabricHome).replace(/"/g, '')}"`,
     `set "PID=${pid}"`
   ]
 

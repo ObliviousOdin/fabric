@@ -22,7 +22,7 @@ const provider: OAuthProvider = {
   id: "nous",
   name: "Nous Portal",
   flow: "device_code",
-  cli_command: "fabric auth add nous",
+  cli_command: "fabric auth add nous --client-id <registered-client-id>",
   docs_url: "https://example.invalid/docs",
   status: { logged_in: false },
 };
@@ -535,6 +535,35 @@ describe("OAuthLoginModal device polling", () => {
       takeover: true,
     });
     expect(document.body.textContent).toContain("CODE-1234");
+  });
+
+  it("shows the registered client-id command when Nous login cannot start", async () => {
+    vi.spyOn(api, "startOAuthLogin").mockRejectedValue(
+      new Error('409: {"error":{"code":"nous_client_id_required"}}'),
+    );
+    vi.spyOn(api, "cancelOAuthSession").mockResolvedValue({ ok: true });
+
+    await act(async () => {
+      root.render(
+        <OAuthLoginModal
+          provider={provider}
+          onClose={vi.fn()}
+          onError={vi.fn()}
+          onSuccess={vi.fn()}
+        />,
+      );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(document.body.textContent).toContain(
+      "fabric auth add nous --client-id <registered-client-id>",
+    );
+    expect(document.body.textContent).not.toContain("Failed to start login");
   });
 
   it("keeps account navigation disabled while a managed request is pending", async () => {

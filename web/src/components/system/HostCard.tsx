@@ -29,8 +29,8 @@ import {
 
 export interface HostCardProps {
   stats: SystemStats | null;
-  /** `status.can_update_hermes !== false` — gates the whole update UI (Y9). */
-  canUpdateHermes: boolean;
+  /** `status.can_update_fabric !== false` — gates the whole update UI (Y9). */
+  canUpdateFabric: boolean;
   updateInfo: UpdateCheckResponse | null;
   /** Forced re-checks write back so the version badge stays current (Y9). */
   setUpdateInfo: (info: UpdateCheckResponse) => void;
@@ -121,7 +121,7 @@ function MetricTile({
  */
 export function HostCard({
   stats,
-  canUpdateHermes,
+  canUpdateFabric,
   updateInfo,
   setUpdateInfo,
   setActiveAction,
@@ -196,10 +196,10 @@ export function HostCard({
   // the user-triggered forced re-check from the "Check for updates" button.
   const checkForUpdate = useCallback(
     async (force = false) => {
-      if (!canUpdateHermes) return;
+      if (!canUpdateFabric) return;
       setCheckingUpdate(true);
       try {
-        const info = await api.checkHermesUpdate(force);
+        const info = await api.checkFabricUpdate(force);
         setUpdateInfo(info);
         if (force) {
           if (info.update_available) {
@@ -221,17 +221,17 @@ export function HostCard({
         setCheckingUpdate(false);
       }
     },
-    [canUpdateHermes, setUpdateInfo, showToast],
+    [canUpdateFabric, setUpdateInfo, showToast],
   );
 
   const applyUpdate = async () => {
     setUpdateConfirmOpen(false);
-    if (!canUpdateHermes) {
+    if (!canUpdateFabric) {
       showToast("Fabric updates are managed outside this dashboard.", "success");
       return;
     }
     try {
-      const resp = await api.updateHermes();
+      const resp = await api.updateFabric();
       if (!resp.ok) {
         showToast(
           resp.message ?? "Updates don't apply from this dashboard.",
@@ -239,7 +239,7 @@ export function HostCard({
         );
         return;
       }
-      setActiveAction(resp.name ?? "hermes-update");
+      setActiveAction(resp.name ?? "fabric-update");
       showToast("Update started", "success");
     } catch (e) {
       showToast(`Update failed: ${e}`, "error");
@@ -251,7 +251,7 @@ export function HostCard({
   return (
     <Card>
       <ConfirmDialog
-        open={canUpdateHermes && updateConfirmOpen}
+        open={canUpdateFabric && updateConfirmOpen}
         onCancel={() => setUpdateConfirmOpen(false)}
         onConfirm={() => void applyUpdate()}
         title="Update Fabric?"
@@ -288,9 +288,9 @@ export function HostCard({
             <div className="text-xs uppercase tracking-wider text-muted-foreground">Fabric</div>
             <div className="flex items-center gap-2">
               <span className={NUM_CN}>
-                {s?.hermes_version ? `v${s.hermes_version}` : "—"}
+                {s?.fabric_version ? `v${s.fabric_version}` : "—"}
               </span>
-              {canUpdateHermes &&
+              {canUpdateFabric &&
                 updateInfo &&
                 (updateInfo.update_available ? (
                   <Badge tone="warning">
@@ -422,7 +422,7 @@ export function HostCard({
             </p>
           )
         )}
-        {canUpdateHermes && (
+        {canUpdateFabric && (
           <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
             <Button
               size="sm"

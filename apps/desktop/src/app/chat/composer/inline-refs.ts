@@ -9,7 +9,7 @@ import { composerPlainText, normalizeComposerEditorDom, placeCaretEnd, refChipEl
 export type InlineRefInput = string | { kind: string; label?: string; value: string }
 
 /** MIME for an in-app session drag (sidebar row → composer). */
-export const HERMES_SESSION_MIME = 'application/x-hermes-session'
+export const SESSION_REFERENCE_MIME = 'application/x-session-reference+json'
 
 export interface SessionDragPayload {
   id: string
@@ -18,16 +18,16 @@ export interface SessionDragPayload {
 }
 
 export function writeSessionDrag(transfer: DataTransfer, payload: SessionDragPayload) {
-  transfer.setData(HERMES_SESSION_MIME, JSON.stringify(payload))
+  transfer.setData(SESSION_REFERENCE_MIME, JSON.stringify(payload))
   transfer.effectAllowed = 'copy'
 }
 
 export function dragHasSession(transfer: DataTransfer | null) {
-  return Boolean(transfer) && Array.from(transfer!.types || []).includes(HERMES_SESSION_MIME)
+  return Boolean(transfer) && Array.from(transfer!.types || []).includes(SESSION_REFERENCE_MIME)
 }
 
 export function readSessionDrag(transfer: DataTransfer | null): null | SessionDragPayload {
-  const raw = transfer?.getData(HERMES_SESSION_MIME)
+  const raw = transfer?.getData(SESSION_REFERENCE_MIME)
 
   if (!raw) {
     return null

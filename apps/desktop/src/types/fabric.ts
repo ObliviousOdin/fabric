@@ -48,7 +48,7 @@ export interface OAuthProviderStatus {
 export interface OAuthProvider {
   cli_command: string
   /** Shell command that clears an external provider's credentials, run in the
-   *  embedded terminal. Null when Hermes doesn't know how to remove it. */
+   *  embedded terminal. Null when Fabric doesn't know how to remove it. */
   disconnect_command?: null | string
   disconnect_hint?: null | string
   disconnectable?: boolean
@@ -214,7 +214,7 @@ export interface GatewayReadyPayload {
   skin?: unknown
 }
 
-export interface HermesConfig {
+export interface FabricConfig {
   agent?: {
     reasoning_effort?: string
     personalities?: Record<string, unknown>
@@ -236,7 +236,7 @@ export interface HermesConfig {
   }
 }
 
-export type HermesConfigRecord = Record<string, unknown>
+export type FabricConfigRecord = Record<string, unknown>
 
 export interface ModelInfoResponse {
   auto_context_length?: number
@@ -698,7 +698,7 @@ export interface SkillInfo {
   name: string
   /** Total observed activity (use + view + patch). Absent on older backends. */
   usage?: number
-  /** 'agent' = learned/local (editable), 'bundled' = ships with Hermes, 'hub' = installed. */
+  /** 'agent' = learned/local (editable), 'bundled' = ships with Fabric, 'hub' = installed. */
   provenance?: 'agent' | 'bundled' | 'hub'
 }
 
@@ -727,7 +727,7 @@ export interface ToolProvider {
   post_setup: string | null
   requires_nous_auth: boolean
   /** True when this is the provider currently written to config (mirrors the
-   *  CLI `Fabric tools` active-provider detection). */
+   *  CLI `fabric tools` active-provider detection). */
   is_active: boolean
 }
 
@@ -764,7 +764,7 @@ export interface ToolsetModelsResponse {
  *  cua-driver runs on macOS, Windows, and Linux. `ready` is the single OS-aware
  *  readiness signal: on macOS both TCC grants (Accessibility + Screen
  *  Recording, which attach to cua-driver's own `com.trycua.driver` identity,
- *  not Hermes); elsewhere, driver health from `cua-driver doctor`. `null`
+ *  not Fabric); elsewhere, driver health from `cua-driver doctor`. `null`
  *  means unknown (binary missing / probe failed). */
 export interface ComputerUsePermissionSource {
   attribution?: string
@@ -845,7 +845,7 @@ export interface StatusResponse {
   gateway_running: boolean
   gateway_state: string | null
   gateway_updated_at: string | null
-  hermes_home: string
+  fabric_home: string
   latest_config_version: number
   release_date: string
   version: string
@@ -866,7 +866,7 @@ export interface SystemStats {
   disk?: { free: number; percent: number; total: number; used: number }
   /** Detected GPUs (NVIDIA via pynvml/nvidia-smi); absent when none found. */
   gpus?: SystemGpu[]
-  hermes_version: string
+  fabric_version: string
   hostname: string
   load_avg?: number[]
   memory?: { available: number; percent: number; total: number; used: number }
@@ -911,7 +911,7 @@ export interface BackendUpdateCommit {
   at: number
 }
 
-/** Shape of `GET /api/hermes/update/check` — the backend's own update state.
+/** Shape of `GET /api/fabric/update/check` — the backend's own update state.
  *  Used by the desktop's remote update overlay so the backend version (not the
  *  Electron client clone) drives "what's changed + Install" in remote mode. */
 export interface BackendUpdateCheckResponse {

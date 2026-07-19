@@ -24,8 +24,8 @@ beforeEach(() => {
   open.mockClear()
   close.mockClear()
   pushState.mockClear()
-  window.hermesDesktop = {
-    ...(window.hermesDesktop ?? ({} as Window['hermesDesktop'])),
+  window.fabricDesktop = {
+    ...(window.fabricDesktop ?? ({} as Window['fabricDesktop'])),
     liveView: {
       close,
       control: vi.fn(),

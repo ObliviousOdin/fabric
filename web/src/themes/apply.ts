@@ -31,7 +31,6 @@ import type {
   ThemeLayer,
   ThemeLayout,
   ThemeLayoutVariant,
-  ThemeListEntry,
   ThemePalette,
   ThemeSeriesColors,
   ThemeTypography,
@@ -44,14 +43,12 @@ import {
 /** LocalStorage key — pre-applied before the React tree mounts to avoid
  *  a visible flash of the default palette on theme-overridden installs. */
 export const STORAGE_KEY = "fabric-dashboard-theme";
-export const LEGACY_STORAGE_KEY = "hermes-dashboard-theme";
 
 /** LocalStorage key for the font override (independent of theme). Holds a
  *  font id from the catalog in `fonts.ts`, or the `THEME_DEFAULT_FONT_ID`
  *  sentinel / absent = "use the active theme's font". Pre-applied before
  *  the React tree mounts (see `main.tsx`) to avoid a font flash. */
 export const FONT_STORAGE_KEY = "fabric-dashboard-font";
-export const LEGACY_FONT_STORAGE_KEY = "hermes-dashboard-font";
 
 /** LocalStorage key for the terminal preferences (color scheme, font,
  *  font size) applied to the embedded xterm terminals. Holds a JSON blob —
@@ -70,67 +67,6 @@ export const APPEARANCE_STORAGE_KEY = "fabric-appearance";
  *  contrast swaps the generated pair for their high-contrast variants;
  *  hand-authored presets are unaffected. */
 export const CONTRAST_STORAGE_KEY = "fabric-contrast";
-
-/** Legacy visual identities that now converge on the canonical generated
- *  Fabric pair. They remain accepted as migration inputs, but never appear
- *  in the picker or survive as the persisted active id. */
-const HERITAGE_THEME_NAMES = new Set([
-  "lens-5i",
-  "nous-blue",
-  "fabric-blue",
-  "fabric-teal",
-  "default-large",
-]);
-
-/** Renames of other built-in theme keys we've shipped previously. */
-const THEME_NAME_ALIASES: Record<string, string> = {
-  // The old generic id also converges on the canonical light baseline.
-  default: "fabric-light",
-};
-
-export type ThemeMigrationAppearance = "dark" | "light";
-
-/** Resolve a stored appearance preference to the generated pair member used
- *  during legacy-theme migration. Light is the safe default; system only
- *  selects dark when the current OS preference explicitly does. */
-export function appearanceForThemeMigration(
-  preference: string | null,
-  systemPrefersDark = false,
-): ThemeMigrationAppearance {
-  return preference === "dark" ||
-    (preference === "system" && systemPrefersDark)
-    ? "dark"
-    : "light";
-}
-
-export function migrateThemeName(
-  name: string,
-  appearance: ThemeMigrationAppearance = "light",
-): string {
-  if (HERITAGE_THEME_NAMES.has(name)) {
-    return generatedThemeNameForAppearance(appearance);
-  }
-  return THEME_NAME_ALIASES[name] ?? name;
-}
-
-/** Canonicalise built-in theme metadata from older backends without ever
- *  surfacing their retired ids or labels in the picker. */
-export function canonicalizeThemeEntry(entry: ThemeListEntry): ThemeListEntry {
-  const name = migrateThemeName(entry.name);
-  const builtin = BUILTIN_THEMES[name];
-  if (builtin) {
-    return {
-      name: builtin.name,
-      label: builtin.label,
-      description: builtin.description,
-    };
-  }
-  return {
-    ...entry,
-    name,
-    definition: entry.definition ? { ...entry.definition, name } : undefined,
-  };
-}
 
 /** Tracks fontUrls we've already injected so multiple theme switches don't
  *  pile up <link> tags. Keyed by URL. */
@@ -552,18 +488,14 @@ export function applyPersistedThemeEarly(): void {
       appearancePref === "system" &&
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const migrationAppearance = appearanceForThemeMigration(
-      appearancePref,
-      systemPrefersDark,
-    );
-    let name = migrateThemeName(
-      window.localStorage.getItem(STORAGE_KEY) ??
-        window.localStorage.getItem(LEGACY_STORAGE_KEY) ??
-        "fabric-light",
-      migrationAppearance,
-    );
+    const appearance =
+      appearancePref === "dark" ||
+      (appearancePref === "system" && systemPrefersDark)
+        ? "dark"
+        : "light";
+    let name = window.localStorage.getItem(STORAGE_KEY) ?? "fabric-light";
     if (appearancePref === "system" && typeof window.matchMedia === "function") {
-      name = generatedThemeNameForAppearance(migrationAppearance);
+      name = generatedThemeNameForAppearance(appearance);
     }
     const contrast =
       window.localStorage.getItem(CONTRAST_STORAGE_KEY) === "high"

@@ -10,7 +10,7 @@
  *      relaunch/claim a GUI update; AppImage/.deb/.rpm/dev/unresolved paths land
  *      on the guiSkew terminal state and do NOT claim the GUI was updated.
  *   2. Launch context is replayed on re-exec (args filtered of Electron
- *      internals; HERMES_HOME / HERMES_DESKTOP_* env + cwd preserved) and is
+ *      internals; canonical env, workspace switch, and cwd preserved) and is
  *      safely shell-quoted.
  *   3. The sandbox preflight: chrome-sandbox must be root-owned + setuid to be
  *      launchable; otherwise the decision degrades to a manual terminal state
@@ -36,7 +36,7 @@ import {
   unpackedDirName
 } from './update-relaunch'
 
-const ROOT = '/home/u/.hermes/fabric-agent'
+const ROOT = '/home/u/.fabric/fabric-agent'
 const UNPACKED = path.join(ROOT, 'apps', 'desktop', 'release', 'linux-unpacked')
 
 // ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ test('unpackedDirName maps platform to the electron-builder dir', () => {
 })
 
 test('resolveUnpackedRelease returns the dir for a binary UNDER release/<plat>-unpacked', () => {
-  const exec = path.join(UNPACKED, 'hermes')
+  const exec = path.join(UNPACKED, 'fabric')
   assert.equal(resolveUnpackedRelease(exec, ROOT, 'linux'), UNPACKED)
   // The unpacked dir itself also counts.
   assert.equal(resolveUnpackedRelease(UNPACKED, ROOT, 'linux'), UNPACKED)
@@ -57,23 +57,23 @@ test('resolveUnpackedRelease returns the dir for a binary UNDER release/<plat>-u
 
 test('resolveUnpackedRelease is null for AppImage / .deb / .rpm / dev / unresolved paths', () => {
   // AppImage mount
-  assert.equal(resolveUnpackedRelease('/tmp/.mount_Hermes12345/AppRun', ROOT, 'linux'), null)
+  assert.equal(resolveUnpackedRelease('/tmp/.mount_Fabric12345/AppRun', ROOT, 'linux'), null)
   // .deb / .rpm system install
-  assert.equal(resolveUnpackedRelease('/usr/lib/hermes/hermes', ROOT, 'linux'), null)
-  assert.equal(resolveUnpackedRelease('/opt/Hermes/hermes', ROOT, 'linux'), null)
+  assert.equal(resolveUnpackedRelease('/usr/lib/fabric/fabric', ROOT, 'linux'), null)
+  assert.equal(resolveUnpackedRelease('/opt/Fabric/fabric', ROOT, 'linux'), null)
   // dev electron
   assert.equal(
-    resolveUnpackedRelease('/home/u/.hermes/fabric-agent/node_modules/electron/dist/electron', ROOT, 'linux'),
+    resolveUnpackedRelease('/home/u/.fabric/fabric-agent/node_modules/electron/dist/electron', ROOT, 'linux'),
     null
   )
   // empty / missing
   assert.equal(resolveUnpackedRelease('', ROOT, 'linux'), null)
-  assert.equal(resolveUnpackedRelease(path.join(UNPACKED, 'hermes'), '', 'linux'), null)
+  assert.equal(resolveUnpackedRelease(path.join(UNPACKED, 'fabric'), '', 'linux'), null)
 })
 
 test('resolveUnpackedRelease is not fooled by a sibling prefix dir', () => {
   // `.../release/linux-unpacked-evil` must NOT match `.../release/linux-unpacked`.
-  const sneaky = path.join(ROOT, 'apps', 'desktop', 'release', 'linux-unpacked-evil', 'hermes')
+  const sneaky = path.join(ROOT, 'apps', 'desktop', 'release', 'linux-unpacked-evil', 'fabric')
   assert.equal(resolveUnpackedRelease(sneaky, ROOT, 'linux'), null)
 })
 
@@ -147,24 +147,23 @@ test('collectRelaunchArgs drops Electron internals, keeps user/launcher args', (
     '--field-trial-handle=123',
     '--no-sandbox', // sandbox opt-out — KEEP (user/env intent + relaunch fallback)
     '--lang=en-US',
-    'hermes://open/agent/42', // deep link — keep
+    'fabric://open/agent/42', // deep link — keep
     '--profile=work', // app flag — keep
     '--remote-debugging-port=9222' // internal — drop
   ]
 
-  assert.deepEqual(collectRelaunchArgs(argv), ['--no-sandbox', 'hermes://open/agent/42', '--profile=work'])
+  assert.deepEqual(collectRelaunchArgs(argv), ['--no-sandbox', 'fabric://open/agent/42', '--profile=work'])
   assert.deepEqual(collectRelaunchArgs(undefined), [])
 })
 
-test('collectRelaunchEnv preserves both home names, Fabric and legacy desktop vars, and sandbox opt-out only', () => {
+test('collectRelaunchEnv preserves canonical Fabric context and sandbox opt-out only', () => {
   const env = {
     FABRIC_HOME: '/home/u/.fabric',
-    HERMES_HOME: '/home/u/.fabric',
-    HERMES_DESKTOP_REMOTE_URL: 'http://box:9119',
-    HERMES_DESKTOP_REMOTE_TOKEN: 'secret',
-    HERMES_DESKTOP_HERMES_ROOT: '/home/u/dev/hermes',
+    FABRIC_DESKTOP_ROOT: '/home/u/dev/fabric',
+    FABRIC_DESKTOP_SHELL: '/opt/homebrew/bin/fish',
     FABRIC_DESKTOP_REMOTE_URL: 'http://fabric-box:9119',
     FABRIC_DESKTOP_REMOTE_TOKEN: 'fabric-secret',
+    UNRELATED_DESKTOP_VALUE: 'drop-me',
     ELECTRON_DISABLE_SANDBOX: '1', // sandbox opt-out — preserved
     PATH: '/usr/bin', // not preserved
     HOME: '/home/u', // not preserved
@@ -173,10 +172,8 @@ test('collectRelaunchEnv preserves both home names, Fabric and legacy desktop va
 
   assert.deepEqual(collectRelaunchEnv(env), {
     FABRIC_HOME: '/home/u/.fabric',
-    HERMES_HOME: '/home/u/.fabric',
-    HERMES_DESKTOP_REMOTE_URL: 'http://box:9119',
-    HERMES_DESKTOP_REMOTE_TOKEN: 'secret',
-    HERMES_DESKTOP_HERMES_ROOT: '/home/u/dev/hermes',
+    FABRIC_DESKTOP_ROOT: '/home/u/dev/fabric',
+    FABRIC_DESKTOP_SHELL: '/opt/homebrew/bin/fish',
     FABRIC_DESKTOP_REMOTE_URL: 'http://fabric-box:9119',
     FABRIC_DESKTOP_REMOTE_TOKEN: 'fabric-secret',
     ELECTRON_DISABLE_SANDBOX: '1'
@@ -196,9 +193,9 @@ test('shellQuote neutralizes single quotes and metacharacters', () => {
 test('buildRelaunchScript embeds pid/exec/args/env/cwd and is valid bash', () => {
   const script = buildRelaunchScript({
     pid: 4242,
-    execPath: '/home/u/.hermes/fabric-agent/apps/desktop/release/linux-unpacked/Hermes',
-    args: ['hermes://open/agent/42', "--note=it's fine"],
-    env: { HERMES_HOME: '/home/u/.hermes', HERMES_DESKTOP_REMOTE_URL: 'http://box:9119' },
+    execPath: '/home/u/.fabric/fabric-agent/apps/desktop/release/linux-unpacked/Fabric',
+    args: ['fabric://open/agent/42', "--note=it's fine"],
+    env: { FABRIC_HOME: '/home/u/.fabric', FABRIC_DESKTOP_REMOTE_URL: 'http://fabric-box:9119' },
     cwd: '/home/u/work dir'
   })
 
@@ -208,13 +205,13 @@ test('buildRelaunchScript embeds pid/exec/args/env/cwd and is valid bash', () =>
   assert.match(script, /kill -9 "\$APP_PID"/)
   assert.match(script, /rm -f -- "\$0"/)
   // env exports + cwd restore + args replay are present and quoted.
-  assert.match(script, /export HERMES_HOME='\/home\/u\/\.hermes'/)
-  assert.match(script, /export HERMES_DESKTOP_REMOTE_URL='http:\/\/box:9119'/)
+  assert.match(script, /export FABRIC_HOME='\/home\/u\/\.fabric'/)
+  assert.match(script, /export FABRIC_DESKTOP_REMOTE_URL='http:\/\/fabric-box:9119'/)
   assert.match(script, /cd '\/home\/u\/work dir'/)
-  assert.match(script, /exec '.*\/linux-unpacked\/Hermes' 'hermes:\/\/open\/agent\/42' '--note=it'\\''s fine'/)
+  assert.match(script, /exec '.*\/linux-unpacked\/Fabric' 'fabric:\/\/open\/agent\/42' '--note=it'\\''s fine'/)
 
   // It must be syntactically valid bash (`bash -n`). Write to a temp file and lint.
-  const tmp = path.join(os.tmpdir(), `hermes-relaunch-test-${Date.now()}.sh`)
+  const tmp = path.join(os.tmpdir(), `fabric-relaunch-test-${Date.now()}.sh`)
   fs.writeFileSync(tmp, script)
 
   try {
@@ -227,13 +224,13 @@ test('buildRelaunchScript embeds pid/exec/args/env/cwd and is valid bash', () =>
 test('buildRelaunchScript with no args/env still lints clean', () => {
   const script = buildRelaunchScript({
     pid: 1,
-    execPath: '/opt/Hermes/Hermes',
+    execPath: '/opt/Fabric/Fabric',
     args: [],
     env: {},
     cwd: ''
   })
 
-  const tmp = path.join(os.tmpdir(), `hermes-relaunch-test2-${Date.now()}.sh`)
+  const tmp = path.join(os.tmpdir(), `fabric-relaunch-test2-${Date.now()}.sh`)
   fs.writeFileSync(tmp, script)
 
   try {
@@ -243,5 +240,5 @@ test('buildRelaunchScript with no args/env still lints clean', () => {
   }
 
   // exec line has no trailing args.
-  assert.match(script, /exec '\/opt\/Hermes\/Hermes'\n/)
+  assert.match(script, /exec '\/opt\/Fabric\/Fabric'\n/)
 })

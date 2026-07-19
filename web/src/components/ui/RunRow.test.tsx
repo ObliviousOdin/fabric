@@ -90,14 +90,14 @@ describe("RunRow", () => {
   it("truncates the id and shows the expansion body only when expanded", async () => {
     await act(async () => {
       root.render(
-        <RunRow {...BASE} status="done" model="hermes-4-405b">
+        <RunRow {...BASE} status="done" model="model-alpha">
           <div data-testid="timeline">timeline body</div>
         </RunRow>,
       );
     });
     expect(container.textContent).toContain("sess_012");
     expect(container.textContent).not.toContain("sess_0123456789abcdef");
-    expect(container.textContent).toContain("hermes-4-405b");
+    expect(container.textContent).toContain("model-alpha");
     expect(container.querySelector("[data-testid=timeline]")).toBeNull();
 
     await act(async () => {

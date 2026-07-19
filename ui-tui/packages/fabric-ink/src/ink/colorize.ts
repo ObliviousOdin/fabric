@@ -33,16 +33,9 @@ export function shouldUseRichEightBitDowngradeForLegacyAppleTerminal(
   level = chalk.level
 ): boolean {
   const termProgram = (env.TERM_PROGRAM ?? '').trim()
-  const truecolorOverride = /^(?:1|true|yes|on)$/i.test((env.HERMES_TUI_TRUECOLOR ?? '').trim())
   const advertisesTruecolor = /^(?:truecolor|24bit)$/i.test((env.COLORTERM ?? '').trim())
 
-  return (
-    termProgram === 'Apple_Terminal' &&
-    !truecolorOverride &&
-    !advertisesTruecolor &&
-    !('FORCE_COLOR' in env) &&
-    level === 2
-  )
+  return termProgram === 'Apple_Terminal' && !advertisesTruecolor && !('FORCE_COLOR' in env) && level === 2
 }
 
 export function richEightBitColorNumber(red: number, green: number, blue: number): number {

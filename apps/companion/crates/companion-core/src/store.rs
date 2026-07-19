@@ -33,31 +33,21 @@ const DEFAULT_BUNDLED_PET_SLUG: &str = "fabric-mascot";
 
 /// Resolve the fabric state directory, mirroring `get_fabric_home()`:
 ///
-/// 1. env `FABRIC_HOME`, then env `HERMES_HOME` (non-empty, stripped)
-/// 2. legacy compat: the old `hermes` directory if it exists and the new
-///    `fabric` one does not
-/// 3. platform default: `~/.fabric` on POSIX, `%LOCALAPPDATA%\fabric` on
+/// 1. env `FABRIC_HOME` (non-empty, stripped)
+/// 2. platform default: `~/.fabric` on POSIX, `%LOCALAPPDATA%\fabric` on
 ///    Windows
 pub fn fabric_home() -> PathBuf {
-    // public-release-audit: allow-legacy-compat -- FABRIC_HOME first, then the pre-rename env var for one transition window (mirrors fabric_constants.get_fabric_home)
-    for var in ["FABRIC_HOME", "HERMES_HOME"] {
-        if let Ok(raw) = std::env::var(var) {
-            let trimmed = raw.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed);
-            }
+    if let Ok(raw) = std::env::var("FABRIC_HOME") {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
         }
     }
-    let (fabric, hermes) = default_home_candidates();
-    if hermes.exists() && !fabric.exists() {
-        hermes
-    } else {
-        fabric
-    }
+    default_fabric_home()
 }
 
 #[cfg(windows)]
-fn default_home_candidates() -> (PathBuf, PathBuf) {
+fn default_fabric_home() -> PathBuf {
     // Canonical order (get_fabric_home): the %LOCALAPPDATA% environment
     // variable first, then the known-folder/home fallbacks.
     let base = std::env::var("LOCALAPPDATA")
@@ -68,15 +58,13 @@ fn default_home_candidates() -> (PathBuf, PathBuf) {
         .or_else(dirs::data_local_dir)
         .or_else(|| dirs::home_dir().map(|h| h.join("AppData").join("Local")))
         .unwrap_or_else(|| PathBuf::from("."));
-    // public-release-audit: allow-legacy-compat -- pre-rename state dir consulted read-only during the migration window
-    (base.join("fabric"), base.join("hermes"))
+    base.join("fabric")
 }
 
 #[cfg(not(windows))]
-fn default_home_candidates() -> (PathBuf, PathBuf) {
+fn default_fabric_home() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    // public-release-audit: allow-legacy-compat -- pre-rename state dir consulted read-only during the migration window
-    (home.join(".fabric"), home.join(".hermes"))
+    home.join(".fabric")
 }
 
 /// The pet store directory under *home* (not created — read-only access).

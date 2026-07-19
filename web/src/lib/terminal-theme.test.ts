@@ -7,13 +7,10 @@ import {
   DEFAULT_TERMINAL_FOREGROUND,
 } from "./terminal-theme";
 
-/** Backgrounds every built-in theme family can hand us: generated light,
- *  generated dark, heritage teal black, and the fabric-blue light pane. */
+/** Backgrounds from the canonical generated light and dark theme pair. */
 const BACKGROUNDS = [
   { name: "fabric-light", bg: "#f8fafe", fg: "#1d1f24" },
   { name: "fabric-dark", bg: "#06070b", fg: "#e4e8f0" },
-  { name: "heritage-black", bg: "#000000", fg: "#f0e6d2" },
-  { name: "fabric-blue-light", bg: "#f5f8fc", fg: "#170d02" },
 ] as const;
 
 const HEX = /^#[0-9a-f]{6}$/;

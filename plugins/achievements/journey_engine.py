@@ -1138,6 +1138,7 @@ class JourneyEngine:
                     "target": next_level["requirements"][2]["target"]
                     if next_level
                     else breadth,
+                    "label": f"{breadth} capability path{'s' if breadth != 1 else ''}",
                 },
                 "earned_count": earned_count,
             },

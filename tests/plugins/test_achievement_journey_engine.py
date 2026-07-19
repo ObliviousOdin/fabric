@@ -534,6 +534,7 @@ def test_journey_first_run_has_no_optional_distractions(tmp_path: Path) -> None:
     ]
     assert result["today"]["optional"] == []
     assert result["today"]["weekly"] is None
+    assert result["mastery"]["breadth"]["label"] == "0 capability paths"
     assert len(result["collection"]["active"]) <= 3
     assert len(result["collection"]["discover"]) <= 3
 

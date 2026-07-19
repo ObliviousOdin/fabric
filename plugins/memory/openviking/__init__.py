@@ -13,7 +13,7 @@ or a linked OpenViking CLI config:
   OPENVIKING_API_KEY   — API key (required for authenticated servers)
   OPENVIKING_ACCOUNT   — Tenant account for local/trusted mode (default: default)
   OPENVIKING_USER      — Tenant user for local/trusted mode (default: default)
-  OPENVIKING_AGENT     — Hermes peer ID in OpenViking (default: hermes)
+  OPENVIKING_AGENT     — Fabric peer ID in OpenViking (default: fabric)
 
 Capabilities:
   - Automatic memory extraction on session commit (6 categories)
@@ -54,14 +54,15 @@ from agent.memory_provider import (
     get_profile_env_value as profile_env,
 )
 from agent.skill_commands import extract_user_instruction_from_skill_message
+from fabric_constants import get_fabric_home
 from tools.registry import tool_error
-from utils import atomic_json_write, env_var_enabled
+from utils import atomic_json_write
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_ENDPOINT = "http://127.0.0.1:1933"
 _OPENVIKING_SERVICE_ENDPOINT = "https://api.vikingdb.cn-beijing.volces.com/openviking"
-_DEFAULT_AGENT = "hermes"
+_DEFAULT_AGENT = "fabric"
 _AGENT_PROMPT_LABEL = "Fabric peer ID in OpenViking"
 _OVCLI_CONFIG_ENV = "OPENVIKING_CLI_CONFIG_FILE"
 _OVCLI_DEFAULT_RELATIVE_PATH = ".openviking/ovcli.conf"
@@ -77,12 +78,6 @@ _TIMEOUT = 30.0
 _SESSION_DRAIN_TIMEOUT = 10.0
 _DEFERRED_COMMIT_TIMEOUT = (_TIMEOUT * 2) + 5.0
 _REMOTE_RESOURCE_PREFIXES = ("http://", "https://", "git@", "ssh://", "git://")
-_SYNC_TRACE_ENV = "FABRIC_OPENVIKING_SYNC_TRACE"
-# public-release-audit: allow-legacy-compat -- honor the previous trace toggle during migration
-_LEGACY_SYNC_TRACE_ENV = "HERMES_OPENVIKING_SYNC_TRACE"
-_FABRIC_HOME_ENV = "FABRIC_HOME"
-# public-release-audit: allow-legacy-compat -- honor the previous home override during migration
-_LEGACY_HOME_ENV = "HERMES_HOME"
 _DEFAULT_RECALL_LIMIT = 6
 _DEFAULT_RECALL_SCORE_THRESHOLD = 0.15
 _DEFAULT_RECALL_MAX_INJECTED_CHARS = 4000
@@ -173,7 +168,7 @@ def _format_openviking_exception(error: Exception) -> str:
 
 
 def _derive_openviking_user_text(content: Any) -> str:
-    """Strip Hermes slash-skill scaffolding before sending content to OpenViking.
+    """Strip Fabric slash-skill scaffolding before sending content to OpenViking.
 
     Defense-in-depth: MemoryManager already strips skill scaffolding for the
     whole provider fan-out (see ``MemoryManager._strip_skill_scaffolding``), so
@@ -186,7 +181,7 @@ def _derive_openviking_user_text(content: Any) -> str:
 
 
 def _sync_trace_enabled() -> bool:
-    return env_var_enabled(_SYNC_TRACE_ENV) or env_var_enabled(_LEGACY_SYNC_TRACE_ENV)
+    return logger.isEnabledFor(logging.DEBUG)
 
 
 def _preview(value: Any, limit: int = 160) -> str:
@@ -867,7 +862,7 @@ def _is_local_openviking_url(value: str) -> bool:
     return scheme == "http" and (parsed.hostname or "").lower() in _LOCAL_OPENVIKING_HOSTS
 
 
-def _load_hermes_openviking_config() -> dict:
+def _load_fabric_openviking_config() -> dict:
     try:
         from fabric_cli.config import load_config
 
@@ -1163,13 +1158,7 @@ def _local_openviking_bind(endpoint: str) -> tuple[str, int]:
 
 
 def _openviking_server_log_path() -> Path:
-    try:
-        from fabric_constants import get_fabric_home
-        home = get_fabric_home()
-    except Exception:
-        configured_home = os.environ.get(_FABRIC_HOME_ENV) or os.environ.get(_LEGACY_HOME_ENV)
-        home = Path(configured_home).expanduser() if configured_home else Path.home() / ".fabric"
-    return home / _OPENVIKING_SERVER_LOG_RELATIVE_PATH
+    return get_fabric_home() / _OPENVIKING_SERVER_LOG_RELATIVE_PATH
 
 
 def _start_local_openviking_server(endpoint: str) -> tuple[bool, str]:
@@ -1593,7 +1582,7 @@ def _link_ovcli_profile(
         os.environ.pop(key, None)
 
 
-def _save_hermes_only_config(
+def _save_fabric_only_config(
     *,
     config: dict,
     provider_config: dict,
@@ -1778,7 +1767,7 @@ def _run_create_profile_setup(
         _print_openviking_ready("Created and linked OpenViking profile.", ovcli_path)
         return True
 
-    _save_hermes_only_config(
+    _save_fabric_only_config(
         config=config,
         provider_config=provider_config,
         env_path=env_path,
@@ -1873,7 +1862,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
         """Check if OpenViking endpoint is configured. No network calls."""
         if _env_value("OPENVIKING_ENDPOINT"):
             return True
-        provider_config = _load_hermes_openviking_config()
+        provider_config = _load_fabric_openviking_config()
         if not provider_config.get("use_ovcli_config"):
             return False
         try:
@@ -2000,13 +1989,13 @@ class OpenVikingMemoryProvider(MemoryProvider):
                 display[key] = "(set)"
         return display
 
-    def post_setup(self, hermes_home: str, config: dict) -> None:
+    def post_setup(self, fabric_home: str, config: dict) -> None:
         """Custom setup that can reuse OpenViking's shared CLI config."""
         from fabric_cli.config import save_config
         from fabric_cli.memory_setup import _CANCELLED, _curses_select, _print_cancelled_setup, _prompt
 
-        hermes_home_path = Path(hermes_home)
-        env_path = hermes_home_path / ".env"
+        fabric_home_path = Path(fabric_home)
+        env_path = fabric_home_path / ".env"
         if not isinstance(config.get("memory"), dict):
             config["memory"] = {}
         provider_config = config["memory"].get("openviking", {})
@@ -2180,7 +2169,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._runtime_state = RuntimeState.UNKNOWN
-        settings = _resolve_connection_settings(_load_hermes_openviking_config())
+        settings = _resolve_connection_settings(_load_fabric_openviking_config())
         self._endpoint = settings["endpoint"]
         self._api_key = settings["api_key"]
         self._account = settings["account"]
@@ -2867,7 +2856,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
         user_content: str,
         assistant_content: str,
     ) -> List[Dict[str, Any]]:
-        """Slice the completed turn out of Hermes' full canonical transcript."""
+        """Slice the completed turn out of Fabric's full canonical transcript."""
         if not messages:
             return []
 
@@ -2986,7 +2975,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
         *,
         assistant_peer_id: str = "",
     ) -> List[Dict[str, Any]]:
-        """Convert Hermes canonical messages into OpenViking batch payloads."""
+        """Convert Fabric canonical messages into OpenViking batch payloads."""
         assistant_peer_id = str(assistant_peer_id or "").strip()
         tool_calls_by_id: Dict[str, Dict[str, Any]] = {}
         completed_tool_ids: set[str] = set()
@@ -3492,7 +3481,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
     ) -> Dict[str, Any]:
         summary_level = level in {"abstract", "overview"}
         # OpenViking expects directory URIs for pseudo summary files
-        # (e.g. viking://user/hermes/.overview.md).
+        # (e.g. viking://user/fabric/.overview.md).
         resolved_uri = self._normalize_summary_uri(uri) if summary_level else uri
         used_fallback = False
 

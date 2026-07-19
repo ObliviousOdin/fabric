@@ -1,18 +1,18 @@
 """Kanban tools — structured tool-call surface for worker + orchestrator agents.
 
 These tools are registered into the model's schema when the agent is
-running under the dispatcher (env var ``HERMES_KANBAN_TASK`` set) or when
+running with dispatcher-bound worker context or when
 the active profile explicitly enables the ``kanban`` toolset for
 orchestrator work. A normal ``fabric chat`` session still sees **zero**
 kanban tools in its schema unless configured.
 
-Why tools instead of just shelling out to ``hermes kanban``?
+Why tools instead of just shelling out to ``fabric kanban``?
 
 1. **Backend portability.** A worker whose terminal tool points at Docker
-   / Modal / Singularity / SSH would run ``hermes kanban complete …``
+   / Modal / Singularity / SSH would run ``fabric kanban complete …``
    inside the container, where ``fabric`` isn't installed and the DB
    isn't mounted. Tools run in the agent's Python process, so they
-   always reach ``~/.hermes/kanban.db`` regardless of terminal backend.
+   always reach ``~/.fabric/kanban.db`` regardless of terminal backend.
 
 2. **No shell-quoting footguns.** Passing ``--metadata '{"x": [...]}'``
    through shlex+argparse is fragile. Structured tool args skip it.
@@ -20,8 +20,8 @@ Why tools instead of just shelling out to ``hermes kanban``?
 3. **Better errors.** Tool-call failures return structured JSON the
    model can reason about, not stderr strings it has to parse.
 
-Humans continue to use the CLI (``hermes kanban …``), the dashboard
-(``Fabric dashboard``), and the slash command (``/kanban …``) — all
+Humans continue to use the CLI (``fabric kanban …``), the dashboard
+(``fabric dashboard``), and the slash command (``/kanban …``) — all
 three bypass the agent entirely. The tools are for dispatcher-spawned
 worker handoffs and for configured orchestrator profiles that route work
 through the board.
@@ -30,11 +30,16 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Optional
 
 from agent.redact import redact_sensitive_text
 from fabric_cli.goals import judge_goal
+from fabric_cli.kanban_runtime import (
+    current_profile_name,
+    current_worker_task_id,
+    get_kanban_runtime_context,
+    is_kanban_worker,
+)
 from tools.registry import registry, tool_error
 from fabric_cli.config import cfg_get, load_config
 
@@ -65,7 +70,7 @@ def _profile_has_kanban_toolset() -> bool:
 def _check_kanban_mode() -> bool:
     """Task-lifecycle tools are available when:
 
-    1. ``HERMES_KANBAN_TASK`` is set (dispatcher-spawned worker), OR
+    1. Dispatcher-bound worker context is present, OR
     2. The current profile has ``kanban`` in its toolsets config
        (orchestrator profiles like techlead that route work via Kanban).
 
@@ -74,7 +79,7 @@ def _check_kanban_mode() -> bool:
     embedded by default) and orchestrator profiles with the kanban
     toolset enabled see the Kanban lifecycle tool surface.
     """
-    if os.environ.get("HERMES_KANBAN_TASK"):
+    if is_kanban_worker():
         return True
     return _profile_has_kanban_toolset()
 
@@ -88,7 +93,7 @@ def _check_kanban_orchestrator_mode() -> bool:
     board state. Profiles that explicitly opt into the kanban toolset
     and are NOT scoped to a single task are the orchestrator surface.
     """
-    if os.environ.get("HERMES_KANBAN_TASK"):
+    if is_kanban_worker():
         return False
     return _profile_has_kanban_toolset()
 
@@ -98,23 +103,27 @@ def _check_kanban_orchestrator_mode() -> bool:
 # ---------------------------------------------------------------------------
 
 def _default_task_id(arg: Optional[str]) -> Optional[str]:
-    """Resolve ``task_id`` arg or fall back to the env var the dispatcher set."""
+    """Resolve ``task_id`` or fall back to the dispatcher's worker context."""
     if arg:
         return arg
-    env_tid = os.environ.get("HERMES_KANBAN_TASK")
-    return env_tid or None
+    return current_worker_task_id() or None
 
 
 def _worker_run_id(task_id: str) -> Optional[int]:
     """Return this worker's dispatcher run id when it is scoped to task_id."""
-    if os.environ.get("HERMES_KANBAN_TASK") != task_id:
+    context = get_kanban_runtime_context()
+    if context.task_id != task_id:
         return None
-    raw = os.environ.get("HERMES_KANBAN_RUN_ID")
-    if not raw:
-        return None
+    return context.run_id
+
+
+def _current_session_id() -> Optional[str]:
+    """Return the active task-local durable session id, if one is bound."""
     try:
-        return int(raw)
-    except ValueError:
+        from gateway.session_context import get_current_session_id
+
+        return get_current_session_id() or None
+    except Exception:
         return None
 
 
@@ -122,9 +131,9 @@ def _stamp_worker_session_metadata(
     task_id: str, metadata: Optional[dict]
 ) -> Optional[dict]:
     """Add trusted worker session id metadata for this worker's own task."""
-    if os.environ.get("HERMES_KANBAN_TASK") != task_id:
+    if current_worker_task_id() != task_id:
         return metadata
-    session_id = os.environ.get("HERMES_SESSION_ID")
+    session_id = _current_session_id()
     if not session_id:
         return metadata
     stamped = dict(metadata or {})
@@ -135,14 +144,14 @@ def _stamp_worker_session_metadata(
 def _enforce_worker_task_ownership(tid: str) -> Optional[str]:
     """Reject worker-driven destructive calls on foreign task IDs.
 
-    A process spawned by the dispatcher has ``HERMES_KANBAN_TASK`` set
-    to its own task id. Tools like ``kanban_complete`` / ``kanban_block``
+    A process spawned by the dispatcher is bound to its own task id. Tools
+    like ``kanban_complete`` / ``kanban_block``
     / ``kanban_heartbeat`` mutate run-lifecycle state, so a buggy or
     prompt-injected worker that passed an explicit ``task_id`` for some
     other task could corrupt sibling or cross-tenant runs (see #19534).
 
-    Orchestrator profiles (kanban toolset enabled but **no**
-    ``HERMES_KANBAN_TASK`` in env) aren't subject to this check — their
+    Orchestrator profiles (kanban toolset enabled but no worker context)
+    aren't subject to this check — their
     job is routing, and they sometimes legitimately close out child
     tasks or reopen blocked ones. Workers are narrowly scoped to their
     one task.
@@ -151,13 +160,13 @@ def _enforce_worker_task_ownership(tid: str) -> Optional[str]:
     when it must be rejected. Callers should ``return`` the error
     verbatim.
     """
-    env_tid = os.environ.get("HERMES_KANBAN_TASK")
-    if not env_tid:
+    worker_tid = current_worker_task_id()
+    if not worker_tid:
         # Orchestrator or CLI context — no task-scope restriction.
         return None
-    if tid != env_tid:
+    if tid != worker_tid:
         return tool_error(
-            f"worker is scoped to task {env_tid}; refusing to mutate "
+            f"worker is scoped to task {worker_tid}; refusing to mutate "
             f"{tid}. Use kanban_comment to hand off information to other "
             f"tasks, or kanban_create to spawn follow-up work."
         )
@@ -170,10 +179,9 @@ def _connect(board: Optional[str] = None):
 
     When ``board`` is provided it's forwarded to :func:`kb.connect`, which
     routes the connection to that board's sqlite file. ``None`` (the
-    default) preserves the legacy resolution chain
-    (``HERMES_KANBAN_DB`` → ``HERMES_KANBAN_BOARD`` env → current symlink
-    → ``default``). Per-tool ``board`` lets a Telegram-side agent override
-    the env-pinned active board without restarting Hermes.
+    default) uses the process-pinned or persisted active board. Per-tool
+    ``board`` lets a caller target another board for one operation without
+    changing the session default.
     """
     from fabric_cli import kanban_db as kb
     return kb, kb.connect(board=board)
@@ -220,7 +228,7 @@ def _goal_judge_available() -> bool:
 #     fails (board missing, DB locked, etc.).
 #   - Rate-limited to one DB write per 60s per-process; runtime activity
 #     can tick on every chunk/tool result and we don't need that resolution.
-#   - No-op outside dispatcher-spawned worker context (no ``HERMES_KANBAN_TASK``).
+#   - No-op outside dispatcher-spawned worker context.
 #   - No durable note on these auto-heartbeats; that's reserved for the
 #     explicit tool which carries a model-supplied note.
 
@@ -228,29 +236,26 @@ _AUTO_HEARTBEAT_MIN_INTERVAL_SECONDS = 60.0
 _auto_heartbeat_last_attempt: float = 0.0
 
 
-def heartbeat_current_worker_from_env() -> bool:
+def heartbeat_current_worker() -> bool:
     """Best-effort: extend the kanban claim + bump board heartbeat for the
-    current dispatcher-spawned worker, using identity from env vars.
+    current dispatcher-spawned worker, using its typed runtime context.
 
     Returns True if a write was attempted (whether or not it succeeded);
     False if the call was skipped (not a kanban worker, rate-limited, or
     swallowed exception). The boolean is informational — callers should
     not branch on it.
 
-    Identity comes from:
-      * ``HERMES_KANBAN_TASK`` — task id (required; absence means no-op)
-      * ``HERMES_KANBAN_RUN_ID`` — pins the run row so we don't heartbeat
-        a stale run that may have already been reclaimed
-      * ``HERMES_KANBAN_CLAIM_LOCK`` — claim lock for ``heartbeat_claim``;
-        falls back to the default ``_claimer_id()`` for locally-driven
-        workers that never went through the dispatcher path
+    The context supplies the task id, current run id, and claim lock. The
+    latter falls back to the default claimer for locally-driven workers that
+    never went through the dispatcher path.
 
     Rate-limited via the module-level ``_auto_heartbeat_last_attempt``
     timestamp (monotonic clock); not thread-safe in the strict sense, but
     the worst case is one extra DB write per race, which is harmless.
     """
     global _auto_heartbeat_last_attempt
-    tid = os.environ.get("HERMES_KANBAN_TASK")
+    context = get_kanban_runtime_context()
+    tid = context.task_id
     if not tid:
         return False
     import time as _time
@@ -261,19 +266,15 @@ def heartbeat_current_worker_from_env() -> bool:
     try:
         kb, conn = _connect()
         try:
-            claim_lock = os.environ.get("HERMES_KANBAN_CLAIM_LOCK")
+            claim_lock = context.claim_lock or None
             try:
                 kb.heartbeat_claim(conn, tid, claimer=claim_lock)
             except Exception:
                 logger.debug("auto-heartbeat: heartbeat_claim failed", exc_info=True)
-            run_id_raw = os.environ.get("HERMES_KANBAN_RUN_ID")
-            run_id: Optional[int]
             try:
-                run_id = int(run_id_raw) if run_id_raw else None
-            except (TypeError, ValueError):
-                run_id = None
-            try:
-                kb.heartbeat_worker(conn, tid, note=None, expected_run_id=run_id)
+                kb.heartbeat_worker(
+                    conn, tid, note=None, expected_run_id=context.run_id
+                )
             except Exception:
                 logger.debug("auto-heartbeat: heartbeat_worker failed", exc_info=True)
         finally:
@@ -324,7 +325,7 @@ def _require_orchestrator_tool(tool_name: str) -> Optional[str]:
     structured tool_error so the model gets a clear refusal instead of
     silently mutating board state from a worker context.
     """
-    if os.environ.get("HERMES_KANBAN_TASK"):
+    if is_kanban_worker():
         return tool_error(
             f"{tool_name} is orchestrator-only; dispatcher-spawned workers "
             "must use kanban_complete, kanban_block, kanban_heartbeat, or "
@@ -370,7 +371,7 @@ def _handle_show(args: dict, **kw) -> str:
     tid = _default_task_id(args.get("task_id"))
     if not tid:
         return tool_error(
-            "task_id is required (or set HERMES_KANBAN_TASK in the env)"
+            "task_id is required outside a dispatcher-scoped worker"
         )
     board = args.get("board")
     try:
@@ -506,7 +507,7 @@ def _handle_complete(args: dict, **kw) -> str:
     tid = _default_task_id(args.get("task_id"))
     if not tid:
         return tool_error(
-            "task_id is required (or set HERMES_KANBAN_TASK in the env)"
+            "task_id is required outside a dispatcher-scoped worker"
         )
     ownership_err = _enforce_worker_task_ownership(tid)
     if ownership_err:
@@ -670,7 +671,7 @@ def _handle_block(args: dict, **kw) -> str:
     tid = _default_task_id(args.get("task_id"))
     if not tid:
         return tool_error(
-            "task_id is required (or set HERMES_KANBAN_TASK in the env)"
+            "task_id is required outside a dispatcher-scoped worker"
         )
     ownership_err = _enforce_worker_task_ownership(tid)
     if ownership_err:
@@ -756,7 +757,7 @@ def _handle_heartbeat(args: dict, **kw) -> str:
     tid = _default_task_id(args.get("task_id"))
     if not tid:
         return tool_error(
-            "task_id is required (or set HERMES_KANBAN_TASK in the env)"
+            "task_id is required outside a dispatcher-scoped worker"
         )
     ownership_err = _enforce_worker_task_ownership(tid)
     if ownership_err:
@@ -766,12 +767,10 @@ def _handle_heartbeat(args: dict, **kw) -> str:
     try:
         kb, conn = _connect(board=board)
         try:
-            # Extend the claim TTL first. The dispatcher pins
-            # HERMES_KANBAN_CLAIM_LOCK in the worker env at spawn time
-            # (see _default_spawn in kanban_db.py); falling back to the
-            # default _claimer_id() covers locally-driven workers that
-            # never went through the dispatcher path.
-            claim_lock = os.environ.get("HERMES_KANBAN_CLAIM_LOCK")
+            # Extend the claim TTL first. The worker context pins the exact
+            # dispatcher claim; falling back to the default claimer covers
+            # locally-driven workers that skipped the dispatcher path.
+            claim_lock = get_kanban_runtime_context().claim_lock or None
             kb.heartbeat_claim(conn, tid, claimer=claim_lock)
 
             ok = kb.heartbeat_worker(
@@ -811,11 +810,11 @@ def _handle_comment(args: dict, **kw) -> str:
     # into the next worker's system prompt by ``build_worker_context``
     # as ``**{author}** (timestamp): {body}`` — accepting an
     # ``args["author"]`` override let a worker forge a comment from
-    # an authoritative-looking name like ``hermes-system`` and poison
+    # an authoritative-looking name like ``fabric-system`` and poison
     # the future-worker context with what reads as a system directive.
     # Cross-task commenting itself remains unrestricted (see #19713) —
     # comments are the deliberate handoff channel between tasks.
-    author = os.environ.get("HERMES_PROFILE") or "worker"
+    author = current_profile_name()
     board = args.get("board")
     try:
         kb, conn = _connect(board=board)
@@ -848,18 +847,17 @@ def _handle_create(args: dict, **kw) -> str:
         )
     body = args.get("body")
     parents = args.get("parents") or []
-    tenant = args.get("tenant") or os.environ.get("HERMES_TENANT")
-    # Stamp the originating session id when the agent loop runs under
-    # ACP (which sets HERMES_SESSION_ID before invoking tools). NULL on
-    # CLI / dashboard paths and on legacy hosts that don't set the env.
-    session_id = args.get("session_id") or os.environ.get("HERMES_SESSION_ID")
+    tenant = args.get("tenant") or get_kanban_runtime_context().tenant or None
+    # Stamp the originating task-local session id when one is bound. Callers
+    # may still pass an explicit id for creation paths outside an agent turn.
+    session_id = args.get("session_id") or _current_session_id()
     priority = args.get("priority")
     # Resolve workspace. If the caller passed one explicitly, honor it.
-    # Otherwise, a dispatcher-spawned worker (HERMES_KANBAN_TASK set)
+    # Otherwise, a dispatcher-spawned worker
     # inherits its own running task's workspace, so a worker editing a
     # dir:/worktree project that spawns a follow-up child keeps the child
     # in that project instead of a throwaway scratch dir. Orchestrators
-    # (kanban toolset, no HERMES_KANBAN_TASK) and CLI/dashboard callers
+    # (kanban toolset, no task binding) and CLI/dashboard callers
     # fall back to scratch as before. Explicit None path stays None.
     workspace_kind = args.get("workspace_kind")
     workspace_path = args.get("workspace_path")
@@ -898,7 +896,7 @@ def _handle_create(args: dict, **kw) -> str:
             # Inherit the spawning worker's own task workspace when the
             # caller didn't specify one (see resolution note above).
             if _inherit_workspace:
-                _self_tid = os.environ.get("HERMES_KANBAN_TASK")
+                _self_tid = current_worker_task_id()
                 if _self_tid:
                     _self_task = kb.get_task(conn, _self_tid)
                     if _self_task is not None and _self_task.workspace_kind:
@@ -931,7 +929,7 @@ def _handle_create(args: dict, **kw) -> str:
                     int(goal_max_turns) if goal_max_turns is not None else None
                 ),
                 initial_status=str(initial_status),
-                created_by=os.environ.get("HERMES_PROFILE") or "worker",
+                created_by=current_profile_name(),
                 session_id=session_id,
             )
             new_task = kb.get_task(conn, new_tid)
@@ -962,29 +960,26 @@ def _maybe_auto_subscribe(conn: Any, task_id: str) -> bool:
     Gated by ``kanban.auto_subscribe_on_create`` in config.yaml (default
     True). Disable to mirror pre-feature behaviour, e.g. when the
     originating user/chat opted out via the per-platform notification
-    toggle (see ``Fabric dashboard``).
+    toggle (see ``fabric dashboard``).
 
     Subscription paths:
 
-    - **Gateway** (telegram/discord/slack/etc): ``HERMES_SESSION_PLATFORM``
-      and ``HERMES_SESSION_CHAT_ID`` are set in ContextVars by the
-      messaging gateway before agent dispatch. The notification poller
+    - **Gateway** (telegram/discord/slack/etc): the platform and chat address
+      are bound in task-local context by the messaging gateway before agent
+      dispatch. The notification poller
       already keys off these, so we just register a row.
 
-    - **TUI** (herm desktop / herm TUI): the platform/chat_id ContextVars
+    - **TUI** (Fabric desktop / Fabric TUI): the platform/chat_id ContextVars
       are intentionally cleared (TUI is a single-channel local UI, not
-      a multi-tenant chat surface), but the agent subprocess inherits
-      ``HERMES_SESSION_KEY`` from the parent session. We subscribe with
-      ``platform="tui"`` and ``chat_id=<key>``; the TUI notification
-      poller (``tui_gateway/server.py``) reads ``kanban_notify_subs``
-      for these rows and posts the completion message into the running
-      session.
+      a multi-tenant chat surface), while the live turn binds its source,
+      UI-session address, and durable session key in task-local context. We
+      subscribe with ``platform="tui"`` and ``chat_id=<key>``.
 
     - **CLI / cron / test / unattached**: no persistent delivery channel,
       no-op.
 
     Failure mode: any exception inside the function is logged at WARNING
-    with the offending exception + diagnostic env vars and swallowed.
+    with the offending exception + diagnostic session context and swallowed.
     We never want a notification bookkeeping failure to fail the
     kanban_create that the agent is mid-conversation about.
     """
@@ -1000,37 +995,39 @@ def _maybe_auto_subscribe(conn: Any, task_id: str) -> bool:
     platform = ""
     chat_id = ""
     try:
-        from gateway.session_context import get_session_env
-        platform = get_session_env("HERMES_SESSION_PLATFORM", "")
-        chat_id = get_session_env("HERMES_SESSION_CHAT_ID", "")
+        from gateway.session_context import get_session_context
+
+        context = get_session_context()
+        platform = context.platform
+        chat_id = context.chat_id
         if not platform or not chat_id:
-            # TUI / desktop fallback: platform/chat_id ContextVars are
-            # cleared for TUI sessions, but the parent process exports
-            # HERMES_SESSION_KEY into the subprocess env. Treat that
-            # as a "tui" subscription so the TUI notification poller
-            # (tui_gateway/server.py) can pick it up.
+            # TUI / desktop path: platform/chat_id are intentionally empty,
+            # but the live turn binds its source, live UI address, and durable
+            # session key in this same task-local context. A bare session key
+            # is not enough: ACP and hidden background agents also bind one,
+            # but have no TUI notification poller to receive this subscription.
             #
-            # HERMES_SESSION_ID is intentionally NOT a fallback here:
-            # it is set by ACP / the agent subprocess for telemetry
-            # regardless of whether the parent is a TUI or a CLI, so
+            # The durable agent session id is intentionally NOT a fallback
+            # here: it is bound for telemetry regardless of whether the parent
+            # is a TUI or a CLI, so
             # treating it as a notification target would auto-subscribe
             # every CLI invocation, which is exactly the over-eager
             # behaviour that got #19718 reverted upstream. The TUI
-            # poller keys on HERMES_SESSION_KEY.
-            session_key = (
-                get_session_env("HERMES_SESSION_KEY", "")
-                or os.environ.get("HERMES_SESSION_KEY", "")
-            )
-            if not session_key:
+            # poller keys on the durable session key.
+            session_key = context.session_key
+            session_source = context.source.lower()
+            ui_session_id = context.ui_session_id
+            if (
+                not session_key
+                or session_source not in {"tui", "desktop"}
+                or not ui_session_id
+            ):
                 return False  # CLI / cron / test — no persistent channel
             platform = "tui"
             chat_id = session_key
-        thread_id = get_session_env("HERMES_SESSION_THREAD_ID", "") or None
-        user_id = get_session_env("HERMES_SESSION_USER_ID", "") or None
-        notifier_profile = (
-            get_session_env("HERMES_SESSION_PROFILE", "")
-            or os.environ.get("HERMES_PROFILE")
-        )
+        thread_id = context.thread_id or None
+        user_id = context.user_id or None
+        notifier_profile = context.profile or current_profile_name(fallback="")
 
         # Lazy-import to keep the module-level dependency light
         from fabric_cli import kanban_db as _kb
@@ -1104,17 +1101,14 @@ def _handle_link(args: dict, **kw) -> str:
 # ---------------------------------------------------------------------------
 
 _DESC_TASK_ID_DEFAULT = (
-    "Task id. If omitted, defaults to HERMES_KANBAN_TASK from the env "
-    "(the task the dispatcher spawned you to work on)."
+    "Task id. Dispatcher-scoped workers may omit it to use their current task."
 )
 
 _DESC_BOARD = (
     "Kanban board slug to target. When omitted, the call resolves the "
-    "active board the usual way: HERMES_KANBAN_DB env → "
-    "HERMES_KANBAN_BOARD env → the 'current' symlink under the kanban "
-    "home → 'default'. Pass an explicit slug only when the caller (e.g. "
-    "a Telegram routing layer) needs to override the env-pinned active "
-    "board for this one call."
+    "session's active board, then the persisted current board, then "
+    "'default'. Pass an explicit slug only to target another board for "
+    "this one call."
 )
 
 
@@ -1436,7 +1430,7 @@ KANBAN_CREATE_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Optional namespace for multi-project isolation. "
-                    "Defaults to HERMES_TENANT env if set."
+                    "Defaults to the current worker's tenant when bound."
                 ),
             },
             "priority": {

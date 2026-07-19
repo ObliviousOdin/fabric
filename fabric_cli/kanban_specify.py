@@ -1,6 +1,6 @@
 """Kanban triage specifier — flesh out a one-liner into a real spec.
 
-Used by ``hermes kanban specify [task_id | --all]``. Takes a task that
+Used by ``fabric kanban specify [task_id | --all]``. Takes a task that
 lives in the Triage column (a rough idea, typically only a title), calls
 the auxiliary LLM to produce:
 
@@ -40,14 +40,22 @@ from typing import Optional
 
 from fabric_cli import kanban_db as kb
 
-from utils import env_int
-
-HERMES_KANBAN_SPECIFY_MAX_TOKENS = max(
-    1500,
-    env_int("HERMES_KANBAN_SPECIFY_MAX_TOKENS", 6000),
-)
+_DEFAULT_SPECIFY_MAX_TOKENS = 6000
 
 logger = logging.getLogger(__name__)
+
+
+def _specifier_max_tokens() -> int:
+    """Read the token budget from the canonical auxiliary config route."""
+    try:
+        from fabric_cli.config import load_config
+
+        auxiliary = load_config().get("auxiliary") or {}
+        route = auxiliary.get("triage_specifier") or {}
+        value = int(route.get("max_tokens", _DEFAULT_SPECIFY_MAX_TOKENS))
+    except (AttributeError, TypeError, ValueError):
+        return _DEFAULT_SPECIFY_MAX_TOKENS
+    return max(1500, value)
 
 
 _SYSTEM_PROMPT = """You are the Kanban triage specifier for the Fabric board.
@@ -132,11 +140,9 @@ def _extract_json_blob(raw: str) -> Optional[dict]:
 def _profile_author() -> str:
     """Mirror of ``fabric_cli.kanban._profile_author``. Kept local to
     avoid a circular import when kanban.py imports this module."""
-    return (
-        os.environ.get("HERMES_PROFILE")
-        or os.environ.get("USER")
-        or "specifier"
-    )
+    from fabric_cli.kanban_runtime import current_profile_name
+
+    return current_profile_name(fallback=os.environ.get("USER") or "specifier")
 
 
 def specify_task(
@@ -192,7 +198,7 @@ def specify_task(
                 {"role": "user", "content": user_msg},
             ],
             temperature=0.3,
-            max_tokens=HERMES_KANBAN_SPECIFY_MAX_TOKENS,
+            max_tokens=_specifier_max_tokens(),
             timeout=timeout or 120,
             extra_body=get_auxiliary_extra_body() or None,
         )

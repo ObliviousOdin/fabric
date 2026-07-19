@@ -1,20 +1,18 @@
 """
-Timezone-aware clock for Hermes.
+Timezone-aware clock for Fabric.
 
 Provides a single ``now()`` helper that returns a timezone-aware datetime
 based on the user's configured IANA timezone (e.g. ``Asia/Kolkata``).
 
 Resolution order:
-  1. ``HERMES_TIMEZONE`` environment variable
-  2. ``timezone`` key in ``~/.hermes/config.yaml``
-  3. Falls back to the server's local time (``datetime.now().astimezone()``)
+  1. ``timezone`` key in ``~/.fabric/config.yaml``
+  2. Falls back to the server's local time (``datetime.now().astimezone()``)
 
-Invalid timezone values log a warning and fall back safely — Hermes never
+Invalid timezone values log a warning and fall back safely — Fabric never
 crashes due to a bad timezone string.
 """
 
 import logging
-import os
 from datetime import datetime
 from fabric_constants import get_config_path
 from typing import Optional
@@ -24,7 +22,7 @@ logger = logging.getLogger(__name__)
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
-    # Python 3.8 fallback (shouldn't be needed — Hermes requires 3.9+)
+    # Python 3.8 fallback (shouldn't be needed — Fabric requires 3.9+)
     from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
 
 # Cached state — resolved once, reused on every call.
@@ -40,12 +38,7 @@ def _resolve_timezone_name() -> str:
     This does file I/O when falling through to config.yaml, so callers
     should cache the result rather than calling on every ``now()``.
     """
-    # 1. Environment variable (highest priority — set by Supervisor, etc.)
-    tz_env = os.getenv("HERMES_TIMEZONE", "").strip()
-    if tz_env:
-        return tz_env
-
-    # 2. config.yaml ``timezone`` key
+    # config.yaml ``timezone`` key
     try:
         # Prefer the shared cached raw-config reader (mtime/size-keyed cache +
         # libyaml C loader) — a direct yaml.safe_load of a large config.yaml
@@ -106,12 +99,20 @@ def get_timezone() -> Optional[ZoneInfo]:
     return _cached_tz
 
 
+def get_timezone_name() -> str:
+    """Return the validated configured IANA timezone name, or an empty string."""
+    tz = get_timezone()
+    if tz is None:
+        return ""
+    return str(getattr(tz, "key", tz))
+
+
 def reset_cache() -> None:
     """Clear the cached timezone so the next call re-resolves it.
 
     Call this after the configured timezone may have changed (e.g. after a
-    config edit or ``HERMES_TIMEZONE`` update) to force ``get_timezone()`` /
-    ``now()`` to read the new value instead of the value cached at first use.
+    config edit) to force ``get_timezone()`` / ``now()`` to read the new value
+    instead of the value cached at first use.
     """
     global _cached_tz, _cached_tz_name, _cache_resolved
     _cached_tz = None
@@ -131,5 +132,3 @@ def now() -> datetime:
         return datetime.now(tz)
     # No timezone configured — use server-local (still tz-aware)
     return datetime.now().astimezone()
-
-

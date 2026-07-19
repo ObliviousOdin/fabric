@@ -1,4 +1,4 @@
-"""``Fabric dashboard`` / ``fabric serve`` subcommand parsers.
+"""``fabric dashboard`` / ``fabric serve`` subcommand parsers.
 
 ``dashboard`` is the browser web UI; ``serve`` is the same gateway, headless —
 what the desktop app and remote backends run. ``serve`` also skips the web UI
@@ -68,11 +68,20 @@ def _add_server_runtime_args(parser) -> None:
         default="",
         help=argparse.SUPPRESS,
     )
+    # Internal launch handshake used by trusted local shells (desktop and
+    # companion). Explicit argv keeps the contract scoped to this child rather
+    # than publishing an ambient process-environment capability.
+    parser.add_argument(
+        "--auth-token",
+        dest="auth_token",
+        default="",
+        help=argparse.SUPPRESS,
+    )
     # Lifecycle flags — mutually exclusive with each other and with the
     # start-a-server flags above (if both are passed, --stop / --status win
     # because they exit before the server is started).  The server has no
     # service manager and no PID file, so these scan the process table for
-    # `Fabric dashboard` / `fabric serve` cmdlines and SIGTERM them directly —
+    # `fabric dashboard` / `fabric serve` cmdlines and SIGTERM them directly —
     # the same path `fabric update` uses to clean up stale servers.
     parser.add_argument(
         "--qr",
@@ -129,21 +138,6 @@ def build_dashboard_parser(
     dashboard_parser.add_argument(
         "--no-open", action="store_true", help="Don't open browser automatically"
     )
-    # Backward-compat shim: older Fabric desktop app shells (<= 0.15.x) spawn the
-    # backend as `Fabric dashboard --no-open --tui --host ... --port ...`. The
-    # `--tui` flag was removed from this subcommand in cae6b5486 (embedded chat is
-    # always on now). When a user's CLI updates past that commit but their desktop
-    # app binary has not, argparse used to hard-error with "unrecognized arguments:
-    # --tui" and exit(2) — the backend died before becoming ready and the GUI just
-    # showed "Hermes couldn't start" with no actionable cause. Accept and silently
-    # ignore the flag so an old app + new CLI degrades gracefully instead of
-    # bricking. Hidden from --help; safe to delete once the floor app version is
-    # well past 0.16.0.
-    dashboard_parser.add_argument(
-        "--tui",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
     dashboard_parser.set_defaults(func=cmd_dashboard)
 
     # =========================================================================
@@ -165,16 +159,10 @@ def build_dashboard_parser(
         ),
     )
     _add_server_runtime_args(serve_parser)
-    # Accepted but redundant: `serve` is always headless (see set_defaults
-    # below). Kept so callers that pass the legacy `--no-open` flag (e.g. the
-    # desktop backend spawn) don't trip "unrecognized arguments".
-    serve_parser.add_argument(
-        "--no-open", action="store_true", help=argparse.SUPPRESS
-    )
     # `headless_backend` marks the lean path: desktop/remote clients speak pure
     # JSON-RPC/WS, so `serve` skips the web UI build AND never serves the SPA
-    # (cmd_dashboard exports FABRIC_SERVE_HEADLESS=1). `dashboard` leaves it
-    # unset and serves the browser UI as before.
+    # (cmd_dashboard passes the mode directly to start_server). `dashboard`
+    # serves the browser UI as before.
     serve_parser.set_defaults(func=cmd_dashboard, no_open=True, headless_backend=True)
 
     # The bundled dashboard registration flow is Nous-Portal-specific. Keep
@@ -190,7 +178,7 @@ def build_dashboard_parser(
             description=(
                 "Register this install as a self-hosted dashboard with the configured "
                 "OAuth portal. Creates an OAuth client, writes its settings into "
-                "~/.fabric/.env, and prints "
+                "~/.fabric/config.yaml, and prints "
                 "how to engage the login gate. Requires being logged in (fabric setup)."
             ),
         )
@@ -215,8 +203,7 @@ def build_dashboard_parser(
             help=(
                 "Override the Nous Portal base URL for registration (default: the "
                 "portal you logged into). The access token must be valid at this "
-                "portal. Also settable via HERMES_DASHBOARD_PORTAL_URL. Mainly for "
-                "testing against a staging/preview portal."
+                "portal. Mainly for testing against a staging/preview portal."
             ),
         )
         dashboard_register_parser.set_defaults(func=cmd_dashboard_register)

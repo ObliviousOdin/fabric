@@ -230,7 +230,7 @@ def _tool_result_failed(result: Optional[str], tool_name: str | None = None) -> 
     if isinstance(exit_code, int) and exit_code != 0:
         return True
 
-    # Hermes core/polished tools commonly report tool-level failures as a
+    # Fabric core/polished tools commonly report tool-level failures as a
     # structured {"error": "..."} payload without an explicit success flag.
     # Keep generic plugin/unknown tool payloads conservative to avoid marking
     # optional diagnostic messages as failed.
@@ -306,7 +306,7 @@ def _format_read_file_result(result: Optional[str], args: Optional[Dict[str, Any
     header = f"Read {path}{suffix}"
     if data.get("total_lines") is not None:
         header += f" — {data.get('total_lines')} total lines"
-    # Hermes read_file output is line-numbered with `|`. If we send it as raw
+    # Fabric read_file output is line-numbered with `|`. If we send it as raw
     # Markdown, Zed can interpret pipes as tables and collapse the layout.
     # Fence the payload so file lines stay readable and literal.
     return _truncate_text(f"{header}\n\n{_fenced_text(content)}")

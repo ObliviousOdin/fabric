@@ -203,9 +203,7 @@ def build_auth_parser(subparsers, *, cmd_auth: Callable) -> None:
         choices=["login", "status", "logout"],
         default="login",
     )
-    auth_spotify.add_argument(
-        "--client-id", help="Spotify app client_id (or set HERMES_SPOTIFY_CLIENT_ID)"
-    )
+    auth_spotify.add_argument("--client-id", help="Spotify app client_id")
     auth_spotify.add_argument(
         "--redirect-uri",
         help="Allow-listed localhost redirect URI for your Spotify app",
@@ -219,7 +217,7 @@ def build_auth_parser(subparsers, *, cmd_auth: Callable) -> None:
     auth_spotify.add_argument(
         "--timeout", type=float, help="Callback/token exchange timeout in seconds"
     )
-    # FABRIC (additive): skip post-auth dashboard offer
+    # Allow scripted auth to suppress the post-auth dashboard offer.
     auth_parser.add_argument(
         "--no-dashboard",
         action="store_true",

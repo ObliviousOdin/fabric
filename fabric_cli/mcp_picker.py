@@ -44,8 +44,6 @@ from fabric_cli.config import load_config, save_config
 _STATUS_NOT_INSTALLED = "available"
 _STATUS_DISABLED = "installed (disabled)"
 
-# public-release-audit: allow-legacy-compat -- normalizes catalog prose cached before the Fabric rename
-_LEGACY_PRODUCT_NAME = "Hermes"
 _STATUS_ENABLED = "enabled"
 _STATUS_CUSTOM_ENABLED = "custom — enabled"
 _STATUS_CUSTOM_DISABLED = "custom — disabled"
@@ -111,17 +109,8 @@ def _format_row(row: _Row) -> str:
 
 
 def _catalog_description(text: str) -> str:
-    """Normalize legacy catalog prose to the Fabric product identity."""
-    from fabric_cli.fabric_brand import fabric_brand_enabled
-
-    if not fabric_brand_enabled():
-        return text
-    return (
-        str(text or "")
-        .replace("Nous Research", "Fabric")
-        .replace("Fabric-curated", "curated")
-        .replace(_LEGACY_PRODUCT_NAME, "Fabric")
-    )
+    """Return catalog prose as authored by the canonical catalog."""
+    return str(text or "")
 
 
 # ─── Actions ──────────────────────────────────────────────────────────────────

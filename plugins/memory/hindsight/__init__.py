@@ -11,7 +11,7 @@ Original PR #1811 by benfrank241, adapted to MemoryProvider ABC.
 
 Config via environment variables:
   HINDSIGHT_API_KEY                — API key for Hindsight Cloud
-  HINDSIGHT_BANK_ID                — memory bank identifier (default: hermes)
+  HINDSIGHT_BANK_ID                — memory bank identifier (default: fabric)
   HINDSIGHT_BUDGET                 — recall budget: low/mid/high (default: mid)
   HINDSIGHT_API_URL                — API endpoint
   HINDSIGHT_MODE                   — cloud or local (default: cloud)
@@ -24,7 +24,7 @@ Config via environment variables:
   HINDSIGHT_RETAIN_USER_PREFIX     — label used before user turns in retained transcripts
   HINDSIGHT_RETAIN_ASSISTANT_PREFIX — label used before assistant turns in retained transcripts
 
-Or via $HERMES_HOME/hindsight/config.json (profile-scoped), falling back to
+Or via $FABRIC_HOME/hindsight/config.json (profile-scoped), falling back to
 ~/.hindsight/config.json (legacy, shared) for backward compatibility.
 """
 
@@ -357,7 +357,7 @@ def _load_config() -> dict:
     """Load config from profile-scoped path, legacy path, or env vars.
 
     Resolution order:
-      1. $HERMES_HOME/hindsight/config.json  (profile-scoped)
+      1. $FABRIC_HOME/hindsight/config.json  (profile-scoped)
       2. ~/.hindsight/config.json             (legacy, shared)
       3. Environment variables
     """
@@ -390,8 +390,8 @@ def _load_config() -> dict:
         "retain_user_prefix": profile_env("HINDSIGHT_RETAIN_USER_PREFIX", "User"),
         "retain_assistant_prefix": profile_env("HINDSIGHT_RETAIN_ASSISTANT_PREFIX", "Assistant"),
         "banks": {
-            "hermes": {
-                "bankId": profile_env("HINDSIGHT_BANK_ID", "hermes"),
+            "fabric": {
+                "bankId": profile_env("HINDSIGHT_BANK_ID", "fabric"),
                 "budget": profile_env("HINDSIGHT_BUDGET", "mid"),
                 "enabled": True,
             }
@@ -493,8 +493,8 @@ def _utc_timestamp() -> str:
 
 def _embedded_profile_name(config: dict[str, Any]) -> str:
     """Return the Hindsight embedded profile name for this Fabric config."""
-    profile = config.get("profile", "hermes")
-    return str(profile or "hermes")
+    profile = config.get("profile", "fabric")
+    return str(profile or "fabric")
 
 
 def _load_simple_env(path) -> dict[str, str]:
@@ -595,13 +595,13 @@ def _resolve_bank_id_template(template: str, fallback: str, **placeholders: str)
 
     Supported placeholders (each is sanitized before substitution):
       {profile}   — active Fabric profile name (from agent_identity)
-      {workspace} — Hermes workspace name (from agent_workspace)
+      {workspace} — Fabric workspace name (from agent_workspace)
       {platform}  — "cli", "telegram", "discord", etc.
       {user}      — platform user id (gateway sessions)
       {session}   — current session id
 
     Missing/empty placeholders are rendered as the empty string and then
-    collapsed — e.g. ``hermes-{user}`` with no user becomes ``fabric``.
+    collapsed — e.g. ``fabric-{user}`` with no user becomes ``fabric``.
 
     If the template is empty, resolution falls back to *fallback*.
     Returns the sanitized bank id.
@@ -644,7 +644,7 @@ class HindsightMemoryProvider(MemoryProvider):
         self._config = None
         self._api_key = None
         self._api_url = _DEFAULT_API_URL
-        self._bank_id = "hermes"
+        self._bank_id = "fabric"
         self._budget = "mid"
         self._mode = "cloud"
         self._llm_base_url = ""
@@ -768,11 +768,11 @@ class HindsightMemoryProvider(MemoryProvider):
         except Exception:
             return False
 
-    def save_config(self, values, hermes_home):
-        """Write config to $HERMES_HOME/hindsight/config.json."""
+    def save_config(self, values, fabric_home):
+        """Write config to $FABRIC_HOME/hindsight/config.json."""
         import json
         from pathlib import Path
-        config_dir = Path(hermes_home) / "hindsight"
+        config_dir = Path(fabric_home) / "hindsight"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_path = config_dir / "config.json"
         existing = {}
@@ -785,7 +785,7 @@ class HindsightMemoryProvider(MemoryProvider):
         from utils import atomic_json_write
         atomic_json_write(config_path, existing, mode=0o600)
 
-    def post_setup(self, hermes_home: str, config: dict) -> None:
+    def post_setup(self, fabric_home: str, config: dict) -> None:
         """Custom setup wizard — installs only the deps needed for the selected mode."""
         import subprocess
         import shutil
@@ -924,7 +924,7 @@ class HindsightMemoryProvider(MemoryProvider):
             if llm_key:
                 env_writes["HINDSIGHT_LLM_API_KEY"] = llm_key
             else:
-                env_path = Path(hermes_home) / ".env"
+                env_path = Path(fabric_home) / ".env"
                 existing_llm_key = ""
                 if env_path.exists():
                     for line in env_path.read_text().splitlines():
@@ -934,7 +934,7 @@ class HindsightMemoryProvider(MemoryProvider):
                 env_writes["HINDSIGHT_LLM_API_KEY"] = existing_llm_key
 
         # Step 4: Save everything
-        provider_config.setdefault("bank_id", "hermes")
+        provider_config.setdefault("bank_id", "fabric")
         provider_config.setdefault("recall_budget", "mid")
         # Read existing timeout from config if present, otherwise use default.
         # Preserve explicit 0 values instead of treating them as blank.
@@ -950,10 +950,10 @@ class HindsightMemoryProvider(MemoryProvider):
         config["memory"]["provider"] = "hindsight"
         save_config(config)
 
-        self.save_config(provider_config, hermes_home)
+        self.save_config(provider_config, fabric_home)
 
         if env_writes:
-            env_path = Path(hermes_home) / ".env"
+            env_path = Path(fabric_home) / ".env"
             env_path.parent.mkdir(parents=True, exist_ok=True)
             existing_lines = []
             if env_path.exists():
@@ -974,7 +974,7 @@ class HindsightMemoryProvider(MemoryProvider):
 
         if mode == "local_embedded":
             materialized_config = dict(provider_config)
-            config_path = Path(hermes_home) / "hindsight" / "config.json"
+            config_path = Path(fabric_home) / "hindsight" / "config.json"
             try:
                 materialized_config = json.loads(config_path.read_text(encoding="utf-8"))
             except Exception:
@@ -982,7 +982,7 @@ class HindsightMemoryProvider(MemoryProvider):
 
             llm_api_key = env_writes.get("HINDSIGHT_LLM_API_KEY", "")
             if not llm_api_key:
-                llm_api_key = _load_simple_env(Path(hermes_home) / ".env").get("HINDSIGHT_LLM_API_KEY", "")
+                llm_api_key = _load_simple_env(Path(fabric_home) / ".env").get("HINDSIGHT_LLM_API_KEY", "")
             if not llm_api_key:
                 llm_api_key = _load_simple_env(_embedded_profile_env_path(materialized_config)).get(
                     "HINDSIGHT_API_LLM_API_KEY",
@@ -1013,8 +1013,8 @@ class HindsightMemoryProvider(MemoryProvider):
             {"key": "llm_base_url", "description": "Endpoint URL (e.g. http://192.168.1.10:8080/v1)", "default": "", "when": {"mode": "local_embedded", "llm_provider": "openai_compatible"}},
             {"key": "llm_api_key", "description": "LLM API key (optional for openai_compatible)", "secret": True, "env_var": "HINDSIGHT_LLM_API_KEY", "when": {"mode": "local_embedded"}},
             {"key": "llm_model", "description": "LLM model", "default": "gpt-4o-mini", "default_from": {"field": "llm_provider", "map": _PROVIDER_DEFAULT_MODELS}, "when": {"mode": "local_embedded"}},
-            {"key": "bank_id", "description": "Memory bank name (static fallback when bank_id_template is unset)", "default": "hermes"},
-            {"key": "bank_id_template", "description": "Optional template to derive bank_id dynamically. Placeholders: {profile}, {workspace}, {platform}, {user}, {session}. Example: hermes-{profile}", "default": ""},
+            {"key": "bank_id", "description": "Memory bank name (static fallback when bank_id_template is unset)", "default": "fabric"},
+            {"key": "bank_id_template", "description": "Optional template to derive bank_id dynamically. Placeholders: {profile}, {workspace}, {platform}, {user}, {session}. Example: fabric-{profile}", "default": ""},
             {"key": "bank_mission", "description": "Mission/purpose description for the memory bank"},
             {"key": "bank_retain_mission", "description": "Custom extraction prompt for memory retention"},
             {"key": "recall_budget", "description": "Recall thoroughness", "default": "mid", "choices": ["low", "mid", "high"]},
@@ -1064,9 +1064,9 @@ class HindsightMemoryProvider(MemoryProvider):
                 if llm_provider in {"openai_compatible", "openrouter"}:
                     llm_provider = "openai"
                 logger.debug("Creating HindsightEmbedded client (profile=%s, provider=%s)",
-                             self._config.get("profile", "hermes"), llm_provider)
+                             self._config.get("profile", "fabric"), llm_provider)
                 kwargs = dict(
-                    profile=self._config.get("profile", "hermes"),
+                    profile=self._config.get("profile", "fabric"),
                     llm_provider=llm_provider,
                     llm_api_key=self._config.get("llmApiKey") or self._config.get("llm_api_key") or profile_env("HINDSIGHT_LLM_API_KEY", ""),
                     llm_model=self._config.get("llm_model", ""),
@@ -1317,8 +1317,8 @@ class HindsightMemoryProvider(MemoryProvider):
         self._api_url = self._config.get("api_url") or profile_env("HINDSIGHT_API_URL", default_url)
         self._llm_base_url = self._config.get("llm_base_url", "")
 
-        banks = cfg_get(self._config, "banks", "hermes", default={})
-        static_bank_id = self._config.get("bank_id") or banks.get("bankId", "hermes")
+        banks = cfg_get(self._config, "banks", "fabric", default={})
+        static_bank_id = self._config.get("bank_id") or banks.get("bankId", "fabric")
         self._bank_id_template = self._config.get("bank_id_template", "") or ""
         self._bank_id = _resolve_bank_id_template(
             self._bank_id_template,
@@ -1425,7 +1425,7 @@ class HindsightMemoryProvider(MemoryProvider):
                 logger.warning(msg)
                 # Surface to the terminal too — a daemon that never starts
                 # would otherwise fail silently and the user would only see
-                # Hermes get sluggish. (issue #13125)
+                # Fabric get sluggish. (issue #13125)
                 try:
                     print(f"  ⚠ {msg}", file=sys.stderr, flush=True)
                 except Exception:
@@ -1450,7 +1450,7 @@ class HindsightMemoryProvider(MemoryProvider):
                     dem.console = Console(file=open(log_path, "a", encoding="utf-8"), force_terminal=False)
 
                     client = self._get_client()
-                    profile = self._config.get("profile", "hermes")
+                    profile = self._config.get("profile", "fabric")
 
                     # Update the profile .env to match our current config so
                     # the daemon always starts with the right settings.
@@ -1974,7 +1974,7 @@ class HindsightMemoryProvider(MemoryProvider):
             try:
                 if self._mode == "local_embedded":
                     # HindsightEmbedded.close() delegates to its sync client.close().
-                    # When Hermes created/used that client on the shared async loop,
+                    # When Fabric created/used that client on the shared async loop,
                     # closing it from this thread can raise "attached to a different
                     # loop" before aiohttp releases the session. Close the embedded
                     # inner async client on the shared loop first, then let the

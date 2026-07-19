@@ -13,7 +13,7 @@ stuck blocked for too long, etc. Each one carries:
 Rules run over (task, recent events, recent runs) and emit diagnostics.
 They are stateless and read-only — no DB writes. Callers compute
 diagnostics on demand (on ``/board`` load, ``/tasks/:id`` fetch, or
-``hermes kanban diagnostics``).
+``fabric kanban diagnostics``).
 
 Design goals:
 
@@ -61,7 +61,7 @@ class DiagnosticAction:
     * ``unblock`` — PATCH status back to ``ready`` (for stuck-blocked
       diagnostics).
     * ``cli_hint`` — print/copy a shell command (e.g.
-      ``hermes -p <profile> auth``). No HTTP side effect.
+      ``fabric -p <profile> auth``). No HTTP side effect.
     * ``open_docs`` — deep-link to the docs URL named in ``payload.url``.
     * ``comment`` — nudge the operator to add a comment (for
       stuck-blocked tasks that need human input).
@@ -375,7 +375,7 @@ def _rule_triage_aux_unavailable(task, events, runs, now, cfg) -> list[Diagnosti
     With the auto-decompose dispatcher (kanban.auto_decompose, default True),
     triage tasks fan out via ``auxiliary.kanban_decomposer`` and fall back to
     ``auxiliary.triage_specifier`` when the decomposer returns ``fanout=false``.
-    With auto-decompose off, the user must run ``hermes kanban specify``,
+    With auto-decompose off, the user must run ``fabric kanban specify``,
     which only needs ``auxiliary.triage_specifier``.
 
     The default slot is ``provider: auto`` → auto-falls back to the main model,
@@ -434,7 +434,7 @@ def _rule_triage_aux_unavailable(task, events, runs, now, cfg) -> list[Diagnosti
             label=f"Configure {primary_slot}",
             payload={
                 "command": (
-                    f"Fabric config set {primary_slot}.provider auto"
+                    f"fabric config set {primary_slot}.provider auto"
                 )
             },
             suggested=True,
@@ -446,7 +446,7 @@ def _rule_triage_aux_unavailable(task, events, runs, now, cfg) -> list[Diagnosti
             label=f"Or configure fallback {fallback_slot}",
             payload={
                 "command": (
-                    f"Fabric config set {fallback_slot}.provider auto"
+                    f"fabric config set {fallback_slot}.provider auto"
                 )
             },
         ))
@@ -864,7 +864,7 @@ def _rule_stranded_in_ready(task, events, runs, now, cfg) -> list[Diagnostic]:
     * Profile was deleted, leaving its tasks stranded.
     * External worker pool (Codex CLI, Claude Code lane, custom daemon)
       is down, hung, or wasn't started.
-    * Dispatcher is misconfigured (wrong board, wrong HERMES_HOME).
+    * Dispatcher is misconfigured (wrong board, wrong FABRIC_HOME).
 
     Pre-rule, all of these silently rotted in ``skipped_nonspawnable`` —
     the dispatcher correctly skipped them (good — no respawn loop) but
@@ -875,7 +875,7 @@ def _rule_stranded_in_ready(task, events, runs, now, cfg) -> list[Diagnostic]:
     on the dispatcher and a different operator response).
 
     The signal is age-based on purpose: it's identity-agnostic, so it
-    works for Hermes profiles, registered lanes, external workers, and
+    works for Fabric profiles, registered lanes, external workers, and
     typos uniformly. No registry to curate, no per-board allowlist.
     """
     threshold_seconds = float(

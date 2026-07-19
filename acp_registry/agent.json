@@ -10,7 +10,7 @@
   "distribution": {
     "uvx": {
       "package": "fabric-agent[acp]==0.21.0",
-      "args": ["fabric-acp"]
+      "args": ["fabric", "acp"]
     }
   }
 }

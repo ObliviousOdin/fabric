@@ -208,23 +208,14 @@ def _is_local_terminal_backend() -> bool:
 
 
 def _media_cache_roots() -> list:
-    """Agent-managed media cache directories under HERMES_HOME (host side).
+    """Agent-managed media cache directories under FABRIC_HOME (host side).
 
     The only host paths vision may read under a non-local backend: gateway-
-    downloaded inbound media and the tools' own URL-download temp dirs. Covers
-    the consolidated ``cache/`` layout and the legacy flat directories.
+    downloaded inbound media and tool-generated cache artifacts.
     """
     from fabric_constants import get_fabric_home
 
-    home = get_fabric_home()
-    return [
-        home / "cache",  # cache/images, cache/vision, cache/video(s), cache/audio
-        home / "image_cache",
-        home / "audio_cache",
-        home / "video_cache",
-        home / "temp_vision_images",
-        home / "temp_video_files",
-    ]
+    return [get_fabric_home() / "cache"]
 
 
 def _permitted_host_read_target(p: Path, ctx: ResolveContext) -> Optional[Path]:
@@ -232,7 +223,7 @@ def _permitted_host_read_target(p: Path, ctx: ResolveContext) -> Optional[Path]:
 
     - Local backend: any path is permitted (chosen posture). Returns ``p``.
     - Non-local backend: permitted only if the path resolves inside a media
-      cache root. A container-visible cache path (e.g. ``/root/.hermes/cache/
+      cache root. A container-visible cache path (e.g. ``/root/.fabric/cache/
       images/x.png``) is first translated back to its host mount; anything that
       is not under a cache returns ``None`` so the caller routes it to the
       in-sandbox exec-read instead of reading the host filesystem.

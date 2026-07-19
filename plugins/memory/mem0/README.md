@@ -27,7 +27,7 @@ Behavioral settings live in `$FABRIC_HOME/mem0.json` (set them via `fabric memor
 |-----|---------|-------------|
 | `mode` | `platform` | `platform` (Mem0 Cloud) or `oss` (self-managed, in-process) |
 | `host` | — | Self-hosted Mem0 server URL (the Docker dashboard). When set, connects over HTTP with `X-API-Key`. Don't combine with `mode: oss` |
-| `user_id` | `hermes-user` | User identifier on Mem0 |
+| `user_id` | `default-user` | User identifier on Mem0 |
 | `agent_id` | `fabric` | Agent identifier |
 | `rerank` | `false` | Rerank search results for relevance (platform mode only) |
 

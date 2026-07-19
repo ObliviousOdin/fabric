@@ -12,7 +12,9 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-_SKILLS_BLOCK_RE = re.compile(r"<available_skills>.*?</available_skills>", re.DOTALL)
+_SKILLS_BLOCK_RE = re.compile(
+    r"<available_skills\b[^>]*>.*?</available_skills>", re.DOTALL
+)
 
 _SUBAGENT_TOOL_NAMES = frozenset({"delegate_task"})
 

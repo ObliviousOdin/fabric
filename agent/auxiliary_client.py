@@ -106,7 +106,7 @@ from agent.model_metadata import MINIMUM_CONTEXT_LENGTH, get_model_context_lengt
 from agent.process_bootstrap import build_keepalive_http_client
 from fabric_cli.config import get_fabric_home
 from fabric_constants import OPENROUTER_BASE_URL
-from utils import base_url_host_matches, base_url_hostname, env_float, model_forces_max_completion_tokens, normalize_proxy_env_vars
+from utils import base_url_host_matches, base_url_hostname, model_forces_max_completion_tokens, normalize_proxy_env_vars
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ def _local_profile_secret(name: str) -> Optional[str]:
 
     # Outside a multiplexed turn, read only the selected profile's files and
     # profile-proven external-source cache.  Do not prefer ``os.environ``:
-    # that may belong to the launch/default profile while HERMES_HOME points
+    # that may belong to the launch/default profile while FABRIC_HOME points
     # at another profile.
     from fabric_cli.config import load_env
 
@@ -428,8 +428,8 @@ def _resolve_aux_verify(base_url: Optional[str]) -> Any:
 
     Mirrors the main client's TLS resolution so auxiliary calls (compression,
     vision, web_extract, title generation, etc.) honor per-provider
-    ``ssl_ca_cert`` / ``ssl_verify`` config and the ``HERMES_CA_BUNDLE`` /
-    ``SSL_CERT_FILE`` env conventions. Best-effort: any failure falls back to
+    ``ssl_ca_cert`` / ``ssl_verify`` config and standard ``SSL_CERT_FILE`` /
+    ``REQUESTS_CA_BUNDLE`` conventions. Best-effort: any failure falls back to
     the httpx/certifi default (``True``).
     """
     try:
@@ -514,13 +514,13 @@ def _create_openai_client(
         ),
         **kwargs,
     }
-    # Hermes owns auxiliary retry + provider/model fallback policy (the
+    # Fabric owns auxiliary retry + provider/model fallback policy (the
     # same-provider transient retry in call_llm plus the except-chain
     # fallback). The OpenAI SDK's own default (max_retries=2 → up to 3
     # attempts) silently multiplies the effective wall time of every aux call
     # by 3× on a slow/hung endpoint, so a 120s timeout can stall ~360s before
-    # Hermes sees a single failure (issue #54465). Disable SDK-internal retries
-    # by default and let Hermes control the budget; explicit callers can still
+    # Fabric sees a single failure (issue #54465). Disable SDK-internal retries
+    # by default and let Fabric control the budget; explicit callers can still
     # override via kwargs.
     kwargs.setdefault("max_retries", 0)
     try:
@@ -764,7 +764,7 @@ def _compression_threshold_for_model(
     """Return a context-compression threshold override for specific models.
 
     The threshold is the fraction of the model's context window that must be
-    consumed before Hermes triggers summarization.  Higher values delay
+    consumed before Fabric triggers summarization.  Higher values delay
     compression and preserve more raw context.
 
     Per-model/route overrides:
@@ -854,17 +854,11 @@ _PROVIDERS_WITHOUT_VISION: frozenset = frozenset({
     "kimi-coding-cn",
 })
 
-# OpenRouter app attribution headers (base — always sent).
-# `X-Title` is the canonical attribution header OpenRouter's dashboard
-# reads; the previous `X-OpenRouter-Title` label was not recognized there.
 _OR_HEADERS_BASE = {
     "HTTP-Referer": "https://github.com/ObliviousOdin/fabric",
     "X-Title": "Fabric",
     "X-OpenRouter-Categories": "productivity,cli-agent",
 }
-
-# Truthy values for boolean env-var parsing.
-_TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
 def _apply_user_default_headers(headers: dict | None) -> dict | None:
@@ -911,15 +905,6 @@ def _apply_user_default_headers(headers: dict | None) -> dict | None:
 def build_or_headers(or_config: dict | None = None) -> dict:
     """Build OpenRouter headers, optionally including response-cache headers.
 
-    Precedence for response cache: env var > config.yaml > default (enabled).
-
-    Environment variables:
-        ``HERMES_OPENROUTER_CACHE`` — truthy (``1``/``true``/``yes``/``on``)
-            enables caching; ``0``/``false``/``no``/``off`` disables.
-            Overrides ``openrouter.response_cache`` in config.yaml.
-        ``HERMES_OPENROUTER_CACHE_TTL`` — integer seconds (1-86400).
-            Overrides ``openrouter.response_cache_ttl`` in config.yaml.
-
     *or_config* is the ``openrouter`` section from config.yaml.  When *None*,
     falls back to reading config from disk via ``load_config()``.
     """
@@ -933,73 +918,33 @@ def build_or_headers(or_config: dict | None = None) -> dict:
         except Exception:
             or_config = {}
 
-    # Determine cache enabled: env var overrides config.
-    env_cache = os.environ.get("HERMES_OPENROUTER_CACHE", "").strip().lower()
-    if env_cache:
-        cache_enabled = env_cache in _TRUTHY_ENV_VALUES
-    else:
-        cache_enabled = or_config.get("response_cache", False)
+    cache_enabled = or_config.get("response_cache", False)
 
     if not cache_enabled:
         return headers
 
     headers["X-OpenRouter-Cache"] = "true"
 
-    # Determine TTL: env var overrides config.
-    env_ttl = os.environ.get("HERMES_OPENROUTER_CACHE_TTL", "").strip()
-    if env_ttl:
-        if env_ttl.isdigit():
-            ttl = int(env_ttl)
-            if 1 <= ttl <= 86400:
-                headers["X-OpenRouter-Cache-TTL"] = str(ttl)
-    else:
-        ttl = or_config.get("response_cache_ttl", 300)
-        if isinstance(ttl, (int, float)) and 1 <= ttl <= 86400:
-            headers["X-OpenRouter-Cache-TTL"] = str(int(ttl))
+    ttl = or_config.get("response_cache_ttl", 300)
+    if isinstance(ttl, (int, float)) and 1 <= ttl <= 86400:
+        headers["X-OpenRouter-Cache-TTL"] = str(int(ttl))
 
     return headers
 
 
-# NVIDIA NIM cloud billing attribution.  Keep this host-gated because the
-# nvidia provider also supports local/on-prem NIM endpoints via NVIDIA_BASE_URL.
+# NVIDIA NIM cloud billing attribution. Keep this host-gated because the
+# provider also supports local and on-premises NIM endpoints.
 _NVIDIA_NIM_CLOUD_HEADERS = {
     "X-BILLING-INVOKE-ORIGIN": "FabricAgent",
 }
 
 
 def build_nvidia_nim_headers(base_url: str | None) -> dict:
-    """Return NVIDIA NIM cloud attribution headers for build.nvidia.com traffic."""
+    """Return NVIDIA NIM cloud headers only for the hosted endpoint."""
     if base_url_host_matches(str(base_url or ""), "integrate.api.nvidia.com"):
         return dict(_NVIDIA_NIM_CLOUD_HEADERS)
     return {}
 
-
-
-# Nous Portal extra_body for product attribution.
-# Callers should pass this as extra_body in chat.completions.create()
-# when the auxiliary client is backed by Nous Portal.
-#
-# The tags are computed from agent.portal_tags so the client= marker stays
-# in lockstep with fabric_cli.__version__ across every Portal call site
-# (main loop, aux, compression, web_extract). Do not inline a literal here;
-# see agent/portal_tags.py for the rationale.
-from agent.portal_tags import nous_portal_tags as _nous_portal_tags
-
-
-def _nous_extra_body() -> dict:
-    """Return a fresh Nous Portal ``extra_body`` dict.
-
-    Computed at call time so a hot-reloaded ``fabric_cli.__version__`` is
-    reflected without restarting long-running processes.
-    """
-    return {"tags": _nous_portal_tags()}
-
-
-# Backwards-compatible module attribute. Some callers (tests, third-party
-# plugins) read ``NOUS_EXTRA_BODY`` directly; keep it as a snapshot of the
-# current tags. Callers that need the freshest value should call
-# ``_nous_extra_body()`` or import ``nous_portal_tags`` directly.
-NOUS_EXTRA_BODY = _nous_extra_body()
 
 # Set at resolve time — True if the auxiliary client points to Nous Portal
 auxiliary_is_nous: bool = False
@@ -1183,11 +1128,6 @@ def _is_anthropic_compatible_host(url: str) -> bool:
         return False
 
 
-def _nous_min_key_ttl_seconds() -> int:
-    try:
-        return max(60, int(os.getenv("HERMES_NOUS_MIN_KEY_TTL_SECONDS", "1800")))
-    except (TypeError, ValueError):
-        return 1800
 
 
 # ── Codex Responses → chat.completions adapter ─────────────────────────────
@@ -1933,41 +1873,19 @@ def _maybe_wrap_anthropic(
 
 
 def _read_nous_auth() -> Optional[dict]:
-    """Read and validate ~/.fabric/auth.json for an active Nous provider.
-
-    Returns the provider state dict if Nous is active with tokens,
-    otherwise None.
-    """
-    pool_present, entry = _select_pool_entry("nous")
-    if pool_present:
-        if entry is None:
-            return None
-        return {
-            "access_token": getattr(entry, "access_token", ""),
-            "refresh_token": getattr(entry, "refresh_token", None),
-            "agent_key": getattr(entry, "agent_key", None),
-            "inference_base_url": _pool_runtime_base_url(entry, _NOUS_DEFAULT_BASE_URL),
-            "portal_base_url": getattr(entry, "portal_base_url", None),
-            "client_id": getattr(entry, "client_id", None),
-            "scope": getattr(entry, "scope", None),
-            "token_type": getattr(entry, "token_type", "Bearer"),
-            "source": "pool",
-        }
-
+    """Resolve the canonical Nous API-key credentials for auxiliary calls."""
     try:
-        if not _AUTH_JSON_PATH.is_file():
-            return None
-        data = json.loads(_AUTH_JSON_PATH.read_text())
-        if data.get("active_provider") != "nous":
-            return None
-        provider = data.get("providers", {}).get("nous", {})
-        # Must have at least an access_token or agent_key
-        if not provider.get("agent_key") and not provider.get("access_token"):
-            return None
-        return provider
+        from fabric_cli.auth import resolve_nous_runtime_credentials
+
+        creds = resolve_nous_runtime_credentials()
     except Exception as exc:
-        logger.debug("Could not read Nous auth: %s", exc)
+        logger.debug("Could not resolve Nous API-key credentials: %s", exc)
         return None
+    return {
+        "access_token": str(creds.get("api_key") or "").strip(),
+        "inference_base_url": str(creds.get("base_url") or "").strip(),
+        "source": creds.get("source"),
+    }
 
 
 def _nous_api_key(provider: dict) -> str:
@@ -1995,10 +1913,15 @@ def _nous_base_url() -> str:
     return os.getenv("NOUS_INFERENCE_BASE_URL", _NOUS_DEFAULT_BASE_URL)
 
 
-def _resolve_nous_pool_runtime_api(*, force_refresh: bool = False) -> Optional[tuple[str, str]]:
+def _resolve_nous_pool_runtime_api(
+    *, force_refresh: bool = False
+) -> Optional[tuple[str, str]]:
     """Resolve Nous auxiliary credentials from the selected pool entry."""
     try:
-        from fabric_cli.auth import _agent_key_is_usable
+        from fabric_cli.auth import (
+            NOUS_INVOKE_JWT_MIN_TTL_SECONDS,
+            _agent_key_is_usable,
+        )
 
         pool = load_pool("nous")
     except Exception as exc:
@@ -2022,7 +1945,10 @@ def _resolve_nous_pool_runtime_api(*, force_refresh: bool = False) -> Optional[t
         "agent_key_expires_at": getattr(entry, "agent_key_expires_at", None),
         "scope": getattr(entry, "scope", None),
     }
-    if force_refresh or not _agent_key_is_usable(state, _nous_min_key_ttl_seconds()):
+    if force_refresh or not _agent_key_is_usable(
+        state,
+        NOUS_INVOKE_JWT_MIN_TTL_SECONDS,
+    ):
         try:
             refreshed = pool.try_refresh_current()
         except Exception as exc:
@@ -2046,14 +1972,10 @@ def _resolve_nous_pool_runtime_api(*, force_refresh: bool = False) -> Optional[t
     return api_key, base_url
 
 
-def _resolve_nous_runtime_api(*, force_refresh: bool = False) -> Optional[tuple[str, str]]:
-    """Return fresh Nous runtime credentials when available.
 
-    This mirrors the main agent's 401 recovery path and keeps auxiliary
-    clients aligned with the singleton auth store + JWT refresh flow instead of
-    relying only on whatever raw tokens happen to be sitting in auth.json
-    or the credential pool.
-    """
+
+def _resolve_nous_runtime_api(*, force_refresh: bool = False) -> Optional[tuple[str, str]]:
+    """Return fresh Nous runtime credentials when available."""
     pooled = _resolve_nous_pool_runtime_api(force_refresh=force_refresh)
     if pooled is not None:
         return pooled
@@ -2062,18 +1984,15 @@ def _resolve_nous_runtime_api(*, force_refresh: bool = False) -> Optional[tuple[
         from fabric_cli.auth import resolve_nous_runtime_credentials
 
         creds = resolve_nous_runtime_credentials(
-            timeout_seconds=env_float("HERMES_NOUS_TIMEOUT_SECONDS", 15),
+            timeout_seconds=15.0,
             force_refresh=force_refresh,
         )
     except Exception as exc:
         logger.debug("Auxiliary Nous runtime credential resolution failed: %s", exc)
         return None
-
     api_key = str(creds.get("api_key") or "").strip()
     base_url = str(creds.get("base_url") or "").strip().rstrip("/")
-    if not api_key or not base_url:
-        return None
-    return api_key, base_url
+    return (api_key, base_url) if api_key and base_url else None
 
 
 def _resolve_xai_oauth_for_aux() -> Optional[Tuple[str, str]]:
@@ -2105,8 +2024,7 @@ def _resolve_xai_oauth_for_aux() -> Optional[Tuple[str, str]]:
                     or ""
                 ).strip()
                 base_url = _xai_validate_inference_base_url(
-                    os.getenv("HERMES_XAI_BASE_URL", "").strip().rstrip("/")
-                    or os.getenv("XAI_BASE_URL", "").strip().rstrip("/")
+                    os.getenv("XAI_BASE_URL", "").strip().rstrip("/")
                     or str(getattr(entry, "runtime_base_url", None) or "").strip().rstrip("/")
                     or str(getattr(entry, "base_url", None) or "").strip().rstrip("/"),
                     fallback=DEFAULT_XAI_OAUTH_BASE_URL,
@@ -2132,7 +2050,7 @@ def _resolve_xai_oauth_for_aux() -> Optional[Tuple[str, str]]:
 
 
 def _read_codex_access_token() -> Optional[str]:
-    """Read a valid, non-expired Codex OAuth access token from Hermes auth store.
+    """Read a valid, non-expired Codex OAuth access token from Fabric auth store.
 
     If a credential pool exists but currently has no selectable runtime entry
     (for example all pool slots are marked exhausted), fall back to the
@@ -2349,15 +2267,11 @@ def _try_nous(vision: bool = False) -> Tuple[Optional[OpenAI], Optional[str]]:
     if runtime is None and not nous:
         logger.warning(
             "Auxiliary Nous client unavailable: no Nous authentication found "
-            "(run: fabric auth)."
+            "(run: fabric auth add nous --client-id "
+            "<registered-client-id>)."
         )
         _mark_provider_unhealthy("nous", ttl=60)
         return None, None
-    if runtime is None and nous:
-        logger.debug(
-            "Auxiliary Nous: runtime JWT refresh failed; checking stored "
-            "auth.json token."
-        )
     global auxiliary_is_nous
     auxiliary_is_nous = True
     logger.debug("Auxiliary client: Nous Portal")
@@ -2396,8 +2310,9 @@ def _try_nous(vision: bool = False) -> Tuple[Optional[OpenAI], Optional[str]]:
         api_key = _nous_api_key(nous or {})
         if not api_key:
             logger.warning(
-                "Auxiliary Nous client unavailable: no usable inference JWT found "
-                "(run: fabric auth add nous)."
+                "Auxiliary Nous client unavailable: no usable API key found "
+                "(run: fabric auth add nous --client-id "
+                "<registered-client-id>)."
             )
             _mark_provider_unhealthy("nous", ttl=60)
             return None, None
@@ -3095,7 +3010,7 @@ def _get_provider_chain() -> List[tuple]:
 # happened). Entries auto-expire so a topped-up account recovers without
 # manual intervention.
 #
-# Failure isolation: the cache is in-process only. A second hermes
+# Failure isolation: the cache is in-process only. A second fabric
 # process won't inherit the unhealthy mark — that's intentional, since
 # the user might be running two profiles with different OpenRouter keys.
 
@@ -3181,7 +3096,7 @@ def _log_skip_unhealthy(label: str, task: Optional[str] = None) -> None:
 
 def _reset_aux_unhealthy_cache() -> None:
     """Clear the unhealthy cache. Used by tests and by a future explicit
-    user trigger (e.g. ``Fabric config aux reset``)."""
+    user trigger (e.g. ``fabric config aux reset``)."""
     _aux_unhealthy_until.clear()
     _aux_unhealthy_logged_at.clear()
 
@@ -3880,7 +3795,7 @@ def _refresh_provider_credentials(provider: str) -> bool:
             from fabric_cli.auth import resolve_nous_runtime_credentials
 
             creds = resolve_nous_runtime_credentials(
-                timeout_seconds=env_float("HERMES_NOUS_TIMEOUT_SECONDS", 15),
+                timeout_seconds=15,
                 force_refresh=True,
             )
             if not str(creds.get("api_key", "") or "").strip():
@@ -4620,7 +4535,7 @@ def _try_main_fallback_chain(
     """Try the top-level main-agent fallback chain for an auxiliary call.
 
     ``provider: auto`` auxiliary tasks should respect the user's declared
-    main fallback policy before dropping into Hermes' built-in discovery
+    main fallback policy before dropping into Fabric's built-in discovery
     chain. The top-level chain is read through ``get_fallback_chain`` so
     both modern ``fallback_providers`` and legacy ``fallback_model`` entries
     participate in the same order as the main agent.
@@ -5170,7 +5085,7 @@ def _to_async_client(sync_client, model: str, is_vision: bool = False):
         ),
         **async_kwargs,
     }
-    # See _create_openai_client: disable SDK-internal retries so Hermes owns
+    # See _create_openai_client: disable SDK-internal retries so Fabric owns
     # the auxiliary retry/timeout budget (issue #54465).
     async_kwargs.setdefault("max_retries", 0)
     return AsyncOpenAI(**async_kwargs), model
@@ -6275,7 +6190,7 @@ def get_available_vision_backends(
     Order: active provider → OpenRouter → Nous → stop.  This is the single
     source of truth for setup, tool gating, and runtime auto-routing of
     vision tasks. ``include_nous=False`` lets Fabric's curated setup inspect
-    direct backends without probing or advertising the legacy Nous fallback;
+    direct backends without probing or advertising the opt-in Nous fallback;
     ``allowed_providers`` can further restrict both the configured main
     provider and fallback probes to the caller's visible catalog. Runtime
     auto-routing keeps the compatibility defaults.
@@ -6545,12 +6460,8 @@ def resolve_vision_provider_client(
 
 
 def get_auxiliary_extra_body() -> dict:
-    """Return extra_body kwargs for auxiliary API calls.
-    
-    Includes Nous Portal product tags when the auxiliary client is backed
-    by Nous Portal. Returns empty dict otherwise.
-    """
-    return _nous_extra_body() if auxiliary_is_nous else {}
+    """Return provider-neutral extra-body kwargs for auxiliary API calls."""
+    return {}
 
 
 def auxiliary_max_tokens_param(value: int, *, model: Optional[str] = None) -> dict:
@@ -7505,10 +7416,7 @@ def _build_call_kwargs(
             _deduped.append(_t)
         kwargs["tools"] = _deduped
 
-    # Provider-specific extra_body
     merged_extra = dict(extra_body or {})
-    if provider == "nous":
-        merged_extra.setdefault("tags", []).extend(_nous_portal_tags())
     if merged_extra:
         kwargs["extra_body"] = merged_extra
 

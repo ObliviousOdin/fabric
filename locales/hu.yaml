@@ -327,7 +327,7 @@ Future messages in this room will use that transcript until `/reset` or another 
   update:
     platform_not_messaging:  "✗ A /update csak üzenetküldő platformokról érhető el. Futtasd a `fabric update` parancsot a terminálból."
     not_git_repo:            "✗ Nem git-tárhely — frissítés nem lehetséges."
-    hermes_cmd_not_found:    "✗ Nem sikerült megtalálni a `fabric` parancsot. A Fabric fut, de a frissítőparancs nem találta a futtatható fájlt a PATH-on vagy a jelenlegi Python interpreteren keresztül. Próbáld futtatni a `fabric update` parancsot manuálisan a terminálban."
+    fabric_cmd_not_found:    "✗ Nem sikerült megtalálni a `fabric` parancsot. A Fabric fut, de a frissítőparancs nem találta a futtatható fájlt a PATH-on vagy a jelenlegi Python interpreteren keresztül. Próbáld futtatni a `fabric update` parancsot manuálisan a terminálban."
     start_failed:            "✗ Nem sikerült elindítani a frissítést: {error}"
     starting:                "⚕ Fabric frissítés indítása… A folyamatot itt fogom közvetíteni."
 

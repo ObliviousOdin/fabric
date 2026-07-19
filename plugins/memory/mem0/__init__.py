@@ -7,27 +7,24 @@ Original PR #2933 by kartik-mem0, adapted to MemoryProvider ABC.
 
 Configuration
 -------------
-Secret (lives in $HERMES_HOME/.env or the environment):
+Secret (lives in $FABRIC_HOME/.env or the environment):
   MEM0_API_KEY       — Mem0 Platform API key (required for platform mode)
-  MEM0_HOST          — Base URL of a self-hosted Mem0 server. When set, the
-                       plugin talks to that server directly over HTTP
-                       (X-API-Key auth) instead of the cloud API.
+  MEM0_HOST          — Base URL of a self-hosted Mem0 server
 
-Behavioral settings (live in $HERMES_HOME/mem0.json, set via `fabric memory
+Behavioral settings (live in $FABRIC_HOME/mem0.json, set via `fabric memory
 setup`):
   mode               — Backend mode: "platform" (default) or "oss"
-  host               — Self-hosted Mem0 server URL (alt: MEM0_HOST env var).
+  host               — Self-hosted Mem0 server URL.
                        When set, routes to the self-hosted HTTP backend.
   user_id            — Canonical user identifier. When set, it is applied
                        uniformly across every gateway (CLI, Telegram, Slack,
                        Discord, …) so the same human gets one merged memory
                        store. When unset, the gateway-native id (e.g. Telegram
                        numeric id, Discord snowflake) is used instead.
-  agent_id           — Agent identifier (default: hermes)
+  agent_id           — Agent identifier (default: fabric)
 
-The matching MEM0_MODE / MEM0_USER_ID / MEM0_AGENT_ID environment variables are
-still read as a backward-compatible fallback, but mem0.json is the canonical
-home for these non-secret settings.
+Existing Mem0 integration settings (MEM0_MODE / MEM0_HOST / MEM0_USER_ID /
+MEM0_AGENT_ID) remain lower-priority inputs; mem0.json is authoritative.
 """
 
 from __future__ import annotations
@@ -59,12 +56,10 @@ _PREFETCH_WAIT_SECS = 3
 
 _CLIENT_ERROR_TYPES = ("MemoryNotFoundError", "ValidationError")
 
-# Sentinel returned when neither MEM0_USER_ID nor a gateway-native id is
-# available. Treated as "no operator-configured user_id" by initialize() so
-# that legacy mem0.json files written by the setup wizard (which historically
-# wrote this exact placeholder) still allow gateway-native ids to flow
-# through instead of silently overriding them with the placeholder.
-_DEFAULT_USER_ID = "hermes-user"
+# Setup uses this neutral placeholder when no principal is supplied. Treat it
+# as unset when a gateway provides a real user id so independent users do not
+# collapse into one memory bucket.
+_DEFAULT_USER_ID = "default-user"
 
 
 def _is_client_error(exc: Exception) -> bool:
@@ -81,24 +76,16 @@ def _is_client_error(exc: Exception) -> bool:
 # ---------------------------------------------------------------------------
 
 def _load_config() -> dict:
-    """Load config from env vars, with $HERMES_HOME/mem0.json overrides.
-
-    Environment variables provide defaults; mem0.json (if present) overrides
-    individual keys.  This avoids a silent failure when the JSON file exists
-    but is missing fields like ``api_key`` that the user set in ``.env``.
-    """
+    """Load Mem0 integration settings, with ``mem0.json`` authoritative."""
     from fabric_constants import get_fabric_home
 
     config = {
         "mode": profile_env("MEM0_MODE", "platform"),
         "api_key": profile_env("MEM0_API_KEY", ""),
         "host": profile_env("MEM0_HOST", ""),
-        "agent_id": profile_env("MEM0_AGENT_ID", "hermes"),
+        "agent_id": profile_env("MEM0_AGENT_ID", "fabric"),
         "oss": {},
     }
-    # Only carry user_id when the operator explicitly configured one (env or
-    # mem0.json). An absent key tells initialize() to fall back to the
-    # gateway-native id from kwargs instead of overriding it with a placeholder.
     env_user_id = profile_env("MEM0_USER_ID")
     if env_user_id:
         config["user_id"] = env_user_id
@@ -209,7 +196,7 @@ class Mem0MemoryProvider(MemoryProvider):
         self._api_key = ""
         self._host = ""
         self._user_id = _DEFAULT_USER_ID
-        self._agent_id = "hermes"
+        self._agent_id = "fabric"
         self._rerank_default = False
         self._channel = "cli"  # gateway channel name (cli/telegram/discord/...)
         self._sync_thread = None
@@ -261,11 +248,11 @@ class Mem0MemoryProvider(MemoryProvider):
         # when the server runs with AUTH_DISABLED).
         return bool(cfg.get("api_key") or cfg.get("host"))
 
-    def save_config(self, values, hermes_home):
-        """Write config to $HERMES_HOME/mem0.json."""
+    def save_config(self, values, fabric_home):
+        """Write config to $FABRIC_HOME/mem0.json."""
         import json
         from pathlib import Path
-        config_path = Path(hermes_home) / "mem0.json"
+        config_path = Path(fabric_home) / "mem0.json"
         existing = {}
         if config_path.exists():
             try:
@@ -283,14 +270,14 @@ class Mem0MemoryProvider(MemoryProvider):
         return [
             {"key": "api_key", "description": "Mem0 Platform API key", "secret": True, "required": api_key_required, "env_var": "MEM0_API_KEY", "url": "https://app.mem0.ai"},
             {"key": "host", "description": "Self-hosted Mem0 server URL (leave blank for cloud)", "required": False, "env_var": "MEM0_HOST"},
-            {"key": "user_id", "description": "User identifier", "default": "hermes-user"},
-            {"key": "agent_id", "description": "Agent identifier", "default": "hermes"},
+            {"key": "user_id", "description": "User identifier", "default": "default-user"},
+            {"key": "agent_id", "description": "Agent identifier", "default": "fabric"},
             {"key": "rerank", "description": "Enable reranking for recall", "default": "false", "choices": ["true", "false"]},
         ]
 
-    def post_setup(self, hermes_home: str, config: dict) -> None:
+    def post_setup(self, fabric_home: str, config: dict) -> None:
         from ._setup import post_setup
-        post_setup(hermes_home, config)
+        post_setup(fabric_home, config)
 
     def _create_backend(self):
         # Lazy-install the mem0 SDK on demand before either backend imports
@@ -368,21 +355,18 @@ class Mem0MemoryProvider(MemoryProvider):
         self._api_key = self._config.get("api_key", "")
         self._host = self._config.get("host", "")
         # Resolution order for user_id:
-        #   1. Operator-configured MEM0_USER_ID (env or $HERMES_HOME/mem0.json) —
+        #   1. Operator-configured value from Mem0 integration settings —
         #      the canonical principal, applied across every gateway so the same
         #      human gets one merged memory store.
         #   2. Gateway-native id from kwargs (Telegram numeric id, Discord
         #      snowflake, etc.) — preserves per-platform isolation when no
         #      override is configured.
         #   3. Hardcoded fallback _DEFAULT_USER_ID (CLI with no auth).
-        # The literal _DEFAULT_USER_ID string is treated as unset so users who
-        # ran the setup wizard with the suggested default still get gateway-
-        # native ids instead of being silently bucketed together.
         configured = self._config.get("user_id")
         if configured == _DEFAULT_USER_ID:
             configured = None
         self._user_id = configured or kwargs.get("user_id") or _DEFAULT_USER_ID
-        self._agent_id = self._config.get("agent_id", "hermes")
+        self._agent_id = self._config.get("agent_id", "fabric")
         # Persisted rerank preference (setup wizard / mem0.json). Used as the
         # DEFAULT for mem0_search when the model doesn't pass ``rerank``
         # explicitly; per-call args still win. Platform-only feature — other

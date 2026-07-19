@@ -12,9 +12,9 @@ Subcommands:
   fabric fallback remove   Pick an entry to delete from the chain
   fabric fallback clear    Remove all fallback entries
 
-Storage: ``fallback_providers`` in ``~/.hermes/config.yaml`` (top-level, list of
-``{provider, model, base_url?, api_mode?}`` dicts).  The legacy single-dict
-``fallback_model`` format is migrated to the new list format on first add.
+Storage: ``fallback_providers`` in ``~/.fabric/config.yaml`` (top-level, list of
+``{provider, model, base_url?, api_mode?}`` dicts). The previous single-entry
+``fallback_model`` schema is folded into that list on the next write.
 """
 from __future__ import annotations
 
@@ -31,20 +31,17 @@ from fabric_cli.fallback_config import get_fallback_chain
 def _read_chain(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Return the normalized fallback chain as a list of dicts.
 
-    Accepts both the new list format (``fallback_providers``) and the legacy
-    ``fallback_model`` format. When both are present, the effective chain is
-    merged with ``fallback_providers`` entries kept first. The returned list is
-    always a fresh copy — callers can mutate without touching the config dict.
+    Accept both the current list schema and the previous single-entry schema.
+    The returned list is always a fresh copy so callers can mutate it without
+    touching the config dict.
     """
     return get_fallback_chain(config)
 
 
 def _write_chain(config: Dict[str, Any], chain: List[Dict[str, Any]]) -> None:
-    """Persist the chain to ``fallback_providers`` and clear legacy key."""
+    """Persist one canonical chain and retire the previous schema key."""
     config["fallback_providers"] = chain
-    # Drop the legacy single-dict key on write so there's only one source of truth.
-    if "fallback_model" in config:
-        config.pop("fallback_model", None)
+    config.pop("fallback_model", None)
 
 
 def _format_entry(entry: Dict[str, Any]) -> str:

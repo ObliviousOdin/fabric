@@ -60,7 +60,7 @@ plugins:
 ## What it does **not** do (yet)
 
 * **No LLM diff review.** Anthropic's layer 2 spawns an auxiliary LLM call
-  on every agent turn that touched files. On hermes that would route
+  on every agent turn that touched files. On Fabric that would route
   through the main model by default (`auxiliary_client._resolve_auto()` is
   main-model-first), which is real money on reasoning models. A separate
   PR can wire layer 2 to a cheap auxiliary model with explicit opt-in.
@@ -85,4 +85,4 @@ not a substitute for code review, SAST, dependency scanning, or pen testing.
   [Apache License 2.0](./LICENSE). See [NOTICE](./NOTICE) for the full
   attribution.
 * `__init__.py`, `plugin.yaml`, `README.md`, and tests are original work by
-  NousResearch, MIT-licensed alongside the rest of fabric-agent.
+  Nous Research, MIT-licensed alongside the rest of Fabric.

@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional
 from agent.prompt_builder import (
     DEFAULT_AGENT_IDENTITY,
     GOOGLE_MODEL_OPERATIONAL_GUIDANCE,
-    HERMES_AGENT_HELP_GUIDANCE,
+    FABRIC_AGENT_HELP_GUIDANCE,
     KANBAN_GUIDANCE,
     MEMORY_GUIDANCE,
     OPENAI_MODEL_EXECUTION_GUIDANCE,
@@ -122,7 +122,7 @@ _TUI_EMBEDDED_PANE_CLARIFIER = (
 def _tui_embedded_pane_clarifier(hint: str) -> str:
     """Append the desktop-embedded-terminal-pane clarifier to a tui hint.
 
-    Triggered by ``HERMES_DESKTOP_TERMINAL=1`` (set by ``main.cjs`` only on the
+    Triggered by ``FABRIC_DESKTOP_TERMINAL=1`` (set by ``main.cjs`` only on the
     shell env of the desktop's embedded TUI PTY — never on the chat backend).
     This is a runtime-surface qualifier, not a config override, so it lives at
     the resolution site rather than inside ``_resolve_platform_hint`` (which
@@ -137,7 +137,7 @@ def _tui_embedded_pane_clarifier(hint: str) -> str:
         return hint
     if _TUI_EMBEDDED_PANE_CLARIFIER in hint:
         return hint
-    if not is_truthy_value(os.getenv("HERMES_DESKTOP_TERMINAL")):
+    if not is_truthy_value(os.getenv("FABRIC_DESKTOP_TERMINAL")):
         return hint
     return hint + _TUI_EMBEDDED_PANE_CLARIFIER
 
@@ -156,7 +156,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
 
     Joined into a single string by :func:`build_system_prompt` and
     cached on ``agent._cached_system_prompt`` for the lifetime of the
-    AIAgent.  Hermes never re-renders parts of this string mid-
+    AIAgent.  Fabric never re-renders parts of this string mid-
     session — that's the only way to keep upstream prompt caches
     warm across turns.
     """
@@ -180,7 +180,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     stable_parts: List[str] = []
 
     # Try SOUL.md as primary identity unless the caller explicitly skipped it.
-    # Some execution modes (cron) still want HERMES_HOME persona while keeping
+    # Some execution modes (cron) still want FABRIC_HOME persona while keeping
     # cwd project instructions disabled.
     _soul_loaded = False
     if agent.load_soul_identity or not agent.skip_context_files:
@@ -190,7 +190,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
             _soul_loaded = True
 
     if not _soul_loaded:
-        # Fallback identity — Fabric brand when enabled (default on this fork).
+        # Canonical fallback identity when the profile does not provide SOUL.md.
         try:
             from fabric_cli.fabric_brand import resolve_agent_identity
 
@@ -198,13 +198,13 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         except Exception:
             stable_parts.append(DEFAULT_AGENT_IDENTITY)
 
-    # Product help/docs pointer (Fabric when brand enabled; upstream otherwise).
+    # Canonical Fabric help/docs pointer.
     try:
         from fabric_cli.fabric_brand import resolve_help_guidance
 
         stable_parts.append(resolve_help_guidance())
     except Exception:
-        stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)
+        stable_parts.append(FABRIC_AGENT_HELP_GUIDANCE)
 
     # Universal task-completion / no-fabrication guidance.  Applied to ALL
     # models regardless of tool_use_enforcement gating — the failure modes
@@ -235,8 +235,8 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if "skill_manage" in agent.valid_tool_names:
         tool_guidance.append(SKILLS_GUIDANCE)
     # Kanban worker/orchestrator lifecycle — only present when the
-    # dispatcher spawned this process (kanban_show check_fn gates on
-    # HERMES_KANBAN_TASK env var). Normal chat sessions never see
+    # dispatcher spawned this process (kanban_show gates on typed worker
+    # context). Normal chat sessions never see
     # this block. Resolved once at __init__ (see _kanban_worker_guidance).
     _kanban_guidance = getattr(agent, "_kanban_worker_guidance", None)
     if _kanban_guidance:
@@ -352,7 +352,7 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
     if _env_hints:
         stable_parts.append(_env_hints)
 
-    # Coding posture (base Hermes, any interactive coding surface in a code
+    # Coding posture (base Fabric, any interactive coding surface in a code
     # workspace — see agent/coding_context.py). The operating brief + the live
     # git/workspace snapshot are built once here and cached for the session;
     # the snapshot is never re-probed per turn (that would break the prompt
@@ -487,8 +487,8 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None) 
         except Exception:
             pass
 
-    from fabric_time import now as _hermes_now
-    now = _hermes_now()
+    from fabric_time import now as _fabric_now
+    now = _fabric_now()
     # Date-only (not minute-precision) so the system prompt is byte-stable
     # for the full day.  Minute-precision changes invalidate prefix-cache KV
     # on every rebuild path (compression boundary, fresh-agent gateway turns,
@@ -522,7 +522,7 @@ def build_system_prompt(agent: Any, system_message: Optional[str] = None) -> str
     Layers are ordered cache-friendly: stable identity/guidance first,
     then session-stable context files, then per-call volatile content
     (memory, USER profile, timestamp).  The whole string is treated as
-    one cached block — Hermes never rebuilds or reinjects parts of it
+    one cached block — Fabric never rebuilds or reinjects parts of it
     mid-session, which is the only way to keep upstream prompt caches
     warm across turns.
     """

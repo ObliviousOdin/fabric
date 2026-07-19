@@ -1,4 +1,4 @@
-"""``fabric gateway`` and ``hermes proxy`` subcommand parsers.
+"""``fabric gateway`` and ``fabric proxy`` subcommand parsers.
 
 Extracted verbatim from ``fabric_cli/main.py:main()`` (god-file Phase 2).
 Both parsers are built together because they shared one inline block (the
@@ -79,12 +79,21 @@ def build_gateway_parser(
         help=(
             "Inside the s6-overlay Docker image, normally `gateway run` is "
             "automatically redirected to the supervised s6 service (so the "
-            "gateway gets auto-restart on crash, plus a supervised dashboard "
-            "if HERMES_DASHBOARD is set). Pass --no-supervise to opt out and "
-            "get the historical pre-s6 foreground behavior: the gateway is "
+            "gateway gets auto-restart on crash). Pass --no-supervise to opt "
+            "out and use foreground behavior: the gateway is "
             "the container's main process and the container exits with the "
             "gateway's exit code. No effect outside an s6 container."
         ),
+    )
+    gateway_run.add_argument(
+        "--detached-service",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    gateway_run.add_argument(
+        "--supervised-service",
+        action="store_true",
+        help=argparse.SUPPRESS,
     )
     add_accept_hooks_flag(gateway_run)
     add_accept_hooks_flag(gateway_parser)
@@ -213,31 +222,6 @@ def build_gateway_parser(
 
     # gateway setup
     gateway_subparsers.add_parser("setup", help="Configure messaging platforms")
-
-    # gateway migrate-legacy
-    gateway_migrate_legacy = gateway_subparsers.add_parser(
-        "migrate-legacy",
-        help="Remove legacy gateway units from older installs",
-        description=(
-            "Stop, disable, and remove legacy Fabric gateway unit files "
-            "left over from older installs. Current profile units "
-            "(fabric-gateway-<profile>.service) and unrelated "
-            "third-party services are never touched."
-        ),
-    )
-    gateway_migrate_legacy.add_argument(
-        "--dry-run",
-        dest="dry_run",
-        action="store_true",
-        help="List what would be removed without doing it",
-    )
-    gateway_migrate_legacy.add_argument(
-        "-y",
-        "--yes",
-        dest="yes",
-        action="store_true",
-        help="Skip the confirmation prompt",
-    )
 
     # gateway enroll — enroll a self-hosted gateway with a relay connector
     # (connector⇄gateway auth). Redeems a single-use enrollment token for the

@@ -159,28 +159,15 @@ def parse_frontmatter(content: str) -> Tuple[Dict[str, Any], str]:
 
 
 def extract_skill_metadata(frontmatter: Dict[str, Any]) -> Dict[str, Any]:
-    """Return Fabric skill metadata with legacy namespace compatibility.
-
-    ``metadata.fabric`` is the canonical namespace. Existing skills may still
-    declare ``metadata.hermes``; those keys remain valid as fallbacks while a
-    canonical Fabric value wins when both namespaces declare the same key.
-    Malformed namespace values are ignored rather than leaking non-mappings to
-    runtime readers.
-    """
+    """Return the canonical ``metadata.fabric`` mapping for a skill."""
     if not isinstance(frontmatter, dict):
         return {}
     metadata = frontmatter.get("metadata")
     if not isinstance(metadata, dict):
         return {}
 
-    merged: Dict[str, Any] = {}
-    legacy = metadata.get("hermes")
-    if isinstance(legacy, dict):
-        merged.update(legacy)
     canonical = metadata.get("fabric")
-    if isinstance(canonical, dict):
-        merged.update(canonical)
-    return merged
+    return dict(canonical) if isinstance(canonical, dict) else {}
 
 
 # ── Platform matching ─────────────────────────────────────────────────────
@@ -260,13 +247,13 @@ def _detect_environment(env: str) -> bool:
 
     result = True
     if env == "kanban":
-        # Kanban is "active" either as a dispatcher-spawned worker (the
-        # dispatcher sets ``HERMES_KANBAN_TASK`` / ``HERMES_KANBAN_BOARD`` in the
-        # worker env) or as an orchestrator profile that has opted into the
-        # kanban toolset. Mirror the same signals the kanban tools themselves
-        # gate on (``tools/kanban_tools.py``) so the offer filter agrees with
-        # tool availability.
-        if os.getenv("HERMES_KANBAN_TASK") or os.getenv("HERMES_KANBAN_BOARD"):
+        # Kanban is active either as a dispatcher-spawned worker with bound
+        # context or as an orchestrator profile that opted into the toolset.
+        # Mirror the same signals the tools gate on so offers agree with tool
+        # availability.
+        from fabric_cli.kanban_runtime import is_kanban_worker
+
+        if is_kanban_worker():
             result = True
         else:
             try:
@@ -283,7 +270,7 @@ def _detect_environment(env: str) -> bool:
         except Exception:
             result = False
     elif env == "s6":
-        # The Hermes Docker image runs s6-overlay as PID 1 (/init). s6 plants
+        # The Fabric Docker image runs s6-overlay as PID 1 (/init). s6 plants
         # its runtime scaffolding under /run/s6 and ships its admin tree under
         # /package/admin/s6-overlay. Either marker means we're inside an
         # s6-supervised container.
@@ -385,8 +372,7 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
 
     Args:
         platform: Explicit platform name (e.g. ``"telegram"``).  When
-            *None*, resolves from ``HERMES_PLATFORM`` or
-            ``HERMES_SESSION_PLATFORM`` env vars.  Returns the global
+            *None*, resolves from the task-local session platform. Returns the global
             disabled list, unioned with the platform-specific list when a
             platform is resolved (a globally-disabled skill stays disabled
             on every platform).
@@ -402,12 +388,9 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
     if not isinstance(skills_cfg, dict):
         return set()
 
-    from gateway.session_context import get_session_env
-    resolved_platform = (
-        platform
-        or os.getenv("HERMES_PLATFORM")
-        or get_session_env("HERMES_SESSION_PLATFORM")
-    )
+    from gateway.session_context import get_session_context
+
+    resolved_platform = platform or get_session_context().platform
     global_disabled = _normalize_string_set(skills_cfg.get("disabled"))
     if resolved_platform:
         platform_disabled = (skills_cfg.get("platform_disabled") or {}).get(
@@ -448,7 +431,7 @@ def get_external_skills_dirs() -> List[Path]:
 
     Each entry is expanded (``~`` and ``${VAR}``) and resolved to an absolute
     path.  Only directories that actually exist are returned.  Duplicates and
-    paths that resolve to the local ``~/.hermes/skills/`` are silently skipped.
+    paths that resolve to the local ``~/.fabric/skills/`` are silently skipped.
 
     Cached in-process, keyed on ``config.yaml`` mtime — the function is
     called once per skill during banner / tool-registry scans, and YAML
@@ -494,7 +477,7 @@ def get_external_skills_dirs() -> List[Path]:
 
     from fabric_constants import get_fabric_home
 
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     local_skills = get_skills_dir().resolve()
     seen: Set[Path] = set()
     result = []
@@ -506,9 +489,9 @@ def get_external_skills_dirs() -> List[Path]:
         # Expand ~ and environment variables
         expanded = os.path.expanduser(os.path.expandvars(entry))
         p = Path(expanded)
-        # Resolve relative paths against HERMES_HOME, not cwd
+        # Resolve relative paths against FABRIC_HOME, not cwd
         if not p.is_absolute():
-            p = (hermes_home / p).resolve()
+            p = (fabric_home / p).resolve()
         else:
             p = p.resolve()
         if p == local_skills:
@@ -527,7 +510,7 @@ def get_external_skills_dirs() -> List[Path]:
 
 
 def get_all_skills_dirs() -> List[Path]:
-    """Return all skill directories: local ``~/.hermes/skills/`` first, then external.
+    """Return all skill directories: local ``~/.fabric/skills/`` first, then external.
 
     The local dir is always first (and always included even if it doesn't exist
     yet — callers handle that).  External dirs follow in config order.
@@ -541,7 +524,7 @@ def normalize_skill_lookup_name(identifier: str) -> str:
     """Normalize a skill identifier to a ``skill_view()``-safe relative path.
 
     Slash commands and cron jobs may store absolute paths to skills that live
-    under ``~/.hermes/skills/`` (including via symlinks) or configured
+    under ``~/.fabric/skills/`` (including via symlinks) or configured
     ``skills.external_dirs``. ``skill_view()`` rejects absolute names for
     security, so callers must translate trusted absolute paths to their
     relative form first.
@@ -554,15 +537,13 @@ def normalize_skill_lookup_name(identifier: str) -> str:
     if not identifier_path.is_absolute():
         return raw_identifier.lstrip("/")
 
-    # Look the primary skills root up on tools.skills_tool at CALL time
-    # (not via get_skills_dir()): callers and tests patch
-    # ``tools.skills_tool.SKILLS_DIR`` and skill_view() itself resolves
-    # against that module attribute, so normalization must agree with the
-    # exact root skill_view() will enforce.  Import deferred to avoid a
-    # module cycle (tools.skills_tool imports agent.skill_utils).
+    # Resolve the primary root through the same live helper used by
+    # ``skill_view``. This keeps profile changes, external callers, and tests
+    # aligned without reviving a process-global directory constant.
     try:
-        from tools import skills_tool as _skills_tool
-        primary_root = Path(_skills_tool.SKILLS_DIR)
+        from tools.skills_tool import _skills_dir
+
+        primary_root = Path(_skills_dir())
     except Exception:
         primary_root = get_skills_dir()
 
@@ -574,7 +555,7 @@ def normalize_skill_lookup_name(identifier: str) -> str:
 
     # Prefer the lexical path under a trusted skill root before resolving
     # symlinks. Slash-command discovery can legitimately find a skill via
-    # ~/.hermes/skills/<name> where <name> is a symlink to a checked-out
+    # ~/.fabric/skills/<name> where <name> is a symlink to a checked-out
     # skill elsewhere. Resolving first turns that trusted visible path into
     # an arbitrary absolute path that skill_view() refuses to load.
     for root in trusted_roots:
@@ -806,7 +787,7 @@ def extract_skill_description(frontmatter: Dict[str, Any]) -> str:
 def iter_skill_index_files(skills_dir: Path, filename: str):
     """Walk skills_dir yielding sorted paths matching *filename*.
 
-    Excludes Hermes metadata, VCS, virtualenv/dependency, cache, and skill
+    Excludes Fabric metadata, VCS, virtualenv/dependency, cache, and skill
     support directories. Support directories (references/templates/assets/
     scripts) can contain arbitrary markdown and even archived package
     ``SKILL.md`` files, but they are progressive-disclosure data loaded through

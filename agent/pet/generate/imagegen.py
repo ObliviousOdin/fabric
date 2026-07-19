@@ -14,7 +14,6 @@ producing an ungrounded, drifting pet.
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,17 +34,6 @@ _PROVIDER_LABELS: dict[str, str] = {
     "openai-codex": "OpenAI (Codex)",
     "krea": "Krea",
 }
-
-
-def _forced_provider_from_env() -> str | None:
-    """Optional QA override to force a pet-gen backend.
-
-    `HERMES_PET_IMAGE_PROVIDER=<name>` (e.g. `openrouter`) bypasses the normal
-    active/default provider resolution for pet generation only. Unknown values are
-    ignored so existing users are unaffected.
-    """
-    forced = os.environ.get("HERMES_PET_IMAGE_PROVIDER", "").strip().lower()
-    return forced if forced in _REF_CAPABLE else None
 
 
 class GenerationError(RuntimeError):
@@ -81,14 +69,6 @@ def resolve_provider(*, require_references: bool = True, prefer: str | None = No
     """
     _discover()
     from agent.image_gen_registry import get_active_provider, get_provider
-
-    # QA override: force one provider for pet-gen iteration regardless of the
-    # globally active image_gen backend.
-    forced = _forced_provider_from_env()
-    if forced:
-        chosen = get_provider(forced)
-        if chosen is not None and chosen.is_available():
-            return SpriteProvider(name=forced, provider=chosen, supports_references=True)
 
     # An explicit user pick wins when it's reference-capable and has credentials;
     # otherwise we ignore it and fall through to the normal resolution.

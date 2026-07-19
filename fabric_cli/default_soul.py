@@ -1,4 +1,4 @@
-"""Default SOUL.md template seeded into HERMES_HOME on first run."""
+"""Default SOUL.md template seeded into ``FABRIC_HOME`` on first run."""
 
 DEFAULT_SOUL_MD = (
     "You are Fabric, a local-first personal AI agent. "
@@ -10,17 +10,11 @@ DEFAULT_SOUL_MD = (
     "Be targeted and efficient in your exploration and investigations."
 )
 
-# Legacy SOUL.md boilerplate that older installers (install.sh / install.ps1 /
-# docker/SOUL.md) seeded before they were switched to write DEFAULT_SOUL_MD.
-# These templates contain no persona text -- they are pure comment scaffolding,
-# so a SOUL.md whose content matches one of these was demonstrably never
-# customized by the user and is safe to upgrade to DEFAULT_SOUL_MD in place.
-#
-# Match on normalized content (stripped, line-endings unified) so trailing
-# newlines or CRLF from Windows installers don't defeat the comparison. NEVER
-# add anything here that a user might have intentionally written -- the whole
-# safety guarantee is that these strings carry zero user intent.
-_LEGACY_TEMPLATE_SOULS = (
+
+# Empty SOUL.md boilerplate shipped by earlier Fabric installers. These files
+# contain no user persona, so an exact match can safely be upgraded to the
+# current runtime default. Any user-authored addition makes the match fail.
+_OLDER_TEMPLATE_SOULS = (
     (
         "# Fabric Persona\n"
         "\n"
@@ -38,9 +32,6 @@ _LEGACY_TEMPLATE_SOULS = (
         "Delete the contents (or this file) to use the default personality.\n"
         "-->"
     ),
-    # docker/SOUL.md and the install.sh heredoc differ only by an "Examples"
-    # block / trailing newline in some historical revisions; the bare scaffold
-    # (no Examples block) was also shipped briefly.
     (
         "# Fabric Persona\n"
         "\n"
@@ -57,20 +48,12 @@ _LEGACY_TEMPLATE_SOULS = (
 
 
 def _normalize_soul(text: str) -> str:
-    """Normalize SOUL.md content for legacy-template comparison."""
-    # Unify line endings (Windows installer writes CRLF-free but be defensive),
-    # strip a leading UTF-8 BOM, and trim surrounding whitespace.
+    """Normalize SOUL.md content for empty-template comparison."""
     return text.replace("\r\n", "\n").replace("\r", "\n").lstrip("\ufeff").strip()
 
 
-def is_legacy_template_soul(text: str) -> bool:
-    """True if ``text`` is an old empty-template SOUL.md (no user persona).
+def is_older_template_soul(text: str) -> bool:
+    """Return whether ``text`` is an earlier empty-template SOUL.md."""
 
-    Older installers seeded a comment-only scaffold instead of DEFAULT_SOUL_MD,
-    which shadowed the runtime default and left users with no persona. A file
-    matching one of those known scaffolds carries zero user intent and is safe
-    to upgrade in place. Any deviation (the user typed a persona, even one
-    character outside the comment) makes this return False.
-    """
     normalized = _normalize_soul(text)
-    return any(normalized == _normalize_soul(t) for t in _LEGACY_TEMPLATE_SOULS)
+    return any(normalized == _normalize_soul(t) for t in _OLDER_TEMPLATE_SOULS)

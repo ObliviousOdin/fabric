@@ -15,7 +15,7 @@ Security features (based on OWASP + NIST SP 800-63-4 guidance):
   - File permissions: chmod 0600 on all data files
   - Codes are never logged to stdout
 
-Storage: ~/.hermes/pairing/
+Storage: ~/.fabric/platforms/pairing/
 """
 
 import hashlib
@@ -33,7 +33,7 @@ from gateway.whatsapp_identity import (
     expand_whatsapp_aliases,
     normalize_whatsapp_identifier,
 )
-from fabric_constants import get_hermes_dir, get_fabric_home
+from fabric_constants import get_fabric_dir, get_fabric_home
 from utils import atomic_replace
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ LOCKOUT_SECONDS = 3600              # Lockout duration after too many failures
 MAX_PENDING_PER_PLATFORM = 3        # Max pending codes per platform
 MAX_FAILED_ATTEMPTS = 5             # Failed approvals before lockout
 
-PAIRING_DIR = get_hermes_dir("platforms/pairing", "pairing")
+PAIRING_DIR = get_fabric_dir("platforms/pairing")
 
 
 # Platform value -> its per-platform allowlist env var. When an operator has
@@ -161,51 +161,6 @@ def _sync_allowlist_remove(platform: str, user_id: str) -> None:
         pass
 
 
-def _load_json_file(path: Path) -> dict:
-    if path.exists():
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return data if isinstance(data, dict) else {}
-        except (json.JSONDecodeError, OSError):
-            return {}
-    return {}
-
-
-def _merge_pairing_dir(active_dir: Path, alternate_dir: Path) -> None:
-    """Merge split legacy/new pairing data into the active PairingStore dir.
-
-    Older installs use ``{HERMES_HOME}/pairing`` while newer code/docs may
-    write ``{HERMES_HOME}/platforms/pairing``. If both directories exist, the
-    gateway must not silently ignore approved users sitting in the inactive
-    location; otherwise already-paired Feishu users get asked for a fresh code.
-    """
-    if not alternate_dir.exists() or active_dir.resolve() == alternate_dir.resolve():
-        return
-    active_dir.mkdir(parents=True, exist_ok=True)
-    for src in alternate_dir.glob("*.json"):
-        if not src.is_file():
-            continue
-        dest = active_dir / src.name
-        merged = _load_json_file(src)
-        if not merged:
-            continue
-        current = _load_json_file(dest)
-        before = dict(current)
-        # Active data wins on key conflict; otherwise union the inactive data.
-        merged.update(current)
-        if merged != before:
-            _secure_write(dest, json.dumps(merged, indent=2, ensure_ascii=False))
-
-
-def _migrate_split_pairing_dirs() -> None:
-    home = get_fabric_home()
-    old_dir = home / "pairing"
-    new_dir = home / "platforms" / "pairing"
-    active = PAIRING_DIR
-    alternate = new_dir if active.resolve() == old_dir.resolve() else old_dir
-    _merge_pairing_dir(active, alternate)
-
-
 def _secure_write(path: Path, data: str) -> None:
     """Write data to file with restrictive permissions (owner read/write only).
 
@@ -242,26 +197,23 @@ class PairingStore:
       - _rate_limits.json         : rate limit tracking
 
     When constructed with ``profile="<name>"``, storage lives under
-    ``<HERMES_HOME>/profiles/<name>/pairing/`` (per-profile, used by
+    ``<FABRIC_HOME>/profiles/<name>/platforms/pairing/`` (per-profile, used by
     multiplexing gateways so each profile has its own whitelist).
-    Without a profile, storage is the global ``<HERMES_HOME>/pairing/``
-    directory (backward-compat for the ``hermes pairing`` CLI).
+    Without a profile, storage is the active ``<FABRIC_HOME>/platforms/pairing/``
+    directory.
     """
 
     def __init__(self, profile: Optional[str] = None):
-        # Resolve storage directory lazily — tests use a temp HERMES_HOME
+        # Resolve storage directory lazily — tests use a temp FABRIC_HOME
         # and PairingStore may be constructed before the env is set.
         if profile:
             from fabric_constants import get_fabric_home
-            self._dir = get_fabric_home() / "profiles" / profile / "pairing"
+            self._dir = (
+                get_fabric_home() / "profiles" / profile / "platforms" / "pairing"
+            )
         else:
             self._dir = PAIRING_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
-        if not profile:
-            # Heal installs whose global pairing data ended up split across
-            # the legacy and new directories (per-profile stores never had
-            # the legacy/new split).
-            _migrate_split_pairing_dirs()
         # Protects all read-modify-write cycles. The gateway runs multiple
         # platform adapters concurrently in threads sharing one PairingStore.
         self._lock = threading.RLock()

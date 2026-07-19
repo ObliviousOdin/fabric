@@ -98,7 +98,7 @@ def get_profile_env_value(name: str, default: Optional[str] = None) -> Optional[
             # secret scope or home-qualified secret source may still supply an
             # injected credential, but never fall through to another profile's
             # process-global value. Normal
-            # ``fabric -p`` startup scopes through FABRIC_HOME/HERMES_HOME,
+            # ``fabric -p`` startup scopes through FABRIC_HOME,
             # while shared backends use the context-local override; both paths
             # must enforce the same isolation boundary.
             return default
@@ -219,8 +219,8 @@ class MemoryProvider(ABC):
         establish connections, start background threads, etc.
 
         kwargs always include:
-          - hermes_home (str): The active HERMES_HOME directory path. Use this
-            for profile-scoped storage instead of hardcoding ``~/.hermes``.
+          - fabric_home (str): The active FABRIC_HOME directory path. Use this
+            for profile-scoped storage instead of hardcoding ``~/.fabric``.
           - platform (str): "cli", "telegram", "discord", "cron", etc.
 
         kwargs may also include:
@@ -229,7 +229,7 @@ class MemoryProvider(ABC):
             prompts would corrupt user representations).
           - agent_identity (str): Profile name (e.g. "coder"). Use for
             per-profile provider identity scoping.
-          - agent_workspace (str): Shared workspace name (e.g. "hermes").
+          - agent_workspace (str): Shared workspace name (e.g. "fabric").
           - parent_session_id (str): For subagents, the parent's session_id.
           - user_id (str): Platform user identifier (gateway sessions).
           - user_id_alt (str): Optional alternate stable platform user identifier.
@@ -417,7 +417,7 @@ class MemoryProvider(ABC):
     def get_config_schema(self) -> List[Dict[str, Any]]:
         """Return config fields this provider needs for setup.
 
-        Used by 'hermes memory setup' to walk the user through configuration.
+        Used by 'fabric memory setup' to walk the user through configuration.
         Each field is a dict with:
           key:         config key name (e.g. 'api_key', 'mode')
           description: human-readable description
@@ -432,12 +432,12 @@ class MemoryProvider(ABC):
         """
         return []
 
-    def save_config(self, values: Dict[str, Any], hermes_home: str) -> None:
+    def save_config(self, values: Dict[str, Any], fabric_home: str) -> None:
         """Write non-secret config to the provider's native location.
 
-        Called by 'hermes memory setup' after collecting user inputs.
+        Called by 'fabric memory setup' after collecting user inputs.
         ``values`` contains only non-secret fields (secrets go to .env).
-        ``hermes_home`` is the active HERMES_HOME directory path.
+        ``fabric_home`` is the active FABRIC_HOME directory path.
 
         Providers with native config files (JSON, YAML) should override
         this to write to their expected location. Providers that use only
@@ -469,16 +469,16 @@ class MemoryProvider(ABC):
         """
 
     def backup_paths(self) -> List[str]:
-        """Return extra on-disk paths this provider stores OUTSIDE HERMES_HOME.
+        """Return extra on-disk paths this provider stores OUTSIDE FABRIC_HOME.
 
-        ``fabric backup`` only walks HERMES_HOME, so any provider state kept
+        ``fabric backup`` only walks FABRIC_HOME, so any provider state kept
         under ``~/.honcho``, ``~/.hindsight``, ``~/.openviking``, etc. is lost
         across a backup/import cycle unless it's declared here.
 
         Return a list of absolute path strings (files or directories). The
         backup command resolves each, captures the ones that exist and live
         under the user's home directory into a reserved ``_external/`` subtree
-        of the archive, and ``hermes import`` restores them to their original
+        of the archive, and ``fabric import`` restores them to their original
         locations. Paths outside the home directory are skipped for safety.
 
         MUST be callable without ``initialize()`` and without network — resolve

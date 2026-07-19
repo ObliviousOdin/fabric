@@ -26,6 +26,19 @@ _RESET = "\033[0m"
 logger = logging.getLogger(__name__)
 
 _ANSI_RESET = "\033[0m"
+_spinner_pause_event = threading.Event()
+
+
+def set_spinner_paused(paused: bool) -> None:
+    """Pause or resume CLI spinner rendering for an interactive prompt."""
+    if paused:
+        _spinner_pause_event.set()
+    else:
+        _spinner_pause_event.clear()
+
+
+def is_spinner_paused() -> bool:
+    return _spinner_pause_event.is_set()
 
 # Diff colors — resolved lazily from the skin engine so they adapt
 # to light/dark themes.  Falls back to sensible defaults on import
@@ -833,7 +846,7 @@ def _emit_inline_diff(diff_text: str, print_fn) -> bool:
 
 
 def _render_inline_unified_diff(diff: str) -> list[str]:
-    """Render unified diff lines in Hermes' inline transcript style."""
+    """Render unified diff lines in Fabric's inline transcript style."""
     rendered: list[str] = []
     from_file = None
     to_file = None
@@ -1112,7 +1125,7 @@ class KawaiiSpinner:
         wings = skin.get_spinner_wings() if skin else []
 
         while self.running:
-            if os.getenv("HERMES_SPINNER_PAUSE"):
+            if is_spinner_paused():
                 time.sleep(0.1)
                 continue
             frame = self.spinner_frames[self.frame_idx % len(self.spinner_frames)]
@@ -1436,5 +1449,3 @@ def get_cute_tool_message(
 # =========================================================================
 # Honcho session line (one-liner with clickable OSC 8 hyperlink)
 # =========================================================================
-
-

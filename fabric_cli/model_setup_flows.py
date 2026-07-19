@@ -325,18 +325,20 @@ def _model_flow_moa(config, current_model=""):
     _print_moa_preset(selected_name, preset)
 
 
+
+
 def _model_flow_nous(config, current_model="", args=None):
-    """Nous Portal provider: ensure logged in, then pick model."""
+    """Nous Portal provider: ensure logged in, then pick a model."""
     from fabric_cli.auth import (
-        get_provider_auth_state,
+        AuthError,
+        PROVIDER_REGISTRY,
+        _login_nous,
         _prompt_model_selection,
         _save_model_choice,
         _update_config_for_provider,
-        resolve_nous_runtime_credentials,
-        AuthError,
         format_auth_error,
-        _login_nous,
-        PROVIDER_REGISTRY,
+        get_provider_auth_state,
+        resolve_nous_runtime_credentials,
     )
     from fabric_cli.config import (
         get_env_value,
@@ -351,21 +353,19 @@ def _model_flow_nous(config, current_model="", args=None):
         print("Not logged into Nous Portal. Starting login...")
         print()
         try:
-            mock_args = argparse.Namespace(
+            login_args = argparse.Namespace(
                 portal_url=getattr(args, "portal_url", None),
                 inference_url=getattr(args, "inference_url", None),
                 client_id=getattr(args, "client_id", None),
                 scope=getattr(args, "scope", None),
                 no_browser=bool(getattr(args, "no_browser", False)),
-                timeout=getattr(args, "timeout", None) or 15.0,
+                timeout=getattr(args, "timeout", None),
                 ca_bundle=getattr(args, "ca_bundle", None),
                 insecure=bool(getattr(args, "insecure", False)),
             )
-            _login_nous(mock_args, PROVIDER_REGISTRY["nous"])
-            # Offer Tool Gateway enablement for paid subscribers
+            _login_nous(login_args, PROVIDER_REGISTRY["nous"])
             try:
-                _refreshed = load_config() or {}
-                prompt_enable_tool_gateway(_refreshed)
+                prompt_enable_tool_gateway(load_config() or {})
             except Exception:
                 pass
         except SystemExit:
@@ -374,16 +374,13 @@ def _model_flow_nous(config, current_model="", args=None):
         except Exception as exc:
             print(f"Login failed: {exc}")
             return
-        # login_nous already handles model selection + config update
+        # The login flow already handles model selection and config updates.
         return
 
-    # Already logged in — use curated model list (same as OpenRouter defaults).
-    # The live /models endpoint returns hundreds of models; the curated list
-    # shows only agentic models users recognize from OpenRouter.
     from fabric_cli.models import (
+        check_nous_free_tier,
         get_curated_nous_model_ids,
         get_pricing_for_provider,
-        check_nous_free_tier,
         partition_nous_models_by_tier,
         union_with_portal_free_recommendations,
         union_with_portal_paid_recommendations,
@@ -394,70 +391,52 @@ def _model_flow_nous(config, current_model="", args=None):
         print("No curated models available for Nous Portal.")
         return
 
-    # Verify credentials are still valid (catches expired sessions early)
     try:
         creds = resolve_nous_runtime_credentials()
     except Exception as exc:
         relogin = isinstance(exc, AuthError) and exc.relogin_required
-        msg = format_auth_error(exc) if isinstance(exc, AuthError) else str(exc)
+        message = format_auth_error(exc) if isinstance(exc, AuthError) else str(exc)
         if relogin:
-            print(f"Session expired: {msg}")
+            print(f"Session expired: {message}")
             print("Re-authenticating with Nous Portal...\n")
             try:
-                mock_args = argparse.Namespace(
+                login_args = argparse.Namespace(
                     portal_url=None,
                     inference_url=None,
-                    client_id=None,
+                    client_id=state.get("client_id"),
                     scope=None,
                     no_browser=False,
-                    timeout=15.0,
+                    timeout=None,
                     ca_bundle=None,
                     insecure=False,
                 )
-                _login_nous(mock_args, PROVIDER_REGISTRY["nous"])
+                _login_nous(login_args, PROVIDER_REGISTRY["nous"])
             except Exception as login_exc:
                 print(f"Re-login failed: {login_exc}")
             return
-        print(f"Could not verify credentials: {msg}")
+        print(f"Could not verify credentials: {message}")
         return
 
-    # Fetch live pricing (non-blocking — returns empty dict on failure)
     pricing = get_pricing_for_provider("nous")
-
-    # Force fresh account data for model selection so recent credit purchases
-    # are reflected immediately.
     free_tier = check_nous_free_tier(force_fresh=True)
     if not free_tier:
         try:
-            refreshed_creds = resolve_nous_runtime_credentials(
-                force_refresh=True,
-            )
+            refreshed_creds = resolve_nous_runtime_credentials(force_refresh=True)
             if refreshed_creds:
                 creds = refreshed_creds
         except Exception:
-            # Runtime inference has its own paid-entitlement recovery path; do
-            # not block model selection if this opportunistic refresh fails.
+            # Runtime inference owns its own entitlement recovery. Do not block
+            # model selection when this opportunistic refresh fails.
             pass
 
-    # Resolve portal URL early — needed both for upgrade links and for the
-    # freeRecommendedModels endpoint below.
-    _nous_portal_url = ""
+    portal_url = ""
     try:
-        _nous_state = get_provider_auth_state("nous")
-        if _nous_state:
-            _nous_portal_url = _nous_state.get("portal_base_url", "")
+        refreshed_state = get_provider_auth_state("nous")
+        if refreshed_state:
+            portal_url = refreshed_state.get("portal_base_url", "")
     except Exception:
         pass
 
-    # For free users: partition models into selectable/unavailable based on
-    # whether they are free per the Portal-reported pricing.  First augment
-    # with the Portal's freeRecommendedModels list so newly-launched free
-    # models show up even if this CLI build's hardcoded curated list and
-    # docs-hosted manifest haven't caught up yet.
-    #
-    # For paid users: mirror the same idea with paidRecommendedModels so
-    # newly-launched paid models surface in the picker too — independent
-    # of CLI release cadence.
     unavailable_models: list[str] = []
     unavailable_message = ""
     if free_tier:
@@ -467,10 +446,10 @@ def _model_flow_nous(config, current_model="", args=None):
                 get_nous_portal_account_info,
             )
 
-            _account_info = get_nous_portal_account_info(force_fresh=True)
+            account_info = get_nous_portal_account_info(force_fresh=True)
             unavailable_message = (
                 format_nous_portal_entitlement_message(
-                    _account_info,
+                    account_info,
                     capability="paid Nous models",
                 )
                 or ""
@@ -478,14 +457,20 @@ def _model_flow_nous(config, current_model="", args=None):
         except Exception:
             unavailable_message = ""
         model_ids, pricing = union_with_portal_free_recommendations(
-            model_ids, pricing, _nous_portal_url,
+            model_ids,
+            pricing,
+            portal_url,
         )
         model_ids, unavailable_models = partition_nous_models_by_tier(
-            model_ids, pricing, free_tier=True
+            model_ids,
+            pricing,
+            free_tier=True,
         )
     else:
         model_ids, pricing = union_with_portal_paid_recommendations(
-            model_ids, pricing, _nous_portal_url,
+            model_ids,
+            pricing,
+            portal_url,
         )
 
     if not model_ids and not unavailable_models:
@@ -497,58 +482,61 @@ def _model_flow_nous(config, current_model="", args=None):
         if unavailable_models:
             from fabric_cli.auth import DEFAULT_NOUS_PORTAL_URL
 
-            _url = (_nous_portal_url or DEFAULT_NOUS_PORTAL_URL).rstrip("/")
-            print(unavailable_message or f"Upgrade at {_url} to access paid models.")
+            upgrade_url = (portal_url or DEFAULT_NOUS_PORTAL_URL).rstrip("/")
+            print(
+                unavailable_message
+                or f"Upgrade at {upgrade_url} to access paid models."
+            )
         return
 
     print(
         f'Showing {len(model_ids)} curated models — use "Enter custom model name" for others.'
     )
-
     selected = _prompt_model_selection(
         model_ids,
         current_model=current_model,
         pricing=pricing,
         unavailable_models=unavailable_models,
-        portal_url=_nous_portal_url,
+        portal_url=portal_url,
         unavailable_message=unavailable_message,
         confirm_provider="nous",
         confirm_base_url=creds.get("base_url", ""),
         confirm_api_key=creds.get("api_key", ""),
     )
-    if selected:
-        _save_model_choice(selected)
-        # Reactivate Nous as the provider and update config
-        inference_url = creds.get("base_url", "")
-        _update_config_for_provider("nous", inference_url)
-        # Reload after the auth helper writes provider state. The incoming
-        # config object may still contain stale custom-provider fields.
-        config = load_config()
-        current_model_cfg = config.get("model")
-        if isinstance(current_model_cfg, dict):
-            model_cfg = dict(current_model_cfg)
-        elif isinstance(current_model_cfg, str) and current_model_cfg.strip():
-            model_cfg = {"default": current_model_cfg.strip()}
-        else:
-            model_cfg = {}
-        model_cfg["provider"] = "nous"
-        model_cfg["default"] = selected
-        if inference_url and inference_url.strip():
-            model_cfg["base_url"] = inference_url.rstrip("/")
-        else:
-            model_cfg.pop("base_url", None)
-        clear_model_endpoint_credentials(model_cfg)
-        config["model"] = model_cfg
-        # Clear any custom endpoint that might conflict
-        if get_env_value("OPENAI_BASE_URL"):
-            save_env_value("OPENAI_BASE_URL", "")
-            save_env_value("OPENAI_API_KEY", "")
-        save_config(config)
-        print(f"Default model set to: {selected} (via Nous Portal)")
-        # Offer Tool Gateway enablement for paid subscribers
-        prompt_enable_tool_gateway(config)
-    else:
+    if not selected:
         print("No change.")
+        return
+
+    _save_model_choice(selected)
+    inference_url = creds.get("base_url", "")
+    _update_config_for_provider("nous", inference_url)
+
+    # Reload after the auth helper writes provider state. The incoming object
+    # may still contain stale custom-provider endpoint credentials.
+    config = load_config()
+    current_model_cfg = config.get("model")
+    if isinstance(current_model_cfg, dict):
+        model_cfg = dict(current_model_cfg)
+    elif isinstance(current_model_cfg, str) and current_model_cfg.strip():
+        model_cfg = {"default": current_model_cfg.strip()}
+    else:
+        model_cfg = {}
+    model_cfg["provider"] = "nous"
+    model_cfg["default"] = selected
+    if inference_url and inference_url.strip():
+        model_cfg["base_url"] = inference_url.rstrip("/")
+    else:
+        model_cfg.pop("base_url", None)
+    clear_model_endpoint_credentials(model_cfg)
+    config["model"] = model_cfg
+
+    # Clear any generic OpenAI endpoint left by a previous custom provider.
+    if get_env_value("OPENAI_BASE_URL"):
+        save_env_value("OPENAI_BASE_URL", "")
+        save_env_value("OPENAI_API_KEY", "")
+    save_config(config)
+    print(f"Default model set to: {selected} (via Nous Portal)")
+    prompt_enable_tool_gateway(config)
 
 
 def _model_flow_openai_codex(config, current_model=""):
@@ -1975,7 +1963,7 @@ def _model_flow_copilot_acp(config, current_model=""):
     except Exception as exc:
         print(f"  ⚠ {exc}")
         print(
-            "  Set HERMES_COPILOT_ACP_COMMAND or COPILOT_CLI_PATH if Copilot CLI is installed elsewhere."
+            "  Set COPILOT_CLI_PATH if Copilot CLI is installed elsewhere."
         )
         return
 
@@ -2342,7 +2330,7 @@ def _model_flow_bedrock_api_key(config, region, current_model=""):
         bedrock_cfg["region"] = region
         cfg["bedrock"] = bedrock_cfg
 
-        # Save the API key env var name so hermes knows where to find it
+        # Save the API key env var name so fabric knows where to find it
         save_env_value("OPENAI_API_KEY", existing_key)
         save_env_value("OPENAI_BASE_URL", mantle_base_url)
 

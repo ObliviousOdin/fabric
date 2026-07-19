@@ -3,9 +3,8 @@
 A system-level directory (default ``/etc/fabric``, root-owned and not
 user-writable) supplies ``config.yaml`` and ``.env`` values that WIN over the
 user's ``~/.fabric/config.yaml`` and ``~/.fabric/.env`` on a per-leaf-key basis.
-Existing deployments using ``/etc/hermes`` remain supported as a fallback.
 
-This is DISTINCT from ``fabric_cli.config.is_managed()`` / ``HERMES_MANAGED``,
+This is DISTINCT from ``fabric_cli.config.is_managed()`` / ``FABRIC_MANAGED``,
 which is a coarse package-manager write-lock (declarative-distro / formula
 installs). That lock blocks all mutation; this layer injects specific immutable
 values. The two are independent and may coexist.
@@ -32,7 +31,6 @@ logger = logging.getLogger(__name__)
 # POSIX defaults. Other-platform locations are a deliberate v2 item; when added,
 # they belong ONLY inside get_managed_dir().
 _DEFAULT_MANAGED_DIR = Path("/etc/fabric")
-_LEGACY_MANAGED_DIR = Path("/etc/hermes")
 
 _CACHE_LOCK = threading.Lock()
 # path_key -> (mtime_ns, size, parsed)
@@ -54,29 +52,25 @@ def _under_pytest() -> bool:
 def get_managed_dir() -> Optional[Path]:
     """Resolve the managed-scope directory, or None when no scope is present.
 
-    Resolution (highest priority first):
+    Resolution:
       1. ``$FABRIC_MANAGED_DIR`` — deployment/bootstrap path override (IT-only;
          never persisted to any .env). Honored only when set to a non-empty value
          AND the directory exists.
-      2. ``$HERMES_MANAGED_DIR`` — legacy override, retained for compatibility.
-      3. ``/etc/fabric`` — canonical POSIX default, when it exists.
-      4. ``/etc/hermes`` — legacy POSIX fallback, when it exists.
+      2. ``/etc/fabric`` — canonical POSIX default, when it exists.
 
     System defaults are ignored under pytest so a real system managed scope
     cannot leak into the test suite. An explicitly selected override that does
     not exist resolves to None rather than silently falling through to a lower
     priority source. With no override, the first existing system default wins.
     """
-    for env_var in ("FABRIC_MANAGED_DIR", "HERMES_MANAGED_DIR"):
-        override = os.environ.get(env_var, "").strip()
-        if override:
-            path = Path(override)
-            return path if path.is_dir() else None
+    override = os.environ.get("FABRIC_MANAGED_DIR", "").strip()
+    if override:
+        path = Path(override)
+        return path if path.is_dir() else None
     if _under_pytest():
         return None
-    for path in (_DEFAULT_MANAGED_DIR, _LEGACY_MANAGED_DIR):
-        if path.is_dir():
-            return path
+    if _DEFAULT_MANAGED_DIR.is_dir():
+        return _DEFAULT_MANAGED_DIR
     return None
 
 

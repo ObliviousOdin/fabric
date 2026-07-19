@@ -3,7 +3,7 @@
 Provider profiles can live in two places:
 
 1. Bundled plugins: ``plugins/model-providers/<name>/`` (shipped with fabric-agent)
-2. User plugins: ``$HERMES_HOME/plugins/model-providers/<name>/``
+2. User plugins: ``$FABRIC_HOME/plugins/model-providers/<name>/``
 
 Each plugin directory contains:
   - ``__init__.py`` — calls ``register_provider(profile)`` at import
@@ -15,11 +15,8 @@ plugins override bundled plugins on name collision (last-writer-wins), so
 third parties can monkey-patch or replace any built-in profile without
 editing the repo.
 
-For backward compatibility, ``providers/*.py`` files (other than ``base.py``
-and ``__init__.py``) are still discovered via ``pkgutil.iter_modules``.
-This lets out-of-tree users drop a single-file profile into an editable
-install without the plugin dir structure. New profiles should prefer the
-plugin layout.
+Installed single-file extension modules under ``providers/*.py`` are also
+discovered. Plugin directories remain the preferred packaging format.
 
 Usage::
 
@@ -54,7 +51,7 @@ def register_provider(profile: ProviderProfile) -> None:
     """Register a provider profile by name and aliases.
 
     Later registrations with the same name replace earlier ones — so user
-    plugins under ``$HERMES_HOME/plugins/model-providers/`` can override
+    plugins under ``$FABRIC_HOME/plugins/model-providers/`` can override
     bundled profiles without editing repo code.
     """
     _REGISTRY[profile.name] = profile
@@ -89,7 +86,7 @@ def list_providers() -> list[ProviderProfile]:
 
 
 def _user_plugins_dir() -> Path | None:
-    """Return ``$HERMES_HOME/plugins/model-providers/`` if it exists."""
+    """Return ``$FABRIC_HOME/plugins/model-providers/`` if it exists."""
     try:
         from fabric_constants import get_fabric_home
 
@@ -111,12 +108,12 @@ def _import_plugin_dir(plugin_dir: Path, source: str) -> None:
     # Give bundled plugins a stable import path (``plugins.model_providers.<name>``)
     # so relative imports within the plugin work. User plugins load via
     # ``importlib.util.spec_from_file_location`` with a unique module name so
-    # multiple HERMES_HOME profiles don't alias each other.
+    # multiple FABRIC_HOME profiles don't alias each other.
     safe_name = plugin_dir.name.replace("-", "_")
     if source == "bundled":
         module_name = f"plugins.model_providers.{safe_name}"
     else:
-        module_name = f"_hermes_user_provider_{safe_name}"
+        module_name = f"_fabric_user_provider_{safe_name}"
 
     if module_name in sys.modules:
         return  # already imported
@@ -142,9 +139,7 @@ def _discover_providers() -> None:
 
     Order:
       1. Bundled plugins at ``<repo>/plugins/model-providers/<name>/``
-      2. User plugins at ``$HERMES_HOME/plugins/model-providers/<name>/``
-      3. Legacy per-file modules at ``providers/<name>.py`` (back-compat)
-
+      2. User plugins at ``$FABRIC_HOME/plugins/model-providers/<name>/``
     Each step imports its plugins, which call ``register_provider()`` at
     module-level. Later steps win on name collision.
     """
@@ -160,7 +155,7 @@ def _discover_providers() -> None:
                 continue
             _import_plugin_dir(child, "bundled")
 
-    # 2. User plugins — under $HERMES_HOME/plugins/model-providers/<name>/.
+    # 2. User plugins — under $FABRIC_HOME/plugins/model-providers/<name>/.
     #    These can override any bundled profile of the same name (last-writer-wins
     #    in register_provider()).
     user_dir = _user_plugins_dir()
@@ -170,22 +165,25 @@ def _discover_providers() -> None:
                 continue
             _import_plugin_dir(child, "user")
 
-    # 3. Legacy single-file profiles at providers/<name>.py. Kept for
-    #    back-compat — if someone drops a ``providers/foo.py`` into an
-    #    editable install, it still works without the plugin layout.
+    # 3. Installed single-file extension modules. Editable installs and
+    #    downstream packages may contribute these without a plugin directory.
     try:
         import pkgutil
 
-        import providers as _pkg
+        import providers as provider_package
 
-        for _importer, modname, _ispkg in pkgutil.iter_modules(_pkg.__path__):
-            if modname.startswith("_") or modname == "base":
+        for _importer, module_name, _is_package in pkgutil.iter_modules(
+            provider_package.__path__
+        ):
+            if module_name.startswith("_") or module_name == "base":
                 continue
             try:
-                importlib.import_module(f"providers.{modname}")
+                importlib.import_module(f"providers.{module_name}")
             except ImportError as exc:
                 logger.warning(
-                    "Failed to import legacy provider module %s: %s", modname, exc
+                    "Failed to import provider extension module %s: %s",
+                    module_name,
+                    exc,
                 )
     except Exception:
-        pass
+        logger.debug("Single-file provider discovery failed", exc_info=True)

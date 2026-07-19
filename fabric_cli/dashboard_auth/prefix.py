@@ -1,13 +1,13 @@
 """Helpers for X-Forwarded-Prefix support.
 
 Mission-control style deploys reverse-proxy the dashboard at a path
-prefix (e.g. ``mission-control.tilos.com/hermes/*`` -> dashboard on
-:9119), injecting ``X-Forwarded-Prefix: /hermes`` so the backend can
+prefix (e.g. ``mission-control.tilos.com/fabric/*`` -> dashboard on
+:9119), injecting ``X-Forwarded-Prefix: /fabric`` so the backend can
 reconstruct prefixed URLs (Location: headers, OAuth redirect_uri,
 cookie Path attributes, SPA asset URLs).
 
-This module is also the home of the ``HERMES_DASHBOARD_PUBLIC_URL`` /
-``dashboard.public_url`` resolution — when the operator declares a
+This module is also the home of the ``dashboard.public_url`` resolution —
+when the operator declares a
 complete public URL (scheme + host + optional path prefix), we use
 that directly for the OAuth ``redirect_uri`` and skip the
 X-Forwarded-Prefix reconstruction. Relief valve for deploys where the
@@ -20,7 +20,6 @@ all agree on validation rules.
 from __future__ import annotations
 
 import logging
-import os
 import urllib.parse
 from typing import Optional
 
@@ -50,9 +49,9 @@ def _warn_if_malformed(source: str, raw: str) -> None:
     was rejected by :func:`_normalise_public_url`.
 
     A non-empty value that normalises to ``""`` is almost always a
-    missing scheme (``hermes.example.com`` instead of
-    ``https://hermes.example.com``) — the single most common cause of
-    "I set HERMES_DASHBOARD_PUBLIC_URL but the OAuth callback is still
+    missing scheme (``fabric.example.com`` instead of
+    ``https://fabric.example.com``) — the single most common cause of
+    "I set dashboard.public_url but the OAuth callback is still
     http://". Without this warning the value is silently discarded and
     the dashboard falls back to reconstructing the redirect URI from
     request headers, which behind a reverse proxy can yield the wrong
@@ -74,7 +73,7 @@ def _warn_if_malformed(source: str, raw: str) -> None:
         "scheme behind a reverse proxy.",
         source,
         cleaned,
-        cleaned.split("://")[-1] or "hermes.example.com",
+        cleaned.split("://")[-1] or "fabric.example.com",
     )
 
 
@@ -98,7 +97,7 @@ def _warn_if_malformed_prefix(raw: Optional[str], reason: str) -> None:
 def normalise_prefix(raw: Optional[str]) -> str:
     """Normalise an X-Forwarded-Prefix header value.
 
-    Returns a string like ``"/hermes"`` (no trailing slash) or ``""``
+    Returns a string like ``"/fabric"`` (no trailing slash) or ``""``
     when no prefix is set / the header is malformed. We deliberately
     reject anything containing ``..`` or non-printable bytes so a
     hostile proxy can't inject HTML or path-traversal sequences via the
@@ -139,7 +138,7 @@ def prefix_from_request(request) -> str:
 
 
 # ---------------------------------------------------------------------------
-# HERMES_DASHBOARD_PUBLIC_URL / dashboard.public_url
+# dashboard.public_url
 # ---------------------------------------------------------------------------
 
 
@@ -151,7 +150,7 @@ def _normalise_public_url(raw: Optional[str]) -> str:
     or contains characters that suggest header injection. The caller
     must treat ``""`` as "fall back to request reconstruction" — never
     as "the user explicitly chose no public URL", because the two are
-    indistinguishable from an empty env var.
+    indistinguishable from an empty config value.
     """
     if not raw:
         return ""
@@ -195,7 +194,7 @@ def _load_dashboard_section() -> dict:
     except Exception as exc:  # noqa: BLE001 — broad catch is intentional
         _log.debug(
             "dashboard-auth.prefix: load_config() raised %s; "
-            "falling back to env-only configuration",
+            "falling back to request reconstruction",
             exc,
         )
         return {}
@@ -206,25 +205,13 @@ def _load_dashboard_section() -> dict:
 def resolve_public_url() -> str:
     """Resolve the operator-declared dashboard public URL.
 
-    Precedence (mirrors ``dashboard.oauth.client_id``):
-
-      1. ``HERMES_DASHBOARD_PUBLIC_URL`` env var (when non-empty after
-         strip — empty values are treated as unset so a provisioned-but-
-         not-populated Fly secret can't shadow a valid config.yaml entry).
-      2. ``dashboard.public_url`` in ``config.yaml``.
-      3. Empty string — signals "no override, reconstruct from request"
+      1. ``dashboard.public_url`` in ``config.yaml``.
+      2. Empty string — signals "no override, reconstruct from request"
          to the caller.
 
-    Each candidate value is run through :func:`_normalise_public_url`.
-    A malformed env var falls through to the config.yaml entry; a
-    malformed config entry falls through to ``""``. This means a typo
-    in one surface doesn't prevent the other from working.
+    The configured value is run through :func:`_normalise_public_url`.
+    A malformed entry falls through to request reconstruction.
     """
-    env_raw = os.environ.get("HERMES_DASHBOARD_PUBLIC_URL", "")
-    env_clean = _normalise_public_url(env_raw)
-    if env_clean:
-        return env_clean
-    _warn_if_malformed("HERMES_DASHBOARD_PUBLIC_URL env var", env_raw)
     cfg_raw = str(_load_dashboard_section().get("public_url", ""))
     cfg_clean = _normalise_public_url(cfg_raw)
     if not cfg_clean:

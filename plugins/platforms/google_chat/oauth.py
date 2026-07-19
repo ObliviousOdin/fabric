@@ -33,9 +33,7 @@ terminal commands) AND a library imported by ``google_chat.py``:
         --auth-code CODE                 Exchange auth code for token
         --revoke                         Revoke and delete stored token
         --install-deps                   Install Python dependencies
-        --email EMAIL                    Scope CLI ops to a specific user
-                                         (defaults to legacy single-user
-                                         mode when omitted)
+        --email EMAIL                    Required for user-token operations
 
 The flow mirrors the existing google-workspace skill exactly so anyone
 familiar with that flow can read this without surprises.
@@ -43,15 +41,13 @@ familiar with that flow can read this without surprises.
 Token storage layout
 --------------------
 - Per-user tokens (keyed by sender email):
-    ``${HERMES_HOME}/google_chat_user_tokens/<sanitized_email>.json``
-- Legacy single-user token (fallback, untouched for backward compat):
-    ``${HERMES_HOME}/google_chat_user_token.json``
+    ``${FABRIC_HOME}/google_chat_user_tokens/<sanitized_email>.json``
+- Schema-v1 single-user token (read-only transition fallback):
+    ``${FABRIC_HOME}/google_chat_user_token.json``
 - Per-user pending OAuth state during /setup-files start → exchange:
-    ``${HERMES_HOME}/google_chat_user_oauth_pending/<sanitized_email>.json``
-- Legacy pending state:
-    ``${HERMES_HOME}/google_chat_user_oauth_pending.json``
+    ``${FABRIC_HOME}/google_chat_user_oauth_pending/<sanitized_email>.json``
 - OAuth client secret (profile-scoped — each profile registers its own):
-    ``${HERMES_HOME}/google_chat_user_client_secret.json``
+    ``${FABRIC_HOME}/google_chat_user_client_secret.json``
 """
 
 from __future__ import annotations
@@ -68,44 +64,17 @@ import sys
 from pathlib import Path
 from typing import Any, List, Optional, Tuple
 
-_FABRIC_HOME_ENV = "FABRIC_HOME"
-# public-release-audit: allow-legacy-compat -- honor the previous home override during migration
-_LEGACY_HOME_ENV = "HERMES_HOME"
+logger = logging.getLogger(__name__)
 
-# Pin the legacy logger name so operator-side log filters keep matching
-# after the in-tree → plugin migration. See adapter.py for context.
-logger = logging.getLogger("gateway.platforms.google_chat_user_oauth")
-
-# Use the project's HERMES_HOME helper so the token follows the user's
-# profile (e.g. tests can override via HERMES_HOME=/tmp/...).
-try:
-    from fabric_constants import display_fabric_home, get_fabric_home
-except (ModuleNotFoundError, ImportError):
-    # Fallback for environments where fabric_constants isn't importable
-    # (mirrors the same fallback used by the google-workspace skill's
-    # _fabric_home.py shim).
-    def get_fabric_home() -> Path:
-        val = (
-            os.environ.get(_FABRIC_HOME_ENV)
-            or os.environ.get(_LEGACY_HOME_ENV)
-            or ""
-        ).strip()
-        return Path(val) if val else Path.home() / ".fabric"
-
-    def display_fabric_home() -> str:
-        home = get_fabric_home()
-        try:
-            return "~/" + str(home.relative_to(Path.home()))
-        except ValueError:
-            return str(home)
+from fabric_constants import display_fabric_home, get_fabric_home
 
 from utils import atomic_replace
 
 
 def _fabric_home() -> Path:
-    """Resolve HERMES_HOME at call time (NOT module import).
+    """Resolve FABRIC_HOME at call time (NOT module import).
 
-    Tests and ``HERMES_HOME=...`` env overrides need this to be late-
+    Tests and ``FABRIC_HOME=...`` env overrides need this to be late-
     binding. If we cached the path at import time, switching profiles
     or tweaking env vars in tests would silently keep using the old
     path."""
@@ -115,7 +84,7 @@ def _fabric_home() -> Path:
 # Filesystem-safe key: lowercase, allow ``[a-z0-9._-@]``, replace anything
 # else with ``_``. ``user@example.com`` stays human-readable
 # (``user@example.com.json``) which makes admin debugging by
-# ``ls ~/.hermes/google_chat_user_tokens/`` trivial.
+# ``ls ~/.fabric/google_chat_user_tokens/`` trivial.
 _EMAIL_FS_RE = re.compile(r"[^a-z0-9._@-]+")
 
 
@@ -124,16 +93,13 @@ def _sanitize_email(email: str) -> str:
     return cleaned or "_unknown_"
 
 
-def _legacy_token_path() -> Path:
-    return _fabric_home() / "google_chat_user_token.json"
-
-
 def _user_tokens_dir() -> Path:
     return _fabric_home() / "google_chat_user_tokens"
 
 
-def _legacy_pending_path() -> Path:
-    return _fabric_home() / "google_chat_user_oauth_pending.json"
+def _single_user_token_path() -> Path:
+    """Return the schema-v1 token path retained for read-only transition."""
+    return _fabric_home() / "google_chat_user_token.json"
 
 
 def _user_pending_dir() -> Path:
@@ -141,20 +107,20 @@ def _user_pending_dir() -> Path:
 
 
 def _token_path(email: Optional[str] = None) -> Path:
-    """Return the on-disk token path for ``email`` or the legacy path."""
+    """Return a per-user token path, or the schema-v1 path when omitted."""
     if email:
         return _user_tokens_dir() / f"{_sanitize_email(email)}.json"
-    return _legacy_token_path()
+    return _single_user_token_path()
 
 
 def _client_secret_path() -> Path:
     return _fabric_home() / "google_chat_user_client_secret.json"
 
 
-def _pending_auth_path(email: Optional[str] = None) -> Path:
-    if email:
-        return _user_pending_dir() / f"{_sanitize_email(email)}.json"
-    return _legacy_pending_path()
+def _pending_auth_path(email: str) -> Path:
+    if not email:
+        raise ValueError("email is required for Google Chat user OAuth")
+    return _user_pending_dir() / f"{_sanitize_email(email)}.json"
 
 
 # Minimum scope for native Chat attachment delivery.
@@ -187,9 +153,9 @@ _REDIRECT_URI = "http://localhost:1"
 def load_user_credentials(email: Optional[str] = None) -> Optional[Any]:
     """Load + validate persisted user OAuth credentials.
 
-    ``email`` selects the per-user token file; ``None`` falls back to the
-    legacy single-user path (left in place for installs that ran the
-    pre-multi-user flow). Returns a ``google.oauth2.credentials.Credentials``
+    ``email`` selects the per-user token file. Omitting it reads the schema-v1
+    single-user token for the adapter's transition fallback. Returns a
+    ``google.oauth2.credentials.Credentials``
     instance ready for use, or ``None`` if no token is stored, the token
     is corrupt, or refresh fails. Adapter callers should treat ``None``
     as "user has not run /setup-files yet" and surface the setup-instructions
@@ -250,7 +216,8 @@ def refresh_or_none(creds: Any, email: Optional[str] = None) -> Optional[Any]:
     Used by the adapter just before calling media.upload to ensure the
     token is current. Returns ``None`` if refresh fails — caller falls
     back to the text-notice path. ``email`` controls where the refreshed
-    token is written back; ``None`` keeps the legacy single-file path.
+    token is written back to that user's token path (or the schema-v1 path
+    when refreshing the transition fallback).
     """
     if creds is None:
         return None
@@ -291,8 +258,8 @@ def build_user_chat_service(creds: Any) -> Any:
 def list_authorized_emails() -> List[str]:
     """Return the set of user emails that have stored per-user tokens.
 
-    Lists files in the per-user tokens dir; does NOT include the legacy
-    single-user token (its owner is unknown). Sanitized filenames lose
+    The schema-v1 single-user token is excluded because its owner is unknown.
+    Sanitized filenames lose
     the ``+suffix`` part of plus-addressed emails — accept that and use
     this list only for admin display, not for trust decisions.
     """
@@ -401,11 +368,8 @@ def install_deps() -> bool:
         return False
 
 
-def check_auth(email: Optional[str] = None) -> bool:
-    """Print status; return True if creds are usable.
-
-    Per-user when ``email`` given, legacy single-user when omitted.
-    """
+def check_auth(email: str) -> bool:
+    """Print status; return True if the user's credentials are usable."""
     token_path = _token_path(email)
     if not token_path.exists():
         print(f"NOT_AUTHENTICATED: No token at {token_path}")
@@ -421,7 +385,7 @@ def check_auth(email: Optional[str] = None) -> bool:
 
 
 def store_client_secret(path: str) -> None:
-    """Validate and copy the user's OAuth client_secret.json into HERMES_HOME."""
+    """Validate and copy the user's OAuth client_secret.json into FABRIC_HOME."""
     src = Path(path).expanduser().resolve()
     if not src.exists():
         print(f"ERROR: File not found: {src}")
@@ -448,8 +412,7 @@ def store_client_secret(path: str) -> None:
     print(f"OK: Client secret saved to {target}")
 
 
-def _save_pending_auth(*, state: str, code_verifier: str,
-                      email: Optional[str] = None) -> None:
+def _save_pending_auth(*, state: str, code_verifier: str, email: str) -> None:
     pending = _pending_auth_path(email)
     _write_private_json(
         pending,
@@ -462,7 +425,7 @@ def _save_pending_auth(*, state: str, code_verifier: str,
     )
 
 
-def _load_pending_auth(email: Optional[str] = None) -> dict:
+def _load_pending_auth(email: str) -> dict:
     pending = _pending_auth_path(email)
     if not pending.exists():
         print("ERROR: No pending OAuth session found. Run --auth-url first.")
@@ -496,7 +459,7 @@ def _extract_code_and_state(code_or_url: str) -> Tuple[str, Optional[str]]:
     return params["code"][0], state
 
 
-def get_auth_url(email: Optional[str] = None) -> None:
+def get_auth_url(email: str) -> None:
     """Print the OAuth URL for the user to visit. Persists PKCE state.
 
     ``email`` namespaces the pending state so two users can be mid-flow
@@ -523,12 +486,10 @@ def get_auth_url(email: Optional[str] = None) -> None:
     print(auth_url)
 
 
-def exchange_auth_code(code: str, email: Optional[str] = None) -> None:
+def exchange_auth_code(code: str, email: str) -> None:
     """Exchange an auth code (or pasted redirect URL) for a refresh token.
 
-    ``email`` selects the destination token path. ``None`` writes to the
-    legacy single-user path (kept for the existing CLI entrypoint and for
-    pre-multi-user installs).
+    ``email`` selects the destination token path.
     """
     if not _client_secret_path().exists():
         print("ERROR: No client secret stored. Run --client-secret first.")
@@ -590,19 +551,12 @@ def exchange_auth_code(code: str, email: Optional[str] = None) -> None:
     _pending_auth_path(email).unlink(missing_ok=True)
 
     print(f"OK: Authenticated. Token saved to {token_path}")
-    rel_label = (
-        f"{display_fabric_home()}/google_chat_user_tokens/{_sanitize_email(email)}.json"
-        if email
-        else f"{display_fabric_home()}/google_chat_user_token.json"
-    )
+    rel_label = f"{display_fabric_home()}/google_chat_user_tokens/{_sanitize_email(email)}.json"
     print(f"Profile path: {rel_label}")
 
 
-def revoke(email: Optional[str] = None) -> None:
-    """Revoke the stored token with Google and delete it locally.
-
-    Per-user when ``email`` given, legacy single-user when omitted.
-    """
+def revoke(email: str) -> None:
+    """Revoke the user's stored token with Google and delete it locally."""
     token_path = _token_path(email)
     if not token_path.exists():
         print("No token to revoke.")
@@ -653,11 +607,12 @@ def main() -> None:
     group.add_argument("--install-deps", action="store_true",
                        help="Install Python dependencies")
     parser.add_argument("--email", metavar="EMAIL", default=None,
-                       help="Scope operation to a specific user's token "
-                            "(default: legacy single-user path)")
+                       help="User email for token-scoped operations")
     args = parser.parse_args()
 
-    email = args.email or None
+    email = args.email or ""
+    if (args.check or args.auth_url or args.auth_code or args.revoke) and not email:
+        parser.error("--email is required for user-token operations")
     if args.check:
         sys.exit(0 if check_auth(email) else 1)
     elif args.client_secret:

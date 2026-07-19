@@ -268,7 +268,7 @@ def unique_slug(name: str) -> str:
     base = slugify(name)
     slug = base
     counter = 2
-    while load_pet(slug) is not None:
+    while (pets_dir() / slug).exists() or (bundled_pets_dir() / slug).exists():
         slug = f"{base}-{counter}"
         counter += 1
     return slug

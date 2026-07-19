@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 from fabric_constants import agent_browser_runnable
-from tools.environments.local import hermes_subprocess_env
+from tools.environments.local import fabric_subprocess_env
 
 _IS_WINDOWS = platform.system() == "Windows"
 
@@ -32,7 +32,7 @@ _DEP_CHECKS = {
     "browser": lambda: (
         agent_browser_runnable(shutil.which("agent-browser"))
         or _has_system_browser()
-        or _has_hermes_agent_browser()
+        or _has_fabric_agent_browser()
     ),
     "ripgrep": lambda: shutil.which("rg") is not None,
     "ffmpeg": lambda: shutil.which("ffmpeg") is not None,
@@ -57,14 +57,15 @@ def _has_system_browser() -> bool:
     return False
 
 
-def _has_hermes_agent_browser() -> bool:
+def _has_fabric_agent_browser() -> bool:
     from fabric_constants import get_fabric_home
     home = get_fabric_home()
     if _IS_WINDOWS:
         # npm -g --prefix puts .cmd shims directly in the prefix dir on Windows
         return (home / "node" / "agent-browser.cmd").is_file()
-    # install.sh installs globally into $HERMES_HOME/node/bin/ via npm -g --prefix
-    # Also check legacy node_modules/.bin/ path for git-clone installs.
+    # Current installs use $FABRIC_HOME/node/bin via npm -g --prefix. Older
+    # Fabric git-clone installs used node_modules/.bin under the same canonical
+    # Fabric home, so both current Fabric layouts remain discoverable.
     return (
         (home / "node" / "bin" / "agent-browser").is_file()
         or (home / "node_modules" / ".bin" / "agent-browser").is_file()
@@ -144,12 +145,12 @@ def ensure_dependency(
             "-ExecutionPolicy", "Bypass",
             "-File", str(script),
             "-Ensure", dep,
-            "-HermesHome", str(get_fabric_home()),
+            "-FabricHome", str(get_fabric_home()),
         ]
     else:
         cmd = ["bash", str(script), "--ensure", dep]
 
-    run_env = hermes_subprocess_env(inherit_credentials=False)
+    run_env = fabric_subprocess_env(inherit_credentials=False)
     run_env["IS_INTERACTIVE"] = "false"
     result = subprocess.run(
         cmd,

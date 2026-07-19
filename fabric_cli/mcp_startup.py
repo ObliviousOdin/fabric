@@ -106,7 +106,7 @@ def mcp_discovery_in_flight() -> bool:
     Mirrors ``tui_gateway.entry.mcp_discovery_in_flight`` for the surfaces that
     start discovery through ``start_background_mcp_discovery`` here (the desktop
     app + dashboard WebSocket sidecar via ``tui_gateway/ws.py``, and
-    ``Fabric dashboard``).  Those processes populate THIS module's
+    ``fabric dashboard``).  Those processes populate THIS module's
     ``_mcp_discovery_thread``, not ``tui_gateway.entry``'s, so the late-refresh
     scheduler must consult both to decide whether a slow server's tools are
     still pending (see #51587).

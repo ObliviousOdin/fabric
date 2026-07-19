@@ -4,9 +4,9 @@ Gateway runtime status helpers.
 Provides PID-file based detection of whether the gateway daemon is running,
 used by send_message's check_fn to gate availability in the CLI.
 
-The PID file lives at ``{HERMES_HOME}/gateway.pid``.  HERMES_HOME defaults to
-``~/.hermes`` but can be overridden via the environment variable.  This means
-separate HERMES_HOME directories naturally get separate PID files — a property
+The PID file lives at ``{FABRIC_HOME}/gateway.pid``.  FABRIC_HOME defaults to
+``~/.fabric`` but can be overridden via the environment variable.  This means
+separate FABRIC_HOME directories naturally get separate PID files — a property
 that will be useful when we add named profiles (multiple agents running
 concurrently under distinct configurations).
 """
@@ -47,8 +47,8 @@ _gateway_running_pid_cache_lock = threading.Lock()
 _gateway_running_pid_cache: dict[tuple[str, bool, bool], tuple[float, tuple[Any, ...], Optional[int]]] = {}
 
 
-def _get_process_hermes_home() -> Path:
-    """Return the process-level HERMES_HOME, skipping context-local overrides.
+def _get_process_fabric_home() -> Path:
+    """Return the process-level FABRIC_HOME, skipping context-local overrides.
 
     Gateway identity files (PID, lock, runtime status, takeover/stop markers)
     must always live in the directory the gateway process was launched with.
@@ -57,15 +57,15 @@ def _get_process_hermes_home() -> Path:
     profile directory when a profile-context task happens to be active at write
     time.  See issue #56986.
     """
-    val = os.environ.get("HERMES_HOME", "").strip()
+    val = os.environ.get("FABRIC_HOME", "").strip()
     if val:
         return Path(val)
     return _get_platform_default_fabric_home()
 
 
 def _get_pid_path() -> Path:
-    """Return the path to the gateway PID file, respecting HERMES_HOME."""
-    home = _get_process_hermes_home()
+    """Return the path to the gateway PID file, respecting FABRIC_HOME."""
+    home = _get_process_fabric_home()
     return home / "gateway.pid"
 
 
@@ -73,7 +73,7 @@ def _get_gateway_lock_path(pid_path: Optional[Path] = None) -> Path:
     """Return the path to the runtime gateway lock file."""
     if pid_path is not None:
         return pid_path.with_name(_GATEWAY_LOCK_FILENAME)
-    home = _get_process_hermes_home()
+    home = _get_process_fabric_home()
     return home / _GATEWAY_LOCK_FILENAME
 
 
@@ -84,11 +84,8 @@ def _get_runtime_status_path() -> Path:
 
 def _get_lock_dir() -> Path:
     """Return the machine-local directory for token-scoped gateway locks."""
-    override = os.getenv("HERMES_GATEWAY_LOCK_DIR")
-    if override:
-        return Path(override)
     state_home = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-    return state_home / "hermes" / _LOCKS_DIRNAME
+    return state_home / "fabric" / _LOCKS_DIRNAME
 
 
 def _utc_now_iso() -> str:
@@ -232,8 +229,8 @@ def _gateway_command_subcommand(command: str | None) -> str | None:
     word "gateway".
 
     Tokenizes quote-aware (``shlex``) so quoted Windows paths with spaces
-    (``"C:\\Program Files\\...\\hermes-gateway.exe"``) survive, and strips
-    ``--profile``/``-p`` selectors from anywhere in argv -- Hermes's
+    (``"C:\\Program Files\\...\\fabric-gateway.exe"``) survive, and strips
+    ``--profile``/``-p`` selectors from anywhere in argv -- Fabric's
     ``_apply_profile_override`` removes them before argparse, so the profile
     flag (and a profile literally named ``gateway``) can legally appear on
     either side of the ``gateway`` subcommand.
@@ -255,14 +252,14 @@ def _gateway_command_subcommand(command: str | None) -> str | None:
         if token == "gateway/run.py" or token.endswith("/gateway/run.py"):
             return "run"
         basename = token.rsplit("/", 1)[-1]
-        if basename in ("fabric-gateway", "fabric-gateway.exe", "hermes-gateway", "hermes-gateway.exe"):
+        if basename in ("fabric-gateway", "fabric-gateway.exe"):
             return "run"
 
     joined = " ".join(tokens)
     has_gateway_entry = (
         "fabric_cli.main" in joined
         or "fabric_cli/main.py" in joined
-        or any(t.rsplit("/", 1)[-1] in ("fabric", "fabric.exe", "hermes", "hermes.exe") for t in tokens)
+        or any(t.rsplit("/", 1)[-1] in ("fabric", "fabric.exe") for t in tokens)
     )
     if not has_gateway_entry:
         return None
@@ -305,7 +302,7 @@ def looks_like_gateway_runtime_command_line(command: str | None) -> bool:
     fallback executes ``run_gateway()`` in that same process, so its argv stays
     as ``gateway restart`` while it owns the webhook port and writes runtime
     state. Keep the public ``looks_like_gateway_command_line()`` strict, and
-    use this broader matcher only when validating Hermes-owned runtime records
+    use this broader matcher only when validating Fabric-owned runtime records
     or no-supervisor cleanup scans.
     """
     return _gateway_command_subcommand(command) in {"run", "restart"}
@@ -321,7 +318,7 @@ def _looks_like_gateway_process(pid: int) -> bool:
 
 def _record_looks_like_gateway(record: dict[str, Any]) -> bool:
     """Validate gateway identity from PID-file metadata when cmdline is unavailable."""
-    if record.get("kind") not in {_GATEWAY_KIND, "hermes-gateway"}:
+    if record.get("kind") != _GATEWAY_KIND:
         return False
 
     argv = record.get("argv")
@@ -333,10 +330,10 @@ def _record_looks_like_gateway(record: dict[str, Any]) -> bool:
 
 
 def _profile_name_for_home(profile_home: Path) -> Optional[str]:
-    """Return the profile id a HERMES_HOME directory represents, or None.
+    """Return the profile id a FABRIC_HOME directory represents, or None.
 
     A named profile's home is ``<root>/profiles/<name>`` (immediate parent is
-    ``profiles``).  The root/default home (``~/.hermes`` or ``$HERMES_HOME``)
+    ``profiles``).  The root/default home (``~/.fabric`` or ``$FABRIC_HOME``)
     has no such parent, so it maps to the default profile (``None`` here, which
     callers treat as "the bare, flag-less gateway").
     """
@@ -355,7 +352,7 @@ def _command_line_belongs_to_profile(command: str, profile_home: Path) -> bool:
     gateway.  That recycled PID's command line still ``looks_like_gateway`` —
     so without a profile check the dead profile is reported running.  A named
     profile gateway carries ``-p <name>``/``--profile <name>`` (or, rarely, an
-    explicit ``HERMES_HOME=<path>``) on its argv; the default/root gateway runs
+    explicit ``FABRIC_HOME=<path>``) on its argv; the default/root gateway runs
     bare with no profile flag.
     """
     command_lc = command.lower()
@@ -367,17 +364,17 @@ def _command_line_belongs_to_profile(command: str, profile_home: Path) -> bool:
         return (
             f"--profile {profile_lc}" in command_lc
             or f"-p {profile_lc}" in command_lc
-            or f"hermes_home={home_lc}" in command_lc
+            or f"fabric_home={home_lc}" in command_lc
         )
 
     # Default/root profile: the gateway runs with no profile flag. Accept unless
     # the command advertises *some other* profile (an explicit -p/--profile) or
-    # a non-matching explicit HERMES_HOME= on the argv. HERMES_HOME is usually
+    # a non-matching explicit FABRIC_HOME= on the argv. FABRIC_HOME is usually
     # passed via the environment (not visible on the command line), so its mere
     # absence is not disqualifying — only a conflicting explicit value is.
     if "--profile " in command_lc or " -p " in command_lc:
         return False
-    if "hermes_home=" in command_lc and f"hermes_home={home_lc}" not in command_lc:
+    if "fabric_home=" in command_lc and f"fabric_home={home_lc}" not in command_lc:
         return False
     return True
 
@@ -850,7 +847,7 @@ def read_runtime_status(path: Optional[Path] = None) -> Optional[dict[str, Any]]
 
     ``path`` is optional so callers that need to inspect a *different*
     profile's state file (e.g. the dashboard enumerating every profile)
-    can do so without mutating ``HERMES_HOME`` in-process.  Defaults to
+    can do so without mutating ``FABRIC_HOME`` in-process.  Defaults to
     the active profile's ``gateway_state.json``.
     """
     return _read_json_file(path or _get_runtime_status_path())
@@ -928,7 +925,7 @@ def get_runtime_status_running_pid(
     OS process identity.
 
     ``expected_home`` scopes the OS-identity check to a specific profile's
-    HERMES_HOME.  Pass it when validating *another* profile's state file (the
+    FABRIC_HOME.  Pass it when validating *another* profile's state file (the
     dashboard enumerating every profile): a stale record whose PID the OS has
     recycled onto a different profile's live gateway must not be reported
     running for the dead profile.  Omit it (the default) for the active
@@ -987,7 +984,7 @@ def acquire_scoped_lock(scope: str, identity: str, metadata: Optional[dict[str, 
     """Acquire a machine-local lock keyed by scope + identity.
 
     Used to prevent multiple local gateways from using the same external identity
-    at once (e.g. the same Telegram bot token across different HERMES_HOME dirs).
+    at once (e.g. the same Telegram bot token across different FABRIC_HOME dirs).
     """
     lock_path = _get_scope_lock_path(scope, identity)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1130,7 +1127,7 @@ def release_all_scoped_locks(
     process are removed. ``owner_start_time`` further narrows the match to
     protect against PID reuse.
 
-    When no owner is provided, preserves the legacy behavior and removes every
+    When no owner is provided, removes every
     scoped lock file in the directory.
 
     Returns the number of lock files removed.
@@ -1170,8 +1167,7 @@ def release_all_scoped_locks(
 # unexpected kills — but that also means a --replace takeover target
 # exits 1, which tricks systemd into reviving it 30 seconds later,
 # starting a flap loop against the replacer when both services are
-# enabled in the user's systemd (e.g. ``hermes.service`` + ``hermes-
-# gateway.service``).
+# enabled in the user's systemd.
 #
 # The takeover marker breaks the loop: the replacer writes a short-lived
 # file naming the target PID + start_time BEFORE sending SIGTERM.
@@ -1189,13 +1185,13 @@ _PLANNED_STOP_MARKER_TTL_S = 60
 
 def _get_takeover_marker_path() -> Path:
     """Return the path to the --replace takeover marker file."""
-    home = _get_process_hermes_home()
+    home = _get_process_fabric_home()
     return home / _TAKEOVER_MARKER_FILENAME
 
 
 def _get_planned_stop_marker_path() -> Path:
     """Return the path to the intentional gateway stop marker file."""
-    home = _get_process_hermes_home()
+    home = _get_process_fabric_home()
     return home / _PLANNED_STOP_MARKER_FILENAME
 
 
@@ -1213,6 +1209,7 @@ def _consume_pid_marker_for_self(
     *,
     pid_field: str,
     start_time_field: str,
+    writer_home_field: str,
     ttl_s: int,
 ) -> bool:
     record = _read_json_file(path)
@@ -1237,20 +1234,16 @@ def _consume_pid_marker_for_self(
             pass
         return False
 
-    # Cross-profile guard (#29092): reject markers written by a gateway
-    # running under a different HERMES_HOME. When two profile gateway
-    # services share the same default ~/.hermes (HERMES_HOME not set
+    # Cross-profile guard (#29092): reject markers written by a process
+    # running under a different FABRIC_HOME. When two profile gateway
+    # services share the same default ~/.fabric (FABRIC_HOME not set
     # distinctly), the marker path resolves to the same file for both. A
-    # --replace from profile B could land in profile A's marker, match on
+    # a command from profile B could land in profile A's marker, match on
     # PID + start_time by coincidence of a shared PID namespace, and make
     # profile A exit 0 — only to be revived by systemd Restart=always,
-    # which then races the replacer again, flapping indefinitely. The
-    # field is absent in markers written by older Hermes versions; treat
-    # absent as "same home" so old markers and single-profile setups are
-    # unaffected. Leave a mismatched marker in place so the correct
-    # profile can still consume it.
-    replacer_home = record.get("replacer_hermes_home")
-    if replacer_home is not None and replacer_home != str(_get_process_hermes_home()):
+    # which then races the replacement again, flapping indefinitely.
+    writer_home = record.get(writer_home_field)
+    if writer_home != str(_get_process_fabric_home()):
         return False
 
     our_pid = os.getpid()
@@ -1299,7 +1292,7 @@ def write_takeover_marker(target_pid: int) -> bool:
             "target_pid": target_pid,
             "target_start_time": target_start_time,
             "replacer_pid": os.getpid(),
-            "replacer_hermes_home": str(_get_process_hermes_home()),
+            "replacer_fabric_home": str(_get_process_fabric_home()),
             "written_at": _utc_now_iso(),
         }
         _write_json_file(_get_takeover_marker_path(), record)
@@ -1323,6 +1316,7 @@ def consume_takeover_marker_for_self() -> bool:
         _get_takeover_marker_path(),
         pid_field="target_pid",
         start_time_field="target_start_time",
+        writer_home_field="replacer_fabric_home",
         ttl_s=_TAKEOVER_MARKER_TTL_S,
     )
 
@@ -1348,6 +1342,7 @@ def write_planned_stop_marker(target_pid: int) -> bool:
             "target_pid": target_pid,
             "target_start_time": target_start_time,
             "stopper_pid": os.getpid(),
+            "stopper_fabric_home": str(_get_process_fabric_home()),
             "written_at": _utc_now_iso(),
         }
         _write_json_file(_get_planned_stop_marker_path(), record)
@@ -1362,6 +1357,7 @@ def consume_planned_stop_marker_for_self() -> bool:
         _get_planned_stop_marker_path(),
         pid_field="target_pid",
         start_time_field="target_start_time",
+        writer_home_field="stopper_fabric_home",
         ttl_s=_PLANNED_STOP_MARKER_TTL_S,
     )
 

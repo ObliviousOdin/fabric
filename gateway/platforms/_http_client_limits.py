@@ -22,13 +22,10 @@ adapter factories use instead of the httpx default.  The values chosen:
 * ``keepalive_expiry=2.0`` — close idle sockets aggressively so a
   proxy's lingering CLOSE_WAIT window can't starve the process.
 
-Override via ``HERMES_GATEWAY_HTTPX_KEEPALIVE_EXPIRY`` /
-``HERMES_GATEWAY_HTTPX_MAX_KEEPALIVE`` env vars when tuning under load.
+These are transport implementation defaults, not user-facing configuration.
 """
 
 from __future__ import annotations
-
-import os
 
 try:
     import httpx
@@ -50,35 +47,8 @@ def platform_httpx_limits() -> "httpx.Limits | None":
     if httpx is None:
         return None
 
-    def _env_float(name: str, default: float) -> float:
-        raw = os.environ.get(name, "").strip()
-        if not raw:
-            return default
-        try:
-            val = float(raw)
-        except (TypeError, ValueError):
-            return default
-        return val if val > 0 else default
-
-    def _env_int(name: str, default: int) -> int:
-        raw = os.environ.get(name, "").strip()
-        if not raw:
-            return default
-        try:
-            val = int(raw)
-        except (TypeError, ValueError):
-            return default
-        return val if val > 0 else default
-
-    keepalive_expiry = _env_float(
-        "HERMES_GATEWAY_HTTPX_KEEPALIVE_EXPIRY", _DEFAULT_KEEPALIVE_EXPIRY_S
-    )
-    max_keepalive = _env_int(
-        "HERMES_GATEWAY_HTTPX_MAX_KEEPALIVE", _DEFAULT_MAX_KEEPALIVE
-    )
-
     return httpx.Limits(
-        max_keepalive_connections=max_keepalive,
+        max_keepalive_connections=_DEFAULT_MAX_KEEPALIVE,
         # Leave max_connections at httpx default (100) — plenty of headroom.
-        keepalive_expiry=keepalive_expiry,
+        keepalive_expiry=_DEFAULT_KEEPALIVE_EXPIRY_S,
     )

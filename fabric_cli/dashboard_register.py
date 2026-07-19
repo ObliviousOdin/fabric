@@ -1,19 +1,19 @@
-"""``Fabric dashboard register`` — register a self-hosted dashboard OAuth client.
+"""``fabric dashboard register`` — register a self-hosted dashboard OAuth client.
 
 Automates what a user otherwise does by hand: open the Nous Portal
 ``/local-dashboards`` page in a browser, click "register", copy the
-resulting ``agent:{id}`` OAuth client ID, and paste it into ``~/.hermes/.env``
-as ``HERMES_DASHBOARD_OAUTH_CLIENT_ID``.
+resulting ``agent:{id}`` OAuth client ID, and store it in
+``~/.fabric/config.yaml`` as ``dashboard.oauth.client_id``.
 
 This command:
   1. Resolves a fresh Nous Portal access token from the existing login
-     (``~/.hermes/auth.json``), refreshing it if needed. Fails fast with a
+     (``~/.fabric/auth.json``), refreshing it if needed. Fails fast with a
      "run `fabric setup`" hint when the user isn't logged in.
   2. POSTs to ``{portal}/api/oauth/self-hosted-client`` with that bearer
      token, which creates a SELF_HOSTED agent client owned by the caller's
      org and returns the fully-formed ``agent:{id}`` client_id.
-  3. Writes ``HERMES_DASHBOARD_OAUTH_CLIENT_ID`` and (if absent)
-     ``HERMES_DASHBOARD_PORTAL_URL`` into ``~/.hermes/.env`` idempotently.
+  3. Writes the client ID and optional Portal/public URLs to the canonical
+     ``dashboard`` block in ``~/.fabric/config.yaml`` idempotently.
   4. Prints a post-register hint explaining that the OAuth gate only engages
      on a non-loopback bind.
 
@@ -25,7 +25,6 @@ so this client never needs to know the namespace convention.
 from __future__ import annotations
 
 import json
-import os
 import random
 import sys
 import urllib.error
@@ -66,8 +65,8 @@ def _resolve_portal_base_url(override: Optional[str] = None) -> str:
     """Resolve the portal base URL for the registration request.
 
     Precedence:
-      1. ``override`` — explicit ``--portal-url`` flag or
-         ``HERMES_DASHBOARD_PORTAL_URL`` env (used for testing against a
+      1. ``override`` — explicit ``--portal-url`` flag or the configured
+         ``dashboard.oauth.portal_url`` (used for testing against a
          preview/staging portal). NOTE: the access token must be valid at
          this portal — it's minted by whatever portal you logged into, so an
          override only works if the token's issuer matches (e.g. you logged
@@ -104,7 +103,7 @@ def _register_self_hosted_client(
     When ``existing_client_id`` is provided (the client_id this install
     persisted on a prior run), it is sent so the portal updates that existing
     dashboard record in place instead of minting a duplicate — this is what
-    makes re-running ``Fabric dashboard register`` idempotent. The portal
+    makes re-running ``fabric dashboard register`` idempotent. The portal
     falls back to creating a fresh client if the id no longer resolves to a row
     in the caller's org (stale/deleted), so passing it is always safe.
 
@@ -155,7 +154,8 @@ def _register_self_hosted_client(
         if exc.code == 401:
             raise RuntimeError(
                 "Nous Portal rejected the access token (401). "
-                "Try `fabric auth add nous` to re-authenticate."
+                "Try `fabric auth add nous --client-id "
+                "<registered-client-id>` to re-authenticate."
             ) from exc
         if exc.code == 403:
             raise RuntimeError(
@@ -185,17 +185,17 @@ def _print_post_register_hint(
     public_url: str = "",
 ) -> None:
     """Print the success summary + the gate-engagement caveat."""
-    from fabric_cli.config import get_env_path
+    from fabric_cli.config import get_config_path
 
-    env_path = get_env_path()
+    config_path = get_config_path()
     _cid = client_id
     print()
-    print(f"  Wrote to {env_path}:")
-    print("    HERMES_DASHBOARD_OAUTH_CLIENT_ID=" + str(_cid))
+    print(f"  Wrote to {config_path}:")
+    print("    dashboard.oauth.client_id: " + str(_cid))
     if wrote_portal_url:
-        print("    HERMES_DASHBOARD_PORTAL_URL=" + str(portal_base_url))
+        print("    dashboard.oauth.portal_url: " + str(portal_base_url))
     if public_url:
-        print("    HERMES_DASHBOARD_PUBLIC_URL=" + str(public_url))
+        print("    dashboard.public_url: " + str(public_url))
     print()
     print(
         "  Heads up — Nous login only *engages* on a non-loopback bind. A plain\n"
@@ -220,7 +220,7 @@ def _print_post_register_hint(
         print("  …then log in at the dashboard's /login page.")
     print()
     print(
-        "  If the dashboard is already running, restart it to pick up the new env."
+        "  If the dashboard is already running, restart it to pick up the new config."
     )
     print(
         f"  Manage or revoke this dashboard at {portal_base_url}/local-dashboards"
@@ -230,12 +230,11 @@ def _print_post_register_hint(
 def cmd_dashboard_register(args) -> None:
     """Register a self-hosted dashboard OAuth client with Nous Portal."""
     from fabric_cli.auth import AuthError, resolve_nous_access_token
-    from fabric_cli.config import get_env_value, is_managed, save_env_value
+    from fabric_cli.config import is_managed, load_config, save_config
 
     # Managed (Docker/hosted) installs get their dashboard OAuth client_id
-    # stamped in by the orchestrator (NAS sets HERMES_DASHBOARD_OAUTH_CLIENT_ID
-    # via buildContainerEnvVars). Registering from inside such a container is a
-    # mistake — and save_env_value refuses to write anyway.
+    # provisioned by the hosting platform. Registering from inside such a
+    # container is a mistake — and managed config is intentionally read-only.
     if is_managed():
         print(
             "✗ `fabric dashboard register` is not available in a managed/hosted "
@@ -251,7 +250,10 @@ def cmd_dashboard_register(args) -> None:
     except AuthError as exc:
         if getattr(exc, "relogin_required", False):
             print("✗ You're not logged into Nous Portal.")
-            print("  Run `fabric setup` (or `fabric auth add nous`) first, then retry.")
+            print(
+                "  Run `fabric auth add nous --client-id "
+                "<registered-client-id>` first, then retry."
+            )
         else:
             print(f"✗ Could not resolve a Nous Portal access token: {exc}")
         sys.exit(1)
@@ -259,34 +261,33 @@ def cmd_dashboard_register(args) -> None:
         print(f"✗ Could not resolve a Nous Portal access token: {exc}")
         sys.exit(1)
 
-    # Portal override: explicit --portal-url flag wins, else the
-    # HERMES_DASHBOARD_PORTAL_URL env var, else the stored login's portal.
-    #
-    # We track whether a custom URL was *explicitly supplied* (flag or env)
-    # separately from the resolved value. An explicit custom URL is an
-    # intentional choice the user wants to persist (and update in place if it
-    # already exists in .env); a portal merely inferred from the stored login
-    # keeps the older, more conservative write-only-if-absent behaviour so we
-    # don't clutter .env for the common production case.
-    portal_override = getattr(args, "portal_url", None) or os.environ.get(
-        "HERMES_DASHBOARD_PORTAL_URL"
-    )
+    try:
+        config = load_config()
+        dashboard = config.setdefault("dashboard", {})
+        oauth = dashboard.setdefault("oauth", {})
+        if not isinstance(dashboard, dict) or not isinstance(oauth, dict):
+            raise TypeError("dashboard and dashboard.oauth must be mappings")
+    except Exception as exc:
+        print(f"✗ Could not load dashboard config: {exc}")
+        sys.exit(1)
+
+    # Explicit --portal-url wins, then the canonical config key, then the
+    # stored login's Portal. Only an explicit flag changes the existing key.
+    explicit_portal = getattr(args, "portal_url", None)
+    configured_portal = oauth.get("portal_url")
+    portal_override = explicit_portal or configured_portal
     custom_portal_supplied = bool(
-        isinstance(portal_override, str) and portal_override.strip()
+        isinstance(explicit_portal, str) and explicit_portal.strip()
     )
     portal_base_url = _resolve_portal_base_url(portal_override)
 
     # Idempotency: if this install already registered a dashboard, we hold its
-    # client_id locally (HERMES_DASHBOARD_OAUTH_CLIENT_ID). Re-send it so the
+    # client_id locally (dashboard.oauth.client_id). Re-send it so the
     # portal UPDATES that existing record instead of creating a duplicate. No
     # stored client_id -> this is a first registration -> create a fresh one
     # (the original behavior). This mirrors the portal's rule: no client id =
     # new dashboard; client id present = the stable key of the row to modify.
-    existing_client_id = None
-    try:
-        existing_client_id = get_env_value("HERMES_DASHBOARD_OAUTH_CLIENT_ID")
-    except Exception:
-        existing_client_id = None
+    existing_client_id = oauth.get("client_id")
     if isinstance(existing_client_id, str):
         existing_client_id = existing_client_id.strip() or None
     else:
@@ -331,33 +332,23 @@ def cmd_dashboard_register(args) -> None:
     else:
         print(f'✓ Registered dashboard "{registered_name}"')
 
-    # 3. Write env vars idempotently. Always set the client_id.
-    try:
-        save_env_value("HERMES_DASHBOARD_OAUTH_CLIENT_ID", client_id)
-    except Exception as exc:
-        print(f"✗ Failed to write HERMES_DASHBOARD_OAUTH_CLIENT_ID to .env: {exc}")
-        print(f"  Set it manually:  HERMES_DASHBOARD_OAUTH_CLIENT_ID={client_id}")
-        sys.exit(1)
+    # 3. Persist the canonical dashboard config atomically. Always set the
+    # client_id; URLs are stored only when they are meaningful.
+    oauth["client_id"] = client_id
 
     # Persist the portal URL. Two cases:
-    #   a) The user explicitly supplied a custom portal (--portal-url flag or
-    #      HERMES_DASHBOARD_PORTAL_URL env). That's an intentional choice we
-    #      always persist so it survives across sessions — overwriting any
-    #      existing entry in place (save_env_value updates a matching key
-    #      rather than appending a duplicate). This is true even when it equals
-    #      the production default: the user asked for it explicitly.
+    #   a) The user explicitly supplied a custom portal (--portal-url flag).
+    #      That's an intentional choice we always persist so it survives
+    #      across sessions. This is true even when it equals the production
+    #      default: the user asked for it explicitly.
     #   b) No custom portal was supplied. Keep the older conservative behaviour:
     #      only write a portal inferred from the stored login when it isn't
     #      already configured AND differs from the production default, so we
-    #      don't clutter .env for the common production case and don't alter an
+    #      don't clutter config.yaml for the common production case or alter an
     #      existing entry unexpectedly.
     wrote_portal_url = False
     default_portal = "https://portal.nousresearch.com"
-    existing_portal = None
-    try:
-        existing_portal = get_env_value("HERMES_DASHBOARD_PORTAL_URL")
-    except Exception:
-        existing_portal = None
+    existing_portal = str(oauth.get("portal_url") or "").strip()
 
     if custom_portal_supplied:
         should_write_portal = existing_portal != portal_base_url
@@ -367,29 +358,25 @@ def cmd_dashboard_register(args) -> None:
         )
 
     if should_write_portal:
-        try:
-            save_env_value("HERMES_DASHBOARD_PORTAL_URL", portal_base_url)
-            wrote_portal_url = True
-        except Exception:
-            # Non-fatal: the client_id is the load-bearing value.
-            pass
+        oauth["portal_url"] = portal_base_url
+        wrote_portal_url = True
 
     # Persist the dashboard public URL derived from the OAuth redirect URI.
     #
     # --redirect-uri is the full public HTTPS callback the user registered with
-    # the portal, e.g. https://hermes.example.com/auth/callback. At serve time
+    # the portal, e.g. https://fabric.example.com/auth/callback. At serve time
     # the dashboard auth layer (dashboard_auth/routes._redirect_uri) reconstructs
-    # that same callback by taking HERMES_DASHBOARD_PUBLIC_URL and appending
+    # that same callback by taking dashboard.public_url and appending
     # "/auth/callback" verbatim. So the value the runtime actually consumes is
     # the ORIGIN (scheme://host[:port]), not the full callback path — persisting
     # the raw redirect URI would double up the path. We derive the origin from
-    # the supplied redirect URI and persist it as HERMES_DASHBOARD_PUBLIC_URL so
+    # the supplied redirect URI and persist it as dashboard.public_url so
     # the operator doesn't have to re-supply it and the public-URL override is
     # actually wired (the gate engages and the callback round-trips correctly).
     #
     # Like the portal URL, an explicitly supplied value is always written
-    # (updating an existing entry in place rather than appending a duplicate),
-    # a no-op when it already matches, and never written on a localhost-only
+    # (updating an existing value in place), a no-op when it already matches,
+    # and never written on a localhost-only
     # install (no --redirect-uri).
     wrote_public_url = False
     public_url = ""
@@ -404,18 +391,18 @@ def cmd_dashboard_register(args) -> None:
             public_url = ""
 
     if public_url:
-        existing_public_url = None
-        try:
-            existing_public_url = get_env_value("HERMES_DASHBOARD_PUBLIC_URL")
-        except Exception:
-            existing_public_url = None
+        existing_public_url = str(dashboard.get("public_url") or "").strip()
         if existing_public_url != public_url:
-            try:
-                save_env_value("HERMES_DASHBOARD_PUBLIC_URL", public_url)
-                wrote_public_url = True
-            except Exception:
-                # Non-fatal: the client_id is the load-bearing value.
-                pass
+            dashboard["public_url"] = public_url
+            wrote_public_url = True
+
+    try:
+        save_config(config)
+    except Exception as exc:
+        print(f"✗ Failed to write dashboard settings to config.yaml: {exc}")
+        print("  Set dashboard.oauth.client_id manually to:")
+        print(f"    {client_id}")
+        sys.exit(1)
 
     # 4. Hint.
     _print_post_register_hint(

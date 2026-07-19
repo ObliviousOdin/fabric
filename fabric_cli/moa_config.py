@@ -9,7 +9,7 @@ from typing import Any
 
 from fabric_constants import parse_reasoning_effort
 
-MOA_MARKER_PREFIX = "__HERMES_MOA_TURN_V1__"
+MOA_MARKER_PREFIX = "__MOA_TURN_V1__"
 DEFAULT_MOA_PRESET_NAME = "default"
 
 # Slot-specific role metadata is deliberately bounded. It is configuration,

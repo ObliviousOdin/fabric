@@ -1,4 +1,4 @@
-"""``hermes gui`` subcommand parser.
+"""``fabric desktop`` subcommand parser.
 
 Extracted verbatim from ``fabric_cli/main.py:main()`` (god-file Phase 2).
 Handler injected to avoid importing ``main``.
@@ -33,22 +33,17 @@ def build_gui_parser(subparsers, *, cmd_gui: Callable) -> None:
         help="Build the desktop app but do not launch it (used by the installer's --update flow)",
     )
     gui_parser.add_argument(
-        "--fake-boot",
-        action="store_true",
-        help="Enable deterministic desktop boot delays for validating startup UI",
-    )
-    gui_parser.add_argument(
         "--ignore-existing",
         action="store_true",
         help="Force Desktop to ignore any Fabric CLI already on PATH during backend resolution",
     )
     gui_parser.add_argument(
-        "--hermes-root",
-        help="Override the Fabric source root used by Desktop (sets HERMES_DESKTOP_HERMES_ROOT)",
+        "--fabric-root",
+        help="Override the Fabric source root used by Desktop",
     )
     gui_parser.add_argument(
         "--cwd",
-        help="Initial project directory for Desktop chat sessions (sets HERMES_DESKTOP_CWD)",
+        help="Initial project directory for Desktop chat sessions",
     )
     gui_parser.add_argument(
         "--skip-build",

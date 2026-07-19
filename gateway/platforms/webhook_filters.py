@@ -17,10 +17,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_SCRIPT_TIMEOUT_SECONDS = 30
 _MISSING = object()
 
-# public-release-audit: allow-legacy-compat -- maps webhook paths saved before the Fabric home migration
-_LEGACY_HOME_ALIAS = "~/.hermes"
-
-
 def _stringify_filter_value(value: Any) -> str:
     if value is _MISSING:
         return ""
@@ -30,7 +26,7 @@ def _stringify_filter_value(value: Any) -> str:
 
 
 def _resolve_profile_path(path_value: Any) -> Optional[Path]:
-    """Resolve a user path, mapping Fabric and legacy aliases to the profile."""
+    """Resolve a user path, mapping the Fabric alias to the active profile."""
     if not isinstance(path_value, str):
         return None
     raw = os.path.expandvars(path_value.strip())
@@ -39,12 +35,12 @@ def _resolve_profile_path(path_value: Any) -> Optional[Path]:
     from fabric_constants import get_fabric_home
 
     fabric_home = get_fabric_home()
-    for alias in ("~/.fabric", _LEGACY_HOME_ALIAS):
-        if raw == alias:
-            return fabric_home
-        prefix = f"{alias}/"
-        if raw.startswith(prefix):
-            return fabric_home / raw.removeprefix(prefix)
+    alias = "~/.fabric"
+    if raw == alias:
+        return fabric_home
+    prefix = f"{alias}/"
+    if raw.startswith(prefix):
+        return fabric_home / raw.removeprefix(prefix)
     path = Path(raw).expanduser()
     if path.is_absolute():
         return path
@@ -52,17 +48,14 @@ def _resolve_profile_path(path_value: Any) -> Optional[Path]:
 
 
 def _resolve_script_path(script_value: Any) -> tuple[Optional[Path], Optional[str]]:
-    """Resolve a route script under HERMES_HOME/scripts."""
+    """Resolve a route script under FABRIC_HOME/scripts."""
     if not isinstance(script_value, str) or not script_value.strip():
         return None, "script path is empty"
     from fabric_constants import get_fabric_home
 
     scripts_root = (get_fabric_home() / "scripts").resolve()
     raw_text = os.path.expandvars(script_value.strip())
-    if any(
-        raw_text == alias or raw_text.startswith(f"{alias}/")
-        for alias in ("~/.fabric", _LEGACY_HOME_ALIAS)
-    ):
+    if raw_text == "~/.fabric" or raw_text.startswith("~/.fabric/"):
         mapped = _resolve_profile_path(raw_text)
         candidate = mapped.resolve() if mapped is not None else scripts_root
     else:
@@ -302,9 +295,6 @@ class WebhookRouteProcessor:
         if not isinstance(transformed, dict):
             logger.warning("[webhook] script stdout must be a JSON object or text")
             return False, None
-        if (
-            transformed.get("[SILENT]") is True
-            or transformed.get("__hermes_ignore__") is True
-        ):
+        if transformed.get("[SILENT]") is True:
             return False, None
         return True, transformed

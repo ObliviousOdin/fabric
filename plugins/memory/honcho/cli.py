@@ -1,6 +1,6 @@
 """CLI commands for Honcho integration management.
 
-Handles: hermes honcho setup | status | sessions | map | peer
+Handles provider-specific status, sessions, maps, peers, modes, and migration.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ def clone_honcho_for_profile(profile_name: str) -> bool:
         val = default_block.get(key)
         if val is not None:
             new_block[key] = val
-    # Carry a legacy default-block pinPeerName forward under the canonical key.
+    # Carry the deprecated pinPeerName key into the canonical field.
     if "pinUserPeer" not in new_block and default_block.get("pinPeerName") is not None:
         new_block["pinUserPeer"] = default_block["pinPeerName"]
 
@@ -102,7 +102,7 @@ def cmd_enable(args) -> None:
     """Enable Honcho for the active profile."""
     cfg = _read_config()
     host = _host_key()
-    label = f"[{host}] " if host != "hermes" else ""
+    label = f"[{host}] " if host != "fabric" else ""
     block = cfg.setdefault("hosts", {}).setdefault(host, {})
 
     if block.get("enabled") is True:
@@ -124,8 +124,9 @@ def cmd_enable(args) -> None:
         peer_name = default_block.get("peerName") or cfg.get("peerName")
         if peer_name and "peerName" not in block:
             block["peerName"] = peer_name
-        # Use bare profile name as AI peer, not the host key
-        ai_peer = host.split(".", 1)[1] if "." in host else host
+        # Use the bare profile name as the AI peer, not the host key.
+        profile_name = _active_profile_name()
+        ai_peer = HOST if profile_name in {"default", "custom"} else profile_name
         block.setdefault("aiPeer", ai_peer)
         block.setdefault("workspace", default_block.get("workspace") or cfg.get("workspace") or HOST)
 
@@ -145,7 +146,7 @@ def cmd_disable(args) -> None:
     """Disable Honcho for the active profile."""
     cfg = _read_config()
     host = _host_key()
-    label = f"[{host}] " if host != "hermes" else ""
+    label = f"[{host}] " if host != "fabric" else ""
     block = cfg_get(cfg, "hosts", host, default={})
 
     if not block or block.get("enabled") is False:
@@ -161,7 +162,7 @@ def cmd_disable(args) -> None:
 def cmd_sync(args) -> None:
     """Sync Honcho config to all existing profiles.
 
-    Scans all Hermes profiles and creates host blocks for any that don't
+    Scans all Fabric profiles and creates host blocks for any that don't
     have one yet. Inherits settings from the default host block.
     """
     try:
@@ -173,7 +174,7 @@ def cmd_sync(args) -> None:
 
     cfg = _read_config()
     if not cfg:
-        print("  No Honcho config found. Run 'fabric honcho setup' first.\n")
+        print("  No Honcho config found. Run 'fabric memory setup honcho' first.\n")
         return
 
     hosts = cfg.get("hosts", {})
@@ -181,7 +182,7 @@ def cmd_sync(args) -> None:
     has_key = bool(cfg.get("apiKey") or os.environ.get("HONCHO_API_KEY"))
 
     if not default_block and not has_key:
-        print("  Honcho not configured on default profile. Run 'fabric honcho setup' first.\n")
+        print("  Honcho not configured on default profile. Run 'fabric memory setup honcho' first.\n")
         return
 
     created = 0
@@ -253,7 +254,7 @@ def _config_path() -> Path:
 def _local_config_path() -> Path:
     """Return the instance-local Honcho config path for writing.
 
-    Always returns $HERMES_HOME/honcho.json so each profile/instance gets
+    Always returns $FABRIC_HOME/honcho.json so each profile/instance gets
     its own config file.  The global ~/.honcho/config.json is only used as
     a read fallback (via resolve_config_path) for cross-app interop.
     """
@@ -321,7 +322,7 @@ _IDENTITY_MAPPING_KEYS = (
 
 
 def _resolve_effective_identity_mapping(
-    cfg: dict, hermes_host: dict
+    cfg: dict, fabric_host: dict
 ) -> tuple[bool, dict, str, bool, bool]:
     """Resolve the effective identity-mapping state for the active host.
 
@@ -338,8 +339,8 @@ def _resolve_effective_identity_mapping(
     """
     pin = False
     for val in (
-        hermes_host.get("pinUserPeer"),
-        hermes_host.get("pinPeerName"),
+        fabric_host.get("pinUserPeer"),
+        fabric_host.get("pinPeerName"),
         cfg.get("pinUserPeer"),
         cfg.get("pinPeerName"),
     ):
@@ -347,16 +348,16 @@ def _resolve_effective_identity_mapping(
             pin = bool(val)
             break
 
-    if "userPeerAliases" in hermes_host:
-        aliases_src = hermes_host.get("userPeerAliases")
+    if "userPeerAliases" in fabric_host:
+        aliases_src = fabric_host.get("userPeerAliases")
         aliases_from_root = False
     else:
         aliases_src = cfg.get("userPeerAliases")
         aliases_from_root = aliases_src is not None
     aliases = aliases_src if isinstance(aliases_src, dict) else {}
 
-    if "runtimePeerPrefix" in hermes_host:
-        prefix_src = hermes_host.get("runtimePeerPrefix")
+    if "runtimePeerPrefix" in fabric_host:
+        prefix_src = fabric_host.get("runtimePeerPrefix")
         prefix_from_root = False
     else:
         prefix_src = cfg.get("runtimePeerPrefix")
@@ -366,14 +367,14 @@ def _resolve_effective_identity_mapping(
     return pin, aliases, prefix, aliases_from_root, prefix_from_root
 
 
-def _scrub_identity_mapping(hermes_host: dict) -> None:
+def _scrub_identity_mapping(fabric_host: dict) -> None:
     """Drop every peer-mapping key from the host block.
 
     Called before the wizard writes a chosen shape so a stale alias, prefix,
     or pin from an earlier run can't bleed into the new mapping.
     """
     for key in _IDENTITY_MAPPING_KEYS:
-        hermes_host.pop(key, None)
+        fabric_host.pop(key, None)
 
 
 def _migrate_pin_key(block: dict) -> bool:
@@ -425,27 +426,27 @@ def _collect_operator_aliases(existing: dict, peer_target: str) -> dict:
 
 
 def _apply_runtime_prefix(
-    hermes_host: dict, current_prefix: str, prefix_from_root: bool, label: str
+    fabric_host: dict, current_prefix: str, prefix_from_root: bool, label: str
 ) -> None:
     """Write a host-level runtimePeerPrefix only when it diverges from an
     inherited root value; otherwise let the root cascade stand."""
     new_prefix = _prompt(label, default=current_prefix or "").strip()
     if new_prefix and not (prefix_from_root and new_prefix == current_prefix):
-        hermes_host["runtimePeerPrefix"] = new_prefix
+        fabric_host["runtimePeerPrefix"] = new_prefix
 
 
-def _echo_identity_mapping(hermes_host: dict) -> None:
+def _echo_identity_mapping(fabric_host: dict) -> None:
     """Show the resulting keys so the operator can verify what was written."""
-    aliases = hermes_host.get("userPeerAliases")
-    prefix = hermes_host.get("runtimePeerPrefix")
+    aliases = fabric_host.get("userPeerAliases")
+    prefix = fabric_host.get("runtimePeerPrefix")
     print("  resolved →")
-    print(f"    pinUserPeer       = {bool(hermes_host.get('pinUserPeer'))}")
+    print(f"    pinUserPeer       = {bool(fabric_host.get('pinUserPeer'))}")
     print(f"    userPeerAliases   = {aliases if aliases else '{}'}")
     print(f"    runtimePeerPrefix = {prefix if prefix else '(none)'}")
 
 
 def _configure_raw_identity_mapping(
-    hermes_host: dict,
+    fabric_host: dict,
     current_pin: bool,
     current_aliases: dict,
     current_prefix: str,
@@ -459,8 +460,8 @@ def _configure_raw_identity_mapping(
         default=str(bool(current_pin)).lower(),
     ).strip().lower()
     pin = pin_in in {"true", "t", "yes", "y", "1"}
-    _scrub_identity_mapping(hermes_host)
-    hermes_host["pinUserPeer"] = pin
+    _scrub_identity_mapping(fabric_host)
+    fabric_host["pinUserPeer"] = pin
     if pin:
         return
     aliases = (
@@ -478,9 +479,9 @@ def _configure_raw_identity_mapping(
             if rid and peer:
                 aliases[rid] = peer
     if aliases:
-        hermes_host["userPeerAliases"] = aliases
+        fabric_host["userPeerAliases"] = aliases
     _apply_runtime_prefix(
-        hermes_host, current_prefix, prefix_from_root,
+        fabric_host, current_prefix, prefix_from_root,
         "runtimePeerPrefix — namespace for unknown IDs (blank for none)",
     )
 
@@ -545,11 +546,11 @@ def cmd_setup(args) -> None:
         return
 
     hosts = cfg.setdefault("hosts", {})
-    hermes_host = hosts.setdefault(_host_key(), {})
+    fabric_host = hosts.setdefault(_host_key(), {})
 
     # Canonicalize any legacy pinPeerName before detection/writes.
     _migrate_pin_key(cfg)
-    _migrate_pin_key(hermes_host)
+    _migrate_pin_key(fabric_host)
 
     # --- 1. Cloud or local? ---
     print("  Deployment:")
@@ -582,7 +583,7 @@ def cmd_setup(args) -> None:
         # apiKey) so ``get_honcho_client`` recognises it as an explicit
         # local auth opt-in (see ``_host_has_key`` in client.py) and
         # cloud/hybrid switching is unaffected.
-        current_host_key = hermes_host.get("apiKey", "")
+        current_host_key = fabric_host.get("apiKey", "")
         masked = (
             f"...{current_host_key[-8:]}"
             if len(current_host_key) > 8
@@ -601,7 +602,7 @@ def cmd_setup(args) -> None:
             secret=True,
         )
         if new_local_key:
-            hermes_host["apiKey"] = new_local_key
+            fabric_host["apiKey"] = new_local_key
         elif current_host_key:
             print("  Keeping existing local JWT.")
         else:
@@ -618,33 +619,46 @@ def cmd_setup(args) -> None:
                 )
             else:
                 print("\n  No local JWT set. Local no-auth ready.")
-    use_oauth = False
     if not is_local:
-        # --- Cloud: OAuth (browser) or API key ---
+        # --- Cloud: browser OAuth or API key ---
         cfg.pop("baseUrl", None)  # cloud uses SDK default
 
-        # Detect an existing OAuth grant so re-running setup reflects it instead
-        # of looking like a fresh connect.
         from plugins.memory.honcho.oauth import OAuthCredential
-        existing_oauth = OAuthCredential.from_host_block(hermes_host)
 
+        existing_oauth = OAuthCredential.from_host_block(fabric_host)
         print("\n  Auth method:")
         if existing_oauth is not None:
-            print(f"    (currently connected via OAuth — client {existing_oauth.client_id})")
-        print("    oauth  -- sign in via browser (recommended)")
+            print(
+                "    (currently connected via OAuth — client "
+                f"{existing_oauth.client_id})"
+            )
+        print("    oauth  -- sign in via browser")
         print("    apikey -- paste an API key from https://app.honcho.dev")
         method = _prompt("OAuth or API key?", default="oauth").strip().lower()
-        use_oauth = method in {"oauth", "o"}
 
-        if use_oauth:
-            # Sign in now, up front — the browser link is the whole point, so
-            # don't bury it behind the identity prompts. The grant's tokens are
-            # merged into the in-memory cfg so the wizard's final save preserves
-            # them; settings stay wizard-owned (apply_config=False).
+        if method in {"oauth", "o"}:
             from plugins.memory.honcho.oauth_flow import authorize_via_loopback
 
+            configured_client_id = str(
+                os.environ.get("HONCHO_OAUTH_CLIENT_ID")
+                or (existing_oauth.client_id if existing_oauth else "")
+            ).strip()
+            client_id = _prompt(
+                "Registered Honcho OAuth client ID",
+                default=configured_client_id or None,
+            ).strip()
+            if not client_id:
+                print(
+                    "\n  Honcho OAuth requires a registered client ID. "
+                    "Enter it here or configure HONCHO_OAUTH_CLIENT_ID.\n"
+                )
+                return
+
             def _open(url: str) -> None:
-                print(f"\n  Open this link to authorize (waiting up to 5 minutes):\n\n    {url}\n")
+                print(
+                    "\n  Open this link to authorize "
+                    f"(waiting up to 5 minutes):\n\n    {url}\n"
+                )
                 import webbrowser
 
                 webbrowser.open(url)
@@ -653,48 +667,64 @@ def cmd_setup(args) -> None:
             try:
                 cred = authorize_via_loopback(
                     config_path=write_path,
-                    source="hermes-cli",
+                    client_id=client_id,
+                    source="fabric-cli",
                     apply_config=False,
                     open_url=_open,
                 )
-            except Exception as e:
-                print(f"  OAuth sign-in failed: {e}")
-                print("  Re-run 'fabric honcho setup' to retry, or choose an API key instead.\n")
+            except Exception as exc:
+                print(f"  OAuth sign-in failed: {exc}")
+                print(
+                    "  Re-run 'fabric memory setup honcho' to retry, or choose "
+                    "an API key instead.\n"
+                )
                 return
-            hermes_host["apiKey"] = cred.access_token
-            hermes_host["oauth"] = cred.oauth_block()
-            # Default the peer prompt to the name entered at consent.
+            fabric_host["apiKey"] = cred.access_token
+            fabric_host["oauth"] = cred.oauth_block()
             if cred.consent_peer_name:
-                hermes_host["peerName"] = cred.consent_peer_name
+                fabric_host["peerName"] = cred.consent_peer_name
             print("  Authorized — token saved. Let's finish configuring.\n")
         else:
             current_key = cfg.get("apiKey", "")
-            masked = f"...{current_key[-8:]}" if len(current_key) > 8 else ("set" if current_key else "not set")
+            masked = (
+                f"...{current_key[-8:]}"
+                if len(current_key) > 8
+                else ("set" if current_key else "not set")
+            )
             print(f"\n  Current API key: {masked}")
-            new_key = _prompt("Honcho API key (leave blank to keep current)", secret=True)
+            new_key = _prompt(
+                "Honcho API key (leave blank to keep current)",
+                secret=True,
+            )
             if new_key:
                 cfg["apiKey"] = new_key
 
             if not cfg.get("apiKey"):
-                print("\n  No API key configured. Get yours at https://app.honcho.dev")
-                print("  Run 'fabric honcho setup' again once you have a key.\n")
+                print(
+                    "\n  No API key configured. Get yours at "
+                    "https://app.honcho.dev"
+                )
+                print(
+                    "  Run 'fabric memory setup honcho' again once you have "
+                    "a key.\n"
+                )
                 return
 
     # --- 3. Identity ---
-    current_peer = hermes_host.get("peerName") or cfg.get("peerName", "")
+    current_peer = fabric_host.get("peerName") or cfg.get("peerName", "")
     new_peer = _prompt("Your name (user peer)", default=current_peer or os.getenv("USER", "user"))
     if new_peer:
-        hermes_host["peerName"] = new_peer
+        fabric_host["peerName"] = new_peer
 
-    current_ai = hermes_host.get("aiPeer") or cfg.get("aiPeer", "hermes")
+    current_ai = fabric_host.get("aiPeer") or cfg.get("aiPeer", "fabric")
     new_ai = _prompt("AI peer name", default=current_ai)
     if new_ai:
-        hermes_host["aiPeer"] = new_ai
+        fabric_host["aiPeer"] = new_ai
 
-    current_workspace = hermes_host.get("workspace") or cfg.get("workspace", "hermes")
+    current_workspace = fabric_host.get("workspace") or cfg.get("workspace", "fabric")
     new_workspace = _prompt("Workspace ID", default=current_workspace)
     if new_workspace:
-        hermes_host["workspace"] = new_workspace
+        fabric_host["workspace"] = new_workspace
 
     # --- 3b. Gateway identity mapping ---
     # These keys only affect the Fabric GATEWAY (Telegram/Discord/Slack/...),
@@ -711,7 +741,7 @@ def cmd_setup(args) -> None:
         current_prefix,
         aliases_from_root,
         prefix_from_root,
-    ) = _resolve_effective_identity_mapping(cfg, hermes_host)
+    ) = _resolve_effective_identity_mapping(cfg, fabric_host)
 
     if current_pin:
         current_shape = "single"
@@ -738,7 +768,7 @@ def cmd_setup(args) -> None:
         run_mapping = True
 
     if run_mapping:
-        peer_target = hermes_host.get("peerName") or current_peer or "user"
+        peer_target = fabric_host.get("peerName") or current_peer or "user"
         default_choice = {"single": "1", "hybrid": "2", "multi": "3"}.get(current_shape, "3")
         print("\n  How should gateway users map to memory peers?")
         print("    [1] just me — every non-agent user collapses to your peer")
@@ -779,10 +809,10 @@ def cmd_setup(args) -> None:
         # Each branch scrubs every peer-mapping key first so a stale alias,
         # prefix, or pin from an earlier run starts clean.
         if shape == "single":
-            _scrub_identity_mapping(hermes_host)
-            hermes_host["pinUserPeer"] = True
+            _scrub_identity_mapping(fabric_host)
+            fabric_host["pinUserPeer"] = True
             print(f"  All non-agent gateway users route to '{peer_target}' (pin overrides aliases).")
-            _echo_identity_mapping(hermes_host)
+            _echo_identity_mapping(fabric_host)
         elif shape == "multi":
             # Preserve operator-curated host-level aliases across multi → multi
             # re-runs.  Root-sourced aliases cascade naturally and are NOT
@@ -792,51 +822,51 @@ def cmd_setup(args) -> None:
                 if isinstance(current_aliases, dict) and not aliases_from_root
                 else {}
             )
-            _scrub_identity_mapping(hermes_host)
-            hermes_host["pinUserPeer"] = False
+            _scrub_identity_mapping(fabric_host)
+            fabric_host["pinUserPeer"] = False
             if prior_aliases:
-                hermes_host["userPeerAliases"] = prior_aliases
+                fabric_host["userPeerAliases"] = prior_aliases
             _apply_runtime_prefix(
-                hermes_host, current_prefix, prefix_from_root,
+                fabric_host, current_prefix, prefix_from_root,
                 "Runtime peer prefix (e.g. 'telegram_', blank for none)",
             )
             print("  Each gateway user → own peer.")
-            _echo_identity_mapping(hermes_host)
+            _echo_identity_mapping(fabric_host)
         elif shape == "hybrid":
             existing_aliases = dict(current_aliases) if isinstance(current_aliases, dict) else {}
-            _scrub_identity_mapping(hermes_host)
-            hermes_host["pinUserPeer"] = False
+            _scrub_identity_mapping(fabric_host)
+            fabric_host["pinUserPeer"] = False
             merged = _collect_operator_aliases(existing_aliases, peer_target)
             if merged:
-                hermes_host["userPeerAliases"] = merged
+                fabric_host["userPeerAliases"] = merged
             _apply_runtime_prefix(
-                hermes_host, current_prefix, prefix_from_root,
+                fabric_host, current_prefix, prefix_from_root,
                 "Runtime peer prefix for unknown users (e.g. 'telegram_', blank for none)",
             )
             print(f"  Your runtime IDs → '{peer_target}', others → own peer.")
-            _echo_identity_mapping(hermes_host)
+            _echo_identity_mapping(fabric_host)
         elif shape == "raw":
             _configure_raw_identity_mapping(
-                hermes_host, current_pin, current_aliases, current_prefix,
+                fabric_host, current_pin, current_aliases, current_prefix,
                 aliases_from_root, prefix_from_root,
             )
-            _echo_identity_mapping(hermes_host)
+            _echo_identity_mapping(fabric_host)
         else:  # skip
             print("  Identity mapping left untouched.")
 
     # --- 4. Observation mode ---
-    current_obs = hermes_host.get("observationMode") or cfg.get("observationMode", "directional")
+    current_obs = fabric_host.get("observationMode") or cfg.get("observationMode", "directional")
     print("\n  Observation mode:")
     print("    directional  -- all observations on, each AI peer builds its own view (default)")
     print("    unified      -- user observes self, AI observes others only")
     new_obs = _prompt("Observation mode", default=current_obs)
     if new_obs in {"unified", "directional"}:
-        hermes_host["observationMode"] = new_obs
+        fabric_host["observationMode"] = new_obs
     else:
-        hermes_host["observationMode"] = "directional"
+        fabric_host["observationMode"] = "directional"
 
     # --- 5. Write frequency ---
-    current_wf = str(hermes_host.get("writeFrequency") or cfg.get("writeFrequency", "async"))
+    current_wf = str(fabric_host.get("writeFrequency") or cfg.get("writeFrequency", "async"))
     print("\n  Write frequency:")
     print("    async   -- background thread, no token cost (recommended)")
     print("    turn    -- sync write after every turn")
@@ -844,12 +874,12 @@ def cmd_setup(args) -> None:
     print("    N       -- write every N turns (e.g. 5)")
     new_wf = _prompt("Write frequency", default=current_wf)
     try:
-        hermes_host["writeFrequency"] = int(new_wf)
+        fabric_host["writeFrequency"] = int(new_wf)
     except (ValueError, TypeError):
-        hermes_host["writeFrequency"] = new_wf if new_wf in {"async", "turn", "session"} else "async"
+        fabric_host["writeFrequency"] = new_wf if new_wf in {"async", "turn", "session"} else "async"
 
     # --- 6. Recall mode ---
-    _raw_recall = hermes_host.get("recallMode") or cfg.get("recallMode", "hybrid")
+    _raw_recall = fabric_host.get("recallMode") or cfg.get("recallMode", "hybrid")
     current_recall = "hybrid" if _raw_recall not in {"hybrid", "context", "tools"} else _raw_recall
     print("\n  Recall mode:")
     print("    hybrid  -- auto-injected context + Honcho tools available (default)")
@@ -857,29 +887,29 @@ def cmd_setup(args) -> None:
     print("    tools   -- Honcho tools only, no auto-injected context")
     new_recall = _prompt("Recall mode", default=current_recall)
     if new_recall in {"hybrid", "context", "tools"}:
-        hermes_host["recallMode"] = new_recall
+        fabric_host["recallMode"] = new_recall
 
     # --- 7. Context token budget ---
-    current_ctx_tokens = hermes_host.get("contextTokens") or cfg.get("contextTokens")
+    current_ctx_tokens = fabric_host.get("contextTokens") or cfg.get("contextTokens")
     current_display = str(current_ctx_tokens) if current_ctx_tokens else "uncapped"
     print("\n  Context injection per turn (hybrid/context recall modes only):")
     print("    uncapped -- no limit (default)")
     print("    N        -- token limit per turn (e.g. 1200)")
     new_ctx_tokens = _prompt("Context tokens", default=current_display)
     if new_ctx_tokens.strip().lower() in {"none", "uncapped", "no limit"}:
-        hermes_host.pop("contextTokens", None)
+        fabric_host.pop("contextTokens", None)
     elif new_ctx_tokens.strip() == "":
         pass  # keep current
     else:
         try:
             val = int(new_ctx_tokens)
             if val >= 0:
-                hermes_host["contextTokens"] = val
+                fabric_host["contextTokens"] = val
         except (ValueError, TypeError):
             pass  # keep current
 
     # --- 7b. Dialectic cadence ---
-    current_dialectic = str(hermes_host.get("dialecticCadence") or cfg.get("dialecticCadence") or "2")
+    current_dialectic = str(fabric_host.get("dialecticCadence") or cfg.get("dialecticCadence") or "2")
     print("\n  Dialectic cadence:")
     print("    How often Honcho rebuilds its user model (LLM call on Honcho backend).")
     print("    1 = every turn, 2 = every other turn, 3+ = sparser.")
@@ -888,13 +918,13 @@ def cmd_setup(args) -> None:
     try:
         val = int(new_dialectic)
         if val >= 1:
-            hermes_host["dialecticCadence"] = val
+            fabric_host["dialecticCadence"] = val
     except (ValueError, TypeError):
-        hermes_host["dialecticCadence"] = 2
+        fabric_host["dialecticCadence"] = 2
 
     # --- 7c. Dialectic reasoning level ---
     current_reasoning = (
-        hermes_host.get("dialecticReasoningLevel")
+        fabric_host.get("dialecticReasoningLevel")
         or cfg.get("dialecticReasoningLevel")
         or "low"
     )
@@ -907,12 +937,12 @@ def cmd_setup(args) -> None:
     print("    max      -- thorough audit-level analysis")
     new_reasoning = _prompt("Reasoning level", default=current_reasoning)
     if new_reasoning in {"minimal", "low", "medium", "high", "max"}:
-        hermes_host["dialecticReasoningLevel"] = new_reasoning
+        fabric_host["dialecticReasoningLevel"] = new_reasoning
     else:
-        hermes_host["dialecticReasoningLevel"] = "low"
+        fabric_host["dialecticReasoningLevel"] = "low"
 
     # --- 8. Session strategy ---
-    current_strat = hermes_host.get("sessionStrategy") or cfg.get("sessionStrategy", "per-session")
+    current_strat = fabric_host.get("sessionStrategy") or cfg.get("sessionStrategy", "per-session")
     print("\n  Session strategy:")
     print("    per-session   -- each run starts clean, Honcho injects context automatically")
     print("    per-directory -- reuses session per dir, prior context auto-injected each run")
@@ -920,10 +950,10 @@ def cmd_setup(args) -> None:
     print("    global        -- single session across all directories")
     new_strat = _prompt("Session strategy", default=current_strat)
     if new_strat in {"per-session", "per-repo", "per-directory", "global"}:
-        hermes_host["sessionStrategy"] = new_strat
+        fabric_host["sessionStrategy"] = new_strat
 
-    hermes_host["enabled"] = True
-    hermes_host.setdefault("saveMessages", True)
+    fabric_host["enabled"] = True
+    fabric_host.setdefault("saveMessages", True)
 
     _write_config(cfg)
     print(f"\n  Config written to {write_path}")
@@ -931,13 +961,13 @@ def cmd_setup(args) -> None:
     # --- Auto-enable Honcho as memory provider in config.yaml ---
     try:
         from fabric_cli.config import load_config, save_config
-        hermes_config = load_config()
-        hermes_config.setdefault("memory", {})["provider"] = "honcho"
-        save_config(hermes_config)
+        fabric_config = load_config()
+        fabric_config.setdefault("memory", {})["provider"] = "honcho"
+        save_config(fabric_config)
         print("  Memory provider set to 'honcho' in config.yaml")
     except Exception as e:
         print(f"  Could not auto-enable in config.yaml: {e}")
-        print("  Run: Fabric config set memory.provider honcho")
+        print("  Run: fabric config set memory.provider honcho")
 
     # --- Test connection ---
     print("  Testing connection... ", end="", flush=True)
@@ -1007,7 +1037,7 @@ def _all_profile_host_configs() -> list[tuple[str, str, dict]]:
     for p in profiles:
         if p.name == "default":
             continue
-        h = f"{HOST}.{p.name}"
+        h = profile_host_key(p.name)
         results.append((p.name, h, hosts.get(h, {})))
 
     return results
@@ -1024,7 +1054,7 @@ def cmd_status(args) -> None:
     try:
         import honcho  # noqa: F401
     except ImportError:
-        print("  honcho-ai is not installed. Run: fabric honcho setup\n")
+        print("  honcho-ai is not installed. Run: fabric memory setup honcho\n")
         return
 
     cfg = _read_config()
@@ -1042,11 +1072,11 @@ def cmd_status(args) -> None:
                 cfg = {"apiKey": _env_cfg.api_key, "enabled": _env_cfg.enabled}
             else:
                 print(f"  No Honcho config found at {active_path}")
-                print("  Run 'fabric honcho setup' to configure.\n")
+                print("  Run 'fabric memory setup honcho' to configure.\n")
                 return
         except Exception:
             print(f"  No Honcho config found at {active_path}")
-            print("  Run 'fabric honcho setup' to configure.\n")
+            print("  Run 'fabric memory setup honcho' to configure.\n")
             return
 
     try:
@@ -1059,11 +1089,13 @@ def cmd_status(args) -> None:
     api_key = hcfg.api_key or ""
     masked = f"...{api_key[-8:]}" if len(api_key) > 8 else ("set" if api_key else "not set")
 
-    # Auth line distinguishes an OAuth grant (refreshable) from a static API key
-    # — the OAuth access token is also stored under apiKey, so masking alone hides it.
     from plugins.memory.honcho.oauth import OAuthCredential
-    host_block = (getattr(hcfg, "raw", None) or {}).get("hosts", {}).get(hcfg.host) or {}
-    cred = OAuthCredential.from_host_block(host_block)
+
+    host_block = (
+        (getattr(hcfg, "raw", None) or {}).get("hosts", {}).get(hcfg.host)
+        or {}
+    )
+    oauth_cred = OAuthCredential.from_host_block(host_block)
 
     profile = _active_profile_name()
     profile_label = f" [{hcfg.host}]" if profile != "default" else ""
@@ -1073,11 +1105,19 @@ def cmd_status(args) -> None:
         print(f"  Profile:        {profile}")
     print(f"  Host:           {hcfg.host}")
     print(f"  Enabled:        {hcfg.enabled}")
-    if cred is not None:
+    if oauth_cred is not None:
         import time as _time
-        remaining = int(cred.expires_at - _time.time())
-        token_state = f"valid {remaining // 60}m" if remaining > 0 else "expired — refreshes on next use"
-        print(f"  Auth:           OAuth ({cred.client_id}, token {token_state})")
+
+        remaining = int(oauth_cred.expires_at - _time.time())
+        token_state = (
+            f"valid {remaining // 60}m"
+            if remaining > 0
+            else "expired — refreshes on next use"
+        )
+        print(
+            f"  Auth:           OAuth ({oauth_cred.client_id}, "
+            f"token {token_state})"
+        )
     else:
         print(f"  Auth:           API key ({masked})")
     print(f"  Workspace:      {hcfg.workspace_id}")
@@ -1260,11 +1300,11 @@ def cmd_peer(args) -> None:
     if user_name is None and ai_name is None and reasoning is None:
         # Show current values
         hosts = cfg.get("hosts", {})
-        hermes = hosts.get(_host_key(), {})
-        user = hermes.get('peerName') or cfg.get('peerName') or '(not set)'
-        ai = hermes.get('aiPeer') or cfg.get('aiPeer') or _host_key()
-        lvl = hermes.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
-        max_chars = hermes.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
+        fabric = hosts.get(_host_key(), {})
+        user = fabric.get('peerName') or cfg.get('peerName') or '(not set)'
+        ai = fabric.get('aiPeer') or cfg.get('aiPeer') or _host_key()
+        lvl = fabric.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
+        max_chars = fabric.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
         print("\nHoncho peers\n" + "─" * 40)
         print(f"  User peer:   {user}")
         print("    Your identity in Honcho. Messages you send build this peer's card.")
@@ -1277,7 +1317,7 @@ def cmd_peer(args) -> None:
         return
 
     host = _host_key()
-    label = f"[{host}] " if host != "hermes" else ""
+    label = f"[{host}] " if host != "fabric" else ""
 
     if user_name is not None:
         cfg.setdefault("hosts", {}).setdefault(host, {})["peerName"] = user_name.strip()
@@ -1330,7 +1370,7 @@ def cmd_mode(args) -> None:
         return
 
     host = _host_key()
-    label = f"[{host}] " if host != "hermes" else ""
+    label = f"[{host}] " if host != "fabric" else ""
     cfg.setdefault("hosts", {}).setdefault(host, {})["recallMode"] = mode_arg
     _write_config(cfg)
     print(f"  {label}Recall mode -> {mode_arg}  ({MODES[mode_arg]})\n")
@@ -1365,7 +1405,7 @@ def cmd_strategy(args) -> None:
         return
 
     host = _host_key()
-    label = f"[{host}] " if host != "hermes" else ""
+    label = f"[{host}] " if host != "fabric" else ""
     cfg.setdefault("hosts", {}).setdefault(host, {})["sessionStrategy"] = strat_arg
     _write_config(cfg)
     print(f"  {label}Session strategy -> {strat_arg}  ({STRATEGIES[strat_arg]})\n")
@@ -1375,15 +1415,15 @@ def cmd_tokens(args) -> None:
     """Show or set token budget settings."""
     cfg = _read_config()
     hosts = cfg.get("hosts", {})
-    hermes = hosts.get(_host_key(), {})
+    fabric = hosts.get(_host_key(), {})
 
     context = getattr(args, "context", None)
     dialectic = getattr(args, "dialectic", None)
 
     if context is None and dialectic is None:
-        ctx_tokens = hermes.get("contextTokens") or cfg.get("contextTokens") or "(Honcho default)"
-        d_chars = hermes.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
-        d_level = hermes.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
+        ctx_tokens = fabric.get("contextTokens") or cfg.get("contextTokens") or "(Honcho default)"
+        d_chars = fabric.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
+        d_level = fabric.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
         print("\nHoncho budgets\n" + "─" * 40)
         print()
         print(f"  Context     {ctx_tokens} tokens")
@@ -1399,7 +1439,7 @@ def cmd_tokens(args) -> None:
         return
 
     host = _host_key()
-    label = f"[{host}] " if host != "hermes" else ""
+    label = f"[{host}] " if host != "fabric" else ""
     changed = False
     if context is not None:
         cfg.setdefault("hosts", {}).setdefault(host, {})["contextTokens"] = context
@@ -1419,7 +1459,7 @@ def cmd_identity(args) -> None:
     """Seed AI peer identity or show both peer representations."""
     cfg = _read_config()
     if not _resolve_api_key(cfg):
-        print("  No API key configured. Run 'fabric honcho setup' first.\n")
+        print("  No API key configured. Run 'fabric memory setup honcho' first.\n")
         return
 
     file_path = getattr(args, "file", None)
@@ -1490,7 +1530,7 @@ def cmd_identity(args) -> None:
 
 
 def cmd_migrate(args) -> None:
-    """Step-by-step migration guide: OpenClaw native memory → Hermes + Honcho."""
+    """Step-by-step migration guide: OpenClaw native memory → Fabric + Honcho."""
     from pathlib import Path
 
     # ── Detect OpenClaw native memory files ──────────────────────────────────
@@ -1539,17 +1579,17 @@ def cmd_migrate(args) -> None:
         print("  across sessions. You need an API key to use it.")
         print()
         print("  1. Get your API key at https://app.honcho.dev")
-        print("  2. Run:  fabric honcho setup")
+        print("  2. Run:  fabric memory setup honcho")
         print("     Paste the key when prompted.")
         print()
-        answer = _prompt("  Run 'fabric honcho setup' now?", default="y")
+        answer = _prompt("  Run 'fabric memory setup honcho' now?", default="y")
         if answer.lower() in {"y", "yes"}:
             cmd_setup(args)
             cfg = _read_config()
             has_key = bool(cfg.get("apiKey", ""))
         else:
             print()
-            print("  Run 'fabric honcho setup' when ready, then re-run this walkthrough.")
+            print("  Run 'fabric memory setup honcho' when ready, then re-run this walkthrough.")
 
     # ── Step 2: Detected files ────────────────────────────────────────────────
     print()
@@ -1580,7 +1620,7 @@ def cmd_migrate(args) -> None:
     if user_files:
         print(f"  Found: {', '.join(f.name for f in user_files)}")
         print()
-        print("  These are picked up automatically the first time you run 'hermes'")
+        print("  These are picked up automatically the first time you run 'fabric'")
         print("  with Honcho configured and no prior session history.")
         print("  (Fabric calls migrate_memory_files() on first session init.)")
         print()
@@ -1617,7 +1657,7 @@ def cmd_migrate(args) -> None:
                 except Exception as e:
                     print(f"  Failed: {e}")
         else:
-            print("  Run 'fabric honcho setup' first, then re-run this step.")
+            print("  Run 'fabric memory setup honcho' first, then re-run this step.")
     else:
         print("  No user memory files detected. Nothing to migrate here.")
 
@@ -1663,7 +1703,7 @@ def cmd_migrate(args) -> None:
                 except Exception as e:
                     print(f"  Failed: {e}")
         else:
-            print("  Run 'fabric honcho setup' first, then seed manually:")
+            print("  Run 'fabric memory setup honcho' first, then seed manually:")
             for f in agent_files:
                 print(f"    fabric honcho identity {f}")
     else:
@@ -1706,11 +1746,11 @@ def cmd_migrate(args) -> None:
     print("Step 6  Next steps")
     print()
     if not has_key:
-        print("  1. fabric honcho setup              — configure API key (required)")
+        print("  1. fabric memory setup honcho              — configure API key (required)")
         print("  2. fabric honcho migrate            — re-run this walkthrough")
     else:
         print("  1. fabric honcho status             — verify Honcho connection")
-        print("  2. hermes                           — start a session")
+        print("  2. fabric                           — start a session")
         print("     (user memory files auto-uploaded on first turn if not done above)")
         print("  3. fabric honcho identity --show    — verify AI peer representation")
         print("  4. fabric honcho tokens             — tune context and dialectic budgets")
@@ -1725,13 +1765,13 @@ def honcho_command(args) -> None:
 
     sub = getattr(args, "honcho_command", None)
     if sub == "setup":
-        # Redirect to memory setup — honcho setup goes through the unified path
         print("\n  Honcho is configured via the memory provider system.")
-        print("  Running 'fabric memory setup'...\n")
+        print("  Running 'fabric memory setup honcho'...\n")
         from fabric_cli.memory_setup import cmd_setup_provider
+
         cmd_setup_provider("honcho")
         return
-    elif sub is None:
+    if sub is None:
         cmd_status(args)
     elif sub == "status":
         cmd_status(args)
@@ -1761,14 +1801,14 @@ def honcho_command(args) -> None:
         cmd_sync(args)
     else:
         print(f"  Unknown honcho command: {sub}")
-        print("  Available: status, sessions, map, peer, mode, strategy, tokens, identity, migrate, enable, disable, sync\n")
+        print("  Available: setup, status, sessions, map, peer, mode, strategy, tokens, identity, migrate, enable, disable, sync\n")
 
 
 def register_cli(subparser) -> None:
-    """Build the ``hermes honcho`` argparse subcommand tree.
+    """Build the ``fabric honcho`` argparse subcommand tree.
 
     Called by the plugin CLI registration system during argparse setup.
-    The *subparser* is the parser for ``hermes honcho``.
+    The *subparser* is the parser for ``fabric honcho``.
     """
 
     subparser.add_argument(
@@ -1779,7 +1819,7 @@ def register_cli(subparser) -> None:
 
     subs.add_parser(
         "setup",
-        help="Initial Honcho setup (redirects to fabric memory setup)",
+        help="Configure Honcho through Fabric's memory-provider setup",
     )
 
     status_parser = subs.add_parser(

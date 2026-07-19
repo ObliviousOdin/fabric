@@ -24,7 +24,6 @@ import os
 import errno
 import math
 import shutil
-import shlex
 import ssl
 import stat
 import sys
@@ -87,7 +86,6 @@ AUTH_LOCK_TIMEOUT_SECONDS = 15.0
 # Nous Portal defaults
 DEFAULT_NOUS_PORTAL_URL = "https://portal.nousresearch.com"
 DEFAULT_NOUS_INFERENCE_URL = "https://inference-api.nousresearch.com/v1"
-DEFAULT_NOUS_CLIENT_ID = "hermes-cli"
 NOUS_INFERENCE_INVOKE_SCOPE = "inference:invoke"
 NOUS_BILLING_MANAGE_SCOPE = "billing:manage"
 DEFAULT_NOUS_SCOPE = NOUS_INFERENCE_INVOKE_SCOPE
@@ -116,10 +114,10 @@ STEPFUN_STEP_PLAN_CN_BASE_URL = "https://api.stepfun.com/step_plan/v1"
 CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 try:  # Version tag for the Codex token-endpoint User-Agent; fall back if unavailable.
-    from fabric_cli import __version__ as _HERMES_CLI_VERSION
+    from fabric_cli import __version__ as _FABRIC_CLI_VERSION
 except Exception:  # pragma: no cover - version import should always succeed
-    _HERMES_CLI_VERSION = "unknown"
-CODEX_OAUTH_USER_AGENT = f"fabric-cli/{_HERMES_CLI_VERSION}"
+    _FABRIC_CLI_VERSION = "unknown"
+CODEX_OAUTH_USER_AGENT = f"fabric-cli/{_FABRIC_CLI_VERSION}"
 CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS = 120
 XAI_OAUTH_ISSUER = "https://auth.x.ai"
 XAI_OAUTH_DISCOVERY_URL = f"{XAI_OAUTH_ISSUER}/.well-known/openid-configuration"
@@ -203,7 +201,6 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         auth_type="oauth_device_code",
         portal_base_url=DEFAULT_NOUS_PORTAL_URL,
         inference_base_url=DEFAULT_NOUS_INFERENCE_URL,
-        client_id=DEFAULT_NOUS_CLIENT_ID,
         scope=DEFAULT_NOUS_SCOPE,
     ),
     "openai-codex": ProviderConfig(
@@ -527,10 +524,13 @@ def get_anthropic_key() -> str:
 
         ANTHROPIC_API_KEY -> ANTHROPIC_TOKEN -> CLAUDE_CODE_OAUTH_TOKEN
     """
+    from agent.anthropic_adapter import _is_oauth_token
     from fabric_cli.config import get_env_value_prefer_dotenv
 
     for var in PROVIDER_REGISTRY["anthropic"].api_key_env_vars:
         value = get_env_value_prefer_dotenv(var) or ""
+        if var == "ANTHROPIC_API_KEY" and _is_oauth_token(value):
+            continue
         if value:
             return value
     return ""
@@ -807,6 +807,30 @@ class AuthError(RuntimeError):
         self.relogin_required = relogin_required
 
 
+NOUS_CLIENT_ID_REQUIRED_CODE = "nous_client_id_required"
+NOUS_CLIENT_ID_REQUIRED_MESSAGE = (
+    "Nous Portal OAuth requires a registered client ID. Run "
+    "`fabric auth add nous --client-id <registered-client-id>`."
+)
+
+
+def _normalize_nous_client_id(value: Any) -> str:
+    """Return a stored or operator-supplied Nous OAuth client ID."""
+    return str(value or "").strip()
+
+
+def _require_nous_client_id(value: Any) -> str:
+    """Require an actual registered Nous OAuth client ID without inventing one."""
+    client_id = _normalize_nous_client_id(value)
+    if not client_id:
+        raise AuthError(
+            NOUS_CLIENT_ID_REQUIRED_MESSAGE,
+            provider="nous",
+            code=NOUS_CLIENT_ID_REQUIRED_CODE,
+        )
+    return client_id
+
+
 def is_rate_limited_auth_error(error: Exception) -> bool:
     """True when an :class:`AuthError` represents upstream rate-limiting / quota
     exhaustion rather than missing or invalid credentials.
@@ -905,26 +929,11 @@ def _token_fingerprint(token: Any) -> Optional[str]:
     return hashlib.sha256(cleaned.encode("utf-8")).hexdigest()[:12]
 
 
-def _oauth_trace_enabled() -> bool:
-    raw = os.getenv("HERMES_OAUTH_TRACE", "").strip().lower()
-    return raw in {"1", "true", "yes", "on"}
-
-
-def _oauth_trace(event: str, *, sequence_id: Optional[str] = None, **fields: Any) -> None:
-    if not _oauth_trace_enabled():
-        return
-    payload: Dict[str, Any] = {"event": event}
-    if sequence_id:
-        payload["sequence_id"] = sequence_id
-    payload.update(fields)
-    logger.info("oauth_trace %s", json.dumps(payload, sort_keys=True, ensure_ascii=False))
-
-
 # =============================================================================
 # Auth Store — persistence layer for ~/.fabric/auth.json
 # =============================================================================
 
-def _resolve_real_user_auth_roots(platform: Optional[str] = None) -> tuple[Path, Path]:
+def _resolve_real_user_auth_roots(platform: Optional[str] = None) -> tuple[Path, ...]:
     """Resolve account auth roots before tests can redirect environment paths."""
     platform = platform or os.name
     if platform == "nt":
@@ -934,7 +943,7 @@ def _resolve_real_user_auth_roots(platform: Optional[str] = None) -> tuple[Path,
             if local_appdata
             else Path.home() / "AppData" / "Local"
         )
-        return base / "fabric", base / "hermes"
+        return (base / "fabric",)
 
     try:
         import pwd
@@ -942,16 +951,14 @@ def _resolve_real_user_auth_roots(platform: Optional[str] = None) -> tuple[Path,
         home = Path(pwd.getpwuid(os.getuid()).pw_dir)  # windows-footgun: ok -- POSIX-only
     except Exception:
         home = Path.home()
-    # public-release-audit: allow-legacy-compat -- reads credentials created before the Fabric home migration
-    legacy_auth_root = home / ".hermes"
-    return home / ".fabric", legacy_auth_root
+    return (home / ".fabric",)
 
 
 _REAL_USER_AUTH_ROOTS = _resolve_real_user_auth_roots()
 
 
 def _is_real_user_auth_store(path: Path) -> bool:
-    """Return True when *path* is either real default auth-store location.
+    """Return True when *path* is the real default auth-store location.
 
     The roots are captured at module import, before test fixtures can redirect
     ``HOME``, ``LOCALAPPDATA``, or ``FABRIC_HOME`` to temporary trees.
@@ -972,13 +979,13 @@ def _is_real_user_auth_store(path: Path) -> bool:
 
 def _auth_file_path() -> Path:
     path = get_fabric_home() / "auth.json"
-    # Seat belt: if pytest is running and the active home resolves to either
-    # the real Fabric auth store or its legacy compatibility location, refuse
+    # Seat belt: if pytest is running and the active home resolves to
+    # the real Fabric auth store, refuse
     # rather than silently corrupt it.
     if os.environ.get("PYTEST_CURRENT_TEST") and _is_real_user_auth_store(path):
         raise RuntimeError(
             f"Refusing to touch real user auth store during test run: {path}. "
-            "Set FABRIC_HOME (or legacy HERMES_HOME) to a tmp_path in your "
+            "Set FABRIC_HOME to a tmp_path in your "
             "test fixture, or run via scripts/run_tests.sh for hermetic "
             "CI-parity env."
         )
@@ -989,7 +996,7 @@ def _global_auth_file_path() -> Optional[Path]:
     """Return the global-root auth.json when the process is in profile mode.
 
     Returns ``None`` when the profile and global root resolve to the same
-    directory (classic mode, or custom HERMES_HOME that is not a profile).
+    directory (classic mode, or custom FABRIC_HOME that is not a profile).
     Used by read-only fallback paths so providers authed at the root are
     visible to profile processes that haven't configured them locally.
 
@@ -1023,9 +1030,9 @@ def _load_global_auth_store() -> Dict[str, Any]:
     or the global auth.json is absent). Never raises on missing file.
 
     Seat belt: under pytest, refuses to read the real user's
-    ``~/.fabric/auth.json`` even when HERMES_HOME is set to a profile
+    ``~/.fabric/auth.json`` even when FABRIC_HOME is set to a profile
     path. The hermetic conftest does not redirect ``HOME``, so
-    ``get_default_fabric_root()`` for a profile-shaped HERMES_HOME can
+    ``get_default_fabric_root()`` for a profile-shaped FABRIC_HOME can
     still resolve to the real user's home on a dev machine. That would
     leak real credentials into tests. This guard uses the unmodified
     ``HOME`` env var (what ``os.path.expanduser('~')`` would resolve to),
@@ -1734,7 +1741,7 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
 
     # 3. Check provider-specific env vars
     # Exclude CLAUDE_CODE_OAUTH_TOKEN — it's set by Claude Code itself,
-    # not by the user explicitly configuring anthropic in Hermes.
+    # not by the user explicitly configuring Anthropic in Fabric.
     _IMPLICIT_ENV_VARS = {"CLAUDE_CODE_OAUTH_TOKEN"}
     pconfig = PROVIDER_REGISTRY.get(normalized)
     if pconfig and pconfig.auth_type == "api_key":
@@ -1745,7 +1752,7 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
                 return True
 
     # 4. Check persisted credential-pool entries that came from EXPLICIT flows
-    # the user initiated inside Hermes (manual add / device-code / PKCE), plus
+    # the user initiated inside Fabric (manual add / device-code / PKCE), plus
     # env-backed pool entries. This intentionally excludes ambient borrowed
     # sources like gh_cli / claude_code / qwen-cli.
     try:
@@ -1764,7 +1771,7 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
                     return True
                 continue
             if (
-                source in {"device_code", "loopback_pkce", "hermes_pkce", "manual"}
+                source in {"device_code", "loopback_pkce", "anthropic_pkce", "manual"}
                 or source.startswith("manual:")
             ):
                 return True
@@ -1776,7 +1783,7 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
 
 def clear_provider_auth(provider_id: Optional[str] = None) -> bool:
     """
-    Clear auth state for a provider. Used by `hermes logout`.
+    Clear auth state for a provider. Used by `fabric logout`.
     If provider_id is None, clears the active provider.
     Returns True if something was cleared.
     """
@@ -2208,8 +2215,8 @@ def _nous_inference_env_override() -> Optional[str]:
 def _nous_portal_env_override() -> Optional[str]:
     """Return the user/deployment-set Portal base URL override, if any.
 
-    Mirrors ``_nous_inference_env_override()``: ``HERMES_PORTAL_BASE_URL`` /
-    ``NOUS_PORTAL_BASE_URL`` are operator-controlled overrides for a custom
+    Mirrors ``_nous_inference_env_override()``: ``NOUS_PORTAL_BASE_URL`` is
+    the operator-controlled override for a custom
     Nous Portal deployment. The env source is trusted (the OS user/deployment
     set it themselves), so — like the inference override — it must NOT be
     gated by ``_NOUS_PORTAL_ALLOWED_HOSTS``: that allowlist exists to reject
@@ -2217,11 +2224,9 @@ def _nous_portal_env_override() -> Optional[str]:
     persisted to auth.json), not a value the operator explicitly configured.
 
     Returns a trailing-slash-stripped non-empty string, or ``None`` when
-    neither env var is set/blank.
+    the env var is unset/blank.
     """
-    return _optional_base_url(
-        os.getenv("HERMES_PORTAL_BASE_URL") or os.getenv("NOUS_PORTAL_BASE_URL")
-    )
+    return _optional_base_url(os.getenv("NOUS_PORTAL_BASE_URL"))
 
 
 def _decode_jwt_claims(token: Any) -> Dict[str, Any]:
@@ -2315,24 +2320,16 @@ def _assert_nous_inference_jwt_usable(
         return
     raise AuthError(
         "Nous Portal access token is not a usable inference JWT "
-        f"({reason}). Re-authenticate with: fabric auth add nous",
+        f"({reason}). Re-authenticate with: fabric auth add nous "
+        "--client-id <registered-client-id>",
         provider="nous",
         code=reason,
         relogin_required=True,
     )
 
 
-def _log_nous_invoke_jwt_selected(
-    *,
-    access_token: Any,
-    sequence_id: Optional[str] = None,
-) -> None:
+def _log_nous_invoke_jwt_selected() -> None:
     logger.info("Nous inference auth: using NAS invoke JWT")
-    _oauth_trace(
-        "nous_invoke_jwt_selected",
-        sequence_id=sequence_id,
-        access_token_fp=_token_fingerprint(access_token),
-    )
 
 
 def _nous_jwt_expires_at(token: Any, fallback_expires_at: Any = None) -> Optional[str]:
@@ -2388,15 +2385,11 @@ def _select_nous_invoke_jwt(
     state: Dict[str, Any],
     *,
     access_token: Any = None,
-    sequence_id: Optional[str] = None,
 ) -> None:
     if isinstance(access_token, str) and access_token.strip():
         state["access_token"] = access_token
     _set_nous_agent_key_from_invoke_jwt(state)
-    _log_nous_invoke_jwt_selected(
-        access_token=state.get("access_token"),
-        sequence_id=sequence_id,
-    )
+    _log_nous_invoke_jwt_selected()
 
 
 _NOUS_EFFECTIVE_STATE_IGNORED_KEYS = frozenset({
@@ -2604,10 +2597,9 @@ def resolve_qwen_runtime_credentials(
             code="qwen_access_token_missing",
         )
 
-    base_url = os.getenv("HERMES_QWEN_BASE_URL", "").strip().rstrip("/") or DEFAULT_QWEN_BASE_URL
     return {
         "provider": "qwen-oauth",
-        "base_url": base_url,
+        "base_url": DEFAULT_QWEN_BASE_URL,
         "api_key": access_token,
         "source": "qwen-cli",
         "expires_at_ms": tokens.get("expiry_date"),
@@ -2662,12 +2654,8 @@ def _spotify_client_id(
     explicit: Optional[str] = None,
     state: Optional[Dict[str, Any]] = None,
 ) -> str:
-    from fabric_cli.config import get_env_value
-
     candidates = (
         explicit,
-        get_env_value("HERMES_SPOTIFY_CLIENT_ID"),
-        get_env_value("SPOTIFY_CLIENT_ID"),
         state.get("client_id") if isinstance(state, dict) else None,
     )
     for candidate in candidates:
@@ -2675,7 +2663,7 @@ def _spotify_client_id(
         if cleaned:
             return cleaned
     raise AuthError(
-        "Spotify client_id is required. Set HERMES_SPOTIFY_CLIENT_ID or pass --client-id.",
+        "Spotify client_id is required. Pass --client-id or run the interactive setup.",
         provider="spotify",
         code="spotify_client_id_missing",
     )
@@ -2685,12 +2673,8 @@ def _spotify_redirect_uri(
     explicit: Optional[str] = None,
     state: Optional[Dict[str, Any]] = None,
 ) -> str:
-    from fabric_cli.config import get_env_value
-
     candidates = (
         explicit,
-        get_env_value("HERMES_SPOTIFY_REDIRECT_URI"),
-        get_env_value("SPOTIFY_REDIRECT_URI"),
         state.get("redirect_uri") if isinstance(state, dict) else None,
         DEFAULT_SPOTIFY_REDIRECT_URI,
     )
@@ -2702,10 +2686,7 @@ def _spotify_redirect_uri(
 
 
 def _spotify_api_base_url(state: Optional[Dict[str, Any]] = None) -> str:
-    from fabric_cli.config import get_env_value
-
     candidates = (
-        get_env_value("HERMES_SPOTIFY_API_BASE_URL"),
         state.get("api_base_url") if isinstance(state, dict) else None,
         DEFAULT_SPOTIFY_API_BASE_URL,
     )
@@ -2717,10 +2698,7 @@ def _spotify_api_base_url(state: Optional[Dict[str, Any]] = None) -> str:
 
 
 def _spotify_accounts_base_url(state: Optional[Dict[str, Any]] = None) -> str:
-    from fabric_cli.config import get_env_value
-
     candidates = (
-        get_env_value("HERMES_SPOTIFY_ACCOUNTS_BASE_URL"),
         state.get("accounts_base_url") if isinstance(state, dict) else None,
         DEFAULT_SPOTIFY_ACCOUNTS_BASE_URL,
     )
@@ -3110,13 +3088,11 @@ def get_spotify_auth_status() -> Dict[str, Any]:
 
 
 def _spotify_interactive_setup(redirect_uri_hint: str) -> str:
-    """Walk the user through creating a Spotify developer app, persist the
-    resulting client_id to ~/.fabric/.env, and return it.
+    """Walk the user through creating a Spotify developer app and return its
+    client ID. Successful authentication persists it with the provider state.
 
     Raises SystemExit if the user aborts or submits an empty value.
     """
-    from fabric_cli.config import save_env_value
-
     print()
     print("=" * 70)
     print("Spotify first-time setup")
@@ -3157,15 +3133,6 @@ def _spotify_interactive_setup(redirect_uri_hint: str) -> str:
         print(f"No Client ID entered. See {SPOTIFY_DOCS_URL} for the full guide.")
         raise SystemExit("Spotify setup cancelled: empty Client ID.")
 
-    # Persist so subsequent `fabric auth spotify` runs skip the wizard.
-    save_env_value("HERMES_SPOTIFY_CLIENT_ID", raw)
-    # Only persist the redirect URI if it's non-default, to avoid pinning
-    # users to a value the default might later change to.
-    if redirect_uri_hint and redirect_uri_hint != DEFAULT_SPOTIFY_REDIRECT_URI:
-        save_env_value("HERMES_SPOTIFY_REDIRECT_URI", redirect_uri_hint)
-
-    print()
-    print("Saved HERMES_SPOTIFY_CLIENT_ID to ~/.fabric/.env")
     print()
     return raw
 
@@ -3175,7 +3142,7 @@ def login_spotify_command(args) -> None:
 
     # Interactive wizard: if no client_id is configured anywhere, walk the
     # user through creating the Spotify developer app instead of crashing
-    # with "HERMES_SPOTIFY_CLIENT_ID is required".
+    # with a missing-client-id error.
     explicit_client_id = getattr(args, "client_id", None)
     try:
         client_id = _spotify_client_id(explicit_client_id, existing_state)
@@ -3435,13 +3402,13 @@ def _print_loopback_ssh_hint(redirect_uri: str, *, docs_url: str | None = None) 
 # =============================================================================
 # OpenAI Codex auth — tokens stored in ~/.fabric/auth.json (not ~/.codex/)
 #
-# Hermes maintains its own Codex OAuth session separate from the Codex CLI
+# Fabric maintains its own Codex OAuth session separate from the Codex CLI
 # and VS Code extension. This prevents refresh token rotation conflicts
 # where one app's refresh invalidates the other's session.
 # =============================================================================
 
 def _read_codex_tokens(*, _lock: bool = True) -> Dict[str, Any]:
-    """Read Codex OAuth tokens from Hermes auth store (~/.fabric/auth.json).
+    """Read Codex OAuth tokens from Fabric auth store (~/.fabric/auth.json).
     
     Returns dict with 'tokens' (access_token, refresh_token) and 'last_refresh'.
     Raises AuthError if no Codex tokens are stored.
@@ -3591,7 +3558,7 @@ def _sync_codex_pool_entries(
 
 
 def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: str = None) -> None:
-    """Save Codex OAuth tokens to Hermes auth store (~/.fabric/auth.json)."""
+    """Save Codex OAuth tokens to Fabric auth store (~/.fabric/auth.json)."""
     if last_refresh is None:
         last_refresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     with _auth_store_lock():
@@ -3619,7 +3586,7 @@ def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: 
 
 
 def _recover_codex_tokens_from_cli(reason: str) -> Optional[Dict[str, str]]:
-    """Adopt a valid Codex CLI token pair into Hermes auth, if available."""
+    """Adopt a valid Codex CLI token pair into Fabric auth, if available."""
     imported = _import_codex_cli_tokens()
     # Require BOTH tokens before adopting: persisting a payload without a
     # usable refresh_token would only break the next refresh cycle.
@@ -3640,7 +3607,7 @@ def refresh_codex_oauth_pure(
     *,
     timeout_seconds: float = 20.0,
 ) -> Dict[str, Any]:
-    """Refresh Codex OAuth tokens without mutating Hermes auth state."""
+    """Refresh Codex OAuth tokens without mutating Fabric auth state."""
     del access_token  # Access token is only used by callers to decide whether to refresh.
     if not isinstance(refresh_token, str) or not refresh_token.strip():
         raise AuthError(
@@ -3774,7 +3741,7 @@ def _refresh_codex_auth_tokens(
 ) -> Dict[str, str]:
     """Refresh Codex access token using the refresh token.
     
-    Saves the new tokens to Hermes auth store automatically.
+    Saves the new tokens to the Fabric auth store automatically.
     """
     try:
         refreshed = refresh_codex_oauth_pure(
@@ -3783,7 +3750,7 @@ def _refresh_codex_auth_tokens(
             timeout_seconds=timeout_seconds,
         )
     except AuthError as exc:
-        # Self-heal cross-store refresh_token rotation. Hermes keeps its OWN
+        # Self-heal cross-store refresh_token rotation. Fabric keeps its own
         # Codex OAuth token (per profile + top-level), separate from the Codex
         # CLI's ~/.codex/auth.json. OAuth refresh_tokens are single-use, so when
         # the Codex CLI (or another Fabric process) rotates the shared token,
@@ -3852,7 +3819,7 @@ def resolve_codex_runtime_credentials(
     refresh_if_expiring: bool = True,
     refresh_skew_seconds: int = CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
 ) -> Dict[str, Any]:
-    """Resolve runtime credentials from Hermes's own Codex token store.
+    """Resolve runtime credentials from Fabric's own Codex token store.
 
     Falls back to the credential pool when the singleton (``providers.openai-codex.tokens``)
     has no usable access_token but the pool (``credential_pool.openai-codex``) does. This
@@ -3884,13 +3851,9 @@ def resolve_codex_runtime_credentials(
     if data is None:
         pool_token = _pool_codex_access_token()
         if pool_token:
-            base_url = (
-                os.getenv("HERMES_CODEX_BASE_URL", "").strip().rstrip("/")
-                or DEFAULT_CODEX_BASE_URL
-            )
             return {
                 "provider": "openai-codex",
-                "base_url": base_url,
+                "base_url": DEFAULT_CODEX_BASE_URL,
                 "api_key": pool_token,
                 "source": "credential_pool",
                 "last_refresh": None,
@@ -3927,13 +3890,13 @@ def resolve_codex_runtime_credentials(
 
     tokens = dict(data["tokens"])
     access_token = str(tokens.get("access_token", "") or "").strip()
-    refresh_timeout_seconds = env_float("HERMES_CODEX_REFRESH_TIMEOUT_SECONDS", 20)
+    refresh_timeout_seconds = 20.0
 
     should_refresh = bool(force_refresh)
     if (not should_refresh) and refresh_if_expiring:
         should_refresh = _codex_access_token_is_expiring(access_token, refresh_skew_seconds)
     if should_refresh:
-        # Re-read under lock to avoid racing with other Hermes processes
+        # Re-read under lock to avoid racing with other Fabric processes
         with _auth_store_lock(timeout_seconds=max(float(AUTH_LOCK_TIMEOUT_SECONDS), refresh_timeout_seconds + 5.0)):
             data = _read_codex_tokens(_lock=False)
             tokens = dict(data["tokens"])
@@ -3947,16 +3910,11 @@ def resolve_codex_runtime_credentials(
                 tokens = _refresh_codex_auth_tokens(tokens, refresh_timeout_seconds)
                 access_token = str(tokens.get("access_token", "") or "").strip()
 
-    base_url = (
-        os.getenv("HERMES_CODEX_BASE_URL", "").strip().rstrip("/")
-        or DEFAULT_CODEX_BASE_URL
-    )
-
     return {
         "provider": "openai-codex",
-        "base_url": base_url,
+        "base_url": DEFAULT_CODEX_BASE_URL,
         "api_key": access_token,
-        "source": "hermes-auth-store",
+        "source": "fabric-auth-store",
         "last_refresh": data.get("last_refresh"),
         "auth_mode": "chatgpt",
     }
@@ -4207,7 +4165,7 @@ def _write_through_xai_oauth_to_global_root(state: Dict[str, Any]) -> None:
         # Classic mode (profile == root); the profile save already hit root.
         return
     # Seat belt: under pytest, refuse to write the real user's
-    # ~/.fabric/auth.json even when HERMES_HOME points at a profile path
+    # ~/.fabric/auth.json even when FABRIC_HOME points at a profile path
     # (mirrors the read-side guard in _load_global_auth_store).
     if os.environ.get("PYTEST_CURRENT_TEST") and _is_real_user_auth_store(global_path):
         return
@@ -4371,7 +4329,7 @@ def _xai_validate_inference_base_url(value: str, *, fallback: str) -> str:
     """Refuse a non-xAI base_url for the OAuth-authenticated inference path.
 
     The xAI Grok OAuth bearer is a high-value, long-lived credential tied to
-    the user's SuperGrok subscription. ``XAI_BASE_URL`` / ``HERMES_XAI_BASE_URL``
+    the user's SuperGrok subscription. ``XAI_BASE_URL``
     let users repoint the inference endpoint (handy for staging or a local
     proxy), but the env override is also a credential-leak vector: a tampered
     ``.env`` or hostile shell init that sets
@@ -4489,7 +4447,7 @@ def refresh_xai_oauth_pure(
         )
     endpoint = token_endpoint.strip() or _xai_oauth_discovery(timeout_seconds)["token_endpoint"]
     # Re-validate cached endpoints on the refresh hot path: an auth.json
-    # written by an older Hermes (or hand-edited) may carry a non-xAI
+    # written by an older client (or hand-edited) may carry a non-xAI
     # token_endpoint that would receive every future refresh_token in
     # plaintext if we trusted it blindly. Cheap suffix check; fast-fail
     # with a clear error so the user can re-run `fabric model` to refetch.
@@ -4619,7 +4577,7 @@ def resolve_xai_oauth_runtime_credentials(
     data = _read_xai_oauth_tokens()
     tokens = dict(data["tokens"])
     access_token = str(tokens.get("access_token", "") or "").strip()
-    refresh_timeout_seconds = env_float("HERMES_XAI_REFRESH_TIMEOUT_SECONDS", 20)
+    refresh_timeout_seconds = 20.0
     discovery = dict(data.get("discovery") or {})
     token_endpoint = str(discovery.get("token_endpoint", "") or "").strip()
     redirect_uri = str(data.get("redirect_uri", "") or "").strip()
@@ -4688,15 +4646,14 @@ def resolve_xai_oauth_runtime_credentials(
                     raise
 
     base_url = _xai_validate_inference_base_url(
-        os.getenv("HERMES_XAI_BASE_URL", "").strip().rstrip("/")
-        or os.getenv("XAI_BASE_URL", "").strip().rstrip("/"),
+        os.getenv("XAI_BASE_URL", "").strip().rstrip("/"),
         fallback=DEFAULT_XAI_OAUTH_BASE_URL,
     )
     return {
         "provider": "xai-oauth",
         "base_url": base_url,
         "api_key": access_token,
-        "source": "hermes-auth-store",
+        "source": "fabric-auth-store",
         "last_refresh": data.get("last_refresh"),
         # Display/telemetry only. Device-code is the only supported xAI OAuth
         # flow, so report it unconditionally — auth.json may still carry a
@@ -4743,7 +4700,6 @@ def _resolve_verify(
     effective_ca = (
         ca_bundle
         or tls_state.get("ca_bundle")
-        or os.getenv("HERMES_CA_BUNDLE")
         or os.getenv("SSL_CERT_FILE")
         or os.getenv("REQUESTS_CA_BUNDLE")
     )
@@ -4848,15 +4804,15 @@ def _poll_for_token(
 
 # -----------------------------------------------------------------------------
 # Shared Nous token store — lets OAuth credentials persist across profiles
-# so a new `hermes --profile <name> auth add nous --type oauth` can one-tap
+# so a new `fabric --profile <name> auth add nous --type oauth` can one-tap
 # import instead of running the full device-code flow every time.
 #
-# File lives at ${HERMES_SHARED_AUTH_DIR}/nous_auth.json, defaulting to
-# ``<hermes-root>/shared/nous_auth.json`` where ``<hermes-root>`` is what
+# File lives at ``<fabric-root>/shared/nous_auth.json``, where
+# ``<fabric-root>`` is what
 # ``get_default_fabric_root()`` returns — ``~/.fabric`` on Linux/macOS,
-# ``%LOCALAPPDATA%\hermes`` on native Windows, or the Docker/custom root.
-# It is OUTSIDE any named profile's HERMES_HOME so named profiles (which
-# typically live under ``<hermes-root>/profiles/<name>/``) all see the
+# ``%LOCALAPPDATA%\fabric`` on native Windows, or the Docker/custom root.
+# It is outside any named profile's FABRIC_HOME so named profiles (which
+# typically live under ``<fabric-root>/profiles/<name>/``) all see the
 # same file.
 #
 # Written on successful login and on every runtime refresh so the stored
@@ -4871,45 +4827,37 @@ NOUS_SHARED_STORE_FILENAME = "nous_auth.json"
 def _nous_shared_auth_dir() -> Path:
     """Resolve the directory that holds the shared Nous token store.
 
-    Honors ``HERMES_SHARED_AUTH_DIR`` so tests can redirect it to a tmp
-    path without touching the real user's home. Defaults to
-    ``<hermes-root>/shared/``, where ``<hermes-root>`` is what
+    Uses ``<fabric-root>/shared/``, where ``<fabric-root>`` is what
     :func:`fabric_constants.get_default_fabric_root` returns — so
     Linux/macOS classic installs land at ``~/.fabric/shared/``, native
-    Windows installs at ``%LOCALAPPDATA%\\hermes\\shared\\``, and
-    Docker / custom ``HERMES_HOME`` deployments at
-    ``<HERMES_HOME>/shared/``. Sits outside any named profile so all
+    Windows installs at ``%LOCALAPPDATA%\\fabric\\shared\\``, and
+    Docker / custom ``FABRIC_HOME`` deployments at
+    ``<FABRIC_HOME>/shared/``. Sits outside any named profile so all
     profiles under the same root share the store.
     """
-    override = os.getenv("HERMES_SHARED_AUTH_DIR", "").strip()
-    if override:
-        return Path(override).expanduser()
     from fabric_constants import get_default_fabric_root
     return get_default_fabric_root() / "shared"
 
 
 def _nous_shared_store_path() -> Path:
     path = _nous_shared_auth_dir() / NOUS_SHARED_STORE_FILENAME
-    # Seat belt: if pytest is running and this resolves to a path under the
-    # real user's Hermes root, refuse rather than silently corrupt cross-profile
-    # state. Tests must set HERMES_SHARED_AUTH_DIR to a tmp_path (conftest
-    # does not do this automatically — mirror the _auth_file_path() guard
-    # so forgetting to set it fails loudly instead of writing to the real
-    # shared store).
+    # Mirror the auth.json test seat belt for the cross-profile store. Tests
+    # redirect the canonical FABRIC_HOME; no second path override exists.
     if os.environ.get("PYTEST_CURRENT_TEST"):
-        from fabric_constants import get_default_fabric_root
-        real_home_shared = (
-            get_default_fabric_root() / "shared" / NOUS_SHARED_STORE_FILENAME
-        ).resolve(strict=False)
         try:
             resolved = path.resolve(strict=False)
         except Exception:
             resolved = path
-        if resolved == real_home_shared:
-            raise RuntimeError(
-                f"Refusing to touch real user shared Nous auth store during test run: "
-                f"{path}. Set HERMES_SHARED_AUTH_DIR to a tmp_path in your test fixture."
-            )
+        for root in _REAL_USER_AUTH_ROOTS:
+            try:
+                real_store = (root / "shared" / NOUS_SHARED_STORE_FILENAME).resolve(strict=False)
+            except Exception:
+                real_store = root / "shared" / NOUS_SHARED_STORE_FILENAME
+            if resolved == real_store:
+                raise RuntimeError(
+                    "Refusing to touch real user shared Nous auth store during "
+                    f"test run: {path}. Set FABRIC_HOME to a tmp_path in your test fixture."
+                )
     return path
 
 
@@ -4928,7 +4876,7 @@ def _nous_shared_store_lock(timeout_seconds: float = AUTH_LOCK_TIMEOUT_SECONDS):
     try:
         lock_path = _nous_shared_store_path().with_suffix(".lock")
     except RuntimeError:
-        # No HERMES_HOME yet (pre-setup): fall through without locking.
+        # No usable Fabric home yet (pre-setup): fall through without locking.
         yield
         return
 
@@ -4993,6 +4941,10 @@ def _write_shared_nous_state(state: Dict[str, Any]) -> None:
         return
     if not (isinstance(access_token, str) and access_token.strip()):
         return
+    client_id = _normalize_nous_client_id(state.get("client_id"))
+    if not client_id:
+        logger.debug("Skipping shared Nous auth write: stored client_id is missing")
+        return
 
     shared = {
         "_schema": 1,
@@ -5000,7 +4952,7 @@ def _write_shared_nous_state(state: Dict[str, Any]) -> None:
         "refresh_token": refresh_token,
         "token_type": state.get("token_type") or "Bearer",
         "scope": state.get("scope") or DEFAULT_NOUS_SCOPE,
-        "client_id": state.get("client_id") or DEFAULT_NOUS_CLIENT_ID,
+        "client_id": client_id,
         "portal_base_url": state.get("portal_base_url") or DEFAULT_NOUS_PORTAL_URL,
         "inference_base_url": state.get("inference_base_url") or DEFAULT_NOUS_INFERENCE_URL,
         "obtained_at": state.get("obtained_at"),
@@ -5034,11 +4986,6 @@ def _write_shared_nous_state(state: Dict[str, Any]) -> None:
                         tmp.unlink()
                 except OSError:
                     pass
-        _oauth_trace(
-            "nous_shared_store_written",
-            path=str(path),
-            refresh_token_fp=_token_fingerprint(refresh_token),
-        )
     except Exception as exc:
         logger.debug("Failed to write shared Nous auth store: %s", exc)
 
@@ -5082,7 +5029,6 @@ def _clear_shared_nous_state(reason: str) -> None:
                 path.unlink()
             except FileNotFoundError:
                 pass
-        _oauth_trace("nous_shared_store_cleared", reason=reason)
     except Exception as exc:
         logger.debug("Failed to clear shared Nous auth store: %s", exc)
 
@@ -5152,7 +5098,7 @@ def _quarantine_nous_oauth_state(
     #
     # Redaction safety: emit ONLY the 12-char SHA-256 hex prefix of the refresh
     # token (correlates to NAS's refreshTokenHash without leaking the secret) plus
-    # sizes/booleans. NEVER pass a raw token/agent_key into the log call — Hermes
+    # sizes/booleans. Never pass a raw token or agent key into the log call; Fabric
     # has a known bug class where credential-shaped literals get corrupted in logs.
     forensic: Dict[str, Any] = {
         "reason": reason,
@@ -5247,11 +5193,6 @@ def _quarantine_nous_pool_entries(
 
     if removed:
         pool["nous"] = retained
-        _oauth_trace(
-            "nous_pool_device_code_quarantined",
-            reason=reason,
-            error_code=error.code,
-        )
     return removed
 
 
@@ -5283,7 +5224,7 @@ def _try_import_shared_nous_state(
             state: Dict[str, Any] = {
                 "access_token": shared.get("access_token"),
                 "refresh_token": shared.get("refresh_token"),
-                "client_id": shared.get("client_id") or DEFAULT_NOUS_CLIENT_ID,
+                "client_id": _require_nous_client_id(shared.get("client_id")),
                 "portal_base_url": shared.get("portal_base_url") or DEFAULT_NOUS_PORTAL_URL,
                 "inference_base_url": shared.get("inference_base_url") or DEFAULT_NOUS_INFERENCE_URL,
                 "token_type": shared.get("token_type") or "Bearer",
@@ -5306,20 +5247,13 @@ def _try_import_shared_nous_state(
             )
             _write_shared_nous_state(refreshed)
     except AuthError as exc:
-        _oauth_trace(
-            "nous_shared_import_failed",
-            error_type=type(exc).__name__,
-            error_code=getattr(exc, "code", None),
-        )
+        if exc.code == NOUS_CLIENT_ID_REQUIRED_CODE:
+            raise
         if _is_terminal_nous_refresh_error(exc):
             _clear_shared_nous_state("shared_import_terminal_refresh_failure")
         logger.debug("Shared Nous import failed: %s", exc)
         return None
     except Exception as exc:
-        _oauth_trace(
-            "nous_shared_import_failed",
-            error_type=type(exc).__name__,
-        )
         logger.debug("Shared Nous import failed: %s", exc)
         return None
 
@@ -5362,9 +5296,9 @@ def _refresh_access_token(
     # Detect the OAuth 2.1 "refresh token reuse" signal from the Nous portal
     # server and surface an actionable message.  This fires when an external
     # process (health-check script, monitoring tool, custom self-heal hook)
-    # called POST /api/oauth/token with Hermes's refresh_token without
+    # called POST /api/oauth/token with Fabric's refresh token without
     # persisting the rotated token back to auth.json — the server then
-    # retires the original RT, Hermes's next refresh uses it, and the whole
+    # retires the original token, Fabric's next refresh uses it, and the whole
     # session chain gets revoked as a token-theft signal (#15099).
     lowered = description.lower()
     if code == "refresh_token_reused" or "reuse" in lowered or "reuse detected" in lowered:
@@ -5377,7 +5311,8 @@ def _refresh_access_token(
             "Nous refresh tokens are single-use — only Fabric may call the "
             "refresh endpoint. For health checks, use `fabric auth status` "
             "instead.\n"
-            "Re-authenticate with: fabric auth add nous"
+            "Re-authenticate with: fabric auth add nous "
+            "--client-id <registered-client-id>"
         )
         relogin = True
 
@@ -5420,8 +5355,8 @@ def fetch_nous_models(
         model_id = item.get("id")
         if isinstance(model_id, str) and model_id.strip():
             mid = model_id.strip()
-            # Skip Hermes models — they're not reliable for agentic tool-calling
-            if "hermes" in mid.lower():
+            from fabric_cli.model_id_policy import model_id_is_current
+            if not model_id_is_current(mid):
                 continue
             model_ids.append(mid)
 
@@ -5472,7 +5407,7 @@ def resolve_nous_access_token(
                 relogin_required=True,
             )
 
-        # HERMES_PORTAL_BASE_URL / NOUS_PORTAL_BASE_URL is the trusted
+        # NOUS_PORTAL_BASE_URL is the trusted
         # operator/deployment override (mirrors NOUS_INFERENCE_BASE_URL) and
         # must win OUTRIGHT — including over a stored value — and bypass the
         # host allowlist entirely, since the allowlist exists to reject an
@@ -5496,7 +5431,6 @@ def resolve_nous_access_token(
                 )
                 portal_base_url = DEFAULT_NOUS_PORTAL_URL
 
-        client_id = str(state.get("client_id") or DEFAULT_NOUS_CLIENT_ID)
         verify = _resolve_verify(insecure=insecure, ca_bundle=ca_bundle, auth_state=state)
 
         with _nous_shared_store_lock(timeout_seconds=max(timeout_seconds + 5.0, AUTH_LOCK_TIMEOUT_SECONDS)):
@@ -5521,6 +5455,8 @@ def resolve_nous_access_token(
                     provider="nous",
                     relogin_required=True,
                 )
+
+            client_id = _require_nous_client_id(state.get("client_id"))
 
             timeout = httpx.Timeout(timeout_seconds if timeout_seconds else 15.0)
             with httpx.Client(
@@ -5598,10 +5534,11 @@ def refresh_nous_oauth_pure(
     Callers that own persistent state can use it to save the newly rotated
     refresh token before later validation can fail.
     """
+    client_id = _require_nous_client_id(client_id)
     state: Dict[str, Any] = {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "client_id": client_id or DEFAULT_NOUS_CLIENT_ID,
+        "client_id": client_id,
         "portal_base_url": (portal_base_url or DEFAULT_NOUS_PORTAL_URL).rstrip("/"),
         "inference_base_url": (inference_base_url or DEFAULT_NOUS_INFERENCE_URL).rstrip("/"),
         "token_type": token_type or "Bearer",
@@ -5631,7 +5568,8 @@ def refresh_nous_oauth_pure(
                     raise AuthError(
                         "Nous Portal access token is not a usable inference JWT "
                         f"({current_invoke_jwt_status}) and no refresh token is available. "
-                        "Re-authenticate with: fabric auth add nous",
+                        "Re-authenticate with: fabric auth add nous "
+                        "--client-id <registered-client-id>",
                         provider="nous",
                         code=current_invoke_jwt_status,
                         relogin_required=True,
@@ -5688,7 +5626,7 @@ def refresh_nous_oauth_from_state(
     return refresh_nous_oauth_pure(
         state.get("access_token", ""),
         state.get("refresh_token", ""),
-        state.get("client_id", "hermes-cli"),
+        state.get("client_id"),
         state.get("portal_base_url", DEFAULT_NOUS_PORTAL_URL),
         state.get("inference_base_url", DEFAULT_NOUS_INFERENCE_URL),
         token_type=state.get("token_type", "Bearer"),
@@ -5743,6 +5681,7 @@ def persist_nous_credentials(
     from agent.credential_pool import load_pool
 
     state = dict(creds)
+    state["client_id"] = _require_nous_client_id(state.get("client_id"))
     if label and str(label).strip():
         state["label"] = str(label).strip()
 
@@ -5790,8 +5729,6 @@ def resolve_nous_runtime_credentials(
     Returns dict with: provider, base_url, api_key, key_id, expires_at,
     expires_in, source ("invoke_jwt"), and auth_path.
     """
-    sequence_id = uuid.uuid4().hex[:12]
-
     with _auth_store_lock():
         auth_store = _load_auth_store()
         state, state_source_path = _load_provider_state_with_source(auth_store, "nous")
@@ -5805,7 +5742,6 @@ def resolve_nous_runtime_credentials(
 
         portal_base_url = (
             _optional_base_url(state.get("portal_base_url"))
-            or os.getenv("HERMES_PORTAL_BASE_URL")
             or os.getenv("NOUS_PORTAL_BASE_URL")
             or DEFAULT_NOUS_PORTAL_URL
         ).rstrip("/")
@@ -5813,8 +5749,8 @@ def resolve_nous_runtime_credentials(
         # A persisted/stale portal_base_url is where the refresh token gets
         # POSTed on refresh — reject any host outside the allowlist so a
         # poisoned value can't exfiltrate the bearer, healing to the default.
-        # The trusted operator/deployment env override (HERMES_PORTAL_BASE_URL /
-        # NOUS_PORTAL_BASE_URL) bypasses this gate entirely — mirrors
+        # The trusted operator/deployment env override (NOUS_PORTAL_BASE_URL)
+        # bypasses this gate entirely — mirrors
         # NOUS_INFERENCE_BASE_URL's treatment below; the allowlist exists to
         # reject an untrusted NETWORK-provided value, not one the operator
         # explicitly configured.
@@ -5848,9 +5784,9 @@ def resolve_nous_runtime_credentials(
         inference_base_url = (
             _nous_inference_env_override() or stored_inference_base_url
         )
-        client_id = str(state.get("client_id") or DEFAULT_NOUS_CLIENT_ID)
+        client_id = _normalize_nous_client_id(state.get("client_id"))
 
-        def _persist_state(reason: str) -> None:
+        def _persist_state() -> None:
             nonlocal persisted_state, state_persisted
             # Skip writes where only derived TTL countdowns changed; this keeps
             # the mtime-keyed Nous auth-status cache warm during read paths.
@@ -5858,29 +5794,11 @@ def resolve_nous_runtime_credentials(
                 _nous_effective_provider_state(state)
                 == _nous_effective_provider_state(persisted_state)
             ):
-                _oauth_trace(
-                    "nous_state_persist_skipped",
-                    sequence_id=sequence_id,
-                    reason=reason,
-                )
                 return
             try:
                 _save_provider_state_to_source(auth_store, "nous", state, state_source_path)
-            except Exception as exc:
-                _oauth_trace(
-                    "nous_state_persist_failed",
-                    sequence_id=sequence_id,
-                    reason=reason,
-                    error_type=type(exc).__name__,
-                )
+            except Exception:
                 raise
-            _oauth_trace(
-                "nous_state_persisted",
-                sequence_id=sequence_id,
-                reason=reason,
-                refresh_token_fp=_token_fingerprint(state.get("refresh_token")),
-                access_token_fp=_token_fingerprint(state.get("access_token")),
-            )
             persisted_state = dict(state)
             state_persisted = True
             # Mirror post-refresh state to the shared store so sibling
@@ -5891,11 +5809,6 @@ def resolve_nous_runtime_credentials(
 
         verify = _resolve_verify(insecure=insecure, ca_bundle=ca_bundle, auth_state=state)
         timeout = httpx.Timeout(timeout_seconds if timeout_seconds else 15.0)
-        _oauth_trace(
-            "nous_runtime_credentials_start",
-            sequence_id=sequence_id,
-            refresh_token_fp=_token_fingerprint(state.get("refresh_token")),
-        )
 
         with httpx.Client(timeout=timeout, headers={"Accept": "application/json"}, verify=verify) as client:
             access_token = state.get("access_token")
@@ -5915,12 +5828,13 @@ def resolve_nous_runtime_credentials(
                     if _merge_shared_nous_oauth_state(state):
                         access_token = state.get("access_token")
                         refresh_token = state.get("refresh_token")
+                        client_id = _normalize_nous_client_id(state.get("client_id"))
                         invoke_jwt_status = _nous_invoke_jwt_status(
                             access_token,
                             scope=state.get("scope"),
                             expires_at=state.get("expires_at"),
                         )
-                        _persist_state("post_shared_merge_access_unusable")
+                        _persist_state()
 
                     if force_refresh or invoke_jwt_status is not None:
                         if not isinstance(refresh_token, str) or not refresh_token:
@@ -5928,19 +5842,15 @@ def resolve_nous_runtime_credentials(
                             raise AuthError(
                                 "Nous Portal access token is not a usable inference JWT "
                                 f"({reason}) and no refresh token is available. "
-                                "Re-authenticate with: fabric auth add nous",
+                                "Re-authenticate with: fabric auth add nous "
+                                "--client-id <registered-client-id>",
                                 provider="nous",
                                 code=reason,
                                 relogin_required=True,
                             )
 
-                        refresh_reason = "force_refresh" if force_refresh else (invoke_jwt_status or "access_unusable")
-                        _oauth_trace(
-                            "refresh_start",
-                            sequence_id=sequence_id,
-                            reason=refresh_reason,
-                            refresh_token_fp=_token_fingerprint(refresh_token),
-                        )
+                        client_id = _require_nous_client_id(client_id)
+
                         try:
                             refreshed = _refresh_access_token(
                                 client=client, portal_base_url=portal_base_url,
@@ -5958,11 +5868,10 @@ def resolve_nous_runtime_credentials(
                                     exc,
                                     reason="runtime_access_refresh_failure",
                                 )
-                                _persist_state("terminal_runtime_access_refresh_failure")
+                                _persist_state()
                             raise
                         now = datetime.now(timezone.utc)
                         access_ttl = _coerce_ttl_seconds(refreshed.get("expires_in"))
-                        previous_refresh_token = refresh_token
                         state["access_token"] = refreshed["access_token"]
                         state["refresh_token"] = refreshed.get("refresh_token") or refresh_token
                         state["token_type"] = refreshed.get("token_type") or state.get("token_type") or "Bearer"
@@ -5986,15 +5895,8 @@ def resolve_nous_runtime_credentials(
                         ).isoformat()
                         access_token = state["access_token"]
                         refresh_token = state["refresh_token"]
-                        _oauth_trace(
-                            "refresh_success",
-                            sequence_id=sequence_id,
-                            reason=refresh_reason,
-                            previous_refresh_token_fp=_token_fingerprint(previous_refresh_token),
-                            new_refresh_token_fp=_token_fingerprint(refresh_token),
-                        )
                         # Persist immediately so validation failures cannot drop rotated refresh tokens.
-                        _persist_state("post_refresh_access_token")
+                        _persist_state()
 
             _assert_nous_inference_jwt_usable(
                 state,
@@ -6003,7 +5905,6 @@ def resolve_nous_runtime_credentials(
             _select_nous_invoke_jwt(
                 state,
                 access_token=access_token,
-                sequence_id=sequence_id,
             )
 
             # Persist routing and TLS metadata for non-interactive refresh.
@@ -6012,13 +5913,16 @@ def resolve_nous_runtime_credentials(
             # leak a dev/staging host into auth.json and survive unsetting it).
             state["portal_base_url"] = portal_base_url
             state["inference_base_url"] = stored_inference_base_url
-            state["client_id"] = client_id
+            if client_id:
+                state["client_id"] = client_id
+            else:
+                state.pop("client_id", None)
             state["tls"] = {
                 "insecure": verify is False,
                 "ca_bundle": verify if isinstance(verify, str) else None,
             }
 
-        _persist_state("resolve_nous_runtime_credentials_final")
+        _persist_state()
 
     if state_persisted:
         _sync_nous_pool_from_auth_store()
@@ -6471,12 +6375,10 @@ def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
         return {"configured": False}
 
     command = (
-        os.getenv("HERMES_COPILOT_ACP_COMMAND", "").strip()
-        or os.getenv("COPILOT_CLI_PATH", "").strip()
+        os.getenv("COPILOT_CLI_PATH", "").strip()
         or "copilot"
     )
-    raw_args = os.getenv("HERMES_COPILOT_ACP_ARGS", "").strip()
-    args = shlex.split(raw_args) if raw_args else ["--acp", "--stdio"]
+    args = ["--acp", "--stdio"]
     base_url = os.getenv(pconfig.base_url_env_var, "").strip() if pconfig.base_url_env_var else ""
     if not base_url:
         base_url = pconfig.inference_base_url
@@ -6698,17 +6600,15 @@ def resolve_external_process_provider_credentials(provider_id: str) -> Dict[str,
         base_url = pconfig.inference_base_url
 
     command = (
-        os.getenv("HERMES_COPILOT_ACP_COMMAND", "").strip()
-        or os.getenv("COPILOT_CLI_PATH", "").strip()
+        os.getenv("COPILOT_CLI_PATH", "").strip()
         or "copilot"
     )
-    raw_args = os.getenv("HERMES_COPILOT_ACP_ARGS", "").strip()
-    args = shlex.split(raw_args) if raw_args else ["--acp", "--stdio"]
+    args = ["--acp", "--stdio"]
     resolved_command = shutil.which(command) if command else None
     if not resolved_command and not base_url.startswith("acp+tcp://"):
         raise AuthError(
             f"Could not find the Copilot CLI command '{command}'. "
-            "Install GitHub Copilot CLI or set HERMES_COPILOT_ACP_COMMAND/COPILOT_CLI_PATH.",
+            "Install GitHub Copilot CLI or set COPILOT_CLI_PATH.",
             provider=provider_id,
             code="missing_copilot_cli",
         )
@@ -6826,7 +6726,7 @@ def _should_reset_config_provider_on_logout(provider_id: Optional[str]) -> bool:
 def _logout_default_provider_from_config() -> Optional[str]:
     """Fallback logout target when auth.json has no active provider.
 
-    `hermes logout` historically keyed off auth.json.active_provider only.
+    Logout used to key off auth.json.active_provider only.
     That left users stuck when auth state had already been cleared but
     config.yaml still selected an OAuth provider such as openai-codex for the
     agent model: there was no active auth provider to target, so logout printed
@@ -7128,7 +7028,7 @@ def _login_openai_codex(
 
     del pconfig  # kept for parity with other provider login helpers
 
-    # Check for existing Hermes-owned credentials
+    # Check for existing Fabric-owned credentials
     if not force_new_login:
         try:
             existing = resolve_codex_runtime_credentials()
@@ -7166,15 +7066,14 @@ def _login_openai_codex(
                 do_import = "n"
             if do_import in {"y", "yes"}:
                 _save_codex_tokens(cli_tokens)
-                base_url = os.getenv("HERMES_CODEX_BASE_URL", "").strip().rstrip("/") or DEFAULT_CODEX_BASE_URL
-                config_path = _update_config_for_provider("openai-codex", base_url)
+                config_path = _update_config_for_provider("openai-codex", DEFAULT_CODEX_BASE_URL)
                 print()
                 print("Credentials imported. Note: if Codex CLI refreshes its token,")
                 print("Fabric will keep working independently with its own session.")
                 print(f"  Config updated: {config_path} (model.provider=openai-codex)")
                 return
 
-    # Run a fresh device code flow — Hermes gets its own OAuth session
+    # Run a fresh device code flow; Fabric gets its own OAuth session.
     print()
     print("Signing in to OpenAI Codex...")
     print("(Fabric creates its own session — won't affect Codex CLI or VS Code)")
@@ -7185,7 +7084,7 @@ def _login_openai_codex(
     else:
         creds = _codex_device_code_login()
 
-    # Save tokens to Hermes auth store
+    # Save tokens to the Fabric auth store.
     _save_codex_tokens(creds["tokens"], creds.get("last_refresh"))
     config_path = _update_config_for_provider("openai-codex", creds.get("base_url", DEFAULT_CODEX_BASE_URL))
     print()
@@ -7600,8 +7499,7 @@ def _xai_oauth_device_code_login(
             code="xai_device_token_invalid",
         )
     base_url = _xai_validate_inference_base_url(
-        os.getenv("HERMES_XAI_BASE_URL", "").strip().rstrip("/")
-        or os.getenv("XAI_BASE_URL", "").strip().rstrip("/"),
+        os.getenv("XAI_BASE_URL", "").strip().rstrip("/"),
         fallback=DEFAULT_XAI_OAUTH_BASE_URL,
     )
     return {
@@ -7816,17 +7714,12 @@ def _codex_device_code_login(*, open_browser: bool = True) -> Dict[str, Any]:
         )
 
     # Return tokens for the caller to persist (no longer writes to ~/.codex/)
-    base_url = (
-        os.getenv("HERMES_CODEX_BASE_URL", "").strip().rstrip("/")
-        or DEFAULT_CODEX_BASE_URL
-    )
-
     return {
         "tokens": {
             "access_token": access_token,
             "refresh_token": refresh_token,
         },
-        "base_url": base_url,
+        "base_url": DEFAULT_CODEX_BASE_URL,
         "last_refresh": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "auth_mode": "chatgpt",
         "source": "device-code",
@@ -7964,7 +7857,7 @@ def _minimax_poll_token(
 
 
 def _minimax_save_auth_state(auth_state: Dict[str, Any]) -> None:
-    """Persist MiniMax OAuth state to Hermes auth store (~/.fabric/auth.json)."""
+    """Persist MiniMax OAuth state to the Fabric auth store (~/.fabric/auth.json)."""
     with _auth_store_lock():
         auth_store = _load_auth_store()
         _save_provider_state(auth_store, "minimax-oauth", auth_state)
@@ -8281,7 +8174,6 @@ def _nous_device_code_login(
     pconfig = PROVIDER_REGISTRY["nous"]
     portal_base_url = (
         portal_base_url
-        or os.getenv("HERMES_PORTAL_BASE_URL")
         or os.getenv("NOUS_PORTAL_BASE_URL")
         or pconfig.portal_base_url
     ).rstrip("/")
@@ -8290,7 +8182,7 @@ def _nous_device_code_login(
         or os.getenv("NOUS_INFERENCE_BASE_URL")
         or pconfig.inference_base_url
     ).rstrip("/")
-    client_id = client_id or pconfig.client_id
+    client_id = _require_nous_client_id(client_id)
     scope = scope or pconfig.scope
     timeout = httpx.Timeout(timeout_seconds)
     verify: bool | str = False if insecure else (ca_bundle if ca_bundle else True)
@@ -8433,13 +8325,14 @@ def step_up_nous_billing_scope(
 
     The lazy step-up (plan D-A): triggered when a billing endpoint returns
     ``403 insufficient_scope``. Runs a fresh device-connect with
-    ``inference:invoke tool:invoke billing:manage`` on the scope. The user must be
+    the scopes ``inference:invoke tool:invoke billing:manage``. The user must be
     an ADMIN/OWNER and tick "Allow terminal billing" in the portal for the minted
     token to actually carry the scope; otherwise the server silently downscopes and this
     returns False.
 
     Reuses the held credential's portal/inference URLs + client_id so the step-up
-    targets the same deployment (incl. a preview via ``HERMES_PORTAL_BASE_URL`` set
+    targets the same deployment (including a preview selected with
+    ``NOUS_PORTAL_BASE_URL``
     at the original login). Persists to the auth store + shared store + pool, exactly
     like ``_login_nous`` — but WITHOUT the model picker (this is a scope upgrade, not
     a fresh login).
@@ -8447,7 +8340,7 @@ def step_up_nous_billing_scope(
     Returns True iff the new token carries ``billing:manage``.
     """
     prior = get_provider_auth_state("nous") or {}
-    pconfig = PROVIDER_REGISTRY["nous"]
+    client_id = _require_nous_client_id(prior.get("client_id"))
 
     # Build the step-up scope: existing scopes (if any) + billing:manage, deduped,
     # order-stable. Fall back to the standard inference+tool+billing set.
@@ -8464,7 +8357,7 @@ def step_up_nous_billing_scope(
     auth_state = _nous_device_code_login(
         portal_base_url=prior.get("portal_base_url") or None,
         inference_base_url=prior.get("inference_base_url") or None,
-        client_id=prior.get("client_id") or pconfig.client_id,
+        client_id=client_id,
         scope=scope,
         open_browser=open_browser,
         timeout_seconds=timeout_seconds,
@@ -8496,8 +8389,8 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
     insecure = bool(getattr(args, "insecure", False))
     ca_bundle = (
         getattr(args, "ca_bundle", None)
-        or os.getenv("HERMES_CA_BUNDLE")
         or os.getenv("SSL_CERT_FILE")
+        or os.getenv("REQUESTS_CA_BUNDLE")
     )
 
     try:
@@ -8533,7 +8426,7 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
             auth_state = _nous_device_code_login(
                 portal_base_url=getattr(args, "portal_url", None),
                 inference_base_url=getattr(args, "inference_url", None),
-                client_id=getattr(args, "client_id", None) or pconfig.client_id,
+                client_id=getattr(args, "client_id", None),
                 scope=getattr(args, "scope", None),
                 open_browser=not getattr(args, "no_browser", False),
                 timeout_seconds=timeout_seconds,
@@ -8617,7 +8510,7 @@ def _login_nous(args, pconfig: ProviderConfig) -> None:
                     # The Portal's freeRecommendedModels endpoint is the
                     # source of truth for what's free *right now*. Augment
                     # the curated list with anything new the Portal flags
-                    # as free so users on older Hermes builds still see
+                    # as free so users on older Fabric builds still see
                     # newly-launched free models without a CLI release.
                     model_ids, pricing = union_with_portal_free_recommendations(
                         model_ids, pricing, _portal_for_recs,

@@ -9,7 +9,7 @@ the active one (selected via ``web.search_backend`` / ``web.extract_backend`` /
 ``web_extract`` tool call.
 
 Providers live in ``<repo>/plugins/web/<name>/`` (built-in, auto-loaded as
-``kind: backend``) or ``~/.hermes/plugins/web/<name>/`` (user, opt-in via
+``kind: backend``) or ``~/.fabric/plugins/web/<name>/`` (user, opt-in via
 ``plugins.enabled``).
 
 This ABC is the SINGLE plugin-facing surface for web providers — every
@@ -60,8 +60,8 @@ def get_provider_env(name: str) -> str:
     """Config-aware env lookup for web providers.
 
     Resolves *name* via :func:`fabric_cli.config.get_env_value` (checks
-    ``os.environ`` first, then ``~/.hermes/.env``) so credentials set
-    through Hermes' config layer are visible even when they were never
+    ``os.environ`` first, then ``~/.fabric/.env``) so credentials set
+    through Fabric's config layer are visible even when they were never
     exported into the process environment — gateway sessions, delegate
     children, and subprocess agent runs (issue #40190). Falls back to a
     bare ``os.getenv`` when the config module is unavailable (stripped

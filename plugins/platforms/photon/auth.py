@@ -22,7 +22,7 @@ The ``spectrum-ts`` SDK (run by the Node sidecar) authenticates to Spectrum
 Cloud with ``(id, projectSecret)`` — the same ``id`` used in Dashboard API
 paths — which we persist as ``PHOTON_PROJECT_ID`` for the runtime.
 
-Credential storage mirrors every other Hermes channel:
+Credential storage mirrors every other Fabric channel:
 
     * runtime SDK creds  -> ``~/.fabric/.env``  (``PHOTON_PROJECT_ID`` =
       project id, ``PHOTON_PROJECT_SECRET``) via ``save_env_value``
@@ -48,7 +48,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     import httpx
-except ImportError:  # pragma: no cover - httpx is a hermes dependency
+except ImportError:  # pragma: no cover - httpx is a fabric dependency
     httpx = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class PhotonDashboardAuthError(RuntimeError):
 # endpoint — an unregistered client_id is rejected with
 # `400 {"error":"invalid_client"}`.  Use Photon's published CLI device
 # client (matches `CLI_CLIENT_ID` in photon-hq/cli) until the dashboard API
-# registers Hermes as its own client_id.
+# registers Fabric as its own client_id.
 DEFAULT_CLIENT_ID = "photon-cli"
 DEFAULT_SCOPE = "openid profile email"
 
@@ -73,7 +73,6 @@ DEFAULT_SPECTRUM_HOST = "https://spectrum.photon.codes"
 
 # Default name of the project Fabric provisions for the operator.
 DEFAULT_PROJECT_NAME = "Fabric"
-LEGACY_DEFAULT_PROJECT_NAME = "Fabric"
 
 # Polling defaults per RFC 8628.  Photon overrides via `interval` /
 # `expires_in` in the device-code response — those win.
@@ -88,11 +87,9 @@ E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 
 def _auth_json_path() -> Path:
     """Resolve ``~/.fabric/auth.json`` honouring the active Fabric profile."""
-    try:
-        from fabric_constants import get_fabric_home
-        return Path(get_fabric_home()) / "auth.json"
-    except Exception:
-        return Path(os.path.expanduser("~/.fabric")) / "auth.json"
+    from fabric_constants import get_fabric_home
+
+    return Path(get_fabric_home()) / "auth.json"
 
 
 def _load_auth() -> Dict[str, Any]:

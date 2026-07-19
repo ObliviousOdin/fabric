@@ -1,7 +1,7 @@
-"""Coding-context awareness — base Hermes, every interactive surface.
+"""Coding-context awareness — base Fabric, every interactive surface.
 
-When the user runs Hermes inside a code workspace (CLI, TUI, desktop app, or an
-editor over ACP), Hermes shifts into a **coding posture**. This module is the
+When the user runs Fabric inside a code workspace (CLI, TUI, desktop app, or an
+editor over ACP), Fabric shifts into a **coding posture**. This module is the
 single place that decides whether we're in that posture and what it implies,
 so the rest of the codebase never re-derives "are we coding?" on its own.
 
@@ -62,7 +62,7 @@ from typing import Any, Optional
 
 from fabric_cli._subprocess_compat import IS_WINDOWS, windows_hide_flags
 
-logger = logging.getLogger("hermes.coding_context")
+logger = logging.getLogger("fabric.coding_context")
 
 CODING_TOOLSET = "coding"
 
@@ -79,13 +79,13 @@ _PROJECT_MARKERS = (
     "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts",
     "Gemfile", "composer.json", "mix.exs", "pubspec.yaml",
     "CMakeLists.txt", "Makefile", "Dockerfile",
-    ".fabric.md", "FABRIC.md", ".hermes.md", "HERMES.md",
+    ".fabric.md", "FABRIC.md",
     "AGENTS.md", "CLAUDE.md", ".cursorrules",
 )
 
 # Agent-instruction files surfaced separately from manifests in the snapshot.
 _CONTEXT_FILES = (
-    ".fabric.md", "FABRIC.md", ".hermes.md", "HERMES.md",
+    ".fabric.md", "FABRIC.md",
     "AGENTS.md", "CLAUDE.md", ".cursorrules",
 )
 
@@ -182,7 +182,7 @@ _EDIT_FORMAT_GUIDANCE: dict[str, tuple[tuple[str, ...], str]] = {
     "replace": (
         ("claude", "sonnet", "opus", "haiku",
          "gemini", "gemma", "deepseek", "qwen", "kimi", "glm", "grok",
-         "hermes", "llama", "mistral", "devstral", "minimax"),
+         "llama", "mistral", "devstral", "minimax"),
         "- Edit format: author new files with `write_file`; for edits to "
         "existing code prefer `patch` in `mode='replace'` — match a unique "
         "snippet and swap it. Reach for `mode='patch'` (V4A) only when an edit "
@@ -217,7 +217,7 @@ def _edit_format_line(model: Optional[str]) -> str:
 
 # Operating brief for the coding posture. Tool names referenced here (read_file,
 # search_files, patch, write_file, terminal, todo) are in the coding toolset and
-# in _HERMES_CORE_TOOLS, so they're present on every surface this fires on.
+# in _FABRIC_CORE_TOOLS, so they're present on every surface this fires on.
 CODING_AGENT_GUIDANCE = (
     "You are a coding agent pairing with the user inside their codebase. "
     "Operate like a careful senior engineer.\n"
@@ -507,7 +507,7 @@ class RuntimeMode:
         messaging for build notifications, …) keeps it while coding.
 
         Callers apply this only when the user hasn't pinned an explicit
-        selection (``--toolsets``, ``HERMES_TUI_TOOLSETS``, …); they never
+        selection (``--toolsets`` or an equivalent launch descriptor); they never
         override a pin. Returns the profile's toolset plus enabled MCP servers.
         """
         if self.config_mode != "focus":

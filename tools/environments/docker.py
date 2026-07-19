@@ -18,8 +18,8 @@ from typing import Optional
 
 from tools.environments.base import BaseEnvironment, _popen_bash
 from tools.environments.local import (
-    _HERMES_PROVIDER_ENV_BLOCKLIST,
-    _is_hermes_internal_secret,
+    _PROVIDER_ENV_BLOCKLIST,
+    _is_fabric_internal_secret,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,8 +93,8 @@ def _normalize_env_dict(env: dict | None) -> dict[str, str]:
     return normalized
 
 
-def _load_hermes_env_vars() -> dict[str, str]:
-    """Load ~/.hermes/.env values without failing Docker command execution."""
+def _load_fabric_env_vars() -> dict[str, str]:
+    """Load ~/.fabric/.env values without failing Docker command execution."""
     try:
         from fabric_cli.config import load_env
 
@@ -144,7 +144,7 @@ def reap_orphan_containers(
     profile_filter: str | None = None,
     docker_exe: str | None = None,
 ) -> int:
-    """Remove stale hermes-tagged containers left behind by prior processes.
+    """Remove stale fabric-tagged containers left behind by prior processes.
 
     Targets containers that match all of:
 
@@ -152,7 +152,7 @@ def reap_orphan_containers(
     * ``status=exited`` (running containers are NEVER reaped — they may
       belong to a sibling Fabric process whose reuse path will pick them
       up; killing them would crash the sibling mid-command)
-    * (optional) ``label=hermes-profile=<profile_filter>`` (sweep only the
+    * (optional) ``label=fabric-profile=<profile_filter>`` (sweep only the
       caller's profile by default; a Fabric process in profile A must not
       tear down profile B's containers)
     * ``State.FinishedAt`` older than *max_age_seconds* ago (so a sibling
@@ -166,7 +166,7 @@ def reap_orphan_containers(
 
     Issue #20561 — this is the safety net for SIGKILL / OOM / crashed
     terminal exits that bypass the ``atexit`` cleanup hook. Without it,
-    even with the cleanup-fix in the prior commit, a hard-killed Hermes
+    even with the cleanup-fix in the prior commit, a hard-killed Fabric
     process leaves its container behind permanently because there's no
     subsequent Fabric process scheduled to reuse that exact (task, profile)
     pair.
@@ -174,7 +174,7 @@ def reap_orphan_containers(
     docker = docker_exe or find_docker() or "docker"
     filters = ["--filter", "label=fabric-agent=1", "--filter", "status=exited"]
     if profile_filter:
-        filters.extend(["--filter", f"label=hermes-profile={_sanitize_label_value(profile_filter)}"])
+        filters.extend(["--filter", f"label=fabric-profile={_sanitize_label_value(profile_filter)}"])
 
     try:
         listing = subprocess.run(
@@ -271,10 +271,9 @@ def find_docker() -> Optional[str]:
     """Locate the docker (or podman) CLI binary.
 
     Resolution order:
-    1. ``HERMES_DOCKER_BINARY`` env var — explicit override (e.g. ``/usr/bin/podman``)
-    2. ``docker`` on PATH via ``shutil.which``
-    3. ``podman`` on PATH via ``shutil.which``
-    4. Well-known macOS Docker Desktop install locations
+    1. ``docker`` on PATH via ``shutil.which``
+    2. ``podman`` on PATH via ``shutil.which``
+    3. Well-known macOS Docker Desktop install locations
 
     Returns the absolute path, or ``None`` if neither runtime can be found.
     """
@@ -282,27 +281,20 @@ def find_docker() -> Optional[str]:
     if _docker_executable is not None:
         return _docker_executable
 
-    # 1. Explicit override via env var (e.g. for Podman on immutable distros)
-    override = os.getenv("HERMES_DOCKER_BINARY")
-    if override and os.path.isfile(override) and os.access(override, os.X_OK):
-        _docker_executable = override
-        logger.info("Using HERMES_DOCKER_BINARY override: %s", override)
-        return override
-
-    # 2. docker on PATH
+    # 1. docker on PATH
     found = shutil.which("docker")
     if found:
         _docker_executable = found
         return found
 
-    # 3. podman on PATH (drop-in compatible for our use case)
+    # 2. podman on PATH (drop-in compatible for our use case)
     found = shutil.which("podman")
     if found:
         _docker_executable = found
         logger.info("Using podman as container runtime: %s", found)
         return found
 
-    # 4. Well-known macOS Docker Desktop locations
+    # 3. Well-known macOS Docker Desktop locations
     for path in _DOCKER_SEARCH_PATHS:
         if os.path.isfile(path) and os.access(path, os.X_OK):
             _docker_executable = path
@@ -317,7 +309,7 @@ def find_docker() -> Optional[str]:
 # We drop all capabilities then add back the minimum needed:
 #   DAC_OVERRIDE - root can write to bind-mounted dirs owned by host user
 #   CHOWN/FOWNER - package managers (pip, npm, apt) need to set file ownership
-#   SETUID/SETGID - the image's init drops from root to the 'hermes'
+#   SETUID/SETGID - the image's init drops from root to the 'fabric'
 #       user (via `s6-setuidgid` in the bundled image, or whatever
 #       privilege-drop helper a user image uses), which requires these
 #       caps. Combined with `no-new-privileges`, the dropped process
@@ -643,7 +635,7 @@ class DockerEnvironment(BaseEnvironment):
             resource_args.append("--network=none")
 
         # Persistent workspace via bind mounts from a configurable host directory
-        # (TERMINAL_SANDBOX_DIR, default ~/.hermes/sandboxes/). Non-persistent
+        # (TERMINAL_SANDBOX_DIR, default ~/.fabric/sandboxes/). Non-persistent
         # mode uses tmpfs (ephemeral, fast, gone on cleanup).
         from tools.environments.base import get_sandbox_dir
 
@@ -855,10 +847,10 @@ class DockerEnvironment(BaseEnvironment):
         logger.info(f"Docker run_args: {all_run_args}")
 
         # Start the container directly via `docker run -d`.
-        container_name = f"hermes-{uuid.uuid4().hex[:8]}"
-        # Labels make hermes-created containers identifiable to:
+        container_name = f"fabric-{uuid.uuid4().hex[:8]}"
+        # Labels make fabric-created containers identifiable to:
         #   * the orphan reaper (`fabric-agent=1` for the global sweep filter)
-        #   * future cross-process reuse (`hermes-task-id`, `hermes-profile`)
+        #   * future cross-process reuse (`fabric-task-id`, `fabric-profile`)
         #   * operators running `docker ps --filter label=fabric-agent=1`
         # Values are limited to the safe character set defined by
         # _sanitize_label_value(); the active Fabric profile is captured at
@@ -867,8 +859,8 @@ class DockerEnvironment(BaseEnvironment):
         task_label = _sanitize_label_value(task_id)
         label_args = [
             "--label", "fabric-agent=1",
-            "--label", f"hermes-task-id={task_label}",
-            "--label", f"hermes-profile={profile_name}",
+            "--label", f"fabric-task-id={task_label}",
+            "--label", f"fabric-profile={profile_name}",
         ]
         # Save args for container recreation on "No such container" recovery.
         self._image = image
@@ -878,8 +870,8 @@ class DockerEnvironment(BaseEnvironment):
 
         self._labels = {
             "fabric-agent": "1",
-            "hermes-task-id": task_label,
-            "hermes-profile": profile_name,
+            "fabric-task-id": task_label,
+            "fabric-profile": profile_name,
         }
 
         # Cross-process container reuse (issue #20561 — docs claim "ONE long-lived
@@ -1033,19 +1025,19 @@ class DockerEnvironment(BaseEnvironment):
         except Exception:
             pass
         # Explicit docker_forward_env entries are an intentional opt-in and must
-        # win over the generic Hermes secret blocklist. Only implicit passthrough
-        # keys are filtered. Also strip Hermes-internal dynamic secrets
+        # win over the generic Fabric secret blocklist. Only implicit passthrough
+        # keys are filtered. Also strip Fabric-internal dynamic secrets
         # (AUXILIARY_*_API_KEY / _BASE_URL, GATEWAY_RELAY_* auth) that the
-        # name-based blocklist doesn't cover — see _is_hermes_internal_secret.
+        # name-based blocklist doesn't cover — see _is_fabric_internal_secret.
         _implicit_forward = {
-            k for k in passthrough_keys if not _is_hermes_internal_secret(k)
+            k for k in passthrough_keys if not _is_fabric_internal_secret(k)
         }
-        forward_keys = explicit_forward_keys | (_implicit_forward - _HERMES_PROVIDER_ENV_BLOCKLIST)
-        hermes_env = _load_hermes_env_vars() if forward_keys else {}
+        forward_keys = explicit_forward_keys | (_implicit_forward - _PROVIDER_ENV_BLOCKLIST)
+        fabric_env = _load_fabric_env_vars() if forward_keys else {}
         for key in sorted(forward_keys):
             value = os.getenv(key)
             if not value:
-                value = hermes_env.get(key)
+                value = fabric_env.get(key)
             if value:
                 exec_env[key] = value
 
@@ -1106,8 +1098,8 @@ class DockerEnvironment(BaseEnvironment):
         self._container_id = None
 
         # 1. Try label-based reuse (another process may have recreated it).
-        task_label = self._labels.get("hermes-task-id", "")
-        profile_label = self._labels.get("hermes-profile", "")
+        task_label = self._labels.get("fabric-task-id", "")
+        profile_label = self._labels.get("fabric-profile", "")
         existing = self._find_reusable_container(task_label, profile_label)
         if existing is not None:
             cid, state = existing
@@ -1133,7 +1125,7 @@ class DockerEnvironment(BaseEnvironment):
                 return False
             try:
                 import uuid as _uuid
-                new_name = f"hermes-{_uuid.uuid4().hex[:8]}"
+                new_name = f"fabric-{_uuid.uuid4().hex[:8]}"
                 init_args = [] if self._image_uses_s6_init else ["--init"]
                 label_args = []
                 for k, v in self._labels.items():
@@ -1277,7 +1269,7 @@ class DockerEnvironment(BaseEnvironment):
         whether the state warrants ``docker start`` before reuse.
 
         Restricted to the docker-stored label set this class creates; never
-        matches containers that happened to be named ``hermes-*`` but were
+        matches containers that happened to be named ``fabric-*`` but were
         started by some other tool.
         """
         try:
@@ -1285,8 +1277,8 @@ class DockerEnvironment(BaseEnvironment):
                 [
                     self._docker_exe, "ps", "-a",
                     "--filter", "label=fabric-agent=1",
-                    "--filter", f"label=hermes-task-id={task_label}",
-                    "--filter", f"label=hermes-profile={profile_label}",
+                    "--filter", f"label=fabric-task-id={task_label}",
+                    "--filter", f"label=fabric-profile={profile_label}",
                     "--format", "{{.ID}}\t{{.State}}",
                 ],
                 capture_output=True,
@@ -1330,7 +1322,7 @@ class DockerEnvironment(BaseEnvironment):
 
         Persist-mode (``persist_across_processes=True``, the default) leaves the
         container **running** untouched. The docs promise "ONE long-lived
-        container shared across sessions" and stopping it on every Hermes exit
+        container shared across sessions" and stopping it on every Fabric exit
         breaks that promise:
 
         * Background processes inside the container (``npm run dev``, watchers,
@@ -1344,7 +1336,7 @@ class DockerEnvironment(BaseEnvironment):
         Resource reclamation for the persist-mode case lives in the
         ``reap_orphan_containers()`` path (see issue #20561 commit 3): if no
         Fabric process touches a labeled container for ``2 × lifetime_seconds``
-        it gets ``docker rm -f``'d at the next Hermes startup. That covers the
+        it gets ``docker rm -f``'d at the next Fabric startup. That covers the
         SIGKILL / OOM / abandoned-laptop cases without us needing to stop the
         container on every graceful exit.
 
@@ -1384,7 +1376,7 @@ class DockerEnvironment(BaseEnvironment):
         #   persist_across_processes=False → stop + rm (per-process isolation)
         #
         # The persist-mode no-op is the issue-#20561 contract: the container
-        # outlives Hermes processes, processes inside it stay alive, and
+        # outlives Fabric processes, processes inside it stay alive, and
         # reuse on next startup is instant.
         if force_remove:
             should_stop = True
@@ -1431,7 +1423,7 @@ class DockerEnvironment(BaseEnvironment):
         # ``_atexit_cleanup`` in terminal_tool.py which waits up to ~60s for
         # outstanding cleanups, so most exits complete the work cleanly.
         import threading
-        t = threading.Thread(target=_do_cleanup, daemon=True, name=f"hermes-cleanup-{log_id}")
+        t = threading.Thread(target=_do_cleanup, daemon=True, name=f"fabric-cleanup-{log_id}")
         t.start()
         self._cleanup_thread = t
         self._container_id = None
@@ -1450,7 +1442,7 @@ class DockerEnvironment(BaseEnvironment):
         Returns ``True`` if the thread finished (or no thread was started),
         ``False`` on timeout. The atexit hook in terminal_tool.py calls this
         on every active environment so docker stop/rm actually completes
-        before the Python process exits — without this, ``hermes /quit``
+        before the Python process exits — without this, ``fabric /quit``
         races the interpreter shutdown and leaves stopped containers behind.
         """
         thread = getattr(self, "_cleanup_thread", None)

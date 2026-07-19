@@ -28,13 +28,13 @@ from typing import List, Dict, Any, Set, Optional
 
 # Shared tool list for CLI and all messaging platform toolsets.
 # Edit this once to update all platforms simultaneously.
-_HERMES_CORE_TOOLS = [
+_FABRIC_CORE_TOOLS = [
     # Web
     "web_search", "web_extract",
     # Terminal + process management
     "terminal", "process",
     # Read the desktop GUI's embedded terminal pane, and close an agent's
-    # read-only terminal tab (both gated on HERMES_DESKTOP via check_fn —
+    # read-only terminal tab (both gated on FABRIC_DESKTOP via check_fn —
     # hidden outside the GUI).
     "read_terminal", "close_terminal",
     # File manipulation
@@ -68,7 +68,7 @@ _HERMES_CORE_TOOLS = [
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
     "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
     # Kanban multi-agent coordination — only in schema when the agent is
-    # spawned as a kanban worker (HERMES_KANBAN_TASK env set) or the current
+    # spawned as a kanban worker or the current
     # profile explicitly enables the kanban toolset. Gated via check_fn in
     # tools/kanban_tools.py.
     "kanban_show", "kanban_list",
@@ -82,7 +82,7 @@ _HERMES_CORE_TOOLS = [
 # Webhook events may originate from untrusted third-party content (for example,
 # public PR titles/comments). Keep the default webhook toolset intentionally
 # constrained to avoid local file/system execution by prompt injection.
-_HERMES_WEBHOOK_SAFE_TOOLS = [
+_FABRIC_WEBHOOK_SAFE_TOOLS = [
     "web_search",
     "web_extract",
     "vision_analyze",
@@ -260,8 +260,8 @@ TOOLSETS = {
     "kanban": {
         "description": (
             "Kanban multi-agent coordination — only active when the agent "
-            "is spawned by the kanban dispatcher (HERMES_KANBAN_TASK env "
-            "set). The dispatcher runs inside the gateway by default; see "
+            "is spawned by the kanban dispatcher. The dispatcher runs inside "
+            "the gateway by default; see "
             "`kanban.dispatch_in_gateway` in config.yaml. Lets workers mark "
             "tasks done with structured handoffs, block for human input, "
             "heartbeat during long ops, comment on threads, and (for "
@@ -339,7 +339,7 @@ TOOLSETS = {
         "includes": ["web", "vision", "image_gen"]
     },
 
-    # Coding posture (base Hermes — CLI/TUI/desktop/ACP). Auto-selected in a
+    # Coding posture (base Fabric — CLI/TUI/desktop/ACP). Auto-selected in a
     # code workspace; see agent/coding_context.py. Keeps everything you reach
     # for while pairing on code and drops the rest (messaging, tts, image_gen,
     # spotify, home-assistant, cron, computer-use).
@@ -367,15 +367,15 @@ TOOLSETS = {
     },
     
     # ==========================================================================
-    # Full Hermes toolsets (CLI + messaging platforms)
+    # Full Fabric toolsets (CLI + messaging platforms)
     #
     # All platforms share the same core tools. Note: agents do NOT get an
     # agent-callable send_message tool — outbound platform messaging is handled
     # outside the agent loop (cron delivery, the gateway kanban notifier, and
-    # the `hermes send` CLI), not by the model deciding to send on its own.
+    # the `fabric send` CLI), not by the model deciding to send on its own.
     # ==========================================================================
 
-    "hermes-acp": {
+    "fabric-acp": {
         "description": "Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI",
         "tools": [
             "web_search", "web_extract",
@@ -394,7 +394,7 @@ TOOLSETS = {
         "includes": []
     },
 
-    "hermes-api-server": {
+    "fabric-api-server": {
         "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
         "tools": [
             # Web
@@ -427,95 +427,95 @@ TOOLSETS = {
         "includes": []
     },
     
-    "hermes-cli": {
+    "fabric-cli": {
         "description": "Full interactive CLI toolset - all default tools plus cronjob management",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-cron": {
-        # Mirrors hermes-cli so cron's "default" toolset is the same set of
+    "fabric-cron": {
+        # Mirrors fabric-cli so cron's "default" toolset is the same set of
         # core tools users see interactively — then `fabric tools` filters
         # them down per the platform config. _DEFAULT_OFF_TOOLSETS (moa,
         # homeassistant) are excluded by _get_platform_tools() unless
         # the user explicitly enables them.
-        "description": "Default cron toolset - same core tools as hermes-cli; gated by `fabric tools`",
-        "tools": _HERMES_CORE_TOOLS,
+        "description": "Default cron toolset - same core tools as fabric-cli; gated by `fabric tools`",
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-telegram": {
+    "fabric-telegram": {
         "description": "Telegram bot toolset - full access for personal use (terminal has safety checks)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-discord": {
+    "fabric-discord": {
         "description": "Discord bot toolset - full access (terminal has safety checks via dangerous command approval)",
-        "tools": _HERMES_CORE_TOOLS + [
+        "tools": _FABRIC_CORE_TOOLS + [
             "discord",
             "discord_admin",
         ],
         "includes": []
     },
     
-    "hermes-whatsapp": {
+    "fabric-whatsapp": {
         "description": "WhatsApp bot toolset - similar to Telegram (personal messaging, more trusted)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-slack": {
+    "fabric-slack": {
         "description": "Slack bot toolset - full access for workspace use (terminal has safety checks)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-signal": {
+    "fabric-signal": {
         "description": "Signal bot toolset - encrypted messaging platform (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-bluebubbles": {
+    "fabric-bluebubbles": {
         "description": "BlueBubbles iMessage bot toolset - Apple iMessage via local BlueBubbles server",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-homeassistant": {
+    "fabric-homeassistant": {
         "description": "Home Assistant bot toolset - smart home event monitoring and control",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-email": {
+    "fabric-email": {
             "description": "Email bot toolset - interact with Fabric via email (IMAP/SMTP)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-mattermost": {
+    "fabric-mattermost": {
         "description": "Mattermost bot toolset - self-hosted team messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-matrix": {
+    "fabric-matrix": {
         "description": "Matrix bot toolset - decentralized encrypted messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-dingtalk": {
+    "fabric-dingtalk": {
         "description": "DingTalk bot toolset - enterprise messaging platform (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-feishu": {
+    "fabric-feishu": {
         "description": "Feishu/Lark bot toolset - enterprise messaging via Feishu/Lark (full access)",
-        "tools": _HERMES_CORE_TOOLS + [
+        "tools": _FABRIC_CORE_TOOLS + [
             "feishu_doc_read",
             "feishu_drive_list_comments",
             "feishu_drive_list_comment_replies",
@@ -525,33 +525,33 @@ TOOLSETS = {
         "includes": []
     },
 
-    "hermes-weixin": {
+    "fabric-weixin": {
         "description": "Weixin bot toolset - personal WeChat messaging via iLink (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-qqbot": {
+    "fabric-qqbot": {
         "description": "QQBot toolset - QQ messaging via Official Bot API v2 (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-wecom": {
+    "fabric-wecom": {
         "description": "WeCom bot toolset - enterprise WeChat messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-wecom-callback": {
+    "fabric-wecom-callback": {
         "description": "WeCom callback toolset - enterprise self-built app messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-yuanbao": {
+    "fabric-yuanbao": {
         "description": "Yuanbao Bot 元宝消息平台工具集 - 群信息、成员查询、私聊、贴纸表情",
-        "tools": _HERMES_CORE_TOOLS + [
+        "tools": _FABRIC_CORE_TOOLS + [
             "yb_query_group_info",
             "yb_query_group_members",
             "yb_send_dm",
@@ -562,22 +562,22 @@ TOOLSETS = {
         "includes": []
     },
 
-    "hermes-sms": {
+    "fabric-sms": {
             "description": "SMS bot toolset - interact with Fabric via SMS (Twilio)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _FABRIC_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-webhook": {
+    "fabric-webhook": {
         "description": "Webhook toolset - receive and process external webhook events",
-        "tools": _HERMES_WEBHOOK_SAFE_TOOLS,
+        "tools": _FABRIC_WEBHOOK_SAFE_TOOLS,
         "includes": []
     },
 
     "fabric-gateway": {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
-        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook", "hermes-yuanbao"]
+        "includes": ["fabric-telegram", "fabric-discord", "fabric-whatsapp", "fabric-slack", "fabric-signal", "fabric-bluebubbles", "fabric-homeassistant", "fabric-email", "fabric-sms", "fabric-mattermost", "fabric-matrix", "fabric-dingtalk", "fabric-feishu", "fabric-wecom", "fabric-wecom-callback", "fabric-weixin", "fabric-qqbot", "fabric-webhook", "fabric-yuanbao"]
     }
 }
 
@@ -657,9 +657,9 @@ def get_toolset(name: str, *, include_registry: bool = True) -> Optional[Dict[st
 
 
 def bundle_non_core_tools(toolset_name: str) -> Set[str]:
-    """Return a ``hermes-*`` bundle's platform-specific tools, excluding core.
+    """Return a ``fabric-*`` bundle's platform-specific tools, excluding core.
 
-    Platform bundles are defined as ``_HERMES_CORE_TOOLS + [platform extras]``.
+    Platform bundles are defined as ``_FABRIC_CORE_TOOLS + [platform extras]``.
     When a bundle name appears in ``disabled_toolsets``, subtracting the whole
     bundle would strip core tools (terminal, read_file, …) shared by every
     other enabled toolset, emptying the model's tool list (#33924). This
@@ -667,12 +667,12 @@ def bundle_non_core_tools(toolset_name: str) -> Set[str]:
     one-level ``includes``), so disabling a bundle removes its platform tools
     while leaving core intact.
 
-    Bundle nesting is one level deep in practice (only ``hermes-gateway``
+    Bundle nesting is one level deep in practice (only ``fabric-gateway``
     includes other bundles, and those leaves don't nest further), so a single
     ``includes`` pass is sufficient. Unknown/garbage names fall back to the
     full resolution minus core — never re-introducing the core wipe.
     """
-    core = set(_HERMES_CORE_TOOLS)
+    core = set(_FABRIC_CORE_TOOLS)
     ts_def = get_toolset(toolset_name)
     if not (ts_def and "tools" in ts_def):
         return set(resolve_toolset(toolset_name)) - core
@@ -728,17 +728,17 @@ def resolve_toolset(name: str, visited: Set[str] = None, *, include_registry: bo
     # Get toolset definition
     toolset = get_toolset(name, include_registry=include_registry)
     if not toolset:
-        # Auto-generate a toolset for plugin platforms (hermes-<name>).
-        # Gives them _HERMES_CORE_TOOLS plus any tools the plugin registered
+        # Auto-generate a toolset for plugin platforms (fabric-<name>).
+        # Gives them _FABRIC_CORE_TOOLS plus any tools the plugin registered
         # into a toolset matching the platform name. This is a registry-derived
         # view, so it only applies when registry tools are requested; the static
         # view (include_registry=False) has no plugin-platform definition.
-        if include_registry and name.startswith("hermes-"):
-            platform_name = name[len("hermes-"):]
+        if include_registry and name.startswith("fabric-"):
+            platform_name = name[len("fabric-"):]
             try:
                 from gateway.platform_registry import platform_registry
                 if platform_registry.is_registered(platform_name):
-                    plugin_tools = set(_HERMES_CORE_TOOLS)
+                    plugin_tools = set(_FABRIC_CORE_TOOLS)
                     try:
                         from tools.registry import registry
                         plugin_tools.update(
@@ -969,7 +969,3 @@ if __name__ == "__main__":
     print("  Created 'my_custom' toolset:")
     print(f"    Description: {custom_info['description']}")
     print(f"    Resolved tools: {', '.join(custom_info['resolved_tools'])}")
-
-# Legacy toolset alias kept for configs that still list hermes-gateway
-if "fabric-gateway" in TOOLSETS and "hermes-gateway" not in TOOLSETS:
-    TOOLSETS["hermes-gateway"] = TOOLSETS["fabric-gateway"]

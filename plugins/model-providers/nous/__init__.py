@@ -2,18 +2,12 @@
 
 from typing import Any
 
-from agent.portal_tags import nous_portal_tags
 from providers import register_provider
 from providers.base import ProviderProfile
 
 
 class NousProfile(ProviderProfile):
-    """Nous Portal — product tags, reasoning with Nous-specific omission."""
-
-    def build_extra_body(
-        self, *, session_id: str | None = None, **context
-    ) -> dict[str, Any]:
-        return {"tags": nous_portal_tags()}
+    """Nous Portal reasoning integration."""
 
     def build_api_kwargs_extras(
         self,
@@ -39,15 +33,10 @@ class NousProfile(ProviderProfile):
 nous = NousProfile(
     name="nous",
     aliases=("nous-portal", "nousresearch"),
-    env_vars=("NOUS_API_KEY",),
     display_name="Nous Research",
-    description="Nous Research — Hermes model family",
+    description="Nous Research inference platform",
     signup_url="https://nousresearch.com/",
-    fallback_models=(
-        "hermes-3-405b",
-        "hermes-3-70b",
-    ),
-    base_url="https://inference.nousresearch.com/v1",
+    base_url="https://inference-api.nousresearch.com/v1",
     auth_type="oauth_device_code",
 )
 

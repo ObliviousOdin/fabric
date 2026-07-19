@@ -2,16 +2,16 @@
 
 The journey graph (``agent.learning_graph``) gives every node a stable id:
 
-- **skills** → the skill name (e.g. ``"debugging-hermes-desktop"``)
+- **skills** → the skill name (e.g. ``"debugging-fabric-desktop"``)
 - **memories** → ``memory:<source>:<index>`` where ``source`` is ``memory``
   (``MEMORY.md``) or ``profile`` (``USER.md``) and ``index`` is the node's
   position in the combined card list (``MEMORY.md`` cards first, then
   ``USER.md``).
 
 This module maps a node id back to its on-disk home and performs the mutation,
-shared by the CLI (``hermes journey delete|edit``), the TUI ``/journey`` overlay
+shared by the CLI (``fabric journey delete|edit``), the TUI ``/journey`` overlay
 (gateway RPCs), and the desktop GUI (REST). Deleting a skill *archives* it
-(recoverable via ``hermes curator restore``); deleting a memory rewrites its
+(recoverable via ``fabric curator restore``); deleting a memory rewrites its
 file. Pure stdlib + existing skill/memory helpers.
 """
 

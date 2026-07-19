@@ -194,7 +194,7 @@ class BrowserUseBrowserProvider(BrowserProvider):
             headers["X-Idempotency-Key"] = _get_or_create_pending_create_key(task_id)
 
         # Keep gateway-backed sessions short so billing authorization does not
-        # default to a long Browser-Use timeout when Hermes only needs a task-
+        # default to a long Browser-Use timeout when Fabric only needs a task-
         # scoped ephemeral browser.
         payload = (
             {
@@ -233,7 +233,7 @@ class BrowserUseBrowserProvider(BrowserProvider):
         session_data = response.json()
         if managed_mode:
             _clear_pending_create_key(task_id)
-        session_name = f"hermes_{task_id}_{uuid.uuid4().hex[:8]}"
+        session_name = f"fabric_{task_id}_{uuid.uuid4().hex[:8]}"
         external_call_id = (
             response.headers.get("x-external-call-id") if managed_mode else None
         )

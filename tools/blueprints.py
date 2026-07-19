@@ -15,7 +15,7 @@ frontmatter:
 Because a blueprint is just a skill, it flows through the ENTIRE existing
 skills-hub pipeline for free — search, inspect, quarantine, security scan,
 install, lock-file provenance, audit log, taps, the centralized index, and
-`Fabric skills publish` for sharing. No new source type, no new store, no new
+`fabric skills publish` for sharing. No new source type, no new store, no new
 transport. This module is the thin bridge between that skill metadata and the
 existing cron `create_job()` API:
 
@@ -97,9 +97,8 @@ def _split_frontmatter(text: str) -> Optional[Dict[str, Any]]:
 def parse_blueprint(skill_md_text: str) -> Optional[BlueprintSpec]:
     """Extract a BlueprintSpec from a SKILL.md string, or None if not a blueprint.
 
-    A skill is a blueprint iff its merged Fabric metadata has a ``blueprint``
-    mapping containing a non-empty ``schedule``. ``metadata.fabric`` is
-    canonical and ``metadata.hermes`` remains a fallback. Raises BlueprintError
+    A skill is a blueprint iff ``metadata.fabric`` has a ``blueprint`` mapping
+    containing a non-empty ``schedule``. Raises BlueprintError
     if the effective block exists but is structurally invalid (so a typo
     surfaces instead of silently no-op'ing).
     """
@@ -250,7 +249,7 @@ def export_blueprint(job: Dict[str, Any], body: str, *, blueprint_name: Optional
 
     The inverse of ``create_blueprint_job``: take a cron job a user already built
     and emit a SKILL.md (with a ``metadata.fabric.blueprint`` block) they can hand
-    to ``Fabric skills publish`` to share. ``body`` is the plain-language
+    to ``fabric skills publish`` to share. ``body`` is the plain-language
     description / instructions that become the SKILL.md body.
     """
     import yaml

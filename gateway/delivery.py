@@ -376,13 +376,8 @@ class DeliveryRouter:
     def _filter_silence_narration_enabled(self) -> bool:
         """Whether the outbound silence-narration filter is active.
 
-        ``HERMES_FILTER_SILENCE_NARRATION`` env var overrides config when set;
-        otherwise the ``gateway.filter_silence_narration`` config flag wins
-        (default True).
+        ``gateway.filter_silence_narration`` is the single runtime contract.
         """
-        env = os.getenv("HERMES_FILTER_SILENCE_NARRATION")
-        if env is not None:
-            return env.strip().lower() in ("1", "true", "yes", "on")
         return bool(getattr(self.config, "filter_silence_narration", True))
 
     async def _deliver_to_platform(
@@ -551,7 +546,5 @@ class DeliveryRouter:
             if _send_result_failed(result):
                 raise RuntimeError(_send_result_error(result) or f"{target.platform.value} delivery failed")
         return result
-
-
 
 

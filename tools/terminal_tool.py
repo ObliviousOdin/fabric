@@ -19,7 +19,7 @@ Features:
 
 Cloud sandbox note:
 - Persistent filesystems preserve working state across sandbox recreation
-- Persistent filesystems do NOT guarantee the same live sandbox or long-running processes survive cleanup, idle reaping, or Hermes exit
+- Persistent filesystems do NOT guarantee the same live sandbox or long-running processes survive cleanup, idle reaping, or Fabric exit
 
 Usage:
     from terminal_tool import terminal_tool
@@ -48,6 +48,15 @@ from typing import Optional, Dict, Any, List
 from utils import env_var_enabled
 
 logger = logging.getLogger(__name__)
+
+
+def _set_cli_spinner_paused(paused: bool) -> None:
+    try:
+        from agent.display import set_spinner_paused
+
+        set_spinner_paused(paused)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -125,10 +134,10 @@ def _check_disk_usage_warning():
     try:
         scratch_dir = _get_scratch_dir()
 
-        # Get total size of hermes directories
+        # Get total size of fabric directories
         total_bytes = 0
         import glob
-        for path in glob.glob(str(scratch_dir / "hermes-*")):
+        for path in glob.glob(str(scratch_dir / "fabric-*")):
             for f in Path(path).rglob('*'):
                 if f.is_file():
                     try:
@@ -202,12 +211,7 @@ def set_approval_callback(cb):
 
 def _get_sudo_password_cache_scope() -> str:
     """Return the cache scope for interactive sudo passwords."""
-    try:
-        from gateway.session_context import get_session_env
-
-        session_key = get_session_env("HERMES_SESSION_KEY", "")
-    except Exception:
-        session_key = os.getenv("HERMES_SESSION_KEY", "")
+    session_key = get_current_session_key(default="")
     if session_key:
         return f"session:{session_key}"
 
@@ -254,6 +258,7 @@ def _reset_cached_sudo_passwords() -> None:
 # Dangerous command detection + approval now consolidated in tools/approval.py
 from tools.approval import (
     check_all_command_guards as _check_all_guards_impl,
+    get_current_session_key,
 )
 
 
@@ -321,7 +326,9 @@ def _handle_sudo_failure(output: str, env_type: str) -> str:
     
     Returns enhanced output if sudo failed in messaging context, else original.
     """
-    is_gateway = env_var_enabled("HERMES_GATEWAY_SESSION")
+    from tools.approval import is_gateway_approval_context
+
+    is_gateway = is_gateway_approval_context()
     
     if not is_gateway:
         return output
@@ -387,8 +394,7 @@ def _prompt_for_sudo_password(timeout_seconds: int = 45) -> str:
     - Timeout expires (45s default)
     - Any error occurs
     
-    Only works in interactive mode (HERMES_INTERACTIVE=1).
-    If a _sudo_password_callback is registered (by the CLI), delegates to it
+    If a sudo-password callback is registered by an interactive surface, delegates to it
     so the prompt integrates with prompt_toolkit's UI.  Otherwise reads
     directly from /dev/tty with echo disabled.
     """
@@ -453,7 +459,7 @@ def _prompt_for_sudo_password(timeout_seconds: int = 45) -> str:
             result["done"] = True
     
     try:
-        os.environ["HERMES_SPINNER_PAUSE"] = "1"
+        _set_cli_spinner_paused(True)
         time.sleep(0.2)
         
         print()
@@ -499,8 +505,7 @@ def _prompt_for_sudo_password(timeout_seconds: int = 45) -> str:
         sys.stdout.flush()
         return ""
     finally:
-        if "HERMES_SPINNER_PAUSE" in os.environ:
-            del os.environ["HERMES_SPINNER_PAUSE"]
+        _set_cli_spinner_paused(False)
 
 def _safe_command_preview(command: Any, limit: int = 200) -> str:
     """Return a log-safe preview for possibly-invalid command values."""
@@ -896,8 +901,8 @@ def _transform_sudo_command(command: str | None) -> tuple[str | None, str | None
     the password in the command string themselves; see their execute()
     methods for how they handle the non-None sudo_stdin case.
 
-    If SUDO_PASSWORD is not set and an interactive UI is available
-    (HERMES_INTERACTIVE=1 or a registered sudo password callback):
+    If SUDO_PASSWORD is not set and an interactive UI registered a sudo
+    password callback:
       Prompts user for password with 45s timeout, caches for session.
 
     If SUDO_PASSWORD is not set and NOT interactive:
@@ -917,18 +922,16 @@ def _transform_sudo_command(command: str | None) -> tuple[str | None, str | None
     )
 
     # Local hosts with sudoers NOPASSWD should not be forced through the
-    # interactive Hermes password prompt or the sudo -S password-pipe path.
+    # interactive Fabric password prompt or the sudo -S password-pipe path.
     # Scoped to the local terminal backend so Docker/SSH/Modal/etc. can't
     # inherit host sudo state. Re-probes every call (no process-lifetime
     # cache) so an expired sudo timestamp doesn't make a later command block
-    # silently without Hermes prompting.
+    # silently without Fabric prompting.
     if not has_configured_password and not sudo_password and _sudo_nopasswd_works():
         return command, None
 
     has_sudo_prompt_callback = _get_sudo_password_callback() is not None
-    should_prompt_for_sudo = (
-        env_var_enabled("HERMES_INTERACTIVE") or has_sudo_prompt_callback
-    )
+    should_prompt_for_sudo = has_sudo_prompt_callback
     if not has_configured_password and not sudo_password and should_prompt_for_sudo:
         sudo_password = _prompt_for_sudo_password(timeout_seconds=45)
         if sudo_password:
@@ -999,7 +1002,7 @@ def _maybe_reap_docker_orphans(container_config: Dict[str, Any]) -> None:
 
     Sweeps long-Exited containers labeled ``fabric-agent=1`` for the current
     profile that match the issue #20561 leak class — containers left behind
-    by Hermes processes that exited without firing ``atexit`` (SIGKILL,
+    by Fabric processes that exited without firing ``atexit`` (SIGKILL,
     OOM, terminal-window-close). The reaper is conservative by default:
     only Exited containers older than ``2 × lifetime_seconds`` and scoped to
     the current profile.
@@ -1008,7 +1011,7 @@ def _maybe_reap_docker_orphans(container_config: Dict[str, Any]) -> None:
 
     * ``terminal.docker_orphan_reaper: false`` disables it entirely (the
       operator opted out — usually because they're running multiple
-      Hermes processes in the same profile and don't trust the
+      Fabric processes in the same profile and don't trust the
       conservative defaults).
     * ``_docker_orphan_reaper_ran`` flag — sweep runs once per Python
       interpreter, not on every subagent / RL-rollout / parallel
@@ -1026,7 +1029,7 @@ def _maybe_reap_docker_orphans(container_config: Dict[str, Any]) -> None:
             return
         _docker_orphan_reaper_ran = True
 
-    # 2 × lifetime_seconds gives sibling Hermes processes a generous grace
+    # 2 × lifetime_seconds gives sibling Fabric processes a generous grace
     # window. Floor at 60s so an operator with TERMINAL_LIFETIME_SECONDS=0
     # doesn't get an instant-reap that races their own setup.
     # ``container_config`` only carries container_* keys, so read
@@ -1132,7 +1135,7 @@ def _resolve_container_task_id(task_id: Optional[str]) -> str:
     ``"default"`` here so subagents share the parent's long-lived container
     (one bash, one /workspace, one set of installed packages).
 
-    Exception: RL / benchmark environments (TerminalBench2, HermesSweEnv, ...)
+    Exception: RL / benchmark environments (TerminalBench2, FabricSweEnv, ...)
     call ``register_task_env_overrides(task_id, {...})`` to request a
     per-task Docker/Modal image. When an override is registered for a
     task_id, we honour it by returning the task_id unchanged -- those
@@ -1218,11 +1221,11 @@ _CONTAINER_BACKENDS = frozenset({"docker", "singularity", "modal", "daytona"})
 
 def _is_ssh_remote_tilde_cwd(backend: str, cwd: str) -> bool:
     """Return True when *cwd* is a tilde path that the remote SSH shell must
-    expand itself, so the Hermes host/container must NOT ``expanduser`` it.
+    expand itself, so the Fabric host/container must NOT ``expanduser`` it.
 
     SSH ``cwd`` is interpreted by the *remote* shell (``cd ~`` / ``cd ~/x``
     over ``ssh ... bash -c``). Expanding ``~`` locally would rewrite it to the
-    Hermes host HOME (often ``/opt/data`` under Docker) and inject a
+    Fabric host HOME (often ``/opt/data`` under Docker) and inject a
     nonexistent path into the remote session. Only ``~`` / ``~/...`` on the
     ``ssh`` backend qualify; absolute remote paths still pass through
     unchanged, and every other backend keeps expanding locally.
@@ -1368,7 +1371,7 @@ def _get_env_config() -> Dict[str, Any]:
         "docker_persist_across_processes": os.getenv(
             "TERMINAL_DOCKER_PERSIST_ACROSS_PROCESSES", "true"
         ).lower() in {"true", "1", "yes"},
-        # Startup orphan reaper for hermes-tagged containers left behind by
+        # Startup orphan reaper for Fabric-tagged containers left behind by
         # crashed / SIGKILL'd previous processes that bypassed atexit.
         # Conservative: only sweeps Exited containers older than 2× the
         # idle-reap window AND scoped to the current profile. Issue #20561.
@@ -1425,7 +1428,7 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
     
     elif env_type == "docker":
         # One-shot orphan reaper: clean up labeled containers left behind by
-        # prior Hermes processes that hit SIGKILL / OOM / a closed terminal
+        # prior Fabric processes that hit SIGKILL / OOM / a closed terminal
         # before the atexit cleanup hook could run.  Gated to once per
         # process so concurrent _create_environment calls (parallel
         # subagents, RL benchmarks) don't run the reaper N times.
@@ -1679,7 +1682,7 @@ def cleanup_all_environments():
     # Also clean any orphaned directories
     scratch_dir = _get_scratch_dir()
     import glob
-    for path in glob.glob(str(scratch_dir / "hermes-*")):
+    for path in glob.glob(str(scratch_dir / "fabric-*")):
         try:
             shutil.rmtree(path, ignore_errors=True)
             logger.info("Removed orphaned: %s", path)
@@ -2247,14 +2250,16 @@ def terminal_tool(
                         env = new_env
                     logger.info("%s environment ready for task %s", env_type, effective_task_id[:8])
 
-        # Hard-block: gateway lifecycle commands (systemctl/launchctl/hermes
-        # restart|stop targeting hermes-gateway) must never run inside the
+        # Hard-block: gateway lifecycle commands (systemctl/launchctl/fabric
+        # restart|stop targeting fabric-gateway) must never run inside the
         # gateway process itself. The restart would SIGTERM the gateway, which
         # kills this very subprocess before it can complete — the service may
         # never restart. This mirrors the `fabric gateway restart` guard in
         # fabric_cli/gateway.py and the cron-path guard in fabric_cli/cron.py,
         # but applies unconditionally (force=True cannot help here).
-        if os.environ.get("_HERMES_GATEWAY") == "1":
+        from fabric_cli.process_context import is_gateway_process
+
+        if is_gateway_process():
             from fabric_cli.cron import _contains_gateway_lifecycle_command
             if _contains_gateway_lifecycle_command(command):
                 return json.dumps({
@@ -2513,7 +2518,7 @@ def terminal_tool(
                 if background and (notify_on_complete or watch_patterns):
                     from gateway.session_context import (
                         async_delivery_supported as _async_ok,
-                        get_session_env as _gse,
+                        get_session_context as _get_session_context,
                     )
 
                     # Stateless request/response sessions (the API server /
@@ -2539,19 +2544,15 @@ def terminal_tool(
                             proc_session.id,
                         )
                     else:
-                        _gw_platform = _gse("HERMES_SESSION_PLATFORM", "")
+                        _session_context = _get_session_context()
+                        _gw_platform = _session_context.platform
                         if _gw_platform:
-                            _gw_chat_id = _gse("HERMES_SESSION_CHAT_ID", "")
-                            _gw_thread_id = _gse("HERMES_SESSION_THREAD_ID", "")
-                            _gw_user_id = _gse("HERMES_SESSION_USER_ID", "")
-                            _gw_user_name = _gse("HERMES_SESSION_USER_NAME", "")
-                            _gw_message_id = _gse("HERMES_SESSION_MESSAGE_ID", "")
                             proc_session.watcher_platform = _gw_platform
-                            proc_session.watcher_chat_id = _gw_chat_id
-                            proc_session.watcher_user_id = _gw_user_id
-                            proc_session.watcher_user_name = _gw_user_name
-                            proc_session.watcher_thread_id = _gw_thread_id
-                            proc_session.watcher_message_id = _gw_message_id
+                            proc_session.watcher_chat_id = _session_context.chat_id
+                            proc_session.watcher_user_id = _session_context.user_id
+                            proc_session.watcher_user_name = _session_context.user_name
+                            proc_session.watcher_thread_id = _session_context.thread_id
+                            proc_session.watcher_message_id = _session_context.message_id
 
                 # Mutual exclusion: if both notify_on_complete and watch_patterns
                 # are set, drop watch_patterns. The combination produces duplicate
@@ -2676,7 +2677,7 @@ def terminal_tool(
             )
             if sudo_cache_cleared:
                 has_sudo_prompt_callback = _get_sudo_password_callback() is not None
-                if has_sudo_prompt_callback or env_var_enabled("HERMES_INTERACTIVE"):
+                if has_sudo_prompt_callback:
                     output += (
                         "\n\n⚠️ Sudo authentication failed — cached password "
                         "cleared. You will be prompted again on the next sudo "

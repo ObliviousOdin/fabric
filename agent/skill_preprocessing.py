@@ -9,10 +9,8 @@ from fabric_cli._subprocess_compat import IS_WINDOWS, windows_hide_flags
 
 logger = logging.getLogger(__name__)
 
-# Matches ${HERMES_SKILL_DIR} / ${HERMES_SESSION_ID} tokens in SKILL.md.
-# Tokens that don't resolve (e.g. ${HERMES_SESSION_ID} with no session) are
-# left as-is so the user can debug them.
-_SKILL_TEMPLATE_RE = re.compile(r"\$\{(HERMES_SKILL_DIR|HERMES_SESSION_ID)\}")
+# Matches the skill-directory token in SKILL.md.
+_SKILL_TEMPLATE_RE = re.compile(r"\$\{SKILL_DIR\}")
 
 # Matches inline shell snippets like:  !`date +%Y-%m-%d`
 # Non-greedy, single-line only -- no newlines inside the backticks.
@@ -39,9 +37,8 @@ def load_skills_config() -> dict:
 def substitute_template_vars(
     content: str,
     skill_dir: Path | None,
-    session_id: str | None,
 ) -> str:
-    """Replace ${HERMES_SKILL_DIR} / ${HERMES_SESSION_ID} in skill content.
+    """Replace ${SKILL_DIR} in skill content.
 
     Only substitutes tokens for which a concrete value is available --
     unresolved tokens are left in place so the author can spot them.
@@ -52,11 +49,8 @@ def substitute_template_vars(
     skill_dir_str = str(skill_dir) if skill_dir else None
 
     def _replace(match: re.Match) -> str:
-        token = match.group(1)
-        if token == "HERMES_SKILL_DIR" and skill_dir_str:
+        if skill_dir_str:
             return skill_dir_str
-        if token == "HERMES_SESSION_ID" and session_id:
-            return str(session_id)
         return match.group(0)
 
     return _SKILL_TEMPLATE_RE.sub(_replace, content)
@@ -128,7 +122,6 @@ def expand_inline_shell(
 def preprocess_skill_content(
     content: str,
     skill_dir: Path | None,
-    session_id: str | None = None,
     skills_cfg: dict | None = None,
 ) -> str:
     """Apply configured SKILL.md template and inline-shell preprocessing."""
@@ -137,7 +130,7 @@ def preprocess_skill_content(
 
     cfg = skills_cfg if isinstance(skills_cfg, dict) else load_skills_config()
     if cfg.get("template_vars", True):
-        content = substitute_template_vars(content, skill_dir, session_id)
+        content = substitute_template_vars(content, skill_dir)
     if cfg.get("inline_shell", False):
         timeout = int(cfg.get("inline_shell_timeout", 10) or 10)
         content = expand_inline_shell(content, skill_dir, timeout)

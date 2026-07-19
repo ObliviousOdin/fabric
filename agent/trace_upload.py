@@ -15,7 +15,7 @@ Design notes
   :func:`upload_session_trace` directly.
 * **Private by default.** Traces can contain prompts, tool output, local
   paths, and secrets. The dataset is created private and every text body
-  is passed through Hermes' secret redactor (``force=True``) unless the
+  is passed through Fabric's secret redactor (``force=True``) unless the
   caller explicitly opts out with ``redact=False``.
 * **Never raises.** Returns a user-facing status string so command
   handlers can echo it straight back to the user. Programmatic callers
@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 DEFAULT_DATASET_NAME = "fabric-traces"
-_HERMES_VERSION = "fabric-agent"
+_FABRIC_VERSION = "fabric-agent"
 _REDACTION_BLOCKED_MESSAGE = (
     "Trace upload blocked: secret redaction failed, so the transcript may "
     "still contain credentials or other sensitive data. Fix the redactor or "
@@ -48,7 +48,7 @@ class TraceRedactionError(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
-# Conversion: Hermes OpenAI-format messages -> Claude Code JSONL
+# Conversion: Fabric OpenAI-format messages -> Claude Code JSONL
 # ---------------------------------------------------------------------------
 
 def _now_iso() -> str:
@@ -58,7 +58,7 @@ def _now_iso() -> str:
 def _redact(text: Any, enabled: bool) -> Any:
     """Redact secrets from a string body when redaction is enabled.
 
-    Non-strings pass through untouched. Uses Hermes' shared redactor with
+    Non-strings pass through untouched. Uses Fabric's shared redactor with
     ``force=True`` so an upload always scrubs known secret shapes even if
     the user disabled log redaction globally.
     """
@@ -140,7 +140,7 @@ def build_trace_jsonl(
     cwd: str = "",
     redact: bool = True,
 ) -> str:
-    """Render Hermes conversation messages as Claude Code JSONL text.
+    """Render Fabric conversation messages as Claude Code JSONL text.
 
     Each non-system message becomes one JSONL line in the Claude Code
     transcript shape the HF Agent Trace Viewer auto-detects:
@@ -176,7 +176,7 @@ def build_trace_jsonl(
             "userType": "external",
             "cwd": cwd or os.getcwd(),
             "sessionId": session_id,
-            "version": _HERMES_VERSION,
+            "version": _FABRIC_VERSION,
             "gitBranch": git_branch,
             "uuid": turn_uuid,
             "timestamp": base_ts,

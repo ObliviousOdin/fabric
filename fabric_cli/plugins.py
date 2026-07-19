@@ -1,5 +1,5 @@
 """
-Hermes Plugin System
+Fabric Plugin System
 ====================
 
 Discovers, loads, and manages plugins from four sources:
@@ -7,10 +7,10 @@ Discovers, loads, and manages plugins from four sources:
 1. **Bundled plugins** – ``<repo>/plugins/<name>/`` (shipped with fabric-agent;
    ``memory/`` and ``context_engine/`` subdirs are excluded — they have their
    own discovery paths)
-2. **User plugins**   – ``~/.hermes/plugins/<name>/``
-3. **Project plugins** – ``./.hermes/plugins/<name>/`` (opt-in via
-   ``HERMES_ENABLE_PROJECT_PLUGINS``)
-4. **Pip plugins**     – packages that expose the ``hermes_agent.plugins``
+2. **User plugins**   – ``~/.fabric/plugins/<name>/``
+3. **Project plugins** – ``./.fabric/plugins/<name>/`` (opt-in via
+   ``plugins.allow_project_plugins`` in ``config.yaml``)
+4. **Pip plugins**     – packages that expose the ``fabric_agent.plugins``
    entry-point group.
 
 Later sources override earlier ones on name collision, so a user or project
@@ -39,7 +39,6 @@ import importlib.metadata
 import importlib.util
 import inspect
 import logging
-import os
 import sys
 import threading
 import types
@@ -48,21 +47,13 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 from fabric_constants import get_fabric_home
-from utils import env_var_enabled, fast_safe_load
+from utils import fast_safe_load
 from fabric_cli.config import cfg_get
 from fabric_cli.middleware import OBSERVER_SCHEMA_VERSION, VALID_MIDDLEWARE
 
 
 def get_bundled_plugins_dir() -> Path:
-    """Locate the bundled ``plugins/`` directory.
-
-    Honours ``HERMES_BUNDLED_PLUGINS`` (set by the Nix wrapper / packaged
-    installs) so read-only store paths are consulted first.  Falls back to
-    the in-repo path used during development.
-    """
-    env_override = os.getenv("HERMES_BUNDLED_PLUGINS")
-    if env_override:
-        return Path(env_override)
+    """Locate the ``plugins`` package shipped beside Fabric's core."""
     return Path(__file__).resolve().parent.parent / "plugins"
 
 try:
@@ -78,56 +69,6 @@ class PluginToolOverrideError(PermissionError):
 
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Plugin developer debug logging
-# ---------------------------------------------------------------------------
-#
-# Set ``HERMES_PLUGINS_DEBUG=1`` to surface verbose plugin-discovery logs to
-# stderr in addition to ~/.hermes/logs/agent.log. Aimed at plugin authors
-# trying to figure out why their plugin isn't showing up: which directories
-# were scanned, which manifests parsed, which plugins were skipped (and why),
-# what each ``register(ctx)`` call registered, and full tracebacks on load
-# failure.
-#
-# The env var is read once at import time; tests that need to flip it
-# mid-process can call ``_install_plugin_debug_handler(force=True)``.
-
-_PLUGINS_DEBUG = os.getenv("HERMES_PLUGINS_DEBUG", "").strip().lower() in {
-    "1", "true", "yes", "on",
-}
-_DEBUG_HANDLER_INSTALLED = False
-
-
-def _install_plugin_debug_handler(force: bool = False) -> None:
-    """When HERMES_PLUGINS_DEBUG is on, tee plugin logs to stderr at DEBUG.
-
-    Idempotent: only attaches the handler once per process unless ``force``
-    is passed. Does not touch the root logger or other Hermes loggers.
-    """
-    global _DEBUG_HANDLER_INSTALLED, _PLUGINS_DEBUG
-    if force:
-        _PLUGINS_DEBUG = os.getenv("HERMES_PLUGINS_DEBUG", "").strip().lower() in {
-            "1", "true", "yes", "on",
-        }
-    if not _PLUGINS_DEBUG or _DEBUG_HANDLER_INSTALLED:
-        return
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setLevel(logging.DEBUG)
-    handler.setFormatter(logging.Formatter("[plugins] %(levelname)s %(message)s"))
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
-    # Don't double-emit through the root logger when the central logging
-    # config also writes to stderr. agent.log still captures everything.
-    logger.propagate = True
-    _DEBUG_HANDLER_INSTALLED = True
-    logger.debug(
-        "HERMES_PLUGINS_DEBUG=1 — verbose plugin discovery logging enabled"
-    )
-
-
-_install_plugin_debug_handler()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -151,7 +92,7 @@ VALID_HOOKS: Set[str] = {
     #   {"action": "continue", "message": "<follow-up instruction>"}
     # The Claude-Code Stop shape {"decision": "block", "reason": "..."} (block
     # the stop == keep going) is accepted too. Anything else lets the turn
-    # finish. Hermes' shipped guidance lives in the evidence-based
+    # finish. Fabric's shipped guidance lives in the evidence-based
     # verification-stop nudge; this hook is for user/plugin policy and is
     # bounded by agent.max_verify_nudges.
     "pre_verify",
@@ -192,9 +133,9 @@ VALID_HOOKS: Set[str] = {
     # SQLite write lock). Observers only: return values are ignored.
     #
     # WHICH PROCESS each fires in matters, because kanban workers run as
-    # separate `hermes -p <profile> chat -q` subprocesses:
+    # separate `fabric -p <profile> chat -q` subprocesses:
     #   - kanban_task_claimed   -> the DISPATCHER process (gateway-embedded
-    #                              dispatcher or `hermes kanban dispatch`),
+    #                              dispatcher or `fabric kanban dispatch`),
     #                              right before the worker subprocess spawns.
     #   - kanban_task_completed -> the WORKER process, when it calls
     #                              kanban_complete (or a CLI/manual complete).
@@ -213,14 +154,9 @@ VALID_HOOKS: Set[str] = {
     "kanban_task_blocked",
 }
 
-ENTRY_POINTS_GROUP = "hermes_agent.plugins"
+ENTRY_POINTS_GROUP = "fabric_agent.plugins"
 
-_NS_PARENT = "hermes_plugins"
-
-
-def _env_enabled(name: str) -> bool:
-    """Return True when an env var is set to a truthy opt-in value."""
-    return env_var_enabled(name)
+_NS_PARENT = "fabric_plugins"
 
 
 def _get_disabled_plugins() -> set:
@@ -302,7 +238,7 @@ class PluginManifest:
     # ``platform``: gateway messaging platform adapter (e.g. IRC). Bundled
     #              platform plugins auto-load so every shipped platform is
     #              available out of the box; user-installed platform plugins
-    #              in ~/.hermes/plugins/ still gated by ``plugins.enabled``
+    #              in ~/.fabric/plugins/ still gated by ``plugins.enabled``
     #              (untrusted code).
     kind: str = "standalone"
     # Registry key — path-derived, used by ``plugins.enabled``/``disabled``
@@ -369,15 +305,15 @@ class PluginContext:
     def profile_name(self) -> str:
         """Return the active Fabric profile name (e.g. ``"default"``).
 
-        Derived from ``HERMES_HOME`` via
+        Derived from ``FABRIC_HOME`` via
         :func:`fabric_cli.profiles.get_active_profile_name`, so it works in
         every execution context — interactive CLI, gateway, and
         kanban-spawned worker sessions alike — without depending on
         ``_cli_ref`` (which is ``None`` outside an interactive CLI run).
 
         Returns ``"default"`` for the default profile, the profile id when
-        running under ``~/.hermes/profiles/<name>``, or ``"custom"`` when
-        ``HERMES_HOME`` points somewhere unrecognized.
+        running under ``~/.fabric/profiles/<name>``, or ``"custom"`` when
+        ``FABRIC_HOME`` points somewhere unrecognized.
         """
         try:
             from fabric_cli.profiles import get_active_profile_name
@@ -449,7 +385,7 @@ class PluginContext:
     def _tool_override_allowed(self, tool_name: str) -> bool:
         """Return True if this plugin is configured to override built-in tools.
 
-        Bundled plugins (shipped with Hermes core) are trusted by default —
+        Bundled plugins (shipped with Fabric core) are trusted by default —
         an override there is a deliberate maintainer choice, not a third-party
         plugin trying to elevate privilege. For every other source, require
         ``allow_tool_override: true`` under
@@ -508,7 +444,7 @@ class PluginContext:
         handler_fn: Callable | None = None,
         description: str = "",
     ) -> None:
-        """Register a CLI subcommand (e.g. ``hermes honcho ...``).
+        """Register a CLI subcommand (e.g. ``fabric honcho ...``).
 
         The *setup_fn* receives an argparse subparser and should add any
         arguments/sub-subparsers.  If *handler_fn* is provided it is set
@@ -537,7 +473,7 @@ class PluginContext:
         The handler signature is ``fn(raw_args: str) -> str | None``.
         It may also be an async callable — the gateway dispatch handles both.
 
-        Unlike ``register_cli_command()`` (which creates ``hermes <subcommand>``
+        Unlike ``register_cli_command()`` (which creates ``fabric <subcommand>``
         terminal commands), this registers in-session slash commands that users
         invoke during a conversation.
 
@@ -804,7 +740,7 @@ class PluginContext:
         ``source`` must be an instance of
         :class:`agent.secret_sources.base.SecretSource`.  Registered
         sources run during ``load_fabric_dotenv()`` startup — after
-        ``~/.hermes/.env`` loads, before Fabric reads credentials — when
+        ``~/.fabric/.env`` loads, before Fabric reads credentials — when
         their ``secrets.<source.name>`` config section is enabled.  The
         orchestrator (``agent.secret_sources.registry.apply_all``) owns
         ordering, mapped-vs-bulk precedence, conflict warnings, and
@@ -990,7 +926,7 @@ class PluginContext:
     ) -> None:
         """Register a Slack Block Kit action handler from a plugin.
 
-        Hermes' Slack adapter wires registered handlers into its
+        Fabric's Slack adapter wires registered handlers into its
         ``slack_bolt.AsyncApp`` at connect time. The callback is invoked
         when a user clicks a button (or interacts with another Block Kit
         action element) whose ``action_id`` matches.
@@ -1204,7 +1140,7 @@ class PluginContext:
 
         The skill becomes resolvable as ``'<plugin_name>:<name>'`` via
         ``skill_view()``.  It does **not** enter the flat
-        ``~/.hermes/skills/`` tree and is **not** listed in the system
+        ``~/.fabric/skills/`` tree and is **not** listed in the system
         prompt's ``<available_skills>`` index — plugin skills are
         opt-in explicit loads only.
 
@@ -1284,8 +1220,10 @@ class PluginManager:
         """
         if self._discovered and not force:
             return
-        if env_var_enabled("HERMES_SAFE_MODE"):
-            logger.info("HERMES_SAFE_MODE=1 — plugin discovery skipped")
+        from fabric_cli.launch_context import safe_mode_enabled
+
+        if safe_mode_enabled():
+            logger.info("Safe mode enabled — plugin discovery skipped")
             self._discovered = True
             return
         if force:
@@ -1353,23 +1291,28 @@ class PluginManager:
         manifests.extend(user_manifests)
 
         # 3. Project plugins (./.fabric/plugins/)
-        project_plugins_enabled = _env_enabled(
-            "FABRIC_ENABLE_PROJECT_PLUGINS"
-        ) or _env_enabled("HERMES_ENABLE_PROJECT_PLUGINS")  # legacy compatibility
+        try:
+            from fabric_cli.config import load_config
+
+            project_plugins_enabled = bool(
+                cfg_get(
+                    load_config(),
+                    "plugins",
+                    "allow_project_plugins",
+                    default=False,
+                )
+            )
+        except Exception:
+            project_plugins_enabled = False
         if project_plugins_enabled:
-            project_dirs = [Path.cwd() / ".fabric" / "plugins"]
-            # public-release-audit: allow-legacy-compat -- discovers project plugins created before the Fabric directory migration
-            legacy_project_dir = Path.cwd() / ".hermes" / "plugins"
-            if legacy_project_dir != project_dirs[0]:
-                project_dirs.append(legacy_project_dir)
-            for project_dir in project_dirs:
-                logger.debug("Scanning project plugins: %s", project_dir)
-                project_manifests = self._scan_directory(project_dir, source="project")
-                logger.debug("  project: %d manifest(s)", len(project_manifests))
-                manifests.extend(project_manifests)
+            project_dir = Path.cwd() / ".fabric" / "plugins"
+            logger.debug("Scanning project plugins: %s", project_dir)
+            project_manifests = self._scan_directory(project_dir, source="project")
+            logger.debug("  project: %d manifest(s)", len(project_manifests))
+            manifests.extend(project_manifests)
         else:
             logger.debug(
-                "Project plugins disabled (set FABRIC_ENABLE_PROJECT_PLUGINS=1 to enable)"
+                "Project plugins disabled (set plugins.allow_project_plugins=true in config.yaml to enable)"
             )
 
         # 4. Pip / entry-point plugins
@@ -1431,7 +1374,7 @@ class PluginManager:
                 )
                 continue
 
-            # Built-in backends auto-load — they ship with hermes and must
+            # Built-in backends auto-load — they ship with fabric and must
             # just work. Selection among them (e.g. which image_gen backend
             # services calls) is driven by ``<category>.provider`` config,
             # enforced by the tool wrapper.
@@ -1654,7 +1597,7 @@ class PluginManager:
             )
         except Exception as exc:
             logger.warning(
-                "Failed to parse %s: %s", manifest_file, exc, exc_info=_PLUGINS_DEBUG,
+                "Failed to parse %s: %s", manifest_file, exc, exc_info=True,
             )
             return None
 
@@ -1832,16 +1775,16 @@ class PluginManager:
             loaded.error = str(exc)
             logger.warning(
                 "Failed to load plugin '%s': %s",
-                manifest.name, exc, exc_info=_PLUGINS_DEBUG,
+                manifest.name, exc, exc_info=True,
             )
         self._plugins[manifest.key or manifest.name] = loaded
 
     def _load_directory_module(self, manifest: PluginManifest) -> types.ModuleType:
-        """Import a directory-based plugin as ``hermes_plugins.<slug>``.
+        """Import a directory-based plugin as ``fabric_plugins.<slug>``.
 
         The module slug is derived from ``manifest.key`` so category-namespaced
         plugins (``image_gen/openai``) import as
-        ``hermes_plugins.image_gen__openai`` without colliding with any
+        ``fabric_plugins.image_gen__openai`` without colliding with any
         future ``tts/openai``.
         """
         plugin_dir = Path(manifest.path)  # type: ignore[arg-type]
@@ -2421,7 +2364,7 @@ def resolve_plugin_command_result(result: Any) -> Any:
 
     thread = threading.Thread(
         target=_runner,
-        name="hermes-plugin-command-await",
+        name="plugin-command-await",
         daemon=True,
     )
     thread.start()

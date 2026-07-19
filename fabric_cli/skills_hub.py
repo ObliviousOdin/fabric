@@ -28,7 +28,6 @@ from rich.table import Table
 # tools.skills_hub and tools.skills_guard are imported inside functions.
 from fabric_constants import display_fabric_home, get_fabric_home
 from agent.skill_utils import is_excluded_skill_path
-from fabric_cli.fabric_capabilities import fabric_model_provider_visible
 
 _console = Console()
 _MAX_SNAPSHOT_JSON_BYTES = 4 * 1024 * 1024
@@ -37,7 +36,7 @@ _MAX_SNAPSHOT_TAPS = 1_000
 _MAX_SNAPSHOT_STRING_BYTES = 8 * 1024
 _SNAPSHOT_SCHEMA_VERSION = 2
 _SNAPSHOT_ROOT_FIELDS = frozenset(
-    {"schema_version", "hermes_version", "exported_at", "skills", "taps"}
+    {"schema_version", "fabric_version", "exported_at", "skills", "taps"}
 )
 _SNAPSHOT_SKILL_FIELDS = frozenset(
     {
@@ -101,19 +100,11 @@ class SkillInstallOutcome:
     message: str = ""
 
 
-def _show_nous_skill_provenance() -> bool:
-    """Whether public skill labels should show optional Nous provenance."""
-
-    return fabric_model_provider_visible("nous")
-
-
 def _is_official_skill(result: object) -> bool:
     return getattr(result, "source", "") == "official"
 
 
 def _display_source_id(source: str) -> str:
-    if source == "official" and not _show_nous_skill_provenance():
-        return "bundled"
     return source
 
 
@@ -135,21 +126,14 @@ def _display_source(r) -> str:
 
 def _display_trust_label(r) -> str:
     if _is_official_skill(r):
-        return "official" if _show_nous_skill_provenance() else "bundled"
+        return "official"
     return r.trust_level
 
 
 def _display_description(r) -> str:
-    """Return presentation-safe copy without mutating upstream metadata."""
+    """Return the source-provided description without rewriting provenance."""
 
-    description = str(getattr(r, "description", "") or "")
-    if not _is_official_skill(r) or _show_nous_skill_provenance():
-        return description
-    description = re.sub(r"\bNous Research\b", "the upstream maintainers", description, flags=re.IGNORECASE)
-    description = re.sub(r"\bNous\b", "upstream", description, flags=re.IGNORECASE)
-    description = re.sub(r"\bHermes\b", "Fabric", description)
-    description = re.sub(r"\bhermes\b", "fabric", description)
-    return description
+    return str(getattr(r, "description", "") or "")
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +445,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     # Per-source limits are generous — parallelism + 30s timeout cap prevents hangs.
     _TRUST_RANK = {"builtin": 3, "trusted": 2, "community": 1}
     # NOTE: when the centralized index is available, parallel_search_sources
-    # skips the external API sources and serves everything from "hermes-index".
+    # skips the external API sources and serves everything from "fabric-index".
     # That source MUST therefore carry a limit large enough to cover the whole
     # catalog, or browse silently caps the hub — it shipped at 50 (surfaced
     # ~136 of 88k skills), then 5000 (surfaced ~5.4k of 90k). The index is
@@ -470,7 +454,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     # only apply when the index is unavailable (offline / first run before the
     # cache populates).
     _PER_SOURCE_LIMIT = {
-        "hermes-index": 1000000,
+        "fabric-index": 1000000,
         "official": 200, "skills-sh": 200, "well-known": 50,
         "github": 200, "clawhub": 500, "claude-marketplace": 100,
         "lobehub": 500, "browse-sh": 500,
@@ -551,10 +535,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     c.print(f"\n[bold]Skills Hub — Browse {source_label}[/]"
             f"  [dim]({loaded_label}, page {page}/{total_pages})[/]")
     if official_count > 0 and page == 1:
-        if _show_nous_skill_provenance():
-            c.print(f"[bright_cyan]★ {official_count} official optional skill(s) from Nous Research[/]")
-        else:
-            c.print(f"[bright_cyan]★ {official_count} bundled optional skill(s)[/]")
+        c.print(f"[bright_cyan]★ {official_count} official optional skill(s) from Nous Research[/]")
     c.print()
 
     # Build table
@@ -572,9 +553,7 @@ def do_browse(page: int = 1, page_size: int = 20, source: str = "all",
     for i, r in enumerate(page_items, start=start + 1):
         trust_style = {"builtin": "bright_cyan", "trusted": "green",
                        "community": "yellow"}.get(r.trust_level, "dim")
-        trust_label = (
-            "★ official" if _show_nous_skill_provenance() else "★ bundled"
-        ) if r.source == "official" else r.trust_level
+        trust_label = "★ official" if r.source == "official" else r.trust_level
 
         display_description = _display_description(r)
         desc = display_description[:44]
@@ -1003,12 +982,8 @@ def do_install(identifier: str, category: str = "", force: bool = False,
     if not force and not skip_confirm:
         c.print()
         if is_official_optional:
-            if _show_nous_skill_provenance():
-                provenance = "[bold bright_cyan]This is an official optional skill maintained by Nous Research.[/]"
-                panel_title = "Official Skill"
-            else:
-                provenance = "[bold bright_cyan]This is a bundled optional skill.[/]"
-                panel_title = "Bundled Skill"
+            provenance = "[bold bright_cyan]This is an official optional skill maintained by Nous Research.[/]"
+            panel_title = "Official Skill"
             c.print(Panel(
                 f"{provenance}\n\n"
                 "It ships with fabric-agent but is not activated by default.\n"
@@ -1093,7 +1068,7 @@ def do_install(identifier: str, category: str = "", force: bool = False,
         )
 
     # Blueprint detection: if the installed skill declares a
-    # metadata.fabric.blueprint block (or its legacy metadata.hermes fallback),
+    # metadata.fabric.blueprint block,
     # it is a runnable automation. Register it as a Suggested Cron Job rather
     # than auto-scheduling — installing never
     # silently creates a recurring job; the user accepts it via /suggestions.
@@ -1212,16 +1187,16 @@ def browse_skills(page: int = 1, page_size: int = 20, source: str = "all") -> di
 
     page_size = max(1, min(page_size, 100))
     _TRUST_RANK = {"builtin": 3, "trusted": 2, "community": 1}
-    # "hermes-index" must carry a high limit: when the index is available the
+    # "fabric-index" must carry a high limit: when the index is available the
     # router skips external API sources and serves everything from it, so a
     # low cap here silently truncates the whole hub (see do_browse note).
-    _PER_SOURCE_LIMIT = {"hermes-index": 5000, "official": 100, "skills-sh": 100,
+    _PER_SOURCE_LIMIT = {"fabric-index": 5000, "official": 100, "skills-sh": 100,
                          "well-known": 25, "github": 100, "clawhub": 50,
                          "claude-marketplace": 50, "lobehub": 50, "browse-sh": 500}
     auth = GitHubAuth()
     sources = create_source_router(auth)
     # Delegate to the shared parallel walker so this inherits the index-aware
-    # source-skip logic — querying hermes-index AND the external APIs at once
+    # source-skip logic — querying fabric-index AND the external APIs at once
     # would double-count every skill.
     all_results, _counts, _timed_out = parallel_search_sources(
         sources, query="", per_source_limits=_PER_SOURCE_LIMIT,
@@ -1309,7 +1284,7 @@ def do_list(source_filter: str = "all",
 
     Enabled/disabled state is resolved against the currently active profile's
     config — ``fabric -p <profile> skills list`` reads that profile's
-    ``skills.disabled`` list because ``-p`` swaps ``HERMES_HOME`` at process
+    ``skills.disabled`` list because ``-p`` swaps ``FABRIC_HOME`` at process
     start.  No explicit profile flag needed here.
     """
     from tools.skills_hub import (
@@ -1408,11 +1383,7 @@ def do_list(source_filter: str = "all",
             status_cell = "[dim red]disabled[/]"
 
         trust_style = {"builtin": "bright_cyan", "trusted": "green", "community": "yellow", "local": "dim"}.get(trust, "dim")
-        if source_type == "hub" and is_official and not _show_nous_skill_provenance():
-            source_display = "bundled"
-            trust_label = "bundled"
-        else:
-            trust_label = "official" if source_type == "hub" and is_official else trust
+        trust_label = "official" if source_type == "hub" and is_official else trust
         table.add_row(name, category, source_display, f"[{trust_style}]{trust_label}[/]", status_cell)
 
     c.print(table)
@@ -1514,7 +1485,7 @@ def do_gc(console: Optional[Console] = None) -> dict[str, int]:
     )
     if result.get("truncated"):
         c.print(
-            "[dim]More transaction records remain; run `Fabric skills gc` again.[/]"
+            "[dim]More transaction records remain; run `fabric skills gc` again.[/]"
         )
     c.print()
     return result
@@ -2116,7 +2087,7 @@ def _validated_snapshot_document(snapshot: object) -> dict:
         raise ValueError(
             f"snapshot schema must be exactly {_SNAPSHOT_SCHEMA_VERSION}"
         )
-    for field in ("hermes_version", "exported_at"):
+    for field in ("fabric_version", "exported_at"):
         if field in snapshot:
             checked_string(snapshot[field], field=f"snapshot field {field!r}")
     skills = snapshot["skills"]
@@ -2215,7 +2186,7 @@ def _validated_snapshot_document(snapshot: object) -> dict:
 
     result = {
         field: snapshot[field]
-        for field in ("schema_version", "hermes_version", "exported_at")
+        for field in ("schema_version", "fabric_version", "exported_at")
         if field in snapshot
     }
     result["skills"] = validated_skills
@@ -2291,9 +2262,7 @@ def do_snapshot_export(output_path: str, console: Optional[Console] = None) -> N
                 )
         snapshot = {
             "schema_version": _SNAPSHOT_SCHEMA_VERSION,
-            # Keep the established compatibility key until the Fabric artifact-ID
-            # migration policy is approved, but bind its value to the running build.
-            "hermes_version": __version__,
+            "fabric_version": __version__,
             "exported_at": __import__("datetime")
             .datetime.now(__import__("datetime").timezone.utc)
             .isoformat(),

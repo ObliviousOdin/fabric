@@ -17,11 +17,16 @@ from difflib import get_close_matches
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
-from fabric_cli import __version__ as _HERMES_VERSION
+from fabric_cli import __version__ as _FABRIC_VERSION
+from fabric_cli.model_id_policy import (
+    filter_current_model_ids,
+    model_id_is_current,
+    sanitize_model_catalog_payload,
+)
 
 # Identify ourselves so endpoints fronted by Cloudflare's Browser Integrity
 # Check (error 1010) don't reject the default ``Python-urllib/*`` signature.
-_HERMES_USER_AGENT = f"fabric-cli/{_HERMES_VERSION}"
+_FABRIC_USER_AGENT = f"fabric-cli/{_FABRIC_VERSION}"
 
 COPILOT_BASE_URL = "https://api.githubcopilot.com"
 COPILOT_MODELS_URL = f"{COPILOT_BASE_URL}/models"
@@ -103,7 +108,7 @@ def _codex_curated_models() -> list[str]:
 
 # Static fallback for xAI when the models.dev disk cache is empty (fresh
 # install, offline first run, etc.). Mirrors the xAI-direct model IDs from
-# $HERMES_HOME/models_dev_cache.json as of 2026-04-28. Whenever xAI renames
+# $FABRIC_HOME/models_dev_cache.json as of 2026-04-28. Whenever xAI renames
 # or retires a model, the disk cache picks it up on the next refresh and the
 # fallback here only matters until that refresh lands.
 #
@@ -138,7 +143,7 @@ def _xai_promote_top(ids: list[str]) -> list[str]:
 
 
 def _xai_merge_curated_extras(ids: list[str]) -> list[str]:
-    """Append Hermes-curated xAI models that are missing from models.dev."""
+    """Append Fabric-curated xAI models that are missing from models.dev."""
     out = list(ids)
     for extra in _XAI_CURATED_EXTRAS:
         if extra in out:
@@ -152,9 +157,9 @@ def _xai_merge_curated_extras(ids: list[str]) -> list[str]:
 def _xai_curated_models() -> list[str]:
     """Derive the xAI-direct curated list from models.dev disk cache.
 
-    Reads $HERMES_HOME/models_dev_cache.json directly (no network) so this
+    Reads $FABRIC_HOME/models_dev_cache.json directly (no network) so this
     runs at import time without blocking. Falls back to ``_XAI_STATIC_FALLBACK``
-    when the cache is empty or unreadable. Hermes refreshes the cache from
+    when the cache is empty or unreadable. Fabric refreshes the cache from
     https://models.dev/api.json on normal use, so this list self-heals as
     xAI renames models.
 
@@ -630,7 +635,7 @@ def union_with_portal_free_recommendations(
 
     For free-tier users this is the source of truth: any model the Portal
     flags as free should be selectable, even if the user is running an
-    older Hermes that doesn't ship that model in its hardcoded curated
+    older Fabric build that doesn't ship that model in its hardcoded curated
     list.  This function returns an augmented ``(model_ids, pricing)``
     pair where:
 
@@ -696,7 +701,7 @@ def union_with_portal_paid_recommendations(
     the docs-hosted catalog manifest has been rebuilt since the last release.
 
     For paid-tier users this lets newly-launched paid models surface in the
-    picker even if the user is running an older Hermes that doesn't ship
+    picker even if the user is running an older Fabric build that doesn't ship
     them in its hardcoded curated list. This function returns an augmented
     ``(model_ids, pricing)`` pair where:
 
@@ -881,7 +886,7 @@ def fetch_nous_recommended_models(
     ``force_refresh=True`` to bypass the in-process cache.
 
     A successful live fetch is also persisted to a per-base disk cache
-    (``$HERMES_HOME/cache/nous_recommended_cache.json``) as last-known-good.
+    (``$FABRIC_HOME/cache/nous_recommended_cache.json``) as last-known-good.
     When the live fetch fails (network, parse, non-2xx) and the in-process
     cache is empty, the disk copy is returned instead of ``{}`` — so a
     transient Portal hiccup no longer silently drops the free/paid model
@@ -897,7 +902,8 @@ def fetch_nous_recommended_models(
     if not force_refresh and cached is not None:
         payload, cached_at = cached
         if now - cached_at < _NOUS_RECOMMENDED_CACHE_TTL:
-            return payload
+            sanitized = sanitize_model_catalog_payload(payload)
+            return sanitized if isinstance(sanitized, dict) else {}
 
     url = f"{base}{NOUS_RECOMMENDED_MODELS_PATH}"
     try:
@@ -907,6 +913,9 @@ def fetch_nous_recommended_models(
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode())
+        if not isinstance(data, dict):
+            data = {}
+        data = sanitize_model_catalog_payload(data)
         if not isinstance(data, dict):
             data = {}
     except Exception:
@@ -920,7 +929,7 @@ def fetch_nous_recommended_models(
 
     # Live fetch failed. Fall back to the last-known-good disk copy so a
     # transient Portal hiccup doesn't drop the recommendations entirely.
-    disk = _read_nous_recommended_disk(base)
+    disk = sanitize_model_catalog_payload(_read_nous_recommended_disk(base))
     if disk:
         _nous_recommended_cache[base] = (disk, now)
         return disk
@@ -950,7 +959,7 @@ def _extract_model_name(entry: Any) -> Optional[str]:
     if not isinstance(entry, dict):
         return None
     model_name = entry.get("modelName")
-    if isinstance(model_name, str) and model_name.strip():
+    if isinstance(model_name, str) and model_name.strip() and model_id_is_current(model_name):
         return model_name.strip()
     return None
 
@@ -1095,8 +1104,8 @@ _PROVIDER_LABELS["custom"] = "Custom endpoint"  # special case: not a named prov
 def fabric_canonical_providers() -> list[ProviderEntry]:
     """Return the provider catalog visible in Fabric customer pickers.
 
-    Fail-open per FABRIC_FORK.md: any problem with the fork-owned catalog
-    module degrades to the full upstream catalog instead of breaking pickers.
+    If capability configuration cannot be loaded, return the full catalog
+    instead of breaking pickers.
     """
     try:
         from fabric_cli.fabric_capabilities import FABRIC_MODEL_PROVIDERS, filter_fabric_keys
@@ -1113,7 +1122,7 @@ def fabric_canonical_providers() -> list[ProviderEntry]:
 # ---------------------------------------------------------------------------
 # Provider groups — DISPLAY ONLY
 #
-# Some vendors expose several Hermes provider slugs (one per endpoint /
+# Some vendors expose several Fabric provider slugs (one per endpoint /
 # auth method: global API, China API, OAuth coding plan, ...). Listing every
 # slug as a top-level row in the interactive `fabric model` / setup wizard /
 # Telegram `/model` pickers makes that list long and noisy.
@@ -1516,7 +1525,7 @@ def fetch_models_with_pricing(
     url = cache_key.rstrip("/") + "/v1/models"
     headers: dict[str, str] = {
         "Accept": "application/json",
-        "User-Agent": _HERMES_USER_AGENT,
+        "User-Agent": _FABRIC_USER_AGENT,
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -1533,7 +1542,7 @@ def fetch_models_with_pricing(
     for item in payload.get("data", []):
         mid = item.get("id")
         pricing = item.get("pricing")
-        if mid and isinstance(pricing, dict):
+        if mid and model_id_is_current(mid) and isinstance(pricing, dict):
             entry: dict[str, str] = {
                 "prompt": str(pricing.get("prompt", "")),
                 "completion": str(pricing.get("completion", "")),
@@ -1632,7 +1641,7 @@ def _fetch_novita_pricing(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
-        "User-Agent": _HERMES_USER_AGENT,
+        "User-Agent": _FABRIC_USER_AGENT,
     }
 
     try:
@@ -1721,7 +1730,7 @@ def parse_model_input(raw: str, current_provider: str) -> tuple[str, str]:
     Supports ``provider:model`` syntax to switch providers at runtime::
 
         openrouter:anthropic/claude-sonnet-4.5  →  ("openrouter", "anthropic/claude-sonnet-4.5")
-        nous:hermes-3                           →  ("nous", "hermes-3")
+        nous:Qwen/Qwen3-235B-A22B-Instruct-2507 →  ("nous", "Qwen/Qwen3-235B-A22B-Instruct-2507")
         anthropic/claude-sonnet-4.5             →  (current_provider, "anthropic/claude-sonnet-4.5")
         gpt-5.4                                 →  (current_provider, "gpt-5.4")
 
@@ -2045,7 +2054,7 @@ def _find_openrouter_slug(model_name: str) -> Optional[str]:
 
 
 def normalize_provider(provider: Optional[str]) -> str:
-    """Normalize provider aliases to Hermes' canonical provider ids.
+    """Normalize provider aliases to Fabric's canonical provider ids.
 
     Note: ``"auto"`` passes through unchanged — use
     ``fabric_cli.auth.resolve_provider()`` to resolve it to a concrete
@@ -2165,7 +2174,7 @@ def _resolve_copilot_catalog_api_key() -> str:
          ``gho_*`` from device-code login, or a fine-grained PAT) stored in
          ``auth.json`` under ``credential_pool.copilot[]``. The pool is
          populated by ``fabric auth add copilot`` and by ``_seed_from_env``
-         when the env var is set in ``~/.hermes/.env``.
+         when the env var is set in ``~/.fabric/.env``.
 
     Without (2), users whose only Copilot credential is in the pool see
     the ``/model`` picker fall back to a stale hardcoded list because the
@@ -2282,14 +2291,14 @@ def _merge_with_models_dev(provider: str, curated: list[str]) -> list[str]:
     return merged
 
 
-def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) -> list[str]:
+def _provider_model_ids_unfiltered(provider: Optional[str], *, force_refresh: bool = False) -> list[str]:
     """Return the best known model catalog for a provider.
 
     Tries live API endpoints for providers that support them (Codex, Nous),
     falling back to static lists. For providers in ``_MODELS_DEV_PREFERRED``
     (opencode-go/zen, xiaomi, deepseek, smaller inference providers, etc.),
     models.dev entries are merged on top of curated so new models released
-    on the platform appear in ``/model`` without a Hermes release.
+    on the platform appear in ``/model`` without a Fabric release.
     """
     normalized = normalize_provider(provider)
     if normalized == "openrouter":
@@ -2299,7 +2308,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
 
         # Pass the live OAuth access token so the picker matches whatever
         # ChatGPT lists for this account right now (new models appear without
-        # a Hermes release). Falls back to the hardcoded catalog if no token
+        # a Fabric release). Falls back to the hardcoded catalog if no token
         # or the endpoint is unreachable.
         access_token = None
         try:
@@ -2334,7 +2343,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             pass
         # Live failed (or no creds). Fall back to the docs-hosted manifest
         # — NOT the in-repo _PROVIDER_MODELS["nous"] snapshot — so newly
-        # added Portal models still surface without a Hermes release.
+        # added Portal models still surface without a Fabric release.
         manifest_ids = get_curated_nous_model_ids()
         if manifest_ids:
             return manifest_ids
@@ -2516,6 +2525,13 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
     return curated_static
 
 
+def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) -> list[str]:
+    """Return a provider catalog with retired product namespaces removed."""
+    return filter_current_model_ids(
+        _provider_model_ids_unfiltered(provider, force_refresh=force_refresh)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Generic disk cache for provider_model_ids() — keeps /model picker fast.
 # ---------------------------------------------------------------------------
@@ -2526,7 +2542,7 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
 # HTTP roundtrips just to render the provider list.
 #
 # Cache strategy:
-#   - One JSON file at $HERMES_HOME/provider_models_cache.json
+#   - One JSON file at $FABRIC_HOME/provider_models_cache.json
 #   - Per-provider entries keyed by (provider, credential fingerprint)
 #   - Credential fingerprint = sha256 of env-var values that the provider
 #     normally reads. Swap your OPENAI_API_KEY and the entry invalidates.
@@ -2553,7 +2569,7 @@ def _credential_fingerprint(provider: str) -> str:
     for that provider. We hash AT LEAST the api-key + base-url env vars
     declared in ``PROVIDER_REGISTRY``. For OAuth-backed providers
     (codex, copilot, anthropic-via-claude-code, nous portal), the
-    relevant tokens live in ``$HERMES_HOME/auth.json`` and external
+    relevant tokens live in ``$FABRIC_HOME/auth.json`` and external
     credential files. Rather than parse every shape, we additionally
     fold the mtime of those files into the fingerprint so refreshes
     after re-auth bust the cache.
@@ -2668,7 +2684,7 @@ def cached_provider_model_ids(
         and entry["models"]
         and (now - float(entry.get("at", 0))) < ttl_seconds
     ):
-        return list(entry["models"])
+        return filter_current_model_ids(entry["models"])
 
     # Cache miss / stale / forced refresh — call the live path.
     live = provider_model_ids(normalized, force_refresh=force_refresh)
@@ -2690,7 +2706,7 @@ def cached_provider_model_ids(
         and isinstance(entry.get("models"), list)
         and entry["models"]
     ):
-        return list(entry["models"])
+        return filter_current_model_ids(entry["models"])
     return list(live or [])
 
 
@@ -2959,7 +2975,7 @@ def _lmstudio_server_root(base_url: Optional[str]) -> Optional[str]:
 
 def _lmstudio_request_headers(api_key: Optional[str] = None) -> dict:
     """Build HTTP headers for LM Studio native API requests."""
-    headers = {"User-Agent": _HERMES_USER_AGENT}
+    headers = {"User-Agent": _FABRIC_USER_AGENT}
     token = str(api_key or "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -3196,7 +3212,7 @@ _COPILOT_MODEL_ALIASES = {
     "anthropic/claude-sonnet-4": "claude-sonnet-4",
     "anthropic/claude-sonnet-4.5": "claude-sonnet-4.5",
     "anthropic/claude-haiku-4.5": "claude-haiku-4.5",
-    # Dash-notation fallbacks: Hermes' default Claude IDs elsewhere use
+    # Dash-notation fallbacks: Fabric's default Claude IDs elsewhere use
     # hyphens (anthropic native format), but Copilot's API only accepts
     # dot-notation.  Accept both so users who configure copilot + a
     # default hyphenated Claude model don't hit HTTP 400
@@ -3556,7 +3572,7 @@ def probe_api_models(
         }
 
     if _is_github_models_base_url(normalized):
-        models = _fetch_github_models(api_key=api_key, timeout=timeout)
+        models = filter_current_model_ids(_fetch_github_models(api_key=api_key, timeout=timeout))
         return {
             "models": models,
             "probed_url": COPILOT_MODELS_URL,
@@ -3575,7 +3591,7 @@ def probe_api_models(
         candidates.append((alternate_base, True))
 
     tried: list[str] = []
-    headers: dict[str, str] = {"User-Agent": _HERMES_USER_AGENT}
+    headers: dict[str, str] = {"User-Agent": _FABRIC_USER_AGENT}
     if api_key and api_mode == "anthropic_messages":
         headers["x-api-key"] = api_key
         headers["anthropic-version"] = "2023-06-01"
@@ -3598,7 +3614,9 @@ def probe_api_models(
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode())
                 return {
-                    "models": [m.get("id", "") for m in data.get("data", [])],
+                    "models": filter_current_model_ids(
+                        m.get("id", "") for m in data.get("data", []) if isinstance(m, dict)
+                    ),
                     "probed_url": url,
                     "resolved_base_url": candidate_base.rstrip("/"),
                     "suggested_base_url": alternate_base if alternate_base != candidate_base else normalized,
@@ -4233,7 +4251,7 @@ def validate_requested_model(
             # before rejecting.  Providers may omit models from their live
             # listing that are still valid (stale cache, partial rollout,
             # gated previews).  Use the pure-catalog helper (no extra live
-            # fetch) so we only accept models Hermes actually ships.  (#46850)
+            # fetch) so we only accept models Fabric actually ships.  (#46850)
             if _model_in_provider_catalog(
                 requested_for_lookup.lower(), _provider_keys(normalized)
             ):

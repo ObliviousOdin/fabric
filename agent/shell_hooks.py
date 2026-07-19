@@ -17,9 +17,9 @@ Design notes
   with ``shell=False`` — no shell injection footguns.  Users that need
   pipes/redirection wrap their logic in a script.
 * First-use consent is gated by the allowlist under
-  ``~/.hermes/shell-hooks-allowlist.json``.  Non-TTY callers must pass
-  ``accept_hooks=True`` (resolved from ``--accept-hooks``,
-  ``HERMES_ACCEPT_HOOKS``, or ``hooks_auto_accept: true`` in config)
+  ``~/.fabric/shell-hooks-allowlist.json``.  Non-TTY callers must pass
+  ``accept_hooks=True`` (resolved from ``--accept-hooks`` or
+  ``hooks_auto_accept: true`` in config)
   for registration to succeed without a prompt.
 * Registration is idempotent — safe to invoke from both the CLI entry
   point (``fabric_cli/main.py``) and the gateway entry point
@@ -42,7 +42,7 @@ Wire protocol
 
     # Block a pre_tool_call (either shape accepted; normalised internally):
     {"decision": "block", "reason":  "Forbidden command"}   # Claude-Code-style
-    {"action":   "block", "message": "Forbidden command"}   # Hermes-canonical
+    {"action":   "block", "message": "Forbidden command"}   # Fabric-canonical
 
     # Inject context for pre_llm_call:
     {"context": "Today is Friday"}
@@ -212,10 +212,9 @@ def register_from_config(
     non-dict ``hooks`` is treated as zero configured hooks.
 
     ``accept_hooks=True`` skips the TTY consent prompt — the caller is
-    promising that the user has opted in via a flag, env var, or config
-    setting.  ``HERMES_ACCEPT_HOOKS=1`` and ``hooks_auto_accept: true`` are
-    also honored inside this function so either CLI or gateway call sites
-    pick them up.
+    promising that the user has opted in via a flag or config setting.
+    ``hooks_auto_accept: true`` is also honored inside this function so either
+    CLI or gateway call sites pick it up.
 
     Returns the list of :class:`ShellHookSpec` entries that ended up wired
     up on the plugin manager.  Skipped entries (unknown events, malformed,
@@ -224,13 +223,13 @@ def register_from_config(
     if not isinstance(cfg, dict):
         return []
 
-    # Safe mode (--safe-mode / HERMES_SAFE_MODE=1): shell hooks are user
+    # Safe mode: shell hooks are user
     # customizations too — skip registration entirely so a troubleshooting
     # run fires zero user-configured code (plugins, MCP, AND hooks).
-    from utils import env_var_enabled
+    from fabric_cli.launch_context import safe_mode_enabled
 
-    if env_var_enabled("HERMES_SAFE_MODE"):
-        logger.info("HERMES_SAFE_MODE=1 — shell-hook registration skipped")
+    if safe_mode_enabled():
+        logger.info("Safe mode enabled — shell-hook registration skipped")
         return []
 
     effective_accept = _resolve_effective_accept(cfg, accept_hooks)
@@ -263,8 +262,8 @@ def register_from_config(
             ):
                 logger.warning(
                     "shell hook for %s (%s) not allowlisted — skipped. "
-                    "Use --accept-hooks / HERMES_ACCEPT_HOOKS=1 / "
-                    "hooks_auto_accept: true, or approve at the TTY "
+                    "Use --accept-hooks or hooks_auto_accept: true, or "
+                    "approve at the TTY "
                     "prompt next run.",
                     spec.event, spec.command,
                 )
@@ -286,7 +285,7 @@ def register_from_config(
 
 def iter_configured_hooks(cfg: Optional[Dict[str, Any]]) -> List[ShellHookSpec]:
     """Return the parsed ``ShellHookSpec`` entries from config without
-    registering anything.  Used by ``hermes hooks list`` and ``doctor``."""
+    registering anything.  Used by ``fabric hooks list`` and ``doctor``."""
     if not isinstance(cfg, dict):
         return []
     return _parse_hooks_block(cfg.get("hooks"))
@@ -564,10 +563,10 @@ def _block_message(primary: Any, secondary: Any) -> str:
 
 
 def _parse_response(event: str, stdout: str) -> Optional[Dict[str, Any]]:
-    """Translate stdout JSON into a Hermes wire-shape dict.
+    """Translate stdout JSON into a Fabric wire-shape dict.
 
     For ``pre_tool_call`` the Claude-Code-style ``{"decision": "block",
-    "reason": "..."}`` payload is translated into the canonical Hermes
+    "reason": "..."}`` payload is translated into the canonical Fabric
     ``{"action": "block", "message": "..."}`` shape expected by
     :func:`fabric_cli.plugins.get_pre_tool_call_block_message`.  This is
     the single most important correctness invariant in this module —
@@ -603,7 +602,7 @@ def _parse_response(event: str, stdout: str) -> Optional[Dict[str, Any]]:
         return None
 
     if event == "pre_verify":
-        # "continue" (Hermes) / "block" (Claude-Code Stop: block the stop) both
+        # "continue" (Fabric) / "block" (Claude-Code Stop: block the stop) both
         # mean keep going; the message/reason is the follow-up for the model. A
         # continue with no message is a no-op — let the turn finish.
         action = str(data.get("action") or data.get("decision") or "").strip().lower()
@@ -670,7 +669,7 @@ def save_allowlist(data: Dict[str, Any]) -> None:
             "Failed to persist shell hook allowlist to %s: %s. "
             "The approval is in-memory for this run, but the next "
             "startup will re-prompt (or skip registration on non-TTY "
-            "runs without --accept-hooks / HERMES_ACCEPT_HOOKS).",
+            "runs without --accept-hooks or hooks_auto_accept).",
             p, exc,
         )
 
@@ -834,17 +833,13 @@ def _command_script_path(command: str) -> str:
 def _resolve_effective_accept(
     cfg: Dict[str, Any], accept_hooks_arg: bool,
 ) -> bool:
-    """Combine all three opt-in channels into a single boolean.
+    """Combine the explicit and configured opt-in channels.
 
     Precedence (any truthy source flips us on):
       1. ``--accept-hooks`` flag (CLI) / explicit argument
-      2. ``HERMES_ACCEPT_HOOKS`` env var
-      3. ``hooks_auto_accept: true`` in ``cli-config.yaml``
+      2. ``hooks_auto_accept: true`` in config.yaml
     """
     if accept_hooks_arg:
-        return True
-    env = os.environ.get("HERMES_ACCEPT_HOOKS", "").strip().lower()
-    if env in {"1", "true", "yes", "on"}:
         return True
     cfg_val = cfg.get("hooks_auto_accept", False)
     if isinstance(cfg_val, bool):
@@ -855,7 +850,7 @@ def _resolve_effective_accept(
 
 
 # ---------------------------------------------------------------------------
-# Introspection (used by `hermes hooks` CLI)
+# Introspection (used by `fabric hooks` CLI)
 # ---------------------------------------------------------------------------
 
 def allowlist_entry_for(event: str, command: str) -> Optional[Dict[str, Any]]:
@@ -912,16 +907,16 @@ def run_once(
     spec: ShellHookSpec, kwargs: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Fire a single shell-hook invocation with a synthetic payload.
-    Used by ``hermes hooks test`` and ``hermes hooks doctor``.
+    Used by ``fabric hooks test`` and ``fabric hooks doctor``.
 
     ``kwargs`` is the same dict that :func:`fabric_cli.plugins.invoke_hook`
     would pass at runtime.  It is routed through :func:`_serialize_payload`
     so the synthetic stdin exactly matches what a real hook firing would
-    produce — otherwise scripts tested via ``hermes hooks test`` could
+    produce — otherwise scripts tested via ``fabric hooks test`` could
     diverge silently from production behaviour.
 
     Returns the :func:`_spawn` diagnostic dict plus a ``parsed`` field
-    holding the canonical Hermes-wire-shape response."""
+    holding the canonical Fabric-wire-shape response."""
     stdin_json = _serialize_payload(spec.event, kwargs)
     result = _spawn(spec, stdin_json)
     result["parsed"] = _parse_response(spec.event, result["stdout"])

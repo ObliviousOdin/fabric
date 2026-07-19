@@ -243,16 +243,9 @@ CATEGORIES: tuple[DiskCategory, ...] = (
     # ----- reclaimable (cleaned by default) -----
     DiskCategory(
         "cache", "Caches",
-        usage_paths=(
-            "cache", "image_cache", "video_cache", "temp_video_files",
-            "audio_cache", "browser_screenshots",
-        ),
+        usage_paths=("cache",),
         usage_globs=("*_cache.json",),
         clean_dirs=("cache",),
-        clean_trees=(
-            "image_cache", "video_cache", "temp_video_files",
-            "audio_cache", "browser_screenshots",
-        ),
         clean_globs=("*_cache.json",),
         note="Regenerated on demand (images, video, model metadata).",
     ),

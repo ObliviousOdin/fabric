@@ -13,27 +13,22 @@ controlled by the ``checkpoints`` config flag or ``--checkpoints`` CLI flag.
 Storage layout (single shared store, git objects deduplicated across projects)
 -----------------------------------------------------------------------------
 
-    ~/.hermes/checkpoints/
+    ~/.fabric/checkpoints/
         store/                          — single bare-ish git repo
             HEAD, config, objects/      — standard git internals (shared)
-            refs/hermes/<hash16>        — per-project branch tip
+            refs/fabric/<hash16>        — per-project branch tip
             indexes/<hash16>            — per-project git index
             projects/<hash16>.json      — {workdir, created_at, last_touch}
             info/exclude                — default excludes (shared)
         .last_prune                     — auto-prune idempotency marker
-        legacy-<timestamp>/             — archived pre-v2 per-project shadow
-                                          repos (auto-migrated on first init)
+        legacy-<timestamp>/            — archived v1 per-project stores
+                                          (moved aside on first v2 init)
 
 Why a single store?
 -------------------
 
-The pre-v2 design kept a full shadow repo per working directory.  Each one
-re-stored most of the project's files under its own ``objects/`` tree, with
-zero sharing across worktrees of the same project.  A single user with a
-dozen worktrees of the same repo burned ~40 MB each (~500 MB total) storing
-the same blobs over and over.  A single shared store lets git's content-
-addressable object DB deduplicate across projects and across turns, so adding
-a new worktree costs near-zero.
+A single shared store lets git's content-addressable object DB deduplicate
+across projects and across turns, so adding a new worktree costs near-zero.
 
 The shadow store uses ``GIT_DIR`` + ``GIT_WORK_TREE`` + ``GIT_INDEX_FILE``
 so no git state leaks into the user's project directory.
@@ -61,7 +56,6 @@ from fabric_constants import get_fabric_home
 from fabric_cli._subprocess_compat import windows_hide_flags
 from typing import Dict, List, Optional, Set, Tuple
 
-from utils import env_int
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +67,7 @@ CHECKPOINT_BASE = get_fabric_home() / "checkpoints"
 
 # Single shared store directory under CHECKPOINT_BASE.
 _STORE_DIRNAME = "store"
-_REFS_PREFIX = "refs/hermes"
+_REFS_PREFIX = "refs/fabric"
 _INDEXES_DIRNAME = "indexes"
 _PROJECTS_DIRNAME = "projects"
 _LEGACY_PREFIX = "legacy-"
@@ -105,7 +99,7 @@ DEFAULT_EXCLUDES = [
     ".git/",
     ".hg/",
     ".svn/",
-    # Worktrees (Hermes convention — don't recursively snapshot siblings)
+    # Worktrees (Fabric convention — don't recursively snapshot siblings)
     ".worktrees/",
     # Native / compiled binaries
     "*.so",
@@ -142,7 +136,7 @@ DEFAULT_EXCLUDES = [
 ]
 
 # Git subprocess timeout (seconds).
-_GIT_TIMEOUT: int = max(10, min(60, env_int("HERMES_CHECKPOINT_TIMEOUT", 30)))
+_GIT_TIMEOUT = 30
 
 # Max files to snapshot — skip huge directories to avoid slowdowns.
 _MAX_FILES = 50_000
@@ -209,17 +203,6 @@ def _store_path(base: Optional[Path] = None) -> Path:
     return (base or CHECKPOINT_BASE) / _STORE_DIRNAME
 
 
-def _shadow_repo_path(working_dir: str) -> Path:  # pragma: no cover — kept for BC
-    """Return the shared store path.
-
-    Retained for backward-compatibility with callers / tests that imported
-    this helper.  Under v2 the shadow git storage is shared across all
-    projects — per-project isolation lives in refs and indexes, not in
-    separate repo directories.
-    """
-    return _store_path()
-
-
 def _index_path(store: Path, dir_hash: str) -> Path:
     return store / _INDEXES_DIRNAME / dir_hash
 
@@ -243,7 +226,7 @@ def _git_env(
 ) -> dict:
     """Build env dict that redirects git to the shared store.
 
-    The shared store is internal Hermes infrastructure — it must NOT inherit
+    The shared store is internal Fabric infrastructure — it must NOT inherit
     the user's global or system git config.  User-level settings like
     ``commit.gpgsign = true``, signing hooks, or credential helpers would
     either break background snapshots or, worse, spawn interactive prompts
@@ -364,73 +347,81 @@ def _run_git(
 
 
 # ---------------------------------------------------------------------------
-# Store initialisation + legacy migration
+# Store initialisation + schema migration
 # ---------------------------------------------------------------------------
 
-def _migrate_legacy_store(base: Path) -> Optional[Path]:
-    """Move pre-v2 per-project shadow repos into a ``legacy-<ts>/`` dir.
 
-    The pre-v2 layout had one shadow git repo per working directory directly
-    under ``CHECKPOINT_BASE``.  The v2 layout wants a single ``store/`` dir.
-    Rather than delete the old data (users might want to recover), rename
-    everything except our own v2 entries into ``legacy-<timestamp>/``.  The
-    legacy dir is subject to the same retention sweep and can be manually
-    cleared with ``hermes checkpoints clear-legacy``.
+def _archive_v1_stores(base: Path) -> Optional[Path]:
+    """Archive checkpoint schema-v1 stores before creating the shared store.
 
-    Returns the legacy-archive path, or None if nothing to migrate.
+    Schema v1 kept one git store per project directly below ``base``. Schema
+    v2 uses a single ``store/`` directory. Detect v1 entries solely from that
+    layout (a direct child directory containing both ``HEAD`` and ``objects/``),
+    then move them into a timestamped archive so initialization never destroys
+    rollback data.
+
+    Returns the archive path, or ``None`` when there is nothing to migrate.
     """
     if not base.exists():
         return None
-    store = _store_path(base)
-    legacy_root: Optional[Path] = None
-    # Reserved top-level entries managed by v2.
-    reserved = {_STORE_DIRNAME, _PRUNE_MARKER_NAME}
-    for child in list(base.iterdir()):
-        name = child.name
-        if name in reserved or name.startswith(_LEGACY_PREFIX):
-            continue
-        # Candidate: pre-v2 shadow repo (has HEAD) OR stray dir.  Either way
-        # we archive it so v2 starts clean.
-        if legacy_root is None:
-            stamp = time.strftime("%Y%m%d-%H%M%S")
-            legacy_root = base / f"{_LEGACY_PREFIX}{stamp}"
-            try:
-                legacy_root.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
-                logger.warning("Could not create legacy archive dir: %s", exc)
-                return None
-        dest = legacy_root / name
+
+    candidates = [
+        child
+        for child in base.iterdir()
+        if child.is_dir()
+        and child.name != _STORE_DIRNAME
+        and not child.name.startswith(_LEGACY_PREFIX)
+        and (child / "HEAD").is_file()
+        and (child / "objects").is_dir()
+    ]
+    if not candidates:
+        return None
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    archive = base / f"{_LEGACY_PREFIX}{stamp}"
+    suffix = 1
+    while archive.exists():
+        archive = base / f"{_LEGACY_PREFIX}{stamp}-{suffix}"
+        suffix += 1
+
+    try:
+        archive.mkdir(parents=True)
+    except OSError as exc:
+        logger.warning("Could not create checkpoint v1 archive: %s", exc)
+        return None
+
+    moved = 0
+    for child in candidates:
         try:
-            shutil.move(str(child), str(dest))
+            shutil.move(str(child), str(archive / child.name))
+            moved += 1
         except OSError as exc:
-            logger.warning("Could not archive legacy checkpoint %s: %s", child, exc)
-    # If the store still hasn't been created, create it here.
-    _ = store
-    if legacy_root is not None:
-        logger.info(
-            "Migrated pre-v2 checkpoint repos to %s. "
-            "Clear with `fabric checkpoints clear-legacy` when safe.",
-            legacy_root,
-        )
-    return legacy_root
+            logger.warning("Could not archive checkpoint v1 store %s: %s", child, exc)
+
+    if moved == 0:
+        try:
+            archive.rmdir()
+        except OSError:
+            pass
+        return None
+
+    logger.info(
+        "Archived %d checkpoint schema-v1 store(s) at %s.",
+        moved,
+        archive,
+    )
+    return archive
 
 
 def _init_store(store: Path, working_dir: str) -> Optional[str]:
-    """Initialise the shared shadow store if needed.  Returns error or None.
-
-    Also performs one-time migration of pre-v2 per-directory shadow repos
-    into ``legacy-<timestamp>/``.
-    """
+    """Initialise the shared store, preserving any schema-v1 stores."""
     base = store.parent
-    # One-time legacy migration before we create the store.
     if not store.exists():
         try:
             base.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             return f"Could not create checkpoint base: {exc}"
-        # Only migrate if the base dir has pre-existing content that isn't
-        # our own v2 layout.
-        _migrate_legacy_store(base)
+        _archive_v1_stores(base)
 
     if (store / "HEAD").exists():
         return None
@@ -571,34 +562,6 @@ def _dir_size_bytes(path: Path) -> int:
     except OSError:
         pass
     return total
-
-
-# Backwards-compatibility shim — some tests import ``_init_shadow_repo`` and
-# look for ``HEAD``/``info/exclude``/``HERMES_WORKDIR``.  In v2 we also write
-# those markers, but inside the shared store + under ``projects/<hash>.json``.
-# The shim initialises the store and registers the project so the old
-# surface keeps roughly the same shape.
-def _init_shadow_repo(shadow_repo: Path, working_dir: str) -> Optional[str]:
-    """Backwards-compatible initialiser.
-
-    In v1 ``shadow_repo`` was a per-project dir; in v2 it's the shared
-    ``store/`` path (or a test path that we respect).  We initialise the
-    store at ``shadow_repo``, create per-project markers, and return None
-    on success.
-    """
-    err = _init_store(shadow_repo, working_dir)
-    if err:
-        return err
-    _register_project(shadow_repo, working_dir)
-    # Compat marker for tests that look at HERMES_WORKDIR
-    # (write in addition to the JSON metadata).
-    try:
-        (shadow_repo / "HERMES_WORKDIR").write_text(
-            str(_normalize_path(working_dir)) + "\n", encoding="utf-8"
-        )
-    except OSError:
-        pass
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1239,9 +1202,8 @@ def format_checkpoint_list(checkpoints: List[Dict], directory: str) -> str:
 # Auto-maintenance
 # ---------------------------------------------------------------------------
 #
-# v2 rewrite.  The sweep now operates on per-project refs inside the shared
-# store rather than per-project shadow repos.  Legacy-archive dirs
-# (``legacy-<ts>/``) are swept with the same retention policy.
+# The sweep operates on per-project refs inside the shared store and on
+# timestamped schema-v1 archives preserved during migration.
 
 _PRUNE_MARKER_NAME = ".last_prune"
 
@@ -1273,8 +1235,8 @@ def prune_checkpoints(
     after orphan/stale pruning, the oldest commit per remaining project is
     dropped until the store is under the cap.
 
-    Legacy-archive dirs (``legacy-*``) older than ``retention_days`` are
-    also deleted.
+    Schema-v1 archive directories older than ``retention_days`` are also
+    deleted.
 
     Returns a dict with counts ``{"scanned", "deleted_orphan",
     "deleted_stale", "errors", "bytes_freed"}``.
@@ -1294,81 +1256,34 @@ def prune_checkpoints(
 
     size_before = _dir_size_bytes(base)
 
-    # --- Legacy pre-v2 per-project shadow repos (kept directly under base) ---
-    # Pre-v2 layout: ``base/<hash>/HEAD`` etc.  We treat these exactly as the
-    # v1 pruner did so behaviour is unchanged for anyone still on that layout
-    # or sitting on a mid-migration system.
+    # Preserve any v1 stores left by an interrupted or not-yet-run migration.
+    _archive_v1_stores(base)
+
     cutoff = 0.0
     if retention_days > 0:
         cutoff = time.time() - retention_days * 86400
 
     for child in base.iterdir():
-        if not child.is_dir():
+        if not child.is_dir() or not child.name.startswith(_LEGACY_PREFIX):
             continue
-        if child.name == _STORE_DIRNAME:
+        if retention_days <= 0:
             continue
-        if child.name.startswith(_LEGACY_PREFIX):
-            # Legacy archive: prune by dir mtime using same retention rule.
-            if retention_days <= 0:
-                continue
-            try:
-                m = child.stat().st_mtime
-            except OSError:
-                continue
-            if m >= cutoff:
-                continue
-            try:
-                size = _dir_size_bytes(child)
-                shutil.rmtree(child)
-                result["bytes_freed"] += size
-                result["deleted_stale"] += 1
-            except OSError as exc:
-                result["errors"] += 1
-                logger.warning("Failed to delete legacy archive %s: %s", child, exc)
+        try:
+            archive_mtime = child.stat().st_mtime
+        except OSError:
             continue
-        # Only count as a pre-v2 shadow repo if it has a HEAD.
-        if not (child / "HEAD").exists():
-            continue
-        result["scanned"] += 1
-        reason: Optional[str] = None
-        if delete_orphans:
-            workdir: Optional[str] = None
-            wd_marker = child / "HERMES_WORKDIR"
-            if wd_marker.exists():
-                try:
-                    workdir = wd_marker.read_text(encoding="utf-8").strip()
-                except (OSError, UnicodeDecodeError):
-                    workdir = None
-            if workdir is None or not Path(workdir).exists():
-                reason = "orphan"
-        if reason is None and retention_days > 0:
-            newest = 0.0
-            try:
-                for p in child.rglob("*"):
-                    try:
-                        mt = p.stat().st_mtime
-                        newest = max(newest, mt)
-                    except OSError:
-                        continue
-            except OSError:
-                pass
-            if newest > 0 and newest < cutoff:
-                reason = "stale"
-        if reason is None:
+        if archive_mtime >= cutoff:
             continue
         try:
             size = _dir_size_bytes(child)
             shutil.rmtree(child)
             result["bytes_freed"] += size
-            if reason == "orphan":
-                result["deleted_orphan"] += 1
-            else:
-                result["deleted_stale"] += 1
+            result["deleted_stale"] += 1
         except OSError as exc:
             result["errors"] += 1
-            logger.warning("Failed to prune checkpoint repo %s: %s", child.name, exc)
+            logger.warning("Failed to delete checkpoint v1 archive %s: %s", child, exc)
 
-    # --- v2 shared store: per-project ref pruning via metadata ---
+    # Per-project ref pruning via metadata.
     store = _store_path(base)
     if (store / "HEAD").exists():
         for meta in _list_projects(store):
@@ -1564,7 +1479,7 @@ def maybe_auto_prune_checkpoints(
 
 
 # ---------------------------------------------------------------------------
-# Public helpers for `hermes checkpoints` CLI
+# Public helpers for `fabric checkpoints` CLI
 # ---------------------------------------------------------------------------
 
 def store_status(checkpoint_base: Optional[Path] = None) -> Dict:
@@ -1614,28 +1529,26 @@ def store_status(checkpoint_base: Optional[Path] = None) -> Dict:
     out["project_count"] = len(out["projects"])
 
     for child in base.iterdir():
-        if child.is_dir() and child.name.startswith(_LEGACY_PREFIX):
-            try:
-                size = _dir_size_bytes(child)
-            except OSError:
-                size = 0
-            out["legacy_size_bytes"] += size
-            try:
-                mt = child.stat().st_mtime
-            except OSError:
-                mt = 0
-            out["legacy_archives"].append({
-                "name": child.name,
-                "size_bytes": size,
-                "mtime": mt,
-            })
+        if not child.is_dir() or not child.name.startswith(_LEGACY_PREFIX):
+            continue
+        size = _dir_size_bytes(child)
+        out["legacy_size_bytes"] += size
+        try:
+            modified_at = child.stat().st_mtime
+        except OSError:
+            modified_at = 0
+        out["legacy_archives"].append({
+            "name": child.name,
+            "size_bytes": size,
+            "mtime": modified_at,
+        })
 
     out["total_size_bytes"] = _dir_size_bytes(base)
     return out
 
 
 def clear_all(checkpoint_base: Optional[Path] = None) -> Dict[str, int]:
-    """Nuke the entire checkpoint base (store + legacy).  Irreversible.
+    """Nuke the entire checkpoint base, including v1 archives. Irreversible.
 
     Returns ``{"bytes_freed": N, "deleted": bool}``.
     """
@@ -1654,7 +1567,7 @@ def clear_all(checkpoint_base: Optional[Path] = None) -> Dict[str, int]:
 
 
 def clear_legacy(checkpoint_base: Optional[Path] = None) -> Dict[str, int]:
-    """Delete all ``legacy-*`` archive directories.
+    """Delete all ``legacy-*`` schema-v1 archive directories.
 
     Returns ``{"bytes_freed": N, "deleted": count}``.
     """
@@ -1671,5 +1584,5 @@ def clear_legacy(checkpoint_base: Optional[Path] = None) -> Dict[str, int]:
             out["bytes_freed"] += size
             out["deleted"] += 1
         except OSError as exc:
-            logger.warning("Could not delete legacy archive %s: %s", child, exc)
+            logger.warning("Could not delete v1 archive %s: %s", child, exc)
     return out

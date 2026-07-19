@@ -36,7 +36,7 @@ from agent.image_gen_provider import (
 )
 from tools.xai_http import (
     build_xai_storage_options,
-    hermes_xai_user_agent,
+    fabric_xai_user_agent,
     maybe_mark_xai_storage_notice_seen,
     read_xai_imagine_storage_config,
     resolve_xai_http_credentials,
@@ -283,7 +283,7 @@ class XAIImageGenProvider(ImageGenProvider):
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "User-Agent": hermes_xai_user_agent(),
+            "User-Agent": fabric_xai_user_agent(),
         }
 
         base_url = str(creds.get("base_url") or "https://api.x.ai/v1").strip().rstrip("/")
@@ -428,7 +428,7 @@ class XAIImageGenProvider(ImageGenProvider):
             # ``send_photo`` or any downstream consumer fetches them, the
             # asset is gone (#26942).  Materialise the bytes locally at
             # tool-completion time so the gateway has a stable file path to
-            # upload, mirroring the b64 branch above and the audio_cache
+            # upload, mirroring the b64 branch above and the audio cache
             # pattern used by text_to_speech.
             try:
                 saved_path = save_url_image(url, prefix=f"xai_{model_id}")

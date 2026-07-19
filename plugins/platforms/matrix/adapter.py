@@ -144,7 +144,7 @@ def _resolve_matrix_bang_command(name: str) -> str | None:
     """Resolve a ``!command`` token to a dispatchable Fabric command token.
 
     Matrix clients often reserve leading ``/`` for local client commands.
-    Hermes accepts ``!command`` as a Matrix-friendly alias, but only for
+    Fabric accepts ``!command`` as a Matrix-friendly alias, but only for
     commands that the gateway can actually dispatch so ordinary exclamations
     remain normal chat text.
 
@@ -192,7 +192,7 @@ def _resolve_matrix_bang_command(name: str) -> str | None:
 
 
 def _normalize_matrix_bang_command(text: str) -> str:
-    """Convert Matrix ``!command`` aliases to normal Hermes ``/command`` text."""
+    """Convert Matrix ``!command`` aliases to normal Fabric ``/command`` text."""
     if not text or not text.startswith("!"):
         return text
     match = _MATRIX_BANG_COMMAND_RE.match(text)
@@ -343,10 +343,20 @@ MAX_MESSAGE_LENGTH = 4000
 
 # Store directory for E2EE keys and sync state.
 # Uses get_fabric_home() so each profile gets its own Matrix store.
-from fabric_constants import get_hermes_dir as _get_hermes_dir
+from fabric_constants import get_fabric_dir as _get_fabric_dir
 
-_STORE_DIR = _get_hermes_dir("platforms/matrix/store", "matrix/store")
+_STORE_DIR = _get_fabric_dir("platforms/matrix/store")
 _CRYPTO_DB_PATH = _STORE_DIR / "crypto.db"
+
+
+def _extra_float(config: PlatformConfig, key: str, default: float) -> float:
+    """Read a numeric Matrix adapter setting from config.yaml."""
+    raw = config.extra.get(key, default)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring invalid matrix.%s=%r", key, raw)
+        return default
 
 # Grace period: ignore messages older than this many seconds before startup.
 _STARTUP_GRACE_SECONDS = 5
@@ -779,7 +789,7 @@ class MatrixAdapter(BasePlatformAdapter):
     splits_long_messages = True  # send() chunks via truncate_message(MAX_MESSAGE_LENGTH)
 
     # Matrix clients commonly reserve typed "/" for client-local commands;
-    # the adapter accepts "!command" as the alias that always reaches Hermes
+    # the adapter accepts "!command" as the alias that always reaches Fabric
     # (see _normalize_matrix_bang_command), so instruction text shows "!".
     typed_command_prefix = "!"
 
@@ -923,11 +933,11 @@ class MatrixAdapter(BasePlatformAdapter):
 
         # Text batching: merge rapid successive messages (Telegram-style).
         # Matrix clients split long messages around 4000 chars.
-        self._text_batch_delay_seconds = float(
-            os.getenv("HERMES_MATRIX_TEXT_BATCH_DELAY_SECONDS", "0.6")
+        self._text_batch_delay_seconds = _extra_float(
+            config, "text_batch_delay_seconds", 0.6
         )
-        self._text_batch_split_delay_seconds = float(
-            os.getenv("HERMES_MATRIX_TEXT_BATCH_SPLIT_DELAY_SECONDS", "2.0")
+        self._text_batch_split_delay_seconds = _extra_float(
+            config, "text_batch_split_delay_seconds", 2.0
         )
         self._pending_text_batches: Dict[str, MessageEvent] = {}
         self._pending_text_batch_tasks: Dict[str, asyncio.Task] = {}
@@ -1335,7 +1345,7 @@ class MatrixAdapter(BasePlatformAdapter):
                     await crypto_db.start()
                     self._crypto_db = crypto_db
 
-                    _acct_id = self._user_id or "hermes"
+                    _acct_id = self._user_id or "fabric"
                     _pickle_key = f"{_acct_id}:{self._device_id or 'default'}"
                     crypto_store = PgCryptoStore(
                         account_id=_acct_id,
@@ -4398,7 +4408,7 @@ async def _standalone_send(
         token = token or os.getenv("MATRIX_ACCESS_TOKEN", "")
         if not homeserver or not token:
             return {"error": "Matrix not configured (MATRIX_HOMESERVER, MATRIX_ACCESS_TOKEN required)"}
-        txn_id = f"hermes_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
+        txn_id = f"fabric_{int(time.time() * 1000)}_{os.urandom(4).hex()}"
         from urllib.parse import quote
         encoded_room = quote(chat_id, safe="")
         url = f"{homeserver}/_matrix/client/v3/rooms/{encoded_room}/send/m.room.message/{txn_id}"
@@ -4530,7 +4540,8 @@ def _apply_yaml_config(yaml_cfg: dict, matrix_cfg: dict) -> dict | None:
 
     Implements the apply_yaml_config_fn contract (#24849). Mirrors the legacy
     matrix_cfg block from gateway/config.py::load_gateway_config(). Env vars
-    take precedence over YAML. Returns None — everything flows through env.
+    take precedence over YAML for Matrix-owned third-party contracts. Adapter
+    batching values are returned for ``PlatformConfig.extra``.
     """
     if "require_mention" in matrix_cfg and not os.getenv("MATRIX_REQUIRE_MENTION"):
         os.environ["MATRIX_REQUIRE_MENTION"] = str(matrix_cfg["require_mention"]).lower()
@@ -4562,7 +4573,18 @@ def _apply_yaml_config(yaml_cfg: dict, matrix_cfg: dict) -> dict | None:
         os.environ["MATRIX_AUTO_THREAD"] = str(matrix_cfg["auto_thread"]).lower()
     if "dm_mention_threads" in matrix_cfg and not os.getenv("MATRIX_DM_MENTION_THREADS"):
         os.environ["MATRIX_DM_MENTION_THREADS"] = str(matrix_cfg["dm_mention_threads"]).lower()
-    return None
+    platform_extra: dict = {}
+    platforms_cfg = yaml_cfg.get("platforms")
+    if isinstance(platforms_cfg, dict):
+        platform_cfg = platforms_cfg.get("matrix")
+        if isinstance(platform_cfg, dict) and isinstance(platform_cfg.get("extra"), dict):
+            platform_extra = platform_cfg["extra"]
+
+    seeded: dict[str, object] = {}
+    for key in ("text_batch_delay_seconds", "text_batch_split_delay_seconds"):
+        if key in matrix_cfg and key not in platform_extra:
+            seeded[key] = matrix_cfg[key]
+    return seeded or None
 
 
 def _is_connected(config) -> bool:
@@ -4592,7 +4614,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Fabric plugin system."""
     ctx.register_platform(
         name="matrix",
         label="Matrix",

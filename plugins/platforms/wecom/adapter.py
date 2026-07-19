@@ -68,15 +68,13 @@ from gateway.platforms.base import (
     cache_document_from_bytes,
     cache_image_from_bytes,
 )
-from utils import env_float
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_WS_URL = "wss://openws.work.weixin.qq.com"
 
 APP_CMD_SUBSCRIBE = "aibot_subscribe"
 APP_CMD_CALLBACK = "aibot_msg_callback"
-APP_CMD_LEGACY_CALLBACK = "aibot_callback"
+APP_CMD_CALLBACK_V1 = "aibot_callback"
 APP_CMD_EVENT_CALLBACK = "aibot_event_callback"
 APP_CMD_SEND = "aibot_send_msg"
 APP_CMD_RESPONSE = "aibot_respond_msg"
@@ -85,7 +83,7 @@ APP_CMD_UPLOAD_MEDIA_INIT = "aibot_upload_media_init"
 APP_CMD_UPLOAD_MEDIA_CHUNK = "aibot_upload_media_chunk"
 APP_CMD_UPLOAD_MEDIA_FINISH = "aibot_upload_media_finish"
 
-CALLBACK_COMMANDS = {APP_CMD_CALLBACK, APP_CMD_LEGACY_CALLBACK}
+CALLBACK_COMMANDS = {APP_CMD_CALLBACK, APP_CMD_CALLBACK_V1}
 NON_RESPONSE_COMMANDS = CALLBACK_COMMANDS | {APP_CMD_EVENT_CALLBACK}
 
 MAX_MESSAGE_LENGTH = 4000
@@ -161,19 +159,21 @@ class WeComAdapter(BasePlatformAdapter):
             or os.getenv("WECOM_WEBSOCKET_URL", DEFAULT_WS_URL)
         ).strip() or DEFAULT_WS_URL
 
-        self._dm_policy = str(extra.get("dm_policy") or os.getenv("WECOM_DM_POLICY", "pairing")).strip().lower()
-        # dm_policy already honors WECOM_DM_POLICY, so the allowlist must honor
-        # WECOM_ALLOWED_USERS too. Without the env fallback an env-only setup
-        # (dm_policy=allowlist via env, no config extra) runs with an empty
-        # allowlist and drops every authorized DM at intake.
+        self._dm_policy = str(
+            extra.get("dm_policy") or os.getenv("WECOM_DM_POLICY", "pairing")
+        ).strip().lower()
         self._allow_from = _coerce_list(
             extra.get("allow_from")
             or extra.get("allowFrom")
             or os.getenv("WECOM_ALLOWED_USERS", "")
         )
 
-        self._group_policy = str(extra.get("group_policy") or os.getenv("WECOM_GROUP_POLICY", "pairing")).strip().lower()
-        self._group_allow_from = _coerce_list(extra.get("group_allow_from") or extra.get("groupAllowFrom"))
+        self._group_policy = str(
+            extra.get("group_policy") or os.getenv("WECOM_GROUP_POLICY", "pairing")
+        ).strip().lower()
+        self._group_allow_from = _coerce_list(
+            extra.get("group_allow_from") or extra.get("groupAllowFrom")
+        )
         self._groups = extra.get("groups") if isinstance(extra.get("groups"), dict) else {}
 
         self._session: Optional["aiohttp.ClientSession"] = None
@@ -187,8 +187,10 @@ class WeComAdapter(BasePlatformAdapter):
 
         # Text batching: merge rapid successive messages (Telegram-style).
         # WeCom clients split long messages around 4000 chars.
-        self._text_batch_delay_seconds = env_float("HERMES_WECOM_TEXT_BATCH_DELAY_SECONDS", 0.6)
-        self._text_batch_split_delay_seconds = env_float("HERMES_WECOM_TEXT_BATCH_SPLIT_DELAY_SECONDS", 2.0)
+        self._text_batch_delay_seconds = float(extra.get("text_batch_delay_seconds", 0.6))
+        self._text_batch_split_delay_seconds = float(
+            extra.get("text_batch_split_delay_seconds", 2.0)
+        )
         self._pending_text_batches: Dict[str, MessageEvent] = {}
         self._pending_text_batch_tasks: Dict[str, asyncio.Task] = {}
         self._device_id = uuid.uuid4().hex
@@ -1535,7 +1537,7 @@ class WeComAdapter(BasePlatformAdapter):
 
 _QR_GENERATE_URL = "https://work.weixin.qq.com/ai/qc/generate"
 _QR_QUERY_URL = "https://work.weixin.qq.com/ai/qc/query_result"
-_QR_CODE_PAGE = "https://work.weixin.qq.com/ai/qc/gen?source=hermes&scode="
+_QR_CODE_PAGE = "https://work.weixin.qq.com/ai/qc/gen?scode="
 _QR_POLL_INTERVAL = 3  # seconds
 _QR_POLL_TIMEOUT = 300  # 5 minutes
 
@@ -1564,7 +1566,7 @@ def qr_scan_for_bot_info(
         logger.error("urllib is required for WeCom QR scan")
         return None
 
-    generate_url = f"{_QR_GENERATE_URL}?source=hermes"
+    generate_url = _QR_GENERATE_URL
 
     # ── Step 1: Fetch QR code ──
     print("  Connecting to WeCom...", end="", flush=True)

@@ -5,7 +5,7 @@ Implements ``fabric mcp add/remove/list/test/configure`` for interactive
 MCP server lifecycle management (issue #690 Phase 2).
 
 Relies on tools/mcp_tool.py for connection/discovery and keeps
-configuration in ~/.hermes/config.yaml under the ``mcp_servers`` key.
+configuration in ~/.fabric/config.yaml under the ``mcp_servers`` key.
 """
 
 import asyncio
@@ -230,7 +230,7 @@ def _resolve_mcp_server_config(config: dict) -> dict:
     """Resolve ``${ENV}`` placeholders in a server config before connecting.
 
     Mirrors ``_load_mcp_config()`` in ``tools/mcp_tool.py``: load
-    ``~/.hermes/.env`` into ``os.environ`` and recursively interpolate any
+    ``~/.fabric/.env`` into ``os.environ`` and recursively interpolate any
     ``${VAR}`` placeholders. The CLI builds header templates like
     ``Authorization: Bearer ${MCP_X_API_KEY}`` but the probe path never
     resolved them, so the discovery probe sent the literal placeholder and
@@ -371,8 +371,8 @@ def _oauth_tokens_present(name: str) -> bool:
     initialize/tools-list without auth (so no token was ever acquired).
     """
     try:
-        from tools.mcp_oauth import HermesTokenStorage
-        return HermesTokenStorage(name).has_cached_tokens()
+        from tools.mcp_oauth import FabricTokenStorage
+        return FabricTokenStorage(name).has_cached_tokens()
     except Exception as exc:  # pragma: no cover — defensive
         logger.debug("Could not check OAuth tokens for '%s': %s", name, exc)
         # Be permissive on unexpected errors: don't block a real success.
@@ -395,7 +395,7 @@ def _unwrap_exception_group(exc: BaseException) -> Exception:
     return RuntimeError(str(exc))
 
 
-# ─── hermes mcp add ──────────────────────────────────────────────────────────
+# ─── fabric mcp add ──────────────────────────────────────────────────────────
 
 def cmd_mcp_add(args):
     """Add a new MCP server with discovery-first tool selection."""
@@ -602,7 +602,7 @@ def cmd_mcp_add(args):
         _info("Start a new session to use these tools.")
 
 
-# ─── hermes mcp remove ───────────────────────────────────────────────────────
+# ─── fabric mcp remove ───────────────────────────────────────────────────────
 
 def cmd_mcp_remove(args):
     """Remove an MCP server from config."""
@@ -634,7 +634,7 @@ def cmd_mcp_remove(args):
         pass
 
 
-# ─── hermes mcp list ──────────────────────────────────────────────────────────
+# ─── fabric mcp list ──────────────────────────────────────────────────────────
 
 def cmd_mcp_list(args=None):
     """List all configured MCP servers."""
@@ -703,7 +703,7 @@ def cmd_mcp_list(args=None):
     print()
 
 
-# ─── hermes mcp test ──────────────────────────────────────────────────────────
+# ─── fabric mcp test ──────────────────────────────────────────────────────────
 
 def cmd_mcp_test(args):
     """Test connection to an MCP server."""
@@ -767,7 +767,7 @@ def cmd_mcp_test(args):
     print()
 
 
-# ─── hermes mcp login ────────────────────────────────────────────────────────
+# ─── fabric mcp login ────────────────────────────────────────────────────────
 
 def _reauth_oauth_server(name: str, server_config: dict) -> bool:
     """Force a fresh OAuth flow for one server. Returns True on success.
@@ -928,7 +928,7 @@ def cmd_mcp_reauth(args):
     _reauth_oauth_server(name, servers[name])
 
 
-# ─── hermes mcp configure ────────────────────────────────────────────────────
+# ─── fabric mcp configure ────────────────────────────────────────────────────
 
 def cmd_mcp_configure(args):
     """Reconfigure which tools are enabled for an existing MCP server."""
@@ -1074,7 +1074,7 @@ def mcp_command(args):
         handler(args)
     else:
         # No subcommand — drop the user into the catalog picker. This is the
-        # "try enabling and it flows you into setup" UX matching `hermes plugin`.
+        # "try enabling and it flows you into setup" UX matching `fabric plugin`.
         from fabric_cli.mcp_picker import run_picker
         run_picker()
         print(color("  Commands:", Colors.CYAN))

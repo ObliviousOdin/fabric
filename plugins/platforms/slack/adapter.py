@@ -414,7 +414,7 @@ class SlackAdapter(BasePlatformAdapter):
       - DMs and channel messages (mention-gated in channels)
       - Thread support
       - File/image/audio attachments
-      - Slash commands (/hermes)
+      - Slash commands (/fabric)
       - Typing indicators (not natively supported by Slack bots)
     """
 
@@ -1115,7 +1115,7 @@ class SlackAdapter(BasePlatformAdapter):
                 pass
 
             # Reactions are useful lightweight acknowledgements in Slack, but
-            # Hermes does not currently need to route them into the agent loop.
+            # Fabric does not currently need to route them into the agent loop.
             # Ack the events explicitly so high-traffic channels do not fill
             # gateway.error.log with Slack Bolt "Unhandled request" warnings.
             @self._app.event("reaction_added")
@@ -1138,12 +1138,12 @@ class SlackAdapter(BasePlatformAdapter):
             #
             # Every gateway command from COMMAND_REGISTRY is a native Slack
             # slash, matching Discord and Telegram's model (e.g. /btw, /stop,
-            # /model work directly without /hermes prefix). A single regex
+            # /model work directly without /fabric prefix). A single regex
             # matcher dispatches all of them to one handler so we don't need
             # N identical @app.command() decorators.
             #
             # The slash commands must ALSO be declared in the Slack app
-            # manifest (see `hermes slack manifest`). In Socket Mode, Slack
+            # manifest (see `fabric slack manifest`). In Socket Mode, Slack
             # routes the command event through the socket regardless of the
             # manifest's request URL, but it will not deliver an event for
             # a slash command the manifest doesn't declare.
@@ -1151,19 +1151,18 @@ class SlackAdapter(BasePlatformAdapter):
             import re as _re
 
             _slash_names = [name for name, _d, _h in slack_native_slashes()]
-            # Preserve callbacks from already-installed legacy manifests
-            # without exposing /hermes in newly generated Fabric manifests.
-            if "hermes" not in _slash_names:
-                _slash_names.append("hermes")
+            # Keep the canonical /fabric catch-all alongside native commands.
+            if "fabric" not in _slash_names:
+                _slash_names.append("fabric")
             if _slash_names:
                 _slash_pattern = _re.compile(
                     r"^/(?:" + "|".join(_re.escape(n) for n in _slash_names) + r")$"
                 )
             else:  # pragma: no cover - registry always non-empty
-                _slash_pattern = _re.compile(r"^/(?:fabric|hermes)$")
+                _slash_pattern = _re.compile(r"^/fabric$")
 
             @self._app.command(_slash_pattern)
-            async def handle_hermes_command(ack, command):
+            async def handle_fabric_command(ack, command):
                 slash = (command.get("command") or "").lstrip("/")
                 await ack(
                     response_type="ephemeral",
@@ -1173,19 +1172,19 @@ class SlackAdapter(BasePlatformAdapter):
 
             # Register Block Kit action handlers for approval buttons
             for _action_id in (
-                "hermes_approve_once",
-                "hermes_approve_session",
-                "hermes_approve_always",
-                "hermes_deny",
+                "fabric_approve_once",
+                "fabric_approve_session",
+                "fabric_approve_always",
+                "fabric_deny",
             ):
                 self._app.action(_action_id)(self._handle_approval_action)
 
             # Register Block Kit action handlers for slash-confirm buttons
             # (generic three-option prompts; see tools/slash_confirm.py).
             for _action_id in (
-                "hermes_confirm_once",
-                "hermes_confirm_always",
-                "hermes_confirm_cancel",
+                "fabric_confirm_once",
+                "fabric_confirm_always",
+                "fabric_confirm_cancel",
             ):
                 self._app.action(_action_id)(self._handle_slash_confirm_action)
 
@@ -2638,7 +2637,7 @@ class SlackAdapter(BasePlatformAdapter):
 
                 first_token = original_text[1:].split(maxsplit=1)[0]
                 # Strip "@suffix" the same way get_command() does, so
-                # forms like ``!stop@hermes`` still resolve.
+                # forms like ``!stop@fabric`` still resolve.
                 cmd_name = first_token.split("@", 1)[0].lower()
                 if (
                     cmd_name
@@ -3287,26 +3286,26 @@ class SlackAdapter(BasePlatformAdapter):
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Allow Once"},
                             "style": "primary",
-                            "action_id": "hermes_approve_once",
+                            "action_id": "fabric_approve_once",
                             "value": session_key,
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Allow Session"},
-                            "action_id": "hermes_approve_session",
+                            "action_id": "fabric_approve_session",
                             "value": session_key,
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Always Allow"},
-                            "action_id": "hermes_approve_always",
+                            "action_id": "fabric_approve_always",
                             "value": session_key,
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Deny"},
                             "style": "danger",
-                            "action_id": "hermes_deny",
+                            "action_id": "fabric_deny",
                             "value": session_key,
                         },
                     ],
@@ -3371,20 +3370,20 @@ class SlackAdapter(BasePlatformAdapter):
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Approve Once"},
                             "style": "primary",
-                            "action_id": "hermes_confirm_once",
+                            "action_id": "fabric_confirm_once",
                             "value": value,
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Always Approve"},
-                            "action_id": "hermes_confirm_always",
+                            "action_id": "fabric_confirm_always",
                             "value": value,
                         },
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Cancel"},
                             "style": "danger",
-                            "action_id": "hermes_confirm_cancel",
+                            "action_id": "fabric_confirm_cancel",
                             "value": value,
                         },
                     ],
@@ -3497,9 +3496,9 @@ class SlackAdapter(BasePlatformAdapter):
         session_key, confirm_id = value.split("|", 1)
 
         choice_map = {
-            "hermes_confirm_once": "once",
-            "hermes_confirm_always": "always",
-            "hermes_confirm_cancel": "cancel",
+            "fabric_confirm_once": "once",
+            "fabric_confirm_always": "always",
+            "fabric_confirm_cancel": "cancel",
         }
         choice = choice_map.get(action_id, "cancel")
 
@@ -3613,10 +3612,10 @@ class SlackAdapter(BasePlatformAdapter):
 
         # Map action_id to approval choice
         choice_map = {
-            "hermes_approve_once": "once",
-            "hermes_approve_session": "session",
-            "hermes_approve_always": "always",
-            "hermes_deny": "deny",
+            "fabric_approve_once": "once",
+            "fabric_approve_session": "session",
+            "fabric_approve_always": "always",
+            "fabric_deny": "deny",
         }
         choice = choice_map.get(action_id, "deny")
 
@@ -3908,11 +3907,9 @@ class SlackAdapter(BasePlatformAdapter):
         Discord and Telegram model. The slash name itself is the command;
         any text after it is the argument list.
 
-        The legacy ``/hermes <subcommand> [args]`` form is preserved for
-        backward compatibility with older workspace manifests and for users
-        who want a single entry point for free-form questions (``/hermes
-        what's the weather`` — non-slash text is treated as a regular
-        message).
+        ``/fabric <subcommand> [args]`` is the canonical catch-all for users
+        who want a single entry point. Free-form text such as ``/fabric
+        what's the weather`` is treated as a regular message.
         """
         slash_name = (command.get("command") or "").lstrip("/").strip()
         text = command.get("text", "").strip()
@@ -3920,20 +3917,22 @@ class SlackAdapter(BasePlatformAdapter):
         channel_id = command.get("channel_id", "")
         team_id = command.get("team_id", "")
 
+        if not slash_name:
+            logger.warning("[Slack] Ignoring slash-command payload without command")
+            return
+
         # Track which workspace owns this channel
         if team_id and channel_id:
             self._channel_team[channel_id] = team_id
 
-        if slash_name in {"fabric", "hermes", ""}:
-            # Legacy /hermes <subcommand> [args] routing + free-form questions.
-            # Empty slash_name falls into this branch for backward compat
-            # with any caller that didn't populate command["command"].
+        if slash_name == "fabric":
+            # Canonical /fabric <subcommand> [args] routing + free-form questions.
             from fabric_cli.commands import slack_subcommand_map
 
             subcommand_map = slack_subcommand_map()
             subcommand_map["compact"] = "/compress"
             # Guard against whitespace-only text where ``text`` is truthy but
-            # ``text.split()`` returns ``[]`` (e.g. user sends ``/hermes   ``).
+            # ``text.split()`` returns ``[]`` (e.g. user sends ``/fabric   ``).
             parts = text.split() if text else []
             first_word = parts[0] if parts else ""
             if first_word in subcommand_map:
@@ -3974,9 +3973,9 @@ class SlackAdapter(BasePlatformAdapter):
 
         # Stash the Slack response_url so the first reply for this
         # channel+user can be routed ephemerally (replaces the initial
-        # "Running /cmd…" ack shown by handle_hermes_command).
+        # "Running /cmd…" ack shown by handle_fabric_command).
         # Only stash for COMMAND events (text starts with "/") — free-form
-        # questions via "/hermes <question>" must produce public replies so
+        # questions via "/fabric <question>" produce public replies so
         # the whole channel can see the agent's answer.
         response_url = command.get("response_url", "")
         if response_url and user_id and channel_id and text.startswith("/"):
@@ -4390,7 +4389,7 @@ def interactive_setup() -> None:
     )
 
     def _write_slack_manifest_and_instruct() -> None:
-        """Generate the Slack manifest, write it under HERMES_HOME, and print
+        """Generate the Slack manifest, write it under FABRIC_HOME, and print
         paste-into-Slack instructions. Failures are non-fatal."""
         try:
             from fabric_cli.slack_cli import _build_full_manifest
@@ -4542,7 +4541,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Fabric plugin system."""
     ctx.register_platform(
         name="slack",
         label="Slack",

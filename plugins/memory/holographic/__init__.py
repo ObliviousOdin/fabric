@@ -1,14 +1,14 @@
-"""hermes-memory-store — holographic memory plugin using MemoryProvider interface.
+"""fabric-memory-store — holographic memory plugin using MemoryProvider interface.
 
 Registers as a MemoryProvider plugin, giving the agent structured fact storage
 with entity resolution, trust scoring, and HRR-based compositional retrieval.
 
 Original plugin by dusterbloom (PR #2351), adapted to the MemoryProvider ABC.
 
-Config in $HERMES_HOME/config.yaml (profile-scoped):
+Config in $FABRIC_HOME/config.yaml (profile-scoped):
   plugins:
-    hermes-memory-store:
-      db_path: $HERMES_HOME/memory_store.db   # omit to use the default
+    fabric-memory-store:
+      db_path: $FABRIC_HOME/memory_store.db   # omit to use the default
       auto_extract: false
       default_trust: 0.5
       min_trust_threshold: 0.3
@@ -108,7 +108,7 @@ def _load_plugin_config() -> dict:
         import yaml
         with open(config_path, encoding="utf-8-sig") as f:
             all_config = yaml.safe_load(f) or {}
-        return cfg_get(all_config, "plugins", "hermes-memory-store", default={}) or {}
+        return cfg_get(all_config, "plugins", "fabric-memory-store", default={}) or {}
     except Exception:
         return {}
 
@@ -155,12 +155,12 @@ class HolographicMemoryProvider(MemoryProvider):
     def is_available(self) -> bool:
         return True  # SQLite is always available, numpy is optional
 
-    def save_config(self, values, hermes_home):
-        """Write config to config.yaml under plugins.hermes-memory-store."""
+    def save_config(self, values, fabric_home):
+        """Write config to config.yaml under plugins.fabric-memory-store."""
         from pathlib import Path
         from fabric_cli.config import atomic_config_write
 
-        config_path = Path(hermes_home) / "config.yaml"
+        config_path = Path(fabric_home) / "config.yaml"
         import yaml
 
         existing = {}
@@ -180,7 +180,7 @@ class HolographicMemoryProvider(MemoryProvider):
             )
         if not isinstance(values, dict):
             raise TypeError("Holographic configuration values must be a mapping")
-        plugins["hermes-memory-store"] = dict(values)
+        plugins["fabric-memory-store"] = dict(values)
         atomic_config_write(config_path, existing, sort_keys=False)
 
     def get_config_schema(self):
@@ -198,12 +198,12 @@ class HolographicMemoryProvider(MemoryProvider):
         _fabric_home = str(get_fabric_home())
         _default_db = _fabric_home + "/memory_store.db"
         db_path = self._config.get("db_path", _default_db)
-        # Expand $HERMES_HOME in user-supplied paths so config values like
-        # "$HERMES_HOME/memory_store.db" or "~/.hermes/memory_store.db" both
+        # Expand $FABRIC_HOME in user-supplied paths so config values like
+        # "$FABRIC_HOME/memory_store.db" or "~/.fabric/memory_store.db" both
         # resolve to the active profile's directory.
         if isinstance(db_path, str):
-            db_path = db_path.replace("$HERMES_HOME", _fabric_home)
-            db_path = db_path.replace("${HERMES_HOME}", _fabric_home)
+            db_path = db_path.replace("$FABRIC_HOME", _fabric_home)
+            db_path = db_path.replace("${FABRIC_HOME}", _fabric_home)
         default_trust = float(self._config.get("default_trust", 0.5))
         hrr_dim = int(self._config.get("hrr_dim", 1024))
         hrr_weight = float(self._config.get("hrr_weight", 0.3))

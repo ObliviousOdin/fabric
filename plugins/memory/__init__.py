@@ -3,7 +3,7 @@
 Scans two directories for memory provider plugins:
 
 1. Bundled providers: ``plugins/memory/<name>/`` (shipped with fabric-agent)
-2. User-installed providers: ``$HERMES_HOME/plugins/<name>/``
+2. User-installed providers: ``$FABRIC_HOME/plugins/<name>/``
 
 Each subdirectory must contain ``__init__.py`` with a class implementing
 the MemoryProvider ABC.  On name collisions, bundled providers take
@@ -37,7 +37,7 @@ _MEMORY_PLUGINS_DIR = Path(__file__).parent
 
 # Synthetic parent package for user-installed providers, so they don't
 # collide with bundled providers in sys.modules.
-_USER_NAMESPACE = "_hermes_user_memory"
+_USER_NAMESPACE = "_fabric_user_memory"
 
 
 def _user_module_namespace(provider_dir: Path) -> str:
@@ -59,11 +59,11 @@ def _user_module_namespace(provider_dir: Path) -> str:
 def _register_synthetic_package(name: str, search_locations: List[str]) -> None:
     """Register an empty package shell in sys.modules.
 
-    User-installed providers import as ``_hermes_user_memory.<name>``, a
+    User-installed providers import as ``_fabric_user_memory.<name>``, a
     dotted name whose parents exist nowhere on disk.  Unless those parents
     are present in ``sys.modules``, any relative import inside the plugin
     (``from . import config``) fails with
-    ``ModuleNotFoundError: No module named '_hermes_user_memory'`` — the
+    ``ModuleNotFoundError: No module named '_fabric_user_memory'`` — the
     same reason the loader already registers ``plugins`` and
     ``plugins.memory`` for bundled providers.
     """
@@ -79,7 +79,7 @@ def _register_synthetic_package(name: str, search_locations: List[str]) -> None:
 # ---------------------------------------------------------------------------
 
 def _get_user_plugins_dir() -> Optional[Path]:
-    """Return ``$HERMES_HOME/plugins/`` or None if unavailable."""
+    """Return ``$FABRIC_HOME/plugins/`` or None if unavailable."""
     try:
         from fabric_constants import get_fabric_home
         d = get_fabric_home() / "plugins"
@@ -123,7 +123,7 @@ def _iter_provider_dirs() -> List[Tuple[str, Path]]:
             seen.add(child.name)
             dirs.append((child.name, child))
 
-    # 2. User-installed providers ($HERMES_HOME/plugins/<name>/)
+    # 2. User-installed providers ($FABRIC_HOME/plugins/<name>/)
     user_dir = _get_user_plugins_dir()
     if user_dir:
         for child in sorted(user_dir.iterdir()):
@@ -201,7 +201,7 @@ def load_memory_provider(name: str) -> Optional["MemoryProvider"]:
     """Load and return a MemoryProvider instance by name.
 
     Checks both bundled (``plugins/memory/<name>/``) and user-installed
-    (``$HERMES_HOME/plugins/<name>/``) directories.  Bundled takes
+    (``$FABRIC_HOME/plugins/<name>/``) directories.  Bundled takes
     precedence on name collisions.
 
     Returns None if the provider is not found or fails to load.
@@ -424,7 +424,7 @@ def discover_plugin_cli_commands() -> List[dict]:
             cli_mod = sys.modules[module_name]
         else:
             if not _is_bundled:
-                # cli.py imports as _hermes_user_memory.<name>.cli, usually
+                # cli.py imports as _fabric_user_memory.<name>.cli, usually
                 # before the provider itself is loaded.  Register its parent
                 # packages so relative imports inside cli.py
                 # ("from . import config") resolve without executing the

@@ -204,7 +204,6 @@ def _index_cache_dir() -> Path:
 
 
 _DYNAMIC_PATH_RESOLVERS = {
-    "HERMES_HOME": _fabric_home,
     "SKILLS_DIR": _skills_dir,
     "HUB_DIR": _hub_dir,
     "LOCK_FILE": _lock_file,
@@ -216,8 +215,7 @@ _DYNAMIC_PATH_RESOLVERS = {
 
 
 def __getattr__(name: str):
-    """Resolve legacy path constants dynamically (PEP 562) so they reflect the
-    active profile override; a test's patch.object-set real attribute shadows it."""
+    """Resolve test-overridable path constants against the active profile."""
     resolver = _DYNAMIC_PATH_RESOLVERS.get(name)
     if resolver is not None:
         return resolver()
@@ -1783,7 +1781,7 @@ class HubSourceKind(str, Enum):
     """Authenticated adapter identity, never derived from a package slug."""
 
     OFFICIAL_OPTIONAL = "official"
-    HERMES_INDEX = "hermes-index"
+    FABRIC_INDEX = "fabric-index"
     SKILLS_SH = "skills-sh"
     WELL_KNOWN = "well-known"
     URL = "url"
@@ -1798,7 +1796,7 @@ class HubSourceKind(str, Enum):
 _AUTHORITY_TRUST_LEVELS = frozenset({"builtin", "trusted", "community"})
 _AUTHORITY_BUNDLE_SOURCES = {
     HubSourceKind.OFFICIAL_OPTIONAL: "official",
-    HubSourceKind.HERMES_INDEX: "hermes-index",
+    HubSourceKind.FABRIC_INDEX: "fabric-index",
     HubSourceKind.SKILLS_SH: "skills.sh",
     HubSourceKind.WELL_KNOWN: "well-known",
     HubSourceKind.URL: "url",
@@ -1958,7 +1956,7 @@ def _concrete_adapter_identity(
 
     identity = {
         OptionalSkillSource: (HubSourceKind.OFFICIAL_OPTIONAL, "official"),
-        HermesIndexSource: (HubSourceKind.HERMES_INDEX, "hermes-index"),
+        FabricIndexSource: (HubSourceKind.FABRIC_INDEX, "fabric-index"),
         SkillsShSource: (HubSourceKind.SKILLS_SH, "skills.sh"),
         WellKnownSkillSource: (HubSourceKind.WELL_KNOWN, "well-known"),
         UrlSource: (HubSourceKind.URL, "url"),
@@ -2113,7 +2111,7 @@ def fetch_snapshot_bundle(
     if not isinstance(source_revision, str) or not source_revision:
         raise HubInstallError("Snapshot source revision is invalid")
 
-    if authority.adapter is HubSourceKind.HERMES_INDEX:
+    if authority.adapter is HubSourceKind.FABRIC_INDEX:
         if source_revision == authority.remote_identifier:
             raise HubInstallError(
                 "Legacy centralized-index snapshot has no exact resolved source"
@@ -2121,7 +2119,7 @@ def fetch_snapshot_bundle(
         bundle = adapter._get_github().fetch(source_revision)  # type: ignore[attr-defined]
         if bundle is None:
             return None
-        bundle.source = "hermes-index"
+        bundle.source = "fabric-index"
         bundle.identifier = authority.remote_identifier
         bundle.trust_level = "community"
         bundle.metadata["source_revision"] = source_revision
@@ -5798,7 +5796,7 @@ class LobeHubSource(SkillSource):
             f"name: {identifier}",
             f"description: {description[:500]}",
             "metadata:",
-            "  hermes:",
+            "  fabric:",
             f"    tags: [{', '.join(str(t) for t in tag_list)}]",
             "  lobehub:",
             "    source: lobehub",
@@ -8033,12 +8031,12 @@ def _ensure_hub_transaction_capacity() -> None:
         )
     except HubInstallError as exc:
         raise HubInstallError(
-            "Hub transaction capacity is exceeded; run `Fabric skills gc` "
+            "Hub transaction capacity is exceeded; run `fabric skills gc` "
             "before retrying"
         ) from exc
     if len(existing) >= MAX_HUB_TRANSACTIONS:
         raise HubInstallError(
-            "Hub transaction capacity is full; run `Fabric skills gc` before retrying"
+            "Hub transaction capacity is full; run `fabric skills gc` before retrying"
         )
 
 
@@ -9181,7 +9179,6 @@ def check_for_skill_updates(
             continue
         if recorded_authority.adapter is HubSourceKind.UNVERIFIED:
             legacy_kind = {
-                "hermes-index": HubSourceKind.HERMES_INDEX,
                 "skills.sh": HubSourceKind.SKILLS_SH,
                 "well-known": HubSourceKind.WELL_KNOWN,
                 "url": HubSourceKind.URL,
@@ -9274,35 +9271,35 @@ def check_for_skill_updates(
 
 
 # ---------------------------------------------------------------------------
-# Hermes centralized index source
+# Fabric centralized index source
 # ---------------------------------------------------------------------------
 
-HERMES_INDEX_URL = "https://obliviousodin.github.io/fabric/api/skills-index.json"
-HERMES_INDEX_TTL = 6 * 3600  # 6 hours
+FABRIC_INDEX_URL = "https://obliviousodin.github.io/fabric/api/skills-index.json"
+FABRIC_INDEX_TTL = 6 * 3600  # 6 hours
 
 
-def _hermes_index_cache_file() -> Path:
-    return _index_cache_dir() / "hermes-index.json"
+def _fabric_index_cache_file() -> Path:
+    return _index_cache_dir() / "fabric-index.json"
 
 
-def _load_hermes_index() -> Optional[dict]:
+def _load_fabric_index() -> Optional[dict]:
     """Fetch the centralized skills index, with local cache.
 
     The index is a JSON file hosted on the docs site, rebuilt daily by CI.
-    We cache it locally for HERMES_INDEX_TTL seconds to avoid repeated
+    We cache it locally for FABRIC_INDEX_TTL seconds to avoid repeated
     downloads within a session.
     """
     # Check local cache
-    hermes_index_cache_file = _hermes_index_cache_file()
-    if hermes_index_cache_file.exists():
+    fabric_index_cache_file = _fabric_index_cache_file()
+    if fabric_index_cache_file.exists():
         try:
             with hub_mutation_scope(_skills_dir().parent):
                 cached, state = _read_bounded_json_file(
-                    hermes_index_cache_file,
+                    fabric_index_cache_file,
                 )
                 _validate_hub_mutation_binding()
             age = time.time() - state.st_mtime
-            if age < HERMES_INDEX_TTL:
+            if age < FABRIC_INDEX_TTL:
                 return cached if isinstance(cached, dict) else None
         except (
             OSError,
@@ -9319,7 +9316,7 @@ def _load_hermes_index() -> Optional[dict]:
     # chunked responses from allocating beyond the catalog budget.
     try:
         resp = _bounded_http_get(
-            HERMES_INDEX_URL,
+            FABRIC_INDEX_URL,
             timeout=15,
             max_bytes=MAX_HUB_CATALOG_BYTES,
             follow_redirects=True,
@@ -9343,7 +9340,7 @@ def _load_hermes_index() -> Optional[dict]:
 
     # Cache locally
     try:
-        _write_index_cache("hermes-index", data)
+        _write_index_cache("fabric-index", data)
     except (OSError, RuntimeError, ValueError):
         pass
 
@@ -9352,12 +9349,12 @@ def _load_hermes_index() -> Optional[dict]:
 
 def _load_stale_index_cache() -> Optional[dict]:
     """Fall back to stale cache when the network fetch fails."""
-    hermes_index_cache_file = _hermes_index_cache_file()
-    if hermes_index_cache_file.exists():
+    fabric_index_cache_file = _fabric_index_cache_file()
+    if fabric_index_cache_file.exists():
         try:
             with hub_mutation_scope(_skills_dir().parent):
                 cached, _state = _read_bounded_json_file(
-                    hermes_index_cache_file,
+                    fabric_index_cache_file,
                 )
                 _validate_hub_mutation_binding()
             return cached if isinstance(cached, dict) else None
@@ -9372,7 +9369,7 @@ def _load_stale_index_cache() -> Optional[dict]:
     return None
 
 
-class HermesIndexSource(SkillSource):
+class FabricIndexSource(SkillSource):
     """Skill source backed by the centralized Fabric Skills Index.
 
     The index is a JSON catalog published to the docs site and rebuilt
@@ -9394,7 +9391,7 @@ class HermesIndexSource(SkillSource):
 
     def _ensure_loaded(self) -> dict:
         if not self._loaded:
-            self._index = _load_hermes_index()
+            self._index = _load_fabric_index()
             self._loaded = True
         return self._index or {}
 
@@ -9404,7 +9401,7 @@ class HermesIndexSource(SkillSource):
         return self._github
 
     def source_id(self) -> str:
-        return "hermes-index"
+        return "fabric-index"
 
     @property
     def is_available(self) -> bool:
@@ -9489,7 +9486,7 @@ class HermesIndexSource(SkillSource):
         if resolved:
             bundle = self._get_github().fetch(resolved)
             if bundle:
-                bundle.source = "hermes-index"
+                bundle.source = "fabric-index"
                 bundle.identifier = identifier
                 bundle.trust_level = "community"
                 bundle.metadata["source_revision"] = resolved
@@ -9503,7 +9500,7 @@ class HermesIndexSource(SkillSource):
             github_id = f"{repo}/{path}"
             bundle = self._get_github().fetch(github_id)
             if bundle:
-                bundle.source = "hermes-index"
+                bundle.source = "fabric-index"
                 bundle.identifier = identifier
                 bundle.trust_level = "community"
                 bundle.metadata["source_revision"] = github_id
@@ -9561,7 +9558,7 @@ class HermesIndexSource(SkillSource):
         return SkillMeta(
             name=entry.get("name", ""),
             description=entry.get("description", ""),
-            source="hermes-index",
+            source="fabric-index",
             identifier=entry.get("identifier", ""),
             trust_level="community",
             repo=entry.get("repo"),
@@ -9584,7 +9581,7 @@ def create_source_router(auth: Optional[GitHubAuth] = None) -> List[SkillSource]
 
     sources: List[SkillSource] = [
         OptionalSkillSource(),  # Official optional skills (highest priority)
-        HermesIndexSource(
+        FabricIndexSource(
             auth=auth
         ),  # Centralized index (search + resolved install paths)
         SkillsShSource(auth=auth),
@@ -9655,7 +9652,7 @@ def parallel_search_sources(
     })
     if _effective_filter == "all":
         for src in sources:
-            if src.source_id() == "hermes-index" and getattr(
+            if src.source_id() == "fabric-index" and getattr(
                 src, "is_available", False
             ):
                 _index_available = True

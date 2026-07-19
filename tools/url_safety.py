@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_url_for_request(url: str) -> str:
-    """Return an ASCII-safe HTTP URL for Hermes-owned URL tools.
+    """Return an ASCII-safe HTTP URL for Fabric-owned URL tools.
 
     Browsers and HTTP clients expect URIs, but users and models often provide
     IRIs such as ``https://wttr.in/Köln``.  Preserve URL syntax and existing
@@ -200,12 +200,9 @@ _cached_allow_private: bool = False
 def _global_allow_private_urls() -> bool:
     """Return True when the user has opted out of private-IP blocking.
 
-    Checks (in priority order):
-    1. ``HERMES_ALLOW_PRIVATE_URLS`` env var  (``true``/``1``/``yes``)
-    2. ``security.allow_private_urls`` in config.yaml
-    3. ``browser.allow_private_urls`` in config.yaml  (legacy / backward compat)
-
-    Result is cached for the process lifetime.
+    Reads the current ``security.allow_private_urls`` key, falling back to the
+    previous ``browser.allow_private_urls`` config schema when the current key
+    is absent. The result is cached for the process lifetime.
     """
     global _allow_private_resolved, _cached_allow_private
     if _allow_private_resolved:
@@ -214,32 +211,20 @@ def _global_allow_private_urls() -> bool:
     _allow_private_resolved = True
     _cached_allow_private = False  # safe default
 
-    # 1. Env var override (highest priority)
-    env_val = os.getenv("HERMES_ALLOW_PRIVATE_URLS", "").strip().lower()
-    if env_val in {"true", "1", "yes"}:
-        _cached_allow_private = True
-        return _cached_allow_private
-    if env_val in {"false", "0", "no"}:
-        # Explicit false — don't fall through to config
-        return _cached_allow_private
-
-    # 2. Config file
     try:
         from fabric_cli.config import read_raw_config
         cfg = read_raw_config()
-        # security.allow_private_urls (preferred)
         sec = cfg.get("security", {})
-        if isinstance(sec, dict) and is_truthy_value(
-            sec.get("allow_private_urls"), default=False
-        ):
-            _cached_allow_private = True
+        if isinstance(sec, dict) and "allow_private_urls" in sec:
+            _cached_allow_private = is_truthy_value(
+                sec.get("allow_private_urls"), default=False
+            )
             return _cached_allow_private
-        # browser.allow_private_urls (legacy fallback)
         browser = cfg.get("browser", {})
-        if isinstance(browser, dict) and is_truthy_value(
-            browser.get("allow_private_urls"), default=False
-        ):
-            _cached_allow_private = True
+        if isinstance(browser, dict) and "allow_private_urls" in browser:
+            _cached_allow_private = is_truthy_value(
+                browser.get("allow_private_urls"), default=False
+            )
             return _cached_allow_private
     except Exception:
         # Config unavailable (e.g. tests, early import) — keep default
@@ -387,8 +372,8 @@ def is_safe_url(url: str) -> bool:
     Resolves the hostname to an IP and checks against private ranges.
     Fails closed: DNS errors and unexpected exceptions block the request.
 
-    When ``security.allow_private_urls`` is enabled (or the env var
-    ``HERMES_ALLOW_PRIVATE_URLS=true``), private-IP blocking is skipped.
+    When ``security.allow_private_urls`` is enabled, private-IP blocking is
+    skipped.
     Cloud metadata endpoints (169.254.169.254, metadata.google.internal)
     remain blocked regardless — they are never legitimate agent targets.
     """

@@ -1,4 +1,4 @@
-"""Helpers for loading Hermes .env files consistently across entrypoints."""
+"""Helpers for loading Fabric .env files consistently across entrypoints."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ _RESOLVED_SECRET_SOURCE_HOMES: set[str] = set()
 # vault key without deleting a local replacement written in the meantime.
 _LEGACY_APPLIED_SECRET_VALUES: dict[str, dict[str, str]] = {}
 
-# HERMES_HOME paths we've already pulled external secrets for during this
+# FABRIC_HOME paths we've already pulled external secrets for during this
 # process.  ``load_fabric_dotenv()`` is called at module-import time from
 # several hot modules (cli.py, fabric_cli/main.py, run_agent.py,
 # trajectory_compressor.py, gateway/run.py, ...), so without this guard the
@@ -219,11 +219,7 @@ def get_legacy_applied_secret_names(
     """
     try:
         if home_path is None:
-            raw_home = (
-                os.environ.get("FABRIC_HOME")
-                or os.environ.get("HERMES_HOME")
-                or ""
-            ).strip()
+            raw_home = os.environ.get("FABRIC_HOME", "").strip()
             if raw_home:
                 home_path = raw_home
             else:
@@ -238,7 +234,7 @@ def get_legacy_applied_secret_names(
 
 
 def reset_secret_source_cache() -> None:
-    """Forget which HERMES_HOME paths have already had external secrets applied.
+    """Forget which FABRIC_HOME paths have already had external secrets applied.
 
     The first call to ``_apply_external_secret_sources(home_path)`` in a
     process pulls from Bitwarden (or other configured backend), records the
@@ -394,7 +390,7 @@ def _sanitize_env_file_if_needed(path: Path) -> None:
     copy-pasting API keys from terminals or rich-text editors.
 
     We delegate to ``fabric_cli.config._sanitize_env_lines`` which
-    already knows all valid Hermes env-var names and can split
+    already knows all valid Fabric env-var names and can split
     concatenated lines correctly.
     """
     if not path.exists():
@@ -940,23 +936,23 @@ def resolve_external_secret_sources(
 
 def load_fabric_dotenv(
     *,
-    hermes_home: str | os.PathLike | None = None,
+    fabric_home: str | os.PathLike | None = None,
     project_env: str | os.PathLike | None = None,
 ) -> list[Path]:
-    """Load Hermes environment files with user config taking precedence.
+    """Load Fabric environment files with user config taking precedence.
 
     Behavior:
-    - `~/.hermes/.env` overrides stale shell-exported values when present.
+    - `~/.fabric/.env` overrides stale shell-exported values when present.
     - project `.env` acts as a dev fallback and only fills missing values when
       the user env exists.
     - if no user env exists, the project `.env` also overrides stale shell vars.
     """
     loaded: list[Path] = []
 
-    if hermes_home is not None:
-        home_path = Path(hermes_home)
+    if fabric_home is not None:
+        home_path = Path(fabric_home)
     else:
-        env_home = (os.getenv("FABRIC_HOME") or os.getenv("HERMES_HOME") or "").strip()
+        env_home = (os.getenv("FABRIC_HOME") or "").strip()
         if env_home:
             home_path = Path(env_home)
         else:
@@ -964,10 +960,7 @@ def load_fabric_dotenv(
                 from fabric_constants import get_fabric_home
                 home_path = get_fabric_home()
             except Exception:
-                # public-release-audit: allow-legacy-compat -- reads the previous home during one-way migration
-                legacy = Path.home() / ".hermes"
-                modern = Path.home() / ".fabric"
-                home_path = legacy if legacy.exists() and not modern.exists() else modern
+                home_path = Path.home() / ".fabric"
     user_env = home_path / ".env"
     project_env_path = Path(project_env) if project_env else None
 
@@ -988,7 +981,7 @@ def load_fabric_dotenv(
     # .op.env is gitignored — the service-account token never enters the
     # committed .env file.
     # Users on systemd can alternatively use:
-    #   EnvironmentFile=-/path/to/.hermes/.op.env
+    #   EnvironmentFile=-/path/to/.fabric/.op.env
     # in their gateway unit, which takes precedence (override=False below
     # ensures .op.env never clobbers a token already in the environment).
     op_env = home_path / ".op.env"
@@ -1008,7 +1001,7 @@ def load_fabric_dotenv(
 def _apply_managed_env() -> None:
     """Apply the managed-scope .env last, with override, so it beats user/shell.
 
-    Managed scope is machine-global (independent of HERMES_HOME / profile). v1
+    Managed scope is machine-global (independent of FABRIC_HOME / profile). v1
     enforcement is "applied last with override=True" — at the end of startup load
     ``os.environ`` holds the managed value for every managed key, beating both the
     user ``.env`` and any pre-existing shell export. This deliberately inverts the

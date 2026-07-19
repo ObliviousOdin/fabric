@@ -282,35 +282,12 @@ def prompt_choice(question: str, choices: list, default: int = 0, description: s
             sys.exit(1)
 
 
-def is_noninteractive() -> bool:
-    """True when no human is available to answer a prompt.
-
-    The dashboard/desktop spawn CLI actions with ``stdin=DEVNULL`` and
-    ``HERMES_NONINTERACTIVE=1`` (see ``fabric_cli/web_server.py``). In that
-    context an ``input()`` raises ``EOFError`` immediately, so a prompt that
-    aborts on EOF kills the spawned action — this is what made the desktop
-    "restart gateway" fail when the Windows gateway service was not yet
-    installed (the start path asks "Install it now?" with no one to answer).
-    Honour the explicit env flag here so callers fall back to their default.
-    """
-    return os.environ.get("HERMES_NONINTERACTIVE", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-
 def prompt_yes_no(question: str, default: bool = True) -> bool:
     """Prompt for yes/no. Ctrl+C exits, empty input returns default.
 
-    Non-interactive callers (``HERMES_NONINTERACTIVE=1`` or a closed/redirected
-    stdin) have no one to answer, so fall back to ``default`` instead of
-    aborting the whole process.
+    A closed or redirected stdin has no one to answer, so fall back to
+    ``default`` instead of aborting the whole process.
     """
-    if is_noninteractive():
-        return default
-
     default_str = "Y/n" if default else "y/N"
 
     while True:
@@ -396,17 +373,17 @@ def _prompt_api_key(var: dict):
         print_warning("  Skipped (configure later with 'fabric setup')")
 
 
-def _print_setup_summary(config: dict, hermes_home):
+def _print_setup_summary(config: dict, fabric_home):
     """Print the setup completion summary."""
     # Tool availability summary
     print()
     print_header("Tool Availability Summary")
 
     tool_status = []
-    show_legacy_nous = fabric_model_provider_visible("nous")
+    show_nous = fabric_model_provider_visible("nous")
     subscription_features = get_nous_subscription_features(
         config,
-        include_nous=show_legacy_nous,
+        include_nous=show_nous,
     )
 
     # Vision — use the same runtime resolver as the actual vision tools
@@ -463,7 +440,7 @@ def _print_setup_summary(config: dict, hermes_home):
                         _vision_provider_allowlist.append(_provider_key)
 
         _vision_backends = get_available_vision_backends(
-            include_nous=show_legacy_nous,
+            include_nous=show_nous,
             allowed_providers=_vision_provider_allowlist,
         )
     except Exception:
@@ -476,7 +453,7 @@ def _print_setup_summary(config: dict, hermes_home):
 
 
     # Web tools (Exa, Parallel, Firecrawl, or Tavily)
-    if show_legacy_nous and subscription_features.web.managed_by_nous:
+    if show_nous and subscription_features.web.managed_by_nous:
         tool_status.append(("Web Search & Extract (Nous subscription)", True, None))
     elif subscription_features.web.available:
         label = "Web Search & Extract"
@@ -488,7 +465,7 @@ def _print_setup_summary(config: dict, hermes_home):
 
     # Browser tools (local Chromium, Camofox, Browserbase, Browser Use, or Firecrawl)
     browser_provider = subscription_features.browser.current_provider
-    if show_legacy_nous and subscription_features.browser.managed_by_nous:
+    if show_nous and subscription_features.browser.managed_by_nous:
         tool_status.append(("Browser Automation (Nous Browser Use)", True, None))
     elif subscription_features.browser.available:
         label = "Browser Automation"
@@ -518,7 +495,7 @@ def _print_setup_summary(config: dict, hermes_home):
 
     # Image generation — FAL (direct or via Nous), or any plugin-registered
     # provider (OpenAI, etc.)
-    if show_legacy_nous and subscription_features.image_gen.managed_by_nous:
+    if show_nous and subscription_features.image_gen.managed_by_nous:
         tool_status.append(("Image Generation (Nous subscription)", True, None))
     elif subscription_features.image_gen.available:
         tool_status.append(("Image Generation", True, None))
@@ -534,14 +511,14 @@ def _print_setup_summary(config: dict, hermes_home):
             for _p in list_providers():
                 if _p.name == "fal":
                     continue
-                # The registry includes the legacy Nous-backed OpenRouter
+                # The registry includes the opt-in Nous-backed OpenRouter
                 # adapter whenever its runtime credential is present.  Setup
                 # summaries must obey the same explicit catalog opt-in as the
                 # provider pickers instead of re-advertising that adapter from
                 # raw plugin metadata.
                 if (
                     str(_p.name or "").strip().lower() == "nous"
-                    and not show_legacy_nous
+                    and not show_nous
                 ):
                     continue
                 try:
@@ -560,7 +537,7 @@ def _print_setup_summary(config: dict, hermes_home):
     # Video generation — opt-in via `fabric tools` → Video Generation.
     # Only show the row when a plugin reports available so we don't badger
     # users who don't care about video gen with a "missing" status line.
-    if show_legacy_nous and subscription_features.video_gen.managed_by_nous:
+    if show_nous and subscription_features.video_gen.managed_by_nous:
         tool_status.append(("Video Generation (FAL via Nous subscription)", True, None))
     else:
         try:
@@ -582,7 +559,7 @@ def _print_setup_summary(config: dict, hermes_home):
 
     # TTS — show configured provider
     tts_provider = cfg_get(config, "tts", "provider", default="edge")
-    if show_legacy_nous and subscription_features.tts.managed_by_nous:
+    if show_nous and subscription_features.tts.managed_by_nous:
         tool_status.append(("Text-to-Speech (OpenAI via Nous subscription)", True, None))
     elif tts_provider == "elevenlabs" and get_env_value("ELEVENLABS_API_KEY"):
         tool_status.append(("Text-to-Speech (ElevenLabs)", True, None))
@@ -617,7 +594,7 @@ def _print_setup_summary(config: dict, hermes_home):
     else:
         tool_status.append(("Text-to-Speech (Edge TTS)", True, None))
 
-    if show_legacy_nous and subscription_features.modal.managed_by_nous:
+    if show_nous and subscription_features.modal.managed_by_nous:
         tool_status.append(("Modal Execution (Nous subscription)", True, None))
     elif cfg_get(config, "terminal", "backend") == "modal":
         if subscription_features.modal.direct_override:
@@ -625,7 +602,7 @@ def _print_setup_summary(config: dict, hermes_home):
         else:
             tool_status.append(("Modal Execution", False, "run 'fabric setup terminal'"))
     elif (
-        show_legacy_nous
+        show_nous
         and managed_nous_tools_enabled()
         and subscription_features.nous_auth_present
     ):
@@ -711,7 +688,7 @@ def _print_setup_summary(config: dict, hermes_home):
     print(f"   {color('Settings:', Colors.YELLOW)}  {get_config_path()}")
     print(f"   {color('API Keys:', Colors.YELLOW)}  {get_env_path()}")
     print(
-        f"   {color('Data:', Colors.YELLOW)}      {hermes_home}/cron/, sessions/, logs/"
+        f"   {color('Data:', Colors.YELLOW)}      {fabric_home}/cron/, sessions/, logs/"
     )
     print()
 
@@ -1748,11 +1725,6 @@ def setup_terminal_backend(config: dict):
 def _apply_default_agent_settings(config: dict):
     """Apply recommended defaults for all agent settings without prompting."""
     config.setdefault("agent", {})["max_turns"] = 150
-    # config.yaml is the authoritative source for max_turns; the gateway
-    # bridges it into HERMES_MAX_ITERATIONS at startup. We no longer write
-    # to .env to avoid the dual-source inconsistency that caused the
-    # 60-vs-500 bug (stale .env entry silently shadowing config.yaml).
-    remove_env_value("HERMES_MAX_ITERATIONS")
 
     config.setdefault("display", {})["tool_progress"] = "all"
 
@@ -1781,9 +1753,7 @@ def setup_agent_settings(config: dict):
     print()
 
     # ── Max Iterations ──
-    # config.yaml is authoritative; read from there. If a legacy .env
-    # entry is still around (from pre-PR#18413 setups), prefer the
-    # config value so we don't surface a stale number to the user.
+    # config.yaml is authoritative.
     current_max = str(cfg_get(config, "agent", "max_turns", default=90))
     print_info("Maximum tool-calling iterations per conversation.")
     print_info("Higher = more complex tasks, but costs more tokens.")
@@ -1795,13 +1765,8 @@ def setup_agent_settings(config: dict):
     try:
         max_iter = int(max_iter_str)
         if max_iter > 0:
-            # Write to config.yaml (authoritative) only. Also clean up any
-            # stale .env entry from earlier setup runs — the gateway's
-            # bridge in gateway/run.py now unconditionally derives
-            # HERMES_MAX_ITERATIONS from agent.max_turns at startup.
             config.setdefault("agent", {})["max_turns"] = max_iter
             config.pop("max_turns", None)
-            remove_env_value("HERMES_MAX_ITERATIONS")
             print_success(f"Max iterations set to {max_iter}")
     except ValueError:
         print_warning("Invalid number, keeping current value")
@@ -1967,17 +1932,17 @@ def _setup_telegram_auto_result():
 
     profile_name: str | None = None
     try:
-        profile_name = _profile_name_from_hermes_home(Path(get_fabric_home()))
+        profile_name = _profile_name_from_fabric_home(Path(get_fabric_home()))
     except Exception:
         pass
 
     return auto_setup_telegram_bot_result(profile_name=profile_name)
 
 
-def _profile_name_from_hermes_home(hermes_home) -> str | None:
-    """Return the active profile name when HERMES_HOME is a profile dir."""
-    if hermes_home.parent.name == "profiles":
-        return hermes_home.name
+def _profile_name_from_fabric_home(fabric_home) -> str | None:
+    """Return the active profile name when FABRIC_HOME is a profile dir."""
+    if fabric_home.parent.name == "profiles":
+        return fabric_home.name
     return None
 
 
@@ -2343,10 +2308,8 @@ def setup_gateway(
             _is_service_running,
             supports_systemd_services,
             has_conflicting_systemd_units,
-            has_legacy_hermes_units,
             install_linux_gateway_from_setup,
             print_systemd_scope_conflict_warning,
-            print_legacy_unit_warning,
             systemd_start,
             systemd_restart,
             launchd_install,
@@ -2366,10 +2329,6 @@ def setup_gateway(
         print()
         if supports_systemd and has_conflicting_systemd_units():
             print_systemd_scope_conflict_warning()
-            print()
-
-        if supports_systemd and has_legacy_hermes_units():
-            print_legacy_unit_warning()
             print()
 
         if service_running:
@@ -2774,7 +2733,7 @@ def _print_migration_preview(report: dict):
         print()
 
 
-def _offer_openclaw_migration(hermes_home: Path) -> bool:
+def _offer_openclaw_migration(fabric_home: Path) -> bool:
     """Detect ~/.openclaw and offer to migrate during first-time setup.
 
     Runs a dry-run first to show the user exactly what would be imported,
@@ -2822,7 +2781,7 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
         selected = mod.resolve_selected_options(None, None, preset="full")
         dry_migrator = mod.Migrator(
             source_root=openclaw_dir.resolve(),
-            target_root=hermes_home.resolve(),
+            target_root=fabric_home.resolve(),
             execute=False,  # dry-run — no files modified
             workspace_target=None,
             overwrite=True,  # show everything including conflicts
@@ -2867,7 +2826,7 @@ def _offer_openclaw_migration(hermes_home: Path) -> bool:
     try:
         migrator = mod.Migrator(
             source_root=openclaw_dir.resolve(),
-            target_root=hermes_home.resolve(),
+            target_root=fabric_home.resolve(),
             execute=True,
             workspace_target=None,
             overwrite=False,  # preserve existing Fabric config
@@ -3060,7 +3019,7 @@ SETUP_SECTIONS = [
 ]
 
 
-def _run_portal_one_shot(config: dict) -> None:
+def _run_portal_one_shot(config: dict, *, args=None) -> None:
     """One-shot Nous Portal setup — OAuth + model pick + provider + Tool Gateway.
 
     Wired into ``fabric setup --portal`` and ``fabric portal``. This is the
@@ -3109,7 +3068,7 @@ def _run_portal_one_shot(config: dict) -> None:
     try:
         from fabric_cli.main import _model_flow_nous
 
-        _model_flow_nous(config)
+        _model_flow_nous(config, args=args)
     except (KeyboardInterrupt, EOFError, SystemExit):
         # _login_nous raises SystemExit(130)/(1) on cancel/failure; the
         # logged-out path inside _model_flow_nous catches it, but the
@@ -3118,13 +3077,19 @@ def _run_portal_one_shot(config: dict) -> None:
         # Treat all of these as a graceful cancel/abort for the portal flow.
         print()
         print_info("  Setup cancelled.")
-        print_info("  You can retry later with `fabric portal`.")
+        print_info(
+            "  You can retry with `fabric portal --client-id "
+            "<registered-client-id>`."
+        )
         return
     except Exception as exc:
         logger.debug("_model_flow_nous error during `fabric portal`: %s", exc)
         print()
         print_error(f"  Nous Portal setup encountered an error: {exc}")
-        print_info("  You can retry later with `fabric portal`.")
+        print_info(
+            "  You can retry with `fabric portal --client-id "
+            "<registered-client-id>`."
+        )
         return
 
     # Re-sync the in-memory config from disk — _model_flow_nous (and the
@@ -3173,7 +3138,7 @@ def run_setup_wizard(args):
     quick_requested = bool(getattr(args, "quick", False))
 
     config = load_config()
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
 
     # Back up existing config before setup modifies it (#3522)
     config_path = get_config_path()
@@ -3201,15 +3166,15 @@ def run_setup_wizard(args):
         )
         return
 
-    # ``--portal`` is registered only when the legacy Nous provider is
+    # ``--portal`` is registered only when the opt-in Nous provider is
     # explicitly enabled. Keep a second gate here for direct/programmatic
     # callers so a manually constructed Namespace can never bypass the
     # public capability policy or fall through into the full wizard.
     if bool(getattr(args, "portal", False)):
         if not fabric_model_provider_visible("nous"):
-            print_error("Legacy Portal setup is not enabled for this Fabric deployment.")
+            print_error("Nous Portal setup is not enabled for this Fabric deployment.")
             return
-        _run_portal_one_shot(config)
+        _run_portal_one_shot(config, args=args)
         return
 
     # Check if a specific section was requested
@@ -3300,7 +3265,7 @@ def run_setup_wizard(args):
         # missing items" flow (useful after a partial OpenClaw migration
         # or when a required API key got cleared).
         if quick_requested:
-            _run_quick_setup(config, hermes_home)
+            _run_quick_setup(config, fabric_home)
             return
 
         print()
@@ -3325,7 +3290,7 @@ def run_setup_wizard(args):
             print()
 
         # Offer OpenClaw migration before configuration begins
-        migration_ran = _offer_openclaw_migration(hermes_home)
+        migration_ran = _offer_openclaw_migration(fabric_home)
         if migration_ran:
             config = load_config()
 
@@ -3341,14 +3306,14 @@ def run_setup_wizard(args):
         guided_setup = setup_mode == 0
 
         if setup_mode == 2:
-            _run_blank_slate_setup(config, hermes_home, is_existing)
+            _run_blank_slate_setup(config, fabric_home, is_existing)
             return
 
     # ── Full Setup — run all sections ──
     print_header("Configuration Location")
     print_info(f"Config file:  {get_config_path()}")
     print_info(f"Secrets file: {get_env_path()}")
-    print_info(f"Data folder:  {hermes_home}")
+    print_info(f"Data folder:  {fabric_home}")
     print_info(f"Install dir:  {PROJECT_ROOT}")
     print()
     print_info("You can edit these files directly or use 'fabric config edit'")
@@ -3444,7 +3409,7 @@ def run_setup_wizard(args):
         print_info(f"Previous config backed up to: {_backup_path}")
         print_info("If setup changed a value you customized, restore it with:")
         print_info(f"  cp {_backup_path} {config_path}")
-    _print_setup_summary(config, hermes_home)
+    _print_setup_summary(config, fabric_home)
 
 
 def _blank_slate_minimal_toolsets(config: dict):
@@ -3476,7 +3441,7 @@ def _blank_slate_minimal_toolsets(config: dict):
         # Plain (non-composite) TOOLSETS entries — catches recovered toolsets
         # like ``kanban`` that aren't in CONFIGURABLE_TOOLSETS but get re-added.
         for k, tdef in TOOLSETS.items():
-            if k.startswith("hermes-"):
+            if k.startswith("fabric-"):
                 continue  # platform composites — not user-facing toolsets
             if isinstance(tdef, dict) and tdef.get("includes"):
                 continue  # composite groupings, not leaf toolsets
@@ -3520,7 +3485,7 @@ def _blank_slate_minimize_config(config: dict):
     config.setdefault("display", {})["tool_progress"] = "all"
 
 
-def _run_blank_slate_setup(config: dict, hermes_home, is_existing: bool):
+def _run_blank_slate_setup(config: dict, fabric_home, is_existing: bool):
     """Blank Slate setup — start with everything off except the bare minimum.
 
     Forces only the essentials to run an agent (provider + model, the file and
@@ -3594,14 +3559,14 @@ def _run_blank_slate_setup(config: dict, hermes_home, is_existing: bool):
         print_info("  Enable plugins:      fabric plugins")
         print_info("  Tune agent settings: fabric setup agent")
         print()
-        _print_setup_summary(config, hermes_home)
+        _print_setup_summary(config, fabric_home)
         return
 
     # ── Walkthrough path — opt in to each capability ──
-    _blank_slate_walkthrough(config, hermes_home)
+    _blank_slate_walkthrough(config, fabric_home)
 
 
-def _blank_slate_walkthrough(config: dict, hermes_home):
+def _blank_slate_walkthrough(config: dict, fabric_home):
     """Opt-in walkthrough for Blank Slate: skills, tools, plugins, MCP, gateway."""
     from fabric_cli.config import load_config
 
@@ -3681,10 +3646,10 @@ def _blank_slate_walkthrough(config: dict, hermes_home):
     print_info("  Tune agent settings: fabric setup agent")
     print()
 
-    _print_setup_summary(config, hermes_home)
+    _print_setup_summary(config, fabric_home)
 
 
-def _run_quick_setup(config: dict, hermes_home):
+def _run_quick_setup(config: dict, fabric_home):
     """Quick setup — only configure items that are missing."""
     from fabric_cli.config import (
         get_missing_env_vars,
@@ -3847,4 +3812,4 @@ def _run_quick_setup(config: dict, hermes_home):
         save_config(config)
 
     # Jump to summary
-    _print_setup_summary(config, hermes_home)
+    _print_setup_summary(config, fabric_home)

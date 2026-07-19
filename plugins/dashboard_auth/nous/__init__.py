@@ -1,10 +1,8 @@
 """Nous Portal dashboard OAuth provider.
 
 The provider uses the authorization-code flow with PKCE and registers only when
-a per-install client ID is configured. New deployments should set
-``dashboard.oauth.client_id`` in ``config.yaml``; the legacy
-``HERMES_DASHBOARD_OAUTH_CLIENT_ID`` and ``HERMES_DASHBOARD_PORTAL_URL``
-environment variables remain accepted for compatibility. Tokens are verified
+a per-install client ID is configured under ``dashboard.oauth`` in
+``config.yaml``. Tokens are verified
 against the configured Portal JWKS, and rotating refresh tokens are persisted
 by the dashboard authentication middleware.
 """
@@ -14,7 +12,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import os
 import secrets
 import urllib.parse
 from typing import Any, Dict, Optional
@@ -37,8 +34,7 @@ logger = logging.getLogger(__name__)
 # Defaults
 # ---------------------------------------------------------------------------
 
-# Production Portal URL. Override via HERMES_DASHBOARD_PORTAL_URL for a custom
-# deployment.
+# Production Portal URL. ``dashboard.oauth.portal_url`` selects a custom deployment.
 _DEFAULT_PORTAL_URL = "https://portal.nousresearch.com"
 
 
@@ -47,7 +43,7 @@ _DEFAULT_PORTAL_URL = "https://portal.nousresearch.com"
 # ---------------------------------------------------------------------------
 #
 # When the plugin loads but refuses to register (missing / malformed
-# env vars), the auth gate downstream just sees "zero providers" and
+# config), the auth gate downstream just sees "zero providers" and
 # emits a generic "install a provider" error. That's misleading for the
 # common case where the provider IS installed but mis-configured. The
 # plugin writes the *specific* reason to this module-level slot; the
@@ -136,12 +132,12 @@ class NousDashboardAuthProvider(DashboardAuthProvider):
             "code_challenge_method": "S256",
         }
         redirect_url = f"{self._authorize_url}?{urllib.parse.urlencode(params)}"
-        # The auth-route layer expects ``cookie_payload[\"hermes_session_pkce\"]``
+        # The auth-route layer expects ``cookie_payload[\"fabric_session_pkce\"]``
         # as a single semicolon-delimited string of ``key=value`` segments,
         # matching the stub provider's shape. The route handler prepends
         # ``provider=`` so the callback knows which plugin to dispatch to.
         cookie_payload = {
-            "hermes_session_pkce": f"state={state};verifier={code_verifier}",
+            "fabric_session_pkce": f"state={state};verifier={code_verifier}",
         }
         return LoginStart(redirect_url=redirect_url, cookie_payload=cookie_payload)
 
@@ -394,9 +390,9 @@ class NousDashboardAuthProvider(DashboardAuthProvider):
             raise InvalidCodeError(f"access token expired: {exc}") from exc
         except jwt.InvalidTokenError as exc:
             # Surface the actual claim values that failed verification so
-            # operators don't have to dig into the JWT to debug config drift
-            # between HERMES_DASHBOARD_PORTAL_URL / HERMES_DASHBOARD_OAUTH_CLIENT_ID
-            # and what Portal is actually emitting. Decoding without verification
+            # operators don't have to dig into the JWT to debug drift between
+            # dashboard.oauth.nous.portal_url / client_id and what Portal is
+            # actually emitting. Decoding without verification
             # is safe here: we've already failed to verify, and we never trust
             # these values — they're surfaced for diagnostics only.
             details = ""
@@ -496,7 +492,7 @@ def _load_config_oauth_section() -> dict:
     except Exception as exc:  # noqa: BLE001 — broad catch is intentional
         logger.debug(
             "dashboard-auth-nous: load_config() raised %s; "
-            "falling back to env-only configuration",
+            "treating the provider as unconfigured",
             exc,
         )
         return {}
@@ -505,34 +501,13 @@ def _load_config_oauth_section() -> dict:
 
 
 def _resolve_client_id() -> str:
-    """Resolve the OAuth client_id with env-overrides-config precedence.
-
-    Order:
-      1. ``HERMES_DASHBOARD_OAUTH_CLIENT_ID`` env var (when non-empty
-         after strip — empty values are treated as unset so a
-         provisioned-but-not-populated Fly secret can't shadow a valid
-         config.yaml entry).
-      2. ``dashboard.oauth.client_id`` in ``config.yaml``.
-      3. Empty string — signals "no client_id configured" to the caller.
-    """
-    env = os.environ.get("HERMES_DASHBOARD_OAUTH_CLIENT_ID", "").strip()
-    if env:
-        return env
+    """Resolve ``dashboard.oauth.client_id`` from ``config.yaml``."""
     cfg_value = _load_config_oauth_section().get("client_id", "")
     return str(cfg_value).strip()
 
 
 def _resolve_portal_url() -> str:
-    """Resolve the Portal URL with env-overrides-config precedence.
-
-    Order:
-      1. ``HERMES_DASHBOARD_PORTAL_URL`` env var (non-empty after strip).
-      2. ``dashboard.oauth.portal_url`` in ``config.yaml``.
-      3. :data:`_DEFAULT_PORTAL_URL` (production Portal).
-    """
-    env = os.environ.get("HERMES_DASHBOARD_PORTAL_URL", "").strip()
-    if env:
-        return env
+    """Resolve the configured Portal URL or the production default."""
     cfg_value = str(
         _load_config_oauth_section().get("portal_url", "")
     ).strip()
@@ -543,23 +518,18 @@ def register(ctx) -> None:
     """Plugin entry — called by the plugin loader at startup.
 
     Registers ``NousDashboardAuthProvider`` only when a client_id is
-    configured (either via ``HERMES_DASHBOARD_OAUTH_CLIENT_ID`` env var
-    or via ``dashboard.oauth.client_id`` in ``config.yaml``). The env
-    var wins when set non-empty — Fly.io's platform-secret injection
-    pushes the per-deploy value through this path.
+    configured via ``dashboard.oauth.client_id`` in ``config.yaml``.
 
     When skipping, writes a short human-readable reason to the module-
     level :data:`LAST_SKIP_REASON` so the dashboard's fail-closed branch
-    can surface "Set HERMES_DASHBOARD_OAUTH_CLIENT_ID …" instead of the
+    can surface the exact missing config key instead of the
     bare "no providers registered" the gate would otherwise emit. The
-    reason mentions BOTH configuration surfaces so operators don't
-    guess wrong about which one to populate.
+    reason names the canonical configuration surface.
 
-    Operator-owned dashboards (loopback / ``--insecure``) leave both
-    surfaces unset, so this plugin is a no-op for them. The gate-
-    engagement layer (``fabric_cli.web_server.should_require_auth`` +
-    the fail-closed check in ``start_server``) handles the "public bind
-    with zero providers" case independently.
+    Loopback dashboards can leave this setting unset, so this plugin is a
+    no-op for them. The gate-engagement layer
+    (``fabric_cli.web_server.should_require_auth`` plus the fail-closed check
+    in ``start_server``) handles a public bind with zero providers.
     """
     global LAST_SKIP_REASON
     LAST_SKIP_REASON = ""
@@ -569,24 +539,20 @@ def register(ctx) -> None:
 
     if not client_id:
         LAST_SKIP_REASON = (
-            "HERMES_DASHBOARD_OAUTH_CLIENT_ID is not set (and "
-            "dashboard.oauth.client_id in config.yaml is empty). The "
-            "Nous Portal provisions this env var (shape "
-            "'agent:{instance_id}') when it deploys a Fabric "
-            "instance — set it to your provisioned client id (either "
-            "as an env var or under dashboard.oauth.client_id in "
-            "config.yaml), or pass --insecure to skip the OAuth gate "
-            "entirely."
+            "dashboard.oauth.client_id is not set in config.yaml. The "
+            "Nous Portal provisions a value shaped 'agent:{instance_id}'; "
+            "store it under dashboard.oauth.client_id, or bind the dashboard "
+            "to loopback."
         )
         logger.debug("dashboard-auth-nous: %s", LAST_SKIP_REASON)
         return
 
     if not client_id.startswith("agent:"):
         LAST_SKIP_REASON = (
-            f"HERMES_DASHBOARD_OAUTH_CLIENT_ID={client_id!r} doesn't match "
+            f"dashboard.oauth.client_id={client_id!r} doesn't match "
             f"the contract shape 'agent:{{instance_id}}'. The Nous Portal "
-            f"provisions this value at deploy time; check your Fly app's "
-            f"secrets or override with the value from the Portal admin UI."
+            f"provisions this value at deploy time; compare it with the "
+            f"value from the Portal admin UI."
         )
         logger.warning("dashboard-auth-nous: %s", LAST_SKIP_REASON)
         return

@@ -47,7 +47,7 @@ class ConsoleCommand:
     path: tuple[str, ...]
     usage: str
     summary: str
-    handler: Callable[["HermesConsoleEngine", list[str]], str]
+    handler: Callable[["FabricConsoleEngine", list[str]], str]
     mutating: bool = False
     confirmation: str = ""
     contexts: frozenset[ConsoleContext] = LOCAL_CONTEXTS
@@ -265,7 +265,7 @@ def _clean_summary(text: str | None) -> str:
     summary = " ".join(str(text).split())
     if not summary:
         return ""
-    if summary.startswith(("Run `fabric ", "Run `hermes ")):
+    if summary.startswith("Run `fabric "):
         return ""
     return summary
 
@@ -295,7 +295,7 @@ def _noop_console_command(_args: argparse.Namespace) -> None:
 # The CLI surface these helpers reflect is process-static: they import a
 # subcommand module and build a throwaway argparse tree purely to extract help
 # summaries. Nothing about the result changes across engine instances, but the
-# dashboard opens a fresh HermesConsoleEngine per /api/console connection, so
+# dashboard opens a fresh FabricConsoleEngine per /api/console connection, so
 # without memoization every reconnect re-imports + re-parses the whole surface.
 # Cache by args (all hashable strings); callers only read the returned map.
 @functools.lru_cache(maxsize=None)
@@ -464,8 +464,8 @@ def _extracted_handler(
     builder_name: str,
     main_handler_name: str,
     namespace_update: Callable[[argparse.Namespace, ConsoleContext], None] | None = None,
-) -> Callable[["HermesConsoleEngine", list[str]], str]:
-    def handler(_engine: HermesConsoleEngine, args: list[str]) -> str:
+) -> Callable[["FabricConsoleEngine", list[str]], str]:
+    def handler(_engine: FabricConsoleEngine, args: list[str]) -> str:
         return _dispatch_extracted_subcommand(
             root=root,
             fixed=fixed,
@@ -487,8 +487,8 @@ def _registered_handler(
     register_name: str,
     handler_name: str | None = None,
     namespace_update: Callable[[argparse.Namespace, ConsoleContext], None] | None = None,
-) -> Callable[["HermesConsoleEngine", list[str]], str]:
-    def handler(_engine: HermesConsoleEngine, args: list[str]) -> str:
+) -> Callable[["FabricConsoleEngine", list[str]], str]:
+    def handler(_engine: FabricConsoleEngine, args: list[str]) -> str:
         return _dispatch_registered_subcommand(
             root=root,
             fixed=fixed,
@@ -510,8 +510,8 @@ def _builder_handler(
     builder_name: str,
     main_handler_name: str,
     namespace_update: Callable[[argparse.Namespace, ConsoleContext], None] | None = None,
-) -> Callable[["HermesConsoleEngine", list[str]], str]:
-    def handler(_engine: HermesConsoleEngine, args: list[str]) -> str:
+) -> Callable[["FabricConsoleEngine", list[str]], str]:
+    def handler(_engine: FabricConsoleEngine, args: list[str]) -> str:
         return _dispatch_builder_subcommand(
             root=root,
             fixed=fixed,
@@ -532,8 +532,8 @@ def _adder_handler(
     module_name: str,
     add_name: str,
     namespace_update: Callable[[argparse.Namespace, ConsoleContext], None] | None = None,
-) -> Callable[["HermesConsoleEngine", list[str]], str]:
-    def handler(_engine: HermesConsoleEngine, args: list[str]) -> str:
+) -> Callable[["FabricConsoleEngine", list[str]], str]:
+    def handler(_engine: FabricConsoleEngine, args: list[str]) -> str:
         return _dispatch_adder_subcommand(
             root=root,
             fixed=fixed,
@@ -548,11 +548,11 @@ def _adder_handler(
 
 
 def _register_command_family(
-    engine: "HermesConsoleEngine",
+    engine: "FabricConsoleEngine",
     *,
     root: str,
     paths: Iterable[Sequence[str]],
-    handler_factory: Callable[[Sequence[str]], Callable[["HermesConsoleEngine", list[str]], str]],
+    handler_factory: Callable[[Sequence[str]], Callable[["FabricConsoleEngine", list[str]], str]],
     mutating: Iterable[Sequence[str]] = (),
     hosted: Iterable[Sequence[str]] = (),
     summary: str = "",
@@ -577,7 +577,7 @@ def _register_command_family(
         )
 
 
-class HermesConsoleEngine:
+class FabricConsoleEngine:
     """Curated line-command executor for Fabric Console."""
 
     def __init__(self, *, output_limit: int = 20000, context: ConsoleContext = "local"):
@@ -596,7 +596,7 @@ class HermesConsoleEngine:
 
         try:
             tokens = _split_line(raw_line)
-            if tokens and tokens[0] in {"fabric", "hermes"}:
+            if tokens and tokens[0] == "fabric":
                 tokens = tokens[1:]
             if not tokens:
                 return self._help_result()
@@ -1154,8 +1154,8 @@ class HermesConsoleEngine:
                 "fabric_cli.checkpoints",
                 "register_cli",
                 None,
-                [("status",), ("list",), ("prune",), ("clear",), ("clear-legacy",)],
-                {("prune",), ("clear",), ("clear-legacy",)},
+                [("status",), ("list",), ("prune",), ("clear",)],
+                {("prune",), ("clear",)},
             ),
             "curator": (
                 "fabric_cli.curator",
@@ -1221,7 +1221,7 @@ class HermesConsoleEngine:
         path: Iterable[str],
         usage: str,
         summary: str,
-        handler: Callable[["HermesConsoleEngine", list[str]], str],
+        handler: Callable[["FabricConsoleEngine", list[str]], str],
         *,
         mutating: bool = False,
         confirmation: str = "",
@@ -1486,7 +1486,7 @@ def _apply_confirmed_defaults(args: argparse.Namespace, context: ConsoleContext)
             setattr(args, attr, True)
     if getattr(args, "_console_command", None) == "import":
         setattr(args, "force", True)
-    if getattr(args, "checkpoints_command", None) in {"clear", "clear-legacy"}:
+    if getattr(args, "checkpoints_command", None) == "clear":
         setattr(args, "force", True)
     if getattr(args, "plugins_action", None) == "install":
         if not getattr(args, "enable", False) and not getattr(args, "no_enable", False):
@@ -1509,7 +1509,7 @@ def _apply_confirmed_defaults(args: argparse.Namespace, context: ConsoleContext)
         setattr(args, "yes", True)
 
 
-def _status(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _status(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "status")
     from types import SimpleNamespace
 
@@ -1519,7 +1519,7 @@ def _status(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _strip_console_status_footer(output)
 
 
-def _doctor(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _doctor(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "doctor")
     from types import SimpleNamespace
 
@@ -1528,7 +1528,7 @@ def _doctor(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _capture_output(lambda: run_doctor(SimpleNamespace(fix=False, ack=None)))
 
 
-def _logs(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _logs(_engine: FabricConsoleEngine, args: list[str]) -> str:
     if "-f" in args or "--follow" in args:
         raise ConsoleCommandError("`logs -f` is not available in Fabric Console.")
     parser = _ArgumentParser(prog="logs", add_help=False)
@@ -1559,7 +1559,7 @@ def _logs(_engine: HermesConsoleEngine, args: list[str]) -> str:
     )
 
 
-def _sessions_list(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _sessions_list(_engine: FabricConsoleEngine, args: list[str]) -> str:
     parser = _ArgumentParser(prog="sessions list", add_help=False)
     parser.add_argument("--limit", type=int, default=20)
     ns = parser.parse_args(args)
@@ -1580,7 +1580,7 @@ def _sessions_list(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _format_sessions(sessions)
 
 
-def _sessions_stats(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _sessions_stats(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "sessions stats")
     from fabric_state import SessionDB
 
@@ -1603,21 +1603,21 @@ def _sessions_stats(_engine: HermesConsoleEngine, args: list[str]) -> str:
         db.close()
 
 
-def _config_show(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _config_show(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "config show")
     from fabric_cli.config import show_config
 
     return _capture_output(show_config)
 
 
-def _config_path(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _config_path(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "config path")
     from fabric_cli.config import get_config_path
 
     return str(get_config_path())
 
 
-def _config_set(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _config_set(_engine: FabricConsoleEngine, args: list[str]) -> str:
     if len(args) < 2:
         raise ConsoleCommandError("Usage: config set <key> <value>")
     key = args[0]
@@ -1627,7 +1627,7 @@ def _config_set(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _capture_output(lambda: set_config_value(key, value))
 
 
-def _config_migrate(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _config_migrate(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "config migrate")
 
     def _run() -> None:
@@ -1645,7 +1645,7 @@ def _config_migrate(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _capture_output(_run)
 
 
-def _sessions_export(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _sessions_export(_engine: FabricConsoleEngine, args: list[str]) -> str:
     parser = _ArgumentParser(prog="sessions export", add_help=False)
     parser.add_argument("output")
     parser.add_argument("--source")
@@ -1683,7 +1683,7 @@ def _sessions_export(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _capture_output(_run)
 
 
-def _sessions_rename(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _sessions_rename(_engine: FabricConsoleEngine, args: list[str]) -> str:
     parser = _ArgumentParser(prog="sessions rename", add_help=False)
     parser.add_argument("session_id")
     parser.add_argument("title", nargs="+")
@@ -1707,7 +1707,7 @@ def _sessions_rename(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _capture_output(_run)
 
 
-def _sessions_optimize(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _sessions_optimize(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "sessions optimize")
 
     def _run() -> None:
@@ -1723,7 +1723,7 @@ def _sessions_optimize(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _capture_output(_run)
 
 
-def _sessions_repair(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _sessions_repair(_engine: FabricConsoleEngine, args: list[str]) -> str:
     parser = _ArgumentParser(prog="sessions repair", add_help=False)
     parser.add_argument("--check-only", action="store_true")
     parser.add_argument("--no-backup", action="store_true")
@@ -1755,7 +1755,7 @@ def _sessions_repair(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _capture_output(_run)
 
 
-def _profile_status(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _profile_status(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "profile")
     return _dispatch_extracted_subcommand(
         root="profile",
@@ -1768,7 +1768,7 @@ def _profile_status(_engine: HermesConsoleEngine, args: list[str]) -> str:
     )
 
 
-def _cron_list(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _cron_list(_engine: FabricConsoleEngine, args: list[str]) -> str:
     parser = _ArgumentParser(prog="cron list", add_help=False)
     parser.add_argument("--all", action="store_true")
     ns = parser.parse_args(args)
@@ -1777,14 +1777,14 @@ def _cron_list(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _capture_output(lambda: cron_list(show_all=ns.all))
 
 
-def _cron_status(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _cron_status(_engine: FabricConsoleEngine, args: list[str]) -> str:
     _expect_no_args(args, "cron status")
     from fabric_cli.cron import cron_status
 
     return _capture_output(cron_status)
 
 
-def _cron_pause(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _cron_pause(_engine: FabricConsoleEngine, args: list[str]) -> str:
     if len(args) != 1:
         raise ConsoleCommandError("Usage: cron pause <job>")
     from cron.jobs import AmbiguousJobReference, pause_job
@@ -1798,7 +1798,7 @@ def _cron_pause(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _format_job(job, "Paused")
 
 
-def _cron_resume(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _cron_resume(_engine: FabricConsoleEngine, args: list[str]) -> str:
     if len(args) != 1:
         raise ConsoleCommandError("Usage: cron resume <job>")
     from cron.jobs import AmbiguousJobReference, resume_job
@@ -1812,7 +1812,7 @@ def _cron_resume(_engine: HermesConsoleEngine, args: list[str]) -> str:
     return _format_job(job, "Resumed")
 
 
-def _cron_run(_engine: HermesConsoleEngine, args: list[str]) -> str:
+def _cron_run(_engine: FabricConsoleEngine, args: list[str]) -> str:
     if len(args) != 1:
         raise ConsoleCommandError("Usage: cron run <job>")
     from cron.jobs import AmbiguousJobReference, trigger_job
@@ -1841,7 +1841,7 @@ def run_console_repl(
     if interactive is None:
         interactive = bool(getattr(stdin, "isatty", lambda: False)())
 
-    engine = HermesConsoleEngine()
+    engine = FabricConsoleEngine()
     if interactive:
         print("Fabric Console. Type `help` for commands, `exit` to quit.", file=stdout)
 

@@ -10,7 +10,7 @@ of 4000+ models across 109+ providers.  Provides:
 
 Data resolution order (like TypeScript OpenCode):
   1. Bundled snapshot (ships with the package — offline-first)
-  2. Disk cache (~/.hermes/models_dev_cache.json)
+  2. Disk cache (~/.fabric/models_dev_cache.json)
   3. Network fetch (https://models.dev/api.json)
   4. Background refresh every 60 minutes
 
@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from utils import atomic_json_write
+from fabric_cli.model_id_policy import model_id_is_current, sanitize_model_catalog_payload
 
 import requests
 
@@ -135,10 +136,10 @@ class ProviderInfo:
 
 
 # ---------------------------------------------------------------------------
-# Provider ID mapping: Hermes ↔ models.dev
+# Provider ID mapping: Fabric ↔ models.dev
 # ---------------------------------------------------------------------------
 
-# Hermes provider names → models.dev provider IDs
+# Fabric provider names → models.dev provider IDs
 PROVIDER_TO_MODELS_DEV: Dict[str, str] = {
     "openrouter": "openrouter",
     "novita": "novita-ai",
@@ -179,7 +180,7 @@ PROVIDER_TO_MODELS_DEV: Dict[str, str] = {
     "ollama-cloud": "ollama-cloud",
 }
 
-# Reverse mapping: models.dev → Hermes (built lazily)
+# Reverse mapping: models.dev → Fabric (built lazily)
 _MODELS_DEV_TO_PROVIDER: Optional[Dict[str, str]] = None
 
 
@@ -196,7 +197,9 @@ def _load_disk_cache() -> Dict[str, Any]:
         cache_path = _get_cache_path()
         if cache_path.exists():
             with open(cache_path, encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                sanitized = sanitize_model_catalog_payload(data)
+                return sanitized if isinstance(sanitized, dict) else {}
     except Exception as e:
         logger.debug("Failed to load models.dev disk cache: %s", e)
     return {}
@@ -232,7 +235,8 @@ def _save_disk_cache(data: Dict[str, Any]) -> None:
     """Save models.dev data to disk cache atomically."""
     try:
         cache_path = _get_cache_path()
-        atomic_json_write(cache_path, data, indent=None, separators=(",", ":"))
+        sanitized = sanitize_model_catalog_payload(data)
+        atomic_json_write(cache_path, sanitized, indent=None, separators=(",", ":"))
     except Exception as e:
         logger.debug("Failed to save models.dev disk cache: %s", e)
 
@@ -252,7 +256,7 @@ def fetch_models_dev(force_refresh: bool = False) -> Dict[str, Any]:
       4. Network fails → fall back to ANY available disk cache (even stale)
          with a short 5 min in-mem grace period before retrying network.
 
-    When ``force_refresh=True`` (used by ``Fabric config refresh``, the
+    When ``force_refresh=True`` (used by ``fabric config refresh``, the
     \"refresh model catalog\" code path), stages 1 and 2 are skipped. The
     function always hits the network and only falls back to disk if the
     network call fails.
@@ -266,6 +270,8 @@ def fetch_models_dev(force_refresh: bool = False) -> Dict[str, Any]:
         and _models_dev_cache
         and (time.time() - _models_dev_cache_time) < _MODELS_DEV_CACHE_TTL
     ):
+        sanitized = sanitize_model_catalog_payload(_models_dev_cache)
+        _models_dev_cache = sanitized if isinstance(sanitized, dict) else {}
         return _models_dev_cache
 
     # Stage 2: fresh-by-mtime disk cache short-circuits the network call.
@@ -294,15 +300,16 @@ def fetch_models_dev(force_refresh: bool = False) -> Dict[str, Any]:
         response.raise_for_status()
         data = response.json()
         if isinstance(data, dict) and data:
-            _models_dev_cache = data
+            sanitized = sanitize_model_catalog_payload(data)
+            _models_dev_cache = sanitized if isinstance(sanitized, dict) else {}
             _models_dev_cache_time = time.time()
-            _save_disk_cache(data)
+            _save_disk_cache(_models_dev_cache)
             logger.debug(
                 "Fetched models.dev registry: %d providers, %d total models",
                 len(data),
                 sum(len(p.get("models", {})) for p in data.values() if isinstance(p, dict)),
             )
-            return data
+            return _models_dev_cache
     except Exception as e:
         logger.debug("Failed to fetch models.dev: %s", e)
 
@@ -411,7 +418,7 @@ class ModelCapabilities:
 
 
 def _get_provider_models(provider: str) -> Optional[Dict[str, Any]]:
-    """Resolve a Hermes provider ID to its models dict from models.dev.
+    """Resolve a Fabric provider ID to its models dict from models.dev.
 
     Returns the models dict or None if the provider is unknown or has no data.
     """
@@ -567,6 +574,8 @@ _GOOGLE_HIDDEN_MODELS = frozenset({
 def _should_hide_from_provider_catalog(provider: str, model_id: str) -> bool:
     provider_lower = (provider or "").strip().lower()
     model_lower = (model_id or "").strip().lower()
+    if not model_id_is_current(model_id):
+        return True
     if provider_lower in {"gemini", "google"} and model_lower in _GOOGLE_HIDDEN_MODELS:
         return True
     return False
@@ -674,10 +683,10 @@ def _parse_provider_info(provider_id: str, raw: Dict[str, Any]) -> ProviderInfo:
 def get_provider_info(provider_id: str) -> Optional[ProviderInfo]:
     """Get full provider metadata from models.dev.
 
-    Accepts either a Hermes provider ID (e.g. "kilocode") or a models.dev
+    Accepts either a Fabric provider ID (e.g. "kilocode") or a models.dev
     ID (e.g. "kilo").  Returns None if the provider is not in the catalog.
     """
-    # Resolve Hermes ID → models.dev ID
+    # Resolve Fabric ID → models.dev ID
     mdev_id = PROVIDER_TO_MODELS_DEV.get(provider_id, provider_id)
 
     data = fetch_models_dev()
@@ -697,7 +706,7 @@ def get_model_info(
 ) -> Optional[ModelInfo]:
     """Get full model metadata from models.dev.
 
-    Accepts Hermes or models.dev provider ID.  Tries exact match then
+    Accepts Fabric or models.dev provider ID.  Tries exact match then
     case-insensitive fallback.  Returns None if not found.
     """
     mdev_id = PROVIDER_TO_MODELS_DEV.get(provider_id, provider_id)

@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Platforms already warned about an all-invalid platform_toolsets list, so the
 # runtime check in _get_platform_tools warns once per platform instead of on
-# every tool resolution for a persistently-corrupt config (#38798).
+# every tool resolution for a persistently invalid config.
 _warned_invalid_platform_toolsets: Set[str] = set()
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -106,7 +106,7 @@ def gui_toolset_label(label: str) -> str:
 
 
 # Toolsets that are OFF by default for new installs.
-# They're still in _HERMES_CORE_TOOLS (available at runtime if enabled),
+# They're still in _FABRIC_CORE_TOOLS (available at runtime if enabled),
 # but the setup checklist won't pre-select them for first-time users.
 #
 # Video gen is off by default — it's a niche, paid, slow feature. Users
@@ -586,10 +586,8 @@ TOOL_CATEGORIES = {
                     "your cursor or focus. Works with any model."
                 ),
                 "env_vars": [
-                    # cua-driver reads HOME/TMPDIR from the process env, no
-                    # extra keys required. Set HERMES_CUA_DRIVER_CMD to use a
-                    # specific binary (e.g. a local build); there is no
-                    # version-pin env var.
+                    # cua-driver reads HOME/TMPDIR from the process env; no
+                    # extra keys are required.
                 ],
                 "post_setup": "cua_driver",
             },
@@ -603,8 +601,8 @@ TOOL_CATEGORIES = {
                 "name": "Langfuse Cloud",
                 "tag": "Hosted Langfuse (cloud.langfuse.com)",
                 "env_vars": [
-                    {"key": "HERMES_LANGFUSE_PUBLIC_KEY", "prompt": "Langfuse public key (pk-lf-...)", "url": "https://cloud.langfuse.com"},
-                    {"key": "HERMES_LANGFUSE_SECRET_KEY", "prompt": "Langfuse secret key (sk-lf-...)", "url": "https://cloud.langfuse.com"},
+                    {"key": "LANGFUSE_PUBLIC_KEY", "prompt": "Langfuse public key (pk-lf-...)", "url": "https://cloud.langfuse.com"},
+                    {"key": "LANGFUSE_SECRET_KEY", "prompt": "Langfuse secret key (sk-lf-...)", "url": "https://cloud.langfuse.com"},
                 ],
                 "post_setup": "langfuse",
             },
@@ -612,9 +610,8 @@ TOOL_CATEGORIES = {
                 "name": "Langfuse Self-Hosted",
                 "tag": "Self-hosted Langfuse instance",
                 "env_vars": [
-                    {"key": "HERMES_LANGFUSE_PUBLIC_KEY", "prompt": "Langfuse public key (pk-lf-...)"},
-                    {"key": "HERMES_LANGFUSE_SECRET_KEY", "prompt": "Langfuse secret key (sk-lf-...)"},
-                    {"key": "HERMES_LANGFUSE_BASE_URL", "prompt": "Langfuse server URL (e.g. http://localhost:3000)", "default": "http://localhost:3000"},
+                    {"key": "LANGFUSE_PUBLIC_KEY", "prompt": "Langfuse public key (pk-lf-...)"},
+                    {"key": "LANGFUSE_SECRET_KEY", "prompt": "Langfuse secret key (sk-lf-...)"},
                 ],
                 "post_setup": "langfuse",
             },
@@ -641,8 +638,8 @@ TOOLSET_ENV_REQUIREMENTS = {
 
 
 def _cua_driver_cmd() -> str:
-    """Return the cua-driver executable name/path, honoring non-empty overrides."""
-    return os.environ.get("HERMES_CUA_DRIVER_CMD", "").strip() or "cua-driver"
+    """Return the canonical cua-driver executable name."""
+    return "cua-driver"
 
 
 def _cua_driver_env() -> dict:
@@ -1461,6 +1458,9 @@ def _run_post_setup(post_setup_key: str) -> Optional[bool]:
             _print_info("    Run manually: fabric auth spotify")
 
     elif post_setup_key == "langfuse":
+        _print_info(
+            "    Self-hosted URL: set observability.langfuse.base_url in config.yaml"
+        )
         # Install the langfuse SDK.
         try:
             __import__("langfuse")
@@ -1723,7 +1723,7 @@ def _exempt_explicit_platform_native(
     ``discord``/``discord_admin`` on the discord platform) are the platform's
     own native tools. They are kept off for *unconfigured* platforms (security
     opt-in), but once a user explicitly saves a toolset list for the platform
-    the composite they chose (e.g. ``hermes-discord``, which contains those
+    the composite they chose (e.g. ``fabric-discord``, which contains those
     tools) is an opt-in — stripping them silently defeats the explicit
     configuration (#35527). Mutates ``default_off`` in place.
     """
@@ -1748,7 +1748,7 @@ def _get_platform_tools(
     toolset_names = platform_toolsets.get(platform)
     # Track whether the user explicitly saved a toolset list for this platform
     # (vs. falling back to the platform default). An explicit composite (e.g.
-    # ``hermes-discord``) is an opt-in to the platform's native default-off
+    # ``fabric-discord``) is an opt-in to the platform's native default-off
     # toolsets — see _exempt_explicit_platform_native (#35527).
     explicitly_configured = isinstance(toolset_names, list)
 
@@ -1758,7 +1758,7 @@ def _get_platform_tools(
             default_ts = plat_info["default_toolset"]
         else:
             # Plugin platform — derive toolset name from platform key
-            default_ts = f"hermes-{platform}"
+            default_ts = f"fabric-{platform}"
         toolset_names = [default_ts]
 
     # YAML may parse bare numeric names (e.g. ``12306:``) as int.
@@ -1772,7 +1772,7 @@ def _get_platform_tools(
     # If the saved list contains any configurable keys directly, the user
     # has explicitly configured this platform — use direct membership.
     # This avoids the subset-inference bug where composite toolsets like
-    # "hermes-cli" (which include all _HERMES_CORE_TOOLS) cause disabled
+    # "fabric-cli" (which include all _FABRIC_CORE_TOOLS) cause disabled
     # toolsets to re-appear as enabled.
     has_explicit_config = any(ts in configurable_keys for ts in toolset_names)
 
@@ -1782,7 +1782,7 @@ def _get_platform_tools(
             if ts in configurable_keys and _toolset_allowed_for_platform(ts, platform)
         }
         # Mixed config: composite toolset alongside configurables (e.g.
-        # ``[hermes-cli, spotify]`` after enabling Spotify via ``hermes
+        # ``[fabric-cli, spotify]`` after enabling Spotify via ``fabric
         # tools``). Without expansion the composite name is silently dropped,
         # leaving sessions with only the configurable opt-ins and no native
         # tools. Mirror the else-branch's subset inference, but apply
@@ -1822,7 +1822,7 @@ def _get_platform_tools(
             enabled_toolsets |= expanded
     else:
         # No explicit config — fall back to resolving composite toolset names
-        # (e.g. "hermes-cli") to individual tool names and reverse-mapping.
+        # (e.g. "fabric-cli") to individual tool names and reverse-mapping.
         all_tool_names = set()
         for ts_name in toolset_names:
             all_tool_names.update(resolve_toolset(ts_name))
@@ -1891,7 +1891,7 @@ def _get_platform_tools(
     # otherwise saving via `fabric tools` (which flips has_explicit_config
     # to True) silently drops them.
     _plat_info = PLATFORMS.get(platform)
-    _default_ts = _plat_info["default_toolset"] if _plat_info else f"hermes-{platform}"
+    _default_ts = _plat_info["default_toolset"] if _plat_info else f"fabric-{platform}"
     platform_tool_universe = set(resolve_toolset(_default_ts))
     configurable_tool_universe = set()
     for ck in configurable_keys:
@@ -1900,7 +1900,7 @@ def _get_platform_tools(
     for ts_key in enabled_toolsets:
         claimed.update(resolve_toolset(ts_key))
     skip = configurable_keys | plugin_ts_keys | platform_default_keys
-    skip |= {k for k in TOOLSETS if k.startswith("hermes-")}
+    skip |= {k for k in TOOLSETS if k.startswith("fabric-")}
     skip |= set(_DEFAULT_OFF_TOOLSETS) - {platform}
     for ts_key, ts_def in TOOLSETS.items():
         if ts_key in skip:
@@ -2003,12 +2003,10 @@ def _get_platform_tools(
         disabled_set = {str(ts) for ts in disabled_toolsets}
         enabled_toolsets -= disabled_set
 
-    # #38798: if this platform was explicitly configured but every toolset name
-    # is invalid (e.g. a migration or hand-edit left `fabric` instead of
-    # `hermes-cli`), resolve_toolset() returns [] for each and the platform ends
-    # up with no native tools — silently, with no error. Surface it at the point
-    # tools are resolved for a session so an already-corrupted config is caught
-    # at runtime, not only during the next `fabric update`/`fabric doctor`.
+    # If this platform was explicitly configured but every toolset name is
+    # invalid, resolve_toolset() returns [] for each and the platform would end
+    # up with no native tools. Surface that at session resolution time so a
+    # stale or hand-edited config is actionable.
     _explicit = platform_toolsets.get(platform)
     if isinstance(_explicit, list) and _explicit:
         from toolsets import validate_toolset
@@ -2023,7 +2021,7 @@ def _get_platform_tools(
             logger.warning(
                 "platform '%s' has no valid toolsets configured (unknown "
                 "name(s): %s) - tools will be unavailable. Run `fabric tools` "
-                "to reconfigure. See issue #38798.",
+                "to reconfigure.",
                 platform,
                 ", ".join(_named),
             )
@@ -2052,7 +2050,7 @@ def _save_platform_tools(config: dict, platform: str, enabled_toolset_keys: Set[
     plugin_keys = _get_plugin_toolset_keys()
     configurable_keys |= plugin_keys
 
-    # Also exclude platform default toolsets (hermes-cli, hermes-telegram, etc.)
+    # Also exclude platform default toolsets (fabric-cli, fabric-telegram, etc.)
     # These are "super" toolsets that resolve to ALL tools, so preserving them
     # would silently override the user's unchecked selections on the next read.
     platform_default_keys = {p["default_toolset"] for p in PLATFORMS.values()}
@@ -2599,7 +2597,7 @@ def _visible_provider_copy_mentions_nous(provider: dict) -> bool:
 def _apply_fabric_provider_policy(providers: list[dict]) -> list[dict]:
     """Apply Fabric's provider policy after the full catalog is composed.
 
-    Legacy deployments that explicitly expose the Nous model provider retain
+    Deployments that explicitly expose the Nous model provider retain
     upstream rows and wording verbatim. The curated default primarily relies
     on structured auth/identity metadata, uses ``fabric_tag`` for providers
     that support both direct and legacy gateway modes, then fails closed if a
@@ -2636,7 +2634,7 @@ def _visible_providers(
 
     Nous-managed Tool Gateway rows (``managed_nous_feature``) are hidden from
     Fabric's curated customer setup by default. Deployments that explicitly
-    opt Nous into ``FABRIC_MODEL_PROVIDERS`` (or disable the catalog) retain
+    opt Nous into ``capabilities.model_providers`` (or disable the catalog) retain
     the upstream inline login + entitlement flow.
     """
     providers = list(cat.get("providers", []))
@@ -2811,7 +2809,7 @@ def _registry_provider_available_for_visible_catalog(
     Nous gateway* fallback is ready, even if their direct API key is absent.
     In Fabric's default catalog that fallback is intentionally hidden, so a
     raw registry probe must not silently satisfy setup and skip the visible
-    direct-provider picker. Explicit legacy opt-in preserves upstream
+    direct-provider picker. Explicit Nous opt-in preserves upstream
     behavior. For the curated catalog, keyed rows require their advertised
     direct credentials; keyless rows may use the provider's own availability
     probe (for example xAI OAuth or OpenAI Codex auth).
@@ -4883,7 +4881,7 @@ def _configure_mcp_tools_interactive(config: dict):
             continue
 
         # Compute new include list (the chosen tools). We standardize on
-        # tools.include across the codebase (catalog installs, hermes mcp
+        # tools.include across the codebase (catalog installs, fabric mcp
         # configure, and this UI) so a server\'s on-disk config shape doesn\'t
         # depend on which UI the user touched last.
         chosen_names = [tool_names[i] for i in sorted(chosen)]

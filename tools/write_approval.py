@@ -32,7 +32,7 @@ the gate stages BOTH to disk, but review affordances differ by subsystem
 metadata + a one-line gist + a ``diff`` escape hatch (CLI/dashboard/file).
 
 Staging is mandatory for background-review and ``/learn`` skill writes,
-regardless of the legacy opt-in gate: these are authored candidates, not
+regardless of the Nous opt-in gate: these are authored candidates, not
 active-library mutations. It is also mandatory for gated background memory
 writes (a daemon thread cannot block on an interactive prompt) and for gated
 gateway sessions (no inline prompt channel — review happens via
@@ -40,7 +40,7 @@ gateway sessions (no inline prompt channel — review happens via
 dangerous-command approval callback; gated foreground skill writes always
 stage (too big to eyeball mid-loop).
 
-Pending records live under ``<HERMES_HOME>/pending/{memory,skills}/<id>.json``
+Pending records live under ``<FABRIC_HOME>/pending/{memory,skills}/<id>.json``
 so they survive process restarts and can be reviewed from CLI, gateway, or the
 web dashboard.
 """

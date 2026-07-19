@@ -10,7 +10,7 @@ This module provides a fail-closed, context-local secret scope:
 
 - ``set_secret_scope(mapping)`` installs the active profile's secrets for the
   current task (a contextvar, so it propagates into the agent's worker thread
-  via ``copy_context()`` exactly like the HERMES_HOME override).
+  via ``copy_context()`` exactly like the FABRIC_HOME override).
 - ``get_secret(name)`` reads from that scope. When multiplexing is **active**
   and no scope is set, it RAISES rather than silently falling back to
   ``os.environ`` — an un-migrated or newly-added call site fails loud at that
@@ -96,21 +96,13 @@ def current_secret_scope() -> Optional[Mapping[str, str]]:
 # list tight: when in doubt a value is a profile secret, not a global.
 _GLOBAL_ENV_EXACT = frozenset({
     # Fabric runtime / deployment
-    "HERMES_HOME", "HERMES_PROFILE", "HERMES_GATEWAY_LOCK_DIR",
-    "HERMES_MAX_ITERATIONS", "HERMES_MAX_TOKENS", "HERMES_API_TIMEOUT",
-    "HERMES_REDACT_SECRETS", "HERMES_NOUS_TIMEOUT_SECONDS",
-    "_HERMES_GATEWAY",
+    "FABRIC_HOME",
+    "GATEWAY_PROXY_URL",
     # OS / interpreter
     "PATH", "HOME", "USER", "LANG", "LC_ALL", "TZ", "PWD", "SHELL", "TMPDIR",
     "VIRTUAL_ENV", "PYTHONPATH", "SSL_CERT_FILE",
-    # Kanban paths (per-board, not per-profile-secret)
-    "HERMES_KANBAN_DB", "HERMES_KANBAN_WORKSPACES_ROOT", "HERMES_KANBAN_BOARD",
 })
-_GLOBAL_ENV_PREFIXES = (
-    "HERMES_KANBAN_",
-    "HERMES_TELEGRAM_",   # tuning knobs (batch delays, fallback toggles) — NOT the token
-    "TERMINAL_",          # terminal/sandbox backend settings
-)
+_GLOBAL_ENV_PREFIXES = ("TERMINAL_",)  # terminal/sandbox backend settings
 
 
 def _is_global_env(name: str) -> bool:
@@ -194,7 +186,7 @@ def load_env_file(env_path: Path) -> Dict[str, str]:
     return secrets
 
 
-def build_profile_secret_scope(hermes_home: Path) -> Dict[str, str]:
+def build_profile_secret_scope(fabric_home: Path) -> Dict[str, str]:
     """Build a complete, non-mutating credential scope for one profile.
 
     Precedence is profile ``.env`` (plus the optional 1Password bootstrap
@@ -203,7 +195,7 @@ def build_profile_secret_scope(hermes_home: Path) -> Dict[str, str]:
     against the profile mapping and never seeds from arbitrary process-global
     provider credentials. A fresh dict is returned on every call.
     """
-    home = Path(hermes_home)
+    home = Path(fabric_home)
     secrets = load_env_file(home / ".env")
     for key, value in load_env_file(home / ".op.env").items():
         secrets.setdefault(key, value)

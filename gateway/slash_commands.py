@@ -87,7 +87,7 @@ class GatewaySlashCommandsMixin:
     """In-session slash-command handlers for GatewayRunner."""
 
     def _typed_command_prefix_for(self, platform) -> str:
-        """Return the prefix users can always type to reach Hermes commands.
+        """Return the prefix users can always type to reach Fabric commands.
 
         Reads the adapter's ``typed_command_prefix`` capability flag
         (default "/"). Slack and Matrix return "!" because typed "/"
@@ -2319,7 +2319,7 @@ class GatewaySlashCommandsMixin:
 
         Same surface as the CLI handler in cli.py:
             /codex-runtime                  — show current state
-            /codex-runtime auto             — Hermes default runtime
+            /codex-runtime auto             — Fabric default runtime
             /codex-runtime codex_app_server — codex subprocess runtime
             /codex-runtime on / off         — synonyms
 
@@ -3694,14 +3694,8 @@ class GatewaySlashCommandsMixin:
         capabilities = await self._get_telegram_topic_capabilities(source)
         if capabilities.get("checked"):
             if capabilities.get("has_topics_enabled") is False:
-                # Debounce the BotFather screenshot: don't re-send on every
-                # /topic while threads are still disabled.
-                if self._should_send_telegram_capability_hint(source):
-                    await self._send_telegram_topic_setup_image(source)
                 return t("gateway.topic.topics_disabled")
             if capabilities.get("allows_users_to_create_topics") is False:
-                if self._should_send_telegram_capability_hint(source):
-                    await self._send_telegram_topic_setup_image(source)
                 return t("gateway.topic.topics_user_disallowed")
 
         try:
@@ -4797,7 +4791,7 @@ class GatewaySlashCommandsMixin:
         files are written so either the current gateway process or the next one
         can notify the user when the update finishes.
         """
-        from gateway.run import _fabric_home, _resolve_hermes_bin
+        from gateway.run import _fabric_home, _resolve_fabric_bin
         import json
         import shutil
         import subprocess
@@ -4826,9 +4820,9 @@ class GatewaySlashCommandsMixin:
         if not git_dir.exists():
             return t("gateway.update.not_git_repo")
 
-        hermes_cmd = _resolve_hermes_bin()
-        if not hermes_cmd:
-            return t("gateway.update.hermes_cmd_not_found")
+        fabric_cmd = _resolve_fabric_bin()
+        if not fabric_cmd:
+            return t("gateway.update.fabric_cmd_not_found")
 
         pending_path = _fabric_home / ".update_pending.json"
         output_path = _fabric_home / ".update_output.txt"
@@ -4880,7 +4874,7 @@ class GatewaySlashCommandsMixin:
                 import textwrap
                 from fabric_cli._subprocess_compat import windows_detach_popen_kwargs
 
-                # hermes_cmd is a list of argv parts we can pass directly
+                # fabric_cmd is a list of argv parts we can pass directly
                 # (no shell-quoting needed).
                 helper = textwrap.dedent(
                     """
@@ -4901,16 +4895,16 @@ class GatewaySlashCommandsMixin:
                     [
                         sys.executable, "-c", helper,
                         str(output_path), str(exit_code_path),
-                        *hermes_cmd, "update", "--gateway",
+                        *fabric_cmd, "update", "--gateway",
                     ],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     **windows_detach_popen_kwargs(),
                 )
             else:
-                hermes_cmd_str = " ".join(shlex.quote(part) for part in hermes_cmd)
+                fabric_cmd_str = " ".join(shlex.quote(part) for part in fabric_cmd)
                 update_cmd = (
-                    f"PYTHONUNBUFFERED=1 {hermes_cmd_str} update --gateway"
+                    f"PYTHONUNBUFFERED=1 {fabric_cmd_str} update --gateway"
                     f" > {shlex.quote(str(output_path))} 2>&1; "
                     # Avoid `status=$?`: `status` is a read-only special parameter
                     # in zsh, and this command string is copied/reused in macOS/zsh

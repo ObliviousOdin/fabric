@@ -697,7 +697,7 @@ class GatewayConfig:
     # When True, the default profile's gateway serves inbound messages for every
     # profile on the host: profiles are stamped into session keys and (in later
     # phases) per-profile adapters/credentials are resolved. When False, the
-    # gateway behaves exactly as before — single HERMES_HOME, no profile stamping.
+    # gateway behaves exactly as before — single FABRIC_HOME, no profile stamping.
     multiplex_profiles: bool = False
 
     # Unauthorized DM policy
@@ -872,7 +872,7 @@ class GatewayConfig:
         nested_gateway = data.get("gateway") if isinstance(data.get("gateway"), dict) else {}
         if multiplex_profiles is None and isinstance(nested_gateway, dict):
             # Also honor gateway.multiplex_profiles written by
-            # ``Fabric config set gateway.multiplex_profiles true``.
+            # ``fabric config set gateway.multiplex_profiles true``.
             multiplex_profiles = nested_gateway.get("multiplex_profiles")
         # Operator override: GATEWAY_MULTIPLEX_PROFILES wins over config.yaml when
         # set to a recognized value. Hosted deployments (Nous Portal / Fly) stamp
@@ -963,30 +963,15 @@ class GatewayConfig:
 
 def load_gateway_config() -> GatewayConfig:
     """
-    Load gateway configuration from multiple sources.
+    Load gateway configuration.
 
     Priority (highest to lowest):
     1. Environment variables
-    2. ~/.hermes/config.yaml (primary user-facing config)
-    3. ~/.hermes/gateway.json (legacy — provides defaults under config.yaml)
-    4. Built-in defaults
+    2. ~/.fabric/config.yaml
+    3. Built-in defaults
     """
     _home = get_fabric_home()
     gw_data: dict = {}
-
-    # Legacy fallback: gateway.json provides the base layer.
-    # config.yaml keys always win when both specify the same setting.
-    gateway_json_path = _home / "gateway.json"
-    if gateway_json_path.exists():
-        try:
-            with open(gateway_json_path, "r", encoding="utf-8") as f:
-                gw_data = json.load(f) or {}
-            logger.info(
-                "Loaded legacy %s — consider moving settings to config.yaml",
-                gateway_json_path,
-            )
-        except Exception as e:
-            logger.warning("Failed to load %s: %s", gateway_json_path, e)
 
     # Primary source: config.yaml
     try:
@@ -1035,14 +1020,14 @@ def load_gateway_config() -> GatewayConfig:
 
             # Multiplexing flag: accept both the top-level key and the nested
             # gateway.multiplex_profiles form (written by
-            # ``Fabric config set gateway.multiplex_profiles true``).
+            # ``fabric config set gateway.multiplex_profiles true``).
             if "multiplex_profiles" in yaml_cfg:
                 gw_data["multiplex_profiles"] = yaml_cfg["multiplex_profiles"]
 
             gateway_section = yaml_cfg.get("gateway")
             if isinstance(gateway_section, dict):
                 if "multiplex_profiles" in gateway_section and "multiplex_profiles" not in gw_data:
-                    # gateway.multiplex_profiles written by `Fabric config set gateway.multiplex_profiles true`
+                    # gateway.multiplex_profiles written by `fabric config set gateway.multiplex_profiles true`
                     gw_data["multiplex_profiles"] = gateway_section["multiplex_profiles"]
                 if "max_concurrent_sessions" in gateway_section:
                     gw_data["max_concurrent_sessions"] = gateway_section["max_concurrent_sessions"]
@@ -1053,7 +1038,7 @@ def load_gateway_config() -> GatewayConfig:
             streaming_cfg = yaml_cfg.get("streaming")
             if not isinstance(streaming_cfg, dict):
                 # Fall back to nested gateway.streaming written by
-                # ``Fabric config set gateway.streaming.*``
+                # ``fabric config set gateway.streaming.*``
                 streaming_cfg = yaml_cfg.get("gateway", {}).get("streaming")
             if isinstance(streaming_cfg, dict):
                 gw_data["streaming"] = streaming_cfg

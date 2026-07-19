@@ -8,13 +8,13 @@ collapsing multi-step tool chains into a single inference turn.
 Architecture (two transports):
 
   **Local backend (UDS):**
-  1. Parent generates a `hermes_tools.py` stub module with UDS RPC functions
+  1. Parent generates a `fabric_tools.py` stub module with UDS RPC functions
   2. Parent opens a Unix domain socket and starts an RPC listener thread
   3. Parent spawns a child process that runs the LLM's script
   4. Tool calls travel over the UDS back to the parent for dispatch
 
   **Remote backends (file-based RPC):**
-  1. Parent generates `hermes_tools.py` with file-based RPC stubs
+  1. Parent generates `fabric_tools.py` with file-based RPC stubs
   2. Parent ships both files to the remote environment
   3. Script runs inside the terminal backend (Docker/SSH/Modal/Daytona/etc.)
   4. Tool calls are written as request files; a polling thread on the parent
@@ -52,7 +52,7 @@ from tools.thread_context import propagate_context_to_thread
 # Availability gate.  On Windows we fall back to loopback TCP for the
 # sandbox RPC transport (AF_UNIX is unreliable on Windows Python) — see
 # ``_use_tcp_rpc`` in ``_execute_local`` below.  That makes execute_code
-# available on every platform Hermes itself runs on.
+# available on every platform Fabric itself runs on.
 logger = logging.getLogger(__name__)
 
 SANDBOX_AVAILABLE = True
@@ -77,14 +77,13 @@ MAX_STDERR_BYTES = 10_000    # 10 KB
 
 # Environment variable scrubbing rules (shared between the local + remote
 # backends).  Secret-substring block is applied first; anything left must
-# match a safe prefix, the operational HERMES_ allowlist, or (on Windows) an
+# match a safe prefix, the operational FABRIC_ allowlist, or (on Windows) an
 # OS-essential name.
 #
-# NB: the broad "HERMES_" prefix was deliberately removed (#27303) — it leaked
-# HERMES_*-named config that lacks a secret substring (e.g. HERMES_BASE_URL,
-# HERMES_KANBAN_DB, HERMES_*_WEBHOOK).  The child only needs the few
-# location/profile vars in _HERMES_CHILD_ALLOWED below; HERMES_RPC_SOCKET /
-# HERMES_RPC_DIR / TZ / HOME are injected explicitly after scrubbing.
+# NB: the broad "FABRIC_" prefix was deliberately removed (#27303) because it
+# leaked internal configuration that lacked a secret-looking suffix. The child
+# only needs the runtime home locator below. RPC connection data is
+# written into the per-run generated stub instead of exported to child env.
 _SAFE_ENV_PREFIXES = ("PATH", "HOME", "USER", "LANG", "LC_", "TERM",
                       "TMPDIR", "TMP", "TEMP", "SHELL", "LOGNAME",
                       "XDG_", "PYTHONPATH", "VIRTUAL_ENV", "CONDA")
@@ -100,15 +99,12 @@ _SECRET_SUBSTRINGS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL",
                       # PASSWORD/PASSWD already cover the credential cases.
                       "CREDS", "BEARER", "APIKEY")
 
-# Operational HERMES_* vars the child legitimately needs by exact name — these
+# Operational FABRIC_* vars the child legitimately needs by exact name — these
 # are non-secret runtime-location flags (the same set fabric_cli treats as the
 # runtime location) that repo-root modules a sandbox script imports may read at
 # import time.  None match _SECRET_SUBSTRINGS.
-_HERMES_CHILD_ALLOWED = frozenset({
-    "HERMES_HOME",
-    "HERMES_PROFILE",
-    "HERMES_CONFIG",
-    "HERMES_ENV",
+_CHILD_ENV_ALLOWLIST = frozenset({
+    "FABRIC_HOME",
 })
 
 # Windows-only: a handful of variables are required by the OS/CRT itself.
@@ -150,7 +146,7 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
       1. Passthrough vars (skill- or config-declared) always pass.
       2. Secret-substring names (KEY/TOKEN/DSN/WEBHOOK/etc.) are blocked.
       3. Names matching a safe prefix pass.
-      4. Operational HERMES_* vars (_HERMES_CHILD_ALLOWED) pass by exact name.
+      4. Operational FABRIC_* vars (_CHILD_ENV_ALLOWLIST) pass by exact name.
       5. On Windows, a small OS-essential allowlist passes by exact name
          — without these the child can't even create a socket or spawn a
          subprocess.
@@ -168,14 +164,14 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
         is_windows = _IS_WINDOWS
 
     scrubbed = {}
-    # Non-secret HERMES_* vars dropped by the tightened allowlist (#27303). The
-    # broad "HERMES_" prefix used to pass these through; now only the
+    # Non-secret FABRIC_* vars dropped by the tightened allowlist (#27303). The
+    # broad "FABRIC_" prefix used to pass these through; now only the
     # operational set does. The drop is intentional (those vars can carry
-    # config like HERMES_KANBAN_DB / HERMES_BASE_URL), but a sandbox script
+    # private runtime configuration), but a sandbox script
     # that imports a repo module reading one at import time would otherwise see
     # it silently unset. Surface the drop once so the behavior change is
     # diagnosable and points at the env_passthrough opt-in escape hatch.
-    _dropped_hermes = []
+    _dropped_fabric = []
     for k, v in source_env.items():
         if is_passthrough(k):
             scrubbed[k] = v
@@ -185,24 +181,24 @@ def _scrub_child_env(source_env, is_passthrough=None, is_windows=None):
         if any(k.startswith(p) for p in _SAFE_ENV_PREFIXES):
             scrubbed[k] = v
             continue
-        if k in _HERMES_CHILD_ALLOWED:
+        if k in _CHILD_ENV_ALLOWLIST:
             scrubbed[k] = v
             continue
         if is_windows and k.upper() in _WINDOWS_ESSENTIAL_ENV_VARS:
             scrubbed[k] = v
             continue
-        if k.startswith("HERMES_"):
+        if k.startswith("FABRIC_"):
             # Non-secret (secrets were already dropped above) and not in any
-            # allowlist — a deliberately-dropped HERMES_* var.
-            _dropped_hermes.append(k)
-    if _dropped_hermes:
+            # allowlist — a deliberately-dropped FABRIC_* var.
+            _dropped_fabric.append(k)
+    if _dropped_fabric:
         logger.debug(
-            "execute_code: dropped %d non-allowlisted HERMES_* var(s) from the "
+            "execute_code: dropped %d non-allowlisted FABRIC_* var(s) from the "
             "sandbox child env (%s). This is intentional hardening (#27303); if "
             "a sandbox script legitimately needs one, declare it via "
             "env_passthrough in the skill/config so it passes by explicit opt-in.",
-            len(_dropped_hermes),
-            ", ".join(sorted(_dropped_hermes)),
+            len(_dropped_fabric),
+            ", ".join(sorted(_dropped_fabric)),
         )
     return scrubbed
 
@@ -215,7 +211,7 @@ def check_sandbox_requirements() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# hermes_tools.py code generator
+# fabric_tools.py code generator
 # ---------------------------------------------------------------------------
 
 # Per-tool stub templates: (function_name, signature, docstring, args_dict_expr)
@@ -266,10 +262,16 @@ _TOOL_STUBS = {
 }
 
 
-def generate_hermes_tools_module(enabled_tools: List[str],
-                                 transport: str = "uds") -> str:
+def generate_fabric_tools_module(
+    enabled_tools: List[str],
+    transport: str = "uds",
+    *,
+    rpc_endpoint: str = "",
+    rpc_token: str = "",
+    rpc_dir: str = "",
+) -> str:
     """
-    Build the source code for the hermes_tools.py stub module.
+    Build the source code for the fabric_tools.py stub module.
 
     Only tools in both SANDBOX_ALLOWED_TOOLS and enabled_tools get stubs.
 
@@ -277,6 +279,9 @@ def generate_hermes_tools_module(enabled_tools: List[str],
         enabled_tools: Tool names enabled in the current session.
         transport: ``"uds"`` for Unix domain socket (local backend) or
                    ``"file"`` for file-based RPC (remote backends).
+        rpc_endpoint: Local socket path or loopback TCP endpoint.
+        rpc_token: Per-execution authentication token.
+        rpc_dir: Remote request/response directory for file transport.
     """
     tools_to_generate = sorted(SANDBOX_ALLOWED_TOOLS & set(enabled_tools))
 
@@ -294,9 +299,14 @@ def generate_hermes_tools_module(enabled_tools: List[str],
         export_names.append(func_name)
 
     if transport == "file":
-        header = _FILE_TRANSPORT_HEADER
+        header = _FILE_TRANSPORT_HEADER.replace(
+            "__RPC_DIR_LITERAL__", repr(str(rpc_dir or ""))
+        )
     else:
-        header = _UDS_TRANSPORT_HEADER
+        header = _UDS_TRANSPORT_HEADER.replace(
+            "__RPC_ENDPOINT_LITERAL__", repr(str(rpc_endpoint or ""))
+        )
+    header = header.replace("__RPC_TOKEN_LITERAL__", repr(str(rpc_token or "")))
 
     return header + "\n".join(stub_functions)
 
@@ -345,7 +355,10 @@ def retry(fn, max_attempts=3, delay=2):
 
 _UDS_TRANSPORT_HEADER = '''\
 """Auto-generated Fabric tools RPC stubs."""
-import json, os, socket, shlex, threading, time
+import json, socket, shlex, threading, time
+
+_RPC_ENDPOINT = __RPC_ENDPOINT_LITERAL__
+_RPC_TOKEN = __RPC_TOKEN_LITERAL__
 
 _sock = None
 # The RPC server handles a single client connection serially and has no
@@ -358,7 +371,7 @@ _call_lock = threading.Lock()
 def _connect():
     """Connect to the parent's RPC server via the transport it picked.
 
-    HERMES_RPC_SOCKET can be either:
+    The generated endpoint can be either:
       - a filesystem path (POSIX Unix domain socket — the default on
         Linux and macOS)
       - a string of the form ``tcp://127.0.0.1:<port>`` (Windows, where
@@ -366,7 +379,9 @@ def _connect():
     """
     global _sock
     if _sock is None:
-        endpoint = os.environ["HERMES_RPC_SOCKET"]
+        endpoint = _RPC_ENDPOINT
+        if not endpoint:
+            raise RuntimeError("RPC endpoint was not configured")
         if endpoint.startswith("tcp://"):
             # tcp://host:port  (host is always 127.0.0.1 in practice — we
             # only bind loopback server-side)
@@ -385,7 +400,7 @@ def _call(tool_name, args):
     request = json.dumps({
         "tool": tool_name,
         "args": args,
-        "token": os.environ.get("HERMES_RPC_TOKEN", ""),
+        "token": _RPC_TOKEN,
     }) + "\\n"
     with _call_lock:
         conn = _connect()
@@ -415,7 +430,8 @@ _FILE_TRANSPORT_HEADER = '''\
 """Auto-generated Fabric tools RPC stubs (file-based transport)."""
 import json, os, shlex, tempfile, threading, time
 
-_RPC_DIR = os.environ.get("HERMES_RPC_DIR") or os.path.join(tempfile.gettempdir(), "hermes_rpc")
+_RPC_DIR = __RPC_DIR_LITERAL__ or os.path.join(tempfile.gettempdir(), "fabric_rpc")
+_RPC_TOKEN = __RPC_TOKEN_LITERAL__
 _seq = 0
 # `_seq += 1` is not atomic (read-modify-write), so concurrent _call()
 # invocations from multiple threads could allocate the same sequence number
@@ -443,7 +459,7 @@ def _call(tool_name, args):
             "tool": tool_name,
             "args": args,
             "seq": seq,
-            "token": os.environ.get("HERMES_RPC_TOKEN", ""),
+            "token": _RPC_TOKEN,
         }, f)
     os.rename(tmp, req_file)
 
@@ -917,7 +933,7 @@ def _execute_remote(
 ) -> str:
     """Run a script on the remote terminal backend via file-based RPC.
 
-    The script and the generated hermes_tools.py module are shipped to
+    The script and the generated fabric_tools.py module are shipped to
     the remote environment, and tool calls are proxied through a polling
     thread that communicates via request/response files.
     """
@@ -936,7 +952,7 @@ def _execute_remote(
 
     sandbox_id = uuid.uuid4().hex[:12]
     temp_dir = _env_temp_dir(env)
-    sandbox_dir = f"{temp_dir}/hermes_exec_{sandbox_id}"
+    sandbox_dir = f"{temp_dir}/fabric_exec_{sandbox_id}"
     quoted_sandbox_dir = shlex.quote(sandbox_dir)
     quoted_rpc_dir = shlex.quote(f"{sandbox_dir}/rpc")
 
@@ -972,11 +988,21 @@ def _execute_remote(
         rpc_token = secrets.token_urlsafe(32)
 
         # Generate and ship files
-        tools_src = generate_hermes_tools_module(
-            list(sandbox_tools), transport="file",
+        tools_src = generate_fabric_tools_module(
+            list(sandbox_tools),
+            transport="file",
+            rpc_dir=f"{sandbox_dir}/rpc",
+            rpc_token=rpc_token,
         )
-        _ship_file_to_remote(env, f"{sandbox_dir}/hermes_tools.py", tools_src)
+        _ship_file_to_remote(env, f"{sandbox_dir}/fabric_tools.py", tools_src)
         _ship_file_to_remote(env, f"{sandbox_dir}/script.py", code)
+        env.execute(
+            f"chmod 700 {quoted_sandbox_dir} && "
+            f"chmod 600 {quoted_sandbox_dir}/fabric_tools.py "
+            f"{quoted_sandbox_dir}/script.py",
+            cwd="/",
+            timeout=10,
+        )
 
         # Wrapped so the thread inherits the turn's approval context + callbacks
         # (see tools.thread_context) — else sandbox RPC tool calls lose approval
@@ -992,13 +1018,12 @@ def _execute_remote(
         )
         rpc_thread.start()
 
-        # Build environment variable prefix for the script
-        env_prefix = (
-            f"HERMES_RPC_DIR={shlex.quote(f'{sandbox_dir}/rpc')} "
-            f"HERMES_RPC_TOKEN={shlex.quote(rpc_token)} "
-            f"PYTHONDONTWRITEBYTECODE=1"
-        )
-        tz = os.getenv("HERMES_TIMEZONE", "").strip()
+        # The generated stub carries its per-execution RPC descriptor. The
+        # child environment contains only standard interpreter/runtime values.
+        env_prefix = "PYTHONDONTWRITEBYTECODE=1"
+        from fabric_time import get_timezone_name
+
+        tz = get_timezone_name()
         if tz:
             env_prefix += f" TZ={shlex.quote(tz)}"
 
@@ -1196,8 +1221,8 @@ def execute_code(
     if not sandbox_tools:
         sandbox_tools = SANDBOX_ALLOWED_TOOLS
 
-    # --- Set up temp directory with hermes_tools.py and script.py ---
-    tmpdir = tempfile.mkdtemp(prefix="hermes_sandbox_")
+    # --- Set up temp directory with fabric_tools.py and script.py ---
+    tmpdir = tempfile.mkdtemp(prefix="code_sandbox_")
     # Use /tmp on macOS to avoid the long /var/folders/... path that pushes
     # Unix domain socket paths past the 104-byte macOS AF_UNIX limit.
     # On Linux, tempfile.gettempdir() already returns /tmp.
@@ -1207,15 +1232,15 @@ def execute_code(
     # still fails under some configurations, and the socket file can't live
     # on the same temp drive as the script).  Fall back to loopback TCP —
     # same ephemeral port, same 1-connection listen queue, same serialized
-    # request/response framing.  The generated client reads the transport
-    # selector from HERMES_RPC_SOCKET (path vs. ``tcp://host:port``).
+    # request/response framing. The generated client receives the selected
+    # endpoint in its per-run source descriptor.
     _sock_tmpdir = "/tmp" if sys.platform == "darwin" else tempfile.gettempdir()
     _use_tcp_rpc = _IS_WINDOWS
     if _use_tcp_rpc:
         sock_path = None  # not used on Windows; TCP endpoint stored below
         rpc_endpoint = None  # set after bind()
     else:
-        sock_path = os.path.join(_sock_tmpdir, f"hermes_rpc_{uuid.uuid4().hex}.sock")
+        sock_path = os.path.join(_sock_tmpdir, f"fabric_rpc_{uuid.uuid4().hex}.sock")
         rpc_endpoint = sock_path
 
     tool_call_log: list = []
@@ -1225,20 +1250,6 @@ def execute_code(
     stop_event = threading.Event()
 
     try:
-        # Write the auto-generated hermes_tools module.
-        # encoding="utf-8" is required on Windows — the stub and user code
-        # both contain non-ASCII characters (em-dashes in docstrings, plus
-        # whatever the user script carries).  Python's default open() uses
-        # the system locale on Windows (cp1252 typically), which corrupts
-        # those bytes; the child then fails to import with a SyntaxError
-        # ("'utf-8' codec can't decode byte 0x97 in position ...") because
-        # Python source files are decoded as UTF-8 by default (PEP 3120).
-        # sandbox_tools is already the correct set (intersection with session
-        # tools, or SANDBOX_ALLOWED_TOOLS as fallback — see lines above).
-        tools_src = generate_hermes_tools_module(list(sandbox_tools))
-        with open(os.path.join(tmpdir, "hermes_tools.py"), "w", encoding="utf-8") as f:
-            f.write(tools_src)
-
         # Write the user's script
         with open(os.path.join(tmpdir, "script.py"), "w", encoding="utf-8") as f:
             f.write(code)
@@ -1251,8 +1262,8 @@ def execute_code(
         #   Windows: AF_INET stream socket on 127.0.0.1 with an ephemeral
         #   port.  No filesystem permission story, but loopback-only bind
         #   means only the current user's processes (not remote) can
-        #   connect.  HERMES_RPC_SOCKET is set to ``tcp://127.0.0.1:<port>``
-        #   which the generated client parses to pick AF_INET.
+        #   connect. The loopback endpoint is written only into the generated
+        #   per-run stub, which parses it to pick AF_INET.
         if _use_tcp_rpc:
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             server_sock.bind(("127.0.0.1", 0))  # ephemeral port
@@ -1263,6 +1274,17 @@ def execute_code(
             server_sock.bind(sock_path)
             os.chmod(sock_path, 0o600)
         server_sock.listen(1)
+
+        # Write the generated stub only after the server endpoint and token
+        # exist. mkdtemp creates an owner-only directory, so this descriptor is
+        # not visible to other users on the host.
+        tools_src = generate_fabric_tools_module(
+            list(sandbox_tools),
+            rpc_endpoint=str(rpc_endpoint or ""),
+            rpc_token=rpc_token,
+        )
+        with open(os.path.join(tmpdir, "fabric_tools.py"), "w", encoding="utf-8") as f:
+            f.write(tools_src)
 
         # Wrapped so the thread inherits the turn's approval context + callbacks
         # (see tools.thread_context) — else gateway sandbox tool calls silently
@@ -1288,8 +1310,6 @@ def execute_code(
         # passed through — without those, the child can't create a socket
         # or spawn a subprocess.  See ``_scrub_child_env`` for the rules.
         child_env = _scrub_child_env(os.environ)
-        child_env["HERMES_RPC_SOCKET"] = rpc_endpoint
-        child_env["HERMES_RPC_TOKEN"] = rpc_token
         child_env["PYTHONDONTWRITEBYTECODE"] = "1"
         # Force UTF-8 for the child's stdio and default file encoding.
         #
@@ -1312,22 +1332,21 @@ def execute_code(
         child_env["PYTHONUTF8"] = "1"
         # Ensure the fabric-agent root is importable in the sandbox so
         # repo-root modules are available to child scripts.  We also prepend
-        # the staging tmpdir so ``from hermes_tools import ...`` resolves even
+        # the staging tmpdir so ``from fabric_tools import ...`` resolves even
         # when the subprocess CWD is not tmpdir (project mode).
-        _hermes_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _fabric_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         _existing_pp = child_env.get("PYTHONPATH", "")
-        _pp_parts = [tmpdir, _hermes_root]
+        _pp_parts = [tmpdir, _fabric_root]
         if _existing_pp:
             _pp_parts.append(_existing_pp)
         child_env["PYTHONPATH"] = os.pathsep.join(_pp_parts)
-        # Inject user's configured timezone so datetime.now() in sandboxed
-        # code reflects the correct wall-clock time.  Only TZ is set —
-        # HERMES_TIMEZONE is an internal Hermes setting and must not leak
-        # into child processes.
-        _tz_name = os.getenv("HERMES_TIMEZONE", "").strip()
+        # Inject the configured timezone as the standard TZ variable so
+        # datetime.now() in sandboxed code reflects the correct wall-clock time.
+        from fabric_time import get_timezone_name
+
+        _tz_name = get_timezone_name()
         if _tz_name:
             child_env["TZ"] = _tz_name
-        child_env.pop("HERMES_TIMEZONE", None)
 
         from fabric_constants import apply_subprocess_home_env
         apply_subprocess_home_env(child_env)
@@ -1631,7 +1650,7 @@ def _load_config() -> dict:
     This helper is called while building the module-level execute_code schema
     during tool discovery.  Importing ``cli`` here pulls prompt_toolkit/Rich and
     a large chunk of the classic REPL onto every agent startup path, including
-    ``hermes --tui`` where it is never used.  Read the lightweight raw config
+    ``fabric --tui`` where it is never used.  Read the lightweight raw config
     instead; the config layer already caches by (mtime, size), and an absent
     key cleanly falls back to DEFAULT_EXECUTION_MODE.
     """
@@ -1855,14 +1874,14 @@ def build_execute_code_schema(enabled_sandbox_tools: set = None,
         "Use normal tool calls instead when: single tool call with no processing, "
         "you need to see the full result and apply complex reasoning, "
         "or the task requires interactive user input.\n\n"
-        f"Available via `from hermes_tools import ...`:\n\n"
+        f"Available via `from fabric_tools import ...`:\n\n"
         f"{tool_lines}\n\n"
         "Limits: 5-minute timeout, 50KB stdout cap, max 50 tool calls per script. "
         "terminal() is foreground-only (no background or pty).\n\n"
         f"{cwd_note}\n\n"
         "Print your final result to stdout. Use Python stdlib (json, re, math, csv, "
         "datetime, collections, etc.) for processing between tool calls.\n\n"
-        "Also available (no import needed — built into hermes_tools):\n"
+        "Also available (no import needed — built into fabric_tools):\n"
         "  json_parse(text: str) — json.loads with strict=False; use for terminal() output with control chars\n"
         "  shell_quote(s: str) — shlex.quote(); use when interpolating dynamic strings into shell commands\n"
         "  retry(fn, max_attempts=3, delay=2) — retry with exponential backoff for transient failures"
@@ -1878,7 +1897,7 @@ def build_execute_code_schema(enabled_sandbox_tools: set = None,
                     "type": "string",
                     "description": (
                         "Python code to execute. Import tools with "
-                        f"`from hermes_tools import {import_str}` "
+                        f"`from fabric_tools import {import_str}` "
                         "and print your final result to stdout."
                     ),
                 },

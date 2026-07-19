@@ -60,7 +60,7 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
         help="On existing installs: only prompt for items that are missing "
         "or unset, instead of running the full reconfigure wizard.",
     )
-    # The upstream Nous onboarding shortcut is legacy-only in Fabric. Keep
+    # The upstream Nous onboarding shortcut is opt-in in Fabric. Keep
     # the complete flow available for explicitly opted-in deployments, while
     # leaving both parsing and help clean for the customer default.
     if fabric_model_provider_visible("nous"):
@@ -71,7 +71,14 @@ def build_setup_parser(subparsers, *, cmd_setup: Callable) -> None:
             "model, set Nous as the inference provider, and opt into the Tool "
             "Gateway. Skips the rest of the wizard.",
         )
-    # FABRIC (additive): skip post-setup dashboard offer
+        setup_parser.add_argument(
+            "--client-id",
+            help=(
+                "Registered Nous OAuth client ID (required with --portal for "
+                "first-time login)"
+            ),
+        )
+    # Allow scripted setup to suppress the post-setup dashboard offer.
     setup_parser.add_argument(
         "--no-dashboard",
         action="store_true",

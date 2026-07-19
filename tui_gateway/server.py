@@ -25,8 +25,9 @@ from fabric_constants import (
 )
 from fabric_cli.env_loader import load_fabric_dotenv
 from fabric_cli.egress_startup import network_bootstrap_permitted
+from fabric_cli.tui_launch_context import get_tui_launch_context
 from utils import is_truthy_value
-from tools.environments.local import hermes_subprocess_env
+from tools.environments.local import fabric_subprocess_env
 from agent.replay_cleanup import sanitize_replay_history
 from tui_gateway import git_probe
 from tui_gateway.transport import (
@@ -47,7 +48,7 @@ _fabric_home = get_fabric_home()
 _EARLY_NETWORK_BOOTSTRAP_PERMITTED = network_bootstrap_permitted()
 if _EARLY_NETWORK_BOOTSTRAP_PERMITTED:
     load_fabric_dotenv(
-        hermes_home=_fabric_home,
+        fabric_home=_fabric_home,
         project_env=Path(__file__).parent.parent / ".env",
     )
 
@@ -149,11 +150,7 @@ _cfg_cache: dict | None = None
 _cfg_mtime: float | None = None
 _cfg_path = None
 _session_resume_lock = threading.Lock()
-try:
-    _slash_timeout = float(os.environ.get("HERMES_TUI_SLASH_TIMEOUT_S") or "45")
-except (ValueError, TypeError):
-    _slash_timeout = 45.0
-_SLASH_WORKER_TIMEOUT_S = max(5.0, _slash_timeout)
+_SLASH_WORKER_TIMEOUT_S = 45.0
 
 # When a WebSocket client (the dashboard's embedded-chat tab / desktop app)
 # disconnects, ``tui_gateway.ws`` detaches the transport but intentionally
@@ -164,14 +161,7 @@ _SLASH_WORKER_TIMEOUT_S = max(5.0, _slash_timeout)
 # lingers forever — one leaked python process per refresh (#38591 fallout).
 # After this grace window, an orphaned (transport-detached, not-running) WS
 # session is reaped: its _SlashWorker is closed and the session finalized.
-# Set to 0 to disable (park forever, pre-fix behaviour).
-try:
-    _ws_orphan_reap_grace = float(
-        os.environ.get("HERMES_TUI_WS_ORPHAN_REAP_GRACE_S") or "20"
-    )
-except (ValueError, TypeError):
-    _ws_orphan_reap_grace = 20.0
-_WS_ORPHAN_REAP_GRACE_S = max(0.0, _ws_orphan_reap_grace)
+_WS_ORPHAN_REAP_GRACE_S = 20.0
 _DETAIL_SECTION_NAMES = ("thinking", "tools", "subagents", "activity")
 _DETAIL_MODES = frozenset({"hidden", "collapsed", "expanded"})
 
@@ -260,14 +250,9 @@ _LONG_HANDLERS = frozenset({
     "tools.configure",
 })
 
-try:
-    _rpc_pool_workers = max(
-        2, int(os.environ.get("HERMES_TUI_RPC_POOL_WORKERS") or "8")
-    )
-except (ValueError, TypeError):
-    _rpc_pool_workers = 4
+_RPC_POOL_WORKERS = 8
 _pool = concurrent.futures.ThreadPoolExecutor(
-    max_workers=_rpc_pool_workers,
+    max_workers=_RPC_POOL_WORKERS,
     thread_name_prefix="tui-rpc",
 )
 atexit.register(lambda: _pool.shutdown(wait=False, cancel_futures=True))
@@ -301,7 +286,7 @@ _detached_ws_transport = _DropTransport()
 
 
 class _SlashWorker:
-    """Persistent HermesCLI subprocess for slash commands."""
+    """Persistent FabricCLI subprocess for slash commands."""
 
     def __init__(self, session_key: str, model: str, profile_home: str | None = None):
         self._lock = threading.Lock()
@@ -339,7 +324,7 @@ class _SlashWorker:
             credential_scope = current_secret_scope()
             if credential_scope is None:
                 credential_scope = build_profile_secret_scope(Path(profile_home))
-            # Only a full Hermes child may receive the target profile's vault
+            # Only a full Fabric child may receive the target profile's vault
             # bootstrap credentials. Keep the allowlist config-derived so a
             # custom bootstrap env name works without handing arbitrary DB/
             # application passwords to every model-driving child.
@@ -374,7 +359,7 @@ class _SlashWorker:
                 }
                 or key.startswith("OP_SESSION_")
             )
-        env = hermes_subprocess_env(
+        env = fabric_subprocess_env(
             inherit_credentials=True,
             credential_scope=credential_scope,
             credential_scope_allowlist=credential_scope_allowlist,
@@ -382,8 +367,8 @@ class _SlashWorker:
         if profile_home:
             # Global-remote / multi-profile sessions: the worker must resolve
             # config/skills/state against the session's profile home, not the
-            # gateway's launch HERMES_HOME (#40677).
-            env["HERMES_HOME"] = str(profile_home)
+            # gateway's launch FABRIC_HOME (#40677).
+            env["FABRIC_HOME"] = str(profile_home)
 
         # start_new_session=True detaches the slash worker into its own
         # process group / session. Without this, the worker inherits the
@@ -1001,11 +986,7 @@ def _shutdown_sessions() -> None:
 # Last-resort net for any disconnect path that slips past the WS finally. TTL is
 # hours-scale because last_active freezes during a long turn and on passive
 # viewing — running/pending/starting/live-transport are hard exemptions instead.
-try:
-    _SESSION_TTL_S = float(os.environ.get("HERMES_TUI_SESSION_TTL_S") or 6 * 3600)
-except (TypeError, ValueError):
-    _SESSION_TTL_S = float(6 * 3600)
-_SESSION_TTL_S = max(0.0, _SESSION_TTL_S)
+_SESSION_TTL_S = float(6 * 3600)
 _REAPER_SCAN_S = 300.0
 
 
@@ -1158,7 +1139,7 @@ def _db_unavailable_error(rid, *, code: int):
 # One dashboard normally serves its launch profile. But the desktop's app-global
 # remote mode points every profile at this single backend, so resume/prompt must
 # be able to act on ANOTHER local profile's state.db + home. The desktop passes
-# ``profile`` on those calls; we open that profile's db and bind its HERMES_HOME
+# ``profile`` on those calls; we open that profile's db and bind its FABRIC_HOME
 # (a ContextVar override) for the duration of the call so config/skills/model and
 # message persistence all resolve to the right profile. Omitted/own profile → the
 # launch profile (unchanged for single-profile and per-profile-remote setups).
@@ -1235,7 +1216,7 @@ def _reset_profile_runtime_scope(tokens) -> None:
 
 
 def _profile_scoped(handler):
-    """Bind ``params['profile']``'s HERMES_HOME around a pet RPC handler.
+    """Bind ``params['profile']``'s FABRIC_HOME around a pet RPC handler.
 
     Pets are per-profile: ``display.pet.*`` lives in the profile's config.yaml and
     sprites install under its ``pets/`` dir (both resolve via ``get_fabric_home``).
@@ -1681,7 +1662,7 @@ def _start_agent_build(sid: str, session: dict) -> None:
         try:
             tokens = _set_session_context(key)
             # Build against the session's profile (global-remote): bind its
-            # HERMES_HOME so config/skills/model resolve to it, and hand the
+            # FABRIC_HOME so config/skills/model resolve to it, and hand the
             # agent that profile's db so turns persist to the right state.db.
             session_db = None
             if profile_home:
@@ -2243,6 +2224,10 @@ def _load_cfg() -> dict:
     global _cfg_cache, _cfg_mtime, _cfg_path
     try:
         import yaml
+        from fabric_cli.launch_context import ignore_user_config_enabled
+
+        if ignore_user_config_enabled():
+            return _apply_managed({})
 
         # Honor a per-session profile override (see session.resume) so a resumed
         # remote profile loads ITS config (model, skills, prompt); otherwise the
@@ -2364,13 +2349,6 @@ def _clear_session_context(tokens: list) -> None:
         pass
 
 
-def _enable_gateway_prompts() -> None:
-    """Route approvals through gateway callbacks instead of CLI input()."""
-    os.environ["HERMES_GATEWAY_SESSION"] = "1"
-    os.environ["HERMES_EXEC_ASK"] = "1"
-    os.environ["HERMES_INTERACTIVE"] = "1"
-
-
 # ── Blocking prompt factory ──────────────────────────────────────────
 
 
@@ -2431,12 +2409,9 @@ def resolve_skin() -> dict:
 
 
 def _resolve_model() -> str:
-    env = (
-        os.environ.get("HERMES_MODEL", "")
-        or os.environ.get("HERMES_INFERENCE_MODEL", "")
-    ).strip()
-    if env:
-        return env
+    explicit = get_tui_launch_context().model.strip()
+    if explicit:
+        return explicit
     m = _load_cfg().get("model", "")
     if isinstance(m, dict):
         return str(m.get("default", "") or "").strip()
@@ -2455,17 +2430,17 @@ def _resolve_session_platform() -> str:
     TUI-only slash commands (``/reload-mcp``, …) to chat-panel users.
 
     Resolution:
-      * ``HERMES_DESKTOP=1`` and ``HERMES_DESKTOP_TERMINAL`` unset → "desktop"
+      * ``FABRIC_DESKTOP=1`` and ``FABRIC_DESKTOP_TERMINAL`` unset → "desktop"
         (the chat-panel backend — a graphical React surface, not a terminal).
-      * ``HERMES_DESKTOP_TERMINAL=1`` → "tui"
+      * ``FABRIC_DESKTOP_TERMINAL=1`` → "tui"
         (``fabric --tui`` running in the desktop's embedded terminal pane;
         it IS a TUI, just embedded. The clarifier attached to the tui hint
         in system_prompt.py tells the agent about the embedding.)
       * neither set → "tui"
         (standalone ``fabric --tui``.)
     """
-    if is_truthy_value(os.environ.get("HERMES_DESKTOP")) and not is_truthy_value(
-        os.environ.get("HERMES_DESKTOP_TERMINAL")
+    if is_truthy_value(os.environ.get("FABRIC_DESKTOP")) and not is_truthy_value(
+        os.environ.get("FABRIC_DESKTOP_TERMINAL")
     ):
         return "desktop"
     return "tui"
@@ -2491,12 +2466,10 @@ def _resolve_agent_platform(source: str | None) -> str:
 def _config_model_target() -> tuple[str, str]:
     """(model, provider) currently selected by config.yaml — and ONLY config.
 
-    Unlike `_resolve_model()`, this never reads HERMES_MODEL /
-    HERMES_INFERENCE_MODEL. Those env vars are a launch-scoped seed
-    (`fabric --tui -m <model>`, hosted-instance provisioning); if they
-    fed the per-turn sync, the seed would be replayed as a /model switch
-    and persisted globally, or would pin the session so dashboard/CLI
-    model changes never reach an open chat.
+    Unlike `_resolve_model()`, this never reads the launch descriptor's model
+    seed (``fabric --tui -m <model>``). If that seed fed the per-turn sync, it
+    would be replayed as a /model switch and persisted globally, or would pin
+    the session so dashboard/CLI model changes never reach an open chat.
     """
     cfg_model = _load_cfg().get("model")
     model = ""
@@ -2508,9 +2481,8 @@ def _config_model_target() -> tuple[str, str]:
             provider = ""
     elif isinstance(cfg_model, str):
         model = cfg_model.strip()
-    # No fallback to _resolve_model() here: that reads HERMES_MODEL /
-    # HERMES_INFERENCE_MODEL, which `fabric --tui -m <model>` sets as a
-    # session-scoped seed for THIS launch. When config.yaml has no
+    # No fallback to _resolve_model() here: that reads the session-scoped model
+    # seed for THIS launch. When config.yaml has no
     # model.default (custom-provider-only setups), falling back to the env
     # seed made the per-turn sync treat the -m flag as "the configured
     # model" and replay it as a /model switch — which then persisted the
@@ -2522,14 +2494,12 @@ def _config_model_target() -> tuple[str, str]:
 
 def _resolve_startup_runtime() -> tuple[str, str | None]:
     model = _resolve_model()
-    explicit_provider = os.environ.get("HERMES_TUI_PROVIDER", "").strip()
+    launch = get_tui_launch_context()
+    explicit_provider = launch.provider.strip()
     if explicit_provider:
         return model, explicit_provider
 
-    explicit_model = (
-        os.environ.get("HERMES_MODEL", "")
-        or os.environ.get("HERMES_INFERENCE_MODEL", "")
-    ).strip()
+    explicit_model = launch.model.strip()
     if not explicit_model:
         return model, None
 
@@ -2538,14 +2508,10 @@ def _resolve_startup_runtime() -> tuple[str, str | None]:
 
         cfg = _load_cfg().get("model") or {}
         current_provider = (
-            (
-                str(cfg.get("provider") or "").strip().lower()
-                if isinstance(cfg, dict)
-                else ""
-            )
-            or os.environ.get("HERMES_INFERENCE_PROVIDER", "").strip().lower()
-            or "auto"
-        )
+            str(cfg.get("provider") or "").strip().lower()
+            if isinstance(cfg, dict)
+            else ""
+        ) or "auto"
         detected = detect_static_provider_for_model(explicit_model, current_provider)
         if detected:
             provider, detected_model = detected
@@ -2935,9 +2901,9 @@ def _load_memory_notifications() -> str:
 
 
 def _load_tool_progress_mode() -> str:
-    env = os.environ.get("HERMES_TUI_TOOL_PROGRESS", "").strip().lower()
-    if env in {"off", "new", "all", "verbose"}:
-        return env
+    explicit = get_tui_launch_context().tool_progress.strip().lower()
+    if explicit in {"off", "new", "all", "verbose"}:
+        return explicit
     raw = (_load_cfg().get("display") or {}).get("tool_progress", "all")
     if raw is False:
         return "off"
@@ -2948,15 +2914,11 @@ def _load_tool_progress_mode() -> str:
 
 
 def _load_enabled_toolsets() -> list[str] | None:
-    explicit = [
-        item.strip()
-        for item in os.environ.get("HERMES_TUI_TOOLSETS", "").split(",")
-        if item.strip()
-    ]
+    explicit = list(get_tui_launch_context().toolsets)
     cfg = None
     fallback_notice = None
 
-    # Coding posture (base Hermes): with no explicit pin, collapse to the
+    # Coding posture (base Fabric): with no explicit pin, collapse to the
     # coding toolset (+ enabled MCP servers) when sitting in a code workspace.
     # The desktop app and `fabric --tui` both land here. See
     # agent/coding_context.py. No config is loaded yet at this point, so we let
@@ -3002,7 +2964,7 @@ def _load_enabled_toolsets() -> list[str] | None:
             ignored = [name for name in explicit if name not in {"all", "*"}]
             if ignored:
                 print(
-                    "[tui] HERMES_TUI_TOOLSETS=all enables every toolset; "
+                    "[tui] an explicit 'all' selection enables every toolset; "
                     f"ignoring additional entries: {', '.join(ignored)}",
                     file=sys.stderr,
                     flush=True,
@@ -3046,13 +3008,13 @@ def _load_enabled_toolsets() -> list[str] | None:
 
         if unknown:
             print(
-                f"[tui] ignoring unknown HERMES_TUI_TOOLSETS entries: {', '.join(unknown)}",
+                f"[tui] ignoring unknown explicit toolset entries: {', '.join(unknown)}",
                 file=sys.stderr,
                 flush=True,
             )
         if disabled:
             print(
-                "[tui] ignoring disabled MCP servers in HERMES_TUI_TOOLSETS "
+                "[tui] ignoring disabled explicitly selected MCP servers "
                 "(set enabled: true in config.yaml to use): "
                 f"{', '.join(disabled)}",
                 file=sys.stderr,
@@ -3063,7 +3025,7 @@ def _load_enabled_toolsets() -> list[str] | None:
             return valid
 
         fallback_notice = (
-            "[tui] no valid HERMES_TUI_TOOLSETS entries; using configured CLI toolsets"
+            "[tui] no valid explicit toolset entries; using configured CLI toolsets"
         )
 
     try:
@@ -3083,9 +3045,9 @@ def _load_enabled_toolsets() -> list[str] | None:
             print(fallback_notice, file=sys.stderr, flush=True)
         if not enabled:
             return None
-        # The desktop Project tools are off _HERMES_CORE_TOOLS (every other
+        # The desktop Project tools are off _FABRIC_CORE_TOOLS (every other
         # platform would carry their schema for nothing), so the platform
-        # recovery above — which keys off hermes-cli's tool universe — can't
+        # recovery above — which keys off fabric-cli's tool universe — can't
         # surface them. This resolver runs ONLY in the desktop/TUI gateway, so
         # folding in the `project` toolset here is the gate that exposes them on
         # exactly the surface that can follow a project move.
@@ -3093,7 +3055,7 @@ def _load_enabled_toolsets() -> list[str] | None:
     except Exception:
         if fallback_notice is not None:
             print(
-                "[tui] no valid HERMES_TUI_TOOLSETS entries and configured CLI toolsets could not be loaded; enabling all toolsets",
+                "[tui] no valid explicit toolset entries and configured CLI toolsets could not be loaded; enabling all toolsets",
                 file=sys.stderr,
                 flush=True,
             )
@@ -3383,10 +3345,9 @@ def _apply_model_switch_in_profile(
     # session (e.g. /new via _reset_session_agent, or resume) re-derives the
     # user's chosen model/provider instead of falling back to global config.
     #
-    # We deliberately do NOT write process-global env vars (HERMES_MODEL /
-    # HERMES_INFERENCE_MODEL / HERMES_TUI_PROVIDER / HERMES_INFERENCE_PROVIDER)
-    # here. The desktop backend hosts every same-profile session in ONE process,
-    # so mutating os.environ on a /model switch leaked the new model/provider
+    # We deliberately do NOT mutate the process-global launch descriptor here.
+    # The desktop backend hosts every same-profile session in ONE process, so
+    # mutating shared launch state on a /model switch would leak the new model/provider
     # into every OTHER live session's next agent rebuild — switching the model
     # in one session silently changed it in the others (the cross-session
     # contamination bug). agent.switch_model() above already mutated the right
@@ -3646,15 +3607,6 @@ def _get_usage(agent) -> dict:
         usage["active_subagents"] = _async_active_count()
     except Exception:
         pass
-    # Dev-only live credits-spent readout (L0 usage-aware-credits). Gated on
-    # HERMES_DEV_CREDITS so the payload stays clean when the flag is off.
-    if is_truthy_value(os.environ.get("HERMES_DEV_CREDITS")):
-        try:
-            spent = agent.get_credits_spent_micros()
-            if spent is not None:
-                usage["dev_credits_spent_micros"] = int(spent)
-        except Exception:
-            pass
     return usage
 
 
@@ -4586,22 +4538,18 @@ def _apply_personality_to_session(
 
 
 def _cfg_max_turns(cfg: dict, default: int) -> int:
-    try:
-        env_max = int(os.environ.get("HERMES_TUI_MAX_TURNS", "") or 0)
-        if env_max > 0:
-            return env_max
-    except (TypeError, ValueError):
-        pass
+    explicit_max = get_tui_launch_context().max_turns
+    if explicit_max is not None and explicit_max > 0:
+        return explicit_max
     agent_cfg = cfg.get("agent") or {}
     return int(agent_cfg.get("max_turns") or cfg.get("max_turns") or default)
 
 
-def _parse_tui_skills_env() -> list[str]:
-    raw = os.environ.get("HERMES_TUI_SKILLS", "")
+def _parse_tui_skills() -> list[str]:
     skills: list[str] = []
     seen: set[str] = set()
-    for part in raw.replace("\n", ",").split(","):
-        item = part.strip()
+    for part in get_tui_launch_context().skills:
+        item = str(part).strip()
         if item and item not in seen:
             seen.add(item)
             skills.append(item)
@@ -4612,7 +4560,7 @@ def _load_fallback_model():
     """Return the configured fallback chain for TUI-created agents.
 
     Delegates to the shared ``get_fallback_chain`` helper so the TUI path
-    stays in parity with ``HermesCLI.__init__`` and ``gateway/run.py``:
+    stays in parity with ``FabricCLI.__init__`` and ``gateway/run.py``:
     ``fallback_providers`` is the primary source of truth and keeps its
     order, with legacy ``fallback_model`` entries merged in afterwards
     (deduped on provider/model/base_url).
@@ -4993,6 +4941,7 @@ def _make_agent(
     platform_override: str | None = None,
 ):
     from run_agent import AIAgent
+    from fabric_cli.launch_context import ignore_rules_enabled
 
     # MCP tool discovery runs in a background daemon thread at startup so a
     # dead server can't freeze the shell.  The agent snapshots its tool list
@@ -5016,7 +4965,7 @@ def _make_agent(
     cfg = _load_cfg()
     agent_cfg = cfg.get("agent") or {}
     system_prompt = _prompt_text(agent_cfg.get("system_prompt", ""))
-    startup_skills = _parse_tui_skills_env()
+    startup_skills = _parse_tui_skills()
     if startup_skills:
         from agent.skill_commands import build_preloaded_skills_prompt
 
@@ -5138,10 +5087,10 @@ def _make_agent(
         session_id=session_id or key,
         session_db=session_db if session_db is not None else _get_db(),
         ephemeral_system_prompt=system_prompt or None,
-        checkpoints_enabled=is_truthy_value(os.environ.get("HERMES_TUI_CHECKPOINTS")),
-        pass_session_id=is_truthy_value(os.environ.get("HERMES_TUI_PASS_SESSION_ID")),
-        skip_context_files=is_truthy_value(os.environ.get("HERMES_IGNORE_RULES")),
-        skip_memory=is_truthy_value(os.environ.get("HERMES_IGNORE_RULES")),
+        checkpoints_enabled=get_tui_launch_context().checkpoints,
+        pass_session_id=get_tui_launch_context().pass_session_id,
+        skip_context_files=ignore_rules_enabled(),
+        skip_memory=ignore_rules_enabled(),
         fallback_model=_load_fallback_model(),
         **_agent_cbs(sid),
     )
@@ -5180,7 +5129,7 @@ def _init_session(
             # Install this before constructing the slash worker or starting
             # any session-owned helper.  Setting it after _init_session meant
             # eager-resumed/branched remote sessions launched a worker with
-            # the launch profile's HERMES_HOME.
+            # the launch profile's FABRIC_HOME.
             "profile_home": str(profile_home) if profile_home is not None else None,
             "tool_progress_mode": _load_tool_progress_mode(),
             "edit_snapshots": {},
@@ -5698,12 +5647,10 @@ def _(rid, params: dict) -> dict:
     except Exception:
         explicit_cwd = False
     source = _resolve_session_source(str(params.get("source") or "").strip() or None)
-    _enable_gateway_prompts()
-
     # ``profile`` (app-global remote mode): a new chat started under a non-launch
     # profile must build its agent + persist against THAT profile's home/state.db,
     # not the dashboard's launch profile. Stored on the session so _start_agent_build
-    # and each turn re-bind HERMES_HOME. None/own profile → launch (unchanged).
+    # and each turn re-bind FABRIC_HOME. None/own profile → launch (unchanged).
     profile = (params.get("profile") or "").strip() or None
     try:
         profile_home = _profile_home(profile)
@@ -5851,7 +5798,7 @@ def _(rid, params: dict) -> dict:
         # Resume picker should surface human conversation sessions from every
         # user-facing surface — CLI, TUI, all gateway platforms (including new
         # ones not enumerated here), ACP adapter clients, webhook sessions,
-        # custom `HERMES_SESSION_SOURCE` values, and older installs with
+        # custom source values, and older installs with
         # different source labels. We deny-list only the noisy internal
         # sources (``tool`` sub-agent runs) rather than allow-listing a
         # fixed set of platform names that goes stale whenever a new
@@ -6317,7 +6264,6 @@ def _(rid, params: dict) -> dict:
             return _err(rid, 4090, limit_message)
         # Interactive resume routes approvals/clarify through gateway prompts;
         # the deferred build wires the remaining per-session callbacks.
-        _enable_gateway_prompts()
         try:
             db.reopen_session(target)
             raw_history = db.get_messages_as_conversation(target)
@@ -6401,7 +6347,6 @@ def _(rid, params: dict) -> dict:
     if limit_message is not None:
         _close_lookup_db()
         return _err(rid, 4090, limit_message)
-    _enable_gateway_prompts()
     profile_tokens = _set_profile_runtime_scope(profile_home)
     try:
         db.reopen_session(target)
@@ -6499,7 +6444,7 @@ def _(rid, params: dict) -> dict:
                         "model_override"
                     ]
                 _sessions[sid]["display_history_prefix"] = display_history_prefix
-                # Remember the profile home so each turn re-binds HERMES_HOME (the
+                # Remember the profile home so each turn re-binds FABRIC_HOME (the
                 # agent persists to its own db, but mid-turn home reads — memory,
                 # skills — must resolve to the resumed profile too).
                 if profile_home is not None:
@@ -7425,24 +7370,11 @@ def _pet_active_selection():
 
 
 def _pet_state_rows(spritesheet) -> list[str]:
-    """Row taxonomy for the concrete active pet sheet.
+    """Return the canonical Fabric pet row taxonomy."""
+    del spritesheet
+    from agent.pet import constants
 
-    Hermes has to support both the legacy 8-row petdex atlas and the current
-    Codex/petdex 9-row atlas. The desktop canvas gets this list and indexes it
-    with the same `PetState` names the Python renderer uses.
-    """
-    try:
-        from PIL import Image
-
-        from agent.pet import constants
-
-        with Image.open(spritesheet) as image:
-            row_count = max(1, image.height // constants.FRAME_H)
-        return list(constants.state_rows_for_grid(row_count))
-    except Exception:  # noqa: BLE001 - cosmetic, never break the surface
-        from agent.pet import constants
-
-        return list(constants.STATE_ROWS)
+    return list(constants.STATE_ROWS)
 
 
 @method("pet.info")
@@ -7941,13 +7873,7 @@ _PET_REFERENCE_MIME_EXT = {
     "webp": "webp",
     "gif": "gif",
 }
-try:
-    _PET_REFERENCE_MAX_BYTES = max(
-        1,
-        int(os.environ.get("HERMES_PET_REFERENCE_MAX_BYTES") or str(16 * 1024 * 1024)),
-    )
-except (TypeError, ValueError):
-    _PET_REFERENCE_MAX_BYTES = 16 * 1024 * 1024
+_PET_REFERENCE_MAX_BYTES = 16 * 1024 * 1024
 
 
 def _pet_reference_images_from_data_url(ref_raw: str, stage) -> list:
@@ -9013,7 +8939,7 @@ def _(rid, params: dict) -> dict:
 # from the event stream).  On turn-complete it posts the final tree here;
 # /replay and /replay-diff fetch past snapshots by session_id + filename.
 #
-# Layout:  $HERMES_HOME/spawn-trees/<session_id>/<timestamp>.json
+# Layout:  $FABRIC_HOME/spawn-trees/<session_id>/<timestamp>.json
 # Each file contains { session_id, started_at, finished_at, subagents: [...] }.
 
 
@@ -9777,15 +9703,19 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
 
     def run():
         approval_token = None
+        interactive_token = None
         session_tokens = []
         profile_tokens = None  # per-turn home + secrets for a remote profile
         goal_followup = None  # set by the post-turn goal hook below
         try:
             from tools.approval import (
+                reset_fabric_interactive_context,
                 reset_current_session_key,
+                set_fabric_interactive_context,
                 set_current_session_key,
             )
 
+            interactive_token = set_fabric_interactive_context(True)
             approval_token = set_current_session_key(session["session_key"])
             session_tokens = _set_session_context(
                 session["session_key"],
@@ -10188,6 +10118,11 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             try:
                 if approval_token is not None:
                     reset_current_session_key(approval_token)
+            except Exception:
+                pass
+            try:
+                if interactive_token is not None:
+                    reset_fabric_interactive_context(interactive_token)
             except Exception:
                 pass
             try:
@@ -11353,13 +11288,14 @@ def _(rid, params: dict) -> dict:
                         _session_info(agent, session),
                     )
             else:
-                current = is_truthy_value(os.environ.get("HERMES_YOLO_MODE"))
+                default_key = "default"
+                current = is_session_yolo_enabled(default_key)
                 enable = _resolve_toggle(current)
                 if enable:
-                    os.environ["HERMES_YOLO_MODE"] = "1"
+                    enable_session_yolo(default_key)
                     nv = "1"
                 else:
-                    os.environ.pop("HERMES_YOLO_MODE", None)
+                    disable_session_yolo(default_key)
                     nv = "0"
             return _ok(rid, {"key": key, "value": nv, "scope": "session"})
         except Exception as e:
@@ -11821,7 +11757,7 @@ def _(rid, params, pdb, conn) -> dict:
 
 def _is_repo_junk(root: str) -> bool:
     """A git root we never auto-surface as a project: the bare home dir or
-    anything under HERMES_HOME (~/.fabric by default) — config/sessions/skills,
+    anything under FABRIC_HOME (~/.fabric by default) — config/sessions/skills,
     not a workspace. User-created projects pointing there are still honored."""
     if not root:
         return True
@@ -11830,9 +11766,9 @@ def _is_repo_junk(root: str) -> bool:
 
     real = os.path.realpath(root)
     home = os.path.realpath(os.path.expanduser("~"))
-    hermes_home = os.path.realpath(str(get_fabric_home()))
+    fabric_home = os.path.realpath(str(get_fabric_home()))
 
-    return real == home or real == hermes_home or real.startswith(hermes_home + os.sep)
+    return real == home or real == fabric_home or real.startswith(fabric_home + os.sep)
 
 
 def _discover_repos_payload(db, *, conn=None, backfill: bool = True) -> list[dict]:
@@ -13188,7 +13124,7 @@ def _(rid, params: dict) -> dict:
             cwd=os.getcwd(),
             # cli.exec runs `python -m fabric_cli.main` (can drive the agent) →
             # needs provider credentials. Tier-1 secrets still stripped (#29157).
-            env=hermes_subprocess_env(inherit_credentials=True),
+            env=fabric_subprocess_env(inherit_credentials=True),
             stdin=subprocess.DEVNULL,
         )
         parts = [r.stdout or "", r.stderr or ""]
@@ -14653,6 +14589,8 @@ def _(rid, params: dict) -> dict:
 
 _voice_sid_lock = threading.Lock()
 _voice_event_sid: str = ""
+_voice_mode_active = False
+_voice_tts_active = False
 
 
 def _voice_emit(event: str, payload: dict | None = None) -> None:
@@ -14671,16 +14609,18 @@ def _voice_mode_enabled() -> bool:
 
     cli.py initialises ``_voice_mode = False`` at startup and only flips
     it via ``/voice on``; it never reads a persisted enable bit from
-    config.yaml.  We match that: no config lookup, env var only.  This
+    config.yaml. We match that with process-local state. This
     avoids the TUI auto-starting in REC the next time the user opens it
     just because they happened to enable voice in a prior session.
     """
-    return os.environ.get("HERMES_VOICE", "").strip() == "1"
+    with _voice_sid_lock:
+        return _voice_mode_active
 
 
 def _voice_tts_enabled() -> bool:
     """Whether agent replies should be spoken back via TTS (runtime only)."""
-    return os.environ.get("HERMES_VOICE_TTS", "").strip() == "1"
+    with _voice_sid_lock:
+        return _voice_tts_active
 
 
 def _voice_cfg_dict() -> dict:
@@ -14753,10 +14693,14 @@ def _(rid, params: dict) -> dict:
 
     if action in {"on", "off"}:
         enabled = action == "on"
-        # Runtime-only flag (CLI parity) — no _write_config_key, so the
-        # next TUI launch starts with voice OFF instead of auto-REC from a
-        # persisted stale toggle.
-        os.environ["HERMES_VOICE"] = "1" if enabled else "0"
+        # Runtime-only state (CLI parity) — no _write_config_key, so the next
+        # TUI launch starts with voice OFF instead of auto-REC from a persisted
+        # stale toggle.
+        with _voice_sid_lock:
+            global _voice_mode_active, _voice_tts_active
+            _voice_mode_active = enabled
+            if not enabled:
+                _voice_tts_active = False
 
         if not enabled:
             # Disabling the mode must tear the continuous loop down; the
@@ -14770,9 +14714,6 @@ def _(rid, params: dict) -> dict:
             except Exception as e:
                 logger.warning("voice: stop_continuous failed during toggle off: %s", e)
 
-            # Clear TTS so it can be toggled independently after voice is off.
-            os.environ["HERMES_VOICE_TTS"] = "0"
-
         return _ok(
             rid,
             {
@@ -14785,9 +14726,9 @@ def _(rid, params: dict) -> dict:
     if action == "tts":
         if not _voice_mode_enabled():
             return _err(rid, 4014, "enable voice mode first: /voice on")
-        new_value = not _voice_tts_enabled()
-        # Runtime-only flag (CLI parity) — see voice.toggle on/off above.
-        os.environ["HERMES_VOICE_TTS"] = "1" if new_value else "0"
+        with _voice_sid_lock:
+            _voice_tts_active = not _voice_tts_active
+            new_value = _voice_tts_active
         # Include ``record_key`` on every branch so a /voice tts toggle
         # doesn't reset the TUI's cached shortcut to the default when a
         # user has a custom binding configured (Copilot review, round 2
@@ -15401,13 +15342,11 @@ def _(rid, params: dict) -> dict:
 @_runtime_profile_scoped
 def _(rid, params: dict) -> dict:
     try:
-        from agent.secret_scope import get_secret
-
         cfg = _load_cfg()
         model = _resolve_model()
-        api_key = get_secret("HERMES_API_KEY", "") or cfg.get("api_key", "")
+        api_key = cfg.get("api_key", "")
         masked = f"****{api_key[-4:]}" if len(api_key) > 4 else "(not set)"
-        base_url = os.environ.get("HERMES_BASE_URL", "") or cfg.get("base_url", "")
+        base_url = cfg.get("base_url", "")
 
         sections = [
             {

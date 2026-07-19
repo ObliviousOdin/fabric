@@ -91,8 +91,6 @@ DEFAULT_STT_MODEL = os.getenv("STT_OPENAI_MODEL", "whisper-1")
 DEFAULT_GROQ_STT_MODEL = os.getenv("STT_GROQ_MODEL", "whisper-large-v3-turbo")
 DEFAULT_MISTRAL_STT_MODEL = os.getenv("STT_MISTRAL_MODEL", "voxtral-mini-latest")
 DEFAULT_ELEVENLABS_STT_MODEL = os.getenv("STT_ELEVENLABS_MODEL", "scribe_v2")
-LOCAL_STT_COMMAND_ENV = "HERMES_LOCAL_STT_COMMAND"
-LOCAL_STT_LANGUAGE_ENV = "HERMES_LOCAL_STT_LANGUAGE"
 COMMON_LOCAL_BIN_DIRS = ("/opt/homebrew/bin", "/usr/local/bin")
 
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
@@ -161,8 +159,11 @@ def _find_whisper_binary() -> Optional[str]:
     return _find_binary("whisper")
 
 
-def _get_local_command_template() -> Optional[str]:
-    configured = os.getenv(LOCAL_STT_COMMAND_ENV, "").strip()
+def _get_local_command_template(stt_config: Optional[dict] = None) -> Optional[str]:
+    if stt_config is None:
+        stt_config = _load_stt_config()
+    local_config = _get_stt_section(stt_config, "local")
+    configured = str(local_config.get("command") or "").strip()
     if configured:
         return configured
 
@@ -176,8 +177,16 @@ def _get_local_command_template() -> Optional[str]:
     return None
 
 
-def _has_local_command() -> bool:
-    return _get_local_command_template() is not None
+def _has_local_command(stt_config: Optional[dict] = None) -> bool:
+    return _get_local_command_template(stt_config) is not None
+
+
+def _has_configured_local_command(stt_config: Optional[dict] = None) -> bool:
+    """Return whether config.yaml supplies a shell command template."""
+    if stt_config is None:
+        stt_config = _load_stt_config()
+    local_config = _get_stt_section(stt_config, "local")
+    return bool(str(local_config.get("command") or "").strip())
 
 
 def _normalize_local_model(model_name: Optional[str]) -> str:
@@ -261,10 +270,9 @@ BUILTIN_STT_PROVIDERS = frozenset({
 #   3. Plugin-registered TranscriptionProvider  → plugin dispatch.
 #   4. No match                                 → "No STT provider available".
 #
-# The single-env-var ``HERMES_LOCAL_STT_COMMAND`` escape hatch is preserved
-# untouched via the built-in ``local_command`` path. Use the command-provider
-# registry when you want MULTIPLE shell-driven STT engines, or you want a
-# named provider you can pick via ``stt.provider`` in config.yaml.
+# ``stt.local.command`` configures the built-in ``local_command`` path. Use the
+# command-provider registry when you want multiple shell-driven STT engines or
+# a named provider selected through ``stt.provider``.
 DEFAULT_COMMAND_STT_TIMEOUT_SECONDS = 300
 DEFAULT_COMMAND_STT_LANGUAGE = "en"
 DEFAULT_COMMAND_STT_OUTPUT_FORMAT = "txt"
@@ -459,7 +467,7 @@ def _render_command_stt_template(
 
     def replace_match(match: "re.Match[str]") -> str:
         name = match.group("double") or match.group("single")
-        token = f"__HERMES_STT_PLACEHOLDER_{len(replacements)}__"
+        token = f"__STT_PLACEHOLDER_{len(replacements)}__"
         replacements.append((
             token,
             _quote_command_stt_placeholder(
@@ -668,7 +676,7 @@ def _transcribe_command_stt(
     model = model_override or config.get("model") or ""
 
     try:
-        with tempfile.TemporaryDirectory(prefix=f"hermes-cmd-stt-{provider_name}-") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix=f"fabric-cmd-stt-{provider_name}-") as tmpdir:
             output_path = Path(tmpdir) / f"transcript.{output_format}"
             placeholders = {
                 "input_path": str(audio.resolve()),
@@ -762,19 +770,19 @@ def _get_provider(stt_config: dict) -> str:
         if provider == "local":
             if _HAS_FASTER_WHISPER:
                 return "local"
-            if _has_local_command():
+            if _has_local_command(stt_config):
                 return "local_command"
             # Try lazy-install before giving up
             if _try_lazy_install_stt():
                 return "local"
             logger.warning(
                 "STT provider 'local' configured but unavailable "
-                "(install faster-whisper or set HERMES_LOCAL_STT_COMMAND)"
+                "(install faster-whisper or configure stt.local.command)"
             )
             return "none"
 
         if provider == "local_command":
-            if _has_local_command():
+            if _has_local_command(stt_config):
                 return "local_command"
             if _HAS_FASTER_WHISPER:
                 logger.info("Local STT command unavailable, using local faster-whisper")
@@ -1128,10 +1136,9 @@ def _transcribe_local(file_path: str, model_name: str) -> Dict[str, Any]:
             _local_model = _load_local_whisper_model(model_name)
             _local_model_name = model_name
 
-        # Language: config.yaml (stt.local.language) > env var > auto-detect.
+        # Language comes from config.yaml; an empty value enables auto-detect.
         _forced_lang = (
             _load_stt_config().get("local", {}).get("language")
-            or os.getenv(LOCAL_STT_LANGUAGE_ENV)
             or None
         )
         transcribe_kwargs = {"beam_size": 5}
@@ -1207,20 +1214,20 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
             "success": False,
             "transcript": "",
             "error": (
-                f"{LOCAL_STT_COMMAND_ENV} not configured and no local whisper binary was found"
+                "stt.local.command is not configured and no local whisper binary was found"
             ),
         }
 
-    # Language: config.yaml (stt.local.language) > env var > "en" default.
+    # Language comes from config.yaml, with a stable English default for CLI
+    # templates that require an explicit placeholder value.
     language = (
         _load_stt_config().get("local", {}).get("language")
-        or os.getenv(LOCAL_STT_LANGUAGE_ENV)
         or DEFAULT_LOCAL_STT_LANGUAGE
     )
     normalized_model = _normalize_local_command_model(model_name)
 
     try:
-        with tempfile.TemporaryDirectory(prefix="hermes-local-stt-") as output_dir:
+        with tempfile.TemporaryDirectory(prefix="local-stt-") as output_dir:
             prepared_input, prep_error = _prepare_local_audio(file_path, output_dir)
             if prep_error:
                 return {"success": False, "transcript": "", "error": prep_error}
@@ -1231,8 +1238,9 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
                 language=shlex.quote(language),
                 model=shlex.quote(normalized_model),
             )
-            # User-provided templates (env var) may contain shell syntax; auto-detected commands are safe for list mode.
-            use_shell = bool(os.getenv(LOCAL_STT_COMMAND_ENV, "").strip())
+            # User-provided config templates may contain shell syntax;
+            # auto-detected commands are safe for list mode.
+            use_shell = _has_configured_local_command()
             if use_shell:
                 subprocess.run(command, shell=True, check=True, capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags())
             else:
@@ -1260,7 +1268,7 @@ def _transcribe_local_command(file_path: str, model_name: str) -> Dict[str, Any]
         return {
             "success": False,
             "transcript": "",
-            "error": f"Invalid {LOCAL_STT_COMMAND_ENV} template, missing placeholder: {e}",
+            "error": f"Invalid stt.local.command template, missing placeholder: {e}",
         }
     except subprocess.CalledProcessError as e:
         details = e.stderr.strip() or e.stdout.strip() or str(e)
@@ -1456,7 +1464,6 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
     ).strip().rstrip("/")
     language = str(
         xai_config.get("language")
-        or os.getenv("HERMES_LOCAL_STT_LANGUAGE")
         or DEFAULT_LOCAL_STT_LANGUAGE
     ).strip()
     # .get("format", True) already defaults to True when the key is absent;
@@ -1466,7 +1473,7 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
 
     try:
         import requests
-        from tools.xai_http import hermes_xai_user_agent
+        from tools.xai_http import fabric_xai_user_agent
 
         data: Dict[str, str] = {}
         if language:
@@ -1481,7 +1488,7 @@ def _transcribe_xai(file_path: str, model_name: str) -> Dict[str, Any]:
                 f"{base_url}/stt",
                 headers={
                     "Authorization": f"Bearer {api_key}",
-                    "User-Agent": hermes_xai_user_agent(),
+                    "User-Agent": fabric_xai_user_agent(),
                 },
                 files={
                     "file": (Path(file_path).name, audio_file),
@@ -1742,7 +1749,7 @@ def transcribe_audio(file_path: str, model: Optional[str] = None) -> Dict[str, A
         "transcript": "",
         "error": (
             "No STT provider available. Install faster-whisper for free local "
-            f"transcription, configure {LOCAL_STT_COMMAND_ENV} or install a local whisper CLI, "
+            "transcription, configure stt.local.command or install a local whisper CLI, "
             "set GROQ_API_KEY for free Groq Whisper, set MISTRAL_API_KEY for Mistral "
             "Voxtral Transcribe, configure xAI OAuth or set XAI_API_KEY for xAI Grok STT, "
             "set ELEVENLABS_API_KEY for ElevenLabs Scribe, or set VOICE_TOOLS_OPENAI_KEY "

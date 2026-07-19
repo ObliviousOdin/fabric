@@ -521,8 +521,8 @@ def _apply_capabilities(rows: list[dict]) -> None:
 def _filter_fabric_provider_rows(rows: list[dict]) -> list[dict]:
     """Limit picker inventory rows to Fabric-visible model providers.
 
-    Fail-open per FABRIC_FORK.md: if the fork hook is unavailable (e.g. an
-    upstream sync dropped it), show the unfiltered upstream rows.
+    If the capability filter is unavailable, show the unfiltered rows instead
+    of breaking the picker.
     """
     try:
         from fabric_cli.fabric_capabilities import filter_fabric_model_rows
@@ -573,7 +573,7 @@ def _filter_explicit_provider_rows(rows: list[dict], ctx: ConfigContext) -> list
 
     ``list_authenticated_providers`` intentionally discovers ambient / auto-
     seeded credentials (for example GitHub CLI -> Copilot). Desktop chat model
-    pickers want the narrower subset the user explicitly configured for Hermes.
+    pickers want the narrower subset the user explicitly configured for Fabric.
     """
     from fabric_cli.auth import is_provider_explicitly_configured
 

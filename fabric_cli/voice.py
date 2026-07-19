@@ -224,24 +224,8 @@ logger = logging.getLogger(__name__)
 
 
 def _debug(msg: str) -> None:
-    """Emit a debug breadcrumb when HERMES_VOICE_DEBUG=1.
-
-    Goes to stderr so the TUI gateway wraps it as a gateway.stderr event,
-    which createGatewayEventHandler shows as an Activity line — exactly
-    what we need to diagnose "why didn't the loop auto-restart?" in the
-    user's real terminal without shipping a separate debug RPC.
-
-    Any OSError / BrokenPipeError is swallowed because this fires from
-    background threads (silence callback, TTS daemon, beep) where a
-    broken stderr pipe must not kill the whole gateway — the main
-    command pipe (stdin+stdout) is what actually matters.
-    """
-    if os.environ.get("HERMES_VOICE_DEBUG", "").strip() != "1":
-        return
-    try:
-        print(f"[voice] {msg}", file=sys.stderr, flush=True)
-    except (BrokenPipeError, OSError):
-        pass
+    """Emit a voice breadcrumb through the normal debug logger."""
+    logger.debug("voice: %s", msg)
 
 
 def _beeps_enabled() -> bool:
@@ -799,10 +783,10 @@ def speak_text(text: str) -> None:
         # MP3 output path, pre-chosen so we can play the MP3 directly even
         # when text_to_speech_tool auto-converts to OGG for messaging
         # platforms.  afplay's OGG support is flaky, MP3 always works.
-        os.makedirs(os.path.join(tempfile.gettempdir(), "hermes_voice"), exist_ok=True)
+        os.makedirs(os.path.join(tempfile.gettempdir(), "fabric_voice"), exist_ok=True)
         mp3_path = os.path.join(
             tempfile.gettempdir(),
-            "hermes_voice",
+            "fabric_voice",
             f"tts_{time.strftime('%Y%m%d_%H%M%S')}.mp3",
         )
 

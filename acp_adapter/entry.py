@@ -8,9 +8,7 @@ Usage::
 
     python -m acp_adapter.entry
     # or
-    hermes acp
-    # or
-    hermes-acp
+    fabric acp
 """
 
 # IMPORTANT: fabric_bootstrap must be the very first import — UTF-8 stdio
@@ -25,7 +23,7 @@ except ModuleNotFoundError:
     pass
 else:
     # Stop a ``utils/``/``proxy/``/``ui/`` package in the launch directory from
-    # shadowing Hermes's own modules — ``hermes acp`` can be started from any
+    # shadowing Fabric's own modules — ``fabric acp`` can be started from any
     # cwd, including a project that has same-named packages on its path.
     fabric_bootstrap.harden_import_path()
 
@@ -99,23 +97,23 @@ def _setup_logging() -> None:
 
 
 def _load_env() -> None:
-    """Load .env from HERMES_HOME (default ``~/.fabric``)."""
+    """Load .env from FABRIC_HOME (default ``~/.fabric``)."""
     from fabric_cli.env_loader import load_fabric_dotenv
 
-    hermes_home = get_fabric_home()
-    loaded = load_fabric_dotenv(hermes_home=hermes_home)
+    fabric_home = get_fabric_home()
+    loaded = load_fabric_dotenv(fabric_home=fabric_home)
     if loaded:
         for env_file in loaded:
             logging.getLogger(__name__).info("Loaded env from %s", env_file)
     else:
         logging.getLogger(__name__).info(
-            "No .env found at %s, using system env", hermes_home / ".env"
+            "No .env found at %s, using system env", fabric_home / ".env"
         )
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="hermes-acp",
+        prog="fabric acp",
         description="Run Fabric as an ACP stdio server.",
     )
     parser.add_argument("--version", action="store_true", help="Print Fabric version and exit")
@@ -147,25 +145,25 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def _print_version() -> None:
-    from fabric_cli import __version__ as hermes_version
+    from fabric_cli import __version__ as fabric_version
 
-    print(hermes_version)
+    print(fabric_version)
 
 
 def _run_check() -> None:
     import acp  # noqa: F401
-    from acp_adapter.server import HermesACPAgent  # noqa: F401
+    from acp_adapter.server import FabricACPAgent  # noqa: F401
 
     print("Fabric ACP check OK")
 
 
 def _run_setup() -> None:
-    from fabric_cli.main import main as hermes_main
+    from fabric_cli.main import main as fabric_main
 
     old_argv = sys.argv[:]
     try:
-        sys.argv = [old_argv[0] if old_argv else "hermes", "model"]
-        hermes_main()
+        sys.argv = [old_argv[0] if old_argv else "fabric", "model"]
+        fabric_main()
     finally:
         sys.argv = old_argv
 
@@ -190,7 +188,7 @@ def _run_setup_browser(assume_yes: bool = False) -> int:
     """Bootstrap agent-browser + Chromium.
 
     Routes through dep_ensure -> install.{sh,ps1} --ensure, sharing code
-    with ``hermes postinstall`` and the runtime lazy installer.
+    with ``fabric postinstall`` and the runtime lazy installer.
 
     Returns 0 on success, 1 on failure.
     """
@@ -244,7 +242,7 @@ def main(argv: list[str] | None = None) -> None:
         sys.path.insert(0, project_root)
 
     import acp
-    from .server import HermesACPAgent
+    from .server import FabricACPAgent
 
     # MCP tool discovery from config.yaml — run before asyncio.run() so
     # it's safe to use blocking waits.  (ACP also registers per-session
@@ -257,7 +255,7 @@ def main(argv: list[str] | None = None) -> None:
     except Exception:
         logger.debug("MCP tool discovery failed at ACP startup", exc_info=True)
 
-    agent = HermesACPAgent()
+    agent = FabricACPAgent()
     try:
         asyncio.run(acp.run_agent(agent, use_unstable_protocol=True))
     except KeyboardInterrupt:

@@ -1,6 +1,6 @@
 """Nous Portal upstream adapter.
 
-Reads the user's Nous OAuth state from ``~/.hermes/auth.json`` through the
+Reads the user's Nous OAuth state from ``~/.fabric/auth.json`` through the
 shared runtime resolver, validates or refreshes the inference JWT, then exposes
 the upstream base URL plus bearer for the proxy server to forward to.
 """
@@ -44,6 +44,10 @@ _ALLOWED_PATHS: FrozenSet[str] = frozenset(
 
 class NousPortalAdapter(UpstreamAdapter):
     """Proxy upstream for the Nous Portal inference API."""
+
+    auth_hint = (
+        "fabric auth add nous --client-id <registered-client-id>"
+    )
 
     def __init__(self) -> None:
         # Serialize proxy requests in this process; cross-process token refresh
@@ -99,7 +103,8 @@ class NousPortalAdapter(UpstreamAdapter):
             state = self._read_state()
             if state is None:
                 raise RuntimeError(
-                    "Not logged into Nous Portal. Run `fabric auth add nous` first."
+                    "Not logged into Nous Portal. Run `fabric auth add nous "
+                    "--client-id <registered-client-id>` first."
                 )
 
             try:
@@ -130,7 +135,8 @@ class NousPortalAdapter(UpstreamAdapter):
             if not runtime_key:
                 raise RuntimeError(
                     "Nous Portal refresh did not return a usable inference JWT. "
-                    "Try `fabric auth add nous` to re-authenticate."
+                    "Try `fabric auth add nous --client-id "
+                    "<registered-client-id>` to re-authenticate."
                 )
 
             # base_url returned by resolve_nous_runtime_credentials() already

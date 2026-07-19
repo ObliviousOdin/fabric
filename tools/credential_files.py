@@ -49,7 +49,7 @@ def _get_registered() -> Dict[str, str]:
 _config_files: List[Dict[str, str]] | None = None
 
 
-def _resolve_hermes_home() -> Path:
+def _resolve_fabric_home() -> Path:
     from fabric_constants import get_fabric_home
     return get_fabric_home()
 
@@ -60,31 +60,31 @@ def register_credential_file(
 ) -> bool:
     """Register a credential file for mounting into remote sandboxes.
 
-    *relative_path* is relative to ``HERMES_HOME`` (e.g. ``google_token.json``).
+    *relative_path* is relative to ``FABRIC_HOME`` (e.g. ``google_token.json``).
     Returns True if the file exists on the host and was registered.
 
     Security: rejects absolute paths and path traversal sequences (``..``).
-    The resolved host path must remain inside HERMES_HOME so that a malicious
+    The resolved host path must remain inside FABRIC_HOME so that a malicious
     skill cannot declare ``required_credential_files: ['../../.ssh/id_rsa']``
     and exfiltrate sensitive host files into a container sandbox.
     """
-    hermes_home = _resolve_hermes_home()
+    fabric_home = _resolve_fabric_home()
 
-    # Reject absolute paths — they bypass the HERMES_HOME sandbox entirely.
+    # Reject absolute paths — they bypass the FABRIC_HOME sandbox entirely.
     if os.path.isabs(relative_path):
         logger.warning(
-            "credential_files: rejected absolute path %r (must be relative to HERMES_HOME)",
+            "credential_files: rejected absolute path %r (must be relative to FABRIC_HOME)",
             relative_path,
         )
         return False
 
-    host_path = hermes_home / relative_path
+    host_path = fabric_home / relative_path
 
     # Resolve symlinks and normalise ``..`` before the containment check so
-    # that traversal like ``../. ssh/id_rsa`` cannot escape HERMES_HOME.
+    # that traversal like ``../. ssh/id_rsa`` cannot escape FABRIC_HOME.
     from tools.path_security import validate_within_dir
 
-    containment_error = validate_within_dir(host_path, hermes_home)
+    containment_error = validate_within_dir(host_path, fabric_home)
     if containment_error:
         logger.warning(
             "credential_files: rejected path traversal %r (%s)",
@@ -138,7 +138,7 @@ def _load_config_files() -> List[Dict[str, str]]:
     result: List[Dict[str, str]] = []
     try:
         from fabric_cli.config import read_raw_config
-        hermes_home = _resolve_hermes_home()
+        fabric_home = _resolve_fabric_home()
         cfg = read_raw_config()
         cred_files = cfg_get(cfg, "terminal", "credential_files")
         if isinstance(cred_files, list):
@@ -152,8 +152,8 @@ def _load_config_files() -> List[Dict[str, str]]:
                             "credential_files: rejected absolute config path %r", rel,
                         )
                         continue
-                    host_path = hermes_home / rel
-                    containment_error = validate_within_dir(host_path, hermes_home)
+                    host_path = fabric_home / rel
+                    containment_error = validate_within_dir(host_path, fabric_home)
                     if containment_error:
                         logger.warning(
                             "credential_files: rejected config path traversal %r (%s)",
@@ -220,8 +220,8 @@ def get_skills_directory_mount(
     at ``<container_base>/external_skills/<index>``.
     """
     mounts = []
-    hermes_home = _resolve_hermes_home()
-    skills_dir = hermes_home / "skills"
+    fabric_home = _resolve_fabric_home()
+    skills_dir = fabric_home / "skills"
     if skills_dir.is_dir():
         host_path = _safe_skills_path(skills_dir)
         mounts.append({
@@ -268,7 +268,7 @@ def _safe_skills_path(skills_dir: Path) -> str:
     if _safe_skills_tempdir and _safe_skills_tempdir.is_dir():
         shutil.rmtree(_safe_skills_tempdir, ignore_errors=True)
 
-    safe_dir = Path(tempfile.mkdtemp(prefix="hermes-skills-safe-"))
+    safe_dir = Path(tempfile.mkdtemp(prefix="skills-safe-copy-"))
     _safe_skills_tempdir = safe_dir
 
     for item in skills_dir.rglob("*"):
@@ -303,8 +303,8 @@ def iter_skills_files(
     """
     result: List[Dict[str, str]] = []
 
-    hermes_home = _resolve_hermes_home()
-    skills_dir = hermes_home / "skills"
+    fabric_home = _resolve_fabric_home()
+    skills_dir = fabric_home / "skills"
     if skills_dir.is_dir():
         container_root = f"{container_base.rstrip('/')}/skills"
         for item in skills_dir.rglob("*"):
@@ -341,17 +341,16 @@ def iter_skills_files(
 # Cache directory mounts (documents, images, audio, videos, screenshots)
 # ---------------------------------------------------------------------------
 
-# The cache subdirectories that should be mirrored into remote backends.
-# Each tuple is (new_subpath, old_name) matching fabric_constants.get_hermes_dir().
-_CACHE_DIRS: list[tuple[str, str]] = [
-    ("cache/documents", "document_cache"),
-    ("cache/images", "image_cache"),
-    ("cache/audio", "audio_cache"),
-    ("cache/videos", "video_cache"),
-    ("cache/screenshots", "browser_screenshots"),
-    ("cache/web", "web_cache"),
-    ("cache/delegation", "delegation_cache"),
-]
+# The canonical cache subdirectories mirrored into remote backends.
+_CACHE_DIRS: tuple[str, ...] = (
+    "cache/documents",
+    "cache/images",
+    "cache/audio",
+    "cache/videos",
+    "cache/screenshots",
+    "cache/web",
+    "cache/delegation",
+)
 
 
 def get_cache_directory_mounts(
@@ -359,18 +358,16 @@ def get_cache_directory_mounts(
 ) -> List[Dict[str, str]]:
     """Return mount entries for each cache directory that exists on disk.
 
-    Used by Docker to create bind mounts.  Each entry has ``host_path`` and
-    ``container_path`` keys.  The host path is resolved via
-    ``get_hermes_dir()`` for backward compatibility with old directory layouts.
+    Used by Docker to create bind mounts. Each entry has ``host_path`` and
+    ``container_path`` keys.
     """
-    from fabric_constants import get_hermes_dir
+    from fabric_constants import get_fabric_dir
 
     mounts: List[Dict[str, str]] = []
-    for new_subpath, old_name in _CACHE_DIRS:
-        host_dir = get_hermes_dir(new_subpath, old_name)
+    for subpath in _CACHE_DIRS:
+        host_dir = get_fabric_dir(subpath)
         if host_dir.is_dir():
-            # Always map to the *new* container layout regardless of host layout.
-            container_path = f"{container_base.rstrip('/')}/{new_subpath}"
+            container_path = f"{container_base.rstrip('/')}/{subpath}"
             mounts.append({
                 "host_path": str(host_dir),
                 "container_path": container_path,
@@ -453,16 +450,16 @@ def iter_cache_files(
     """Return individual (host_path, container_path) entries for cache files.
 
     Used by Modal to upload files individually and resync before each command.
-    Skips symlinks.  The container paths use the new ``cache/<subdir>`` layout.
+    Skips symlinks. The container paths use the canonical ``cache/<subdir>`` layout.
     """
-    from fabric_constants import get_hermes_dir
+    from fabric_constants import get_fabric_dir
 
     result: List[Dict[str, str]] = []
-    for new_subpath, old_name in _CACHE_DIRS:
-        host_dir = get_hermes_dir(new_subpath, old_name)
+    for subpath in _CACHE_DIRS:
+        host_dir = get_fabric_dir(subpath)
         if not host_dir.is_dir():
             continue
-        container_root = f"{container_base.rstrip('/')}/{new_subpath}"
+        container_root = f"{container_base.rstrip('/')}/{subpath}"
         for item in host_dir.rglob("*"):
             if item.is_symlink() or not item.is_file():
                 continue
@@ -477,4 +474,3 @@ def iter_cache_files(
 def clear_credential_files() -> None:
     """Reset the skill-scoped registry (e.g. on session reset)."""
     _get_registered().clear()
-

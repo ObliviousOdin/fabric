@@ -1,6 +1,6 @@
 """Shared curses-based UI components for Fabric CLI.
 
-Used by `fabric tools` and `Fabric skills` for interactive checklists.
+Used by `fabric tools` and `fabric skills` for interactive checklists.
 Provides a curses multi-select with keyboard navigation, plus a
 text-based numbered fallback for terminals without curses support.
 """

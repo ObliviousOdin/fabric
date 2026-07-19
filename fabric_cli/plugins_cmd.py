@@ -1,6 +1,6 @@
 """``fabric plugins`` CLI subcommand — install, update, remove, and list plugins.
 
-Plugins are installed from Git repositories into ``~/.hermes/plugins/``.
+Plugins are installed from Git repositories into ``~/.fabric/plugins/``.
 Supports full URLs and ``owner/repo`` shorthand (resolves to GitHub).
 
 After install, if the plugin ships an ``after-install.md`` file it is
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 def _resolve_git_executable() -> Optional[str]:
     """Resolve a git binary for subprocess use when ``PATH`` may be minimal.
 
-    Matches other Hermes subprocess resolution: :func:`shutil.which` first,
+    Matches other Fabric subprocess resolution: :func:`shutil.which` first,
     then common Git for Windows install paths and POSIX defaults.
     """
     found = shutil.which("git")
@@ -97,7 +97,7 @@ def _sanitize_plugin_name(
     trailing slashes are stripped, and the resolved target must still live
     inside *plugins_dir*. Install paths leave this at the default ``False``
     because a freshly-cloned plugin always lands top-level under
-    ``~/.hermes/plugins/<name>/``.
+    ``~/.fabric/plugins/<name>/``.
     """
     if not name:
         raise ValueError("Plugin name must not be empty.")
@@ -297,7 +297,7 @@ def _copy_example_files(plugin_dir: Path, console) -> None:
 
 
 def _missing_requires_env_names(manifest: dict) -> list[str]:
-    """Return declared ``requires_env`` names that are unset in ``~/.hermes/.env``."""
+    """Return declared ``requires_env`` names that are unset in ``~/.fabric/.env``."""
     requires_env = manifest.get("requires_env") or []
     if not requires_env:
         return []
@@ -447,7 +447,7 @@ def _require_installed_plugin(name: str, plugins_dir: Path, console) -> Path:
 
 
 def _install_plugin_core(identifier: str, *, force: bool) -> tuple[Path, dict, str]:
-    """Clone Git plugin into ``~/.hermes/plugins``.
+    """Clone Git plugin into ``~/.fabric/plugins``.
 
     Returns ``(target_dir, installed_manifest, canonical_name)``.
     Raises ``PluginOperationError`` on failure.
@@ -865,7 +865,7 @@ def cmd_enable(name: str, allow_tool_override: Optional[bool] = None) -> None:
         console.print(f"[dim]Plugin '{key}' is already enabled.[/dim]")
 
     # Built-in tool override is a privileged grant. Bundled plugins ship with
-    # Hermes core and are trusted; every other source needs operator opt-in.
+    # Fabric core and are trusted; every other source needs operator opt-in.
     if source == "bundled":
         return
 
@@ -1040,10 +1040,10 @@ def _discover_all_plugins() -> list:
 
 
 def _discover_entrypoint_plugins() -> list[tuple[str, str, str, str]]:
-    """Return plugin entries advertised through ``hermes_agent.plugins``.
+    """Return plugin entries advertised through ``fabric_agent.plugins``.
 
     Entry-point plugins are installed as Python packages, so they do not have a
-    plugin directory under ``~/.hermes/plugins``. Include package metadata here
+    plugin directory under ``~/.fabric/plugins``. Include package metadata here
     so ``fabric plugins list`` can show and enable them.
     """
     from fabric_cli.plugins import ENTRY_POINTS_GROUP
@@ -1179,7 +1179,7 @@ def _discover_context_engines() -> list[tuple[str, str]]:
     """Return [(name, description), ...] for available context engines.
 
     Includes repo-shipped engines from ``plugins/context_engine/`` AND
-    plugin-registered engines (third-party engines installed as Hermes
+    plugin-registered engines (third-party engines installed as Fabric
     plugins via ``ctx.register_context_engine``). Repo-shipped descriptions
     win when a plugin-registered engine collides on name.
     """
@@ -1904,7 +1904,7 @@ def dashboard_set_agent_plugin_enabled(name: str, *, enabled: bool) -> dict[str,
 
 
 def _user_installed_plugin_dir(name: str) -> Optional[Path]:
-    """Resolved path under ``~/.hermes/plugins/<name>`` if it exists."""
+    """Resolved path under ``~/.fabric/plugins/<name>`` if it exists."""
     plugins_dir = _plugins_dir()
     try:
         target = _sanitize_plugin_name(name, plugins_dir, allow_subdir=True)
@@ -1914,7 +1914,7 @@ def _user_installed_plugin_dir(name: str) -> Optional[Path]:
 
 
 def dashboard_update_user_plugin(name: str) -> dict[str, Any]:
-    """``git pull`` inside ``~/.hermes/plugins/<name>``."""
+    """``git pull`` inside ``~/.fabric/plugins/<name>``."""
     target = _user_installed_plugin_dir(name)
     if target is None:
         return {
@@ -1963,7 +1963,7 @@ def _git_pull_plugin_dir(target: Path) -> tuple[bool, str]:
 
 
 def dashboard_remove_user_plugin(name: str) -> dict[str, Any]:
-    """Delete a plugin tree under ``~/.hermes/plugins/`` only."""
+    """Delete a plugin tree under ``~/.fabric/plugins/`` only."""
     plugins_dir = _plugins_dir()
     for n, _ver, _d, src, _path, _key in _discover_all_plugins():
         if n == name and src == "bundled":

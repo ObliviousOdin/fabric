@@ -277,9 +277,9 @@ def _provider_config_values(
 
     memory_config = config.get("memory")
     if isinstance(memory_config, Mapping):
-        legacy = memory_config.get("provider_config")
-        if isinstance(legacy, Mapping):
-            values = {**legacy, **values}
+        common = memory_config.get("provider_config")
+        if isinstance(common, Mapping):
+            values = {**common, **values}
         native = memory_config.get(name)
         if isinstance(native, Mapping):
             values.update(native)
@@ -287,7 +287,7 @@ def _provider_config_values(
     if name == "holographic":
         plugins_config = config.get("plugins")
         if isinstance(plugins_config, Mapping):
-            native = plugins_config.get("hermes-memory-store")
+            native = plugins_config.get("fabric-memory-store")
             if isinstance(native, Mapping):
                 values.update(native)
     return values
@@ -1002,7 +1002,7 @@ def format_memory_status_snapshot(snapshot: Mapping[str, Any]) -> str:
     # A top-level ``-p`` override is consumed before argparse and does not
     # persist as the next process's active profile. Include it in remediation
     # commands so copying a status hint cannot grant or revoke consent on the
-    # default profile by mistake. A custom HERMES_HOME has no valid ``-p``
+    # default profile by mistake. A custom FABRIC_HOME has no valid ``-p``
     # spelling, so it retains the environment-scoped command.
     config_command = "fabric"
     try:

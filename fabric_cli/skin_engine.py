@@ -92,14 +92,12 @@ USAGE
     print(skin.colors["banner_title"])    # "#9481E6"
     print(skin.get_branding("agent_name"))  # "Fabric"
 
-    set_active_skin("ares")               # Switch to built-in ares skin
     set_active_skin("mytheme")            # Switch to user skin from ~/.fabric/skins/
 
 BUILT-IN SKINS
 ==============
 
 - ``default`` — Fabric purple with the official Fabric mark
-- ``ares``    — Crimson/bronze war-god theme with custom spinner wings
 - ``mono``    — Clean grayscale monochrome
 - ``slate``   — Cool blue developer-focused theme
 - ``daylight`` — Light background theme with dark text and blue accents
@@ -137,8 +135,8 @@ class SkinConfig:
     branding: Dict[str, str] = field(default_factory=dict)
     tool_prefix: str = "┊"
     tool_emojis: Dict[str, str] = field(default_factory=dict)  # per-tool emoji overrides
-    banner_logo: str = ""    # Rich-markup ASCII art logo (replaces HERMES_AGENT_LOGO)
-    banner_hero: str = ""    # Rich-markup hero art (replaces HERMES_CADUCEUS)
+    banner_logo: str = ""    # Rich-markup ASCII art logo
+    banner_hero: str = ""    # Rich-markup compact hero art
 
     def get_color(self, key: str, fallback: str = "") -> str:
         """Get a color value with fallback."""
@@ -205,78 +203,6 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
         "tool_prefix": "┊",
         "banner_logo": FABRIC_AGENT_LOGO_TEMPLATE,
         "banner_hero": FABRIC_MARK_TEMPLATE,
-    },
-    "ares": {
-        "name": "ares",
-        "description": "War-god theme — crimson and bronze",
-        "colors": {
-            "banner_border": "#9F1C1C",
-            "banner_title": "#C7A96B",
-            "banner_accent": "#DD4A3A",
-            "banner_dim": "#6B1717",
-            "banner_text": "#F1E6CF",
-            "ui_accent": "#DD4A3A",
-            "ui_label": "#C7A96B",
-            "ui_ok": "#4caf50",
-            "ui_error": "#ef5350",
-            "ui_warn": "#ffa726",
-            "prompt": "#F1E6CF",
-            "input_rule": "#9F1C1C",
-            "response_border": "#C7A96B",
-            "status_bar_bg": "#2A1212",
-            "status_bar_text": "#F1E6CF",
-            "status_bar_strong": "#C7A96B",
-            "status_bar_dim": "#6E584B",
-            "status_bar_good": "#7BC96F",
-            "status_bar_warn": "#C7A96B",
-            "status_bar_bad": "#DD4A3A",
-            "status_bar_critical": "#EF5350",
-            "session_label": "#C7A96B",
-            "session_border": "#6E584B",
-        },
-        "spinner": {
-            "waiting_faces": ["(⚔)", "(⛨)", "(▲)", "(<>)", "(/)"],
-            "thinking_faces": ["(⚔)", "(⛨)", "(▲)", "(⌁)", "(<>)"],
-            "thinking_verbs": [
-                "forging", "marching", "sizing the field", "holding the line",
-                "hammering plans", "tempering steel", "plotting impact", "raising the shield",
-            ],
-            "wings": [
-                ["⟪⚔", "⚔⟫"],
-                ["⟪▲", "▲⟫"],
-                ["⟪╸", "╺⟫"],
-                ["⟪⛨", "⛨⟫"],
-            ],
-        },
-        "branding": {
-            "agent_name": "Ares Agent",
-            "welcome": "Welcome to Ares Agent! Type your message or /help for commands.",
-            "goodbye": "Farewell, warrior! ⚔",
-            "response_label": " ⚔ Ares ",
-            "prompt_symbol": "⚔",
-            "help_header": "(⚔) Available Commands",
-        },
-        "tool_prefix": "╎",
-        "banner_logo": """[bold #A3261F] █████╗ ██████╗ ███████╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
-[bold #B73122]██╔══██╗██╔══██╗██╔════╝██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
-[#C93C24]███████║██████╔╝█████╗  ███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]
-[#D84A28]██╔══██║██╔══██╗██╔══╝  ╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]
-[#E15A2D]██║  ██║██║  ██║███████╗███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
-[#EB6C32]╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]""",
-        "banner_hero": """[#9F1C1C]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⣤⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#9F1C1C]⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣿⠟⠻⣿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#C7A96B]⠀⠀⠀⠀⠀⠀⠀⣠⣾⡿⠋⠀⠀⠀⠙⢿⣷⣄⠀⠀⠀⠀⠀⠀⠀[/]
-[#C7A96B]⠀⠀⠀⠀⠀⢀⣾⡿⠋⠀⠀⢠⡄⠀⠀⠙⢿⣷⡀⠀⠀⠀⠀⠀[/]
-[#DD4A3A]⠀⠀⠀⠀⣰⣿⠟⠀⠀⠀⣰⣿⣿⣆⠀⠀⠀⠻⣿⣆⠀⠀⠀⠀[/]
-[#DD4A3A]⠀⠀⠀⢰⣿⠏⠀⠀⢀⣾⡿⠉⢿⣷⡀⠀⠀⠹⣿⡆⠀⠀⠀[/]
-[#9F1C1C]⠀⠀⠀⣿⡟⠀⠀⣠⣿⠟⠀⠀⠀⠻⣿⣄⠀⠀⢻⣿⠀⠀⠀[/]
-[#9F1C1C]⠀⠀⠀⣿⡇⠀⠀⠙⠋⠀⠀⚔⠀⠀⠙⠋⠀⠀⢸⣿⠀⠀⠀[/]
-[#6B1717]⠀⠀⠀⢿⣧⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼⡿⠀⠀⠀[/]
-[#6B1717]⠀⠀⠀⠘⢿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣾⡿⠃⠀⠀⠀[/]
-[#C7A96B]⠀⠀⠀⠀⠈⠻⣿⣷⣦⣤⣀⣀⣤⣤⣶⣿⠿⠋⠀⠀⠀⠀[/]
-[#C7A96B]⠀⠀⠀⠀⠀⠀⠀⠉⠛⠿⠿⠿⠿⠛⠉⠀⠀⠀⠀⠀⠀⠀[/]
-[#DD4A3A]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⚔⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[dim #6B1717]⠀⠀⠀⠀⠀⠀⠀⠀war god online⠀⠀⠀⠀⠀⠀⠀⠀[/]""",
     },
     "mono": {
         "name": "mono",
@@ -428,151 +354,6 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
         },
         "tool_prefix": "\u250a",
     },
-    "poseidon": {
-        "name": "poseidon",
-        "description": "Ocean-god theme — deep blue and seafoam",
-        "colors": {
-            "banner_border": "#2A6FB9",
-            "banner_title": "#A9DFFF",
-            "banner_accent": "#5DB8F5",
-            "banner_dim": "#153C73",
-            "banner_text": "#EAF7FF",
-            "ui_accent": "#5DB8F5",
-            "ui_label": "#A9DFFF",
-            "ui_ok": "#4caf50",
-            "ui_error": "#ef5350",
-            "ui_warn": "#ffa726",
-            "prompt": "#EAF7FF",
-            "input_rule": "#2A6FB9",
-            "response_border": "#5DB8F5",
-            "status_bar_bg": "#0F2440",
-            "status_bar_text": "#EAF7FF",
-            "status_bar_strong": "#A9DFFF",
-            "status_bar_dim": "#496884",
-            "status_bar_good": "#6ED7B0",
-            "status_bar_warn": "#5DB8F5",
-            "status_bar_bad": "#2A6FB9",
-            "status_bar_critical": "#D94F4F",
-            "session_label": "#A9DFFF",
-            "session_border": "#496884",
-        },
-        "spinner": {
-            "waiting_faces": ["(≈)", "(Ψ)", "(∿)", "(◌)", "(◠)"],
-            "thinking_faces": ["(Ψ)", "(∿)", "(≈)", "(⌁)", "(◌)"],
-            "thinking_verbs": [
-                "charting currents", "sounding the depth", "reading foam lines",
-                "steering the trident", "tracking undertow", "plotting sea lanes",
-                "calling the swell", "measuring pressure",
-            ],
-            "wings": [
-                ["⟪≈", "≈⟫"],
-                ["⟪Ψ", "Ψ⟫"],
-                ["⟪∿", "∿⟫"],
-                ["⟪◌", "◌⟫"],
-            ],
-        },
-        "branding": {
-            "agent_name": "Poseidon Agent",
-            "welcome": "Welcome to Poseidon Agent! Type your message or /help for commands.",
-            "goodbye": "Fair winds! Ψ",
-            "response_label": " Ψ Poseidon ",
-            "prompt_symbol": "Ψ",
-            "help_header": "(Ψ) Available Commands",
-        },
-        "tool_prefix": "│",
-        "banner_logo": """[bold #B8E8FF]██████╗  ██████╗ ███████╗███████╗██╗██████╗  ██████╗ ███╗   ██╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
-[bold #97D6FF]██╔══██╗██╔═══██╗██╔════╝██╔════╝██║██╔══██╗██╔═══██╗████╗  ██║      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
-[#75C1F6]██████╔╝██║   ██║███████╗█████╗  ██║██║  ██║██║   ██║██╔██╗ ██║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]
-[#4FA2E0]██╔═══╝ ██║   ██║╚════██║██╔══╝  ██║██║  ██║██║   ██║██║╚██╗██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]
-[#2E7CC7]██║     ╚██████╔╝███████║███████╗██║██████╔╝╚██████╔╝██║ ╚████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
-[#1B4F95]╚═╝      ╚═════╝ ╚══════╝╚══════╝╚═╝╚═════╝  ╚═════╝ ╚═╝  ╚═══╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]""",
-        "banner_hero": """[#2A6FB9]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#5DB8F5]⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣾⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#5DB8F5]⠀⠀⠀⠀⠀⠀⠀⢠⣿⠏⠀Ψ⠀⠹⣿⡄⠀⠀⠀⠀⠀⠀⠀[/]
-[#A9DFFF]⠀⠀⠀⠀⠀⠀⠀⣿⡟⠀⠀⠀⠀⠀⢻⣿⠀⠀⠀⠀⠀⠀⠀[/]
-[#A9DFFF]⠀⠀⠀≈≈≈≈≈⣿⡇⠀⠀⠀⠀⠀⢸⣿≈≈≈≈≈⠀⠀⠀[/]
-[#5DB8F5]⠀⠀⠀⠀⠀⠀⠀⣿⡇⠀⠀⠀⠀⠀⢸⣿⠀⠀⠀⠀⠀⠀⠀[/]
-[#2A6FB9]⠀⠀⠀⠀⠀⠀⠀⢿⣧⠀⠀⠀⠀⠀⣼⡿⠀⠀⠀⠀⠀⠀⠀[/]
-[#2A6FB9]⠀⠀⠀⠀⠀⠀⠀⠘⢿⣷⣄⣀⣠⣾⡿⠃⠀⠀⠀⠀⠀⠀⠀[/]
-[#153C73]⠀⠀⠀⠀⠀⠀⠀⠀⠈⠻⣿⣿⡿⠟⠁⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#153C73]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#5DB8F5]⠀⠀⠀⠀⠀≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈⠀⠀⠀⠀⠀[/]
-[#A9DFFF]⠀⠀⠀⠀⠀⠀≈≈≈≈≈≈≈≈≈≈≈≈≈⠀⠀⠀⠀⠀⠀[/]
-[dim #153C73]⠀⠀⠀⠀⠀⠀⠀deep waters hold⠀⠀⠀⠀⠀⠀⠀[/]""",
-    },
-    "sisyphus": {
-        "name": "sisyphus",
-        "description": "Sisyphean theme — austere grayscale with persistence",
-        "colors": {
-            "banner_border": "#B7B7B7",
-            "banner_title": "#F5F5F5",
-            "banner_accent": "#E7E7E7",
-            "banner_dim": "#4A4A4A",
-            "banner_text": "#D3D3D3",
-            "ui_accent": "#E7E7E7",
-            "ui_label": "#D3D3D3",
-            "ui_ok": "#919191",
-            "ui_error": "#E7E7E7",
-            "ui_warn": "#B7B7B7",
-            "prompt": "#F5F5F5",
-            "input_rule": "#656565",
-            "response_border": "#B7B7B7",
-            "status_bar_bg": "#202020",
-            "status_bar_text": "#D3D3D3",
-            "status_bar_strong": "#F5F5F5",
-            "status_bar_dim": "#656565",
-            "status_bar_good": "#B7B7B7",
-            "status_bar_warn": "#D3D3D3",
-            "status_bar_bad": "#E7E7E7",
-            "status_bar_critical": "#F5F5F5",
-            "session_label": "#919191",
-            "session_border": "#656565",
-        },
-        "spinner": {
-            "waiting_faces": ["(◉)", "(◌)", "(◬)", "(⬤)", "(::)"],
-            "thinking_faces": ["(◉)", "(◬)", "(◌)", "(○)", "(●)"],
-            "thinking_verbs": [
-                "finding traction", "measuring the grade", "resetting the boulder",
-                "counting the ascent", "testing leverage", "setting the shoulder",
-                "pushing uphill", "enduring the loop",
-            ],
-            "wings": [
-                ["⟪◉", "◉⟫"],
-                ["⟪◬", "◬⟫"],
-                ["⟪◌", "◌⟫"],
-                ["⟪⬤", "⬤⟫"],
-            ],
-        },
-        "branding": {
-            "agent_name": "Sisyphus Agent",
-            "welcome": "Welcome to Sisyphus Agent! Type your message or /help for commands.",
-            "goodbye": "The boulder waits. ◉",
-            "response_label": " ◉ Sisyphus ",
-            "prompt_symbol": "◉",
-            "help_header": "(◉) Available Commands",
-        },
-        "tool_prefix": "│",
-        "banner_logo": """[bold #F5F5F5]███████╗██╗███████╗██╗   ██╗██████╗ ██╗  ██╗██╗   ██╗███████╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
-[bold #E7E7E7]██╔════╝██║██╔════╝╚██╗ ██╔╝██╔══██╗██║  ██║██║   ██║██╔════╝      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
-[#D7D7D7]███████╗██║███████╗ ╚████╔╝ ██████╔╝███████║██║   ██║███████╗█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]
-[#BFBFBF]╚════██║██║╚════██║  ╚██╔╝  ██╔═══╝ ██╔══██║██║   ██║╚════██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]
-[#8F8F8F]███████║██║███████║   ██║   ██║     ██║  ██║╚██████╔╝███████║      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
-[#626262]╚══════╝╚═╝╚══════╝   ╚═╝   ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚══════╝      ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]""",
-        "banner_hero": """[#B7B7B7]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣀⣀⣀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#D3D3D3]⠀⠀⠀⠀⠀⠀⠀⣠⣾⣿⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#E7E7E7]⠀⠀⠀⠀⠀⠀⣾⣿⣿⣿⣿⣿⣿⣿⣷⠀⠀⠀⠀⠀⠀⠀[/]
-[#F5F5F5]⠀⠀⠀⠀⠀⢸⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠀⠀⠀⠀⠀[/]
-[#E7E7E7]⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀[/]
-[#D3D3D3]⠀⠀⠀⠀⠀⠀⠘⢿⣿⣿⣿⣿⣿⡿⠃⠀⠀⠀⠀⠀⠀⠀[/]
-[#B7B7B7]⠀⠀⠀⠀⠀⠀⠀⠀⠙⠿⣿⠿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#919191]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#656565]⠀⠀⠀⠀⠀⠀⠀⠀⠀⣰⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#656565]⠀⠀⠀⠀⠀⠀⠀⠀⣰⣿⣿⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#4A4A4A]⠀⠀⠀⠀⠀⠀⠀⣰⣿⣿⣿⣿⣆⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
-[#4A4A4A]⠀⠀⠀⠀⠀⣀⣴⣿⣿⣿⣿⣿⣿⣦⣀⠀⠀⠀⠀⠀⠀[/]
-[#656565]⠀⠀⠀━━━━━━━━━━━━━━━━━━━━━━━⠀⠀⠀[/]
-[dim #4A4A4A]⠀⠀⠀⠀⠀⠀⠀⠀⠀the boulder⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]""",
-    },
     "charizard": {
         "name": "charizard",
         "description": "Volcanic theme — burnt orange and ember",
@@ -651,16 +432,6 @@ _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
 [dim #7A3511]⠀⠀⠀⠀⠀⠀⠀tail flame lit⠀⠀⠀⠀⠀⠀⠀⠀[/]""",
     },
 }
-
-# ``fabric`` used to be provisioned as a user skin by the host/Docker
-# installers. Reserve it as a built-in alias now so upgraded homes with an old
-# copied YAML cannot override the public distribution's canonical Fabric presentation.
-_BUILTIN_SKINS["fabric"] = {
-    **_BUILTIN_SKINS["default"],
-    "name": "fabric",
-    "description": "Fabric (alias of the default skin)",
-}
-
 
 # =============================================================================
 # Skin loading and management
@@ -765,13 +536,7 @@ def list_skins() -> List[Dict[str, str]]:
 
 
 def load_skin(name: str) -> SkinConfig:
-    """Load a skin, protecting product-owned aliases from stale user copies."""
-    # ``fabric`` is the product-owned compatibility alias. It must win over
-    # installer-copied legacy fabric.yaml files that still contain the old
-    # lattice artwork and off-system colors.
-    if name == "fabric":
-        return _build_skin_config(_BUILTIN_SKINS[name])
-
+    """Load a built-in or user-installed skin."""
     # Check user skins directory
     skins_path = _skins_dir()
     user_file = skins_path / f"{name}.yaml"

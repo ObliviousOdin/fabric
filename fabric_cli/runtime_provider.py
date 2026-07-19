@@ -17,8 +17,10 @@ from agent.secret_scope import get_secret as _get_secret
 from fabric_cli.auth import (
     AuthError,
     DEFAULT_CODEX_BASE_URL,
+    DEFAULT_NOUS_INFERENCE_URL,
     DEFAULT_QWEN_BASE_URL,
     DEFAULT_XAI_OAUTH_BASE_URL,
+    NOUS_INVOKE_JWT_MIN_TTL_SECONDS,
     PROVIDER_REGISTRY,
     _agent_key_is_usable,
     _nous_inference_env_override,
@@ -39,7 +41,7 @@ from fabric_cli.config import (
     normalize_extra_headers,
 )
 from fabric_constants import OPENROUTER_BASE_URL
-from utils import base_url_host_matches, base_url_hostname, env_int
+from utils import base_url_host_matches, base_url_hostname
 
 from agent.egress_policy import (
     AuthorizedInferenceRoute,
@@ -372,7 +374,7 @@ _VALID_API_MODES = {
     "bedrock_converse",
     # Optional opt-in: hand the entire turn to a `codex app-server` subprocess
     # so terminal/file-ops/patching/sandboxing run inside Codex's own runtime
-    # instead of Hermes' tool dispatch. Gated behind config key
+    # instead of Fabric's tool dispatch. Gated behind config key
     # `model.openai_runtime == "codex_app_server"` AND provider in
     # {"openai", "openai-codex"}. Default is unchanged.
     "codex_app_server",
@@ -569,7 +571,7 @@ def _resolve_runtime_from_pool_entry(
 
 
 def resolve_requested_provider(requested: Optional[str] = None) -> str:
-    """Resolve provider request from explicit arg, config, then env."""
+    """Resolve provider request from an explicit arg, then config."""
     if requested and requested.strip():
         return requested.strip().lower()
 
@@ -577,12 +579,6 @@ def resolve_requested_provider(requested: Optional[str] = None) -> str:
     cfg_provider = model_cfg.get("provider")
     if isinstance(cfg_provider, str) and cfg_provider.strip():
         return cfg_provider.strip().lower()
-
-    # Prefer the persisted config selection over any stale shell/.env
-    # provider override so chat uses the endpoint the user last saved.
-    env_provider = _getenv("HERMES_INFERENCE_PROVIDER", "").strip().lower()
-    if env_provider:
-        return env_provider
 
     return "auto"
 
@@ -891,8 +887,7 @@ def canonical_custom_identity(
     1. ``base_url`` — reverse-lookup the entry that owns the endpoint URL
        (the one fact that always survives the persistence round-trip when a
        URL was recorded).
-    2. ``config_provider`` — the active ``config.model.provider`` (or its
-       ``provider``/``HERMES_INFERENCE_PROVIDER`` equivalent). When the agent
+    2. ``config_provider`` — the active ``config.model.provider``. When the agent
        was built without a base_url on the override (the recurring
        Desktop/TUI regression vector), the configured provider is the only
        durable identity left, so fall back to it when it names a real entry.
@@ -914,9 +909,6 @@ def canonical_custom_identity(
             candidate = str(_get_model_config().get("provider") or "").strip()
         except Exception:
             candidate = ""
-    if not candidate:
-        candidate = os.environ.get("HERMES_INFERENCE_PROVIDER", "").strip()
-
     candidate_norm = _normalize_custom_provider_name(candidate)
     # A bare/non-routable candidate cannot heal a bare custom override.
     if not candidate_norm or candidate_norm in {"custom", "auto", "openrouter"}:
@@ -1452,24 +1444,21 @@ def _resolve_explicit_runtime(
         base_url = (
             explicit_base_url
             or _nous_inference_base_url_override()
-            or str(state.get("inference_base_url") or auth_mod.DEFAULT_NOUS_INFERENCE_URL).strip().rstrip("/")
+            or str(
+                state.get("inference_base_url") or DEFAULT_NOUS_INFERENCE_URL
+            ).strip().rstrip("/")
         )
-        # Only use the agent_key compatibility field for inference when it
-        # contains a NAS invoke JWT; raw OAuth access_token fallback is handled
-        # by resolve_nous_runtime_credentials().
+        # A stored agent key is valid for inference only while its invoke JWT
+        # remains usable. The runtime resolver owns refresh and access-token
+        # fallback when no usable key is available.
         api_key = explicit_api_key or (
             str(state.get("agent_key") or "").strip()
-            if _agent_key_is_usable(
-                state,
-                max(60, env_int("HERMES_NOUS_MIN_KEY_TTL_SECONDS", 1800)),
-            )
+            if _agent_key_is_usable(state, NOUS_INVOKE_JWT_MIN_TTL_SECONDS)
             else ""
         )
         expires_at = state.get("agent_key_expires_at") or state.get("expires_at")
         if not api_key:
-            creds = resolve_nous_runtime_credentials(
-                timeout_seconds=float(_getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
-            )
+            creds = resolve_nous_runtime_credentials()
             api_key = creds.get("api_key", "")
             expires_at = creds.get("expires_at")
             if not explicit_base_url:
@@ -1935,21 +1924,20 @@ def _resolve_runtime_provider_unchecked(
                 getattr(entry, "runtime_api_key", None)
                 or getattr(entry, "access_token", "")
             )
-        # For Nous, the pool entry's runtime_api_key is the agent_key
-        # compatibility field. It must be an invoke JWT. The pool doesn't
-        # refresh it during selection (that would trigger network calls in
-        # non-runtime contexts like `fabric auth list`). If the key is
-        # expired/missing, refresh the selected pool entry before falling back
-        # to singleton auth resolution.
+        # Pool selection is intentionally side-effect free, so refresh a stale
+        # Nous invoke JWT here at the runtime boundary before using it.
         if provider == "nous" and entry is not None:
-            min_ttl = max(60, env_int("HERMES_NOUS_MIN_KEY_TTL_SECONDS", 1800))
             nous_state = {
                 "agent_key": getattr(entry, "agent_key", None),
                 "agent_key_expires_at": getattr(entry, "agent_key_expires_at", None),
                 "scope": getattr(entry, "scope", None),
             }
-            if not _agent_key_is_usable(nous_state, min_ttl):
-                logger.debug("Nous pool entry agent_key expired/missing, refreshing selected pool entry")
+            if not _agent_key_is_usable(
+                nous_state, NOUS_INVOKE_JWT_MIN_TTL_SECONDS
+            ):
+                logger.debug(
+                    "Nous pool entry agent key expired or missing; refreshing it"
+                )
                 try:
                     refreshed = pool.try_refresh_current()
                 except Exception as exc:
@@ -1963,11 +1951,18 @@ def _resolve_runtime_provider_unchecked(
                     )
                     nous_state = {
                         "agent_key": getattr(entry, "agent_key", None),
-                        "agent_key_expires_at": getattr(entry, "agent_key_expires_at", None),
+                        "agent_key_expires_at": getattr(
+                            entry, "agent_key_expires_at", None
+                        ),
                         "scope": getattr(entry, "scope", None),
                     }
-                if not pool_api_key or not _agent_key_is_usable(nous_state, min_ttl):
-                    logger.debug("Nous pool entry agent_key still unavailable, falling through to runtime resolution")
+                if not pool_api_key or not _agent_key_is_usable(
+                    nous_state, NOUS_INVOKE_JWT_MIN_TTL_SECONDS
+                ):
+                    logger.debug(
+                        "Nous pool entry still lacks a usable agent key; "
+                        "falling through to auth resolution"
+                    )
                     pool_api_key = ""
         if entry is not None and pool_api_key:
             return _resolve_runtime_from_pool_entry(
@@ -1981,9 +1976,7 @@ def _resolve_runtime_provider_unchecked(
 
     if provider == "nous":
         try:
-            creds = resolve_nous_runtime_credentials(
-                timeout_seconds=float(_getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
-            )
+            creds = resolve_nous_runtime_credentials()
             return {
                 "provider": "nous",
                 "api_mode": "chat_completions",
@@ -1996,10 +1989,12 @@ def _resolve_runtime_provider_unchecked(
         except AuthError:
             if requested_provider != "auto":
                 raise
-            # Auto-detected Nous but credentials are stale/revoked —
-            # fall through to env-var providers (e.g. OpenRouter).
-            logger.info("Auto-detected Nous provider but credentials failed; "
-                        "falling through to next provider.")
+            # Auto-detected credentials may be stale or revoked; let the
+            # normal provider fallback chain continue.
+            logger.info(
+                "Auto-detected Nous provider but credentials failed; "
+                "falling through to the next provider"
+            )
 
     if provider == "openai-codex":
         try:
@@ -2009,7 +2004,7 @@ def _resolve_runtime_provider_unchecked(
                 "api_mode": "codex_responses",
                 "base_url": creds.get("base_url", "").rstrip("/"),
                 "api_key": creds.get("api_key", ""),
-                "source": creds.get("source", "hermes-auth-store"),
+                "source": creds.get("source", "fabric-auth-store"),
                 "last_refresh": creds.get("last_refresh"),
                 "requested_provider": requested_provider,
             }
@@ -2029,7 +2024,7 @@ def _resolve_runtime_provider_unchecked(
                 "api_mode": "codex_responses",
                 "base_url": (creds.get("base_url") or "").rstrip("/") or DEFAULT_XAI_OAUTH_BASE_URL,
                 "api_key": creds.get("api_key", ""),
-                "source": creds.get("source", "hermes-auth-store"),
+                "source": creds.get("source", "fabric-auth-store"),
                 "last_refresh": creds.get("last_refresh"),
                 "requested_provider": requested_provider,
             }
@@ -2109,9 +2104,9 @@ def _resolve_runtime_provider_unchecked(
         if _is_azure_endpoint:
             # Honor user-specified env var hints on the model config before
             # falling back to the built-in AZURE_ANTHROPIC_KEY / ANTHROPIC_API_KEY
-            # chain.  Accept both `key_env` (Hermes canonical — matches the
+            # chain.  Accept both `key_env` (Fabric canonical — matches the
             # custom_providers field name) and `api_key_env` (documented in the
-            # Azure Foundry guide and read by most Hermes-compatible importers).
+            # Azure Foundry guide and read by many config importers).
             # Matches the config.yaml examples in website/docs/guides/azure-foundry.md.
             token = ""
             for hint_key in ("key_env", "api_key_env"):

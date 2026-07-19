@@ -1,8 +1,8 @@
 """
 Cron job storage and management.
 
-Jobs are stored in ~/.hermes/cron/jobs.json
-Output is saved to ~/.hermes/cron/output/{job_id}/{timestamp}.md
+Jobs are stored in ~/.fabric/cron/jobs.json
+Output is saved to ~/.fabric/cron/output/{job_id}/{timestamp}.md
 """
 
 import contextlib
@@ -36,7 +36,7 @@ from typing import Optional, Dict, List, Any, Set, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
-from fabric_time import now as _hermes_now
+from fabric_time import now as _fabric_now
 from utils import atomic_replace
 
 try:
@@ -50,19 +50,19 @@ except ImportError:
 # =============================================================================
 
 # Cron is per-profile by design (issue #4707). Each profile owns its own cron
-# store under its own HERMES_HOME, and a profile-scoped gateway runs that
-# profile's jobs under that same HERMES_HOME — so a job authored in profile
-# `coder` lives in `~/.hermes/profiles/coder/cron/jobs.json` and executes with
+# store under its own FABRIC_HOME, and a profile-scoped gateway runs that
+# profile's jobs under that same FABRIC_HOME — so a job authored in profile
+# `coder` lives in `~/.fabric/profiles/coder/cron/jobs.json` and executes with
 # `coder`'s `.env`, `config.yaml`, and skills. We deliberately anchor on
 # `get_fabric_home()` (the active profile home), NOT `get_default_fabric_root()`
 # (the shared root). Anchoring at the root would funnel every profile's jobs
-# into one shared `jobs.json` and run them under whatever HERMES_HOME the
+# into one shared `jobs.json` and run them under whatever FABRIC_HOME the
 # ticker process happens to have — leaking config/credentials/skills across
 # profiles (the security boundary #4707 was filed for). Do NOT change this to
 # the default root: that re-breaks per-profile isolation. See also the dynamic
-# `_get_fabric_home()` / `_get_lock_paths()` resolution in cron/scheduler.py.
-HERMES_DIR = get_fabric_home().resolve()
-CRON_DIR = HERMES_DIR / "cron"
+# dynamic `get_fabric_home()` / `_get_lock_paths()` resolution in cron/scheduler.py.
+FABRIC_DIR = get_fabric_home().resolve()
+CRON_DIR = FABRIC_DIR / "cron"
 JOBS_FILE = CRON_DIR / "jobs.json"
 # Heartbeat file the in-process ticker touches on every loop iteration. The
 # gateway process and the (separate) ``fabric cron status`` process share it
@@ -97,7 +97,7 @@ OUTPUT_DIR = CRON_DIR / "output"
 ONESHOT_GRACE_SECONDS = 120
 
 # Fallback stale-recovery window for a one-shot's running-claim (#59229) when
-# the cron inactivity timeout is disabled (HERMES_CRON_TIMEOUT=0 → unlimited),
+# cron.inactivity_timeout_seconds is disabled (0 means unlimited),
 # in which case no finite run bound exists to derive from. Also acts as the
 # floor for the derived value so a very short configured timeout can't make the
 # claim expire mid-run.
@@ -105,8 +105,8 @@ ONESHOT_RUN_CLAIM_TTL_SECONDS = 1800
 
 # The derived TTL is the cron inactivity timeout times this headroom multiplier.
 # A healthy run clears its claim via mark_job_run() long before the TTL; the
-# TTL only recovers a claim left by a tick that DIED mid-run. HERMES_CRON_TIMEOUT
-# is an *inactivity* limit, not a wall-clock cap — a job that keeps producing
+# TTL only recovers a claim left by a tick that DIED mid-run. The configured
+# inactivity timeout is not a wall-clock cap — a job that keeps producing
 # output legitimately runs past it — so the multiplier gives comfortable
 # headroom over any healthy run before we treat a claim as stale.
 _ONESHOT_RUN_CLAIM_TTL_HEADROOM = 3
@@ -114,26 +114,67 @@ _ONESHOT_RUN_CLAIM_TTL_HEADROOM = 3
 _DEFAULT_CRON_INACTIVITY_TIMEOUT = 600.0
 
 
-def _oneshot_run_claim_ttl_seconds() -> float:
+def get_cron_inactivity_timeout_seconds(
+    config: Optional[Dict[str, Any]] = None,
+) -> float:
+    """Return the canonical cron inactivity budget from ``config.yaml``.
+
+    ``0`` disables inactivity enforcement. Invalid or negative values use the
+    safe 600-second default.
+    """
+    if config is None:
+        try:
+            from fabric_cli.config import load_config
+
+            config = load_config() or {}
+        except Exception as exc:
+            logger.debug("Failed to load cron inactivity timeout: %s", exc)
+            return _DEFAULT_CRON_INACTIVITY_TIMEOUT
+
+    cron_cfg = config.get("cron", {}) if isinstance(config, dict) else {}
+    raw = (
+        cron_cfg.get("inactivity_timeout_seconds", _DEFAULT_CRON_INACTIVITY_TIMEOUT)
+        if isinstance(cron_cfg, dict)
+        else _DEFAULT_CRON_INACTIVITY_TIMEOUT
+    )
+    if isinstance(raw, bool):
+        logger.warning(
+            "Invalid cron.inactivity_timeout_seconds=%r; using default 600s",
+            raw,
+        )
+        return _DEFAULT_CRON_INACTIVITY_TIMEOUT
+    try:
+        timeout = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "Invalid cron.inactivity_timeout_seconds=%r; using default 600s",
+            raw,
+        )
+        return _DEFAULT_CRON_INACTIVITY_TIMEOUT
+    if timeout < 0:
+        logger.warning(
+            "Invalid cron.inactivity_timeout_seconds=%r; using default 600s",
+            raw,
+        )
+        return _DEFAULT_CRON_INACTIVITY_TIMEOUT
+    return timeout
+
+
+def _oneshot_run_claim_ttl_seconds(
+    config: Optional[Dict[str, Any]] = None,
+) -> float:
     """Resolve the one-shot running-claim stale-recovery TTL.
 
-    Derived from ``HERMES_CRON_TIMEOUT`` (the cron inactivity timeout the
-    scheduler enforces on each run) so the safety valve tracks how long a run
-    is actually allowed to go quiet, instead of a magic constant:
+    Derived from ``cron.inactivity_timeout_seconds`` so the safety valve tracks
+    how long a run is actually allowed to go quiet, instead of a magic constant:
 
-    - unset / invalid → default 600s inactivity limit → TTL = 1800s
+    - unset / invalid config → default 600s inactivity limit → TTL = 1800s
     - ``0`` (unlimited runs) → no finite bound to derive from → fall back to
       ``ONESHOT_RUN_CLAIM_TTL_SECONDS``
     - positive N → ``max(N * headroom, ONESHOT_RUN_CLAIM_TTL_SECONDS)`` so a
       tiny configured timeout can never expire a claim mid-run.
     """
-    raw = os.getenv("HERMES_CRON_TIMEOUT", "").strip()
-    timeout = _DEFAULT_CRON_INACTIVITY_TIMEOUT
-    if raw:
-        try:
-            timeout = float(raw)
-        except (ValueError, TypeError):
-            timeout = _DEFAULT_CRON_INACTIVITY_TIMEOUT
+    timeout = get_cron_inactivity_timeout_seconds(config)
     if timeout <= 0:
         # Unlimited runs — cannot bound; use the fixed fallback floor.
         return float(ONESHOT_RUN_CLAIM_TTL_SECONDS)
@@ -462,7 +503,7 @@ def parse_schedule(schedule: str) -> Dict[str, Any]:
             # Make naive timestamps timezone-aware at parse time so the stored
             # value doesn't depend on the system timezone matching at check time.
             #
-            # Anchor to the CONFIGURED Hermes timezone, not the server's local
+            # Anchor to the CONFIGURED Fabric timezone, not the server's local
             # timezone. The due-check (`get_due_jobs`) compares `next_run_at`
             # against `fabric_time.now()`, which uses the configured zone. If a
             # naive "20:07" were interpreted as server-local (e.g. UTC) while
@@ -472,8 +513,8 @@ def parse_schedule(schedule: str) -> Dict[str, Any]:
             # the configured zone makes "20:07" mean 20:07 on the same clock the
             # scheduler checks against (#51021).
             if dt.tzinfo is None:
-                hermes_tz = _hermes_now().tzinfo
-                dt = dt.replace(tzinfo=hermes_tz)
+                fabric_tz = _fabric_now().tzinfo
+                dt = dt.replace(tzinfo=fabric_tz)
             return {
                 "kind": "once",
                 "run_at": dt.isoformat(),
@@ -485,7 +526,7 @@ def parse_schedule(schedule: str) -> Dict[str, Any]:
     # Duration like "30m", "2h", "1d" → one-shot from now
     try:
         minutes = parse_duration(schedule)
-        run_at = _hermes_now() + timedelta(minutes=minutes)
+        run_at = _fabric_now() + timedelta(minutes=minutes)
         return {
             "kind": "once",
             "run_at": run_at.isoformat(),
@@ -504,18 +545,18 @@ def parse_schedule(schedule: str) -> Dict[str, Any]:
 
 
 def _ensure_aware(dt: datetime) -> datetime:
-    """Return a timezone-aware datetime in Hermes configured timezone.
+    """Return a timezone-aware datetime in Fabric configured timezone.
 
     Backward compatibility:
     - Older stored timestamps may be naive.
     - Naive values are interpreted as *system-local wall time* (the timezone
       `datetime.now()` used when they were created), then converted to the
-      configured Hermes timezone.
+      configured Fabric timezone.
 
     This preserves relative ordering for legacy naive timestamps across
     timezone changes and avoids false not-due results.
     """
-    target_tz = _hermes_now().tzinfo
+    target_tz = _fabric_now().tzinfo
     if dt.tzinfo is None:
         local_tz = datetime.now().astimezone().tzinfo
         return dt.replace(tzinfo=local_tz).astimezone(target_tz)
@@ -537,7 +578,7 @@ def _timezone_offset_mismatch(stored: datetime, current: datetime) -> bool:
 def _stored_wall_clock_is_future(stored: datetime, current: datetime) -> bool:
     """Return True when the stored local wall-clock time has not arrived yet.
 
-    Cron schedules express local wall-clock intent. If Hermes/system local time
+    Cron schedules express local wall-clock intent. If Fabric/system local time
     changes after next_run_at was persisted, an old offset can make a future
     wall-clock run look due at the converted absolute time (for example
     21:00+10 becomes 13:00+02). Comparing naive wall-clock values lets us
@@ -593,7 +634,7 @@ def _compute_grace_seconds(schedule: dict) -> int:
 
     if kind == "cron" and HAS_CRONITER:
         try:
-            now = _hermes_now()
+            now = _fabric_now()
             cron = croniter(schedule["expr"], now)
             first = cron.get_next(datetime)
             second = cron.get_next(datetime)
@@ -612,7 +653,7 @@ def compute_next_run(schedule: Dict[str, Any], last_run_at: Optional[str] = None
 
     Returns ISO timestamp string, or None if no more runs.
     """
-    now = _hermes_now()
+    now = _fabric_now()
 
     if schedule["kind"] == "once":
         return _recoverable_oneshot_run_at(schedule, now, last_run_at=last_run_at)
@@ -782,7 +823,7 @@ def _save_jobs_unlocked(jobs: List[Dict[str, Any]]):
     fd, tmp_path = tempfile.mkstemp(dir=str(JOBS_FILE.parent), suffix='.tmp', prefix='.jobs_')
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            json.dump({"jobs": jobs, "updated_at": _hermes_now().isoformat()}, f, indent=2)
+            json.dump({"jobs": jobs, "updated_at": _fabric_now().isoformat()}, f, indent=2)
             f.flush()
             os.fsync(f.fileno())
         atomic_replace(tmp_path, JOBS_FILE)
@@ -977,7 +1018,7 @@ def create_job(
                 delivered verbatim. Without ``no_agent``, its stdout is
                 injected into the agent's prompt as context (data-collection /
                 change-detection pattern). Paths resolve under
-                ~/.hermes/scripts/; ``.sh`` / ``.bash`` files run via bash,
+                ~/.fabric/scripts/; ``.sh`` / ``.bash`` files run via bash,
                 anything else via Python.
         context_from: Optional job ID (or list of job IDs) whose most recent output
                       is injected into the prompt as context before each run.
@@ -1018,7 +1059,7 @@ def create_job(
         deliver = "origin" if origin else "local"
 
     job_id = uuid.uuid4().hex[:12]
-    now = _hermes_now().isoformat()
+    now = _fabric_now().isoformat()
 
     normalized_skills = _normalize_skill_list(skill, skills)
     normalized_model = _normalize_job_optional_text(model)
@@ -1301,7 +1342,7 @@ def pause_job(job_id: str, reason: Optional[str] = None) -> Optional[Dict[str, A
         {
             "enabled": False,
             "state": "paused",
-            "paused_at": _hermes_now().isoformat(),
+            "paused_at": _fabric_now().isoformat(),
             "paused_reason": reason,
         },
     )
@@ -1344,7 +1385,7 @@ def trigger_job(job_id: str) -> Optional[Dict[str, Any]]:
             "state": "scheduled",
             "paused_at": None,
             "paused_reason": None,
-            "next_run_at": _hermes_now().isoformat(),
+            "next_run_at": _fabric_now().isoformat(),
         },
     )
 
@@ -1387,7 +1428,7 @@ def mark_job_run(job_id: str, success: bool, error: Optional[str] = None,
         jobs = load_jobs()
         for i, job in enumerate(jobs):
             if job["id"] == job_id:
-                now = _hermes_now().isoformat()
+                now = _fabric_now().isoformat()
                 job["last_run_at"] = now
                 job["last_status"] = "ok" if success else "error"
                 job["last_error"] = error if not success else None
@@ -1549,7 +1590,7 @@ def advance_next_run(job_id: str) -> bool:
                 kind = job.get("schedule", {}).get("kind")
                 if kind not in {"cron", "interval"}:
                     return False
-                now = _hermes_now().isoformat()
+                now = _fabric_now().isoformat()
                 new_next = compute_next_run(job["schedule"], now)
                 if new_next and new_next != job.get("next_run_at"):
                     job["next_run_at"] = new_next
@@ -1562,12 +1603,9 @@ def advance_next_run(job_id: str) -> bool:
 def _machine_id() -> str:
     """Stable-ish identifier for claim attribution/debugging (NOT correctness).
 
-    Uses ``HERMES_MACHINE_ID`` if set, else hostname + pid. The CAS correctness
-    comes from the file lock + the fresh-claim check, not from this value.
+    The hostname and process ID aid diagnostics. CAS correctness comes from the
+    file lock and fresh-claim check, not from this value.
     """
-    explicit = os.getenv("HERMES_MACHINE_ID", "").strip()
-    if explicit:
-        return explicit
     try:
         import socket
         host = socket.gethostname()
@@ -1604,7 +1642,7 @@ def claim_job_for_fire(job_id: str, *, claim_ttl_seconds: int = 300) -> bool:
                 continue
             if not job.get("enabled", True) or job.get("state") == "paused":
                 return False
-            now = _hermes_now()
+            now = _fabric_now()
             existing = job.get("fire_claim")
             if existing:
                 try:
@@ -1651,13 +1689,13 @@ def get_due_jobs() -> List[Dict[str, Any]]:
 
 def _get_due_jobs_locked() -> List[Dict[str, Any]]:
     """Inner implementation of get_due_jobs(); must be called with _jobs_lock held."""
-    now = _hermes_now()
+    now = _fabric_now()
     raw_jobs = load_jobs()
     jobs = [_apply_skill_fields(j) for j in copy.deepcopy(raw_jobs)]
     due = []
     needs_save = False
     # Resolve the one-shot running-claim stale-recovery TTL once per scan
-    # (derived from HERMES_CRON_TIMEOUT). See _oneshot_run_claim_ttl_seconds.
+    # (derived from config.yaml). See _oneshot_run_claim_ttl_seconds.
     _run_claim_ttl = _oneshot_run_claim_ttl_seconds()
 
     for job in jobs:
@@ -1832,7 +1870,7 @@ def _get_due_jobs_locked() -> List[Dict[str, Any]]:
 
             # Durably claim a one-shot for the DURATION of its run before
             # returning it as due, so a second scheduler process (gateway +
-            # desktop both run in-process 60s tickers on one HERMES_HOME)
+            # desktop both run in-process 60s tickers on one FABRIC_HOME)
             # cannot re-dispatch it while the first run is still in flight
             # (#59229). A plain one-shot's due-state is not resolved until
             # mark_job_run() completes it minutes later, so advancing
@@ -1844,7 +1882,7 @@ def _get_due_jobs_locked() -> List[Dict[str, Any]]:
             # this loop). mark_job_run() clears the claim on completion. The TTL
             # is only a safety valve: a claiming tick that DIES mid-run leaves a
             # stale claim that expires after the resolved run-claim TTL
-            # (_oneshot_run_claim_ttl_seconds, derived from HERMES_CRON_TIMEOUT),
+            # (_oneshot_run_claim_ttl_seconds, derived from config.yaml),
             # so the job is re-dispatched rather than wedged forever.
             if kind == "once":
                 claim = {"at": now.isoformat(), "by": _machine_id()}
@@ -1918,7 +1956,7 @@ def save_job_output(job_id: str, output: str):
     job_output_dir.mkdir(parents=True, exist_ok=True)
     _secure_dir(job_output_dir)
 
-    timestamp = _hermes_now().strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = _fabric_now().strftime("%Y-%m-%d_%H-%M-%S")
     output_file = job_output_dir / f"{timestamp}.md"
 
     fd, tmp_path = tempfile.mkstemp(dir=str(job_output_dir), suffix='.tmp', prefix='.output_')

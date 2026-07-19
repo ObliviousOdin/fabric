@@ -48,12 +48,12 @@ from rich.console import Console
 from fabric_constants import OPENROUTER_BASE_URL, get_fabric_home
 from agent.retry_utils import jittered_backoff
 
-# Load .env from HERMES_HOME first, then project root as a dev fallback.
+# Load .env from FABRIC_HOME first, then project root as a dev fallback.
 from fabric_cli.env_loader import load_fabric_dotenv
 
 _fabric_home = get_fabric_home()
 _project_env = Path(__file__).parent / ".env"
-load_fabric_dotenv(hermes_home=_fabric_home, project_env=_project_env)
+load_fabric_dotenv(fabric_home=_fabric_home, project_env=_project_env)
 
 
 def _effective_temperature_for_model(

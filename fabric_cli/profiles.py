@@ -1,12 +1,11 @@
 """
-Profile management for multiple isolated Hermes instances.
+Profile management for multiple isolated Fabric instances.
 
-Each profile is a fully independent HERMES_HOME directory with its own
+Each profile is a fully independent FABRIC_HOME directory with its own
 config.yaml, .env, memory, sessions, skills, gateway, cron, and logs.
 Profiles live under ``~/.fabric/profiles/<name>/`` by default.
 
-The "default" profile is ``~/.fabric`` itself — backward compatible,
-zero migration needed.
+The "default" profile is ``~/.fabric`` itself.
 
 Usage::
 
@@ -131,10 +130,10 @@ _CLONE_ALL_HISTORY_EXCLUDE_ROOT: frozenset[str] = frozenset({
 })
 
 # Marker file written by `fabric profile create --no-skills`.  When present in
-# a profile's root, callers of seed_profile_skills() (fresh-create, `hermes
+# a profile's root, callers of seed_profile_skills() (fresh-create, `fabric
 # update`'s all-profile sync, the web dashboard) skip bundled-skill seeding
 # for that profile.  The user can still install skills manually via
-# `Fabric skills install` or drop SKILL.md files into the profile's skills/.
+# `fabric skills install` or drop SKILL.md files into the profile's skills/.
 # Delete the marker file to opt back in.
 NO_BUNDLED_SKILLS_MARKER = ".no-bundled-skills"
 _PROVIDER_ACCOUNT_TEMP_FILE_PREFIX = ".provider-accounts.json.tmp."
@@ -156,7 +155,7 @@ def _clone_all_copytree_ignore(source_dir: Path):
          history, backups, and snapshots that belong to the SOURCE profile
          and should never carry into a fresh clone.  Applies to any source.
       2. Root-level entries in ``_CLONE_ALL_DEFAULT_EXCLUDE_ROOT`` — known
-         Hermes infrastructure directories that only the default profile
+         Fabric infrastructure directories that only the default profile
          (``~/.fabric``) ever contains.  Gated on ``source_dir`` actually
          being the default profile so a named-profile source never has its
          own data silently dropped.
@@ -218,7 +217,6 @@ _DEFAULT_EXPORT_EXCLUDE_ROOT = frozenset({
     "node_modules",         # npm packages
     # Databases & runtime state
     "state.db", "state.db-shm", "state.db-wal",
-    "fabric_state.db",
     "response_store.db", "response_store.db-shm", "response_store.db-wal",
     "gateway.pid", "gateway_state.json", "processes.json",
     "auth.json",            # API keys, OAuth tokens, credential pools
@@ -227,19 +225,18 @@ _DEFAULT_EXPORT_EXCLUDE_ROOT = frozenset({
     ".env",                 # API keys (dotenv)
     "auth.lock", "active_profile", ".update_check",
     "errors.log",
-    ".hermes_history",
+    "input_history",
     # Caches (regenerated on use)
-    "image_cache", "audio_cache", "document_cache",
-    "browser_screenshots", "checkpoints",
+    "cache", "checkpoints",
     "sandboxes",
     "logs",                 # gateway logs
 })
 
-# Allow-list for ``export_profile("default")``: when HERMES_HOME equals the
+# Allow-list for ``export_profile("default")``: when FABRIC_HOME equals the
 # cwd (Docker/custom deployments), the default profile home is the working
 # directory and contains arbitrary user files that should NOT be bundled
 # into the export. The set below identifies the *known Fabric profile
-# artifacts* at the root of HERMES_HOME; everything else is excluded.
+# artifacts* at the root of FABRIC_HOME; everything else is excluded.
 # Sensitive runtime infrastructure (``state.db``, ``logs/``, ``auth.*``,
 # other profiles) is intentionally *not* in this list so the export stays
 # a portable, credential-free snapshot of the user-facing surface
@@ -256,12 +253,12 @@ _DEFAULT_EXPORT_INCLUDE_ROOT = frozenset({
 
 # Names that cannot be used as profile aliases
 _RESERVED_NAMES = frozenset({
-    "hermes", "default", "test", "tmp", "root", "sudo",
+    "fabric", "default", "test", "tmp", "root", "sudo",
 })
 
-# Hermes subcommands that cannot be used as profile names/aliases
-_HERMES_SUBCOMMANDS = frozenset({
-    "chat", "model", "gateway", "setup", "whatsapp", "login", "logout",
+# Fabric subcommands that cannot be used as profile names/aliases
+_FABRIC_SUBCOMMANDS = frozenset({
+    "chat", "model", "gateway", "setup", "whatsapp", "logout",
     "status", "cron", "doctor", "dump", "config", "pairing", "skills", "tools",
     "mcp", "sessions", "insights", "version", "update", "uninstall",
     "profile", "plugins", "honcho", "acp",
@@ -275,23 +272,23 @@ _HERMES_SUBCOMMANDS = frozenset({
 def _get_profiles_root() -> Path:
     """Return the directory where named profiles are stored.
 
-    Anchored to the hermes root, NOT to the current HERMES_HOME
+    Anchored to the fabric root, NOT to the current FABRIC_HOME
     (which may itself be a profile).  This ensures ``coder profile list``
     can see all profiles.
 
-    In Docker/custom deployments where HERMES_HOME points outside
-    ``~/.fabric``, profiles live under ``HERMES_HOME/profiles/`` so
+    In Docker/custom deployments where FABRIC_HOME points outside
+    ``~/.fabric``, profiles live under ``FABRIC_HOME/profiles/`` so
     they persist on the mounted volume.
     """
     return _get_default_fabric_home() / "profiles"
 
 
 def _get_default_fabric_home() -> Path:
-    """Return the default (pre-profile) HERMES_HOME path.
+    """Return the default (pre-profile) FABRIC_HOME path.
 
     In standard deployments this is ``~/.fabric``.
-    In Docker/custom deployments where HERMES_HOME is outside ``~/.fabric``
-    (e.g. ``/opt/data``), returns HERMES_HOME directly.
+    In Docker/custom deployments where FABRIC_HOME is outside ``~/.fabric``
+    (e.g. ``/opt/data``), returns FABRIC_HOME directly.
     """
     from fabric_constants import get_default_fabric_root
     return get_default_fabric_root()
@@ -376,7 +373,7 @@ def validate_alias_name(name: str) -> None:
 
 
 def get_profile_dir(name: str) -> Path:
-    """Resolve a profile name to its HERMES_HOME directory."""
+    """Resolve a profile name to its FABRIC_HOME directory."""
     canon = normalize_profile_name(name)
     if canon == "default":
         return _get_default_fabric_home()
@@ -396,7 +393,7 @@ def profile_exists(name: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def _wrapper_profile_from_content(content: str, *, is_windows: bool) -> Optional[str]:
-    """Return the profile targeted by a Fabric or legacy Hermes wrapper."""
+    """Return the profile targeted by a Fabric wrapper."""
     for raw_line in content.splitlines():
         try:
             tokens = shlex.split(raw_line, posix=not is_windows)
@@ -412,7 +409,7 @@ def _wrapper_profile_from_content(content: str, *, is_windows: bool) -> Optional
             if is_windows
             else PurePosixPath(executable).name
         ).lower()
-        if executable_name not in {"fabric", "fabric.exe", "hermes", "hermes.exe"}:
+        if executable_name not in {"fabric", "fabric.exe"}:
             continue
         try:
             profile_index = tokens.index("-p") + 1
@@ -428,7 +425,7 @@ def _wrapper_profile_from_content(content: str, *, is_windows: bool) -> Optional
 def check_alias_collision(name: str) -> Optional[str]:
     """Return a human-readable collision message, or None if the name is safe.
 
-    Checks: alias-name validity, reserved names, hermes subcommands, existing
+    Checks: alias-name validity, reserved names, Fabric subcommands, existing
     binaries in PATH.
     """
     canon = normalize_profile_name(name)
@@ -438,7 +435,7 @@ def check_alias_collision(name: str) -> Optional[str]:
         return str(exc)
     if canon in _RESERVED_NAMES:
         return f"'{canon}' is a reserved name"
-    if canon in _HERMES_SUBCOMMANDS:
+    if canon in _FABRIC_SUBCOMMANDS:
         return f"'{canon}' conflicts with a Fabric subcommand"
 
     # Check existing commands in PATH
@@ -554,7 +551,7 @@ def _migrate_profile_config_if_outdated(profile_dir: Path) -> None:
     """Bring a copied profile config.yaml up to the current schema.
 
     Profile creation can clone a config file that predates schema tracking (no
-    ``_config_version``) or that is simply older than the running Hermes. If we
+    ``_config_version``) or that is older than the running release. If we
     leave it untouched, the first desktop/doctor view of the new profile shows a
     scary ``v0 → latest`` warning even though we just created the profile. Scope
     the normal migration pipeline to the new profile and keep it non-interactive.
@@ -744,7 +741,7 @@ def _check_gateway_running(profile_dir: Path) -> bool:
     no live PID file.  In those cases fall back to validating the PID recorded
     in the profile's own ``gateway_state.json`` against the live process table,
     mirroring the ``/api/status`` sidebar's liveness logic so the two surfaces
-    agree.  Parameterized by ``profile_dir`` so it never mutates ``HERMES_HOME``.
+    agree.  Parameterized by ``profile_dir`` so it never mutates ``FABRIC_HOME``.
     """
     try:
         from gateway.status import get_running_pid
@@ -984,7 +981,7 @@ def list_profiles() -> List[ProfileInfo]:
 
 
 def profiles_to_serve(multiplex: bool) -> List[Tuple[str, Path]]:
-    """Return the ``(profile_name, hermes_home)`` pairs a gateway should serve.
+    """Return the ``(profile_name, fabric_home)`` pairs a gateway should serve.
 
     This is the single chokepoint for "which profiles does the inbound gateway
     handle" so later multiplexing phases never re-derive the set.
@@ -994,13 +991,13 @@ def profiles_to_serve(multiplex: bool) -> List[Tuple[str, Path]]:
       always had. The name is ``"default"`` for the default profile or the
       active named profile's id.
     - ``multiplex=True``: returns the default profile plus every valid named
-      profile under ``profiles/``, each paired with its own HERMES_HOME.
+      profile under ``profiles/``, each paired with its own FABRIC_HOME.
 
     Intentionally lightweight (a directory scan + name validation only): no
     per-profile config reads, gateway-running probes, or skill counts like
     :func:`list_profiles`. It runs on gateway startup and must stay cheap.
 
-    The returned ``hermes_home`` is the path to pass to
+    The returned ``fabric_home`` is the path to pass to
     ``set_fabric_home_override`` when scoping a turn to that profile.
     """
     active = get_active_profile_name() or "default"
@@ -1192,7 +1189,7 @@ def create_profile(
         except OSError:
             pass  # best-effort — the feature still works via the empty skills/ dir
 
-    # Cloned configs can be older than the running Hermes (or predate schema
+    # Cloned configs can be older than the running release (or predate schema
     # tracking entirely). Migrate config-only clones immediately so
     # desktop/status surfaces don't warn that a just-created profile is
     # v0/outdated. Leave --clone-all snapshots byte-for-byte apart from the
@@ -1227,7 +1224,7 @@ def create_profile(
 def seed_profile_skills(profile_dir: Path, quiet: bool = False) -> Optional[dict]:
     """Seed bundled skills into a profile via subprocess.
 
-    Uses subprocess because sync_skills() caches HERMES_HOME at module level.
+    Uses subprocess because sync_skills() caches FABRIC_HOME at module level.
     Returns the sync result dict, or None on failure.
 
     Profiles that opted out of bundled skills (via ``fabric profile create
@@ -1248,7 +1245,7 @@ def seed_profile_skills(profile_dir: Path, quiet: bool = False) -> Optional[dict
             [sys.executable, "-c",
              "import json; from tools.skills_sync import sync_skills; "
              "r = sync_skills(quiet=True); print(json.dumps(r))"],
-            env={**os.environ, "HERMES_HOME": str(profile_dir)},
+            env={**os.environ, "FABRIC_HOME": str(profile_dir)},
             cwd=str(project_root),
             capture_output=True, text=True, timeout=60,
         )
@@ -1322,7 +1319,7 @@ def backfill_profile_envs(quiet: bool = False) -> List[str]:
 
 
 def _profile_bound_backend_pids(canon: str, profile_dir: Path) -> list[int]:
-    """PIDs of running Hermes *backends* bound to this profile.
+    """PIDs of running Fabric *backends* bound to this profile.
 
     The ``gateway.pid`` file only tracks the messaging gateway.  A Desktop app
     spawns a headless ``serve`` (or legacy ``dashboard --no-open``) backend per
@@ -1331,7 +1328,7 @@ def _profile_bound_backend_pids(canon: str, profile_dir: Path) -> list[int]:
     ``ENOTEMPTY`` (and, pre-fix, resurrected the tree).  ``gateway.pid`` never
     names it, so find it by inspection: a Fabric backend subcommand
     (``serve``/``dashboard``/``gateway``) that is bound to *this* profile either
-    by a ``--profile <canon>`` / ``-p <canon>`` selector or by a ``HERMES_HOME``
+    by a ``--profile <canon>`` / ``-p <canon>`` selector or by a ``FABRIC_HOME``
     that resolves to ``profile_dir``.
 
     Best-effort and tightly scoped: current-user processes only, backend
@@ -1366,7 +1363,7 @@ def _profile_bound_backend_pids(canon: str, profile_dir: Path) -> list[int]:
         current_user = None
 
     backend_tokens = {"serve", "dashboard", "gateway"}
-    hermes_markers = ("fabric_cli.main", "hermes-gateway", "tui_gateway")
+    fabric_markers = ("fabric_cli.main", "fabric-gateway", "tui_gateway")
     pids: list[int] = []
 
     for proc in psutil.process_iter(["pid", "name", "username", "cmdline"]):
@@ -1386,12 +1383,12 @@ def _profile_bound_backend_pids(canon: str, profile_dir: Path) -> list[int]:
             # a resolved executable named `fabric`.
             joined = " ".join(argv)
             exe_name = os.path.basename(argv[0]).lower()
-            is_hermes = (
-                any(marker in joined for marker in hermes_markers)
-                or exe_name == "hermes"
-                or exe_name.startswith("hermes")
+            is_fabric = (
+                any(marker in joined for marker in fabric_markers)
+                or exe_name == "fabric"
+                or exe_name.startswith("fabric")
             )
-            if not is_hermes:
+            if not is_fabric:
                 continue
 
             # Restrict to backend subcommands so we never kill an interactive
@@ -1412,10 +1409,10 @@ def _profile_bound_backend_pids(canon: str, profile_dir: Path) -> list[int]:
                         bound = True
                         break
 
-            # ...or by HERMES_HOME env pointing at this profile dir.
+            # ...or by FABRIC_HOME env pointing at this profile dir.
             if not bound:
                 try:
-                    env_home = (proc.environ() or {}).get("HERMES_HOME", "")
+                    env_home = (proc.environ() or {}).get("FABRIC_HOME", "")
                     if env_home and Path(env_home).resolve() == resolved_dir:
                         bound = True
                 except Exception:
@@ -1669,7 +1666,7 @@ def _maybe_register_gateway_service(profile_name: str) -> None:
     which goes through the same dispatch path.
 
     Port selection: each supervised profile gateway loads its own
-    ``HERMES_HOME`` and binds the port resolved by ``gateway/config.py``
+    ``FABRIC_HOME`` and binds the port resolved by ``gateway/config.py``
     from that profile's environment — ``API_SERVER_PORT`` (or
     ``platforms.api_server.extra.port`` in the profile's
     ``config.yaml``), defaulting to 8642. There is no ``[gateway] port``
@@ -1747,10 +1744,10 @@ def _cleanup_gateway_service(name: str, profile_dir: Path) -> None:
     import platform as _platform
 
     # Derive service name for this profile
-    # Temporarily set HERMES_HOME so _profile_suffix resolves correctly
-    old_home = os.environ.get("HERMES_HOME")
+    # Temporarily set FABRIC_HOME so _profile_suffix resolves correctly
+    old_home = os.environ.get("FABRIC_HOME")
     try:
-        os.environ["HERMES_HOME"] = str(profile_dir)
+        os.environ["FABRIC_HOME"] = str(profile_dir)
         from fabric_cli.gateway import get_service_name, get_launchd_plist_path
 
         if _platform.system() == "Linux":
@@ -1785,9 +1782,9 @@ def _cleanup_gateway_service(name: str, profile_dir: Path) -> None:
         print(f"⚠ Service cleanup: {e}")
     finally:
         if old_home is not None:
-            os.environ["HERMES_HOME"] = old_home
-        elif "HERMES_HOME" in os.environ:
-            del os.environ["HERMES_HOME"]
+            os.environ["FABRIC_HOME"] = old_home
+        elif "FABRIC_HOME" in os.environ:
+            del os.environ["FABRIC_HOME"]
 
 
 def _stop_gateway_process(profile_dir: Path) -> None:
@@ -1874,15 +1871,15 @@ def set_active_profile(name: str) -> None:
 
 
 def get_active_profile_name() -> str:
-    """Infer the current profile name from HERMES_HOME.
+    """Infer the current profile name from FABRIC_HOME.
 
-    Returns ``"default"`` if HERMES_HOME is not set or points to ``~/.fabric``.
-    Returns the profile name if HERMES_HOME points into ``~/.fabric/profiles/<name>``.
-    Returns ``"custom"`` if HERMES_HOME is set to an unrecognized path.
+    Returns ``"default"`` if FABRIC_HOME is not set or points to ``~/.fabric``.
+    Returns the profile name if FABRIC_HOME points into ``~/.fabric/profiles/<name>``.
+    Returns ``"custom"`` if FABRIC_HOME is set to an unrecognized path.
     """
     from fabric_constants import get_fabric_home
-    hermes_home = get_fabric_home()
-    resolved = hermes_home.resolve()
+    fabric_home = get_fabric_home()
+    resolved = fabric_home.resolve()
 
     default_resolved = _get_default_fabric_home().resolve()
     if resolved == default_resolved:
@@ -1912,9 +1909,9 @@ def _default_export_ignore(root_dir: Path):
     * **Root-level allow-list** — only entries whose name appears in
       ``_DEFAULT_EXPORT_INCLUDE_ROOT`` survive. Everything else (such as
       an unrelated ``x11-dev/`` directory in a Docker deployment where
-      HERMES_HOME equals the cwd) is excluded. Blacklisting was tried
-      first and proved unable to anticipate every non-Hermes file the
-      user may have lying alongside HERMES_HOME (#58394).
+      FABRIC_HOME equals the cwd) is excluded. Blacklisting was tried
+      first and proved unable to anticipate every non-Fabric file the
+      user may have lying alongside FABRIC_HOME (#58394).
     * **Universal exclusions at any depth** — ``__pycache__``, sockets,
       temp files; plus npm lockfiles, which may appear at the root.
 
@@ -1987,7 +1984,7 @@ def export_profile(name: str, output_path: str) -> Path:
 
     if canon == "default":
         # The default profile IS ~/.fabric itself — its parent is ~/ and its
-        # directory name is ".hermes", not "default".  We stage a clean copy
+        # directory name is ".fabric", not "default".  We stage a clean copy
         # under a temp dir so the archive contains ``default/...``.
         with tempfile.TemporaryDirectory() as tmpdir:
             staged = Path(tmpdir) / "default"
@@ -2133,7 +2130,7 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
     profiles_root = _get_profiles_root()
     profiles_root.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="hermes_profile_import_") as tmpdir:
+    with tempfile.TemporaryDirectory(prefix="profile_import_") as tmpdir:
         staging_root = Path(tmpdir)
         _safe_extract_profile_archive(archive, staging_root)
 
@@ -2159,9 +2156,8 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
 
 def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) -> None:
     """Rename Honcho host blocks for a renamed profile without changing peers."""
-    old_host = f"hermes_{old_name}"
-    legacy_old_host = f"hermes.{old_name}"
-    new_host = f"hermes_{new_name}"
+    old_host = f"fabric_{old_name}"
+    new_host = f"fabric_{new_name}"
 
     candidates = [
         new_dir / "honcho.json",
@@ -2187,7 +2183,7 @@ def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) ->
         hosts = raw.get("hosts")
         if not isinstance(hosts, dict):
             continue
-        source_host = old_host if old_host in hosts else legacy_old_host
+        source_host = old_host
         if source_host not in hosts:
             continue
 
@@ -2197,11 +2193,7 @@ def _migrate_honcho_profile_host(old_name: str, new_name: str, new_dir: Path) ->
 
         block = hosts[source_host]
         if isinstance(block, dict) and "aiPeer" not in block:
-            if source_host.startswith("hermes_"):
-                bare = source_host.split("_", 1)[1]
-            else:
-                bare = source_host.split(".", 1)[1] if "." in source_host else source_host
-            block["aiPeer"] = bare
+            block["aiPeer"] = old_name
         hosts[new_host] = hosts.pop(source_host)
         tmp = path.with_suffix(path.suffix + ".tmp")
         try:
@@ -2408,10 +2400,10 @@ def rename_profile(old_name: str, new_name: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def resolve_profile_env(profile_name: str) -> str:
-    """Resolve a profile name to a HERMES_HOME path string.
+    """Resolve a profile name to a FABRIC_HOME path string.
 
-    Called early in the CLI entry point, before any hermes modules
-    are imported, to set the HERMES_HOME environment variable.
+    Called early in the CLI entry point, before any fabric modules
+    are imported, to set the FABRIC_HOME environment variable.
     """
     canon = normalize_profile_name(profile_name)
     validate_profile_name(canon)

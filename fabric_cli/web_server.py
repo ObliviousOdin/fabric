@@ -63,6 +63,7 @@ from fabric_cli.config import (
     get_env_path,
     get_fabric_home,
     load_config,
+    load_config_readonly,
     load_env,
     read_raw_config,
     save_config,
@@ -85,7 +86,6 @@ from gateway.status import (
     parse_active_agents,
     read_runtime_status,
 )
-from utils import env_var_enabled
 
 try:
     from fastapi import (
@@ -139,14 +139,9 @@ except ImportError:
             f"Install with: {sys.executable} -m pip install 'fastapi' 'uvicorn[standard]'"
         )
 
-_WEB_DIST_OVERRIDE = os.environ.get("FABRIC_WEB_DIST") or os.environ.get("HERMES_WEB_DIST")
+_WEB_DIST_OVERRIDE = os.environ.get("FABRIC_WEB_DIST")
 WEB_DIST = Path(_WEB_DIST_OVERRIDE) if _WEB_DIST_OVERRIDE else Path(__file__).parent / "web_dist"
-_MOBILE_WEB_DIST_OVERRIDE = os.environ.get("FABRIC_MOBILE_WEB_DIST")
-MOBILE_WEB_DIST = (
-    Path(_MOBILE_WEB_DIST_OVERRIDE)
-    if _MOBILE_WEB_DIST_OVERRIDE
-    else Path(__file__).parent / "mobile_web_dist"
-)
+MOBILE_WEB_DIST = WEB_DIST.parent / "mobile_web_dist"
 _log = logging.getLogger(__name__)
 
 _EVENT_REPLAY_MAX_CHANNELS = 16
@@ -184,7 +179,7 @@ def _start_desktop_cron_ticker(stop_event: "threading.Event", interval: int = 60
 
     Cross-process safe: the built-in provider's ``cron.scheduler.tick`` takes
     the ``cron/.tick.lock`` file lock, so this never double-fires alongside a
-    real gateway on the same HERMES_HOME — whichever process grabs the lock
+    real gateway on the same FABRIC_HOME — whichever process grabs the lock
     first wins the tick.
     """
     from cron.scheduler_provider import resolve_cron_scheduler
@@ -223,19 +218,19 @@ async def _lifespan(app: "FastAPI"):
     app.state.chat_argv_lock = asyncio.Lock()
 
     # Fire fabric_cli.gateway import into a background thread so the event
-    # loop is not blocked and HERMES_DASHBOARD_READY fires without delay.
+    # loop is not blocked and the backend readiness record emits without delay.
     # On a cold Windows install the module chain triggers .pyc compilation
     # and Defender real-time scans that can stall the event loop for 15-30s.
     # Running in an executor means the cost is paid in a worker thread while
     # the server socket is already open and accepting probes.
     asyncio.get_event_loop().run_in_executor(None, _warm_gateway_module)
 
-    # Desktop-spawned backends (HERMES_DESKTOP=1) fire cron jobs themselves,
-    # since the app has no gateway running the scheduler. Server `hermes
+    # Desktop-spawned backends (FABRIC_DESKTOP=1) fire cron jobs themselves,
+    # since the app has no gateway running the scheduler. Server `fabric
     # dashboard` is unaffected — it relies on its own gateway.
     cron_stop: "threading.Event | None" = None
     cron_thread: "threading.Thread | None" = None
-    if os.getenv("HERMES_DESKTOP") == "1":
+    if os.getenv("FABRIC_DESKTOP") == "1":
         cron_stop = threading.Event()
         cron_thread = threading.Thread(
             target=_start_desktop_cron_ticker,
@@ -374,25 +369,26 @@ app.include_router(_memory_oauth_router)
 app.include_router(design_system_router())
 
 # ---------------------------------------------------------------------------
-# Session token for protecting sensitive endpoints (reveal).
-# The desktop shell mints the token and injects it via
-# HERMES_DASHBOARD_SESSION_TOKEN so its main process can authenticate the
-# /api calls it makes on the user's behalf; otherwise we generate one fresh
-# on every server start. Either way it dies when the process exits and is
-# injected into the SPA HTML so only the legitimate web UI can use it.
+# Per-process auth token for protecting sensitive endpoints (reveal).
+# Trusted local shells can pin the token through ``serve --auth-token`` so
+# their main process can authenticate API calls made on the user's behalf;
+# otherwise we generate one fresh on every server start. Either way it dies
+# with the process and is injected into SPA HTML for the legitimate web UI.
 # ---------------------------------------------------------------------------
-_SESSION_TOKEN = os.environ.get("HERMES_DASHBOARD_SESSION_TOKEN") or secrets.token_urlsafe(32)
+_SESSION_TOKEN = secrets.token_urlsafe(32)
 _SESSION_HEADER_NAME = "X-Fabric-Session-Token"
-_SESSION_HEADER_NAME_LEGACY = "X-Hermes-Session-Token"
+
+
+def _configure_dashboard_auth_token(token: str = "") -> str:
+    """Pin an explicit local-launch token or retain the generated default."""
+    global _SESSION_TOKEN
+    if token:
+        _SESSION_TOKEN = str(token)
+    return _SESSION_TOKEN
 
 # In-browser Chat tab (/chat, /api/pty, /api/ws, …).  Always enabled: the
 # desktop app and the dashboard's own Chat tab both drive the agent over the
 # `/api/ws` + `/api/pty` WebSockets, so the embedded-chat surface is an
-# unconditional part of the dashboard.  Kept as a module-level constant (rather
-# than inlining ``True`` at every gate) so the WS endpoints and the SPA token
-# injection share a single, testable seam.
-_DASHBOARD_EMBEDDED_CHAT_ENABLED = True
-
 # Simple rate limiter for the reveal endpoint
 _reveal_timestamps: List[float] = []
 _REVEAL_MAX_PER_WINDOW = 5
@@ -416,7 +412,7 @@ app.add_middleware(
 # This list is defined in ``fabric_cli.dashboard_auth.public_paths`` so the
 # OAuth gate middleware can honour the same allowlist — keeping the two
 # gates in lockstep avoids drift like the wildcard-subdomain regression
-# where ``/api/status`` was public under the legacy gate but 401'd under
+# where ``/api/status`` was public under the token gate but 401'd under
 # the OAuth gate (breaking the portal's liveness probe).
 #
 # Keep the upstream list minimal — only truly non-sensitive, read-only
@@ -432,19 +428,16 @@ def _has_valid_session_token(request: Request) -> bool:
 
     The dedicated session header avoids collisions with reverse proxies that
     already use ``Authorization`` (for example Caddy ``basic_auth``). We still
-    accept the legacy Bearer path for backward compatibility with older
-    dashboard bundles.
+    require the Fabric session-token header for this local-only contract.
     """
-    session_header = request.headers.get(_SESSION_HEADER_NAME) or request.headers.get(_SESSION_HEADER_NAME_LEGACY) or ""
+    session_header = request.headers.get(_SESSION_HEADER_NAME, "")
     if session_header and hmac.compare_digest(
         session_header.encode(),
         _SESSION_TOKEN.encode(),
     ):
         return True
 
-    auth = request.headers.get("authorization", "")
-    expected = f"Bearer {_SESSION_TOKEN}"
-    return hmac.compare_digest(auth.encode(), expected.encode())
+    return False
 
 
 # Routes that may also authenticate via a ``?token=`` query param, for download
@@ -467,14 +460,14 @@ def _require_token(request: Request) -> None:
 
     * **Loopback / ``--insecure`` mode** (``auth_required`` False): the
       ephemeral ``_SESSION_TOKEN`` is injected into the SPA HTML and echoed
-      back via ``X-Hermes-Session-Token`` (or the legacy ``Bearer`` header).
+      back via ``X-Fabric-Session-Token``. Validate it here.
       Validate it here.
     * **Gated / OAuth mode** (``auth_required`` True): ``_SESSION_TOKEN`` is
       NOT injected (the SPA authenticates with a session cookie), so there is
       no token to check. The ``gated_auth_middleware`` has already verified the
       cookie before the request reached this handler — any non-public ``/api/``
       route it lets through carries a verified ``request.state.session``. The
-      legacy ``auth_middleware`` likewise short-circuits in this mode. Requiring
+      the token middleware likewise short-circuits in this mode. Requiring
       the (absent) token here would 401 every cookie-authenticated request,
       making plugin install/enable/disable and the other ``_require_token``
       endpoints permanently unreachable behind the gate. Defer to the gate.
@@ -516,8 +509,8 @@ def should_require_auth(host: str, allow_public: bool = False) -> bool:
     the gate. It is accepted for backward-compat with old launch scripts and
     desktop shells but is ignored: a non-loopback bind ALWAYS requires an auth
     provider (OAuth or the bundled password provider). This closes the
-    unauthenticated-public-dashboard hole behind the June 2026 ``hermes-0day``
-    MCP-persistence campaign, where ``--insecure --host 0.0.0.0`` left the
+    unauthenticated-public-dashboard hole exploited by the June 2026 MCP
+    persistence campaign, where ``--insecure --host 0.0.0.0`` left the
     config/MCP/agent surface open to internet scanners.
     """
     return host not in _LOOPBACK_HOST_VALUES
@@ -770,7 +763,7 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
     "display.skin": {
         "type": "select",
         "description": "CLI visual theme",
-        "options": ["default", "ares", "mono", "slate"],
+        "options": ["default", "mono", "slate", "daylight", "charizard"],
     },
     "dashboard.theme": {
         "type": "select",
@@ -779,7 +772,6 @@ _SCHEMA_OVERRIDES: Dict[str, Dict[str, Any]] = {
             "fabric-light",
             "fabric-dark",
             "midnight",
-            "ember",
             "mono",
             "cyberpunk",
             "rose",
@@ -876,6 +868,7 @@ _CATEGORY_MERGE: Dict[str, str] = {
     "code_execution": "agent",
     "prompt_caching": "agent",
     "goals": "agent",
+    "plugins": "agent",
     "updates": "general",
     # `onboarding.profile_build` is the only schema-surfaced onboarding field
     # (`onboarding.seen` is an internal latch dict, not a user setting), so fold
@@ -1162,7 +1155,7 @@ def _normalize_main_model_assignment(provider: str, model: str) -> tuple[str, st
 
     The Models page has two assignment paths and only one of them was safe:
 
-    - The "Change" picker sends a real Hermes provider slug — fine.
+    - The "Change" picker sends a real Fabric provider slug — fine.
     - The per-card "Use as → Main model" menu sends ``entry.provider``
       from the analytics rows, falling back to the model's VENDOR prefix
       (``modelVendor("anthropic/claude-opus-4.6") == "anthropic"``) when
@@ -1175,8 +1168,8 @@ def _normalize_main_model_assignment(provider: str, model: str) -> tuple[str, st
 
     Two repairs, both at this single chokepoint so every caller inherits:
 
-    1. Vendor-name → Hermes-provider mapping: when the provider string is
-       not a known Hermes provider/alias (e.g. ``moonshotai``, ``x-ai`` is
+    1. Vendor-name → Fabric-provider mapping: when the provider string is
+       not a known Fabric provider/alias (e.g. ``moonshotai``, ``x-ai`` is
        known but ``poolside`` isn't) but the model is a vendor-prefixed
        aggregator slug, keep the user's CURRENT aggregator if they're on
        one, else fall back to openrouter.
@@ -1400,7 +1393,6 @@ _MEDIA_CONTENT_TYPES = {
     ".ico": "image/x-icon",
 }
 _MEDIA_MAX_BYTES = 25 * 1024 * 1024
-_MANAGED_FILES_ROOT_ENV = "HERMES_DASHBOARD_FILES_ROOT"
 _MANAGED_FILE_MAX_BYTES = 100 * 1024 * 1024
 _HOSTED_MANAGED_FILES_ROOT = Path("/opt/data")
 
@@ -1436,7 +1428,7 @@ _FS_READDIR_HIDDEN = {
 # (agent.file_safety.get_read_block_error and
 # gateway.platforms.base._ROOT_CREDENTIAL_FILES) so the dashboard Files tab
 # doesn't lag behind them — an operator can point the managed root at
-# HERMES_HOME itself, at which point every one of these basenames is a live
+# FABRIC_HOME itself, at which point every one of these basenames is a live
 # secret store sitting in the browsable tree.
 _SENSITIVE_MANAGED_FILE_BASENAMES = frozenset({
     "auth.json",
@@ -1464,7 +1456,7 @@ _SENSITIVE_MANAGED_FILE_BASENAMES = frozenset({
 # basename-only guard would still expose e.g. ``mcp-tokens/<server>.json``
 # (live MCP OAuth tokens) and ``pairing/<x>``. We match on ANY path component
 # so these trees are blocked wherever they appear under the browsable root,
-# without needing to resolve them relative to HERMES_HOME.
+# without needing to resolve them relative to FABRIC_HOME.
 _SENSITIVE_MANAGED_DIR_NAMES = frozenset({
     "mcp-tokens",
     "pairing",
@@ -1480,7 +1472,7 @@ def _is_sensitive_filename(name: str) -> bool:
     """Return True for a basename the managed-files API must never expose.
 
     Covers ``.env`` / ``.env.<suffix>`` / ``.envrc`` variants plus the
-    canonical Hermes credential-store basenames (see
+    canonical Fabric credential-store basenames (see
     ``_SENSITIVE_MANAGED_FILE_BASENAMES`` above).
 
     Case-insensitive so ``.ENV`` / ``.Env.local`` / ``Auth.JSON`` on
@@ -1506,7 +1498,7 @@ def _is_sensitive_path(path: Path) -> bool:
     credential-directory-tree check: a path is sensitive if its own basename
     is sensitive OR any of its path components is a credential directory
     (``mcp-tokens`` / ``pairing``). The component match is case-insensitive
-    and needs no HERMES_HOME resolution, so it blocks these trees wherever
+    and needs no FABRIC_HOME resolution, so it blocks these trees wherever
     they sit under the operator-configured managed root — closing the gap
     the canonical guards cover as directory trees but a basename-only check
     would miss.
@@ -1783,8 +1775,8 @@ def _local_dashboard_request(request: Request) -> bool:
     return host in local_hosts or client_host in local_hosts
 
 
-def _default_hermes_root_is_opt_data() -> bool:
-    raw = os.environ.get("HERMES_HOME", "").strip()
+def _default_fabric_root_is_opt_data() -> bool:
+    raw = os.environ.get("FABRIC_HOME", "").strip()
     if not raw:
         return False
     try:
@@ -1805,13 +1797,13 @@ def _dashboard_local_update_managed_externally() -> bool:
     still behave like their actual install method in the CLI.
 
     However, when the install method is ``git`` (a bind-mounted checkout inside
-    a container — e.g. the hermes-webui image sharing the Hermes source tree),
+    a container — e.g. the fabric-webui image sharing the Fabric source tree),
     the dashboard's ``fabric update`` button is the correct update path and
     should not be suppressed. Other containerized install methods remain
     externally managed unless their apply path is proven safe inside the
     running container filesystem.
     """
-    if _default_hermes_root_is_opt_data():
+    if _default_fabric_root_is_opt_data():
         return True
     try:
         from fabric_constants import is_container
@@ -1835,7 +1827,12 @@ def _dashboard_local_update_managed_externally() -> bool:
 
 
 def _managed_files_policy(request: Request, *, create_root: bool = True) -> ManagedFilesPolicy:
-    raw_forced_root = os.environ.get(_MANAGED_FILES_ROOT_ENV, "").strip()
+    dashboard_cfg = load_config_readonly().get("dashboard", {})
+    raw_forced_root = (
+        str(dashboard_cfg.get("files_root", "")).strip()
+        if isinstance(dashboard_cfg, dict)
+        else ""
+    )
     if raw_forced_root:
         root = _ensure_managed_root(raw_forced_root) if create_root else _canonical_path(Path(raw_forced_root))
         return ManagedFilesPolicy(default_path=root, locked_root=root, can_change_path=False)
@@ -1843,9 +1840,9 @@ def _managed_files_policy(request: Request, *, create_root: bool = True) -> Mana
     # Remote/OAuth access does not imply a hosted container. Users can expose a
     # local dashboard through the auth gate (for example a macOS launchd install)
     # and still expect the Files page to browse their local home directory. Lock
-    # to /opt/data only when the installation's Hermes root is actually /opt/data
-    # (the container/hosted layout) or when HERMES_DASHBOARD_FILES_ROOT is set.
-    if _default_hermes_root_is_opt_data():
+    # to /opt/data only when the installation's Fabric root is actually /opt/data
+    # (the container/hosted layout) or when dashboard.files_root is set.
+    if _default_fabric_root_is_opt_data():
         root = _ensure_managed_root(_HOSTED_MANAGED_FILES_ROOT) if create_root else _HOSTED_MANAGED_FILES_ROOT
         return ManagedFilesPolicy(default_path=root, locked_root=root, can_change_path=False)
 
@@ -2249,7 +2246,7 @@ class FsWriteText(BaseModel):
 async def fs_write_text(payload: FsWriteText):
     """Overwrite (or create) a UTF-8 text file for the in-app spot editor.
 
-    Mirrors the local Electron ``hermes:fs:writeText`` hardening: the path is
+    Mirrors the local Electron ``fabric:fs:writeText`` hardening: the path is
     resolved + validated by ``_fs_path``, the parent directory must already
     exist (we never build directory trees), only regular files may be replaced,
     and the payload is size-capped. The write is staged to a sibling temp file
@@ -2278,7 +2275,7 @@ async def fs_write_text(payload: FsWriteText):
     if not target.parent.is_dir():
         raise HTTPException(status_code=400, detail="Parent directory does not exist")
 
-    tmp = target.with_name(f".{target.name}.hermes-tmp-{os.getpid()}")
+    tmp = target.with_name(f".{target.name}.fabric-tmp-{os.getpid()}")
     try:
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, target)
@@ -2755,16 +2752,14 @@ async def get_status(profile: Optional[str] = None):
             pass
 
         # Nous bootstrap-session validity for the NAS health sweep. A hosted
-        # agent whose Nous auth dies terminally (invalid_grant / quarantine)
-        # looks HEALTHY to every liveness/connectivity probe — the machine,
-        # relay, and this dashboard all stay up — yet every inference turn
-        # fails. This is the ONLY signal that surfaces that condition, and it
-        # is determinable with no working token (local auth-store state).
-        # Best-effort: never let auth classification break the public liveness
-        # probe or the dashboard's pre-login bootstrap.
+        # agent whose Nous auth dies terminally can remain live while every
+        # inference turn fails, so the local auth-store classifier is part of
+        # the current Nous health contract. Keep this best-effort: auth state
+        # must never break the public liveness probe or pre-login bootstrap.
         nous_session_valid = "unknown"
         try:
             from fabric_cli.auth import get_nous_session_validity
+
             nous_session_valid = get_nous_session_validity()
         except Exception:
             nous_session_valid = "unknown"
@@ -2778,7 +2773,7 @@ async def get_status(profile: Optional[str] = None):
             "release_date": __release_date__,
             "config_version": current_ver,
             "latest_config_version": latest_ver,
-            "can_update_hermes": not _dashboard_local_update_managed_externally(),
+            "can_update_fabric": not _dashboard_local_update_managed_externally(),
             "gateway_running": gateway_running,
             "gateway_state": gateway_state,
             "gateway_platforms": gateway_platforms,
@@ -2814,7 +2809,7 @@ async def get_status(profile: Optional[str] = None):
         # process table, so keep it off the event loop.
         #
         # Split by sensitivity: profile NAMES (``profiles``) and the gateway
-        # ``gateway_mode`` are low-sensitivity PRODUCT surface — Hermes Cloud
+        # ``gateway_mode`` are low-sensitivity PRODUCT surface — Fabric Cloud
         # renders the profile list in the Portal, which reads this endpoint over
         # the network (a gated bind), so they must survive the auth gate. The
         # per-gateway ``gateways[]`` detail carries host ports (deployment
@@ -2838,7 +2833,7 @@ async def get_status(profile: Optional[str] = None):
         # split ``should_require_auth`` draws.
         if not auth_required:
             status.update({
-                "hermes_home": str(get_fabric_home()),
+                "fabric_home": str(get_fabric_home()),
                 "config_path": str(get_config_path()),
                 "env_path": str(get_env_path()),
                 "gateway_pid": gateway_pid,
@@ -2916,7 +2911,7 @@ async def get_system_stats():
         "hostname": _platform.node(),
         "python_version": _platform.python_version(),
         "python_impl": _platform.python_implementation(),
-        "hermes_version": __version__,
+        "fabric_version": __version__,
         "cpu_count": os.cpu_count(),
     }
 
@@ -2939,7 +2934,7 @@ async def get_system_stats():
 #
 # The curator periodically reviews skills (archive stale, prune, pin).  The
 # dashboard surfaces its state and the pause/resume/run-now controls that
-# `hermes curator` exposes.
+# `fabric curator` exposes.
 # ---------------------------------------------------------------------------
 
 
@@ -2980,7 +2975,7 @@ async def set_curator_paused(body: CuratorPause):
 async def run_curator():
     """Trigger a curator review now (backgrounded; tail via action status)."""
     try:
-        proc = _spawn_hermes_action(["curator", "run"], "curator-run")
+        proc = _spawn_fabric_action(["curator", "run"], "curator-run")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to run curator: {exc}")
     return {"ok": True, "pid": proc.pid, "name": "curator-run"}
@@ -3116,7 +3111,7 @@ async def get_portal_status():
 @app.post("/api/ops/prompt-size")
 async def run_prompt_size():
     try:
-        proc = _spawn_hermes_action(["prompt-size"], "prompt-size")
+        proc = _spawn_fabric_action(["prompt-size"], "prompt-size")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed: {exc}")
     return {"ok": True, "pid": proc.pid, "name": "prompt-size"}
@@ -3125,7 +3120,7 @@ async def run_prompt_size():
 @app.post("/api/ops/dump")
 async def run_dump():
     try:
-        proc = _spawn_hermes_action(["dump"], "dump")
+        proc = _spawn_fabric_action(["dump"], "dump")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed: {exc}")
     return {"ok": True, "pid": proc.pid, "name": "dump"}
@@ -3134,7 +3129,7 @@ async def run_dump():
 @app.post("/api/ops/config-migrate")
 async def run_config_migrate():
     try:
-        proc = _spawn_hermes_action(["config", "migrate"], "config-migrate")
+        proc = _spawn_fabric_action(["config", "migrate"], "config-migrate")
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed: {exc}")
     return {"ok": True, "pid": proc.pid, "name": "config-migrate"}
@@ -3205,7 +3200,7 @@ _ACTION_LOG_FILES: Dict[str, str] = {
     "gateway-restart": "gateway-restart.log",
     "gateway-start": "gateway-start.log",
     "gateway-stop": "gateway-stop.log",
-    "hermes-update": "hermes-update.log",
+    "fabric-update": "fabric-update.log",
     "doctor": "action-doctor.log",
     "security-audit": "action-security-audit.log",
     "backup": "action-backup.log",
@@ -3260,8 +3255,8 @@ def _dashboard_spawn_executable() -> str:
     return exe
 
 
-def _spawn_hermes_action(subcommand: List[str], name: str) -> subprocess.Popen:
-    """Spawn ``hermes <subcommand>`` detached and record the Popen handle.
+def _spawn_fabric_action(subcommand: List[str], name: str) -> subprocess.Popen:
+    """Spawn ``fabric <subcommand>`` detached and record the Popen handle.
 
     Uses the running interpreter's ``fabric_cli.main`` module so the action
     inherits the same venv/PYTHONPATH the web server is using.
@@ -3281,7 +3276,7 @@ def _spawn_hermes_action(subcommand: List[str], name: str) -> subprocess.Popen:
         "stdin": subprocess.DEVNULL,
         "stdout": log_file,
         "stderr": subprocess.STDOUT,
-        "env": {**os.environ, "HERMES_NONINTERACTIVE": "1"},
+        "env": os.environ.copy(),
     }
     if sys.platform == "win32":
         popen_kwargs["creationflags"] = windows_detach_flags()
@@ -3409,7 +3404,7 @@ def _spawn_gateway_restart(profile: Optional[str] = None) -> Tuple[subprocess.Po
         if existing_command is None or existing_command == tuple(subcommand):
             return existing, True
         raise RuntimeError("gateway restart already in progress for another profile")
-    return _spawn_hermes_action(subcommand, "gateway-restart"), False
+    return _spawn_fabric_action(subcommand, "gateway-restart"), False
 
 
 def _restart_gateway_after_webhook_enable(profile: Optional[str] = None) -> dict[str, Any]:
@@ -3517,8 +3512,8 @@ async def gateway_drain(request: Request):
     }
 
 
-@app.post("/api/hermes/update")
-async def update_hermes():
+@app.post("/api/fabric/update")
+async def update_fabric():
     """Kick off ``fabric update`` in the background."""
     if _dashboard_local_update_managed_externally():
         message = (
@@ -3526,11 +3521,11 @@ async def update_hermes():
             "containerized environments. The built-in local updater is "
             "disabled here."
         )
-        _record_completed_action("hermes-update", message, exit_code=1)
+        _record_completed_action("fabric-update", message, exit_code=1)
         return {
             "ok": False,
             "pid": None,
-            "name": "hermes-update",
+            "name": "fabric-update",
             "error": "dashboard_update_managed_externally",
             "message": message,
             "update_command": "managed outside dashboard",
@@ -3539,25 +3534,25 @@ async def update_hermes():
     install_method = detect_install_method(PROJECT_ROOT)
     if install_method == "docker":
         message = format_docker_update_message()
-        _record_completed_action("hermes-update", message, exit_code=1)
+        _record_completed_action("fabric-update", message, exit_code=1)
         return {
             "ok": False,
             "pid": None,
-            "name": "hermes-update",
+            "name": "fabric-update",
             "error": "docker_update_unsupported",
             "message": message,
             "update_command": recommended_update_command_for_method(install_method),
         }
 
     try:
-        proc = _spawn_hermes_action(["update"], "hermes-update")
+        proc = _spawn_fabric_action(["update"], "fabric-update")
     except Exception as exc:
         _log.exception("Failed to spawn fabric update")
         raise HTTPException(status_code=500, detail=f"Failed to start update: {exc}")
     return {
         "ok": True,
         "pid": proc.pid,
-        "name": "hermes-update",
+        "name": "fabric-update",
     }
 
 
@@ -3609,17 +3604,17 @@ def _recent_upstream_commits(n: int = 20) -> List[Dict[str, Any]]:
         return []
 
 
-@app.get("/api/hermes/update/check")
-async def check_hermes_update(force: bool = False):
-    """Report whether a Hermes update is available, without applying it.
+@app.get("/api/fabric/update/check")
+async def check_fabric_update(force: bool = False):
+    """Report whether a Fabric update is available, without applying it.
 
     Powers the dashboard's "check before you update" flow: the System page
     shows the commit-behind count and asks the user to confirm before
-    ``POST /api/hermes/update`` actually runs ``fabric update``.
+    ``POST /api/fabric/update`` actually runs ``fabric update``.
 
     Returns:
         install_method: 'git' | 'pip' | 'docker' | 'nixos' | 'homebrew' | ...
-        current_version: installed Hermes version string
+        current_version: installed Fabric version string
         behind: commits behind upstream (>=1), 0 if up to date,
                 -1 if behind by an unknown count (nix/pypi), or null if the
                 check could not run (offline, no remote, etc.)
@@ -3737,7 +3732,7 @@ async def transcribe_audio_upload(payload: AudioTranscriptionRequest):
     try:
         suffix = _audio_extension_for_mime(mime_type)
         with tempfile.NamedTemporaryFile(
-            prefix="hermes-desktop-voice-",
+            prefix="desktop-voice-",
             suffix=suffix,
             delete=False,
         ) as tmp:
@@ -4327,7 +4322,7 @@ async def search_sessions(q: str = "", limit: int = 20, profile: Optional[str] =
                 seen[root] = payload
 
             # Direct ID matches first: users often paste a session id from CLI,
-            # logs, or another Hermes surface. FTS can't find those unless the
+            # logs, or another Fabric surface. FTS can't find those unless the
             # id happens to appear in message text. search_sessions_by_id is
             # SQL-bounded, so this stays cheap even with thousands of sessions.
             for row in db.search_sessions_by_id(q, limit=safe_limit, include_archived=True):
@@ -4562,9 +4557,9 @@ def _memory_provider_setup_env() -> Dict[str, str]:
     # environment through the same scrubber as every other non-terminal child
     # so a named-profile setup cannot inherit the dashboard launch profile's
     # provider, messaging, vault, or arbitrary `.env` credentials.
-    from tools.environments.local import hermes_subprocess_env
+    from tools.environments.local import fabric_subprocess_env
 
-    env = hermes_subprocess_env()
+    env = fabric_subprocess_env()
     home = Path.home()
     extra_bins = [
         home / ".brv-cli" / "bin",
@@ -4898,15 +4893,15 @@ def _read_json_file(path: Path) -> Dict[str, Any]:
 
 
 def _read_memory_provider_existing_values(name: str) -> Dict[str, Any]:
-    """Best-effort read of existing provider config across legacy/native stores."""
+    """Best-effort read of existing provider config from Fabric stores."""
 
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     values: Dict[str, Any] = {}
 
     # Common native provider stores.
     for path in (
-        hermes_home / f"{name}.json",
-        hermes_home / name / "config.json",
+        fabric_home / f"{name}.json",
+        fabric_home / name / "config.json",
     ):
         values.update(_read_json_file(path))
 
@@ -4920,14 +4915,13 @@ def _read_memory_provider_existing_values(name: str) -> Dict[str, Any]:
         provider_cfg = memory_cfg.get(name)
         if isinstance(provider_cfg, dict):
             values.update(provider_cfg)
-        legacy_cfg = memory_cfg.get("provider_config")
-        if isinstance(legacy_cfg, dict):
-            values = {**legacy_cfg, **values}
-
-    # Holographic stores under plugins.hermes-memory-store.
+        common_cfg = memory_cfg.get("provider_config")
+        if isinstance(common_cfg, dict):
+            values = {**common_cfg, **values}
+    # Holographic stores under its Fabric plugin config.
     plugins_cfg = cfg.get("plugins") if isinstance(cfg, dict) else {}
     if name == "holographic" and isinstance(plugins_cfg, dict):
-        holographic_cfg = plugins_cfg.get("hermes-memory-store")
+        holographic_cfg = plugins_cfg.get("fabric-memory-store")
         if isinstance(holographic_cfg, dict):
             values.update(holographic_cfg)
 
@@ -7494,9 +7488,9 @@ def _normalize_whatsapp_allowed_users(value: Any) -> str:
 
 
 def _whatsapp_session_path() -> Path:
-    from fabric_constants import get_hermes_dir
+    from fabric_constants import get_fabric_dir
 
-    return get_hermes_dir("platforms/whatsapp/session", "whatsapp/session")
+    return get_fabric_dir("platforms/whatsapp/session")
 
 
 def _whatsapp_phone_from_identifier(value: Any) -> str | None:
@@ -7546,7 +7540,7 @@ def _ensure_whatsapp_bridge_dependencies(bridge_dir: Path) -> None:
     if (bridge_dir / "node_modules").exists():
         return
 
-    from fabric_constants import find_node_executable, with_hermes_node_path
+    from fabric_constants import find_node_executable, with_fabric_node_path
     from utils import env_int
 
     npm = find_node_executable("npm")
@@ -7564,7 +7558,7 @@ def _ensure_whatsapp_bridge_dependencies(bridge_dir: Path) -> None:
             capture_output=True,
             text=True,
             timeout=timeout,
-            env=with_hermes_node_path(),
+            env=with_fabric_node_path(),
             creationflags=windows_hide_flags(),
         )
     except subprocess.TimeoutExpired as exc:
@@ -7590,7 +7584,7 @@ def _ensure_whatsapp_bridge_dependencies(bridge_dir: Path) -> None:
 
 def _spawn_whatsapp_pairing_process(session_path: Path, mode: str) -> subprocess.Popen:
     from gateway.platforms.whatsapp_common import resolve_whatsapp_bridge_dir
-    from fabric_constants import find_node_executable, with_hermes_node_path
+    from fabric_constants import find_node_executable, with_fabric_node_path
 
     bridge_dir = resolve_whatsapp_bridge_dir()
     bridge_script = bridge_dir / "bridge.js"
@@ -7609,7 +7603,7 @@ def _spawn_whatsapp_pairing_process(session_path: Path, mode: str) -> subprocess
     _ensure_whatsapp_bridge_dependencies(bridge_dir)
     session_path.mkdir(parents=True, exist_ok=True)
 
-    env = with_hermes_node_path()
+    env = with_fabric_node_path()
     env["WHATSAPP_MODE"] = mode
     env["WHATSAPP_DM_POLICY"] = "pairing"
     return subprocess.Popen(
@@ -8218,7 +8212,7 @@ def _restart_gateway_after_telegram_onboarding(profile: Optional[str] = None) ->
     """Best-effort gateway restart after saving Telegram QR onboarding.
 
     The QR flow naturally pulls users into Telegram on another device. If the
-    saved token waits on a separate dashboard restart click, Hermes appears
+    saved token waits on a separate dashboard restart click, Fabric appears
     broken from the chat side. Keep the config save authoritative, but report
     restart failures so the UI can fall back to the existing manual banner.
     """
@@ -8326,7 +8320,7 @@ async def get_messaging_platforms(profile: Optional[str] = None):
     # Profile-scoped so the dashboard's global profile switcher shows the
     # TARGET profile's channel credentials/state, not the root install's.
     # Inside _profile_scope, load_env()/read_runtime_status()/get_running_pid()
-    # all resolve against the requested profile's HERMES_HOME.
+    # all resolve against the requested profile's FABRIC_HOME.
     with _profile_scope(profile) as scoped_dir:
         env_on_disk = load_env()
         runtime = read_runtime_status()
@@ -8479,12 +8473,12 @@ def _anthropic_oauth_status() -> Dict[str, Any]:
     """Status for the "Anthropic API Key" catalog entry.
 
     Two sources, in priority order:
-    1. ``~/.fabric/.anthropic_oauth.json`` — Hermes-managed PKCE flow (what
+    1. ``~/.fabric/.anthropic_oauth.json`` — Fabric-managed PKCE flow (what
        this entry's Connect button writes)
-    2. ``ANTHROPIC_API_KEY`` → ``ANTHROPIC_TOKEN`` → ``CLAUDE_CODE_OAUTH_TOKEN``
-       env vars (registry order) — from ``.env``, the shell, or an external
-       secret source like Bitwarden (whose keys are injected into the process
-       env during ``load_fabric_dotenv()``, so the same check covers them)
+    2. Anthropic's API-key and token env vars (registry order) — from ``.env``,
+       the shell, or an external secret source like Bitwarden (whose keys are
+       injected into the process env during ``load_fabric_dotenv()``, so the
+       same check covers them)
 
     Claude Code's ``~/.claude/.credentials.json`` is deliberately NOT read
     here — it has its own dedicated catalog entry (``claude-code`` →
@@ -8493,27 +8487,29 @@ def _anthropic_oauth_status() -> Dict[str, Any]:
     """
     try:
         from agent.anthropic_adapter import (
-            read_hermes_oauth_credentials,
-            _get_hermes_oauth_file,
+            _get_fabric_oauth_file,
+            _is_oauth_token,
+            read_fabric_oauth_credentials,
         )
     except ImportError:
-        read_hermes_oauth_credentials = None  # type: ignore
-        _get_hermes_oauth_file = None  # type: ignore
+        read_fabric_oauth_credentials = None  # type: ignore
+        _get_fabric_oauth_file = None  # type: ignore
+        _is_oauth_token = None  # type: ignore
 
-    hermes_creds = None
-    if read_hermes_oauth_credentials:
+    fabric_creds = None
+    if read_fabric_oauth_credentials:
         try:
-            hermes_creds = read_hermes_oauth_credentials()
+            fabric_creds = read_fabric_oauth_credentials()
         except Exception:
-            hermes_creds = None
-    if hermes_creds and hermes_creds.get("accessToken"):
+            fabric_creds = None
+    if fabric_creds and fabric_creds.get("accessToken"):
         return {
             "logged_in": True,
-            "source": "hermes_pkce",
-            "source_label": f"Fabric PKCE ({_get_hermes_oauth_file() if _get_hermes_oauth_file else None})",
-            "token_preview": _truncate_token(hermes_creds.get("accessToken")),
-            "expires_at": hermes_creds.get("expiresAt"),
-            "has_refresh_token": bool(hermes_creds.get("refreshToken")),
+            "source": "anthropic_pkce",
+            "source_label": f"Anthropic PKCE ({_get_fabric_oauth_file() if _get_fabric_oauth_file else None})",
+            "token_preview": _truncate_token(fabric_creds.get("accessToken")),
+            "expires_at": fabric_creds.get("expiresAt"),
+            "has_refresh_token": bool(fabric_creds.get("refreshToken")),
         }
 
     # Env-var / secret-source path. ``get_env_value`` honors the installed
@@ -8538,6 +8534,12 @@ def _anthropic_oauth_status() -> Dict[str, Any]:
         value = get_env_value(var) if get_env_value else os.getenv(var)
         if not value:
             continue
+        if (
+            var == "ANTHROPIC_API_KEY"
+            and _is_oauth_token is not None
+            and _is_oauth_token(value)
+        ):
+            continue
         suffix = format_secret_source_suffix(var) if format_secret_source_suffix else ""
         return {
             "logged_in": True,
@@ -8554,8 +8556,8 @@ def _claude_code_only_status() -> Dict[str, Any]:
     """Surface Claude Code CLI credentials as their own provider entry.
 
     Independent of the Anthropic entry above so users can see whether their
-    Claude Code subscription tokens are actively flowing into Hermes even
-    when they also have a separate Hermes-managed PKCE login.
+    Claude Code subscription tokens are actively flowing into Fabric even
+    when they also have a separate Fabric-managed PKCE login.
     """
     try:
         from agent.anthropic_adapter import read_claude_code_credentials
@@ -8579,7 +8581,7 @@ def _copilot_acp_status() -> Dict[str, Any]:
 
     There is no cheap programmatic credential probe for the ACP subprocess, so
     this is a read-only "managed by the Copilot CLI" card (like claude-code):
-    Hermes never claims a login state it can't verify.
+    Fabric never claims a login state it can't verify.
     """
     return {
         "logged_in": False,
@@ -8609,7 +8611,7 @@ _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
         "id": "nous",
         "name": "Nous Portal",
         "flow": "device_code",
-        "cli_command": "fabric auth add nous",
+        "cli_command": "fabric auth add nous --client-id <registered-client-id>",
         "docs_url": "https://portal.nousresearch.com",
         "status_fn": None,  # dispatched via auth.get_nous_auth_status
     },
@@ -8780,11 +8782,11 @@ def _resolve_provider_status(provider_id: str, status_fn) -> Dict[str, Any]:
 def _oauth_provider_disconnect_command(provider: Dict[str, Any]) -> Optional[str]:
     """Shell command that clears an external provider's credentials.
 
-    External providers store their credentials outside Hermes, so the disconnect
+    External providers store their credentials outside Fabric, so the disconnect
     API deliberately refuses them (we never delete files another CLI owns on the
     user's behalf via a silent API call). For the ones we know how to clear we
     instead hand the GUI a command it can *run in the embedded terminal* — the
-    user sees exactly what executes, and Hermes then stops resolving the token.
+    user sees exactly what executes, and Fabric then stops resolving the token.
 
     Claude Code has no scriptable logout (only the interactive ``/logout``), so
     we remove the credential the same way logout does: the macOS Keychain entry
@@ -8879,7 +8881,7 @@ async def list_oauth_providers(profile: Optional[str] = None):
         docs_url        external docs/portal link for the "Learn more" link
         status:
           logged_in        bool — currently has usable creds
-          source           short slug ("hermes_pkce", "claude_code", ...)
+          source           short slug ("anthropic_pkce", "claude_code", ...)
           source_label     human-readable origin (file path, env var name)
           token_preview    last N chars of the token, never the full token
           expires_at       ISO timestamp string or null
@@ -8960,14 +8962,14 @@ def _disconnect_oauth_provider_sync(
                 detail=f"{provider['name']} cannot be disconnected automatically. {disconnect_hint}",
             )
 
-        # Anthropic clears only the Hermes-managed PKCE file and auth-store entry.
+        # Anthropic clears only the Fabric-managed PKCE file and auth-store entry.
         # The separate claude-code catalog row is external/read-only and rejected
         # above so we never pretend to remove ~/.claude/* credentials owned by the CLI.
         if provider_id == "anthropic":
             cleared = False
             try:
-                from agent.anthropic_adapter import _get_hermes_oauth_file
-                oauth_file = _get_hermes_oauth_file()
+                from agent.anthropic_adapter import _get_fabric_oauth_file
+                oauth_file = _get_fabric_oauth_file()
                 if oauth_file.exists():
                     oauth_file.unlink()
                     cleared = True
@@ -8983,10 +8985,8 @@ def _disconnect_oauth_provider_sync(
             return {"ok": bool(cleared), "provider": provider_id}
 
         try:
-            from fabric_cli.auth import clear_provider_auth, invalidate_nous_auth_status_cache
+            from fabric_cli.auth import clear_provider_auth
             cleared = clear_provider_auth(provider_id)
-            if provider_id == "nous":
-                invalidate_nous_auth_status_cache()
             _log.info("oauth/disconnect: %s (cleared=%s)", provider_id, cleared)
             return {"ok": bool(cleared), "provider": provider_id}
         except Exception:
@@ -9160,7 +9160,7 @@ def _oauth_mark_error_if_active(
     )
 
 # Import OAuth constants from canonical source instead of duplicating.
-# Guarded so hermes web still starts if anthropic_adapter is unavailable;
+# Guarded so fabric web still starts if anthropic_adapter is unavailable;
 # Phase 2 endpoints will return 501 in that case.
 try:
     from agent.anthropic_adapter import (
@@ -9212,13 +9212,13 @@ def _new_oauth_session(
 
 
 def _save_anthropic_oauth_creds(access_token: str, refresh_token: str, expires_at_ms: int) -> None:
-    """Persist Anthropic PKCE creds to both Hermes file AND credential pool.
+    """Persist Anthropic PKCE creds to both Fabric file AND credential pool.
 
     Mirrors what auth_commands.add_command does so the dashboard flow leaves
     the system in the same state as ``fabric auth add anthropic``.
     """
-    from agent.anthropic_adapter import _get_hermes_oauth_file
-    oauth_file = _get_hermes_oauth_file()
+    from agent.anthropic_adapter import _get_fabric_oauth_file
+    oauth_file = _get_fabric_oauth_file()
     payload = {
         "accessToken": access_token,
         "refreshToken": refresh_token,
@@ -9498,46 +9498,64 @@ async def _start_device_code_flow(
     """
     if provider_id == "nous":
         from fabric_cli.auth import (
-            _request_device_code,
+            AuthError,
+            NOUS_CLIENT_ID_REQUIRED_CODE,
             PROVIDER_REGISTRY,
+            _require_nous_client_id,
+            _nous_portal_env_override,
+            _request_device_code,
+            get_provider_auth_state,
         )
         import httpx
-        pconfig = PROVIDER_REGISTRY["nous"]
+
+        provider = PROVIDER_REGISTRY["nous"]
         portal_base_url = (
-            os.getenv("HERMES_PORTAL_BASE_URL")
-            or os.getenv("NOUS_PORTAL_BASE_URL")
-            or pconfig.portal_base_url
+            _nous_portal_env_override() or provider.portal_base_url
         ).rstrip("/")
-        client_id = pconfig.client_id
-        scope = pconfig.scope
+        try:
+            if reservation is not None:
+                with _oauth_owner_scope(reservation.session):
+                    auth_state = get_provider_auth_state("nous") or {}
+            else:
+                with _config_profile_scope(profile):
+                    auth_state = get_provider_auth_state("nous") or {}
+            client_id = _require_nous_client_id(auth_state.get("client_id"))
+        except AuthError as exc:
+            if exc.code == NOUS_CLIENT_ID_REQUIRED_CODE:
+                raise OAuthFlowError(
+                    OAuthFlowErrorCode.NOUS_CLIENT_ID_REQUIRED
+                ) from None
+            raise
+        scope = provider.scope
 
         def _do_nous_device_request():
             with httpx.Client(
                 timeout=httpx.Timeout(15.0),
                 headers={"Accept": "application/json"},
             ) as client:
-                return (
-                    _request_device_code(
-                        client=client,
-                        portal_base_url=portal_base_url,
-                        client_id=client_id,
-                        scope=scope,
-                    ),
-                    scope,
+                return _request_device_code(
+                    client=client,
+                    portal_base_url=portal_base_url,
+                    client_id=client_id,
+                    scope=scope,
                 )
 
-        device_data, effective_scope = await asyncio.get_running_loop().run_in_executor(
-            None, _do_nous_device_request
+        device_data = await asyncio.get_running_loop().run_in_executor(
+            None,
+            _do_nous_device_request,
         )
         sid, sess = _oauth_start_session(
-            "nous", "device_code", profile, reservation
+            "nous",
+            "device_code",
+            profile,
+            reservation,
         )
         sess["device_code"] = str(device_data["device_code"])
         sess["interval"] = int(device_data["interval"])
         sess["expires_at"] = time.time() + int(device_data["expires_in"])
         sess["portal_base_url"] = portal_base_url
         sess["client_id"] = client_id
-        sess["scope"] = effective_scope
+        sess["scope"] = scope
         _start_oauth_worker_thread(
             target=_nous_poller,
             session_id=sid,
@@ -9737,14 +9755,20 @@ async def _start_device_code_flow(
     raise HTTPException(status_code=400, detail=f"Provider {provider_id} does not support device-code flow")
 
 
+
+
 def _nous_poller(session_id: str) -> None:
-    """Background poller that drives a Nous device-code flow to completion."""
+    """Drive a Nous device-code flow to completion in the background."""
+    from datetime import datetime, timezone
+
+    import httpx
+
     from fabric_cli.auth import (
         _poll_for_token,
+        persist_nous_credentials,
         refresh_nous_oauth_from_state,
     )
-    from datetime import datetime, timezone
-    import httpx
+
     worker_session = _oauth_worker_session(session_id)
     if worker_session is None:
         return
@@ -9771,7 +9795,7 @@ def _nous_poller(session_id: str) -> None:
                 poll_interval=interval,
             )
         _oauth_raise_if_cancelled(sess)
-        # Same post-processing as _nous_device_code_login (validate/refresh JWT)
+
         now = datetime.now(timezone.utc)
         token_ttl = int(token_data.get("expires_in") or 0)
         auth_state = {
@@ -9784,19 +9808,21 @@ def _nous_poller(session_id: str) -> None:
             "refresh_token": token_data.get("refresh_token"),
             "obtained_at": now.isoformat(),
             "expires_at": (
-                datetime.fromtimestamp(now.timestamp() + token_ttl, tz=timezone.utc).isoformat()
-                if token_ttl else None
+                datetime.fromtimestamp(
+                    now.timestamp() + token_ttl,
+                    tz=timezone.utc,
+                ).isoformat()
+                if token_ttl
+                else None
             ),
             "expires_in": token_ttl,
         }
         with _oauth_owner_scope(sess):
             full_state = refresh_nous_oauth_from_state(
                 auth_state,
-                timeout_seconds=15.0,
                 force_refresh=False,
             )
         _oauth_raise_if_cancelled(sess)
-        from fabric_cli.auth import persist_nous_credentials
 
         def _persist() -> None:
             with _oauth_owner_scope(sess):
@@ -11403,7 +11429,7 @@ def _cron_profile_dicts() -> List[Dict[str, Any]]:
 
 
 def _cron_profile_home(profile: Optional[str]) -> Tuple[str, Path]:
-    """Resolve a profile query value to (profile_name, HERMES_HOME)."""
+    """Resolve a profile query value to (profile_name, FABRIC_HOME)."""
     from fabric_cli import profiles as profiles_mod
 
     raw = (profile or "default").strip() or "default"
@@ -11421,7 +11447,7 @@ def _annotate_cron_job(job: Dict[str, Any], profile: str, home: Path) -> Dict[st
     annotated = dict(job)
     annotated["profile"] = profile
     annotated["profile_name"] = profile
-    annotated["hermes_home"] = str(home)
+    annotated["fabric_home"] = str(home)
     annotated["is_default_profile"] = profile == "default"
     return annotated
 
@@ -11430,7 +11456,7 @@ def _call_cron_for_profile(target_profile: Optional[str], func_name: str, *args,
     """Run cron.jobs helpers against the selected profile's cron directory.
 
     cron.jobs keeps CRON_DIR/JOBS_FILE/OUTPUT_DIR as module globals resolved
-    from the process HERMES_HOME at import time. The dashboard is a single
+    from the process FABRIC_HOME at import time. The dashboard is a single
     process that can inspect many profiles, so temporarily retarget those
     globals while holding a lock and restore them immediately after the call.
     """
@@ -12392,7 +12418,7 @@ async def test_mcp_server(name: str, profile: Optional[str] = None):
         # skills lock for its ENTIRE body. Holding that across the probe
         # serialized every other endpoint (config/skills/toolsets all take the
         # same lock), so a slow server made unrelated requests time out at 15s.
-        # The probe touches no skills globals; it needs the HERMES_HOME and
+        # The probe touches no skills globals; it needs the FABRIC_HOME and
         # isolated secret scopes for .env interpolation + OAuth token
         # resolution. Both ContextVars are copied into this to_thread worker,
         # and _run_on_mcp_loop re-wraps them onto the MCP event-loop thread.
@@ -12464,7 +12490,7 @@ async def auth_mcp_server(name: str, profile: Optional[str] = None):
     cfg["auth"] = "oauth"
 
     def _run():
-        from tools.mcp_oauth import HermesTokenStorage, force_interactive_oauth
+        from tools.mcp_oauth import FabricTokenStorage, force_interactive_oauth
 
         # Context-local home + credential scope, not _profile_scope: this
         # blocks on the browser flow
@@ -12472,7 +12498,7 @@ async def auth_mcp_server(name: str, profile: Optional[str] = None):
         # would freeze every other endpoint. Config writes and env references
         # resolve through ContextVars, so no process-global skills lock is needed.
         with _config_profile_scope(profile), force_interactive_oauth():
-            storage = HermesTokenStorage(name)
+            storage = FabricTokenStorage(name)
             # Snapshot before clearing: a re-auth wipes cached state to force a
             # fresh consent, but if the flow fails we must NOT leave the user
             # worse off than before — restore the working token on any failure.
@@ -12675,14 +12701,14 @@ async def install_mcp_catalog_entry(body: MCPCatalogInstall, profile: Optional[s
 
     # Git-bootstrap entries can take a while to clone — run via the background
     # action path so the request returns immediately and the UI can tail logs.
-    # The -p subprocess rebinds HERMES_HOME-derived paths in the child.
+    # The -p subprocess rebinds FABRIC_HOME-derived paths in the child.
     if entry.install is not None:
         # Unique per-entry action name: a shared "mcp-install" would let a
         # re-click (or a second entry) overwrite the tracked process/log while
         # the first clone is still running.
         action = _mcp_install_action_name(name)
         try:
-            proc = _spawn_hermes_action(
+            proc = _spawn_fabric_action(
                 _profile_cli_args(effective_profile) + ["mcp", "install", name],
                 action,
             )
@@ -12985,7 +13011,7 @@ async def set_webhook_enabled(name: str, body: WebhookEnabledToggle):
 @app.post("/api/gateway/start")
 async def start_gateway(profile: Optional[str] = None):
     try:
-        proc = _spawn_hermes_action(_gateway_subcommand(profile, "start"), "gateway-start")
+        proc = _spawn_fabric_action(_gateway_subcommand(profile, "start"), "gateway-start")
     except HTTPException:
         raise
     except Exception as exc:
@@ -12997,7 +13023,7 @@ async def start_gateway(profile: Optional[str] = None):
 @app.post("/api/gateway/stop")
 async def stop_gateway(profile: Optional[str] = None):
     try:
-        proc = _spawn_hermes_action(_gateway_subcommand(profile, "stop"), "gateway-stop")
+        proc = _spawn_fabric_action(_gateway_subcommand(profile, "stop"), "gateway-stop")
     except HTTPException:
         raise
     except Exception as exc:
@@ -13211,7 +13237,7 @@ async def reset_memory(body: MemoryReset, profile: Optional[str] = None):
 @app.post("/api/ops/doctor")
 async def run_doctor():
     try:
-        proc = _spawn_hermes_action(["doctor"], "doctor")
+        proc = _spawn_fabric_action(["doctor"], "doctor")
     except Exception as exc:
         _log.exception("Failed to spawn doctor")
         raise HTTPException(status_code=500, detail=f"Failed to run doctor: {exc}")
@@ -13221,7 +13247,7 @@ async def run_doctor():
 @app.post("/api/ops/security-audit")
 async def run_security_audit():
     try:
-        proc = _spawn_hermes_action(["security", "audit"], "security-audit")
+        proc = _spawn_fabric_action(["security", "audit"], "security-audit")
     except Exception as exc:
         _log.exception("Failed to spawn security audit")
         raise HTTPException(status_code=500, detail=f"Failed to run security audit: {exc}")
@@ -13259,7 +13285,7 @@ async def run_backup(body: BackupRequest):
             )
         args.append(str(archive))
     try:
-        proc = _spawn_hermes_action(args, "backup")
+        proc = _spawn_fabric_action(args, "backup")
     except Exception as exc:
         _log.exception("Failed to spawn backup")
         raise HTTPException(status_code=500, detail=f"Failed to run backup: {exc}")
@@ -13294,7 +13320,7 @@ async def download_dashboard_backup(archive: str):
 
 class ImportRequest(BaseModel):
     archive: str
-    # Pass --force to `hermes import`. The spawned action runs with
+    # Pass --force to `fabric import`. The spawned action runs with
     # stdin=DEVNULL, so the CLI's interactive "Continue? [y/N]" overwrite
     # prompt hits EOF and auto-aborts ("Aborted.", exit 1) whenever the
     # target already has a config — which it always does when the dashboard
@@ -13315,7 +13341,7 @@ async def run_import(body: ImportRequest):
     if body.force:
         args.append("--force")
     try:
-        proc = _spawn_hermes_action(args, "import")
+        proc = _spawn_fabric_action(args, "import")
     except Exception as exc:
         _log.exception("Failed to spawn import")
         raise HTTPException(status_code=500, detail=f"Failed to run import: {exc}")
@@ -13397,7 +13423,7 @@ async def run_import_upload(
     if force:
         args.append("--force")
     try:
-        proc = _spawn_hermes_action(args, "import")
+        proc = _spawn_fabric_action(args, "import")
     except Exception as exc:
         _log.exception("Failed to spawn import")
         raise HTTPException(status_code=500, detail=f"Failed to run import: {exc}")
@@ -13571,7 +13597,7 @@ async def delete_hook(body: HookDelete):
 @app.get("/api/ops/checkpoints")
 async def list_checkpoints():
     """List the /rollback shadow store checkpoints (read-only)."""
-    # Checkpoints live under <hermes_home>/checkpoints/.  Surface a count +
+    # Checkpoints live under <fabric_home>/checkpoints/.  Surface a count +
     # total size so the dashboard can show what a prune would reclaim; the
     # actual prune is a spawned action so confirmation/pruning logic stays
     # in one place (the CLI).
@@ -13603,7 +13629,7 @@ async def list_checkpoints():
 @app.post("/api/ops/checkpoints/prune")
 async def prune_checkpoints():
     try:
-        proc = _spawn_hermes_action(["checkpoints", "prune"], "checkpoints-prune")
+        proc = _spawn_fabric_action(["checkpoints", "prune"], "checkpoints-prune")
     except Exception as exc:
         _log.exception("Failed to spawn checkpoints prune")
         raise HTTPException(status_code=500, detail=f"Failed to prune checkpoints: {exc}")
@@ -13649,7 +13675,7 @@ def _profile_cli_args(profile: Optional[str]) -> List[str]:
 def _hub_action_name(verb: str, key: str) -> str:
     """Unique per-skill hub action name (+ registered log file).
 
-    ``_spawn_hermes_action`` tracks one process/log per name, so a shared
+    ``_spawn_fabric_action`` tracks one process/log per name, so a shared
     "skills-install"/"skills-uninstall" would make concurrent row-level actions
     overwrite each other's status/log while the UI polls per identifier. Slug
     (readable) + hash (collision-proof) keys each action to its own row.
@@ -13682,7 +13708,7 @@ def _spawn_or_join_hub_action(subcommand: List[str], name: str) -> subprocess.Po
         existing = _ACTION_PROCS.get(name)
         if existing is not None and existing.poll() is None:
             return existing
-        return _spawn_hermes_action(subcommand, name)
+        return _spawn_fabric_action(subcommand, name)
 
 
 @app.post("/api/skills/hub/install")
@@ -13754,11 +13780,11 @@ async def update_skills_hub(
     return {"ok": True, "pid": proc.pid, "name": action}
 
 
-# Human-readable labels for each hub source id (matches `Fabric skills search`
+# Human-readable labels for each hub source id (matches `fabric skills search`
 # provenance).  Keep in sync with create_source_router()'s source list.
 _SKILL_HUB_SOURCE_LABELS = {
     "official": "Official (Nous)",
-    "hermes-index": "Fabric Index",
+    "fabric-index": "Fabric Index",
     "skills-sh": "skills.sh",
     "well-known": "Well-Known",
     "url": "Direct URL",
@@ -13844,7 +13870,7 @@ async def list_skills_hub_sources(profile: Optional[str] = None):
                     entry["rate_limited"] = bool(getattr(src, "is_rate_limited", False))
                 except Exception:
                     entry["rate_limited"] = False
-            if sid == "hermes-index":
+            if sid == "fabric-index":
                 try:
                     index_available = bool(getattr(src, "is_available", False))
                 except Exception:
@@ -14124,8 +14150,8 @@ class ProfileCreate(BaseModel):
     # Empty list = leave the seeded bundle untouched (legacy behaviour).
     keep_skills: List[str] = []
     # Skills-hub identifiers to install into the new profile. Installed async
-    # via a subprocess scoped to the profile (`hermes -p <name> skills install`)
-    # because skills_hub.SKILLS_DIR is import-time-bound and the HERMES_HOME
+    # via a subprocess scoped to the profile (`fabric -p <name> skills install`)
+    # because skills_hub.SKILLS_DIR is import-time-bound and the FABRIC_HOME
     # override can't redirect it. Returns spawned PIDs for the UI to poll.
     hub_skills: List[str] = []
 
@@ -14257,7 +14283,7 @@ def _write_profile_model(profile_dir: Path, provider: str, model: str) -> None:
     """Write the main model assignment into a specific profile's config.yaml.
 
     Scopes ``load_config``/``save_config`` to ``profile_dir`` via the
-    context-local HERMES_HOME override so the write lands in the target
+    context-local FABRIC_HOME override so the write lands in the target
     profile's config rather than the dashboard process's active profile.
     Clears any stale ``base_url`` / ``context_length`` the same way
     ``POST /api/model/set`` does, since the new model may differ.
@@ -14278,7 +14304,7 @@ def _write_profile_mcp_servers(profile_dir: Path, servers: List["MCPServerCreate
     """Write MCP server entries into a specific profile's config.yaml.
 
     Scopes ``load_config``/``save_config`` to ``profile_dir`` via the
-    context-local HERMES_HOME override (same mechanism as
+    context-local FABRIC_HOME override (same mechanism as
     ``_write_profile_model``) so the entries land in the target profile's
     config rather than the dashboard process's active profile.
 
@@ -14339,7 +14365,7 @@ def _disable_unselected_skills(profile_dir: Path, keep: List[str]) -> int:
     uses "replace" semantics: the user picks exactly which seeded built-in /
     optional skills stay active, and everything else gets added to the disabled
     list. (Hub skills are installed separately via subprocess and are active on
-    install.) Scoped to the profile via the HERMES_HOME override. Returns the
+    install.) Scoped to the profile via the FABRIC_HOME override. Returns the
     number of skills newly disabled.
     """
     from fabric_constants import set_fabric_home_override, reset_fabric_home_override
@@ -14465,14 +14491,14 @@ async def create_profile_endpoint(body: ProfileCreate):
 
     # Optional skills-hub installs. Spawned async, scoped to the new profile
     # via `-p <name>` (a fresh subprocess re-binds skills_hub.SKILLS_DIR to the
-    # profile's HERMES_HOME at import). Returns PIDs for the UI to poll.
+    # profile's FABRIC_HOME at import). Returns PIDs for the UI to poll.
     hub_installs: List[Dict[str, Any]] = []
     for identifier in body.hub_skills:
         ident = (identifier or "").strip()
         if not ident:
             continue
         try:
-            proc = _spawn_hermes_action(
+            proc = _spawn_fabric_action(
                 ["-p", body.name, "skills", "install", ident, "--yes"],
                 _hub_action_name("install", ident),
             )
@@ -14503,7 +14529,7 @@ async def get_active_profile_endpoint():
 
     ``active`` is the sticky default written by ``fabric profile use`` —
     the profile new CLI invocations pick up. ``current`` is the profile
-    the running dashboard/gateway is scoped to (derived from HERMES_HOME).
+    the running dashboard/gateway is scoped to (derived from FABRIC_HOME).
     """
     from fabric_cli import profiles as profiles_mod
     try:
@@ -14679,7 +14705,7 @@ async def update_profile_model_endpoint(name: str, body: ProfileModelUpdate):
     """Set the main model (``model.default`` + ``model.provider``) for a
     specific profile's config.yaml, without touching the dashboard's own
     active profile. Mirrors ``POST /api/model/set`` (main scope) but scoped
-    to the named profile via the HERMES_HOME override.
+    to the named profile via the FABRIC_HOME override.
     """
     profile_dir = _resolve_profile_dir(name)
     provider = (body.provider or "").strip()
@@ -14735,9 +14761,6 @@ async def describe_profile_auto_endpoint(name: str, body: ProfileDescribeAuto):
 # ---------------------------------------------------------------------------
 
 
-_SKILLS_PROFILE_LOCK = threading.RLock()
-
-
 @contextmanager
 def _profile_scope(
     profile: Optional[str],
@@ -14746,23 +14769,12 @@ def _profile_scope(
 ):
     """Scope config + skill-directory resolution to ``profile`` for one request.
 
-    Two seams must be redirected for skills/toolsets endpoints:
-
-    1. ``load_config``/``save_config`` resolve ``get_fabric_home()`` at call
-       time — the context-local override from ``set_fabric_home_override``
-       reaches them (same pattern as ``_write_profile_model``).
-    2. ``tools.skills_tool`` and ``tools.skill_manager_tool`` bind
-       ``SKILLS_DIR`` at import time, so the override CANNOT reach them.
-       Like ``_call_cron_for_profile`` does for cron's module globals,
-       temporarily retarget both under a lock and restore them
-       immediately after.
+    ``load_config``/``save_config`` and all skill-directory consumers resolve
+    ``get_fabric_home()`` at call time. The task-local override therefore
+    scopes the complete request without mutating process-global module state.
 
     ``profile`` of None/""/"current" means "the dashboard's own profile" —
-    config resolution is untouched, but the skill-module globals are still
-    retargeted to the *current* ``get_fabric_home()`` so writes land in the
-    live home even when the import-time binding is stale (e.g. the process
-    imported the modules before a HERMES_HOME override, or under test
-    isolation).
+    config resolution is untouched.
     """
     requested = (profile or "").strip()
 
@@ -14771,9 +14783,6 @@ def _profile_scope(
         set_fabric_home_override,
         reset_fabric_home_override,
     )
-    from tools import skills_tool as _skills_tool
-    from tools import skill_manager_tool as _skill_mgr
-
     token = None
     secret_token = None
     if not requested or requested.lower() == "current":
@@ -14810,30 +14819,17 @@ def _profile_scope(
             reset_fabric_home_override(token)
         raise
 
-    with _SKILLS_PROFILE_LOCK:
-        old_home = _skills_tool.HERMES_HOME
-        old_skills_dir = _skills_tool.SKILLS_DIR
-        old_mgr_home = _skill_mgr.HERMES_HOME
-        old_mgr_skills_dir = _skill_mgr.SKILLS_DIR
-        _skills_tool.HERMES_HOME = profile_dir
-        _skills_tool.SKILLS_DIR = profile_dir / "skills"
-        _skill_mgr.HERMES_HOME = profile_dir
-        _skill_mgr.SKILLS_DIR = profile_dir / "skills"
+    try:
+        yield profile_dir if token is not None else None
+    finally:
         try:
-            yield profile_dir if token is not None else None
-        finally:
-            _skills_tool.HERMES_HOME = old_home
-            _skills_tool.SKILLS_DIR = old_skills_dir
-            _skill_mgr.HERMES_HOME = old_mgr_home
-            _skill_mgr.SKILLS_DIR = old_mgr_skills_dir
-            try:
-                if secret_token is not None:
-                    from agent.secret_scope import reset_secret_scope
+            if secret_token is not None:
+                from agent.secret_scope import reset_secret_scope
 
-                    reset_secret_scope(secret_token)
-            finally:
-                if token is not None:
-                    reset_fabric_home_override(token)
+                reset_secret_scope(secret_token)
+        finally:
+            if token is not None:
+                reset_fabric_home_override(token)
 
 
 @contextmanager
@@ -15174,7 +15170,7 @@ def _resolve_toolset_model_plugin(ts_key: str, provider_row: dict) -> Optional[s
     """Map a provider picker row to its model-catalog plugin name.
 
     Plugin-backed rows carry ``image_gen_plugin_name`` / ``video_gen_plugin_name``;
-    the managed "Nous Subscription" image row instead carries the legacy
+    the managed "Nous Subscription" image row instead carries the existing
     ``imagegen_backend: "fal"`` marker (same underlying FAL catalog).
     """
     if ts_key == "image_gen":
@@ -15440,10 +15436,10 @@ async def run_toolset_post_setup(
     against the declared post-setup allowlist before spawning. Returns 400
     for unknown toolset or post-setup key.
 
-    ``profile`` spawns the hook as ``hermes -p <profile> tools post-setup``.
+    ``profile`` spawns the hook as ``fabric -p <profile> tools post-setup``.
     Most hooks install machine-level artifacts (repo node_modules, shared
     pip packages) where the scope is inert, but hooks that read config or
-    write per-profile state must see the same HERMES_HOME the rest of the
+    write per-profile state must see the same FABRIC_HOME the rest of the
     drawer's writes targeted — so the scope is threaded for consistency.
     """
     from fabric_cli.tools_config import (
@@ -15461,7 +15457,7 @@ async def run_toolset_post_setup(
         )
 
     try:
-        proc = _spawn_hermes_action(
+        proc = _spawn_fabric_action(
             _profile_cli_args(body.profile or profile)
             + ["tools", "post-setup", body.key],
             "tools-post-setup",
@@ -15481,7 +15477,7 @@ async def run_toolset_post_setup(
 #
 # cua-driver runs on macOS, Windows, and Linux. The desktop card reflects
 # per-OS readiness: on macOS the Accessibility + Screen Recording TCC grants
-# (which attach to cua-driver's OWN identity, com.trycua.driver — not Hermes,
+# (which attach to cua-driver's OWN identity, com.trycua.driver — not Fabric,
 # so no app entitlement is involved); elsewhere, driver health from
 # `cua-driver doctor`. The grant flow is macOS-only (no TCC toggles to request
 # on Windows/Linux).
@@ -15518,7 +15514,7 @@ async def grant_computer_use_permissions(profile: Optional[str] = None):
             detail="Computer Use permission grants are a macOS concept.",
         )
     try:
-        proc = _spawn_hermes_action(
+        proc = _spawn_fabric_action(
             _profile_cli_args(profile)
             + ["computer-use", "permissions", "grant"],
             "computer-use-grant",
@@ -15806,7 +15802,7 @@ async def get_models_analytics(days: int = 30, profile: Optional[str] = None):
 # ---------------------------------------------------------------------------
 # /api/pty — PTY-over-WebSocket bridge for the dashboard "Chat" tab.
 #
-# The endpoint spawns the same ``hermes --tui`` binary the CLI uses, behind
+# The endpoint spawns the same ``fabric --tui`` binary the CLI uses, behind
 # a POSIX pseudo-terminal, and forwards bytes + resize escapes across a
 # WebSocket.  The browser renders the ANSI through xterm.js (see
 # web/src/pages/ChatPage.tsx).
@@ -16198,40 +16194,31 @@ def _resolve_chat_argv(
 ) -> tuple[list[str], Optional[str], Optional[dict]]:
     """Resolve the argv + cwd + env for the chat PTY.
 
-    Default: whatever ``hermes --tui`` would run.  Tests monkeypatch this
+    Default: whatever ``fabric --tui`` would run.  Tests monkeypatch this
     function to inject a tiny fake command (``cat``, ``sh -c 'printf …'``)
     so nothing has to build Node or the TUI bundle.
 
-    Session resume is propagated via the ``HERMES_TUI_RESUME`` env var —
-    matching what ``fabric_cli.main._launch_tui`` does for the CLI path.
-    Appending ``--resume <id>`` to argv doesn't work because ``ui-tui`` does
-    not parse its argv.
-
-    ``HERMES_TUI_GATEWAY_URL`` is injected so the PTY child can attach to
-    this process's in-memory ``tui_gateway`` instance instead of spawning
-    its own Python gateway subprocess.
-
-    `sidecar_url` (when set) is forwarded as ``HERMES_TUI_SIDECAR_URL`` so
-    the spawned ``tui_gateway.entry`` can mirror dispatcher emits to the
-    dashboard's ``/api/pub`` endpoint (see :func:`pub_ws`).
-
-    `active_session_file` (when set) is forwarded as
-    ``HERMES_TUI_ACTIVE_SESSION_FILE``. The TUI writes the current session id
-    there whenever it creates/resumes/switches sessions, giving the dashboard a
-    small cross-process breadcrumb for reconnecting after an unexpected browser
-    WebSocket close.
+    Resume, gateway attachment, sidebar publishing, display mode, theme, and
+    the active-session breadcrumb travel in one owner-only launch descriptor.
+    Node consumes that descriptor at startup, so exported shell values cannot
+    alter a later browser chat and URL credentials never appear in process
+    arguments.
 
     `profile` (when set) scopes the ENTIRE chat to that profile by pointing
-    ``HERMES_HOME`` at the profile dir in the child env. Every spawned
+    ``FABRIC_HOME`` at the profile dir in the child env. Every spawned
     process (the TUI and the ``tui_gateway.entry`` it launches) resolves
     ``get_fabric_home()`` from that env var at its own import, so the child
     binds the profile's config, skills, memory, and state.db from the start
-    — the same propagation ``hermes -p <name>`` performs. The in-process
-    ``HERMES_TUI_GATEWAY_URL`` attach is SKIPPED for scoped chats: the
+    — the same propagation ``fabric -p <name>`` performs. The in-process
+    gateway attach is SKIPPED for scoped chats: the
     dashboard's in-memory gateway runs under the dashboard's own profile,
     so a profile-scoped chat must spawn its own gateway subprocess.
     """
-    from fabric_cli.main import PROJECT_ROOT, _make_tui_argv
+    from fabric_cli.main import PROJECT_ROOT, _make_tui_argv, _with_tui_runtime_args
+    from fabric_cli.tui_launch_context import (
+        TuiLaunchContext,
+        write_tui_launch_context,
+    )
 
     profile_dir: Optional[Path] = None
     requested = (profile or "").strip()
@@ -16246,14 +16233,6 @@ def _resolve_chat_argv(
     except Exception:
         _log.debug("Failed to apply terminal config bridge for dashboard chat", exc_info=True)
     env.setdefault("NODE_ENV", "production")
-    # Browser-embedded chat should prefer stable wheel-based scrollback over
-    # native terminal mouse tracking. When mouse tracking is enabled, wheel
-    # events are consumed by the TUI and forwarded as terminal input, which
-    # makes browser-side transcript scrolling feel broken. Keep the terminal
-    # build unchanged for native CLI usage; only disable mouse tracking for
-    # the dashboard PTY path.
-    env.setdefault("HERMES_TUI_DISABLE_MOUSE", "1")
-    env.setdefault("HERMES_TUI_INLINE", "1")
     # The dashboard terminal is xterm.js, which always renders 24-bit RGB.
     # But chalk inside the TUI child decides its color depth from the
     # SERVER process env — and hosted/cloud deploys run the dashboard under
@@ -16265,22 +16244,20 @@ def _resolve_chat_argv(
     # COLORTERM=truecolor into os.environ. Backfill it for the PTY child;
     # setdefault so an explicit operator value still wins.
     env.setdefault("COLORTERM", "truecolor")
-    env["HERMES_TUI_DASHBOARD"] = "1"
-    # The TUI decides its light/dark palette from the child env at import
-    # (ui-tui detectLightMode), and the PTY child inherits the SERVER's
-    # env — not the browser's theme. Without a hint, a light dashboard
+    # The TUI decides its light/dark palette from launch context at import,
+    # while the PTY child otherwise knows nothing about the browser's theme.
+    # Without a hint, a light dashboard
     # theme renders the TUI's dark palette on a near-white xterm canvas
     # (the "white-washed" chat). The client sends its xterm background via
-    # the `bg` query param; HERMES_TUI_BACKGROUND ranks below the explicit
-    # HERMES_TUI_LIGHT / HERMES_TUI_THEME operator overrides, so those
-    # still win when set.
+    # the `bg` query param and passes it to the child as an internal hint.
+    resolved_background = ""
     if terminal_background and re.fullmatch(
         r"#[0-9a-fA-F]{6}", terminal_background
     ):
-        env["HERMES_TUI_BACKGROUND"] = terminal_background
+        resolved_background = terminal_background
 
     if profile_dir is not None:
-        env["HERMES_HOME"] = str(profile_dir)
+        env["FABRIC_HOME"] = str(profile_dir)
 
     if resume:
         _resume_db = _open_session_db_for_profile(
@@ -16292,23 +16269,38 @@ def _resolve_chat_argv(
             _resume_db.close()
         if latest_resume:
             resume = latest_resume
-        env["HERMES_TUI_RESUME"] = resume
-
-    if sidecar_url:
-        env["HERMES_TUI_SIDECAR_URL"] = sidecar_url
-
-    if active_session_file:
-        env["HERMES_TUI_ACTIVE_SESSION_FILE"] = active_session_file
-
     # Profile-scoped chats must NOT attach to the dashboard's in-memory
     # gateway — it runs under the dashboard's own profile. Without the
     # attach URL, gatewayClient spawns its own `tui_gateway.entry`, which
-    # inherits the profile HERMES_HOME set above.
+    # inherits the profile FABRIC_HOME set above.
+    gateway_ws_url = ""
     if profile_dir is None:
-        if gateway_ws_url := _build_gateway_ws_url():
-            env["HERMES_TUI_GATEWAY_URL"] = gateway_ws_url
+        gateway_ws_url = _build_gateway_ws_url() or ""
+
+    launch_context_file = write_tui_launch_context(
+        TuiLaunchContext(
+            cwd=os.getcwd(),
+            active_session_file=active_session_file or "",
+            resume=resume or "",
+            dashboard=True,
+            terminal_background=resolved_background,
+            gateway_url=gateway_ws_url,
+            sidecar_url=sidecar_url or "",
+        )
+    )
+    argv = _with_tui_runtime_args(argv, launch_context=launch_context_file)
 
     return list(argv), str(cwd) if cwd else None, env
+
+
+def _discard_chat_launch_context(argv: list[str]) -> None:
+    """Remove an unconsumed launch descriptor after a PTY spawn failure."""
+
+    try:
+        index = argv.index("--launch-context")
+        Path(argv[index + 1]).unlink(missing_ok=True)
+    except (IndexError, OSError, ValueError):
+        pass
 
 
 # Hosts that mean "listen on every interface" — the server should bind to
@@ -16326,7 +16318,7 @@ def _resolve_client_ws_host() -> Optional[str]:
 
     Resolution order:
 
-    1. Explicit ``HERMES_DASHBOARD_WS_HOST`` env var — wins always. Operators
+    1. Explicit ``dashboard.ws_host`` config value — wins always. Operators
        running the dashboard behind a forward proxy can pin a routable host
        (e.g. ``127.0.0.1``, the container's internal IP, or a sidecar DNS
        name) and bypass auto-detection entirely.
@@ -16335,7 +16327,12 @@ def _resolve_client_ws_host() -> Optional[str]:
        run in the same container.
     3. Any other bind host (loopback or LAN IP) — preserved verbatim.
     """
-    explicit = os.environ.get("HERMES_DASHBOARD_WS_HOST", "").strip()
+    dashboard_cfg = load_config_readonly().get("dashboard", {})
+    explicit = (
+        str(dashboard_cfg.get("ws_host", "")).strip()
+        if isinstance(dashboard_cfg, dict)
+        else ""
+    )
     if explicit:
         return explicit
 
@@ -16626,7 +16623,7 @@ def _active_session_file_for_channel(app: "FastAPI", channel: str) -> Path:
     if existing is not None:
         return existing
 
-    fd, raw_path = tempfile.mkstemp(prefix="hermes-pty-active-", suffix=".json")
+    fd, raw_path = tempfile.mkstemp(prefix="pty-active-", suffix=".json")
     os.close(fd)
     path = Path(raw_path)
     files[channel] = path
@@ -16694,7 +16691,7 @@ def _get_console_executor() -> concurrent.futures.ThreadPoolExecutor:
             if _console_executor is None:
                 _console_executor = concurrent.futures.ThreadPoolExecutor(
                     max_workers=_CONSOLE_EXECUTOR_MAX_WORKERS,
-                    thread_name_prefix="hermes-console",
+                    thread_name_prefix="console-worker",
                 )
                 # Ensure the pool is torn down on interpreter exit. Don't wait on
                 # in-flight workers: a stuck 60s console command must not block
@@ -16708,7 +16705,7 @@ def _get_console_executor() -> concurrent.futures.ThreadPoolExecutor:
 
 def _dashboard_console_context() -> str:
     """Choose local vs hosted command policy for the dashboard console."""
-    return "hosted" if _default_hermes_root_is_opt_data() else "local"
+    return "hosted" if _default_fabric_root_is_opt_data() else "local"
 
 
 def _console_profile_from_ws(ws: WebSocket) -> Optional[str]:
@@ -16887,11 +16884,6 @@ def _console_json_payload(msg: Any) -> tuple[Optional[dict[str, Any]], Optional[
 async def console_ws(ws: WebSocket) -> None:
     peer = ws.client.host if ws.client else "?"
 
-    if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
-        _log.info("console refused: embedded chat disabled peer=%s", peer)
-        await ws.close(code=4404, reason="embedded chat disabled")
-        return
-
     auth_reason, cred = _ws_auth_reason(ws)
     mode = _ws_auth_mode()
     if auth_reason is not None:
@@ -16921,9 +16913,9 @@ async def console_ws(ws: WebSocket) -> None:
     send_lock = asyncio.Lock()
 
     try:
-        from fabric_cli.console_engine import HermesConsoleEngine
+        from fabric_cli.console_engine import FabricConsoleEngine
 
-        engine = HermesConsoleEngine(
+        engine = FabricConsoleEngine(
             output_limit=_CONSOLE_OUTPUT_LIMIT,
             context=context,  # type: ignore[arg-type]
         )
@@ -17243,11 +17235,6 @@ async def console_ws(ws: WebSocket) -> None:
 async def pty_ws(ws: WebSocket) -> None:
     peer = ws.client.host if ws.client else "?"
 
-    if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
-        _log.info("pty refused: embedded chat disabled peer=%s", peer)
-        await ws.close(code=4404, reason="embedded chat disabled")
-        return
-
     # --- auth + host/origin/peer check (before accept so we can close
     #     cleanly AND tell the client WHY via the close code + reason).
     #     Each gate maps to a distinct close code so the log and the
@@ -17339,7 +17326,11 @@ async def pty_ws(ws: WebSocket) -> None:
     attach_token = ws.query_params.get("attach") or None
 
     def _spawn():
-        return PtyBridge.spawn(argv, cwd=cwd, env=env)
+        try:
+            return PtyBridge.spawn(argv, cwd=cwd, env=env)
+        except Exception:
+            _discard_chat_launch_context(argv)
+            raise
 
     if attach_token is None:
         # Legacy path: 1:1 socket<->PTY, killed on disconnect (unchanged).
@@ -17423,10 +17414,6 @@ async def pty_ws(ws: WebSocket) -> None:
 
 @app.websocket("/api/ws")
 async def gateway_ws(ws: WebSocket) -> None:
-    if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
-        await ws.close(code=4403)
-        return
-
     if not _ws_auth_ok(ws):
         await ws.close(code=4401)
         return
@@ -17443,8 +17430,8 @@ async def gateway_ws(ws: WebSocket) -> None:
 # ---------------------------------------------------------------------------
 # /api/pub + /api/events — chat-tab event broadcast.
 #
-# The PTY-side ``tui_gateway.entry`` opens /api/pub at startup (driven by
-# HERMES_TUI_SIDECAR_URL set in /api/pty's PTY env) and writes every
+# The PTY-side ``tui_gateway.entry`` opens /api/pub at startup (driven by the
+# owner-only launch descriptor created in /api/pty) and writes every
 # dispatcher emit through it.  The dashboard fans those frames out to any
 # subscriber that opened /api/events on the same channel id.  This is what
 # gives the React sidebar its tool-call feed without breaking the PTY
@@ -17454,10 +17441,6 @@ async def gateway_ws(ws: WebSocket) -> None:
 
 @app.websocket("/api/pub")
 async def pub_ws(ws: WebSocket) -> None:
-    if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
-        await ws.close(code=4403)
-        return
-
     if not _ws_auth_ok(ws):
         await ws.close(code=4401)
         return
@@ -17482,10 +17465,6 @@ async def pub_ws(ws: WebSocket) -> None:
 
 @app.websocket("/api/events")
 async def events_ws(ws: WebSocket) -> None:
-    if not _DASHBOARD_EMBEDDED_CHAT_ENABLED:
-        await ws.close(code=4403)
-        return
-
     if not _ws_auth_ok(ws):
         await ws.close(code=4401)
         return
@@ -17560,7 +17539,6 @@ def mount_mobile_spa(application: FastAPI) -> None:
         bootstrap = (
             "<script>"
             f"window.__FABRIC_AUTH_REQUIRED__={'true' if gated else 'false'};"
-            'window.__FABRIC_BASE_PATH__="";'
             "</script>"
         )
         html = html.replace("</head>", f"{bootstrap}</head>", 1)
@@ -17597,26 +17575,34 @@ def mount_spa(application: FastAPI):
     separate (unauthenticated) token-dispensing endpoint.
 
     When served behind a path-prefix reverse proxy (e.g.
-    ``mission-control.tilos.com/hermes/*`` -> local Caddy -> :9119), the
-    proxy injects ``X-Forwarded-Prefix: /hermes`` on every request. We
+    ``mission-control.tilos.com/fabric/*`` -> local Caddy -> :9119), the
+    proxy injects ``X-Forwarded-Prefix: /fabric`` on every request. We
     rewrite the served ``index.html`` so absolute asset URLs (``/assets/...``)
-    and the SPA's runtime ``__HERMES_BASE_PATH__`` honour that prefix
+    and the SPA's runtime ``__DASHBOARD_BASE_PATH__`` honour that prefix
     without rebuilding the bundle.
     """
-    # `fabric serve` is the headless backend: it must NEVER serve the browser
-    # SPA, even if a dist is lying around from a prior `dashboard`/build. Take
-    # the no-frontend path so only the JSON-RPC/WS/API surface is reachable.
-    _headless = (
-        os.environ.get("FABRIC_SERVE_HEADLESS") == "1"
-        or os.environ.get("HERMES_SERVE_HEADLESS") == "1"
-    )
-    if _headless or not WEB_DIST.exists():
-        _msg = (
-            "Headless backend (fabric serve): web UI disabled — use "
-            "`fabric dashboard` for the browser UI."
-            if _headless
-            else "Frontend not built. Run: cd web && npm run build"
-        )
+    # `fabric serve` must never expose frontend files, including static assets
+    # from a stale dashboard build. start_server() records the direct headless
+    # argument on app.state; HTTP middleware checks it before routing, while
+    # the JSON-RPC/WS/API surface under /api remains available.
+    @application.middleware("http")
+    async def block_frontend_in_headless_mode(request: Request, call_next):
+        if (
+            bool(getattr(application.state, "headless_backend", False))
+            and not request.url.path.startswith("/api/")
+            and request.url.path != "/api"
+        ):
+            return JSONResponse(
+                {
+                    "error": "Headless backend (fabric serve): web UI disabled — "
+                    "use `fabric dashboard` for the browser UI."
+                },
+                status_code=404,
+            )
+        return await call_next(request)
+
+    if not WEB_DIST.exists():
+        _msg = "Frontend not built. Run: cd web && npm run build"
 
         @application.get("/{full_path:path}")
         async def no_frontend(full_path: str):
@@ -17628,33 +17614,30 @@ def mount_spa(application: FastAPI):
     def _serve_index(prefix: str = ""):
         """Return index.html with the session token + base-path injected.
 
-        ``prefix`` is the normalised ``X-Forwarded-Prefix`` (e.g. ``/hermes``)
+        ``prefix`` is the normalised ``X-Forwarded-Prefix`` (e.g. ``/fabric``)
         or empty string when served at root.
 
         When the OAuth auth gate is active (``app.state.auth_required``),
         the legacy ``_SESSION_TOKEN`` is NOT injected — the SPA reads
         identity from ``/api/auth/me`` over cookie auth instead.  The
-        ``__HERMES_AUTH_REQUIRED__`` flag lets the SPA pick the right
+        ``__DASHBOARD_AUTH_REQUIRED__`` flag lets the SPA pick the right
         auth scheme for /api/pty and /api/ws (ticket vs token).
         """
         html = _index_path.read_text(encoding="utf-8")
-        chat_js = "true" if _DASHBOARD_EMBEDDED_CHAT_ENABLED else "false"
         gated = bool(getattr(app.state, "auth_required", False))
         gated_js = "true" if gated else "false"
         if gated:
             bootstrap_script = (
                 f"<script>"
-                f"window.__HERMES_DASHBOARD_EMBEDDED_CHAT__={chat_js};"
-                f'window.__HERMES_BASE_PATH__="{prefix}";'
-                f"window.__HERMES_AUTH_REQUIRED__={gated_js};"
+                f'window.__DASHBOARD_BASE_PATH__="{prefix}";'
+                f"window.__DASHBOARD_AUTH_REQUIRED__={gated_js};"
                 f"</script>"
             )
         else:
             bootstrap_script = (
-                f'<script>window.__HERMES_SESSION_TOKEN__="{_SESSION_TOKEN}";'
-                f"window.__HERMES_DASHBOARD_EMBEDDED_CHAT__={chat_js};"
-                f'window.__HERMES_BASE_PATH__="{prefix}";'
-                f"window.__HERMES_AUTH_REQUIRED__={gated_js};"
+                f'<script>window.__DASHBOARD_AUTH_TOKEN__="{_SESSION_TOKEN}";'
+                f'window.__DASHBOARD_BASE_PATH__="{prefix}";'
+                f"window.__DASHBOARD_AUTH_REQUIRED__={gated_js};"
                 f"</script>"
             )
         if prefix:
@@ -17680,7 +17663,7 @@ def mount_spa(application: FastAPI):
     # When served behind a path-prefix proxy, the built CSS contains
     # absolute ``url(/fonts/...)`` and ``url(/ds-assets/...)`` references.
     # Browsers resolve those against the document origin, which means
-    # under ``/hermes`` they'd hit ``mission-control.tilos.com/fonts/...``
+    # under ``/fabric`` they'd hit ``mission-control.tilos.com/fonts/...``
     # (the MC Pages app), not the Fabric backend. Intercept CSS asset
     # requests BEFORE the StaticFiles mount and rewrite the absolute paths
     # when a prefix is in play.
@@ -17734,29 +17717,10 @@ def mount_spa(application: FastAPI):
 
 # Built-in dashboard themes — label + description only.  The actual color
 # definitions live in the frontend (web/src/themes/presets.ts).
-_DASHBOARD_THEME_NAME_ALIASES = {
-    # Migration-only identities from earlier releases. The server has no OS
-    # appearance context, so it converges them on Fabric Light; the client
-    # upgrades that to Fabric Dark when an explicit dark/system preference is
-    # active. Never return these ids as public theme names or labels.
-    "lens-5i": "fabric-light",
-    "nous-blue": "fabric-light",
-    "fabric-blue": "fabric-light",
-    "fabric-teal": "fabric-light",
-    "default-large": "fabric-light",
-    "default": "fabric-light",
-}
-
-
-def _canonical_dashboard_theme_name(name: str) -> str:
-    return _DASHBOARD_THEME_NAME_ALIASES.get(name, name)
-
-
 _BUILTIN_DASHBOARD_THEMES = [
     {"name": "fabric-light",  "label": "Fabric Light",        "description": "Generated light — neutral surfaces, single Fabric-purple accent"},
     {"name": "fabric-dark",   "label": "Fabric Dark",         "description": "Generated dark — neutral surfaces, single Fabric-purple accent"},
     {"name": "midnight",      "label": "Midnight",            "description": "Deep blue-violet with cool accents"},
-    {"name": "ember",     "label": "Ember",          "description": "Warm crimson and bronze — forge vibes"},
     {"name": "mono",      "label": "Mono",           "description": "Clean grayscale — minimal and focused"},
     {"name": "cyberpunk", "label": "Cyberpunk",      "description": "Neon green on black — matrix terminal"},
     {"name": "rose",      "label": "Rosé",           "description": "Soft pink and warm ivory — easy on the eyes"},
@@ -18010,11 +17974,6 @@ async def get_dashboard_themes():
     them without a stub.
     """
     config = load_config()
-    stored_active = cfg_get(config, "dashboard", "theme", default="fabric-light")
-    active = _canonical_dashboard_theme_name(str(stored_active or "fabric-light"))
-    if active != stored_active:
-        config.setdefault("dashboard", {})["theme"] = active
-        save_config(config)
     user_themes = _discover_user_themes()
     seen = set()
     themes = []
@@ -18022,11 +17981,7 @@ async def get_dashboard_themes():
         seen.add(t["name"])
         themes.append(t)
     for t in user_themes:
-        # Retired built-in ids are reserved migration inputs. A user YAML with
-        # one of those names must not reintroduce the heritage identity into
-        # the primary catalog or shadow the canonical generated pair.
-        canonical_name = _canonical_dashboard_theme_name(t["name"])
-        if canonical_name != t["name"] or canonical_name in seen:
+        if t["name"] in seen:
             continue
         themes.append({
             "name": t["name"],
@@ -18035,6 +17990,11 @@ async def get_dashboard_themes():
             "definition": t,
         })
         seen.add(t["name"])
+    stored_active = str(
+        cfg_get(config, "dashboard", "theme", default="fabric-light")
+        or "fabric-light"
+    )
+    active = stored_active if stored_active in seen else "fabric-light"
     return {"themes": themes, "active": active}
 
 
@@ -18046,12 +18006,15 @@ class ThemeSetBody(BaseModel):
 async def set_dashboard_theme(body: ThemeSetBody):
     """Set the active dashboard theme (persists to config.yaml)."""
     config = load_config()
+    valid_names = {theme["name"] for theme in _BUILTIN_DASHBOARD_THEMES}
+    valid_names.update(theme["name"] for theme in _discover_user_themes())
+    if body.name not in valid_names:
+        raise HTTPException(status_code=400, detail="Unknown dashboard theme")
     if "dashboard" not in config:
         config["dashboard"] = {}
-    theme_name = _canonical_dashboard_theme_name(body.name)
-    config["dashboard"]["theme"] = theme_name
+    config["dashboard"]["theme"] = body.name
     save_config(config)
-    return {"ok": True, "theme": theme_name}
+    return {"ok": True, "theme": body.name}
 
 
 # Curated font-override ids. Kept in sync with FONT_CHOICES in
@@ -18247,14 +18210,16 @@ def _discover_dashboard_plugins() -> list:
     # opt-in into a sticky always-on switch.  Use the shared truthy
     # semantics (``1`` / ``true`` / ``yes`` / ``on``) so the gate matches
     # ``fabric_cli/plugins.py`` and the documented user contract.
-    project_plugins_enabled = env_var_enabled(
-        "FABRIC_ENABLE_PROJECT_PLUGINS"
-    ) or env_var_enabled("HERMES_ENABLE_PROJECT_PLUGINS")  # legacy compatibility
+    project_plugins_enabled = bool(
+        cfg_get(
+            load_config(),
+            "plugins",
+            "allow_project_plugins",
+            default=False,
+        )
+    )
     if project_plugins_enabled:
         search_dirs.append((Path.cwd() / ".fabric" / "plugins", "project"))
-        # public-release-audit: allow-legacy-compat -- discovers project plugins created before the Fabric directory migration
-        legacy_project_dir = Path.cwd() / ".hermes" / "plugins"
-        search_dirs.append((legacy_project_dir, "project"))
 
     for plugins_root, source in search_dirs:
         if not plugins_root.is_dir():
@@ -18777,7 +18742,7 @@ def _mount_plugin_api_routes():
     ``/api/plugins/<name>/``.
 
     Backend import is restricted to ``bundled`` and ``user`` sources.
-    Project plugins (``./.hermes/plugins/``) ship with the CWD and are
+    Project plugins (``./.fabric/plugins/``) ship with the CWD and are
     therefore attacker-controlled in any threat model where the user
     opens a malicious repo; they can extend the dashboard UI via
     static JS/CSS but their Python ``api`` file is never auto-imported
@@ -18856,7 +18821,7 @@ def _mount_plugin_api_routes():
             _log.warning("Plugin %s declares api=%s but file not found", plugin["name"], api_file_name)
             continue
         try:
-            module_name = f"hermes_dashboard_plugin_{plugin['name']}"
+            module_name = f"fabric_dashboard_plugin_{plugin['name']}"
             spec = importlib.util.spec_from_file_location(module_name, api_path)
             if spec is None or spec.loader is None:
                 continue
@@ -18908,45 +18873,6 @@ def _read_bound_port(server: "uvicorn.Server", fallback: int) -> int:
     if server.servers and server.servers[0].sockets:
         return server.servers[0].sockets[0].getsockname()[1]
     return fallback
-
-
-def _write_dashboard_ready_file(actual_port: int) -> None:
-    """Optionally publish the dashboard port through an atomic ready file.
-
-    Windows Desktop can launch dashboard backends with ``pythonw.exe`` to avoid
-    console flashes. That path cannot rely on stdout for the port announcement,
-    so Electron passes ``HERMES_DESKTOP_READY_FILE`` and waits for this JSON.
-    Normal CLI/dashboard launches still use the stdout READY line below.
-    """
-    target = os.environ.get("HERMES_DESKTOP_READY_FILE")
-    if not target:
-        return
-
-    tmp_name = ""
-    try:
-        path = Path(target)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps({"port": int(actual_port)}, separators=(",", ":"))
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=str(path.parent),
-            prefix=f"{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as fh:
-            fh.write(payload)
-            fh.flush()
-            os.fsync(fh.fileno())
-            tmp_name = fh.name
-        os.replace(tmp_name, path)
-    except Exception as exc:
-        if tmp_name:
-            try:
-                Path(tmp_name).unlink(missing_ok=True)
-            except Exception:
-                pass
-        _log.warning("Failed to write dashboard ready file %r: %s", target, exc)
 
 
 def _maybe_open_browser(
@@ -19002,6 +18928,7 @@ def start_server(
     pairing_qr: bool = False,
     pairing_qr_url: str = "",
     mobile_client: bool = False,
+    auth_token: str = "",
 ):
     """Start the web UI server.
 
@@ -19011,13 +18938,17 @@ def start_server(
     machine dashboard.
 
     ``headless`` is the ``serve`` path: the JSON-RPC/WS backend with no UI
-    build and no SPA mount (mount_spa() honours ``FABRIC_SERVE_HEADLESS``), so
-    the banner announces the bind rather than a browser URL.
+    build or frontend routes, so the banner announces the bind rather than a
+    browser URL.
 
     ``pairing_qr`` (``--qr``) prints a ``fabric://pair`` QR after the ready
     banner so a mobile client can connect by scanning; ``pairing_qr_url``
     (``--qr-url``) overrides the advertised base URL for tunnel fronts. See
     ``fabric_cli/mobile_pairing.py`` for the payload contract.
+
+    ``auth_token`` is an internal explicit child-launch handshake for trusted
+    local shells. Ordinary dashboard launches leave it empty and receive a
+    fresh per-process token.
     """
     from agent.egress_policy import (
         EgressPolicyConfigurationError,
@@ -19039,6 +18970,12 @@ def start_server(
 
     import uvicorn
 
+    _configure_dashboard_auth_token(auth_token)
+
+    # Direct startup state consumed by mount_spa's HTTP guard. This is set
+    # before uvicorn receives the app, so no request can observe the wrong
+    # route policy.
+    app.state.headless_backend = bool(headless)
     app.state.trusted_public_hosts = set()
     app.state.trusted_public_origins = set()
     if pairing_qr_url:
@@ -19069,7 +19006,7 @@ def start_server(
     app.state.mobile_client_enabled = mobile_client
 
     # ``--insecure`` no longer disables the auth gate (June 2026 hardening:
-    # the hermes-0day MCP-persistence campaign abused unauthenticated public
+    # the June 2026 MCP persistence campaign abused unauthenticated public
     # dashboards). If a caller still passes it, warn that it is now a no-op
     # rather than silently changing their expectation of an open bind.
     if allow_public and host not in _LOOPBACK_HOST_VALUES:
@@ -19089,15 +19026,15 @@ def start_server(
         if not list_providers():
             from fabric_cli.fabric_capabilities import fabric_model_provider_visible
 
-            show_legacy_nous = fabric_model_provider_visible("nous")
+            show_nous = fabric_model_provider_visible("nous")
             # Surface the *specific* reason any bundled provider declined
-            # to register (e.g. missing HERMES_DASHBOARD_OAUTH_CLIENT_ID).
+            # to register (e.g. missing dashboard.oauth.client_id).
             # Each provider plugin that ships with Fabric exposes a
             # module-level ``LAST_SKIP_REASON`` string for this purpose;
             # without it the operator would only see "no providers" which
             # is misleading when the provider IS installed but unconfigured.
             skip_reasons: list[str] = []
-            if show_legacy_nous:
+            if show_nous:
                 try:
                     from plugins.dashboard_auth import nous as _nous_plugin
 
@@ -19110,16 +19047,12 @@ def start_server(
 
             _fix_hint = (
                 "Configure an auth provider before exposing the dashboard:\n"
-                "  • Password: set dashboard.basic_auth.username + "
-                "password_hash in config.yaml\n"
-                "    (hash with: python -c \"from "
-                "plugins.dashboard_auth.basic import hash_password; "
-                "print(hash_password('your-password'))\")\n"
+                "  • Password: run `fabric dashboard auth password`\n"
                 "  • Or install and configure a DashboardAuthProvider plugin.\n"
                 "There is no unauthenticated public-bind option — to keep it "
                 "local, bind 127.0.0.1 and tunnel in (SSH / Tailscale)."
             )
-            if show_legacy_nous:
+            if show_nous:
                 _fix_hint = _fix_hint.replace(
                     "  • Or install and configure a DashboardAuthProvider plugin.\n",
                     "  • OAuth: run `fabric dashboard register` with a configured "
@@ -19154,7 +19087,7 @@ def start_server(
     # We use uvicorn.Server directly (not uvicorn.run) so we can split
     # startup from the main loop.  After startup() the socket is actually
     # bound — we read the OS-assigned port from the live socket, print
-    # HERMES_DASHBOARD_READY, open the browser, *then* serve.
+    # the structured readiness record, open the browser, *then* serve.
     #
     # This eliminates the TOCTOU of the old pre-bind-then-close approach
     # (bind port 0 → close → uvicorn rebind): the socket is held by
@@ -19216,12 +19149,16 @@ def start_server(
             actual_port = _read_bound_port(server, fallback=port)
             app.state.bound_port = actual_port
 
-            _write_dashboard_ready_file(actual_port)
-            # Port-discovery sentinel parsed by the desktop spawn. `serve` is a
-            # plain backend, not a dashboard, so it announces a neutral token;
-            # `dashboard` keeps the legacy one. The desktop matches either.
-            ready_token = "HERMES_BACKEND_READY" if headless else "HERMES_DASHBOARD_READY"
-            print(f"{ready_token} port={actual_port}", flush=True)
+            # One neutral structured port-discovery record for every server
+            # surface. Desktop and companion consume it incrementally from
+            # stdout before probing readiness.
+            print(
+                json.dumps(
+                    {"type": "backend.ready", "port": actual_port},
+                    separators=(",", ":"),
+                ),
+                flush=True,
+            )
             if headless:
                 # No SPA, and the JSON-RPC/WS endpoints are auth-gated — don't
                 # advertise a paste-and-connect URL, just announce the bind.

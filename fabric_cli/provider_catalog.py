@@ -114,23 +114,23 @@ def provider_catalog() -> list[ProviderDescriptor]:
     except Exception:
         OPTIONAL_ENV_VARS = {}
 
-    # Hermes overlays carry auth_type for providers that have no registry/profile
+    # Fabric overlays carry auth_type for providers that have no registry/profile
     # entry of their own — notably the ``moa`` virtual provider (auth_type
     # "virtual"), which has no real credential and no network endpoint.
     try:
-        from fabric_cli.providers import HERMES_OVERLAYS
+        from fabric_cli.providers import FABRIC_OVERLAYS
     except Exception:
-        HERMES_OVERLAYS = {}
+        FABRIC_OVERLAYS = {}
 
     out: list[ProviderDescriptor] = []
     for order, entry in enumerate(CANONICAL_PROVIDERS):
         slug = entry.slug
         cfg = PROVIDER_REGISTRY.get(slug)
         prof = profiles.get(slug)
-        overlay = HERMES_OVERLAYS.get(slug)
+        overlay = FABRIC_OVERLAYS.get(slug)
 
         # auth_type: registry is authoritative; fall back to profile, then the
-        # Hermes overlay (e.g. moa → "virtual"), then api_key.
+        # Fabric overlay (e.g. moa → "virtual"), then api_key.
         auth_type = (
             (getattr(cfg, "auth_type", "") if cfg else "")
             or (getattr(prof, "auth_type", "") if prof else "")

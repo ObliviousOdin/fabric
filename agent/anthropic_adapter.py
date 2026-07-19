@@ -1,6 +1,6 @@
 """Anthropic Messages API adapter for Fabric.
 
-Translates between Hermes's internal OpenAI-style message format and
+Translates between Fabric's internal OpenAI-style message format and
 Anthropic's Messages API. Follows the same pattern as the codex_responses
 adapter — all provider-specific logic is isolated here.
 
@@ -56,7 +56,7 @@ def _get_anthropic_sdk():
 logger = logging.getLogger(__name__)
 
 THINKING_BUDGET = {"xhigh": 32000, "high": 16000, "medium": 8000, "low": 4000}
-# Hermes effort → Anthropic adaptive-thinking effort (output_config.effort).
+# Fabric effort → Anthropic adaptive-thinking effort (output_config.effort).
 # Anthropic exposes 5 levels on 4.7+: low, medium, high, xhigh, max.
 # Opus/Sonnet 4.6 only expose 4 levels: low, medium, high, max — no xhigh.
 # We preserve xhigh as xhigh on 4.7+ (the recommended default for coding/
@@ -387,20 +387,20 @@ def _is_oauth_token(key: str) -> bool:
     """Check if the key is an Anthropic OAuth/setup token.
 
     Positively identifies Anthropic OAuth tokens by their key format:
-    - ``sk-ant-`` prefix (but NOT ``sk-ant-api``) → setup tokens, managed keys
+    - ``sk-ant-oat`` prefix → OAuth setup/access tokens
     - ``eyJ`` prefix → JWTs from the Anthropic OAuth flow
     - ``cc-`` prefix → Claude Code OAuth access tokens (from CLAUDE_CODE_OAUTH_TOKEN)
 
-    Non-Anthropic keys (MiniMax, Alibaba, etc.) don't match any pattern
-    and correctly return False.
+    Unknown ``sk-ant-*`` families are not assumed to be OAuth. Anthropic also
+    issues non-OAuth key families (for example Admin API keys), and treating an
+    unknown API key as OAuth selects Bearer auth plus Claude Code transforms.
+    Non-Anthropic keys (MiniMax, Alibaba, etc.) likewise return False.
     """
     if not key:
         return False
-    # Regular Anthropic Console API keys — x-api-key auth, never OAuth
-    if key.startswith("sk-ant-api"):
-        return False
-    # Anthropic-issued tokens (setup-tokens sk-ant-oat-*, managed keys)
-    if key.startswith("sk-ant-"):
+    # Anthropic OAuth setup/access tokens. Current values use versioned forms
+    # such as sk-ant-oat01-*; the family prefix is the stable discriminator.
+    if key.startswith("sk-ant-oat"):
         return True
     # JWTs from Anthropic OAuth flow
     if key.startswith("eyJ"):
@@ -682,7 +682,7 @@ def _build_anthropic_client_with_bearer_hook(
     kwargs = {
         "timeout": timeout_obj,
         "http_client": http_client,
-        # Delegate retry to hermes's outer loop (honors Retry-After); the SDK
+        # Delegate retry to fabric's outer loop (honors Retry-After); the SDK
         # default max_retries=2 ignores it and double-retries. (#26293)
         "max_retries": 0,
         # The SDK requires *something* for api_key/auth_token. Our
@@ -782,7 +782,7 @@ def build_anthropic_client(
     timeout_obj = Timeout(timeout=float(_read_timeout), connect=10.0)
     kwargs = {
         "timeout": timeout_obj,
-        # Delegate all rate-limit / 5xx retry to hermes's outer conversation
+        # Delegate all rate-limit / 5xx retry to fabric's outer conversation
         # loop, which honors Retry-After. The SDK default (max_retries=2) uses
         # its own 1-2s backoff that ignores Retry-After and double-retries
         # inside our loop — burning request slots against a bucket that won't
@@ -897,7 +897,7 @@ def build_anthropic_bedrock_client(region: str):
     return _anthropic_sdk.AnthropicBedrock(
         aws_region=region,
         timeout=Timeout(timeout=900.0, connect=10.0),
-        # Delegate retry to hermes's outer loop (honors Retry-After); the SDK
+        # Delegate retry to fabric's outer loop (honors Retry-After); the SDK
         # default max_retries=2 ignores it and double-retries. (#26293)
         max_retries=0,
         default_headers={"anthropic-beta": ",".join([*_COMMON_BETAS, _CONTEXT_1M_BETA])},
@@ -1118,7 +1118,7 @@ def _refresh_oauth_token(creds: Dict[str, Any]) -> Optional[str]:
     Claude Code's OAuth refresh tokens are single-use: a successful refresh
     rotates the pair and invalidates the old refresh token. Claude Code itself
     also refreshes on its own schedule (IDE/CLI activity), so by the time
-    Hermes notices an expired token, Claude Code may have already rotated it.
+    Fabric notices an expired token, Claude Code may have already rotated it.
     POSTing our now-stale refresh token in that window races Claude Code and
     fails with ``invalid_grant``.
 
@@ -1251,7 +1251,7 @@ def _resolve_claude_code_token_from_credentials(creds: Optional[Dict[str, Any]] 
 def _prefer_refreshable_claude_code_token(env_token: str, creds: Optional[Dict[str, Any]]) -> Optional[str]:
     """Prefer Claude Code creds when a persisted env OAuth token would shadow refresh.
 
-    Hermes historically persisted setup tokens into ANTHROPIC_TOKEN. That makes
+    The setup flow once persisted tokens into ANTHROPIC_TOKEN. That makes
     later refresh impossible because the static env token wins before we ever
     inspect Claude Code's refreshable credential file. If we have a refreshable
     Claude Code credential record, prefer it over the static env OAuth token.
@@ -1275,7 +1275,7 @@ def _resolve_anthropic_pool_token() -> Optional[str]:
 
     Read-only: enumerates with ``clear_expired=False, refresh=False`` so a bare
     token *resolve* (which runs from diagnostic/read-only call sites such as
-    ``account_usage`` and ``fabric models``) never mutates ``~/.hermes/auth.json``
+    ``account_usage`` and ``fabric models``) never mutates ``~/.fabric/auth.json``
     or makes a network refresh call. Refresh-on-expiry is owned by the API call
     path's pool recovery, not the resolver.
     """
@@ -1314,18 +1314,18 @@ def resolve_anthropic_token() -> Optional[str]:
     """Resolve an Anthropic token from all available sources.
 
     Priority:
-      1. ANTHROPIC_TOKEN env var (OAuth/setup token saved by Hermes)
+      1. ANTHROPIC_TOKEN env var (OAuth/setup token saved by Fabric)
       2. CLAUDE_CODE_OAUTH_TOKEN env var
       3. Claude Code credentials (~/.claude.json or ~/.claude/.credentials.json)
          — with automatic refresh if expired and a refresh token is available
-      4. Anthropic credential_pool OAuth entry (~/.hermes/auth.json)
-      5. ANTHROPIC_API_KEY env var (regular API key, or legacy fallback)
+      4. Anthropic credential_pool OAuth entry (~/.fabric/auth.json)
+      5. ANTHROPIC_API_KEY env var (regular API key)
 
     Returns the token string or None.
     """
     creds = read_claude_code_credentials()
 
-    # 1. Hermes-managed OAuth/setup token env var
+    # 1. Fabric-managed OAuth/setup token env var
     token = os.getenv("ANTHROPIC_TOKEN", "").strip()
     if token:
         preferred = _prefer_refreshable_claude_code_token(token, creds)
@@ -1346,15 +1346,16 @@ def resolve_anthropic_token() -> Optional[str]:
     if resolved_claude_token:
         return resolved_claude_token
 
-    # 4. Hermes credential_pool OAuth entry.
+    # 4. Fabric credential_pool OAuth entry.
     resolved_pool_token = _resolve_anthropic_pool_token()
     if resolved_pool_token:
         return resolved_pool_token
 
-    # 5. Regular API key, or a legacy OAuth token saved in ANTHROPIC_API_KEY.
-    # This remains as a compatibility fallback for pre-migration Hermes configs.
+    # 5. Regular API key. OAuth-shaped values belong only in the canonical
+    # OAuth sources above; accepting one here would preserve the retired
+    # API-key-variable fallback indefinitely.
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if api_key:
+    if api_key and not _is_oauth_token(api_key):
         return api_key
 
     return None
@@ -1403,9 +1404,9 @@ def run_oauth_setup_token() -> Optional[str]:
     return None
 
 
-# ── Hermes-native PKCE OAuth flow ────────────────────────────────────────
+# ── Fabric-native PKCE OAuth flow ────────────────────────────────────────
 # Mirrors the flow used by Claude Code, pi-ai, and OpenCode.
-# Stores credentials in ~/.hermes/.anthropic_oauth.json (our own file).
+# Stores credentials in ~/.fabric/.anthropic_oauth.json (our own file).
 
 _OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 # Anthropic migrated the OAuth token endpoint to platform.claude.com;
@@ -1429,7 +1430,7 @@ _OAUTH_TOKEN_URL = _OAUTH_TOKEN_URLS[0]
 _OAUTH_TOKEN_USER_AGENT = "axios/1.7.9"
 _OAUTH_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 _OAUTH_SCOPES = "org:create_api_key user:profile user:inference"
-def _get_hermes_oauth_file() -> Path:
+def _get_fabric_oauth_file() -> Path:
     return get_fabric_home() / ".anthropic_oauth.json"
 
 
@@ -1446,7 +1447,7 @@ def _generate_pkce() -> tuple:
     return verifier, challenge
 
 
-def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
+def run_fabric_oauth_login_pure() -> Optional[Dict[str, Any]]:
     """Run Fabric-native OAuth PKCE flow and return credential state."""
     import secrets
     import time
@@ -1576,9 +1577,9 @@ def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
     }
 
 
-def read_hermes_oauth_credentials() -> Optional[Dict[str, Any]]:
-    """Read Hermes-managed OAuth credentials from ~/.hermes/.anthropic_oauth.json."""
-    oauth_file = _get_hermes_oauth_file()
+def read_fabric_oauth_credentials() -> Optional[Dict[str, Any]]:
+    """Read Fabric-managed OAuth credentials from ~/.fabric/.anthropic_oauth.json."""
+    oauth_file = _get_fabric_oauth_file()
     if oauth_file.exists():
         try:
             data = json.loads(oauth_file.read_text(encoding="utf-8"))
@@ -2596,7 +2597,7 @@ def build_anthropic_kwargs(
         #    from plan-billing to the extra-usage lane; ``mcp__foo`` is accepted).
         #
         #    Two cases, both must land on the double-underscore ``mcp__`` form:
-        #      a) bare Hermes-native tools (``read_file``)  -> ``mcp__read_file``
+        #      a) bare Fabric-native tools (``read_file``)  -> ``mcp__read_file``
         #      b) native MCP server tools registered under their full
         #         single-underscore ``mcp_<server>_<tool>`` name
         #         (``mcp_linear_get_issue``) -> ``mcp__linear_get_issue``
@@ -2673,7 +2674,7 @@ def build_anthropic_kwargs(
     # extra_body in the ChatCompletionsTransport — see #13503.)
     #
     # On 4.7+ the `thinking.display` field defaults to "omitted", which
-    # silently hides reasoning text that Hermes surfaces in its CLI. We
+    # silently hides reasoning text that Fabric surfaces in its CLI. We
     # request "summarized" so the reasoning blocks stay populated — matching
     # 4.6 behavior and preserving the activity-feed UX during long tool runs.
     _is_kimi_coding = _is_kimi_family_endpoint(base_url, model)

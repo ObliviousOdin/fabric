@@ -1,6 +1,6 @@
 """Welcome banner, ASCII art, skills summary, and update check for the CLI.
 
-Pure display functions with no HermesCLI state dependency.
+Pure display functions with no FabricCLI state dependency.
 """
 import json
 import logging
@@ -91,16 +91,11 @@ def _resolve_fallback_banner_art(markup: str) -> str:
     return resolved
 
 
-# Public constants remain directly printable for plugins and legacy imports.
+# Public constants remain directly printable for plugins.
 # Internal default-skin rendering uses the semantic templates below so active
 # skin colors still apply at render time.
 FABRIC_AGENT_LOGO = _resolve_fallback_banner_art(FABRIC_AGENT_LOGO_TEMPLATE)
 FABRIC_MARK = _resolve_fallback_banner_art(FABRIC_MARK_TEMPLATE)
-
-# Legacy export names remain for plugin compatibility; both now resolve to
-# the canonical Fabric lockups above.
-HERMES_AGENT_LOGO = FABRIC_AGENT_LOGO
-HERMES_CADUCEUS = FABRIC_MARK
 
 def _resolve_banner_art(markup: str) -> str:
     """Resolve semantic art colors against the active skin.
@@ -150,7 +145,7 @@ def get_available_skills() -> Dict[str, List[str]]:
 _UPDATE_CHECK_CACHE_SECONDS = 6 * 3600
 
 # Sentinel returned when we know an update exists but can't count commits
-# (e.g. nix-built hermes — no local git history to count against).
+# (e.g. nix-built fabric — no local git history to count against).
 UPDATE_AVAILABLE_NO_COUNT = -1
 
 _UPSTREAM_REPO_URL = "https://github.com/ObliviousOdin/fabric.git"
@@ -327,28 +322,30 @@ def check_via_pypi() -> Optional[int]:
 
 
 def check_for_updates() -> Optional[int]:
-    """Check whether a Hermes update is available.
+    """Check whether a Fabric update is available.
 
-    Two paths: if ``HERMES_REVISION`` is set (nix builds embed it), compare
-    it to upstream main via ``git ls-remote``. Otherwise look for a local
+    Two paths: if an immutable package embeds a revision, compare it to
+    upstream main via ``git ls-remote``. Otherwise look for a local
     git checkout and count commits behind ``origin/main``.
 
     Returns the number of commits behind, ``UPDATE_AVAILABLE_NO_COUNT`` (-1)
     if behind but the count is unknown, ``0`` if up-to-date, or ``None`` if
     the check failed or doesn't apply. Cached for 6 hours.
     """
-    hermes_home = get_fabric_home()
-    cache_file = hermes_home / ".update_check"
-    embedded_rev = os.environ.get("HERMES_REVISION") or None
+    fabric_home = get_fabric_home()
+    cache_file = fabric_home / ".update_check"
+    from fabric_cli.package_metadata import get_packaged_revision
+
+    embedded_rev = get_packaged_revision()
 
     # Docker images have no working tree to count commits against — the
     # published image excludes `.git` (see .dockerignore) and sets no
-    # HERMES_REVISION (that's nix-only). Without this guard the checks below
+    # package revision (that's Nix-only). Without this guard the checks below
     # fall through to `check_via_pypi()`, whose PyPI-version mismatch flag (1)
     # then gets rendered by the CLI banner and the TUI badge as a phantom
     # "1 commit behind" — even though no git repo or commit math is involved,
     # and `fabric update` correctly refuses to run in-place inside the
-    # container anyway. The dashboard's REST `/api/hermes/update/check`
+    # container anyway. The dashboard's REST `/api/fabric/update/check`
     # endpoint already short-circuits docker the same way (web_server.py);
     # mirror that here so the banner/TUI surfaces agree. Returning None makes
     # both the Rich banner (build_welcome_banner) and the Ink badge
@@ -382,11 +379,11 @@ def check_for_updates() -> Optional[int]:
         behind = _check_via_rev(embedded_rev)
     else:
         # Prefer the running code's location over the profile-scoped path.
-        # $HERMES_HOME/fabric-agent/ may be a stale copy from --clone-all;
+        # $FABRIC_HOME/fabric-agent/ may be a stale copy from --clone-all;
         # Path(__file__) always resolves to the actual installed checkout.
         repo_dir = Path(__file__).parent.parent.resolve()
         if not (repo_dir / ".git").exists():
-            repo_dir = hermes_home / "fabric-agent"
+            repo_dir = fabric_home / "fabric-agent"
         if not (repo_dir / ".git").exists():
             behind = check_via_pypi()
         else:
@@ -403,16 +400,16 @@ def check_for_updates() -> Optional[int]:
 
 
 def _resolve_repo_dir() -> Optional[Path]:
-    """Return the active Hermes git checkout, or None if this isn't a git install.
+    """Return the active Fabric git checkout, or None if this isn't a git install.
 
     Prefers the running code's location over the profile-scoped path
-    because ``$HERMES_HOME/fabric-agent/`` may be a stale copy carried
+    because ``$FABRIC_HOME/fabric-agent/`` may be a stale copy carried
     over by ``--clone-all``.
     """
     repo_dir = Path(__file__).parent.parent.resolve()
     if not (repo_dir / ".git").exists():
-        hermes_home = get_fabric_home()
-        repo_dir = hermes_home / "fabric-agent"
+        fabric_home = get_fabric_home()
+        repo_dir = fabric_home / "fabric-agent"
     return repo_dir if (repo_dir / ".git").exists() else None
 
 
@@ -715,7 +712,13 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
         ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
         left_lines.append(f"[{accent}]{model_short}[/]{ctx_str} [dim {dim}]·[/] [dim {dim}]{_vendor}[/]")
 
-    if os.getenv("HERMES_YOLO_MODE"):
+    try:
+        from tools.approval import is_session_yolo_enabled
+
+        yolo_enabled = is_session_yolo_enabled(session_id or "default")
+    except Exception:
+        yolo_enabled = False
+    if yolo_enabled:
         left_lines.append(f"[bold red]⚠ YOLO mode[/] [dim {dim}]— all approval prompts bypassed[/]")
     left_lines.append(f"[dim {dim}]{cwd}[/]")
     if session_id:
@@ -907,7 +910,7 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
                     f"[dim yellow] — run [bold]{recommended_update_command()}[/bold] to update[/]"
                 )
             else:
-                # UPDATE_AVAILABLE_NO_COUNT: nix-built hermes; we know an update
+                # UPDATE_AVAILABLE_NO_COUNT: nix-built fabric; we know an update
                 # exists but not by how much, and we don't know how the user
                 # installed it (nix run, profile, system flake, home-manager).
                 managed_cmd = get_managed_update_command()

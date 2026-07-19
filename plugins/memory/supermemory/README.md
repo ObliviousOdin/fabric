@@ -5,7 +5,7 @@ Semantic long-term memory with profile recall, semantic search, explicit memory 
 ## Requirements
 
 - `pip install supermemory`
-- Supermemory API key from [app.supermemory.ai/integrations?connect=hermes](http://app.supermemory.ai/integrations?connect=hermes)
+- Supermemory API key from [app.supermemory.ai](https://app.supermemory.ai)
 
 ## Setup
 
@@ -26,7 +26,7 @@ Config file: `$FABRIC_HOME/supermemory.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `container_tag` | `fabric` | Container tag used for search and writes. Supports `{identity}` template for profile-scoped tags (e.g. `hermes-{identity}` → `hermes-coder`). |
+| `container_tag` | `fabric` | Container tag used for search and writes. Supports `{identity}` templates for profile-scoped tags (e.g. `fabric-{identity}` → `fabric-coder`). |
 | `auto_recall` | `true` | Inject relevant memory context before turns |
 | `auto_capture` | `true` | Store cleaned user-assistant turns after each response |
 | `max_recall_results` | `10` | Max recalled items to format into context |
@@ -54,14 +54,6 @@ Kebab-case names are registered for the agent; snake_case aliases remain support
 | `supermemory-forget` | `supermemory_forget` | Forget a memory by ID or best-match query |
 | `supermemory-profile` | `supermemory_profile` | Retrieve persistent profile and recent context |
 
-## Source attribution
-
-All Supermemory API calls send `x-sm-source: hermes`, and document writes stamp
-`metadata.sm_source: hermes`. This is a **functional routing key, not telemetry**:
-it groups Fabric-written memories into a dedicated "Fabric" Space in the
-Supermemory app, so you can filter, browse, and bulk-manage them per source agent
-(alongside Codex, Claude Code, etc.) from the Supermemory UI.
-
 ## Behavior
 
 When enabled, Fabric can:
@@ -79,11 +71,11 @@ Use `{identity}` in the `container_tag` to scope memories per Fabric profile:
 
 ```json
 {
-  "container_tag": "hermes-{identity}"
+  "container_tag": "fabric-{identity}"
 }
 ```
 
-For a profile named `coder`, this resolves to `hermes-coder`. The default profile resolves to `hermes-default`. Without `{identity}`, all profiles share the same container.
+For a profile named `coder`, this resolves to `fabric-coder`. The default profile resolves to `fabric-default`. Without `{identity}`, all profiles share the same container.
 
 ## Multi-Container Mode
 
@@ -91,7 +83,7 @@ For advanced setups (e.g. OpenClaw-style multi-workspace), you can enable custom
 
 ```json
 {
-  "container_tag": "hermes",
+  "container_tag": "fabric",
   "enable_custom_container_tags": true,
   "custom_containers": ["project-alpha", "project-beta", "shared-knowledge"],
   "custom_container_instructions": "Use project-alpha for coding tasks, project-beta for research, and shared-knowledge for team-wide facts."

@@ -1,6 +1,6 @@
 """Kanban decomposer — fan a triage task out into a graph of child tasks.
 
-Invoked by ``hermes kanban decompose [task_id | --all]`` and the
+Invoked by ``fabric kanban decompose [task_id | --all]`` and the
 auto-decompose path in the gateway dispatcher loop. Reads the user's
 profile roster (with descriptions) and asks the auxiliary LLM to
 return a task graph in JSON. Then atomically creates the children,
@@ -162,11 +162,9 @@ def _extract_json_blob(raw: str) -> Optional[dict]:
 
 def _profile_author() -> str:
     """Mirror of ``fabric_cli.kanban._profile_author``."""
-    return (
-        os.environ.get("HERMES_PROFILE")
-        or os.environ.get("USER")
-        or "decomposer"
-    )
+    from fabric_cli.kanban_runtime import current_profile_name
+
+    return current_profile_name(fallback=os.environ.get("USER") or "decomposer")
 
 
 def _load_config() -> dict:

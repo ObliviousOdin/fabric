@@ -7,29 +7,23 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, Optional
 
-
-def _hermes_home_path() -> Path:
-    """Resolve the active Fabric home (profile-aware) without circular imports."""
-    try:
-        from fabric_constants import get_fabric_home  # local import to avoid cycles
-        return get_fabric_home()
-    except Exception:
-        return Path(os.path.expanduser("~/.fabric"))
+from fabric_constants import get_default_fabric_root, get_fabric_home
 
 
-def _hermes_root_path() -> Path:
+def _fabric_home_path() -> Path:
+    """Resolve the active profile's canonical Fabric home."""
+    return get_fabric_home()
+
+
+def _fabric_root_path() -> Path:
     """Resolve the Fabric root (parent of any profile, never per-profile)."""
-    try:
-        from fabric_constants import get_default_fabric_root  # local import to avoid cycles
-        return get_default_fabric_root()
-    except Exception:
-        return Path(os.path.expanduser("~/.fabric"))
+    return get_default_fabric_root()
 
 
 def build_write_denied_paths(home: str) -> set[str]:
     """Return exact sensitive paths that must never be written."""
-    hermes_home = _hermes_home_path()
-    hermes_root = _hermes_root_path()
+    fabric_home = _fabric_home_path()
+    fabric_root = _fabric_root_path()
     return {
         os.path.realpath(p)
         for p in [
@@ -38,15 +32,15 @@ def build_write_denied_paths(home: str) -> set[str]:
             os.path.join(home, ".ssh", "id_ed25519"),
             os.path.join(home, ".ssh", "config"),
             # Active profile .env (or top-level .env when not in profile mode).
-            str(hermes_home / ".env"),
+            str(fabric_home / ".env"),
             # Top-level .env, even when running under a profile — overwriting it
             # leaks credentials across every profile that inherits from root (#15981).
-            str(hermes_root / ".env"),
+            str(fabric_root / ".env"),
             # Active profile Anthropic PKCE credential store.
-            str(hermes_home / ".anthropic_oauth.json"),
+            str(fabric_home / ".anthropic_oauth.json"),
             # Top-level Anthropic PKCE credential store remains sensitive even
             # when a profile is active; default/non-profile sessions still read it.
-            str(hermes_root / ".anthropic_oauth.json"),
+            str(fabric_root / ".anthropic_oauth.json"),
             os.path.join(home, ".netrc"),
             os.path.join(home, ".pgpass"),
             os.path.join(home, ".npmrc"),
@@ -78,19 +72,45 @@ def build_write_denied_prefixes(home: str) -> list[str]:
     ]
 
 
+def _configured_write_safe_roots() -> list[str]:
+    """Return the profile's configured write sandbox roots."""
+
+    try:
+        from fabric_cli.config import read_raw_config
+
+        raw = read_raw_config().get("security", {}).get("write_safe_roots", [])
+    except Exception:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    if not isinstance(raw, list):
+        return []
+    return [value for value in raw if isinstance(value, str)]
+
+
+def _is_published_container_install() -> bool:
+    """Return whether this code tree is the stamped Fabric container image."""
+
+    try:
+        marker = Path(__file__).resolve().parent.parent / ".install_method"
+        return marker.read_text(encoding="utf-8").strip().lower() == "docker"
+    except OSError:
+        return False
+
+
 def get_safe_write_roots() -> set[str]:
-    """Return resolved FABRIC_WRITE_SAFE_ROOT paths. Supports multiple directories
-    separated by ``os.pathsep`` (``:`` on Unix, ``;`` on Windows).
-    E.g., ``/opt/data:/var/www/html`` on Unix, ``C:\\data;D:\\www`` on Windows."""
-    env = (
-        os.getenv("FABRIC_WRITE_SAFE_ROOT")
-        or os.getenv("HERMES_WRITE_SAFE_ROOT")
-        or ""
-    )
-    if not env:
-        return set()
+    """Return resolved ``security.write_safe_roots`` paths.
+
+    The published container has a sealed install tree and always confines file
+    tools to its canonical Fabric home. Other installations opt into additional
+    confinement through ``config.yaml``.
+    """
+
+    configured = _configured_write_safe_roots()
+    if not configured and _is_published_container_install():
+        configured = [str(_fabric_home_path())]
     roots: set[str] = set()
-    for path in env.split(os.pathsep):
+    for path in configured:
         if path:
             try:
                 resolved = os.path.realpath(os.path.expanduser(path))
@@ -113,16 +133,16 @@ def is_write_denied(path: str) -> bool:
 
     mcp_tokens_dir_name = "mcp-tokens"
 
-    hermes_dirs = []
-    for base in (_hermes_home_path(), _hermes_root_path()):
+    fabric_dirs = []
+    for base in (_fabric_home_path(), _fabric_root_path()):
         try:
             real = os.path.realpath(base)
-            if real not in hermes_dirs:
-                hermes_dirs.append(real)
+            if real not in fabric_dirs:
+                fabric_dirs.append(real)
         except Exception:
             continue
 
-    for base_real in hermes_dirs:
+    for base_real in fabric_dirs:
         try:
             mcp_real = os.path.realpath(os.path.join(base_real, mcp_tokens_dir_name))
             if resolved == mcp_real or resolved.startswith(mcp_real + os.sep):
@@ -130,7 +150,9 @@ def is_write_denied(path: str) -> bool:
         except Exception:
             pass
         try:
-            pairing_real = os.path.realpath(os.path.join(base_real, "pairing"))
+            pairing_real = os.path.realpath(
+                os.path.join(base_real, "platforms", "pairing")
+            )
             if resolved == pairing_real or resolved.startswith(pairing_real + os.sep):
                 return True
         except Exception:
@@ -168,14 +190,14 @@ def get_read_block_error(
     *,
     _capability=None,
 ) -> Optional[str]:
-    """Return an error message when a read targets a denied Hermes path.
+    """Return an error message when a read targets a denied Fabric path.
 
     Three categories are blocked:
 
-      * Internal Hermes cache files under ``HERMES_HOME/skills/.hub`` —
+      * Internal Fabric cache files under ``FABRIC_HOME/skills/.hub`` —
         readable metadata that an attacker could use as a prompt-injection
         carrier.
-      * Credential / secret stores under HERMES_HOME and the global Hermes
+      * Credential / secret stores under FABRIC_HOME and the global Fabric
         root: ``auth.json``, ``auth.lock``, ``.anthropic_oauth.json``,
         ``.env``, ``webhook_subscriptions.json``, ``auth/google_oauth.json``,
         and anything under ``mcp-tokens/``. These hold plaintext provider keys,
@@ -192,7 +214,7 @@ def get_read_block_error(
 
     **This is NOT a security boundary.** The terminal tool runs as the
     same OS user with shell access; the agent can still ``cat auth.json``
-    or ``cat ~/.hermes/.env`` and exfiltrate the file. The read-deny exists
+    or ``cat ~/.fabric/.env`` and exfiltrate the file. The read-deny exists
     as defense-in-depth that:
 
       * Returns a clear error to models that respect tool denials, which
@@ -235,14 +257,14 @@ def get_read_block_error(
     private_provider_path = (
         classify_pinned_provider_account_path(
             _capability,
-            active_home=_hermes_home_path(),
-            fabric_root=_hermes_root_path(),
+            active_home=_fabric_home_path(),
+            fabric_root=_fabric_root_path(),
         )
         if _capability is not None
         else is_private_provider_account_path(
             requested,
-            active_home=_hermes_home_path(),
-            fabric_root=_hermes_root_path(),
+            active_home=_fabric_home_path(),
+            fabric_root=_fabric_root_path(),
         )
     )
     if private_provider_path:
@@ -251,22 +273,22 @@ def get_read_block_error(
             "and cannot be read directly."
         )
 
-    # Resolve BOTH the active HERMES_HOME (profile-aware) AND the global
-    # Hermes root so credential stores at <root>/auth.json etc. are also
-    # blocked when running under a profile (HERMES_HOME points at
+    # Resolve BOTH the active FABRIC_HOME (profile-aware) AND the global
+    # Fabric root so credential stores at <root>/auth.json etc. are also
+    # blocked when running under a profile (FABRIC_HOME points at
     # <root>/profiles/<name> in profile mode). Same shape as the write
     # deny widening (#15981, #14157).
-    hermes_dirs: list[Path] = []
-    for base in (_hermes_home_path(), _hermes_root_path()):
+    fabric_dirs: list[Path] = []
+    for base in (_fabric_home_path(), _fabric_root_path()):
         try:
             real = base.resolve()
-            if real not in hermes_dirs:
-                hermes_dirs.append(real)
+            if real not in fabric_dirs:
+                fabric_dirs.append(real)
         except Exception:
             continue
 
     # Skills .hub: prompt-injection carriers.
-    for hd in hermes_dirs:
+    for hd in fabric_dirs:
         blocked_dirs = [
             hd / "skills" / ".hub" / "index-cache",
             hd / "skills" / ".hub",
@@ -283,7 +305,7 @@ def get_read_block_error(
             )
 
     # Credential / secret stores. Exact-file matches under either
-    # HERMES_HOME or <root>.
+    # FABRIC_HOME or <root>.
     credential_file_names = (
         "auth.json",
         "auth.lock",
@@ -296,7 +318,7 @@ def get_read_block_error(
         # was introduced by #31968 but not added to this guard.
         os.path.join("cache", "bws_cache.json"),
     )
-    for hd in hermes_dirs:
+    for hd in fabric_dirs:
         for name in credential_file_names:
             try:
                 blocked = (hd / name).resolve()
@@ -313,7 +335,7 @@ def get_read_block_error(
 
     # mcp-tokens/: directory prefix match — anything inside is OAuth
     # token material.
-    for hd in hermes_dirs:
+    for hd in fabric_dirs:
         try:
             mcp_tokens = (hd / "mcp-tokens").resolve()
         except Exception:
@@ -388,7 +410,7 @@ def pinned_model_read(
 
 
 def raise_if_read_blocked(path: str) -> None:
-    """Raise ``ValueError`` if ``path`` is a denied Hermes read (see
+    """Raise ``ValueError`` if ``path`` is a denied Fabric read (see
     :func:`get_read_block_error`), else return.
 
     Shared chokepoint for provider input-loading sites that read a local
@@ -414,7 +436,7 @@ def raise_if_read_blocked(path: str) -> None:
 # ---------------------------------------------------------------------------
 # Cross-profile write guard (#TBD)
 #
-# Hermes profiles are separate HERMES_HOME dirs under
+# Fabric profiles are separate FABRIC_HOME dirs under
 # ``<root>/profiles/<name>/``. Each profile has its own skills/, plugins/,
 # cron/, memories/. When an agent runs under one profile, writing into
 # ANOTHER profile's directories is almost always wrong — those skills /
@@ -427,30 +449,30 @@ def raise_if_read_blocked(path: str) -> None:
 # as the dangerous-command approval flow — the agent is told the boundary
 # exists, and explicit user direction is required to cross it.
 #
-# Reference: May 2026 incident where a hermes-security profile session
-# edited skills under both ``~/.hermes/profiles/hermes-security/skills/``
-# AND ``~/.hermes/skills/`` (the default profile's skills) without realizing
+# Reference: May 2026 incident where a named profile session
+# edited skills under both its profile-scoped ``skills/`` directory
+# AND ``~/.fabric/skills/`` (the default profile's skills) without realizing
 # the second path belonged to a different profile.
 # ---------------------------------------------------------------------------
 
-# Profile-scoped directories under HERMES_HOME / <root> / <root>/profiles/<X>/
+# Profile-scoped directories under FABRIC_HOME / <root> / <root>/profiles/<X>/
 # that should be guarded. Adding a new area here extends the guard with no
 # other code change.
 PROFILE_SCOPED_AREAS = ("skills", "plugins", "cron", "memories")
 
 
 def _resolve_active_profile_name() -> str:
-    """Return the active profile name derived from HERMES_HOME.
+    """Return the active profile name derived from FABRIC_HOME.
 
-    ``~/.hermes``              -> ``"default"``
-    ``~/.hermes/profiles/X``  -> ``"X"``
+    ``~/.fabric``              -> ``"default"``
+    ``~/.fabric/profiles/X``  -> ``"X"``
 
     Falls back to ``"default"`` on any resolution failure so the guard
     never raises into the tool path.
     """
     try:
-        home_real = _hermes_home_path().resolve()
-        root_real = _hermes_root_path().resolve()
+        home_real = _fabric_home_path().resolve()
+        root_real = _fabric_root_path().resolve()
     except (OSError, RuntimeError):
         return "default"
     profiles_dir = root_real / "profiles"
@@ -468,7 +490,7 @@ def classify_cross_profile_target(path: str) -> Optional[dict]:
     """Classify a write target as cross-profile if it lands in another
     profile's scoped area (skills/plugins/cron/memories).
 
-    Returns ``None`` when the target is outside Hermes scope, or is inside
+    Returns ``None`` when the target is outside Fabric scope, or is inside
     the ACTIVE profile, or doesn't hit a profile-scoped area. Otherwise
     returns a dict with:
 
@@ -483,7 +505,7 @@ def classify_cross_profile_target(path: str) -> Optional[dict]:
     """
     try:
         target = Path(os.path.expanduser(str(path))).resolve()
-        root_real = _hermes_root_path().resolve()
+        root_real = _fabric_root_path().resolve()
     except (OSError, RuntimeError):
         return None
 
@@ -531,7 +553,7 @@ def get_cross_profile_warning(path: str) -> Optional[str]:
     """Return a model-facing warning string when ``path`` is cross-profile.
 
     Returns ``None`` when the write is in-scope (same profile) or outside
-    Hermes entirely. Caller is expected to surface the warning to the
+    Fabric entirely. Caller is expected to surface the warning to the
     agent as a tool-result error, NOT to silently allow the write — the
     agent must either get explicit user direction to proceed, or pass
     ``cross_profile=True`` to its write tool.
@@ -562,7 +584,7 @@ def get_cross_profile_warning(path: str) -> Optional[str]:
 # Non-local terminal backends (Docker, Daytona, etc.) bind a sandbox-local
 # directory to the container's ``$HOME``. The on-disk layout looks like
 #
-#   <HERMES_HOME>/profiles/<name>/sandboxes/<backend>/<task>/home/.hermes/...
+#   <FABRIC_HOME>/profiles/<name>/sandboxes/<backend>/<task>/home/.fabric/...
 #
 # When the agent (running host-side) speculates that authoritative profile
 # state lives at one of those sandbox-mirror paths, the write lands on the
@@ -571,54 +593,50 @@ def get_cross_profile_warning(path: str) -> Optional[str]:
 # disk two divergent copies accumulate. See #32049 for evidence.
 #
 # This guard is path-shape-only: it detects the
-# ``…/sandboxes/<backend>/<task>/home/.hermes/…`` segment and warns
+# ``…/sandboxes/<backend>/<task>/home/.fabric/…`` segment and warns
 # regardless of which Fabric profile is active. It does NOT cover the
 # inner-container case where the bind mount strips the ``sandboxes/`` prefix
-# (the agent's view inside the container is plain ``/root/.hermes/...``);
+# (the agent's view inside the container is plain ``/root/.fabric/...``);
 # that case needs a separate dispatch-layer or host-side ``profile_state``
 # tool.
 # ---------------------------------------------------------------------------
 
 _SANDBOX_STATE_HOME_NAMES = frozenset({".fabric"})
-# public-release-audit: allow-legacy-compat -- detect mirrors created by older runtimes.
-_LEGACY_SANDBOX_STATE_HOME_NAME = ".hermes"  # Legacy compatibility path.
 
 
 def _find_sandbox_mirror_segments(parts: tuple) -> Optional[int]:
-    """Return the index of the inner ``.hermes`` part in a sandbox-mirror path.
+    """Return the index of the inner ``.fabric`` part in a sandbox-mirror path.
 
-    Matches ``…/sandboxes/<backend>/<task>/home/.hermes/…`` and returns the
-    index where the inner Hermes-state portion starts. Returns ``None`` for
+    Matches ``…/sandboxes/<backend>/<task>/home/.fabric/…`` and returns the
+    index where the inner Fabric-state portion starts. Returns ``None`` for
     paths that do not contain the sandbox-mirror shape.
     """
     for i, part in enumerate(parts):
         if part != "sandboxes":
             continue
-        # Need at least: sandboxes / <backend> / <task> / home / .hermes / <thing>
+        # Need at least: sandboxes / <backend> / <task> / home / .fabric / <thing>
         if i + 5 >= len(parts):
             continue
-        if parts[i + 3] == "home" and parts[i + 4] in (
-            _SANDBOX_STATE_HOME_NAMES | {_LEGACY_SANDBOX_STATE_HOME_NAME}
-        ):
+        if parts[i + 3] == "home" and parts[i + 4] in _SANDBOX_STATE_HOME_NAMES:
             return i + 4
     return None
 
 
 def classify_sandbox_mirror_target(path: str) -> Optional[dict]:
-    """Classify a write target as a sandbox-mirror of authoritative Hermes state.
+    """Classify a write target as a sandbox-mirror of authoritative Fabric state.
 
     Returns ``None`` when the path does not match the sandbox-mirror shape.
     Otherwise returns a dict with:
 
       * ``target_path``: the resolved path string
-      * ``mirror_root``: the ``…/sandboxes/<backend>/<task>/home/.hermes``
+      * ``mirror_root``: the ``…/sandboxes/<backend>/<task>/home/.fabric``
         prefix (so callers can show users which sandbox owns the mirror)
-      * ``inner_path``: the portion under the mirror's ``.hermes`` (what the
+      * ``inner_path``: the portion under the mirror's ``.fabric`` (what the
         agent likely meant to address on the host)
 
-    Detection is path-shape-only — does not require any Hermes resolver to
+    Detection is path-shape-only — does not require any Fabric resolver to
     succeed, so it works correctly even when called from contexts where
-    HERMES_HOME resolution would be ambiguous.
+    FABRIC_HOME resolution would be ambiguous.
     """
     try:
         target = Path(os.path.expanduser(str(path))).resolve()
@@ -663,7 +681,7 @@ def get_sandbox_mirror_warning(path: str) -> Optional[str]:
         f"created by a non-local terminal backend (docker/daytona/etc.). "
         f"Writes here land on a copy that the host Fabric process never "
         f"reads — the authoritative file is likely {info['inner_path']!r} "
-        f"under the real HERMES_HOME. Use the host-side tool for "
+        f"under the real FABRIC_HOME. Use the host-side tool for "
         f"authoritative state (e.g. ``memory`` for memories), or address "
         f"the host path directly. To bypass this guard after explicit "
         f"user direction, retry the call with ``cross_profile=True``. "
@@ -676,9 +694,9 @@ def get_sandbox_mirror_warning(path: str) -> Optional[str]:
 # Container-context mirror guard (inner-container case — #32049 follow-up)
 #
 # Brian's shape-based detector (#32213) catches paths that still carry the
-# full ``…/sandboxes/<backend>/<task>/home/.hermes/…`` prefix on the host.
+# full ``…/sandboxes/<backend>/<task>/home/.fabric/…`` prefix on the host.
 # But when file tools execute *inside* the container the bind-mount strips
-# that prefix: the agent sees plain ``/root/.hermes/…``.  The root:root
+# that prefix: the agent sees plain ``/root/.fabric/…``.  The root:root
 # ownership on the divergent SOUL.md in #32049 confirms this is the primary
 # failure mode.
 #
@@ -702,7 +720,7 @@ def classify_container_mirror_target(
       * ``target_path``: resolved path string
       * ``mirror_root``: the declared container mirror prefix
       * ``inner_path``: portion under the mirror root (what the agent
-        likely meant to address in the host HERMES_HOME)
+        likely meant to address in the host FABRIC_HOME)
     """
     if not mirror_prefix:
         return None
@@ -724,7 +742,7 @@ def get_container_mirror_warning(
     mirror_prefix: str | None = None,
 ) -> Optional[str]:
     """Return a model-facing warning when *path* lands in the container's
-    sandbox mirror of authoritative Hermes state.
+    sandbox mirror of authoritative Fabric state.
 
     The caller supplies ``mirror_prefix`` only when the current file-tool
     backend is known to execute inside a Docker sandbox. Same contract as
@@ -740,7 +758,7 @@ def get_container_mirror_warning(
         f"sits under {info['mirror_root']!r}, which is the container's "
         f"bind-mounted home — a per-task mirror that the host Fabric "
         f"process never reads. The authoritative file is "
-        f"{info['inner_path']!r} under the real HERMES_HOME. Use the "
+        f"{info['inner_path']!r} under the real FABRIC_HOME. Use the "
         f"host-side tool for authoritative state (e.g. ``memory`` for "
         f"memories), or address the host path directly. To bypass after "
         f"explicit user direction, retry with ``cross_profile=True``. "

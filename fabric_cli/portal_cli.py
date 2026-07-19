@@ -3,9 +3,9 @@
 Running ``fabric portal`` with no subcommand performs the one-shot Portal
 onboarding: OAuth login, pick a Nous model, switch the inference provider to
 Nous, and offer to enable the Tool Gateway. It is the friendly alias for
-``fabric auth add nous --type oauth`` (which still works), is identical to
-``fabric setup --portal``, and runs the same Nous flow as the first-time quick
-setup.
+``fabric auth add nous --client-id <registered-client-id>`` (which still
+works), is identical to the explicit-client-id ``fabric setup --portal`` flow,
+and runs the same Nous flow as the first-time quick setup.
 
 Subcommands:
   (none)   Log in to Nous Portal + set it up (one-shot onboarding).
@@ -20,6 +20,7 @@ surface for the Portal subscription itself.
 """
 from __future__ import annotations
 
+import argparse
 import sys
 import webbrowser
 
@@ -58,7 +59,9 @@ def _cmd_status(args) -> int:
     else:
         print(f"  Auth:    {color('not logged in', Colors.YELLOW)}")
         print(f"  Sign up: {SUBSCRIPTION_URL}")
-        print("  Login:   fabric portal")
+        print(
+            "  Login:   fabric portal --client-id <registered-client-id>"
+        )
 
     # Provider selection (independent of auth)
     model_cfg = config.get("model") if isinstance(config.get("model"), dict) else {}
@@ -143,7 +146,13 @@ def _cmd_tools(args) -> int:
     print(color("  ────────────────────", Colors.MAGENTA))
 
     if not features.nous_auth_present:
-        print(color("  Not logged into Nous Portal — sign in with `fabric portal`.", Colors.YELLOW))
+        print(
+            color(
+                "  Not logged into Nous Portal — sign in with "
+                "`fabric portal --client-id <registered-client-id>`.",
+                Colors.YELLOW,
+            )
+        )
         print()
 
     label_width = max(len(label) for _, label, _ in catalog)
@@ -170,17 +179,18 @@ def _cmd_tools(args) -> int:
 def _cmd_login(args) -> int:
     """Run the one-shot Nous Portal onboarding (login + model + provider + tools).
 
-    This is the human-readable front door for `fabric auth add nous --type
-    oauth`. It reuses the exact wiring behind `fabric setup --portal` (which in
-    turn runs the same Nous flow as the first-time quick setup), so the
-    commands stay in lockstep: device-code login, pick a Nous model, switch the
-    inference provider to Nous, then offer the Tool Gateway opt-in.
+    This is the human-readable front door for `fabric auth add nous
+    --client-id <registered-client-id>`. It reuses the exact wiring behind
+    `fabric setup --portal --client-id <registered-client-id>` (which in turn
+    runs the same Nous flow as the first-time quick setup), so the commands
+    stay in lockstep: device-code login, pick a Nous model, switch the inference
+    provider to Nous, then offer the Tool Gateway opt-in.
     """
     from fabric_cli.setup import _run_portal_one_shot
 
     config = load_config() or {}
     try:
-        _run_portal_one_shot(config)
+        _run_portal_one_shot(config, args=args)
     except (KeyboardInterrupt, EOFError):
         print()
         print("Portal setup cancelled.")
@@ -193,8 +203,7 @@ def portal_command(args) -> int:
     sub = getattr(args, "portal_command", None)
     if sub in {None, "", "login"}:
         # Default to the one-shot onboarding — `fabric portal` is the
-        # human-readable alias for `fabric auth add nous --type oauth` /
-        # `fabric setup --portal`.
+        # human-readable alias for the explicit-client-id Nous auth/setup flow.
         return _cmd_login(args)
     if sub in {"info", "status"}:
         # `status` kept as a back-compat alias for the prior default.
@@ -217,15 +226,25 @@ def add_parser(subparsers) -> None:
             "Run `fabric portal` with no subcommand to log in to Nous Portal "
             "and set it up — pick a model, set Nous as your provider, and offer "
             "the Tool Gateway (the human-readable alias for `fabric auth add "
-            "nous --type oauth`, identical to `fabric setup --portal`). "
+            "nous --client-id <registered-client-id>`, identical to `fabric "
+            "setup --portal --client-id <registered-client-id>`). "
             "Subcommands: login (default), info, open, tools."
         ),
     )
+    portal_parser.add_argument(
+        "--client-id",
+        help="Registered Nous OAuth client ID (required for first-time login)",
+    )
     portal_sub = portal_parser.add_subparsers(dest="portal_command")
 
-    portal_sub.add_parser(
+    login_parser = portal_sub.add_parser(
         "login",
         help="Log in to Nous Portal + set it up (default; one-shot onboarding)",
+    )
+    login_parser.add_argument(
+        "--client-id",
+        default=argparse.SUPPRESS,
+        help="Registered Nous OAuth client ID (required for first-time login)",
     )
     portal_sub.add_parser(
         "info",

@@ -498,21 +498,18 @@ def _write_through_provider_state_to_global_root(
         # Classic mode (profile == root); the profile save already hit root.
         return
     # Seat belt: under pytest, refuse to write the real user's
-    # ~/.hermes/auth.json even when HERMES_HOME points at a profile path
+    # ~/.fabric/auth.json even when FABRIC_HOME points at a profile path
     # (mirrors the read-side guard in _load_global_auth_store). Uses the
     # unmodified HOME env, not Path.home() which fixtures may monkeypatch.
     if os.environ.get("PYTEST_CURRENT_TEST"):
         real_home_env = os.environ.get("HOME", "")
         if real_home_env:
-            canonical_real_root = Path(real_home_env) / ".fabric" / "auth.json"
-            # public-release-audit: allow-legacy-compat -- guard existing pre-Fabric homes during migration.
-            legacy_real_root = Path(real_home_env) / ".hermes" / "auth.json"  # Legacy compatibility guard.
-            for real_root in (canonical_real_root, legacy_real_root):
-                try:
-                    if global_path.resolve(strict=False) == real_root.resolve(strict=False):
-                        return
-                except Exception:
+            real_root = Path(real_home_env) / ".fabric" / "auth.json"
+            try:
+                if global_path.resolve(strict=False) == real_root.resolve(strict=False):
                     return
+            except Exception:
+                return
     try:
         if global_path.exists():
             global_store = _load_auth_store(global_path)
@@ -991,7 +988,7 @@ class CredentialPool:
             return None
 
         # Codex OAuth refresh tokens are single-use.  The sync→POST→write-back
-        # sequence below must run atomically across Hermes processes: otherwise
+        # sequence below must run atomically across Fabric processes: otherwise
         # two processes can both adopt the same on-disk token, both POST it, and
         # the loser gets ``refresh_token_reused``.  Serialize the whole sequence
         # through the shared cross-process auth-store flock (the same lock and
@@ -999,9 +996,7 @@ class CredentialPool:
         # When a waiter finally acquires the lock, the in-lock re-sync below
         # picks up the rotated token the winner persisted and skips the POST.
         if self.provider == "openai-codex":
-            refresh_timeout_seconds = auth_mod.env_float(
-                "HERMES_CODEX_REFRESH_TIMEOUT_SECONDS", 20
-            )
+            refresh_timeout_seconds = 20.0
             lock_timeout = max(
                 float(auth_mod.AUTH_LOCK_TIMEOUT_SECONDS),
                 float(refresh_timeout_seconds) + 5.0,
@@ -1024,7 +1019,7 @@ class CredentialPool:
 
                 refreshed = refresh_anthropic_oauth_pure(
                     entry.refresh_token,
-                    use_json=entry.source.endswith("hermes_pkce"),
+                    use_json=entry.source.endswith("anthropic_pkce"),
                 )
                 updated = replace(
                     entry,
@@ -1047,7 +1042,7 @@ class CredentialPool:
                         logger.debug("Failed to write refreshed token to credentials file: %s", wexc)
             elif self.provider == "openai-codex":
                 # Adopt fresher tokens from auth.json before spending the
-                # refresh_token — single-use tokens consumed by another Hermes
+                # refresh_token — single-use tokens consumed by another Fabric
                 # process sharing the same auth.json singleton would otherwise
                 # trigger ``refresh_token_reused`` on the next POST.
                 synced = self._sync_codex_entry_from_auth_store(entry)
@@ -1105,7 +1100,7 @@ class CredentialPool:
                         from agent.anthropic_adapter import refresh_anthropic_oauth_pure
                         refreshed = refresh_anthropic_oauth_pure(
                             synced.refresh_token,
-                            use_json=synced.source.endswith("hermes_pkce"),
+                            use_json=synced.source.endswith("anthropic_pkce"),
                         )
                         updated = replace(
                             synced,
@@ -1405,7 +1400,7 @@ class CredentialPool:
         for entry in self._entries:
             # For anthropic claude_code entries, sync from the credentials file
             # before any status/refresh checks. This picks up tokens refreshed
-            # by other processes (Claude Code CLI, other Hermes profiles).
+            # by other processes (Claude Code CLI, other Fabric profiles).
             if (self.provider == "anthropic" and entry.source == "claude_code"
                     and entry.last_status in {STATUS_EXHAUSTED, STATUS_DEAD}):
                 synced = self._sync_anthropic_entry_from_credentials_file(entry)
@@ -1791,7 +1786,7 @@ def _normalize_pool_priorities(provider: str, entries: List[PooledCredential]) -
     source_rank = {
         "env:ANTHROPIC_TOKEN": 0,
         "env:CLAUDE_CODE_OAUTH_TOKEN": 1,
-        "hermes_pkce": 2,
+        "anthropic_pkce": 2,
         "claude_code": 3,
         "env:ANTHROPIC_API_KEY": 4,
     }
@@ -1832,7 +1827,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             return False
 
     if provider == "anthropic":
-        # Only auto-discover external credentials (Claude Code, Hermes PKCE)
+        # Only auto-discover external credentials (Claude Code, Anthropic PKCE)
         # when the user has explicitly configured anthropic as their provider.
         # Without this gate, auxiliary client fallback chains silently read
         # ~/.claude/.credentials.json without user consent.  See PR #4210.
@@ -1850,13 +1845,13 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         # API key and zeros ANTHROPIC_TOKEN; `save_anthropic_oauth_token()`
         # does the inverse.  When that signal is present we MUST NOT seed
         # autodiscovered OAuth tokens (~/.claude/.credentials.json from the
-        # Claude Code CLI, hermes_pkce creds from a previous OAuth login)
+        # Claude Code CLI or Anthropic PKCE credentials from an OAuth login)
         # into the anthropic pool — otherwise rotation on a 401/429 silently
         # flips the session onto an OAuth credential, which forces the Claude
         # Code identity injection, `mcp_` tool-name rewrite, and claude-cli
         # User-Agent header (`agent/anthropic_adapter.py:2128`).  Users who
         # explicitly opted into the API-key path are explicitly opting OUT of
-        # that masquerade.  Prefer ~/.hermes/.env over os.environ for the
+        # that masquerade. Prefer ~/.fabric/.env over os.environ for the
         # same reason `_seed_from_env` does — that's the authoritative file
         # that `fabric setup` writes.
         _env_file = load_env()
@@ -1864,11 +1859,17 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         def _env_val(key: str) -> str:
             return (_env_file.get(key) or _get_secret(key, "") or "").strip()
 
+        from agent.anthropic_adapter import _is_oauth_token
+
         anthropic_api_key = _env_val("ANTHROPIC_API_KEY")
         anthropic_oauth_env = (
             _env_val("ANTHROPIC_TOKEN") or _env_val("CLAUDE_CODE_OAUTH_TOKEN")
         )
-        api_key_path_explicit = bool(anthropic_api_key and not anthropic_oauth_env)
+        api_key_path_explicit = bool(
+            anthropic_api_key
+            and not _is_oauth_token(anthropic_api_key)
+            and not anthropic_oauth_env
+        )
 
         if api_key_path_explicit:
             # Prune any stale autodiscovered OAuth entries that may have been
@@ -1878,17 +1879,17 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             # transient 401 could revive them.
             retained = [
                 entry for entry in entries
-                if entry.source not in {"hermes_pkce", "claude_code"}
+                if entry.source not in {"anthropic_pkce", "claude_code"}
             ]
             if len(retained) != len(entries):
                 entries[:] = retained
                 changed = True
             return changed, active_sources
 
-        from agent.anthropic_adapter import read_claude_code_credentials, read_hermes_oauth_credentials
+        from agent.anthropic_adapter import read_claude_code_credentials, read_fabric_oauth_credentials
 
         for source_name, creds in (
-            ("hermes_pkce", read_hermes_oauth_credentials()),
+            ("anthropic_pkce", read_fabric_oauth_credentials()),
             ("claude_code", read_claude_code_credentials()),
         ):
             if creds and creds.get("accessToken"):
@@ -2006,7 +2007,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     elif provider == "qwen-oauth":
         # Qwen OAuth tokens live in ~/.qwen/oauth_creds.json, written by
         # the Qwen CLI (`qwen auth qwen-oauth`).  They aren't in the
-        # Hermes auth store or env vars, so resolve them here.
+        # Fabric auth store or env vars, so resolve them here.
         # Use refresh_if_expiring=False to avoid network calls during
         # pool loading / provider discovery.
         try:
@@ -2034,7 +2035,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             logger.debug("Qwen OAuth token seed failed: %s", exc)
 
     elif provider == "minimax-oauth":
-        # MiniMax OAuth tokens live in ~/.hermes/auth.json providers.minimax-oauth.
+        # MiniMax OAuth tokens live in ~/.fabric/auth.json providers.minimax-oauth.
         # Seed the pool so `/auth list` reflects the logged-in state and the
         # standard `fabric auth remove minimax-oauth <N>` flow works.
         # Use refresh_if_expiring=False equivalent: resolve_minimax_oauth_runtime_credentials
@@ -2078,14 +2079,14 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     elif provider == "openai-codex":
         # Respect user suppression — `fabric auth remove openai-codex` marks
         # the device_code source as suppressed so it won't be re-seeded from
-        # the Hermes auth store.  Without this gate the removal is instantly
+        # the Fabric auth store. Without this gate the removal is instantly
         # undone on the next load_pool() call.
         if _is_suppressed(provider, "device_code"):
             return changed, active_sources
 
         state = _load_provider_state(auth_store, "openai-codex")
         tokens = state.get("tokens") if isinstance(state, dict) else None
-        # Hermes owns its own Codex auth state — we do NOT auto-import from
+        # Fabric owns its own Codex auth state — we do NOT auto-import from
         # ~/.codex/auth.json at pool-load time.  OAuth refresh tokens are
         # single-use, so sharing them with Codex CLI / VS Code causes
         # refresh_token_reused race failures.  Users who want to adopt
@@ -2149,8 +2150,8 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
     changed = False
     active_sources: Set[str] = set()
 
-    # Prefer ~/.hermes/.env over os.environ — the user's config file is the
-    # authoritative source for Hermes credentials. Stale env vars from parent
+    # Prefer ~/.fabric/.env over os.environ — the user's config file is the
+    # authoritative source for Fabric credentials. Stale env vars from parent
     # processes (Codex CLI, test scripts, etc.) should not override deliberate
     # changes to the .env file.
     def _get_env_prefer_dotenv(key: str) -> str:
@@ -2172,7 +2173,7 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
 
     # Honour user suppression — `fabric auth remove <provider> <N>` for an
     # env-seeded credential marks the env:<VAR> source as suppressed so it
-    # won't be re-seeded from the user's shell environment or ~/.hermes/.env.
+    # won't be re-seeded from the user's shell environment or ~/.fabric/.env.
     # Without this gate the removal is silently undone on the next
     # load_pool() call whenever the var is still exported by the shell.
     try:
@@ -2210,7 +2211,7 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
         return payload
 
     if provider == "openrouter":
-        # Prefer ~/.hermes/.env over os.environ
+        # Prefer ~/.fabric/.env over os.environ
         token = _get_env_prefer_dotenv("OPENROUTER_API_KEY")
         if token:
             source = "env:OPENROUTER_API_KEY"
@@ -2247,18 +2248,27 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
         ]
 
     for env_var in env_vars:
-        # Prefer ~/.hermes/.env over os.environ
+        # Prefer ~/.fabric/.env over os.environ
         token = _get_env_prefer_dotenv(env_var)
         if not token:
             continue
+        if provider == "anthropic" and env_var == "ANTHROPIC_API_KEY":
+            from agent.anthropic_adapter import _is_oauth_token
+
+            if _is_oauth_token(token):
+                # OAuth credentials have dedicated canonical sources. Do not
+                # seed an API-key entry that the client would reinterpret by
+                # token shape.
+                continue
         source = f"env:{env_var}"
         if _is_source_suppressed(provider, source):
             continue
         active_sources.add(source)
-        # Claude Code OAuth tokens are the only Anthropic credentials that should flow into the OAuth refresh path.
+        # Anthropic's canonical token variables flow into the OAuth refresh
+        # path; ANTHROPIC_API_KEY remains an API-key-only contract.
         auth_type = (
             AUTH_TYPE_OAUTH
-            if provider == "anthropic" and token.startswith("sk-ant-oat")
+            if provider == "anthropic" and env_var != "ANTHROPIC_API_KEY"
             else AUTH_TYPE_API_KEY
         )
         base_url = env_url or pconfig.inference_base_url
@@ -2296,11 +2306,11 @@ def _prune_stale_seeded_entries(
         # (e.g. an `fabric auth` command that confirmed the source is gone).
         if entry.source.startswith("env:"):
             return prune_env_sources
-        # File-backed singletons (device-code OAuth, claude_code) and Hermes
+        # File-backed singletons (device-code OAuth, claude_code) and Anthropic
         # PKCE should disappear from the pool when their backing file is gone.
         return (
             is_borrowed_credential_source(entry.source, entry.provider)
-            or entry.source == "hermes_pkce"
+            or entry.source == "anthropic_pkce"
         )
 
     retained = [

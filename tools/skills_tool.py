@@ -69,7 +69,7 @@ Usage:
 import json
 import logging
 
-from fabric_constants import get_fabric_home, display_fabric_home
+from fabric_constants import get_fabric_home, get_skills_dir, display_fabric_home
 import os
 import re
 from enum import Enum
@@ -78,7 +78,6 @@ from typing import Dict, Any, List, Optional, Set, Tuple
 
 from tools.registry import registry, tool_error
 from fabric_cli.config import cfg_get
-from utils import env_var_enabled
 from agent.skill_utils import (
     EXCLUDED_SKILL_DIRS as _EXCLUDED_SKILL_DIRS,
     extract_skill_metadata,
@@ -88,26 +87,9 @@ from agent.skill_utils import (
 logger = logging.getLogger(__name__)
 
 
-# All skills live in ~/.fabric/skills/ (seeded from bundled skills/ on install).
-# This is the single source of truth -- agent edits, hub installs, and bundled
-# skills all coexist here without polluting the git repo.
-HERMES_HOME = get_fabric_home()
-SKILLS_DIR = HERMES_HOME / "skills"
-_SKILLS_DIR_AT_IMPORT = SKILLS_DIR
-
-
 def _skills_dir() -> Path:
-    """Return the active profile's skills directory at call time.
-
-    Some long-lived runtimes import this module before the active profile has
-    set HERMES_HOME. Keep the legacy SKILLS_DIR module attribute for tests and
-    external patchers, but when it has not been patched, resolve from the live
-    profile-scoped HERMES_HOME on every call.
-    """
-    configured = Path(SKILLS_DIR)
-    if configured != _SKILLS_DIR_AT_IMPORT:
-        return configured
-    return get_fabric_home() / "skills"
+    """Return the active profile's skills directory at call time."""
+    return get_skills_dir()
 
 
 # Anthropic-recommended limits for progressive disclosure efficiency
@@ -156,7 +138,7 @@ def _skill_lookup_path_error(name: str) -> Optional[str]:
 
 
 def load_env() -> Dict[str, str]:
-    """Load profile-scoped environment variables from HERMES_HOME/.env."""
+    """Load profile-scoped environment variables from FABRIC_HOME/.env."""
     env_path = get_fabric_home() / ".env"
     env_vars: Dict[str, str] = {}
     if not env_path.exists():
@@ -368,11 +350,10 @@ def _capture_required_environment_variables(
     missing_names = [entry["name"] for entry in missing_entries]
     # Most gateway surfaces (messaging platforms) can't prompt for a secret, so
     # they short-circuit to the "unsupported" hint. Interactive gateway surfaces
-    # — the desktop app / TUI — set HERMES_INTERACTIVE and register a
-    # secret-capture callback that routes to a secure secret.request overlay, so
-    # they fall through and actually prompt. (HERMES_INTERACTIVE is the same flag
-    # tools/approval.py uses to tell an interactive surface from a messaging one.)
-    if _is_gateway_surface() and not env_var_enabled("HERMES_INTERACTIVE"):
+    # bind task-local interactive context and route through a secure overlay.
+    from tools.approval import is_fabric_interactive_context
+
+    if _is_gateway_surface() and not is_fabric_interactive_context():
         return {
             "missing_names": missing_names,
             "setup_skipped": False,
@@ -433,10 +414,9 @@ def _capture_required_environment_variables(
 
 
 def _is_gateway_surface() -> bool:
-    if env_var_enabled("HERMES_GATEWAY_SESSION"):
-        return True
-    from gateway.session_context import get_session_env
-    return bool(get_session_env("HERMES_SESSION_PLATFORM"))
+    from tools.approval import is_gateway_approval_context
+
+    return is_gateway_approval_context()
 
 
 def _get_terminal_backend_name() -> str:
@@ -583,11 +563,12 @@ def _get_session_platform() -> str:
 
     Mirrors the platform-resolution logic in
     ``agent.skill_utils.get_disabled_skill_names`` so that
-    ``_is_skill_disabled`` respects ``HERMES_SESSION_PLATFORM``.
+    ``_is_skill_disabled`` respects the active platform.
     """
     try:
-        from gateway.session_context import get_session_env
-        return get_session_env("HERMES_SESSION_PLATFORM") or ""
+        from gateway.session_context import get_session_context
+
+        return get_session_context().platform
     except Exception:
         return ""
 
@@ -595,16 +576,14 @@ def _get_session_platform() -> str:
 def _is_skill_disabled(name: str, platform: str = None) -> bool:
     """Check if a skill is disabled in config.
 
-    Resolves the active platform from (in order of precedence):
-    1. Explicit ``platform`` argument
-    2. ``HERMES_PLATFORM`` environment variable
-    3. ``HERMES_SESSION_PLATFORM`` from gateway session context
+    Resolves the active platform from an explicit ``platform`` argument or
+    the task-local gateway session context.
     """
     try:
         from fabric_cli.config import load_config
         config = load_config()
         skills_cfg = config.get("skills", {})
-        resolved_platform = platform or os.getenv("HERMES_PLATFORM") or _get_session_platform()
+        resolved_platform = platform or _get_session_platform()
         global_disabled = skills_cfg.get("disabled", [])
         if resolved_platform:
             platform_disabled = cfg_get(skills_cfg, "platform_disabled", resolved_platform)
@@ -897,7 +876,6 @@ def _serve_plugin_skill(
             rendered_content = preprocess_skill_content(
                 content,
                 skill_md.parent,
-                session_id=session_id,
             )
         except Exception:
             logger.debug(
@@ -1409,8 +1387,9 @@ def skill_view(
                         [str(f.relative_to(skill_dir)) for f in scripts_dir.glob(ext)]
                     )
 
-        # Canonical metadata.fabric values override legacy metadata.hermes
-        # values. Top-level fields remain a compatibility fallback.
+        # Preserve the raw agentskills.io metadata object in the response.
+        # Fabric-owned metadata wins, while standard top-level skill fields
+        # remain valid for third-party skills.
         raw_metadata = frontmatter.get("metadata")
         skill_metadata = extract_skill_metadata(frontmatter)
         tags = _parse_tags(
@@ -1514,7 +1493,6 @@ def skill_view(
                 rendered_content = preprocess_skill_content(
                     content,
                     skill_dir,
-                    session_id=task_id,
                 )
             except Exception:
                 logger.debug(

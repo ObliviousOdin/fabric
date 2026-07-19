@@ -14,29 +14,19 @@ configured up front; sessions are stateless HMAC-signed tokens this
 provider mints and verifies itself. That keeps it zero-infrastructure —
 appropriate for a single-box self-hosted dashboard.
 
-Configuration surfaces (env wins over config.yaml when set non-empty),
-mirroring the Nous provider's precedence convention:
+Configuration has one canonical surface: ``config.yaml``::
 
-  ``config.yaml`` — canonical surface::
+    dashboard:
+      basic_auth:
+        username: admin               # required
+        password_hash: scrypt$...     # preferred
+        # password: ...               # plaintext fallback, hashed in memory
+        secret: ...                   # optional token-signing key
+        totp_secret: ...              # optional RFC 6238 second factor
+        session_ttl_seconds: 43200    # optional; access-token lifetime (default 12h)
 
-      dashboard:
-        basic_auth:
-          username: admin               # required
-          # Provide EITHER a precomputed scrypt hash (preferred — no
-          # plaintext at rest) ...
-          password_hash: "scrypt$..."   # see hash_password()
-          # ... OR a plaintext password (hashed in-memory at load).
-          password: "s3cret"
-          secret: "<32+ random bytes, base64 or hex>"  # optional; token-signing key
-          session_ttl_seconds: 43200    # optional; access-token lifetime (default 12h)
-
-  Environment overrides::
-
-      HERMES_DASHBOARD_BASIC_AUTH_USERNAME
-      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH   # preferred
-      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD        # plaintext fallback
-      HERMES_DASHBOARD_BASIC_AUTH_SECRET
-      HERMES_DASHBOARD_BASIC_AUTH_TTL_SECONDS
+Any string value may use config's standard ``${VAR}`` interpolation when an
+operator prefers to keep the underlying credential in ``~/.fabric/.env``.
 
 If ``secret`` is not configured, a random per-process secret is generated
 at startup. That's fine for a single-process dashboard, but means all
@@ -62,10 +52,9 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import secrets
 import time
-from typing import Any, Optional
+from typing import Optional
 
 from fabric_cli.dashboard_auth import (
     DashboardAuthProvider,
@@ -149,9 +138,8 @@ def totp_provisioning_uri(secret: str, account: str, *, issuer: str = "Fabric") 
 def print_totp_enrollment(account: str = "admin", *, issuer: str = "Fabric") -> str:
     """Operator helper: mint a secret and print enrollment instructions.
 
-    Run it, add the printed secret to ``dashboard.basic_auth.totp_secret``
-    (or the env override), and scan the ``otpauth://`` URI into an
-    authenticator app::
+    Run it, add the printed secret to ``dashboard.basic_auth.totp_secret``,
+    and scan the ``otpauth://`` URI into an authenticator app::
 
         python -c "from plugins.dashboard_auth.basic import print_totp_enrollment; print_totp_enrollment('admin')"
 
@@ -167,8 +155,8 @@ def print_totp_enrollment(account: str = "admin", *, issuer: str = "Fabric") -> 
         "  dashboard:\n"
         "    basic_auth:\n"
         f"      totp_secret: \"{secret}\"\n"
-        "…or set HERMES_DASHBOARD_BASIC_AUTH_TOTP_SECRET. Then scan the "
-        "otpauth URI (or type the secret) into Google Authenticator, Authy, "
+        "Then scan the otpauth URI (or type the secret) into Google "
+        "Authenticator, Authy, "
         "1Password, or the Apple Passwords app."
     )
     return secret
@@ -223,7 +211,7 @@ def verify_totp(secret_b32: str, code: str, *, at: Optional[int] = None) -> bool
 def hash_password(password: str) -> str:
     """Return a ``scrypt$n$r$p$<salt_b64>$<dk_b64>`` hash string.
 
-    Use this to precompute ``password_hash`` for config.yaml so plaintext
+    Use this to precompute ``dashboard.basic_auth.password_hash`` so plaintext
     never sits at rest. Exposed as a module function so operators can run
     ``python -c "from plugins.dashboard_auth.basic import hash_password;
     print(hash_password('pw'))"``.
@@ -472,7 +460,7 @@ def _load_config_basic_auth_section() -> dict:
     except Exception as exc:  # noqa: BLE001 — broad catch is intentional
         logger.debug(
             "dashboard-auth-basic: load_config() raised %s; "
-            "falling back to env-only configuration",
+            "no basic-auth configuration is available",
             exc,
         )
         return {}
@@ -480,31 +468,33 @@ def _load_config_basic_auth_section() -> dict:
     return section if isinstance(section, dict) else {}
 
 
-def _resolve(env_name: str, cfg_section: dict, cfg_key: str) -> str:
-    """Env-wins-over-config resolution; empty env treated as unset."""
-    env = os.environ.get(env_name, "").strip()
-    if env:
-        return env
-    return str(cfg_section.get(cfg_key, "") or "").strip()
+def _resolve_password_hash(section: dict) -> str:
+    """Resolve the config credential, preferring a precomputed hash."""
+    password_hash = str(section.get("password_hash", "") or "").strip()
+    if password_hash:
+        return password_hash
+
+    plaintext = str(section.get("password", "") or "").strip()
+    if plaintext:
+        logger.info("dashboard-auth-basic: hashed the configured password in-memory.")
+        return hash_password(plaintext)
+    return ""
 
 
-def _resolve_secret(cfg_section: dict) -> bytes:
+def _resolve_secret(section: dict) -> bytes:
     """Resolve the token-signing secret.
 
-    Accepts base64 or hex or raw text from config/env. When unset,
-    generates a random per-process secret (sessions then don't survive a
-    restart or span multiple workers — logged at INFO).
+    Accepts base64, hex, or raw text from ``dashboard.basic_auth.secret``.
+    When unset, a random per-process secret is generated (sessions then don't
+    survive a restart or span multiple workers — logged at INFO).
     """
-    raw = _resolve(
-        "HERMES_DASHBOARD_BASIC_AUTH_SECRET", cfg_section, "secret"
-    )
+    raw = str(section.get("secret", "") or "").strip()
     if not raw:
         logger.info(
             "dashboard-auth-basic: no 'secret' configured; generating a "
             "random per-process signing key. Sessions will not survive a "
-            "restart or span multiple workers. Set dashboard.basic_auth."
-            "secret (or HERMES_DASHBOARD_BASIC_AUTH_SECRET) for stable "
-            "sessions."
+            "restart or span multiple workers. Set dashboard.basic_auth.secret "
+            "in config.yaml for stable sessions."
         )
         return secrets.token_bytes(32)
     # Try base64, then hex, then fall back to the raw UTF-8 bytes.
@@ -521,81 +511,41 @@ def _resolve_secret(cfg_section: dict) -> bytes:
 def register(ctx) -> None:
     """Plugin entry — registers BasicAuthProvider when credentials exist.
 
-    Loopback / ``--insecure`` operators and anyone using the OAuth
-    provider leave ``dashboard.basic_auth`` unset, so this plugin is a
-    no-op for them. When username + (password or password_hash) are
-    configured, it registers a password provider that the login page
-    renders as a credential form.
+    Loopback operators and anyone using the OAuth provider leave
+    ``dashboard.basic_auth`` unset, so this plugin is a no-op for them. When
+    username plus a password credential are configured, it registers a
+    password provider that the login page renders as a credential form.
     """
     global LAST_SKIP_REASON
     LAST_SKIP_REASON = ""
 
     section = _load_config_basic_auth_section()
-    username = _resolve(
-        "HERMES_DASHBOARD_BASIC_AUTH_USERNAME", section, "username"
-    )
-    password_hash = _resolve(
-        "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH", section, "password_hash"
-    )
-    plaintext = _resolve(
-        "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", section, "password"
-    )
-    ttl_raw = _resolve(
-        "HERMES_DASHBOARD_BASIC_AUTH_TTL_SECONDS", section, "session_ttl_seconds"
-    )
+    username = str(section.get("username", "") or "").strip()
+    password_hash = _resolve_password_hash(section)
+    ttl_raw = str(section.get("session_ttl_seconds", "") or "").strip()
 
     if not username:
         LAST_SKIP_REASON = (
-            "dashboard.basic_auth.username is not set (and "
-            "HERMES_DASHBOARD_BASIC_AUTH_USERNAME is empty). Set a username "
-            "and a password (or password_hash) under dashboard.basic_auth in "
-            "config.yaml to enable username/password dashboard login, or use "
-            "the OAuth provider, or pass --insecure to skip the auth gate."
+            "dashboard.basic_auth.username is not set. Set a username in "
+            "config.yaml with a password_hash or password to enable "
+            "username/password dashboard login, use the OAuth provider, or "
+            "bind the dashboard to loopback."
         )
         logger.debug("dashboard-auth-basic: %s", LAST_SKIP_REASON)
         return
 
-    if not password_hash and not plaintext:
+    if not password_hash:
         LAST_SKIP_REASON = (
             "dashboard.basic_auth.username is set but neither password_hash "
-            "nor password is configured. Provide one of them (password_hash "
-            "is preferred — compute it with "
-            "plugins.dashboard_auth.basic.hash_password)."
+            "nor password is configured in config.yaml. Prefer password_hash; "
+            "compute one with "
+            "plugins.dashboard_auth.basic.hash_password()."
         )
         logger.warning("dashboard-auth-basic: %s", LAST_SKIP_REASON)
         return
 
-    # Precedence (env-wins convention): a password supplied via the
-    # HERMES_DASHBOARD_BASIC_AUTH_PASSWORD env var overrides a config.yaml
-    # password_hash, so an operator can rotate the password by setting an
-    # env var without editing config. A password_hash (precomputed) wins
-    # over a config-only plaintext password at the same tier — it's the
-    # preferred at-rest form. Concretely:
-    #   * env password set        → hash it (overrides any config hash)
-    #   * else config password_hash set → use it
-    #   * else config plaintext password → hash it in-memory
-    plaintext_from_env = os.environ.get(
-        "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", ""
-    ).strip()
-    if plaintext_from_env:
-        password_hash = hash_password(plaintext_from_env)
-        logger.info(
-            "dashboard-auth-basic: hashed env-supplied password in-memory "
-            "(overrides any config password_hash)."
-        )
-    elif not password_hash:
-        # config-only plaintext password.
-        password_hash = hash_password(plaintext)
-        logger.info(
-            "dashboard-auth-basic: hashed plaintext password in-memory. "
-            "For production, precompute dashboard.basic_auth.password_hash "
-            "and remove the plaintext password from config."
-        )
-
     secret = _resolve_secret(section)
-    totp_secret = _resolve(
-        "HERMES_DASHBOARD_BASIC_AUTH_TOTP_SECRET", section, "totp_secret"
-    )
+    totp_secret = str(section.get("totp_secret", "") or "").strip()
 
     try:
         ttl = int(ttl_raw) if ttl_raw else _DEFAULT_TTL_SECONDS

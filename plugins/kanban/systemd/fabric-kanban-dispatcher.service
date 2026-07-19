@@ -2,7 +2,6 @@
 # default (config key: kanban.dispatch_in_gateway, default true). To
 # migrate:
 #
-#     systemctl --user disable --now hermes-kanban-dispatcher.service
 #     # then make sure a gateway is running; e.g. a systemd user unit
 #     # for `fabric gateway start`. The gateway hosts the dispatcher.
 #

@@ -49,16 +49,8 @@ logger = logging.getLogger(__name__)
 _STDERR_TAIL_LINES = 12
 
 
-# Permission profile mapping mirrors the docstring in PR proposal:
-# Hermes' tools.terminal.security_mode → Codex's permissions profile id.
-# Defaults if config is missing → workspace-write (matches Codex's own default).
-_HERMES_TO_CODEX_PERMISSION_PROFILE = {
-    "auto": "workspace-write",
-    "approval-required": "read-only-with-approval",
-    "unrestricted": "full-access",
-    # Backstop alias used by some skills/tests.
-    "yolo": "full-access",
-}
+# Codex's own default for a session without an explicit caller override.
+_DEFAULT_PERMISSION_PROFILE = "workspace-write"
 
 
 @dataclass
@@ -93,7 +85,7 @@ _TURN_ABORTED_MARKERS = ("<turn_aborted>", "<turn_aborted/>")
 
 
 def _coerce_turn_input_text(user_input: Any) -> str:
-    """Collapse Hermes/OpenAI rich content into app-server text input.
+    """Collapse Fabric/OpenAI rich content into app-server text input.
 
     The current `turn/start` path sends text items only. TUI image attachment
     can hand us OpenAI-style content parts, so keep the text/path hints and
@@ -213,12 +205,7 @@ class CodexAppServerSession:
         self._cwd = cwd or os.getcwd()
         self._codex_bin = codex_bin
         self._codex_home = codex_home
-        self._permission_profile = (
-            permission_profile or _HERMES_TO_CODEX_PERMISSION_PROFILE.get(
-                os.environ.get("HERMES_TERMINAL_SECURITY_MODE", "auto"),
-                "workspace-write",
-            )
-        )
+        self._permission_profile = permission_profile or _DEFAULT_PERMISSION_PROFILE
         self._approval_callback = approval_callback
         self._on_event = on_event  # Display hook (kawaii spinner ticks etc.)
         self._routing = request_routing or _ServerRequestRouting()
@@ -248,9 +235,9 @@ class CodexAppServerSession:
                 codex_bin=self._codex_bin, codex_home=self._codex_home
             )
         self._client.initialize(
-            client_name="hermes",
+            client_name="fabric",
             client_title="Fabric",
-            client_version=_get_hermes_version(),
+            client_version=_get_fabric_version(),
         )
         # Permission selection is intentionally NOT sent on thread/start.
         # Two reasons (live-tested against codex 0.130.0):
@@ -373,7 +360,7 @@ class CodexAppServerSession:
     ) -> TurnResult:
         """Send a user message and block until turn/completed, while
         forwarding server-initiated approval requests and projecting items
-        into Hermes' messages shape.
+        into Fabric's messages shape.
 
         post_tool_quiet_timeout: if codex emits a tool completion and then
         goes quiet for this many seconds without emitting another item or
@@ -406,7 +393,7 @@ class CodexAppServerSession:
         user_input_text = _coerce_turn_input_text(user_input)
 
         # Send turn/start with the user input. Text-only for now (codex
-        # supports rich content but Hermes' text path is the common case).
+        # supports rich content but Fabric's text path is the common case).
         try:
             ts = self._client.request(
                 "turn/start",
@@ -801,7 +788,7 @@ class CodexAppServerSession:
             logger.warning("turn/interrupt timed out")
 
     def _handle_server_request(self, req: dict) -> None:
-        """Translate a codex server request (approval) into Hermes' approval
+        """Translate a codex server request (approval) into Fabric's approval
         flow, then send the response.
 
         Method names verified live against codex 0.130.0 (Apr 2026):
@@ -833,14 +820,14 @@ class CodexAppServerSession:
         elif method == "mcpServer/elicitation/request":
             # Codex's MCP layer asks the user for structured input on
             # behalf of an MCP server (e.g. tool-call confirmation,
-            # OAuth, form data). For our own hermes-tools callback we
-            # auto-accept — the user already approved Hermes' tools
+            # OAuth, form data). For our own fabric-tools callback we
+            # auto-accept — the user already approved Fabric's tools
             # by enabling the runtime, and we never expose anything
             # codex's built-in shell can't already do. For other MCP
             # servers we decline so the user explicitly opts in via
             # codex's own auth flow.
             server_name = params.get("serverName") or ""
-            if server_name == "hermes-tools":
+            if server_name == "fabric-tools":
                 self._client.respond(
                     rid,
                     {"action": "accept", "content": None, "_meta": None},
@@ -1029,10 +1016,10 @@ def _apply_compaction_notification(result: TurnResult, note: dict) -> None:
 
 
 def _approval_choice_to_codex_decision(choice: str) -> str:
-    """Map Hermes approval choices onto codex's CommandExecutionApprovalDecision
+    """Map Fabric approval choices onto codex's CommandExecutionApprovalDecision
     / FileChangeApprovalDecision wire values.
 
-    Hermes returns 'once', 'session', 'always', or 'deny'.
+    Fabric returns 'once', 'session', 'always', or 'deny'.
     Codex expects 'accept', 'acceptForSession', 'decline', or 'cancel'
     (verified against codex-rs/app-server-protocol/src/protocol/v2/item.rs
     on codex 0.130.0).
@@ -1062,8 +1049,8 @@ def _has_turn_aborted_marker(text: str) -> bool:
     return False
 
 
-def _get_hermes_version() -> str:
-    """Best-effort Hermes version string for codex's userAgent line."""
+def _get_fabric_version() -> str:
+    """Best-effort Fabric version string for codex's userAgent line."""
     try:
         from importlib.metadata import version
 

@@ -695,7 +695,7 @@ def _find_pses_bundle(ctx: ServerContext) -> Optional[str]:
        directory.  This is the documented config knob.
     2. ``init_overrides["powershell"]["bundlePath"]``.
     3. ``PSES_BUNDLE_PATH`` env var.
-    4. ``<HERMES_HOME>/lsp/PowerShellEditorServices`` staging dir (where a
+    4. ``<FABRIC_HOME>/lsp/PowerShellEditorServices`` staging dir (where a
        user-run unzip would naturally land).
 
     Returns the bundle directory containing ``PowerShellEditorServices/``,
@@ -751,7 +751,7 @@ def _spawn_powershell_es(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
                 "https://github.com/PowerShell/PowerShellEditorServices/releases, "
                 "extract it, and either set lsp.servers.powershell.command "
                 "to the bundle path or unzip it to "
-                "<HERMES_HOME>/lsp/PowerShellEditorServices."
+                "<FABRIC_HOME>/lsp/PowerShellEditorServices."
             )
         return None
     start_script = os.path.join(
@@ -759,18 +759,18 @@ def _spawn_powershell_es(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
     )
     # Session details file: PSES writes connection info here on startup.
     session_path = os.path.join(
-        hermes_lsp_session_dir(), f"pses-session-{os.getpid()}.json"
+        fabric_lsp_session_dir(), f"pses-session-{os.getpid()}.json"
     )
-    log_path = os.path.join(hermes_lsp_session_dir(), "pses.log")
-    legacy_host_name = "Her" + "mes"  # PowerShellEditorServices compatibility identifier.
-    legacy_host_profile_id = "hermes"  # PowerShellEditorServices compatibility identifier.
+    log_path = os.path.join(fabric_lsp_session_dir(), "pses.log")
+    host_name = "Fabric"
+    host_profile_id = "fabric"
     inner = (
         f"& '{start_script}' "
         f"-BundledModulesPath '{bundle}' "
         f"-LogPath '{log_path}' "
         f"-SessionDetailsPath '{session_path}' "
         f"-FeatureFlags @() -AdditionalModules @() "
-        f"-HostName {legacy_host_name} -HostProfileId {legacy_host_profile_id} "
+        f"-HostName {host_name} -HostProfileId {host_profile_id} "
         f"-HostVersion 1.0.0 "
         f"-Stdio -LogLevel Normal"
     )
@@ -796,7 +796,7 @@ def _spawn_powershell_es(root: str, ctx: ServerContext) -> Optional[SpawnSpec]:
     )
 
 
-def hermes_lsp_session_dir() -> str:
+def fabric_lsp_session_dir() -> str:
     """Return (and create) the dir for PSES session/log scratch files."""
     home = str(get_fabric_home())
     d = os.path.join(home, "lsp", "pses")

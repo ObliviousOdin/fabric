@@ -72,7 +72,7 @@ class HonchoSessionManager:
     """
     Manages conversation sessions using Honcho.
 
-    Runs alongside hermes' existing SQLite state and file-based memory,
+    Runs alongside Fabric's existing SQLite state and file-based memory,
     adding persistent cross-session user modeling via Honcho's AI-native memory.
     """
 
@@ -154,11 +154,7 @@ class HonchoSessionManager:
 
     @property
     def honcho(self) -> Honcho:
-        """Get the Honcho client, refreshing a near-expiry OAuth token in place.
-
-        Routes every access through ``get_honcho_client`` (which returns the same
-        cached singleton) so a long session can't outlive its 1h access token.
-        """
+        """Get the cached Honcho client for the active configuration."""
         self._honcho = get_honcho_client()
         return self._honcho
 
@@ -385,7 +381,7 @@ class HonchoSessionManager:
         user_peer_id = self._resolve_user_peer_id(key)
 
         assistant_peer_id = self._sanitize_id(
-            self._config.ai_peer if self._config else "hermes-assistant"
+            self._config.ai_peer if self._config else "fabric-assistant"
         )
 
         # All expensive I/O outside the lock — Honcho's persistence is source of truth
@@ -655,7 +651,7 @@ class HonchoSessionManager:
                 target_peer = self._get_or_create_peer(target_peer_id)
                 result = target_peer.chat(query, reasoning_level=level) or ""
 
-            # Apply Hermes-side char cap before caching
+            # Apply Fabric-side char cap before caching
             if result and self._dialectic_max_chars and len(result) > self._dialectic_max_chars:
                 result = result[:self._dialectic_max_chars].rsplit(" ", 1)[0] + " …"
             return result
@@ -739,7 +735,7 @@ class HonchoSessionManager:
         except Exception as e:
             logger.warning("Failed to fetch user context from Honcho: %s", e)
 
-        # Also fetch AI peer's own representation so Hermes knows itself.
+        # Also fetch AI peer's own representation so Fabric knows itself.
         try:
             ai_ctx = self._fetch_peer_context(session.assistant_peer_id, target=session.assistant_peer_id)
             result["ai_representation"] = ai_ctx["representation"]
@@ -830,7 +826,7 @@ class HonchoSessionManager:
 
         Args:
             session_key: The session key to associate files with.
-            memory_dir: Path to the memories directory (~/.hermes/memories/).
+            memory_dir: Path to the memories directory (~/.fabric/memories/).
 
         Returns:
             True if at least one file was uploaded, False otherwise.

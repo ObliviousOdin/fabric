@@ -1,6 +1,6 @@
 """SelfHostedOIDCProvider — generic self-hosted OpenID Connect dashboard auth.
 
-A standards-compliant OpenID Connect Relying Party for the ``Fabric dashboard``
+A standards-compliant OpenID Connect Relying Party for the ``fabric dashboard``
 OAuth gate. Unlike the bundled ``nous`` provider (which encodes Nous Portal's
 bespoke contract — ``agent:{instance_id}`` client ids, a custom access-token
 JWT, the ``x-nous-refresh-token`` header, an ``oauth_contract_version`` claim),
@@ -44,28 +44,22 @@ in the form body) from the IDP's advertised
 the secret is client authentication layered on top, never a replacement for
 PKCE (OAuth 2.1 / RFC 9700 keep PKCE mandatory regardless).
 
-Configuration surfaces (env wins over config.yaml when set non-empty, so a
-provisioned-but-not-populated secret can't shadow a valid config.yaml entry —
-same precedence convention as the ``nous`` plugin)::
+Configuration has one canonical surface: ``config.yaml``::
 
     # config.yaml — canonical surface
     dashboard:
       oauth:
         provider: self-hosted
         self_hosted:
-          issuer: https://auth.example.com/application/o/hermes/   # required
-          client_id: hermes-dashboard                              # required
+          issuer: https://auth.example.com/application/o/fabric/   # required
+          client_id: fabric-dashboard                              # required
           scopes: "openid profile email"                           # optional
-          # client_secret: set ONLY for a confidential client. It is a
-          # credential — prefer the env var / ~/.hermes/.env over config.yaml.
+          client_secret: "<client secret>"                          # optional
 
-    # Environment overrides (Docker/Fly secret injection)
-    HERMES_DASHBOARD_OIDC_ISSUER
-    HERMES_DASHBOARD_OIDC_CLIENT_ID
-    HERMES_DASHBOARD_OIDC_SCOPES        # optional; defaults to "openid profile email"
-    HERMES_DASHBOARD_OIDC_CLIENT_SECRET # optional; set for a confidential client
-                                        # (the .env file is the canonical home —
-                                        # it's a secret, not a behavioural setting)
+The optional ``client_secret`` is used only for a confidential client. Config's
+standard ``${VAR}`` interpolation lets operators keep its value in
+``~/.fabric/.env`` without introducing a provider-specific environment
+contract.
 
 Skip reasons: when the plugin loads but can't register (missing issuer /
 client_id), it writes a human-readable reason to the module-level
@@ -78,7 +72,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import os
 import secrets
 import threading
 import time
@@ -238,7 +231,7 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
         # Same flat ``state=…;verifier=…`` cookie shape every provider uses;
         # the auth-route layer prepends ``provider=`` and parses it back out.
         cookie_payload = {
-            "hermes_session_pkce": f"state={state};verifier={code_verifier}",
+            "fabric_session_pkce": f"state={state};verifier={code_verifier}",
         }
         return LoginStart(redirect_url=redirect_url, cookie_payload=cookie_payload)
 
@@ -668,7 +661,7 @@ class SelfHostedOIDCProvider(DashboardAuthProvider):
 
         The verified ID token is stored in ``Session.access_token`` so the
         per-request ``verify_session`` re-verifies a real JWT. The opaque
-        OAuth access token is intentionally NOT stored — Hermes does not call
+        OAuth access token is intentionally NOT stored — Fabric does not call
         any resource API with it; the dashboard only needs identity.
         """
         user_id = str(claims.get("sub", ""))
@@ -756,7 +749,7 @@ def _load_config_oauth_section() -> dict:
     except Exception as exc:  # noqa: BLE001 — broad catch is intentional
         logger.debug(
             "dashboard-auth-self-hosted: load_config() raised %s; "
-            "falling back to env-only configuration",
+            "no OIDC configuration is available",
             exc,
         )
         return {}
@@ -770,17 +763,8 @@ def _oidc_subsection(oauth_section: dict) -> dict:
     return sub if isinstance(sub, dict) else {}
 
 
-def _resolve_setting(env_var: str, cfg_value: Any) -> str:
-    """env-wins-config with empty-is-unset precedence.
-
-    1. ``env_var`` when non-empty after strip (an empty provisioned secret
-       must not shadow a valid config.yaml entry).
-    2. ``cfg_value`` from config.yaml.
-    3. Empty string.
-    """
-    env = os.environ.get(env_var, "").strip()
-    if env:
-        return env
+def _resolve_setting(cfg_value: Any) -> str:
+    """Normalize a value from the canonical config block."""
     return str(cfg_value or "").strip()
 
 
@@ -788,13 +772,13 @@ def register(ctx) -> None:
     """Plugin entry — called by the plugin loader at startup.
 
     Registers :class:`SelfHostedOIDCProvider` only when both an issuer and a
-    client_id are configured (via ``HERMES_DASHBOARD_OIDC_*`` env vars or the
-    ``dashboard.oauth.self_hosted`` block in config.yaml). Operator-owned
+    client_id are configured in the ``dashboard.oauth.self_hosted`` block in
+    config.yaml. Operator-owned
     loopback / ``--insecure`` dashboards leave these unset, so the plugin is a
     no-op for them.
 
-    On skip, writes a reason to :data:`LAST_SKIP_REASON` that names BOTH
-    configuration surfaces so operators don't guess wrong about which to set.
+    On skip, writes a reason to :data:`LAST_SKIP_REASON` that names the
+    canonical configuration surface.
     """
     global LAST_SKIP_REASON
     LAST_SKIP_REASON = ""
@@ -802,29 +786,18 @@ def register(ctx) -> None:
     oauth_section = _load_config_oauth_section()
     oidc_cfg = _oidc_subsection(oauth_section)
 
-    issuer = _resolve_setting(
-        "HERMES_DASHBOARD_OIDC_ISSUER", oidc_cfg.get("issuer")
-    )
-    client_id = _resolve_setting(
-        "HERMES_DASHBOARD_OIDC_CLIENT_ID", oidc_cfg.get("client_id")
-    )
-    scopes = (
-        _resolve_setting("HERMES_DASHBOARD_OIDC_SCOPES", oidc_cfg.get("scopes"))
-        or _DEFAULT_SCOPES
-    )
-    # Optional — set only for a confidential client. A credential, so the
-    # canonical home is the env var / ~/.hermes/.env; config.yaml is supported
-    # for precedence symmetry. Empty ⇒ public client (unchanged behaviour).
-    client_secret = _resolve_setting(
-        "HERMES_DASHBOARD_OIDC_CLIENT_SECRET", oidc_cfg.get("client_secret")
-    )
+    issuer = _resolve_setting(oidc_cfg.get("issuer"))
+    client_id = _resolve_setting(oidc_cfg.get("client_id"))
+    scopes = _resolve_setting(oidc_cfg.get("scopes")) or _DEFAULT_SCOPES
+    # Optional — set only for a confidential client. Empty means a public
+    # client. ``load_config`` has already expanded any ``${VAR}`` reference.
+    client_secret = _resolve_setting(oidc_cfg.get("client_secret"))
 
     if not issuer or not client_id:
         LAST_SKIP_REASON = (
             "Self-hosted OIDC dashboard auth is not configured. Set both an "
-            "issuer and a client_id — either as env vars "
-            "(HERMES_DASHBOARD_OIDC_ISSUER + HERMES_DASHBOARD_OIDC_CLIENT_ID) "
-            "or under dashboard.oauth.self_hosted.{issuer,client_id} in "
+            "issuer and a client_id under "
+            "dashboard.oauth.self_hosted.{issuer,client_id} in "
             "config.yaml — or pass --insecure to skip the OAuth gate "
             "entirely. (issuer set: %s; client_id set: %s)"
             % (bool(issuer), bool(client_id))

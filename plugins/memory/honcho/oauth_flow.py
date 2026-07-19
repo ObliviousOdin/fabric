@@ -1,10 +1,9 @@
-"""Browser sign-in flow for the Honcho memory provider — no CLI step.
+"""Browser sign-in flow for the Honcho memory provider.
 
 ``begin_authorization`` / ``complete_authorization`` are the transport-agnostic
-core: the code can arrive via the loopback listener here or a future
-``hermes://`` handler. Endpoints are env-overridable with local-dev defaults
-because ``/authorize`` (dashboard) and ``/oauth/token`` (API) live on
-different origins.
+core. The authorization code arrives through the loopback listener. Endpoints
+are configurable because ``/authorize`` (dashboard) and ``/oauth/token`` (API)
+may live on different origins.
 """
 
 from __future__ import annotations
@@ -27,8 +26,9 @@ from plugins.memory.honcho.client import resolve_active_host, resolve_config_pat
 
 logger = logging.getLogger(__name__)
 
-# The loopback redirect registered for the Hermes OAuth client. IP-literal so
-# the browser can't resolve the advertised host to ::1 and miss the IPv4 bind.
+# The loopback redirect registered for the configured Honcho OAuth client.
+# It uses an IP literal so the browser cannot resolve the advertised host to
+# ::1 and miss the IPv4 bind.
 LOOPBACK_HOST = "127.0.0.1"
 LOOPBACK_PORT = 8765
 LOOPBACK_REDIRECT_URI = f"http://{LOOPBACK_HOST}:{LOOPBACK_PORT}/callback"
@@ -70,34 +70,71 @@ _CLOUD_TOKEN_URL = "https://api.honcho.dev/oauth/token"
 _LOCAL_DASHBOARD = "http://localhost:3000"
 _LOCAL_TOKEN_URL = "http://localhost:8000/oauth/token"
 
-# One OAuth client for every surface. Consent branding/UI adapt via the
-# ``source`` query param (not a separate client_id), so there's a single grant
-# identity to refresh — no clientId-vs-refresh-token desync to revoke the grant.
-_DEFAULT_CLIENT_ID = "fabric-agent"
+CLIENT_ID_REQUIRED_MESSAGE = (
+    "Honcho OAuth requires a registered client ID. Pass client_id explicitly "
+    "or configure HONCHO_OAUTH_CLIENT_ID."
+)
 
 
 def _is_loopback_url(url: str | None) -> bool:
     return bool(url) and any(h in url for h in ("localhost", "127.0.0.1", "::1"))
 
 
+def _stored_client_id(config: object) -> str:
+    """Return the client ID stored with an existing Honcho OAuth grant."""
+    raw = getattr(config, "raw", None)
+    host = getattr(config, "host", None)
+    if not isinstance(raw, dict) or not host:
+        return ""
+    hosts = raw.get("hosts")
+    if not isinstance(hosts, dict):
+        return ""
+    host_block = hosts.get(host)
+    if not isinstance(host_block, dict):
+        return ""
+    oauth_block = host_block.get("oauth")
+    if not isinstance(oauth_block, dict):
+        return ""
+    return str(oauth_block.get("clientId") or "").strip()
+
+
 def resolve_endpoints(
-    environment: str | None = None, base_url: str | None = None
+    environment: str | None = None,
+    base_url: str | None = None,
+    *,
+    client_id: str | None = None,
+    config: object | None = None,
 ) -> OAuthEndpoints:
-    """Resolve OAuth endpoints, zero-config by default.
+    """Resolve OAuth endpoints and require a registered client identity.
 
     Keys off the host's honcho ``environment`` (production → cloud, local →
     localhost); a self-hosted ``base_url`` derives the token endpoint from the
-    API host. Env vars override every field for unusual deployments.
+    API host. Explicit arguments override configured values. An existing grant
+    may supply its stored client ID for reauthorization, but first-time browser
+    authorization has no fabricated default.
     """
-    if environment is None or base_url is None:
+    resolved_client_id = str(
+        client_id or os.environ.get("HONCHO_OAUTH_CLIENT_ID") or ""
+    ).strip()
+    if environment is None or base_url is None or not resolved_client_id:
         try:
-            from plugins.memory.honcho.client import HonchoClientConfig
+            if config is None:
+                from plugins.memory.honcho.client import HonchoClientConfig
 
-            cfg = HonchoClientConfig.from_global_config()
-            environment = environment or cfg.environment
-            base_url = base_url if base_url is not None else cfg.base_url
+                config = HonchoClientConfig.from_global_config()
+            environment = environment or getattr(config, "environment", None)
+            base_url = (
+                base_url
+                if base_url is not None
+                else getattr(config, "base_url", None)
+            )
+            if not resolved_client_id:
+                resolved_client_id = _stored_client_id(config)
         except Exception:
             environment = environment or "production"
+
+    if not resolved_client_id:
+        raise ValueError(CLIENT_ID_REQUIRED_MESSAGE)
 
     is_local = (environment or "").lower() == "local" or _is_loopback_url(base_url)
     default_dashboard = _LOCAL_DASHBOARD if is_local else _CLOUD_DASHBOARD
@@ -110,7 +147,7 @@ def resolve_endpoints(
     return OAuthEndpoints(
         authorize_url=os.environ.get("HONCHO_OAUTH_AUTHORIZE_URL", f"{dashboard}/authorize"),
         token_url=os.environ.get("HONCHO_OAUTH_TOKEN_URL", default_token),
-        client_id=os.environ.get("HONCHO_OAUTH_CLIENT_ID", _DEFAULT_CLIENT_ID),
+        client_id=resolved_client_id,
         scope=os.environ.get("HONCHO_OAUTH_SCOPE", "write"),
     )
 
@@ -154,7 +191,7 @@ def begin_authorization(
     """Start an authorization: return ``(authorize_url, state)`` and stash PKCE.
 
     ``source`` tags the authorize link with the initiating surface
-    (``hermes-desktop`` / ``hermes-cli``) so the consent side can attribute
+    (``fabric-desktop`` / ``fabric-cli``) so the consent side can attribute
     connects and vary behavior per surface. ``config_path`` is a home-relative
     *display* string for the consent screen (never the absolute path); callers
     pass the actual write path separately to ``complete_authorization``.
@@ -237,7 +274,7 @@ _CALLBACK_HTML = (
     b"<title>Honcho connected</title>"
     b"<body style='font:14px ui-monospace,monospace;background:#0b0e14;color:#c9d1d9;"
     b"display:flex;align-items:center;justify-content:center;height:100vh;margin:0'>"
-    b"<div>Connected to Honcho. You can close this tab and return to Hermes.</div>"
+    b"<div>Connected to Honcho. You can close this tab and return to Fabric.</div>"
 )
 
 
@@ -306,6 +343,7 @@ def authorize_via_loopback(
     *,
     config_path: Path | None = None,
     host: str | None = None,
+    client_id: str | None = None,
     source: str | None = None,
     apply_config: bool = True,
     open_url: Callable[[str], None] | None = None,
@@ -318,13 +356,21 @@ def authorize_via_loopback(
     receives the authorize URL, so a CLI caller can also print it for
     browserless environments.
     """
-    # Bind first so the advertised redirect_uri carries the actual bound port
-    # (which may differ from :8765 if it was taken).
+    path = config_path or resolve_config_path()
+    target_host = host or resolve_active_host()
+    from plugins.memory.honcho.client import HonchoClientConfig
+
+    config = HonchoClientConfig.from_global_config(
+        host=target_host,
+        config_path=path,
+    )
+    endpoints = resolve_endpoints(client_id=client_id, config=config)
+
+    # Bind after validating the client identity, then advertise the actual
+    # port (which may differ from :8765 if it was taken).
     server, captured = _bind_loopback_server()
     redirect_uri = f"http://{LOOPBACK_HOST}:{server.server_address[1]}/callback"
 
-    endpoints = resolve_endpoints()
-    path = config_path or resolve_config_path()
     authorize_url, state = begin_authorization(
         endpoints, redirect_uri, source=source, config_path=_display_config_path(path)
     )
@@ -347,7 +393,7 @@ def authorize_via_loopback(
         code,
         returned_state,
         config_path=path,
-        host=host,
+        host=target_host,
         apply_config=apply_config,
     )
 
@@ -400,7 +446,8 @@ def start_loopback_flow_background(
     *,
     config_path: Path | None = None,
     host: str | None = None,
-    source: str = "hermes-desktop",
+    client_id: str | None = None,
+    source: str = "fabric-desktop",
     timeout: float = 300.0,
 ) -> dict[str, str]:
     """Launch the loopback flow in a daemon thread; returns the initial status.
@@ -410,7 +457,7 @@ def start_loopback_flow_background(
     """
     global _flow_thread
     # Resolve under the caller's profile scope NOW — the worker thread outlives
-    # the request, where a context-local HERMES_HOME override can't reach.
+    # the request, where a context-local FABRIC_HOME override can't reach.
     config_path = config_path or resolve_config_path()
     host = host or resolve_active_host()
     with _status_lock:
@@ -420,7 +467,13 @@ def start_loopback_flow_background(
 
     def _run() -> None:
         try:
-            authorize_via_loopback(config_path=config_path, host=host, source=source, timeout=timeout)
+            authorize_via_loopback(
+                config_path=config_path,
+                host=host,
+                client_id=client_id,
+                source=source,
+                timeout=timeout,
+            )
             _set_status("connected", "Honcho connected")
         except Exception as exc:
             logger.warning("Honcho OAuth loopback flow failed: %s", exc)

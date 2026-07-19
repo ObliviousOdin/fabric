@@ -1,6 +1,6 @@
 """Shared logic for the /codex-runtime slash command.
 
-Toggles `model.openai_runtime` between "auto" (= chat_completions, Hermes'
+Toggles `model.openai_runtime` between "auto" (= chat_completions, Fabric's
 default) and "codex_app_server" (= hand turns to a codex subprocess).
 
 Both CLI (cli.py) and gateway (gateway/run.py) call into this module so the
@@ -50,7 +50,7 @@ def parse_args(arg_string: str) -> tuple[Optional[str], list[str]]:
     # Accept human-friendly synonyms
     if raw in {"on", "codex", "enable"}:
         return "codex_app_server", []
-    if raw in {"off", "default", "disable", "hermes"}:
+    if raw in {"off", "default", "disable", "fabric"}:
         return "auto", []
     if raw in VALID_RUNTIMES:
         return raw, []
@@ -147,7 +147,7 @@ def apply(
     # No-config-change paths. For `auto` we return immediately — disabling
     # doesn't touch ~/.codex/. For `codex_app_server`, we fall through to
     # the migration block below: the config value is already correct, but
-    # the world state (managed block in ~/.codex/config.toml, hermes-tools
+    # the world state (managed block in ~/.codex/config.toml, fabric-tools
     # MCP callback, plugin discovery) may be stale or missing — common
     # footgun when users pre-set `openai_runtime: codex_app_server` in
     # config.yaml without ever running the slash command. The migration is
@@ -205,18 +205,18 @@ def apply(
         ok, ver = _check_binary_cached()
         if ok:
             msg_lines.append(f"codex CLI: {ver}")
-        # Auto-migrate Hermes' MCP servers + Codex's installed curated
+        # Auto-migrate Fabric's MCP servers + Codex's installed curated
         # plugins into ~/.codex/config.toml so the spawned codex subprocess
-        # sees the same tool surface AND can call back into Hermes for
+        # sees the same tool surface AND can call back into Fabric for
         # browser/web/delegate_task/vision/memory tools (#7 fix).
         # Failures are non-fatal — the runtime change still proceeds.
         try:
             from fabric_cli.codex_runtime_plugin_migration import migrate
             mig_report = migrate(config)
-            # Tools/MCP servers (excluding the hermes-tools callback,
+            # Tools/MCP servers (excluding the fabric-tools callback,
             # which is internal plumbing — surface separately).
             user_servers = [
-                s for s in mig_report.migrated if s != "hermes-tools"
+                s for s in mig_report.migrated if s != "fabric-tools"
             ]
             if user_servers:
                 msg_lines.append(
@@ -241,7 +241,7 @@ def apply(
                     f"Default sandbox: {mig_report.wrote_permissions_default} "
                     f"(no approval prompt on every write)"
                 )
-            if "hermes-tools" in mig_report.migrated:
+            if "fabric-tools" in mig_report.migrated:
                 msg_lines.append(
                     "Fabric tool callback registered: codex can now use "
                     "web_search, web_extract, browser_*, vision_analyze, "

@@ -1,7 +1,7 @@
 """Local-environment toolchain probe for the system prompt.
 
 When the terminal backend is local (the agent's tools run on the same
-machine as Hermes itself), we surface a single deterministic line about
+machine as Fabric itself), we surface a single deterministic line about
 Python tooling state so models don't have to discover it by hitting
 walls.  Common failure modes this addresses:
 

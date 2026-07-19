@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from typing import Optional
 
@@ -30,10 +29,7 @@ _keepalive_thread: Optional[threading.Thread] = None
 def _timeout_seconds(value: Optional[float]) -> float:
     if value is not None:
         return float(value)
-    try:
-        return float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15"))
-    except (TypeError, ValueError):
-        return 15.0
+    return 15.0
 
 
 def _entry_state(entry: object) -> dict:

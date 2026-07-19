@@ -10,7 +10,7 @@ Subcommands:
     telemetry          show or toggle Spectrum SDK telemetry (on/off)
 
 The device-code login runs automatically as the first step of ``setup``;
-there is no standalone ``login`` verb (matching how every other Hermes
+there is no standalone ``login`` verb (matching how every other Fabric
 gateway channel onboards through a single setup surface).
 
 Photon uses the spectrum-ts gRPC stream for inbound — there is no webhook
@@ -127,18 +127,9 @@ def _run_device_login(args: argparse.Namespace) -> int:
 
 
 def _find_existing_setup_project(token: str, requested_name: str | None):
-    """Find the requested project, adopting the legacy default when needed."""
+    """Find the requested or canonical default project."""
     name = requested_name or photon_auth.DEFAULT_PROJECT_NAME
-    existing = photon_auth.find_project_by_name(token, name)
-    if not existing and requested_name is None:
-        legacy_name = photon_auth.LEGACY_DEFAULT_PROJECT_NAME
-        # Public Fabric installs use the same default on both sides of this
-        # compatibility seam. Avoid issuing the same Photon lookup twice.
-        if legacy_name != name:
-            existing = photon_auth.find_project_by_name(token, legacy_name)
-            if existing:
-                name = legacy_name
-    return name, existing
+    return name, photon_auth.find_project_by_name(token, name)
 
 
 def _cmd_setup(args: argparse.Namespace) -> int:
@@ -156,8 +147,7 @@ def _cmd_setup(args: argparse.Namespace) -> int:
     else:
         print("[1/5] Reusing existing Photon token")
 
-    # 2. Find or create the Fabric project, adopting the legacy default when
-    # local metadata was lost so existing operators do not get a duplicate.
+    # 2. Find or create the canonical Fabric project.
     name = args.project_name or photon_auth.DEFAULT_PROJECT_NAME
     dashboard_id = photon_auth.load_dashboard_project_id()
     try:

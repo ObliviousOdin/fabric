@@ -94,8 +94,8 @@ BIZ_SERVICES = {
     "SendGroupHeartbeatRsp": f"{_BIZ_PKG}.SendGroupHeartbeatRsp",
 }
 
-# openclaw instance_id（固定值 17）
-HERMES_INSTANCE_ID = 17
+# Yuanbao's OpenClaw-proxy instance_id（固定值 17）
+YUANBAO_PROXY_INSTANCE_ID = 17
 
 # Reply Heartbeat 状态常量
 WS_HEARTBEAT_RUNNING = 1
@@ -1150,7 +1150,7 @@ def encode_auth_bind(
         dev_buf += _encode_field(1, WT_LEN, _encode_string(app_version))
     if operation_system:
         dev_buf += _encode_field(2, WT_LEN, _encode_string(operation_system))
-    dev_buf += _encode_field(10, WT_LEN, _encode_string(str(HERMES_INSTANCE_ID)))
+    dev_buf += _encode_field(10, WT_LEN, _encode_string(str(YUANBAO_PROXY_INSTANCE_ID)))
     if bot_version:
         dev_buf += _encode_field(24, WT_LEN, _encode_string(bot_version))
 

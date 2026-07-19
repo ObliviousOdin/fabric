@@ -452,20 +452,6 @@ _PASSWORD_FORM_SCRIPT = """\
 </script>
 """
 
-
-
-def _apply_fabric_login_brand(html: str) -> str:
-    """Apply the canonical Fabric name to dashboard login HTML."""
-    try:
-        from fabric_cli.fabric_brand import fabric_brand_enabled, PRODUCT_NAME
-        if not fabric_brand_enabled():
-            return html
-        # Only replace the full product phrase — never bare "Hermes" (model names).
-        return html.replace("Fabric", PRODUCT_NAME)
-    except Exception:
-        return html
-
-
 def render_login_html(*, next_path: str = "") -> str:
     """Return the full HTML for ``GET /login``.
 
@@ -478,7 +464,7 @@ def render_login_html(*, next_path: str = "") -> str:
     """
     providers = list_session_providers()
     if not providers:
-        return _apply_fabric_login_brand(_EMPTY_HTML)
+        return _EMPTY_HTML
 
     if next_path:
         # URL-encode then HTML-escape. The URL-encode step matches the
@@ -503,11 +489,9 @@ def render_login_html(*, next_path: str = "") -> str:
                 f'Sign in with {html.escape(p.display_name)}</a>'
             )
     script = _PASSWORD_FORM_SCRIPT if needs_password_script else ""
-    return _apply_fabric_login_brand(
-        _LOGIN_HTML_TEMPLATE.format(
-            provider_buttons="\n".join(buttons),
-            password_script=script,
-        )
+    return _LOGIN_HTML_TEMPLATE.format(
+        provider_buttons="\n".join(buttons),
+        password_script=script,
     )
 
 

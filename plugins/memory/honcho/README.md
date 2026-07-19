@@ -2,13 +2,13 @@
 
 AI-native cross-session user modeling with multi-pass dialectic reasoning, session summaries, bidirectional peer tools, and persistent conclusions.
 
-> **Honcho docs:** <https://docs.honcho.dev/v3/guides/integrations/hermes>
+> **Honcho docs:** <https://docs.honcho.dev>
 
 ## Requirements
 
 - `pip install honcho-ai`
-- A Honcho Cloud account — connect via OAuth sign-in or an API key from
-  [app.honcho.dev](https://app.honcho.dev) — or a self-hosted instance
+- A Honcho Cloud account with either a registered OAuth client ID or an API key
+  from [app.honcho.dev](https://app.honcho.dev), or a self-hosted instance
 
 ## Setup
 
@@ -17,20 +17,17 @@ fabric memory setup honcho   # configure Honcho directly (works on a fresh insta
 fabric memory setup          # generic picker, choose Honcho from the list
 ```
 
-For cloud, the wizard asks **OAuth or API key**. OAuth opens a browser
-sign-in and stores the grant itself — nothing to copy; tokens refresh
-automatically. The desktop app offers the same flow as a **Connect** link
-next to the memory-provider dropdown.
+For cloud, the wizard offers browser OAuth or an API key. Browser OAuth asks
+for the registered Honcho client ID explicitly; Fabric does not invent or ship
+a third-party client identity. The resulting access and rotating refresh tokens
+are stored in the active profile's `honcho.json`.
+`fabric honcho setup` is a convenience alias for the same provider setup.
 
 Or manually:
 ```bash
 fabric config set memory.provider honcho
 echo "HONCHO_API_KEY=***" >> ~/.fabric/.env
 ```
-
-> `fabric honcho setup` also works, but only **after** Honcho is the active
-> memory provider — the `honcho` subcommand is registered for the active
-> provider only. On a fresh install, use `fabric memory setup honcho`.
 
 ## Architecture Overview
 
@@ -123,7 +120,7 @@ Config is read from the first file that exists:
 | 2 | `~/.fabric/honcho.json` | Default profile (shared host blocks) |
 | 3 | `~/.honcho/config.json` | Global (cross-app interop) |
 
-Host key is derived from the active Fabric profile: `fabric` (default) or `hermes_<profile>`.
+Host key is derived from the active Fabric profile: `fabric` (default) or `fabric_<profile>`.
 
 For every key, resolution order is: **host block > root > env var > default**.
 
@@ -133,8 +130,8 @@ For every key, resolution order is: **host block > root > env var > default**.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `apiKey` | string | — | API key. Falls back to `HONCHO_API_KEY` env var. When connected via OAuth, holds the auto-refreshing access token instead |
-| `oauth` | object | — | OAuth grant (refresh token, expiry, client, token endpoint). Written by the Connect/sign-in flows and rotated automatically — not hand-edited. Optional: an API key alone works without it |
+| `apiKey` | string | — | API key. Falls back to `HONCHO_API_KEY`; with OAuth, stores the refreshable access token |
+| `oauth` | object | — | OAuth refresh token, expiry, registered client ID, token endpoint, scope, and token type. Written and rotated by the browser flow |
 | `baseUrl` | string | — | Base URL for self-hosted Honcho. Local URLs auto-skip API key auth |
 | `environment` | string | `"production"` | SDK environment mapping |
 | `enabled` | bool | auto | Master toggle. Auto-enables when `apiKey` or `baseUrl` present |
@@ -152,7 +149,7 @@ In gateway deployments (Telegram, Discord, Slack, etc.) each user arrives with a
 | `userPeerAliases` | object | `{}` | Map of runtime IDs to peer IDs (`{"7654321": "alice"}`). Many-to-one is the intended pattern — alias all your runtime IDs to one peer name. One-to-many is not supported; one runtime ID resolves to exactly one peer |
 | `runtimePeerPrefix` | string | `""` | Prepended to unknown runtime IDs to namespace them (e.g. `"telegram_"` → `telegram_7654321`). Used only when no alias matches. Prevents collisions between platforms whose runtime IDs share the same shape |
 
-> **Deprecated:** `pinPeerName` is a legacy alias for `pinUserPeer`, still read for back-compat (`pinUserPeer` wins where both are set). `fabric honcho setup` migrates it onto `pinUserPeer` on touch and never writes it.
+> **Deprecated:** `pinPeerName` is a legacy alias for `pinUserPeer`, still read for back-compat (`pinUserPeer` wins where both are set). `fabric memory setup honcho` migrates it onto `pinUserPeer` on touch and never writes it.
 
 **Resolver ladder** (first match wins):
 
@@ -170,7 +167,7 @@ In gateway deployments (Telegram, Discord, Slack, etc.) each user arrives with a
 
 **Host vs root semantics.** All three keys are accepted at both root and `hosts.<host>` levels. Host-level wins. For maps and prefixes, host-level *replaces* the root value as a whole (not merge), so a host can intentionally own its identity universe or wipe it with `userPeerAliases: {}` / `runtimePeerPrefix: ""`.
 
-**Setup — gateway identity tree.** `fabric honcho setup` only asks about identity mapping when it detects a connected gateway platform (it inspects the gateway config; off-gateway the step is skipped because these keys do nothing without a runtime user ID). When it runs, it asks *who talks to this gateway?* and derives the keys:
+**Setup — gateway identity tree.** `fabric memory setup honcho` only asks about identity mapping when it detects a connected gateway platform (it inspects the gateway config; off-gateway the step is skipped because these keys do nothing without a runtime user ID). When it runs, it asks *who talks to this gateway?* and derives the keys:
 
 - **just me** → `pinUserPeer: true`. Every non-agent gateway user collapses to `peerName`; the pin overrides all aliases, so pick this only when no user-side identity needs its own peer. Personal use where you connect Fabric to your own Telegram/Discord/etc. If separate agents reach the gateway and each needs a distinct peer, do **not** pin — leave `pinUserPeer: false` and map them via `userPeerAliases` (the `[e]` editor).
 - **me + other people, pooled** → `pinUserPeer: false` + `userPeerAliases` mapping your runtime IDs to `peerName`. You stay on the shared history; everyone else gets their own peer.
@@ -223,7 +220,7 @@ If `sessionPeerPrefix` is `true`, the peer name is prepended: `alice-fabric-agen
 
 #### What each strategy produces
 
-- **`per-directory`** — basename of `$PWD`. Opening hermes in `~/code/myapp` and `~/code/other` gives two separate sessions. Same directory = same session across runs.
+- **`per-directory`** — basename of `$PWD`. Opening fabric in `~/code/myapp` and `~/code/other` gives two separate sessions. Same directory = same session across runs.
 - **`per-repo`** — git root directory name. All subdirectories within a repo share one session. Falls back to `per-directory` if not inside a git repo.
 - **`per-session`** — Fabric session ID (timestamp + hex). Every `fabric` invocation starts a fresh Honcho session. Falls back to `per-directory` if no session ID is available.
 - **`global`** — workspace name. One session for everything. Memory accumulates across all directories and runs.
@@ -235,15 +232,15 @@ Multiple Fabric profiles can share one workspace while maintaining separate AI i
 ```json
 {
   "apiKey": "***",
-  "workspace": "hermes",
+  "workspace": "fabric",
   "peerName": "yourname",
   "hosts": {
-    "hermes": {
-      "aiPeer": "hermes",
+    "fabric": {
+      "aiPeer": "fabric",
       "recallMode": "hybrid",
       "sessionStrategy": "per-directory"
     },
-    "hermes_coder": {
+    "fabric_coder": {
       "aiPeer": "coder",
       "recallMode": "tools",
       "sessionStrategy": "per-repo"
@@ -254,7 +251,7 @@ Multiple Fabric profiles can share one workspace while maintaining separate AI i
 
 Both profiles see the same user (`yourname`) in the same shared environment (`fabric`), but each AI peer builds its own observations, conclusions, and behavior patterns. The coder's memory stays code-oriented; the main agent's stays broad.
 
-Host key is derived from the active Fabric profile: `fabric` (default) or `hermes_<profile>` (e.g. `fabric -p coder` -> host key `hermes_coder`). Older `hermes.<profile>` host blocks are still read for compatibility and are migrated when the CLI writes profile-scoped Honcho config.
+Host key is derived from the active Fabric profile: `fabric` (default) or `fabric_<profile>` (e.g. `fabric -p coder` -> host key `fabric_coder`).
 
 ### Dialectic & Reasoning
 
@@ -320,19 +317,17 @@ Presets:
 | `HONCHO_API_KEY` | `apiKey` |
 | `HONCHO_BASE_URL` | `baseUrl` |
 | `HONCHO_ENVIRONMENT` | `environment` |
-| `HERMES_HONCHO_HOST` | Host key override |
-| `HONCHO_OAUTH_DASHBOARD` | OAuth authorize origin (default: cloud dashboard; local-dev `localhost:3000`) |
-| `HONCHO_OAUTH_AUTHORIZE_URL` | Full authorize URL (overrides the dashboard origin) |
-| `HONCHO_OAUTH_TOKEN_URL` | Token endpoint (default: cloud API; local-dev `localhost:8000`) |
-| `HONCHO_OAUTH_CLIENT_ID` | OAuth client (default `fabric-agent`) |
-| `HONCHO_OAUTH_SCOPE` | Requested scope (default `write`) |
+| `HONCHO_OAUTH_CLIENT_ID` | Registered OAuth client ID when it is not passed through the setup prompt; no default |
+| `HONCHO_OAUTH_DASHBOARD` | OAuth authorize origin |
+| `HONCHO_OAUTH_AUTHORIZE_URL` | Full OAuth authorize URL override |
+| `HONCHO_OAUTH_TOKEN_URL` | OAuth token endpoint override |
+| `HONCHO_OAUTH_SCOPE` | Requested OAuth scope (default `write`) |
 
 ## CLI Commands
 
 | Command | Description |
 |---------|-------------|
 | `fabric memory setup honcho` | Configure Honcho directly — works on a fresh install |
-| `fabric honcho setup` | Interactive setup wizard (only registered once Honcho is the active provider; redirects to `fabric memory setup`) |
 | `fabric honcho status` | Show resolved config for active profile |
 | `fabric honcho enable` / `disable` | Toggle Honcho for active profile |
 | `fabric honcho mode <mode>` | Change recall or observation mode |
@@ -348,15 +343,15 @@ Presets:
 ```json
 {
   "apiKey": "***",
-  "workspace": "hermes",
+  "workspace": "fabric",
   "peerName": "username",
   "contextCadence": 2,
   "dialecticCadence": 3,
   "dialecticDepth": 2,
   "hosts": {
-    "hermes": {
+    "fabric": {
       "enabled": true,
-      "aiPeer": "hermes",
+      "aiPeer": "fabric",
       "recallMode": "hybrid",
       "observation": {
         "user": { "observeMe": true, "observeOthers": true },
@@ -369,7 +364,7 @@ Presets:
       "dialecticMaxChars": 600,
       "saveMessages": true
     },
-    "hermes_coder": {
+    "fabric_coder": {
       "enabled": true,
       "aiPeer": "coder",
       "sessionStrategy": "per-repo",

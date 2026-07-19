@@ -17175,10 +17175,27 @@ def mount_spa(application: FastAPI):
     # the JSON-RPC/WS/API surface under /api remains available.
     @application.middleware("http")
     async def block_frontend_in_headless_mode(request: Request, call_next):
+        path = request.url.path
+        mobile_client_enabled = bool(
+            getattr(application.state, "mobile_client_enabled", False)
+        )
+        mobile_bootstrap_paths = {
+            ("GET", "/auth/callback"),
+            ("GET", "/auth/login"),
+            ("GET", "/login"),
+            ("GET", "/mobile"),
+            ("POST", "/auth/logout"),
+            ("POST", "/auth/password-login"),
+        }
+        mobile_bootstrap_path = mobile_client_enabled and (
+            (request.method, path) in mobile_bootstrap_paths
+            or (request.method == "GET" and path.startswith("/mobile/"))
+        )
         if (
             bool(getattr(application.state, "headless_backend", False))
-            and not request.url.path.startswith("/api/")
-            and request.url.path != "/api"
+            and not path.startswith("/api/")
+            and path != "/api"
+            and not mobile_bootstrap_path
         ):
             return JSONResponse(
                 {
@@ -17977,6 +17994,8 @@ def _merged_plugins_hub() -> Dict[str, Any]:
         _discover_context_engines,
         _get_disabled_set,
         _get_enabled_set,
+        _entry_default_enabled,
+        _plugin_runtime_status,
         _read_manifest as _read_plugin_manifest_at,
     )
 
@@ -17994,18 +18013,15 @@ def _merged_plugins_hub() -> Dict[str, Any]:
     rows: List[Dict[str, Any]] = []
 
     for name, version, description, source, dir_str, key in _discover_all_plugins():
-        # Both the path-derived key (nested category plugins) and the bare
-        # manifest name count for enabled/disabled state, matching the runtime
-        # loader's back-compat lookup.
-        aliases = {name}
-        if key:
-            aliases.add(key)
-        if aliases & disabled_set:
-            runtime_status = "disabled"
-        elif aliases & enabled_set:
-            runtime_status = "enabled"
-        else:
-            runtime_status = "inactive"
+        entry = (name, version, description, source, dir_str, key)
+        runtime_status = _plugin_runtime_status(
+            name,
+            enabled_set,
+            disabled_set,
+            key,
+            source=source,
+            default_enabled=_entry_default_enabled(entry),
+        )
 
         dir_path = Path(dir_str)
         dm = dash_by_name.get(name)

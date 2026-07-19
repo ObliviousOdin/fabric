@@ -8,6 +8,7 @@ from model_tools import (
     handle_function_call,
     get_all_tool_names,
     get_toolset_for_tool,
+    _tool_result_capability_status,
     _AGENT_LOOP_TOOLS,
     _LEGACY_TOOLSET_MAP,
     TOOL_TO_TOOLSET_MAP,
@@ -19,6 +20,15 @@ from model_tools import (
 # =========================================================================
 
 class TestHandleFunctionCall:
+    def test_oversized_tool_envelope_detects_final_failure_field(self):
+        content = "x" * 1_048_577
+        assert _tool_result_capability_status(
+            json.dumps({"content": content, "success": False})
+        ) == "error"
+        assert _tool_result_capability_status(
+            json.dumps({"content": content, "meta": {"success": False}})
+        ) == "ok"
+
     def test_agent_loop_tool_returns_error(self):
         for tool_name in _AGENT_LOOP_TOOLS:
             result = json.loads(handle_function_call(tool_name, {}))
@@ -65,6 +75,16 @@ class TestHandleFunctionCall:
                 turn_id="",
                 api_request_id="",
                 middleware_trace=[],
+            ),
+            call(
+                "capability_event",
+                capability="tool",
+                action="web_search",
+                outcome="success",
+                occurred_at=ANY,
+                session_id="session-1",
+                event_id="call-1",
+                duration_ms=ANY,
             ),
             call(
                 "post_tool_call",

@@ -594,7 +594,7 @@ def seed_record_if_missing(skill_name: str) -> None:
 
 
 @_serialized_curator_writer
-def _mutate(skill_name: str, mutator, *, require_curation_eligible: bool = False) -> None:
+def _mutate(skill_name: str, mutator, *, require_curation_eligible: bool = False) -> bool:
     """Load, apply *mutator(record)* in place, save. Best-effort.
 
     By default this records telemetry for ANY skill — bundled, hub-installed,
@@ -606,10 +606,10 @@ def _mutate(skill_name: str, mutator, *, require_curation_eligible: bool = False
     hub-installed skill).
     """
     if not skill_name:
-        return
+        return False
     try:
         if require_curation_eligible and not is_curation_eligible(skill_name):
-            return
+            return False
         with _usage_file_lock():
             data = load_usage()
             rec = data.get(skill_name)
@@ -618,8 +618,28 @@ def _mutate(skill_name: str, mutator, *, require_curation_eligible: bool = False
             mutator(rec)
             data[skill_name] = rec
             save_usage(data)
+        return True
     except Exception as e:
         logger.debug("skill_usage._mutate(%s) failed: %s", skill_name, e, exc_info=True)
+        return False
+
+
+def _emit_skill_capability(action: str, skill_name: str) -> None:
+    """Emit content-free skill activity after the sidecar commit succeeds."""
+    try:
+        from fabric_cli.plugins import emit_capability_event
+
+        emit_capability_event(
+            capability="skill",
+            action=action,
+            outcome="success",
+            subject_id=skill_name,
+            count=1,
+        )
+    except Exception:
+        # Skill usage tracking is best-effort; observer availability must not
+        # change whether the skill itself can be used.
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -647,7 +667,8 @@ def bump_use(skill_name: str) -> None:
     def _apply(rec: Dict[str, Any]) -> None:
         rec["use_count"] = int(rec.get("use_count") or 0) + 1
         rec["last_used_at"] = _now_iso()
-    _mutate(skill_name, _apply)
+    if _mutate(skill_name, _apply):
+        _emit_skill_capability("used", skill_name)
 
 
 def bump_patch(skill_name: str) -> None:
@@ -658,7 +679,8 @@ def bump_patch(skill_name: str) -> None:
     def _apply(rec: Dict[str, Any]) -> None:
         rec["patch_count"] = int(rec.get("patch_count") or 0) + 1
         rec["last_patched_at"] = _now_iso()
-    _mutate(skill_name, _apply)
+    if _mutate(skill_name, _apply):
+        _emit_skill_capability("authored", skill_name)
 
 
 def mark_agent_created(skill_name: str) -> None:

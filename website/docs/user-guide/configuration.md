@@ -2013,6 +2013,35 @@ onboarding:
 - `profile_build` — controls the profile-build path offered on the very first gateway message ever. `"ask"` (default) offers to build a user profile; the offer is **opt-in and consent-gated** — the agent asks before any lookup and never reads connected accounts silently. `"off"` shows a plain intro only. The offer fires at most once.
 - `seen` — internal state. Fabric latches each shown hint here so it never fires again; the profile-build offer is also recorded here once shown. Don't hand-edit it — wipe the whole `onboarding` section if you want to re-see all hints.
 
+## Achievements Journey
+
+The bundled Achievements Journey is enabled by default and stores only closed,
+content-free capability metadata under the active profile. Its behavioral
+settings live in `config.yaml`:
+
+```yaml
+achievements:
+  tracking_enabled: true       # Pause new capability-event collection when false
+  active_time_enabled: true    # Reflect bounded meaningful activity time
+  celebration_mode: standard  # standard | quiet | off
+  raw_event_retention_days: 90
+  preferred_outcome: ""        # Managed by the first-run outcome picker
+```
+
+Pausing tracking does not backfill the skipped period. The page also provides
+local export and deletion controls. To remove both the bundled page and its
+observer entirely, add `achievements` to the final plugin deny-list and restart
+the dashboard:
+
+```yaml
+plugins:
+  disabled:
+    - achievements
+```
+
+See [Fabric Journey and Achievements](/user-guide/features/achievements) for
+the event privacy contract, retention behavior, and mastery model.
+
 ## Dashboard
 
 Configuration for the [web dashboard](/user-guide/features/web-dashboard) — visual theme, public URL, and authentication providers. OAuth and basic-password providers are documented in detail on the web-dashboard page; this is the `config.yaml` shape.

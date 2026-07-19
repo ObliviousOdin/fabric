@@ -21,6 +21,7 @@ from plugins.achievements.catalog import (
     TRACKS,
 )
 from plugins.achievements.dashboard.plugin_api import router
+from plugins.achievements.dashboard import plugin_api
 from plugins.achievements.engine import (
     AchievementEngine,
     MetricSnapshot,
@@ -37,10 +38,12 @@ from plugins.achievements.share_cards import (
     validate_share_card,
 )
 from plugins.achievements.store import (
+    AchievementImportLimitError,
     AchievementStateError,
     AchievementStore,
     STATE_DIRNAME,
 )
+from plugins.achievements import store as achievement_store_module
 
 
 _SESSION_SCHEMA = """
@@ -410,6 +413,51 @@ def test_import_reset_preserves_ledger_bytes(fabric_home: Path) -> None:
     assert store.reset_imports() == 1
     assert store.list_imports() == []
     assert store.ledger_path.read_bytes() == ledger_before
+
+
+def test_friendly_import_limit_preserves_existing_card_updates(
+    fabric_home: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(achievement_store_module, "MAX_IMPORTED_CARDS", 2)
+    store = AchievementStore(fabric_home)
+    first = _empty_card(display_name="First")
+    second = _empty_card(display_name="Second")
+    third = _empty_card(display_name="Third")
+
+    assert store.upsert_import(first) is True
+    assert store.upsert_import(second) is True
+    updated = {**first, "display_name": "First updated"}
+    assert store.upsert_import(updated) is False
+    with pytest.raises(AchievementImportLimitError):
+        store.upsert_import(third)
+
+    imports = store.list_imports()
+    assert len(imports) == 2
+    assert any(card["display_name"] == "First updated" for card in imports)
+
+
+def test_friendly_import_api_returns_conflict_at_profile_cap(
+    api_client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setattr(achievement_store_module, "MAX_IMPORTED_CARDS", 1)
+    monkeypatch.setattr(plugin_api, "MAX_IMPORTED_CARDS", 1)
+    first = _empty_card(display_name="First")
+    second = _empty_card(display_name="Second")
+
+    created = api_client.post(
+        "/api/plugins/achievements/leaderboard/import", json=first
+    )
+    assert created.status_code == 200
+    assert created.json()["friendly_import_limit"] == 1
+    assert api_client.post(
+        "/api/plugins/achievements/leaderboard/import", json=first
+    ).json()["created"] is False
+
+    rejected = api_client.post(
+        "/api/plugins/achievements/leaderboard/import", json=second
+    )
+    assert rejected.status_code == 409
+    assert "limited to 1" in rejected.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

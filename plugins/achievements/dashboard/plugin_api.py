@@ -29,10 +29,22 @@ from plugins.achievements.share_cards import (
     sanitize_display_name,
     validate_share_card,
 )
-from plugins.achievements.store import AchievementStateError, AchievementStore
+from plugins.achievements.store import (
+    MAX_IMPORTED_CARDS,
+    AchievementImportLimitError,
+    AchievementStateError,
+    AchievementStore,
+)
+from plugins.achievements.event_store import EventStore
+from plugins.achievements.journey_engine import (
+    JourneyEngine,
+    JourneySettingsError,
+    read_journey_settings,
+)
 
 
 router = APIRouter()
+MAX_LOCAL_LEADERBOARD_PROFILES = 64
 
 
 class ShareCardBody(BaseModel):
@@ -43,6 +55,32 @@ class ShareCardBody(BaseModel):
 class ResetBody(BaseModel):
     scope: Literal["imported_leaderboard"]
     confirm: bool
+
+
+class JourneySettingsBody(BaseModel):
+    tracking_enabled: Optional[bool] = None
+    active_time_enabled: Optional[bool] = None
+    celebration_mode: Optional[Literal["standard", "quiet", "off"]] = None
+    preferred_outcome: Optional[
+        Literal["finish_faster", "build_agents", "create_content", "automate_work"]
+    ] = None
+
+    class Config:
+        extra = "forbid"
+
+
+class SnoozeBody(BaseModel):
+    days: Literal[7]
+
+    class Config:
+        extra = "forbid"
+
+
+class DeleteActivityBody(BaseModel):
+    confirm: bool
+
+    class Config:
+        extra = "forbid"
 
 
 def _privacy() -> dict[str, Any]:
@@ -75,6 +113,150 @@ def _active_engine(profile: Optional[str]) -> AchievementEngine:
     return AchievementEngine(home)
 
 
+def _journey_engine(profile: Optional[str]) -> tuple[str, JourneyEngine]:
+    profile_name, home = _requested_profile(profile)
+    return profile_name, JourneyEngine(home, profile_name=profile_name)
+
+
+def _model_fields_set(body: BaseModel) -> set[str]:
+    value = getattr(body, "model_fields_set", None)
+    if value is None:
+        value = getattr(body, "__fields_set__", set())
+    return set(value)
+
+
+def _journey_leaderboard(
+    profile_name: str, home: Path, current: dict[str, Any]
+) -> dict[str, Any]:
+    """Build separate verified and Friendly boards without cross-profile writes."""
+    import sqlite3
+
+    from plugins.achievements.journey_catalog import ACHIEVEMENTS_BY_ID
+
+    mastery = current.get("mastery") or {}
+    current_row = {
+        "profile": profile_name,
+        "display_name": _profile_label(profile_name),
+        "is_current_profile": True,
+        "xp": int(mastery.get("xp") or 0),
+        "level": mastery.get("level") or {"id": "explorer", "label": "Explorer"},
+        "earned_count": int(mastery.get("earned_count") or 0),
+        "breadth": int((mastery.get("breadth") or {}).get("current") or 0),
+        "momentum": int(((current.get("today") or {}).get("momentum") or {}).get("points") or 0),
+        "confidence": "observed",
+    }
+    profiles: list[dict[str, Any]] = []
+    skipped = 0
+    season_id = str(((current.get("today") or {}).get("momentum") or {}).get("season_id") or "")
+    for other_name, other_home, is_current in _profile_candidates(profile_name, home):
+        if is_current:
+            continue
+        db_path = EventStore(other_home).db_path
+        if not db_path.is_file():
+            skipped += 1
+            continue
+        connection = None
+        try:
+            connection = sqlite3.connect(
+                db_path.resolve().as_uri() + "?mode=ro", uri=True, timeout=1.0
+            )
+            connection.row_factory = sqlite3.Row
+            rank_eligible_ids = tuple(
+                sorted(
+                    item_id
+                    for item_id, item in ACHIEVEMENTS_BY_ID.items()
+                    if item.rank_eligible
+                )
+            )
+            placeholders = ",".join("?" for _ in rank_eligible_ids)
+            unlock_rows = connection.execute(
+                f"""SELECT achievement_id, xp FROM journey_unlocks
+                    WHERE achievement_id IN ({placeholders})
+                    ORDER BY achievement_id LIMIT ?""",
+                (*rank_eligible_ids, len(rank_eligible_ids)),
+            ).fetchall()
+            starter_marker = connection.execute(
+                """SELECT 1 FROM journey_markers
+                   WHERE marker_id = 'starter.tool_assist' LIMIT 1"""
+            ).fetchone()
+            definitions = [
+                ACHIEVEMENTS_BY_ID[str(row["achievement_id"])]
+                for row in unlock_rows
+                if str(row["achievement_id"]) in ACHIEVEMENTS_BY_ID
+                and ACHIEVEMENTS_BY_ID[str(row["achievement_id"])].rank_eligible
+            ]
+            verified_rows = [
+                row
+                for row in unlock_rows
+                if str(row["achievement_id"]) in ACHIEVEMENTS_BY_ID
+                and ACHIEVEMENTS_BY_ID[str(row["achievement_id"])].rank_eligible
+            ]
+            xp = sum(int(row["xp"] or 0) for row in verified_rows)
+            earned_ids = {item.id for item in definitions}
+            breadth = len({item.path_id for item in definitions})
+            starter_complete = starter_marker is not None and {
+                "conversation.first_thread",
+                "agents.first_delegate",
+            } <= earned_ids
+            records = {
+                str(row["achievement_id"]): {"xp": int(row["xp"] or 0)}
+                for row in verified_rows
+            }
+            level, _next, _rank_xp, earned_count, _rank_breadth = JourneyEngine._rank(
+                records, starter_complete
+            )
+            momentum_row = connection.execute(
+                "SELECT COALESCE(SUM(points), 0) FROM journey_momentum WHERE season_id = ?",
+                (season_id,),
+            ).fetchone()
+            profiles.append(
+                {
+                    "profile": other_name,
+                    "display_name": _profile_label(other_name),
+                    "is_current_profile": False,
+                    "xp": xp,
+                    "level": level,
+                    "earned_count": earned_count,
+                    "breadth": breadth,
+                    "momentum": int(momentum_row[0]) if momentum_row else 0,
+                    "confidence": "observed",
+                }
+            )
+        except (OSError, sqlite3.Error, KeyError, TypeError, ValueError):
+            skipped += 1
+        finally:
+            if connection is not None:
+                connection.close()
+    profiles.sort(key=lambda row: (-row["xp"], -row["breadth"], row["display_name"].casefold()))
+
+    friendly: list[dict[str, Any]] = []
+    try:
+        imports = AchievementStore(home, read_only=True).list_imports(create=False)
+    except AchievementStateError:
+        imports = []
+    for card in imports:
+        friendly.append(
+            {
+                "origin": "self_reported_import",
+                "confidence": "self_attested",
+                "card": card,
+            }
+        )
+    friendly.sort(
+        key=lambda row: (
+            -int((row.get("card") or {}).get("score") or 0),
+            str((row.get("card") or {}).get("display_name") or "").casefold(),
+        )
+    )
+    return {
+        "you": [current_row],
+        "profiles": profiles,
+        "friendly": friendly,
+        "friendly_import_limit": MAX_IMPORTED_CARDS,
+        "skipped_local_profiles": skipped,
+    }
+
+
 def _profile_label(profile_name: str) -> str:
     if profile_name == "default":
         return "Default"
@@ -92,7 +274,9 @@ def _profile_candidates(
     ]
     seen = {current_home}
     try:
-        discovered = profiles_to_serve(multiplex=True)
+        discovered = profiles_to_serve(
+            multiplex=True, max_profiles=MAX_LOCAL_LEADERBOARD_PROFILES
+        )
     except Exception:
         discovered = []
     for name, raw_home in discovered:
@@ -104,6 +288,8 @@ def _profile_candidates(
             continue
         seen.add(home)
         candidates.append((name, home, False))
+        if len(candidates) >= MAX_LOCAL_LEADERBOARD_PROFILES:
+            break
     return candidates
 
 
@@ -192,6 +378,124 @@ def post_refresh(profile: Optional[str] = None) -> dict[str, Any]:
         raise HTTPException(status_code=500, detail="Achievement state is unavailable.") from exc
 
 
+@router.get("/journey")
+def get_journey(profile: Optional[str] = None) -> dict[str, Any]:
+    try:
+        profile_name, engine = _journey_engine(profile)
+        # First load already reconciles local evidence, so return any unlocks
+        # created by that reconciliation before they can be silently consumed.
+        result = engine.summary(include_new=True)
+        result["leaderboard"] = _journey_leaderboard(
+            profile_name, engine.fabric_home, result
+        )
+        return result
+    except (AchievementStateError, JourneySettingsError, OSError) as exc:
+        raise HTTPException(status_code=500, detail="Fabric Journey is unavailable.") from exc
+
+
+@router.post("/journey/refresh")
+def post_journey_refresh(profile: Optional[str] = None) -> dict[str, Any]:
+    try:
+        profile_name, engine = _journey_engine(profile)
+        result = engine.summary(include_new=True)
+        result["leaderboard"] = _journey_leaderboard(
+            profile_name, engine.fabric_home, result
+        )
+        return result
+    except (AchievementStateError, JourneySettingsError, OSError) as exc:
+        raise HTTPException(status_code=500, detail="Fabric Journey is unavailable.") from exc
+
+
+@router.patch("/settings")
+def patch_journey_settings(
+    body: JourneySettingsBody, profile: Optional[str] = None
+) -> dict[str, Any]:
+    fields = _model_fields_set(body)
+    if not fields:
+        raise HTTPException(status_code=400, detail="At least one setting is required.")
+    updates = {name: getattr(body, name) for name in fields}
+    try:
+        _profile_name, engine = _journey_engine(profile)
+        return {"ok": True, "settings": engine.update_settings(updates)}
+    except JourneySettingsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/quests/{quest_id}/snooze")
+def post_quest_snooze(
+    quest_id: str, body: SnoozeBody, profile: Optional[str] = None
+) -> dict[str, Any]:
+    try:
+        profile_name, engine = _journey_engine(profile)
+        result = engine.snooze(quest_id, body.days)
+        result["leaderboard"] = _journey_leaderboard(
+            profile_name, engine.fabric_home, result
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/quests/{quest_id}/attest")
+def post_quest_attest(
+    quest_id: str, profile: Optional[str] = None
+) -> dict[str, Any]:
+    try:
+        _profile_name, engine = _journey_engine(profile)
+        return engine.attest(quest_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/challenges/{kind}/reroll")
+def post_challenge_reroll(
+    kind: str, profile: Optional[str] = None
+) -> dict[str, Any]:
+    try:
+        profile_name, engine = _journey_engine(profile)
+        result = engine.reroll(kind)
+        result["leaderboard"] = _journey_leaderboard(
+            profile_name, engine.fabric_home, result
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/activity/export")
+def get_activity_export(profile: Optional[str] = None) -> dict[str, Any]:
+    _profile_name, home = _requested_profile(profile)
+    try:
+        settings = read_journey_settings(home)
+        return EventStore(home).export(
+            retention_days=int(settings.get("raw_event_retention_days", 90))
+        )
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail="Activity metadata is unavailable.") from exc
+
+
+@router.delete("/activity")
+def delete_activity(
+    body: DeleteActivityBody, profile: Optional[str] = None
+) -> dict[str, Any]:
+    if body.confirm is not True:
+        raise HTTPException(
+            status_code=400,
+            detail="confirm=true is required to delete activity metadata.",
+        )
+    _profile_name, home = _requested_profile(profile)
+    try:
+        removed = EventStore(home).delete_activity()
+        return {
+            "ok": True,
+            "removed": removed,
+            "unlocks_preserved": True,
+            "settings_preserved": True,
+        }
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=500, detail="Activity metadata is unavailable.") from exc
+
+
 @router.post("/share-card")
 def post_share_card(
     body: ShareCardBody, profile: Optional[str] = None
@@ -258,6 +562,7 @@ def get_leaderboard(profile: Optional[str] = None) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "entries": entries,
+        "friendly_import_limit": MAX_IMPORTED_CARDS,
         "skipped_local_profiles": skipped,
         "warning_count": warning_count + invalid_imports,
         "privacy": _privacy(),
@@ -292,6 +597,7 @@ async def post_leaderboard_import(
         return {
             "ok": True,
             "created": created,
+            "friendly_import_limit": MAX_IMPORTED_CARDS,
             "entry": {
                 "origin": "self_reported_import",
                 "is_current_profile": False,
@@ -302,6 +608,8 @@ async def post_leaderboard_import(
     except ShareCardValidationError as exc:
         status_code = 413 if "16 KiB" in str(exc) else 400
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    except AchievementImportLimitError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AchievementStateError as exc:
         raise HTTPException(status_code=500, detail="Leaderboard state is unavailable.") from exc
 

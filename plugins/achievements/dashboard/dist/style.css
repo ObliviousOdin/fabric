@@ -1,11 +1,9 @@
-/* Fabric Achievements — theme-native local progress and manual sharing. */
+/* Fabric Journey — local capability learning, mastery, and friendly sharing. */
 .fabric-achievements {
   width: 100%;
-  height: 100%;
-  max-height: 100%;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  padding: 1.5rem 1.5rem 3.5rem;
+  max-width: 90rem;
+  margin: 0 auto;
+  padding: 0.75rem 0 3.5rem;
   color: var(--color-foreground);
   font-family: var(
     --theme-font-sans,
@@ -22,226 +20,135 @@
   box-sizing: border-box;
 }
 
-.fabric-achievements h1,
 .fabric-achievements h2,
 .fabric-achievements h3,
 .fabric-achievements p,
 .fabric-achievements dl,
-.fabric-achievements dd {
+.fabric-achievements dd,
+.fabric-achievements ol,
+.fabric-achievements ul,
+.fabric-achievements fieldset {
   margin-top: 0;
 }
 
-.fabric-achievements-header {
+.fabric-achievements button,
+.fabric-achievements summary,
+.fabric-achievements input,
+.fabric-achievements textarea,
+.fabric-achievements [role="combobox"] {
+  font: inherit;
+}
+
+.fabric-achievements button,
+.fabric-achievements summary,
+.fabric-achievements label,
+.fabric-achievements input[type="checkbox"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fabric-achievements-page-intro {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 2rem;
-  width: 100%;
-  max-width: 88rem;
-  padding: 0.25rem 0 1.5rem;
+  padding: 0.25rem 0 1.25rem;
   border-bottom: 1px solid var(--color-border);
 }
 
-.fabric-achievements-header h1 {
+.fabric-achievements-page-intro h2,
+.fabric-achievements-view-intro h2,
+.fabric-achievements-first-run-intro h2 {
   margin: 0;
-  font-size: clamp(1.85rem, 3vw, 2.7rem);
-  font-weight: 680;
-  line-height: 1.05;
-  letter-spacing: -0.04em;
+  color: var(--color-foreground);
+  font-size: clamp(1.35rem, 2.4vw, 2rem);
+  font-weight: 690;
+  line-height: 1.12;
+  letter-spacing: -0.035em;
 }
 
-.fabric-achievements-header > div:first-child > p:last-child {
-  max-width: 46rem;
-  margin: 0.6rem 0 0;
+.fabric-achievements-page-intro > div:first-child > p:last-child,
+.fabric-achievements-view-intro > p:last-child,
+.fabric-achievements-first-run-intro > p:last-child {
+  max-width: 48rem;
+  margin: 0.5rem 0 0;
   color: var(--color-muted-foreground);
-  font-size: 0.95rem;
-  line-height: 1.55;
+  font-size: 0.9rem;
+  line-height: 1.6;
 }
 
 .fabric-achievements-eyebrow {
-  margin-bottom: 0.55rem;
+  margin-bottom: 0.45rem;
   color: var(--color-muted-foreground);
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   font-weight: 680;
-  line-height: 1.3;
-  letter-spacing: 0.04em;
+  line-height: 1.35;
+  letter-spacing: 0.045em;
   text-transform: uppercase;
 }
 
-.fabric-achievements-header-actions {
+.fabric-achievements-page-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 0.75rem;
 }
 
-.fabric-achievements-header-actions > span {
+.fabric-achievements-page-actions > span {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   color: var(--color-muted-foreground);
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   white-space: nowrap;
 }
 
-.fabric-achievements-header-actions button,
-.fabric-achievements-form-actions button,
+.fabric-achievements-page-actions button,
+.fabric-achievements-primary-actions button,
+.fabric-achievements-starter-action button,
+.fabric-achievements-quest-heading button,
+.fabric-achievements-inline-actions button,
+.fabric-achievements-attest button,
+.fabric-achievements-weekly button,
 .fabric-achievements-error button,
-.fabric-achievements-share-output button,
-.fabric-achievements-leaderboard-heading button,
-.fabric-achievements-row-actions button {
+.fabric-achievements-data-actions button,
+.fabric-achievements-delete-confirm button,
+.fabric-achievements-record-actions button,
+.fabric-achievements-share-panel button,
+.fabric-achievements-import-panel button {
   display: inline-flex;
+  min-height: 2.75rem;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
 }
 
-.fabric-achievements-privacy {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  max-width: 88rem;
-  margin-top: 1rem;
-  padding: 0.75rem 0.9rem;
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-card) 64%, transparent);
-}
-
-.fabric-achievements-privacy-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  border: 1px solid color-mix(in srgb, var(--color-success) 45%, var(--color-border));
-  border-radius: var(--radius-sm, 0.3rem);
-  background: color-mix(in srgb, var(--color-success) 10%, transparent);
-  color: var(--color-success);
-}
-
-.fabric-achievements-privacy > div:nth-child(2) {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem 0.55rem;
-}
-
-.fabric-achievements-privacy strong {
-  font-size: 0.88rem;
-  font-weight: 680;
-}
-
-.fabric-achievements-privacy span {
-  color: var(--color-muted-foreground);
-  font-size: 0.8rem;
-  line-height: 1.5;
-}
-
-.fabric-achievements-privacy-note {
-  max-width: 24rem;
-  text-align: right;
-}
-
-.fabric-achievements-notice,
-.fabric-achievements-inline-error,
-.fabric-achievements-skip-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  width: 100%;
-  max-width: 88rem;
-  margin: 1rem 0 0;
-  padding: 0.7rem 0.85rem;
-  border-left: 3px solid var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 8%, transparent);
-  color: var(--color-foreground);
-  font-size: 0.84rem;
-  line-height: 1.5;
-}
-
-.fabric-achievements-inline-error {
-  border-left-color: var(--color-destructive);
-  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
-}
-
-.fabric-achievements-skip-note {
-  margin-bottom: 0.8rem;
-  border-left-color: var(--color-warning);
-  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
-}
-
-.fabric-achievements-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0;
-  width: 100%;
-  max-width: 88rem;
-  margin: 1rem 0 0;
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-card) 45%, transparent);
-}
-
-.fabric-achievements-stat {
-  min-width: 0;
-  padding: 1rem 1.15rem;
-  border-right: 1px solid var(--color-border);
-}
-
-.fabric-achievements-stat:last-child {
-  border-right: 0;
-}
-
-.fabric-achievements-stat dt,
-.fabric-achievements-stat-detail {
-  color: var(--color-muted-foreground);
-  font-size: 0.74rem;
-  line-height: 1.4;
-}
-
-.fabric-achievements-stat-value {
-  margin: 0.3rem 0 0.2rem;
-  overflow-wrap: anywhere;
-  color: var(--color-foreground);
-  font-size: clamp(1.3rem, 2.5vw, 1.85rem);
-  font-weight: 690;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-  letter-spacing: -0.035em;
-}
-
-.fabric-achievements-stat-detail {
-  margin: 0;
-}
-
 .fabric-achievements-tabs {
   width: 100%;
-  max-width: 88rem;
-  margin-top: 1.25rem;
   border-bottom: 1px solid var(--color-border);
 }
 
 .fabric-achievements-tabs > div {
   display: flex;
-  gap: 1.5rem;
+  gap: 1.4rem;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .fabric-achievements-tabs button {
   display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
+  min-width: max-content;
   min-height: 2.75rem;
-  padding: 0.65rem 0.1rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.7rem 0.1rem;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--color-muted-foreground);
-  font: inherit;
-  font-size: 0.88rem;
-  font-weight: 590;
+  font-size: 0.85rem;
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -252,247 +159,473 @@
 .fabric-achievements-tabs button[aria-selected="true"] {
   border-bottom-color: var(--color-ring);
   color: var(--color-foreground);
-  font-weight: 680;
+  font-weight: 690;
 }
 
-.fabric-achievements-catalog,
-.fabric-achievements-leaderboard {
-  width: 100%;
-  max-width: 88rem;
-  padding-top: 1.5rem;
-}
-
-.fabric-achievements-catalog-heading,
-.fabric-achievements-leaderboard-heading {
+.fabric-achievements-notice,
+.fabric-achievements-inline-note {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 2rem;
-}
-
-.fabric-achievements-catalog-heading h2,
-.fabric-achievements-leaderboard-heading h2 {
-  margin: 0;
-  font-size: clamp(1.25rem, 2vw, 1.55rem);
-  font-weight: 670;
-  line-height: 1.2;
-  letter-spacing: -0.025em;
-}
-
-.fabric-achievements-catalog-heading > div:first-child > p:last-child,
-.fabric-achievements-leaderboard-heading > div:first-child > p:last-child {
-  max-width: 46rem;
-  margin: 0.4rem 0 0;
-  color: var(--color-muted-foreground);
-  font-size: 0.84rem;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  margin: 1rem 0 0;
+  padding: 0.7rem 0.85rem;
+  border-left: 3px solid var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 8%, transparent);
+  color: var(--color-foreground);
+  font-size: 0.8rem;
   line-height: 1.55;
 }
 
-.fabric-achievements-filters {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: flex-end;
-  gap: 0.65rem;
+.fabric-achievements-notice.is-error {
+  border-left-color: var(--color-destructive);
+  background: color-mix(in srgb, var(--color-destructive) 8%, transparent);
 }
 
-.fabric-achievements-filter {
-  display: flex;
-  min-width: 10rem;
-  flex-direction: column;
-  gap: 0.35rem;
+.fabric-achievements-inline-note {
+  border-left-color: var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
 }
 
-.fabric-achievements-filter label,
-.fabric-achievements-field label,
-.fabric-achievements-import-panel form > label,
-.fabric-achievements-share-output label {
-  color: var(--color-muted-foreground);
-  font-size: 0.74rem;
-  font-weight: 630;
-  line-height: 1.35;
-}
-
-.fabric-achievements-filter > button,
-.fabric-achievements-filter > [role="combobox"] {
-  width: 100%;
-}
-
-.fabric-achievements-results {
-  margin: 1rem 0 0;
-  color: var(--color-muted-foreground);
-  font-size: 0.74rem;
-}
-
-.fabric-achievements-grid {
+.fabric-achievements-tracking-warnings {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
-  margin-top: 0.75rem;
+  gap: 0.45rem;
 }
 
-.fabric-achievement-card {
-  position: relative;
-  min-width: 0;
-  overflow: hidden;
-  border-color: var(--color-border) !important;
-  background: color-mix(in srgb, var(--color-card) 76%, transparent) !important;
-  box-shadow: none !important;
-  transition: border-color 120ms ease, background-color 120ms ease;
+.fabric-achievements-tracking-warnings .fabric-achievements-inline-note {
+  margin-top: 0;
 }
 
-.fabric-achievement-card::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--color-muted-foreground);
-  content: "";
+.fabric-achievements-view {
+  width: 100%;
+  padding-top: 1.5rem;
 }
 
-.fabric-achievement-card.tier-weave::before {
-  background: var(--color-ring);
+.fabric-achievements-view-intro {
+  max-width: 50rem;
+  margin-bottom: 1.25rem;
 }
 
-.fabric-achievement-card.tier-loom::before {
-  background: var(--color-warning);
+.fabric-achievements-view-intro h2 {
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
 }
 
-.fabric-achievement-card:hover {
-  border-color: color-mix(in srgb, var(--color-ring) 55%, var(--color-border)) !important;
-  background: color-mix(in srgb, var(--color-card) 88%, transparent) !important;
-}
-
-.fabric-achievement-card.status-locked {
-  background: color-mix(in srgb, var(--color-card) 52%, transparent) !important;
-}
-
-.fabric-achievement-card-content {
+.fabric-achievements-section-heading {
   display: flex;
-  min-height: 15.25rem;
-  height: 100%;
-  flex-direction: column;
-  gap: 0.9rem;
-  padding: 1rem 1rem 0.95rem 1.15rem !important;
-}
-
-.fabric-achievement-card-top,
-.fabric-achievement-progress-copy {
-  display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
 }
 
-.fabric-achievement-badges {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.fabric-achievement-tier,
-.fabric-achievement-category,
-.fabric-achievements-profile-name [data-slot="badge"],
-.fabric-achievements-profile-name > span,
-.fabric-achievements-table-scroll td > [data-slot="badge"] {
-  font-size: 0.65rem !important;
-  font-weight: 650 !important;
-  letter-spacing: 0.01em;
-}
-
-.fabric-achievement-tier {
-  border-color: color-mix(in srgb, var(--color-ring) 42%, var(--color-border)) !important;
-  background: color-mix(in srgb, var(--color-ring) 10%, transparent) !important;
-  color: var(--color-foreground) !important;
-}
-
-.tier-thread .fabric-achievement-tier {
-  border-color: var(--color-border) !important;
-  background: color-mix(in srgb, var(--color-muted-foreground) 8%, transparent) !important;
-}
-
-.tier-loom .fabric-achievement-tier {
-  border-color: color-mix(in srgb, var(--color-warning) 50%, var(--color-border)) !important;
-  background: color-mix(in srgb, var(--color-warning) 10%, transparent) !important;
-}
-
-.fabric-achievement-category {
-  border-color: var(--color-border) !important;
-  background: transparent !important;
-  color: var(--color-muted-foreground) !important;
-}
-
-.fabric-achievement-points {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 0.25rem;
-  color: var(--color-foreground);
-  font-size: 0.72rem;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.fabric-achievement-card-copy {
-  flex: 1;
-}
-
-.fabric-achievement-card-copy h3 {
+.fabric-achievements-section-heading h2,
+.fabric-achievements-path-heading h2,
+.fabric-achievements-tracking h2,
+.fabric-achievements-weekly h2,
+.fabric-achievements-momentum h2,
+.fabric-achievements-quiet-state h2,
+.fabric-achievements-quiet-state h3,
+.fabric-achievements-share-panel h3,
+.fabric-achievements-import-panel h3 {
   margin: 0;
   color: var(--color-foreground);
   font-size: 1rem;
-  font-weight: 660;
+  font-weight: 670;
   line-height: 1.35;
-  letter-spacing: -0.012em;
+  letter-spacing: -0.015em;
 }
 
-.fabric-achievement-card-copy p {
-  margin: 0.45rem 0 0;
+.fabric-achievements-section-heading p,
+.fabric-achievements-path-heading p,
+.fabric-achievements-quiet-state p,
+.fabric-achievements-share-panel > p,
+.fabric-achievements-import-panel > p {
+  margin: 0.3rem 0 0;
   color: var(--color-muted-foreground);
   font-size: 0.8rem;
   line-height: 1.55;
 }
 
-.fabric-achievement-progress-copy {
+.fabric-achievements-section-heading > span,
+.fabric-achievements-path-heading > span {
+  flex: 0 0 auto;
   color: var(--color-muted-foreground);
-  font-size: 0.71rem;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 
-.fabric-achievement-status {
+/* First run */
+.fabric-achievements-first-run {
+  display: grid;
+  gap: 1.35rem;
+}
+
+.fabric-achievements-first-run-intro {
+  position: relative;
+  overflow: hidden;
+  padding: 1.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-ring) 42%, var(--color-border));
+  background: color-mix(in srgb, var(--color-ring) 6%, transparent);
+}
+
+.fabric-achievements-first-run-intro::after {
+  position: absolute;
+  right: 1.5rem;
+  bottom: -2.5rem;
+  width: min(34vw, 22rem);
+  height: 7rem;
+  border-top: 1px solid color-mix(in srgb, var(--color-ring) 50%, transparent);
+  border-radius: 50%;
+  opacity: 0.55;
+  content: "";
+  transform: rotate(-8deg);
+}
+
+.fabric-achievements-outcomes {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fabric-achievements-outcomes legend {
+  margin-bottom: 0.65rem;
+  color: var(--color-foreground);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.fabric-achievements-outcomes > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.fabric-achievements-outcomes button,
+.fabric-achievements-recommended button,
+.fabric-achievements-active-paths button {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 4.5rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-card) 42%, transparent);
+  color: var(--color-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fabric-achievements-outcomes button:hover,
+.fabric-achievements-recommended button:hover,
+.fabric-achievements-active-paths button:hover {
+  border-color: color-mix(in srgb, var(--color-ring) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-ring) 6%, transparent);
+}
+
+.fabric-achievements-outcomes button.is-selected {
+  border-color: var(--color-ring);
+  box-shadow: inset 3px 0 0 var(--color-ring);
+}
+
+.fabric-achievements-outcomes button > svg,
+.fabric-achievements-recommended button > svg,
+.fabric-achievements-active-paths button > svg {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.8rem;
+  color: var(--color-ring);
+}
+
+.fabric-achievements-outcomes strong,
+.fabric-achievements-recommended strong,
+.fabric-achievements-active-paths strong {
+  padding-right: 1.2rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.fabric-achievements-outcomes span,
+.fabric-achievements-recommended span,
+.fabric-achievements-active-paths span {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.fabric-achievements-starter {
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 35%, transparent);
+}
+
+.fabric-achievements-starter ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fabric-achievements-starter li {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.9rem 1rem 0.9rem 0;
+}
+
+.fabric-achievements-starter li:not(:last-child)::after {
+  position: absolute;
+  top: 1.55rem;
+  right: 0;
+  width: 1.5rem;
+  border-top: 1px solid var(--color-border);
+  content: "";
+  transform: translateX(50%);
+}
+
+.fabric-achievements-starter li > span {
   display: inline-flex;
+  width: 1.85rem;
+  height: 1.85rem;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 680;
+}
+
+.fabric-achievements-starter li.status-completed > span {
+  border-color: color-mix(in srgb, var(--color-success) 50%, var(--color-border));
+  color: var(--color-success);
+}
+
+.fabric-achievements-starter li strong {
+  display: block;
+  color: var(--color-foreground);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.fabric-achievements-starter li p {
+  margin: 0.25rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.fabric-achievements-starter-action {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.fabric-achievements-starter-action > span {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.fabric-achievements-recommended > div:last-child,
+.fabric-achievements-active-paths > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+/* Returning Today */
+.fabric-achievements-today {
+  display: grid;
+  gap: 1.2rem;
+}
+
+.fabric-achievements-level {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.55fr) minmax(16rem, 1fr);
+  align-items: center;
+  gap: 2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 36%, transparent);
+}
+
+.fabric-achievements-level h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.fabric-achievements-level p:last-child {
+  margin: 0.25rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+}
+
+.fabric-achievements-activity-reflection {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.65rem 0.8rem;
+  border-left: 3px solid color-mix(in srgb, var(--color-ring) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-card) 36%, transparent);
+}
+
+.fabric-achievements-activity-reflection > div:first-child {
+  flex: 0 0 auto;
+  min-width: 5rem;
+}
+
+.fabric-achievements-activity-reflection p {
+  margin-bottom: 0.15rem;
+}
+
+.fabric-achievements-activity-reflection strong {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fabric-achievements-activity-reflection > div:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--color-border);
+}
+
+.fabric-achievements-activity-reflection span {
+  color: var(--color-foreground);
+  font-size: 0.78rem;
+  font-weight: 620;
+}
+
+.fabric-achievements-activity-reflection small {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.fabric-achievements-primary-quest {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--color-ring) 58%, var(--color-border)) !important;
+  border-radius: 0 !important;
+  background: color-mix(in srgb, var(--color-ring) 5%, var(--color-card)) !important;
+  box-shadow: none !important;
+}
+
+.fabric-achievements-primary-quest::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--color-ring);
+  content: "";
+}
+
+.fabric-achievements-primary-quest [data-slot="card-content"],
+.fabric-achievements-primary-quest > div {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem 1.25rem 1.2rem 1.4rem !important;
+}
+
+.fabric-achievements-primary-copy h2 {
+  max-width: 54rem;
+  margin: 0;
+  font-size: clamp(1.25rem, 2.2vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+}
+
+.fabric-achievements-primary-copy > p:not(.fabric-achievements-eyebrow) {
+  max-width: 56rem;
+  margin: 0.5rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+
+.fabric-achievements-why {
+  color: var(--color-muted-foreground);
+  font-size: 0.76rem !important;
+  font-style: italic;
+}
+
+.fabric-achievements-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  margin-top: 0.65rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.fabric-achievements-confidence {
+  border-color: var(--color-border) !important;
+  background: transparent !important;
+  color: var(--color-muted-foreground) !important;
+  font-size: 0.75rem !important;
+}
+
+.fabric-achievements-confidence.is-self_attested,
+.fabric-achievements-confidence.is-historical_inferred {
+  border-color: color-mix(in srgb, var(--color-warning) 42%, var(--color-border)) !important;
+  color: var(--color-warning) !important;
+}
+
+.fabric-achievements-primary-actions,
+.fabric-achievements-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.fabric-achievements-progress-wrap {
+  min-width: 0;
+}
+
+.fabric-achievements-progress-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+}
+
+.fabric-achievements-progress-copy span:first-child {
   color: var(--color-foreground);
   font-weight: 620;
 }
 
-.fabric-achievement-status-dot {
-  display: inline-block;
-  width: 0.48rem;
-  height: 0.48rem;
-  border-radius: 50%;
-  background: var(--color-muted-foreground);
-}
-
-.status-unlocked .fabric-achievement-status-dot {
-  background: var(--color-success);
-}
-
-.status-in_progress .fabric-achievement-status-dot {
-  background: var(--color-ring);
-}
-
-.fabric-achievement-progress {
+.fabric-achievements-progress {
   position: relative;
   width: 100%;
   height: 0.42rem;
   overflow: hidden;
   border-radius: var(--radius-sm, 0.25rem);
-  background: color-mix(in srgb, var(--color-muted-foreground) 16%, transparent);
+  background: color-mix(in srgb, var(--color-muted-foreground) 17%, transparent);
 }
 
-.fabric-achievement-progress-fill {
+.fabric-achievements-progress-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
@@ -500,61 +633,490 @@
   transition: width 180ms ease;
 }
 
-.status-unlocked .fabric-achievement-progress-fill {
-  background: var(--color-success);
+.fabric-achievements-optional > div:last-child {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
 }
 
-.status-locked .fabric-achievement-progress-fill {
-  background: var(--color-muted-foreground);
+.fabric-achievements-today-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.65fr);
+  gap: 0.7rem;
 }
 
-.fabric-achievement-track {
-  margin: -0.25rem 0 0;
-  overflow: hidden;
+.fabric-achievements-weekly,
+.fabric-achievements-momentum {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+}
+
+.fabric-achievements-weekly > p:not(.fabric-achievements-eyebrow),
+.fabric-achievements-momentum > p:not(.fabric-achievements-eyebrow) {
+  margin: 0.4rem 0 0.8rem;
   color: var(--color-muted-foreground);
-  font-size: 0.68rem;
-  line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fabric-achievements-empty {
-  display: flex;
-  min-height: 13rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  margin-top: 1rem;
-  padding: 2rem;
-  border: 1px dashed var(--color-border);
-  color: var(--color-muted-foreground);
-  text-align: center;
-}
-
-.fabric-achievements-empty.is-filtered {
-  grid-column: 1 / -1;
-}
-
-.fabric-achievements-empty h2,
-.fabric-achievements-empty h3 {
-  margin: 0.75rem 0 0;
-  color: var(--color-foreground);
-  font-size: 1rem;
-  font-weight: 650;
-}
-
-.fabric-achievements-empty p {
-  max-width: 32rem;
-  margin: 0.4rem 0 0.9rem;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.55;
 }
 
-.fabric-achievements-sharing-grid {
+.fabric-achievements-momentum > span {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+}
+
+.fabric-achievements-recent ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  list-style: none;
+}
+
+.fabric-achievements-recent li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border-right: 1px solid var(--color-border);
+}
+
+.fabric-achievements-recent li:last-child {
+  border-right: 0;
+}
+
+.fabric-achievements-recent li > svg {
+  color: var(--color-success);
+}
+
+.fabric-achievements-recent strong,
+.fabric-achievements-recent span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.fabric-achievements-recent strong {
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.fabric-achievements-recent span {
+  margin-top: 0.2rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+}
+
+.fabric-achievements-active-paths > div:last-child {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Quests and paths */
+.fabric-achievements-quest-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 0.95rem 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.fabric-achievements-quest-thread {
+  display: flex;
+  width: 1.8rem;
+  justify-content: center;
+  padding-top: 0.15rem;
+  color: var(--color-muted-foreground);
+}
+
+.fabric-achievements-quest-row.status-completed .fabric-achievements-quest-thread {
+  color: var(--color-success);
+}
+
+.fabric-achievements-quest-row.status-active .fabric-achievements-quest-thread,
+.fabric-achievements-quest-row.status-available .fabric-achievements-quest-thread {
+  color: var(--color-ring);
+}
+
+.fabric-achievements-quest-body,
+.fabric-achievements-quest-heading > div {
+  min-width: 0;
+}
+
+.fabric-achievements-quest-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.fabric-achievements-quest-heading h3,
+.fabric-achievements-collection-heading h3 {
+  margin: 0;
+  color: var(--color-foreground);
+  font-size: 0.9rem;
+  font-weight: 660;
+  line-height: 1.4;
+}
+
+.fabric-achievements-quest-body > p:not(.fabric-achievements-why):not(.fabric-achievements-unavailable) {
+  max-width: 62rem;
+  margin: 0.4rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.fabric-achievements-quest-body > .fabric-achievements-progress-wrap {
+  margin-top: 0.75rem;
+}
+
+.fabric-achievements-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 620;
+}
+
+.fabric-achievements-status-mark {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1px solid var(--color-muted-foreground);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.fabric-achievements-status.status-completed .fabric-achievements-status-mark {
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+
+.fabric-achievements-status.status-active .fabric-achievements-status-mark,
+.fabric-achievements-status.status-available .fabric-achievements-status-mark {
+  border-color: var(--color-ring);
+  background: var(--color-ring);
+}
+
+.fabric-achievements-status.status-unavailable .fabric-achievements-status-mark,
+.fabric-achievements-status.status-snoozed .fabric-achievements-status-mark {
+  border-radius: 0;
+}
+
+.fabric-achievements-unavailable {
+  margin: 0.55rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.fabric-achievements-attest {
+  margin-top: 0.8rem;
+  padding: 0.75rem;
+  border-left: 3px solid var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 7%, transparent);
+}
+
+.fabric-achievements-attest p {
+  margin: 0 0 0.65rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.fabric-achievements-path-layout {
+  display: grid;
+  grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.fabric-achievements-path-layout > nav {
+  border-top: 1px solid var(--color-border);
+}
+
+.fabric-achievements-path-layout > nav ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fabric-achievements-path-layout > nav button {
+  display: grid;
+  width: 100%;
+  min-height: 3.75rem;
+  gap: 0.3rem;
+  padding: 0.7rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fabric-achievements-path-layout > nav button:hover {
+  background: color-mix(in srgb, var(--color-card) 46%, transparent);
+}
+
+.fabric-achievements-path-layout > nav button[aria-current="step"] {
+  border-left-color: var(--color-ring);
+  background: color-mix(in srgb, var(--color-ring) 7%, transparent);
+}
+
+.fabric-achievements-path-layout > nav button > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.fabric-achievements-path-layout > nav strong {
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.fabric-achievements-path-layout > nav small {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fabric-achievements-path-detail {
+  min-width: 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--color-border);
+}
+
+.fabric-achievements-path-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.fabric-achievements-path-heading h2 {
+  font-size: 1.2rem;
+}
+
+.fabric-achievements-path-steps {
+  margin-top: 1rem;
+}
+
+/* Collection */
+.fabric-achievements-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+}
+
+.fabric-achievements-subnav button {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  font-size: 0.78rem;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.fabric-achievements-subnav button:hover,
+.fabric-achievements-subnav button[aria-current="page"] {
+  border-color: color-mix(in srgb, var(--color-ring) 55%, var(--color-border));
+  background: color-mix(in srgb, var(--color-ring) 7%, transparent);
+  color: var(--color-foreground);
+}
+
+.fabric-achievements-collection > section + section {
+  margin-top: 1.5rem;
+}
+
+.fabric-achievements-collection-list {
+  border-top: 1px solid var(--color-border);
+}
+
+.fabric-achievements-collection-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.85rem 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fabric-achievements-collection-mark {
+  color: var(--color-muted-foreground);
+}
+
+.fabric-achievements-collection-row:has(.status-completed) .fabric-achievements-collection-mark {
+  color: var(--color-success);
+}
+
+.fabric-achievements-collection-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.fabric-achievements-collection-heading > span {
+  flex: 0 0 auto;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fabric-achievements-collection-row p {
+  margin: 0.25rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.fabric-achievements-legacy {
+  border: 1px solid var(--color-border);
+}
+
+.fabric-achievements-legacy > summary,
+.fabric-achievements-tracking > summary,
+.fabric-achievements-field-contract > summary {
+  min-height: 2.75rem;
+  cursor: pointer;
+}
+
+.fabric-achievements-legacy > summary {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 0.9rem;
+  color: var(--color-foreground);
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.fabric-achievements-legacy > p,
+.fabric-achievements-legacy > .fabric-achievements-collection-list {
+  margin-right: 0.9rem;
+  margin-left: 0.9rem;
+}
+
+.fabric-achievements-legacy > p {
+  color: var(--color-muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+/* Leaderboards */
+.fabric-achievements-profile-list {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-border);
+  list-style: none;
+}
+
+.fabric-achievements-profile-record {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1.4fr) minmax(11rem, 0.6fr) auto;
+  gap: 0.85rem;
+  min-width: 0;
+  align-items: center;
+  padding: 0.85rem 0.45rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fabric-achievements-rank {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.fabric-achievements-profile-main {
+  min-width: 0;
+}
+
+.fabric-achievements-profile-main > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.fabric-achievements-profile-main strong {
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
+.fabric-achievements-profile-main [data-slot="badge"],
+.fabric-achievements-profile-main > div > span {
+  font-size: 0.75rem !important;
+}
+
+.fabric-achievements-profile-main .is-legacy,
+.fabric-achievements-profile-main .is-friendly {
+  border-color: color-mix(in srgb, var(--color-warning) 45%, var(--color-border)) !important;
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent) !important;
+}
+
+.fabric-achievements-profile-main p {
+  margin: 0.25rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.fabric-achievements-profile-record dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.fabric-achievements-profile-record dl > div {
+  min-width: 0;
+}
+
+.fabric-achievements-profile-record dt {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+}
+
+.fabric-achievements-profile-record dd {
+  margin: 0.15rem 0 0;
+  color: var(--color-foreground);
+  font-size: 0.82rem;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+}
+
+.fabric-achievements-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.fabric-achievements-friendly-tools {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.8rem;
-  margin: 1rem 0 1.75rem;
+  margin-top: 1.25rem;
 }
 
 .fabric-achievements-share-panel,
@@ -562,296 +1124,284 @@
   min-width: 0;
   padding: 1rem;
   border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-card) 62%, transparent);
 }
 
-.fabric-achievements-panel-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.fabric-achievements-panel-heading > svg {
-  flex: 0 0 auto;
+.fabric-achievements-share-panel label,
+.fabric-achievements-import-panel label,
+.fabric-achievements-export-fallback label,
+.fabric-achievements-setting-select label {
+  display: block;
+  margin: 0.75rem 0 0.35rem;
   color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 630;
 }
 
-.fabric-achievements-panel-heading h3 {
-  margin: 0;
-  font-size: 0.98rem;
-  font-weight: 660;
-  line-height: 1.35;
-}
-
-.fabric-achievements-panel-heading > div > p:last-child {
-  max-width: 34rem;
-  margin: 0.35rem 0 0;
-  color: var(--color-muted-foreground);
-  font-size: 0.78rem;
-  line-height: 1.5;
-}
-
-.fabric-achievements-field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.fabric-achievements-share-panel form,
-.fabric-achievements-import-panel form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.fabric-achievements-highlights {
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-card) 54%, transparent);
-}
-
-.fabric-achievements-highlights summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.65rem 0.75rem;
-  color: var(--color-foreground);
-  font-size: 0.76rem;
-  font-weight: 620;
-  cursor: pointer;
-}
-
-.fabric-achievements-highlights summary span {
-  color: var(--color-muted-foreground);
-  font-size: 0.7rem;
-  font-weight: 500;
-}
-
-.fabric-achievements-highlight-list {
-  display: grid;
-  max-height: 13rem;
-  overflow-y: auto;
-  border-top: 1px solid var(--color-border);
-}
-
-.fabric-achievements-highlight-list label {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 0.6rem;
-  padding: 0.65rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
-  cursor: pointer;
-}
-
-.fabric-achievements-highlight-list label:last-child {
-  border-bottom: 0;
-}
-
-.fabric-achievements-highlight-list label:hover {
-  background: color-mix(in srgb, var(--color-foreground) 4%, transparent);
-}
-
-.fabric-achievements-highlight-list input,
-.fabric-achievements-highlight-list button[role="checkbox"] {
-  margin-top: 0.1rem;
-}
-
-.fabric-achievements-highlight-list span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.fabric-achievements-highlight-list strong {
-  color: var(--color-foreground);
-  font-size: 0.76rem;
-  font-weight: 610;
-  line-height: 1.35;
-}
-
-.fabric-achievements-highlight-list small {
-  color: var(--color-muted-foreground);
-  font-size: 0.68rem;
-  line-height: 1.35;
+.fabric-achievements-share-panel input,
+.fabric-achievements-share-panel textarea,
+.fabric-achievements-import-panel textarea,
+.fabric-achievements-export-fallback textarea {
+  width: 100%;
 }
 
 .fabric-achievements-share-panel textarea,
-.fabric-achievements-import-panel textarea {
-  width: 100%;
-  min-height: 9rem;
+.fabric-achievements-import-panel textarea,
+.fabric-achievements-export-fallback textarea {
+  min-height: 8rem;
   resize: vertical;
-  padding: 0.7rem 0.75rem;
+  padding: 0.65rem;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm, 0.3rem);
-  background: color-mix(in srgb, var(--color-card) 72%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-card) 42%, transparent);
   color: var(--color-foreground);
   font-family: var(--theme-font-mono, ui-monospace, monospace);
-  font-size: 0.72rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.fabric-achievements-share-panel > button,
+.fabric-achievements-import-panel > button {
+  margin-top: 0.7rem;
+}
+
+.fabric-achievements-share-output,
+.fabric-achievements-import-review {
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.fabric-achievements-share-output > p {
+  min-height: 1rem;
+  margin: 0.4rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+}
+
+.fabric-achievements-import-review {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.fabric-achievements-import-review strong {
+  font-size: 0.82rem;
+}
+
+.fabric-achievements-import-review > span {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+}
+
+.fabric-achievements-import-review > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.fabric-achievements-form-error {
+  margin: 0.5rem 0 0;
+  color: var(--color-destructive);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* Tracking */
+.fabric-achievements-tracking {
+  margin-top: 1.75rem;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fabric-achievements-tracking > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  list-style: none;
+}
+
+.fabric-achievements-tracking > summary::-webkit-details-marker {
+  display: none;
+}
+
+.fabric-achievements-tracking > summary > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fabric-achievements-tracking > summary strong {
+  font-size: 0.82rem;
+}
+
+.fabric-achievements-tracking > summary small {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+}
+
+.fabric-achievements-tracking-body {
+  display: grid;
+  gap: 1rem;
+  padding: 0.25rem 0 1rem;
+}
+
+.fabric-achievements-tracking-copy p {
+  max-width: 64rem;
+  margin: 0.35rem 0 0;
+  color: var(--color-muted-foreground);
+  font-size: 0.78rem;
   line-height: 1.55;
 }
 
-.fabric-achievements-share-panel textarea::placeholder,
-.fabric-achievements-import-panel textarea::placeholder {
-  color: var(--color-muted-foreground);
-}
-
-.fabric-achievements-form-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.fabric-achievements-form-actions > span,
-.fabric-achievements-help {
+.fabric-achievements-source-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   margin: 0;
-  color: var(--color-muted-foreground);
-  font-size: 0.7rem;
-  line-height: 1.45;
-}
-
-.fabric-achievements-highlights > .fabric-achievements-help {
-  padding: 0.75rem;
-  border-top: 1px solid var(--color-border);
-}
-
-.fabric-achievements-form-error,
-.fabric-achievements-form-notice {
-  margin: 0;
-  color: var(--color-destructive);
-  font-size: 0.74rem;
-  line-height: 1.45;
-}
-
-.fabric-achievements-form-notice {
-  color: var(--color-success);
-}
-
-.fabric-achievements-share-output {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--color-border);
-}
-
-.fabric-achievements-share-output > div:first-child {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.fabric-achievements-leaderboard-heading {
-  padding-top: 0.25rem;
-}
-
-.fabric-achievements-table-scroll {
-  width: 100%;
-  overflow-x: auto;
   border: 1px solid var(--color-border);
 }
 
-.fabric-achievements-table-scroll table {
-  width: 100%;
-  min-width: 68rem;
-  border-collapse: collapse;
+.fabric-achievements-source-counts > div {
+  padding: 0.75rem;
+  border-right: 1px solid var(--color-border);
+}
+
+.fabric-achievements-source-counts > div:last-child {
+  border-right: 0;
+}
+
+.fabric-achievements-source-counts dt {
   color: var(--color-muted-foreground);
-  font-size: 0.76rem;
-  line-height: 1.45;
+  font-size: 0.75rem;
 }
 
-.fabric-achievements-table-scroll th,
-.fabric-achievements-table-scroll td {
-  padding: 0.75rem 0.8rem;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-  vertical-align: middle;
-}
-
-.fabric-achievements-table-scroll thead th {
-  background: color-mix(in srgb, var(--color-card) 78%, transparent);
-  color: var(--color-foreground);
-  font-size: 0.68rem;
-  font-weight: 660;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-.fabric-achievements-table-scroll tbody th {
-  color: var(--color-foreground);
-  font-weight: 620;
-}
-
-.fabric-achievements-table-scroll tbody tr:last-child th,
-.fabric-achievements-table-scroll tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.fabric-achievements-table-scroll tbody tr:hover {
-  background: color-mix(in srgb, var(--color-foreground) 3%, transparent);
-}
-
-.fabric-achievements-rank,
-.fabric-achievements-score {
-  color: var(--color-foreground);
+.fabric-achievements-source-counts dd {
+  margin: 0.2rem 0 0;
+  font-size: 0.92rem;
+  font-weight: 680;
   font-variant-numeric: tabular-nums;
 }
 
-.fabric-achievements-score {
-  font-size: 0.9rem;
-  font-weight: 680;
+.fabric-achievements-settings {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
 }
 
-.fabric-achievements-profile-name {
+.fabric-achievements-settings > div,
+.fabric-achievements-check-setting {
+  display: flex;
+  min-width: 0;
+  min-height: 7rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.8rem;
+  border: 1px solid var(--color-border);
+}
+
+.fabric-achievements-settings strong {
+  font-size: 0.8rem;
+}
+
+.fabric-achievements-settings span,
+.fabric-achievements-settings small {
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.fabric-achievements-settings > div > button {
+  margin-top: auto;
+}
+
+.fabric-achievements-check-setting {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  cursor: pointer;
+}
+
+.fabric-achievements-check-setting input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.1rem 0 0;
+  accent-color: var(--color-ring);
+}
+
+.fabric-achievements-check-setting span {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.fabric-achievements-setting-select [role="combobox"],
+.fabric-achievements-setting-select > button {
+  width: 100%;
+  min-height: 2.75rem;
+  margin-top: auto;
+}
+
+.fabric-achievements-data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.fabric-achievements-delete-confirm {
+  display: flex;
+  flex: 1 1 30rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  border-left: 3px solid var(--color-destructive);
+  background: color-mix(in srgb, var(--color-destructive) 7%, transparent);
+}
+
+.fabric-achievements-delete-confirm p {
+  flex: 1 1 20rem;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.fabric-achievements-field-contract {
+  font-size: 0.75rem;
+}
+
+.fabric-achievements-field-contract > summary {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  white-space: nowrap;
-}
-
-.fabric-achievements-card-id {
-  display: block;
-  max-width: 15rem;
-  margin-top: 0.2rem;
-  overflow: hidden;
   color: var(--color-muted-foreground);
-  font-family: var(--theme-font-mono, ui-monospace, monospace);
-  font-size: 0.62rem;
-  font-weight: 450;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.fabric-achievements-categories {
-  max-width: 20rem;
-}
-
-.fabric-achievements-table-scroll .is-local {
-  border-color: color-mix(in srgb, var(--color-success) 42%, var(--color-border)) !important;
-  background: color-mix(in srgb, var(--color-success) 9%, transparent) !important;
-  color: var(--color-foreground) !important;
-}
-
-.fabric-achievements-table-scroll .is-imported {
-  border-color: color-mix(in srgb, var(--color-warning) 45%, var(--color-border)) !important;
-  background: color-mix(in srgb, var(--color-warning) 9%, transparent) !important;
-  color: var(--color-foreground) !important;
-}
-
-.fabric-achievements-row-actions {
-  text-align: right !important;
-  white-space: nowrap;
-}
-
-.fabric-achievements-read-only {
+.fabric-achievements-field-contract p {
+  margin: 0.35rem 0 0;
   color: var(--color-muted-foreground);
-  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+/* Shared states */
+.fabric-achievements-quiet-state {
+  display: flex;
+  min-height: 13rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1.5rem;
+  border: 1px dashed var(--color-border);
+}
+
+.fabric-achievements-quiet-state.is-compact {
+  min-height: 7rem;
+  padding: 1rem;
+}
+
+.fabric-achievements-quiet-state button {
+  min-height: 2.75rem;
+  margin-top: 0.75rem;
 }
 
 .fabric-achievements-error {
@@ -872,56 +1422,46 @@
 
 .fabric-achievements-error h2 {
   margin: 0;
-  font-size: 0.94rem;
-  font-weight: 660;
+  font-size: 1rem;
 }
 
 .fabric-achievements-error p {
-  margin: 0.35rem 0 0.85rem;
+  margin: 0.35rem 0 0.8rem;
   color: var(--color-muted-foreground);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   line-height: 1.5;
 }
 
-.fabric-achievements-boundary {
-  padding: 1.5rem;
+.fabric-achievements-loading {
+  display: grid;
+  gap: 0.8rem;
+  width: 100%;
+  min-height: 16rem;
+  align-content: start;
+  padding-top: 1.5rem;
 }
 
-.fabric-achievements-loading {
-  display: flex;
-  width: 100%;
-  max-width: 88rem;
-  min-height: 15rem;
-  flex-direction: column;
-  gap: 0.75rem;
-  justify-content: center;
+.fabric-achievements-loading-line,
+.fabric-achievements-loading-quest {
+  display: block;
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-card) 60%, transparent);
+  animation: fabric-achievements-pulse 900ms ease-in-out infinite alternate;
 }
 
 .fabric-achievements-loading-line {
-  display: block;
   width: min(100%, 38rem);
   height: 0.8rem;
-  background: color-mix(in srgb, var(--color-muted-foreground) 16%, transparent);
-  animation: fabric-achievements-pulse 1.25s ease-in-out infinite alternate;
 }
 
 .fabric-achievements-loading-line.is-short {
   width: min(42%, 14rem);
 }
 
-.fabric-achievements-loading-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.8rem;
-  margin-top: 1rem;
-}
-
-.fabric-achievements-loading-grid > span {
-  display: block;
-  height: 9rem;
-  border: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-card) 55%, transparent);
-  animation: fabric-achievements-pulse 1.25s ease-in-out infinite alternate;
+.fabric-achievements-loading-quest {
+  width: 100%;
+  height: 11rem;
+  margin-top: 0.5rem;
 }
 
 .fabric-achievements-sr-only {
@@ -936,126 +1476,208 @@
   border: 0;
 }
 
-.fabric-achievements-tabs button:focus-visible,
-.fabric-achievements-table-scroll:focus-visible,
-.fabric-achievements-share-panel textarea:focus-visible,
-.fabric-achievements-import-panel textarea:focus-visible,
-.fabric-achievements-highlights summary:focus-visible,
-.fabric-achievements-highlight-list input:focus-visible,
-.fabric-achievements-highlight-list button[role="checkbox"]:focus-visible {
+.fabric-achievements button:focus-visible,
+.fabric-achievements summary:focus-visible,
+.fabric-achievements input:focus-visible,
+.fabric-achievements textarea:focus-visible,
+.fabric-achievements [role="combobox"]:focus-visible,
+.fabric-achievements [tabindex="-1"]:focus-visible {
   outline: 2px solid var(--color-ring);
   outline-offset: 2px;
 }
 
 @keyframes fabric-achievements-pulse {
-  from { opacity: 0.38; }
-  to { opacity: 0.82; }
+  from { opacity: 0.4; }
+  to { opacity: 0.85; }
 }
 
-@media (max-width: 1060px) {
-  .fabric-achievements-grid {
+@media (max-width: 1080px) {
+  .fabric-achievements-outcomes > div {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .fabric-achievements-sharing-grid {
+  .fabric-achievements-settings {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fabric-achievements-friendly-tools {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 760px) {
-  .fabric-achievements {
-    padding: 1rem 1rem 2.5rem;
-  }
-
-  .fabric-achievements-header,
-  .fabric-achievements-catalog-heading,
-  .fabric-achievements-leaderboard-heading {
+@media (max-width: 820px) {
+  .fabric-achievements-page-intro,
+  .fabric-achievements-section-heading,
+  .fabric-achievements-path-heading {
     align-items: flex-start;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
   }
 
-  .fabric-achievements-header-actions {
+  .fabric-achievements-level,
+  .fabric-achievements-today-grid,
+  .fabric-achievements-path-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .fabric-achievements-path-layout > nav ol {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fabric-achievements-path-layout > nav button {
+    height: 100%;
+    border-right: 1px solid var(--color-border);
+  }
+
+  .fabric-achievements-profile-record {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .fabric-achievements-profile-record dl {
+    grid-column: 2 / -1;
+  }
+}
+
+@media (max-width: 680px) {
+  .fabric-achievements {
+    padding-top: 0.25rem;
+    padding-bottom: 2.5rem;
+  }
+
+  .fabric-achievements-page-actions {
     width: 100%;
     justify-content: space-between;
   }
 
-  .fabric-achievements-privacy {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .fabric-achievements-privacy-note {
-    grid-column: 2;
-    max-width: none;
-    text-align: left;
-  }
-
-  .fabric-achievements-stats {
-    grid-template-columns: 1fr;
-  }
-
-  .fabric-achievements-stat {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .fabric-achievements-stat:last-child {
-    border-bottom: 0;
-  }
-
-  .fabric-achievements-filters {
-    width: 100%;
-  }
-
-  .fabric-achievements-filter {
-    min-width: 0;
-    flex: 1;
-  }
-
-  .fabric-achievements-grid,
-  .fabric-achievements-loading-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .fabric-achievement-card-content {
-    min-height: 0;
-  }
-}
-
-@media (max-width: 500px) {
-  .fabric-achievements-header-actions,
-  .fabric-achievements-filters,
-  .fabric-achievements-form-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .fabric-achievements-header-actions > span {
+  .fabric-achievements-page-actions > span {
     white-space: normal;
-  }
-
-  .fabric-achievements-header-actions button,
-  .fabric-achievements-form-actions button,
-  .fabric-achievements-leaderboard-heading button {
-    width: 100%;
-  }
-
-  .fabric-achievements-privacy {
-    align-items: start;
   }
 
   .fabric-achievements-tabs > div {
     gap: 1rem;
   }
 
-  .fabric-achievements-tabs button {
-    flex: 1;
-    justify-content: center;
+  .fabric-achievements-outcomes > div,
+  .fabric-achievements-starter ol,
+  .fabric-achievements-recommended > div:last-child,
+  .fabric-achievements-optional > div:last-child,
+  .fabric-achievements-recent ol,
+  .fabric-achievements-active-paths > div:last-child,
+  .fabric-achievements-settings,
+  .fabric-achievements-source-counts,
+  .fabric-achievements-path-layout > nav ol {
+    grid-template-columns: 1fr;
   }
 
-  .fabric-achievement-card-top,
-  .fabric-achievement-progress-copy {
+  .fabric-achievements-starter li {
+    padding-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .fabric-achievements-starter li:not(:last-child)::after {
+    top: auto;
+    right: auto;
+    bottom: -0.8rem;
+    left: 0.9rem;
+    width: 0;
+    height: 1.5rem;
+    border-top: 0;
+    border-left: 1px solid var(--color-border);
+    transform: none;
+  }
+
+  .fabric-achievements-starter li:last-child,
+  .fabric-achievements-recent li:last-child,
+  .fabric-achievements-source-counts > div:last-child {
+    border-bottom: 0;
+  }
+
+  .fabric-achievements-starter-action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fabric-achievements-recent li,
+  .fabric-achievements-source-counts > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .fabric-achievements-path-layout > nav button {
+    border-right: 0;
+  }
+
+  .fabric-achievements-quest-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fabric-achievements-quest-heading button {
+    align-self: flex-start;
+  }
+
+  .fabric-achievements-profile-record {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    padding: 1rem 0;
+  }
+
+  .fabric-achievements-profile-record dl,
+  .fabric-achievements-record-actions {
+    grid-column: 2;
+  }
+
+  .fabric-achievements-record-actions {
+    justify-content: flex-start;
+  }
+
+  .fabric-achievements-check-setting,
+  .fabric-achievements-settings > div {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 430px) {
+  .fabric-achievements-page-actions,
+  .fabric-achievements-primary-actions,
+  .fabric-achievements-inline-actions,
+  .fabric-achievements-data-actions,
+  .fabric-achievements-import-review > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .fabric-achievements-page-actions button,
+  .fabric-achievements-primary-actions button,
+  .fabric-achievements-inline-actions button,
+  .fabric-achievements-data-actions > button,
+  .fabric-achievements-import-review button {
+    width: 100%;
+  }
+
+  .fabric-achievements-progress-copy {
     align-items: flex-start;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .fabric-achievements-activity-reflection {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .fabric-achievements-activity-reflection > div:last-child {
+    padding-top: 0.55rem;
+    padding-left: 0;
+    border-top: 1px solid var(--color-border);
+    border-left: 0;
+  }
+
+  .fabric-achievements-subnav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

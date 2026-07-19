@@ -554,6 +554,23 @@ def build_turn_context(
                 if not _compressor.should_compress(_preflight_tokens):
                     break
 
+    # Closed lifecycle signal for local capability consumers.  This deliberately
+    # carries no user message or conversation history.
+    try:
+        from fabric_cli.plugins import emit_capability_event as _emit_capability_event
+
+        _emit_capability_event(
+            capability="conversation",
+            action="turn_started",
+            outcome="success",
+            session_id=agent.session_id or None,
+            turn_id=turn_id or None,
+            surface=(getattr(agent, "platform", None) or None),
+            event_id=turn_id or None,
+        )
+    except Exception:
+        logger.debug("conversation capability start emission failed")
+
     # Plugin hook: pre_llm_call (context injected into user message, not system prompt).
     plugin_user_context = ""
     try:

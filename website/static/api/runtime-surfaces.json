@@ -6892,7 +6892,7 @@
         "manifest": {
           "api": "plugin_api.py",
           "css": "dist/style.css",
-          "description": "Private local milestones with manual score sharing.",
+          "description": "A private, local Fabric Journey for capability quests, mastery, and friendly sharing.",
           "entry": "dist/index.js",
           "icon": "Star",
           "label": "Achievements",
@@ -6905,7 +6905,7 @@
             "path": "/workspace/achievements",
             "position": "after:activity"
           },
-          "version": "1.0.0"
+          "version": "2.0.0"
         },
         "source": "plugins/achievements/dashboard/manifest.json"
       },

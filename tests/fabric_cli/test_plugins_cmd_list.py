@@ -158,3 +158,80 @@ def test_cmd_list_json_output_includes_entrypoint_source(monkeypatch, capsys):
             "source": "entrypoint",
         }
     ]
+
+
+def _default_enabled_entry(tmp_path, *, source="bundled", raw_value="true"):
+    plugin_dir = tmp_path / source / "achievements"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.yaml").write_text(
+        "name: achievements\n"
+        "version: 2.0.0\n"
+        f"default_enabled: {raw_value}\n"
+    )
+    return (
+        "achievements",
+        "2.0.0",
+        "Fabric journeys",
+        source,
+        plugin_dir,
+        "achievements",
+    )
+
+
+def test_bundled_manifest_default_is_effectively_enabled(tmp_path):
+    entry = _default_enabled_entry(tmp_path)
+
+    assert plugins_cmd._entry_plugin_status(entry, set(), set()) == "enabled"
+    assert plugins_cmd._filter_plugin_entries(
+        [entry], _args(enabled=True), set(), set()
+    ) == [entry]
+    assert plugins_cmd._plugin_runtime_status(
+        "achievements",
+        set(),
+        set(),
+        "achievements",
+        source="bundled",
+        default_enabled=True,
+    ) == "enabled"
+
+
+def test_cmd_list_json_reports_bundled_manifest_default_as_enabled(
+    tmp_path, monkeypatch, capsys
+):
+    entry = _default_enabled_entry(tmp_path)
+    monkeypatch.setattr(plugins_cmd, "_discover_all_plugins", lambda: [entry])
+    monkeypatch.setattr(plugins_cmd, "_get_enabled_set", lambda: set())
+    monkeypatch.setattr(plugins_cmd, "_get_disabled_set", lambda: set())
+
+    plugins_cmd.cmd_list(_args(json=True))
+
+    assert json.loads(capsys.readouterr().out)[0]["status"] == "enabled"
+
+
+def test_default_enabled_does_not_override_disable(tmp_path):
+    entry = _default_enabled_entry(tmp_path)
+
+    assert (
+        plugins_cmd._entry_plugin_status(entry, set(), {"achievements"})
+        == "disabled"
+    )
+
+
+def test_nonbundled_manifest_cannot_self_enable(tmp_path):
+    entry = _default_enabled_entry(tmp_path, source="user")
+
+    assert plugins_cmd._entry_plugin_status(entry, set(), set()) == "not enabled"
+    assert plugins_cmd._plugin_runtime_status(
+        "achievements",
+        set(),
+        set(),
+        "achievements",
+        source="user",
+        default_enabled=True,
+    ) == "inactive"
+
+
+def test_string_default_enabled_is_not_treated_as_boolean_true(tmp_path):
+    entry = _default_enabled_entry(tmp_path, raw_value='"true"')
+
+    assert plugins_cmd._entry_plugin_status(entry, set(), set()) == "not enabled"

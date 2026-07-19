@@ -67,5 +67,6 @@ credits/quota/billing layer. Build order is in the design page.
 - Fabric needs **≥ 64k** effective context for agentic/tool use — keep
   `--max-model-len 65536` (or higher).
 - The `--tool-call-parser` must match the model family or Fabric's tool calls
-  won't parse (`hermes` for Qwen/Hermes, `llama3_json` for Llama 3.x, etc.).
+  won't parse (`llama3_json` for Llama 3.x, `mistral` for Mistral, `deepseek_v3`
+  for DeepSeek-V3 — see the vLLM tool-calling docs for your model's parser).
 - Big models need multiple GPUs — set `VLLM_TP` to the GPU count.

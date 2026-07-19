@@ -24,8 +24,9 @@ set -euo pipefail
 
 # HuggingFace model id. EXAMPLE default — replace with the current best open
 # model that fits your GPU/VRAM budget. Big models need multiple GPUs
-# (set VLLM_TP to the GPU count for tensor parallelism).
-VLLM_MODEL="${VLLM_MODEL:-Qwen/Qwen2.5-72B-Instruct}"
+# (set VLLM_TP to the GPU count for tensor parallelism). Gated models (Llama,
+# Mistral, ...) need HF_TOKEN set below plus license acceptance on HuggingFace.
+VLLM_MODEL="${VLLM_MODEL:-meta-llama/Llama-3.3-70B-Instruct}"
 
 # Bearer key clients must send. Generate once: openssl rand -hex 32
 VLLM_API_KEY="${VLLM_API_KEY:-changeme-generate-with-openssl-rand-hex-32}"
@@ -37,9 +38,9 @@ VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-65536}"
 VLLM_TP="${VLLM_TP:-1}"
 
 # Tool-call parser must match the model family so Fabric's tool calls work:
-#   qwen*/hermes -> hermes | llama3.x -> llama3_json | mistral -> mistral
-#   deepseek-v3 -> deepseek_v3 | (see vLLM docs for the full list)
-VLLM_TOOL_PARSER="${VLLM_TOOL_PARSER:-hermes}"
+#   llama3.x -> llama3_json | mistral -> mistral | deepseek-v3 -> deepseek_v3
+# See the vLLM "tool calling" docs for the parser that matches your model.
+VLLM_TOOL_PARSER="${VLLM_TOOL_PARSER:-llama3_json}"
 
 VLLM_PORT="${VLLM_PORT:-8000}"
 VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.92}"

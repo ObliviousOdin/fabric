@@ -2557,7 +2557,7 @@
         "metadata": {
           "auth_type": "api_key",
           "canonical_surface_member": true,
-          "description": "Anthropic (Claude models via API key or Claude Code)",
+          "description": "Anthropic (Claude models via API key)",
           "profile_aliases": [
             "claude",
             "claude-code",

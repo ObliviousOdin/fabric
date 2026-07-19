@@ -50,7 +50,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric whatsapp` | Configure and pair the WhatsApp bridge. |
 | `fabric whatsapp-cloud` | Configure the official Meta WhatsApp Business Cloud API adapter (Business account + public webhook required). Distinct from `fabric whatsapp` (Baileys personal-account bridge). |
 | `fabric slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |
-| `fabric auth` | Manage credentials — add, list, remove, reset, status, logout. Handles OAuth flows for Codex/Nous/Anthropic. |
+| `fabric auth` | Manage credentials — add, list, remove, reset, status, logout. Handles OAuth flows for Codex/Nous. |
 | `fabric logout` | Clear authentication for an inference provider. |
 | `fabric send` | Send a one-shot message to a configured messaging platform (Telegram, Discord, Slack, Signal, SMS, …). Useful from shell scripts, cron jobs, CI hooks, and monitoring daemons — no agent loop, no LLM. |
 | `fabric secrets` | Manage Bitwarden Secrets Manager and 1Password secret sources for resolving API keys at process startup. |
@@ -177,7 +177,7 @@ fabric model
 
 Use this when you want to:
 - **add a new provider** (OpenRouter, Anthropic, Copilot, DeepSeek, custom, etc.)
-- log into OAuth-backed providers (Anthropic, Copilot, Codex, Nous Portal)
+- log into OAuth-backed providers (Copilot, Codex, Nous Portal)
 - enter or update API keys
 - pick from provider-specific model lists
 - configure a custom/self-hosted endpoint
@@ -534,7 +534,7 @@ fabric auth                                              # Interactive wizard
 fabric auth list                                         # Show all pools
 fabric auth list openrouter                              # Show specific provider
 fabric auth add openrouter --api-key sk-or-v1-xxx        # Add API key
-fabric auth add anthropic --type oauth                   # Add OAuth credential
+fabric auth add anthropic --api-key sk-ant-xxx           # Add Anthropic API key
 fabric auth add nous --client-id <registered-client-id>  # Add Nous device-code OAuth
 fabric auth remove openrouter 2                          # Remove by index
 fabric auth reset openrouter                             # Clear cooldowns

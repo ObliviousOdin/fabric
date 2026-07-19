@@ -17,7 +17,7 @@ import { setSessionCompacting } from '@/store/compaction'
 import { refreshBackgroundProcesses } from '@/store/composer-status'
 import { $gateway } from '@/store/gateway'
 import { completeLiveViewTool, finishLiveViewTurn, startLiveViewTool } from '@/store/live-view'
-import { dispatchNativeNotification } from '@/store/native-notifications'
+import { dispatchNativeNotification, maybePlayApprovalSound } from '@/store/native-notifications'
 import { notify } from '@/store/notifications'
 import { requestDesktopOnboarding } from '@/store/onboarding'
 import { flashPetActivity, markPetUnread, setPetActivity } from '@/store/pet'
@@ -481,12 +481,24 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         // surfaces once the user focuses that chat.
         const command = typeof payload?.command === 'string' ? payload.command : ''
         const description = typeof payload?.description === 'string' ? payload.description : 'dangerous command'
+        // The guard that flagged the command — the backend already sends these;
+        // surfaced in the details panel and used to badge destructive approvals.
+        const patternKey = typeof payload?.pattern_key === 'string' ? payload.pattern_key : undefined
+
+        const patternKeys = Array.isArray(payload?.pattern_keys)
+          ? payload.pattern_keys.filter((key): key is string => typeof key === 'string')
+          : undefined
 
         setApprovalRequest({
           // false only when a tirith warning forbids it; backend omits the field otherwise.
           allowPermanent: payload?.allow_permanent !== false,
           command,
+          // Authoritative execution cwd from the backend (may differ from the
+          // session cwd for remote terminal backends); omitted by older backends.
+          cwd: typeof payload?.cwd === 'string' && payload.cwd ? payload.cwd : undefined,
           description,
+          patternKey,
+          patternKeys,
           sessionId: sessionId ?? null
         })
 
@@ -504,6 +516,11 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
           sessionId,
           title: translateNow('notifications.native.approvalTitle')
         })
+
+        // Focused active session gets no native banner (shouldFire suppresses
+        // it), so play an in-app cue there instead — otherwise a user who
+        // stepped away can miss the prompt and leave the agent blocked.
+        maybePlayApprovalSound(sessionId, command)
       } else if (event.type === 'sudo.request') {
         // Sudo password capture (tools/terminal_tool.py). Blocked on
         // sudo.respond {request_id, password}.

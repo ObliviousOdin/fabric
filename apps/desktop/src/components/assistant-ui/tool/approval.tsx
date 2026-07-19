@@ -1,7 +1,7 @@
 'use client'
 
 import { useStore } from '@nanostores/react'
-import { type FC, useCallback, useEffect, useState } from 'react'
+import { type FC, useCallback, useEffect, useId, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -14,8 +14,9 @@ import {
 } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { useI18n } from '@/i18n'
+import { humanizeApprovalReason, isDestructiveApproval, isHighRiskApproval } from '@/lib/approval-details'
 import { triggerHaptic } from '@/lib/haptics'
-import { AlertCircle, ChevronDown, Loader2 } from '@/lib/icons'
+import { AlertCircle, AlertTriangle, ChevronDown, Loader2 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 import { $gateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
@@ -47,6 +48,15 @@ export const APPROVAL_TOOLS = new Set(['terminal', 'execute_code'])
 // Canonical gateway choices (ui-tui/src/components/prompts.tsx).
 type ApprovalChoice = 'once' | 'session' | 'always' | 'deny'
 
+// Remount the bar when the *logical* approval changes so per-request state
+// (notably the auto-open-for-high-risk default) re-initializes. Keyed by
+// content, not object identity: the persistent floating fallback swaps
+// `request` across sessions without unmounting, and a reconnect can hand us a
+// fresh object for the same approval — keying on session+command re-fires the
+// risk default on a genuinely new approval while preserving a manual
+// expand/collapse within one.
+const approvalBarKey = (request: ApprovalRequest): string => `${request.sessionId ?? ''}:${request.command}`
+
 export const PendingToolApproval: FC<{ part: ToolPart }> = ({ part }) => {
   const request = useStore($approvalRequest)
 
@@ -54,13 +64,13 @@ export const PendingToolApproval: FC<{ part: ToolPart }> = ({ part }) => {
     return null
   }
 
-  return <InlineApprovalBar request={request} />
+  return <InlineApprovalBar request={request} toolName={part.toolName} />
 }
 
-const InlineApprovalBar: FC<{ request: ApprovalRequest }> = ({ request }) => {
+const InlineApprovalBar: FC<{ request: ApprovalRequest; toolName?: string }> = ({ request, toolName }) => {
   useEffect(() => registerApprovalInlineAnchor(), [])
 
-  return <ApprovalBar request={request} surface="inline" />
+  return <ApprovalBar key={approvalBarKey(request)} request={request} surface="inline" toolName={toolName} />
 }
 
 export const PendingApprovalFallback: FC = () => {
@@ -86,7 +96,7 @@ export const PendingApprovalFallback: FC = () => {
             <span className="min-w-0 truncate text-(--ui-text-tertiary)">{request.description}</span>
           )}
         </div>
-        <ApprovalBar request={request} surface="floating" />
+        <ApprovalBar key={approvalBarKey(request)} request={request} surface="floating" />
       </div>
     </div>
   )
@@ -94,23 +104,61 @@ export const PendingApprovalFallback: FC = () => {
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform)
 
-const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline' }> = ({ request, surface }) => {
+// One labelled field inside the details panel. The value wraps rather than
+// truncating so a long warning or path is always readable in full.
+const ApprovalDetailRow: FC<{ label: string; mono?: boolean; value: string }> = ({ label, mono, value }) => (
+  <div className="flex flex-col gap-0.5">
+    <span className="text-(--ui-text-tertiary)">{label}</span>
+    <span className={cn('whitespace-pre-wrap break-words text-foreground', mono && 'font-mono')}>{value}</span>
+  </div>
+)
+
+const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'; toolName?: string }> = ({
+  request,
+  surface,
+  toolName
+}) => {
   const { t } = useI18n()
   const copy = t.assistant.approval
   const gateway = useStore($gateway)
+  const detailsId = useId()
   const [submitting, setSubmitting] = useState<ApprovalChoice | null>(null)
   // "Always allow" persists the pattern to ~/.fabric/config.yaml permanently, so
   // it goes through a confirm step rather than firing straight from the menu.
   const [confirmAlways, setConfirmAlways] = useState(false)
-  // The pending tool row only shows a single truncated line of the command, and
-  // a pending row can't be expanded (no result yet), so the full command was
-  // previously only reachable via the "Always allow" modal. Let the user reveal
-  // it inline instead — "expand, Run" (2 clicks) rather than the modal dance.
-  const [showCommand, setShowCommand] = useState(false)
+  // Controlled so the Esc→deny shortcut can stand down while the options menu is
+  // open (otherwise Esc-to-close-the-menu would deny the whole approval).
+  const [menuOpen, setMenuOpen] = useState(false)
   const busy = submitting !== null
   // false when the backend won't honor a permanent allow (tirith warning) → hide "Always allow".
   const allowPermanent = request.allowPermanent !== false
   const hasCommand = request.command.trim().length > 0
+
+  // Derived, presentation-only context for the "Review approval details" panel
+  // (issue #51). The pending tool row shows only a single truncated command
+  // line, so this panel is where the full warning, command, tool, and working
+  // directory live — nothing critical is silently truncated. High-risk
+  // approvals (destructive, remote-exec, or a content-security finding that
+  // blocks a permanent allow) open it automatically.
+  const riskInput = useMemo(
+    () => ({
+      allowPermanent: request.allowPermanent,
+      command: request.command,
+      description: request.description,
+      patternKey: request.patternKey,
+      patternKeys: request.patternKeys
+    }),
+    [request.allowPermanent, request.command, request.description, request.patternKey, request.patternKeys]
+  )
+
+  const reason = useMemo(
+    () => humanizeApprovalReason(request.patternKey, request.description),
+    [request.patternKey, request.description]
+  )
+
+  const destructive = useMemo(() => isDestructiveApproval(riskInput), [riskInput])
+  const highRisk = useMemo(() => isHighRiskApproval(riskInput), [riskInput])
+  const [showDetails, setShowDetails] = useState(highRisk)
 
   const respond = useCallback(
     async (choice: ApprovalChoice) => {
@@ -144,10 +192,11 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
   )
 
   // ⌘/Ctrl+Enter → Run, Esc → Reject.
-  // While the confirm dialog is open it owns the keyboard (Esc closes it), so
-  // the strip-level shortcuts stand down to avoid denying the whole approval.
+  // While the confirm dialog or the options menu is open, that surface owns the
+  // keyboard (Esc closes it), so the strip-level shortcuts stand down to avoid
+  // denying the whole approval when the user just meant to back out.
   useEffect(() => {
-    if (confirmAlways) {
+    if (confirmAlways || menuOpen) {
       return
     }
 
@@ -164,7 +213,7 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
     window.addEventListener('keydown', onKeyDown, true)
 
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [confirmAlways, respond])
+  }, [confirmAlways, menuOpen, respond])
 
   return (
     <div
@@ -184,7 +233,7 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
             {submitting !== 'once' && <span className="text-[0.625rem] text-primary/60">{isMac ? '⌘⏎' : 'Ctrl⏎'}</span>}
           </Button>
           <span aria-hidden className="w-px self-stretch bg-primary/20" />
-          <DropdownMenu>
+          <DropdownMenu onOpenChange={setMenuOpen} open={menuOpen}>
             <DropdownMenuTrigger asChild>
               <Button
                 aria-label={copy.moreOptions}
@@ -228,24 +277,47 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
           {submitting !== 'deny' && <span className="text-[0.625rem] opacity-55">Esc</span>}
         </Button>
 
-        {hasCommand && (
-          <Button
-            aria-expanded={showCommand}
-            className="h-6 gap-1 rounded-md px-1.5 text-xs font-normal text-(--ui-text-tertiary) hover:text-foreground"
-            onClick={() => setShowCommand(value => !value)}
-            size="xs"
-            variant="ghost"
-          >
-            {copy.command}
-            <ChevronDown className={cn('size-3 transition-transform', showCommand && 'rotate-180')} />
-          </Button>
-        )}
+        <Button
+          aria-controls={detailsId}
+          aria-expanded={showDetails}
+          aria-label={showDetails ? copy.detailsHide : copy.detailsShow}
+          className="h-6 gap-1 rounded-md px-1.5 text-xs font-normal text-(--ui-text-tertiary) hover:text-foreground"
+          onClick={() => setShowDetails(value => !value)}
+          size="xs"
+          variant="ghost"
+        >
+          {copy.detailsToggle}
+          <ChevronDown className={cn('size-3 transition-transform', showDetails && 'rotate-180')} />
+        </Button>
       </div>
 
-      {showCommand && hasCommand && (
-        <pre className="mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border border-(--ui-stroke-tertiary) bg-(--ui-chat-surface-background) px-2.5 py-1.5 font-mono text-xs leading-snug text-foreground">
-          {request.command.trim()}
-        </pre>
+      {showDetails && (
+        <div
+          aria-label={copy.detailsPanelLabel}
+          className="mt-1.5 flex flex-col gap-2 rounded-md border border-(--ui-stroke-tertiary) bg-(--ui-chat-surface-background) px-2.5 py-2 text-xs leading-snug"
+          id={detailsId}
+          role="region"
+        >
+          {destructive && (
+            <div className="flex items-center gap-1.5 font-medium text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="size-3.5 shrink-0" />
+              <span>{copy.destructiveBadge}</span>
+            </div>
+          )}
+
+          <ApprovalDetailRow label={copy.detailsReason} value={reason} />
+          {toolName && <ApprovalDetailRow label={copy.detailsTool} value={toolName} />}
+          {request.cwd && <ApprovalDetailRow label={copy.detailsWorkingDir} mono value={request.cwd} />}
+
+          {hasCommand && (
+            <div className="flex flex-col gap-1">
+              <span className="text-(--ui-text-tertiary)">{copy.command}</span>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-(--ui-stroke-tertiary) bg-(--ui-chat-surface-background) px-2 py-1.5 font-mono text-xs leading-snug text-foreground">
+                {request.command.trim()}
+              </pre>
+            </div>
+          )}
+        </div>
       )}
 
       <Dialog onOpenChange={setConfirmAlways} open={confirmAlways}>

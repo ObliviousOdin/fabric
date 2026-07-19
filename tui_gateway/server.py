@@ -1473,6 +1473,20 @@ def _emit_approval_request(sid: str, data: dict | None) -> None:
         from gateway.run import _redact_approval_command
 
         payload["command"] = _redact_approval_command(payload.get("command"))
+        # Attach the AUTHORITATIVE execution cwd so the desktop approval details
+        # panel shows where the command actually runs. For non-local terminal
+        # backends this is the remote cwd; the client must not infer it from
+        # session.info, whose cwd is host-validated by ``_completion_cwd`` and
+        # can fall back to a local directory that has nothing to do with the
+        # remote execution path. Gated on ``command`` so no-op payloads stay
+        # untouched, and best-effort so it can never block an approval.
+        if "cwd" not in payload:
+            try:
+                cwd = _terminal_task_cwd(_sessions.get(sid))
+                if cwd:
+                    payload["cwd"] = cwd
+            except Exception:
+                pass
     _emit("approval.request", sid, payload)
 
 

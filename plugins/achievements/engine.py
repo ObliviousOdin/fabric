@@ -44,45 +44,66 @@ PRIVACY_METADATA: dict[str, Any] = {
 }
 
 
-_SESSION_AGGREGATE_SQL = """
+def _session_column(
+    columns: frozenset[str], name: str, fallback: str
+) -> str:
+    """Return a trusted session-column expression for a reconciled or legacy DB."""
+    return name if name in columns else fallback
+
+
+def _session_aggregate_sql(columns: frozenset[str]) -> str:
+    """Build aggregate-only SQL without assuming additive columns exist yet."""
+    messages = _session_column(columns, "message_count", "0")
+    tool_calls = _session_column(columns, "tool_call_count", "0")
+    api_calls = _session_column(columns, "api_call_count", "0")
+    source = _session_column(columns, "source", "NULL")
+    model = _session_column(columns, "model", "NULL")
+    model_config = _session_column(columns, "model_config", "NULL")
+    end_reason = _session_column(columns, "end_reason", "NULL")
+    archived = _session_column(columns, "archived", "0")
+    return f"""
 SELECT
-    COUNT(CASE WHEN COALESCE(message_count, 0) > 0 THEN 1 END) AS total_sessions,
-    COALESCE(SUM(MAX(COALESCE(message_count, 0), 0)), 0) AS total_messages,
-    COALESCE(SUM(MAX(COALESCE(tool_call_count, 0), 0)), 0) AS total_tool_calls,
-    COALESCE(SUM(MAX(COALESCE(api_call_count, 0), 0)), 0) AS total_api_calls,
+    COUNT(CASE WHEN COALESCE({messages}, 0) > 0 THEN 1 END) AS total_sessions,
+    COALESCE(SUM(MAX(COALESCE({messages}, 0), 0)), 0) AS total_messages,
+    COALESCE(SUM(MAX(COALESCE({tool_calls}, 0), 0)), 0) AS total_tool_calls,
+    COALESCE(SUM(MAX(COALESCE({api_calls}, 0), 0)), 0) AS total_api_calls,
     COUNT(DISTINCT CASE
-        WHEN COALESCE(message_count, 0) > 0
-         AND TRIM(COALESCE(source, '')) <> ''
-        THEN source END) AS distinct_sources,
+        WHEN COALESCE({messages}, 0) > 0
+         AND TRIM(COALESCE({source}, '')) <> ''
+        THEN {source} END) AS distinct_sources,
     COUNT(DISTINCT CASE
-        WHEN COALESCE(message_count, 0) > 0
-         AND TRIM(COALESCE(model, '')) <> ''
-        THEN model END) AS distinct_models,
+        WHEN COALESCE({messages}, 0) > 0
+         AND TRIM(COALESCE({model}, '')) <> ''
+        THEN {model} END) AS distinct_models,
     COALESCE(SUM(CASE
-        WHEN COALESCE(message_count, 0) > 0
-         AND LOWER(COALESCE(source, '')) = 'cron'
+        WHEN COALESCE({messages}, 0) > 0
+         AND LOWER(COALESCE({source}, '')) = 'cron'
         THEN 1 ELSE 0 END), 0) AS cron_runs,
     COALESCE(SUM(CASE
-        WHEN COALESCE(message_count, 0) > 0
-         AND model_config IS NOT NULL
+        WHEN COALESCE({messages}, 0) > 0
+         AND {model_config} IS NOT NULL
          AND json_type(
-             CASE WHEN json_valid(model_config) THEN model_config ELSE '{}' END,
+             CASE WHEN json_valid({model_config}) THEN {model_config} ELSE '{{}}' END,
              '$._delegate_from'
          ) IS NOT NULL
         THEN 1 ELSE 0 END), 0) AS delegated_runs,
     COALESCE(SUM(CASE
-        WHEN end_reason = 'compression' THEN 1 ELSE 0 END), 0)
+        WHEN {end_reason} = 'compression' THEN 1 ELSE 0 END), 0)
         AS compressed_conversations,
-    COALESCE(SUM(CASE WHEN COALESCE(archived, 0) <> 0 THEN 1 ELSE 0 END), 0)
+    COALESCE(SUM(CASE WHEN COALESCE({archived}, 0) <> 0 THEN 1 ELSE 0 END), 0)
         AS archived_sessions
 FROM sessions
 """
 
-_ACTIVE_DAYS_SQL = """
-SELECT DISTINCT date(started_at, 'unixepoch') AS active_day
+
+def _active_days_sql(columns: frozenset[str]) -> str:
+    messages = _session_column(columns, "message_count", "0")
+    started_at = _session_column(columns, "started_at", "NULL")
+    return f"""
+SELECT DISTINCT date({started_at}, 'unixepoch') AS active_day
 FROM sessions
-WHERE COALESCE(message_count, 0) > 0
-  AND date(started_at, 'unixepoch') IS NOT NULL
+WHERE COALESCE({messages}, 0) > 0
+  AND date({started_at}, 'unixepoch') IS NOT NULL
 ORDER BY active_day
 """
 
@@ -197,7 +218,11 @@ def collect_metrics(
             uri = db_path.resolve().as_uri() + "?mode=ro"
             connection = sqlite3.connect(uri, uri=True, timeout=1.0)
             connection.row_factory = sqlite3.Row
-            row = connection.execute(_SESSION_AGGREGATE_SQL).fetchone()
+            columns = frozenset(
+                str(info["name"]).casefold()
+                for info in connection.execute("PRAGMA table_info(sessions)")
+            )
+            row = connection.execute(_session_aggregate_sql(columns)).fetchone()
             if row is not None:
                 for key in (
                     "total_sessions",
@@ -212,7 +237,7 @@ def collect_metrics(
                     "archived_sessions",
                 ):
                     metrics[key] = _bounded_counter(row[key])
-            day_rows = connection.execute(_ACTIVE_DAYS_SQL).fetchall()
+            day_rows = connection.execute(_active_days_sql(columns)).fetchall()
             days = [row["active_day"] for row in day_rows]
             metrics["active_days_utc"] = len(days)
             metrics["longest_active_streak_utc"] = _longest_streak(days)

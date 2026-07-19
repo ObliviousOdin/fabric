@@ -252,6 +252,38 @@ def test_active_days_are_bucketed_in_utc(fabric_home: Path) -> None:
     assert metrics["longest_active_streak_utc"] == 2
 
 
+def test_collect_metrics_tolerates_unreconciled_legacy_session_columns(
+    fabric_home: Path,
+) -> None:
+    db_path = fabric_home / "state.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                source TEXT,
+                started_at REAL,
+                message_count INTEGER DEFAULT 0
+            )"""
+        )
+        connection.execute(
+            "INSERT INTO sessions VALUES (?, ?, ?, ?)",
+            ("legacy-session", "cli", _epoch(2025, 12, 31), 7),
+        )
+
+    snapshot = collect_metrics(fabric_home, skill_usage_loader=lambda _home: {})
+
+    assert "session_store_unreadable" not in snapshot.warnings
+    assert snapshot.metrics["total_sessions"] == 1
+    assert snapshot.metrics["total_messages"] == 7
+    assert snapshot.metrics["active_days_utc"] == 1
+    assert snapshot.metrics["distinct_sources"] == 1
+    assert snapshot.metrics["total_tool_calls"] == 0
+    assert snapshot.metrics["total_api_calls"] == 0
+    assert snapshot.metrics["delegated_runs"] == 0
+    assert snapshot.metrics["compressed_conversations"] == 0
+    assert snapshot.metrics["archived_sessions"] == 0
+
+
 def test_missing_state_db_degrades_to_zero_metrics(fabric_home: Path) -> None:
     snapshot = collect_metrics(fabric_home, skill_usage_loader=lambda _home: {})
     assert snapshot.metrics["total_sessions"] == 0
@@ -525,6 +557,70 @@ def test_summary_and_refresh_api_are_idempotent(api_client: TestClient) -> None:
     assert first.json()["newly_earned"] == []
     assert second.json()["newly_earned"] == []
     assert second.json()["score"] == first.json()["score"]
+
+
+def test_dashboard_api_scopes_progress_and_imports_to_requested_profile(
+    api_client: TestClient, populated_home: Path
+) -> None:
+    research_home = populated_home / "profiles" / "research"
+    _create_state_db(
+        research_home,
+        [{"message_count": 42, "tool_call_count": 9, "api_call_count": 5}],
+    )
+    default_store = AchievementStore(populated_home)
+    research_store = AchievementStore(research_home)
+    assert not default_store.ledger_path.exists()
+    assert not research_store.ledger_path.exists()
+
+    summary = api_client.get(
+        "/api/plugins/achievements/summary?profile=research"
+    )
+    assert summary.status_code == 200
+    assert summary.json()["metrics"]["total_sessions"] == 1
+    assert summary.json()["metrics"]["total_messages"] == 42
+    assert research_store.ledger_path.is_file()
+    assert not default_store.ledger_path.exists()
+
+    shared = api_client.post(
+        "/api/plugins/achievements/share-card?profile=research",
+        json={"display_name": "Research Weaver"},
+    )
+    assert shared.status_code == 200
+    assert research_store.local_display_name("fallback", create=False) == "Research Weaver"
+
+    card = _empty_card(display_name="Research Peer")
+    imported = api_client.post(
+        "/api/plugins/achievements/leaderboard/import?profile=research",
+        json=card,
+    )
+    assert imported.status_code == 200
+    assert research_store.list_imports() == [card]
+    assert default_store.list_imports(create=False) == []
+    research_board = api_client.get(
+        "/api/plugins/achievements/leaderboard?profile=research"
+    ).json()
+    default_board = api_client.get(
+        "/api/plugins/achievements/leaderboard?profile=default"
+    ).json()
+    assert any(
+        entry["card"]["card_id"] == card["card_id"]
+        for entry in research_board["entries"]
+    )
+    assert all(
+        entry["card"]["card_id"] != card["card_id"]
+        for entry in default_board["entries"]
+    )
+
+    deleted = api_client.delete(
+        f"/api/plugins/achievements/leaderboard/{card['card_id']}?profile=research"
+    )
+    assert deleted.json() == {"ok": True, "deleted": True}
+    assert research_store.list_imports() == []
+
+    missing = api_client.get(
+        "/api/plugins/achievements/summary?profile=does-not-exist"
+    )
+    assert missing.status_code == 404
 
 
 def test_share_card_api_reuses_profile_card_id(api_client: TestClient) -> None:

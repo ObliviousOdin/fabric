@@ -9,7 +9,14 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from fabric_constants import get_fabric_home
-from fabric_cli.profiles import get_active_profile_name, profiles_to_serve
+from fabric_cli.profiles import (
+    get_active_profile_name,
+    get_profile_dir,
+    normalize_profile_name,
+    profile_exists,
+    profiles_to_serve,
+    validate_profile_name,
+)
 from plugins.achievements.engine import (
     AchievementEngine,
     PRIVACY_METADATA,
@@ -45,8 +52,27 @@ def _privacy() -> dict[str, Any]:
     }
 
 
-def _active_engine() -> AchievementEngine:
-    return AchievementEngine(get_fabric_home())
+def _requested_profile(profile: Optional[str]) -> tuple[str, Path]:
+    """Resolve a dashboard management profile without exposing filesystem paths."""
+    requested = (profile or "").strip()
+    if not requested or requested.casefold() == "current":
+        return get_active_profile_name(), get_fabric_home().resolve()
+    try:
+        canonical = normalize_profile_name(requested)
+        validate_profile_name(canonical)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not profile_exists(canonical):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Profile '{canonical}' does not exist.",
+        )
+    return canonical, get_profile_dir(canonical).resolve()
+
+
+def _active_engine(profile: Optional[str]) -> AchievementEngine:
+    _profile_name, home = _requested_profile(profile)
+    return AchievementEngine(home)
 
 
 def _profile_label(profile_name: str) -> str:
@@ -57,10 +83,10 @@ def _profile_label(profile_name: str) -> str:
     return sanitize_display_name(profile_name.replace("_", " ").replace("-", " ").title())
 
 
-def _profile_candidates() -> list[tuple[str, Path, bool]]:
+def _profile_candidates(
+    current_name: str, current_home: Path
+) -> list[tuple[str, Path, bool]]:
     """List current + local Fabric profiles without exposing their paths."""
-    current_home = get_fabric_home().resolve()
-    current_name = get_active_profile_name()
     candidates: list[tuple[str, Path, bool]] = [
         (current_name, current_home, True)
     ]
@@ -81,11 +107,15 @@ def _profile_candidates() -> list[tuple[str, Path, bool]]:
     return candidates
 
 
-def _local_leaderboard_entries() -> tuple[list[dict[str, Any]], int, int]:
+def _local_leaderboard_entries(
+    current_name: str, current_home: Path
+) -> tuple[list[dict[str, Any]], int, int]:
     entries: list[dict[str, Any]] = []
     skipped = 0
     warning_count = 0
-    for profile_name, home, is_current in _profile_candidates():
+    for profile_name, home, is_current in _profile_candidates(
+        current_name, current_home
+    ):
         try:
             if not is_current:
                 # Cross-profile aggregation is strictly read-only.  A profile
@@ -141,13 +171,13 @@ def _local_leaderboard_entries() -> tuple[list[dict[str, Any]], int, int]:
 
 
 @router.get("/summary")
-def get_summary() -> dict[str, Any]:
+def get_summary(profile: Optional[str] = None) -> dict[str, Any]:
     try:
         # First-load reconciliation makes historical aggregate activity visible
         # immediately on a fresh install.  The ledger append is idempotent, and
         # the response keeps GET's summary shape (newly_earned is a refresh-only
         # response detail).
-        summary = _active_engine().refresh()
+        summary = _active_engine(profile).refresh()
         summary.pop("newly_earned", None)
         return summary
     except AchievementStateError as exc:
@@ -155,18 +185,20 @@ def get_summary() -> dict[str, Any]:
 
 
 @router.post("/refresh")
-def post_refresh() -> dict[str, Any]:
+def post_refresh(profile: Optional[str] = None) -> dict[str, Any]:
     try:
-        return _active_engine().refresh()
+        return _active_engine(profile).refresh()
     except AchievementStateError as exc:
         raise HTTPException(status_code=500, detail="Achievement state is unavailable.") from exc
 
 
 @router.post("/share-card")
-def post_share_card(body: ShareCardBody) -> dict[str, Any]:
+def post_share_card(
+    body: ShareCardBody, profile: Optional[str] = None
+) -> dict[str, Any]:
     try:
         display_name = sanitize_display_name(body.display_name)
-        engine = _active_engine()
+        engine = _active_engine(profile)
         # Share is an explicit snapshot action, so evaluate and durably append
         # every currently-qualified milestone before exporting the card.
         summary = engine.refresh()
@@ -187,13 +219,16 @@ def post_share_card(body: ShareCardBody) -> dict[str, Any]:
 
 
 @router.get("/leaderboard")
-def get_leaderboard() -> dict[str, Any]:
-    local_entries, skipped, warning_count = _local_leaderboard_entries()
+def get_leaderboard(profile: Optional[str] = None) -> dict[str, Any]:
+    current_name, current_home = _requested_profile(profile)
+    local_entries, skipped, warning_count = _local_leaderboard_entries(
+        current_name, current_home
+    )
     local_ids = {entry["card"]["card_id"] for entry in local_entries}
     entries = list(local_entries)
     invalid_imports = 0
     try:
-        imported_cards = AchievementStore().list_imports()
+        imported_cards = AchievementStore(current_home).list_imports()
     except AchievementStateError as exc:
         raise HTTPException(status_code=500, detail="Leaderboard state is unavailable.") from exc
     for raw_card in imported_cards:
@@ -230,7 +265,10 @@ def get_leaderboard() -> dict[str, Any]:
 
 
 @router.post("/leaderboard/import")
-async def post_leaderboard_import(request: Request) -> dict[str, Any]:
+async def post_leaderboard_import(
+    request: Request, profile: Optional[str] = None
+) -> dict[str, Any]:
+    _profile_name, current_home = _requested_profile(profile)
     content_length = request.headers.get("content-length")
     if content_length:
         try:
@@ -249,7 +287,7 @@ async def post_leaderboard_import(request: Request) -> dict[str, Any]:
     raw = bytes(buffered)
     try:
         card = parse_share_card(raw)
-        store = AchievementStore()
+        store = AchievementStore(current_home)
         created = store.upsert_import(card)
         return {
             "ok": True,
@@ -269,7 +307,9 @@ async def post_leaderboard_import(request: Request) -> dict[str, Any]:
 
 
 @router.delete("/leaderboard/{card_id}")
-def delete_leaderboard_card(card_id: str) -> dict[str, Any]:
+def delete_leaderboard_card(
+    card_id: str, profile: Optional[str] = None
+) -> dict[str, Any]:
     # Reuse the public card validator's UUID rules without accepting a partial
     # card shape: UUID parsing here is intentionally narrow and path-safe.
     try:
@@ -280,15 +320,16 @@ def delete_leaderboard_card(card_id: str) -> dict[str, Any]:
             raise ValueError
     except (ValueError, AttributeError):
         raise HTTPException(status_code=400, detail="card_id must be a valid UUID.")
+    _profile_name, current_home = _requested_profile(profile)
     try:
-        deleted = AchievementStore().delete_import(str(parsed))
+        deleted = AchievementStore(current_home).delete_import(str(parsed))
     except AchievementStateError as exc:
         raise HTTPException(status_code=500, detail="Leaderboard state is unavailable.") from exc
     return {"ok": True, "deleted": deleted}
 
 
 @router.post("/reset")
-def post_reset(body: ResetBody) -> dict[str, Any]:
+def post_reset(body: ResetBody, profile: Optional[str] = None) -> dict[str, Any]:
     """Clear copied cards only; earned progress is intentionally immutable."""
     if not body.confirm:
         raise HTTPException(
@@ -296,7 +337,8 @@ def post_reset(body: ResetBody) -> dict[str, Any]:
             detail="confirm=true is required to reset imported leaderboard cards.",
         )
     try:
-        removed = AchievementStore().reset_imports()
+        _profile_name, current_home = _requested_profile(profile)
+        removed = AchievementStore(current_home).reset_imports()
     except AchievementStateError as exc:
         raise HTTPException(status_code=500, detail="Leaderboard state is unavailable.") from exc
     return {

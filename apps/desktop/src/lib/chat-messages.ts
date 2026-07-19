@@ -66,6 +66,9 @@ export type GatewayEventPayload = {
   description?: string
   // False when a tirith content-security warning forbids a permanent allow.
   allow_permanent?: boolean
+  // The guard(s) that flagged the command; surfaced in the approval details panel.
+  pattern_key?: string
+  pattern_keys?: string[]
   // secret.request (skill credential capture)
   env_var?: string
   prompt?: string

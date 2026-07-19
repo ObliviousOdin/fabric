@@ -73,6 +73,12 @@ export interface ApprovalRequest extends KeyedPrompt {
   allowPermanent?: boolean
   command: string
   description: string
+  // The guard that flagged the command (backend already sends these on the
+  // approval.request payload). Surfaced in the details panel as the "why" and
+  // used to badge destructive/high-risk approvals. Optional: older backends and
+  // the floating fallback may omit them.
+  patternKey?: string
+  patternKeys?: string[]
 }
 
 export interface SudoRequest extends KeyedPrompt {

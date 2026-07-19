@@ -349,7 +349,11 @@ export const en: Translations = {
       testUnsupported: 'This system does not support native notifications.',
       completionSoundTitle: 'Completion Sound',
       completionSoundDesc: 'Plays when an agent turn finishes. Pick a preset and preview it here.',
-      completionSoundPreview: 'Preview'
+      completionSoundPreview: 'Preview',
+      approvalSoundTitle: 'Approval Sound',
+      approvalSoundDesc:
+        'Plays a short alert when an approval needs you and Fabric is already focused on that chat — the one case no desktop notification is shown. Respects the global mute.',
+      approvalSoundPreview: 'Preview'
     },
     sections: {
       model: 'Model',
@@ -1488,8 +1492,7 @@ export const en: Translations = {
     contractDescription:
       'The workflow keeps product context, visual rules, and implementation connected without hiding the result in chat.',
     preflightTitle: 'Source preflight',
-    preflightDescription:
-      'Fabric inspected the validated managed revision. Review what was found before opening chat.',
+    preflightDescription: 'Fabric inspected the validated managed revision. Review what was found before opening chat.',
     preflightLoading: 'Inspecting the managed archive…',
     preflightFailed: 'Could not inspect the managed design system',
     preflightSummary: (fileCount, sizeLabel) => `${fileCount} files · ${sizeLabel}`,
@@ -2410,7 +2413,15 @@ export const en: Translations = {
       alwaysTitle: 'Always allow this command?',
       alwaysDescription: pattern =>
         `This adds the “${pattern}” pattern to your permanent allowlist (~/.fabric/config.yaml). Fabric won’t ask again for commands like this — in this session or any future one.`,
-      alwaysAllow: 'Always allow'
+      alwaysAllow: 'Always allow',
+      detailsToggle: 'Details',
+      detailsShow: 'Show approval details',
+      detailsHide: 'Hide approval details',
+      detailsPanelLabel: 'Approval details',
+      detailsReason: 'Why',
+      detailsTool: 'Tool',
+      detailsWorkingDir: 'Working directory',
+      destructiveBadge: 'Destructive — may be irreversible'
     },
     clarify: {
       notReady: 'Clarify request is not ready yet',

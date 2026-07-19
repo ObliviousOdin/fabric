@@ -769,7 +769,7 @@ def test_explicit_slash_activation_integration(tmp_path):
     token = set_fabric_home_override(tmp_path)
     try:
         skill_commands._skill_commands = {}
-        with patch("tools.skills_tool.SKILLS_DIR", tmp_path / "skills"):
+        with patch("tools.skills_tool._skills_dir", return_value=tmp_path / "skills"):
             commands = skill_commands.scan_skill_commands()
             assert "/demo-skill" in commands
             message = skill_commands.build_skill_invocation_message(
@@ -794,7 +794,7 @@ def test_skill_view_tool_activation_carries_turn_correlation(tmp_path):
     _make_skill(tmp_path)
     token = set_fabric_home_override(tmp_path)
     try:
-        with patch("tools.skills_tool.SKILLS_DIR", tmp_path / "skills"):
+        with patch("tools.skills_tool._skills_dir", return_value=tmp_path / "skills"):
             result = json.loads(
                 _skill_view_with_bump(
                     {"name": "demo-skill"},
@@ -818,7 +818,7 @@ def test_cron_declared_skill_activation_integration(tmp_path):
     _make_skill(tmp_path)
     token = set_fabric_home_override(tmp_path)
     try:
-        with patch("tools.skills_tool.SKILLS_DIR", tmp_path / "skills"):
+        with patch("tools.skills_tool._skills_dir", return_value=tmp_path / "skills"):
             prompt = _build_job_prompt({
                 "id": "0123456789ab",
                 "name": "daily-demo",

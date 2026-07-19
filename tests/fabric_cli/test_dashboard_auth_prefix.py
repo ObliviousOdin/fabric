@@ -1,23 +1,23 @@
 """Path-prefix (X-Forwarded-Prefix) awareness for the dashboard-auth gate.
 
 Mission-control style deployments reverse-proxy the dashboard at a path
-prefix (e.g. ``mission-control.tilos.com/hermes/*`` -> local Caddy ->
-:9119), injecting ``X-Forwarded-Prefix: /hermes`` on every request.
+prefix (e.g. ``mission-control.tilos.com/fabric/*`` -> local Caddy ->
+:9119), injecting ``X-Forwarded-Prefix: /fabric`` on every request.
 
 The dashboard already honours this for the SPA bundle (rewriting asset
-URLs and the bootstrap ``__HERMES_BASE_PATH__``). The OAuth gate must
+URLs and the bootstrap ``__DASHBOARD_BASE_PATH__``). The OAuth gate must
 honour it too:
 
   1. The gate's ``Location:`` redirect to /login (in
-     ``_unauth_response``) needs to be ``/hermes/login`` so the browser
+     ``_unauth_response``) needs to be ``/fabric/login`` so the browser
      follows it through the proxy.
   2. The 401 JSON envelope's ``login_url`` needs the same prefix so the
      SPA's full-page navigation lands at the proxied login page.
   3. ``_redirect_uri`` (the OAuth callback URL handed to the IDP) must
      reconstruct the public URL including the prefix, otherwise the IDP
      redirects back to ``/auth/callback`` instead of
-     ``/hermes/auth/callback`` and the user gets 404.
-  4. Cookies must use ``Path=/hermes`` when behind a prefix so they
+     ``/fabric/auth/callback`` and the user gets 404.
+  4. Cookies must use ``Path=/fabric`` when behind a prefix so they
      don't leak to other apps on the same origin AND so they get sent
      back to the dashboard on subsequent requests under the prefix.
   5. The ``__Host-`` cookie prefix requires ``Path=/`` — when behind an
@@ -112,7 +112,7 @@ class TestForwardedPrefixNormalisation:
     ):
         """Home Assistant Supervisor ingress prefixes are 63 chars before
         add-ons append their own mount path. They must survive validation so
-        the SPA receives the correct __HERMES_BASE_PATH__ and asset prefix."""
+        the SPA receives the correct __DASHBOARD_BASE_PATH__ and asset prefix."""
         prefix_mod._warned_malformed_prefixes.clear()
         assert len(HA_INGRESS_DASHBOARD_PREFIX) > 64
 
@@ -157,7 +157,7 @@ class TestGateRedirectsCarryPrefix:
     def test_html_redirect_to_login_carries_prefix(self, gated_app_proxied):
         r = gated_app_proxied.get(
             "/sessions",
-            headers={"x-forwarded-prefix": "/hermes"},
+            headers={"x-forwarded-prefix": "/fabric"},
             follow_redirects=False,
         )
         assert r.status_code == 302
@@ -167,21 +167,21 @@ class TestGateRedirectsCarryPrefix:
         # mission-control.tilos.com/auth/login (which the proxy doesn't route
         # to the dashboard). The prefix-carrying invariant is what's under
         # test; only the target path moved from /login to /auth/login.
-        assert r.headers["location"].startswith("/hermes/auth/login"), (
+        assert r.headers["location"].startswith("/fabric/auth/login"), (
             f"Location header lost prefix: {r.headers['location']!r}"
         )
 
     def test_api_401_envelope_login_url_carries_prefix(self, gated_app_proxied):
         r = gated_app_proxied.get(
             "/api/sessions",
-            headers={"x-forwarded-prefix": "/hermes"},
+            headers={"x-forwarded-prefix": "/fabric"},
             follow_redirects=False,
         )
         assert r.status_code == 401
         body = r.json()
         # SPA does window.location.assign(body.login_url); this MUST
         # include the prefix.
-        assert body["login_url"].startswith("/hermes/login"), (
+        assert body["login_url"].startswith("/fabric/login"), (
             f"401 envelope login_url lost prefix: {body['login_url']!r}"
         )
 
@@ -224,12 +224,12 @@ class TestOAuthRedirectUriRespectsPrefix:
         """The IDP returns the user to the redirect_uri we sent. If we
         don't include the prefix, the IDP redirects to
         ``https://mission-control.tilos.com/auth/callback`` instead of
-        ``https://mission-control.tilos.com/hermes/auth/callback`` — the
+        ``https://mission-control.tilos.com/fabric/auth/callback`` — the
         former routes to the MC frontend, not the dashboard, so the
         user gets 404."""
         r = gated_app_proxied.get(
             "/auth/login?provider=stub",
-            headers={"x-forwarded-prefix": "/hermes"},
+            headers={"x-forwarded-prefix": "/fabric"},
             follow_redirects=False,
         )
         assert r.status_code == 302
@@ -245,7 +245,7 @@ class TestOAuthRedirectUriRespectsPrefix:
         parsed = urlparse(redirect_uri)
         assert parsed.scheme == "https"
         assert parsed.netloc == "mission-control.tilos.com"
-        assert parsed.path == "/hermes/auth/callback", (
+        assert parsed.path == "/fabric/auth/callback", (
             f"redirect_uri dropped prefix: {redirect_uri!r}"
         )
 
@@ -264,279 +264,136 @@ class TestOAuthRedirectUriRespectsPrefix:
 
 
 # ---------------------------------------------------------------------------
-# HERMES_DASHBOARD_PUBLIC_URL / dashboard.public_url override
+# ---------------------------------------------------------------------------
+# dashboard.public_url override
 # ---------------------------------------------------------------------------
 
 
 class TestPublicUrlOverride:
-    """``dashboard.public_url`` (env override:
-    ``HERMES_DASHBOARD_PUBLIC_URL``) lets an operator force the absolute
-    base URL the OAuth ``redirect_uri`` is built from.
-
-    When set, it is the *complete authority* — scheme + host + optional
-    path prefix. ``X-Forwarded-Prefix`` is ignored on that code path
-    because the operator has explicitly declared the public URL and we
-    no longer need to guess from proxy headers. This is the relief
-    valve for deploys behind reverse proxies that don't set
-    ``X-Forwarded-Host`` / ``X-Forwarded-Proto`` / ``X-Forwarded-Prefix``
-    correctly (or at all) — manual nginx setups, on-prem ingresses,
-    Fly.io deploys with custom domains where the proxy header chain is
-    incomplete.
-
-    When unset, the existing ``proxy_headers=True`` + X-Forwarded-Prefix
-    reconstruction path runs untouched. Existing Fly.io deploys
-    continue to work without configuration.
-
-    Precedence (mirrors ``client_id``):
-
-        env (non-empty) > config.yaml > reconstructed from request
-    """
+    """The config value is the complete OAuth callback URL authority."""
 
     @pytest.fixture
     def patch_config(self, monkeypatch):
-        """Replace ``fabric_cli.config.load_config`` with a stub
-        returning the given ``public_url``. Pass ``None`` to set no
-        config-side value."""
-
         def _set(public_url) -> None:
             cfg = {}
             if public_url is not None:
                 cfg = {"dashboard": {"public_url": public_url}}
-            monkeypatch.setattr(
-                "fabric_cli.config.load_config", lambda: cfg
-            )
+            monkeypatch.setattr("fabric_cli.config.load_config", lambda: cfg)
 
         return _set
 
     def _redirect_uri(self, gated_app, *, headers=None) -> str:
-        """Drive /auth/login and read the redirect_uri the IDP saw."""
-        r = gated_app.get(
+        response = gated_app.get(
             "/auth/login?provider=stub",
             headers=headers or {},
             follow_redirects=False,
         )
-        assert r.status_code == 302, r.text
-        # Stub IDP echoes redirect_uri back as the prefix of the
-        # Location header (`{redirect_uri}?code=stub_code&state=…`).
-        return r.headers["location"].split("?", 1)[0]
+        assert response.status_code == 302, response.text
+        return response.headers["location"].split("?", 1)[0]
 
-    def test_public_url_env_overrides_request_reconstruction(
-        self, gated_app_direct, patch_config, monkeypatch
+    def test_configured_public_url_overrides_request_reconstruction(
+        self, gated_app_direct, patch_config
     ):
-        """``HERMES_DASHBOARD_PUBLIC_URL`` wins over the URL the
-        request would otherwise reconstruct to. Critical for deploys
-        whose proxy headers don't match the public URL."""
-        patch_config(None)
-        monkeypatch.setenv(
-            "HERMES_DASHBOARD_PUBLIC_URL", "https://custom.example",
-        )
-        redirect_uri = self._redirect_uri(gated_app_direct)
-        assert redirect_uri == "https://custom.example/auth/callback", (
-            f"public_url env var didn't override reconstruction "
-            f"(got {redirect_uri!r})"
-        )
-
-    def test_public_url_config_yaml_used_when_env_unset(
-        self, gated_app_direct, patch_config, monkeypatch
-    ):
-        monkeypatch.delenv("HERMES_DASHBOARD_PUBLIC_URL", raising=False)
-        patch_config("https://from-config.example")
-        redirect_uri = self._redirect_uri(gated_app_direct)
-        assert redirect_uri == "https://from-config.example/auth/callback"
-
-    def test_env_overrides_config_public_url(
-        self, gated_app_direct, patch_config, monkeypatch
-    ):
-        """Precedence pin — env wins over config.yaml. Fly.io / CI
-        secret injection depends on this ordering."""
-        monkeypatch.setenv(
-            "HERMES_DASHBOARD_PUBLIC_URL", "https://from-env.example",
-        )
-        patch_config("https://from-config.example")
-        redirect_uri = self._redirect_uri(gated_app_direct)
-        assert redirect_uri == "https://from-env.example/auth/callback", (
-            "env var must override config.yaml — Fly secret injection "
-            "depends on this precedence"
+        patch_config("https://custom.example")
+        assert (
+            self._redirect_uri(gated_app_direct)
+            == "https://custom.example/auth/callback"
         )
 
     def test_public_url_with_path_prefix_baked_in(
-        self, gated_app_direct, patch_config, monkeypatch
+        self, gated_app_direct, patch_config
     ):
-        """When public_url already carries a path prefix
-        (``https://example.com/hermes``), the OAuth callback URL is
-        the path appended verbatim. The operator is declaring the
-        whole authority; we trust them."""
-        patch_config(None)
-        monkeypatch.setenv(
-            "HERMES_DASHBOARD_PUBLIC_URL", "https://example.com/hermes",
+        patch_config("https://example.com/fabric")
+        assert (
+            self._redirect_uri(gated_app_direct)
+            == "https://example.com/fabric/auth/callback"
         )
-        redirect_uri = self._redirect_uri(gated_app_direct)
-        assert redirect_uri == "https://example.com/hermes/auth/callback"
 
     def test_public_url_ignores_x_forwarded_prefix(
-        self, gated_app_proxied, patch_config, monkeypatch
+        self, gated_app_proxied, patch_config
     ):
-        """X-Forwarded-Prefix is the auto-reconstruction signal; when
-        public_url is set we no longer need to guess, and stacking the
-        prefix on top would double-prefix in the common case where
-        the operator already baked their prefix into public_url."""
-        patch_config(None)
-        monkeypatch.setenv(
-            "HERMES_DASHBOARD_PUBLIC_URL", "https://example.com/already-prefixed",
-        )
-        redirect_uri = self._redirect_uri(
+        patch_config("https://example.com/already-prefixed")
+        assert self._redirect_uri(
             gated_app_proxied,
             headers={"x-forwarded-prefix": "/should-be-ignored"},
-        )
-        assert (
-            redirect_uri == "https://example.com/already-prefixed/auth/callback"
-        ), (
-            f"public_url should suppress X-Forwarded-Prefix layering, "
-            f"got {redirect_uri!r}"
-        )
+        ) == "https://example.com/already-prefixed/auth/callback"
 
     def test_public_url_strips_trailing_slash(
-        self, gated_app_direct, patch_config, monkeypatch
+        self, gated_app_direct, patch_config
     ):
-        """``https://example.com/`` and ``https://example.com`` must
-        produce identical results — no ``//auth/callback`` double slash."""
-        patch_config(None)
-        monkeypatch.setenv(
-            "HERMES_DASHBOARD_PUBLIC_URL", "https://example.com/",
+        patch_config("https://example.com/")
+        assert (
+            self._redirect_uri(gated_app_direct)
+            == "https://example.com/auth/callback"
         )
-        redirect_uri = self._redirect_uri(gated_app_direct)
-        assert redirect_uri == "https://example.com/auth/callback"
 
     def test_malformed_public_url_falls_through_to_reconstruction(
-        self, gated_app_direct, patch_config, monkeypatch
+        self, gated_app_direct, patch_config
     ):
-        """Defence against header injection: a public_url that doesn't
-        parse as ``http(s)://host[/path]`` is dropped and we fall back
-        to request reconstruction. The login flow continues to work
-        rather than dispatching the user to a hostile URL."""
         from urllib.parse import urlparse
 
-        patch_config(None)
         for bad in [
             "javascript:alert(1)",
             "ftp://example.com",
-            "example.com",                          # missing scheme
-            "https://",                             # missing host
-            'https://example.com/"injected',       # quote char
-            "https://example.com/\nhttps://evil",  # CRLF injection
+            "example.com",
+            "https://",
+            'https://example.com/"injected',
+            "https://example.com/\nhttps://evil",
         ]:
-            monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", bad)
+            patch_config(bad)
             redirect_uri = self._redirect_uri(gated_app_direct)
-            # Fell through to request reconstruction — netloc is the
-            # bound host, NOT the hostile value.
             parsed = urlparse(redirect_uri)
-            assert parsed.netloc == "fly-app.fly.dev", (
-                f"malformed public_url={bad!r} leaked into redirect_uri: "
-                f"{redirect_uri!r}"
-            )
+            assert parsed.netloc == "fly-app.fly.dev"
             assert parsed.path == "/auth/callback"
 
-    def test_empty_public_url_env_treated_as_unset(
-        self, gated_app_direct, patch_config, monkeypatch
+    def test_empty_public_url_falls_through_to_reconstruction(
+        self, gated_app_direct, patch_config
     ):
-        """Same defensive behaviour as the other env vars in this
-        plugin — an empty env var doesn't shadow a valid config.yaml
-        entry."""
-        monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", "")
-        patch_config("https://from-config.example")
+        patch_config("")
         redirect_uri = self._redirect_uri(gated_app_direct)
-        assert redirect_uri == "https://from-config.example/auth/callback"
+        assert redirect_uri == "https://fly-app.fly.dev/auth/callback"
 
-    def test_scheme_less_public_url_env_warns_operator(
-        self, patch_config, monkeypatch, caplog
+    def test_scheme_less_public_url_warns_once(
+        self, patch_config, caplog
     ):
-        """A non-empty env var that's missing its scheme (the #1 cause
-        of "I set HERMES_DASHBOARD_PUBLIC_URL but the callback is still
-        http://") must emit an operator-facing WARNING rather than being
-        silently discarded. Regression for #42780."""
-        import logging
-
-        from fabric_cli.dashboard_auth import prefix as prefix_mod
-
-        # Reset the per-value dedup cache so the warning fires in-test
-        # regardless of test ordering.
-        prefix_mod._warned_malformed_public_urls.clear()
-        patch_config(None)
-        monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", "hermes.domain.com")
-
-        with caplog.at_level(logging.WARNING, logger=prefix_mod.__name__):
-            result = prefix_mod.resolve_public_url()
-
-        assert result == ""  # scheme-less value is still rejected
-        warnings = [
-            r.getMessage()
-            for r in caplog.records
-            if r.levelno == logging.WARNING
-        ]
-        assert any(
-            "HERMES_DASHBOARD_PUBLIC_URL" in m
-            and "hermes.domain.com" in m
-            and "scheme" in m
-            for m in warnings
-        ), f"expected a scheme warning, got: {warnings!r}"
-
-    def test_scheme_less_public_url_warning_is_deduplicated(
-        self, patch_config, monkeypatch, caplog
-    ):
-        """resolve_public_url runs per-request; the malformed-value
-        warning must fire at most once per distinct value so a
-        misconfigured deploy doesn't flood the logs."""
         import logging
 
         from fabric_cli.dashboard_auth import prefix as prefix_mod
 
         prefix_mod._warned_malformed_public_urls.clear()
-        patch_config(None)
-        monkeypatch.setenv("HERMES_DASHBOARD_PUBLIC_URL", "hermes.domain.com")
+        patch_config("dashboard.example.com")
 
         with caplog.at_level(logging.WARNING, logger=prefix_mod.__name__):
             for _ in range(5):
-                prefix_mod.resolve_public_url()
+                assert prefix_mod.resolve_public_url() == ""
 
-        scheme_warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING
-            and "hermes.domain.com" in r.getMessage()
+        warnings = [
+            record.getMessage()
+            for record in caplog.records
+            if record.levelno == logging.WARNING
+            and "dashboard.example.com" in record.getMessage()
         ]
-        assert len(scheme_warnings) == 1, (
-            f"expected exactly one warning across 5 calls, "
-            f"got {len(scheme_warnings)}"
-        )
+        assert len(warnings) == 1
+        assert "dashboard.public_url in config.yaml" in warnings[0]
+        assert "scheme" in warnings[0]
 
     def test_valid_public_url_emits_no_warning(
-        self, patch_config, monkeypatch, caplog
+        self, patch_config, caplog
     ):
-        """A correctly-formed value must not produce a spurious warning."""
         import logging
 
         from fabric_cli.dashboard_auth import prefix as prefix_mod
 
         prefix_mod._warned_malformed_public_urls.clear()
-        patch_config(None)
-        monkeypatch.setenv(
-            "HERMES_DASHBOARD_PUBLIC_URL", "https://hermes.domain.com"
-        )
+        patch_config("https://dashboard.example.com")
 
         with caplog.at_level(logging.WARNING, logger=prefix_mod.__name__):
-            result = prefix_mod.resolve_public_url()
+            assert prefix_mod.resolve_public_url() == "https://dashboard.example.com"
 
-        assert result == "https://hermes.domain.com"
         assert not [
-            r for r in caplog.records if r.levelno == logging.WARNING
+            record for record in caplog.records
+            if record.levelno == logging.WARNING
         ]
-
-
-# ---------------------------------------------------------------------------
-# Cookies: Path attribute + __Host- / __Secure- prefix rules
-# ---------------------------------------------------------------------------
-
-
 class TestCookiePathRespectsPrefix:
     """Cookies must use ``Path=<prefix>`` when behind a proxy so they:
 
@@ -554,16 +411,16 @@ class TestCookiePathRespectsPrefix:
     def test_pkce_cookie_uses_prefix_path(self, gated_app_proxied):
         r = gated_app_proxied.get(
             "/auth/login?provider=stub",
-            headers={"x-forwarded-prefix": "/hermes"},
+            headers={"x-forwarded-prefix": "/fabric"},
             follow_redirects=False,
         )
         cookies = r.headers.get_list("set-cookie")
-        pkce = next(c for c in cookies if "hermes_session_pkce" in c)
+        pkce = next(c for c in cookies if "fabric_session_pkce" in c)
         # Browser only sends cookie back if the request path is under
-        # the cookie's Path attribute, so we need /hermes here. Bare
+        # the cookie's Path attribute, so we need /fabric here. Bare
         # /-rooted cookies would still be sent but would also be sent
         # to /billing/... etc.
-        assert "Path=/hermes" in pkce, (
+        assert "Path=/fabric" in pkce, (
             f"PKCE cookie has wrong Path: {pkce!r}"
         )
 
@@ -576,14 +433,14 @@ class TestCookiePathRespectsPrefix:
         """
         r = gated_app_proxied.get(
             "/auth/login?provider=stub",
-            headers={"x-forwarded-prefix": "/hermes"},
+            headers={"x-forwarded-prefix": "/fabric"},
             follow_redirects=False,
         )
         cookies = r.headers.get_list("set-cookie")
         # The PKCE cookie name carries the __Secure- prefix.
         pkce_candidates = [
             c for c in cookies
-            if c.startswith("__Secure-hermes_session_pkce=")
+            if c.startswith("__Secure-fabric_session_pkce=")
         ]
         assert pkce_candidates, (
             f"PKCE cookie missing __Secure- prefix: {cookies!r}"
@@ -602,7 +459,7 @@ class TestCookiePathRespectsPrefix:
         cookies = r.headers.get_list("set-cookie")
         pkce_candidates = [
             c for c in cookies
-            if c.startswith("__Host-hermes_session_pkce=")
+            if c.startswith("__Host-fabric_session_pkce=")
         ]
         assert pkce_candidates, (
             f"PKCE cookie missing __Host- prefix on direct deploy: "
@@ -634,7 +491,7 @@ class TestCookiePathRespectsPrefix:
         r = client.get("/set")
         cookies = r.headers.get_list("set-cookie")
         # Bare cookie name, no prefix.
-        assert any(c.startswith("hermes_session_pkce=") for c in cookies), (
+        assert any(c.startswith("fabric_session_pkce=") for c in cookies), (
             f"Loopback cookie should be bare-named: {cookies!r}"
         )
         # And no __Host- / __Secure- variant accidentally emitted.
@@ -648,16 +505,16 @@ class TestCookiePathRespectsPrefix:
     ):
         """The end-to-end property: after a successful OAuth round
         trip via the proxy, the session-AT cookie carries the
-        __Secure- prefix AND Path=/hermes, so the next request under
+        __Secure- prefix AND Path=/fabric, so the next request under
         the same prefix is authenticated.
 
         Note on TestClient semantics: starlette's TestClient sees the
         literal request path (``/auth/login``, ``/auth/callback``) —
         not the public path the proxy displays to the browser
-        (``/hermes/auth/login``, ``/hermes/auth/callback``). A cookie
-        set with ``Path=/hermes`` would therefore NOT be sent back on
+        (``/fabric/auth/login``, ``/fabric/auth/callback``). A cookie
+        set with ``Path=/fabric`` would therefore NOT be sent back on
         the second request through TestClient even though it WOULD be
-        sent by a real browser hitting ``/hermes/auth/callback``. To
+        sent by a real browser hitting ``/fabric/auth/callback``. To
         avoid baking that mismatch into the test, we inspect the
         ``Set-Cookie`` header on the callback's response WITHOUT
         depending on the PKCE cookie round-tripping through
@@ -667,24 +524,24 @@ class TestCookiePathRespectsPrefix:
         # /auth/login sets the PKCE cookie. Capture it from Set-Cookie.
         r1 = gated_app_proxied.get(
             "/auth/login?provider=stub",
-            headers={"x-forwarded-prefix": "/hermes"},
+            headers={"x-forwarded-prefix": "/fabric"},
             follow_redirects=False,
         )
         pkce_set = next(
             c for c in r1.headers.get_list("set-cookie")
-            if "hermes_session_pkce" in c
+            if "fabric_session_pkce" in c
         )
-        # Parse "__Secure-hermes_session_pkce=...; HttpOnly; ...".
-        pkce_kv = pkce_set.split(";", 1)[0]  # "__Secure-hermes_session_pkce=value"
+        # Parse "__Secure-fabric_session_pkce=...; HttpOnly; ...".
+        pkce_kv = pkce_set.split(";", 1)[0]  # "__Secure-fabric_session_pkce=value"
         state = r1.headers["location"].split("state=")[1]
 
         # Round-trip the cookie by hand because TestClient's jar won't
-        # automatically send a Path=/hermes cookie to a /auth/callback
+        # automatically send a Path=/fabric cookie to a /auth/callback
         # request path.
         r2 = gated_app_proxied.get(
             f"/auth/callback?code=stub_code&state={state}",
             headers={
-                "x-forwarded-prefix": "/hermes",
+                "x-forwarded-prefix": "/fabric",
                 "cookie": pkce_kv,
             },
             follow_redirects=False,
@@ -693,11 +550,11 @@ class TestCookiePathRespectsPrefix:
         cookies = r2.headers.get_list("set-cookie")
         at_cookies = [
             c for c in cookies
-            if c.startswith("__Secure-hermes_session_at=")
+            if c.startswith("__Secure-fabric_session_at=")
         ]
         assert at_cookies, (
             f"session_at missing __Secure- prefix: {cookies!r}"
         )
-        assert "Path=/hermes" in at_cookies[0]
+        assert "Path=/fabric" in at_cookies[0]
         assert "Secure" in at_cookies[0]
         assert "HttpOnly" in at_cookies[0]

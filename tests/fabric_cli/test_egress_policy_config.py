@@ -201,7 +201,7 @@ def test_existing_malformed_managed_config_fails_closed(
     (managed / "config.yaml").write_text(
         "security:\n  egress_mode: [\n", encoding="utf-8"
     )
-    monkeypatch.setenv("HERMES_MANAGED_DIR", str(managed))
+    monkeypatch.setenv("FABRIC_MANAGED_DIR", str(managed))
 
     token = set_fabric_home_override(home)
     try:

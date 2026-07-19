@@ -4,7 +4,7 @@
 This script crawls every skill source (skills.sh, GitHub taps, official,
 clawhub, lobehub, claude-marketplace) and writes a JSON index with resolved
 GitHub paths. The index is served as a static file on the docs site so that
-`Fabric skills search/install` can use it without hitting the GitHub API.
+`fabric skills search/install` can use it without hitting the GitHub API.
 
 Usage:
     # Local (uses gh CLI or GITHUB_TOKEN for auth)
@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 
-# Ensure HERMES_HOME is set (needed by tools/skills_hub.py imports)
+# Ensure the canonical home is set for tools/skills_hub.py imports.
 os.environ.setdefault("FABRIC_HOME", os.path.join(os.path.expanduser("~"), ".fabric"))
 
 from tools.skills_hub import (
@@ -192,7 +192,6 @@ CURATED_TAPS = [
     {"repo": "tjboudreaux/cc-skills-vc-fundraising", "path": "skills/"},  # C, ~2 skills
     {"repo": "tuanductran/hr-skills", "path": "skills/"},  # C, ~146 skills
     {"repo": "tuanductran/hr-skills", "path": ""},  # C, ~1 skills
-    {"repo": "wassermanproductions/master-canvas-hermes-plugin", "path": "skills/"},  # C, ~1 skills
     {"repo": "wondelai/skills", "path": ""},  # B, ~62 skills
     {"repo": "wulaosiji/founder-skills", "path": "skills/"},  # C, ~24 skills
     {"repo": "yetone/native-feel-skill", "path": ""},  # B, ~1 skills    {"repo": "alirezarezvani/claude-skills", "path": "c-level-advisor/skills/"},  # B, ~34 skills

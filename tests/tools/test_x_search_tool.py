@@ -69,7 +69,7 @@ def test_x_search_posts_responses_request(monkeypatch):
 
     tool_def = captured["json"]["tools"][0]
     assert captured["url"] == "https://api.x.ai/v1/responses"
-    assert captured["headers"]["User-Agent"] == f"Hermes-Agent/{__version__}"
+    assert captured["headers"]["User-Agent"] == f"Fabric-Agent/{__version__}"
     assert captured["json"]["model"] == "grok-4.20-reasoning"
     assert captured["json"]["store"] is False
     assert tool_def["type"] == "x_search"
@@ -231,7 +231,7 @@ def test_x_search_retries_5xx_then_succeeds(monkeypatch):
 
 def _no_xai_env(monkeypatch):
     """Strip any XAI_* env vars so the resolver doesn't see a leaked dev key."""
-    for var in ("XAI_API_KEY", "XAI_BASE_URL", "HERMES_XAI_BASE_URL"):
+    for var in ("XAI_API_KEY", "XAI_BASE_URL"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -402,7 +402,7 @@ def test_x_search_honors_config_model_and_timeout(monkeypatch, tmp_path):
 
     monkeypatch.setenv("XAI_API_KEY", "xai-test-key")
 
-    # Patch the in-module config loader so tests don't touch ~/.hermes/config.yaml.
+    # Patch the in-module config loader so tests don't touch ~/.fabric/config.yaml.
     monkeypatch.setattr(
         "tools.x_search_tool._load_x_search_config",
         lambda: {"model": "grok-custom-test", "timeout_seconds": 45, "retries": 0},
@@ -722,4 +722,3 @@ def test_x_search_not_degraded_when_no_filters_active(monkeypatch):
     assert result["success"] is True
     assert result["degraded"] is False
     assert result["degraded_reason"] is None
-

@@ -22,7 +22,7 @@ def _restore_stdout():
 @pytest.fixture()
 def server():
     with patch.dict("sys.modules", {
-        "fabric_constants": MagicMock(get_fabric_home=MagicMock(return_value="/tmp/hermes_test")),
+        "fabric_constants": MagicMock(get_fabric_home=MagicMock(return_value="/tmp/test_home")),
         "fabric_cli.env_loader": MagicMock(),
         "fabric_cli.banner": MagicMock(),
         "fabric_state": MagicMock(),
@@ -218,25 +218,6 @@ def test_write_json_skips_flush_when_disable_flush_true(monkeypatch):
 
     assert transport.write({"x": 1}) is True
     assert flushed["count"] == 0
-
-
-def test_disable_flush_env_var_actually_wires_to_module_constant(monkeypatch):
-    """End-to-end: setting `HERMES_TUI_GATEWAY_NO_FLUSH=1` and importing
-    `tui_gateway.transport` fresh actually flips `_DISABLE_FLUSH` true.
-
-    Reloads only the transport module — server.py is untouched so its
-    atexit hooks/worker pool stay intact."""
-    import importlib
-
-    monkeypatch.setenv("HERMES_TUI_GATEWAY_NO_FLUSH", "1")
-    transport_mod = importlib.reload(importlib.import_module("tui_gateway.transport"))
-
-    try:
-        assert transport_mod._DISABLE_FLUSH is True
-    finally:
-        # Restore the env-disabled state so other tests see the default.
-        monkeypatch.delenv("HERMES_TUI_GATEWAY_NO_FLUSH", raising=False)
-        importlib.reload(transport_mod)
 
 
 # ── _emit ────────────────────────────────────────────────────────────
@@ -954,8 +935,8 @@ def test_session_resume_reuses_live_agent_after_compression_rotation(server, mon
 def test_sync_session_key_after_compress_reanchors_active_session_lease(
     server, monkeypatch, tmp_path
 ):
-    home = tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    home = tmp_path / ".fabric"
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     from fabric_cli.active_sessions import (
         active_session_registry_snapshot,
@@ -1554,13 +1535,9 @@ def test_skills_manage_search_uses_tools_hub_sources(server):
     search.assert_called_once_with("showroom", ["source"], source_filter="all", limit=20)
 
 
-def test_skills_manage_search_sanitizes_official_provenance_by_default(
-    server, monkeypatch
-):
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
+def test_skills_manage_search_preserves_official_provenance(server):
     result = type("Result", (), {
-        "description": "Hermes skill maintained by Nous Research",
+        "description": "Fabric skill maintained by Nous Research",
         "name": "official-skill",
         "source": "official",
     })()
@@ -1580,37 +1557,7 @@ def test_skills_manage_search_sanitizes_official_provenance_by_default(
     assert resp["result"] == {
         "results": [{
             "name": "official-skill",
-            "description": "Fabric skill maintained by the upstream maintainers",
-        }]
-    }
-
-
-def test_skills_manage_search_restores_official_provenance_with_legacy_opt_in(
-    server, monkeypatch
-):
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
-    result = type("Result", (), {
-        "description": "Hermes skill maintained by Nous Research",
-        "name": "official-skill",
-        "source": "official",
-    })()
-    fake_hub = types.SimpleNamespace(
-        GitHubAuth=MagicMock(return_value="auth"),
-        create_source_router=MagicMock(return_value=["source"]),
-        unified_search=MagicMock(return_value=[result]),
-    )
-
-    with patch.dict(sys.modules, {"tools.skills_hub": fake_hub}):
-        resp = server.handle_request({
-            "id": "skills-search-legacy",
-            "method": "skills.manage",
-            "params": {"action": "search", "query": "official"},
-        })
-
-    assert resp["result"] == {
-        "results": [{
-            "name": "official-skill",
-            "description": "Hermes skill maintained by Nous Research",
+            "description": "Fabric skill maintained by Nous Research",
         }]
     }
 

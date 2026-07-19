@@ -74,7 +74,7 @@ class TestNonInteractiveSetup:
         with (
             patch("fabric_cli.setup.ensure_fabric_home"),
             patch("fabric_cli.setup.load_config", return_value={}),
-            patch("fabric_cli.setup.get_fabric_home", return_value="/tmp/.hermes"),
+            patch("fabric_cli.setup.get_fabric_home", return_value="/tmp/.fabric"),
             patch("fabric_cli.auth.get_active_provider", side_effect=AssertionError("wizard continued")),
             patch("builtins.input", side_effect=AssertionError("input should not be called")),
         ):
@@ -94,7 +94,7 @@ class TestNonInteractiveSetup:
         with (
             patch("fabric_cli.setup.ensure_fabric_home"),
             patch("fabric_cli.setup.load_config", return_value={}),
-            patch("fabric_cli.setup.get_fabric_home", return_value="/tmp/.hermes"),
+            patch("fabric_cli.setup.get_fabric_home", return_value="/tmp/.fabric"),
             patch("fabric_cli.auth.get_active_provider", side_effect=AssertionError("wizard continued")),
             patch("sys.stdin") as mock_stdin,
             patch("builtins.input", side_effect=AssertionError("input should not be called")),
@@ -109,7 +109,7 @@ class TestNonInteractiveSetup:
         """--reset should rewrite config.yaml even when the wizard cannot run interactively."""
         from fabric_cli.setup import run_setup_wizard
 
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         cfg = load_config()
         cfg["model"] = {"provider": "custom", "base_url": "http://localhost:8080/v1", "default": "llama3"}
         cfg["agent"]["max_turns"] = 12
@@ -126,7 +126,7 @@ class TestNonInteractiveSetup:
         assert "Configuration reset to defaults." in out
 
     def test_chat_first_run_headless_skips_setup_prompt(self, capsys):
-        """Bare `hermes` should not prompt for input when no provider exists and stdin is headless."""
+        """Bare `fabric` should not prompt for input when no provider exists and stdin is headless."""
         from fabric_cli.main import cmd_chat
 
         args = _make_chat_args()
@@ -156,7 +156,7 @@ class TestNonInteractiveSetup:
             received["section"] = args.section
 
         monkeypatch.setattr(main_mod, "cmd_setup", fake_cmd_setup)
-        monkeypatch.setattr("sys.argv", ["hermes", "setup", "tts"])
+        monkeypatch.setattr("sys.argv", ["fabric", "setup", "tts"])
 
         main_mod.main()
 

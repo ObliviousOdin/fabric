@@ -1,8 +1,8 @@
 (function () {
   "use strict";
 
-  const SDK = window.__FABRIC_PLUGIN_SDK__ || window.__HERMES_PLUGIN_SDK__;
-  const registry = window.__FABRIC_PLUGINS__ || window.__HERMES_PLUGINS__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__;
+  const registry = window.__FABRIC_PLUGINS__;
   if (!SDK || !registry) return;
 
   const React = SDK.React;

@@ -3,7 +3,7 @@ tokens).
 
 Loads the plugin module directly (it's a bundled backend plugin, not on the
 import path as a package) and exercises the provider behaviour + the
-``register(ctx)`` entry point's config/env resolution and skip reasons.
+``register(ctx)`` entry point's config resolution and skip reasons.
 """
 
 from __future__ import annotations
@@ -24,18 +24,6 @@ from fabric_cli.dashboard_auth import (
 @pytest.fixture(scope="module")
 def basic():
     return basic_plugin
-
-
-@pytest.fixture(autouse=True)
-def _clear_basic_env(monkeypatch):
-    for var in (
-        "HERMES_DASHBOARD_BASIC_AUTH_USERNAME",
-        "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD",
-        "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH",
-        "HERMES_DASHBOARD_BASIC_AUTH_SECRET",
-        "HERMES_DASHBOARD_BASIC_AUTH_TTL_SECONDS",
-    ):
-        monkeypatch.delenv(var, raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +147,7 @@ class TestProvider:
 
 
 # ---------------------------------------------------------------------------
-# register() entry point — config/env resolution + skip reasons
+# register() entry point — config resolution + skip reasons
 # ---------------------------------------------------------------------------
 
 
@@ -172,23 +160,26 @@ class TestRegister:
         assert "username" in basic.LAST_SKIP_REASON
 
     def test_skips_when_username_but_no_password(self, basic, monkeypatch):
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_USERNAME", "admin")
-        monkeypatch.setattr(basic, "_load_config_basic_auth_section", lambda: {})
+        monkeypatch.setattr(
+            basic, "_load_config_basic_auth_section", lambda: {"username": "admin"}
+        )
         ctx = MagicMock()
         basic.register(ctx)
         ctx.register_dashboard_auth_provider.assert_not_called()
         assert "password" in basic.LAST_SKIP_REASON
 
-    def test_registers_with_env_plaintext_password(self, basic, monkeypatch):
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_USERNAME", "admin")
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "hunter2")
-        monkeypatch.setattr(basic, "_load_config_basic_auth_section", lambda: {})
+    def test_registers_with_config_plaintext_password(self, basic, monkeypatch):
+        monkeypatch.setattr(
+            basic,
+            "_load_config_basic_auth_section",
+            lambda: {"username": "admin", "password": "hunter2"},
+        )
         ctx = MagicMock()
         basic.register(ctx)
         ctx.register_dashboard_auth_provider.assert_called_once()
         provider = ctx.register_dashboard_auth_provider.call_args.args[0]
         assert isinstance(provider, basic.BasicAuthProvider)
-        # Round-trips: the registered provider authenticates the env creds.
+        # Plaintext config is hashed in memory before provider construction.
         s = provider.complete_password_login(username="admin", password="hunter2")
         assert s.user_id == "admin"
         assert basic.LAST_SKIP_REASON == ""
@@ -208,34 +199,71 @@ class TestRegister:
             username="ops", password="s3cret"
         ).user_id == "ops"
 
-    def test_env_password_overrides_config(self, basic, monkeypatch):
-        cfg_hash = basic.hash_password("config-pw")
+    def test_config_credentials_make_sessions_portable(
+        self, basic, monkeypatch
+    ):
+        password_hash = basic.hash_password("config-password")
+        shared_secret = secrets.token_bytes(32).hex()
         monkeypatch.setattr(
             basic,
             "_load_config_basic_auth_section",
-            lambda: {"username": "admin", "password_hash": cfg_hash},
+            lambda: {
+                "username": "ops",
+                "password_hash": password_hash,
+                "secret": shared_secret,
+            },
         )
-        # Env plaintext should win over the config hash.
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "env-pw")
+
+        first, second = MagicMock(), MagicMock()
+        basic.register(first)
+        basic.register(second)
+        provider_one = first.register_dashboard_auth_provider.call_args.args[0]
+        provider_two = second.register_dashboard_auth_provider.call_args.args[0]
+
+        session = provider_one.complete_password_login(
+            username="ops", password="config-password"
+        )
+        assert (
+            provider_two.verify_session(access_token=session.access_token)
+            is not None
+        )
+
+    def test_config_hash_overrides_config_plaintext(self, basic, monkeypatch):
+        password_hash = basic.hash_password("hashed-password")
+        monkeypatch.setattr(
+            basic,
+            "_load_config_basic_auth_section",
+            lambda: {
+                "username": "admin",
+                "password_hash": password_hash,
+                "password": "plaintext-fallback",
+            },
+        )
+
         ctx = MagicMock()
         basic.register(ctx)
         provider = ctx.register_dashboard_auth_provider.call_args.args[0]
-        # env password works ...
         assert provider.complete_password_login(
-            username="admin", password="env-pw"
+            username="admin", password="hashed-password"
         )
-        # ... and the config password no longer does.
         with pytest.raises(InvalidCredentialsError):
-            provider.complete_password_login(username="admin", password="config-pw")
+            provider.complete_password_login(
+                username="admin", password="plaintext-fallback"
+            )
 
     def test_explicit_secret_makes_sessions_portable(self, basic, monkeypatch):
         # Two providers built from the SAME explicit secret accept each
         # other's tokens (the restart-/multi-worker-survival contract).
         shared = secrets.token_bytes(32).hex()
-        monkeypatch.setattr(basic, "_load_config_basic_auth_section", lambda: {})
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_USERNAME", "admin")
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "hunter2")
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_SECRET", shared)
+        monkeypatch.setattr(
+            basic,
+            "_load_config_basic_auth_section",
+            lambda: {
+                "username": "admin",
+                "password": "hunter2",
+                "secret": shared,
+            },
+        )
 
         ctx1, ctx2 = MagicMock(), MagicMock()
         basic.register(ctx1)
@@ -244,7 +272,6 @@ class TestRegister:
         p2 = ctx2.register_dashboard_auth_provider.call_args.args[0]
         s = p1.complete_password_login(username="admin", password="hunter2")
         assert p2.verify_session(access_token=s.access_token) is not None
-
 
 class TestTotpSecondFactor:
     """Optional TOTP second factor on the password provider (RFC 6238)."""
@@ -312,19 +339,24 @@ class TestTotpSecondFactor:
             secret=secrets.token_bytes(32),
         )
         assert provider.requires_totp is False
-        # The two-arg call still works (backward compatible) and an otp arg
-        # is ignored when no factor is configured.
+        # Password-only providers accept an omitted code, and ignore a code
+        # when no second factor is configured.
         assert provider.complete_password_login(username="admin", password="pw") is not None
         assert provider.complete_password_login(
             username="admin", password="pw", otp="whatever"
         ) is not None
 
-    def test_register_reads_totp_secret_from_env(self, basic, monkeypatch):
+    def test_register_reads_totp_secret_from_config(self, basic, monkeypatch):
         secret = basic.generate_totp_secret()
-        monkeypatch.setattr(basic, "_load_config_basic_auth_section", lambda: {})
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_USERNAME", "admin")
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "pw")
-        monkeypatch.setenv("HERMES_DASHBOARD_BASIC_AUTH_TOTP_SECRET", secret)
+        monkeypatch.setattr(
+            basic,
+            "_load_config_basic_auth_section",
+            lambda: {
+                "username": "admin",
+                "password": "pw",
+                "totp_secret": secret,
+            },
+        )
 
         ctx = MagicMock()
         basic.register(ctx)
@@ -334,3 +366,19 @@ class TestTotpSecondFactor:
         assert provider.complete_password_login(
             username="admin", password="pw", otp=good
         ) is not None
+
+    def test_config_ttl_is_applied(self, basic, monkeypatch):
+        monkeypatch.setattr(
+            basic,
+            "_load_config_basic_auth_section",
+            lambda: {
+                "username": "admin",
+                "password": "hunter2",
+                "secret": secrets.token_bytes(32).hex(),
+                "session_ttl_seconds": "900",
+            },
+        )
+        ctx = MagicMock()
+        basic.register(ctx)
+        provider = ctx.register_dashboard_auth_provider.call_args.args[0]
+        assert provider._ttl == 900

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 
-import { brandText } from '@/brand'
 import { BrandWordmark } from '@/components/brand-mark'
 import { capitalize, normalize } from '@/lib/text'
 
@@ -155,7 +154,7 @@ function resolveCopy(personality?: string, seed?: number): IntroCopy {
 
   const copy = pickCopy(copies, seed)
 
-  return { body: brandText(copy.body), headline: brandText(copy.headline) }
+  return copy
 }
 
 export function Intro({ personality, seed }: IntroProps) {

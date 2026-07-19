@@ -116,33 +116,28 @@ def test_bundled_catalog_explains_missing_local_skills(gen_module):
     assert "fabric skills reset <name> --restore" in result
 
 
-def test_skill_metadata_merges_legacy_fallbacks_per_key(gen_module):
+def test_skill_metadata_reads_canonical_namespace_only(gen_module):
     frontmatter = {
         "metadata": {
-            "hermes": {
-                "tags": ["legacy-tag"],
-                "related_skills": ["legacy-peer"],
+            "fabric": {
+                "tags": ["canonical-tag"],
+                "related_skills": ["peer"],
+                "category": "canonical-category",
             },
-            "fabric": {"category": "canonical-category"},
         }
     }
 
     assert gen_module._skill_metadata(frontmatter) == {
-        "tags": ["legacy-tag"],
-        "related_skills": ["legacy-peer"],
+        "tags": ["canonical-tag"],
+        "related_skills": ["peer"],
         "category": "canonical-category",
     }
 
 
-def test_skill_metadata_canonical_key_overrides_legacy_key(gen_module):
-    frontmatter = {
-        "metadata": {
-            "hermes": {"tags": ["legacy"]},
-            "fabric": {"tags": ["canonical"]},
-        }
-    }
+def test_skill_metadata_ignores_unrelated_namespaces(gen_module):
+    frontmatter = {"metadata": {"other": {"tags": ["other"]}}}
 
-    assert gen_module._skill_metadata(frontmatter)["tags"] == ["canonical"]
+    assert gen_module._skill_metadata(frontmatter) == {}
 
 
 def test_orphan_skill_pages_detects_removed_generated_source(gen_module, tmp_path, monkeypatch):

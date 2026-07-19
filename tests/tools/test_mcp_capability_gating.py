@@ -2,7 +2,7 @@
 
 Prompt-only / resource-only MCP servers do not implement the ``tools/*``
 request family. Per the MCP spec, ``InitializeResult.capabilities.tools``
-is non-None iff the server supports it. Before the capability gate, Hermes
+is non-None iff the server supports it. Before the capability gate, Fabric
 always called ``tools/list`` during discovery, which raised
 ``McpError(-32601 Method not found)`` against such servers, so a prompt-only
 server could never stay connected. Discovery/refresh remain capability-gated.
@@ -376,5 +376,4 @@ class TestKeepaliveProbeFallback:
         await task._discover_tools()
 
         assert task._ping_unsupported is False
-
 

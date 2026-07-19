@@ -29,15 +29,14 @@ class TestManifest:
         data = yaml.safe_load((PLUGIN_DIR / "plugin.yaml").read_text())
         assert data["name"] == "langfuse"
         assert data["version"]
-        # All six hooks the plugin implements.
+        # One request-level pair plus tool hooks: one canonical trace contract.
         assert set(data["hooks"]) == {
             "pre_api_request", "post_api_request",
-            "pre_llm_call", "post_llm_call",
             "pre_tool_call", "post_tool_call",
         }
-        # Required env vars are the user-facing HERMES_ prefixed keys.
-        assert "HERMES_LANGFUSE_PUBLIC_KEY" in data["requires_env"]
-        assert "HERMES_LANGFUSE_SECRET_KEY" in data["requires_env"]
+        # Use Langfuse's standard credential variables.
+        assert "LANGFUSE_PUBLIC_KEY" in data["requires_env"]
+        assert "LANGFUSE_SECRET_KEY" in data["requires_env"]
 
 
 # ---------------------------------------------------------------------------
@@ -51,10 +50,10 @@ class TestDiscovery:
         """Scanner should find the plugin but NOT load it by default."""
         from fabric_cli import plugins as plugins_mod
 
-        # Isolated HERMES_HOME so we don't read the developer's config.yaml.
-        home = tmp_path / ".hermes"
+        # Isolated FABRIC_HOME so we don't read the developer's config.yaml.
+        home = tmp_path / ".fabric"
         home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv("FABRIC_HOME", str(home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         manager = plugins_mod.PluginManager()
@@ -83,7 +82,6 @@ class TestRuntimeGate:
 
     def test_get_langfuse_returns_none_without_credentials(self, monkeypatch):
         for k in (
-            "HERMES_LANGFUSE_PUBLIC_KEY", "HERMES_LANGFUSE_SECRET_KEY",
             "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
@@ -94,7 +92,6 @@ class TestRuntimeGate:
     def test_get_langfuse_caches_failure_no_config_load(self, monkeypatch):
         """A miss must be cached — no per-hook config.yaml reads, no env re-reads."""
         for k in (
-            "HERMES_LANGFUSE_PUBLIC_KEY", "HERMES_LANGFUSE_SECRET_KEY",
             "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
@@ -111,7 +108,7 @@ class TestRuntimeGate:
         real_get = os.environ.get
 
         def tracking_get(key, default=None):
-            if key.startswith(("HERMES_LANGFUSE_", "LANGFUSE_")):
+            if key.startswith("LANGFUSE_"):
                 called["n"] += 1
             return real_get(key, default)
 
@@ -125,10 +122,9 @@ class TestRuntimeGate:
             "it should short-circuit via _INIT_FAILED"
         )
 
-    def test_get_langfuse_does_not_import_hermes_config(self, monkeypatch):
+    def test_get_langfuse_does_not_import_fabric_config(self, monkeypatch):
         """The plugin must not re-read config.yaml per hook."""
         for k in (
-            "HERMES_LANGFUSE_PUBLIC_KEY", "HERMES_LANGFUSE_SECRET_KEY",
             "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
@@ -152,9 +148,8 @@ class TestRuntimeGate:
 
 class TestHooksInert:
     def test_hooks_noop_without_client(self, monkeypatch):
-        """All 6 hooks must return without raising when _get_langfuse() is None."""
+        """All registered hooks return when the client is unavailable."""
         for k in (
-            "HERMES_LANGFUSE_PUBLIC_KEY", "HERMES_LANGFUSE_SECRET_KEY",
             "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
@@ -164,9 +159,8 @@ class TestHooksInert:
         mod = importlib.import_module("plugins.observability.langfuse")
 
         # Each hook should just return; no exceptions.
-        mod.on_pre_llm_call(task_id="t", session_id="s", messages=[{"role": "user", "content": "hi"}])
         mod.on_pre_llm_request(task_id="t", session_id="s", api_call_count=1, request_messages=[])
-        mod.on_post_llm_call(task_id="t", session_id="s", api_call_count=1)
+        mod.on_post_api_request(task_id="t", session_id="s", api_call_count=1)
         mod.on_pre_tool_call(tool_name="read_file", args={}, task_id="t", session_id="s")
         mod.on_post_tool_call(tool_name="read_file", args={}, result="ok", task_id="t", session_id="s")
 
@@ -231,9 +225,9 @@ class TestTraceScopeKey:
         assert "api:req-a" in key_a
         assert "api:req-b" in key_b
 
-    def test_trace_key_keeps_legacy_shape_without_turn_or_api_id(self):
+    def test_trace_key_uses_canonical_scope_without_turn_or_api_id(self):
         plugin = self._fresh_plugin()
-        assert plugin._trace_key("task-1", "session-1") == "task-1"
+        assert plugin._trace_key("task-1", "session-1") == "task:task-1"
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +317,7 @@ class TestTurnTraceIsolation:
         )
         # finalize=False => leave a tool call on the final response so
         # _finish_trace is skipped and the turn's state lingers.
-        mod.on_post_llm_call(
+        mod.on_post_api_request(
             task_id=task_id,
             session_id=session,
             model="m",
@@ -363,20 +357,17 @@ class TestTurnTraceIsolation:
         assert "turn1" in keys[0]
         assert "turn2" not in keys[0]
 
-    def test_pre_and_post_hooks_share_one_key_within_a_turn(self, monkeypatch):
-        """turn_id is preferred over api_request_id so the turn-scoped
-        post_llm_call (which carries no api_request_id) still resolves to the
-        same key as the request-scoped pre/post_api_request hooks.  If the
-        ordering were reversed, finalization would silently break."""
+    def test_request_and_tool_hooks_share_one_key_within_a_turn(self, monkeypatch):
+        """turn_id keeps request and tool observations on one root trace."""
         mod = self._fresh_plugin()
         turn_id = "S:T:turnX"
         api_request_id = f"{turn_id}:api:1"
 
         k_pre_api = mod._trace_key("T", "S", turn_id=turn_id, api_request_id=api_request_id)
         k_post_api = mod._trace_key("T", "S", turn_id=turn_id, api_request_id=api_request_id)
-        k_post_turn = mod._trace_key("T", "S", turn_id=turn_id, api_request_id="")
+        k_tool = mod._trace_key("T", "S", turn_id=turn_id, api_request_id="")
 
-        assert k_pre_api == k_post_api == k_post_turn
+        assert k_pre_api == k_post_api == k_tool
 
     def test_non_finalizing_turns_do_not_grow_state_unboundedly(self, monkeypatch):
         """Per-turn keys mean a turn that never finalizes leaves a lingering
@@ -409,7 +400,7 @@ class TestTurnTraceIsolation:
         assert tk("", "s", turn_id="u") == "session:s:turn:u"
         assert tk("t", "s", api_request_id="r") == "task:t:api:r"
         assert tk("", "s", api_request_id="r") == "session:s:api:r"
-        assert tk("t", "s") == "t"                       # legacy: bare task_id
+        assert tk("t", "s") == "task:t"
         assert tk("", "s") == "session:s"
         # turn_id wins over api_request_id when both are present.
         assert tk("t", "s", turn_id="u", api_request_id="r") == "task:t:turn:u"
@@ -419,11 +410,11 @@ class TestTurnTraceIsolation:
 # Placeholder-credential guard (#23823).
 #
 # Regression coverage for the silent-failure bug: when an operator leaves
-# HERMES_LANGFUSE_PUBLIC_KEY / SECRET_KEY at a template value like
+# LANGFUSE_PUBLIC_KEY / SECRET_KEY at a template value like
 # "placeholder", "test-key", or "your-langfuse-key", the SDK accepts the
 # credentials at construction time (it does no server-side validation
 # eagerly) but drops every trace at flush time, with no signal in the
-# Hermes logs.  The fix in `_get_langfuse()` validates the documented
+# Fabric logs.  The fix in `_get_langfuse()` validates the documented
 # `pk-lf-` / `sk-lf-` prefix Langfuse always issues, surfaces a one-shot
 # warning naming the offending env var(s), and short-circuits via the
 # same `_INIT_FAILED` path used for missing credentials so subsequent
@@ -465,7 +456,6 @@ class TestPlaceholderKeyDetection:
     @staticmethod
     def _clear_env(monkeypatch):
         for k in (
-            "HERMES_LANGFUSE_PUBLIC_KEY", "HERMES_LANGFUSE_SECRET_KEY",
             "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
         ):
             monkeypatch.delenv(k, raising=False)
@@ -500,27 +490,27 @@ class TestPlaceholderKeyDetection:
         self._clear_env(monkeypatch)
         plugin = self._fresh_plugin()
         assert plugin._validate_langfuse_key(
-            "HERMES_LANGFUSE_PUBLIC_KEY", "pk-lf-real-public-xyz"
+            "LANGFUSE_PUBLIC_KEY", "pk-lf-real-public-xyz"
         ) is None
         assert plugin._validate_langfuse_key(
-            "HERMES_LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz"
+            "LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz"
         ) is None
 
     def test_validate_langfuse_key_rejects_wrong_prefix(self, monkeypatch):
         self._clear_env(monkeypatch)
         plugin = self._fresh_plugin()
         msg = plugin._validate_langfuse_key(
-            "HERMES_LANGFUSE_PUBLIC_KEY", "placeholder"
+            "LANGFUSE_PUBLIC_KEY", "placeholder"
         )
         assert msg is not None
-        assert "HERMES_LANGFUSE_PUBLIC_KEY" in msg
+        assert "LANGFUSE_PUBLIC_KEY" in msg
         assert "pk-lf-" in msg
 
     def test_validate_langfuse_key_unknown_name_passes(self, monkeypatch):
         """Defensive: an env var with no registered prefix is trusted."""
         self._clear_env(monkeypatch)
         plugin = self._fresh_plugin()
-        assert plugin._validate_langfuse_key("HERMES_LANGFUSE_BASE_URL", "anything") is None
+        assert plugin._validate_langfuse_key("LANGFUSE_BASE_URL", "anything") is None
 
     # -- end-to-end _get_langfuse() behaviour --------------------------------
     # These tests pass `monkeypatch` to _fresh_plugin() so the helper can
@@ -530,13 +520,13 @@ class TestPlaceholderKeyDetection:
 
     def test_placeholder_public_key_warns_and_skips(self, monkeypatch, caplog):
         self._clear_env(monkeypatch)
-        monkeypatch.setenv("HERMES_LANGFUSE_PUBLIC_KEY", "placeholder")
-        monkeypatch.setenv("HERMES_LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "placeholder")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz")
         plugin = self._fresh_plugin(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             assert plugin._get_langfuse() is None
         text = caplog.text
-        assert "HERMES_LANGFUSE_PUBLIC_KEY" in text
+        assert "LANGFUSE_PUBLIC_KEY" in text
         assert "'placeholder'" in text
         assert "pk-lf-" in text
         # The valid secret value must NOT appear (the var NAME does, in
@@ -547,13 +537,13 @@ class TestPlaceholderKeyDetection:
 
     def test_placeholder_secret_key_warns_and_skips(self, monkeypatch, caplog):
         self._clear_env(monkeypatch)
-        monkeypatch.setenv("HERMES_LANGFUSE_PUBLIC_KEY", "pk-lf-real-public-xyz")
-        monkeypatch.setenv("HERMES_LANGFUSE_SECRET_KEY", "test-key")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-real-public-xyz")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "test-key")
         plugin = self._fresh_plugin(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             assert plugin._get_langfuse() is None
         text = caplog.text
-        assert "HERMES_LANGFUSE_SECRET_KEY" in text
+        assert "LANGFUSE_SECRET_KEY" in text
         assert "'test-key'" in text
         assert "sk-lf-" in text
         # The valid public value must NOT appear.
@@ -562,8 +552,8 @@ class TestPlaceholderKeyDetection:
 
     def test_both_placeholders_one_warning_with_both_keys(self, monkeypatch, caplog):
         self._clear_env(monkeypatch)
-        monkeypatch.setenv("HERMES_LANGFUSE_PUBLIC_KEY", "placeholder")
-        monkeypatch.setenv("HERMES_LANGFUSE_SECRET_KEY", "placeholder")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "placeholder")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "placeholder")
         plugin = self._fresh_plugin(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             assert plugin._get_langfuse() is None
@@ -574,8 +564,8 @@ class TestPlaceholderKeyDetection:
             + "\n".join(r.getMessage() for r in warnings)
         )
         text = warnings[0].getMessage()
-        assert "HERMES_LANGFUSE_PUBLIC_KEY" in text
-        assert "HERMES_LANGFUSE_SECRET_KEY" in text
+        assert "LANGFUSE_PUBLIC_KEY" in text
+        assert "LANGFUSE_SECRET_KEY" in text
 
     def test_repeated_calls_do_not_re_warn(self, monkeypatch, caplog):
         """The cached ``_INIT_FAILED`` sentinel must short-circuit
@@ -583,8 +573,8 @@ class TestPlaceholderKeyDetection:
         line — otherwise a busy gateway will spam the operator's
         terminal."""
         self._clear_env(monkeypatch)
-        monkeypatch.setenv("HERMES_LANGFUSE_PUBLIC_KEY", "placeholder")
-        monkeypatch.setenv("HERMES_LANGFUSE_SECRET_KEY", "placeholder")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "placeholder")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "placeholder")
         plugin = self._fresh_plugin(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             for _ in range(15):
@@ -610,27 +600,22 @@ class TestPlaceholderKeyDetection:
         """A grab-bag of values that real-world ``.env.example`` templates
         use as stand-ins.  Any of them in either key must trip the guard."""
         self._clear_env(monkeypatch)
-        monkeypatch.setenv("HERMES_LANGFUSE_PUBLIC_KEY", placeholder)
-        monkeypatch.setenv("HERMES_LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", placeholder)
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz")
         plugin = self._fresh_plugin(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             assert plugin._get_langfuse() is None
-        assert "HERMES_LANGFUSE_PUBLIC_KEY" in caplog.text
+        assert "LANGFUSE_PUBLIC_KEY" in caplog.text
 
-    def test_legacy_LANGFUSE_PUBLIC_KEY_also_validated(self, monkeypatch, caplog):
-        """The plugin reads both the canonical HERMES_-prefixed env var and
-        the legacy bare ``LANGFUSE_PUBLIC_KEY``.  The validator must run on
-        whichever value ``_get_langfuse()`` actually consumed."""
+    def test_standard_LANGFUSE_PUBLIC_KEY_is_validated(self, monkeypatch, caplog):
+        """The validator runs on the standard Langfuse credential."""
         self._clear_env(monkeypatch)
         monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "placeholder")
         monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz")
         plugin = self._fresh_plugin(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             assert plugin._get_langfuse() is None
-        # Warning names the canonical user-facing env var (the bare
-        # LANGFUSE_PUBLIC_KEY is a backwards-compat alias for the
-        # HERMES_-prefixed one — operators set the HERMES_-prefixed one).
-        assert "HERMES_LANGFUSE_PUBLIC_KEY" in caplog.text
+        assert "LANGFUSE_PUBLIC_KEY" in caplog.text
         assert "'placeholder'" in caplog.text
 
     def test_missing_credentials_still_skip_silently(self, monkeypatch, caplog):
@@ -656,8 +641,8 @@ class TestPlaceholderKeyDetection:
         ``_get_langfuse`` already handles this; this test pins that
         behaviour."""
         self._clear_env(monkeypatch)
-        monkeypatch.setenv("HERMES_LANGFUSE_PUBLIC_KEY", "placeholder")
-        monkeypatch.setenv("HERMES_LANGFUSE_SECRET_KEY", "placeholder")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "placeholder")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "placeholder")
         # NO monkeypatch on Langfuse here — falls back to whatever the
         # plugin imported at module load (None if SDK absent).
         plugin = self._fresh_plugin()
@@ -676,8 +661,8 @@ class TestPlaceholderKeyDetection:
         constructed — the latter is the success signal the bug report
         wanted."""
         self._clear_env(monkeypatch)
-        monkeypatch.setenv("HERMES_LANGFUSE_PUBLIC_KEY", "pk-lf-real-public-xyz")
-        monkeypatch.setenv("HERMES_LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-real-public-xyz")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-real-secret-xyz")
         plugin = self._fresh_plugin(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=self.LOGGER_NAME):
             client = plugin._get_langfuse()
@@ -949,14 +934,11 @@ class TestToolObservationKeying:
         assert not state.tools
 
 
-class TestUsageFromSanitizedResponse:
-    """Regression: ``post_api_request`` delivers ``response`` as a sanitized
-    dict (no ``.usage`` attribute) plus a separate ``usage`` summary dict. The
-    post-call handler must read the ``usage`` dict instead of treating the dict
-    response as a usage-bearing object and dropping all token/cost data."""
+class TestUsageFromPostApiRequest:
+    """``post_api_request`` consumes Fabric's canonical usage summary."""
 
     def _setup(self, mod, monkeypatch):
-        # Active client so on_post_llm_call does not early-return.
+        # Active client so on_post_api_request does not early-return.
         monkeypatch.setattr(mod, "_get_langfuse", lambda: object())
         observation = object()
         state = mod.TraceState(trace_id="trace-1", root_ctx=None, root_span=None)
@@ -970,54 +952,18 @@ class TestUsageFromSanitizedResponse:
         monkeypatch.setattr(mod, "_end_observation", fake_end_observation)
         return captured
 
-    def test_sanitized_dict_response_uses_usage_dict(self, monkeypatch):
+    def test_post_api_request_uses_usage_summary(self, monkeypatch):
         sys.modules.pop("plugins.observability.langfuse", None)
         mod = importlib.import_module("plugins.observability.langfuse")
         captured = self._setup(mod, monkeypatch)
 
-        # A plain dict has no ``.usage`` attribute — mirrors post_api_request.
-        mod.on_post_llm_call(
+        mod.on_post_api_request(
             task_id="task-1",
             session_id="session-1",
             api_call_count=1,
             model="gemini-3-flash-preview",
-            response={"model": "gemini-3-flash-preview", "usage": {"input_tokens": 100, "output_tokens": 20}},
             usage={"input_tokens": 100, "output_tokens": 20},
             assistant_content_chars=42,
         )
 
-        # Before the fix the dict response shadowed the usage dict and tokens
-        # were lost (usage_details == {}).
         assert captured["usage_details"] == {"input": 100, "output": 20}
-
-    def test_real_response_object_with_usage_still_used(self, monkeypatch):
-        sys.modules.pop("plugins.observability.langfuse", None)
-        mod = importlib.import_module("plugins.observability.langfuse")
-        captured = self._setup(mod, monkeypatch)
-
-        # A response object that genuinely carries usage must still take the
-        # response-object path (post_llm_call / legacy behavior).
-        seen = {}
-
-        def fake_usage_and_cost(resp, **_):
-            seen["resp"] = resp
-            return {"input": 7, "output": 3}, {}
-
-        monkeypatch.setattr(mod, "_usage_and_cost", fake_usage_and_cost)
-
-        class _Resp:
-            usage = {"prompt_tokens": 7, "completion_tokens": 3}
-
-        resp = _Resp()
-        mod.on_post_llm_call(
-            task_id="task-1",
-            session_id="session-1",
-            api_call_count=1,
-            model="gemini-3-flash-preview",
-            response=resp,
-            usage={"input_tokens": 999, "output_tokens": 999},
-            assistant_content_chars=42,
-        )
-
-        assert seen["resp"] is resp
-        assert captured["usage_details"] == {"input": 7, "output": 3}

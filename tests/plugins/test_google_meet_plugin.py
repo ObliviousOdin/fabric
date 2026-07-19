@@ -25,10 +25,10 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _isolate_home(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-    yield hermes_home
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    yield fabric_home
 
 
 # ---------------------------------------------------------------------------
@@ -146,19 +146,17 @@ def test_status_reports_no_active_meeting():
 
 
 def test_start_spawns_subprocess_and_writes_active_pointer(tmp_path):
-    """Verify start() wires env vars correctly and records the pid."""
+    """Verify start() writes an explicit launch descriptor and records the pid."""
     from plugins.google_meet import process_manager as pm
 
     class _FakeProc:
         def __init__(self, pid):
             self.pid = pid
 
-    captured_env = {}
     captured_argv = []
 
     def _fake_popen(argv, **kwargs):
         captured_argv.extend(argv)
-        captured_env.update(kwargs.get("env") or {})
         return _FakeProc(99999)
 
     with patch.object(pm.subprocess, "Popen", side_effect=_fake_popen):
@@ -173,10 +171,12 @@ def test_start_spawns_subprocess_and_writes_active_pointer(tmp_path):
     assert res["ok"] is True
     assert res["meeting_id"] == "abc-defg-hij"
     assert res["pid"] == 99999
-    assert captured_env["HERMES_MEET_URL"] == "https://meet.google.com/abc-defg-hij"
-    assert captured_env["HERMES_MEET_GUEST_NAME"] == "Test Bot"
-    assert captured_env["HERMES_MEET_DURATION"] == "15m"
-    # python -m plugins.google_meet.meet_bot
+    config_path = Path(captured_argv[captured_argv.index("--launch-config") + 1])
+    launch_config = json.loads(config_path.read_text(encoding="utf-8"))
+    config_path.unlink()
+    assert launch_config["url"] == "https://meet.google.com/abc-defg-hij"
+    assert launch_config["guest_name"] == "Test Bot"
+    assert launch_config["duration"] == "15m"
     assert any("plugins.google_meet.meet_bot" in a for a in captured_argv)
 
     # .active.json points at the bot
@@ -189,7 +189,7 @@ def test_start_spawns_subprocess_and_writes_active_pointer(tmp_path):
 def test_transcript_reads_last_n_lines(tmp_path):
     from plugins.google_meet import process_manager as pm
 
-    meeting_dir = Path(os.environ["HERMES_HOME"]) / "workspace" / "meetings" / "abc-defg-hij"
+    meeting_dir = Path(os.environ["FABRIC_HOME"]) / "workspace" / "meetings" / "abc-defg-hij"
     meeting_dir.mkdir(parents=True)
     (meeting_dir / "transcript.txt").write_text(
         "[10:00:00] Alice: one\n"
@@ -385,7 +385,7 @@ def test_enqueue_say_no_active_meeting():
 def test_enqueue_say_rejects_transcribe_mode(tmp_path):
     from plugins.google_meet import process_manager as pm
 
-    out_dir = Path(os.environ["HERMES_HOME"]) / "workspace" / "meetings" / "abc-defg-hij"
+    out_dir = Path(os.environ["FABRIC_HOME"]) / "workspace" / "meetings" / "abc-defg-hij"
     out_dir.mkdir(parents=True)
     pm._write_active({
         "pid": 0, "meeting_id": "abc-defg-hij",
@@ -400,7 +400,7 @@ def test_enqueue_say_rejects_transcribe_mode(tmp_path):
 def test_enqueue_say_writes_jsonl_in_realtime_mode():
     from plugins.google_meet import process_manager as pm
 
-    out_dir = Path(os.environ["HERMES_HOME"]) / "workspace" / "meetings" / "abc-defg-hij"
+    out_dir = Path(os.environ["FABRIC_HOME"]) / "workspace" / "meetings" / "abc-defg-hij"
     out_dir.mkdir(parents=True)
     pm._write_active({
         "pid": 0, "meeting_id": "abc-defg-hij",
@@ -435,15 +435,15 @@ def test_start_passes_mode_into_active_record():
     assert pm._read_active()["mode"] == "realtime"
 
 
-def test_start_realtime_env_vars_threaded_through():
+def test_start_realtime_launch_descriptor_threaded_through():
     from plugins.google_meet import process_manager as pm
 
     class _FakeProc:
         def __init__(self, pid): self.pid = pid
 
-    captured_env = {}
+    captured_argv = []
     def _fake_popen(argv, **kwargs):
-        captured_env.update(kwargs.get("env") or {})
+        captured_argv.extend(argv)
         return _FakeProc(11111)
 
     with patch.object(pm.subprocess, "Popen", side_effect=_fake_popen), \
@@ -456,11 +456,29 @@ def test_start_realtime_env_vars_threaded_through():
             realtime_instructions="Be brief.",
             realtime_api_key="sk-test",
         )
-    assert captured_env["HERMES_MEET_MODE"] == "realtime"
-    assert captured_env["HERMES_MEET_REALTIME_MODEL"] == "gpt-realtime"
-    assert captured_env["HERMES_MEET_REALTIME_VOICE"] == "alloy"
-    assert captured_env["HERMES_MEET_REALTIME_INSTRUCTIONS"] == "Be brief."
-    assert captured_env["HERMES_MEET_REALTIME_KEY"] == "sk-test"
+    config_path = Path(captured_argv[captured_argv.index("--launch-config") + 1])
+    launch_config = json.loads(config_path.read_text(encoding="utf-8"))
+    config_path.unlink()
+    assert launch_config["mode"] == "realtime"
+    assert launch_config["realtime_model"] == "gpt-realtime"
+    assert launch_config["realtime_voice"] == "alloy"
+    assert launch_config["realtime_instructions"] == "Be brief."
+    assert launch_config["realtime_api_key"] == "sk-test"
+
+
+def test_realtime_key_uses_launch_descriptor_before_standard_credential(monkeypatch):
+    from plugins.google_meet.meet_bot import _realtime_api_key
+
+    monkeypatch.setenv("OPENAI_API_KEY", "profile-key")
+    assert _realtime_api_key({"realtime_api_key": "request-key"}) == "request-key"
+
+
+def test_realtime_key_falls_back_to_standard_credential(monkeypatch):
+    from plugins.google_meet.meet_bot import _realtime_api_key
+
+    monkeypatch.setenv("OPENAI_API_KEY", "profile-key")
+
+    assert _realtime_api_key({}) == "profile-key"
 
 
 def test_meet_join_accepts_realtime_mode():
@@ -571,11 +589,11 @@ def test_meet_join_auto_node_ambiguous_returns_error():
 
 
 def test_cli_register_includes_node_subcommand():
-    """`hermes meet` argparse tree includes the node subtree."""
+    """`fabric meet` argparse tree includes the node subtree."""
     import argparse
     from plugins.google_meet.cli import register_cli
 
-    parser = argparse.ArgumentParser(prog="hermes meet")
+    parser = argparse.ArgumentParser(prog="fabric meet")
     register_cli(parser)
 
     # Parse a known-good node invocation to prove the subtree is wired.
@@ -588,7 +606,7 @@ def test_cli_join_accepts_mode_and_node_flags():
     import argparse
     from plugins.google_meet.cli import register_cli
 
-    parser = argparse.ArgumentParser(prog="hermes meet")
+    parser = argparse.ArgumentParser(prog="fabric meet")
     register_cli(parser)
 
     ns = parser.parse_args([
@@ -603,7 +621,7 @@ def test_cli_say_subcommand_exists():
     import argparse
     from plugins.google_meet.cli import register_cli
 
-    parser = argparse.ArgumentParser(prog="hermes meet")
+    parser = argparse.ArgumentParser(prog="fabric meet")
     register_cli(parser)
 
     ns = parser.parse_args(["say", "hello team", "--node", "my-mac"])
@@ -722,14 +740,14 @@ def test_realtime_session_counters_initialized():
 
 
 # ---------------------------------------------------------------------------
-# hermes meet install CLI
+# fabric meet install CLI
 # ---------------------------------------------------------------------------
 
 def test_cli_install_subcommand_is_registered():
     import argparse
     from plugins.google_meet.cli import register_cli
 
-    parser = argparse.ArgumentParser(prog="hermes meet")
+    parser = argparse.ArgumentParser(prog="fabric meet")
     register_cli(parser)
 
     ns = parser.parse_args(["install"])
@@ -742,7 +760,7 @@ def test_cli_install_flags_parse():
     import argparse
     from plugins.google_meet.cli import register_cli
 
-    parser = argparse.ArgumentParser(prog="hermes meet")
+    parser = argparse.ArgumentParser(prog="fabric meet")
     register_cli(parser)
 
     ns = parser.parse_args(["install", "--realtime", "--yes"])

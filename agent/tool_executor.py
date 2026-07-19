@@ -75,21 +75,7 @@ _DEFAULT_CONCURRENT_TOOL_TIMEOUT_S = 420.0
 
 
 def _resolve_concurrent_tool_timeout() -> float | None:
-    raw = os.getenv("HERMES_CONCURRENT_TOOL_TIMEOUT_S", "").strip()
-    if not raw:
-        return _DEFAULT_CONCURRENT_TOOL_TIMEOUT_S
-    try:
-        value = float(raw)
-    except ValueError:
-        logger.warning(
-            "invalid HERMES_CONCURRENT_TOOL_TIMEOUT_S=%r; using %.0fs",
-            raw,
-            _DEFAULT_CONCURRENT_TOOL_TIMEOUT_S,
-        )
-        return _DEFAULT_CONCURRENT_TOOL_TIMEOUT_S
-    if value <= 0:
-        return None
-    return value
+    return _DEFAULT_CONCURRENT_TOOL_TIMEOUT_S
 
 
 def _flush_session_db_after_tool_progress(

@@ -47,14 +47,14 @@ def _isolated_oauth_service_registry(tmp_path, monkeypatch):
 
     # Personal-provider starts now reserve durable profile-owned generations;
     # never let a focused web test touch the developer's real Fabric home.
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     ws._provider_oauth_service.reset_for_tests()
     yield
     ws._provider_oauth_service.reset_for_tests()
 
 
 def _make_profile_home(tmp_path, monkeypatch, profile="coder"):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     profile_home = tmp_path / "profiles" / profile
     profile_home.mkdir(parents=True)
     return profile_home
@@ -224,6 +224,9 @@ def test_oauth_start_empty_body_and_object_replay_same_process_session():
     from fabric_cli import web_server as ws
 
     with patch(
+        "fabric_cli.auth.get_provider_auth_state",
+        return_value={"client_id": "registered-nous-client"},
+    ), patch(
         "fabric_cli.auth._request_device_code",
         return_value=_fake_nous_device_data(),
     ) as request_device_code, patch.object(ws, "_nous_poller", return_value=None):
@@ -713,23 +716,29 @@ def test_minimax_login_does_not_launch_anthropic_flow():
     assert body["expires_in"] == 600
 
 
-def test_nous_dashboard_device_flow_ignores_legacy_scope_override(monkeypatch):
+def test_nous_dashboard_device_flow_uses_default_scope(monkeypatch):
     from fabric_cli import auth as auth_mod
     from fabric_cli import web_server as ws
 
-    requested_scopes = []
+    requests = []
 
     def fake_request_device_code(**kwargs):
-        requested_scopes.append(kwargs["scope"])
+        requests.append((kwargs["scope"], kwargs["client_id"]))
         return _fake_nous_device_data()
 
-    monkeypatch.setenv("HERMES_AGENT_USE_LEGACY_SESSION_KEYS", "true")
     monkeypatch.setattr(auth_mod, "_request_device_code", fake_request_device_code)
+    monkeypatch.setattr(
+        auth_mod,
+        "get_provider_auth_state",
+        lambda _provider: {"client_id": "registered-nous-client"},
+    )
     monkeypatch.setattr(ws, "_nous_poller", lambda sid: None)
 
     result = asyncio.run(ws._start_device_code_flow("nous"))
     try:
-        assert requested_scopes == [auth_mod.DEFAULT_NOUS_SCOPE]
+        assert requests == [
+            (auth_mod.DEFAULT_NOUS_SCOPE, "registered-nous-client")
+        ]
         assert result["flow"] == "device_code"
         assert result["user_code"] == "NOUS-1234"
         assert (
@@ -801,7 +810,7 @@ def test_oauth_start_stores_profile_for_background_completion(tmp_path, monkeypa
         ws._oauth_sessions.pop(session_id, None)
 
 
-def test_nous_dashboard_device_flow_does_not_retry_legacy_scope_on_invoke_refusal(monkeypatch):
+def test_nous_dashboard_device_flow_does_not_retry_scope_on_invoke_refusal(monkeypatch):
     from fabric_cli import auth as auth_mod
     from fabric_cli import web_server as ws
 
@@ -811,13 +820,41 @@ def test_nous_dashboard_device_flow_does_not_retry_legacy_scope_on_invoke_refusa
         requested_scopes.append(kwargs["scope"])
         raise _invoke_scope_refusal()
 
-    monkeypatch.delenv("HERMES_AGENT_USE_LEGACY_SESSION_KEYS", raising=False)
     monkeypatch.setattr(auth_mod, "_request_device_code", fake_request_device_code)
+    monkeypatch.setattr(
+        auth_mod,
+        "get_provider_auth_state",
+        lambda _provider: {"client_id": "registered-nous-client"},
+    )
     monkeypatch.setattr(ws, "_nous_poller", lambda sid: None)
 
     with pytest.raises(httpx.HTTPStatusError):
         asyncio.run(ws._start_device_code_flow("nous"))
     assert requested_scopes == [auth_mod.DEFAULT_NOUS_SCOPE]
+
+
+def test_nous_dashboard_start_requires_stored_client_id(monkeypatch):
+    from fabric_cli import auth as auth_mod
+
+    request_attempted = False
+
+    def _unexpected_request(**_kwargs):
+        nonlocal request_attempted
+        request_attempted = True
+        raise AssertionError("provider request must not run without a client ID")
+
+    monkeypatch.setattr(auth_mod, "_request_device_code", _unexpected_request)
+
+    response = client.post(
+        "/api/providers/oauth/nous/start",
+        headers=HEADERS,
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": {"code": "nous_client_id_required", "retryable": False}
+    }
+    assert request_attempted is False
 
 
 def test_codex_dashboard_worker_persists_runtime_provider(tmp_path, monkeypatch):
@@ -862,7 +899,7 @@ def test_codex_dashboard_worker_persists_runtime_provider(tmp_path, monkeypatch)
                 "refresh_token": "codex-refresh",
             })
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setattr(httpx, "Client", _Client)
     monkeypatch.setattr(ws.time, "sleep", lambda _: None)
 
@@ -1852,7 +1889,7 @@ def test_nous_dashboard_poller_preserves_effective_scope_when_token_omits_scope(
     session_id, session = ws._new_oauth_session("nous", "device_code")
     session.update({
         "portal_base_url": "https://portal.nousresearch.com",
-        "client_id": "hermes-cli",
+        "client_id": "registered-nous-client",
         "device_code": "device-code",
         "interval": 5,
         "expires_at": time.time() + 600,
@@ -1900,7 +1937,7 @@ def test_nous_worker_cancellation_prevents_profile_or_root_persistence(
     sid, sess = ws._new_oauth_session("nous", "device_code", profile="coder")
     sess.update({
         "portal_base_url": "https://portal.nousresearch.com",
-        "client_id": "hermes-cli",
+        "client_id": "registered-nous-client",
         "device_code": "device-code",
         "interval": 5,
         "expires_at": time.time() + 600,
@@ -2203,7 +2240,7 @@ def test_copilot_acp_now_in_accounts():
 
 
 def test_oauth_catalog_marks_external_providers_not_disconnectable():
-    """External CLI credentials are visible in Accounts but cannot be removed by Hermes."""
+    """External CLI credentials are visible in Accounts but cannot be removed by Fabric."""
     resp = client.get("/api/providers/oauth", headers=HEADERS)
     assert resp.status_code == 200, resp.text
     providers = {p["id"]: p for p in resp.json()["providers"]}
@@ -2281,6 +2318,22 @@ def test_env_sourced_oauth_status_is_not_disconnectable(tmp_path):
     delete_resp = client.delete("/api/providers/oauth/anthropic", headers=HEADERS)
     assert delete_resp.status_code == 400, delete_resp.text
     assert "Settings" in delete_resp.text
+
+
+def test_anthropic_status_ignores_oauth_in_api_key_slot(tmp_path):
+    (tmp_path / ".env").write_text(
+        "ANTHROPIC_API_KEY=sk-ant-oat01-wrong-slot\n"
+        "ANTHROPIC_TOKEN=sk-ant-oat01-canonical-token\n",
+        encoding="utf-8",
+    )
+
+    resp = client.get("/api/providers/oauth", headers=HEADERS)
+    assert resp.status_code == 200, resp.text
+    providers = {p["id"]: p for p in resp.json()["providers"]}
+
+    status = providers["anthropic"]["status"]
+    assert status["source"] == "env_var"
+    assert status["source_label"].startswith("ANTHROPIC_TOKEN")
 
 
 def test_xai_oauth_device_code_start_returns_user_code(monkeypatch):
@@ -2417,8 +2470,7 @@ def test_xai_dashboard_poller_seeds_single_entry_and_clears_suppression(tmp_path
     from fabric_cli import web_server as ws
     from agent.credential_pool import load_pool
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("HERMES_XAI_BASE_URL", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.delenv("XAI_BASE_URL", raising=False)
 
     # Prior `fabric auth remove xai-oauth` left the source suppressed.

@@ -102,7 +102,7 @@ def test_browser_login_reads_credentials_from_the_exact_child_home(
     saved = []
     monkeypatch.setattr(firecrawl_setup, "_browser_open_is_safe", lambda: True)
     monkeypatch.setattr(
-        "tools.environments.local.hermes_subprocess_env",
+        "tools.environments.local.fabric_subprocess_env",
         lambda **_kwargs: {
             "HOME": str(child_home),
             "PATH": "/test/bin",

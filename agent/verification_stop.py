@@ -103,28 +103,22 @@ _NON_MESSAGING_SESSION_SURFACES = frozenset(
 def _session_is_messaging_surface() -> bool:
     """Return whether this turn is delivered over a human messaging channel.
 
-    The gateway binds the platform value (e.g. ``telegram``) to
-    ``HERMES_SESSION_PLATFORM``; the CLI and TUI set ``HERMES_SESSION_SOURCE``
-    (e.g. ``cli``, ``tui``) instead. Both are consulted via the session-context
-    helper (with an ``os.environ`` fallback), alongside the ``HERMES_PLATFORM``
-    override, matching the sibling platform resolution in
+    The gateway binds the platform value (e.g. ``telegram``); the CLI and TUI
+    bind a source (e.g. ``cli``, ``tui``) instead. Both are consulted via the session-context
+    helper, matching the sibling platform resolution in
     ``agent/skill_commands.py`` and ``agent/prompt_builder.py``. A turn is a
     messaging surface when a resolved identity is present and is not a known
     non-messaging surface.
     """
     try:
-        from gateway.session_context import get_session_env
+        from gateway.session_context import get_session_context
 
-        platform = (
-            os.getenv("HERMES_PLATFORM")
-            or get_session_env("HERMES_SESSION_PLATFORM", "")
-        )
-        source = get_session_env("HERMES_SESSION_SOURCE", "")
+        context = get_session_context()
+        platform = context.platform
+        source = context.source
     except Exception:
-        platform = os.getenv("HERMES_PLATFORM", "") or os.environ.get(
-            "HERMES_SESSION_PLATFORM", ""
-        )
-        source = os.environ.get("HERMES_SESSION_SOURCE", "")
+        platform = ""
+        source = ""
     for identity in (platform, source):
         identity = str(identity or "").strip().lower()
         if identity and identity not in _NON_MESSAGING_SESSION_SURFACES:
@@ -135,18 +129,14 @@ def _session_is_messaging_surface() -> bool:
 def verify_on_stop_enabled(config: dict[str, Any] | None = None) -> bool:
     """Return whether edit -> verify-before-finish behavior is enabled.
 
-    Precedence: an explicit ``HERMES_VERIFY_ON_STOP`` env var wins, then an
-    explicit ``agent.verify_on_stop`` config value. The config default is
-    ``"auto"`` (see ``DEFAULT_CONFIG``) — surface-aware: ON for interactive
+    The ``agent.verify_on_stop`` config default is ``"auto"`` (see
+    ``DEFAULT_CONFIG``) — surface-aware: ON for interactive
     coding surfaces (CLI, TUI, desktop) and programmatic callers, OFF for
     conversational messaging surfaces (Telegram, Discord, etc.) where the
     verification narrative would reach a human as chat noise. An explicit
     bool forces the behavior in either direction. A missing or unrecognized
     value falls back to the surface-aware ``"auto"`` default.
     """
-    env = os.environ.get("HERMES_VERIFY_ON_STOP")
-    if env is not None:
-        return env.strip().lower() not in {"0", "false", "no", "off"}
     if config is None:
         try:
             from fabric_cli.config import load_config
@@ -293,7 +283,7 @@ def build_verify_on_stop_nudge(
         command_instruction = (
             "No canonical test/lint/build command was detected. Create a focused "
             f"temporary verification script under `{temp_dir}` using an OS-safe "
-            "`tempfile` path with a `hermes-verify-` filename prefix, run it "
+            "`tempfile` path with a `verification-script-` filename prefix, run it "
             "against the changed behavior, clean it up when possible, and "
             "summarize it explicitly as ad-hoc verification rather than suite "
             "green."

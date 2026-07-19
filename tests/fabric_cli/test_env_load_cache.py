@@ -182,7 +182,7 @@ def test_load_env_handles_missing_file():
 
     invalidate_env_cache()
 
-    nonexistent = Path(tempfile.gettempdir()) / "hermes-test-no-such-env-xyz123.env"
+    nonexistent = Path(tempfile.gettempdir()) / "env-load-test-no-such-env-xyz123.env"
     nonexistent.unlink(missing_ok=True)
 
     try:

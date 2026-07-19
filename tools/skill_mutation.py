@@ -393,7 +393,7 @@ def _pin_lock_parent(home: Path, *, kind: str) -> Iterator[_PinnedLockParent]:
             raise SkillMutationLockError("profile home must be a directory")
         if not canonical_home.exists():
             # Named profiles have an explicit lifecycle.  A process retaining
-            # a stale HERMES_HOME after ``profile rename`` must not silently
+            # a stale FABRIC_HOME after ``profile rename`` must not silently
             # recreate the old name and begin writing a replacement
             # generation.  Default/custom non-profile homes retain the
             # first-run create-on-lock behavior.

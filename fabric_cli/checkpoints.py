@@ -1,7 +1,7 @@
 """`fabric checkpoints` CLI subcommand.
 
 Gives users direct visibility and control over the filesystem checkpoint
-store at ``~/.hermes/checkpoints/``.  Actions:
+store at ``~/.fabric/checkpoints/``.  Actions:
 
     fabric checkpoints               # same as `status`
     fabric checkpoints status        # total size, project count, breakdown
@@ -92,14 +92,20 @@ def cmd_status(args: argparse.Namespace) -> int:
             last = _fmt_age(p.get("last_touch"))
             print(f"  {wd:<60}  {commits:>7}  {last:>12}  {state}")
 
-    legacy = info.get("legacy_archives", [])
-    if legacy:
+    archives = info.get("legacy_archives", [])
+    if archives:
         print()
-        print(f"Legacy archives ({len(legacy)}):")
-        for arch in sorted(legacy, key=lambda a: a.get("mtime", 0), reverse=True):
-            print(f"  {arch['name']:<40}  {_fmt_bytes(arch['size_bytes']):>10}")
-        print()
-        print("Clear with: fabric checkpoints clear-legacy")
+        print(f"Archived schema-v1 stores ({len(archives)}):")
+        for archive in sorted(
+            archives,
+            key=lambda item: item.get("mtime", 0),
+            reverse=True,
+        ):
+            print(
+                f"  {archive['name']:<40}  "
+                f"{_fmt_bytes(archive['size_bytes']):>10}"
+            )
+
     return 0
 
 
@@ -172,20 +178,19 @@ def cmd_clear_legacy(args: argparse.Namespace) -> int:
     from tools.checkpoint_manager import clear_legacy, store_status
 
     info = store_status()
-    legacy = info.get("legacy_archives", [])
-    if not legacy:
-        print("No legacy archives to clear.")
+    archives = info.get("legacy_archives", [])
+    if not archives:
+        print("No schema-v1 archives to clear.")
         return 0
 
-    total = sum(a.get("size_bytes", 0) for a in legacy)
-    print(f"Found {len(legacy)} legacy archive(s), total {_fmt_bytes(total)}:")
-    for arch in legacy:
-        print(f"  {arch['name']:<40}  {_fmt_bytes(arch['size_bytes']):>10}")
+    total = sum(archive.get("size_bytes", 0) for archive in archives)
+    print(f"Found {len(archives)} schema-v1 archive(s), total {_fmt_bytes(total)}:")
+    for archive in archives:
+        print(f"  {archive['name']:<40}  {_fmt_bytes(archive['size_bytes']):>10}")
     print()
-    print("Legacy archives hold pre-v2 per-project shadow repos, moved aside")
-    print("during the single-store migration. Delete when you're confident")
-    print("you don't need the old /rollback history.")
-    if not args.force and not _confirm("Delete all legacy archives?"):
+    print("These archives hold pre-v2 per-project checkpoint stores.")
+    print("Delete them when you no longer need their /rollback history.")
+    if not args.force and not _confirm("Delete all schema-v1 archives?"):
         print("Aborted.")
         return 1
 

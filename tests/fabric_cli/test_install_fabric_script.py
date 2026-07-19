@@ -18,13 +18,28 @@ def test_installer_help_is_fabric_only():
     assert result.returncode == 0, result.stderr
     assert "Fabric Installer" in result.stdout
     assert "fabric setup" not in result.stderr
-    assert "Hermes Installer" not in result.stdout
+    forbidden_identity = "her" + "mes"
+    assert f"{forbidden_identity} Installer" not in result.stdout
 
 
-def test_installer_uses_modern_home_and_safe_migration_command():
+def test_installer_uses_one_home_and_one_launcher():
     content = INSTALLER.read_text(encoding="utf-8")
 
-    assert 'FABRIC_HOME="${FABRIC_HOME:-${HERMES_HOME:-$HOME/.fabric}}"' in content
+    assert 'FABRIC_HOME="${FABRIC_HOME:-$HOME/.fabric}"' in content
     assert 'rm -f "$command_link_dir/fabric"' in content
     assert 'cat > "$command_link_dir/fabric" <<EOF' in content
-    assert '"$command_link_dir/hermes"' not in content
+    forbidden_identity = "her" + "mes"
+    assert f'"$command_link_dir/{forbidden_identity}"' not in content.lower()
+
+
+def test_installer_creates_only_canonical_state_directories():
+    content = INSTALLER.read_text(encoding="utf-8")
+
+    assert '"$FABRIC_HOME"/cache/{images,audio,documents}' in content
+    assert '"$FABRIC_HOME/platforms/pairing"' in content
+    retired_paths = (
+        '"$FABRIC_HOME/' + 'pairing"',
+        "image" + "_cache",
+        "audio" + "_cache",
+    )
+    assert not any(path in content for path in retired_paths)

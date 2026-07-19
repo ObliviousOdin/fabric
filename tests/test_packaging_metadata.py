@@ -145,21 +145,20 @@ def test_mobile_pwa_ships_in_wheel_sdist_and_release_build():
     assert "!apps/design-system/scripts/**" in dockerignore
 
 
-def test_bundled_plugin_manifests_ship_in_both_wheel_and_sdist():
-    """Regression test for #34034 / #28149.
+def test_complete_bundled_plugins_ship_in_both_wheel_and_sdist():
+    """Regression test for #34034 / #28149 and sealed package sidecars.
 
-    Plugin discovery (fabric_cli/plugins.py) registers each bundled plugin by
-    reading its ``plugin.yaml`` / ``plugin.yml`` manifest. Those manifests are
-    data files, not Python modules, so they only reach installed packages when
-    declared explicitly:
+    Plugin discovery registers each bundled plugin from its manifest, but
+    several plugins also require non-Python runtime files: sidecar programs,
+    skills, service units, dashboard bundles, and legal notices. All of those
+    files must reach installed packages through the two release channels:
 
     - wheel  -> ``[tool.setuptools.package-data]`` ``plugins`` glob
     - sdist  -> ``MANIFEST.in`` (Homebrew and other downstream packagers build
                 from the sdist)
 
-    v0.15.0 declared neither, so the wheel shipped every adapter's Python code
-    but none of its manifests, and *every* gateway platform failed with
-    "No adapter available for <platform>". Both channels must cover manifests.
+    A manifest-only contract lets discovery pass while the plugin still fails
+    at runtime. Both channels therefore carry the complete plugin tree.
     """
     # There must actually be manifests on disk for the globs to match.
     on_disk = list((REPO_ROOT / "plugins").rglob("plugin.yaml")) + list(
@@ -167,21 +166,23 @@ def test_bundled_plugin_manifests_ship_in_both_wheel_and_sdist():
     )
     assert on_disk, "expected bundled plugin manifests under plugins/"
 
-    # Wheel channel: package-data must declare a glob that matches plugin
-    # manifests anywhere under the plugins package.
+    # Wheel channel: one recursive package-data contract covers every runtime
+    # file rather than maintaining a lossy extension allow-list.
     data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     plugins_pkg_data = data["tool"]["setuptools"]["package-data"].get("plugins", [])
-    assert any(
-        g.endswith("plugin.yaml") or g.endswith("plugin.yml")
-        for g in plugins_pkg_data
-    ), "pyproject package-data 'plugins' must ship plugin.yaml/plugin.yml (wheel)"
-
-    # Sdist channel: MANIFEST.in must recursively include the manifests so
-    # downstream packagers building from the sdist also get them.
-    manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
-    assert "recursive-include plugins" in manifest and "plugin.yaml" in manifest, (
-        "MANIFEST.in must recursive-include plugins plugin.yaml/plugin.yml (sdist)"
+    assert "**/*" in plugins_pkg_data, (
+        "pyproject package-data 'plugins' must ship the complete plugin tree (wheel)"
     )
+    plugin_excludes = data["tool"]["setuptools"]["exclude-package-data"].get(
+        "plugins", []
+    )
+    assert "**/__pycache__/*" in plugin_excludes
+    assert "**/*.pyc" in plugin_excludes
+    assert "**/node_modules/**/*" in plugin_excludes
+
+    # Sdist channel: downstream packagers must receive that same complete tree.
+    manifest = (REPO_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
+    assert "graft plugins" in manifest, "MANIFEST.in must graft plugins (sdist)"
 
 
 # Minimum non-vulnerable Starlette: CVE-2026-48710 ("BadHost") was fixed in

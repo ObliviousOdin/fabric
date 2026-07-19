@@ -432,21 +432,14 @@ The adapter includes debouncing for rapid message bursts to avoid overwhelming t
 
 ### Text Batching
 
-When a user sends multiple text messages in quick succession, they are merged into a single event before being dispatched:
-
-| Setting | Env Var | Default |
-|---------|---------|---------|
-| Quiet period | `HERMES_FEISHU_TEXT_BATCH_DELAY_SECONDS` | 0.6s |
-| Max messages per batch | `HERMES_FEISHU_TEXT_BATCH_MAX_MESSAGES` | 8 |
-| Max characters per batch | `HERMES_FEISHU_TEXT_BATCH_MAX_CHARS` | 4000 |
+When a user sends multiple text messages in quick succession, up to eight
+messages (4,000 characters total) received within the 0.6-second quiet period
+are merged into a single event before being dispatched.
 
 ### Media Batching
 
-Multiple media attachments sent in quick succession (e.g., dragging several images) are merged into a single event:
-
-| Setting | Env Var | Default |
-|---------|---------|---------|
-| Quiet period | `HERMES_FEISHU_MEDIA_BATCH_DELAY_SECONDS` | 0.8s |
+Multiple media attachments sent in quick succession (for example, dragging
+several images within 0.8 seconds) are merged into a single event.
 
 ### Per-Chat Serialization
 
@@ -530,11 +523,9 @@ Groups not listed in `group_rules` fall back to `default_group_policy` (defaults
 
 ## Deduplication
 
-Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedup state is persisted across restarts to `~/.fabric/feishu_seen_message_ids.json`.
-
-| Setting | Env Var | Default |
-|---------|---------|---------|
-| Cache size | `HERMES_FEISHU_DEDUP_CACHE_SIZE` | 2048 entries |
+Inbound messages are deduplicated using message IDs with a 24-hour TTL and a
+2,048-entry cache. The dedup state is persisted across restarts to
+`~/.fabric/feishu_seen_message_ids.json`.
 
 ## All Environment Variables
 
@@ -557,11 +548,6 @@ Inbound messages are deduplicated using message IDs with a 24-hour TTL. The dedu
 | `FEISHU_WEBHOOK_HOST` | — | `127.0.0.1` | Webhook server bind address |
 | `FEISHU_WEBHOOK_PORT` | — | `8765` | Webhook server port |
 | `FEISHU_WEBHOOK_PATH` | — | `/feishu/webhook` | Webhook endpoint path |
-| `HERMES_FEISHU_DEDUP_CACHE_SIZE` | — | `2048` | Max deduplicated message IDs to track |
-| `HERMES_FEISHU_TEXT_BATCH_DELAY_SECONDS` | — | `0.6` | Text burst debounce quiet period |
-| `HERMES_FEISHU_TEXT_BATCH_MAX_MESSAGES` | — | `8` | Max messages merged per text batch |
-| `HERMES_FEISHU_TEXT_BATCH_MAX_CHARS` | — | `4000` | Max characters merged per text batch |
-| `HERMES_FEISHU_MEDIA_BATCH_DELAY_SECONDS` | — | `0.8` | Media burst debounce quiet period |
 
 WebSocket and per-group ACL settings are configured via `config.yaml` under `platforms.feishu.extra` (see [WebSocket Tuning](#websocket-tuning) and [Per-Group Access Control](#per-group-access-control) above).
 

@@ -1,8 +1,8 @@
 """Headless Google Meet bot — Playwright + live-caption scraping.
 
-Runs as a standalone subprocess spawned by ``process_manager.py``. Reads config
-from env vars, writes status + transcript to files under
-``$HERMES_HOME/workspace/meetings/<meeting-id>/``. The main Fabric process
+Runs as a standalone subprocess spawned by ``process_manager.py``. Reads one
+explicit launch descriptor, then writes status + transcript to files under
+``$FABRIC_HOME/workspace/meetings/<meeting-id>/``. The main Fabric process
 reads those files via the ``meet_*`` tools — no IPC beyond filesystem.
 
 The scraping strategy mirrors OpenUtter (sumansid/openutter): we don't parse
@@ -17,10 +17,9 @@ English-biased but it is:
 
 Run standalone for debugging::
 
-    HERMES_MEET_URL=https://meet.google.com/abc-defg-hij \\
-    HERMES_MEET_OUT_DIR=/tmp/meet-debug \\
-    HERMES_MEET_HEADED=1 \\
-    python -m plugins.google_meet.meet_bot
+    python -m plugins.google_meet.meet_bot \\
+      --url https://meet.google.com/abc-defg-hij \\
+      --out-dir /tmp/meet-debug --headed
 
 No meet.google.com URL → exits non-zero. Any URL that doesn't start with
 ``https://meet.google.com/`` is rejected (explicit-by-design).
@@ -36,7 +35,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional, Sequence
 
 # Match ``https://meet.google.com/abc-defg-hij`` or ``.../lookup/...`` — the
 # short three-segment code or a lookup URL. Anything else is rejected.
@@ -49,9 +48,15 @@ MEET_URL_RE = re.compile(
 )
 
 
-# Filenames the bot reads/writes in ``HERMES_MEET_OUT_DIR``.
+# Filenames the bot reads/writes in its configured output directory.
 SAY_QUEUE_FILENAME = "say_queue.jsonl"
 SAY_PCM_FILENAME = "speaker.pcm"
+LOBBY_TIMEOUT_SECONDS = 300.0
+def _realtime_api_key(launch_config: Mapping[str, Any]) -> str:
+    """Return the request-scoped launch credential, then the standard one."""
+    return str(launch_config.get("realtime_api_key") or "") or os.environ.get(
+        "OPENAI_API_KEY", ""
+    )
 
 
 def _is_safe_meet_url(url: str) -> bool:
@@ -179,13 +184,13 @@ class _BotState:
 
 # JavaScript injected into the Meet tab to observe captions. Captures
 # {speaker, text} tuples via a MutationObserver on the caption container,
-# and exposes ``window.__hermesMeetDrain()`` to pull new entries. This
+# and exposes ``window.__fabricMeetDrain()`` to pull new entries. This
 # mirrors the OpenUtter caption scraping approach.
 _CAPTION_OBSERVER_JS = r"""
 (() => {
-  if (window.__hermesMeetInstalled) return;
-  window.__hermesMeetInstalled = true;
-  window.__hermesMeetQueue = [];
+  if (window.__fabricMeetInstalled) return;
+  window.__fabricMeetInstalled = true;
+  window.__fabricMeetQueue = [];
 
   const captionSelector = '[role="region"][aria-label*="aption" i], ' +
                           'div[jsname="YSxPC"], ' +  // legacy
@@ -193,7 +198,7 @@ _CAPTION_OBSERVER_JS = r"""
 
   function pushEntry(speaker, text) {
     if (!text || !text.trim()) return;
-    window.__hermesMeetQueue.push({
+    window.__fabricMeetQueue.push({
       ts: Date.now(),
       speaker: (speaker || '').trim(),
       text: text.trim(),
@@ -235,9 +240,9 @@ _CAPTION_OBSERVER_JS = r"""
     const iv = setInterval(() => { if (attach()) clearInterval(iv); }, 1500);
   }
 
-  window.__hermesMeetDrain = () => {
-    const out = window.__hermesMeetQueue.slice();
-    window.__hermesMeetQueue = [];
+  window.__fabricMeetDrain = () => {
+    const out = window.__fabricMeetQueue.slice();
+    window.__fabricMeetQueue = [];
     return out;
   };
 })();
@@ -346,7 +351,7 @@ def _start_realtime_speaker(
     if platform_tag == "linux":
         import subprocess as _sp
 
-        sink = (bridge_info or {}).get("write_target") or "hermes_meet_sink"
+        sink = (bridge_info or {}).get("write_target") or "fabric_meet_sink"
         try:
             proc = _sp.Popen(
                 [
@@ -444,28 +449,31 @@ def _mac_audio_device_index(device_name: str) -> str:
     return "0"
 
 
-def run_bot() -> int:  # noqa: C901 — orchestration, explicit branches
-    url = os.environ.get("HERMES_MEET_URL", "").strip()
-    out_dir_env = os.environ.get("HERMES_MEET_OUT_DIR", "").strip()
-    headed = os.environ.get("HERMES_MEET_HEADED", "").lower() in {"1", "true", "yes"}
-    auth_state = os.environ.get("HERMES_MEET_AUTH_STATE", "").strip()
-    guest_name = os.environ.get("HERMES_MEET_GUEST_NAME", "Fabric")
-    duration_s = _parse_duration(os.environ.get("HERMES_MEET_DURATION", ""))
-    # v2: optional realtime mode. Enabled when HERMES_MEET_MODE=realtime.
-    mode = os.environ.get("HERMES_MEET_MODE", "transcribe").strip().lower()
-    realtime_model = os.environ.get("HERMES_MEET_REALTIME_MODEL", "gpt-realtime")
-    realtime_voice = os.environ.get("HERMES_MEET_REALTIME_VOICE", "alloy")
-    realtime_instructions = os.environ.get("HERMES_MEET_REALTIME_INSTRUCTIONS", "")
-    realtime_api_key = os.environ.get("HERMES_MEET_REALTIME_KEY") or os.environ.get("OPENAI_API_KEY", "")
+def run_bot(launch_config: Mapping[str, Any]) -> int:  # noqa: C901 — orchestration
+    url = str(launch_config.get("url") or "").strip()
+    out_dir_env = str(launch_config.get("out_dir") or "").strip()
+    headed = bool(launch_config.get("headed"))
+    auth_state = str(launch_config.get("auth_state") or "").strip()
+    guest_name = str(launch_config.get("guest_name") or "Fabric")
+    duration_s = _parse_duration(str(launch_config.get("duration") or ""))
+    mode = str(launch_config.get("mode") or "transcribe").strip().lower()
+    realtime_model = str(
+        launch_config.get("realtime_model") or "gpt-realtime"
+    )
+    realtime_voice = str(launch_config.get("realtime_voice") or "alloy")
+    realtime_instructions = str(
+        launch_config.get("realtime_instructions") or ""
+    )
+    realtime_api_key = _realtime_api_key(launch_config)
 
     if not url or not _is_safe_meet_url(url):
         sys.stderr.write(
-            "google_meet bot: refusing to launch — HERMES_MEET_URL must be a "
+            "google_meet bot: refusing to launch — --url must be a "
             "meet.google.com URL. got: %r\n" % url
         )
         return 2
     if not out_dir_env:
-        sys.stderr.write("google_meet bot: HERMES_MEET_OUT_DIR is required\n")
+        sys.stderr.write("google_meet bot: --out-dir is required\n")
         return 2
 
     out_dir = Path(out_dir_env)
@@ -497,7 +505,7 @@ def run_bot() -> int:  # noqa: C901 — orchestration, explicit branches
     }
     if rt["enabled"]:
         if not realtime_api_key:
-            state.set(error="realtime mode requested but no API key in HERMES_MEET_REALTIME_KEY/OPENAI_API_KEY — falling back to transcribe")
+            state.set(error="realtime mode requested but OPENAI_API_KEY is missing — falling back to transcribe")
             rt["enabled"] = False
         else:
             try:
@@ -615,9 +623,7 @@ def run_bot() -> int:  # noqa: C901 — orchestration, explicit branches
             #     the bot is generating audio
             #   * periodically flushing realtime counters into status.json
             deadline = (time.time() + duration_s) if duration_s else None
-            lobby_deadline = time.time() + float(
-                os.environ.get("HERMES_MEET_LOBBY_TIMEOUT", "300")
-            )
+            lobby_deadline = time.time() + LOBBY_TIMEOUT_SECONDS
             last_admission_check = 0.0
             while not stop_flag["stop"]:
                 now = time.time()
@@ -652,7 +658,7 @@ def run_bot() -> int:  # noqa: C901 — orchestration, explicit branches
                         break
 
                 try:
-                    queued = page.evaluate("window.__hermesMeetDrain && window.__hermesMeetDrain()")
+                    queued = page.evaluate("window.__fabricMeetDrain && window.__fabricMeetDrain()")
                     if isinstance(queued, list):
                         for entry in queued:
                             if not isinstance(entry, dict):
@@ -762,7 +768,7 @@ def _detect_admission(page) -> bool:
     (() => {
       const leave = document.querySelector('button[aria-label*="eave call" i]');
       if (leave) return true;
-      if (window.__hermesMeetInstalled) {
+      if (window.__fabricMeetInstalled) {
         const caps = document.querySelector(
           '[role="region"][aria-label*="aption" i], ' +
           'div[jsname="YSxPC"], div[jsname="tgaKEf"]'
@@ -854,5 +860,57 @@ def _parse_duration(raw: str) -> Optional[float]:
         return None
 
 
+def _consume_launch_config(path: str) -> Mapping[str, Any]:
+    """Read and immediately remove a parent-written launch descriptor."""
+    launch_path = Path(path)
+    try:
+        data = json.loads(launch_path.read_text(encoding="utf-8"))
+    finally:
+        launch_path.unlink(missing_ok=True)
+    if not isinstance(data, dict):
+        raise ValueError("launch descriptor must contain a JSON object")
+    return data
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Parse an explicit launch descriptor or standalone debug arguments."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Google Meet caption bot")
+    parser.add_argument("--launch-config", help=argparse.SUPPRESS)
+    parser.add_argument("--url")
+    parser.add_argument("--out-dir")
+    parser.add_argument("--headed", action="store_true")
+    parser.add_argument("--auth-state", default="")
+    parser.add_argument("--guest-name", default="Fabric")
+    parser.add_argument("--duration", default="")
+    parser.add_argument("--mode", choices=("transcribe", "realtime"), default="transcribe")
+    parser.add_argument("--realtime-model", default="gpt-realtime")
+    parser.add_argument("--realtime-voice", default="alloy")
+    parser.add_argument("--realtime-instructions", default="")
+    args = parser.parse_args(argv)
+
+    if args.launch_config:
+        try:
+            config = _consume_launch_config(args.launch_config)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            sys.stderr.write(f"google_meet bot: invalid launch descriptor: {exc}\n")
+            return 2
+    else:
+        config = {
+            "url": args.url or "",
+            "out_dir": args.out_dir or "",
+            "headed": args.headed,
+            "auth_state": args.auth_state,
+            "guest_name": args.guest_name,
+            "duration": args.duration,
+            "mode": args.mode,
+            "realtime_model": args.realtime_model,
+            "realtime_voice": args.realtime_voice,
+            "realtime_instructions": args.realtime_instructions,
+        }
+    return run_bot(config)
+
+
 if __name__ == "__main__":  # pragma: no cover — subprocess entry point
-    sys.exit(run_bot())
+    sys.exit(main())

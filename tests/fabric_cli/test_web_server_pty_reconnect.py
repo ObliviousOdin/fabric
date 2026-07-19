@@ -7,6 +7,8 @@ from urllib.parse import urlencode
 
 import pytest
 
+from fabric_cli.tui_launch_context import consume_tui_launch_context
+
 
 pytestmark = pytest.mark.skipif(
     sys.platform.startswith("win"), reason="PTY bridge is POSIX-only"
@@ -39,12 +41,11 @@ class _OneFrameBridge:
 
 
 @pytest.fixture
-def pty_client(monkeypatch, _isolate_hermes_home):
+def pty_client(monkeypatch, _isolate_fabric_home):
     from starlette.testclient import TestClient
 
     import fabric_cli.web_server as ws
 
-    monkeypatch.setattr(ws, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
     monkeypatch.setattr(ws.PtyBridge, "spawn", _OneFrameBridge.spawn)
     ws.app.state.pty_active_session_files = {}
 
@@ -56,7 +57,7 @@ def _url(token: str, **params: str) -> str:
     return f"/api/pty?{urlencode({'token': token, **params})}"
 
 
-def test_resolve_chat_argv_sets_active_session_file_env(monkeypatch):
+def test_resolve_chat_argv_sets_active_session_file_in_descriptor(monkeypatch):
     """Dashboard chat gives the TUI a breadcrumb file for reconnect resume."""
     import fabric_cli.main as main_mod
     import fabric_cli.web_server as ws
@@ -67,11 +68,13 @@ def test_resolve_chat_argv_sets_active_session_file_env(monkeypatch):
         lambda project_root, tui_dev=False: (["node", "dist/entry.js"], "/tmp/ui-tui"),
     )
 
-    _argv, _cwd, env = ws._resolve_chat_argv(
-        active_session_file="/tmp/hermes-active-session.json"
+    argv, _cwd, _env = ws._resolve_chat_argv(
+        active_session_file="/tmp/active-session.json"
     )
+    index = argv.index("--launch-context")
+    context = consume_tui_launch_context(argv[index + 1])
 
-    assert env["HERMES_TUI_ACTIVE_SESSION_FILE"] == "/tmp/hermes-active-session.json"
+    assert context.active_session_file == "/tmp/active-session.json"
 
 
 def test_channel_reconnect_resumes_active_session_file(pty_client, monkeypatch):

@@ -1,12 +1,12 @@
 import queue
 from unittest.mock import patch
 
-from cli import HermesCLI
+from cli import FabricCLI
 from fabric_cli.moa_config import decode_moa_turn
 
 
 def _make_cli():
-    cli = HermesCLI.__new__(HermesCLI)
+    cli = FabricCLI.__new__(FabricCLI)
     cli.config = {
         "moa": {
             "default_preset": "default",

@@ -3,16 +3,16 @@
 Tests cover:
 - Active agent runs indefinitely (no inactivity timeout)
 - Idle agent triggers inactivity timeout with diagnostic info
-- Unlimited timeout (HERMES_CRON_TIMEOUT=0)
-- Backward compat: HERMES_CRON_TIMEOUT env var still works
+- Configured and unlimited inactivity budgets
 - Error message includes activity summary
 """
 
 import concurrent.futures
-import os
 import sys
 import time
 from pathlib import Path
+
+import pytest
 
 
 # Ensure project root is importable
@@ -153,7 +153,7 @@ class TestInactivityTimeout:
         assert result is None  # Never got a result — interrupted
 
     def test_unlimited_timeout(self):
-        """HERMES_CRON_TIMEOUT=0 means no timeout at all."""
+        """A zero config value means no timeout at all."""
         agent = FakeAgent(idle_seconds=0.0)
         _cron_inactivity_limit = None  # unlimited
 
@@ -166,48 +166,21 @@ class TestInactivityTimeout:
 
         assert result["final_response"] == "Done"
 
-    def _parse_cron_timeout(self, raw_value):
-        """Mirror the defensive parsing logic from cron/scheduler.py run_job()."""
-        if raw_value:
-            try:
-                return float(raw_value)
-            except (ValueError, TypeError):
-                return 600.0
-        return 600.0
+    @pytest.mark.parametrize(
+        ("config", "expected"),
+        [
+            ({}, 600.0),
+            ({"cron": {"inactivity_timeout_seconds": 1200}}, 1200.0),
+            ({"cron": {"inactivity_timeout_seconds": 0}}, 0.0),
+            ({"cron": {"inactivity_timeout_seconds": "invalid"}}, 600.0),
+            ({"cron": {"inactivity_timeout_seconds": -1}}, 600.0),
+            ({"cron": {"inactivity_timeout_seconds": True}}, 600.0),
+        ],
+    )
+    def test_timeout_config_parsing(self, config, expected):
+        from cron.jobs import get_cron_inactivity_timeout_seconds
 
-    def test_timeout_env_var_parsing(self, monkeypatch):
-        """HERMES_CRON_TIMEOUT env var is respected."""
-        monkeypatch.setenv("HERMES_CRON_TIMEOUT", "1200")
-        raw = os.getenv("HERMES_CRON_TIMEOUT", "").strip()
-        _cron_timeout = self._parse_cron_timeout(raw)
-        assert _cron_timeout == 1200.0
-
-        _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
-        assert _cron_inactivity_limit == 1200.0
-
-    def test_timeout_zero_means_unlimited(self, monkeypatch):
-        """HERMES_CRON_TIMEOUT=0 yields None (unlimited)."""
-        monkeypatch.setenv("HERMES_CRON_TIMEOUT", "0")
-        raw = os.getenv("HERMES_CRON_TIMEOUT", "").strip()
-        _cron_timeout = self._parse_cron_timeout(raw)
-        _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
-        assert _cron_inactivity_limit is None
-
-    def test_timeout_invalid_value_falls_back_to_default(self, monkeypatch):
-        """HERMES_CRON_TIMEOUT=abc should fall back to 600s, not raise ValueError."""
-        monkeypatch.setenv("HERMES_CRON_TIMEOUT", "abc")
-        raw = os.getenv("HERMES_CRON_TIMEOUT", "").strip()
-        _cron_timeout = self._parse_cron_timeout(raw)
-        assert _cron_timeout == 600.0
-        _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
-        assert _cron_inactivity_limit == 600.0
-
-    def test_timeout_empty_string_uses_default(self, monkeypatch):
-        """HERMES_CRON_TIMEOUT='' (empty) should use the 600s default."""
-        monkeypatch.setenv("HERMES_CRON_TIMEOUT", "")
-        raw = os.getenv("HERMES_CRON_TIMEOUT", "").strip()
-        _cron_timeout = self._parse_cron_timeout(raw)
-        assert _cron_timeout == 600.0
+        assert get_cron_inactivity_timeout_seconds(config) == expected
 
     def test_timeout_error_includes_diagnostics(self):
         """The TimeoutError message should include last activity info."""
@@ -261,8 +234,8 @@ class TestInactivityTimeout:
     def test_agent_without_activity_summary_uses_wallclock_fallback(self):
         """If agent lacks get_activity_summary, idle_secs stays 0 (never times out).
         
-        This ensures backward compat if somehow an old agent is used.
-        The polling loop will eventually complete when the task finishes.
+        This keeps lightweight agent implementations usable; the polling loop
+        eventually completes when the task finishes.
         """
         class BareAgent:
             def run_conversation(self, prompt):
@@ -301,13 +274,13 @@ class TestInactivityTimeout:
 class TestSysPathOrdering:
     """Test that sys.path is set before repo-level imports."""
 
-    def test_hermes_time_importable(self):
+    def test_fabric_time_importable(self):
         """fabric_time should be importable when cron.scheduler loads."""
         # This import would fail if sys.path.insert comes after the import
-        from cron.scheduler import _hermes_now
-        assert callable(_hermes_now)
+        from cron.scheduler import _fabric_now
+        assert callable(_fabric_now)
 
-    def test_hermes_constants_importable(self):
+    def test_fabric_constants_importable(self):
         """fabric_constants should be importable from cron context."""
         from fabric_constants import get_fabric_home
         assert callable(get_fabric_home)

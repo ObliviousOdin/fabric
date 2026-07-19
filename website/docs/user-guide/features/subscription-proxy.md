@@ -29,7 +29,7 @@ proxy when you just want **the model** through your subscription.
 ### 1. Log into your provider (one-time)
 
 ```bash
-fabric portal
+fabric portal --client-id <registered-client-id>
 ```
 
 This opens your browser for the Nous Portal OAuth flow. Fabric stores
@@ -59,7 +59,7 @@ Any OpenAI-compatible app config takes the same triple:
 ```
 Base URL:   http://127.0.0.1:8645/v1
 API key:    anything (e.g. "sk-unused")
-Model:      Hermes-4-70B    # or Hermes-4.3-36B, Hermes-4-405B
+Model:      <provider-model-id>
 ```
 
 The proxy ignores the `Authorization` header from your app and attaches
@@ -88,10 +88,11 @@ Fabric proxy upstream adapters
   [nous    ] Nous Portal — ready (bearer expires 2026-05-15T06:43:21Z)
 ```
 
-If you see `not logged in`, run `fabric portal`. If you see
+If you see `not logged in`, run
+`fabric portal --client-id <registered-client-id>`. If you see
 `credentials need attention`, your refresh token was revoked (rare —
 happens if you signed out from the Portal web UI) — just re-run
-`fabric portal`.
+`fabric portal --client-id <registered-client-id>`.
 
 ## Allowed paths
 
@@ -122,7 +123,7 @@ Edit `~/.openviking/ov.conf`:
 {
   "vlm": {
     "provider": "openai",
-    "model": "Hermes-4-70B",
+    "model": "<provider-model-id>",
     "api_base": "http://127.0.0.1:8645/v1",
     "api_key": "unused-proxy-attaches-real-creds"
   }
@@ -153,7 +154,7 @@ bookmark summarization. In its config:
 # Karakeep .env
 OPENAI_API_BASE_URL=http://127.0.0.1:8645/v1
 OPENAI_API_KEY=any-non-empty-string
-INFERENCE_TEXT_MODEL=Hermes-4-70B
+INFERENCE_TEXT_MODEL=<provider-model-id>
 ```
 
 Same pattern works for Open WebUI, LobeChat, NextChat, or any other

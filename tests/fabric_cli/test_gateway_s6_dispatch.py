@@ -270,7 +270,7 @@ def test_dispatch_renders_gateway_not_registered_friendly(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """`hermes -p typo gateway start` should print a clear message and
+    """`fabric -p typo gateway start` should print a clear message and
     exit 1 — not dump a traceback at the user."""
     from fabric_cli import gateway as gw
     from fabric_cli.service_manager import GatewayNotRegisteredError
@@ -343,8 +343,13 @@ def test_dispatch_renders_s6_command_error_friendly(
 class _Args:
     """Lightweight argparse-like namespace for the helper."""
 
-    def __init__(self, no_supervise: bool = False) -> None:
+    def __init__(
+        self,
+        no_supervise: bool = False,
+        supervised_service: bool = False,
+    ) -> None:
         self.no_supervise = no_supervise
+        self.supervised_service = supervised_service
 
 
 def _stub_s6(monkeypatch: pytest.MonkeyPatch, *, on_s6: bool) -> _CallRecorder:
@@ -372,9 +377,6 @@ def test_redirect_noop_on_host(monkeypatch: pytest.MonkeyPatch) -> None:
         "fabric_cli.gateway.os.execvp",
         lambda *a, **kw: pytest.fail("execvp should not be called on host"),
     )
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
-    monkeypatch.delenv("HERMES_GATEWAY_NO_SUPERVISE", raising=False)
-
     assert gw._maybe_redirect_run_to_s6_supervision(_Args()) is False
 
 
@@ -410,9 +412,6 @@ def test_redirect_fires_inside_s6_container(
         "fabric_cli.gateway._block_until_terminated",
         lambda: pytest.fail("fallback should not run when sleep is available"),
     )
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
-    monkeypatch.delenv("HERMES_GATEWAY_NO_SUPERVISE", raising=False)
-
     with pytest.raises(_ExecvpCalled) as excinfo:
         gw._maybe_redirect_run_to_s6_supervision(_Args())
 
@@ -422,7 +421,6 @@ def test_redirect_fires_inside_s6_container(
     err = capsys.readouterr().err
     assert "s6 supervision" in err
     assert "--no-supervise" in err
-    assert "HERMES_GATEWAY_NO_SUPERVISE" in err
     # 3. exec'd `sleep infinity` (the preferred cheap heartbeat).
     assert execvp_calls == [["sleep", "sleep", "infinity"]]
     assert excinfo.value.argv == ["sleep", "sleep", "infinity"]
@@ -451,9 +449,6 @@ def test_redirect_falls_back_when_sleep_missing(
         "fabric_cli.gateway._block_until_terminated",
         lambda: block_calls.append(True),
     )
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
-    monkeypatch.delenv("HERMES_GATEWAY_NO_SUPERVISE", raising=False)
-
     # Must not raise FileNotFoundError — that was the #36208 crash.
     result = gw._maybe_redirect_run_to_s6_supervision(_Args())
 
@@ -511,9 +506,9 @@ def test_redirect_short_circuits_supervised_child(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The recursion guard: when the supervised gateway s6-supervise is
-    running execs `fabric gateway run --replace`, the
-    HERMES_S6_SUPERVISED_CHILD sentinel must short-circuit the redirect
-    so the gateway actually starts foreground. Without this guard the
+    running execs its explicitly marked command, the hidden service flag must
+    short-circuit the redirect so the gateway
+    actually starts foreground. Without this guard the
     supervised process would re-dispatch `start` → re-exec `run` → ...
     in an infinite loop.
     """
@@ -521,16 +516,16 @@ def test_redirect_short_circuits_supervised_child(
 
     monkeypatch.setattr(
         "fabric_cli.service_manager.detect_service_manager",
-        lambda: pytest.fail("dispatcher should not run when sentinel is set"),
+        lambda: pytest.fail("dispatcher should not run for supervised service"),
     )
     monkeypatch.setattr(
         "fabric_cli.gateway.os.execvp",
-        lambda *a, **kw: pytest.fail("execvp should not run when sentinel is set"),
+        lambda *a, **kw: pytest.fail("execvp should not run for supervised service"),
     )
-    monkeypatch.setenv("HERMES_S6_SUPERVISED_CHILD", "1")
-    monkeypatch.delenv("HERMES_GATEWAY_NO_SUPERVISE", raising=False)
 
-    assert gw._maybe_redirect_run_to_s6_supervision(_Args()) is False
+    assert gw._maybe_redirect_run_to_s6_supervision(
+        _Args(supervised_service=True)
+    ) is False
 
 
 def test_redirect_respects_no_supervise_flag(
@@ -548,67 +543,4 @@ def test_redirect_respects_no_supervise_flag(
         "fabric_cli.gateway.os.execvp",
         lambda *a, **kw: pytest.fail("execvp should not run when --no-supervise is set"),
     )
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
-    monkeypatch.delenv("HERMES_GATEWAY_NO_SUPERVISE", raising=False)
-
     assert gw._maybe_redirect_run_to_s6_supervision(_Args(no_supervise=True)) is False
-
-
-@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "Yes"])
-def test_redirect_respects_no_supervise_env(
-    monkeypatch: pytest.MonkeyPatch, value: str,
-) -> None:
-    """`HERMES_GATEWAY_NO_SUPERVISE=1` (env var) must skip the redirect.
-
-    Truthiness mirrors the dashboard service's own env var parsing —
-    1/true/yes are all accepted, case-insensitively.
-    """
-    from fabric_cli import gateway as gw
-
-    monkeypatch.setattr(
-        "fabric_cli.service_manager.detect_service_manager",
-        lambda: pytest.fail("dispatcher should not run when env opt-out is set"),
-    )
-    monkeypatch.setattr(
-        "fabric_cli.gateway.os.execvp",
-        lambda *a, **kw: pytest.fail("execvp should not run when env opt-out is set"),
-    )
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
-    monkeypatch.setenv("HERMES_GATEWAY_NO_SUPERVISE", value)
-
-    assert gw._maybe_redirect_run_to_s6_supervision(_Args()) is False
-
-
-def test_redirect_no_supervise_env_falsy_values_dont_opt_out(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Falsy / unrecognized values of HERMES_GATEWAY_NO_SUPERVISE must
-    NOT opt out. We're strict about what counts as "yes" so a typo
-    like `HERMES_GATEWAY_NO_SUPERVISE=0` doesn't silently enable the
-    historical foreground behavior."""
-    from fabric_cli import gateway as gw
-
-    _stub_s6(monkeypatch, on_s6=True)
-    monkeypatch.setattr("fabric_cli.gateway._profile_suffix", lambda: "")
-
-    # The redirect reaching its `sleep` heartbeat means it did NOT opt
-    # out. Stub execvp to record + raise (so it doesn't replace the test
-    # process) rather than actually exec.
-    class _ExecvpCalled(BaseException):
-        pass
-
-    execvp_calls: list[str] = []
-
-    def fake_execvp(file: str, args: list[str]) -> None:
-        execvp_calls.append(file)
-        raise _ExecvpCalled
-
-    monkeypatch.setattr("fabric_cli.gateway.os.execvp", fake_execvp)
-    monkeypatch.delenv("HERMES_S6_SUPERVISED_CHILD", raising=False)
-
-    for falsy in ("", "0", "false", "no", "off", "garbage"):
-        execvp_calls.clear()
-        monkeypatch.setenv("HERMES_GATEWAY_NO_SUPERVISE", falsy)
-        with pytest.raises(_ExecvpCalled):
-            gw._maybe_redirect_run_to_s6_supervision(_Args())
-        assert execvp_calls == ["sleep"], f"redirect should fire for {falsy!r}"

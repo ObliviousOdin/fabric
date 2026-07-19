@@ -59,14 +59,9 @@ test('resolveRemovableAppPath finds the .app bundle on macOS', () => {
     resolveRemovableAppPath('/Applications/Fabric.app/Contents/MacOS/Fabric', 'darwin'),
     '/Applications/Fabric.app'
   )
-  // Existing upstream-branded installs remain removable after upgrade.
   assert.equal(
-    resolveRemovableAppPath('/Applications/Hermes.app/Contents/MacOS/Hermes', 'darwin'),
-    '/Applications/Hermes.app'
-  )
-  assert.equal(
-    resolveRemovableAppPath('/Users/x/Applications/Hermes.app/Contents/MacOS/Hermes', 'darwin'),
-    '/Users/x/Applications/Hermes.app'
+    resolveRemovableAppPath('/Users/x/Applications/Fabric.app/Contents/MacOS/Fabric', 'darwin'),
+    '/Users/x/Applications/Fabric.app'
   )
 })
 
@@ -88,36 +83,23 @@ test('resolveRemovableAppPath finds the install dir on Windows', () => {
     resolveRemovableAppPath('C:\\Users\\x\\AppData\\Local\\Programs\\Fabric\\Fabric.exe', 'win32'),
     'C:\\Users\\x\\AppData\\Local\\Programs\\Fabric'
   )
-  assert.equal(
-    resolveRemovableAppPath('C:\\Users\\x\\AppData\\Local\\Programs\\Fabric\\Fabric.exe', 'win32'),
-    'C:\\Users\\x\\AppData\\Local\\Programs\\Fabric'
-  )
-  // Existing upstream-branded installs remain removable after upgrade.
-  assert.equal(
-    resolveRemovableAppPath('C:\\Users\\x\\AppData\\Local\\Programs\\Hermes\\Hermes.exe', 'win32'),
-    'C:\\Users\\x\\AppData\\Local\\Programs\\Hermes'
-  )
-  assert.equal(
-    resolveRemovableAppPath('C:\\Users\\x\\AppData\\Local\\hermes-desktop\\Hermes.exe', 'win32'),
-    'C:\\Users\\x\\AppData\\Local\\hermes-desktop'
-  )
 })
 
 test('resolveRemovableAppPath returns null for an unrecognized Windows dir', () => {
-  assert.equal(resolveRemovableAppPath('C:\\Temp\\foo\\Hermes.exe', 'win32'), null)
+  assert.equal(resolveRemovableAppPath('C:\\Temp\\foo\\Fabric.exe', 'win32'), null)
 })
 
 test('resolveRemovableAppPath uses APPIMAGE on Linux when set', () => {
   assert.equal(
-    resolveRemovableAppPath('/tmp/.mount_HermesXXXX/hermes', 'linux', { APPIMAGE: '/home/x/Apps/Hermes.AppImage' }),
-    '/home/x/Apps/Hermes.AppImage'
+    resolveRemovableAppPath('/tmp/.mount_FabricXXXX/fabric', 'linux', { APPIMAGE: '/home/x/Apps/Fabric.AppImage' }),
+    '/home/x/Apps/Fabric.AppImage'
   )
 })
 
 test('resolveRemovableAppPath finds the unpacked dir on Linux', () => {
-  assert.equal(resolveRemovableAppPath('/opt/hermes/linux-unpacked/hermes', 'linux', {}), '/opt/hermes/linux-unpacked')
+  assert.equal(resolveRemovableAppPath('/opt/fabric/linux-unpacked/Fabric', 'linux', {}), '/opt/fabric/linux-unpacked')
   // A system-package install (/usr/bin) → null, left to apt/dnf.
-  assert.equal(resolveRemovableAppPath('/usr/bin/hermes', 'linux', {}), null)
+  assert.equal(resolveRemovableAppPath('/usr/bin/fabric', 'linux', {}), null)
 })
 
 test('resolveRemovableAppPath returns null for an empty exe path', () => {
@@ -128,8 +110,8 @@ test('resolveRemovableAppPath returns null for an empty exe path', () => {
 // --- shouldRemoveAppBundle ---
 
 test('shouldRemoveAppBundle requires packaged AND a resolved path', () => {
-  assert.equal(shouldRemoveAppBundle(true, '/Applications/Hermes.app'), true)
-  assert.equal(shouldRemoveAppBundle(false, '/Applications/Hermes.app'), false)
+  assert.equal(shouldRemoveAppBundle(true, '/Applications/Fabric.app'), true)
+  assert.equal(shouldRemoveAppBundle(false, '/Applications/Fabric.app'), false)
   assert.equal(shouldRemoveAppBundle(true, null), false)
   assert.equal(shouldRemoveAppBundle(false, null), false)
 })
@@ -139,12 +121,12 @@ test('shouldRemoveAppBundle requires packaged AND a resolved path', () => {
 test('buildPosixCleanupScript waits for the PID, runs the uninstall module, removes bundle', () => {
   const script = buildPosixCleanupScript({
     desktopPid: 4321,
-    pythonExe: '/home/x/.hermes/fabric-agent/venv/bin/python',
+    pythonExe: '/home/x/.fabric/fabric-agent/venv/bin/python',
     pythonPath: null,
-    agentRoot: '/home/x/.hermes/fabric-agent',
+    agentRoot: '/home/x/.fabric/fabric-agent',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'gui'],
-    appPath: '/opt/hermes/linux-unpacked',
-    hermesHome: '/home/x/.hermes'
+    appPath: '/opt/fabric/linux-unpacked',
+    fabricHome: '/home/x/.fabric'
   })
 
   assert.match(script, /^#!\/bin\/bash/)
@@ -153,25 +135,24 @@ test('buildPosixCleanupScript waits for the PID, runs the uninstall module, remo
   // bounded wait (~30s), not unbounded
   assert.match(script, /seq 1 60/)
   assert.match(script, /'-m' 'fabric_cli\.uninstall' '--mode' 'gui'/)
-  assert.match(script, /rm -rf '\/opt\/hermes\/linux-unpacked'/)
-  assert.match(script, /export HERMES_HOME='\/home\/x\/\.hermes'/)
-  assert.match(script, /export FABRIC_HOME='\/home\/x\/\.hermes'/)
+  assert.match(script, /rm -rf '\/opt\/fabric\/linux-unpacked'/)
+  assert.match(script, /export FABRIC_HOME='\/home\/x\/\.fabric'/)
 })
 
 test('buildPosixCleanupScript exports PYTHONPATH when pythonPath is set (lite/full)', () => {
   const script = buildPosixCleanupScript({
     desktopPid: 1,
     pythonExe: '/usr/bin/python3',
-    pythonPath: '/home/x/.hermes/fabric-agent',
-    agentRoot: '/home/x/.hermes/fabric-agent',
+    pythonPath: '/home/x/.fabric/fabric-agent',
+    agentRoot: '/home/x/.fabric/fabric-agent',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'full'],
     appPath: null,
-    hermesHome: '/home/x/.hermes'
+    fabricHome: '/home/x/.fabric'
   })
 
   // System python + source on PYTHONPATH so import fabric_cli works while the
   // venv is torn down.
-  assert.match(script, /export PYTHONPATH='\/home\/x\/\.hermes\/fabric-agent'/)
+  assert.match(script, /export PYTHONPATH='\/home\/x\/\.fabric\/fabric-agent'/)
   assert.match(script, /'\/usr\/bin\/python3' '-m' 'fabric_cli\.uninstall' '--mode' 'full'/)
 })
 
@@ -183,7 +164,7 @@ test('buildPosixCleanupScript omits PYTHONPATH when pythonPath is null (gui)', (
     agentRoot: '/a',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'gui'],
     appPath: null,
-    hermesHome: '/h'
+    fabricHome: '/h'
   })
 
   assert.doesNotMatch(script, /export PYTHONPATH/)
@@ -197,7 +178,7 @@ test('buildPosixCleanupScript omits the bundle rm when appPath is null', () => {
     agentRoot: '/a',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'lite'],
     appPath: null,
-    hermesHome: '/h'
+    fabricHome: '/h'
   })
 
   assert.doesNotMatch(script, /rm -rf '\//)
@@ -213,7 +194,7 @@ test('buildPosixCleanupScript single-quote-escapes paths with apostrophes', () =
     agentRoot: '/a',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'gui'],
     appPath: null,
-    hermesHome: '/h'
+    fabricHome: '/h'
   })
 
   // The apostrophe is closed-escaped-reopened so the shell sees the literal.
@@ -226,19 +207,18 @@ test('buildWindowsCleanupScript waits (bounded) for PID, runs uninstall, rmdir b
   const script = buildWindowsCleanupScript({
     desktopPid: 9988,
     pythonExe: 'C:\\Python313\\python.exe',
-    pythonPath: 'C:\\hermes',
-    agentRoot: 'C:\\hermes',
+    pythonPath: 'C:\\fabric',
+    agentRoot: 'C:\\fabric',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'full'],
-    appPath: 'C:\\Users\\x\\AppData\\Local\\Programs\\Hermes',
-    hermesHome: 'C:\\Users\\x\\AppData\\Local\\hermes'
+    appPath: 'C:\\Users\\x\\AppData\\Local\\Programs\\Fabric',
+    fabricHome: 'C:\\Users\\x\\AppData\\Local\\fabric'
   })
 
   assert.match(script, /@echo off/)
   assert.match(script, /set "PID=9988"/)
-  assert.match(script, /set "FABRIC_HOME=C:\\Users\\x\\AppData\\Local\\hermes"/)
-  assert.match(script, /set "HERMES_HOME=C:\\Users\\x\\AppData\\Local\\hermes"/)
+  assert.match(script, /set "FABRIC_HOME=C:\\Users\\x\\AppData\\Local\\fabric"/)
   // PYTHONPATH set so a system python can import fabric_cli from source.
-  assert.match(script, /set "PYTHONPATH=C:\\hermes;%PYTHONPATH%"/)
+  assert.match(script, /set "PYTHONPATH=C:\\fabric;%PYTHONPATH%"/)
   assert.match(script, /"C:\\Python313\\python.exe" "-m" "fabric_cli\.uninstall" "--mode" "full"/)
   // Bounded wait-loop (no infinite loop), whole-token PID match (no substring).
   assert.match(script, /if %waited% geq 60 goto waited_done/)
@@ -246,7 +226,7 @@ test('buildWindowsCleanupScript waits (bounded) for PID, runs uninstall, rmdir b
   assert.doesNotMatch(script, /find "%PID%"/) // the old substring-prone form is gone
   // Removal is a retry loop (Windows releases dir handles lazily).
   assert.match(script, /:rmloop/)
-  assert.match(script, /rmdir \/s \/q "C:\\Users\\x\\AppData\\Local\\Programs\\Hermes" >nul 2>&1/)
+  assert.match(script, /rmdir \/s \/q "C:\\Users\\x\\AppData\\Local\\Programs\\Fabric" >nul 2>&1/)
   assert.match(script, /if %tries% geq 10 goto rmdone/)
   assert.match(script, /del "%~f0"/)
 })
@@ -259,7 +239,7 @@ test('buildWindowsCleanupScript omits PYTHONPATH + rmdir when not needed (gui, n
     agentRoot: 'C:\\h',
     uninstallArgs: ['-m', 'fabric_cli.uninstall', '--mode', 'gui'],
     appPath: null,
-    hermesHome: 'C:\\h'
+    fabricHome: 'C:\\h'
   })
 
   assert.doesNotMatch(script, /rmdir/)

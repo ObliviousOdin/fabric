@@ -219,7 +219,7 @@ def test_resolve_runtime_provider_falls_back_when_pool_empty(monkeypatch):
             "provider": "openai-codex",
             "base_url": "https://chatgpt.com/backend-api/codex",
             "api_key": "codex-token",
-            "source": "hermes-auth-store",
+            "source": "fabric-auth-store",
             "last_refresh": "2026-02-26T00:00:00Z",
         },
     )
@@ -1259,16 +1259,12 @@ def test_explicit_openrouter_honors_openrouter_base_url_over_pool(monkeypatch):
     assert resolved.get("credential_pool") is None
 
 
-def test_resolve_requested_provider_precedence(monkeypatch):
-    monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "nous")
+def test_resolve_requested_provider_prefers_explicit_then_config(monkeypatch):
     monkeypatch.setattr(rp, "_get_model_config", lambda: {"provider": "openai-codex"})
     assert rp.resolve_requested_provider("openrouter") == "openrouter"
     assert rp.resolve_requested_provider() == "openai-codex"
 
     monkeypatch.setattr(rp, "_get_model_config", lambda: {})
-    assert rp.resolve_requested_provider() == "nous"
-
-    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
     assert rp.resolve_requested_provider() == "auto"
 
 
@@ -2256,7 +2252,7 @@ class TestAzureFoundryResolution:
 
     def test_azure_foundry_missing_api_key_raises(self, monkeypatch):
         monkeypatch.delenv("AZURE_FOUNDRY_API_KEY", raising=False)
-        # `get_env_value` reads from ~/.hermes/.env — mock it to return None
+        # `get_env_value` reads from ~/.fabric/.env — mock it to return None
         # so the resolver can't find a key there either.
         import fabric_cli.config as cfg_mod
         monkeypatch.setattr(cfg_mod, "get_env_value", lambda k: None)

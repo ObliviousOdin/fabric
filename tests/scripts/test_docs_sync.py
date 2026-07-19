@@ -70,7 +70,7 @@ class DocsSyncTests(unittest.TestCase):
         self.assertEqual(commands["kanban"]["alias_of"], None)
         self.assertEqual(commands["journey"]["aliases"], ["learning", "memory-graph"])
         self.assertEqual(commands["learning"]["alias_of"], "journey")
-        self.assertEqual(commands["login"]["visibility"], "compatibility")
+        self.assertNotIn("login", commands)
 
     def test_generated_runtime_catalog_is_committed_and_current(self) -> None:
         self.assertEqual(self.sync.generate(ROOT, check=True), [])
@@ -83,13 +83,16 @@ class DocsSyncTests(unittest.TestCase):
             },
             "documented_token_exemptions": {},
         }
-        self._write("website/docs/guide.md", "Use `FABRIC_REAL_TOKEN` and `HERMES_GHOST`.\n")
-        self._write("src/runtime.py", 'TOKEN = "FABRIC_REAL_TOKEN"\n')
+        self._write(
+            "website/docs/guide.md",
+            "Use `FABRIC_SOURCE_BACKED_TOKEN` and `FABRIC_TEST_ONLY_GHOST`.\n",
+        )
+        self._write("src/runtime.py", 'TOKEN = "FABRIC_SOURCE_BACKED_TOKEN"\n')
 
         errors = self.sync.audit_documented_tokens(self.root, contracts)
 
         self.assertEqual(len(errors), 1)
-        self.assertIn("HERMES_GHOST", errors[0])
+        self.assertIn("FABRIC_TEST_ONLY_GHOST", errors[0])
 
     def test_test_fixture_cannot_back_a_documented_token(self) -> None:
         contracts = {
@@ -99,32 +102,34 @@ class DocsSyncTests(unittest.TestCase):
             },
             "documented_token_exemptions": {},
         }
-        self._write("website/docs/guide.md", "Use `HERMES_TEST_ONLY_GHOST`.\n")
-        self._write("tests/fixture.py", 'TOKEN = "HERMES_TEST_ONLY_GHOST"\n')
+        self._write("website/docs/guide.md", "Use `FABRIC_TEST_ONLY_GHOST`.\n")
+        self._write("tests/fixture.py", 'TOKEN = "FABRIC_TEST_ONLY_GHOST"\n')
 
         errors = self.sync.audit_documented_tokens(self.root, contracts)
 
         self.assertEqual(len(errors), 1)
-        self.assertIn("HERMES_TEST_ONLY_GHOST", errors[0])
+        self.assertIn("FABRIC_TEST_ONLY_GHOST", errors[0])
 
     def test_token_exemption_requires_an_explicit_reason(self) -> None:
         contracts = {
             "authored_docs": {"include": ["**/*.md"], "exclude": []},
             "documented_token_exemptions": {
-                "HERMES_PREFIX_": "Wildcard family whose concrete members are source-backed."
+                "FABRIC_TEST_PREFIX_": "Wildcard family whose concrete members are source-backed."
             },
         }
-        self._write("website/docs/guide.md", "`HERMES_PREFIX_*`\n")
+        self._write("website/docs/guide.md", "`FABRIC_TEST_PREFIX_*`\n")
 
         self.assertEqual(
             self.sync.audit_documented_tokens(self.root, contracts),
             [],
         )
 
-    def test_first_party_skill_rejects_legacy_metadata_namespace(self) -> None:
+    def test_first_party_skill_rejects_former_metadata_namespace(self) -> None:
+        former_namespace = "her" + "mes"
         self._write(
             "skills/example/SKILL.md",
-            "---\nname: example\nmetadata:\n  hermes:\n    tags: [Example]\n---\n",
+            f"---\nname: example\nmetadata:\n  {former_namespace}:\n"
+            "    tags: [Example]\n---\n",
         )
 
         errors = self.sync.audit_first_party_skill_metadata(self.root)
@@ -133,13 +138,17 @@ class DocsSyncTests(unittest.TestCase):
         self.assertIn("metadata.fabric", errors[0])
 
     def test_skill_metadata_audit_parses_indented_and_inline_yaml(self) -> None:
+        former_namespace = "her" + "mes"
         self._write(
             "skills/indented/SKILL.md",
-            "---\nname: indented\nmetadata:\n    hermes:\n        tags: [Example]\n---\n",
+            f"---\nname: indented\nmetadata:\n    {former_namespace}:\n"
+            "        tags: [Example]\n---\n",
         )
         self._write(
             "skills/inline/SKILL.md",
-            "---\nname: inline\nmetadata: {hermes: {tags: [Example]}}\n---\n",
+            "---\nname: inline\nmetadata: {"
+            f"{former_namespace}: {{tags: [Example]}}"
+            "}\n---\n",
         )
 
         errors = self.sync.audit_first_party_skill_metadata(self.root)

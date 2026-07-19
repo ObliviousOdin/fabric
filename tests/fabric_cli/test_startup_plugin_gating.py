@@ -2,8 +2,8 @@
 
 ``fabric_cli.main`` skips eager plugin discovery at argparse-setup time
 when the invocation is clearly targeting a known built-in subcommand.
-This saves 500-650ms on ``hermes --help``, ``hermes version``,
-``hermes logs``, etc., by not importing ``google.cloud.pubsub_v1``,
+This saves 500-650ms on ``fabric --help``, ``fabric version``,
+``fabric logs``, etc., by not importing ``google.cloud.pubsub_v1``,
 ``aiohttp``, ``grpc``, and friends.
 
 Two invariants:
@@ -48,7 +48,7 @@ def _top_level_help_text() -> str:
     from fabric_cli import main as _main
 
     argv_backup = sys.argv[:]
-    sys.argv = ["hermes", "--help"]
+    sys.argv = ["fabric", "--help"]
     buf = io.StringIO()
     try:
         with patch.object(_main, "_plugin_cli_discovery_needed", return_value=False):
@@ -71,42 +71,47 @@ def _live_subcommand_names() -> set[str]:
     return set(m.group(1).split(","))
 
 
-def test_default_fabric_help_has_no_upstream_branding_or_portal(monkeypatch):
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
+def test_default_help_uses_curated_model_provider_catalog(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
 
     text = _top_level_help_text()
 
     assert "Nous" not in text
     assert "nousresearch" not in text.lower()
-    assert "Hermes" not in text
+    assert "Fabric" in text
     assert "portal" not in text.lower()
 
 
 @pytest.mark.parametrize(
-    "env_name,env_value",
+    "capabilities",
     [
-        ("FABRIC_MODEL_PROVIDERS", "nous"),
-        ("FABRIC_CAPABILITY_CATALOG", "0"),
+        {"model_providers": ["nous"]},
+        {"enabled": False},
     ],
 )
-def test_explicit_legacy_opt_in_registers_portal(
-    monkeypatch, env_name, env_value
+def test_model_provider_catalog_controls_portal_registration(
+    monkeypatch, capabilities
 ):
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv(env_name, env_value)
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: capabilities,
+    )
 
     text = _top_level_help_text()
 
     assert re.search(r"^\s+portal\s+Set up Nous Portal", text, re.MULTILINE)
 
 
-def test_default_portal_command_is_unknown(monkeypatch, capsys):
+def test_portal_command_is_absent_from_default_catalog(monkeypatch, capsys):
     from fabric_cli import main as _main
 
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
     monkeypatch.setattr(sys, "argv", ["fabric", "portal"])
 
     with patch.object(_main, "_plugin_cli_discovery_needed", return_value=False):
@@ -123,32 +128,32 @@ def test_default_portal_command_is_unknown(monkeypatch, capsys):
 @pytest.mark.parametrize(
     "argv,expected",
     [
-        (["hermes"], None),
-        (["hermes", "--help"], None),
-        (["hermes", "-h"], None),
-        (["hermes", "--version"], None),
-        (["hermes", "-w"], None),
+        (["fabric"], None),
+        (["fabric", "--help"], None),
+        (["fabric", "-h"], None),
+        (["fabric", "--version"], None),
+        (["fabric", "-w"], None),
         # -p / --profile is stripped from sys.argv by
         # _apply_profile_override() at import time, so it never reaches
         # _first_positional_argv. We test with just -w / --tui here.
-        (["hermes", "-w", "--tui"], None),
-        (["hermes", "version"], "version"),
-        (["hermes", "--tui", "chat"], "chat"),
-        (["hermes", "-w", "logs"], "logs"),
-        (["hermes", "chat", "hello world"], "chat"),
-        (["hermes", "gateway", "run"], "gateway"),
+        (["fabric", "-w", "--tui"], None),
+        (["fabric", "version"], "version"),
+        (["fabric", "--tui", "chat"], "chat"),
+        (["fabric", "-w", "logs"], "logs"),
+        (["fabric", "chat", "hello world"], "chat"),
+        (["fabric", "gateway", "run"], "gateway"),
         # Top-level value-taking flags: the value should be skipped.
-        (["hermes", "-m", "gpt5", "chat"], "chat"),
-        (["hermes", "--model", "gpt5", "chat", "hi"], "chat"),
-        (["hermes", "-m", "gpt5", "--provider", "openai", "chat"], "chat"),
-        (["hermes", "-z", "hello world"], None),
-        (["hermes", "-z", "hello", "chat"], "chat"),
-        (["hermes", "--model=gpt5", "chat"], "chat"),     # inline form
-        (["hermes", "--", "chat"], "chat"),               # -- terminator
-        (["hermes", "-w", "--"], None),
+        (["fabric", "-m", "gpt5", "chat"], "chat"),
+        (["fabric", "--model", "gpt5", "chat", "hi"], "chat"),
+        (["fabric", "-m", "gpt5", "--provider", "openai", "chat"], "chat"),
+        (["fabric", "-z", "hello world"], None),
+        (["fabric", "-z", "hello", "chat"], "chat"),
+        (["fabric", "--model=gpt5", "chat"], "chat"),     # inline form
+        (["fabric", "--", "chat"], "chat"),               # -- terminator
+        (["fabric", "-w", "--"], None),
         # Unknown positional after skipped flags → plugin-cmd candidate.
-        (["hermes", "some-plugin-cmd"], "some-plugin-cmd"),
-        (["hermes", "-m", "gpt5", "some-plugin-cmd"], "some-plugin-cmd"),
+        (["fabric", "some-plugin-cmd"], "some-plugin-cmd"),
+        (["fabric", "-m", "gpt5", "some-plugin-cmd"], "some-plugin-cmd"),
     ],
 )
 def test_first_positional_argv(argv, expected):
@@ -162,17 +167,17 @@ def test_first_positional_argv(argv, expected):
 @pytest.mark.parametrize(
     "argv",
     [
-        ["hermes"],                          # bare → chat
-        ["hermes", "--help"],                # top-level help
-        ["hermes", "-h"],
-        ["hermes", "version"],               # known built-in
-        ["hermes", "logs"],
-        ["hermes", "gateway", "run"],
-        ["hermes", "--tui"],
-        ["hermes", "-w", "--tui"],
-        ["hermes", "chat", "hi"],
-        ["hermes", "help"],                  # accepted built-in-ish
-        ["hermes", "-m", "gpt5", "chat"],    # flag-value-skipping
+        ["fabric"],                          # bare → chat
+        ["fabric", "--help"],                # top-level help
+        ["fabric", "-h"],
+        ["fabric", "version"],               # known built-in
+        ["fabric", "logs"],
+        ["fabric", "gateway", "run"],
+        ["fabric", "--tui"],
+        ["fabric", "-w", "--tui"],
+        ["fabric", "chat", "hi"],
+        ["fabric", "help"],                  # accepted built-in-ish
+        ["fabric", "-m", "gpt5", "chat"],    # flag-value-skipping
     ],
 )
 def test_discovery_skipped_for_builtins(argv):
@@ -183,9 +188,9 @@ def test_discovery_skipped_for_builtins(argv):
 @pytest.mark.parametrize(
     "argv",
     [
-        ["hermes", "meet", "join"],          # potential google_meet plugin
-        ["hermes", "honcho", "status"],      # potential memory plugin
-        ["hermes", "unknown-subcmd"],
+        ["fabric", "meet", "join"],          # potential google_meet plugin
+        ["fabric", "honcho", "status"],      # potential memory plugin
+        ["fabric", "unknown-subcmd"],
     ],
 )
 def test_discovery_runs_for_unknown_positional(argv):
@@ -202,11 +207,9 @@ def test_builtin_set_covers_every_registered_subcommand(monkeypatch):
     Missing entries cause a slow-path regression (correctness stays
     fine — discovery just runs unnecessarily).
     """
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
     live = _live_subcommand_names()
     # "help" is synthetic — an argparse-implicit convenience we include
-    # in the set so ``hermes help <cmd>`` skips discovery; it won't show
+    # in the set so ``fabric help <cmd>`` skips discovery; it won't show
     # up as a subparser in the --help output.
     declared = _BUILTIN_SUBCOMMANDS - {"help"}
     missing_from_declaration = live - declared
@@ -225,11 +228,9 @@ def test_builtin_set_has_no_phantom_entries(monkeypatch):
     a name that — if a plugin actually registered it — would fail to
     parse. Keeps the set honest.
     """
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
     live = _live_subcommand_names()
-    # ``portal`` is a compatibility-gated built-in and is intentionally absent
-    # from the default public parser unless that legacy provider is enabled.
+    # ``portal`` is catalog-gated and intentionally absent from the default
+    # public parser unless its provider is included.
     allowed_synthetic = {"help", "portal"}
     phantom = _BUILTIN_SUBCOMMANDS - live - allowed_synthetic
     assert not phantom, (

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import os
 import sqlite3
 import subprocess
@@ -15,14 +16,15 @@ from pathlib import Path
 import pytest
 
 from fabric_cli import kanban_db as kb
+from fabric_cli.kanban_runtime import configure_kanban_runtime_context
 
 
 @pytest.fixture
 def kanban_home(tmp_path, monkeypatch):
-    """Isolated HERMES_HOME with an empty kanban DB."""
-    home = tmp_path / ".hermes"
+    """Isolated FABRIC_HOME with an empty kanban DB."""
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     kb.init_db()
     return home
@@ -62,15 +64,18 @@ def test_init_creates_expected_tables(kanban_home):
     assert {"tasks", "task_links", "task_comments", "task_events"} <= names
 
 
-def test_connect_honors_kanban_busy_timeout_env(kanban_home, monkeypatch):
-    """All kanban connections should use the explicit busy-timeout knob.
+def test_connect_honors_kanban_busy_timeout_config(kanban_home, monkeypatch):
+    """All kanban connections should use the configured busy timeout.
 
     A worker stampede should wait for SQLite's writer lock instead of failing
     immediately with ``database is locked`` during first-connect/WAL/schema
     setup.  The timeout must be queryable via PRAGMA so CLI, gateway, and tool
     connections behave the same way.
     """
-    monkeypatch.setenv("HERMES_KANBAN_BUSY_TIMEOUT_MS", "123456")
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config",
+        lambda: {"kanban": {"busy_timeout_ms": 123456}},
+    )
 
     with kb.connect() as conn:
         row = conn.execute("PRAGMA busy_timeout").fetchone()
@@ -108,11 +113,9 @@ def test_cross_process_init_lock_uses_windows_byte_range_lock(tmp_path, monkeypa
 
 def test_connect_rejects_tls_record_in_sqlite_header(tmp_path, monkeypatch):
     """Kanban should classify TLS-looking page-0 clobbers before WAL setup."""
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
-    monkeypatch.delenv("HERMES_KANBAN_DB", raising=False)
-    monkeypatch.delenv("HERMES_KANBAN_HOME", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     corrupt = home / "kanban.db"
@@ -377,8 +380,11 @@ def test_claim_once_wins_second_loses(kanban_home):
         assert second is None
 
 
-def test_claim_uses_env_default_ttl(kanban_home, monkeypatch):
-    monkeypatch.setenv("HERMES_KANBAN_CLAIM_TTL_SECONDS", "3600")
+def test_claim_uses_config_default_ttl(kanban_home, monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config",
+        lambda: {"kanban": {"claim_ttl_seconds": 3600}},
+    )
     with kb.connect() as conn:
         t = kb.create_task(conn, title="x", assignee="a")
         kb.claim_task(conn, t, claimer="host:1")
@@ -496,12 +502,15 @@ def test_stale_claim_with_live_pid_extends_instead_of_reclaiming(
         assert "reclaimed" not in kinds
 
 
-def test_stale_claim_with_live_pid_uses_env_ttl_override(
+def test_stale_claim_with_live_pid_uses_config_ttl(
     kanban_home, monkeypatch,
 ):
     import fabric_cli.kanban_db as _kb
 
-    monkeypatch.setenv("HERMES_KANBAN_CLAIM_TTL_SECONDS", "3600")
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config",
+        lambda: {"kanban": {"claim_ttl_seconds": 3600}},
+    )
 
     with kb.connect() as conn:
         t = kb.create_task(conn, title="x", assignee="a")
@@ -795,7 +804,6 @@ def test_detect_crashed_workers_skips_freshly_claimed_tasks(
     import fabric_cli.kanban_db as _kb
 
     monkeypatch.setattr(_kb, "_pid_alive", lambda _pid: False)
-    monkeypatch.delenv("HERMES_KANBAN_CRASH_GRACE_SECONDS", raising=False)
 
     now = 1_000_000.0
     monkeypatch.setattr(_kb.time, "time", lambda: now)
@@ -820,14 +828,17 @@ def test_detect_crashed_workers_skips_freshly_claimed_tasks(
         assert tid in crashed, "should reclaim task past grace period"
 
 
-def test_detect_crashed_workers_grace_period_env_override(
+def test_detect_crashed_workers_grace_period_config(
     kanban_home, monkeypatch,
 ):
-    """HERMES_KANBAN_CRASH_GRACE_SECONDS env var adjusts the window."""
+    """kanban.crash_grace_seconds adjusts the launch window."""
     import fabric_cli.kanban_db as _kb
 
     monkeypatch.setattr(_kb, "_pid_alive", lambda _pid: False)
-    monkeypatch.setenv("HERMES_KANBAN_CRASH_GRACE_SECONDS", "5")
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config",
+        lambda: {"kanban": {"crash_grace_seconds": 5}},
+    )
 
     now = 2_000_000.0
 
@@ -850,12 +861,15 @@ def test_detect_crashed_workers_grace_period_env_override(
         assert tid in kb.detect_crashed_workers(conn)
 
 
-def test_resolve_crash_grace_seconds_handles_bad_env(monkeypatch):
-    """Bad env values fall back to DEFAULT_CRASH_GRACE_SECONDS."""
+def test_resolve_crash_grace_seconds_handles_bad_config(monkeypatch):
+    """Bad config values fall back to DEFAULT_CRASH_GRACE_SECONDS."""
     import fabric_cli.kanban_db as _kb
 
     for bad_val in ("notanumber", "-5", ""):
-        monkeypatch.setenv("HERMES_KANBAN_CRASH_GRACE_SECONDS", bad_val)
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config",
+            lambda value=bad_val: {"kanban": {"crash_grace_seconds": value}},
+        )
         result = _kb._resolve_crash_grace_seconds()
         assert result == _kb.DEFAULT_CRASH_GRACE_SECONDS, (
             f"expected default for {bad_val!r}, got {result}"
@@ -899,7 +913,7 @@ def test_rate_limit_exit_requeues_without_counting_failure(
     import fabric_cli.kanban_db as _kb
 
     monkeypatch.setattr(_kb, "_pid_alive", lambda _pid: False)
-    monkeypatch.setenv("HERMES_KANBAN_CRASH_GRACE_SECONDS", "0")
+    monkeypatch.setattr(_kb, "_resolve_crash_grace_seconds", lambda: 0)
 
     with kb.connect() as conn:
         host = _kb._claimer_id().split(":", 1)[0]
@@ -989,7 +1003,7 @@ def test_respawn_guard_defers_rate_limited_within_cooldown(
     fall into ``blocker_auth`` (which would defer forever)."""
     import fabric_cli.kanban_db as _kb
 
-    monkeypatch.setenv("HERMES_KANBAN_RATE_LIMIT_COOLDOWN_SECONDS", "300")
+    monkeypatch.setattr(_kb, "_resolve_rate_limit_cooldown_seconds", lambda: 300)
     now = 5_000_000
 
     with kb.connect() as conn:
@@ -1027,7 +1041,7 @@ def test_respawn_guard_rate_limit_cooldown_zero_allows_immediately(
     and the stamped rate-limit text does not re-trap it via blocker_auth."""
     import fabric_cli.kanban_db as _kb
 
-    monkeypatch.setenv("HERMES_KANBAN_RATE_LIMIT_COOLDOWN_SECONDS", "0")
+    monkeypatch.setattr(_kb, "_resolve_rate_limit_cooldown_seconds", lambda: 0)
     now = 6_000_000
 
     with kb.connect() as conn:
@@ -1050,12 +1064,15 @@ def test_respawn_guard_rate_limit_cooldown_zero_allows_immediately(
         assert kb.check_respawn_guard(conn, tid) is None
 
 
-def test_resolve_rate_limit_cooldown_handles_bad_env(monkeypatch):
+def test_resolve_rate_limit_cooldown_handles_bad_config(monkeypatch):
     import fabric_cli.kanban_db as _kb
 
     for bad_val in ("notanumber", "-5", ""):
-        monkeypatch.setenv(
-            "HERMES_KANBAN_RATE_LIMIT_COOLDOWN_SECONDS", bad_val
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config",
+            lambda value=bad_val: {
+                "kanban": {"rate_limit_cooldown_seconds": value}
+            },
         )
         assert (
             _kb._resolve_rate_limit_cooldown_seconds()
@@ -1125,8 +1142,11 @@ def test_heartbeat_extends_claim(kanban_home):
         assert new > int(time.time()) + 3000
 
 
-def test_heartbeat_uses_env_default_ttl(kanban_home, monkeypatch):
-    monkeypatch.setenv("HERMES_KANBAN_CLAIM_TTL_SECONDS", "3600")
+def test_heartbeat_uses_config_default_ttl(kanban_home, monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config",
+        lambda: {"kanban": {"claim_ttl_seconds": 3600}},
+    )
     with kb.connect() as conn:
         t = kb.create_task(conn, title="x", assignee="a")
         claimer = "host:hb"
@@ -1691,7 +1711,7 @@ def test_has_spawnable_ready_false_when_only_terminal_lanes(kanban_home, monkeyp
 
 def test_has_spawnable_ready_true_when_real_profile_present(kanban_home, monkeypatch):
     """``has_spawnable_ready`` returns True as soon as ANY ready task
-    has an assignee that maps to a real Hermes profile — preserves the
+    has an assignee that maps to a real Fabric profile — preserves the
     real "stuck" signal when a daily/agent task is queued."""
     from fabric_cli import profiles
     monkeypatch.setattr(
@@ -1699,7 +1719,7 @@ def test_has_spawnable_ready_true_when_real_profile_present(kanban_home, monkeyp
     )
     with kb.connect() as conn:
         kb.create_task(conn, title="terminal-task", assignee="orion-cc")
-        kb.create_task(conn, title="hermes-task", assignee="daily")
+        kb.create_task(conn, title="scheduled-task", assignee="daily")
         assert kb.has_spawnable_ready(conn) is True
 
 
@@ -2078,7 +2098,7 @@ def test_dispatch_respawn_guard_emits_event_for_skipped_task(
 # Workspace resolution
 # ---------------------------------------------------------------------------
 
-def test_scratch_workspace_created_under_hermes_home(kanban_home):
+def test_scratch_workspace_created_under_fabric_home(kanban_home):
     with kb.connect() as conn:
         t = kb.create_task(conn, title="x")
         task = kb.get_task(conn, t)
@@ -2336,7 +2356,7 @@ def test_cleanup_workspace_removes_managed_scratch_dir(kanban_home):
         kb.set_workspace_path(conn, t, ws)
         assert ws.is_dir()
         kb.complete_task(conn, t, result="ok")
-    assert not ws.exists(), "Hermes-managed scratch dir should be cleaned up"
+    assert not ws.exists(), "Fabric-managed scratch dir should be cleaned up"
 
 
 def test_cleanup_workspace_refuses_path_outside_scratch_root(kanban_home, tmp_path):
@@ -2370,20 +2390,20 @@ def test_cleanup_workspace_refuses_path_outside_scratch_root(kanban_home, tmp_pa
     assert (real_source / "README.md").read_text(encoding="utf-8") == "important"
 
 
-def test_cleanup_workspace_honors_workspaces_root_env_override(tmp_path, monkeypatch):
-    """``HERMES_KANBAN_WORKSPACES_ROOT`` extends the managed-scratch set.
+def test_cleanup_workspace_honors_worker_workspace_root(tmp_path, monkeypatch):
+    """The worker's pinned workspace root extends the managed-scratch set.
 
-    Worker subprocesses run with this env var injected by the dispatcher. The
+    Worker subprocesses receive this path from the dispatcher. The
     cleanup containment check must treat paths under it as managed even when
     they sit outside the active kanban home.
     """
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     workspaces_override = tmp_path / "ext-workspaces"
     workspaces_override.mkdir()
-    monkeypatch.setenv("HERMES_KANBAN_WORKSPACES_ROOT", str(workspaces_override))
+    configure_kanban_runtime_context(workspaces_root=str(workspaces_override))
     kb.init_db()
 
     with kb.connect() as conn:
@@ -2500,13 +2520,13 @@ def test_is_managed_scratch_path_rejects_real_source_tree(kanban_home, tmp_path)
 
 
 def test_is_managed_scratch_path_rejects_kanban_metadata_subtrees(kanban_home):
-    """Hermes' own DB/metadata/log subtrees under ``<kanban_home>/kanban`` are NOT managed.
+    """Fabric's own DB/metadata/log subtrees under ``<kanban_home>/kanban`` are NOT managed.
 
     Regression guard for the Copilot finding on #28819: a scratch task whose
     ``workspace_path`` was mis-set to the kanban home, the logs dir, or a
     board's metadata dir (i.e. the board root itself, not its ``workspaces/``
     child) must be refused. Without this, the containment check would happily
-    ``shutil.rmtree`` Hermes' DB/metadata/logs on task completion.
+    ``shutil.rmtree`` Fabric's DB/metadata/logs on task completion.
     """
     kanban_root = kanban_home / "kanban"
     kanban_root.mkdir(parents=True, exist_ok=True)
@@ -2679,26 +2699,25 @@ def test_session_id_compose_with_tenant_filter(kanban_home):
 # Shared-board path resolution (issue #19348)
 #
 # The kanban board is a cross-profile coordination primitive: a worker
-# spawned with `hermes -p <profile>` must read/write the same kanban.db
+# spawned with `fabric -p <profile>` must read/write the same kanban.db
 # as the dispatcher that claimed the task. These tests exercise the
 # path-resolution layer directly and would have caught the regression
-# where `kanban_db_path()` resolved to the active profile's HERMES_HOME.
+# where `kanban_db_path()` resolved to the active profile's FABRIC_HOME.
 # ---------------------------------------------------------------------------
 
 class TestSharedBoardPaths:
     """`kanban_home`/`kanban_db_path`/`workspaces_root`/`worker_log_path`
-    must anchor at the **shared root**, not the active profile's HERMES_HOME."""
+    must anchor at the **shared root**, not the active profile's FABRIC_HOME."""
 
-    def _set_home(self, monkeypatch, tmp_path, hermes_home):
+    def _set_home(self, monkeypatch, tmp_path, fabric_home):
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-        monkeypatch.delenv("HERMES_KANBAN_HOME", raising=False)
+        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
-    def test_default_install_anchors_at_home_dot_hermes(
+    def test_default_install_anchors_at_home_dot_fabric(
         self, tmp_path, monkeypatch
     ):
-        # Standard install: HERMES_HOME == ~/.hermes, no profile active.
-        default_home = tmp_path / ".hermes"
+        # Standard install: FABRIC_HOME == ~/.fabric, no profile active.
+        default_home = tmp_path / ".fabric"
         default_home.mkdir()
         self._set_home(monkeypatch, tmp_path, default_home)
 
@@ -2713,18 +2732,18 @@ class TestSharedBoardPaths:
     def test_profile_worker_resolves_to_shared_root(
         self, tmp_path, monkeypatch
     ):
-        # Reproduces the bug: dispatcher uses ~/.hermes/kanban.db,
+        # Reproduces the bug: dispatcher uses ~/.fabric/kanban.db,
         # worker spawned with -p <profile> previously resolved to
-        # ~/.hermes/profiles/<profile>/kanban.db. After the fix both
-        # converge on ~/.hermes/kanban.db.
-        default_home = tmp_path / ".hermes"
+        # ~/.fabric/profiles/<profile>/kanban.db. After the fix both
+        # converge on ~/.fabric/kanban.db.
+        default_home = tmp_path / ".fabric"
         default_home.mkdir()
         profile_home = default_home / "profiles" / "nehemiahkanban"
         profile_home.mkdir(parents=True)
         self._set_home(monkeypatch, tmp_path, profile_home)
 
         # All four resolvers must anchor at the shared root, not the
-        # profile-local HERMES_HOME.
+        # profile-local FABRIC_HOME.
         assert kb.kanban_home() == default_home
         assert kb.kanban_db_path() == default_home / "kanban.db"
         assert kb.workspaces_root() == default_home / "kanban" / "workspaces"
@@ -2741,9 +2760,9 @@ class TestSharedBoardPaths:
         self, tmp_path, monkeypatch
     ):
         # End-to-end convergence: resolve the path under each side's
-        # HERMES_HOME and confirm equality. This is the property the
+        # FABRIC_HOME and confirm equality. This is the property the
         # dispatcher/worker handoff actually depends on.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".fabric"
         default_home.mkdir()
         profile_home = default_home / "profiles" / "coder"
         profile_home.mkdir(parents=True)
@@ -2754,8 +2773,8 @@ class TestSharedBoardPaths:
         dispatcher_ws = kb.workspaces_root()
         dispatcher_log = kb.worker_log_path("t_handoff")
 
-        # Worker's perspective (profile activated by `hermes -p coder`).
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        # Worker's perspective (profile activated by `fabric -p coder`).
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
         worker_db = kb.kanban_db_path()
         worker_ws = kb.workspaces_root()
         worker_log = kb.worker_log_path("t_handoff")
@@ -2764,14 +2783,14 @@ class TestSharedBoardPaths:
         assert dispatcher_ws == worker_ws
         assert dispatcher_log == worker_log
 
-    def test_docker_custom_hermes_home_uses_env_path_directly(
+    def test_docker_custom_fabric_home_uses_env_path_directly(
         self, tmp_path, monkeypatch
     ):
-        # Docker / custom deployment: HERMES_HOME points outside ~/.hermes.
+        # Docker / custom deployment: FABRIC_HOME points outside ~/.fabric.
         # `get_default_fabric_root()` returns env_home directly when it
         # is not a `<root>/profiles/<name>` shape and not under
-        # `Path.home() / ".hermes"`.
-        custom_root = tmp_path / "opt" / "hermes"
+        # `Path.home() / ".fabric"`.
+        custom_root = tmp_path / "opt" / "fabric"
         custom_root.mkdir(parents=True)
         self._set_home(monkeypatch, tmp_path, custom_root)
 
@@ -2781,10 +2800,10 @@ class TestSharedBoardPaths:
     def test_docker_profile_layout_uses_grandparent(
         self, tmp_path, monkeypatch
     ):
-        # Docker profile shape: HERMES_HOME=/opt/hermes/profiles/coder;
-        # `get_default_fabric_root()` walks up to /opt/hermes because
+        # Docker profile shape: FABRIC_HOME=/opt/fabric/profiles/coder;
+        # `get_default_fabric_root()` walks up to /opt/fabric because
         # the immediate parent dir is named "profiles".
-        custom_root = tmp_path / "opt" / "hermes"
+        custom_root = tmp_path / "opt" / "fabric"
         profile = custom_root / "profiles" / "coder"
         profile.mkdir(parents=True)
         self._set_home(monkeypatch, tmp_path, profile)
@@ -2792,42 +2811,13 @@ class TestSharedBoardPaths:
         assert kb.kanban_home() == custom_root
         assert kb.kanban_db_path() == custom_root / "kanban.db"
 
-    def test_explicit_override_via_hermes_kanban_home(
-        self, tmp_path, monkeypatch
-    ):
-        # Explicit override: HERMES_KANBAN_HOME beats every other
-        # resolution rule.
-        default_home = tmp_path / ".hermes"
-        profile_home = default_home / "profiles" / "any"
-        profile_home.mkdir(parents=True)
-        override = tmp_path / "shared-board"
-        override.mkdir()
-
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
-        monkeypatch.setenv("HERMES_KANBAN_HOME", str(override))
-
-        assert kb.kanban_home() == override
-        assert kb.kanban_db_path() == override / "kanban.db"
-        assert kb.workspaces_root() == override / "kanban" / "workspaces"
-
-    def test_empty_override_falls_through(self, tmp_path, monkeypatch):
-        # Empty/whitespace override is treated as unset.
-        default_home = tmp_path / ".hermes"
-        default_home.mkdir()
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(default_home))
-        monkeypatch.setenv("HERMES_KANBAN_HOME", "   ")
-
-        assert kb.kanban_home() == default_home
-
     def test_dispatcher_and_worker_share_a_real_database(
         self, tmp_path, monkeypatch
     ):
         # Belt-and-suspenders: round-trip a task across the two
-        # HERMES_HOME perspectives via a real SQLite file. Without the
+        # FABRIC_HOME perspectives via a real SQLite file. Without the
         # fix the worker would open a different file and see no rows.
-        default_home = tmp_path / ".hermes"
+        default_home = tmp_path / ".fabric"
         default_home.mkdir()
         profile_home = default_home / "profiles" / "nehemiahkanban"
         profile_home.mkdir(parents=True)
@@ -2838,79 +2828,67 @@ class TestSharedBoardPaths:
         with kb.connect() as conn:
             task_id = kb.create_task(conn, title="cross-profile")
 
-        # Worker switches to the profile HERMES_HOME and reads.
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        # Worker switches to the profile FABRIC_HOME and reads.
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
         with kb.connect() as conn:
             task = kb.get_task(conn, task_id)
         assert task is not None
         assert task.title == "cross-profile"
 
-    def test_hermes_kanban_db_pin_beats_kanban_home(
+    def test_worker_db_pin_beats_default_root(
         self, tmp_path, monkeypatch
     ):
-        # HERMES_KANBAN_DB pins the file path directly and beats both
-        # HERMES_KANBAN_HOME and the `get_default_fabric_root()` path.
-        # This is the env the dispatcher injects into workers.
-        default_home = tmp_path / ".hermes"
+        # Typed worker context pins the file path directly and beats the
+        # default-root path.
+        default_home = tmp_path / ".fabric"
         default_home.mkdir()
-        umbrella = tmp_path / "umbrella"
-        umbrella.mkdir()
         pinned_db = tmp_path / "pinned" / "board.db"
         pinned_db.parent.mkdir()
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(default_home))
-        monkeypatch.setenv("HERMES_KANBAN_HOME", str(umbrella))
-        monkeypatch.setenv("HERMES_KANBAN_DB", str(pinned_db))
+        monkeypatch.setenv("FABRIC_HOME", str(default_home))
+        configure_kanban_runtime_context(db_path=str(pinned_db))
 
         assert kb.kanban_db_path() == pinned_db
-        # workspaces_root still follows HERMES_KANBAN_HOME -- the pins
-        # are independent.
-        assert kb.workspaces_root() == umbrella / "kanban" / "workspaces"
+        assert kb.workspaces_root() == default_home / "kanban" / "workspaces"
 
-    def test_hermes_kanban_workspaces_root_pin_beats_kanban_home(
+    def test_worker_workspaces_root_pin_beats_default_root(
         self, tmp_path, monkeypatch
     ):
-        # HERMES_KANBAN_WORKSPACES_ROOT pins the workspaces root directly.
-        default_home = tmp_path / ".hermes"
+        # Typed worker context pins the workspaces root directly.
+        default_home = tmp_path / ".fabric"
         default_home.mkdir()
-        umbrella = tmp_path / "umbrella"
-        umbrella.mkdir()
         pinned_ws = tmp_path / "pinned-workspaces"
         pinned_ws.mkdir()
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(default_home))
-        monkeypatch.setenv("HERMES_KANBAN_HOME", str(umbrella))
-        monkeypatch.setenv("HERMES_KANBAN_WORKSPACES_ROOT", str(pinned_ws))
+        monkeypatch.setenv("FABRIC_HOME", str(default_home))
+        configure_kanban_runtime_context(workspaces_root=str(pinned_ws))
 
         assert kb.workspaces_root() == pinned_ws
-        # kanban_db_path still follows HERMES_KANBAN_HOME.
-        assert kb.kanban_db_path() == umbrella / "kanban.db"
+        assert kb.kanban_db_path() == default_home / "kanban.db"
 
     def test_empty_per_path_overrides_fall_through(
         self, tmp_path, monkeypatch
     ):
-        # Empty/whitespace pins are treated as unset, same as
-        # HERMES_KANBAN_HOME.
-        default_home = tmp_path / ".hermes"
+        # Empty/whitespace pins are treated as unset.
+        default_home = tmp_path / ".fabric"
         default_home.mkdir()
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        monkeypatch.setenv("HERMES_HOME", str(default_home))
-        monkeypatch.setenv("HERMES_KANBAN_DB", "   ")
-        monkeypatch.setenv("HERMES_KANBAN_WORKSPACES_ROOT", "")
+        monkeypatch.setenv("FABRIC_HOME", str(default_home))
+        configure_kanban_runtime_context(db_path="   ", workspaces_root="")
 
         assert kb.kanban_db_path() == default_home / "kanban.db"
         assert kb.workspaces_root() == default_home / "kanban" / "workspaces"
 
-    def test_dispatcher_spawn_injects_kanban_db_and_workspaces_root(
+    def test_dispatcher_spawn_writes_db_and_workspaces_root_context(
         self, tmp_path, monkeypatch
     ):
-        # The dispatcher's `_default_spawn` must inject HERMES_KANBAN_DB
-        # and HERMES_KANBAN_WORKSPACES_ROOT into the worker env so the
+        # The dispatcher's `_default_spawn` must put both paths into the
+        # worker descriptor so the
         # worker converges on the dispatcher's paths even when the
-        # `-p <profile>` flag rewrites HERMES_HOME.
-        default_home = tmp_path / ".hermes"
+        # `-p <profile>` flag rewrites FABRIC_HOME.
+        default_home = tmp_path / ".fabric"
         default_home.mkdir()
         self._set_home(monkeypatch, tmp_path, default_home)
 
@@ -2944,13 +2922,16 @@ class TestSharedBoardPaths:
         )
         kb._default_spawn(task, str(tmp_path / "ws"))
 
-        env = captured["env"]
-        assert env["HERMES_KANBAN_DB"] == str(default_home / "kanban.db")
-        assert env["HERMES_KANBAN_WORKSPACES_ROOT"] == str(
+        cmd = captured["cmd"]
+        context_path = Path(cmd[cmd.index("--kanban-worker-context") + 1])
+        context = json.loads(context_path.read_text(encoding="utf-8"))
+        context_path.unlink()
+        assert context["db_path"] == str(default_home / "kanban.db")
+        assert context["workspaces_root"] == str(
             default_home / "kanban" / "workspaces"
         )
-        assert env["HERMES_KANBAN_TASK"] == "t_dispatch_env"
-        assert env["HERMES_KANBAN_BRANCH"] == "wt/t_dispatch_env"
+        assert context["task_id"] == "t_dispatch_env"
+        assert context["branch"] == "wt/t_dispatch_env"
 
 
 # ---------------------------------------------------------------------------
@@ -3055,9 +3036,9 @@ def test_connect_falls_back_to_delete_on_locking_protocol(tmp_path, monkeypatch,
     import sqlite3 as _sqlite3
     from unittest.mock import patch as _patch
 
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     # Clear module cache so a fresh connect() is attempted
@@ -3104,7 +3085,7 @@ def test_unlink_tasks_triggers_recompute_ready(kanban_home):
     complete_task and unblock_task.
 
     Before the fix, child stayed 'todo' indefinitely after unlink; only the
-    next dispatcher tick or a manual 'hermes kanban recompute' would promote it.
+    next dispatcher tick or a manual 'fabric kanban recompute' would promote it.
     """
     with kb.connect() as conn:
         # A is done.
@@ -3238,149 +3219,149 @@ def test_migrate_add_optional_columns_tolerates_concurrent_migration(kanban_home
 
 
 # ---------------------------------------------------------------------------
-# Dispatcher spawn invocation — _resolve_hermes_argv()
+# Dispatcher spawn invocation — _resolve_fabric_argv()
 #
-# Workers spawned by the dispatcher must use a `hermes` invocation that does
+# Workers spawned by the dispatcher must use a `fabric` invocation that does
 # not depend on PATH being set up correctly. cron jobs, systemd User= services,
 # launchd jobs, and other detached processes routinely run with a stripped
-# $PATH that doesn't include the venv's bin/, so a bare `["hermes", ...]`
+# $PATH that doesn't include the venv's bin/, so a bare `["fabric", ...]`
 # spawn fails with FileNotFoundError and the task gets stuck. The resolver
 # prefers the PATH shim (familiar `ps` output) but falls back to the module
 # form so the spawn keeps working when PATH is missing the shim.
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_hermes_argv_prefers_path_shim(monkeypatch):
-    """When `hermes` is on PATH, use the shim — preserves familiar ps output."""
+def test_resolve_fabric_argv_prefers_path_shim(monkeypatch):
+    """When `fabric` is on PATH, use the shim — preserves familiar ps output."""
     import shutil
     import fabric_cli.kanban_db as kb
 
-    monkeypatch.delenv("HERMES_BIN", raising=False)
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/local/bin/hermes")
-    argv = kb._resolve_hermes_argv()
-    assert argv == ["/usr/local/bin/hermes"]
+    monkeypatch.delenv("FABRIC_BIN", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/local/bin/fabric")
+    argv = kb._resolve_fabric_argv()
+    assert argv == ["/usr/local/bin/fabric"]
 
 
-def test_resolve_hermes_argv_absolutizes_relative_exe_shim(monkeypatch, tmp_path):
+def test_resolve_fabric_argv_absolutizes_relative_exe_shim(monkeypatch, tmp_path):
     """A relative executable override must not remain workspace-cwd-dependent."""
     import fabric_cli.kanban_db as kb
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("HERMES_BIN", ".\\hermes.exe")
+    monkeypatch.setenv("FABRIC_BIN", ".\\fabric.exe")
     monkeypatch.setattr(kb, "_IS_WINDOWS", True)
 
-    assert kb._resolve_hermes_argv() == [os.path.abspath(".\\hermes.exe")]
+    assert kb._resolve_fabric_argv() == [os.path.abspath(".\\fabric.exe")]
 
 
-def test_resolve_hermes_argv_avoids_implicit_windows_batch_shim(monkeypatch, tmp_path):
+def test_resolve_fabric_argv_avoids_implicit_windows_batch_shim(monkeypatch, tmp_path):
     """Implicit .cmd/.bat shims use the module fallback, not batch argv[0]."""
     import sys
     import fabric_cli.kanban_db as kb
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "hermes.CMD").write_text("@echo off\n", encoding="utf-8")
-    monkeypatch.delenv("HERMES_BIN", raising=False)
+    (bin_dir / "fabric.CMD").write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.delenv("FABRIC_BIN", raising=False)
     monkeypatch.setenv("PATH", str(bin_dir))
     monkeypatch.setenv("PATHEXT", ".CMD")
     monkeypatch.setattr(kb, "_IS_WINDOWS", True)
 
-    assert kb._resolve_hermes_argv() == [sys.executable, "-m", "fabric_cli.main"]
+    assert kb._resolve_fabric_argv() == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_honors_hermes_bin_path_override(monkeypatch, tmp_path):
-    """An explicit path-like HERMES_BIN lets service managers pin the executable."""
+def test_resolve_fabric_argv_honors_fabric_bin_path_override(monkeypatch, tmp_path):
+    """An explicit path-like FABRIC_BIN lets service managers pin the executable."""
     import shutil
     import fabric_cli.kanban_db as kb
 
-    shim = tmp_path / "bin" / "hermes"
+    shim = tmp_path / "bin" / "fabric"
     shim.parent.mkdir()
     shim.write_text("#!/bin/sh\n", encoding="utf-8")
-    monkeypatch.setenv("HERMES_BIN", str(shim))
+    monkeypatch.setenv("FABRIC_BIN", str(shim))
     monkeypatch.setattr(shutil, "which", lambda name: None)
 
-    assert kb._resolve_hermes_argv() == [str(shim)]
+    assert kb._resolve_fabric_argv() == [str(shim)]
 
 
-def test_resolve_hermes_argv_hermes_bin_bare_name_uses_path(monkeypatch, tmp_path):
-    """Bare HERMES_BIN values keep PATH semantics instead of cwd shadowing."""
+def test_resolve_fabric_argv_fabric_bin_bare_name_uses_path(monkeypatch, tmp_path):
+    """Bare FABRIC_BIN values keep PATH semantics instead of cwd shadowing."""
     import stat
     import fabric_cli.kanban_db as kb
 
-    cwd_hermes = tmp_path / "hermes"
-    cwd_hermes.write_text("wrong\n", encoding="utf-8")
-    cwd_hermes.chmod(cwd_hermes.stat().st_mode | stat.S_IXUSR)
-    path_hermes = tmp_path / "bin" / "hermes"
-    path_hermes.parent.mkdir()
-    path_hermes.write_text("right\n", encoding="utf-8")
-    path_hermes.chmod(path_hermes.stat().st_mode | stat.S_IXUSR)
+    cwd_fabric = tmp_path / "fabric"
+    cwd_fabric.write_text("wrong\n", encoding="utf-8")
+    cwd_fabric.chmod(cwd_fabric.stat().st_mode | stat.S_IXUSR)
+    path_fabric = tmp_path / "bin" / "fabric"
+    path_fabric.parent.mkdir()
+    path_fabric.write_text("right\n", encoding="utf-8")
+    path_fabric.chmod(path_fabric.stat().st_mode | stat.S_IXUSR)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("PATH", str(path_hermes.parent))
-    monkeypatch.setenv("HERMES_BIN", "hermes")
+    monkeypatch.setenv("PATH", str(path_fabric.parent))
+    monkeypatch.setenv("FABRIC_BIN", "fabric")
 
-    assert kb._resolve_hermes_argv() == [str(path_hermes)]
+    assert kb._resolve_fabric_argv() == [str(path_fabric)]
 
 
-def test_resolve_hermes_argv_hermes_bin_bare_name_ignores_cwd(monkeypatch, tmp_path):
-    """Bare HERMES_BIN does not accept current-directory shadow executables."""
+def test_resolve_fabric_argv_fabric_bin_bare_name_ignores_cwd(monkeypatch, tmp_path):
+    """Bare FABRIC_BIN does not accept current-directory shadow executables."""
     import sys
     import fabric_cli.kanban_db as kb
 
-    (tmp_path / "hermes.exe").write_text("wrong\n", encoding="utf-8")
+    (tmp_path / "fabric.exe").write_text("wrong\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PATH", "")
-    monkeypatch.setenv("HERMES_BIN", "hermes")
+    monkeypatch.setenv("FABRIC_BIN", "fabric")
     monkeypatch.setattr(kb, "_IS_WINDOWS", True)
 
-    assert kb._resolve_hermes_argv() == [sys.executable, "-m", "fabric_cli.main"]
+    assert kb._resolve_fabric_argv() == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_hermes_bin_bare_cmd_uses_module_fallback(monkeypatch, tmp_path):
-    """A PATH-resolved HERMES_BIN batch shim is not used as worker argv[0]."""
+def test_resolve_fabric_argv_fabric_bin_bare_cmd_uses_module_fallback(monkeypatch, tmp_path):
+    """A PATH-resolved FABRIC_BIN batch shim is not used as worker argv[0]."""
     import sys
     import fabric_cli.kanban_db as kb
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    (bin_dir / "hermes.CMD").write_text("@echo off\n", encoding="utf-8")
+    (bin_dir / "fabric.CMD").write_text("@echo off\n", encoding="utf-8")
     monkeypatch.setenv("PATH", str(bin_dir))
     monkeypatch.setenv("PATHEXT", ".CMD")
-    monkeypatch.setenv("HERMES_BIN", "hermes")
+    monkeypatch.setenv("FABRIC_BIN", "fabric")
     monkeypatch.setattr(kb, "_IS_WINDOWS", True)
 
-    assert kb._resolve_hermes_argv() == [sys.executable, "-m", "fabric_cli.main"]
+    assert kb._resolve_fabric_argv() == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_hermes_bin_unresolved_bare_name_falls_back(monkeypatch):
-    """Unresolved HERMES_BIN command names do not delegate cwd search to Popen."""
+def test_resolve_fabric_argv_fabric_bin_unresolved_bare_name_falls_back(monkeypatch):
+    """Unresolved FABRIC_BIN command names do not delegate cwd search to Popen."""
     import sys
     import fabric_cli.kanban_db as kb
 
     monkeypatch.setenv("PATH", "")
-    monkeypatch.setenv("HERMES_BIN", "hermes")
+    monkeypatch.setenv("FABRIC_BIN", "fabric")
 
-    assert kb._resolve_hermes_argv() == [sys.executable, "-m", "fabric_cli.main"]
+    assert kb._resolve_fabric_argv() == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_falls_back_to_module_form_when_no_path_shim(monkeypatch):
+def test_resolve_fabric_argv_falls_back_to_module_form_when_no_path_shim(monkeypatch):
     """When the shim is not on PATH, fall back to `python -m fabric_cli.main`.
 
-    Pins the correct module name (NOT `hermes` — there is no top-level
-    `hermes` package). Regression for #23198: the original PR shipped
-    `python -m hermes` which fails with `No module named hermes` on every
+    Pins the correct module name (NOT `fabric` — there is no top-level
+    `fabric` package). Regression for #23198: the original PR shipped
+    `python -m fabric` which fails with `No module named fabric` on every
     invocation.
     """
     import shutil
     import sys
     import fabric_cli.kanban_db as kb
 
-    monkeypatch.delenv("HERMES_BIN", raising=False)
+    monkeypatch.delenv("FABRIC_BIN", raising=False)
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    argv = kb._resolve_hermes_argv()
+    argv = kb._resolve_fabric_argv()
     assert argv == [sys.executable, "-m", "fabric_cli.main"]
 
 
-def test_resolve_hermes_argv_module_actually_runs():
+def test_resolve_fabric_argv_module_actually_runs():
     """The fallback module name must be importable + runnable.
 
     A unit test that pins the literal string is necessary but not
@@ -3395,9 +3376,9 @@ def test_resolve_hermes_argv_module_actually_runs():
     import unittest.mock as mock
 
     with mock.patch.dict(os.environ, {}, clear=False):
-        os.environ.pop("HERMES_BIN", None)
+        os.environ.pop("FABRIC_BIN", None)
         with mock.patch.object(shutil, "which", return_value=None):
-            argv = kb._resolve_hermes_argv()
+            argv = kb._resolve_fabric_argv()
     r = subprocess.run(argv + ["--version"], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, (
         f"`{' '.join(argv)} --version` failed (rc={r.returncode}); "
@@ -3512,9 +3493,9 @@ def test_task_dict_survives_corrupt_created_at(tmp_path, monkeypatch):
     corrupt row doesn't turn the whole board response into an error.
     """
     # Set up an isolated kanban home so we can write a corrupt created_at.
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     kb._INITIALIZED_PATHS.clear()
     kb.init_db()

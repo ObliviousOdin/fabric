@@ -6,7 +6,7 @@ no stderr chatter.  Just the agent's final text to stdout.
 Toolsets = explicit --toolsets when provided, otherwise whatever the user has
 configured for "cli" in `fabric tools`.
 Rules / memory / AGENTS.md / preloaded skills = same as a normal chat turn.
-Approvals = auto-bypassed (HERMES_YOLO_MODE=1 is set for the call).
+Approvals = auto-bypassed for the one-shot session.
 Working directory = the user's CWD (AGENTS.md etc. resolve from there as usual).
 
 Model / provider selection mirrors `fabric chat`:
@@ -15,8 +15,6 @@ Model / provider selection mirrors `fabric chat`:
     - If only --model given, auto-detect the provider that serves it.
     - If only --provider given, error out (ambiguous — caller must pick a model).
 
-Env var fallbacks (used when the corresponding arg is not passed):
-    - HERMES_INFERENCE_MODEL
 """
 
 from __future__ import annotations
@@ -171,8 +169,8 @@ def run_oneshot(
 
     Args:
         prompt: The user message to send.
-        model: Optional model override. Falls back to HERMES_INFERENCE_MODEL
-            env var, then config.yaml's model.default / model.model.
+        model: Optional model override. Falls back to config.yaml's
+            model.default / model.model.
         provider: Optional provider override. Falls back to config.yaml's
             model.provider, then "auto".
         toolsets: Optional comma-separated string or iterable of toolsets.
@@ -195,10 +193,9 @@ def run_oneshot(
     # not host it), and silently picking the provider's catalog default hides
     # the mismatch.  Require the caller to be explicit.  Validate BEFORE the
     # stderr redirect so the message actually reaches the terminal.
-    env_model_early = os.getenv("HERMES_INFERENCE_MODEL", "").strip()
-    if provider and not ((model or "").strip() or env_model_early):
+    if provider and not (model or "").strip():
         sys.stderr.write(
-            "fabric -z: --provider requires --model (or HERMES_INFERENCE_MODEL). "
+            "fabric -z: --provider requires --model. "
             "Pass both explicitly, or neither to use your configured defaults.\n"
         )
         return 2
@@ -208,11 +205,6 @@ def run_oneshot(
         sys.stderr.write(toolsets_error)
         return 2
     use_config_toolsets = _normalize_toolsets(toolsets) is None
-
-    # Auto-approve any shell / tool approvals.  Non-interactive by
-    # definition — a prompt would hang forever.
-    os.environ["HERMES_YOLO_MODE"] = "1"
-    os.environ["HERMES_ACCEPT_HOOKS"] = "1"
 
     # Redirect stderr AND stdout to devnull for the entire call tree.
     # We'll print the final response to the real stdout at the end.
@@ -281,7 +273,7 @@ def run_oneshot(
 def _create_session_db_for_oneshot():
     """Best-effort SessionDB for ``fabric -z`` / oneshot mode.
 
-    Oneshot bypasses ``HermesCLI._init_agent()``, so it must wire the SQLite
+    Oneshot bypasses ``FabricCLI._init_agent()``, so it must wire the SQLite
     session store itself. Without this, the ``session_search``/recall tool is
     advertised but every call returns "Session database not available.".
     """
@@ -313,18 +305,17 @@ def _run_agent(
 
     cfg = load_config()
 
-    # Resolve effective model: explicit arg → env var → config.
+    # Resolve effective model: explicit arg → config.
     model_cfg = cfg.get("model") or {}
     if isinstance(model_cfg, str):
         cfg_model = model_cfg
     else:
         cfg_model = model_cfg.get("default") or model_cfg.get("model") or ""
 
-    env_model = os.getenv("HERMES_INFERENCE_MODEL", "").strip()
-    effective_model = (model or "").strip() or env_model or cfg_model
+    effective_model = (model or "").strip() or cfg_model
 
     # Resolve effective provider: explicit arg → (auto-detect from model if
-    # model was explicit) → env / config (handled inside resolve_runtime_provider).
+    # model was explicit) → config (handled inside resolve_runtime_provider).
     #
     # When --model is given without --provider, auto-detect the provider that
     # serves that model — same semantic as `/model <name>` in an interactive
@@ -333,11 +324,11 @@ def _run_agent(
     # the caller just asked for.
     effective_provider = (provider or "").strip() or None
     explicit_base_url_from_alias: Optional[str] = None
-    if effective_provider is None and (model or env_model):
-        # Only auto-detect when the model was explicitly requested via arg or
-        # env var (not when it came from config — that's the "use my defaults"
-        # path and the configured provider is already correct).
-        explicit_model = (model or "").strip() or env_model
+    if effective_provider is None and model:
+        # Only auto-detect when the model was explicitly requested via arg
+        # (not when it came from config — that's the "use my defaults" path
+        # and the configured provider is already correct).
+        explicit_model = model.strip()
         if explicit_model:
             # First check DIRECT_ALIASES populated from config.yaml `model_aliases:`.
             # These map a user-defined alias to (model, provider, base_url) for
@@ -357,11 +348,7 @@ def _run_agent(
                 cfg_provider = ""
                 if isinstance(model_cfg, dict):
                     cfg_provider = str(model_cfg.get("provider") or "").strip().lower()
-                current_provider = (
-                    cfg_provider
-                    or os.getenv("HERMES_INFERENCE_PROVIDER", "").strip().lower()
-                    or "auto"
-                )
+                current_provider = cfg_provider or "auto"
                 detected = detect_provider_for_model(explicit_model, current_provider)
                 if detected:
                     effective_provider, effective_model = detected
@@ -402,10 +389,10 @@ def _run_agent(
         #                so the agent continues instead of stalling on
         #                the tool's built-in "not available" error
         #   - sudo password prompt → terminal_tool gates on
-        #                HERMES_INTERACTIVE which we never set
-        #   - shell-hook approval → auto-approved via HERMES_ACCEPT_HOOKS=1
-        #                (set above); also falls back to deny on non-tty
-        #   - dangerous-command approval → bypassed via HERMES_YOLO_MODE=1
+        #                no interactive prompt context is installed
+        #   - shell-hook approval → handled during CLI startup; unapproved
+        #                hooks fall back to deny on non-tty
+        #   - dangerous-command approval → bypassed for this session below
         #   - skill secret capture → returns gracefully when no callback set
         clarify_callback=_oneshot_clarify_callback,
     )
@@ -416,7 +403,21 @@ def _run_agent(
     agent.stream_delta_callback = None
     agent.tool_gen_callback = None
 
-    result = agent.run_conversation(prompt)
+    # Non-interactive by definition: an approval prompt would hang forever.
+    from tools.approval import (
+        disable_session_yolo,
+        enable_session_yolo,
+        reset_current_session_key,
+        set_current_session_key,
+    )
+
+    enable_session_yolo(agent.session_id)
+    approval_token = set_current_session_key(agent.session_id)
+    try:
+        result = agent.run_conversation(prompt)
+    finally:
+        reset_current_session_key(approval_token)
+        disable_session_yolo(agent.session_id)
     return (result.get("final_response") or "", result)
 
 

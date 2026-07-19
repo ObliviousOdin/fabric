@@ -33,30 +33,27 @@ final class SavedGatewayTests: XCTestCase {
         )
     }
 
-    func testLibraryMigrationKeepsNewestDuplicateAndRepairsLastActive() throws {
-        let older = SavedGateway(
-            id: "older",
-            label: "Old server",
+    func testUpsertKeepsOneCurrentRowPerEndpointAndRepairsLastActive() throws {
+        let first = SavedGateway(
+            id: "first",
+            label: "First server",
             baseURL: try XCTUnwrap(URL(string: "http://example.com:80/")),
             authMode: .gated,
-            username: "old"
+            username: "first"
         )
-        let newer = SavedGateway(
-            id: "newer",
+        let replacement = SavedGateway(
+            id: "replacement",
             label: "Current server",
             baseURL: try XCTUnwrap(URL(string: "http://EXAMPLE.com")),
             authMode: .gated,
             username: "current"
         )
-        UserDefaults.standard.set(
-            try JSONEncoder().encode([older, newer]),
-            forKey: "fabric.gateways.v1"
-        )
-        UserDefaults.standard.set(older.id, forKey: "fabric.gateways.lastActive")
 
-        let migrated = GatewayStore.all()
+        GatewayStore.upsert(first)
+        GatewayStore.setLastActive(first.id)
+        let stored = GatewayStore.upsert(replacement)
 
-        XCTAssertEqual(migrated, [newer])
-        XCTAssertEqual(GatewayStore.lastActiveId(), newer.id)
+        XCTAssertEqual(stored, [replacement])
+        XCTAssertEqual(GatewayStore.lastActiveId(), replacement.id)
     }
 }

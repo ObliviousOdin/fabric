@@ -48,19 +48,15 @@ def _frontmatter(text: str) -> dict[str, Any]:
         return {}
 
 
-def _hermes_meta(fm: dict[str, Any]) -> dict[str, Any]:
-    """Return merged skill metadata (legacy helper name kept internally).
-
-    Canonical ``metadata.fabric`` keys override ``metadata.hermes`` fallbacks;
-    malformed namespace values are ignored by the shared extractor.
-    """
+def _fabric_meta(fm: dict[str, Any]) -> dict[str, Any]:
+    """Return canonical Fabric skill metadata."""
     from agent.skill_utils import extract_skill_metadata
 
     return extract_skill_metadata(fm)
 
 
 def _related(fm: dict[str, Any]) -> list[str]:
-    raw = _hermes_meta(fm).get("related_skills") or fm.get("related_skills")
+    raw = _fabric_meta(fm).get("related_skills") or fm.get("related_skills")
     if isinstance(raw, list):
         return [str(r).strip() for r in raw if str(r).strip()]
     if isinstance(raw, str):
@@ -69,7 +65,7 @@ def _related(fm: dict[str, Any]) -> list[str]:
 
 
 def _category(fm: dict[str, Any], skill_md: Path) -> str:
-    cat = _hermes_meta(fm).get("category") or fm.get("category")
+    cat = _fabric_meta(fm).get("category") or fm.get("category")
     if cat:
         return str(cat)
     # …/skills/<category>/<skill>/SKILL.md

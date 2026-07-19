@@ -486,20 +486,20 @@ class TestCoerceNumberInfNan:
         assert _coerce_number("1e3") == 1000
 
 class TestDisabledToolsetsPlatformBundle:
-    """Regression test for #33924: disabling a platform bundle (hermes-*)
+    """Regression test for #33924: disabling a platform bundle (fabric-*)
     must not remove core tools from other enabled toolsets."""
 
     def test_disabling_platform_bundle_preserves_core_tools(self):
-        """Disabling hermes-yuanbao should not strip core tools from hermes-telegram."""
+        """Disabling fabric-yuanbao should not strip core tools from fabric-telegram."""
         from model_tools import get_tool_definitions
 
         tools_telegram = get_tool_definitions(
-            enabled_toolsets=["hermes-telegram"],
+            enabled_toolsets=["fabric-telegram"],
             quiet_mode=True,
         )
         tools_telegram_no_yuanbao = get_tool_definitions(
-            enabled_toolsets=["hermes-telegram"],
-            disabled_toolsets=["hermes-yuanbao"],
+            enabled_toolsets=["fabric-telegram"],
+            disabled_toolsets=["fabric-yuanbao"],
             quiet_mode=True,
         )
         names_telegram = {t["function"]["name"] for t in tools_telegram}
@@ -507,32 +507,32 @@ class TestDisabledToolsetsPlatformBundle:
 
         # Disabling a *different* platform bundle must not remove any tools
         assert names_telegram == names_no_yuanbao, (
-            f"Tools lost after disabling hermes-yuanbao: "
+            f"Tools lost after disabling fabric-yuanbao: "
             f"{names_telegram - names_no_yuanbao}"
         )
 
     def test_disabling_platform_bundle_removes_own_tools(self):
-        """Disabling hermes-discord should remove discord-specific tools."""
+        """Disabling fabric-discord should remove discord-specific tools."""
         from model_tools import get_tool_definitions
 
         tools = get_tool_definitions(
-            enabled_toolsets=["hermes-discord"],
-            disabled_toolsets=["hermes-discord"],
+            enabled_toolsets=["fabric-discord"],
+            disabled_toolsets=["fabric-discord"],
             quiet_mode=True,
         )
         names = {t["function"]["name"] for t in tools}
         assert "discord" not in names
 
     def test_disabling_non_platform_toolset_still_works(self):
-        """Disabling a regular (non-hermes-) toolset still subtracts all tools."""
+        """Disabling a regular (non-fabric-) toolset still subtracts all tools."""
         from model_tools import get_tool_definitions
 
         tools_normal = get_tool_definitions(
-            enabled_toolsets=["hermes-telegram"],
+            enabled_toolsets=["fabric-telegram"],
             quiet_mode=True,
         )
         tools_no_web = get_tool_definitions(
-            enabled_toolsets=["hermes-telegram"],
+            enabled_toolsets=["fabric-telegram"],
             disabled_toolsets=["web"],
             quiet_mode=True,
         )
@@ -549,26 +549,26 @@ class TestDisabledToolsetsPlatformBundle:
 
 
     def test_disabling_bundle_removes_platform_tools_but_keeps_core(self):
-        """Disabling hermes-discord (when enabled) removes discord/discord_admin
+        """Disabling fabric-discord (when enabled) removes discord/discord_admin
         from the resolved delta but keeps core tools — via bundle_non_core_tools."""
-        from toolsets import bundle_non_core_tools, _HERMES_CORE_TOOLS
+        from toolsets import bundle_non_core_tools, _FABRIC_CORE_TOOLS
 
-        delta = bundle_non_core_tools("hermes-yuanbao")
+        delta = bundle_non_core_tools("fabric-yuanbao")
         # The delta is the bundle's platform-specific tools, NOT core.
         assert "yb_send_dm" in delta
-        assert not (delta & set(_HERMES_CORE_TOOLS)), "core tools must not be in the removal delta"
+        assert not (delta & set(_FABRIC_CORE_TOOLS)), "core tools must not be in the removal delta"
 
     def test_bundle_non_core_tools_unknown_falls_back(self):
         """An unknown/garbage bundle name falls back to full resolution (best effort)."""
         from toolsets import bundle_non_core_tools
         # A non-existent bundle resolves to an empty set (no tools), not a crash.
-        assert bundle_non_core_tools("hermes-does-not-exist") == set()
+        assert bundle_non_core_tools("fabric-does-not-exist") == set()
 
 
 class TestDisabledToolsetsPostureToolset:
     """Regression test for #57315: disabling a posture toolset (`coding`,
     posture: True) must preserve the shared core tools it re-lists but does
-    not own -- same non-core-delta subtraction as hermes-* bundles (#33924) --
+    not own -- same non-core-delta subtraction as fabric-* bundles (#33924) --
     while atomic toolsets stay fully removable."""
 
     def test_disabling_coding_preserves_core_but_atomic_disables_still_remove(self):

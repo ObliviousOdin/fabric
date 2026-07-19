@@ -21,9 +21,8 @@ fabric plugins enable observability/langfuse
 Set these in `~/.fabric/.env` (or via `fabric tools`):
 
 ```bash
-HERMES_LANGFUSE_PUBLIC_KEY=pk-lf-...
-HERMES_LANGFUSE_SECRET_KEY=sk-lf-...
-HERMES_LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
 ```
 
 Without the SDK or credentials the hooks no-op silently — the plugin fails
@@ -38,12 +37,15 @@ fabric chat -q "hello"              # then check Langfuse for a "Fabric turn" tr
 
 ## Optional tuning
 
-```bash
-HERMES_LANGFUSE_ENV=production       # environment tag
-HERMES_LANGFUSE_RELEASE=v1.0.0       # release tag
-HERMES_LANGFUSE_SAMPLE_RATE=0.5      # sample 50% of traces
-HERMES_LANGFUSE_MAX_CHARS=12000      # max chars per field (default: 12000)
-HERMES_LANGFUSE_DEBUG=true           # verbose plugin logging
+```yaml
+observability:
+  langfuse:
+    base_url: https://cloud.langfuse.com
+    environment: production
+    release: v1.0.0
+    sample_rate: 0.5
+    max_chars: 12000
+    debug: false
 ```
 
 ## Disable

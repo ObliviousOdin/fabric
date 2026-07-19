@@ -1,4 +1,4 @@
-"""Windows ConPTY bridge for the `Fabric dashboard` chat tab.
+"""Windows ConPTY bridge for the `fabric dashboard` chat tab.
 
 Drop-in counterpart to ``fabric_cli.pty_bridge.PtyBridge`` for native
 Windows. Mirrors the exact public surface the ``/api/pty`` WebSocket

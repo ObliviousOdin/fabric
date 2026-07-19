@@ -177,9 +177,9 @@ class TestArceeURLMapping:
 
 class TestArceeProvidersModule:
     def test_overlay_exists(self):
-        from fabric_cli.providers import HERMES_OVERLAYS
-        assert "arcee" in HERMES_OVERLAYS
-        overlay = HERMES_OVERLAYS["arcee"]
+        from fabric_cli.providers import FABRIC_OVERLAYS
+        assert "arcee" in FABRIC_OVERLAYS
+        overlay = FABRIC_OVERLAYS["arcee"]
         assert overlay.transport == "openai_chat"
         assert overlay.base_url_env_var == "ARCEE_BASE_URL"
         assert not overlay.is_aggregator

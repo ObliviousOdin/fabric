@@ -20,7 +20,7 @@ const makeContext = () => {
 describe('runExternalSetup', () => {
   beforeEach(() => resetUiState())
 
-  it('launches and reports the Fabric setup command', async () => {
+  it('launches and reports the fabric setup command', async () => {
     const { ctx, newSession, rpc, sys } = makeContext()
     const launcher = vi.fn().mockResolvedValue({ code: 0 })
 

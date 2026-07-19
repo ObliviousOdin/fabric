@@ -65,8 +65,6 @@ def clean_env(monkeypatch):
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
-    monkeypatch.delenv("HERMES_LOCAL_STT_COMMAND", raising=False)
-    monkeypatch.delenv("HERMES_LOCAL_STT_LANGUAGE", raising=False)
 
 
 # ============================================================================
@@ -166,15 +164,17 @@ class TestExplicitProviderRespected:
             result = _get_provider({"provider": "local"})
             assert result == "none"
 
-    def test_explicit_local_uses_local_command_fallback(self, monkeypatch):
+    def test_explicit_local_uses_local_command_fallback(self):
         """Local-to-local_command fallback is fine — both are local."""
-        monkeypatch.setenv(
-            "HERMES_LOCAL_STT_COMMAND",
-            "whisper {input_path} --output_dir {output_dir} --language {language}",
-        )
+        config = {
+            "provider": "local",
+            "local": {
+                "command": "whisper {input_path} --output_dir {output_dir} --language {language}",
+            },
+        }
         with patch("tools.transcription_tools._HAS_FASTER_WHISPER", False):
             from tools.transcription_tools import _get_provider
-            result = _get_provider({"provider": "local"})
+            result = _get_provider(config)
             assert result == "local_command"
 
     def test_explicit_groq_no_fallback_to_openai(self, monkeypatch):
@@ -371,12 +371,11 @@ class TestTranscribeOpenAIExtended:
 
 class TestTranscribeLocalCommand:
     def test_auto_detects_local_whisper_binary(self, monkeypatch):
-        monkeypatch.delenv("HERMES_LOCAL_STT_COMMAND", raising=False)
         monkeypatch.setattr("tools.transcription_tools._find_whisper_binary", lambda: "/opt/homebrew/bin/whisper")
 
         from tools.transcription_tools import _get_local_command_template
 
-        template = _get_local_command_template()
+        template = _get_local_command_template({"local": {}})
 
         assert template is not None
         assert template.startswith("/opt/homebrew/bin/whisper ")
@@ -387,11 +386,12 @@ class TestTranscribeLocalCommand:
         out_dir = tmp_path / "local-out"
         out_dir.mkdir()
 
-        monkeypatch.setenv(
-            "HERMES_LOCAL_STT_COMMAND",
-            "whisper {input_path} --model {model} --output_dir {output_dir} --language {language}",
-        )
-        monkeypatch.setenv("HERMES_LOCAL_STT_LANGUAGE", "en")
+        stt_config = {
+            "local": {
+                "command": "whisper {input_path} --model {model} --output_dir {output_dir} --language {language}",
+                "language": "en",
+            },
+        }
 
         def fake_tempdir(prefix=None):
             class _TempDir:
@@ -413,6 +413,7 @@ class TestTranscribeLocalCommand:
             (out_dir / "test.txt").write_text("hello from local command\n", encoding="utf-8")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
+        monkeypatch.setattr("tools.transcription_tools._load_stt_config", lambda: stt_config)
         monkeypatch.setattr("tools.transcription_tools.tempfile.TemporaryDirectory", fake_tempdir)
         monkeypatch.setattr("tools.transcription_tools._find_ffmpeg_binary", lambda: "/opt/homebrew/bin/ffmpeg")
         monkeypatch.setattr("tools.transcription_tools.subprocess.run", fake_run)
@@ -1131,7 +1132,7 @@ class TestTranscribeAudioMistralDispatch:
 def mock_xai_http_module():
     """Inject a fake tools.xai_http module for testing."""
     fake_module = MagicMock()
-    fake_module.hermes_xai_user_agent = MagicMock(return_value="hermes-xai/test")
+    fake_module.fabric_xai_user_agent = MagicMock(return_value="fabric-xai/test")
     with patch.dict("sys.modules", {"tools.xai_http": fake_module}):
         yield fake_module
 
@@ -1234,15 +1235,12 @@ class TestTranscribeXAI:
 
     def test_sends_language_and_format(self, monkeypatch, sample_ogg, mock_xai_http_module):
         monkeypatch.setenv("XAI_API_KEY", "xai-test-key")
-        # Explicitly set language via env to exercise the override chain
-        # (config > env > DEFAULT_LOCAL_STT_LANGUAGE)
-        monkeypatch.setenv("HERMES_LOCAL_STT_LANGUAGE", "fr")
 
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"text": "test", "language": "fr", "duration": 1.0}
 
-        with patch("tools.transcription_tools._load_stt_config", return_value={}), \
+        with patch("tools.transcription_tools._load_stt_config", return_value={"xai": {"language": "fr"}}), \
              patch("requests.post", return_value=mock_response) as mock_post:
             from tools.transcription_tools import _transcribe_xai
             _transcribe_xai(sample_ogg, "grok-stt")
@@ -1545,13 +1543,12 @@ class TestShellSafety:
     def test_auto_detected_template_is_shlex_safe(self, monkeypatch):
         """Auto-detected whisper command should be safely splittable."""
         import shlex
-        monkeypatch.delenv("HERMES_LOCAL_STT_COMMAND", raising=False)
         monkeypatch.setattr(
             "tools.transcription_tools._find_whisper_binary",
             lambda: "/usr/bin/whisper",
         )
         from tools.transcription_tools import _get_local_command_template
-        template = _get_local_command_template()
+        template = _get_local_command_template({"local": {}})
         assert template is not None
         cmd = template.format(
             input_path=shlex.quote("/tmp/test.wav"),
@@ -1563,18 +1560,13 @@ class TestShellSafety:
         assert parts[0] == "/usr/bin/whisper"
         assert "/tmp/test.wav" in parts
 
-    def test_env_var_template_uses_shell_path(self, monkeypatch):
-        """When HERMES_LOCAL_STT_COMMAND is set, use_shell should be True."""
-        import os
-        from tools.transcription_tools import LOCAL_STT_COMMAND_ENV
-        monkeypatch.setenv(LOCAL_STT_COMMAND_ENV, "whisper {input_path} | tee log.txt")
-        use_shell = bool(os.getenv(LOCAL_STT_COMMAND_ENV, "").strip())
-        assert use_shell is True
+    def test_configured_template_uses_shell_path(self):
+        from tools.transcription_tools import _has_configured_local_command
 
-    def test_no_env_var_uses_list_mode(self, monkeypatch):
-        """When no env var is set, use_shell should be False."""
-        import os
-        from tools.transcription_tools import LOCAL_STT_COMMAND_ENV
-        monkeypatch.delenv(LOCAL_STT_COMMAND_ENV, raising=False)
-        use_shell = bool(os.getenv(LOCAL_STT_COMMAND_ENV, "").strip())
-        assert use_shell is False
+        config = {"local": {"command": "whisper {input_path} | tee log.txt"}}
+        assert _has_configured_local_command(config) is True
+
+    def test_auto_detected_template_uses_list_mode(self):
+        from tools.transcription_tools import _has_configured_local_command
+
+        assert _has_configured_local_command({"local": {}}) is False

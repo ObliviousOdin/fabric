@@ -5,7 +5,7 @@
  * that plugin bundles can use them without bundling their own copies.
  *
  * Plugins call window.__FABRIC_PLUGINS__.register(name, Component) to register
- * their tab component. The legacy Hermes global remains a compatibility alias.
+ * their tab component.
  */
 
 import React, {
@@ -164,7 +164,7 @@ export function exposePluginSDK() {
     fetchJSON,
     // Authenticated fetch for non-JSON endpoints (uploads / blob downloads).
     // Handles loopback-token vs gated-cookie auth so plugins never read
-    // window.__HERMES_SESSION_TOKEN__ directly.
+    // window.__DASHBOARD_AUTH_TOKEN__ directly.
     authedFetch,
     // Build a ws(s):// URL with the correct auth param for the active mode
     // (single-use ticket in gated mode, token in loopback). Use this for any
@@ -232,10 +232,6 @@ export function exposePluginSDK() {
     useI18n,
   };
 
-  // Fabric-owned names are canonical. The Hermes globals remain aliases so
-  // existing third-party plugin bundles keep working without a flag day.
   window.__FABRIC_PLUGINS__ = pluginRegistry;
   window.__FABRIC_PLUGIN_SDK__ = pluginSDK;
-  window.__HERMES_PLUGINS__ = pluginRegistry;
-  window.__HERMES_PLUGIN_SDK__ = pluginSDK;
 }

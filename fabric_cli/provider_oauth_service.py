@@ -47,6 +47,7 @@ class OAuthFlowErrorCode(str, Enum):
     IO_UNAVAILABLE = "io_unavailable"
     COMMIT_UNCERTAIN = "commit_uncertain"
     RUNTIME_MODE_UNAVAILABLE = "runtime_mode_unavailable"
+    NOUS_CLIENT_ID_REQUIRED = "nous_client_id_required"
 
 
 _RETRYABLE_CODES = frozenset({
@@ -72,6 +73,7 @@ _HTTP_STATUS = {
     OAuthFlowErrorCode.IO_UNAVAILABLE: 503,
     OAuthFlowErrorCode.COMMIT_UNCERTAIN: 503,
     OAuthFlowErrorCode.RUNTIME_MODE_UNAVAILABLE: 503,
+    OAuthFlowErrorCode.NOUS_CLIENT_ID_REQUIRED: 409,
 }
 
 _STABLE_MESSAGES = {
@@ -89,6 +91,10 @@ _STABLE_MESSAGES = {
     OAuthFlowErrorCode.IO_UNAVAILABLE: "OAuth provider or local credential storage is unavailable.",
     OAuthFlowErrorCode.COMMIT_UNCERTAIN: "OAuth completion is uncertain; inspect current state.",
     OAuthFlowErrorCode.RUNTIME_MODE_UNAVAILABLE: "OAuth is unavailable in this runtime mode.",
+    OAuthFlowErrorCode.NOUS_CLIENT_ID_REQUIRED: (
+        "Nous Portal OAuth requires a registered client ID. Run "
+        "`fabric auth add nous --client-id <registered-client-id>`."
+    ),
 }
 
 

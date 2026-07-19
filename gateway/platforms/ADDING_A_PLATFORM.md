@@ -239,7 +239,7 @@ but new integrations must not mint more of them:
 ```python
 "fabric-your-platform": {
     "description": "Your Platform bot toolset",
-    "tools": _HERMES_CORE_TOOLS,
+    "tools": _FABRIC_CORE_TOOLS,
     "includes": []
 },
 ```
@@ -251,11 +251,6 @@ And add it to the canonical `fabric-gateway` composite:
     "includes": [..., "fabric-your-platform"]
 }
 ```
-
-`hermes-gateway` and existing individual `hermes-*` platform IDs remain runtime
-aliases for older configurations. New code and documentation should use the
-canonical `fabric-` namespace until a separate compatibility migration retires
-the older IDs.
 
 ---
 

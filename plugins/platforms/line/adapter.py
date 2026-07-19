@@ -1277,7 +1277,7 @@ class LineAdapter(BasePlatformAdapter):
         from trusted internal code, we recheck the resolved path against
         an allowed-roots set before serving. Sources allowed:
         ``tempfile.gettempdir()``, ``/tmp`` (which resolves to
-        ``/private/tmp`` on macOS), and ``HERMES_HOME``. PR #8398.
+        ``/private/tmp`` on macOS), and ``FABRIC_HOME``. PR #8398.
         """
         from aiohttp import web
 
@@ -1295,16 +1295,14 @@ class LineAdapter(BasePlatformAdapter):
         if not path.exists() or not path.is_file():
             return web.Response(status=404, text="not found")
 
-        try:
-            from fabric_constants import get_fabric_home
-            hermes_home = Path(get_fabric_home()).resolve()
-        except Exception:
-            hermes_home = Path.home().joinpath(".fabric").resolve()
+        from fabric_constants import get_fabric_home
+
+        fabric_home = Path(get_fabric_home()).resolve()
 
         allowed_roots = {
             Path(tempfile.gettempdir()).resolve(),
             Path("/tmp").resolve(),  # → /private/tmp on macOS
-            hermes_home,
+            fabric_home,
         }
         resolved = path.resolve()
         if not any(_is_relative_to(resolved, r) for r in allowed_roots):
@@ -1618,7 +1616,7 @@ def interactive_setup() -> None:
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system at startup."""
+    """Plugin entry point — called by the Fabric plugin system at startup."""
     ctx.register_platform(
         name="line",
         label="LINE",

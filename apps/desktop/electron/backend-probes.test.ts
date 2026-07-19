@@ -11,37 +11,37 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 
-import { canImportHermesCli, hermesRuntimeImportProbe, verifyHermesCli } from './backend-probes'
+import { canImportFabricCli, fabricRuntimeImportProbe, verifyFabricCli } from './backend-probes'
 
 // Resolve the host's own Node binary -- guaranteed to be on disk and
 // runnable. We use it as both a stand-in for "a python that doesn't
 // have fabric_cli" (since `node -c "import fabric_cli"` will exit
-// non-zero) and as a way to script verifyHermesCli's success path
+// non-zero) and as a way to script verifyFabricCli's success path
 // (a tiny script we write to disk that exits 0 on --version).
 const NODE_BIN = process.execPath
 
-test('canImportHermesCli returns false when path is falsy', () => {
-  assert.equal(canImportHermesCli(''), false)
-  assert.equal(canImportHermesCli(null), false)
-  assert.equal(canImportHermesCli(undefined), false)
+test('canImportFabricCli returns false when path is falsy', () => {
+  assert.equal(canImportFabricCli(''), false)
+  assert.equal(canImportFabricCli(null), false)
+  assert.equal(canImportFabricCli(undefined), false)
 })
 
-test('canImportHermesCli returns false when interpreter cannot run -c', () => {
+test('canImportFabricCli returns false when interpreter cannot run -c', () => {
   // node IS an interpreter, but `node -c "import fabric_cli"` is a
   // SyntaxError -- different exit reason from a real Python's
   // ModuleNotFoundError, but the predicate is "exit 0 or not" and
   // both land on "not", which is exactly what we want for the
   // resolver fall-through.
-  assert.equal(canImportHermesCli(NODE_BIN), false)
+  assert.equal(canImportFabricCli(NODE_BIN), false)
 })
 
-test('canImportHermesCli returns false when binary does not exist', () => {
-  const ghost = path.join(os.tmpdir(), 'hermes-probes-ghost-' + Date.now() + '.exe')
-  assert.equal(canImportHermesCli(ghost), false)
+test('canImportFabricCli returns false when binary does not exist', () => {
+  const ghost = path.join(os.tmpdir(), 'fabric-probes-ghost-' + Date.now() + '.exe')
+  assert.equal(canImportFabricCli(ghost), false)
 })
 
 test('Fabric runtime import probe checks config dependencies', () => {
-  const probe = hermesRuntimeImportProbe()
+  const probe = fabricRuntimeImportProbe()
   assert.match(probe, /\bimport yaml\b/)
   // dotenv is the first third-party import on the CLI boot path
   // (fabric_cli/env_loader.py); a mid-update venv missing python-dotenv
@@ -50,22 +50,22 @@ test('Fabric runtime import probe checks config dependencies', () => {
   assert.match(probe, /\bimport fabric_cli\.config\b/)
 })
 
-test('verifyHermesCli returns false when command is falsy', () => {
-  assert.equal(verifyHermesCli(''), false)
-  assert.equal(verifyHermesCli(null), false)
-  assert.equal(verifyHermesCli(undefined), false)
+test('verifyFabricCli returns false when command is falsy', () => {
+  assert.equal(verifyFabricCli(''), false)
+  assert.equal(verifyFabricCli(null), false)
+  assert.equal(verifyFabricCli(undefined), false)
 })
 
-test('verifyHermesCli returns false when binary does not exist', () => {
-  const ghost = path.join(os.tmpdir(), 'hermes-probes-ghost-' + Date.now() + '.exe')
-  assert.equal(verifyHermesCli(ghost), false)
+test('verifyFabricCli returns false when binary does not exist', () => {
+  const ghost = path.join(os.tmpdir(), 'fabric-probes-ghost-' + Date.now() + '.exe')
+  assert.equal(verifyFabricCli(ghost), false)
 })
 
-test('verifyHermesCli returns true when --version exits 0', () => {
+test('verifyFabricCli returns true when --version exits 0', () => {
   // Write a tiny script that exits 0 regardless of args, then invoke
-  // it through node. This stands in for a working hermes binary --
-  // verifyHermesCli only cares about the exit code.
-  const scriptPath = path.join(os.tmpdir(), `hermes-probes-ok-${Date.now()}-${process.pid}.cjs`)
+  // it through node. This stands in for a working fabric binary --
+  // verifyFabricCli only cares about the exit code.
+  const scriptPath = path.join(os.tmpdir(), `fabric-probes-ok-${Date.now()}-${process.pid}.cjs`)
   fs.writeFileSync(scriptPath, 'process.exit(0)\n')
 
   try {
@@ -74,7 +74,7 @@ test('verifyHermesCli returns true when --version exits 0', () => {
     // execFileSync passes ['--version'] as args, which node ignores
     // gracefully (well, it prints its version and exits 0, which is
     // perfect -- exit code 0 is the only signal we read).
-    assert.equal(verifyHermesCli(NODE_BIN), true)
+    assert.equal(verifyFabricCli(NODE_BIN), true)
   } finally {
     try {
       fs.unlinkSync(scriptPath)
@@ -84,10 +84,10 @@ test('verifyHermesCli returns true when --version exits 0', () => {
   }
 })
 
-test('verifyHermesCli swallows timeouts (does not throw)', () => {
+test('verifyFabricCli swallows timeouts (does not throw)', () => {
   // We can't easily provoke a real 5s hang in CI without slowing the
   // suite, but we CAN confirm that an invocation that DOES throw
   // (because the binary is missing) returns false rather than
   // propagating. Same code path the timeout case takes.
-  assert.equal(verifyHermesCli('/definitely/not/a/real/binary/anywhere'), false)
+  assert.equal(verifyFabricCli('/definitely/not/a/real/binary/anywhere'), false)
 })

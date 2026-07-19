@@ -160,18 +160,12 @@ GITHUB_TAP_LABELS = {
 
 
 def _skill_metadata(frontmatter):
-    """Merge legacy skill metadata with canonical Fabric keys per field."""
+    """Return canonical Fabric skill metadata."""
     metadata = frontmatter.get("metadata")
     if not isinstance(metadata, dict):
         return {}
-    merged = {}
-    legacy = metadata.get("hermes")
-    if isinstance(legacy, dict):
-        merged.update(legacy)
     canonical = metadata.get("fabric")
-    if isinstance(canonical, dict):
-        merged.update(canonical)
-    return merged
+    return dict(canonical) if isinstance(canonical, dict) else {}
 
 # Legacy filename -> label mapping for the deprecated skills/index-cache/
 # fallback. Used only when website/static/api/skills-index.json is absent.

@@ -18,42 +18,34 @@ from agent.skill_utils import (
 )
 
 
-def test_extract_skill_metadata_merges_legacy_and_canonical_namespaces():
+def test_extract_skill_metadata_returns_fabric_namespace():
     frontmatter = {
         "metadata": {
-            "hermes": {
-                "tags": ["legacy"],
-                "related_skills": ["legacy-peer"],
-            },
             "fabric": {
-                "tags": ["canonical"],
+                "tags": ["tested"],
+                "related_skills": ["peer"],
                 "category": "testing",
             },
         }
     }
 
     assert extract_skill_metadata(frontmatter) == {
-        "tags": ["canonical"],
-        "related_skills": ["legacy-peer"],
+        "tags": ["tested"],
+        "related_skills": ["peer"],
         "category": "testing",
     }
 
 
 def test_extract_skill_metadata_ignores_non_mapping_values():
     assert extract_skill_metadata({"metadata": "junk"}) == {}
-    assert extract_skill_metadata(
-        {"metadata": {"hermes": "junk", "fabric": {"tags": ["valid"]}}}
-    ) == {"tags": ["valid"]}
-    assert extract_skill_metadata(
-        {"metadata": {"hermes": {"tags": ["legacy"]}, "fabric": "junk"}}
-    ) == {"tags": ["legacy"]}
+    assert extract_skill_metadata({"metadata": {"fabric": "junk"}}) == {}
 
 
-def test_metadata_as_dict_with_hermes():
-    """Normal case: metadata is a dict containing hermes keys."""
+def test_metadata_as_dict_with_fabric():
+    """Normal case: metadata is a dict containing fabric keys."""
     frontmatter = {
         "metadata": {
-            "hermes": {
+            "fabric": {
                 "fallback_for_toolsets": ["toolset_a"],
                 "requires_toolsets": ["toolset_b"],
                 "fallback_for_tools": ["tool_x"],
@@ -66,23 +58,6 @@ def test_metadata_as_dict_with_hermes():
     assert result["requires_toolsets"] == ["toolset_b"]
     assert result["fallback_for_tools"] == ["tool_x"]
     assert result["requires_tools"] == ["tool_y"]
-
-
-def test_canonical_metadata_overrides_legacy_conditions_per_key():
-    frontmatter = {
-        "metadata": {
-            "hermes": {
-                "requires_toolsets": ["legacy-toolset"],
-                "requires_tools": ["legacy-tool"],
-            },
-            "fabric": {"requires_toolsets": ["canonical-toolset"]},
-        }
-    }
-
-    result = extract_skill_conditions(frontmatter)
-
-    assert result["requires_toolsets"] == ["canonical-toolset"]
-    assert result["requires_tools"] == ["legacy-tool"]
 
 
 def test_malformed_condition_values_fail_closed_to_lists():
@@ -104,19 +79,13 @@ def test_malformed_condition_values_fail_closed_to_lists():
     }
 
 
-def test_canonical_metadata_config_overrides_legacy_config():
+def test_extract_skill_config_vars_reads_fabric_metadata():
     frontmatter = {
         "metadata": {
-            "hermes": {
-                "config": {
-                    "key": "legacy.path",
-                    "description": "Legacy path",
-                }
-            },
             "fabric": {
                 "config": {
-                    "key": "canonical.path",
-                    "description": "Canonical path",
+                    "key": "service.path",
+                    "description": "Service path",
                 }
             },
         }
@@ -124,9 +93,9 @@ def test_canonical_metadata_config_overrides_legacy_config():
 
     assert extract_skill_config_vars(frontmatter) == [
         {
-            "key": "canonical.path",
-            "description": "Canonical path",
-            "prompt": "Canonical path",
+            "key": "service.path",
+            "description": "Service path",
+            "prompt": "Service path",
         }
     ]
 
@@ -209,11 +178,11 @@ def test_skill_config_helpers_share_raw_config_parse_cache(tmp_path, monkeypatch
     """Repeated skill config helpers should parse config.yaml only once."""
     from agent import skill_utils
 
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
     external = tmp_path / "external-skills"
     external.mkdir()
-    config_path = hermes_home / "config.yaml"
+    config_path = fabric_home / "config.yaml"
     config_path.write_text(
         f"""
 skills:
@@ -235,7 +204,7 @@ skills:
         parse_count += 1
         return real_yaml_load(text)
 
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     skill_utils._external_dirs_cache_clear()
     getattr(skill_utils, "_raw_config_cache_clear", lambda: None)()
     monkeypatch.setattr(skill_utils, "yaml_load", counting_yaml_load)
@@ -252,12 +221,12 @@ def test_skill_config_raw_cache_invalidates_on_config_edit(tmp_path, monkeypatch
     """Editing config.yaml should invalidate the shared raw config cache."""
     from agent import skill_utils
 
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    config_path = hermes_home / "config.yaml"
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    config_path = fabric_home / "config.yaml"
     config_path.write_text("skills:\n  disabled: [old-skill]\n", encoding="utf-8")
 
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     skill_utils._external_dirs_cache_clear()
     assert get_disabled_skill_names() == {"old-skill"}
 
@@ -271,17 +240,17 @@ def test_skill_config_raw_cache_invalidates_on_config_edit(tmp_path, monkeypatch
 def test_is_external_skill_path_matches_configured_external_dir(tmp_path, monkeypatch):
     from agent import skill_utils
 
-    hermes_home = tmp_path / ".hermes"
-    local_skills = hermes_home / "skills"
+    fabric_home = tmp_path / ".fabric"
+    local_skills = fabric_home / "skills"
     external = tmp_path / "external-skills"
     local_skills.mkdir(parents=True)
     external.mkdir()
-    (hermes_home / "config.yaml").write_text(
+    (fabric_home / "config.yaml").write_text(
         f"skills:\n  external_dirs:\n    - {external}\n",
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     skill_utils._external_dirs_cache_clear()
 
     assert is_external_skill_path(external / "team-skill" / "SKILL.md") is True
@@ -455,9 +424,7 @@ class TestNormalizeSkillLookupName:
         skills_dir = tmp_path / "skills"
         skill_dir = skills_dir / "category" / "my-skill"
         skill_dir.mkdir(parents=True)
-        # Patch the root skill_view() itself enforces — normalization reads
-        # tools.skills_tool.SKILLS_DIR at call time so the two stay in sync.
-        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", skills_dir)
+        monkeypatch.setattr("tools.skills_tool._skills_dir", lambda: skills_dir)
         assert normalize_skill_lookup_name(str(skill_dir)) == "category/my-skill"
 
     def test_absolute_via_symlink_uses_lexical_relative_path(self, tmp_path, monkeypatch):
@@ -472,13 +439,12 @@ class TestNormalizeSkillLookupName:
             link.symlink_to(external)
         except OSError:
             pytest.skip("Symlinks not supported")
-        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", skills_dir)
+        monkeypatch.setattr("tools.skills_tool._skills_dir", lambda: skills_dir)
         assert normalize_skill_lookup_name(str(link)) == "my-skill"
 
     def test_untrusted_absolute_returned_unchanged(self, tmp_path, monkeypatch):
         from agent.skill_utils import normalize_skill_lookup_name
 
-        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", tmp_path / "skills")
         monkeypatch.setattr("agent.skill_utils.get_skills_dir", lambda: tmp_path / "skills")
         outside = str(tmp_path / "outside" / "skill")
         assert normalize_skill_lookup_name(outside) == outside

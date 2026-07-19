@@ -293,8 +293,8 @@ Make sure the key matches the provider. An OpenAI key won't work with OpenRouter
 # List available models for your provider
 fabric model
 
-# Set a valid model
-fabric config set HERMES_MODEL anthropic/claude-opus-4.7
+# Set a valid default model
+fabric config set model.default anthropic/claude-opus-4.7
 
 # Or specify per-session
 fabric chat --model openrouter/meta-llama/llama-3.1-70b-instruct
@@ -767,7 +767,7 @@ Skills with very long descriptions are truncated to 40 characters in the Telegra
    ```
    This creates a profile archive containing Fabric configuration, credentials,
    built-in MEMORY.md/USER.md files, skills, sessions, and profiles. The current
-   compatibility filename is `~/fabric-backup-<timestamp>.zip`.
+   archive filename is `~/fabric-backup-<timestamp>.zip`.
 
    External memory is a separate data boundary: the archive does not promise a
    portable copy of cloud/provider records, replicas, or backups. Some adapters

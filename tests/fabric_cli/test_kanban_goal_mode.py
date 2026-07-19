@@ -4,8 +4,7 @@ Covers three layers:
 
 1. DB: goal_mode / goal_max_turns persist through create_task + from_row,
    and a legacy DB (without the columns) migrates cleanly.
-2. Spawn: _default_spawn sets the HERMES_KANBAN_GOAL_MODE env vars only
-   when the card opts in.
+2. Spawn: _default_spawn records goal-loop settings in the worker descriptor.
 3. Loop: goals.run_kanban_goal_loop continuation / completion / budget
    behaviour, driven entirely through injected callbacks (no live model).
 """
@@ -13,6 +12,7 @@ Covers three layers:
 from __future__ import annotations
 
 import sqlite3
+import json
 from pathlib import Path
 
 import pytest
@@ -23,9 +23,9 @@ from fabric_cli import goals
 
 @pytest.fixture
 def kanban_home(tmp_path, monkeypatch):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     kb.init_db()
     return home
@@ -69,9 +69,9 @@ def test_goal_mode_without_max_turns(kanban_home):
 
 def test_legacy_db_migrates_goal_columns(tmp_path, monkeypatch):
     """A tasks table created without goal columns must gain them on init."""
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     db_path = kb.kanban_db_path()
@@ -121,13 +121,14 @@ def test_legacy_db_migrates_goal_columns(tmp_path, monkeypatch):
 # Spawn env
 # ---------------------------------------------------------------------------
 
-def test_spawn_sets_goal_env_only_when_enabled(kanban_home, monkeypatch):
+def test_spawn_sets_goal_context_only_when_enabled(kanban_home, monkeypatch):
     captured = {}
 
     class _FakeProc:
         pid = 4242
 
     def _fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
         captured["env"] = kwargs.get("env", {})
         return _FakeProc()
 
@@ -144,18 +145,22 @@ def test_spawn_sets_goal_env_only_when_enabled(kanban_home, monkeypatch):
         task = kb.get_task(conn, tid)
 
     kb._default_spawn(task, str(kanban_home))
-    env = captured["env"]
-    assert env.get("HERMES_KANBAN_GOAL_MODE") == "1"
-    assert env.get("HERMES_KANBAN_GOAL_MAX_TURNS") == "5"
+    cmd = captured["cmd"]
+    context_path = Path(cmd[cmd.index("--kanban-worker-context") + 1])
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    context_path.unlink()
+    assert context["goal_mode"] is True
+    assert context["goal_max_turns"] == 5
 
 
-def test_spawn_no_goal_env_for_plain_task(kanban_home, monkeypatch):
+def test_spawn_plain_task_has_no_goal_mode(kanban_home, monkeypatch):
     captured = {}
 
     class _FakeProc:
         pid = 4243
 
     def _fake_popen(cmd, **kwargs):
+        captured["cmd"] = cmd
         captured["env"] = kwargs.get("env", {})
         return _FakeProc()
 
@@ -166,9 +171,12 @@ def test_spawn_no_goal_env_for_plain_task(kanban_home, monkeypatch):
         task = kb.get_task(conn, tid)
 
     kb._default_spawn(task, str(kanban_home))
-    env = captured["env"]
-    assert "HERMES_KANBAN_GOAL_MODE" not in env
-    assert "HERMES_KANBAN_GOAL_MAX_TURNS" not in env
+    cmd = captured["cmd"]
+    context_path = Path(cmd[cmd.index("--kanban-worker-context") + 1])
+    context = json.loads(context_path.read_text(encoding="utf-8"))
+    context_path.unlink()
+    assert context["goal_mode"] is False
+    assert context["goal_max_turns"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -5,8 +5,9 @@ Without resolve_runtime_provider(), bare-slug models in config
 provider/base_url/api_key empty in AIAgent, causing HTTP 404.
 """
 
-import os
 from unittest.mock import MagicMock, patch
+
+from fabric_cli.tui_launch_context import TuiLaunchContext
 
 
 def test_make_agent_passes_resolved_provider():
@@ -195,7 +196,7 @@ def test_make_agent_ignores_display_personality_without_system_prompt():
         assert mock_agent.call_args.kwargs["ephemeral_system_prompt"] is None
 
 
-def test_make_agent_honors_tui_launch_env_flags():
+def test_make_agent_honors_tui_launch_flags():
     fake_runtime = {
         "provider": "openrouter",
         "base_url": "https://api.synthetic.new/v1",
@@ -206,17 +207,15 @@ def test_make_agent_honors_tui_launch_env_flags():
         "credential_pool": None,
     }
     fake_cfg = {"agent": {"system_prompt": ""}, "model": {"default": "glm-5"}}
+    launch = TuiLaunchContext(
+        max_turns=7,
+        checkpoints=True,
+        pass_session_id=True,
+    )
 
     with (
-        patch.dict(
-            os.environ,
-            {
-                "HERMES_TUI_MAX_TURNS": "7",
-                "HERMES_TUI_CHECKPOINTS": "1",
-                "HERMES_TUI_PASS_SESSION_ID": "1",
-                "HERMES_IGNORE_RULES": "1",
-            },
-        ),
+        patch("tui_gateway.server.get_tui_launch_context", return_value=launch),
+        patch("fabric_cli.launch_context.ignore_rules_enabled", return_value=True),
         patch("tui_gateway.server._load_cfg", return_value=fake_cfg),
         patch("tui_gateway.server._get_db", return_value=MagicMock()),
         patch(
@@ -227,7 +226,7 @@ def test_make_agent_honors_tui_launch_env_flags():
     ):
         from tui_gateway.server import _make_agent
 
-        _make_agent("sid-env", "key-env")
+        _make_agent("sid-launch", "key-launch")
 
         kwargs = mock_agent.call_args.kwargs
         assert kwargs["max_iterations"] == 7
@@ -265,7 +264,7 @@ def test_probe_config_health_flags_null_personalities_with_active_personality():
 
 
 def test_make_agent_tolerates_null_config_sections():
-    """Bare `agent:` / `display:` keys in ~/.hermes/config.yaml parse as
+    """Bare `agent:` / `display:` keys in ~/.fabric/config.yaml parse as
     None. cfg.get("agent", {}) returns None (default only fires on missing
     key), so downstream .get() chains must be guarded. Reported via Twitter
     against the new TUI."""
@@ -366,9 +365,6 @@ def test_make_agent_honors_per_session_model_override():
     }
 
     with (
-        # Ensure no leaked env biases _resolve_startup_runtime (it must not even
-        # be consulted when an override is present).
-        patch.dict(os.environ, {}, clear=False),
         patch("tui_gateway.server._load_cfg", return_value=fake_cfg),
         patch("tui_gateway.server._get_db", return_value=MagicMock()),
         patch("tui_gateway.server._load_reasoning_config", return_value=None),
@@ -380,14 +376,6 @@ def test_make_agent_honors_per_session_model_override():
         ),
         patch("run_agent.AIAgent") as mock_agent,
     ):
-        for var in (
-            "HERMES_MODEL",
-            "HERMES_INFERENCE_MODEL",
-            "HERMES_TUI_PROVIDER",
-            "HERMES_INFERENCE_PROVIDER",
-        ):
-            os.environ.pop(var, None)
-
         from tui_gateway.server import _make_agent
 
         _make_agent(
@@ -402,10 +390,10 @@ def test_make_agent_honors_per_session_model_override():
         assert kwargs["api_key"] == "sk-glm"
 
 
-def test_apply_model_switch_does_not_leak_process_env():
+def test_apply_model_switch_does_not_leak_launch_context():
     """Core fix for cross-session contamination: an in-session /model switch
     must mutate only the target session (record a per-session override + switch
-    that session's agent in place) and must NOT write process-global env vars,
+    that session's agent in place) and must NOT rewrite process-global launch state,
     which the single-process desktop backend shares across every live session.
     """
     from tui_gateway import server
@@ -431,12 +419,7 @@ def test_apply_model_switch_does_not_leak_process_env():
             self.model = kw["new_model"]
             self.provider = kw["new_provider"]
 
-    env_keys = (
-        "HERMES_MODEL",
-        "HERMES_INFERENCE_MODEL",
-        "HERMES_TUI_PROVIDER",
-        "HERMES_INFERENCE_PROVIDER",
-    )
+    launch = TuiLaunchContext(model="minimax/m3", provider="minimax")
 
     sess_b = {"agent": _FakeAgent(), "session_key": "k-B", "model_override": None}
     sess_a = {"agent": _FakeAgent(), "session_key": "k-A", "model_override": None}
@@ -451,14 +434,13 @@ def test_apply_model_switch_does_not_leak_process_env():
         patch("tui_gateway.server._restart_slash_worker"),
         patch("tui_gateway.server._session_info", return_value={}),
         patch("tui_gateway.server._persist_model_switch") as mock_persist,
+        patch("tui_gateway.server.get_tui_launch_context", return_value=launch),
     ):
-        before = {k: os.environ.get(k) for k in env_keys}
         result = server._apply_model_switch("sidB", sess_b, "glm-5.1")
-        after = {k: os.environ.get(k) for k in env_keys}
 
     assert result["value"] == "zai/glm-5.1"
-    # No process-global env mutation (the contamination vector).
-    assert before == after
+    # No process-global launch mutation (the contamination vector).
+    assert launch == TuiLaunchContext(model="minimax/m3", provider="minimax")
     # persist_global was False → config untouched.
     mock_persist.assert_not_called()
     # Target session recorded a per-session override.

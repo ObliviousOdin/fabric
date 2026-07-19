@@ -33,13 +33,20 @@ jobs:
         run: ruff check .
 
       - name: Compile release audit
-        run: python3 -m py_compile scripts/public-release-audit.py scripts/fabric-brand-audit.py
+        run: >-
+          python3 -m py_compile
+          scripts/public-release-audit.py
+          scripts/fabric-brand-audit.py
+          scripts/fabric_identity_audit.py
 
       - name: Test release audit rules
         run: python3 -m unittest discover -s tests/scripts -p 'test_*audit.py'
 
       - name: Audit skill governance and prompt footprint
         run: python3 scripts/skills-governance-audit.py
+
+      - name: Audit every tracked identity byte
+        run: python3 scripts/fabric_identity_audit.py
 
       - name: Audit public snapshot
         run: python3 scripts/public-release-audit.py

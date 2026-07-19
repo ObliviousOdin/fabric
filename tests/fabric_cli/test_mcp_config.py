@@ -1,5 +1,5 @@
 """
-Tests for fabric_cli.mcp_config — ``hermes mcp`` subcommands.
+Tests for fabric_cli.mcp_config — ``fabric mcp`` subcommands.
 
 These tests mock the MCP server connection layer so they run without
 any actual MCP servers or API keys.
@@ -27,7 +27,7 @@ def _set_interactive_stdin(monkeypatch, *, is_tty: bool = True) -> None:
 @pytest.fixture(autouse=True)
 def _isolate_config(tmp_path, monkeypatch):
     """Redirect all config I/O to a temp directory."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setattr(
         "fabric_cli.config.get_fabric_home", lambda: tmp_path
     )
@@ -558,7 +558,7 @@ class TestEnvVarInterpolation:
 class TestProbeEnvResolution:
     """The probe path must resolve ``${ENV}`` before connecting, so the
     discovery probe behaves like runtime tool loading. Regression for #37792
-    where `hermes mcp add --auth header` sent a literal
+    where `fabric mcp add --auth header` sent a literal
     ``Authorization: Bearer ${MCP_X_API_KEY}`` and got 401."""
 
     def test_resolve_interpolates_header(self, monkeypatch):
@@ -823,18 +823,14 @@ class TestConfigHelpers:
 # ---------------------------------------------------------------------------
 
 class TestDispatcher:
-    def test_no_action_shows_list(self, tmp_path, capsys, monkeypatch):
+    def test_no_action_shows_list(self, tmp_path, capsys):
         from fabric_cli.mcp_config import mcp_command
 
-        monkeypatch.setenv("FABRIC_BRAND", "1")
         _seed_config(tmp_path, {})
         mcp_command(_make_args(mcp_action=None))
         out = capsys.readouterr().out
         assert "Commands:" in out or "No MCP servers" in out
         assert "fabric mcp" in out
-        assert "Hermes" not in out
-        assert "Nous" not in out
-        assert "hermes mcp" not in out.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -853,7 +849,7 @@ class TestMcpRemoveEvictsManager:
         monkeypatch.setattr(
             "fabric_cli.mcp_config.get_fabric_home", lambda: tmp_path
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         _set_interactive_stdin(monkeypatch)
 
         from tools.mcp_oauth_manager import get_manager, reset_manager_for_tests

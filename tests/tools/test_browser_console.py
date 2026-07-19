@@ -274,9 +274,9 @@ class TestBrowserConsoleToolsetWiring:
         from toolsets import TOOLSETS
         assert "browser_console" in TOOLSETS["browser"]["tools"]
 
-    def test_in_hermes_core_tools(self):
-        from toolsets import _HERMES_CORE_TOOLS
-        assert "browser_console" in _HERMES_CORE_TOOLS
+    def test_in_fabric_core_tools(self):
+        from toolsets import _FABRIC_CORE_TOOLS
+        assert "browser_console" in _FABRIC_CORE_TOOLS
 
     def test_in_legacy_toolset_map(self):
         from model_tools import _LEGACY_TOOLSET_MAP
@@ -346,8 +346,8 @@ class TestBrowserVisionAnnotate:
 
 class TestBrowserVisionConfig:
     def _setup_screenshot(self, tmp_path):
-        shots_dir = tmp_path / "browser_screenshots"
-        shots_dir.mkdir()
+        shots_dir = tmp_path / "cache" / "screenshots"
+        shots_dir.mkdir(parents=True)
         screenshot = shots_dir / "shot.png"
         screenshot.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
         return shots_dir, screenshot
@@ -362,7 +362,7 @@ class TestBrowserVisionConfig:
         mock_response.choices = [mock_choice]
 
         with (
-            patch("fabric_constants.get_hermes_dir", return_value=shots_dir),
+            patch("fabric_constants.get_fabric_dir", return_value=shots_dir),
             patch("tools.browser_tool._cleanup_old_screenshots"),
             patch("tools.browser_tool._run_browser_command", return_value={"success": True, "data": {"path": str(screenshot)}}),
             patch("tools.browser_tool._get_vision_model", return_value="test-model"),
@@ -386,7 +386,7 @@ class TestBrowserVisionConfig:
         mock_response.choices = [mock_choice]
 
         with (
-            patch("fabric_constants.get_hermes_dir", return_value=shots_dir),
+            patch("fabric_constants.get_fabric_dir", return_value=shots_dir),
             patch("tools.browser_tool._cleanup_old_screenshots"),
             patch("tools.browser_tool._run_browser_command", return_value={"success": True, "data": {"path": str(screenshot)}}),
             patch("tools.browser_tool._get_vision_model", return_value="test-model"),
@@ -410,7 +410,7 @@ class TestBrowserVisionConfig:
         set_runtime_main("brand-new-provider", "llava-v1.6")
         try:
             with (
-                patch("fabric_constants.get_hermes_dir", return_value=shots_dir),
+                patch("fabric_constants.get_fabric_dir", return_value=shots_dir),
                 patch("tools.browser_tool._cleanup_old_screenshots"),
                 patch(
                     "tools.browser_tool._run_browser_command",
@@ -453,7 +453,7 @@ class TestBrowserVisionConfig:
         set_runtime_main("brand-new-provider", "llava-v1.6")
         try:
             with (
-                patch("fabric_constants.get_hermes_dir", return_value=shots_dir),
+                patch("fabric_constants.get_fabric_dir", return_value=shots_dir),
                 patch("tools.browser_tool._cleanup_old_screenshots"),
                 patch(
                     "tools.browser_tool._run_browser_command",

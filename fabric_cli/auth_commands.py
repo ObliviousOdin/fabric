@@ -243,7 +243,7 @@ def auth_add_command(args) -> None:
     if provider == "anthropic":
         from agent import anthropic_adapter as anthropic_mod
 
-        creds = anthropic_mod.run_hermes_oauth_login_pure()
+        creds = anthropic_mod.run_fabric_oauth_login_pure()
         if not creds:
             raise SystemExit("Anthropic OAuth login did not return credentials.")
         label = (getattr(args, "label", None) or "").strip() or label_from_token(
@@ -256,7 +256,7 @@ def auth_add_command(args) -> None:
             label=label,
             auth_type=AUTH_TYPE_OAUTH,
             priority=0,
-            source=f"{SOURCE_MANUAL}:hermes_pkce",
+            source=f"{SOURCE_MANUAL}:anthropic_pkce",
             access_token=creds["access_token"],
             refresh_token=creds.get("refresh_token"),
             expires_at_ms=creds.get("expires_at_ms"),
@@ -267,12 +267,8 @@ def auth_add_command(args) -> None:
         return
 
     if provider == "nous":
-        # Codex-style auto-import: if a shared Nous credential lives at
-        # <hermes-root>/shared/nous_auth.json (written by any previous
-        # successful login), offer to import it instead of running the
-        # full device-code flow. This makes `hermes --profile <name>
-        # auth add nous --type oauth` a one-tap operation for users who
-        # run multiple profiles.
+        # If another profile already established a shared Nous session, offer
+        # to import it instead of repeating the device-code flow.
         shared = auth_mod._read_shared_nous_state()
         if shared:
             try:
@@ -290,36 +286,46 @@ def auth_add_command(args) -> None:
                 do_import = "y"
             if do_import in {"", "y", "yes"}:
                 print("Rehydrating Nous session from shared credentials...")
-                rehydrated = auth_mod._try_import_shared_nous_state(
-                    timeout_seconds=getattr(args, "timeout", None) or 15.0,
-                )
+                try:
+                    rehydrated = auth_mod._try_import_shared_nous_state(
+                        timeout_seconds=getattr(args, "timeout", None) or 15.0,
+                    )
+                except auth_mod.AuthError as exc:
+                    raise SystemExit(str(exc)) from None
                 if rehydrated is not None:
                     custom_label = (getattr(args, "label", None) or "").strip() or None
-                    entry = auth_mod.persist_nous_credentials(rehydrated, label=custom_label)
+                    try:
+                        entry = auth_mod.persist_nous_credentials(
+                            rehydrated,
+                            label=custom_label,
+                        )
+                    except auth_mod.AuthError as exc:
+                        raise SystemExit(str(exc)) from None
                     shown_label = entry.label if entry is not None else label_from_token(
                         rehydrated.get("access_token", ""), _oauth_default_label(provider, 1),
                     )
                     print(f'Imported {provider} OAuth credentials: "{shown_label}"')
                     return
-                # Rehydrate failed (expired refresh_token, portal down, etc.)
-                # — fall through to device-code flow.
                 print("Could not refresh shared credentials — falling back to device-code login.")
 
-        creds = auth_mod._nous_device_code_login(
-            portal_base_url=getattr(args, "portal_url", None),
-            inference_base_url=getattr(args, "inference_url", None),
-            client_id=getattr(args, "client_id", None),
-            scope=getattr(args, "scope", None),
-            open_browser=not getattr(args, "no_browser", False),
-            timeout_seconds=getattr(args, "timeout", None) or 15.0,
-            insecure=bool(getattr(args, "insecure", False)),
-            ca_bundle=getattr(args, "ca_bundle", None),
-        )
-        # Honor `--label <name>` so nous matches other providers' UX.  The
-        # helper embeds this into providers.nous so that label_from_token
-        # doesn't overwrite it on every subsequent load_pool("nous").
+        try:
+            creds = auth_mod._nous_device_code_login(
+                portal_base_url=getattr(args, "portal_url", None),
+                inference_base_url=getattr(args, "inference_url", None),
+                client_id=getattr(args, "client_id", None),
+                scope=getattr(args, "scope", None),
+                open_browser=not getattr(args, "no_browser", False),
+                timeout_seconds=getattr(args, "timeout", None) or 15.0,
+                insecure=bool(getattr(args, "insecure", False)),
+                ca_bundle=getattr(args, "ca_bundle", None),
+            )
+        except auth_mod.AuthError as exc:
+            raise SystemExit(str(exc)) from None
         custom_label = (getattr(args, "label", None) or "").strip() or None
-        entry = auth_mod.persist_nous_credentials(creds, label=custom_label)
+        try:
+            entry = auth_mod.persist_nous_credentials(creds, label=custom_label)
+        except auth_mod.AuthError as exc:
+            raise SystemExit(str(exc)) from None
         shown_label = entry.label if entry is not None else label_from_token(
             creds.get("access_token", ""), _oauth_default_label(provider, 1),
         )
@@ -424,7 +430,13 @@ def auth_remove_command(args) -> None:
     from agent.credential_sources import find_removal_step
     from fabric_cli.auth import suppress_credential_source
 
-    step = find_removal_step(provider, removed.source)
+    removal_source = removed.source
+    step = find_removal_step(provider, removal_source)
+    if step is None and removal_source.startswith(f"{SOURCE_MANUAL}:"):
+        canonical_source = removal_source.split(":", 1)[1]
+        step = find_removal_step(provider, canonical_source)
+        if step is not None:
+            removal_source = canonical_source
     if step is None:
         # Unregistered source — e.g. "manual", which has nothing external
         # to clean up.  The pool entry is already gone; we're done.
@@ -434,7 +446,7 @@ def auth_remove_command(args) -> None:
     for line in result.cleaned:
         print(line)
     if result.suppress:
-        suppress_credential_source(provider, removed.source)
+        suppress_credential_source(provider, removal_source)
     for line in result.hints:
         print(line)
 

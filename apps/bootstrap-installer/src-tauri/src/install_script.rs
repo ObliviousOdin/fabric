@@ -1,11 +1,8 @@
 //! Resolves and downloads `scripts/install.ps1` (and `install.sh`).
 //!
 //! Resolution order:
-//!   1. Dev shortcut: a sibling repo checkout via $FABRIC_SETUP_DEV_REPO_ROOT
-//!      (or the legacy $HERMES_SETUP_DEV_REPO_ROOT) env var.
-//!   2. Bundled fallback: if the installer was bundled with a script (e.g.
-//!      tauri's `resource` mechanism), serve from there. Not used today.
-//!   3. Network: download from GitHub raw at a pinned commit or branch.
+//!   1. Dev shortcut: a sibling repo checkout via $FABRIC_SETUP_DEV_REPO_ROOT.
+//!   2. Network: download from GitHub raw at a pinned commit or branch.
 //!      Commit pins are immutable; branch pins are HEAD-tracking.
 //!
 //! Mirrors `apps/desktop/electron/bootstrap-runner.ts`'s `resolveInstallScript`,
@@ -36,7 +33,6 @@ pub struct ResolvedScript {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScriptSource {
     DevCheckout,
-    Bundled,
     Cached,
     Downloaded,
 }
@@ -84,8 +80,7 @@ pub async fn resolve(
     // 1. Dev shortcut.
     let dev_repo_root = std::env::var("FABRIC_SETUP_DEV_REPO_ROOT")
         .ok()
-        .filter(|v| !v.trim().is_empty())
-        .or_else(|| std::env::var("HERMES_SETUP_DEV_REPO_ROOT").ok());
+        .filter(|v| !v.trim().is_empty());
     if let Some(repo_root) = dev_repo_root {
         let candidate = PathBuf::from(repo_root).join("scripts").join(kind.filename());
         if candidate.exists() {
@@ -103,9 +98,7 @@ pub async fn resolve(
         }
     }
 
-    // 2. (Not implemented) bundled fallback.
-
-    // 3. Network. Pin must be a real commit or a branch ref.
+    // 2. Network. Pin must be a real commit or a branch ref.
     let commit_or_ref = match (&pin.commit, &pin.branch) {
         (Some(c), _) if is_valid_commit(c) => c.clone(),
         (_, Some(b)) if !b.trim().is_empty() => b.clone(),

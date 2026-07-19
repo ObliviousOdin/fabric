@@ -149,7 +149,7 @@ fabric -w
 Fabric will:
 
 - Create a temporary worktree under `.worktrees/` inside your repo.
-- Check out an isolated branch (e.g. `fabric/fabric-<hash>`).
+- Check out an isolated branch (e.g. `fabric/worktree-<hash>`).
 - Run the full CLI session inside that worktree.
 
 This is the easiest way to get worktree isolation. You can also combine it with a single query:

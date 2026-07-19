@@ -5,8 +5,6 @@ A match blocks unconditionally â€” BEFORE the --yolo / /yolo / mode=off bypass â
 making it the user-editable counterpart to the code-shipped hardline floor.
 """
 
-import os
-
 import pytest
 
 from tools import approval as mod
@@ -28,11 +26,8 @@ def deny_config(monkeypatch):
 @pytest.fixture
 def clean_env(monkeypatch):
     """Non-interactive, non-gateway, non-cron, non-yolo baseline."""
-    for var in ("HERMES_YOLO_MODE", "HERMES_GATEWAY_SESSION",
-                "HERMES_CRON_SESSION", "HERMES_INTERACTIVE",
-                "HERMES_EXEC_ASK"):
-        monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(mod, "_YOLO_MODE_FROZEN", False)
+    monkeypatch.setattr(mod, "_is_cron_approval_context", lambda: False)
 
 
 class TestMatchUserDenyRule:

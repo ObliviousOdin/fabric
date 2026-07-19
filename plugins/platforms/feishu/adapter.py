@@ -37,7 +37,7 @@ For bots specifically:
                         puts in ``mentions[].id.open_id`` when someone
                         @-mentions the bot.  Used for mention gating only.
 
-In single-bot mode (what Hermes currently supports), open_id works as a
+In single-bot mode (what Fabric currently supports), open_id works as a
 de-facto unique user identifier since there is only one app context.
 
 Session-key participant isolation prefers ``union_id`` (via user_id_alt)
@@ -143,7 +143,7 @@ from gateway.platforms.base import (
 )
 from gateway.status import acquire_scoped_lock, release_scoped_lock
 from fabric_constants import get_fabric_home
-from utils import atomic_json_write, env_float, env_int
+from utils import atomic_json_write
 
 logger = logging.getLogger(__name__)
 
@@ -555,6 +555,14 @@ def _coerce_int(value: Any, default: Optional[int] = None, min_value: int = 0) -
 def _coerce_required_int(value: Any, default: int, min_value: int = 0) -> int:
     parsed = _coerce_int(value, default=default, min_value=min_value)
     return default if parsed is None else parsed
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    """Coerce a numeric config value, falling back on malformed input."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 # ---------------------------------------------------------------------------
@@ -1560,24 +1568,35 @@ class FeishuAdapter(BasePlatformAdapter):
             bot_name=os.getenv("FEISHU_BOT_NAME", "").strip(),
             dedup_cache_size=max(
                 32,
-                env_int("HERMES_FEISHU_DEDUP_CACHE_SIZE", _DEFAULT_DEDUP_CACHE_SIZE),
+                _coerce_required_int(
+                    extra.get("dedup_cache_size"),
+                    default=_DEFAULT_DEDUP_CACHE_SIZE,
+                ),
             ),
-            text_batch_delay_seconds=env_float(
-                "HERMES_FEISHU_TEXT_BATCH_DELAY_SECONDS", _DEFAULT_TEXT_BATCH_DELAY_SECONDS
+            text_batch_delay_seconds=_coerce_float(
+                extra.get("text_batch_delay_seconds"),
+                _DEFAULT_TEXT_BATCH_DELAY_SECONDS,
             ),
-            text_batch_split_delay_seconds=env_float(
-                "HERMES_FEISHU_TEXT_BATCH_SPLIT_DELAY_SECONDS", 2.0
+            text_batch_split_delay_seconds=_coerce_float(
+                extra.get("text_batch_split_delay_seconds"), 2.0
             ),
             text_batch_max_messages=max(
                 1,
-                env_int("HERMES_FEISHU_TEXT_BATCH_MAX_MESSAGES", _DEFAULT_TEXT_BATCH_MAX_MESSAGES),
+                _coerce_required_int(
+                    extra.get("text_batch_max_messages"),
+                    default=_DEFAULT_TEXT_BATCH_MAX_MESSAGES,
+                ),
             ),
             text_batch_max_chars=max(
                 1,
-                env_int("HERMES_FEISHU_TEXT_BATCH_MAX_CHARS", _DEFAULT_TEXT_BATCH_MAX_CHARS),
+                _coerce_required_int(
+                    extra.get("text_batch_max_chars"),
+                    default=_DEFAULT_TEXT_BATCH_MAX_CHARS,
+                ),
             ),
-            media_batch_delay_seconds=env_float(
-                "HERMES_FEISHU_MEDIA_BATCH_DELAY_SECONDS", _DEFAULT_MEDIA_BATCH_DELAY_SECONDS
+            media_batch_delay_seconds=_coerce_float(
+                extra.get("media_batch_delay_seconds"),
+                _DEFAULT_MEDIA_BATCH_DELAY_SECONDS,
             ),
             webhook_host=str(
                 extra.get("webhook_host") or os.getenv("FEISHU_WEBHOOK_HOST", _DEFAULT_WEBHOOK_HOST)
@@ -1684,7 +1703,7 @@ class FeishuAdapter(BasePlatformAdapter):
             if executor is None or getattr(executor, "_shutdown", False):
                 executor = concurrent.futures.ThreadPoolExecutor(
                     max_workers=10,
-                    thread_name_prefix="hermes-feishu-sdk",
+                    thread_name_prefix="feishu-sdk",
                 )
                 self._sdk_executor = executor
             return executor
@@ -1983,7 +2002,7 @@ class FeishuAdapter(BasePlatformAdapter):
     ) -> SendResult:
         """Send an interactive card with approval buttons.
 
-        The buttons carry ``hermes_action`` in their value dict so that
+        The buttons carry ``fabric_action`` in their value dict so that
         ``_handle_card_action_event`` can intercept them and call
         ``resolve_gateway_approval()`` to unblock the waiting agent thread.
         """
@@ -1999,7 +2018,7 @@ class FeishuAdapter(BasePlatformAdapter):
                     "tag": "button",
                     "text": {"tag": "plain_text", "content": label},
                     "type": btn_type,
-                    "value": {"hermes_action": action_name, "approval_id": approval_id},
+                    "value": {"fabric_action": action_name, "approval_id": approval_id},
                 }
 
             card = {
@@ -2056,7 +2075,7 @@ class FeishuAdapter(BasePlatformAdapter):
                 "text": {"tag": "plain_text", "content": label},
                 "type": btn_type,
                 "value": {
-                    "hermes_update_prompt_action": answer,
+                    "fabric_update_prompt_action": answer,
                     "update_prompt_id": prompt_id,
                 },
             }
@@ -2549,7 +2568,7 @@ class FeishuAdapter(BasePlatformAdapter):
         )
 
     def _on_message_read_event(self, data: P2ImMessageMessageReadV1) -> None:
-        """Ignore read-receipt events that Hermes does not act on."""
+        """Ignore read-receipt events that Fabric does not act on."""
         event = getattr(data, "event", None)
         message = getattr(event, "message", None)
         message_id = getattr(message, "message_id", None) or ""
@@ -2648,13 +2667,13 @@ class FeishuAdapter(BasePlatformAdapter):
         event = getattr(data, "event", None)
         action = getattr(event, "action", None)
         action_value = getattr(action, "value", {}) or {}
-        hermes_action = action_value.get("hermes_action") if isinstance(action_value, dict) else None
+        fabric_action = action_value.get("fabric_action") if isinstance(action_value, dict) else None
         update_prompt_action = (
-            action_value.get("hermes_update_prompt_action")
+            action_value.get("fabric_update_prompt_action")
             if isinstance(action_value, dict) else None
         )
 
-        if hermes_action:
+        if fabric_action:
             return self._handle_approval_card_action(event=event, action_value=action_value, loop=loop)
         if update_prompt_action:
             return self._handle_update_prompt_card_action(
@@ -2707,7 +2726,7 @@ class FeishuAdapter(BasePlatformAdapter):
         if not state:
             logger.debug("[Feishu] Approval %s already resolved or unknown", approval_id)
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
-        choice = _APPROVAL_CHOICE_MAP.get(action_value.get("hermes_action"), "deny")
+        choice = _APPROVAL_CHOICE_MAP.get(action_value.get("fabric_action"), "deny")
 
         operator = getattr(event, "operator", None)
         open_id = str(getattr(operator, "open_id", "") or "")
@@ -2764,7 +2783,7 @@ class FeishuAdapter(BasePlatformAdapter):
             logger.debug("[Feishu] Update prompt %s already resolved or unknown", prompt_id)
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
 
-        answer = str(action_value.get("hermes_update_prompt_action", "") or "").strip().lower()
+        answer = str(action_value.get("fabric_update_prompt_action", "") or "").strip().lower()
         if answer not in {"y", "n"}:
             logger.debug("[Feishu] Card action has invalid update prompt answer=%r", answer)
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
@@ -4035,7 +4054,7 @@ class FeishuAdapter(BasePlatformAdapter):
         *,
         is_bot: bool = False,
     ) -> Dict[str, Optional[str]]:
-        """Map Feishu's three-tier user IDs onto Hermes' SessionSource fields.
+        """Map Feishu's three-tier user IDs onto Fabric's SessionSource fields.
 
         Preference order for the primary ``user_id`` field:
           1. user_id  (tenant-scoped, most stable — requires permission scope)
@@ -5100,9 +5119,9 @@ def _begin_registration(domain: str = "feishu") -> dict:
         raise RuntimeError("Feishu / Lark registration did not return a device_code")
     qr_url = res.get("verification_uri_complete", "")
     if "?" in qr_url:
-        qr_url += "&from=hermes&tp=hermes"
+        qr_url += "&from=fabric&tp=fabric"
     else:
-        qr_url += "?from=hermes&tp=hermes"
+        qr_url += "?from=fabric&tp=fabric"
     return {
         "device_code": device_code,
         "qr_url": qr_url,
@@ -5620,11 +5639,30 @@ def _apply_yaml_config(yaml_cfg: dict, feishu_cfg: dict) -> dict | None:
 
     Implements the apply_yaml_config_fn contract (#24849). Mirrors the legacy
     feishu_cfg block from gateway/config.py::load_gateway_config() (allow_bots).
-    Env vars take precedence over YAML. Returns None — flows through env.
+    Env vars take precedence over YAML for the third-party Feishu contracts.
+    Adapter tuning values are returned for ``PlatformConfig.extra``.
     """
     if "allow_bots" in feishu_cfg and not os.getenv("FEISHU_ALLOW_BOTS"):
         os.environ["FEISHU_ALLOW_BOTS"] = str(feishu_cfg["allow_bots"]).lower()
-    return None
+    platform_extra: dict = {}
+    platforms_cfg = yaml_cfg.get("platforms")
+    if isinstance(platforms_cfg, dict):
+        platform_cfg = platforms_cfg.get("feishu")
+        if isinstance(platform_cfg, dict) and isinstance(platform_cfg.get("extra"), dict):
+            platform_extra = platform_cfg["extra"]
+
+    seeded: dict[str, object] = {}
+    for key in (
+        "dedup_cache_size",
+        "text_batch_delay_seconds",
+        "text_batch_split_delay_seconds",
+        "text_batch_max_messages",
+        "text_batch_max_chars",
+        "media_batch_delay_seconds",
+    ):
+        if key in feishu_cfg and key not in platform_extra:
+            seeded[key] = feishu_cfg[key]
+    return seeded or None
 
 
 def _is_connected(config) -> bool:
@@ -5640,7 +5678,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Fabric plugin system."""
     ctx.register_platform(
         name="feishu",
         label="Feishu / Lark",

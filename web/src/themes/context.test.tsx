@@ -18,10 +18,7 @@ const { apiMock } = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 
 import { ThemeProvider } from "./context";
-import {
-  APPEARANCE_STORAGE_KEY,
-  STORAGE_KEY,
-} from "./apply";
+import { STORAGE_KEY } from "./apply";
 import { useTheme } from "./use-theme";
 
 const reactActEnvironment = globalThis as typeof globalThis & {
@@ -38,7 +35,7 @@ function ThemeProbe() {
   );
 }
 
-describe("ThemeProvider heritage migration", () => {
+describe("ThemeProvider Fabric contract", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -47,7 +44,7 @@ describe("ThemeProvider heritage migration", () => {
     window.localStorage.clear();
     apiMock.getFontPref.mockReset().mockResolvedValue({ font: "theme" });
     apiMock.getThemes.mockReset().mockResolvedValue({
-      active: "fabric-light",
+      active: "fabric-dark",
       themes: [
         {
           name: "fabric-light",
@@ -60,9 +57,9 @@ describe("ThemeProvider heritage migration", () => {
           description: "Canonical dark",
         },
         {
-          name: "fabric-blue",
-          label: "Fabric Blue",
-          description: "Retired",
+          name: "tenant-theme",
+          label: "Tenant Theme",
+          description: "Custom theme",
         },
       ],
     });
@@ -88,9 +85,8 @@ describe("ThemeProvider heritage migration", () => {
     reactActEnvironment.IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  it("keeps explicit dark appearance when the server migrated heritage to light", async () => {
-    window.localStorage.setItem(STORAGE_KEY, "fabric-teal");
-    window.localStorage.setItem(APPEARANCE_STORAGE_KEY, "dark");
+  it("adopts the server's Fabric-native active theme without rewriting it", async () => {
+    window.localStorage.setItem(STORAGE_KEY, "fabric-light");
 
     await act(async () => {
       root.render(
@@ -105,11 +101,9 @@ describe("ThemeProvider heritage migration", () => {
     const probe = container.querySelector("output");
     expect(probe?.dataset.themeName).toBe("fabric-dark");
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe("fabric-dark");
-    expect(apiMock.setTheme).toHaveBeenCalledWith("fabric-dark");
-
-    const options = probe?.dataset.themeOptions?.split(",") ?? [];
-    expect(options).toEqual(expect.arrayContaining(["fabric-light", "fabric-dark"]));
-    expect(options).not.toContain("fabric-blue");
-    expect(options).not.toContain("fabric-teal");
+    expect(probe?.dataset.themeOptions?.split(",")).toEqual(
+      expect.arrayContaining(["fabric-light", "fabric-dark", "tenant-theme"]),
+    );
+    expect(apiMock.setTheme).not.toHaveBeenCalled();
   });
 });

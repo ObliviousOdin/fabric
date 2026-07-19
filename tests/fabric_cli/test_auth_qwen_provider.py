@@ -369,15 +369,6 @@ def test_resolve_qwen_runtime_credentials_missing_access_token(qwen_env):
     assert exc.value.code == "qwen_access_token_missing"
 
 
-def test_resolve_qwen_runtime_credentials_base_url_env_override(qwen_env, monkeypatch):
-    tokens = _make_qwen_tokens(access_token="at")
-    _write_qwen_creds(qwen_env, tokens)
-    monkeypatch.setenv("HERMES_QWEN_BASE_URL", "https://custom.qwen.ai/v1")
-
-    creds = resolve_qwen_runtime_credentials(refresh_if_expiring=False)
-    assert creds["base_url"] == "https://custom.qwen.ai/v1"
-
-
 # ---------------------------------------------------------------------------
 # get_qwen_auth_status
 # ---------------------------------------------------------------------------

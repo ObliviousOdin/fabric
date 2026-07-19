@@ -3,8 +3,6 @@ title: Computer Use
 sidebar_position: 16
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # Computer Use
 
 Fabric can drive your desktop — clicking, typing, scrolling,
@@ -47,9 +45,6 @@ When a conversation in the Fabric Desktop app starts using Computer Use,
 current app or window, the latest desktop frame, and a session-scoped timeline
 of the agent's actions.
 
-<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-computer-use.png')} width="1172" height="742" alt="Fabric Desktop showing a Computer Use conversation with Agent Live View docked in the right side panel, including the target app screenshot and recent actions." />
-<p className="docs-figure-caption">While Live View is visible and unpaused, Computer Use can display one accepted screenshot already returned by an action without starting a second capture loop.</p>
-
 ### Use the docked view
 
 1. Complete the [Computer Use setup](#enabling), then start Fabric Desktop.
@@ -70,9 +65,6 @@ of the agent's actions.
 1. Select **Pop out picture-in-picture** in the Live View title bar.
 2. Move or resize the always-on-top window as needed.
 3. Select **Return to side panel** to dock the same session again.
-
-<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-computer-use-pip.png')} width="520" height="420" alt="Fabric Computer Use Agent Live View in a compact always-on-top picture-in-picture window with pause, dock, and close controls." loading="lazy" />
-<p className="docs-figure-caption">Pause visual updates freezes only the preview; the agent continues working.</p>
 
 The view follows the same conversation and Computer Use session in either
 position. Popping it out, pausing it, or docking it does not restart the agent

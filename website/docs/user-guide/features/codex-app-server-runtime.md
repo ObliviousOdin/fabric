@@ -67,7 +67,7 @@ Fabric registers itself as an MCP server so codex can call back for tools codex 
 - **`skill_view` / `skills_list`** — read from Fabric's skill library.
 - **`text_to_speech`** — TTS through Fabric's configured provider.
 
-When the model wants one of these, codex spawns the `hermes_tools_mcp_server` subprocess via stdio MCP, the call is dispatched through `model_tools.handle_function_call()` (same code path as Fabric's default runtime), and the result is returned to codex like any other MCP response.
+When the model wants one of these, codex spawns the `fabric_tools_mcp_server` subprocess via stdio MCP, the call is dispatched through `model_tools.handle_function_call()` (same code path as Fabric's default runtime), and the result is returned to codex like any other MCP response.
 
 ### What's NOT available on this runtime
 
@@ -95,12 +95,12 @@ What works inside a codex-runtime worker:
 - The migrated codex plugins — Linear, GitHub, etc.
 - The Fabric tool callback for browser_*, vision, image_gen, skills, TTS
 
-What also works because the MCP callback exposes them:
-- **`kanban_complete` / `kanban_block` / `kanban_comment` / `kanban_heartbeat`** — the worker handoff tools. These read `HERMES_KANBAN_TASK` from env (set by the dispatcher), gate access correctly, and write to the per-board SQLite DB pinned by `HERMES_KANBAN_DB`. Without these in the callback, a worker on this runtime could do its task but couldn't report back, hanging until the dispatcher's timeout.
+What also works because the MCP callback exposes it:
+- **`kanban_complete` / `kanban_block` / `kanban_comment` / `kanban_heartbeat`** — the worker handoff tools. These read the dispatcher-bound worker context, gate access correctly, and write to its pinned per-board SQLite DB. Without these in the callback, a worker on this runtime could do its task but couldn't report back, hanging until the dispatcher's timeout.
 - **`kanban_show` / `kanban_list`** — read-only board queries for the worker to check its own context.
 - **`kanban_create` / `kanban_unblock` / `kanban_link`** — orchestrator-only operations. Available for orchestrator agents running on the codex runtime that need to dispatch new tasks.
 
-The kanban tools are gated by `HERMES_KANBAN_TASK` env var the dispatcher sets — that var is propagated to the codex subprocess (codex inherits env) and from there to the spawned `fabric-tools` MCP server subprocess. So the tools see the right task id and gate correctly. For Codex app-server workers, Fabric also passes narrow app-server sandbox overrides when `HERMES_KANBAN_TASK` is present: keep `workspace-write` sandboxing, add the **board DB directory plus every Kanban path the dispatcher pinned** as extra writable roots (`HERMES_KANBAN_WORKSPACES_ROOT`, `HERMES_KANBAN_WORKSPACE`, legacy `HERMES_KANBAN_ROOT` — deduplicated, DB-dir first), and keep network disabled by default. This avoids the brittle `:danger-no-sandbox` workaround while letting `kanban_complete` / `kanban_block` update the board DB **and** letting workers write reports/artifacts under workspace mounts that live outside the DB directory (e.g. `/media/.../kanban-workspaces/...` on a separate drive — [issue #27941](https://github.com/NousResearch/hermes-agent/issues/27941)).
+The dispatcher launches each worker with an owner-only, one-use descriptor. The worker consumes and unlinks it before normal startup. When Codex starts the managed `fabric-tools` MCP server, Fabric writes a second one-use descriptor for that child, so it receives the same immutable task, board, database, workspace, run, claim, tenant, profile, and goal-loop context without inheriting process variables. Codex workers keep `workspace-write` sandboxing, add the pinned board DB directory, board workspace root, and task workspace as deduplicated writable roots, and keep network disabled by default. This lets lifecycle tools update the board while workers can write reports or artifacts on separately mounted workspace storage (issue #27941).
 
 ### Cron jobs
 
@@ -351,16 +351,20 @@ What's NOT migrated:
 
 Codex's built-in toolset covers shell/file ops/patches but doesn't have web search, browser automation, vision, image generation, etc. To keep those usable in a codex turn, Fabric registers itself as an MCP server in `~/.codex/config.toml`:
 
+The `env` block shown below is generated as a private subprocess handoff. Its
+operational values are not user-configurable and should not be copied into
+`.env`.
+
 ```toml
 [mcp_servers.fabric-tools]
 command = "/path/to/python"
-args = ["-m", "agent.transports.hermes_tools_mcp_server"]
-env = { FABRIC_HOME = "/your/.fabric", PYTHONPATH = "...", HERMES_QUIET = "1" }
+args = ["-m", "agent.transports.fabric_tools_mcp_server"]
+env = { FABRIC_HOME = "/your/.fabric", PYTHONPATH = "..." }
 startup_timeout_sec = 30.0
 tool_timeout_sec = 600.0
 ```
 
-When the model calls `web_search` (or another exposed Fabric tool), codex spawns the `hermes_tools_mcp_server` subprocess via stdio, the request is dispatched through `model_tools.handle_function_call()`, and the result is projected back to codex like any other MCP response.
+When the model calls `web_search` (or another exposed Fabric tool), codex spawns the `fabric_tools_mcp_server` subprocess via stdio, the request is dispatched through `model_tools.handle_function_call()`, and the result is projected back to codex like any other MCP response.
 
 **Tools available via the callback:** `web_search`, `web_extract`, `browser_navigate`, `browser_click`, `browser_type`, `browser_press`, `browser_snapshot`, `browser_scroll`, `browser_back`, `browser_get_images`, `browser_console`, `browser_vision`, `vision_analyze`, `image_generate`, `skill_view`, `skills_list`, `text_to_speech`.
 
@@ -438,10 +442,10 @@ If you find a bug, [open an issue](https://github.com/ObliviousOdin/fabric/issue
                                                         │
                                                         ▼
         ┌──────────────────────────────────────────────────────────┐
-        │  hermes_tools_mcp_server.py (subprocess on demand)        │
+        │  fabric_tools_mcp_server.py (subprocess on demand)        │
         │   web_search, web_extract, browser_*, vision_analyze,    │
         │   image_generate, skill_view, skills_list, text_to_speech│
         └──────────────────────────────────────────────────────────┘
 ```
 
-For implementation details, see [PR #24182](https://github.com/NousResearch/hermes-agent/pull/24182) and the [Codex app-server protocol README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).
+For implementation details, see PR #24182 and the [Codex app-server protocol README](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md).

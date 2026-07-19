@@ -9,14 +9,13 @@ Resolution order (first non-None wins):
     3. ``_PLATFORM_DEFAULTS[<platform>][<key>]``  — built-in sensible default
     4. ``_GLOBAL_DEFAULTS[<key>]``              — built-in global default
 
-Exception: ``display.streaming`` is CLI-only.  Gateway streaming follows the
+Exception: ``display.streaming`` is CLI-only. Gateway streaming follows the
 top-level ``streaming`` config unless ``display.platforms.<platform>.streaming``
 sets an explicit per-platform override.
 
-Backward compatibility: ``display.tool_progress_overrides`` is still read as a
-fallback for ``tool_progress`` when no ``display.platforms`` entry exists.  A
-config migration (version bump) automatically moves the old format into the new
-``display.platforms`` structure.
+The previous ``display.tool_progress_overrides`` schema remains a read-only
+fallback for ``tool_progress`` until the versioned config migration folds it
+into ``display.platforms``. This is a config-shape migration.
 """
 
 from __future__ import annotations
@@ -139,7 +138,7 @@ _PLATFORM_DEFAULTS: dict[str, dict[str, Any]] = {
     "signal":          _TIER_LOW,
     "whatsapp":        _TIER_MEDIUM,  # Baileys bridge supports /edit
     # WhatsApp Cloud API: Meta added message editing in 2023 but the
-    # Hermes Cloud adapter doesn't implement edit_message yet, so we
+    # Fabric Cloud adapter doesn't implement edit_message yet, so we
     # stay on TIER_LOW (tool_progress off) to avoid spamming each
     # status update as a separate message. Promote to TIER_MEDIUM once
     # Cloud's edit_message lands.
@@ -196,11 +195,12 @@ def resolve_display_setting(
         if val is not None:
             return _normalise(setting, val)
 
-    # 1b. Backward compat: display.tool_progress_overrides.<platform>
+    # 1b. Previous config schema: display.tool_progress_overrides.<platform>.
+    # The versioned config loader folds this into display.platforms on write.
     if setting == "tool_progress":
-        legacy = display_cfg.get("tool_progress_overrides")
-        if isinstance(legacy, dict):
-            val = legacy.get(platform_key)
+        previous = display_cfg.get("tool_progress_overrides")
+        if isinstance(previous, dict):
+            val = previous.get(platform_key)
             if val is not None:
                 return _normalise(setting, val)
 

@@ -73,7 +73,7 @@ def test_discord_setup_new_token_empty_allowlist_warns_denied_until_configured(m
     )
     monkeypatch.setattr(
         "fabric_constants.get_fabric_home",
-        lambda: __import__("pathlib").Path("/tmp/fabric-test-home"),
+        lambda: __import__("pathlib").Path("/tmp/test-home"),
     )
 
     interactive_setup()

@@ -1,4 +1,4 @@
-"""nemo_relay — optional Hermes plugin for NeMo Relay observability."""
+"""nemo_relay — optional Fabric plugin for NeMo Relay observability."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import asyncio
 import inspect
 import json
 import logging
-import os
 import threading
 import tomllib
 from collections.abc import Callable
@@ -48,11 +47,11 @@ class _Settings:
     adaptive_mode: str = "observe_only"
     atof_enabled: bool = False
     atof_output_directory: str = ""
-    atof_filename: str = "hermes-atof.jsonl"
+    atof_filename: str = "fabric-atof.jsonl"
     atof_mode: str = "append"
     atif_enabled: bool = False
     atif_output_directory: str = ""
-    atif_filename_template: str = "hermes-atif-{session_id}.json"
+    atif_filename_template: str = "fabric-atif-{session_id}.json"
     atif_subagent_export_mode: str = "embedded"
     atif_agent_name: str = "Fabric"
     atif_agent_version: str = "unknown"
@@ -66,7 +65,7 @@ class _Runtime:
         self.sessions: dict[str, _SessionState] = {}
         self.subagent_parents: dict[str, _SubagentParent] = {}
         self.atof_exporter: Any = None
-        self._atof_subscriber_name = "hermes.nemo_relay.atof"
+        self._atof_subscriber_name = "fabric.nemo_relay.atof"
         self._plugin_config_initialized = self._configure_plugins_toml()
         self._plugin_config_needs_reinit = False
         if not self._plugin_config_initialized:
@@ -181,7 +180,7 @@ class _Runtime:
                 model_name=str(kwargs.get("model") or self.settings.atif_model_name),
                 extra={"source": "fabric-agent", "plugin": "observability/nemo_relay"},
             )
-            state.atif_subscriber_name = f"hermes.nemo_relay.atif.{session_id}"
+            state.atif_subscriber_name = f"fabric.nemo_relay.atif.{session_id}"
             state.atif_exporter.register(state.atif_subscriber_name)
 
         subagent_parent = self.subagent_parents.get(session_id)
@@ -194,7 +193,7 @@ class _Runtime:
             state.parent_session_id = subagent_parent.parent_session_id
 
         state.handle = self.nemo_relay.scope.push(
-            f"hermes-session-{session_id}",
+            f"fabric-session-{session_id}",
             self.nemo_relay.ScopeType.Agent,
             handle=parent_handle,
             data={"session_id": session_id},
@@ -260,7 +259,7 @@ class _Runtime:
                 metadata=_subagent_child_metadata(kwargs, metadata),
             )
         self.nemo_relay.scope.event(
-            "hermes.subagent.start",
+            "fabric.subagent.start",
             handle=parent_state.handle,
             data=_jsonable(kwargs),
             metadata=metadata,
@@ -270,7 +269,7 @@ class _Runtime:
         child_session_id = _child_session_id(kwargs)
         if child_session_id:
             self.subagent_parents.pop(child_session_id, None)
-        self.mark("hermes.subagent.stop", kwargs)
+        self.mark("fabric.subagent.stop", kwargs)
 
     def managed_llm_enabled(self) -> bool:
         return (
@@ -295,7 +294,7 @@ class _Runtime:
         # NeMo Relay's native managed execution may wrap a failing callback as an
         # internal runtime error, hiding the real downstream provider/tool
         # exception. Capture the original here and re-raise it after managed
-        # execution so Hermes retry classification still sees it. The LLM and tool
+        # execution so Fabric retry classification still sees it. The LLM and tool
         # paths share this scaffolding; they differ only in payload normalization,
         # response shaping, and the Relay call itself.
         raw_response: dict[str, Any] = {"set": False, "value": None}
@@ -430,7 +429,7 @@ def on_session_start(**kwargs: Any) -> None:
 def on_session_end(**kwargs: Any) -> None:
     runtime = _get_runtime()
     if runtime is not None:
-        _safe(lambda: (runtime.mark("hermes.session.end", kwargs), runtime.export_atif(runtime.ensure_session(kwargs))))
+        _safe(lambda: (runtime.mark("fabric.session.end", kwargs), runtime.export_atif(runtime.ensure_session(kwargs))))
 
 
 def on_session_finalize(**kwargs: Any) -> None:
@@ -448,13 +447,13 @@ def on_session_reset(**kwargs: Any) -> None:
 def on_pre_llm_call(**kwargs: Any) -> None:
     runtime = _get_runtime()
     if runtime is not None:
-        _safe(lambda: runtime.mark("hermes.turn.start", kwargs))
+        _safe(lambda: runtime.mark("fabric.turn.start", kwargs))
 
 
 def on_post_llm_call(**kwargs: Any) -> None:
     runtime = _get_runtime()
     if runtime is not None:
-        _safe(lambda: runtime.mark("hermes.turn.end", kwargs))
+        _safe(lambda: runtime.mark("fabric.turn.end", kwargs))
 
 
 def on_pre_api_request(**kwargs: Any) -> None:
@@ -493,7 +492,7 @@ def on_post_api_request(**kwargs: Any) -> None:
         state = runtime.ensure_session(kwargs)
         span = state.llm_spans.pop(_api_key(kwargs), None)
         if span is None:
-            runtime.mark("hermes.api.response.unmatched", kwargs)
+            runtime.mark("fabric.api.response.unmatched", kwargs)
             return
         runtime.nemo_relay.llm.call_end(
             span,
@@ -516,7 +515,7 @@ def on_api_request_error(**kwargs: Any) -> None:
         state = runtime.ensure_session(kwargs)
         span = state.llm_spans.pop(_api_key(kwargs), None)
         if span is None:
-            runtime.mark("hermes.api.error", kwargs)
+            runtime.mark("fabric.api.error", kwargs)
             return
         runtime.nemo_relay.llm.call_end(
             span,
@@ -561,7 +560,7 @@ def on_post_tool_call(**kwargs: Any) -> None:
         state = runtime.ensure_session(kwargs)
         span = state.tool_spans.pop(_tool_key(kwargs), None)
         if span is None:
-            runtime.mark("hermes.tool.response.unmatched", kwargs)
+            runtime.mark("fabric.tool.response.unmatched", kwargs)
             return
         runtime.nemo_relay.tools.call_end(
             span,
@@ -576,13 +575,13 @@ def on_post_tool_call(**kwargs: Any) -> None:
 def on_pre_approval_request(**kwargs: Any) -> None:
     runtime = _get_runtime()
     if runtime is not None:
-        _safe(lambda: runtime.mark("hermes.approval.request", kwargs))
+        _safe(lambda: runtime.mark("fabric.approval.request", kwargs))
 
 
 def on_post_approval_response(**kwargs: Any) -> None:
     runtime = _get_runtime()
     if runtime is not None:
-        _safe(lambda: runtime.mark("hermes.approval.response", kwargs))
+        _safe(lambda: runtime.mark("fabric.approval.response", kwargs))
 
 
 def on_subagent_start(**kwargs: Any) -> None:
@@ -642,7 +641,10 @@ def _get_runtime() -> Optional[_Runtime]:
 
 
 def _load_settings() -> _Settings:
-    plugins_toml_path = _env("HERMES_NEMO_RELAY_PLUGINS_TOML")
+    section = _config_section()
+    atof = section.get("atof") if isinstance(section.get("atof"), dict) else {}
+    atif = section.get("atif") if isinstance(section.get("atif"), dict) else {}
+    plugins_toml_path = str(section.get("plugins_toml") or "").strip()
     plugins_config = _load_plugins_config(plugins_toml_path)
     adaptive_config = _enabled_component_config(plugins_config, "adaptive")
     return _Settings(
@@ -650,18 +652,32 @@ def _load_settings() -> _Settings:
         plugins_config=plugins_config,
         adaptive_enabled=adaptive_config is not None,
         adaptive_mode=_adaptive_mode(adaptive_config),
-        atof_enabled=_env_bool("HERMES_NEMO_RELAY_ATOF_ENABLED"),
-        atof_output_directory=_env("HERMES_NEMO_RELAY_ATOF_OUTPUT_DIRECTORY"),
-        atof_filename=_env("HERMES_NEMO_RELAY_ATOF_FILENAME") or "hermes-atof.jsonl",
-        atof_mode=_env("HERMES_NEMO_RELAY_ATOF_MODE") or "append",
-        atif_enabled=_env_bool("HERMES_NEMO_RELAY_ATIF_ENABLED"),
-        atif_output_directory=_env("HERMES_NEMO_RELAY_ATIF_OUTPUT_DIRECTORY"),
-        atif_filename_template=_env("HERMES_NEMO_RELAY_ATIF_FILENAME_TEMPLATE") or "hermes-atif-{session_id}.json",
-        atif_subagent_export_mode=_atif_subagent_export_mode(),
-        atif_agent_name=_env("HERMES_NEMO_RELAY_ATIF_AGENT_NAME") or "Fabric",
-        atif_agent_version=_env("HERMES_NEMO_RELAY_ATIF_AGENT_VERSION") or "unknown",
-        atif_model_name=_env("HERMES_NEMO_RELAY_ATIF_MODEL_NAME") or "unknown",
+        atof_enabled=bool(atof.get("enabled", False)),
+        atof_output_directory=str(atof.get("output_directory") or "").strip(),
+        atof_filename=str(atof.get("filename") or "fabric-atof.jsonl"),
+        atof_mode=str(atof.get("mode") or "append"),
+        atif_enabled=bool(atif.get("enabled", False)),
+        atif_output_directory=str(atif.get("output_directory") or "").strip(),
+        atif_filename_template=str(
+            atif.get("filename_template") or "fabric-atif-{session_id}.json"
+        ),
+        atif_subagent_export_mode=(
+            "all" if str(atif.get("subagent_export_mode") or "").lower() == "all" else "embedded"
+        ),
+        atif_agent_name=str(atif.get("agent_name") or "Fabric"),
+        atif_agent_version=str(atif.get("agent_version") or "unknown"),
+        atif_model_name=str(atif.get("model_name") or "unknown"),
     )
+
+
+def _config_section() -> dict[str, Any]:
+    try:
+        from fabric_cli.config import cfg_get, load_config
+
+        section = cfg_get(load_config(), "observability", "nemo_relay", default={})
+    except Exception:
+        return {}
+    return section if isinstance(section, dict) else {}
 
 
 def _load_plugins_config(path: str) -> dict[str, Any] | None:
@@ -718,19 +734,6 @@ def _observability_exporter_enabled(
     if not isinstance(exporter_config, dict):
         return False
     return exporter_config.get("enabled", True) is not False
-
-
-def _env(name: str) -> str:
-    return os.environ.get(name, "").strip()
-
-
-def _atif_subagent_export_mode() -> str:
-    mode = _env("HERMES_NEMO_RELAY_ATIF_SUBAGENT_EXPORT_MODE").lower()
-    return "all" if mode == "all" else "embedded"
-
-
-def _env_bool(name: str) -> bool:
-    return _env(name).lower() in {"1", "true", "yes", "on"}
 
 
 def _session_id(kwargs: dict[str, Any]) -> str:
@@ -842,7 +845,7 @@ def _value(obj: Any, key: str, default: Any = None) -> Any:
 
 
 def _original_downstream_error(exc: Exception) -> BaseException:
-    # Hermes wraps downstream execution failures in a local/private exception
+    # Fabric wraps downstream execution failures in a local/private exception
     # class, so detect the wrapper by shape instead of importing it here.
     original = getattr(exc, "original", None)
     if exc.__class__.__name__ == "_DownstreamExecutionError" and isinstance(original, BaseException):
@@ -856,7 +859,7 @@ def _is_relay_wrapped_callback_error(exc: Exception, callback_error: Exception |
     # trailing traceback/suffix in a future Relay version doesn't silently defeat
     # the unwrap; the class-name + message prefix still discriminates the real
     # downstream failure from unrelated Relay-internal errors. If Relay drops the
-    # leading ``internal error:`` shape entirely, this returns False and Hermes
+    # leading ``internal error:`` shape entirely, this returns False and Fabric
     # falls back to surfacing Relay's error (the pre-fix behavior) rather than
     # masking it.
     if callback_error is None or not isinstance(exc, RuntimeError):
@@ -946,7 +949,7 @@ def _resolve_awaitable(value: Any) -> Any:
 
     thread = threading.Thread(
         target=_runner,
-        name="hermes-nemo-relay-awaitable",
+        name="nemo-relay-awaitable",
         daemon=True,
     )
     thread.start()

@@ -24,16 +24,16 @@ from fabric_state import SessionDB
 
 
 @pytest.fixture()
-def hermes_home(tmp_path, monkeypatch):
-    home = tmp_path / ".hermes"
+def fabric_home(tmp_path, monkeypatch):
+    home = tmp_path / ".fabric"
     home.mkdir()
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     yield home
 
 
 @pytest.fixture()
-def server(hermes_home):
+def server(fabric_home):
     with patch.dict(
         "sys.modules",
         {
@@ -51,8 +51,8 @@ def server(hermes_home):
 
 
 @pytest.fixture()
-def db(hermes_home):
-    return SessionDB(db_path=hermes_home / "state.db")
+def db(fabric_home):
+    return SessionDB(db_path=fabric_home / "state.db")
 
 
 @pytest.fixture()

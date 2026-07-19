@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $desktopOnboarding, type OnboardingContext, type OnboardingFlow } from '@/store/onboarding'
-import type { OAuthProvider } from '@/types/hermes'
+import type { OAuthProvider } from '@/types/fabric'
 
 import { FlowPanel } from './flow'
 
@@ -16,7 +16,7 @@ const ctx: OnboardingContext = { requestGateway: async () => undefined as never 
 
 function provider(id: string, name: string): OAuthProvider {
   return {
-    cli_command: `hermes login ${id}`,
+    cli_command: `fabric login ${id}`,
     docs_url: `https://example.test/${id}`,
     flow: 'device_code',
     id,

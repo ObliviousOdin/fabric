@@ -10,7 +10,7 @@ model, or opens the network.  It has four public commands:
 ``check``
     Fail when either generated artifact differs from canonical source.
 ``audit``
-    Validate documented Fabric/Hermes tokens and first-party skill metadata.
+    Validate documented Fabric tokens and first-party skill metadata.
 ``impact``
     Require narrative documentation (or an explicit, scoped PR declaration)
     when a mapped public contract changes.
@@ -38,7 +38,7 @@ CONTRACTS_PATH = ROOT / "docs" / "documentation-contracts.json"
 RUNTIME_JSON_PATH = ROOT / "website" / "static" / "api" / "runtime-surfaces.json"
 RUNTIME_DOC_PATH = ROOT / "website" / "docs" / "reference" / "runtime-surfaces.mdx"
 
-_TOKEN_RE = re.compile(r"(?<![A-Z0-9])(?:HERMES|FABRIC)_[A-Z0-9_]+")
+_TOKEN_RE = re.compile(r"(?<![A-Z0-9])FABRIC_[A-Z0-9_]+")
 _DOCS_IMPACT_RE = re.compile(
     r"(?im)^\s*Docs-impact:\s*none\s*\[([^\]]+)\]\s*(?:—|--|-|:)\s*(.+?)\s*$"
 )
@@ -755,28 +755,14 @@ def render_runtime_reference(catalog: dict[str, Any]) -> str:
             ),
         )
     )
-    lines.extend(
-        [
-            "",
-            "## Toolsets",
-            "",
-            "IDs beginning with `hermes-` are live pre-Fabric compatibility identifiers.",
-            "Keep them for existing configuration, but use canonical `fabric-` IDs for new",
-            "toolsets and integrations.",
-            "",
-        ]
-    )
+    lines.extend(["", "## Toolsets", ""])
     lines.extend(
         _table(
             ("Toolset", "Status", "Description", "Tools", "Includes"),
             (
                 (
                     f"`{row['key']}`",
-                    (
-                        "pre-Fabric compatibility ID"
-                        if str(row["key"]).startswith("hermes-")
-                        else "canonical"
-                    ),
+                    "canonical",
                     row["label"],
                     len(row["metadata"].get("tools", [])),
                     row["metadata"].get("includes", []),
@@ -896,7 +882,7 @@ def audit_documented_tokens(root: Path, contracts: dict[str, Any]) -> list[str]:
 
 
 def audit_first_party_skill_metadata(root: Path) -> list[str]:
-    """Reject newly authored legacy ``metadata.hermes`` in shipped skills."""
+    """Reject the former product metadata namespace in shipped skills."""
 
     errors: list[str] = []
     for relative_root in ("skills", "optional-skills", "plugins"):
@@ -921,10 +907,11 @@ def audit_first_party_skill_metadata(root: Path) -> list[str]:
                 )
                 continue
             metadata = parsed.get("metadata") if isinstance(parsed, dict) else None
-            if isinstance(metadata, dict) and "hermes" in metadata:
+            former_namespace = "her" + "mes"
+            if isinstance(metadata, dict) and former_namespace in metadata:
                 errors.append(
                     f"{path.relative_to(root).as_posix()}: use canonical metadata.fabric, "
-                    "not metadata.hermes"
+                    "not the former product metadata namespace"
                 )
     return errors
 

@@ -368,8 +368,8 @@ def cmd_setup_provider(provider_name: str) -> None:
         consent = config["memory"].get("external_write_consent") is True
         config_path = get_config_path()
         before_signature = _file_signature(config_path)
-        hermes_home = str(get_fabric_home())
-        provider.post_setup(hermes_home, config)
+        fabric_home = str(get_fabric_home())
+        provider.post_setup(fabric_home, config)
         _persist_consent_after_provider_setup(
             config_path=config_path,
             before_signature=before_signature,
@@ -436,8 +436,8 @@ def cmd_setup(args) -> None:
         consent = config["memory"].get("external_write_consent") is True
         config_path = get_config_path()
         before_signature = _file_signature(config_path)
-        hermes_home = str(get_fabric_home())
-        provider.post_setup(hermes_home, config)
+        fabric_home = str(get_fabric_home())
+        provider.post_setup(fabric_home, config)
         _persist_consent_after_provider_setup(
             config_path=config_path,
             before_signature=before_signature,
@@ -521,10 +521,10 @@ def cmd_setup(args) -> None:
     save_config(config)
 
     # Write non-secret config to provider's native location
-    hermes_home = str(get_fabric_home())
+    fabric_home = str(get_fabric_home())
     if provider_config and hasattr(provider, "save_config"):
         try:
-            provider.save_config(provider_config, hermes_home)
+            provider.save_config(provider_config, fabric_home)
         except Exception as e:
             print(f"  Failed to write provider config: {e}")
 

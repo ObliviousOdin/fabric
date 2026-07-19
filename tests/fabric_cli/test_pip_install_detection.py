@@ -21,7 +21,7 @@ def test_git_install_detected_when_git_dir_exists(tmp_path):
 
 
 def test_managed_install_takes_precedence(tmp_path):
-    """When HERMES_MANAGED is set, that takes precedence over git detection."""
+    """When FABRIC_MANAGED is set, that takes precedence over git detection."""
     (tmp_path / ".git").mkdir()
     with patch("fabric_cli.config.get_managed_system", return_value="NixOS"), \
          patch("fabric_cli.config.get_fabric_home", return_value=tmp_path):
@@ -49,18 +49,13 @@ def test_stamp_file_takes_precedence(tmp_path):
 
 
 def test_code_scoped_stamp_wins_over_home_stamp(tmp_path):
-    """The stamp next to the running code is authoritative over $HERMES_HOME.
-
-    Models a host git install whose $HERMES_HOME is shared with (and stamped
-    'docker' by) a co-located container. The code-scoped stamp must win so the
-    host install is correctly identified as 'git' and 'fabric update' works.
-    """
+    """The stamp next to the running code is authoritative over $FABRIC_HOME."""
     code = tmp_path / "code"
     home = tmp_path / "home"
     code.mkdir()
     home.mkdir()
     (code / ".install_method").write_text("git\n")
-    (home / ".install_method").write_text("docker\n")  # container contamination
+    (home / ".install_method").write_text("docker\n")
     with patch("fabric_cli.config.get_managed_system", return_value=None), \
          patch("fabric_cli.config.get_fabric_home", return_value=home):
         from fabric_cli.config import detect_install_method
@@ -68,13 +63,7 @@ def test_code_scoped_stamp_wins_over_home_stamp(tmp_path):
 
 
 def test_home_docker_stamp_ignored_when_not_containerized(tmp_path):
-    """A 'docker' home stamp is ignored on a host (non-container) install.
-
-    Self-heal path for homes already poisoned by an older image that wrote
-    'docker' into the shared $HERMES_HOME. With no code-scoped stamp, a host
-    git checkout must fall through to '.git' detection rather than honour the
-    contaminating 'docker' value and refuse to update.
-    """
+    """A shared-home Docker stamp cannot misclassify a host install."""
     code = tmp_path / "code"
     home = tmp_path / "home"
     code.mkdir()
@@ -89,12 +78,7 @@ def test_home_docker_stamp_ignored_when_not_containerized(tmp_path):
 
 
 def test_home_docker_stamp_honored_inside_container(tmp_path):
-    """A 'docker' home stamp is still honoured when genuinely containerized.
-
-    Back-compat: an older published image that only ever wrote the home-scoped
-    stamp (no baked code stamp) must still resolve to 'docker' so the update
-    path keeps directing the user to ``docker pull``.
-    """
+    """A home-scoped Docker stamp remains valid inside a container."""
     code = tmp_path / "code"
     home = tmp_path / "home"
     code.mkdir()
@@ -107,13 +91,8 @@ def test_home_docker_stamp_honored_inside_container(tmp_path):
         assert detect_install_method(project_root=code) == "docker"
 
 
-def test_home_non_docker_stamp_still_honored_for_backcompat(tmp_path):
-    """Legacy non-'docker' home stamps (e.g. 'git') are still respected.
-
-    Only the 'docker' value carries the cross-contamination risk, so a host
-    install that historically stamped 'git'/'pip' into $HERMES_HOME keeps
-    resolving from there when no code-scoped stamp exists yet.
-    """
+def test_home_non_docker_stamp_still_honored(tmp_path):
+    """A non-Docker fallback stamp remains readable."""
     code = tmp_path / "code"
     home = tmp_path / "home"
     code.mkdir()
@@ -127,7 +106,7 @@ def test_home_non_docker_stamp_still_honored_for_backcompat(tmp_path):
 
 
 def test_stamp_install_method_writes_code_scoped(tmp_path):
-    """stamp_install_method writes next to the code, not into $HERMES_HOME."""
+    """stamp_install_method writes next to the code, not into $FABRIC_HOME."""
     code = tmp_path / "code"
     home = tmp_path / "home"
     code.mkdir()
@@ -178,7 +157,7 @@ def test_banner_warns_on_pip_install(tmp_path):
     from rich.console import Console
     from fabric_cli import banner
 
-    hh = tmp_path / ".hermes"
+    hh = tmp_path / ".fabric"
     hh.mkdir()
     (hh / ".install_method").write_text("pip\n")
 
@@ -204,7 +183,7 @@ def test_banner_warns_on_homebrew_install(tmp_path):
     from rich.console import Console
     from fabric_cli import banner
 
-    hh = tmp_path / ".hermes"
+    hh = tmp_path / ".fabric"
     hh.mkdir()
     (hh / ".install_method").write_text("homebrew\n")
 
@@ -230,7 +209,7 @@ def test_banner_no_pip_warning_on_git_install(tmp_path):
     from rich.console import Console
     from fabric_cli import banner
 
-    hh = tmp_path / ".hermes"
+    hh = tmp_path / ".fabric"
     hh.mkdir()
     (hh / ".install_method").write_text("git\n")
 

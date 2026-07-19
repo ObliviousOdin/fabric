@@ -44,12 +44,12 @@ fabric auth spotify
 
 The 7 Spotify tools only appear in the agent's toolset after step 1 — they're off by default so users who don't want them don't ship extra tool schemas on every API call.
 
-If no `HERMES_SPOTIFY_CLIENT_ID` is set, Fabric walks you through the app registration inline:
+If Spotify app registration has not been completed, Fabric walks you through it inline:
 
 1. Opens `https://developer.spotify.com/dashboard` in your browser
 2. Prints the exact values to paste into Spotify's "Create app" form
 3. Prompts you for the Client ID you get back
-4. Saves it to `~/.fabric/.env` so future runs skip this step
+4. Saves it with the profile's Spotify authentication state so future runs skip this step
 5. Continues straight into the OAuth consent flow
 
 After you approve, tokens are written under `providers.spotify` in `~/.fabric/auth.json`. The active inference provider is NOT changed — Spotify auth is independent of your LLM provider.
@@ -225,7 +225,8 @@ Full cron reference: [Cron Jobs](./cron).
 fabric auth logout spotify
 ```
 
-Removes tokens from `~/.fabric/auth.json`. To also clear the app config, delete `HERMES_SPOTIFY_CLIENT_ID` (and `HERMES_SPOTIFY_REDIRECT_URI` if you set it) from `~/.fabric/.env`, or run the wizard again.
+Removes the Spotify tokens from `~/.fabric/auth.json`. Run the login flow again
+to connect a different app or account.
 
 To revoke the app on Spotify's side, visit [Apps connected to your account](https://www.spotify.com/account/apps/) and click **REMOVE ACCESS**.
 
@@ -237,7 +238,7 @@ To revoke the app on Spotify's side, visit [Apps connected to your account](http
 
 **`204 No Content` on `get_currently_playing`** — nothing is currently playing on any device. This is Spotify's normal response, not an error; Fabric surfaces it as an explanatory empty result (`is_playing: false`).
 
-**`INVALID_CLIENT: Invalid redirect URI`** — the redirect URI in your Spotify app settings doesn't match what Fabric is using. The default is `http://127.0.0.1:43827/spotify/callback`. Either add that to your app's allowed redirect URIs, or set `HERMES_SPOTIFY_REDIRECT_URI` in `~/.fabric/.env` to whatever you registered.
+**`INVALID_CLIENT: Invalid redirect URI`** — the redirect URI in your Spotify app settings doesn't match what Fabric is using. The default is `http://127.0.0.1:43827/spotify/callback`. Either add that to your app's allowed redirect URIs, or rerun `fabric auth spotify --redirect-uri <allow-listed-uri>`.
 
 **`429 Too Many Requests`** — Spotify's rate limit. Fabric returns a friendly error; wait a minute and retry. If this persists, you're probably running a tight loop in a script — Spotify's quota resets roughly every 30 seconds.
 
@@ -261,13 +262,6 @@ Scope reference: [Spotify Web API scopes](https://developer.spotify.com/document
 fabric auth spotify --client-id <id> --redirect-uri http://localhost:3000/callback
 ```
 
-Or set them permanently in `~/.fabric/.env`:
-
-```
-HERMES_SPOTIFY_CLIENT_ID=<your_id>
-HERMES_SPOTIFY_REDIRECT_URI=http://localhost:3000/callback
-```
-
 The redirect URI must be allow-listed in your Spotify app's settings. The default works for almost everyone — only change it if port 43827 is taken.
 
 ## Where things live
@@ -275,5 +269,4 @@ The redirect URI must be allow-listed in your Spotify app's settings. The defaul
 | File | Contents |
 |------|----------|
 | `~/.fabric/auth.json` → `providers.spotify` | access token, refresh token, expiry, scope, redirect URI |
-| `~/.fabric/.env` | `HERMES_SPOTIFY_CLIENT_ID`, optional `HERMES_SPOTIFY_REDIRECT_URI` |
 | Spotify app | owned by you at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard); contains the Client ID and the redirect URI allow-list |

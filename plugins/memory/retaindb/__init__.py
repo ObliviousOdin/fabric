@@ -47,12 +47,9 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE_URL = "https://api.retaindb.com"
 _ASYNC_SHUTDOWN = object()
-# public-release-audit: allow-legacy-compat -- RetainDB project names are persisted storage namespaces
-_LEGACY_PROJECT_NAMESPACE = "hermes"
-# public-release-audit: allow-legacy-compat -- recognize the previous default home without creating a profile project
-_LEGACY_HOME_BASENAME = ".hermes"
-# public-release-audit: allow-legacy-compat -- RetainDB agent IDs address existing stored self-models
-_LEGACY_AGENT_ID = "hermes"
+_PROJECT_NAMESPACE = "fabric"
+_DEFAULT_HOME_BASENAME = ".fabric"
+_AGENT_ID = "fabric"
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +197,7 @@ class _Client:
         h = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-            "x-sdk-runtime": "hermes-plugin",
+            "x-sdk-runtime": "fabric-plugin",
         }
         if path.startswith(("/v1/memory", "/v1/context")):
             h["X-API-Key"] = token
@@ -299,7 +296,7 @@ class _Client:
         import requests
         url = f"{self.base_url}/v1/files"
         token = self.api_key.replace("Bearer ", "").strip()
-        headers = {"Authorization": f"Bearer {token}", "x-sdk-runtime": "hermes-plugin"}
+        headers = {"Authorization": f"Bearer {token}", "x-sdk-runtime": "fabric-plugin"}
         fields = {"path": remote_path, "scope": scope.upper()}
         if project_id:
             fields["project_id"] = project_id
@@ -320,7 +317,7 @@ class _Client:
         import requests
         token = self.api_key.replace("Bearer ", "").strip()
         url = f"{self.base_url}/v1/files/{quote(file_id, safe='')}/content"
-        resp = requests.get(url, headers={"Authorization": f"Bearer {token}", "x-sdk-runtime": "hermes-plugin"}, timeout=30, allow_redirects=True)
+        resp = requests.get(url, headers={"Authorization": f"Bearer {token}", "x-sdk-runtime": "fabric-plugin"}, timeout=30, allow_redirects=True)
         resp.raise_for_status()
         return resp.content
 
@@ -470,7 +467,7 @@ class RetainDBMemoryProvider(MemoryProvider):
         self._queue: _WriteQueue | None = None
         self._user_id = "default"
         self._session_id = ""
-        self._agent_id = "hermes"
+        self._agent_id = "fabric"
         self._lock = threading.Lock()
 
         # Prefetch caches
@@ -530,34 +527,32 @@ class RetainDBMemoryProvider(MemoryProvider):
             str(profile_env("RETAINDB_BASE_URL", _DEFAULT_BASE_URL) or _DEFAULT_BASE_URL),
         )
 
-        # Project resolution preserves the established storage namespace so
-        # existing RetainDB memories remain addressable after the Fabric rename.
         # If unset, the API auto-creates and uses the "default" project — no config required.
         explicit = profile_env("RETAINDB_PROJECT")
         if explicit:
             project = explicit
         else:
-            hermes_home = str(kwargs.get("hermes_home", ""))
-            profile_name = os.path.basename(hermes_home) if hermes_home else ""
+            fabric_home = str(kwargs.get("fabric_home", ""))
+            profile_name = os.path.basename(fabric_home) if fabric_home else ""
             project = (
-                f"{_LEGACY_PROJECT_NAMESPACE}-{profile_name}"
+                f"{_PROJECT_NAMESPACE}-{profile_name}"
                 if profile_name
-                and profile_name not in {"", ".fabric", _LEGACY_HOME_BASENAME}
+                and profile_name != _DEFAULT_HOME_BASENAME
                 else "default"
             )
 
         self._client = _Client(api_key, base_url, project)
         self._session_id = session_id
         self._user_id = kwargs.get("user_id", "default") or "default"
-        self._agent_id = kwargs.get("agent_id", _LEGACY_AGENT_ID) or _LEGACY_AGENT_ID
+        self._agent_id = kwargs.get("agent_id", _AGENT_ID) or _AGENT_ID
 
         from fabric_constants import get_fabric_home
-        hermes_home_path = get_fabric_home()
-        db_path = hermes_home_path / "retaindb_queue.db"
+        fabric_home_path = get_fabric_home()
+        db_path = fabric_home_path / "retaindb_queue.db"
         self._queue = _WriteQueue(self._client, db_path)
 
         # Seed agent identity from SOUL.md in background
-        soul_path = hermes_home_path / "SOUL.md"
+        soul_path = fabric_home_path / "SOUL.md"
         if soul_path.exists():
             soul_content = soul_path.read_text(encoding="utf-8", errors="replace").strip()
             if soul_content:

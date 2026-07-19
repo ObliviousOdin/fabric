@@ -671,7 +671,7 @@ class TestSessionJsonSnapshotOptIn:
 
     def test_traversal_session_id_cannot_escape_logs_dir(self, agent, tmp_path):
         # Security regression (#5958): a traversal-shaped session ID (which can
-        # originate from the untrusted X-Hermes-Session-Id API header) must not
+        # originate from the untrusted X-Fabric-Session-Id API header) must not
         # redirect the session snapshot outside the sessions directory.
         agent._session_json_enabled = True
         agent.logs_dir = tmp_path
@@ -703,11 +703,7 @@ class TestSaveSessionLogRedactsSecrets:
 
     @pytest.fixture(autouse=True)
     def _ensure_redaction_enabled(self, monkeypatch):
-        """Force redaction on regardless of host HERMES_REDACT_SECRETS state.
-        The hermetic conftest blanks the env var; the module-level
-        ``_REDACT_ENABLED`` constant is captured at import time, so we
-        flip it directly for the duration of these tests."""
-        monkeypatch.delenv("HERMES_REDACT_SECRETS", raising=False)
+        """Force the process-local redaction policy on for these tests."""
         monkeypatch.setattr("agent.redact._REDACT_ENABLED", True)
 
     def test_redacts_api_key_in_tool_content(self, agent, tmp_path):
@@ -2350,8 +2346,8 @@ class TestExecuteToolCalls:
         assert messages[0]["tool_call_id"] == "c1"
 
     def test_result_truncation_over_100k(self, agent, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        (tmp_path / ".hermes").mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
+        (tmp_path / ".fabric").mkdir()
         tc = _mock_tool_call(name="web_search", arguments="{}", call_id="c1")
         mock_msg = _mock_assistant_msg(content="", tool_calls=[tc])
         messages = []
@@ -2744,7 +2740,6 @@ class TestConcurrentToolExecution:
         import threading
         import time as _time
 
-        monkeypatch.setenv("HERMES_CONCURRENT_TOOL_TIMEOUT_S", "0.1")
         blocker = threading.Event()
         tc1 = _mock_tool_call(name="web_search", arguments='{"q": "fast"}', call_id="c1")
         tc2 = _mock_tool_call(name="web_search", arguments='{"q": "slow"}', call_id="c2")
@@ -2765,7 +2760,13 @@ class TestConcurrentToolExecution:
 
         start = _time.monotonic()
         try:
-            with patch("run_agent.handle_function_call", side_effect=fake_handle):
+            with (
+                patch("run_agent.handle_function_call", side_effect=fake_handle),
+                patch(
+                    "agent.tool_executor._resolve_concurrent_tool_timeout",
+                    return_value=0.1,
+                ),
+            ):
                 agent._execute_tool_calls_concurrent(mock_msg, messages, "task-1")
         finally:
             blocker.set()
@@ -2786,7 +2787,6 @@ class TestConcurrentToolExecution:
         a fabricated 'timed out' message (late-completion race)."""
         import concurrent.futures as _cf
 
-        monkeypatch.setenv("HERMES_CONCURRENT_TOOL_TIMEOUT_S", "0.1")
         tc1 = _mock_tool_call(name="web_search", arguments='{"q": "a"}', call_id="c1")
         tc2 = _mock_tool_call(name="web_search", arguments='{"q": "b"}', call_id="c2")
         mock_msg = _mock_assistant_msg(content="", tool_calls=[tc1, tc2])
@@ -2810,6 +2810,7 @@ class TestConcurrentToolExecution:
             return real_wait(fs, timeout=timeout)
 
         with patch("agent.tool_executor.concurrent.futures.wait", side_effect=fake_wait), \
+             patch("agent.tool_executor._resolve_concurrent_tool_timeout", return_value=0.1), \
              patch("run_agent.handle_function_call", side_effect=lambda name, args, task_id, **k: f"real-{args.get('q')}"):
             agent._execute_tool_calls_concurrent(mock_msg, messages, "task-1")
 
@@ -2836,8 +2837,8 @@ class TestConcurrentToolExecution:
 
     def test_concurrent_truncates_large_results(self, agent, tmp_path, monkeypatch):
         """Concurrent path should save oversized results to file."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        (tmp_path / ".hermes").mkdir()
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
+        (tmp_path / ".fabric").mkdir()
         tc1 = _mock_tool_call(name="web_search", arguments='{}', call_id="c1")
         tc2 = _mock_tool_call(name="web_search", arguments='{}', call_id="c2")
         mock_msg = _mock_assistant_msg(content="", tool_calls=[tc1, tc2])
@@ -3877,7 +3878,7 @@ class TestHandleMaxIterations:
         output ...'. The sanitizer renames the blank name to a non-empty
         sentinel so the call and its result stay PAIRED (no orphaned output,
         no 400) while the result content is preserved — it must NOT drop the
-        call, because hermes' dispatch loop keeps empty-name calls paired with
+        call, because fabric' dispatch loop keeps empty-name calls paired with
         an anti-priming result for self-correction (#47967). (#12807)"""
         messages = [
             {
@@ -5262,7 +5263,9 @@ class TestRunConversation:
         self._setup_agent(agent)
         agent.max_iterations = 2
 
-        monkeypatch.setenv("HERMES_KANBAN_TASK", "t_test_task_123")
+        from fabric_cli.kanban_runtime import configure_kanban_runtime_context
+
+        configure_kanban_runtime_context(task_id="t_test_task_123")
 
         # Return a tool call for every iteration to exhaust the budget.
         tc = _mock_tool_call(name="web_search", arguments="{}", call_id="c1")
@@ -5310,12 +5313,10 @@ class TestRunConversation:
         assert "Iteration budget exhausted" in call.kwargs.get("error", "")
 
     def test_no_kanban_block_when_not_in_kanban_mode(self, agent, monkeypatch):
-        """The exhaustion bridge must NOT fire when HERMES_KANBAN_TASK
-        is unset (non-kanban runs are unaffected by #29747 gap 2)."""
+        """The exhaustion bridge must not fire outside worker context."""
         self._setup_agent(agent)
         agent.max_iterations = 2
 
-        monkeypatch.delenv("HERMES_KANBAN_TASK", raising=False)
 
         tc = _mock_tool_call(name="web_search", arguments="{}", call_id="c1")
         tool_resp = _mock_response(
@@ -7428,7 +7429,7 @@ class TestOAuthFlagAfterCredentialRefresh:
 
         with (
             patch("agent.anthropic_adapter.resolve_anthropic_token",
-                  return_value="sk-ant-setup-oauth-token"),
+                  return_value="sk-ant-oat01-refreshed-token"),
             patch("agent.anthropic_adapter.build_anthropic_client",
                   return_value=MagicMock()),
         ):
@@ -7441,7 +7442,7 @@ class TestOAuthFlagAfterCredentialRefresh:
         """Refreshing from OAuth to API key must set flag to False."""
         agent.api_mode = "anthropic_messages"
         agent.provider = "anthropic"
-        agent._anthropic_api_key = "sk-ant-setup-old"
+        agent._anthropic_api_key = "sk-ant-oat01-old"
         agent._anthropic_client = MagicMock()
         agent._is_anthropic_oauth = True
 
@@ -7468,7 +7469,7 @@ class TestFallbackSetsOAuthFlag:
 
         mock_client = MagicMock()
         mock_client.base_url = "https://api.anthropic.com/v1"
-        mock_client.api_key = "sk-ant-setup-oauth-token"
+        mock_client.api_key = "sk-ant-oat01-fallback-token"
 
         with (
             patch("agent.auxiliary_client.resolve_provider_client",

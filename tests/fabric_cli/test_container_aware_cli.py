@@ -23,21 +23,20 @@ from fabric_cli.config import (
 
 @pytest.fixture
 def container_env(tmp_path, monkeypatch):
-    """Set up a fake HERMES_HOME with .container-mode file."""
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-    monkeypatch.delenv("HERMES_DEV", raising=False)
+    """Set up a fake FABRIC_HOME with .container-mode file."""
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
-    container_mode = hermes_home / ".container-mode"
+    container_mode = fabric_home / ".container-mode"
     container_mode.write_text(
         "# Written by NixOS activation script. Do not edit manually.\n"
         "backend=podman\n"
         "container_name=fabric-agent\n"
-        "exec_user=hermes\n"
-        "hermes_bin=/data/current-package/bin/hermes\n"
+        "exec_user=fabric\n"
+        "fabric_bin=/data/current-package/bin/fabric\n"
     )
-    return hermes_home
+    return fabric_home
 
 
 def test_get_container_exec_info_returns_metadata(container_env):
@@ -48,8 +47,8 @@ def test_get_container_exec_info_returns_metadata(container_env):
     assert info is not None
     assert info["backend"] == "podman"
     assert info["container_name"] == "fabric-agent"
-    assert info["exec_user"] == "hermes"
-    assert info["hermes_bin"] == "/data/current-package/bin/hermes"
+    assert info["exec_user"] == "fabric"
+    assert info["fabric_bin"] == "/data/current-package/bin/fabric"
 
 
 def test_get_container_exec_info_none_inside_container(container_env):
@@ -62,10 +61,9 @@ def test_get_container_exec_info_none_inside_container(container_env):
 
 def test_get_container_exec_info_none_without_file(tmp_path, monkeypatch):
     """Returns None when .container-mode doesn't exist (native mode)."""
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
-    monkeypatch.delenv("HERMES_DEV", raising=False)
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
     with patch("fabric_constants.is_container", return_value=False):
         info = get_container_exec_info()
@@ -73,20 +71,15 @@ def test_get_container_exec_info_none_without_file(tmp_path, monkeypatch):
     assert info is None
 
 
-def test_get_container_exec_info_skipped_when_hermes_dev(container_env, monkeypatch):
-    """Returns None when HERMES_DEV=1 is set (dev mode bypass)."""
-    monkeypatch.setenv("HERMES_DEV", "1")
-
+def test_get_container_exec_info_honors_explicit_dev_bypass(container_env):
+    """The parsed --dev path can bypass managed container routing."""
     with patch("fabric_constants.is_container", return_value=False):
-        info = get_container_exec_info()
+        info = get_container_exec_info(bypass=True)
 
     assert info is None
 
 
-def test_get_container_exec_info_not_skipped_when_hermes_dev_zero(container_env, monkeypatch):
-    """HERMES_DEV=0 does NOT trigger bypass — only '1' does."""
-    monkeypatch.setenv("HERMES_DEV", "0")
-
+def test_get_container_exec_info_does_not_bypass_by_default(container_env):
     with patch("fabric_constants.is_container", return_value=False):
         info = get_container_exec_info()
 
@@ -98,41 +91,40 @@ def test_get_container_exec_info_defaults():
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        hermes_home = Path(tmpdir) / ".hermes"
-        hermes_home.mkdir()
-        (hermes_home / ".container-mode").write_text(
+        fabric_home = Path(tmpdir) / ".fabric"
+        fabric_home.mkdir()
+        (fabric_home / ".container-mode").write_text(
             "# minimal file with no keys\n"
         )
 
         with patch("fabric_constants.is_container", return_value=False), \
-             patch.dict(get_container_exec_info.__globals__, {"get_fabric_home": lambda: hermes_home}), \
+             patch.dict(get_container_exec_info.__globals__, {"get_fabric_home": lambda: fabric_home}), \
              patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_DEV", None)
             info = get_container_exec_info()
 
         assert info is not None
         assert info["backend"] == "docker"
         assert info["container_name"] == "fabric-agent"
-        assert info["exec_user"] == "hermes"
-        assert info["hermes_bin"] == "/data/current-package/bin/hermes"
+        assert info["exec_user"] == "fabric"
+        assert info["fabric_bin"] == "/data/current-package/bin/fabric"
 
 
 def test_get_container_exec_info_docker_backend(container_env):
     """Correctly reads docker backend with custom exec_user."""
     (container_env / ".container-mode").write_text(
         "backend=docker\n"
-        "container_name=hermes-custom\n"
+        "container_name=test-container\n"
         "exec_user=myuser\n"
-        "hermes_bin=/opt/hermes/bin/hermes\n"
+        "fabric_bin=/opt/fabric/bin/fabric\n"
     )
 
     with patch("fabric_constants.is_container", return_value=False):
         info = get_container_exec_info()
 
     assert info["backend"] == "docker"
-    assert info["container_name"] == "hermes-custom"
+    assert info["container_name"] == "test-container"
     assert info["exec_user"] == "myuser"
-    assert info["hermes_bin"] == "/opt/hermes/bin/hermes"
+    assert info["fabric_bin"] == "/opt/fabric/bin/fabric"
 
 
 def test_get_container_exec_info_crashes_on_permission_error(container_env):
@@ -153,8 +145,8 @@ def docker_container_info():
     return {
         "backend": "docker",
         "container_name": "fabric-agent",
-        "exec_user": "hermes",
-        "hermes_bin": "/data/current-package/bin/hermes",
+        "exec_user": "fabric",
+        "fabric_bin": "/data/current-package/bin/fabric",
     }
 
 
@@ -163,8 +155,8 @@ def podman_container_info():
     return {
         "backend": "podman",
         "container_name": "fabric-agent",
-        "exec_user": "hermes",
-        "hermes_bin": "/data/current-package/bin/hermes",
+        "exec_user": "fabric",
+        "fabric_bin": "/data/current-package/bin/fabric",
     }
 
 
@@ -190,13 +182,13 @@ def test_exec_in_container_calls_execvp(docker_container_info):
     assert cmd[1] == "exec"
     assert "-it" in cmd
     idx_u = cmd.index("-u")
-    assert cmd[idx_u + 1] == "hermes"
+    assert cmd[idx_u + 1] == "fabric"
     e_indices = [i for i, v in enumerate(cmd) if v == "-e"]
     e_values = [cmd[i + 1] for i in e_indices]
     assert "TERM=xterm-256color" in e_values
     assert "LANG=en_US.UTF-8" in e_values
     assert "fabric-agent" in cmd
-    assert "/data/current-package/bin/hermes" in cmd
+    assert "/data/current-package/bin/fabric" in cmd
     assert "chat" in cmd
 
 

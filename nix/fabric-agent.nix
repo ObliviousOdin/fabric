@@ -62,24 +62,10 @@ let
     inherit fabricNpmLib;
   };
 
-  # Import bundled plugins (memory, context_engine, platforms/*).  Keeping
-  # them out of the Python site-packages keeps import semantics identical
-  # to a dev checkout — the loader reads them from HERMES_BUNDLED_PLUGINS.
-  bundledPlugins = lib.cleanSourceWith {
-    src = ../plugins;
-    filter = path: _type: !(lib.hasInfix "/__pycache__/" path);
-  };
-
-  # i18n locale catalogs (locales/*.yaml). Shipped into the store and pointed
-  # at by HERMES_BUNDLED_LOCALES so the wrapped binary always resolves human
-  # strings instead of raw i18n keys (#23943 / #27632 / #35374).
-  #
-  # Defense-in-depth, not load-bearing: the wheel already declares locales/ as
-  # setuptools data-files, so uv2nix materializes them into the venv's data
-  # scheme and agent/i18n.py resolves them with no env var. The wrapper override
-  # pins the store path so a future uv2nix change that drops data-files can't
-  # silently ship raw keys via `nix build` (checks don't run on a plain build).
-  # The bundled-locales flake check verifies BOTH paths independently.
+  # i18n locale catalogs (locales/*.yaml). Keep a visible copy in the store for
+  # packaged-asset inspection. Runtime resolution has one contract: setuptools
+  # data-files materialized into the venv's data scheme, which agent/i18n.py
+  # discovers without an environment override.
   #
   # Plain cleanSource (no __pycache__ filter): locales/ is bare *.yaml, never
   # compiled, so it never carries a __pycache__ dir to exclude.
@@ -161,7 +147,6 @@ stdenv.mkDerivation (finalAttrs: {
     runHook preInstall
 
     mkdir -p $out/share/fabric-agent $out/bin
-    cp -r ${bundledPlugins} $out/share/fabric-agent/plugins
     cp -r ${bundledLocales} $out/share/fabric-agent/locales
     cp -r ${fabricWeb} $out/share/fabric-agent/web_dist
     cp -r ${fabricMobileWeb} $out/share/fabric-agent/mobile_web_dist
@@ -169,26 +154,12 @@ stdenv.mkDerivation (finalAttrs: {
     mkdir -p $out/ui-tui
     cp -r ${fabricTui}/lib/fabric-tui/* $out/ui-tui/
 
-    ${lib.concatMapStringsSep "\n"
-      (name: ''
-        makeWrapper ${fabricVenv}/bin/${name} $out/bin/${name} \
-          --suffix PATH : "${runtimePath}" \
-          --set HERMES_BUNDLED_PLUGINS $out/share/fabric-agent/plugins \
-          --set HERMES_BUNDLED_LOCALES $out/share/fabric-agent/locales \
-          --set FABRIC_WEB_DIST $out/share/fabric-agent/web_dist \
-          --set FABRIC_MOBILE_WEB_DIST $out/share/fabric-agent/mobile_web_dist \
-          --set FABRIC_TUI_DIR $out/ui-tui \
-          --set HERMES_PYTHON ${fabricVenv}/bin/python3 \
-          --set HERMES_NODE ${lib.getExe nodejs} \
-          ${lib.optionalString (rev != null) ''--set HERMES_REVISION ${rev} \''}
-          ${lib.optionalString (extraPythonPackages != [ ]) ''--suffix PYTHONPATH : "${pythonPath}"''}
-      '')
-      [
-        "fabric"
-        "fabric-agent"
-        "fabric-acp"
-      ]
-    }
+    makeWrapper ${fabricVenv}/bin/fabric $out/bin/fabric \
+      --suffix PATH : "${runtimePath}" \
+      --set FABRIC_WEB_DIST $out/share/fabric-agent/web_dist \
+      --set FABRIC_TUI_DIR $out/ui-tui \
+      --add-flags ${lib.escapeShellArg (if rev == null then "" else "--package-revision ${rev}")} \
+      ${lib.optionalString (extraPythonPackages != [ ]) ''--suffix PYTHONPATH : "${pythonPath}"''}
 
     ${lib.optionalString (extraPythonPackages != [ ]) ''
       echo "=== Checking for plugin/core package collisions ==="
@@ -223,10 +194,6 @@ stdenv.mkDerivation (finalAttrs: {
         inherit fabricNpmLib electron;
         fabricAgent = finalAttrs.finalPackage;
       };
-
-      devShellHook = ''
-        export HERMES_PYTHON=${devPython}/bin/python3
-      '';
 
       devDeps = runtimeDeps ++ [ devPython ];
     };

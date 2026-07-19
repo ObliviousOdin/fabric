@@ -79,7 +79,7 @@ def redact_key(key: str) -> str:
     """Redact an API key for display.
 
     Thin wrapper over :func:`agent.redact.mask_secret`. Preserves the
-    "(not set)" placeholder in dim color to match ``Fabric config``'s
+    "(not set)" placeholder in dim color to match ``fabric config``'s
     output (previously this variant was missing the DIM color —
     consolidated via PR that also introduced ``mask_secret``).
     """
@@ -111,20 +111,11 @@ def _configured_model_label(config: dict, *, apply_catalog: bool = True) -> str:
     model_cfg = config.get("model")
     if isinstance(model_cfg, dict):
         provider = str(model_cfg.get("provider") or "").strip()
-        if apply_catalog and provider and not _provider_visible_for_status(provider):
-            return "(legacy provider configured)"
         model = (model_cfg.get("default") or model_cfg.get("name") or "").strip()
     elif isinstance(model_cfg, str):
         model = model_cfg.strip()
     else:
         model = ""
-    if (
-        apply_catalog
-        and model
-        and not fabric_model_provider_visible("nous")
-        and any(term in model.lower() for term in ("nous", "hermes"))
-    ):
-        return "(legacy model configured)"
     return model or "(not set)"
 
 
@@ -197,7 +188,7 @@ def _effective_provider_label() -> str:
             effective = "custom"
 
     if not _provider_visible_for_status(effective):
-        return "Legacy provider (configured)"
+        return "Configured provider (not in catalog)"
     return provider_label(effective)
 
 
@@ -518,7 +509,10 @@ def show_status(args):
         elif nous_inference_present:
             nous_label = "not logged in (Nous inference key configured)"
         else:
-            nous_label = "not logged in (run: fabric portal)"
+            nous_label = (
+                "not logged in (run: fabric portal "
+                "--client-id <registered-client-id>)"
+            )
         print(
             f"  {'Nous Portal':<12}  {check_mark(nous_logged_in)} "
             f"{nous_label}"

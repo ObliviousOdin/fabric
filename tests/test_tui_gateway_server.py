@@ -15,11 +15,18 @@ import pytest
 from fabric_constants import reset_fabric_home_override, set_fabric_home_override
 from fabric_cli.active_sessions import active_session_registry_snapshot
 from fabric_cli.browser_connect import ChromeDebugLaunch
+from fabric_cli.tui_launch_context import TuiLaunchContext
 from tui_gateway import server
 
 
+def _set_tui_launch_context(monkeypatch, **values):
+    context = TuiLaunchContext(**values)
+    monkeypatch.setattr(server, "get_tui_launch_context", lambda: context)
+    return context
+
+
 def test_session_create_rejects_at_active_session_limit(monkeypatch, tmp_path):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
     (home / "config.yaml").write_text("max_concurrent_sessions: 1\n", encoding="utf-8")
     token = set_fabric_home_override(home)
@@ -458,12 +465,10 @@ def test_voice_toggle_returns_configured_record_key(monkeypatch):
             check_voice_requirements=lambda: {"available": True, "details": ""}
         ),
     )
-    # ``voice.toggle`` action=on mutates ``os.environ["HERMES_VOICE"]``
-    # directly (CLI parity, runtime-only flag). Take monkeypatch
-    # ownership of the var so the change is reverted at teardown and
-    # later tests don't inherit a stale ON state (Copilot round-5
-    # review on #19835).
-    monkeypatch.setenv("HERMES_VOICE", "0")
+    # Voice mode is runtime-only. Take monkeypatch ownership of the process
+    # state so later tests do not inherit a stale ON value.
+    monkeypatch.setattr(server, "_voice_mode_active", False)
+    monkeypatch.setattr(server, "_voice_tts_active", False)
 
     on_resp = server.dispatch(
         {"id": "voice-on", "method": "voice.toggle", "params": {"action": "on"}}
@@ -550,7 +555,7 @@ def test_voice_record_start_handles_non_dict_voice_cfg(monkeypatch):
             start_continuous=fake_start_continuous, stop_continuous=lambda: None
         ),
     )
-    monkeypatch.setenv("HERMES_VOICE", "1")
+    monkeypatch.setattr(server, "_voice_mode_active", True)
 
     for bad in (True, "cmd+b", None, 42, ["ctrl+b"], {"silence_threshold": "loud"}):
         captured.clear()
@@ -661,7 +666,7 @@ def test_voice_record_start_reports_busy_when_stop_is_in_progress(monkeypatch):
             stop_continuous=lambda **_kwargs: None,
         ),
     )
-    monkeypatch.setenv("HERMES_VOICE", "1")
+    monkeypatch.setattr(server, "_voice_mode_active", True)
     monkeypatch.setattr(server, "_load_cfg", lambda: {"voice": {}})
 
     resp = server.dispatch(
@@ -696,8 +701,8 @@ def test_voice_toggle_tts_branch_also_carries_record_key(monkeypatch):
             check_voice_requirements=lambda: {"available": True, "details": ""}
         ),
     )
-    monkeypatch.setenv("HERMES_VOICE", "1")
-    monkeypatch.delenv("HERMES_VOICE_TTS", raising=False)
+    monkeypatch.setattr(server, "_voice_mode_active", True)
+    monkeypatch.setattr(server, "_voice_tts_active", False)
 
     tts_resp = server.dispatch(
         {"id": "voice-tts", "method": "voice.toggle", "params": {"action": "tts"}}
@@ -708,13 +713,13 @@ def test_voice_toggle_tts_branch_also_carries_record_key(monkeypatch):
 
 
 def test_load_enabled_toolsets_prefers_tui_env(monkeypatch):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "web, terminal, ,memory")
+    _set_tui_launch_context(monkeypatch, toolsets=("web", "terminal", "memory"))
 
     assert server._load_enabled_toolsets() == ["web", "terminal", "memory"]
 
 
 def test_load_enabled_toolsets_filters_invalid_tui_env(monkeypatch, capsys):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "web, nope")
+    _set_tui_launch_context(monkeypatch, toolsets=("web", "nope"))
     monkeypatch.setitem(
         sys.modules,
         "fabric_cli.plugins",
@@ -726,7 +731,7 @@ def test_load_enabled_toolsets_filters_invalid_tui_env(monkeypatch, capsys):
 
 
 def test_load_enabled_toolsets_accepts_plugin_env_after_discovery(monkeypatch):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "plugin_demo")
+    _set_tui_launch_context(monkeypatch, toolsets=("plugin_demo",))
 
     import toolsets
 
@@ -752,7 +757,6 @@ def test_load_enabled_toolsets_folds_project_into_focus_posture(monkeypatch):
     # Focus-mode coding posture returns before the config fallback, but it's
     # still a GUI-only resolver — `project` must come along so the desktop keeps
     # the project tools while sitting in a repo.
-    monkeypatch.delenv("HERMES_TUI_TOOLSETS", raising=False)
 
     import agent.coding_context as cc
 
@@ -761,8 +765,8 @@ def test_load_enabled_toolsets_folds_project_into_focus_posture(monkeypatch):
     assert server._load_enabled_toolsets() == ["coding", "figma", "project"]
 
 
-def test_load_enabled_toolsets_rejects_disabled_mcp_env(monkeypatch, capsys):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "mcp-off")
+def test_load_enabled_toolsets_rejects_disabled_explicit_mcp(monkeypatch, capsys):
+    _set_tui_launch_context(monkeypatch, toolsets=("mcp-off",))
     monkeypatch.setitem(
         sys.modules,
         "fabric_cli.plugins",
@@ -781,17 +785,17 @@ def test_load_enabled_toolsets_rejects_disabled_mcp_env(monkeypatch, capsys):
     )
 
     # Sorted: ["kanban", "memory", "project"]. `kanban` is auto-recovered by
-    # _get_platform_tools (a non-configurable platform toolset in hermes-cli's
+    # _get_platform_tools (a non-configurable platform toolset in fabric-cli's
     # universe); `project` is GUI-only, folded in by _load_enabled_toolsets.
     assert server._load_enabled_toolsets() == ["kanban", "memory", "project"]
     err = capsys.readouterr().err
-    assert "ignoring disabled MCP servers" in err
+    assert "ignoring disabled explicitly selected MCP servers" in err
     assert "mcp-off" in err
     assert "using configured CLI toolsets" in err
 
 
 def test_load_enabled_toolsets_falls_back_when_tui_env_invalid(monkeypatch, capsys):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "nope")
+    _set_tui_launch_context(monkeypatch, toolsets=("nope",))
     monkeypatch.setitem(
         sys.modules,
         "fabric_cli.plugins",
@@ -809,7 +813,7 @@ def test_load_enabled_toolsets_falls_back_when_tui_env_invalid(monkeypatch, caps
 
 
 def test_load_enabled_toolsets_warns_when_config_fallback_fails(monkeypatch, capsys):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "nope")
+    _set_tui_launch_context(monkeypatch, toolsets=("nope",))
     monkeypatch.setitem(
         sys.modules,
         "fabric_cli.plugins",
@@ -827,7 +831,7 @@ def test_load_enabled_toolsets_warns_when_config_fallback_fails(monkeypatch, cap
 
 
 def test_load_enabled_toolsets_honors_builtin_env_if_config_fails(monkeypatch):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "web")
+    _set_tui_launch_context(monkeypatch, toolsets=("web",))
 
     import fabric_cli.config as config_mod
 
@@ -839,7 +843,7 @@ def test_load_enabled_toolsets_honors_builtin_env_if_config_fails(monkeypatch):
 
 
 def test_load_enabled_toolsets_all_env_means_all(monkeypatch):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "all")
+    _set_tui_launch_context(monkeypatch, toolsets=("all",))
 
     assert server._load_enabled_toolsets() is None
 
@@ -847,14 +851,14 @@ def test_load_enabled_toolsets_all_env_means_all(monkeypatch):
 def test_load_enabled_toolsets_all_env_warns_about_ignored_extra_entries(
     monkeypatch, capsys
 ):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "all,nope")
+    _set_tui_launch_context(monkeypatch, toolsets=("all", "nope"))
 
     assert server._load_enabled_toolsets() is None
     assert "ignoring additional entries: nope" in capsys.readouterr().err
 
 
 def test_load_enabled_toolsets_reports_disabled_mcp_separately(monkeypatch, capsys):
-    monkeypatch.setenv("HERMES_TUI_TOOLSETS", "web,mcp-off,nope")
+    _set_tui_launch_context(monkeypatch, toolsets=("web", "mcp-off", "nope"))
     monkeypatch.setitem(
         sys.modules,
         "fabric_cli.plugins",
@@ -871,8 +875,8 @@ def test_load_enabled_toolsets_reports_disabled_mcp_separately(monkeypatch, caps
 
     assert server._load_enabled_toolsets() == ["web"]
     err = capsys.readouterr().err
-    assert "ignoring unknown HERMES_TUI_TOOLSETS entries: nope" in err
-    assert "ignoring disabled MCP servers" in err
+    assert "ignoring unknown explicit toolset entries: nope" in err
+    assert "ignoring disabled explicitly selected MCP servers" in err
     assert "mcp-off" in err
 
 
@@ -984,7 +988,6 @@ def test_session_resume_uses_parent_lineage_for_display(monkeypatch):
             )
 
     monkeypatch.setattr(server, "_get_db", lambda: FakeDB())
-    monkeypatch.setattr(server, "_enable_gateway_prompts", lambda: None)
     monkeypatch.setattr(server, "_set_session_context", lambda target: [])
     monkeypatch.setattr(server, "_clear_session_context", lambda tokens: None)
     monkeypatch.setattr(
@@ -1064,7 +1067,6 @@ def test_session_resume_follows_compression_tip(monkeypatch, tmp_path):
         return types.SimpleNamespace(model="test", provider="test")
 
     monkeypatch.setattr(server, "_get_db", lambda: db)
-    monkeypatch.setattr(server, "_enable_gateway_prompts", lambda: None)
     monkeypatch.setattr(server, "_set_session_context", lambda target: [])
     monkeypatch.setattr(server, "_clear_session_context", lambda tokens: None)
     monkeypatch.setattr(server, "_make_agent", fake_make_agent)
@@ -1116,7 +1118,6 @@ def test_session_resume_passes_stored_runtime_to_agent(monkeypatch):
         return types.SimpleNamespace(model="gpt-5.4", provider="openai-codex")
 
     monkeypatch.setattr(server, "_get_db", lambda: FakeDB())
-    monkeypatch.setattr(server, "_enable_gateway_prompts", lambda: None)
     monkeypatch.setattr(server, "_set_session_context", lambda target: [])
     monkeypatch.setattr(server, "_clear_session_context", lambda tokens: None)
     monkeypatch.setattr(server, "_make_agent", fake_make_agent)
@@ -1199,7 +1200,6 @@ def test_session_resume_profile_uses_profile_db_cwd(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "_profile_home", lambda _profile: profile_home)
     monkeypatch.setattr("fabric_state.SessionDB", lambda db_path=None: profile_db)
     monkeypatch.setattr(server, "_get_db", lambda: launch_db)
-    monkeypatch.setattr(server, "_enable_gateway_prompts", lambda: None)
     monkeypatch.setattr(server, "_set_session_context", lambda target: [])
     monkeypatch.setattr(server, "_clear_session_context", lambda tokens: None)
     monkeypatch.setattr(server, "_make_agent", fake_make_agent)
@@ -1367,21 +1367,12 @@ def test_status_callback_accepts_single_message_argument():
     )
 
 
-def test_resolve_model_uses_inference_model_env(monkeypatch):
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
-    monkeypatch.setenv("HERMES_INFERENCE_MODEL", " anthropic/claude-sonnet-4.6\n")
-
-    assert server._resolve_model() == "anthropic/claude-sonnet-4.6"
-
-
 def test_resolve_model_strips_config_model(monkeypatch):
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_MODEL", raising=False)
     monkeypatch.setattr(
-        server, "_load_cfg", lambda: {"model": {"default": " nous/hermes-test "}}
+        server, "_load_cfg", lambda: {"model": {"default": " nous/test-model "}}
     )
 
-    assert server._resolve_model() == "nous/hermes-test"
+    assert server._resolve_model() == "nous/test-model"
 
 
 def _sync_test_session(**extra):
@@ -1394,8 +1385,6 @@ def _sync_test_session(**extra):
 
 
 def _patch_config_model(monkeypatch, model, provider=""):
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_MODEL", raising=False)
     cfg_model = {"default": model}
     if provider:
         cfg_model["provider"] = provider
@@ -1522,11 +1511,9 @@ def test_config_sync_failure_emits_error_once_per_edit(monkeypatch):
     assert "broken/model" in emits[0][1]["message"]
 
 
-def test_config_sync_config_wins_over_env_seed(monkeypatch):
-    # Hosted instances set HERMES_INFERENCE_MODEL as a provision-time seed;
-    # the per-turn sync must follow config.yaml edits, not stay pinned to it.
-    monkeypatch.setenv("HERMES_INFERENCE_MODEL", "seed/model")
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
+def test_config_sync_config_wins_over_launch_model_seed(monkeypatch):
+    # The one-shot launch seed must not override later config.yaml edits.
+    _set_tui_launch_context(monkeypatch, model="seed/model")
     monkeypatch.setattr(server, "_load_cfg", lambda: {"model": {"default": "new/model"}})
     session = _sync_test_session(config_model_seen=("seed/model", ""))
     calls = []
@@ -1542,15 +1529,14 @@ def test_config_sync_config_wins_over_env_seed(monkeypatch):
     assert session["config_model_seen"] == ("new/model", "")
 
 
-def test_config_sync_ignores_env_seed_without_config_model(monkeypatch):
-    # `hermes --tui -m <model>` sets HERMES_MODEL/HERMES_INFERENCE_MODEL as a
-    # launch-scoped seed. When config.yaml has NO model.default (typical
-    # custom-provider-only setup), the sync must NOT adopt the env seed as a
+def test_config_sync_ignores_launch_seed_without_config_model(monkeypatch):
+    # `fabric --tui -m <model>` supplies a launch-scoped model seed.
+    # When config.yaml has NO model.default (typical
+    # custom-provider-only setup), the sync must NOT adopt the launch seed as a
     # config target — doing so replayed the -m flag as a /model switch and
     # (with persist_switch_by_default=True) wrote it into config.yaml
     # permanently.
-    monkeypatch.setenv("HERMES_MODEL", "one-shot/model")
-    monkeypatch.setenv("HERMES_INFERENCE_MODEL", "one-shot/model")
+    _set_tui_launch_context(monkeypatch, model="one-shot/model")
     monkeypatch.setattr(
         server, "_load_cfg", lambda: {"model": {"provider": "custom:mylocal"}}
     )
@@ -1558,15 +1544,14 @@ def test_config_sync_ignores_env_seed_without_config_model(monkeypatch):
     monkeypatch.setattr(
         server,
         "_apply_model_switch",
-        lambda *a, **k: pytest.fail("env seed must not trigger a config sync switch"),
+        lambda *a, **k: pytest.fail("launch seed must not trigger a config sync switch"),
     )
 
     server._sync_agent_model_with_config("sid", session)
 
 
-def test_config_model_target_never_reads_env(monkeypatch):
-    monkeypatch.setenv("HERMES_MODEL", "seed/model")
-    monkeypatch.setenv("HERMES_INFERENCE_MODEL", "seed/model")
+def test_config_model_target_never_reads_launch_context(monkeypatch):
+    _set_tui_launch_context(monkeypatch, model="seed/model")
     monkeypatch.setattr(server, "_load_cfg", lambda: {"model": {"provider": "nous"}})
 
     assert server._config_model_target() == ("", "nous")
@@ -1614,30 +1599,14 @@ def test_apply_model_switch_persist_override_false_never_persists(monkeypatch):
     assert session["model_override"]["model"] == "new/model"
 
 
-def test_startup_runtime_uses_tui_provider_env(monkeypatch):
-    monkeypatch.setenv("HERMES_MODEL", "nous/hermes-test")
-    monkeypatch.setenv("HERMES_TUI_PROVIDER", "nous")
-    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+def test_startup_runtime_uses_explicit_launch_provider(monkeypatch):
+    _set_tui_launch_context(monkeypatch, model="nous/test-model", provider="nous")
 
-    assert server._resolve_startup_runtime() == ("nous/hermes-test", "nous")
+    assert server._resolve_startup_runtime() == ("nous/test-model", "nous")
 
 
-def test_startup_runtime_does_not_treat_inference_provider_as_explicit(monkeypatch):
-    monkeypatch.setenv("HERMES_MODEL", "nous/hermes-test")
-    monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
-    monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "nous")
-    monkeypatch.setattr(
-        "fabric_cli.models.detect_static_provider_for_model",
-        lambda model, provider: None,
-    )
-
-    assert server._resolve_startup_runtime() == ("nous/hermes-test", None)
-
-
-def test_startup_runtime_detects_provider_for_model_env(monkeypatch):
-    monkeypatch.setenv("HERMES_MODEL", "sonnet")
-    monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+def test_startup_runtime_detects_provider_for_launch_model(monkeypatch):
+    _set_tui_launch_context(monkeypatch, model="sonnet")
     monkeypatch.setattr(server, "_load_cfg", lambda: {"model": {"provider": "auto"}})
 
     def fake_detect(model, current_provider):
@@ -1656,7 +1625,7 @@ def test_startup_runtime_detects_provider_for_model_env(monkeypatch):
 
 
 def test_load_fallback_model_merges_chain_providers_first(monkeypatch):
-    # Parity with HermesCLI / gateway: fallback_providers stays first and keeps
+    # Parity with FabricCLI / gateway: fallback_providers stays first and keeps
     # its order, with any distinct legacy fallback_model entry merged in after
     # (deduped on provider/model/base_url).
     fallback_chain = [
@@ -1689,9 +1658,6 @@ def test_make_agent_passes_configured_fallback_chain(monkeypatch):
         captured.update(kwargs)
         return types.SimpleNamespace(model=kwargs.get("model"))
 
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_MODEL", raising=False)
-    monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
     monkeypatch.setattr(
         server,
         "_load_cfg",
@@ -1765,9 +1731,7 @@ def test_background_agent_kwargs_preserves_empty_fallback_chain(monkeypatch):
 
 
 def test_startup_runtime_resolves_short_alias_without_network(monkeypatch):
-    monkeypatch.setenv("HERMES_MODEL", "sonnet")
-    monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+    _set_tui_launch_context(monkeypatch, model="sonnet")
     monkeypatch.setattr(server, "_load_cfg", lambda: {"model": {"provider": "auto"}})
     monkeypatch.setattr(
         "fabric_cli.models.fetch_openrouter_models",
@@ -1783,9 +1747,7 @@ def test_startup_runtime_resolves_short_alias_without_network(monkeypatch):
 
 
 def test_startup_runtime_does_not_call_network_detector(monkeypatch):
-    monkeypatch.setenv("HERMES_MODEL", "sonnet")
-    monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+    _set_tui_launch_context(monkeypatch, model="sonnet")
     monkeypatch.setattr(server, "_load_cfg", lambda: {"model": {"provider": "auto"}})
     monkeypatch.setattr(
         "fabric_cli.models.detect_provider_for_model",
@@ -2131,7 +2093,7 @@ def test_slash_worker_restart_resolves_remote_profile_credentials(
 
     server._SlashWorker("session-key", "model", profile_home=str(profile_home))
 
-    assert captured["env"]["HERMES_HOME"] == str(profile_home)
+    assert captured["env"]["FABRIC_HOME"] == str(profile_home)
     assert captured["env"]["OPENAI_API_KEY"] == "worker-vault-key"
     assert captured["env"]["BWS_ACCESS_TOKEN"] == "worker-bws"
     assert captured["env"]["OP_SERVICE_ACCOUNT_TOKEN"] == "worker-op"
@@ -2902,14 +2864,10 @@ def test_session_create_initial_ui_values_come_from_remote_profile(
         ),
         encoding="utf-8",
     )
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_MODEL", raising=False)
-    monkeypatch.delenv("HERMES_TUI_TOOL_PROGRESS", raising=False)
     monkeypatch.setattr(server, "_profile_home", lambda _profile: profile_home)
     monkeypatch.setattr(
         "agent.secret_scope.build_profile_secret_scope", lambda _home: {}
     )
-    monkeypatch.setattr(server, "_enable_gateway_prompts", lambda: None)
     monkeypatch.setattr(server, "_schedule_agent_build", lambda *_a, **_k: None)
     monkeypatch.setattr(
         server,
@@ -2948,7 +2906,6 @@ def test_deferred_resume_record_reads_remote_profile_ui_config(
         ),
         encoding="utf-8",
     )
-    monkeypatch.delenv("HERMES_TUI_TOOL_PROGRESS", raising=False)
     monkeypatch.setattr(
         "agent.secret_scope.build_profile_secret_scope", lambda _home: {}
     )
@@ -4312,8 +4269,10 @@ def test_config_busy_get_and_set(monkeypatch):
     assert ("display.busy_input_mode", "interrupt") in writes
 
 
-def test_config_set_yolo_process_scope_treats_false_like_env_as_disabled(monkeypatch):
-    monkeypatch.setenv("HERMES_YOLO_MODE", "false")
+def test_config_set_yolo_without_session_uses_default_scope():
+    from tools.approval import disable_session_yolo, is_session_yolo_enabled
+
+    disable_session_yolo("default")
 
     resp = server.handle_request(
         {
@@ -4324,7 +4283,8 @@ def test_config_set_yolo_process_scope_treats_false_like_env_as_disabled(monkeyp
     )
 
     assert resp["result"]["value"] == "1"
-    assert os.environ.get("HERMES_YOLO_MODE") == "1"
+    assert is_session_yolo_enabled("default") is True
+    disable_session_yolo("default")
 
 
 def test_config_get_statusbar_survives_non_dict_display(monkeypatch):
@@ -4541,16 +4501,24 @@ def test_config_mouse_accepts_preset_strings_and_aliases(monkeypatch):
     assert bad["error"]["code"] == 4002
 
 
-def test_enable_gateway_prompts_sets_gateway_env(monkeypatch):
-    monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
-    monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-    monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
+def test_tui_session_context_routes_approvals_without_mutating_process_env(tmp_path):
+    from gateway.session_context import get_session_context
+    from tools.approval import is_gateway_approval_context
 
-    server._enable_gateway_prompts()
-
-    assert server.os.environ["HERMES_GATEWAY_SESSION"] == "1"
-    assert server.os.environ["HERMES_EXEC_ASK"] == "1"
-    assert server.os.environ["HERMES_INTERACTIVE"] == "1"
+    before = dict(os.environ)
+    server._sessions["sid"] = {
+        "cwd": str(tmp_path),
+        "session_key": "approval-session",
+        "source": "desktop",
+    }
+    tokens = server._set_session_context("approval-session")
+    try:
+        assert get_session_context().source == "desktop"
+        assert is_gateway_approval_context() is True
+        assert dict(os.environ) == before
+    finally:
+        server._clear_session_context(tokens)
+        server._sessions.clear()
 
 
 def test_setup_status_reports_provider_config(monkeypatch):
@@ -5076,72 +5044,11 @@ def test_config_set_model_explicit_provider_surfaces_selected_provider_errors(mo
         server._sessions.pop("sid", None)
 
 
-def test_config_set_model_does_not_leak_inference_provider_env(monkeypatch):
-    """A /model switch must NOT mutate process-global env vars. The desktop /
-    dashboard tui_gateway backend hosts every same-profile session in one
-    process; writing HERMES_INFERENCE_PROVIDER on a switch leaked the new
-    provider into every other live session's next agent rebuild. The switch
-    must instead record a per-session override and leave shared env untouched.
-
-    (Was test_config_set_model_syncs_inference_provider_env, which asserted the
-    leaky env-sync contract that caused the cross-session contamination bug.)
-    """
-
-    class _Agent:
-        provider = "openrouter"
-        model = "old/model"
-        base_url = ""
-        api_key = "sk-or"
-
-        def switch_model(self, **_kwargs):
-            return None
-
-    result = types.SimpleNamespace(
-        success=True,
-        new_model="claude-sonnet-4.6",
-        target_provider="anthropic",
-        api_key="sk-ant",
-        base_url="https://api.anthropic.com",
-        api_mode="anthropic_messages",
-        warning_message="",
-    )
-
-    session = _session(agent=_Agent())
-    server._sessions["sid"] = session
-    monkeypatch.setenv("HERMES_INFERENCE_PROVIDER", "openrouter")
-    monkeypatch.setattr(
-        "fabric_cli.model_switch.switch_model", lambda **_kwargs: result
-    )
-    monkeypatch.setattr(server, "_restart_slash_worker", lambda sid, session: None)
-    monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
-
-    try:
-        server.handle_request(
-            {
-                "id": "1",
-                "method": "config.set",
-                "params": {
-                    "session_id": "sid",
-                    "key": "model",
-                    "value": "claude-sonnet-4.6 --provider anthropic",
-                },
-            }
-        )
-
-        # Shared process env is UNCHANGED (the contamination vector is gone).
-        assert os.environ["HERMES_INFERENCE_PROVIDER"] == "openrouter"
-        # The switch was recorded as a per-session override instead.
-        assert session["model_override"]["provider"] == "anthropic"
-        assert session["model_override"]["model"] == "claude-sonnet-4.6"
-    finally:
-        server._sessions.clear()
-
-
 def test_config_set_model_records_per_session_override_not_env(monkeypatch):
     """Regression for #16857 via the per-session override (not env vars):
     /model must record the user's explicit provider on the session so a later
     /new (which rebuilds via _make_agent honoring model_override) honours that
-    choice — WITHOUT writing process-global env vars that would leak into
+    choice — WITHOUT mutating process-global launch state that would leak into
     sibling sessions.
 
     (Was test_config_set_model_syncs_tui_provider_unconditionally.)
@@ -5168,8 +5075,7 @@ def test_config_set_model_records_per_session_override_not_env(monkeypatch):
 
     session = _session(agent=_Agent())
     server._sessions["sid"] = session
-    monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+    launch = _set_tui_launch_context(monkeypatch)
     monkeypatch.setattr(
         "fabric_cli.model_switch.switch_model", lambda **_kwargs: result
     )
@@ -5189,9 +5095,8 @@ def test_config_set_model_records_per_session_override_not_env(monkeypatch):
             }
         )
 
-        # No process-global env mutation.
-        assert "HERMES_TUI_PROVIDER" not in os.environ
-        assert "HERMES_INFERENCE_PROVIDER" not in os.environ
+        # No process-global launch-context mutation.
+        assert launch.provider == ""
         # The user's explicit provider + resolved endpoint live on the session,
         # carried into the next /new rebuild by _make_agent.
         override = session["model_override"]
@@ -5204,12 +5109,11 @@ def test_config_set_model_records_per_session_override_not_env(monkeypatch):
         server._sessions.clear()
 
 
-def test_config_set_model_switches_agent_without_touching_env(monkeypatch):
+def test_config_set_model_switches_agent_without_touching_launch_context(monkeypatch):
     """A /model switch mutates the target session's agent in place and records
-    a per-session override; it does NOT write HERMES_MODEL / HERMES_TUI_PROVIDER
-    etc. into the shared process environment.
+    a per-session override; it does not rewrite shared launch state.
 
-    (Was test_config_set_model_syncs_tui_provider_env.)
+    (Was test_config_set_model_syncs_tui_provider_unconditionally.)
     """
 
     class Agent:
@@ -5252,9 +5156,7 @@ def test_config_set_model_switches_agent_without_touching_env(monkeypatch):
     agent._session_db = db
     session = _session(agent=agent)
     server._sessions["sid"] = session
-    monkeypatch.setenv("HERMES_TUI_PROVIDER", "openai-codex")
-    monkeypatch.delenv("HERMES_MODEL", raising=False)
-    monkeypatch.delenv("HERMES_INFERENCE_MODEL", raising=False)
+    launch = _set_tui_launch_context(monkeypatch, provider="openai-codex")
     monkeypatch.setattr(server, "_restart_slash_worker", lambda sid, session: None)
     monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
 
@@ -5306,10 +5208,9 @@ def test_config_set_model_switches_agent_without_touching_env(monkeypatch):
             "role": "user",
             "content": session["history"][-1]["content"],
         }
-        # ...and the shared process env was NOT touched.
-        assert os.environ["HERMES_TUI_PROVIDER"] == "openai-codex"
-        assert "HERMES_MODEL" not in os.environ
-        assert "HERMES_INFERENCE_MODEL" not in os.environ
+        # ...and shared launch state was NOT touched.
+        assert launch.provider == "openai-codex"
+        assert launch.model == ""
     finally:
         server._sessions.clear()
 
@@ -5406,7 +5307,7 @@ def test_session_compress_syncs_session_key_after_rotation(monkeypatch):
     """When AIAgent._compress_context rotates session_id (compression split),
     the gateway session_key must follow so subsequent approval routing,
     DB title/history lookups, and slash worker resume target the new
-    continuation session — mirrors HermesCLI._manual_compress's
+    continuation session — mirrors FabricCLI._manual_compress's
     session_id sync (cli.py).
     """
     agent = types.SimpleNamespace(session_id="rotated-id")
@@ -5829,9 +5730,10 @@ def test_commands_catalog_filters_gateway_only_commands_and_keeps_status_visible
     assert "/set-home" not in canon
 
 
-def test_commands_catalog_hides_legacy_nous_commands_by_default(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+def test_commands_catalog_hides_opt_in_nous_commands_by_default(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {}
+    )
 
     resp = server.handle_request(
         {"id": "1", "method": "commands.catalog", "params": {}}
@@ -5843,8 +5745,8 @@ def test_commands_catalog_hides_legacy_nous_commands_by_default(monkeypatch):
     assert "nous" not in pairs["/debug"].lower()
 
 
-def test_commands_catalog_restores_legacy_nous_commands_on_opt_in(monkeypatch):
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
+def test_commands_catalog_shows_nous_commands_on_opt_in(monkeypatch):
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-api,nous".split(",")})
 
     resp = server.handle_request(
         {"id": "1", "method": "commands.catalog", "params": {}}
@@ -7393,8 +7295,8 @@ def test_session_delete_success_returns_deleted_id(monkeypatch):
     assert resp["result"] == {"deleted": "old-1"}
     assert captured["sid"] == "old-1"
     # sessions_dir must be forwarded so transcript files get cleaned up
-    # too — not just the SQLite row.  The autouse _isolate_hermes_home
-    # fixture pins HERMES_HOME to a temp dir; the handler should append
+    # too — not just the SQLite row.  The autouse _isolate_fabric_home
+    # fixture pins FABRIC_HOME to a temp dir; the handler should append
     # /sessions to it.
     assert captured["sessions_dir"] is not None
     assert str(captured["sessions_dir"]).endswith("sessions")
@@ -7819,7 +7721,7 @@ def test_session_active_list_excludes_finalized_sessions(monkeypatch):
     that window ``session.active_list`` would otherwise still report the dead
     session, which is exactly the footer "N sessions" count that only ever grew
     until a gateway restart. A live session on the real stdio transport (the
-    standalone ``hermes --tui`` case) must still be reported.
+    standalone ``fabric --tui`` case) must still be reported.
     """
     class _DB:
         def get_session_title(self, key):
@@ -8057,7 +7959,7 @@ def test_session_most_recent_handles_db_unavailable(monkeypatch):
 
 
 def test_verification_status_returns_recorded_evidence(tmp_path):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
     token = set_fabric_home_override(home)
     project = tmp_path / "project"
@@ -8105,7 +8007,7 @@ def test_verification_status_outside_workspace_is_not_applicable(monkeypatch, tm
 
     monkeypatch.setattr(coding_context, "project_facts_for", lambda _cwd=None: None)
 
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
     token = set_fabric_home_override(home)
     try:
@@ -8823,8 +8725,8 @@ def test_config_set_indicator_none_keeps_blank_repr(monkeypatch):
 # ── reload.env ───────────────────────────────────────────────────────
 
 
-def test_reload_env_rpc_calls_hermes_cli_reload_env(monkeypatch):
-    """reload.env mirrors classic CLI's `/reload` — re-reads ~/.hermes/.env
+def test_reload_env_rpc_calls_fabric_cli_reload_env(monkeypatch):
+    """reload.env mirrors classic CLI's `/reload` — re-reads ~/.fabric/.env
     into the gateway process and reports the count of vars updated."""
     calls = {"n": 0}
 
@@ -9223,18 +9125,18 @@ def test_notification_poller_requeues_when_busy(monkeypatch):
             process_registry.completion_queue.get_nowait()
 
 
-def test_session_save_writes_under_hermes_home_with_system_prompt(monkeypatch, tmp_path):
-    """TUI /save (session.save RPC) must snapshot under the Hermes profile
+def test_session_save_writes_under_fabric_home_with_system_prompt(monkeypatch, tmp_path):
+    """TUI /save (session.save RPC) must snapshot under the Fabric profile
     home — not the project/workspace CWD — and include the system prompt,
     mirroring the classic CLI /save and the dashboard save export.
 
-    Regression: the gateway handler wrote ``hermes_conversation_*.json`` to
+    Regression: the gateway handler wrote ``fabric_conversation_*.json`` to
     ``os.path.abspath(...)`` (the workspace CWD) and only exported ``model``
     and ``messages``, so ``system_prompt`` was missing.
     """
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
 
     # Run from a different CWD to prove the snapshot does NOT leak there.
     work = tmp_path / "workspace"
@@ -9243,10 +9145,10 @@ def test_session_save_writes_under_hermes_home_with_system_prompt(monkeypatch, t
 
     sid = "save-sid"
     agent = types.SimpleNamespace(
-        model="hermes-test",
+        model="test-model",
         session_id="20260101_120000_abc123",
         session_start=datetime(2026, 1, 1, 12, 0, 0),
-        _cached_system_prompt="You are Hermes.",
+        _cached_system_prompt="You are Fabric.",
     )
     history = [
         {"role": "user", "content": "hi"},
@@ -9269,7 +9171,6 @@ def test_session_save_writes_under_hermes_home_with_system_prompt(monkeypatch, t
 
     # Must NOT leak into the workspace/project CWD.
     assert not list(work.glob("fabric_conversation_*.json"))
-    assert not list(work.glob("hermes_conversation_*.json"))
 
     saved_dir = home / "sessions" / "saved"
     assert saved_file.parent == saved_dir
@@ -9277,10 +9178,10 @@ def test_session_save_writes_under_hermes_home_with_system_prompt(monkeypatch, t
     assert saved_file.exists()
 
     payload = json.loads(saved_file.read_text())
-    assert payload["model"] == "hermes-test"
+    assert payload["model"] == "test-model"
     assert payload["session_id"] == "20260101_120000_abc123"
     assert payload["session_start"] == "2026-01-01T12:00:00"
-    assert payload["system_prompt"] == "You are Hermes."
+    assert payload["system_prompt"] == "You are Fabric."
     assert payload["messages"] == history
 
 
@@ -9884,7 +9785,6 @@ def test_session_create_records_ui_model_as_session_override(monkeypatch):
     into the agent), never a global config write — picking a model for a new chat
     must not mutate the profile default.
     """
-    monkeypatch.setattr(server, "_enable_gateway_prompts", lambda: None)
     # Don't run the real deferred build in this storage-focused test.
     monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
     try:
@@ -10302,9 +10202,6 @@ class TestResolveRuntimeWithFallback:
             captured.update(kwargs)
             return types.SimpleNamespace(model=kwargs.get("model"))
 
-        monkeypatch.delenv("HERMES_MODEL", raising=False)
-        monkeypatch.delenv("HERMES_INFERENCE_MODEL", raising=False)
-        monkeypatch.delenv("HERMES_TUI_PROVIDER", raising=False)
         monkeypatch.setattr(
             server,
             "_load_cfg",

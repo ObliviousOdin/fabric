@@ -43,20 +43,10 @@ class TestSkinConfig:
 
 
 class TestBuiltinSkins:
-    def test_ares_skin_loads(self):
+    def test_charizard_has_spinner_customization(self):
         from fabric_cli.skin_engine import load_skin
-        skin = load_skin("ares")
-        assert skin.name == "ares"
-        assert skin.tool_prefix == "╎"
-        assert skin.get_color("banner_border") == "#9F1C1C"
-        assert skin.get_color("response_border") == "#C7A96B"
-        assert skin.get_color("session_label") == "#C7A96B"
-        assert skin.get_color("session_border") == "#6E584B"
-        assert skin.get_branding("agent_name") == "Ares Agent"
 
-    def test_ares_has_spinner_customization(self):
-        from fabric_cli.skin_engine import load_skin
-        skin = load_skin("ares")
+        skin = load_skin("charizard")
         wings = skin.get_spinner_wings()
         assert len(wings) > 0
         assert isinstance(wings[0], tuple)
@@ -125,36 +115,35 @@ class TestBuiltinSkins:
 
 class TestSkinManagement:
     def test_set_active_skin(self):
-        from fabric_cli.skin_engine import set_active_skin, get_active_skin, get_active_skin_name
-        skin = set_active_skin("ares")
-        assert skin.name == "ares"
-        assert get_active_skin_name() == "ares"
-        assert get_active_skin().name == "ares"
+        from fabric_cli.skin_engine import get_active_skin, get_active_skin_name, set_active_skin
+
+        skin = set_active_skin("charizard")
+        assert skin.name == "charizard"
+        assert get_active_skin_name() == "charizard"
+        assert get_active_skin().name == "charizard"
 
     def test_get_active_skin_defaults(self):
         from fabric_cli.skin_engine import get_active_skin
         skin = get_active_skin()
         assert skin.name == "default"
 
-    def test_list_skins_includes_builtins(self):
+    def test_list_skins_includes_builtins(self, tmp_path, monkeypatch):
         from fabric_cli.skin_engine import list_skins
+
+        skins_dir = tmp_path / "skins"
+        skins_dir.mkdir()
+        monkeypatch.setattr("fabric_cli.skin_engine._skins_dir", lambda: skins_dir)
+
         skins = list_skins()
-        names = [s["name"] for s in skins]
-        assert "default" in names
-        assert "fabric" in names
-        assert "ares" in names
-        assert "mono" in names
-        assert "slate" in names
-        assert "daylight" in names
-        assert "warm-lightmode" in names
-        for s in skins:
-            assert "source" in s
-            assert s["source"] == "builtin"
+        names = {skin["name"] for skin in skins}
+        assert names == {"default", "mono", "slate", "daylight", "warm-lightmode", "charizard"}
+        assert all(skin["source"] == "builtin" for skin in skins)
 
     def test_init_skin_from_config(self):
-        from fabric_cli.skin_engine import init_skin_from_config, get_active_skin_name
-        init_skin_from_config({"display": {"skin": "ares"}})
-        assert get_active_skin_name() == "ares"
+        from fabric_cli.skin_engine import get_active_skin_name, init_skin_from_config
+
+        init_skin_from_config({"display": {"skin": "charizard"}})
+        assert get_active_skin_name() == "charizard"
 
     def test_init_skin_from_empty_config(self):
         from fabric_cli.skin_engine import get_active_skin, get_active_skin_name, init_skin_from_config
@@ -183,29 +172,6 @@ class TestSkinManagement:
 
 
 class TestUserSkins:
-    def test_builtin_fabric_alias_ignores_stale_installer_skin(self, tmp_path, monkeypatch):
-        from fabric_cli.skin_engine import load_skin
-
-        skins_dir = tmp_path / "skins"
-        skins_dir.mkdir()
-        (skins_dir / "fabric.yaml").write_text(
-            """name: fabric
-branding:
-  agent_name: Fabric
-banner_logo: OLD-HERMES-ART
-banner_hero: OLD-CADUCEUS
-""",
-            encoding="utf-8",
-        )
-        monkeypatch.setattr("fabric_cli.skin_engine._skins_dir", lambda: skins_dir)
-
-        skin = load_skin("fabric")
-
-        assert skin.name == "fabric"
-        assert skin.get_branding("agent_name") == "Fabric"
-        assert "├────╮  fabric" in skin.banner_logo
-        assert "OLD-HERMES-ART" not in skin.banner_logo
-        assert "OLD-CADUCEUS" not in skin.banner_hero
 
     def test_load_user_skin_from_yaml(self, tmp_path, monkeypatch):
         from fabric_cli.skin_engine import load_skin
@@ -289,17 +255,19 @@ class TestDisplayIntegration:
         assert get_skin_tool_prefix() == "┊"
 
     def test_get_skin_tool_prefix_custom(self):
-        from fabric_cli.skin_engine import set_active_skin
         from agent.display import get_skin_tool_prefix
-        set_active_skin("ares")
-        assert get_skin_tool_prefix() == "╎"
+        from fabric_cli.skin_engine import set_active_skin
+
+        set_active_skin("charizard")
+        assert get_skin_tool_prefix() == "│"
 
     def test_tool_message_uses_skin_prefix(self):
-        from fabric_cli.skin_engine import set_active_skin
         from agent.display import get_cute_tool_message
-        set_active_skin("ares")
+        from fabric_cli.skin_engine import set_active_skin
+
+        set_active_skin("charizard")
         msg = get_cute_tool_message("terminal", {"command": "ls"}, 0.5)
-        assert msg.startswith("╎")
+        assert msg.startswith("│")
         assert "┊" not in msg
 
     def test_tool_message_default_prefix(self):
@@ -314,27 +282,28 @@ class TestCliBrandingHelpers:
 
         assert get_active_prompt_symbol() == "❯ "
 
-    def test_active_prompt_symbol_ares(self):
-        from fabric_cli.skin_engine import set_active_skin, get_active_prompt_symbol
+    def test_active_prompt_symbol_custom(self):
+        from fabric_cli.skin_engine import get_active_prompt_symbol, set_active_skin
 
-        set_active_skin("ares")
-        assert get_active_prompt_symbol() == "⚔ "
+        set_active_skin("charizard")
+        assert get_active_prompt_symbol() == "✦ "
 
-    def test_active_help_header_ares(self):
-        from fabric_cli.skin_engine import set_active_skin, get_active_help_header
+    def test_active_help_header_custom(self):
+        from fabric_cli.skin_engine import get_active_help_header, set_active_skin
 
-        set_active_skin("ares")
-        assert get_active_help_header() == "(⚔) Available Commands"
+        set_active_skin("charizard")
+        assert get_active_help_header() == "(✦) Available Commands"
 
-    def test_active_goodbye_ares(self):
-        from fabric_cli.skin_engine import set_active_skin, get_active_goodbye
+    def test_active_goodbye_custom(self):
+        from fabric_cli.skin_engine import get_active_goodbye, set_active_skin
 
-        set_active_skin("ares")
-        assert get_active_goodbye() == "Farewell, warrior! ⚔"
+        set_active_skin("charizard")
+        assert get_active_goodbye() == "Flame out! ✦"
 
     def test_prompt_toolkit_style_overrides_cover_tui_classes(self):
-        from fabric_cli.skin_engine import set_active_skin, get_prompt_toolkit_style_overrides
-        set_active_skin("ares")
+        from fabric_cli.skin_engine import get_prompt_toolkit_style_overrides, set_active_skin
+
+        set_active_skin("charizard")
         overrides = get_prompt_toolkit_style_overrides()
         required = {
             "input-area",
@@ -356,13 +325,6 @@ class TestCliBrandingHelpers:
             "completion-menu.completion.current",
             "completion-menu.meta.completion",
             "completion-menu.meta.completion.current",
-            "status-bar",
-            "status-bar-strong",
-            "status-bar-dim",
-            "status-bar-good",
-            "status-bar-warn",
-            "status-bar-bad",
-            "status-bar-critical",
             "voice-status",
             "voice-status-recording",
             "clarify-border",
@@ -383,16 +345,16 @@ class TestCliBrandingHelpers:
             "approval-choice",
             "approval-selected",
         }
-        assert required.issubset(overrides.keys())
+        assert required.issubset(overrides)
 
     def test_prompt_toolkit_style_overrides_use_skin_colors(self):
         from fabric_cli.skin_engine import (
-            set_active_skin,
             get_active_skin,
             get_prompt_toolkit_style_overrides,
+            set_active_skin,
         )
 
-        set_active_skin("ares")
+        set_active_skin("charizard")
         skin = get_active_skin()
         overrides = get_prompt_toolkit_style_overrides()
         assert overrides["prompt"] == skin.get_color("prompt")
@@ -413,5 +375,9 @@ class TestCliBrandingHelpers:
         set_active_skin("daylight")
         skin = get_active_skin()
         overrides = get_prompt_toolkit_style_overrides()
-        assert overrides["status-bar"] == f"bg:{skin.get_color('status_bar_bg')} {skin.get_color('banner_text')}"
-        assert overrides["voice-status"] == f"bg:{skin.get_color('voice_status_bg')} {skin.get_color('ui_label')}"
+        assert overrides["status-bar"] == (
+            f"bg:{skin.get_color('status_bar_bg')} {skin.get_color('banner_text')}"
+        )
+        assert overrides["voice-status"] == (
+            f"bg:{skin.get_color('voice_status_bg')} {skin.get_color('ui_label')}"
+        )

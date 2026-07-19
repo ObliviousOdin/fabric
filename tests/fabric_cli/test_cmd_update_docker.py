@@ -4,7 +4,7 @@ Background: ``.dockerignore`` excludes ``.git``, so the existing git-pull
 update path can never succeed inside the published image.  Before this
 fix, ``fabric update`` would fall through to ``"✗ Not a git repository.
 Please reinstall: curl ... install.sh"`` — that script installs a *new*
-host-side Hermes, not an update to the running container, so the message
+host-side Fabric, not an update to the running container, so the message
 was actively misleading.
 
 These tests pin the new behaviour: when ``detect_install_method`` reports
@@ -177,7 +177,7 @@ def test_format_docker_update_message_contents():
     assert "restart" in msg.lower(), "must explain that a restart is required"
     assert "--version" in msg, "must show how to verify the new version"
     assert "git pull --ff-only" in msg, "must explain how to update the source checkout"
-    assert "HERMES_HOME" in msg or "/opt/data" in msg, (
+    assert "FABRIC_HOME" in msg or "/opt/data" in msg, (
         "must address config persistence across upgrades"
     )
 

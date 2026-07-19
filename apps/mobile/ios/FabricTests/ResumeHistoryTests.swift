@@ -16,7 +16,7 @@ final class ResumeHistoryTests: XCTestCase {
                 ],
                 [
                     "type": "approval.request",
-                    "payload": ["description": "Run a command"],
+                    "payload": ["request_id": "approval-1", "description": "Run a command"],
                 ],
             ] as [[String: Any]],
             "inflight": [
@@ -340,6 +340,28 @@ final class ResumeHistoryTests: XCTestCase {
         XCTAssertEqual(queue.first, duplicateCommandApproval)
         queue.clear()
         XCTAssertTrue(queue.items.isEmpty)
+    }
+
+    func testApprovalEventsRequireAnAuthoritativeRequestID() {
+        let missing = GatewayEvent(
+            type: "approval.request",
+            sessionId: "runtime-123",
+            payload: ["description": "Run a command"]
+        )
+        let blank = GatewayEvent(
+            type: "approval.request",
+            sessionId: "runtime-123",
+            payload: ["request_id": "  "]
+        )
+        let valid = GatewayEvent(
+            type: "approval.request",
+            sessionId: "runtime-123",
+            payload: ["request_id": "approval-1", "command": "pwd"]
+        )
+
+        XCTAssertNil(ChatViewModel.approval(from: missing))
+        XCTAssertNil(ChatViewModel.approval(from: blank))
+        XCTAssertEqual(ChatViewModel.approval(from: valid)?.requestId, "approval-1")
     }
 
     func testActiveSessionUsesStableSessionKeyForNavigation() {

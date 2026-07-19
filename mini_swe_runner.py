@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SWE Runner with Hermes Trajectory Format
+SWE Runner with Fabric Trajectory Format
 
 A runner that uses Fabric's built-in execution environments
 (local, docker, modal) and outputs trajectories in the Fabric format
@@ -8,7 +8,7 @@ compatible with batch_runner.py and trajectory_compressor.py.
 
 Features:
 - Uses Fabric's Docker, Modal, or Local environments for command execution
-- Outputs trajectories in Hermes format (from/value pairs with <tool_call>/<tool_response> XML)
+- Outputs trajectories in Fabric format (from/value pairs with <tool_call>/<tool_response> XML)
 - Compatible with the trajectory compression pipeline
 - Supports batch processing from JSONL prompt files
 
@@ -151,7 +151,7 @@ def create_environment(
 
 
 # ============================================================================
-# Mini-SWE Runner with Hermes Trajectory Format
+# Mini-SWE Runner with Fabric Trajectory Format
 # ============================================================================
 
 class MiniSWERunner:
@@ -295,14 +295,14 @@ class MiniSWERunner:
             })
         return json.dumps(formatted_tools, ensure_ascii=False)
     
-    def _convert_to_hermes_format(
+    def _convert_to_fabric_format(
         self,
         messages: List[Dict[str, Any]],
         user_query: str,
         completed: bool
     ) -> List[Dict[str, Any]]:
         """
-        Convert internal message format to Hermes trajectory format.
+        Convert internal messages to Fabric's trajectory format.
         
         This produces the exact format used by batch_runner.py.
         """
@@ -556,8 +556,8 @@ Complete the user's task step by step."""
             # Cleanup environment
             self._cleanup_env()
         
-        # Convert to Hermes trajectory format
-        trajectory = self._convert_to_hermes_format(messages, task, completed)
+        # Convert to Fabric trajectory format
+        trajectory = self._convert_to_fabric_format(messages, task, completed)
         
         return {
             "conversations": trajectory,
@@ -642,7 +642,7 @@ def main(
     verbose: bool = False,
 ):
     """
-    Run SWE tasks with Hermes trajectory format output.
+    Run SWE tasks with Fabric trajectory format output.
     
     Args:
         task: Single task to run (use this OR prompts_file)

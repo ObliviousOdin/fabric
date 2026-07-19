@@ -261,7 +261,7 @@ def test_current_custom_endpoint_passthrough_marks_current_row(monkeypatch):
     """Interactive picker should preserve current custom endpoint semantics."""
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
     monkeypatch.setattr("agent.models_dev.PROVIDER_TO_MODELS_DEV", {})
-    monkeypatch.setattr("fabric_cli.providers.HERMES_OVERLAYS", {})
+    monkeypatch.setattr("fabric_cli.providers.FABRIC_OVERLAYS", {})
     monkeypatch.setattr("fabric_cli.models.fetch_openrouter_models",
                         lambda *a, **kw: [])
 
@@ -296,13 +296,13 @@ def test_current_custom_endpoint_passthrough_marks_current_row(monkeypatch):
 
 
 def test_current_native_ollama_row_is_probe_free_until_explicit_refresh(monkeypatch):
-    from fabric_cli.providers import HERMES_OVERLAYS
+    from fabric_cli.providers import FABRIC_OVERLAYS
 
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
     monkeypatch.setattr("agent.models_dev.PROVIDER_TO_MODELS_DEV", {})
     monkeypatch.setattr(
-        "fabric_cli.providers.HERMES_OVERLAYS",
-        {"ollama": HERMES_OVERLAYS["ollama"]},
+        "fabric_cli.providers.FABRIC_OVERLAYS",
+        {"ollama": FABRIC_OVERLAYS["ollama"]},
     )
     monkeypatch.setattr(
         "fabric_cli.ollama_runtime.discover_ollama_models",
@@ -328,13 +328,13 @@ def test_current_native_ollama_row_is_probe_free_until_explicit_refresh(monkeypa
 
 def test_explicit_refresh_discovers_native_ollama_catalog(monkeypatch):
     from fabric_cli.ollama_runtime import OllamaModelDiscovery
-    from fabric_cli.providers import HERMES_OVERLAYS
+    from fabric_cli.providers import FABRIC_OVERLAYS
 
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
     monkeypatch.setattr("agent.models_dev.PROVIDER_TO_MODELS_DEV", {})
     monkeypatch.setattr(
-        "fabric_cli.providers.HERMES_OVERLAYS",
-        {"ollama": HERMES_OVERLAYS["ollama"]},
+        "fabric_cli.providers.FABRIC_OVERLAYS",
+        {"ollama": FABRIC_OVERLAYS["ollama"]},
     )
     monkeypatch.setattr(
         "fabric_cli.ollama_runtime.discover_ollama_models",

@@ -32,6 +32,7 @@ You need at least one way to connect to an LLM. Use `fabric model` to switch pro
 | **GitHub Copilot** | `fabric model` (OAuth device code flow, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`) |
 | **GitHub Copilot ACP** | `fabric model` (spawns local `copilot --acp --stdio`) |
 | **Anthropic** | `fabric model` (OAuth when available for the account; also supports an Anthropic API key or manual setup-token — see note below) |
+| **Nous Portal** | `fabric auth add nous --client-id <registered-client-id>` (device-code OAuth with a registered Nous OAuth client ID) |
 | **OpenRouter** | `OPENROUTER_API_KEY` in `~/.fabric/.env` |
 | **NovitaAI** | `NOVITA_API_KEY` in `~/.fabric/.env` (provider: `novita`; Model API, Agent Sandbox, and GPU Cloud) |
 | **z.ai / GLM** | `GLM_API_KEY` in `~/.fabric/.env` (provider: `zai`) |
@@ -198,8 +199,7 @@ model:
 | Environment variable | Description |
 |---------------------|-------------|
 | `COPILOT_GITHUB_TOKEN` | GitHub token for Copilot API (first priority) |
-| `HERMES_COPILOT_ACP_COMMAND` | Override the Copilot CLI binary path (default: `copilot`) |
-| `HERMES_COPILOT_ACP_ARGS` | Override ACP args (default: `--acp --stdio`) |
+| `COPILOT_CLI_PATH` | Optional path to the GitHub Copilot CLI binary (default: `copilot`) |
 
 ### First-Class API-Key Providers
 
@@ -422,8 +422,6 @@ model:
   provider: "qwen-oauth"
   default: "qwen3-coder-plus"
 ```
-
-Set `HERMES_QWEN_BASE_URL` only if the portal endpoint relocates (default: `https://portal.qwen.ai/v1`).
 
 :::tip Qwen OAuth vs Qwen Cloud (Alibaba DashScope)
 `qwen-oauth` uses the consumer-facing Qwen Portal with OAuth login — ideal for individual users. The `alibaba` provider uses Qwen Cloud (Alibaba DashScope) with a `DASHSCOPE_API_KEY` — ideal for programmatic / production workloads. Both route to Qwen-family models but live at different endpoints.
@@ -740,8 +738,7 @@ vllm serve meta-llama/Llama-3.1-70B-Instruct \
   --port 8000 \
   --max-model-len 65536 \
   --tensor-parallel-size 2 \
-  --enable-auto-tool-choice \
-  --tool-call-parser fabric
+  --enable-auto-tool-choice
 ```
 
 Then configure Fabric:
@@ -763,7 +760,7 @@ fabric model
 | `--enable-auto-tool-choice` | Required for `tool_choice: "auto"` (the default in Fabric) |
 | `--tool-call-parser <name>` | Parser for the model's tool call format |
 
-Supported parsers: `fabric` (Qwen 2.5, Hermes 2/3), `llama3_json` (Llama 3.x), `mistral`, `deepseek_v3`, `deepseek_v31`, `xlam`, `pythonic`. Without these flags, tool calls won't work — the model will output tool calls as text.
+Supported parsers include `llama3_json` (Llama 3.x), `mistral`, `deepseek_v3`, `deepseek_v31`, `xlam`, and `pythonic`. Without the parser required by your model, tool calls may be emitted as text.
 
 **Qwen reasoning parsers:** Fabric preserves structured reasoning metadata such as `reasoning`, `reasoning_content`, and streamed reasoning deltas when OpenAI-compatible servers return them. That metadata is treated as reasoning/thinking trace data, not as a replacement for the assistant's visible answer. For Qwen reasoning models served by vLLM, make sure the final user-visible response still appears in `content`. If `--reasoning-parser qwen3` leaves `content` empty in your deployment, either disable that parser or pass a server-supported request option such as `chat_template_kwargs.enable_thinking: false` through `extra_body`.
 
@@ -838,7 +835,7 @@ This saves the endpoint to `config.yaml` so it persists across sessions.
 :::caution `--jinja` is required for tool calling
 Without `--jinja`, llama-server ignores the `tools` parameter entirely. The model will try to call tools by writing JSON in its response text, but Fabric won't recognize it as a tool call — you'll see raw JSON like `{"name": "web_search", ...}` printed as a message instead of an actual search.
 
-Native tool calling support (best performance): Llama 3.x, Qwen 2.5 (including Coder), Hermes 2/3, Mistral, DeepSeek, Functionary. All other models use a generic handler that works but may be less efficient. See the [llama.cpp function calling docs](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md) for the full list.
+Native tool calling support (best performance) includes Llama 3.x, Qwen 2.5 (including Coder), Mistral, DeepSeek, and Functionary. Other models use a generic handler that may be less efficient. See the [llama.cpp function calling docs](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md) for the current list.
 
 You can verify tool support is active by checking `http://localhost:8080/props` — the `chat_template` field should be present.
 :::
@@ -1018,7 +1015,7 @@ The model outputs something like `{"name": "web_search", "arguments": {...}}` as
 | Server | Fix |
 |--------|-----|
 | **llama.cpp** | Add `--jinja` to the startup command |
-| **vLLM** | Add `--enable-auto-tool-choice --tool-call-parser fabric` |
+| **vLLM** | Enable automatic tool choice and configure the parser documented by vLLM for your model |
 | **SGLang** | Add `--tool-call-parser qwen` (or appropriate parser) |
 | **Ollama** | Tool-call behavior depends on the selected model and its runtime/template; verify it with a real tool request after connecting. |
 | **LM Studio** | Update to 0.3.6+ and use a model with native tool support |

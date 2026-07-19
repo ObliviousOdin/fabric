@@ -1,15 +1,15 @@
 """Guardrail: dashboard plugins must NOT read the session token directly.
 
 The dashboard host exposes a sanctioned, gated-mode-aware auth surface on the
-plugin SDK (``window.__HERMES_PLUGIN_SDK__``): ``fetchJSON`` (JSON REST),
+plugin SDK (``window.__FABRIC_PLUGIN_SDK__``): ``fetchJSON`` (JSON REST),
 ``authedFetch`` (uploads / blob downloads), and ``buildWsUrl`` /
 ``buildWsAuthParam`` (WebSockets). These handle BOTH dashboard auth modes —
 loopback (``X-Fabric-Session-Token`` header) and gated OAuth
-(``hermes_session_at`` cookie / single-use ``?ticket=``).
+(``fabric_session_at`` cookie / single-use ``?ticket=``).
 
 Plugins that hand-roll ``fetch`` / ``WebSocket`` and read
-``window.__HERMES_SESSION_TOKEN__`` directly send an empty token in gated mode
-and 401/1008. That bug shipped in the kanban and achievements plugins and was
+``window.__DASHBOARD_AUTH_TOKEN__`` directly send an empty token in gated mode
+and 401/1008. That bug shipped in a dashboard plugin and was
 invisible until the dashboard ran gated on hosted Fly agents.
 
 This test fails if any bundled plugin's frontend reads the token global
@@ -32,7 +32,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PLUGINS_DIR = _REPO_ROOT / "plugins"
 
 # The forbidden global. Reading it directly bypasses the gated-mode auth path.
-_FORBIDDEN = "__HERMES_SESSION_TOKEN__"
+_FORBIDDEN = "__DASHBOARD_AUTH_TOKEN__"
 
 # Files explicitly allowed to mention the token (none today). Map path →
 # reason so the allowance is self-documenting if one is ever needed.
@@ -52,8 +52,7 @@ def test_there_are_plugin_bundles_to_check() -> None:
     doesn't silently turn this guard into a no-op."""
     bundles = _plugin_frontend_bundles()
     names = {b.parent.parent.parent.name for b in bundles}
-    # kanban + fabric-achievements are bundled today; assert at least one is
-    # found so the guard can't pass vacuously.
+    # Assert at least one bundle is found so the guard cannot pass vacuously.
     assert bundles, "no plugin dashboard bundles found — glob/layout drift?"
     assert names, "could not resolve plugin names from bundle paths"
 

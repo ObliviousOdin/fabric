@@ -68,8 +68,7 @@ export type Route = "welcome" | "progress" | "success" | "failure";
 
 /// How the installer was launched, mirrored from src-tauri AppMode.
 /// 'install' = first-run onboarding (bare launch). 'update' = driven by the
-/// desktop app handing off via `Fabric-Setup.exe --update` (legacy
-/// `Hermes-Setup.exe` copies remain supported by the Rust side).
+/// desktop app handing off via `Fabric-Setup.exe --update`.
 export type AppMode = "install" | "update";
 
 export const $route = atom<Route>("welcome");
@@ -302,7 +301,7 @@ export async function startInstall(opts?: { branch?: string }): Promise<void> {
       commit: null,
       branch: opts?.branch ?? null,
       include_desktop: true,
-      hermes_home: null,
+      fabric_home: null,
     },
   });
 }

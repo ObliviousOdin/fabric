@@ -11,8 +11,8 @@ import fabric_cli.doctor as doctor_mod
 
 
 def _setup_doctor_env(monkeypatch, tmp_path, venv_name="venv"):
-    """Create a minimal HERMES_HOME + PROJECT_ROOT for doctor tests."""
-    home = tmp_path / ".hermes"
+    """Create a minimal FABRIC_HOME + PROJECT_ROOT for doctor tests."""
+    home = tmp_path / ".fabric"
     home.mkdir(parents=True, exist_ok=True)
     (home / "config.yaml").write_text("memory: {}\n", encoding="utf-8")
 
@@ -22,11 +22,11 @@ def _setup_doctor_env(monkeypatch, tmp_path, venv_name="venv"):
     # Create a fake venv entry point
     venv_bin_dir = project / venv_name / "bin"
     venv_bin_dir.mkdir(parents=True, exist_ok=True)
-    hermes_bin = venv_bin_dir / "hermes"
-    hermes_bin.write_text("#!/usr/bin/env python\n# entry point\n")
-    hermes_bin.chmod(0o755)
+    fabric_bin = venv_bin_dir / "fabric"
+    fabric_bin.write_text("#!/usr/bin/env python\n# entry point\n")
+    fabric_bin.chmod(0o755)
 
-    monkeypatch.setattr(doctor_mod, "HERMES_HOME", home)
+    monkeypatch.setattr(doctor_mod, "FABRIC_HOME", home)
     monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project)
     monkeypatch.setattr(doctor_mod, "_DHH", str(home))
 
@@ -52,7 +52,7 @@ def _setup_doctor_env(monkeypatch, tmp_path, venv_name="venv"):
     except Exception:
         pass
 
-    return home, project, hermes_bin
+    return home, project, fabric_bin
 
 
 def _run_doctor(fix=False):
@@ -71,13 +71,13 @@ class TestDoctorCommandInstallation:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlink check is Unix-only")
     def test_correct_symlink_shows_ok(self, monkeypatch, tmp_path):
-        home, project, hermes_bin = _setup_doctor_env(monkeypatch, tmp_path)
+        home, project, fabric_bin = _setup_doctor_env(monkeypatch, tmp_path)
 
         # Create the command link dir with correct symlink
         cmd_link_dir = tmp_path / ".local" / "bin"
         cmd_link_dir.mkdir(parents=True)
-        cmd_link = cmd_link_dir / "hermes"
-        cmd_link.symlink_to(hermes_bin)
+        cmd_link = cmd_link_dir / "fabric"
+        cmd_link.symlink_to(fabric_bin)
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
@@ -88,7 +88,7 @@ class TestDoctorCommandInstallation:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlink check is Unix-only")
     def test_missing_symlink_shows_fail(self, monkeypatch, tmp_path):
-        home, project, hermes_bin = _setup_doctor_env(monkeypatch, tmp_path)
+        home, project, fabric_bin = _setup_doctor_env(monkeypatch, tmp_path)
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         # Don't create the symlink — it should be missing
@@ -101,7 +101,7 @@ class TestDoctorCommandInstallation:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlink check is Unix-only")
     def test_fix_creates_missing_symlink(self, monkeypatch, tmp_path):
-        home, project, hermes_bin = _setup_doctor_env(monkeypatch, tmp_path)
+        home, project, fabric_bin = _setup_doctor_env(monkeypatch, tmp_path)
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
@@ -110,19 +110,19 @@ class TestDoctorCommandInstallation:
         assert "Created symlink" in out
 
         # Verify the symlink was actually created
-        cmd_link = tmp_path / ".local" / "bin" / "hermes"
+        cmd_link = tmp_path / ".local" / "bin" / "fabric"
         assert cmd_link.is_symlink()
-        assert cmd_link.resolve() == hermes_bin.resolve()
+        assert cmd_link.resolve() == fabric_bin.resolve()
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlink check is Unix-only")
     def test_wrong_target_symlink_shows_warn(self, monkeypatch, tmp_path):
-        home, project, hermes_bin = _setup_doctor_env(monkeypatch, tmp_path)
+        home, project, fabric_bin = _setup_doctor_env(monkeypatch, tmp_path)
 
         # Create a symlink pointing to the wrong target
         cmd_link_dir = tmp_path / ".local" / "bin"
         cmd_link_dir.mkdir(parents=True)
-        cmd_link = cmd_link_dir / "hermes"
-        wrong_target = tmp_path / "wrong_hermes"
+        cmd_link = cmd_link_dir / "fabric"
+        wrong_target = tmp_path / "wrong_fabric"
         wrong_target.write_text("#!/usr/bin/env python\n")
         cmd_link.symlink_to(wrong_target)
 
@@ -134,13 +134,13 @@ class TestDoctorCommandInstallation:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlink check is Unix-only")
     def test_fix_repairs_wrong_symlink(self, monkeypatch, tmp_path):
-        home, project, hermes_bin = _setup_doctor_env(monkeypatch, tmp_path)
+        home, project, fabric_bin = _setup_doctor_env(monkeypatch, tmp_path)
 
         # Create a symlink pointing to wrong target
         cmd_link_dir = tmp_path / ".local" / "bin"
         cmd_link_dir.mkdir(parents=True)
-        cmd_link = cmd_link_dir / "hermes"
-        wrong_target = tmp_path / "wrong_hermes"
+        cmd_link = cmd_link_dir / "fabric"
+        wrong_target = tmp_path / "wrong_fabric"
         wrong_target.write_text("#!/usr/bin/env python\n")
         cmd_link.symlink_to(wrong_target)
 
@@ -151,11 +151,11 @@ class TestDoctorCommandInstallation:
 
         # Verify the symlink now points to the correct target
         assert cmd_link.is_symlink()
-        assert cmd_link.resolve() == hermes_bin.resolve()
+        assert cmd_link.resolve() == fabric_bin.resolve()
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlink check is Unix-only")
     def test_missing_venv_entry_point_shows_warn(self, monkeypatch, tmp_path):
-        home = tmp_path / ".hermes"
+        home = tmp_path / ".fabric"
         home.mkdir(parents=True, exist_ok=True)
         (home / "config.yaml").write_text("memory: {}\n", encoding="utf-8")
 
@@ -163,7 +163,7 @@ class TestDoctorCommandInstallation:
         project.mkdir(exist_ok=True)
         # Do NOT create any venv entry point
 
-        monkeypatch.setattr(doctor_mod, "HERMES_HOME", home)
+        monkeypatch.setattr(doctor_mod, "FABRIC_HOME", home)
         monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project)
         monkeypatch.setattr(doctor_mod, "_DHH", str(home))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -195,26 +195,26 @@ class TestDoctorCommandInstallation:
         home, project, _ = _setup_doctor_env(monkeypatch, tmp_path, venv_name=".venv")
 
         # Create the command link with correct symlink
-        hermes_bin = project / ".venv" / "bin" / "hermes"
+        fabric_bin = project / ".venv" / "bin" / "fabric"
         cmd_link_dir = tmp_path / ".local" / "bin"
         cmd_link_dir.mkdir(parents=True)
-        cmd_link = cmd_link_dir / "hermes"
-        cmd_link.symlink_to(hermes_bin)
+        cmd_link = cmd_link_dir / "fabric"
+        cmd_link.symlink_to(fabric_bin)
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         out = _run_doctor(fix=False)
         assert "Venv entry point exists" in out
-        assert ".venv/bin/hermes" in out
+        assert ".venv/bin/fabric" in out
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Symlink check is Unix-only")
     def test_non_symlink_regular_file_shows_ok(self, monkeypatch, tmp_path):
-        """If ~/.local/bin/hermes is a regular file (not symlink), accept it."""
-        home, project, hermes_bin = _setup_doctor_env(monkeypatch, tmp_path)
+        """If ~/.local/bin/fabric is a regular file (not symlink), accept it."""
+        home, project, fabric_bin = _setup_doctor_env(monkeypatch, tmp_path)
 
         cmd_link_dir = tmp_path / ".local" / "bin"
         cmd_link_dir.mkdir(parents=True)
-        cmd_link = cmd_link_dir / "hermes"
+        cmd_link = cmd_link_dir / "fabric"
         cmd_link.write_text("#!/bin/sh\nexec python -m fabric_cli.main \"$@\"\n")
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -229,7 +229,7 @@ class TestDoctorCommandInstallation:
         prefix_bin = prefix_dir / "bin"
         prefix_bin.mkdir(parents=True)
 
-        home, project, hermes_bin = _setup_doctor_env(monkeypatch, tmp_path)
+        home, project, fabric_bin = _setup_doctor_env(monkeypatch, tmp_path)
 
         monkeypatch.setenv("TERMUX_VERSION", "0.118.3")
         monkeypatch.setenv("PREFIX", str(prefix_dir))
@@ -241,14 +241,14 @@ class TestDoctorCommandInstallation:
 
     def test_windows_skips_check(self, monkeypatch, tmp_path):
         """On Windows, the Command Installation section is skipped."""
-        home = tmp_path / ".hermes"
+        home = tmp_path / ".fabric"
         home.mkdir(parents=True, exist_ok=True)
         (home / "config.yaml").write_text("memory: {}\n", encoding="utf-8")
 
         project = tmp_path / "project"
         project.mkdir(exist_ok=True)
 
-        monkeypatch.setattr(doctor_mod, "HERMES_HOME", home)
+        monkeypatch.setattr(doctor_mod, "FABRIC_HOME", home)
         monkeypatch.setattr(doctor_mod, "PROJECT_ROOT", project)
         monkeypatch.setattr(doctor_mod, "_DHH", str(home))
         monkeypatch.setattr(sys, "platform", "win32")

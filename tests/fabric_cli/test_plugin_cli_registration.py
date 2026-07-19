@@ -8,6 +8,7 @@ Covers:
   - Honcho register_cli() builds correct argparse tree
 """
 
+import argparse
 import sys
 from unittest.mock import MagicMock
 
@@ -167,6 +168,31 @@ class TestMemoryPluginCliDiscovery:
 
 
 # ── Honcho register_cli ──────────────────────────────────────────────────
+
+
+def test_honcho_setup_command_remains_registered():
+    from plugins.memory.honcho.cli import register_cli
+
+    parser = argparse.ArgumentParser()
+    register_cli(parser)
+
+    assert parser.parse_args(["setup"]).honcho_command == "setup"
+
+
+def test_honcho_setup_command_uses_memory_provider_setup(monkeypatch):
+    from plugins.memory.honcho import cli as honcho_cli
+
+    calls = []
+    monkeypatch.setattr(
+        "fabric_cli.memory_setup.cmd_setup_provider",
+        lambda name: calls.append(name),
+    )
+
+    honcho_cli.honcho_command(
+        argparse.Namespace(honcho_command="setup", target_profile=None)
+    )
+
+    assert calls == ["honcho"]
 
 
 # ── ProviderCollector no-op ──────────────────────────────────────────────

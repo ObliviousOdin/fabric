@@ -52,25 +52,26 @@ class TestGetRandomTip:
         # With 200+ tips and 50 draws, we should see at least 10 unique
         assert len(seen) >= 10, f"Only got {len(seen)} unique tips in 50 draws"
 
-    def test_default_catalog_hides_legacy_but_keeps_visible_provider_tips(
+    def test_default_catalog_keeps_fabric_brand_and_visible_provider_tips(
         self, monkeypatch
     ):
-        monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-        monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+        monkeypatch.setattr(
+            "fabric_cli.fabric_capabilities._load_capabilities_config",
+            lambda: {},
+        )
 
         rendered = "\n".join(get_visible_tips())
 
-        assert "Hermes" not in rendered
+        assert "Fabric" in rendered
         assert "Nous" not in rendered
         assert "nousresearch" not in rendered.lower()
         assert "OpenRouter" in rendered
         assert "Anthropic" in rendered
-        # Functional compatibility identifiers remain truthful.
-        assert "HERMES_HOME" in rendered
+        # Canonical runtime identifiers remain truthful.
+        assert "FABRIC_HOME" in rendered
 
-    def test_explicit_legacy_opt_in_restores_nous_tips(self, monkeypatch):
-        monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-        monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
+    def test_explicit_nous_opt_in_restores_nous_tips(self, monkeypatch):
+        monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "nous".split(",")})
 
         rendered = "\n".join(get_visible_tips())
 

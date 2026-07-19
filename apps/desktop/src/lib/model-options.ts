@@ -1,11 +1,11 @@
-import { getGlobalModelOptions, type HermesGateway, type ModelOptionsResponse } from '@/hermes'
+import { type FabricGateway, getGlobalModelOptions, type ModelOptionsResponse } from '@/fabric'
 
 interface ModelOptionsRequest {
   /** When false, include ambient/unconfigured providers (onboarding/setup
    *  surfaces). Chat pickers default to true so only explicitly configured
    *  providers are listed (#56974). */
   explicitOnly?: boolean
-  gateway?: HermesGateway
+  gateway?: FabricGateway
   /** Explicit REST profile for profile-pinned multi-step flows. Ignored when a
    *  gateway/session supplies the ownership scope. */
   profile?: string

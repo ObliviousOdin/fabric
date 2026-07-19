@@ -323,7 +323,7 @@ def _set_approval(subsystem: str, rest: List[str], set_mode_fn) -> str:
     if set_mode_fn is None:
         val = "true" if enabled else "false"
         return (f"To change the {subsystem} approval gate, run:\n"
-                f"  Fabric config set {subsystem}.write_approval {val}")
+                f"  fabric config set {subsystem}.write_approval {val}")
     try:
         set_mode_fn(enabled)
     except Exception as e:

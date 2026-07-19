@@ -92,7 +92,7 @@ describe("isEditableTarget", () => {
 
   it("flags descendants of the xterm host but not plain elements", () => {
     const host = document.createElement("div");
-    host.className = "hermes-chat-xterm-host";
+    host.className = "fabric-chat-xterm-host";
     const inner = document.createElement("div");
     host.appendChild(inner);
     document.body.appendChild(host);

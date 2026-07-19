@@ -158,7 +158,7 @@ rm -f /tmp/link-card.json
 
 ## Optional: run as an MCP server instead
 
-`@stripe/link-cli --mcp` exposes the same commands as MCP tools over stdio. To register it with Fabric' native MCP:
+`@stripe/link-cli --mcp` exposes the same commands as MCP tools over stdio. To register it with Fabric's native MCP:
 
 ```
 fabric mcp add stripe-link --command "npx" --args "@stripe/link-cli --mcp"

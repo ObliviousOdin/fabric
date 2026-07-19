@@ -27,48 +27,6 @@ def _make_store(tmp_path):
         return PairingStore()
 
 
-class TestSplitPairingDirMigration:
-    def test_merges_new_approved_into_active_legacy_dir(self, tmp_path):
-        home = tmp_path / "home"
-        legacy = home / "pairing"
-        new = home / "platforms" / "pairing"
-        legacy.mkdir(parents=True)
-        new.mkdir(parents=True)
-        (new / "feishu-approved.json").write_text(json.dumps({
-            "ou_user": {"user_name": "Alice", "approved_at": 123.0}
-        }))
-
-        with patch("gateway.pairing.PAIRING_DIR", legacy), patch("gateway.pairing.get_fabric_home", return_value=home):
-            store = PairingStore()
-            assert store.is_approved("feishu", "ou_user") is True
-
-        migrated = json.loads((legacy / "feishu-approved.json").read_text())
-        assert "ou_user" in migrated
-
-    def test_active_entries_win_when_merging_split_dirs(self, tmp_path):
-        home = tmp_path / "home"
-        legacy = home / "pairing"
-        new = home / "platforms" / "pairing"
-        legacy.mkdir(parents=True)
-        new.mkdir(parents=True)
-        (legacy / "feishu-approved.json").write_text(json.dumps({
-            "ou_user": {"user_name": "Active", "approved_at": 2.0}
-        }))
-        (new / "feishu-approved.json").write_text(json.dumps({
-            "ou_user": {"user_name": "Inactive", "approved_at": 1.0},
-            "ou_other": {"user_name": "Other", "approved_at": 1.0},
-        }))
-
-        with patch("gateway.pairing.PAIRING_DIR", legacy), patch("gateway.pairing.get_fabric_home", return_value=home):
-            store = PairingStore()
-            assert store.is_approved("feishu", "ou_user") is True
-            assert store.is_approved("feishu", "ou_other") is True
-
-        migrated = json.loads((legacy / "feishu-approved.json").read_text())
-        assert migrated["ou_user"]["user_name"] == "Active"
-        assert migrated["ou_other"]["user_name"] == "Other"
-
-
 # ---------------------------------------------------------------------------
 # _secure_write
 # ---------------------------------------------------------------------------
@@ -354,13 +312,13 @@ class TestRateLimiting:
         assert code2 != code1
 
     def test_whatsapp_alias_flip_hits_same_rate_limit(self, tmp_path, monkeypatch):
-        mapping_dir = tmp_path / "whatsapp" / "session"
+        mapping_dir = tmp_path / "platforms" / "whatsapp" / "session"
         mapping_dir.mkdir(parents=True, exist_ok=True)
         (mapping_dir / "lid-mapping-999999999999999.json").write_text(
             json.dumps("15551234567@s.whatsapp.net"),
             encoding="utf-8",
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
         with patch("gateway.pairing.PAIRING_DIR", tmp_path):
             store = PairingStore()
@@ -463,13 +421,13 @@ class TestApprovalFlow:
         assert result is None
 
     def test_whatsapp_approved_user_survives_alias_flip(self, tmp_path, monkeypatch):
-        mapping_dir = tmp_path / "whatsapp" / "session"
+        mapping_dir = tmp_path / "platforms" / "whatsapp" / "session"
         mapping_dir.mkdir(parents=True, exist_ok=True)
         (mapping_dir / "lid-mapping-999999999999999.json").write_text(
             json.dumps("15551234567@s.whatsapp.net"),
             encoding="utf-8",
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
         with patch("gateway.pairing.PAIRING_DIR", tmp_path):
             store = PairingStore()
@@ -484,21 +442,21 @@ class TestApprovalFlow:
         assert len(approved) == 1
         assert approved[0]["user_id"] == "15551234567"
 
-    def test_whatsapp_legacy_raw_jid_approval_survives_alias_flip(self, tmp_path, monkeypatch):
-        mapping_dir = tmp_path / "whatsapp" / "session"
+    def test_whatsapp_raw_jid_approval_survives_alias_flip(self, tmp_path, monkeypatch):
+        mapping_dir = tmp_path / "platforms" / "whatsapp" / "session"
         mapping_dir.mkdir(parents=True, exist_ok=True)
         (mapping_dir / "lid-mapping-999999999999999.json").write_text(
             json.dumps("15551234567@s.whatsapp.net"),
             encoding="utf-8",
         )
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
 
         approved_path = tmp_path / "whatsapp-approved.json"
         approved_path.write_text(
             json.dumps(
                 {
                     "15551234567@s.whatsapp.net": {
-                        "user_name": "Legacy Alice",
+                        "user_name": "Alice",
                         "approved_at": time.time(),
                     }
                 },
@@ -768,32 +726,32 @@ class TestUnreadablePairingFile:
 
 class TestProfileScopedStorage:
     """PairingStore(profile="<name>") should isolate per-profile whitelists
-    under <HERMES_HOME>/profiles/<name>/pairing/ so a multiplexing gateway
-    can keep each profile's allowlist separate.
+    under <FABRIC_HOME>/profiles/<name>/platforms/pairing/ so a multiplexing
+    gateway can keep each profile's allowlist separate.
     """
 
     def test_default_store_uses_global_dir(self, tmp_path, monkeypatch):
-        """PairingStore() (no profile) keeps the legacy global path so the
-        ``hermes pairing`` CLI continues to work without a profile context."""
+        """PairingStore() uses the canonical active-profile pairing directory."""
         from fabric_constants import get_fabric_home
         monkeypatch.setattr("fabric_constants.get_fabric_home", lambda: tmp_path)
+        canonical = tmp_path / "platforms" / "pairing"
         # Re-import PAIRING_DIR (it's a module-level constant resolved at
         # import time) so the test exercises the right path. We patch it
         # rather than re-importing so the assertion is unambiguous.
-        with patch("gateway.pairing.PAIRING_DIR", tmp_path):
+        with patch("gateway.pairing.PAIRING_DIR", canonical):
             store = PairingStore()
         assert store.profile is None
-        assert store._dir == tmp_path
-        assert store._approved_path("weixin") == tmp_path / "weixin-approved.json"
+        assert store._dir == canonical
+        assert store._approved_path("weixin") == canonical / "weixin-approved.json"
 
     def test_profile_store_uses_profiles_subdir(self, tmp_path, monkeypatch):
         """PairingStore(profile="yangyang") puts files under
-        <HERMES_HOME>/profiles/yangyang/pairing/."""
+        <FABRIC_HOME>/profiles/yangyang/platforms/pairing/."""
         from fabric_constants import get_fabric_home
         monkeypatch.setattr("fabric_constants.get_fabric_home", lambda: tmp_path)
         store = PairingStore(profile="yangyang")
         assert store.profile == "yangyang"
-        expected = tmp_path / "profiles" / "yangyang" / "pairing"
+        expected = tmp_path / "profiles" / "yangyang" / "platforms" / "pairing"
         assert store._dir == expected
         assert store._approved_path("weixin") == expected / "weixin-approved.json"
         # Auto-creates the directory
@@ -830,7 +788,12 @@ class TestProfileScopedStorage:
 
         assert global_store._rate_limit_path() == tmp_path / "_rate_limits.json"
         assert profile_store._rate_limit_path() == (
-            tmp_path / "profiles" / "yangyang" / "pairing" / "_rate_limits.json"
+            tmp_path
+            / "profiles"
+            / "yangyang"
+            / "platforms"
+            / "pairing"
+            / "_rate_limits.json"
         )
 
     def test_pairing_store_for_helper_routes_by_profile(self, tmp_path, monkeypatch):

@@ -57,7 +57,7 @@ def test_starter_pages_cover_the_declarative_block_contract() -> None:
             assert href.startswith("/") or parsed.scheme in {"http", "https", "mailto"}
 
     visible_copy = json.dumps(payload).lower()
-    assert "hermes" not in visible_copy
+    assert "`~/.fabric/config.yaml`" in visible_copy
     assert '"href": "/work"' in visible_copy
     assert '"href": "/kanban"' not in visible_copy
 

@@ -30,7 +30,7 @@ def _patch_common_status_deps(monkeypatch, status_mod, tmp_path, *, openai_base_
 def test_show_status_displays_configured_dict_model_and_provider_label(monkeypatch, capsys, tmp_path):
     from fabric_cli import status as status_mod
 
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "anthropic")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "anthropic".split(",")})
     _patch_common_status_deps(monkeypatch, status_mod, tmp_path)
     monkeypatch.setattr(
         status_mod,
@@ -66,7 +66,7 @@ def test_show_status_displays_legacy_string_model_and_custom_endpoint(monkeypatc
 
 
 def test_show_status_reports_managed_nous_features(monkeypatch, capsys, tmp_path):
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "nous".split(",")})
     monkeypatch.setattr("fabric_cli.status.managed_nous_tools_enabled", lambda: True)
     from fabric_cli import status as status_mod
 
@@ -109,7 +109,7 @@ def test_show_status_reports_managed_nous_features(monkeypatch, capsys, tmp_path
 
 
 def test_show_status_hides_nous_subscription_section_when_feature_flag_is_off(monkeypatch, capsys, tmp_path):
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "nous".split(",")})
     monkeypatch.setattr("fabric_cli.status.managed_nous_tools_enabled", lambda: False)
     from fabric_cli import status as status_mod
 
@@ -131,7 +131,7 @@ def test_show_status_hides_nous_subscription_section_when_feature_flag_is_off(mo
 
 
 def test_show_status_reports_exhausted_nous_credits(monkeypatch, capsys, tmp_path):
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "nous".split(",")})
     monkeypatch.setattr("fabric_cli.status.managed_nous_tools_enabled", lambda: False)
     from fabric_cli import status as status_mod
     import fabric_cli.auth as auth_mod
@@ -187,7 +187,7 @@ def test_show_status_reports_exhausted_nous_credits(monkeypatch, capsys, tmp_pat
 def test_show_status_reports_empty_lmstudio_listing_as_reachable(monkeypatch, capsys, tmp_path):
     from fabric_cli import status as status_mod
 
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "lmstudio")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "lmstudio".split(",")})
     _patch_common_status_deps(monkeypatch, status_mod, tmp_path)
     monkeypatch.setattr(
         status_mod,

@@ -163,7 +163,7 @@ class TestPluginContextRegisterSkill:
 class TestSkillViewQualifiedName:
     @pytest.fixture(autouse=True)
     def _isolate(self, tmp_path, monkeypatch):
-        """Fresh plugin manager + empty SKILLS_DIR for each test."""
+        """Fresh plugin manager + empty local skill root for each test."""
         from fabric_cli import plugins as plugins_mod
         from fabric_cli.plugins import PluginManager
 
@@ -172,8 +172,8 @@ class TestSkillViewQualifiedName:
 
         empty = tmp_path / "empty-skills"
         empty.mkdir()
-        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", empty)
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        monkeypatch.setattr("tools.skills_tool._skills_dir", lambda: empty)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
 
     def _register_skill(self, tmp_path, plugin="superpowers", name="writing-plans", content=None):
         skill_dir = tmp_path / "plugins" / plugin / "skills" / name
@@ -215,7 +215,9 @@ class TestSkillViewQualifiedName:
         skill_dir = tmp_path / "local-skills" / "my-local"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("---\nname: my-local\ndescription: local\n---\nLocal body.\n")
-        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", tmp_path / "local-skills")
+        monkeypatch.setattr(
+            "tools.skills_tool._skills_dir", lambda: tmp_path / "local-skills"
+        )
 
         result = json.loads(skill_view("my-local"))
         assert result["success"] is True
@@ -247,7 +249,7 @@ class TestSkillViewQualifiedName:
         (skill_dir / "SKILL.md").write_text(
             "---\nname: ticktick\ndescription: local categorized\n---\nTickTick body.\n"
         )
-        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", local_skills)
+        monkeypatch.setattr("tools.skills_tool._skills_dir", lambda: local_skills)
 
         result = json.loads(skill_view("productivity:ticktick"))
 
@@ -279,8 +281,8 @@ class TestSkillViewPluginGuards:
         monkeypatch.setattr(plugins_mod, "_plugin_manager", self.pm)
         empty = tmp_path / "empty"
         empty.mkdir()
-        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", empty)
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        monkeypatch.setattr("tools.skills_tool._skills_dir", lambda: empty)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
         self._platform = sys.platform
 
     def _reg(self, tmp_path, content, plugin="myplugin", name="foo"):
@@ -336,8 +338,8 @@ class TestBundleContextBanner:
         monkeypatch.setattr(plugins_mod, "_plugin_manager", self.pm)
         empty = tmp_path / "empty"
         empty.mkdir()
-        monkeypatch.setattr("tools.skills_tool.SKILLS_DIR", empty)
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+        monkeypatch.setattr("tools.skills_tool._skills_dir", lambda: empty)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
 
     def _setup_bundle(self, tmp_path, skills=("foo", "bar", "baz")):
         for name in skills:

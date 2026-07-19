@@ -115,7 +115,7 @@ def build_mcp_parser(subparsers, *, cmd_mcp: Callable) -> None:
     )
     mcp_install_p = mcp_sub.add_parser(
         "install",
-        help="Install a catalog MCP by name (e.g. `fabric mcp install n8n`)",
+        help="Install a catalog MCP by name (e.g. `fabric mcp install linear`)",
     )
     mcp_install_p.add_argument(
         "identifier",

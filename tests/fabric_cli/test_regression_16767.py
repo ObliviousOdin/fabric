@@ -30,7 +30,7 @@ def test_chat_provider_argparse_acceptance(monkeypatch):
         recorded["provider"] = args.provider
 
     monkeypatch.setattr("fabric_cli.main.cmd_chat", mock_cmd_chat)
-    monkeypatch.setattr(sys, "argv", ["hermes", "chat", "--provider", "my-custom-key"])
+    monkeypatch.setattr(sys, "argv", ["fabric", "chat", "--provider", "my-custom-key"])
 
     from fabric_cli.main import main
     main()

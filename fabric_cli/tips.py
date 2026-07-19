@@ -29,7 +29,7 @@ TIPS = [
     "/model lets you switch models mid-session — try a GPT or Grok model.",
     "/model --global changes your default model permanently.",
     "/personality pirate sets a fun personality — 14 built-in options from kawaii to shakespeare.",
-    "/skin changes the CLI theme — try ares, mono, slate, poseidon, or charizard.",
+    "/skin changes the CLI theme — try mono, slate, daylight, or charizard.",
     "/statusbar toggles a persistent bar showing model, tokens, context fill %, cost, and duration.",
     "/tools disable browser temporarily removes browser tools for the current session.",
     "/browser connect attaches browser tools to your running Chromium-family browser via CDP.",
@@ -116,13 +116,13 @@ TIPS = [
     "Set agent.max_turns: 200 to let the agent take more tool-calling steps per turn.",
     "Set file_read_max_chars: 200000 to increase the max content per read_file call.",
     "Set approvals.mode: smart to let an LLM auto-approve safe commands and auto-deny dangerous ones.",
-    "Set fallback_model in config.yaml to automatically fail over to a backup provider.",
+    "Set fallback_providers in config.yaml to automatically fail over to backup providers.",
     "Set privacy.redact_pii: true to hash user IDs and phone numbers before sending to the LLM.",
     "Set browser.record_sessions: true to auto-record browser sessions as WebM videos.",
     "Set worktree: true in config.yaml to always create a git worktree (same as fabric -w).",
     "Set security.website_blocklist.enabled: true to block specific domains from web tools.",
     "Set cron.wrap_response: false to deliver raw agent output without the cron header/footer.",
-    "HERMES_TIMEZONE overrides the server timezone with any IANA timezone string.",
+    "Set timezone in config.yaml to any IANA timezone string.",
     "Environment variable substitution works in config.yaml: use ${VAR_NAME} syntax.",
     "Quick commands in config.yaml run shell commands instantly with zero token usage.",
     "Custom personalities can be defined in config.yaml under agent.personalities.",
@@ -210,14 +210,14 @@ TIPS = [
     "SSRF protection blocks private networks, loopback, link-local, and cloud metadata addresses.",
     "Tirith pre-exec scanning detects homograph URL spoofing and pipe-to-interpreter patterns.",
     "MCP subprocesses receive a filtered environment — only safe system vars pass through.",
-    "Context files (.hermes.md, AGENTS.md) are security-scanned for prompt injection before loading.",
+    "Context files (.fabric.md, AGENTS.md) are security-scanned for prompt injection before loading.",
     "command_allowlist in config.yaml permanently approves specific shell command patterns.",
 
     # --- Context & Compression ---
     "Context auto-compresses when it reaches the threshold — memories are flushed and history summarized.",
     "The status bar turns yellow, then orange, then red as context fills up.",
     "SOUL.md is the agent's primary identity file — customize it to shape behavior.",
-    "Fabric loads project context from .hermes.md, AGENTS.md, CLAUDE.md, or .cursorrules (first match).",
+    "Fabric loads project context from .fabric.md, AGENTS.md, CLAUDE.md, or .cursorrules (first match).",
     "Subdirectory AGENTS.md files are discovered progressively as the agent navigates into folders.",
     "Context files are capped at 20,000 characters with smart head/tail truncation.",
 
@@ -262,9 +262,10 @@ TIPS = [
     ".worktreeinclude in your repo root lists gitignored files to copy into worktrees.",
     "fabric acp runs Fabric as an ACP server for VS Code, Zed, and JetBrains integration.",
     "Custom providers: save named endpoints in config.yaml under custom_providers.",
-    "HERMES_EPHEMERAL_SYSTEM_PROMPT injects a system prompt that's never persisted to history.",
+    "agent.system_prompt injects a system prompt that's never persisted to history.",
     "credential_pool_strategies supports fill_first, round_robin, least_used, and random rotation.",
-    "fabric auth add nous or fabric auth add openai-codex sets up OAuth-based providers.",
+    "fabric auth add nous --client-id <registered-client-id> or fabric auth add "
+    "openai-codex sets up OAuth-based providers.",
     "The API server supports both Chat Completions and Responses API with server-side state.",
     "tool_preview_length: 0 in config shows full file paths in the spinner's activity feed.",
     "fabric status --deep runs deeper diagnostic checks across all components.",
@@ -299,9 +300,8 @@ TIPS = [
     "Any website can expose skills via /.well-known/skills/index.json — the skills hub discovers them automatically.",
     "The skills audit log at ~/.fabric/skills/.hub/audit.log tracks every install and removal operation.",
     "Stale git worktrees are auto-cleaned: 24-72h old with no unpushed commits get pruned on startup.",
-    "Profiles scope Fabric state via HERMES_HOME; host tool subprocesses keep your real HOME unless terminal.home_mode is profile.",
-    "HERMES_HOME_MODE env var (octal, e.g. 0701) sets custom directory permissions for web server traversal.",
-    "Container mode: place .container-mode in HERMES_HOME and the host CLI auto-execs into the container.",
+    "Profiles scope Fabric state via FABRIC_HOME; host tool subprocesses keep your real HOME unless terminal.home_mode is profile.",
+    "Container mode: place .container-mode in FABRIC_HOME and the host CLI auto-execs into the container.",
     "Ctrl+C has 5 priority tiers: cancel recording → cancel prompts → cancel picker → interrupt agent → exit.",
     "Every interrupt during an agent run is logged to ~/.fabric/interrupt_debug.log with timestamps.",
     "BROWSER_CDP_URL connects browser tools to any running Chromium-family browser — accepts WebSocket, HTTP, or host:port.",
@@ -333,7 +333,6 @@ TIPS = [
     "File paths pasted with quotes or escaped spaces are handled automatically — no manual cleanup needed.",
     "Slash commands never trigger the large-paste collapse — /command with big arguments works correctly.",
     "In interrupt mode, slash commands typed during agent execution bypass interrupt logic and run immediately.",
-    "HERMES_DEV=1 bypasses container mode detection for local development.",
     "Each MCP server gets its own toolset (mcp-servername) that can be toggled independently via fabric tools.",
     "MCP ${ENV_VAR} placeholders in config are resolved at server spawn — including vars from ~/.fabric/.env.",
     "Skills from trusted repositories get a 'trusted' security level; community skills get extra scanning.",
@@ -357,7 +356,6 @@ TIPS = [
     # --- Cron (no-agent & scripts) ---
     'cronjob with no_agent=True runs a script on schedule and sends its stdout directly — zero tokens, zero LLM.',
     'An empty cron script stdout means silent tick — nothing is delivered, perfect for threshold watchdogs.',
-    "HERMES_CRON_MAX_PARALLEL (default 4) caps how many cron jobs run per tick so bursts don't saturate your keys.",
 
     # --- Gateway Hooks ---
     'Gateway hooks live under ~/.fabric/hooks/<name>/ with HOOK.yaml + handler.py — handler must be named `handle`.',
@@ -372,13 +370,12 @@ TIPS = [
     # --- Credential Pools & Routing ---
     'fabric auth reset <provider> clears all cooldowns and exhaustion flags on a credential pool.',
     'credential_pool_strategies.<provider>: round_robin cycles keys evenly instead of the fill_first default.',
-    'fabric portal status checks Nous compatibility credentials and managed tool routes.',
+    'fabric portal status checks Nous OAuth credentials and managed tool routes.',
     'provider_routing.data_collection: deny excludes data-storing providers on OpenRouter.',
     'provider_routing.require_parameters: true only routes to providers that support every param in your request.',
 
     # --- TUI & Dashboard ---
-    'HERMES_TUI_RESUME=1 auto-re-attaches to the most recent TUI session on launch — handy after SSH drops.',
-    "HERMES_TUI_THEME=light|dark|<hex> forces the TUI theme on terminals that don't set COLORFGBG.",
+    '`display.tui_auto_resume_recent: true` re-attaches to the most recent TUI session after launch.',
     'Ctrl+G or Ctrl+X Ctrl+E in the TUI opens the input buffer in $EDITOR for long multi-line prompts.',
     'The TUI renders LaTeX inline — $E=mc^2$ becomes Unicode math instead of raw TeX.',
     'fabric dashboard launches a local web UI at 127.0.0.1:9119 — zero data leaves localhost.',
@@ -389,10 +386,8 @@ TIPS = [
 
     # --- Env Vars & Config Gates ---
     "display.tool_progress_command: true exposes /verbose on messaging platforms; it's CLI-only by default.",
-    'HERMES_BACKGROUND_NOTIFICATIONS=result only pings when background tasks finish (vs all/error/off).',
-    'HERMES_WRITE_SAFE_ROOT restricts write_file/patch to directory prefixes; multiple paths via os.pathsep (: or ;).',
-    'HERMES_IGNORE_RULES skips auto-injection of AGENTS.md, SOUL.md, .cursorrules, memory, and preloaded skills.',
-    'HERMES_ACCEPT_HOOKS auto-approves unseen shell hooks declared in config.yaml without a TTY prompt.',
+    'display.background_process_notifications: result only pings when background tasks finish (vs all/error/off).',
+    '`fabric chat --ignore-rules` skips auto-injection of AGENTS.md, SOUL.md, .cursorrules, memory, and preloaded skills.',
     'auxiliary.goal_judge.model routes the /goal judge to a cheap fast model to keep loop cost near zero.',
     'Checkpoints skip directories with more than 50,000 files to avoid slow git operations on massive monorepos.',
 
@@ -435,27 +430,17 @@ TIPS = [
     'fabric dump --show-keys includes redacted API key fingerprints for deeper support debugging.',
     'fabric sessions rename <ID> "new title" renames any past session; fabric sessions delete <ID> removes one.',
     'fabric import restores a session export or profile archive produced by sessions export or profile export.',
-    'fabric fallback manages the fallback_model chain interactively — no hand-editing config.yaml.',
+    'fabric fallback manages the fallback_providers chain interactively — no hand-editing config.yaml.',
     'fabric pairing rotates the DM pairing token — the first messager after rotation claims access to the bot.',
     'fabric setup walks first-time users through provider, keys, and platform wiring in one interactive flow.',
     'fabric status --deep runs the full health sweep across every component; plain fabric status is the quick view.',
 
     # --- Agent Behavior Env Vars ---
-    'HERMES_AGENT_TIMEOUT=0 disables the gateway inactivity kill for a running agent — use for long research runs.',
-        'FABRIC_ENABLE_PROJECT_PLUGINS=1 auto-loads repo-local plugins from ./.fabric/plugins/ — trust-gated by design.',
-    "HERMES_DISABLE_FILE_STATE_GUARD=1 turns off the 'file changed since you read it' guard on patch and write_file.",
-    'HERMES_ALLOW_PRIVATE_URLS=true lets web tools hit localhost and private networks — off by default in gateway mode.',
+    'plugins.allow_project_plugins=true loads repo-local plugins from ./.fabric/plugins/ — trust-gated by design.',
     'Bundled skills resolve from immutable distribution data, so environment variables cannot redirect their trust root.',
     'Official optional skills come from immutable packaged data; install them through the Skills Hub catalog.',
-    'HERMES_DUMP_REQUEST_STDOUT=1 dumps every API request payload to stdout instead of log files.',
-    'HERMES_OAUTH_TRACE=1 logs redacted OAuth token exchange and refresh attempts for debugging provider auth.',
-    'HERMES_STREAM_RETRIES (default 3) controls mid-stream reconnect attempts on transient network errors.',
 
     # --- Gateway Behavior Env Vars ---
-    'HERMES_GATEWAY_BUSY_ACK_ENABLED=false silences the ⚡/⏳/⏩ ack messages when a user messages a busy agent.',
-    'HERMES_AGENT_NOTIFY_INTERVAL (default 180s) sets how often the gateway pings with progress on long turns.',
-    'HERMES_RESTART_DRAIN_TIMEOUT (default 900s) caps how long /restart waits for in-flight runs before forcing.',
-    'HERMES_CHECKPOINT_TIMEOUT (default 30s) caps filesystem checkpoint creation — raise it on huge monorepos.',
 
     # --- Auxiliary Tasks & Image Generation ---
     'image_gen.model in config.yaml picks the FAL model: flux-2/klein, gpt-image-2, nano-banana-pro, and more.',
@@ -487,8 +472,8 @@ def get_visible_tips() -> list[str]:
     """Return tips permitted by the active Fabric provider catalog.
 
     Provider-specific discovery copy follows the same runtime catalog gate as
-    setup/help. Technical compatibility identifiers such as ``HERMES_HOME``
-    remain unchanged, while product prose in the corpus is Fabric-branded.
+    setup/help. Canonical runtime identifiers such as ``FABRIC_HOME`` remain
+    available, while product prose in the corpus is Fabric-branded.
     """
     from fabric_cli.fabric_capabilities import fabric_model_provider_visible
 

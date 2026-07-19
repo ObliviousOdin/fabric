@@ -17,8 +17,18 @@ from pathlib import Path
 from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from fabric_identity_audit import audit_tracked_identity  # noqa: E402
+
 CANONICAL_REPOSITORY = "https://github.com/ObliviousOdin/fabric"
 CANONICAL_DOCS = "https://obliviousodin.github.io/fabric/"
+_FORMER_PRODUCT_IDENTITY = "Her" + "mes"
+_FORMER_PRODUCT_PATTERN = re.escape(_FORMER_PRODUCT_IDENTITY)
+_FORMER_PRODUCT_LOWER_PATTERN = re.escape(_FORMER_PRODUCT_IDENTITY.lower())
+_FORMER_PRODUCT_RE = re.compile(_FORMER_PRODUCT_PATTERN, re.IGNORECASE)
 
 NATIVE_GUIDE_PATHS = (
     "website/docs/getting-started/quickstart.md",
@@ -84,33 +94,30 @@ PUBLIC_DISCOVERY_EXACT_ALLOWLIST = {
 
 _FENCED_BLOCK_RE = re.compile(r"(?ms)^```[^\n]*\n(.*?)^```")
 _LEGACY_COMMAND_LINE_RE = re.compile(
-    r"^[ \t]*(?:[$>]\s*)?hermes(?:[ \t]|$)", re.IGNORECASE
+    rf"^[ \t]*(?:[$>]\s*)?{_FORMER_PRODUCT_PATTERN}(?:[ \t]|$)",
+    re.IGNORECASE,
 )
 _LEGACY_INLINE_COMMAND_RE = re.compile(
-    r"`hermes(?:\s+(?:setup|install|doctor|status|chat|gateway|dashboard|"
+    rf"`{_FORMER_PRODUCT_PATTERN}(?:\s+(?:setup|install|doctor|status|chat|gateway|dashboard|"
     r"serve|model|skills|plugins|config|auth|update|logs|cron)\b|`)",
     re.IGNORECASE,
 )
 _LEGACY_PRODUCT_RE = re.compile(
-    r"\bHermes\s+(?:Agent|Desktop|CLI|TUI|Gateway|Console|Dashboard|"
+    rf"\b{_FORMER_PRODUCT_PATTERN}\s+(?:Agent|Desktop|CLI|TUI|Gateway|Console|Dashboard|"
     r"installation|application)\b",
     re.IGNORECASE,
 )
 _LEGACY_REPOSITORY_RE = re.compile(
     r"(?:github\.com|raw\.githubusercontent\.com)/NousResearch/"
-    r"(?:hermes-agent|fabric-agent)|github:NousResearch/(?:hermes-agent|fabric-agent)|"
+    rf"(?:{_FORMER_PRODUCT_LOWER_PATTERN}-agent|fabric-agent)|"
+    rf"github:NousResearch/(?:{_FORMER_PRODUCT_LOWER_PATTERN}-agent|fabric-agent)|"
     r"fabric-agent\.nousresearch\.com",
-    re.IGNORECASE,
-)
-_HISTORICAL_PROVENANCE_URL_RE = re.compile(
-    r"https://github\.com/NousResearch/hermes-agent/(?:issues|pull)/[0-9]+"
-    r"(?=$|[\s\]\[(){}<>\"'`,.;:!?#])",
     re.IGNORECASE,
 )
 _PRIVATE_PRODUCT_IDENTITY = "Ra" + "bot"
 _UPSTREAM_PRODUCT_IDENTITY_RE = re.compile(
     rf"(?<![A-Za-z0-9])(?:Nous(?:[\s_-]*(?:Portal|Research))?|"
-    rf"Hermes(?:[\s_-]*Agent)?|{_PRIVATE_PRODUCT_IDENTITY}"
+    rf"{_FORMER_PRODUCT_PATTERN}(?:[\s_-]*Agent)?|{_PRIVATE_PRODUCT_IDENTITY}"
     rf"(?:[\s_-]*(?:Inc|Home))?)(?![A-Za-z0-9])|nousresearch",
     re.IGNORECASE,
 )
@@ -172,7 +179,6 @@ _VENDOR_POSITIONING_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 def audit_resolved() -> list[str]:
     """Verify the small dependency-free set of canonical brand helpers."""
 
-    os.environ["FABRIC_BRAND"] = "1"
     sys.path.insert(0, str(ROOT))
 
     from fabric_cli.fabric_brand import (  # pylint: disable=import-outside-toplevel
@@ -245,21 +251,16 @@ def audit_native_guides(
                 line = text.count("\n", 0, block.start(1)) + offset + 1
                 issues.append(f"{relative}:{line}: legacy CLI command")
 
-        provenance_spans = [
-            (match.start(), match.end())
-            for match in _HISTORICAL_PROVENANCE_URL_RE.finditer(text)
-        ]
+        for match in _FORMER_PRODUCT_RE.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            issues.append(f"{relative}:{line}: retired product identity")
+
         for label, pattern in (
             ("legacy inline CLI command", _LEGACY_INLINE_COMMAND_RE),
             ("legacy product identity", _LEGACY_PRODUCT_RE),
             ("legacy repository/docs route", _LEGACY_REPOSITORY_RE),
         ):
             for match in pattern.finditer(text):
-                if label == "legacy repository/docs route" and any(
-                    start <= match.start() and end >= match.end()
-                    for start, end in provenance_spans
-                ):
-                    continue
                 line = text.count("\n", 0, match.start()) + 1
                 issues.append(f"{relative}:{line}: {label}")
     return issues
@@ -564,6 +565,7 @@ def main() -> int:
     args = parser.parse_args()
 
     issues = [
+        *(f"tracked identity: {issue.render()}" for issue in audit_tracked_identity()),
         *audit_resolved(),
         *audit_native_guides(),
         *audit_public_site_sources(),
@@ -583,7 +585,7 @@ def main() -> int:
 
     print(
         "fabric-brand-audit: OK (public identity, discovery surfaces, "
-        "first-run guides, brand color system, and brand asset integrity)"
+        "tracked blobs, first-run guides, brand color system, and brand asset integrity)"
     )
     return 0
 

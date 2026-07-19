@@ -2,16 +2,6 @@ import { useCallback } from 'react'
 
 import { useTheme } from './context'
 
-// Retired skin names land on Fabric so existing preferences migrate cleanly.
-const ALIASES: Record<string, string> = {
-  ares: 'ember',
-  default: 'fabric',
-  gold: 'fabric',
-  hermes: 'fabric',
-  nous: 'fabric',
-  'nous-light': 'fabric'
-}
-
 export function useSkinCommand() {
   const { availableThemes, setTheme, themeName } = useTheme()
 
@@ -42,10 +32,9 @@ export function useSkinCommand() {
       }
 
       const normalized = arg.toLowerCase()
-      const targetName = ALIASES[normalized] || normalized
 
       const target = availableThemes.find(
-        t => t.name.toLowerCase() === targetName || t.label.toLowerCase() === normalized
+        t => t.name.toLowerCase() === normalized || t.label.toLowerCase() === normalized
       )
 
       if (!target) {

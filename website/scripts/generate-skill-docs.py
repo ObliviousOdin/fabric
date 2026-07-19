@@ -43,18 +43,12 @@ _BOX_DRAWING_CHARS = frozenset("┌┐└┘─│═║╔╗╚╝╠╣╦╩
 
 
 def _skill_metadata(frontmatter: dict[str, Any]) -> dict[str, Any]:
-    """Merge legacy skill metadata with canonical Fabric keys per field."""
+    """Return canonical Fabric skill metadata."""
     metadata = frontmatter.get("metadata")
     if not isinstance(metadata, dict):
         return {}
-    merged: dict[str, Any] = {}
-    legacy = metadata.get("hermes")
-    if isinstance(legacy, dict):
-        merged.update(legacy)
     canonical = metadata.get("fabric")
-    if isinstance(canonical, dict):
-        merged.update(canonical)
-    return merged
+    return dict(canonical) if isinstance(canonical, dict) else {}
 
 
 def _wrap_ascii_art_code_blocks(code_segment: str) -> str:

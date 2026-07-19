@@ -24,7 +24,7 @@ from fabric_cli.profile_distribution import (
     _env_template_from_manifest,
     _looks_like_git_url,
     _parse_semver,
-    check_hermes_requires,
+    check_fabric_requires,
     describe_distribution,
     install_distribution,
     plan_install,
@@ -42,9 +42,9 @@ from fabric_cli.profile_distribution import (
 @pytest.fixture()
 def profile_env(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    default_home = tmp_path / ".hermes"
+    default_home = tmp_path / ".fabric"
     default_home.mkdir(exist_ok=True)
-    monkeypatch.setenv("HERMES_HOME", str(default_home))
+    monkeypatch.setenv("FABRIC_HOME", str(default_home))
     return tmp_path
 
 
@@ -100,7 +100,7 @@ class TestManifestParsing:
             "name: telem\n"
             "version: 1.2.3\n"
             "description: Telem monitor\n"
-            "hermes_requires: '>=0.12.0'\n"
+            "fabric_requires: '>=0.12.0'\n"
             "author: Kyle\n"
             "license: MIT\n"
             "env_requires:\n"
@@ -185,10 +185,10 @@ class TestVersionRequires:
     ])
     def test_check_matrix(self, spec, cur, ok):
         if ok:
-            check_hermes_requires(spec, cur)
+            check_fabric_requires(spec, cur)
         else:
             with pytest.raises(DistributionError, match="requires Fabric"):
-                check_hermes_requires(spec, cur)
+                check_fabric_requires(spec, cur)
 
     def test_parse_semver_handles_prerelease(self):
         assert _parse_semver("0.12.0-rc1") == (0, 12, 0)
@@ -334,7 +334,7 @@ class TestInstall:
         assert example.is_file()
         assert "OPENAI_API_KEY" in example.read_text()
 
-    def test_install_enforces_hermes_requires(self, profile_env, monkeypatch):
+    def test_install_enforces_fabric_requires(self, profile_env, monkeypatch):
         # Pin current Fabric version to something well below the requirement
         import fabric_cli
         monkeypatch.setattr(fabric_cli, "__version__", "0.1.0", raising=False)
@@ -342,7 +342,7 @@ class TestInstall:
         mf = DistributionManifest(
             name="future",
             version="1.0.0",
-            hermes_requires=">=99.0.0",
+            fabric_requires=">=99.0.0",
         )
         staged = _make_staging_dir(profile_env, "future", manifest=mf)
         with pytest.raises(DistributionError, match="requires Fabric"):
@@ -462,6 +462,7 @@ class TestSecurity:
         assert ".env" in USER_OWNED_EXCLUDE
         assert "memories" in USER_OWNED_EXCLUDE
         assert "sessions" in USER_OWNED_EXCLUDE
+        assert "cache" in USER_OWNED_EXCLUDE
         assert "local" in USER_OWNED_EXCLUDE
 
     def test_install_does_not_import_credentials_from_staging(self, profile_env):

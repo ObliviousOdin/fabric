@@ -1,11 +1,11 @@
 """Tests for the configurable default interface (cli vs tui).
 
-`hermes` launches the classic prompt_toolkit REPL by default, but users can
+`fabric` launches the classic prompt_toolkit REPL by default, but users can
 flip ``display.interface: tui`` in config.yaml to make the modern Ink TUI the
-default for bare ``hermes`` / ``fabric chat``. Explicit flags always win:
+default for bare ``fabric`` / ``fabric chat``. Explicit flags always win:
 
     --cli                forces the classic REPL (highest precedence)
-    --tui / HERMES_TUI=1 forces the TUI
+    --tui                forces the TUI
     display.interface    the configured default
     (unset)              classic REPL
 
@@ -22,7 +22,6 @@ These tests pin that precedence at every layer that makes the decision:
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 
 import pytest
@@ -33,9 +32,8 @@ from fabric_cli import main as m
 @pytest.fixture(autouse=True)
 def _reset_early_cache(monkeypatch):
     # The early resolver memoizes the config read; clear it so each test sees
-    # a fresh value, and make sure no stray HERMES_TUI leaks in.
+    # a fresh value.
     monkeypatch.setattr(m, "_EARLY_INTERFACE_CACHE", None)
-    monkeypatch.delenv("HERMES_TUI", raising=False)
     yield
     monkeypatch.setattr(m, "_EARLY_INTERFACE_CACHE", None)
 
@@ -62,19 +60,13 @@ class TestResolveUseTui:
         _patch_config(monkeypatch, "tui")
         assert m._resolve_use_tui(_args(cli=True)) is False
 
-    def test_cli_flag_beats_tui_flag_and_env(self, monkeypatch):
+    def test_cli_flag_beats_tui_flag(self, monkeypatch):
         _patch_config(monkeypatch, "tui")
-        monkeypatch.setenv("HERMES_TUI", "1")
         assert m._resolve_use_tui(_args(cli=True, tui=True)) is False
 
     def test_tui_flag_beats_config_cli(self, monkeypatch):
         _patch_config(monkeypatch, "cli")
         assert m._resolve_use_tui(_args(tui=True)) is True
-
-    def test_env_beats_config_cli(self, monkeypatch):
-        _patch_config(monkeypatch, "cli")
-        monkeypatch.setenv("HERMES_TUI", "1")
-        assert m._resolve_use_tui(_args()) is True
 
     def test_config_tui_with_no_flags(self, monkeypatch):
         _patch_config(monkeypatch, "tui")
@@ -108,7 +100,7 @@ class TestWantsTuiEarly:
             (tmp_path / "config.yaml").write_text(
                 f"display:\n  interface: {interface}\n"
             )
-            monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+            monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
             monkeypatch.setattr(m, "_EARLY_INTERFACE_CACHE", None)
 
         return _make
@@ -125,25 +117,20 @@ class TestWantsTuiEarly:
         home_with_interface("cli")
         assert m._wants_tui_early(["--tui"]) is True
 
-    def test_env_with_config_cli(self, home_with_interface, monkeypatch):
-        home_with_interface("cli")
-        monkeypatch.setenv("HERMES_TUI", "1")
-        assert m._wants_tui_early([]) is True
-
     def test_config_cli_bare_argv(self, home_with_interface):
         home_with_interface("cli")
         assert m._wants_tui_early([]) is False
 
     def test_missing_config_defaults_to_cli(self, tmp_path, monkeypatch):
-        # HERMES_HOME points at an empty dir — no config.yaml.
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        # FABRIC_HOME points at an empty dir — no config.yaml.
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         monkeypatch.setattr(m, "_EARLY_INTERFACE_CACHE", None)
         assert m._wants_tui_early([]) is False
 
     def test_unreadable_config_defaults_to_cli(self, tmp_path, monkeypatch):
         # Garbage YAML must not crash the hot path; falls back to cli.
         (tmp_path / "config.yaml").write_text("this: : : not valid yaml\n")
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
         monkeypatch.setattr(m, "_EARLY_INTERFACE_CACHE", None)
         assert m._wants_tui_early([]) is False
 

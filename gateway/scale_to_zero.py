@@ -8,9 +8,7 @@ suspend the machine. On Fly, the now-traffic-idle machine is suspended by
 ``autostop:"suspend"`` and woken by autostart-on-wakeUrl (decisions.md Q3=C′).
 
 Design constraints (decisions.md):
-  - Per-instance enable is gated SOLELY by the NAS "Labs" toggle, carried to the
-    gateway as the ``HERMES_SCALE_TO_ZERO`` env stamp (D11/Q8=A). NOT a user
-    config key; ``scale_to_zero.idle_timeout_minutes`` IS config.yaml (D2).
+  - Per-instance enable and idle timeout are explicit gateway configuration.
   - Arm only when messaging is relay-only or absent (D1/F6) AND a wakeUrl is
     registered (§3.4(1)) AND the flag is set.
   - Idle = no in-flight agent turn AND no inbound for N min AND no live
@@ -28,12 +26,7 @@ inputs so they unit-test without a live gateway.
 
 from __future__ import annotations
 
-import os
 from typing import Any, Iterable, Optional
-
-# Env flag stamped by NAS when the scaleToZero Labs toggle is on (D11/Q8=A),
-# mirroring how the `relay` feature stamps GATEWAY_RELAY_URL. Truthy values only.
-SCALE_TO_ZERO_ENV = "HERMES_SCALE_TO_ZERO"
 
 # config.yaml default (D2). Behavioural setting -> config, not env.
 DEFAULT_IDLE_TIMEOUT_MINUTES = 5
@@ -41,14 +34,11 @@ DEFAULT_IDLE_TIMEOUT_MINUTES = 5
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
-def scale_to_zero_enabled(environ: Optional[dict] = None) -> bool:
-    """Whether the per-instance Labs toggle is on (the HERMES_SCALE_TO_ZERO stamp).
-
-    D11/Q8=A: this env flag is the SOLE per-instance enable signal reaching the
-    gateway. Absent/blank/falsey -> disabled (fail-safe default off).
-    """
-    env = environ if environ is not None else os.environ
-    return str(env.get(SCALE_TO_ZERO_ENV, "")).strip().lower() in _TRUTHY
+def scale_to_zero_enabled(value: Any) -> bool:
+    """Parse ``gateway.scale_to_zero.enabled`` with a fail-safe default."""
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in _TRUTHY
 
 
 def parse_idle_timeout_seconds(

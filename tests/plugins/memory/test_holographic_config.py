@@ -39,7 +39,7 @@ def test_save_config_uses_fail_closed_atomic_config_writer(tmp_path, monkeypatch
     from fabric_cli import config as config_module
 
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("display:\n  skin: fabric\n", encoding="utf-8")
+    config_path.write_text("display:\n  skin: default\n", encoding="utf-8")
     writes = []
 
     def capture_write(path: Path, data: dict, **kwargs):
@@ -54,9 +54,9 @@ def test_save_config_uses_fail_closed_atomic_config_writer(tmp_path, monkeypatch
         (
             config_path,
             {
-                "display": {"skin": "fabric"},
+                "display": {"skin": "default"},
                 "plugins": {
-                    "hermes-memory-store": {"auto_extract": "false"}
+                    "fabric-memory-store": {"auto_extract": "false"}
                 },
             },
             {"sort_keys": False},
@@ -66,7 +66,7 @@ def test_save_config_uses_fail_closed_atomic_config_writer(tmp_path, monkeypatch
 
 def test_save_config_preserves_unrelated_settings(tmp_path):
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("display:\n  skin: fabric\n", encoding="utf-8")
+    config_path.write_text("display:\n  skin: default\n", encoding="utf-8")
     provider = HolographicMemoryProvider(config={})
 
     provider.save_config(
@@ -75,9 +75,9 @@ def test_save_config_preserves_unrelated_settings(tmp_path):
     )
 
     assert yaml.safe_load(config_path.read_text(encoding="utf-8")) == {
-        "display": {"skin": "fabric"},
+        "display": {"skin": "default"},
         "plugins": {
-            "hermes-memory-store": {
+            "fabric-memory-store": {
                 "auto_extract": "false",
                 "default_trust": "0.7",
             }
@@ -88,7 +88,7 @@ def test_save_config_preserves_unrelated_settings(tmp_path):
 def test_save_config_propagates_atomic_write_failure(tmp_path, monkeypatch):
     from fabric_cli import config as config_module
 
-    original = "display:\n  skin: fabric\n"
+    original = "display:\n  skin: default\n"
     config_path = tmp_path / "config.yaml"
     config_path.write_text(original, encoding="utf-8")
 

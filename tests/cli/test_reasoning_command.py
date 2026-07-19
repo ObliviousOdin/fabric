@@ -306,9 +306,9 @@ class TestReasoningCallback(unittest.TestCase):
 
 class TestReasoningPreviewBuffering(unittest.TestCase):
     def _make_cli(self):
-        from cli import HermesCLI
+        from cli import FabricCLI
 
-        cli = HermesCLI.__new__(HermesCLI)
+        cli = FabricCLI.__new__(FabricCLI)
         cli.verbose = True
         cli._spinner_text = ""
         cli._reasoning_preview_buf = ""
@@ -376,9 +376,9 @@ class TestReasoningPreviewBuffering(unittest.TestCase):
 
 class TestReasoningDisplayModeSelection(unittest.TestCase):
     def _make_cli(self, *, show_reasoning=False, streaming_enabled=False, verbose=False):
-        from cli import HermesCLI
+        from cli import FabricCLI
 
-        cli = HermesCLI.__new__(HermesCLI)
+        cli = FabricCLI.__new__(FabricCLI)
         cli.show_reasoning = show_reasoning
         cli.streaming_enabled = streaming_enabled
         cli.verbose = verbose
@@ -717,8 +717,8 @@ class TestReasoningShownThisTurnFlag(unittest.TestCase):
     was already shown during streaming in a tool-calling loop."""
 
     def _make_cli(self):
-        from cli import HermesCLI
-        cli = HermesCLI.__new__(HermesCLI)
+        from cli import FabricCLI
+        cli = FabricCLI.__new__(FabricCLI)
         cli.show_reasoning = True
         cli.streaming_enabled = True
         cli._stream_box_opened = False

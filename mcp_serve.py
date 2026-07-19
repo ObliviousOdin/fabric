@@ -62,11 +62,9 @@ except ImportError:
 
 def _get_sessions_dir() -> Path:
     """Return the sessions directory using Fabric's configured home."""
-    try:
-        from fabric_constants import get_fabric_home
-        return get_fabric_home() / "sessions"
-    except ImportError:
-        return Path(os.environ.get("FABRIC_HOME", Path.home() / ".fabric")) / "sessions"
+    from fabric_constants import get_fabric_home
+
+    return get_fabric_home() / "sessions"
 
 
 def _get_session_db():
@@ -194,13 +192,9 @@ def _load_sessions_index_from_json() -> dict:
 
 def _load_channel_directory() -> dict:
     """Load the cached channel directory for available targets."""
-    try:
-        from fabric_constants import get_fabric_home
-        directory_file = get_fabric_home() / "channel_directory.json"
-    except ImportError:
-        directory_file = Path(
-            os.environ.get("FABRIC_HOME", Path.home() / ".fabric")
-        ) / "channel_directory.json"
+    from fabric_constants import get_fabric_home
+
+    directory_file = get_fabric_home() / "channel_directory.json"
 
     if not directory_file.exists():
         return {}
@@ -302,7 +296,7 @@ class EventBridge:
     """Background poller that watches SessionDB for new messages and
     maintains an in-memory event queue with waiter support.
 
-    This is the Hermes equivalent of OpenClaw's WebSocket gateway bridge.
+    This is Fabric's equivalent of OpenClaw's WebSocket gateway bridge.
     Instead of WebSocket events, we poll the SQLite database for changes.
     """
 
@@ -450,13 +444,9 @@ class EventBridge:
         eliminating the old dual-file (sessions.json + state.db) race that
         could drop brand-new conversations (#8925).
         """
-        try:
-            from fabric_constants import get_fabric_home
-            db_file = get_fabric_home() / "state.db"
-        except ImportError:
-            db_file = Path(
-                os.environ.get("FABRIC_HOME", Path.home() / ".fabric")
-            ) / "state.db"
+        from fabric_constants import get_fabric_home
+
+        db_file = get_fabric_home() / "state.db"
 
         try:
             db_mtime = db_file.stat().st_mtime if db_file.exists() else 0.0
@@ -543,7 +533,7 @@ class EventBridge:
 # ---------------------------------------------------------------------------
 
 def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
-    """Create and return the Hermes MCP server with all tools registered."""
+    """Create and return the Fabric MCP server with all tools registered."""
     if not _MCP_SERVER_AVAILABLE:
         raise ImportError(
             "MCP server requires the 'mcp' package. "
@@ -551,7 +541,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
         )
 
     mcp = FastMCP(
-        "hermes",
+        "fabric",
         instructions=(
             __import__(
                 "fabric_cli.fabric_brand", fromlist=["messaging_bridge_description"]
@@ -959,7 +949,7 @@ def create_mcp_server(event_bridge: Optional[EventBridge] = None) -> "FastMCP":
 # ---------------------------------------------------------------------------
 
 def run_mcp_server(verbose: bool = False) -> None:
-    """Start the Hermes MCP server on stdio."""
+    """Start the Fabric MCP server on stdio."""
     if not _MCP_SERVER_AVAILABLE:
         print(
             "Error: MCP server requires the 'mcp' package.\n"

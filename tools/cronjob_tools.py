@@ -282,12 +282,14 @@ def _scan_cron_skill_assembled(assembled: str) -> tuple[str, str]:
     return cleaned, ""
 
 
-def _origin_from_env() -> Optional[Dict[str, str]]:
-    from gateway.session_context import get_session_env
-    origin_platform = get_session_env("HERMES_SESSION_PLATFORM")
-    origin_chat_id = get_session_env("HERMES_SESSION_CHAT_ID")
+def _origin_from_context() -> Optional[Dict[str, str]]:
+    from gateway.session_context import get_session_context
+
+    context = get_session_context()
+    origin_platform = context.platform
+    origin_chat_id = context.chat_id
     if origin_platform and origin_chat_id:
-        thread_id = get_session_env("HERMES_SESSION_THREAD_ID") or None
+        thread_id = context.thread_id or None
         if thread_id:
             logger.debug(
                 "Cron origin captured thread_id=%s for %s:%s",
@@ -296,14 +298,14 @@ def _origin_from_env() -> Optional[Dict[str, str]]:
         return {
             "platform": origin_platform,
             "chat_id": origin_chat_id,
-            "chat_name": get_session_env("HERMES_SESSION_CHAT_NAME") or None,
+            "chat_name": context.chat_name or None,
             "thread_id": thread_id,
             # Captured so an opt-in delivery mirror (cron.mirror_delivery /
             # attach_to_session) can resolve the exact participant's session in
             # per-user-isolated group chats — parity with interactive
-            # send_message, which passes HERMES_SESSION_USER_ID to
+            # send_message, which passes the active user id to
             # gateway.mirror.mirror_to_session. Harmless for DMs/shared sessions.
-            "user_id": get_session_env("HERMES_SESSION_USER_ID") or None,
+            "user_id": context.user_id or None,
         }
     return None
 
@@ -311,8 +313,8 @@ def _origin_from_env() -> Optional[Dict[str, str]]:
 def _local_delivery_notice(job: Dict[str, Any], user_deliver: Optional[str]) -> Optional[str]:
     """Return an informational notice when a created job won't deliver anywhere.
 
-    TUI/CLI sessions cannot be captured as a cron ``origin`` (no
-    ``HERMES_SESSION_PLATFORM``/``CHAT_ID`` is set for them), so a
+    TUI/CLI sessions cannot be captured as a cron ``origin`` (they have no
+    platform/chat address), so a
     ``deliver="origin"`` request — or an omitted ``deliver`` that defaults to
     origin-or-local — produces a job that runs and saves output to
     ``last_output`` but is never delivered back into the session. This is by
@@ -528,7 +530,7 @@ def _validate_cron_base_url(
 def _validate_cron_script_path(script: Optional[str]) -> Optional[str]:
     """Validate a cron job script path at the API boundary.
 
-    Scripts must be relative paths that resolve within HERMES_HOME/scripts/.
+    Scripts must be relative paths that resolve within FABRIC_HOME/scripts/.
     Absolute paths and ~ expansion are rejected to prevent arbitrary script
     execution via prompt injection.
 
@@ -739,7 +741,7 @@ def cronjob(
                 name=name,
                 repeat=repeat,
                 deliver=_normalize_deliver_param(deliver),
-                origin=_origin_from_env(),
+                origin=_origin_from_context(),
                 skills=canonical_skills,
                 model=_normalize_optional_job_value(model),
                 provider=_normalize_optional_job_value(provider),
@@ -1099,18 +1101,12 @@ def check_cronjob_requirements() -> bool:
     The cron system is internal (JSON file-based scheduler ticked by the gateway),
     so no external crontab executable is required.
 
-    Session env vars must hold an explicit truthy string (``1``, ``true``,
-    ``yes``, ``on``) — false-like values (``0``, ``false``, ``no``, ``off``)
-    leave the tool disabled. Uses the shared ``env_var_enabled`` helper so
-    every consumer of these flags agrees on the truthy set.
+    Interactive and gateway modes are both task-local, so concurrent sessions
+    cannot change one another's tool availability.
     """
-    from utils import env_var_enabled
+    from tools.approval import _is_interactive_cli, is_gateway_approval_context
 
-    return (
-        env_var_enabled("HERMES_INTERACTIVE")
-        or env_var_enabled("HERMES_GATEWAY_SESSION")
-        or env_var_enabled("HERMES_EXEC_ASK")
-    )
+    return _is_interactive_cli() or is_gateway_approval_context()
 
 
 # --- Registry ---

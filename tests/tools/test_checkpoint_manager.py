@@ -11,9 +11,8 @@ from unittest.mock import patch
 
 from tools.checkpoint_manager import (
     CheckpointManager,
-    _shadow_repo_path,
-    _init_shadow_repo,
     _init_store,
+    _archive_v1_stores,
     _run_git,
     _git_env,
     _dir_file_count,
@@ -46,7 +45,7 @@ def work_dir(tmp_path):
 
 @pytest.fixture()
 def checkpoint_base(tmp_path):
-    """Isolated checkpoint base — never writes to ~/.hermes/."""
+    """Isolated checkpoint base — never writes to ~/.fabric/."""
     return tmp_path / "checkpoints"
 
 
@@ -82,9 +81,7 @@ class TestStorePath:
     def test_store_is_single_shared_path(self, work_dir, checkpoint_base, monkeypatch):
         monkeypatch.setattr("tools.checkpoint_manager.CHECKPOINT_BASE", checkpoint_base)
         # All projects resolve to the same store.
-        p1 = _shadow_repo_path(str(work_dir))
-        p2 = _shadow_repo_path(str(work_dir.parent / "other"))
-        assert p1 == p2 == _store_path(checkpoint_base)
+        assert _store_path() == _store_path(checkpoint_base)
 
     def test_project_hash_deterministic(self, work_dir):
         assert _project_hash(str(work_dir)) == _project_hash(str(work_dir))
@@ -103,7 +100,7 @@ class TestStorePath:
 
 
 # =========================================================================
-# Store init + legacy migration
+# Store init + schema migration
 # =========================================================================
 
 class TestStoreInit:
@@ -129,39 +126,58 @@ class TestStoreInit:
         assert _init_store(store, str(work_dir)) is None
         assert _init_store(store, str(work_dir)) is None
 
-    def test_bc_init_shadow_repo_shim(self, work_dir, checkpoint_base, monkeypatch):
-        """Backward-compatible helper still works for old callers/tests."""
-        monkeypatch.setattr("tools.checkpoint_manager.CHECKPOINT_BASE", checkpoint_base)
-        store = _shadow_repo_path(str(work_dir))
-        err = _init_shadow_repo(store, str(work_dir))
-        assert err is None
-        assert (store / "HEAD").exists()
-        assert (store / "HERMES_WORKDIR").exists()
-
-    def test_legacy_migration_archives_prev2_repos(
-        self, checkpoint_base, work_dir,
+    def test_v1_layout_is_archived_before_shared_store_init(
+        self, work_dir, checkpoint_base,
     ):
-        """Pre-v2 per-project shadow repos get moved into legacy-<ts>/."""
-        base = checkpoint_base
-        base.mkdir(parents=True)
-        # Simulate a pre-v2 repo directly under base
-        fake_repo = base / "deadbeefcafebabe"
-        fake_repo.mkdir()
-        (fake_repo / "HEAD").write_text("ref: refs/heads/main\n")
-        (fake_repo / "HERMES_WORKDIR").write_text(str(work_dir) + "\n")
-        (fake_repo / "objects").mkdir()
+        checkpoint_base.mkdir(parents=True)
+        v1_store = checkpoint_base / "deadbeefcafebabe"
+        v1_store.mkdir()
+        (v1_store / "HEAD").write_text("ref: refs/heads/main\n")
+        (v1_store / "objects").mkdir()
 
-        # Init store — should migrate the fake pre-v2 repo
-        store = _store_path(base)
-        err = _init_store(store, str(work_dir))
+        err = _init_store(_store_path(checkpoint_base), str(work_dir))
+
         assert err is None
+        assert not v1_store.exists()
+        archives = list(checkpoint_base.glob("legacy-*"))
+        assert len(archives) == 1
+        assert (archives[0] / v1_store.name / "HEAD").is_file()
 
-        assert not fake_repo.exists()
-        legacies = [p for p in base.iterdir() if p.name.startswith("legacy-")]
-        assert len(legacies) == 1
-        assert (legacies[0] / fake_repo.name).exists()
-        assert (legacies[0] / fake_repo.name / "HEAD").exists()
+    def test_v1_migration_does_not_move_unrecognized_directories(
+        self, checkpoint_base,
+    ):
+        checkpoint_base.mkdir(parents=True)
+        unrelated = checkpoint_base / "unrelated"
+        unrelated.mkdir()
+        (unrelated / "note.txt").write_text("keep me")
 
+        assert _archive_v1_stores(checkpoint_base) is None
+        assert (unrelated / "note.txt").read_text() == "keep me"
+
+    def test_v1_migration_requires_git_objects_directory(self, checkpoint_base):
+        checkpoint_base.mkdir(parents=True)
+        head_only = checkpoint_base / "head-only"
+        head_only.mkdir()
+        (head_only / "HEAD").write_text("not a checkpoint store")
+
+        assert _archive_v1_stores(checkpoint_base) is None
+        assert head_only.exists()
+
+    def test_v1_archive_names_are_collision_safe(self, checkpoint_base, monkeypatch):
+        checkpoint_base.mkdir(parents=True)
+        existing = checkpoint_base / "legacy-20260101-010101"
+        existing.mkdir()
+        v1_store = checkpoint_base / "deadbeefcafebabe"
+        v1_store.mkdir()
+        (v1_store / "HEAD").write_text("ref: refs/heads/main\n")
+        (v1_store / "objects").mkdir()
+        monkeypatch.setattr(time, "strftime", lambda _format: "20260101-010101")
+
+        archive = _archive_v1_stores(checkpoint_base)
+
+        assert archive == checkpoint_base / "legacy-20260101-010101-1"
+        assert (archive / v1_store.name).exists()
+        assert _archive_v1_stores(checkpoint_base) is None
 
 # =========================================================================
 # CheckpointManager — disabled
@@ -758,21 +774,6 @@ class TestGpgAndGlobalConfigIsolation:
 # prune_checkpoints + maybe_auto_prune_checkpoints
 # =========================================================================
 
-def _seed_legacy_repo(base: Path, name: str, workdir: Path, mtime: float = None) -> Path:
-    """Create a minimal pre-v2 shadow repo directly under base."""
-    shadow = base / name
-    shadow.mkdir(parents=True)
-    (shadow / "HEAD").write_text("ref: refs/heads/main\n")
-    (shadow / "HERMES_WORKDIR").write_text(str(workdir) + "\n")
-    (shadow / "info").mkdir()
-    (shadow / "info" / "exclude").write_text("node_modules/\n")
-    if mtime is not None:
-        for p in shadow.rglob("*"):
-            os.utime(p, (mtime, mtime))
-        os.utime(shadow, (mtime, mtime))
-    return shadow
-
-
 def _seed_v2_project(base: Path, workdir: Path, last_touch: float = None) -> str:
     """Register a v2 project in the shared store (no commits, just metadata)."""
     store = _store_path(base)
@@ -789,65 +790,18 @@ def _seed_v2_project(base: Path, workdir: Path, last_touch: float = None) -> str
     return dir_hash
 
 
-class TestPruneCheckpointsLegacy:
-    """Backwards-compat: prune still handles pre-v2 per-project shadow repos."""
-
-    def test_deletes_orphan_when_workdir_missing(self, tmp_path):
-        base = tmp_path / "checkpoints"
-        alive_work = tmp_path / "alive"
-        alive_work.mkdir()
-        alive_repo = _seed_legacy_repo(base, "aaaa" * 4, alive_work)
-        orphan_repo = _seed_legacy_repo(base, "bbbb" * 4, tmp_path / "was-deleted")
-
-        result = prune_checkpoints(retention_days=0, checkpoint_base=base)
-
-        assert result["scanned"] == 2
-        assert result["deleted_orphan"] == 1
-        assert result["deleted_stale"] == 0
-        assert alive_repo.exists()
-        assert not orphan_repo.exists()
-
-    def test_deletes_stale_by_mtime(self, tmp_path):
-        base = tmp_path / "checkpoints"
-        work = tmp_path / "work"
-        work.mkdir()
-        fresh_repo = _seed_legacy_repo(base, "cccc" * 4, work)
-        stale_work = tmp_path / "stale_work"
-        stale_work.mkdir()
-        old = time.time() - 60 * 86400
-        stale_repo = _seed_legacy_repo(base, "dddd" * 4, stale_work, mtime=old)
-
-        result = prune_checkpoints(
-            retention_days=30, delete_orphans=False, checkpoint_base=base,
-        )
-        assert result["deleted_stale"] == 1
-        assert fresh_repo.exists()
-        assert not stale_repo.exists()
-
-    def test_delete_orphans_disabled_keeps_orphans(self, tmp_path):
-        base = tmp_path / "checkpoints"
-        orphan = _seed_legacy_repo(base, "ffff" * 4, tmp_path / "gone")
-
-        result = prune_checkpoints(
-            retention_days=0, delete_orphans=False, checkpoint_base=base,
-        )
-        assert result["deleted_orphan"] == 0
-        assert orphan.exists()
-
-    def test_skips_non_shadow_dirs(self, tmp_path):
-        base = tmp_path / "checkpoints"
-        base.mkdir()
-        (base / "garbage-dir").mkdir()
-        (base / "garbage-dir" / "random.txt").write_text("hi")
-
-        result = prune_checkpoints(retention_days=0, checkpoint_base=base)
-        assert result["scanned"] == 0
-        assert (base / "garbage-dir").exists()
-
-    def test_base_missing_returns_empty_counts(self, tmp_path):
-        result = prune_checkpoints(checkpoint_base=tmp_path / "does-not-exist")
-        assert result["scanned"] == 0
-        assert result["deleted_orphan"] == 0
+def _seed_v1_archive(base: Path, mtime: float | None = None) -> Path:
+    archive = base / "legacy-20200101-000000"
+    store = archive / "deadbeefcafebabe"
+    store.mkdir(parents=True)
+    (store / "HEAD").write_text("ref: refs/heads/main\n")
+    (store / "objects").mkdir()
+    (store / "objects" / "blob").write_bytes(b"x" * 1000)
+    if mtime is not None:
+        for path in archive.rglob("*"):
+            os.utime(path, (mtime, mtime))
+        os.utime(archive, (mtime, mtime))
+    return archive
 
 
 class TestPruneCheckpointsV2:
@@ -915,29 +869,20 @@ class TestPruneCheckpointsV2:
         assert (base / "store" / "projects" / f"{fresh_hash}.json").exists()
         assert not meta_path.exists()
 
-    def test_legacy_archive_dirs_also_pruned(self, tmp_path, monkeypatch):
-        """legacy-<ts>/ dirs older than retention_days get wiped."""
+    def test_schema_v1_archives_follow_retention(self, tmp_path):
         base = tmp_path / "checkpoints"
-        base.mkdir()
-        monkeypatch.setattr("tools.checkpoint_manager.CHECKPOINT_BASE", base)
-
-        old_legacy = base / "legacy-20200101-000000"
-        old_legacy.mkdir()
-        (old_legacy / "junk").write_bytes(b"x" * 1000)
         old = time.time() - 60 * 86400
-        for p in old_legacy.rglob("*"):
-            os.utime(p, (old, old))
-        os.utime(old_legacy, (old, old))
+        archive = _seed_v1_archive(base, mtime=old)
 
         result = prune_checkpoints(retention_days=7, checkpoint_base=base)
-        assert result["deleted_stale"] >= 1
-        assert not old_legacy.exists()
 
+        assert result["deleted_stale"] == 1
+        assert not archive.exists()
 
 class TestMaybeAutoPruneCheckpoints:
     def test_first_call_prunes_and_writes_marker(self, tmp_path):
         base = tmp_path / "checkpoints"
-        _seed_legacy_repo(base, "0000" * 4, tmp_path / "gone")
+        _seed_v2_project(base, tmp_path / "gone")
 
         out = maybe_auto_prune_checkpoints(checkpoint_base=base)
         assert out["skipped"] is False
@@ -946,25 +891,25 @@ class TestMaybeAutoPruneCheckpoints:
 
     def test_second_call_within_interval_skips(self, tmp_path):
         base = tmp_path / "checkpoints"
-        _seed_legacy_repo(base, "1111" * 4, tmp_path / "gone")
+        _seed_v2_project(base, tmp_path / "gone")
 
         first = maybe_auto_prune_checkpoints(
             checkpoint_base=base, min_interval_hours=24,
         )
         assert first["skipped"] is False
 
-        _seed_legacy_repo(base, "2222" * 4, tmp_path / "also-gone")
+        pending_hash = _seed_v2_project(base, tmp_path / "also-gone")
         second = maybe_auto_prune_checkpoints(
             checkpoint_base=base, min_interval_hours=24,
         )
         assert second["skipped"] is True
-        assert (base / ("2222" * 4)).exists()
+        assert (base / "store" / "projects" / f"{pending_hash}.json").exists()
 
     def test_corrupt_marker_treated_as_no_prior_run(self, tmp_path):
         base = tmp_path / "checkpoints"
         base.mkdir()
         (base / ".last_prune").write_text("not-a-timestamp")
-        _seed_legacy_repo(base, "3333" * 4, tmp_path / "gone")
+        _seed_v2_project(base, tmp_path / "gone")
 
         out = maybe_auto_prune_checkpoints(checkpoint_base=base)
         assert out["skipped"] is False
@@ -979,7 +924,7 @@ class TestMaybeAutoPruneCheckpoints:
 
 
 # =========================================================================
-# store_status / clear_all / clear_legacy
+# store_status / clear helpers
 # =========================================================================
 
 class TestStoreStatus:
@@ -990,25 +935,33 @@ class TestStoreStatus:
         assert info["project_count"] == 0
         assert info["total_size_bytes"] == 0
 
-    def test_reports_projects_and_legacy(self, tmp_path, monkeypatch, work_dir):
+    def test_reports_projects(self, tmp_path, monkeypatch, work_dir):
         base = tmp_path / "checkpoints"
         monkeypatch.setattr("tools.checkpoint_manager.CHECKPOINT_BASE", base)
 
         m = CheckpointManager(enabled=True)
         m.ensure_checkpoint(str(work_dir), "initial")
 
-        # Add a legacy archive dir manually
-        legacy = base / "legacy-20200101-000000"
-        legacy.mkdir()
-        (legacy / "junk").write_bytes(b"x" * 100)
-
         info = store_status()
         assert info["project_count"] == 1
         assert info["projects"][0]["workdir"] == str(work_dir.resolve())
         assert info["projects"][0]["commits"] >= 1
         assert info["projects"][0]["exists"] is True
-        assert len(info["legacy_archives"]) == 1
-        assert info["legacy_archives"][0]["size_bytes"] >= 100
+
+    def test_reports_schema_v1_archives(self, tmp_path):
+        base = tmp_path / "checkpoints"
+        archive = _seed_v1_archive(base)
+
+        info = store_status(base)
+
+        assert info["legacy_size_bytes"] >= 1000
+        assert info["legacy_archives"] == [
+            {
+                "name": archive.name,
+                "size_bytes": info["legacy_archives"][0]["size_bytes"],
+                "mtime": info["legacy_archives"][0]["mtime"],
+            }
+        ]
 
 
 class TestClearFunctions:
@@ -1017,6 +970,7 @@ class TestClearFunctions:
         monkeypatch.setattr("tools.checkpoint_manager.CHECKPOINT_BASE", base)
         m = CheckpointManager(enabled=True)
         m.ensure_checkpoint(str(work_dir), "initial")
+        _seed_v1_archive(base)
         assert base.exists()
 
         result = clear_all()
@@ -1024,23 +978,20 @@ class TestClearFunctions:
         assert result["bytes_freed"] > 0
         assert not base.exists()
 
-    def test_clear_legacy_only_removes_legacy_dirs(
+    def test_clear_legacy_only_removes_v1_archives(
         self, tmp_path, monkeypatch, work_dir,
     ):
         base = tmp_path / "checkpoints"
         monkeypatch.setattr("tools.checkpoint_manager.CHECKPOINT_BASE", base)
-        m = CheckpointManager(enabled=True)
-        m.ensure_checkpoint(str(work_dir), "initial")
-
-        legacy = base / "legacy-20200101-000000"
-        legacy.mkdir()
-        (legacy / "junk").write_bytes(b"x" * 1000)
+        manager = CheckpointManager(enabled=True)
+        manager.ensure_checkpoint(str(work_dir), "initial")
+        archive = _seed_v1_archive(base)
 
         result = clear_legacy()
+
         assert result["deleted"] == 1
         assert result["bytes_freed"] >= 1000
-        assert not legacy.exists()
-        # Store preserved
+        assert not archive.exists()
         assert (base / "store" / "HEAD").exists()
 
     def test_clear_all_on_missing_base_is_noop(self, tmp_path, monkeypatch):

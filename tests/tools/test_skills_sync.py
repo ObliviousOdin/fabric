@@ -187,14 +187,14 @@ class TestComputeRelativeDest:
 
 class TestRmtreeWritableScopeGuard:
     """``_rmtree_writable`` must refuse to remove anything outside
-    ``HERMES_HOME/skills/``.
+    ``FABRIC_HOME/skills/``.
 
     The previous implementation called ``shutil.rmtree(path)`` on whatever
     argument the caller passed. If any of the five call sites in
     ``tools/skills_sync.py`` ever computes a path outside the skills
     root — through a bad join, a missing default, a malicious
     bundled-manifest entry, or a stale path in scope after an
-    exception — the result is a silent ``shutil.rmtree(~/.hermes/)``
+    exception — the result is a silent ``shutil.rmtree(~/.fabric/)``
     that destroys the user's ``.env``, ``MEMORY.md``, ``kanban.db``,
     custom skills, scripts, and the rest of the install in one go
     (#48200).
@@ -214,16 +214,16 @@ class TestRmtreeWritableScopeGuard:
             with pytest.raises(ValueError, match="refusing to rmtree"):
                 _rmtree_writable(Path("/"))
 
-    def test_refuses_hermes_home_itself(self, tmp_path):
-        """``~/.hermes/`` itself is what the #48200 wipe destroyed."""
+    def test_refuses_fabric_home_itself(self, tmp_path):
+        """``~/.fabric/`` itself is what the #48200 wipe destroyed."""
         from tools.skills_sync import _rmtree_writable
 
-        hermes = tmp_path / "home"
-        hermes.mkdir()
-        (hermes / "skills").mkdir()
-        with patch("tools.skills_sync.SKILLS_DIR", hermes / "skills"):
+        fabric = tmp_path / "home"
+        fabric.mkdir()
+        (fabric / "skills").mkdir()
+        with patch("tools.skills_sync.SKILLS_DIR", fabric / "skills"):
             with pytest.raises(ValueError, match="refusing to rmtree"):
-                _rmtree_writable(hermes)
+                _rmtree_writable(fabric)
 
     def test_refuses_sibling_directory(self, tmp_path):
         """A directory that is a sibling of SKILLS_DIR (e.g. a wrong
@@ -231,11 +231,11 @@ class TestRmtreeWritableScopeGuard:
         """
         from tools.skills_sync import _rmtree_writable
 
-        hermes = tmp_path / "home"
-        hermes.mkdir()
-        skills = hermes / "skills"
+        fabric = tmp_path / "home"
+        fabric.mkdir()
+        skills = fabric / "skills"
         skills.mkdir()
-        not_skills = hermes / "kanban.db"  # any non-skills path
+        not_skills = fabric / "kanban.db"  # any non-skills path
         not_skills.mkdir()
         with patch("tools.skills_sync.SKILLS_DIR", skills):
             with pytest.raises(ValueError, match="refusing to rmtree"):
@@ -942,15 +942,10 @@ class TestSyncSkills:
 
 
 class TestGetBundledDir:
-    def test_env_var_override_cannot_nominate_builtin_source(
-        self, tmp_path, monkeypatch
-    ):
+    def test_distribution_path_is_builtin_source(self, tmp_path):
         distribution = tmp_path / "distribution"
         bundled = distribution / "skills"
         bundled.mkdir(parents=True)
-        attacker = tmp_path / "attacker-skills"
-        attacker.mkdir()
-        monkeypatch.setenv("HERMES_BUNDLED_SKILLS", str(attacker))
 
         with (
             patch("fabric_constants._get_packaged_data_dir", return_value=None),
@@ -961,21 +956,11 @@ class TestGetBundledDir:
         ):
             assert _get_bundled_dir() == bundled
 
-    def test_default_without_env_var(self, monkeypatch):
-        """Without the env var, falls back to relative path from __file__."""
-        monkeypatch.delenv("HERMES_BUNDLED_SKILLS", raising=False)
+    def test_default_uses_relative_distribution_path(self):
         result = _get_bundled_dir()
         assert result.name == "skills"
 
-    def test_env_var_empty_string_ignored(self, monkeypatch):
-        """Empty HERMES_BUNDLED_SKILLS should fall back to default."""
-        monkeypatch.setenv("HERMES_BUNDLED_SKILLS", "")
-        result = _get_bundled_dir()
-        assert result.name == "skills"
-
-    def test_env_override_cannot_seed_profile_as_builtin(
-        self, tmp_path, monkeypatch
-    ):
+    def test_packaged_source_seeds_profile_as_builtin(self, tmp_path):
         import tools.skills_sync as skills_sync
 
         distribution = tmp_path / "distribution"
@@ -984,12 +969,6 @@ class TestGetBundledDir:
         safe.mkdir(parents=True)
         (safe / "SKILL.md").write_text("---\nname: safe\n---\n")
         (distribution / "optional-skills").mkdir()
-
-        attacker = tmp_path / "attacker-skills"
-        evil = attacker / "evil"
-        evil.mkdir(parents=True)
-        (evil / "SKILL.md").write_text("---\nname: evil\n---\n")
-        monkeypatch.setenv("HERMES_BUNDLED_SKILLS", str(attacker))
 
         home = tmp_path / "profile"
         skills = home / "skills"
@@ -1000,7 +979,6 @@ class TestGetBundledDir:
                 "__file__",
                 str(distribution / "tools" / "skills_sync.py"),
             ),
-            patch.object(skills_sync, "HERMES_HOME", home),
             patch.object(skills_sync, "SKILLS_DIR", skills),
             patch.object(
                 skills_sync,
@@ -1017,22 +995,13 @@ class TestGetBundledDir:
 
         assert result["copied"] == ["safe"]
         assert (skills / "safe" / "SKILL.md").is_file()
-        assert not (skills / "evil").exists()
 
-    def test_optional_env_override_cannot_trigger_official_backfill(
-        self, tmp_path, monkeypatch
-    ):
+    def test_missing_official_optional_skill_is_not_backfilled(self, tmp_path):
         import tools.skills_sync as skills_sync
 
         distribution = tmp_path / "distribution"
         (distribution / "optional-skills").mkdir(parents=True)
-        attacker = tmp_path / "attacker-optional"
-        attacker_skill = attacker / "evil"
-        attacker_skill.mkdir(parents=True)
         payload = "---\nname: evil\n---\n"
-        (attacker_skill / "SKILL.md").write_text(payload)
-        monkeypatch.setenv("HERMES_OPTIONAL_SKILLS", str(attacker))
-
         home = tmp_path / "profile"
         skills = home / "skills"
         active = skills / "evil"
@@ -1046,7 +1015,6 @@ class TestGetBundledDir:
                 "__file__",
                 str(distribution / "tools" / "skills_sync.py"),
             ),
-            patch.object(skills_sync, "HERMES_HOME", home),
             patch.object(skills_sync, "SKILLS_DIR", skills),
             patch.object(
                 skills_sync,
@@ -1276,7 +1244,7 @@ class TestNoBundledSkillsOptOut:
     """The .no-bundled-skills marker makes sync_skills() a no-op.
 
     This is what `fabric profile create --no-skills` (named profiles) and the
-    installer's `--no-skills` flag (default ~/.hermes) rely on so bundled
+    installer's `--no-skills` flag (default ~/.fabric) rely on so bundled
     skills are never seeded at install time NOR re-injected by `fabric update`.
     """
 
@@ -1289,16 +1257,15 @@ class TestNoBundledSkillsOptOut:
 
     def test_marker_skips_sync(self, tmp_path):
         bundled = self._setup_bundled(tmp_path)
-        skills_dir = tmp_path / "user_skills"
+        fabric_home = tmp_path / "home"
+        fabric_home.mkdir()
+        skills_dir = fabric_home / "skills"
         manifest_file = skills_dir / ".bundled_manifest"
-        hermes_home = tmp_path / "home"
-        hermes_home.mkdir()
-        (hermes_home / ".no-bundled-skills").write_text("opted out\n")
+        (fabric_home / ".no-bundled-skills").write_text("opted out\n")
 
         with patch("tools.skills_sync._get_bundled_dir", return_value=bundled), \
              patch("tools.skills_sync.SKILLS_DIR", skills_dir), \
-             patch("tools.skills_sync.MANIFEST_FILE", manifest_file), \
-             patch("tools.skills_sync.HERMES_HOME", hermes_home):
+             patch("tools.skills_sync.MANIFEST_FILE", manifest_file):
             result = sync_skills(quiet=True)
 
         # Opt-out signalled, nothing copied, nothing written to disk.
@@ -1309,17 +1276,16 @@ class TestNoBundledSkillsOptOut:
 
     def test_no_marker_seeds_normally(self, tmp_path):
         bundled = self._setup_bundled(tmp_path)
-        skills_dir = tmp_path / "user_skills"
+        fabric_home = tmp_path / "home"
+        fabric_home.mkdir()
+        skills_dir = fabric_home / "skills"
         manifest_file = skills_dir / ".bundled_manifest"
-        hermes_home = tmp_path / "home"
-        hermes_home.mkdir()
         # No marker written.
 
         with patch("tools.skills_sync._get_bundled_dir", return_value=bundled), \
              patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"), \
              patch("tools.skills_sync.SKILLS_DIR", skills_dir), \
-             patch("tools.skills_sync.MANIFEST_FILE", manifest_file), \
-             patch("tools.skills_sync.HERMES_HOME", hermes_home):
+             patch("tools.skills_sync.MANIFEST_FILE", manifest_file):
             result = sync_skills(quiet=True)
 
         assert result.get("skipped_opt_out") is not True
@@ -1328,7 +1294,7 @@ class TestNoBundledSkillsOptOut:
 
 
 class TestOptOutToggleAndRemove:
-    """`hermes skills opt-out/opt-in` core: marker toggle + safe removal."""
+    """`fabric skills opt-out/opt-in` core: marker toggle + safe removal."""
 
     def _setup_bundled(self, tmp_path):
         bundled = tmp_path / "bundled"
@@ -1344,7 +1310,7 @@ class TestOptOutToggleAndRemove:
         )
         home = tmp_path / "home"
         home.mkdir()
-        with patch("tools.skills_sync.HERMES_HOME", home):
+        with patch("tools.skills_sync.SKILLS_DIR", home / "skills"):
             assert is_bundled_skills_opt_out() is False
             r = set_bundled_skills_opt_out(True)
             assert r["ok"] and r["changed"]
@@ -1362,15 +1328,14 @@ class TestOptOutToggleAndRemove:
             sync_skills, remove_pristine_bundled_skills,
         )
         bundled = self._setup_bundled(tmp_path)
-        skills_dir = tmp_path / "user_skills"
-        manifest_file = skills_dir / ".bundled_manifest"
         home = tmp_path / "home"
         home.mkdir()
+        skills_dir = home / "skills"
+        manifest_file = skills_dir / ".bundled_manifest"
         with patch("tools.skills_sync._get_bundled_dir", return_value=bundled), \
              patch("tools.skills_sync._get_optional_dir", return_value=bundled.parent / "optional-skills"), \
              patch("tools.skills_sync.SKILLS_DIR", skills_dir), \
-             patch("tools.skills_sync.MANIFEST_FILE", manifest_file), \
-             patch("tools.skills_sync.HERMES_HOME", home):
+             patch("tools.skills_sync.MANIFEST_FILE", manifest_file):
             sync_skills(quiet=True)
             # User edits 'beta'
             (skills_dir / "beta" / "SKILL.md").write_text("---\nname: beta\n---\nEDITED\n")
@@ -1774,7 +1739,6 @@ class TestDescriptorBoundSyncRegressions:
         (source / "SKILL.md").write_text("---\nname: one\n---\n")
 
         with (
-            patch.object(skills_sync, "HERMES_HOME", old_home),
             patch.object(skills_sync, "SKILLS_DIR", old_home / "skills"),
             patch.object(
                 skills_sync,
@@ -1831,7 +1795,6 @@ class TestDescriptorBoundSyncRegressions:
             return real_list(path, max_entries=max_entries)
 
         with (
-            patch.object(skills_sync, "HERMES_HOME", home),
             patch.object(skills_sync, "SKILLS_DIR", skills),
             patch.object(skills_sync, "MANIFEST_FILE", skills / ".bundled_manifest"),
             patch.object(skills_sync, "_get_optional_dir", return_value=optional),

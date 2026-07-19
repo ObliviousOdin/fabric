@@ -18,9 +18,10 @@ for reinstall when scopes/commands change.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
+
+from fabric_constants import get_fabric_home
 
 
 def _build_full_manifest(
@@ -31,9 +32,9 @@ def _build_full_manifest(
     """Build a full Slack manifest merging display info + our slash list.
 
     The slash-command list is always generated from ``COMMAND_REGISTRY`` so
-    it stays in sync with the rest of Hermes. Other manifest sections
+    it stays in sync with the rest of Fabric. Other manifest sections
     (display info, OAuth scopes, socket mode) are set to sensible defaults
-    for a Hermes deployment — users can tweak them in the Slack UI after
+    for a Fabric deployment — users can tweak them in the Slack UI after
     pasting.
 
     When ``include_assistant`` is True (default) the manifest opts the app
@@ -138,7 +139,7 @@ def slack_manifest_command(args) -> int:
 
     Flags (all parsed in ``fabric_cli/main.py``):
       --write [PATH]  Write to file instead of stdout (default path:
-                      ``$HERMES_HOME/slack-manifest.json``)
+                      ``$FABRIC_HOME/slack-manifest.json``)
       --name NAME     Override the bot display name (default: "Fabric")
       --description DESC  Override the bot description
       --slashes-only  Emit only the ``features.slash_commands`` array (for
@@ -165,12 +166,7 @@ def slack_manifest_command(args) -> int:
     if write_target is not None:
         if isinstance(write_target, bool) and write_target:
             # --write with no value → default location
-            try:
-                from fabric_constants import get_fabric_home
-
-                target = Path(get_fabric_home()) / "slack-manifest.json"
-            except Exception:
-                target = Path(os.environ.get("HERMES_HOME") or str(Path.home() / ".fabric")) / "slack-manifest.json"
+            target = get_fabric_home() / "slack-manifest.json"
         else:
             target = Path(write_target).expanduser()
         target.parent.mkdir(parents=True, exist_ok=True)

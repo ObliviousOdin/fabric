@@ -228,6 +228,28 @@ describe("reduceRemoteSessionEvent", () => {
       "approval-2",
     ]);
   });
+
+  it("ignores approval requests without an authoritative request id", () => {
+    const initial = createEmptyRemoteSession();
+    const missing = reduceRemoteSessionEvent(
+      initial,
+      event("approval.request", {
+        command: "rm file",
+        description: "Delete file",
+      }),
+    );
+    const blank = reduceRemoteSessionEvent(
+      initial,
+      event("approval.request", {
+        command: "rm file",
+        description: "Delete file",
+        request_id: "   ",
+      }),
+    );
+
+    expect(missing).toBe(initial);
+    expect(blank).toBe(initial);
+  });
 });
 
 describe("authoritative reconciliation", () => {

@@ -1,7 +1,7 @@
 """Subprocess lifecycle manager for the google_meet bot.
 
 Single active meeting at a time. Stores the running pid + out_dir in a
-session-scoped state file under ``$HERMES_HOME/workspace/meetings/.active.json``
+session-scoped state file under ``$FABRIC_HOME/workspace/meetings/.active.json``
 so tool calls across turns can find the bot, and ``on_session_end`` can clean
 it up.
 
@@ -16,13 +16,14 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fabric_constants import get_fabric_home
 
-# File + directory layout (under $HERMES_HOME):
+# File + directory layout (under $FABRIC_HOME):
 #
 #   workspace/meetings/
 #       .active.json                # pointer to current session's bot
@@ -98,7 +99,7 @@ def start(
 ) -> Dict[str, Any]:
     """Spawn the meet_bot subprocess for *url*.
 
-    If a bot is already running for this hermes install, leave it first —
+    If a bot is already running for this fabric install, leave it first —
     we enforce single-active-meeting semantics.
 
     Returns a dict summarizing the started bot.
@@ -132,28 +133,26 @@ def start(
             except OSError:
                 pass
 
+    launch_config = {
+        "url": url,
+        "out_dir": str(out),
+        "headed": bool(headed),
+        "auth_state": auth_state or "",
+        "guest_name": guest_name,
+        "duration": duration or "",
+        "mode": mode or "transcribe",
+        "realtime_model": realtime_model or "gpt-realtime",
+        "realtime_voice": realtime_voice or "alloy",
+        "realtime_instructions": realtime_instructions or "",
+        "realtime_api_key": realtime_api_key or "",
+    }
+    launch_fd, launch_path_raw = tempfile.mkstemp(
+        prefix=".launch-", suffix=".json", dir=out
+    )
+    launch_path = Path(launch_path_raw)
+    with os.fdopen(launch_fd, "w", encoding="utf-8") as launch_file:
+        json.dump(launch_config, launch_file)
     env = os.environ.copy()
-    env["HERMES_MEET_URL"] = url
-    env["HERMES_MEET_OUT_DIR"] = str(out)
-    env["HERMES_MEET_GUEST_NAME"] = guest_name
-    if headed:
-        env["HERMES_MEET_HEADED"] = "1"
-    if auth_state:
-        env["HERMES_MEET_AUTH_STATE"] = auth_state
-    if duration:
-        env["HERMES_MEET_DURATION"] = duration
-    # v2: realtime mode + passthroughs. The bot defaults to transcribe
-    # mode if HERMES_MEET_MODE isn't set, matching v1 behavior.
-    if mode:
-        env["HERMES_MEET_MODE"] = mode
-    if realtime_model:
-        env["HERMES_MEET_REALTIME_MODEL"] = realtime_model
-    if realtime_voice:
-        env["HERMES_MEET_REALTIME_VOICE"] = realtime_voice
-    if realtime_instructions:
-        env["HERMES_MEET_REALTIME_INSTRUCTIONS"] = realtime_instructions
-    if realtime_api_key:
-        env["HERMES_MEET_REALTIME_KEY"] = realtime_api_key
 
     log_path = out / "bot.log"
     # Detach: stdin=devnull, stdout/stderr → log file, new session so parent
@@ -161,7 +160,13 @@ def start(
     log_fh = open(log_path, "ab", buffering=0)
     try:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "plugins.google_meet.meet_bot"],
+            [
+                sys.executable,
+                "-m",
+                "plugins.google_meet.meet_bot",
+                "--launch-config",
+                str(launch_path),
+            ],
             stdin=subprocess.DEVNULL,
             stdout=log_fh,
             stderr=subprocess.STDOUT,
@@ -169,6 +174,9 @@ def start(
             start_new_session=True,
             close_fds=True,
         )
+    except Exception:
+        launch_path.unlink(missing_ok=True)
+        raise
     finally:
         # The subprocess now owns the log fd; we can close ours.
         log_fh.close()

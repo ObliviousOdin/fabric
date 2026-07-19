@@ -30,9 +30,7 @@ def _now() -> datetime:
 # Default auto-continue freshness window in seconds (1 hour).  A session
 # interrupted by a restart is only auto-resumed — and only returned by
 # ``get_or_create_session`` — while it stays within this window of when
-# ``resume_pending`` was marked.  ``gateway/run.py`` bridges
-# ``config.yaml`` ``agent.gateway_auto_continue_freshness`` into
-# ``HERMES_AUTO_CONTINUE_FRESHNESS`` at startup.
+# ``resume_pending`` was marked.
 _AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT = 60 * 60
 
 
@@ -40,18 +38,23 @@ def auto_continue_freshness_window() -> float:
     """Return the configured auto-continue freshness window in seconds.
 
     Single source of truth for both the resume scheduler (``gateway/run.py``)
-    and the routing-time zombie gate in ``get_or_create_session``.  Reads
-    ``HERMES_AUTO_CONTINUE_FRESHNESS`` (bridged from ``config.yaml``
-    ``agent.gateway_auto_continue_freshness`` at gateway startup) and falls
-    back to the module default when unset or malformed.  A non-positive value
-    disables the freshness gate (restores the pre-fix "always fresh" behaviour
-    for users who want to opt out).
+    and the routing-time zombie gate in ``get_or_create_session``. The
+    ``agent.gateway_auto_continue_freshness`` config key is authoritative. A
+    non-positive value disables the freshness gate.
     """
-    raw = os.environ.get("HERMES_AUTO_CONTINUE_FRESHNESS")
-    if raw is None or raw == "":
-        return float(_AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT)
     try:
-        return float(raw)
+        from fabric_cli.config import load_config_readonly
+
+        agent = load_config_readonly().get("agent", {})
+        raw = agent.get("gateway_auto_continue_freshness") if isinstance(agent, dict) else None
+    except Exception:
+        raw = None
+    try:
+        return (
+            float(raw)
+            if raw is not None and str(raw).strip()
+            else float(_AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT)
+        )
     except (TypeError, ValueError):
         return float(_AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT)
 

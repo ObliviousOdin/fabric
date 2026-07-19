@@ -12,18 +12,17 @@ fn main() {
     // so the produced installer follows that branch's HEAD at install time
     // (tolerant of fast-forwards/new commits, and never references a SHA the
     // local checkout hasn't pushed). Set FABRIC_BUILD_PIN_COMMIT to bake an
-    // immutable commit pin for reproducible/release installers. The previous
-    // HERMES_* spelling remains accepted for release-pipeline compatibility.
+    // immutable commit pin for reproducible/release installers.
     //
     // Commit pin resolution:
-    //   - FABRIC_BUILD_PIN_COMMIT (then legacy HERMES_BUILD_PIN_COMMIT), if set.
+    //   - FABRIC_BUILD_PIN_COMMIT, if set.
     //     Accepts a SHA, tag, or branch name and resolves it to an immutable SHA
     //     via `git rev-parse`
     //     when possible, else used verbatim if it already looks like a SHA.
     //   - Otherwise: NO commit pin (branch-follow is the default).
     //
     // Branch pin resolution:
-    //   1. FABRIC_BUILD_PIN_BRANCH (then legacy HERMES_BUILD_PIN_BRANCH).
+    //   1. FABRIC_BUILD_PIN_BRANCH.
     //   2. `git rev-parse --abbrev-ref HEAD` of the checkout this build.rs
     //      lives in — the current branch. (None on a detached HEAD.)
     //   3. Last-resort fallback handled below: if neither commit nor branch
@@ -59,7 +58,7 @@ fn main() {
         // can't resolve a pin almost certainly indicates a misconfigured
         // build environment.
         println!(
-            "cargo:warning=fabric-bootstrap: no pin resolved at build time; binary will fail at runtime without FABRIC_SETUP_DEV_REPO_ROOT (or its legacy alias) or runtime args"
+            "cargo:warning=fabric-bootstrap: no pin resolved at build time; binary will fail at runtime without FABRIC_SETUP_DEV_REPO_ROOT or runtime args"
         );
     }
 
@@ -83,18 +82,15 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=FABRIC_BUILD_PIN_COMMIT");
     println!("cargo:rerun-if-env-changed=FABRIC_BUILD_PIN_BRANCH");
-    println!("cargo:rerun-if-env-changed=HERMES_BUILD_PIN_COMMIT");
-    println!("cargo:rerun-if-env-changed=HERMES_BUILD_PIN_BRANCH");
 
     // -----------------------------------------------------------------
-    // Tauri Windows manifest. The filename stays stable for build-cache and
-    // upgrade compatibility; its embedded identity is Fabric. It
+    // Tauri Windows manifest. Its embedded identity is Fabric. It
     // declares level="asInvoker" so Windows's installer-detection
     // heuristic doesn't refuse to launch us without UAC elevation.
     // -----------------------------------------------------------------
     #[cfg(target_os = "windows")]
     let attrs = {
-        let manifest = include_str!("hermes-setup.manifest");
+        let manifest = include_str!("fabric-setup.manifest");
         let win = tauri_build::WindowsAttributes::new().app_manifest(manifest);
         tauri_build::Attributes::new().windows_attributes(win)
     };
@@ -107,12 +103,9 @@ fn main() {
 
 fn resolve_commit_pin() -> Option<String> {
     // Commit pinning is OPT-IN. Only bake a commit when the caller explicitly
-    // asks for one via FABRIC_BUILD_PIN_COMMIT (or its legacy alias). With no
+    // asks for one via FABRIC_BUILD_PIN_COMMIT. With no
     // env var, we return None and the installer follows branch HEAD.
-    let requested = first_nonempty_env(&[
-        "FABRIC_BUILD_PIN_COMMIT",
-        "HERMES_BUILD_PIN_COMMIT",
-    ])?;
+    let requested = first_nonempty_env(&["FABRIC_BUILD_PIN_COMMIT"])?;
     let requested = requested.trim();
     // Resolve the request (which may be a SHA, tag, or branch name) to an
     // immutable commit SHA so the baked pin is reproducible. `^{commit}`
@@ -149,10 +142,7 @@ fn is_sha(s: &str) -> bool {
 }
 
 fn resolve_branch_pin() -> Option<String> {
-    if let Some(v) = first_nonempty_env(&[
-        "FABRIC_BUILD_PIN_BRANCH",
-        "HERMES_BUILD_PIN_BRANCH",
-    ]) {
+    if let Some(v) = first_nonempty_env(&["FABRIC_BUILD_PIN_BRANCH"]) {
         return Some(v);
     }
     let out = Command::new("git")

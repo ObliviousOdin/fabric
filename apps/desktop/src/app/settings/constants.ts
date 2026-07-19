@@ -1,4 +1,3 @@
-import { brandText } from '@/brand'
 import {
   Box,
   Brain,
@@ -35,7 +34,7 @@ interface ProviderPrefix {
   priority: number
 }
 
-export const EMPTY_SELECT_VALUE = '__hermes_empty__'
+export const EMPTY_SELECT_VALUE = '__empty_select_value__'
 export const CONTROL_TEXT = 'text-xs'
 
 export const PROVIDER_GROUPS: ProviderPrefix[] = [
@@ -89,7 +88,6 @@ export const PROVIDER_GROUPS: ProviderPrefix[] = [
     docsUrl: 'https://modelstudio.console.alibabacloud.com/',
     priority: 6
   },
-  { prefix: 'HERMES_QWEN_', name: 'DashScope (Qwen)', priority: 6 },
   {
     prefix: 'GLM_',
     name: 'GLM / Z.AI',
@@ -438,10 +436,10 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
     personality: 'Default assistant style for new sessions.',
     showReasoning: 'Show reasoning sections when the backend provides them.'
   },
-  timezone: brandText('Used when Fabric needs local time context. Blank uses the system timezone.'),
+  timezone: 'Used when Fabric needs local time context. Blank uses the system timezone.',
   agent: {
     imageInputMode: 'Controls how image attachments are sent to the model.',
-    maxTurns: brandText('Upper bound for tool-calling turns before Fabric stops a run.')
+    maxTurns: 'Upper bound for tool-calling turns before Fabric stops a run.'
   },
   terminal: {
     cwd: 'Default project folder for tool and terminal work.',
@@ -455,9 +453,9 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
   codeExecution: {
     mode: 'How strictly code execution is scoped to the current project.'
   },
-  fileReadMaxChars: brandText('Maximum characters Fabric can read from one file request.'),
+  fileReadMaxChars: 'Maximum characters Fabric can read from one file request.',
   approvals: {
-    mode: brandText('How Fabric handles commands that need explicit approval.'),
+    mode: 'How Fabric handles commands that need explicit approval.',
     timeout: 'How long approval prompts wait before timing out.'
   },
   security: {
@@ -500,9 +498,8 @@ export const FIELD_DESCRIPTIONS: Record<string, string> = defineFieldCopy({
     }
   },
   updates: {
-    nonInteractiveLocalChanges: brandText(
+    nonInteractiveLocalChanges:
       'When Fabric updates itself from the app (no terminal prompt), keep local source edits (stash) or throw them away (discard). Terminal updates always ask.'
-    )
   }
 })
 

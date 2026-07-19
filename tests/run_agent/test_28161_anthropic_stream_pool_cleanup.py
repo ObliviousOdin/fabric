@@ -108,7 +108,10 @@ class TestAnthropicStreamPoolCleanup:
     )
     def test_stale_stream_calls_anthropic_rebuild_not_openai(self, monkeypatch):
         """Stale-stream outer-poll detector → close+rebuild Anthropic client, not OpenAI."""
-        monkeypatch.setenv("HERMES_STREAM_STALE_TIMEOUT", "0.1")
+        monkeypatch.setattr(
+            "agent.chat_completion_helpers.get_provider_stale_timeout",
+            lambda *_args: 0.1,
+        )
 
         agent = _make_anthropic_agent()
         unblock = threading.Event()

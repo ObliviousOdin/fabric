@@ -1,11 +1,13 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync } from 'node:fs'
+import { existsSync, unlinkSync } from 'node:fs'
 import { delimiter, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 
 import { WebSocket as UndiciWebSocket } from 'undici'
 
+import { writeTuiLaunchContext } from './config/launchContext.js'
+import type { GatewayRuntimeOptions } from './config/runtime.js'
 import type { GatewayEvent } from './gatewayTypes.js'
 import { CircularBuffer } from './lib/circularBuffer.js'
 import { recordParentLifecycle } from './lib/parentLog.js'
@@ -22,8 +24,8 @@ const MAX_SIDECAR_FIELD_CHARS = 8 * 1024
 const MAX_SIDECAR_EVENT_TYPE_CHARS = 128
 const MAX_SIDECAR_SESSION_ID_CHARS = 512
 const MAX_LOG_PREVIEW = 240
-const STARTUP_TIMEOUT_MS = Math.max(5000, parseInt(process.env.HERMES_TUI_STARTUP_TIMEOUT_MS ?? '15000', 10) || 15000)
-const REQUEST_TIMEOUT_MS = Math.max(30000, parseInt(process.env.HERMES_TUI_RPC_TIMEOUT_MS ?? '120000', 10) || 120000)
+const STARTUP_TIMEOUT_MS = 15_000
+const REQUEST_TIMEOUT_MS = 120_000
 const WS_CONNECTING = 0
 const WS_OPEN = 1
 const WS_CLOSING = 2
@@ -296,20 +298,20 @@ const describeChild = (proc: ChildProcess | null) => {
   return `pid=${proc.pid ?? 'unknown'} killed=${proc.killed} exitCode=${proc.exitCode ?? 'null'} signal=${proc.signalCode ?? 'null'}`
 }
 
-const resolveGatewayAttachUrl = () => {
-  const raw = process.env.HERMES_TUI_GATEWAY_URL?.trim()
+const resolveGatewayAttachUrl = (runtime: GatewayRuntimeOptions) => {
+  const raw = runtime.launchContext.gateway_url?.trim()
 
   return raw ? raw : null
 }
 
-const resolveSidecarUrl = () => {
-  const raw = process.env.HERMES_TUI_SIDECAR_URL?.trim()
+const resolveSidecarUrl = (runtime: GatewayRuntimeOptions) => {
+  const raw = runtime.launchContext.sidecar_url?.trim()
 
   return raw ? raw : null
 }
 
-const resolvePython = (root: string) => {
-  const configured = process.env.HERMES_PYTHON?.trim() || process.env.PYTHON?.trim()
+const resolvePython = (root: string, launcherPython?: string) => {
+  const configured = launcherPython?.trim() || process.env.PYTHON?.trim()
 
   if (configured) {
     return configured
@@ -453,9 +455,12 @@ export class GatewayClient extends EventEmitter {
   private drainGeneration = 0
   private stdoutRl: ReturnType<typeof createInterface> | null = null
   private stderrRl: ReturnType<typeof createInterface> | null = null
+  private runtime: GatewayRuntimeOptions
+  private gatewayLaunchContextPath: null | string = null
 
-  constructor() {
+  constructor(runtime: GatewayRuntimeOptions = { launchContext: { version: 1 } }) {
     super()
+    this.runtime = runtime
     // useInput / createGatewayEventHandler can legitimately attach many
     // listeners. Default 10-cap triggers spurious warnings.
     this.setMaxListeners(0)
@@ -747,17 +752,30 @@ export class GatewayClient extends EventEmitter {
   }
 
   private startSpawnedGateway(root: string) {
-    const python = resolvePython(root)
-    const cwd = process.env.HERMES_CWD || root
+    const python = resolvePython(root, this.runtime.python)
+    const cwd = this.runtime.launchContext.cwd?.trim() || root
     const env = { ...process.env }
     const pyPath = env.PYTHONPATH?.trim()
 
     env.PYTHONPATH = pyPath ? `${root}${delimiter}${pyPath}` : root
-    // Tell the gateway child where the Hermes source root is so its import
-    // guard can force it ahead of any same-named package in the launch cwd.
-    env.HERMES_PYTHON_SRC_ROOT = root
     this.startReadyTimer(python, cwd)
-    this.proc = spawn(python, ['-m', 'tui_gateway.entry'], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
+    const args = ['-m', 'tui_gateway.entry', '--source-root', root]
+
+    if (this.runtime.packageRevision) {
+      args.push('--package-revision', this.runtime.packageRevision)
+    }
+
+    this.cleanupGatewayLaunchContext()
+    this.gatewayLaunchContextPath = writeTuiLaunchContext(this.runtime.launchContext)
+    args.push('--launch-context', this.gatewayLaunchContextPath)
+
+    try {
+      this.proc = spawn(python, args, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
+    } catch (error) {
+      this.cleanupGatewayLaunchContext()
+      throw error
+    }
+
     this.lifecycle(`[lifecycle] spawned gateway child ${describeChild(this.proc)} python=${python} cwd=${cwd}`)
 
     this.stdoutRl = createInterface({ input: this.proc.stdout! })
@@ -786,6 +804,8 @@ export class GatewayClient extends EventEmitter {
 
     const ownedProc = this.proc
     this.proc.on('error', err => {
+      this.cleanupGatewayLaunchContext()
+
       // Skip stale errors on an already-replaced child.
       if (this.proc !== ownedProc) {
         this.pushLog(`[lifecycle] stale child error ignored ${describeChild(ownedProc)} message=${err.message}`)
@@ -808,6 +828,8 @@ export class GatewayClient extends EventEmitter {
       this.handleTransportExit(1, `gateway error: ${err.message}`)
     })
     this.proc.on('exit', (code, signal) => {
+      this.cleanupGatewayLaunchContext()
+
       // start() can replace `this.proc` while an old child is still
       // tearing down. Skip stale exits so we don't clear the new
       // startup timer or reject newly-issued pending requests.
@@ -925,9 +947,9 @@ export class GatewayClient extends EventEmitter {
   }
 
   start() {
-    const root = process.env.HERMES_PYTHON_SRC_ROOT ?? resolve(import.meta.dirname, '../../')
-    const attachUrl = resolveGatewayAttachUrl()
-    const sidecarUrl = resolveSidecarUrl()
+    const root = this.runtime.sourceRoot ?? resolve(import.meta.dirname, '../../')
+    const attachUrl = resolveGatewayAttachUrl(this.runtime)
+    const sidecarUrl = resolveSidecarUrl(this.runtime)
 
     this.attachUrl = attachUrl
     this.sidecarUrl = sidecarUrl
@@ -939,6 +961,7 @@ export class GatewayClient extends EventEmitter {
     }
 
     this.proc = null
+    this.cleanupGatewayLaunchContext()
     this.closeGatewaySocket()
     this.closeSidecarSocket()
 
@@ -967,6 +990,22 @@ export class GatewayClient extends EventEmitter {
       if (ev) {
         this.publish(ev)
       }
+    }
+  }
+
+  private cleanupGatewayLaunchContext() {
+    const path = this.gatewayLaunchContextPath
+
+    this.gatewayLaunchContextPath = null
+
+    if (!path) {
+      return
+    }
+
+    try {
+      unlinkSync(path)
+    } catch {
+      // The gateway consumes and removes the descriptor during import.
     }
   }
 
@@ -1126,11 +1165,11 @@ export class GatewayClient extends EventEmitter {
   }
 
   request<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    const attachUrl = resolveGatewayAttachUrl()
+    const attachUrl = resolveGatewayAttachUrl(this.runtime)
 
     if (attachUrl) {
       if (this.attachUrl !== attachUrl) {
-        // The env var rotated at runtime — restart the transport so
+        // The launch-context URL rotated at runtime — restart the transport so
         // switching from spawned-gateway mode to attach mode also
         // tears down the old Python child. Merely closing `this.ws`
         // would leave a previously spawned gateway process alive.

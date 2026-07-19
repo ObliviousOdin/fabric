@@ -1,8 +1,8 @@
-"""`hermes debug` must not report a shell-only API key as plainly "set".
+"""`fabric debug` must not report a shell-only API key as plainly "set".
 
 The dump reads ``os.getenv`` — the invoking terminal's environment — but the
 managed backends (launchd / systemd / the desktop-spawned ``serve`` process)
-load credentials from ``~/.hermes/.env``, not the login shell. A key exported
+load credentials from ``~/.fabric/.env``, not the login shell. A key exported
 in the shell but absent from ``.env`` is invisible to the backend, yet the dump
 used to print a bare "set", sending support down a phantom "the key is
 configured" path (the real cause behind gated tools like ``web_search`` going
@@ -92,7 +92,7 @@ def _run_curated_dump(monkeypatch, capsys, tmp_path, config=None) -> str:
     monkeypatch.setattr(
         dump,
         "load_config",
-        lambda: config if config is not None else {"toolsets": ["hermes-cli"]},
+        lambda: config if config is not None else {"toolsets": ["fabric-cli"]},
     )
     monkeypatch.setattr(dump, "_gateway_status", lambda: "stopped")
 
@@ -103,76 +103,38 @@ def _run_curated_dump(monkeypatch, capsys, tmp_path, config=None) -> str:
 def test_dump_uses_fabric_labels_and_curated_provider_credentials(
     monkeypatch, capsys, tmp_path
 ):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
 
     out = _run_curated_dump(monkeypatch, capsys, tmp_path)
 
     assert "--- fabric dump ---" in out
-    assert "--- hermes dump ---" not in out
     assert "fabric_home:      ~/.fabric" in out
-    assert "hermes_home:" not in out
     assert _api_key_line(out, "openai")
     assert _api_key_line(out, "xai")
     assert _api_key_line(out, "openrouter")
     assert _api_key_line(out, "anthropic")
-    assert "nous " not in out
-    assert "toolsets:           fabric-core" in out
-    assert "toolsets:           hermes-cli" not in out
-
-
-def test_dump_legacy_catalog_restores_hidden_provider_credentials(
-    monkeypatch, capsys, tmp_path
-):
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-
-    out = _run_curated_dump(monkeypatch, capsys, tmp_path)
-
-    assert _api_key_line(out, "openrouter")
-    assert _api_key_line(out, "anthropic")
     assert _api_key_line(out, "nous")
+    assert "toolsets:           fabric-cli" in out
 
 
-def test_dump_neutralizes_preserved_hidden_model_and_config_overrides(
+def test_dump_preserves_legitimate_nous_model_and_config_overrides(
     monkeypatch, capsys, tmp_path
 ):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
     config = {
-        "model": {"provider": "nous", "default": "nous/hermes-4"},
-        "toolsets": ["hermes-cli", "web"],
+        "model": {"provider": "nous", "default": "nous/test-model"},
+        "toolsets": ["fabric-cli", "web"],
         "fallback_providers": [
-            {"provider": "nous", "model": "nous/hermes-4"},
+            {"provider": "nous", "model": "nous/test-model"},
             {"provider": "xai", "model": "grok-4.5"},
         ],
     }
 
     out = _run_curated_dump(monkeypatch, capsys, tmp_path, config=config)
 
-    assert "model:            (legacy model configured)" in out
-    assert "provider:         (legacy provider configured)" in out
-    assert "['fabric-core', 'web']" in out
-    assert "(legacy provider configured)" in out
-    assert "grok-4.5" in out
-    assert "nous/hermes-4" not in out
-    assert "hermes-cli" not in out
-
-
-def test_dump_provider_override_restores_preserved_model_and_fallback(
-    monkeypatch, capsys, tmp_path
-):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
-    config = {
-        "model": {"provider": "nous", "default": "nous/hermes-4"},
-        "fallback_providers": [
-            {"provider": "nous", "model": "nous/hermes-4"},
-        ],
-    }
-
-    out = _run_curated_dump(monkeypatch, capsys, tmp_path, config=config)
-
-    assert "model:            nous/hermes-4" in out
+    assert "model:            nous/test-model" in out
     assert "provider:         nous" in out
-    assert "fallback_providers: [{'provider': 'nous', 'model': 'nous/hermes-4'}]" in out
+    assert "['fabric-cli', 'web']" in out
+    assert "grok-4.5" in out
+    assert (
+        "fallback_providers: [{'provider': 'nous', 'model': 'nous/test-model'}, "
+        "{'provider': 'xai', 'model': 'grok-4.5'}]"
+    ) in out

@@ -46,14 +46,13 @@ import re
 from pathlib import Path as _Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-_FABRIC_HOME_ENV = "FABRIC_HOME"
-# public-release-audit: allow-legacy-compat -- honor the previous home override during migration
-_LEGACY_HOME_ENV = "HERMES_HOME"
 
+def _fabric_home_path() -> _Path:
+    """Resolve the one canonical active-profile Fabric home."""
+    from fabric_constants import get_fabric_home
 
-def _fallback_fabric_home() -> _Path:
-    configured = os.getenv(_FABRIC_HOME_ENV) or os.getenv(_LEGACY_HOME_ENV)
-    return _Path(configured).expanduser() if configured else _Path.home() / ".fabric"
+    return _Path(get_fabric_home())
+
 
 # Heavy google-cloud + googleapiclient imports are deferred to first
 # adapter use. Importing them eagerly here added ~110ms wall and ~33MB
@@ -150,13 +149,7 @@ from gateway.platforms.base import (
 )
 
 
-# Pin the logger name to the legacy module path so operator log filters,
-# grep aliases, and the gateway's bundled log views keep matching after
-# the in-tree → plugin migration. ``__name__`` resolves to
-# ``hermes_plugins.platforms__google_chat.adapter`` once the plugin
-# loader namespaces this module, which would silently break every
-# downstream log-monitor that greps for ``gateway.platforms.google_chat``.
-logger = logging.getLogger("gateway.platforms.google_chat")
+logger = logging.getLogger(__name__)
 
 
 # Regex validating Pub/Sub subscription path format.
@@ -309,7 +302,7 @@ def _redact_sensitive(text: str) -> str:
 
 
 def _mime_for_message_type(mime: str) -> MessageType:
-    """Map a MIME string to a hermes MessageType.
+    """Map a MIME string to a fabric MessageType.
 
     Anything not image/audio/video falls through to DOCUMENT so the agent
     still receives the file.
@@ -487,10 +480,10 @@ class GoogleChatAdapter(BasePlatformAdapter):
         # User B asks for a file in B's DM the bot uploads as B (not as
         # whoever first set up files long ago).
         #
-        # ``_user_credentials`` / ``_user_chat_api`` keep their old names
-        # but now hold the LEGACY single-user token (if any) — used as a
-        # last-ditch fallback when the requesting user has no per-user
-        # token yet. Pre-multi-user installs continue to work unchanged.
+        # These two fields hold the schema-v1 single-user token, if present.
+        # New grants are always per-user; this slot is read only as a bounded
+        # transition fallback for installations that already have the neutral
+        # single-user token file.
         self._user_chat_api: Optional[Any] = None
         self._user_credentials: Optional[Any] = None
         # Per-email caches. Populated lazily by ``_get_user_chat_for_chat``.
@@ -526,17 +519,12 @@ class GoogleChatAdapter(BasePlatformAdapter):
         # Inbound message count per (chat_id, thread_name). Drives the
         # DM main-flow vs side-thread heuristic in _build_message_event
         # and the outbound thread routing in _resolve_thread_id.
-        # Persisted to ${HERMES_HOME}/google_chat_thread_counts.json so
+        # Persisted under the active Fabric home so
         # active side-threads survive gateway restarts (the bug that
         # made the in-memory version of this heuristic flaky for
         # multi-restart sessions).
-        try:
-            from fabric_constants import get_fabric_home as _get_fabric_home
-            _fabric_home = _get_fabric_home()
-        except (ModuleNotFoundError, ImportError):
-            _fabric_home = _fallback_fabric_home()
         self._thread_count_store = _ThreadCountStore(
-            _fabric_home / "google_chat_thread_counts.json"
+            _fabric_home_path() / "google_chat_thread_counts.json"
         )
         # In-flight typing-card creates per chat_id. send_typing() reserves
         # an Event here BEFORE starting the API call so concurrent calls
@@ -704,7 +692,7 @@ class GoogleChatAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
     def _bot_id_cache_path(self) -> _Path:
         """Location where the resolved bot user_id is cached across restarts."""
-        return _fallback_fabric_home() / "google_chat_bot_id.json"
+        return _fabric_home_path() / "google_chat_bot_id.json"
 
     def _load_cached_bot_id(self) -> Optional[str]:
         path = self._bot_id_cache_path()
@@ -815,28 +803,24 @@ class GoogleChatAdapter(BasePlatformAdapter):
             self._set_fatal_error(code="chat_api_init", message=msg, retryable=False)
             return False
 
-        # Attempt to load LEGACY single-user OAuth credentials at startup.
-        # In multi-user mode each user's token is loaded lazily by
-        # ``_load_per_user_chat_api`` on first send. The legacy slot is
-        # kept as a last-ditch fallback for pre-multi-user installs and
-        # for groups where the asker has no per-user token yet. Failure
-        # here is NON-fatal: text messaging continues to work; only
-        # attachments degrade to a setup-instructions text notice.
+        # Per-user credentials are loaded lazily on first attachment send.
+        # Also load the schema-v1 single-user token as a transition fallback;
+        # new OAuth grants never write this slot.
         try:
             from .oauth import (
                 load_user_credentials as _load_user_creds,
                 build_user_chat_service as _build_user_chat,
                 list_authorized_emails as _list_emails,
             )
-            user_creds = await asyncio.to_thread(_load_user_creds)
-            if user_creds is not None:
-                self._user_credentials = user_creds
+            single_user_creds = await asyncio.to_thread(_load_user_creds)
+            if single_user_creds is not None:
+                self._user_credentials = single_user_creds
                 self._user_chat_api = await asyncio.to_thread(
-                    lambda: _build_user_chat(user_creds)
+                    lambda: _build_user_chat(single_user_creds)
                 )
                 logger.info(
-                    "[GoogleChat] Legacy user OAuth loaded — fallback "
-                    "attachment delivery enabled"
+                    "[GoogleChat] Schema-v1 user OAuth loaded as an "
+                    "attachment transition fallback"
                 )
             authorized = await asyncio.to_thread(_list_emails)
             if authorized:
@@ -844,7 +828,7 @@ class GoogleChatAdapter(BasePlatformAdapter):
                     "[GoogleChat] %d per-user OAuth tokens on disk: %s",
                     len(authorized), ", ".join(authorized),
                 )
-            elif user_creds is None:
+            elif single_user_creds is None:
                 logger.info(
                     "[GoogleChat] No user OAuth tokens at setup — file "
                     "attachments will degrade to text-only fallback. "
@@ -1287,7 +1271,7 @@ class GoogleChatAdapter(BasePlatformAdapter):
             if text.startswith("/setup-files") and event.source is not None:
                 # The sender's email (user_id_alt) is the per-user OAuth
                 # key — the bot stores this user's token at
-                # ${HERMES_HOME}/google_chat_user_tokens/<sanitized>.json
+                # ${FABRIC_HOME}/google_chat_user_tokens/<sanitized>.json
                 # so when User B asks for a file later in B's DM, B's
                 # token gets used (not the first person who set up files).
                 sender_email = (
@@ -1323,9 +1307,7 @@ class GoogleChatAdapter(BasePlatformAdapter):
         Multi-user mode: ``sender_email`` is the asker's identity, which
         is also the per-user OAuth key. ``status`` / ``start`` / ``revoke``
         / code-exchange all operate on THIS user's token slot. When
-        ``sender_email`` is ``None`` (e.g. tests, or older inbound events
-        without a populated email field) the handler falls back to the
-        legacy single-user path so pre-multi-user installs keep working.
+        A sender email is required because every OAuth grant has one owner.
 
         Subcommands:
           /setup-files                  → show status + next step
@@ -1360,6 +1342,13 @@ class GoogleChatAdapter(BasePlatformAdapter):
                     exc_info=True,
                 )
 
+        if not sender_key:
+            await _reply(
+                "❌ Google Chat did not provide a sender email, so a per-user "
+                "OAuth grant cannot be created for this message."
+            )
+            return True
+
         # Status / no-arg: show what's set up and what to do next.
         if not arg:
             client_secret_present = (
@@ -1372,10 +1361,9 @@ class GoogleChatAdapter(BasePlatformAdapter):
                 if token_present else None
             )
             if creds is not None:
-                who = sender_key or "shared (legacy)"
                 await _reply(
                     "✅ Native attachment delivery is **active** for "
-                    f"`{who}`.\n"
+                    f"`{sender_key}`.\n"
                     f"Token: `{token_path}`\n"
                     "Send `/setup-files revoke` to disable."
                 )
@@ -1459,17 +1447,8 @@ class GoogleChatAdapter(BasePlatformAdapter):
                 )
                 await _reply(f"❌ Error revoking: {exc}")
                 return True
-            # Wipe in-memory creds so subsequent uploads fall through to
-            # the setup-instructions text notice immediately. Scope the
-            # eviction to the sender's slot — Bob revoking shouldn't
-            # break Alice's per-user token nor wipe the shared legacy
-            # fallback that other users may still depend on.
-            if sender_key:
-                self._user_creds_by_email.pop(sender_key, None)
-                self._user_chat_api_by_email.pop(sender_key, None)
-            else:
-                self._user_credentials = None
-                self._user_chat_api = None
+            self._user_creds_by_email.pop(sender_key, None)
+            self._user_chat_api_by_email.pop(sender_key, None)
             await _reply(f"✅ Done.\n```\n{output}\n```")
             return True
 
@@ -1508,12 +1487,8 @@ class GoogleChatAdapter(BasePlatformAdapter):
                 new_api = await asyncio.to_thread(
                     lambda: oauth_helper.build_user_chat_service(new_creds)
                 )
-                if sender_key:
-                    self._user_creds_by_email[sender_key] = new_creds
-                    self._user_chat_api_by_email[sender_key] = new_api
-                else:
-                    self._user_credentials = new_creds
-                    self._user_chat_api = new_api
+                self._user_creds_by_email[sender_key] = new_creds
+                self._user_chat_api_by_email[sender_key] = new_api
                 await _reply(
                     "✅ Authorized! Native attachment delivery is now "
                     "active. Try asking me to send you a PDF."
@@ -1535,7 +1510,7 @@ class GoogleChatAdapter(BasePlatformAdapter):
     async def _build_message_event(
         self, msg: Dict[str, Any], envelope: Dict[str, Any]
     ) -> Optional[MessageEvent]:
-        """Parse a Chat API message into a hermes MessageEvent."""
+        """Parse a Chat API message into a fabric MessageEvent."""
         space = envelope.get("space") or msg.get("space") or {}
         space_name = space.get("name") or ""  # "spaces/XXX"
         space_type = (space.get("type") or space.get("spaceType") or "").upper()
@@ -2603,9 +2578,8 @@ class GoogleChatAdapter(BasePlatformAdapter):
         """Detect Google Chat's media.upload bot-auth rejection.
 
         Returns True for the canonical ``"doesn't support app
-        authentication"`` wording (and the legacy
-        ``ACCESS_TOKEN_SCOPE_INSUFFICIENT`` variant some older clients
-        still see). Used to flag a misuse — calling ``media.upload``
+        authentication"`` wording and Google's structured
+        ``ACCESS_TOKEN_SCOPE_INSUFFICIENT`` reason. Used to flag a misuse — calling ``media.upload``
         through the SA-authed Chat API client instead of the user-authed
         one. With correct routing this error should never fire in the
         adapter; it remains as a defensive check.
@@ -2616,7 +2590,7 @@ class GoogleChatAdapter(BasePlatformAdapter):
             or "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in text
         )
 
-    _LEGACY_USER_IDENTITY = "__legacy__"
+    _SINGLE_USER_V1_IDENTITY = "__single_user_v1__"
 
     async def _load_per_user_chat_api(self, email: str) -> Optional[Any]:
         """Get (or build + cache) a user-authed Chat client for ``email``.
@@ -2671,16 +2645,9 @@ class GoogleChatAdapter(BasePlatformAdapter):
     ) -> Tuple[Optional[Any], Optional[str]]:
         """Resolve the user-authed Chat client for an outbound attachment.
 
-        Lookup order:
-          1. Per-user token for ``sender_email`` — the asker's identity.
-          2. Legacy single-user fallback (``self._user_chat_api``) for
-             pre-multi-user installs.
-          3. None — caller posts the setup-instructions text notice.
-
-        Returns ``(client, identity_label)`` where ``identity_label`` is
-        the sanitized email or the literal ``"__legacy__"`` sentinel.
-        ``_invalidate_user_creds`` uses the label to evict the right slot
-        on auth failure.
+        Prefer the asker's per-user token. If it is absent, use the schema-v1
+        single-user token as a transition fallback. Returns ``(None, None)``
+        when neither token is available.
         """
         if sender_email:
             api = await self._load_per_user_chat_api(sender_email)
@@ -2689,40 +2656,41 @@ class GoogleChatAdapter(BasePlatformAdapter):
 
         if self._user_chat_api is not None:
             try:
-                from .oauth import (
-                    refresh_or_none as _refresh,
-                )
+                from .oauth import refresh_or_none as _refresh
+
                 refreshed = await asyncio.to_thread(
-                    _refresh, self._user_credentials, None,
+                    _refresh,
+                    self._user_credentials,
+                    None,
                 )
             except Exception:
                 logger.debug(
-                    "[GoogleChat] legacy creds refresh raised", exc_info=True,
+                    "[GoogleChat] schema-v1 credential refresh raised",
+                    exc_info=True,
                 )
                 refreshed = None
             if refreshed is None:
                 logger.warning(
-                    "[GoogleChat] legacy user-OAuth refresh returned None — "
-                    "evicting fallback creds"
+                    "[GoogleChat] Schema-v1 user OAuth is unusable; "
+                    "evicting the transition fallback"
                 )
                 self._user_credentials = None
                 self._user_chat_api = None
                 return None, None
             self._user_credentials = refreshed
-            return self._user_chat_api, self._LEGACY_USER_IDENTITY
+            return self._user_chat_api, self._SINGLE_USER_V1_IDENTITY
 
         return None, None
 
     def _invalidate_user_creds(self, identity: Optional[str]) -> None:
         """Drop creds for ``identity`` after an auth failure.
 
-        ``identity`` comes from ``_acquire_user_chat_api`` — either the
-        sender email (per-user slot) or ``__legacy__`` for the fallback
-        slot. None is a no-op.
+        ``identity`` is the sender email or the schema-v1 fallback sentinel.
+        ``None`` is a no-op.
         """
         if not identity:
             return
-        if identity == self._LEGACY_USER_IDENTITY:
+        if identity == self._SINGLE_USER_V1_IDENTITY:
             self._user_credentials = None
             self._user_chat_api = None
             return
@@ -2748,9 +2716,8 @@ class GoogleChatAdapter(BasePlatformAdapter):
 
         Multi-user routing: the bot looks up the most recent inbound
         sender for this ``chat_id`` and uses THAT user's stored OAuth
-        token. Falls back to a legacy single-user token when present
-        (for pre-multi-user installs), and to a setup-instructions text
-        notice when neither is available.
+        token. A schema-v1 single-user token remains a transition fallback;
+        when neither is available, the adapter sends setup instructions.
 
         Google Chat ``messages.patch`` cannot add an attachment to an
         existing message, so we cannot transform the typing card directly
@@ -2954,9 +2921,8 @@ class GoogleChatAdapter(BasePlatformAdapter):
 def _validate_config(config: PlatformConfig) -> bool:
     """Plugin-side config gate: require both Pub/Sub project and subscription.
 
-    Mirrors the legacy dispatch entry in ``gateway/config.py`` so the
-    registry can decide whether the platform is configured without
-    importing the legacy table.
+    Lets the registry decide whether the platform is configured without
+    constructing the adapter.
     """
     extra = getattr(config, "extra", {}) or {}
     return bool(
@@ -2970,10 +2936,8 @@ def _check_for_registry() -> bool:
 
     The registry pass at ``gateway/config.py:_apply_env_overrides`` adds
     the platform to ``cfg.platforms`` whenever ``check_fn`` returns True.
-    For backward compat with the pre-plugin behavior, we ALSO require
-    the minimum Pub/Sub env vars so an unconfigured user doesn't
-    accidentally see ``google_chat`` enabled. This matches the legacy
-    ``if gc_project and gc_subscription`` gate.
+    Require the minimum Pub/Sub credentials so an unconfigured user does not
+    see ``google_chat`` enabled.
     """
     if not check_google_chat_requirements():
         return False
@@ -3065,7 +3029,7 @@ def interactive_setup() -> None:
     print_info("Walkthrough:")
     print_info("  1. Create or select a GCP project; enable Google Chat API + Cloud Pub/Sub API.")
     print_info("  2. Create a Service Account (no project-level IAM role needed).")
-    print_info("  3. Create a Pub/Sub topic (e.g. hermes-chat-events) and a Pull subscription.")
+    print_info("  3. Create a Pub/Sub topic (e.g. fabric-chat-events) and a Pull subscription.")
     print_info("  4. On the TOPIC: add chat-api-push@system.gserviceaccount.com as Pub/Sub Publisher.")
     print_info("  5. On the SUBSCRIPTION: grant your Service Account Pub/Sub Subscriber.")
     print_info("  6. Download the Service Account JSON key.")
@@ -3288,7 +3252,7 @@ async def _standalone_send(
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system at startup.
+    """Plugin entry point — called by the Fabric plugin system at startup.
 
     Registers the Google Chat adapter under the ``google_chat`` name.
     The gateway's ``_create_adapter`` consults the platform registry

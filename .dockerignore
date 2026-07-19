@@ -57,11 +57,11 @@ htmlcov/
 
 # Runtime data (bind-mounted at /opt/data; must not leak into build context)
 data/
-.hermes-docker/
+.fabric-docker/
 .notebooklm-home/
 
 # Compose/profile runtime state (bind-mounted; avoid ownership/secret issues)
-hermes-config/
+fabric-config/
 runtime/
 
 # ---------- Not needed inside the Docker image ----------
@@ -90,9 +90,6 @@ docs/
 # Assets only used by the GitHub README
 assets/
 infographic/
-
-# Plugin-level docs (hermes-achievements ships docs/ but the runtime doesn't read them)
-plugins/hermes-achievements/docs/
 
 # Nix / Homebrew / AUR packaging metadata — irrelevant to Docker
 nix/

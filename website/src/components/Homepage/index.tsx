@@ -65,16 +65,6 @@ const routes = [
 
 const productViews = [
   {
-    label: "Desktop app",
-    title: "A focused native workspace.",
-    copy: "Chat, projects, model controls, memory, and skills in one profile-aware app.",
-    image: "/img/product/fabric-desktop-home.jpg",
-    width: 1172,
-    height: 768,
-    alt: "Fabric Desktop home screen with a new-chat composer and local Ollama model selected",
-    href: "/user-guide/desktop",
-  },
-  {
     label: "Terminal UI",
     title: "The full agent in your terminal.",
     copy: "Commands, skills, status, approvals, and live tool work without leaving the keyboard.",

@@ -214,7 +214,7 @@ data class BackgroundProcess(
 
 /**
  * Public body of `GET /api/status`. `authRequired` distinguishes a gated
- * gateway (provider login + WS tickets) from legacy token auth
+ * gateway (provider login + WS tickets) from direct token auth
  * (`authModeFromStatus` in apps/desktop/electron/connection-config.ts).
  */
 data class GatewayStatus(val authRequired: Boolean)
@@ -297,7 +297,7 @@ class GatewayApi(val client: JsonRpcGatewayClient) {
 
     // -- Gated auth (provider login + WS tickets) -----------------------------
     // OkHttp has no cookie handling by default; this client carries the
-    // session cookies (`hermes_session_at`/`_rt`) that `/auth/password-login`
+    // dashboard access and refresh cookies that `/auth/password-login`
     // sets so the ticket mint below is authenticated — mirroring the browser
     // SPA's flow. In-memory only: the session dies with the process and the
     // user signs in again (password persistence is deliberately avoided).

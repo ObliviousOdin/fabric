@@ -41,7 +41,7 @@ from typing import Any, Awaitable, Dict, Optional
 from urllib.parse import urlparse
 import httpx
 from agent.auxiliary_client import async_call_llm, extract_content_or_reasoning
-from fabric_constants import get_hermes_dir
+from fabric_constants import get_fabric_dir
 from tools.debug_helpers import DebugSession
 from tools.website_policy import check_website_access
 import sys
@@ -52,14 +52,8 @@ _debug = DebugSession("vision_tools", env_var="VISION_TOOLS_DEBUG")
 
 # Configurable HTTP download timeout for _download_image().
 # Separate from auxiliary.vision.timeout which governs the LLM API call.
-# Resolution: config.yaml auxiliary.vision.download_timeout → env var → 30s default.
+# Resolution: config.yaml auxiliary.vision.download_timeout → 30s default.
 def _resolve_download_timeout() -> float:
-    env_val = os.getenv("HERMES_VISION_DOWNLOAD_TIMEOUT", "").strip()
-    if env_val:
-        try:
-            return float(env_val)
-        except ValueError:
-            pass
     try:
         from fabric_cli.config import cfg_get, load_config
         cfg = load_config()
@@ -131,19 +125,11 @@ def _resolve_vision_cpu_workers() -> int:
     multi-image fan-out keeps full request concurrency; only the simultaneous
     CPU bursts are bounded so the event loop always keeps a core.
 
-    Resolution order: HERMES_VISION_MAX_CONCURRENCY env →
-    config.yaml auxiliary.vision.max_concurrency → host core count. Any value
+    Resolution order: config.yaml auxiliary.vision.max_concurrency → host
+    core count. Any value
     that parses to < 1 is ignored in favor of the next source so the cap can
     never be disabled into an unbounded encode storm.
     """
-    env_val = os.getenv("HERMES_VISION_MAX_CONCURRENCY", "").strip()
-    if env_val:
-        try:
-            parsed = int(env_val)
-            if parsed >= 1:
-                return parsed
-        except ValueError:
-            pass
     try:
         from fabric_cli.config import cfg_get, load_config
         cfg = load_config()
@@ -319,7 +305,7 @@ def _normalize_to_supported_image(
     if detected_mime in _ANTHROPIC_SUPPORTED_MEDIA_TYPES:
         return image_path, detected_mime, None
 
-    out_dir = get_hermes_dir("cache/vision", "temp_vision_images")
+    out_dir = get_fabric_dir("cache/vision")
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"converted_{uuid.uuid4()}.png"
 
@@ -973,7 +959,7 @@ async def _vision_analyze_native(
 
         detected_mime_type = resolved.mime
         image_size_bytes = len(resolved.data)
-        temp_dir = get_hermes_dir("cache/vision", "temp_vision_images")
+        temp_dir = get_fabric_dir("cache/vision")
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_image_path = temp_dir / f"temp_image_{uuid.uuid4()}.img"
         await asyncio.to_thread(temp_image_path.write_bytes, resolved.data)
@@ -1094,7 +1080,7 @@ async def vision_analyze_tool(
         Exception: If download fails, analysis fails, or API key is not set
         
     Note:
-        - For URLs, temporary images are stored under $HERMES_HOME/cache/vision/ and cleaned up
+        - For URLs, temporary images are stored under $FABRIC_HOME/cache/vision/ and cleaned up
         - For local file paths, the file is used directly and NOT deleted
         - Supports common image formats (JPEG, PNG, GIF, WebP, etc.)
     """
@@ -1143,7 +1129,7 @@ async def vision_analyze_tool(
             raise ValueError(str(exc))
 
         detected_mime_type = resolved.mime
-        temp_dir = get_hermes_dir("cache/vision", "temp_vision_images")
+        temp_dir = get_fabric_dir("cache/vision")
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_image_path = temp_dir / f"temp_image_{uuid.uuid4()}.img"
         await asyncio.to_thread(temp_image_path.write_bytes, resolved.data)
@@ -1675,7 +1661,7 @@ async def video_analyze_tool(
             blocked = check_website_access(video_url)
             if blocked:
                 raise PermissionError(blocked["message"])
-            temp_dir = get_hermes_dir("cache/video", "temp_video_files")
+            temp_dir = get_fabric_dir("cache/video")
             temp_video_path = temp_dir / f"temp_video_{uuid.uuid4()}.mp4"
             await _download_video(video_url, temp_video_path)
             should_cleanup = True

@@ -54,7 +54,6 @@ import { useToast } from "@nous-research/ui/hooks/use-toast";
 import { useI18n } from "@/i18n";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { PluginSlot } from "@/plugins";
-import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 
 const PAGE_SIZE = 20;
 
@@ -169,7 +168,6 @@ export default function SessionsPage() {
   const navigate = useNavigate();
   const { setAfterTitle, setEnd } = usePageHeader();
   const { activeAction, actionStatus, dismissLog } = useSystemActions();
-  const resumeInChatEnabled = isDashboardEmbeddedChatEnabled();
 
   const refreshEmptyCount = useCallback(() => {
     api
@@ -579,8 +577,8 @@ export default function SessionsPage() {
           credentials: "include",
           headers: {
             "X-Fabric-Session-Token":
-              (window as unknown as { __HERMES_SESSION_TOKEN__?: string })
-                .__HERMES_SESSION_TOKEN__ ?? "",
+              (window as unknown as { __DASHBOARD_AUTH_TOKEN__?: string })
+                .__DASHBOARD_AUTH_TOKEN__ ?? "",
           },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -781,7 +779,7 @@ export default function SessionsPage() {
               <span className="text-xs font-mondwest tracking-[0.12em] truncate">
                 {activeAction === "restart"
                   ? t.status.restartGateway
-                  : t.status.updateHermes}
+                  : t.status.updateFabric}
               </span>
 
               <Badge
@@ -1048,7 +1046,6 @@ export default function SessionsPage() {
                 onDelete={() => sessionDelete.requestDelete(s.id)}
                 onRename={handleRename}
                 onExport={handleExport}
-                resumeInChatEnabled={resumeInChatEnabled}
               />
             ))}
           </div>

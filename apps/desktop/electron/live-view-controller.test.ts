@@ -225,7 +225,7 @@ test('controller times out an unready PiP, returns it to the dock, and clears ow
   assert.equal(win.destroyed, true)
   assert.deepEqual(owner.messages, [
     {
-      channel: 'hermes:live-view:control',
+      channel: 'fabric:live-view:control',
       payload: { sessionId: 'session-timeout', type: 'closed' }
     }
   ])
@@ -279,7 +279,7 @@ for (const lifecycleEvent of ['hide', 'minimize', 'render-process-gone'] as cons
     assert.equal(win.destroyed, true)
     assert.deepEqual(owner.messages, [
       {
-        channel: 'hermes:live-view:control',
+        channel: 'fabric:live-view:control',
         payload: { sessionId: `session-${lifecycleEvent}`, type: 'closed' }
       }
     ])
@@ -316,7 +316,7 @@ for (const type of ['dock', 'hide'] as const) {
     assert.equal(win.destroyed, true)
     assert.deepEqual(owner.messages, [
       {
-        channel: 'hermes:live-view:control',
+        channel: 'fabric:live-view:control',
         payload: { sessionId, type }
       }
     ])

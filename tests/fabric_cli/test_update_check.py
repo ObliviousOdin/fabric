@@ -10,6 +10,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_packaged_revision():
+    from fabric_cli.package_metadata import configure_packaged_revision
+
+    configure_packaged_revision(None)
+    yield
+    configure_packaged_revision(None)
+
+
 def test_version_string_no_v_prefix():
     """__version__ should be bare semver without a 'v' prefix."""
     from fabric_cli import __version__
@@ -29,7 +38,7 @@ def test_check_for_updates_uses_cache(tmp_path, monkeypatch):
     cache_file = tmp_path / ".update_check"
     cache_file.write_text(json.dumps({"ts": time.time(), "behind": 3, "ver": __version__}))
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     with patch("fabric_cli.banner.subprocess.run") as mock_run:
         result = check_for_updates()
 
@@ -58,8 +67,7 @@ def test_check_for_updates_invalidates_on_version_change(tmp_path, monkeypatch):
         json.dumps({"ts": time.time(), "behind": 1, "rev": None, "ver": "0.0.1-old"})
     )
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("HERMES_REVISION", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     with patch("fabric_cli.banner.subprocess.run") as mock_run, \
          patch("fabric_cli.banner.check_via_pypi", return_value=0) as mock_pypi:
         result = banner.check_for_updates()
@@ -88,7 +96,7 @@ def test_check_for_updates_expired_cache(tmp_path, monkeypatch):
 
     mock_result = MagicMock(returncode=0, stdout="5\n")
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     with patch("fabric_cli.banner.subprocess.run", return_value=mock_result) as mock_run:
         result = check_for_updates()
 
@@ -232,7 +240,7 @@ def test_check_for_updates_no_git_dir(tmp_path, monkeypatch):
     fake_banner.touch()
 
     monkeypatch.setattr(banner, "__file__", str(fake_banner))
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     with patch("fabric_cli.banner.subprocess.run") as mock_run:
         with patch("fabric_cli.banner.check_via_pypi", return_value=0):
             result = banner.check_for_updates()
@@ -241,15 +249,15 @@ def test_check_for_updates_no_git_dir(tmp_path, monkeypatch):
 
 
 def test_check_for_updates_fallback_to_project_root(tmp_path, monkeypatch):
-    """Dev install: falls back to Path(__file__).parent.parent when HERMES_HOME has no git repo."""
+    """Dev install: falls back to Path(__file__).parent.parent when FABRIC_HOME has no git repo."""
     import fabric_cli.banner as banner
 
     project_root = Path(banner.__file__).parent.parent.resolve()
     if not (project_root / ".git").exists():
         pytest.skip("Not running from a git checkout")
 
-    # Point HERMES_HOME at a temp dir with no fabric-agent/.git
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    # Point FABRIC_HOME at a temp dir with no fabric-agent/.git
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     with patch("fabric_cli.banner.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=0, stdout="0\n")
         result = banner.check_for_updates()
@@ -260,8 +268,8 @@ def test_check_for_updates_fallback_to_project_root(tmp_path, monkeypatch):
 def test_check_for_updates_docker_returns_none(tmp_path, monkeypatch):
     """Inside the Docker image, check_for_updates() must short-circuit to None.
 
-    Regression: the published image excludes .git (.dockerignore) and sets no
-    HERMES_REVISION (nix-only), so without a docker guard check_for_updates()
+    Regression: the published image excludes .git (.dockerignore) and embeds no
+    package revision, so without a docker guard check_for_updates()
     falls through to check_via_pypi(), whose version-mismatch flag (1) gets
     rendered by both the Rich banner and the Ink TUI badge as a phantom
     "1 commit behind" — despite there being no git repo or commit math in the
@@ -271,7 +279,7 @@ def test_check_for_updates_docker_returns_none(tmp_path, monkeypatch):
     """
     import fabric_cli.banner as banner
 
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     cache_file = tmp_path / ".update_check"
 
     with patch("fabric_cli.config.detect_install_method", return_value="docker"), \
@@ -300,9 +308,7 @@ def test_check_for_updates_non_docker_still_checks(tmp_path, monkeypatch):
     fake_banner.parent.mkdir(parents=True, exist_ok=True)
     fake_banner.touch()
     monkeypatch.setattr(banner, "__file__", str(fake_banner))
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("HERMES_REVISION", raising=False)
-
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     with patch("fabric_cli.config.detect_install_method", return_value="pip"), \
          patch("fabric_cli.banner.subprocess.run") as mock_run, \
          patch("fabric_cli.banner.check_via_pypi", return_value=1) as mock_pypi:
@@ -311,6 +317,21 @@ def test_check_for_updates_non_docker_still_checks(tmp_path, monkeypatch):
     assert result == 1
     mock_pypi.assert_called_once()
     mock_run.assert_not_called()
+
+
+def test_check_for_updates_uses_packaged_revision(tmp_path, monkeypatch):
+    import fabric_cli.banner as banner
+    from fabric_cli.package_metadata import configure_packaged_revision
+
+    configure_packaged_revision("abc123")
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+
+    with patch("fabric_cli.config.detect_install_method", return_value="nix"), \
+         patch("fabric_cli.banner._check_via_rev", return_value=2) as mock_rev:
+        result = banner.check_for_updates()
+
+    assert result == 2
+    mock_rev.assert_called_once_with("abc123")
 
 
 def test_prefetch_non_blocking():
@@ -338,8 +359,8 @@ def test_invalidate_update_cache_clears_all_profiles(tmp_path):
     """_invalidate_update_cache() should delete .update_check from ALL profiles."""
     from fabric_cli.main import _invalidate_update_cache
 
-    # Build a fake ~/.hermes with default + two named profiles
-    default_home = tmp_path / ".hermes"
+    # Build a fake ~/.fabric with default + two named profiles
+    default_home = tmp_path / ".fabric"
     default_home.mkdir()
     (default_home / ".update_check").write_text('{"ts":1,"behind":50}')
 
@@ -350,7 +371,7 @@ def test_invalidate_update_cache_clears_all_profiles(tmp_path):
         (p / ".update_check").write_text('{"ts":1,"behind":50}')
 
     with patch.object(Path, "home", return_value=tmp_path), \
-         patch.dict(os.environ, {"HERMES_HOME": str(default_home)}):
+         patch.dict(os.environ, {"FABRIC_HOME": str(default_home)}):
         _invalidate_update_cache()
 
     # All three caches should be gone
@@ -363,12 +384,12 @@ def test_invalidate_update_cache_no_profiles_dir(tmp_path):
     """Works fine when no profiles directory exists (single-profile setup)."""
     from fabric_cli.main import _invalidate_update_cache
 
-    default_home = tmp_path / ".hermes"
+    default_home = tmp_path / ".fabric"
     default_home.mkdir()
     (default_home / ".update_check").write_text('{"ts":1,"behind":5}')
 
     with patch.object(Path, "home", return_value=tmp_path), \
-         patch.dict(os.environ, {"HERMES_HOME": str(default_home)}):
+         patch.dict(os.environ, {"FABRIC_HOME": str(default_home)}):
         _invalidate_update_cache()
 
     assert not (default_home / ".update_check").exists()

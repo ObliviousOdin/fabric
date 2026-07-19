@@ -39,34 +39,22 @@ Install Fabric normally, then add the ACP extra:
 pip install -e '.[acp]'
 ```
 
-This installs the `agent-client-protocol` dependency and enables:
-
-- `fabric acp`
-- `fabric-acp`
-- `python -m acp_adapter`
+This installs the `agent-client-protocol` dependency and enables `fabric acp`.
 
 For Zed registry installs, Zed launches Fabric through the official ACP Registry entry. That entry uses a `uvx` distribution that runs:
 
 ```bash
-uvx --from 'fabric-agent[acp]==<version>' fabric-acp
+uvx --from 'fabric-agent[acp]==<version>' fabric acp
 ```
 
 Make sure `uv` is available on `PATH` before using the registry install path.
 
 ## Launching the ACP server
 
-Any of the following starts Fabric in ACP mode:
+Start Fabric in ACP mode with:
 
 ```bash
 fabric acp
-```
-
-```bash
-fabric-acp
-```
-
-```bash
-python -m acp_adapter
 ```
 
 fabric logs to stderr so stdout remains reserved for ACP JSON-RPC traffic.
@@ -136,7 +124,7 @@ Zed v0.221.x and newer installs external agents through the official ACP Registr
 Prerequisites:
 
 - Configure Fabric provider credentials first with `fabric model`, or set them in `~/.fabric/.env` / `~/.fabric/config.yaml`.
-- Install `uv` so the registry launcher can run `uvx --from 'fabric-agent[acp]==<version>' fabric-acp`.
+- Install `uv` so the registry launcher can run `uvx --from 'fabric-agent[acp]==<version>' fabric acp`.
 
 For local development before the registry entry is available, use a custom agent server in Zed settings:
 
@@ -174,7 +162,7 @@ The upstream registry PR copies those files into the top-level `fabric-agent/` d
 The registry entry uses a `uvx` distribution that points directly at the `fabric-agent` PyPI release:
 
 ```text
-uvx --from 'fabric-agent[acp]==<version>' fabric-acp
+uvx --from 'fabric-agent[acp]==<version>' fabric acp
 ```
 
 The registry CI verifies that the pinned version exists on PyPI, so the manifest's `version` and uvx `package` pin must always match `pyproject.toml`. `scripts/release.py` keeps them in lockstep automatically.

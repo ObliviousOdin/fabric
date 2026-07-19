@@ -14,51 +14,51 @@ import pytest
 import fabric_cli.gui_uninstall as gu
 
 
-def _make_agent(hermes_home: Path) -> Path:
+def _make_agent(fabric_home: Path) -> Path:
     """Create a fake agent install: source package + venv."""
-    agent_root = hermes_home / "fabric-agent"
+    agent_root = fabric_home / "fabric-agent"
     (agent_root / "fabric_cli").mkdir(parents=True)
     (agent_root / "fabric_cli" / "__init__.py").write_text("")
     (agent_root / "venv" / "bin").mkdir(parents=True)
     return agent_root
 
 
-def _make_gui_build(hermes_home: Path) -> None:
-    """Create the source-built GUI artifacts a `hermes desktop` run produces."""
-    desktop = hermes_home / "fabric-agent" / "apps" / "desktop"
+def _make_gui_build(fabric_home: Path) -> None:
+    """Create the source-built GUI artifacts a `fabric desktop` run produces."""
+    desktop = fabric_home / "fabric-agent" / "apps" / "desktop"
     (desktop / "dist").mkdir(parents=True)
     (desktop / "dist" / "index.html").write_text("<html>")
     (desktop / "release" / "linux-unpacked").mkdir(parents=True)
     (desktop / "node_modules").mkdir(parents=True)
-    (hermes_home / "fabric-agent" / "node_modules").mkdir(parents=True)
-    (hermes_home / "desktop-build-stamp.json").write_text("{}")
+    (fabric_home / "fabric-agent" / "node_modules").mkdir(parents=True)
+    (fabric_home / "desktop-build-stamp.json").write_text("{}")
 
 
-def _make_user_data(hermes_home: Path) -> None:
-    (hermes_home / "config.yaml").write_text("x: 1\n")
-    (hermes_home / ".env").write_text("KEY=secret\n")
-    (hermes_home / "sessions").mkdir()
+def _make_user_data(fabric_home: Path) -> None:
+    (fabric_home / "config.yaml").write_text("x: 1\n")
+    (fabric_home / ".env").write_text("KEY=secret\n")
+    (fabric_home / "sessions").mkdir()
 
 
 def test_agent_is_installed_detects_source_and_venv(tmp_path):
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    assert gu.agent_is_installed(hermes_home) is False
-    _make_agent(hermes_home)
-    assert gu.agent_is_installed(hermes_home) is True
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    assert gu.agent_is_installed(fabric_home) is False
+    _make_agent(fabric_home)
+    assert gu.agent_is_installed(fabric_home) is True
 
 
 def test_agent_is_installed_venv_only(tmp_path):
     """A checkout with only a venv (no package dir yet) still counts."""
-    hermes_home = tmp_path / ".hermes"
-    (hermes_home / "fabric-agent" / "venv").mkdir(parents=True)
-    assert gu.agent_is_installed(hermes_home) is True
+    fabric_home = tmp_path / ".fabric"
+    (fabric_home / "fabric-agent" / "venv").mkdir(parents=True)
+    assert gu.agent_is_installed(fabric_home) is True
 
 
 def test_source_built_artifacts_lists_known_paths(tmp_path):
-    hermes_home = tmp_path / ".hermes"
-    _make_gui_build(hermes_home)
-    artifacts = gu.source_built_gui_artifacts(hermes_home)
+    fabric_home = tmp_path / ".fabric"
+    _make_gui_build(fabric_home)
+    artifacts = gu.source_built_gui_artifacts(fabric_home)
     names = {p.name for p in artifacts}
     assert "dist" in names
     assert "release" in names
@@ -67,35 +67,35 @@ def test_source_built_artifacts_lists_known_paths(tmp_path):
 
 
 def test_gui_is_installed_true_when_built(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    _make_gui_build(hermes_home)
+    fabric_home = tmp_path / ".fabric"
+    _make_gui_build(fabric_home)
     # Make sure packaged-app + userdata probes don't false-positive on the box
     # running the test.
     monkeypatch.setattr(gu, "packaged_gui_app_paths", lambda: [])
     monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: tmp_path / "nope")
-    assert gu.gui_is_installed(hermes_home) is True
+    assert gu.gui_is_installed(fabric_home) is True
 
 
 def test_gui_is_installed_false_when_nothing(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
     monkeypatch.setattr(gu, "packaged_gui_app_paths", lambda: [])
     monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: tmp_path / "nope")
-    assert gu.gui_is_installed(hermes_home) is False
+    assert gu.gui_is_installed(fabric_home) is False
 
 
 def test_uninstall_gui_removes_only_gui_artifacts(tmp_path, monkeypatch):
     """The core invariant: GUI gone, agent + user data untouched."""
-    hermes_home = tmp_path / ".hermes"
-    agent_root = _make_agent(hermes_home)
-    _make_gui_build(hermes_home)
-    _make_user_data(hermes_home)
+    fabric_home = tmp_path / ".fabric"
+    agent_root = _make_agent(fabric_home)
+    _make_gui_build(fabric_home)
+    _make_user_data(fabric_home)
 
     # Isolate the packaged-app + userdata probes from the test machine.
     monkeypatch.setattr(gu, "packaged_gui_app_paths", lambda: [])
     monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: tmp_path / "userdata-none")
 
-    removed = gu.uninstall_gui(hermes_home)
+    removed = gu.uninstall_gui(fabric_home)
     removed_names = {p.name for p in removed}
 
     # GUI artifacts removed.
@@ -104,68 +104,68 @@ def test_uninstall_gui_removes_only_gui_artifacts(tmp_path, monkeypatch):
     assert not (desktop / "release").exists()
     assert not (desktop / "node_modules").exists()
     assert not (agent_root / "node_modules").exists()
-    assert not (hermes_home / "desktop-build-stamp.json").exists()
+    assert not (fabric_home / "desktop-build-stamp.json").exists()
     assert "dist" in removed_names
 
     # Agent + user data preserved.
     assert (agent_root / "fabric_cli" / "__init__.py").exists()
     assert (agent_root / "venv").exists()
-    assert (hermes_home / "config.yaml").exists()
-    assert (hermes_home / ".env").exists()
-    assert (hermes_home / "sessions").exists()
+    assert (fabric_home / "config.yaml").exists()
+    assert (fabric_home / ".env").exists()
+    assert (fabric_home / "sessions").exists()
     # The desktop source dir itself survives (only its build output is gone).
     assert desktop.exists()
 
 
 def test_uninstall_gui_removes_userdata(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    _make_agent(hermes_home)
-    userdata = tmp_path / "Hermes-userdata"
+    fabric_home = tmp_path / ".fabric"
+    _make_agent(fabric_home)
+    userdata = tmp_path / "Fabric-userdata"
     userdata.mkdir()
     (userdata / "connection.json").write_text("{}")
 
     monkeypatch.setattr(gu, "packaged_gui_app_paths", lambda: [])
     monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: userdata)
 
-    gu.uninstall_gui(hermes_home)
+    gu.uninstall_gui(fabric_home)
     assert not userdata.exists()
 
 
 def test_uninstall_gui_keeps_userdata_when_requested(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    _make_agent(hermes_home)
-    userdata = tmp_path / "Hermes-userdata"
+    fabric_home = tmp_path / ".fabric"
+    _make_agent(fabric_home)
+    userdata = tmp_path / "Fabric-userdata"
     userdata.mkdir()
 
     monkeypatch.setattr(gu, "packaged_gui_app_paths", lambda: [])
     monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: userdata)
 
-    gu.uninstall_gui(hermes_home, remove_userdata=False)
+    gu.uninstall_gui(fabric_home, remove_userdata=False)
     assert userdata.exists()
 
 
 def test_uninstall_gui_removes_packaged_bundle(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    _make_agent(hermes_home)
-    bundle = tmp_path / "Hermes.app"
+    fabric_home = tmp_path / ".fabric"
+    _make_agent(fabric_home)
+    bundle = tmp_path / "Fabric.app"
     (bundle / "Contents").mkdir(parents=True)
 
     monkeypatch.setattr(gu, "packaged_gui_app_paths", lambda: [bundle])
     monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: tmp_path / "none")
 
-    removed = gu.uninstall_gui(hermes_home)
+    removed = gu.uninstall_gui(fabric_home)
     assert not bundle.exists()
     assert bundle in removed
 
 
 def test_gui_install_summary_shape(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    _make_agent(hermes_home)
-    _make_gui_build(hermes_home)
+    fabric_home = tmp_path / ".fabric"
+    _make_agent(fabric_home)
+    _make_gui_build(fabric_home)
     monkeypatch.setattr(gu, "packaged_gui_app_paths", lambda: [])
     monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: tmp_path / "none")
 
-    summary = gu.gui_install_summary(hermes_home)
+    summary = gu.gui_install_summary(fabric_home)
     # JSON-serializable primitives the desktop UI gates on.
     assert summary["agent_installed"] is True
     assert summary["gui_installed"] is True
@@ -174,7 +174,7 @@ def test_gui_install_summary_shape(tmp_path, monkeypatch):
     assert summary["userdata_dir"].endswith("none")
     assert isinstance(summary["userdata_dirs"], list)
     assert isinstance(summary["userdata_existing_paths"], list)
-    assert summary["hermes_home"] == str(hermes_home)
+    assert summary["fabric_home"] == str(fabric_home)
     assert summary["platform"] == sys.platform
 
 
@@ -187,7 +187,6 @@ def test_userdata_dir_per_platform(monkeypatch):
     assert gu.desktop_userdata_dir() == home / "Library" / "Application Support" / "Fabric"
     assert gu.desktop_userdata_dirs() == [
         home / "Library" / "Application Support" / "Fabric",
-        home / "Library" / "Application Support" / "Hermes",
     ]
 
     monkeypatch.setattr(gu.sys, "platform", "linux")
@@ -204,43 +203,37 @@ def test_userdata_dir_windows(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("platform", "expected_primary", "expected_legacy"),
+    ("platform", "expected_path"),
     [
-        ("darwin", "/Applications/Fabric.app", "/Applications/Hermes.app"),
-        ("win32", "Programs/Fabric", "Programs/Hermes"),
-        ("linux", "applications/fabric.desktop", "applications/hermes.desktop"),
+        ("darwin", "/Applications/Fabric.app"),
+        ("win32", "Programs/Fabric"),
+        ("linux", "applications/Fabric.desktop"),
     ],
 )
-def test_packaged_app_discovery_prefers_fabric_and_keeps_legacy(
-    monkeypatch, platform, expected_primary, expected_legacy
+def test_packaged_app_discovery_returns_fabric_locations(
+    monkeypatch, platform, expected_path
 ):
     monkeypatch.setattr(gu.sys, "platform", platform)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path("/home/tester")))
     monkeypatch.setenv("LOCALAPPDATA", "/home/tester/AppData/Local")
 
     paths = [str(path).replace("\\", "/") for path in gu.packaged_gui_app_paths()]
-    primary_index = next(index for index, path in enumerate(paths) if expected_primary in path)
-    legacy_index = next(index for index, path in enumerate(paths) if expected_legacy in path)
-    assert primary_index < legacy_index
+    assert any(expected_path in path for path in paths)
 
 
-def test_uninstall_gui_removes_branded_and_legacy_userdata(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    _make_agent(hermes_home)
+def test_uninstall_gui_removes_fabric_userdata(tmp_path, monkeypatch):
+    fabric_home = tmp_path / ".fabric"
+    _make_agent(fabric_home)
     data_root = tmp_path / "app-data"
-    branded = data_root / "Fabric"
-    legacy = data_root / "Hermes"
-    branded.mkdir(parents=True)
-    legacy.mkdir()
+    userdata = data_root / "Fabric"
+    userdata.mkdir(parents=True)
 
     monkeypatch.setattr(gu, "packaged_gui_app_paths", lambda: [])
-    monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: branded)
+    monkeypatch.setattr(gu, "desktop_userdata_dir", lambda: userdata)
 
-    removed = gu.uninstall_gui(hermes_home)
-    assert branded in removed
-    assert legacy in removed
-    assert not branded.exists()
-    assert not legacy.exists()
+    removed = gu.uninstall_gui(fabric_home)
+    assert removed.count(userdata) == 1
+    assert not userdata.exists()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink semantics")
@@ -270,23 +263,23 @@ def test_run_uninstall_yes_keep_data_is_non_interactive(tmp_path, monkeypatch):
 
     We DO NOT spawn the real CLI here (its project_root removal would delete the
     test checkout) — we call run_uninstall in-process against a throwaway
-    HERMES_HOME with all the destructive externals stubbed out.
+    FABRIC_HOME with all the destructive externals stubbed out.
     """
     import fabric_cli.uninstall as uninstall
 
-    hermes_home = tmp_path / ".hermes"
-    agent_root = hermes_home / "fabric-agent"
+    fabric_home = tmp_path / ".fabric"
+    agent_root = fabric_home / "fabric-agent"
     (agent_root / "fabric_cli").mkdir(parents=True)
-    (hermes_home / "config.yaml").write_text("x: 1\n")
+    (fabric_home / "config.yaml").write_text("x: 1\n")
     desktop = agent_root / "apps" / "desktop"
     (desktop / "release").mkdir(parents=True)
-    (hermes_home / "desktop-build-stamp.json").write_text("{}")
+    (fabric_home / "desktop-build-stamp.json").write_text("{}")
     fake_code = tmp_path / "checkout"
     fake_code.mkdir()
 
     # Stub every destructive external so the test only exercises the control
     # flow + the real GUI sweep (which is safe inside tmp_path).
-    monkeypatch.setattr(uninstall, "get_fabric_home", lambda: hermes_home)
+    monkeypatch.setattr(uninstall, "get_fabric_home", lambda: fabric_home)
     monkeypatch.setattr(uninstall, "get_project_root", lambda: fake_code)
     monkeypatch.setattr(uninstall, "uninstall_gateway_service", lambda: False)
     monkeypatch.setattr(uninstall, "remove_path_from_shell_configs", lambda: [])
@@ -304,23 +297,23 @@ def test_run_uninstall_yes_keep_data_is_non_interactive(tmp_path, monkeypatch):
 
     # Code checkout removed, GUI artifacts swept, but user data preserved.
     assert not fake_code.exists()
-    assert not (hermes_home / "desktop-build-stamp.json").exists()
+    assert not (fabric_home / "desktop-build-stamp.json").exists()
     assert not (desktop / "release").exists()
-    assert (hermes_home / "config.yaml").exists()
-    assert hermes_home.exists()
+    assert (fabric_home / "config.yaml").exists()
+    assert fabric_home.exists()
 
 
 def test_run_uninstall_yes_full_wipes_home(tmp_path, monkeypatch):
-    """``--yes --full`` removes the whole HERMES_HOME non-interactively."""
+    """``--yes --full`` removes the whole FABRIC_HOME non-interactively."""
     import fabric_cli.uninstall as uninstall
 
-    hermes_home = tmp_path / ".hermes"
-    (hermes_home / "fabric-agent" / "fabric_cli").mkdir(parents=True)
-    (hermes_home / "config.yaml").write_text("x: 1\n")
+    fabric_home = tmp_path / ".fabric"
+    (fabric_home / "fabric-agent" / "fabric_cli").mkdir(parents=True)
+    (fabric_home / "config.yaml").write_text("x: 1\n")
     fake_code = tmp_path / "checkout"
     fake_code.mkdir()
 
-    monkeypatch.setattr(uninstall, "get_fabric_home", lambda: hermes_home)
+    monkeypatch.setattr(uninstall, "get_fabric_home", lambda: fabric_home)
     monkeypatch.setattr(uninstall, "get_project_root", lambda: fake_code)
     monkeypatch.setattr(uninstall, "uninstall_gateway_service", lambda: False)
     monkeypatch.setattr(uninstall, "remove_path_from_shell_configs", lambda: [])
@@ -335,7 +328,7 @@ def test_run_uninstall_yes_full_wipes_home(tmp_path, monkeypatch):
 
     uninstall.run_uninstall(_Args(yes=True, full=True))
 
-    assert not hermes_home.exists()
+    assert not fabric_home.exists()
 
 
 def test_uninstall_module_main_gui_mode(tmp_path, monkeypatch):
@@ -347,28 +340,28 @@ def test_uninstall_module_main_gui_mode(tmp_path, monkeypatch):
     """
     import fabric_cli.uninstall as uninstall
 
-    hermes_home = tmp_path / ".hermes"
-    agent_root = hermes_home / "fabric-agent"
+    fabric_home = tmp_path / ".fabric"
+    agent_root = fabric_home / "fabric-agent"
     (agent_root / "fabric_cli").mkdir(parents=True)
     desktop = agent_root / "apps" / "desktop"
     (desktop / "release").mkdir(parents=True)
-    (hermes_home / "desktop-build-stamp.json").write_text("{}")
-    (hermes_home / "config.yaml").write_text("x: 1\n")
+    (fabric_home / "desktop-build-stamp.json").write_text("{}")
+    (fabric_home / "config.yaml").write_text("x: 1\n")
 
-    monkeypatch.setattr(uninstall, "get_fabric_home", lambda: hermes_home)
+    monkeypatch.setattr(uninstall, "get_fabric_home", lambda: fabric_home)
     from fabric_cli import gui_uninstall as gu_mod
     monkeypatch.setattr(gu_mod, "packaged_gui_app_paths", lambda: [])
     monkeypatch.setattr(gu_mod, "desktop_userdata_dir", lambda: tmp_path / "none")
-    monkeypatch.setattr(gu_mod, "get_fabric_home", lambda: hermes_home)
+    monkeypatch.setattr(gu_mod, "get_fabric_home", lambda: fabric_home)
     monkeypatch.setattr("builtins.input", lambda *a, **k: pytest.fail("prompted in module main"))
 
     rc = uninstall.main(["--mode", "gui"])
     assert rc == 0
     # GUI swept, agent + config kept (gui-only contract).
     assert not (desktop / "release").exists()
-    assert not (hermes_home / "desktop-build-stamp.json").exists()
+    assert not (fabric_home / "desktop-build-stamp.json").exists()
     assert (agent_root / "fabric_cli").exists()
-    assert (hermes_home / "config.yaml").exists()
+    assert (fabric_home / "config.yaml").exists()
 
 
 def test_uninstall_module_main_rejects_bad_mode():

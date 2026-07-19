@@ -1,13 +1,11 @@
 """Per-reasoning-model stale-timeout floor for known reasoning models.
 
 Reasoning models (those that emit extended thinking blocks before their
-first content token) routinely exceed Hermes's default chat-model
+first content token) routinely exceed Fabric's default chat-model
 stale detectors:
 
-* Stream stale detector:   ``HERMES_STREAM_STALE_TIMEOUT``     default 180s
-                           ``agent/chat_completion_helpers.py:2544``
-* Non-stream stale detector: ``HERMES_API_CALL_STALE_TIMEOUT``  default 90s
-                           ``run_agent.py:1140``
+* Stream stale detector: 180s default in ``agent/chat_completion_helpers.py``.
+* Non-stream stale detector: 90s default in ``run_agent.py``.
 
 For NVIDIA Nemotron 3 Ultra on the hosted NIM gateway the empirical
 upstream idle kill is ~120s (first-party reproduction at

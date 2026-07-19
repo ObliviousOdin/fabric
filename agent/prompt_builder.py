@@ -83,14 +83,7 @@ def _find_git_root(start: Path) -> Optional[Path]:
 _FABRIC_MD_NAMES = (
     ".fabric.md",
     "FABRIC.md",
-    ".hermes.md",
-    "HERMES.md",
 )
-
-# Compatibility-only names retained for callers that still need to identify
-# the pre-Fabric filenames explicitly. New projects should use one of the
-# first two entries in ``_FABRIC_MD_NAMES``.
-_HERMES_MD_NAMES = (".hermes.md", "HERMES.md")
 
 
 def _find_fabric_md(cwd: Path) -> Optional[Path]:
@@ -98,9 +91,8 @@ def _find_fabric_md(cwd: Path) -> Optional[Path]:
 
     Search order: *cwd* first, then each parent directory up to (and
     including) the git repository root. Within each directory, the canonical
-    ``.fabric.md`` and ``FABRIC.md`` names take priority over the legacy
-    ``.hermes.md`` and ``HERMES.md`` compatibility names. Returns the first
-    match, or ``None`` if nothing is found.
+    ``.fabric.md`` and ``FABRIC.md`` are the only project-context names.
+    Returns the first match, or ``None`` if nothing is found.
     """
     stop_at = _find_git_root(cwd)
     current = cwd.resolve()
@@ -117,15 +109,6 @@ def _find_fabric_md(cwd: Path) -> Optional[Path]:
         if stop_at and directory == stop_at:
             break
     return None
-
-
-def _find_hermes_md(cwd: Path) -> Optional[Path]:
-    """Compatibility alias for :func:`_find_fabric_md`.
-
-    Kept for plugins and tests that imported the old private helper. It now
-    follows the complete Fabric naming contract, including canonical names.
-    """
-    return _find_fabric_md(cwd)
 
 
 def _strip_yaml_frontmatter(content: str) -> str:
@@ -159,7 +142,7 @@ DEFAULT_AGENT_IDENTITY = (
     "Be targeted and efficient in your exploration and investigations."
 )
 
-HERMES_AGENT_HELP_GUIDANCE = (
+FABRIC_AGENT_HELP_GUIDANCE = (
     "You run on Fabric. When the user needs help with "
     "Fabric itself — configuring, setting up, using, extending, or troubleshooting "
     "it — or when you need to understand your own features, tools, or capabilities, "
@@ -211,8 +194,8 @@ SKILLS_GUIDANCE = (
 KANBAN_GUIDANCE = (
     "# Kanban task execution protocol\n"
     "You have been assigned ONE task from "
-    "the shared board at `~/.fabric/kanban.db`. Your task id is in "
-    "`$HERMES_KANBAN_TASK`; your workspace is `$HERMES_KANBAN_WORKSPACE`. "
+    "the shared board. Your task and workspace are bound to this worker "
+    "process and returned by `kanban_show()`. "
     "The `kanban_*` tools in your schema are your primary coordination surface — "
     "they write directly to the shared SQLite DB and work regardless of terminal "
     "backend (local/docker/modal/ssh).\n"
@@ -224,8 +207,9 @@ KANBAN_GUIDANCE = (
     "metadata), any prior attempts on this task if you're a retry, the full "
     "comment thread, and a pre-formatted `worker_context` you can treat as "
     "ground truth.\n"
-    "2. **Work inside the workspace.** `cd $HERMES_KANBAN_WORKSPACE` before "
-    "any file operations. The workspace is yours for this run. Don't modify "
+    "2. **Work inside the workspace.** Use the absolute workspace from "
+    "`kanban_show()` before any file operations. The worker already starts "
+    "there, but verify it before changing files. Don't modify "
     "files outside it unless the task explicitly asks.\n"
     "3. **Heartbeat on long operations.** Call `kanban_heartbeat(note=...)` "
     "every few minutes during long subprocesses (training, encoding, crawling). "
@@ -269,12 +253,12 @@ KANBAN_GUIDANCE = (
     "\n"
     "## Reference details that change outcomes\n"
     "\n"
-    "- **Workspace.** `cd $HERMES_KANBAN_WORKSPACE` first. For a `worktree` kind "
-    "with no `.git`, `git worktree add <path> "
-    "${HERMES_KANBAN_BRANCH:-wt/$HERMES_KANBAN_TASK}` from the main repo, then "
-    "cd there. For a project-linked task the workspace is a fresh "
-    "`<repo>/.worktrees/<task-id>` and `$HERMES_KANBAN_BRANCH` a deterministic "
-    "`<project-slug>/<task-id>` — the main repo is two levels up, so run "
+    "- **Workspace.** Use the workspace and branch returned by `kanban_show()`. "
+    "For a `worktree` kind with no `.git`, run `git worktree add <path> "
+    "<branch>` from the main repo, then cd there. For a project-linked task "
+    "the workspace is a fresh `<repo>/.worktrees/<task-id>` and the branch is "
+    "a deterministic `<project-slug>/<task-id>` — the main repo is two levels "
+    "up, so run "
     "`git worktree add` from there.\n"
     "- **Deliverables.** Files a human wants go in "
     "`kanban_complete(artifacts=[<absolute paths>])` (top-level param; paths in "
@@ -907,7 +891,7 @@ WSL_ENVIRONMENT_HINT = (
 
 # Non-local terminal backends that run commands (and therefore every file
 # tool: read_file, write_file, patch, search_files) inside a separate
-# container / remote host rather than on the machine where Hermes itself
+# container / remote host rather than on the machine where Fabric itself
 # runs. For these backends, host info (Windows/Linux/macOS, $HOME, cwd) is
 # misleading — the agent should only see the machine it can actually touch.
 _REMOTE_TERMINAL_BACKENDS = frozenset({
@@ -934,7 +918,7 @@ _BACKEND_FALLBACK_DESCRIPTIONS: dict[str, str] = {
 # on the first prompt build of a session. Keyed by (env_type, cwd_hint) so
 # a mid-process backend switch rebuilds the string. Kept in-module (not on
 # disk) because the probe captures live backend state that may change
-# across Hermes restarts.
+# across Fabric restarts.
 _BACKEND_PROBE_CACHE: dict[tuple[str, str], str] = {}
 
 
@@ -1167,23 +1151,17 @@ def build_environment_hints() -> str:
     if is_wsl():
         hints.append(WSL_ENVIRONMENT_HINT)
 
-    # Embedder-supplied environment description. Lets a host that wraps Hermes
-    # (e.g. a sandbox runner / managed platform) explain the environment the
-    # agent is running in — proxy, credential handling, mount layout — without
-    # forking the identity slot (SOUL.md). Read once at prompt-build time, so
-    # it's part of the stable, cache-safe system prompt. The env var is the
-    # build-time/embedder mechanism (set in a container ENV); config.yaml
-    # ``agent.environment_hint`` is the user-facing surface. Env var wins.
-    extra = (os.getenv("HERMES_ENVIRONMENT_HINT") or "").strip()
-    if not extra:
-        try:
-            from fabric_cli.config import load_config
+    # Optional environment description. Read once at prompt-build time so it
+    # remains part of the stable, cache-safe system prompt.
+    extra = ""
+    try:
+        from fabric_cli.config import load_config
 
-            extra = str(
-                (load_config().get("agent", {}) or {}).get("environment_hint", "")
-            ).strip()
-        except Exception as e:
-            logger.debug("Could not read agent.environment_hint from config: %s", e)
+        extra = str(
+            (load_config().get("agent", {}) or {}).get("environment_hint", "")
+        ).strip()
+    except Exception as e:
+        logger.debug("Could not read agent.environment_hint from config: %s", e)
     if extra:
         hints.append(extra)
 
@@ -1488,16 +1466,14 @@ def _skill_should_show(
 
 def _current_session_platform_hint() -> str:
     """Return the active platform without importing the gateway package on CLI startup."""
-    platform = os.environ.get("HERMES_PLATFORM") or os.environ.get("HERMES_SESSION_PLATFORM")
-    if platform:
-        return platform
-
     session_context = sys.modules.get("gateway.session_context")
-    get_session_env = getattr(session_context, "get_session_env", None) if session_context else None
-    if get_session_env is None:
+    get_session_context = (
+        getattr(session_context, "get_session_context", None) if session_context else None
+    )
+    if get_session_context is None:
         return ""
     try:
-        return get_session_env("HERMES_SESSION_PLATFORM") or ""
+        return get_session_context().platform
     except Exception:
         return ""
 
@@ -1772,7 +1748,7 @@ def build_skills_system_prompt(
             "Whenever the user asks you to configure, set up, install, enable, disable, modify, "
             "or troubleshoot Fabric itself — its CLI, config, models, providers, tools, "
             "skills, voice, gateway, plugins, or any feature — load the `fabric-agent` skill "
-            "first. It has the actual commands (e.g. `Fabric config set …`, `fabric tools`, "
+            "first. It has the actual commands (e.g. `fabric config set …`, `fabric tools`, "
             "`fabric setup`) so you don't have to guess or invent workarounds.\n"
             "If a skill has issues, fix it with skill_manage(action='patch').\n"
             "After difficult/iterative tasks, offer to save as a skill. "
@@ -1907,7 +1883,7 @@ def _truncate_content(
 
 
 def load_soul_md(context_length: Optional[int] = None) -> Optional[str]:
-    """Load SOUL.md from HERMES_HOME and return its content, or None.
+    """Load SOUL.md from FABRIC_HOME and return its content, or None.
 
     Used as the agent identity (slot #1 in the system prompt).  When this
     returns content, ``build_context_files_prompt`` should be called with
@@ -1917,7 +1893,7 @@ def load_soul_md(context_length: Optional[int] = None) -> Optional[str]:
         from fabric_cli.config import ensure_fabric_home
         ensure_fabric_home()
     except Exception as e:
-        logger.debug("Could not ensure HERMES_HOME before loading SOUL.md: %s", e)
+        logger.debug("Could not ensure FABRIC_HOME before loading SOUL.md: %s", e)
 
     soul_path = get_fabric_home() / "SOUL.md"
     if not soul_path.exists():
@@ -1961,11 +1937,6 @@ def _load_fabric_md(cwd_path: Path, context_length: Optional[int] = None) -> str
     except Exception as e:
         logger.debug("Could not read %s: %s", fabric_md_path, e)
         return ""
-
-
-def _load_hermes_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
-    """Compatibility alias for :func:`_load_fabric_md`."""
-    return _load_fabric_md(cwd_path, context_length)
 
 
 def _load_agents_md(cwd_path: Path, context_length: Optional[int] = None) -> str:
@@ -2047,13 +2018,12 @@ def build_context_files_prompt(
     """Discover and load context files for the system prompt.
 
     Priority (first found wins — only ONE project context type is loaded):
-      1. .fabric.md / FABRIC.md, with .hermes.md / HERMES.md compatibility
-         names (nearest directory through the git root wins)
+      1. .fabric.md / FABRIC.md (nearest directory through the git root wins)
       2. AGENTS.md / agents.md   (cwd only)
       3. CLAUDE.md / claude.md   (cwd only)
       4. .cursorrules / .cursor/rules/*.mdc  (cwd only)
 
-    SOUL.md from HERMES_HOME is independent and always included when present.
+    SOUL.md from FABRIC_HOME is independent and always included when present.
 
     Each context source is capped before injection. The cap defaults to the
     model's context window (scaled — see ``_dynamic_context_file_max_chars``)
@@ -2079,7 +2049,7 @@ def build_context_files_prompt(
     if project_context:
         sections.append(project_context)
 
-    # SOUL.md from HERMES_HOME only — skip when already loaded as identity
+    # SOUL.md from FABRIC_HOME only — skip when already loaded as identity
     if not skip_soul:
         soul_content = load_soul_md(context_length)
         if soul_content:

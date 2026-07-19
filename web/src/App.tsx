@@ -39,7 +39,6 @@ import { PluginPage, PluginSlot, usePlugins } from "@/plugins";
 import { PluginAliasRedirect } from "@/plugins/PluginAliasRedirect";
 import type { PluginManifest } from "@/plugins";
 import { useTheme } from "@/themes";
-import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 import { api } from "@/lib/api";
 import {
   APP_ROUTES,
@@ -102,10 +101,7 @@ function RouteLoading() {
   );
 }
 
-function buildRoutes(
-  manifests: readonly PluginManifest[],
-  embeddedChat: boolean,
-): Array<{
+function buildRoutes(manifests: readonly PluginManifest[]): Array<{
   key: string;
   path: string;
   element: ReactNode;
@@ -133,7 +129,7 @@ function buildRoutes(
     if (override) {
       element = <PluginPage name={override.name} />;
     } else if (route.persistent) {
-      element = embeddedChat ? <ChatRouteSink /> : <RootRedirect />;
+      element = <ChatRouteSink />;
     } else if (route.component) {
       const Component = route.component;
       element = (
@@ -214,7 +210,6 @@ function buildRoutes(
 }
 
 const SIDEBAR_COLLAPSED_KEY = "fabric-sidebar-collapsed";
-const LEGACY_SIDEBAR_COLLAPSED_KEY = "hermes-sidebar-collapsed";
 
 export default function App() {
   return (
@@ -235,13 +230,7 @@ function AppShell() {
 
   const [collapsed, setCollapsed] = useState(() => {
     try {
-      const saved =
-        localStorage.getItem(SIDEBAR_COLLAPSED_KEY) ??
-        localStorage.getItem(LEGACY_SIDEBAR_COLLAPSED_KEY);
-      if (saved !== null) {
-        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, saved);
-        localStorage.removeItem(LEGACY_SIDEBAR_COLLAPSED_KEY);
-      }
+      const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
       return saved === "true";
     } catch {
       return false;
@@ -252,7 +241,6 @@ function AppShell() {
       const next = !prev;
       try {
         localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
-        localStorage.removeItem(LEGACY_SIDEBAR_COLLAPSED_KEY);
       } catch { /* localStorage may be unavailable in private browsing */ }
       return next;
     });
@@ -267,7 +255,6 @@ function AppShell() {
     canonicalPathForPath(pathname) ?? normalizedPath;
   const isDocsRoute = activeRoute?.id === "help";
   const isChatRoute = isChatPath(pathname);
-  const embeddedChat = isDashboardEmbeddedChatEnabled();
   const {
     hasMountedActiveChat: chatMountedActive,
     markActiveChatMounted,
@@ -315,11 +302,9 @@ function AppShell() {
   const builtinNav = useMemo(
     () =>
       BUILTIN_NAV_ITEMS.filter(
-        (item) =>
-          (embeddedChat || item.path !== CHAT_ROUTE.path) &&
-          (showTokenAnalytics || item.path !== "/workspace/insights"),
+        (item) => showTokenAnalytics || item.path !== "/workspace/insights",
       ),
-    [embeddedChat, showTokenAnalytics],
+    [showTokenAnalytics],
   );
 
   const sidebarNavBySurface = useMemo(
@@ -364,10 +349,7 @@ function AppShell() {
     }),
     [sidebarNavBySurface],
   );
-  const routes = useMemo(
-    () => buildRoutes(manifests, embeddedChat),
-    [embeddedChat, manifests],
-  );
+  const routes = useMemo(() => buildRoutes(manifests), [manifests]);
   // Hidden plugin routes still need their layout metadata when opened by URL;
   // visibility only controls navigation discovery, not workspace chrome.
   const pluginTabMeta = useMemo(
@@ -516,8 +498,7 @@ function AppShell() {
                   </Routes>
                 </ProfileKeyedRoutes>
 
-                {embeddedChat &&
-                  !chatOverriddenByPlugin &&
+                {!chatOverriddenByPlugin &&
                   (chatMountedActive || isChatRoute) &&
                   (pluginsLoading ? (
                     isChatRoute ? (
@@ -561,7 +542,6 @@ function AppShell() {
       </div>
 
       <AppCommandLayer
-        embeddedChat={embeddedChat}
         pluginItems={commandNav.pluginItems}
         sections={commandNav.sections}
         toggleCollapsed={toggleCollapsed}
@@ -580,12 +560,10 @@ function AppShell() {
  * ShortcutHelp lists whatever the registry currently holds.
  */
 function AppCommandLayer({
-  embeddedChat,
   pluginItems,
   sections,
   toggleCollapsed,
 }: {
-  embeddedChat: boolean;
   pluginItems: NavItem[];
   sections: NavSection[];
   toggleCollapsed: () => void;
@@ -652,7 +630,6 @@ function AppCommandLayer({
   return (
     <>
       <CommandPalette
-        embeddedChat={embeddedChat}
         onClose={() => setPaletteOpen(false)}
         onShowShortcuts={() => {
           setPaletteOpen(false);

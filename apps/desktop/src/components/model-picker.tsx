@@ -5,9 +5,9 @@ import { useI18n } from '@/i18n'
 import { requestModelOptions } from '@/lib/model-options'
 import { currentPickerSelection } from '@/lib/model-status-label'
 import { normalize } from '@/lib/text'
-import type { ModelOptionProvider, ModelPricing } from '@/types/hermes'
+import type { ModelOptionProvider, ModelPricing } from '@/types/fabric'
 
-import type { HermesGateway } from '../hermes'
+import type { FabricGateway } from '../fabric'
 import { cn } from '../lib/utils'
 import { startManualOnboarding } from '../store/onboarding'
 
@@ -20,7 +20,7 @@ import { Skeleton } from './ui/skeleton'
 interface ModelPickerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  gw?: HermesGateway
+  gw?: FabricGateway
   /** Pin global REST options to the profile that opened a multi-step flow. */
   profile?: string
   sessionId?: string | null

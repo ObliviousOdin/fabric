@@ -121,6 +121,18 @@ class ChatSessionController(
     resumeStoredSessionId: String?,
 ) {
     companion object {
+        internal fun approvalFromEvent(event: GatewayEvent): PendingApproval? {
+            val requestId = event.payload.stringValue("request_id")
+                ?.takeIf { it.isNotBlank() }
+                ?: return null
+            return PendingApproval(
+                command = event.payload.stringValue("command"),
+                requestId = requestId,
+                summary = event.payload.stringValue("summary")
+                    ?: event.payload.stringValue("description"),
+            )
+        }
+
         internal fun persistenceWarning(event: GatewayEvent): String? {
             val persisted = (event.payload["history_persisted"] as? JsonPrimitive)?.booleanOrNull
             if (persisted != false) return null
@@ -627,16 +639,8 @@ class ChatSessionController(
             "tool.complete" -> _statusLine.value = null
 
             "approval.request" -> {
-                val command = event.payload.stringValue("command")
-                val summary = event.payload.stringValue("summary")
-                    ?: event.payload.stringValue("description")
-                val requestId = event.payload.stringValue("request_id")
-                    ?: "legacy:${command.orEmpty()}:${summary.orEmpty()}"
-                enqueueInteraction(PendingInteraction.Approval(PendingApproval(
-                    command = command,
-                    requestId = requestId,
-                    summary = summary,
-                )))
+                val approval = approvalFromEvent(event) ?: return
+                enqueueInteraction(PendingInteraction.Approval(approval))
             }
 
             "clarify.request" -> {

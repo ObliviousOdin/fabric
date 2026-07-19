@@ -825,7 +825,7 @@ async def test_handle_polling_network_error_updater_stop_timeout():
     This test simulates the hang by making stop() sleep forever and verifies
     that _drain_polling_connections() and start_polling() are still called
     after the timeout fires.
-    Refs: NousResearch/fabric-agent#58270
+    Refs: ObliviousOdin/fabric#58270
     """
     adapter = _make_adapter()
     adapter._polling_network_error_count = 0
@@ -867,4 +867,3 @@ async def test_handle_polling_network_error_updater_stop_timeout():
     # The reconnect ladder must have advanced past the hung stop().
     assert drain_called, "_drain_polling_connections was not called after stop() timeout"
     assert start_polling_called, "start_polling was not called after stop() timeout"
-

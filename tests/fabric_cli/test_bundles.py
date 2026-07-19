@@ -1,4 +1,4 @@
-"""Tests for fabric_cli/bundles.py — the `hermes bundles` CLI subcommand."""
+"""Tests for fabric_cli/bundles.py — the `fabric bundles` CLI subcommand."""
 
 import argparse
 
@@ -13,7 +13,7 @@ from fabric_cli.bundles import (
 @pytest.fixture
 def bundles_env(tmp_path, monkeypatch):
     bundles_dir = tmp_path / "skill-bundles"
-    monkeypatch.setenv("HERMES_BUNDLES_DIR", str(bundles_dir))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     # Reset module-level cache between tests.
     import agent.skill_bundles as mod
     mod._bundles_cache = {}

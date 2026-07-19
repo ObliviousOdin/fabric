@@ -46,9 +46,6 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# Suppress startup messages for clean CLI experience
-os.environ["HERMES_QUIET"] = "1"  # Our own modules
-
 import yaml
 
 from fabric_cli.fallback_config import get_fallback_chain
@@ -160,17 +157,12 @@ def realign_markdown_tables(*args, **kwargs):
 # NOTE: `from agent.account_usage import ...` is deliberately NOT at module
 # top — it transitively pulls the OpenAI SDK chain (~230 ms cold) and is only
 # needed when the user runs `/limits`. Lazy-imported inside the handler below.
-from fabric_cli.banner import (
-    FABRIC_AGENT_LOGO,
-    FABRIC_MARK,
-    _format_context_length,
-    format_banner_version_label,
-)
+from fabric_cli.banner import _format_context_length, format_banner_version_label
 
 _COMMAND_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 
-# Load .env from ~/.hermes/.env first, then project root as dev fallback.
+# Load .env from ~/.fabric/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
 from fabric_constants import get_fabric_home, display_fabric_home
 from fabric_cli.browser_connect import (
@@ -184,7 +176,7 @@ from utils import base_url_host_matches, fast_safe_load
 
 _fabric_home = get_fabric_home()
 _project_env = Path(__file__).parent / '.env'
-load_fabric_dotenv(hermes_home=_fabric_home, project_env=_project_env)
+load_fabric_dotenv(fabric_home=_fabric_home, project_env=_project_env)
 
 
 _REASONING_TAGS = (
@@ -297,7 +289,7 @@ def _load_prefill_messages(file_path: str) -> List[Dict[str, Any]]:
     The file should contain a JSON array of {role, content} dicts, e.g.:
         [{"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"}]
     
-    Relative paths are resolved from ~/.hermes/.
+    Relative paths are resolved from ~/.fabric/.
     Returns an empty list if the path is empty or the file doesn't exist.
     """
     if not file_path:
@@ -321,21 +313,13 @@ def _load_prefill_messages(file_path: str) -> List[Dict[str, Any]]:
 
 
 def _resolve_prefill_messages_file(config: Dict[str, Any]) -> str:
-    """Resolve the prefill file path from env/config.
-
-    ``prefill_messages_file`` at the top level is the canonical config key.
-    ``agent.prefill_messages_file`` remains a legacy fallback for older CLI and
-    godmode-generated configs.
-    """
-    env_path = os.getenv("HERMES_PREFILL_MESSAGES_FILE", "").strip()
-    if env_path:
-        return env_path
+    """Resolve the prefill file from the current and previous config schemas."""
     top_level = str(config.get("prefill_messages_file", "") or "").strip()
     if top_level:
         return top_level
-    agent_cfg = config.get("agent", {})
-    if isinstance(agent_cfg, dict):
-        return str(agent_cfg.get("prefill_messages_file", "") or "").strip()
+    agent_config = config.get("agent", {})
+    if isinstance(agent_config, dict):
+        return str(agent_config.get("prefill_messages_file", "") or "").strip()
     return ""
 
 
@@ -362,31 +346,30 @@ def _parse_service_tier_config(raw: str) -> str | None:
     logger.warning("Unknown service_tier '%s', ignoring", raw)
     return None
 
-def load_cli_config() -> Dict[str, Any]:
+def load_cli_config(*, ignore_user_config: bool | None = None) -> Dict[str, Any]:
     """
     Load CLI configuration from config files.
     
     Config lookup order:
-    1. ~/.hermes/config.yaml (user config - preferred)
+    1. ~/.fabric/config.yaml (user config - preferred)
     2. ./cli-config.yaml (project config - fallback)
     
-    Environment variables take precedence over config file values.
     Returns default values if no config file exists.
-
-    If HERMES_IGNORE_USER_CONFIG=1 is set (via ``fabric chat --ignore-user-config``),
-    the user config at ``~/.hermes/config.yaml`` is skipped entirely and only the
-    built-in defaults plus the project-level ``cli-config.yaml`` (if any) are used.
-    Credentials in ``.env`` are still loaded — this flag only suppresses
-    behavioral/config settings.
     """
-    # Check user config first ({HERMES_HOME}/config.yaml)
+    if ignore_user_config is None:
+        try:
+            from fabric_cli.main import _CHAT_LAUNCH_IGNORE_USER_CONFIG
+
+            ignore_user_config = _CHAT_LAUNCH_IGNORE_USER_CONFIG
+        except Exception:
+            ignore_user_config = False
+
+    # Check user config first ({FABRIC_HOME}/config.yaml)
     user_config_path = _fabric_home / 'config.yaml'
     project_config_path = Path(__file__).parent / 'cli-config.yaml'
 
     # --ignore-user-config: force-skip the user config.yaml (still honor project
     # config as a fallback so defaults stay sensible).
-    ignore_user_config = os.environ.get("HERMES_IGNORE_USER_CONFIG") == "1"
-
     # Use user config if it exists, otherwise project config
     if user_config_path.exists() and not ignore_user_config:
         config_path = user_config_path
@@ -538,7 +521,7 @@ def load_cli_config() -> Dict[str, Any]:
                     # choice isn't shadowed by the hardcoded default.  Without this,
                     # profile configs that only set "model:" (not "default:") silently
                     # fall back to claude-opus because the merge preserves the
-                    # hardcoded default and HermesCLI.__init__ checks "default" first.
+                    # hardcoded default and FabricCLI.__init__ checks "default" first.
                     if "model" in file_config["model"] and "default" not in file_config["model"]:
                         defaults["model"]["default"] = file_config["model"]["model"]
 
@@ -579,7 +562,7 @@ def load_cli_config() -> Dict[str, Any]:
     # fabric_cli.config._load_config_impl (which has its own managed merge), so
     # without this the entire interactive CLI/TUI surface — skin, display prefs,
     # etc. read from CLI_CONFIG — would silently ignore managed scope while
-    # `Fabric config`/`doctor`/guards (which use load_config) honor it. The
+    # `fabric config`/`doctor`/guards (which use load_config) honor it. The
     # shared helper mirrors _load_config_impl (env-only expansion, root-model
     # normalization, leaf-merge) and is fail-open.
     from fabric_cli import managed_scope
@@ -597,7 +580,7 @@ def load_cli_config() -> Dict[str, Any]:
     
     # CWD resolution for CLI/TUI. The gateway has its own config bridge in
     # gateway/run.py but may lazily import cli.py (triggering this code).
-    # Local backend: always os.getcwd(). Use `cd /dir && hermes` to control it.
+    # Local backend: always os.getcwd(). Use `cd /dir && fabric` to control it.
     # Non-local with placeholder: pop so terminal_tool uses its per-backend default.
     # Non-local with explicit path: keep as-is.
     _CWD_PLACEHOLDERS = (".", "auto", "cwd")
@@ -646,9 +629,11 @@ def load_cli_config() -> Dict[str, Any]:
     }
     
     # Bridge config → env vars for terminal_tool. TERMINAL_CWD is force-exported
-    # UNLESS we're inside a gateway process (detected by _HERMES_GATEWAY marker)
-    # where it was already set correctly by gateway/run.py's config bridge.
-    _is_gateway = os.environ.get("_HERMES_GATEWAY") == "1"
+    # unless this process hosts the gateway, whose config bridge already
+    # resolved its stable messaging cwd.
+    from fabric_cli.process_context import is_gateway_process
+
+    _is_gateway = is_gateway_process()
     for config_key, env_var in env_mappings.items():
         if config_key in terminal_config:
             if env_var == "TERMINAL_CWD":
@@ -723,9 +708,9 @@ def load_cli_config() -> Dict[str, Any]:
     # Security settings
     security_config = defaults.get("security", {})
     if isinstance(security_config, dict):
-        redact = security_config.get("redact_secrets")
-        if redact is not None:
-            os.environ["HERMES_REDACT_SECRETS"] = str(redact).lower()
+        from agent.redact import configure_redaction_from_config
+
+        configure_redaction_from_config(defaults)
 
     return defaults
 
@@ -733,7 +718,7 @@ def load_cli_config() -> Dict[str, Any]:
 CLI_CONFIG = load_cli_config()
 
 
-# Initialize centralized logging early — agent.log + errors.log in ~/.hermes/logs/.
+# Initialize centralized logging early — agent.log + errors.log in ~/.fabric/logs/.
 # This ensures CLI sessions produce a log trail even before AIAgent is instantiated.
 try:
     from fabric_logging import setup_logging
@@ -793,7 +778,7 @@ try:
         """Defer ``AsyncHttpxClientWrapper.__del__`` neutering until import.
 
         Saves ~166ms on cold CLI start where openai is never used (e.g.
-        ``hermes --help`` paths inside the chat command flow).  See
+        ``fabric --help`` paths inside the chat command flow).  See
         ``agent.auxiliary_client.neuter_async_httpx_del`` for full rationale
         on why ``__del__`` must be a no-op.
         """
@@ -935,6 +920,8 @@ _single_query_finalize_attempted_session_ids: set[str | None] = set()
 # Weak reference to the active AIAgent for memory provider shutdown at exit
 _active_agent_ref = None
 _deferred_agent_startup_done = False
+_defer_agent_startup = False
+_deferred_accept_hooks = False
 # Set True once the TUI's prompt_toolkit app starts (which enables focus
 # reporting + mouse tracking). Gates the on-exit terminal reset so non-TUI
 # one-shot CLI runs — which also register _run_cleanup via atexit — don't emit
@@ -953,15 +940,9 @@ def _prepare_deferred_agent_startup() -> None:
     global _deferred_agent_startup_done
     if _deferred_agent_startup_done:
         return
-    if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+    if not _defer_agent_startup:
         return
     _deferred_agent_startup_done = True
-    _accept_hooks = os.environ.get("HERMES_ACCEPT_HOOKS", "").lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
     try:
         from fabric_cli.plugins import discover_plugins
 
@@ -987,7 +968,7 @@ def _prepare_deferred_agent_startup() -> None:
         from agent.shell_hooks import register_from_config
         from fabric_cli.config import load_config
 
-        register_from_config(load_config(), accept_hooks=_accept_hooks)
+        register_from_config(load_config(), accept_hooks=_deferred_accept_hooks)
     except Exception:
         logger.debug(
             "shell-hook registration failed at deferred CLI startup",
@@ -1014,13 +995,10 @@ def _arm_exit_watchdog(timeout_s: float | None = None) -> None:
     Daemon threads keep running through ``Py_FinalizeEx``'s thread joins,
     so the timer fires even when the main thread is stuck in teardown.
 
-    Tune with ``HERMES_EXIT_WATCHDOG_S`` (seconds); ``0`` disables.
+    Callers may pass ``timeout_s=0`` to disable it in an embedding process.
     """
     if timeout_s is None:
-        try:
-            timeout_s = float(os.getenv("HERMES_EXIT_WATCHDOG_S", "30"))
-        except (TypeError, ValueError):
-            timeout_s = 30.0
+        timeout_s = 30.0
     if timeout_s <= 0:
         return
     # Never arm under pytest: tests invoke _run_cleanup() directly and a
@@ -1354,7 +1332,7 @@ def _resolve_worktree_base(repo_root: str) -> tuple:
     """Resolve the freshest base ref to branch a new worktree from.
 
     The standalone clone's ``HEAD`` can lag the remote by hundreds of commits
-    (the ``~/.hermes/fabric-agent`` clone is updated only by ``fabric update``,
+    (the standalone managed clone is updated only by ``fabric update``,
     not on every session). Branching a worktree from that stale ``HEAD`` roots
     every new branch on an old base — so the PR diff GitHub computes against
     current ``main`` balloons with unrelated changes, and the agent has to
@@ -1445,8 +1423,8 @@ def _setup_worktree(repo_root: str = None, sync_base: bool = True) -> Optional[D
         return None
 
     short_id = uuid.uuid4().hex[:8]
-    wt_name = f"hermes-{short_id}"
-    branch_name = f"hermes/{wt_name}"
+    wt_name = f"worktree-{short_id}"
+    branch_name = f"fabric/{wt_name}"
 
     worktrees_dir = Path(repo_root) / ".worktrees"
     worktrees_dir.mkdir(parents=True, exist_ok=True)
@@ -1648,7 +1626,7 @@ def _worktree_is_dirty(worktree_path: str, timeout: int = 10) -> bool:
 def _worktree_lock_is_live(repo_root: str, worktree_path: str, timeout: int = 10):
     """Classify a worktree's git lock as live, dead, or absent.
 
-    ``hermes -w`` locks each worktree with reason ``hermes pid=<pid>`` so a
+    ``fabric -w`` locks each worktree with reason ``fabric pid=<pid>`` so a
     concurrent Fabric process' startup prune leaves an in-use worktree alone.
     But a *crashed* session leaves the lock behind forever, and
     ``git worktree remove --force`` (single ``-f``) refuses to remove a locked
@@ -1657,7 +1635,7 @@ def _worktree_lock_is_live(repo_root: str, worktree_path: str, timeout: int = 10
 
     - ``"live"``  — locked and the owning pid is still running (skip it).
     - ``"dead"``  — locked but the owning pid is gone, or the reason isn't a
-                    parseable hermes lock (safe to unlock + reap).
+                    parseable fabric lock (safe to unlock + reap).
     - ``None``    — not locked at all.
 
     Fails SAFE toward ``"live"``: if git can't be queried at all we cannot
@@ -1689,10 +1667,6 @@ def _worktree_lock_is_live(repo_root: str, worktree_path: str, timeout: int = 10
                 continue
             reason = line[len("locked"):].strip()
             m = re.search(r"fabric pid=(\d+)", reason)
-            if not m:
-                # public-release-audit: allow-legacy-compat -- reads worktree locks created before the Fabric rename
-                legacy_executable = "hermes"
-                m = re.search(rf"{re.escape(legacy_executable)} pid=(\d+)", reason)
             if not m:
                 # Locked by something we don't recognize as a Fabric session
                 # (or lock reason unavailable). Treat as dead — a foreign lock
@@ -1861,8 +1835,8 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
     - 24h–72h: remove if no unpushed commits.
     - Over 72h: force remove regardless (nothing should sit this long).
 
-    Lock handling (orthogonal to age): ``hermes -w`` locks each worktree with
-    reason ``hermes pid=<pid>`` so a concurrent Fabric process leaves an in-use
+    Lock handling (orthogonal to age): ``fabric -w`` locks each worktree with
+    reason ``fabric pid=<pid>`` so a concurrent Fabric process leaves an in-use
     worktree alone. A *live*-locked worktree is skipped at any age; a
     *dead*-locked one (owning pid gone — a crashed session) is unlocked first
     so ``git worktree remove --force`` can actually reap it, otherwise those
@@ -1872,7 +1846,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
     removal never orphans the branch (which would drop easy reachability of any
     commits still in the worktree).
 
-    Also prunes orphaned ``hermes/*`` and ``pr-*`` local branches that
+    Also prunes orphaned ``fabric/*`` and ``pr-*`` local branches that
     have no corresponding worktree.
     """
     import subprocess
@@ -1888,7 +1862,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
     hard_cutoff = now - (max_age_hours * 3 * 3600)   # 72h default
 
     for entry in worktrees_dir.iterdir():
-        if not entry.is_dir() or not entry.name.startswith("hermes-"):
+        if not entry.is_dir() or not entry.name.startswith("worktree-"):
             continue
 
         # Check age
@@ -1964,9 +1938,9 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
 
 
 def _prune_orphaned_branches(repo_root: str) -> None:
-    """Delete local ``hermes/hermes-*`` and ``pr-*`` branches with no worktree.
+    """Delete local ``fabric/worktree-*`` and ``pr-*`` branches with no worktree.
 
-    These are auto-generated by ``hermes -w`` sessions and PR review
+    These are auto-generated by ``fabric -w`` sessions and PR review
     workflows respectively.  Once their worktree is gone they serve no
     purpose and just accumulate.
     """
@@ -2012,7 +1986,7 @@ def _prune_orphaned_branches(repo_root: str) -> None:
     orphaned = [
         b for b in all_branches
         if b not in active_branches
-        and (b.startswith("hermes/hermes-") or b.startswith("pr-"))
+        and (b.startswith("fabric/worktree-") or b.startswith("pr-"))
     ]
 
     if not orphaned:
@@ -2076,17 +2050,12 @@ def _hex_to_ansi(hex_color: str, *, bold: bool = False) -> str:
 # Terminal.app / iTerm2 background.
 #
 # Detection priority:
-#   1. HERMES_LIGHT / HERMES_TUI_LIGHT env (true/false) — explicit override
-#   2. HERMES_TUI_THEME=light|dark — explicit theme
-#   3. HERMES_TUI_BACKGROUND=#RRGGBB — explicit bg hint
-#   4. COLORFGBG env (set by xterm/Konsole/urxvt) — bg slot 7/15 = light
-#   5. OSC 11 query (\x1b]11;?\x1b\\) — ask the terminal directly
-#   6. Default: assume dark (matches the legacy Hermes assumption)
+#   1. COLORFGBG env (set by xterm/Konsole/urxvt) — bg slot 7/15 = light
+#   2. OSC 11 query (\x1b]11;?\x1b\\) — ask the terminal directly
+#   3. Default: assume dark
 #
 # Cached after first call so we don't query the terminal repeatedly.
 _LIGHT_MODE_CACHE: bool | None = None
-_TRUE_RE = re.compile(r"^(1|true|on|yes|y)$")
-_FALSE_RE = re.compile(r"^(0|false|off|no|n)$")
 _LIGHT_DEFAULT_TERM_PROGRAMS = frozenset()  # Apple_Terminal doesn't reliably indicate; require explicit
 
 
@@ -2115,7 +2084,7 @@ def _query_osc11_background() -> str | None:
     late reply lands after prompt_toolkit has grabbed the tty — its payload
     leaks in as typed text and the BEL terminator reads as Ctrl+G (open
     editor), trapping the user in a stray editor. Remote sessions fall back to
-    COLORFGBG / env hints / the dark default instead.
+    COLORFGBG or the dark default instead.
     """
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return None
@@ -2183,33 +2152,7 @@ def _detect_light_mode() -> bool:
         return _LIGHT_MODE_CACHE
     result = False
     try:
-        # 1. Explicit env override
-        for var in ("HERMES_LIGHT", "HERMES_TUI_LIGHT"):
-            v = (os.environ.get(var) or "").strip().lower()
-            if _TRUE_RE.match(v):
-                result = True
-                _LIGHT_MODE_CACHE = result
-                return result
-            if _FALSE_RE.match(v):
-                _LIGHT_MODE_CACHE = result
-                return result
-        # 2. Theme hint
-        theme = (os.environ.get("HERMES_TUI_THEME") or "").strip().lower()
-        if theme == "light":
-            result = True
-            _LIGHT_MODE_CACHE = result
-            return result
-        if theme == "dark":
-            _LIGHT_MODE_CACHE = result
-            return result
-        # 3. Explicit bg hex
-        bg_hint = os.environ.get("HERMES_TUI_BACKGROUND") or ""
-        bg_lum = _luminance_from_hex(bg_hint)
-        if bg_lum is not None:
-            result = bg_lum >= 0.5
-            _LIGHT_MODE_CACHE = result
-            return result
-        # 4. COLORFGBG (xterm/Konsole/urxvt)
+        # 1. COLORFGBG (xterm/Konsole/urxvt)
         cfgbg = (os.environ.get("COLORFGBG") or "").strip()
         if cfgbg:
             last = cfgbg.split(";")[-1] if ";" in cfgbg else cfgbg
@@ -2222,7 +2165,7 @@ def _detect_light_mode() -> bool:
                 if 0 <= bg < 16:
                     _LIGHT_MODE_CACHE = result
                     return result
-        # 5. OSC 11 query (best-effort, only when stdin/stdout are TTY)
+        # 2. OSC 11 query (best-effort, only when stdin/stdout are TTY)
         bg_color = _query_osc11_background()
         if bg_color:
             lum = _luminance_from_hex(bg_color)
@@ -2230,7 +2173,7 @@ def _detect_light_mode() -> bool:
                 result = lum >= 0.5
                 _LIGHT_MODE_CACHE = result
                 return result
-        # 6. TERM_PROGRAM allow-list (currently empty)
+        # 3. TERM_PROGRAM allow-list (currently empty)
         tp = (os.environ.get("TERM_PROGRAM") or "").strip()
         if tp in _LIGHT_DEFAULT_TERM_PROGRAMS:
             result = True
@@ -2296,7 +2239,7 @@ def _install_skin_light_mode_hook() -> None:
         from fabric_cli.skin_engine import SkinConfig  # type: ignore[import]
     except Exception:
         return
-    if getattr(SkinConfig, "_hermes_light_mode_hook_installed", False):
+    if getattr(SkinConfig, "_fabric_light_mode_hook_installed", False):
         return
     _orig_get_color = SkinConfig.get_color
 
@@ -2313,7 +2256,7 @@ def _install_skin_light_mode_hook() -> None:
             return value
 
     SkinConfig.get_color = _wrapped_get_color  # type: ignore[method-assign]
-    SkinConfig._hermes_light_mode_hook_installed = True  # type: ignore[attr-defined]
+    SkinConfig._fabric_light_mode_hook_installed = True  # type: ignore[attr-defined]
 
 
 _install_skin_light_mode_hook()
@@ -2416,7 +2359,7 @@ def _strip_markdown_syntax(text: str) -> str:
     plain = _rich_text_from_ansi(text or "").plain
     # Avoid stripping cron-style expressions like "* * * * *" as if they were
     # Markdown horizontal rules. CommonMark treats three or more "*" as an HR,
-    # but in Hermes output it's common to display cron schedules verbatim.
+    # but in Fabric output it's common to display cron schedules verbatim.
     #
     # Keep the behavior for "-" / "_" HR markers, and only strip "*" HR lines
     # when there are exactly 3 asterisks (with optional whitespace).
@@ -3049,14 +2992,14 @@ def _apply_bracketed_paste_timeout_patch() -> None:
     parsing.  See upstream issue #16263.
 
     The patch is idempotent — repeated calls are no-ops via the
-    ``_hermes_bp_timeout_patched`` sentinel on the module.
+    ``_fabric_bp_timeout_patched`` sentinel on the module.
     """
     try:
         import prompt_toolkit.input.vt100_parser as _vt100_mod
         from prompt_toolkit.keys import Keys as _PtKeys
         from prompt_toolkit.key_binding.key_processor import KeyPress as _PtKeyPress
 
-        if getattr(_vt100_mod, "_hermes_bp_timeout_patched", False):
+        if getattr(_vt100_mod, "_fabric_bp_timeout_patched", False):
             return
 
         _BP_TIMEOUT_S = 2.0  # max time to wait for ESC[201~ before flushing
@@ -3077,19 +3020,19 @@ def _apply_bracketed_paste_timeout_patch() -> None:
                         end_index + len(end_mark):
                     ]
                     self_parser._paste_buffer = ""
-                    self_parser._hermes_bp_start = None
+                    self_parser._fabric_bp_start = None
                     if remaining:
                         _patched_vt100_feed(self_parser, remaining)
                 else:
-                    bp_start = getattr(self_parser, "_hermes_bp_start", None)
+                    bp_start = getattr(self_parser, "_fabric_bp_start", None)
                     now = time.monotonic()
                     if bp_start is None:
-                        self_parser._hermes_bp_start = now
+                        self_parser._fabric_bp_start = now
                     elif now - bp_start > _BP_TIMEOUT_S:
                         paste_content = self_parser._paste_buffer
                         self_parser._in_bracketed_paste = False
                         self_parser._paste_buffer = ""
-                        self_parser._hermes_bp_start = None
+                        self_parser._fabric_bp_start = None
                         if paste_content:
                             self_parser.feed_key_callback(
                                 _PtKeyPress(_PtKeys.BracketedPaste, paste_content)
@@ -3112,7 +3055,7 @@ def _apply_bracketed_paste_timeout_patch() -> None:
                     self_parser._input_parser.send(c)
 
         _vt100_mod.Vt100Parser.feed = _patched_vt100_feed
-        _vt100_mod._hermes_bp_timeout_patched = True
+        _vt100_mod._fabric_bp_timeout_patched = True
         logger.debug("Applied Vt100Parser bracketed-paste timeout patch (#16263)")
     except Exception as exc:  # noqa: BLE001 — defensive: never break startup
         logger.debug("Bracketed-paste timeout patch skipped: %s", exc)
@@ -3458,16 +3401,9 @@ class ChatConsole:
         ``ChatConsole()``, which historically only implemented ``print()``.
         Returning a silent context manager keeps slash commands compatible
         without duplicating the higher-level busy indicator already shown by
-        ``HermesCLI._busy_command()``.
+        ``FabricCLI._busy_command()``.
         """
         yield self
-
-# Legacy exports retained for plugins that imported the original names. The
-# rendered art itself comes from the canonical Fabric banner module.
-HERMES_AGENT_LOGO = FABRIC_AGENT_LOGO
-HERMES_CADUCEUS = FABRIC_MARK
-
-
 
 def _build_compact_banner() -> str:
     """Build a compact banner that fits the current terminal width."""
@@ -3490,17 +3426,7 @@ def _build_compact_banner() -> str:
         line1 = f"{agent_name} - AI Agent Framework"
         tiny_line = agent_name
 
-    if os.environ.get("HERMES_FAST_STARTUP_BANNER") == "1":
-        from fabric_cli import __release_date__ as _release_date
-        from fabric_cli import __version__ as _version
-
-        try:
-            from fabric_cli.fabric_brand import version_title
-            version_line = version_title(_version, _release_date)
-        except Exception:
-            version_line = f"Fabric v{_version} ({_release_date})"
-    else:
-        version_line = format_banner_version_label()
+    version_line = format_banner_version_label()
 
     w = min(shutil.get_terminal_size().columns - 2, 88)
     if w < 30:
@@ -3636,7 +3562,7 @@ def save_config_value(key_path: str, value: any) -> bool:
     Save a value to the active config file at the specified key path.
     
     Respects the same lookup order as load_cli_config():
-    1. ~/.hermes/config.yaml (user config - preferred, used if it exists)
+    1. ~/.fabric/config.yaml (user config - preferred, used if it exists)
     2. ./cli-config.yaml (project config - fallback)
     
     Args:
@@ -3652,7 +3578,7 @@ def save_config_value(key_path: str, value: any) -> bool:
     config_path = user_config_path if user_config_path.exists() else project_config_path
     
     try:
-        # Ensure parent directory exists (for ~/.hermes/config.yaml on first use)
+        # Ensure parent directory exists (for ~/.fabric/config.yaml on first use)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Save back atomically while preserving comments, ordering, quotes, and
@@ -3678,7 +3604,7 @@ def save_config_value(key_path: str, value: any) -> bool:
 # Fabric interactive CLI
 # ============================================================================
 
-class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
+class FabricCLI(CLIAgentSetupMixin, CLICommandsMixin):
     """
     Interactive CLI for Fabric.
     
@@ -3700,6 +3626,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         checkpoints: bool = False,
         pass_session_id: bool = False,
         ignore_rules: bool = False,
+        source: str | None = None,
     ):
         """
         Initialize the Fabric CLI.
@@ -3799,7 +3726,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._last_input_mode_recovery = 0.0
         self._input_mode_recovery_notice_shown = False
         
-        # Configuration - priority: CLI args > env vars > config file
+        # Configuration - priority: CLI args > config file.
         # Model comes from: CLI arg or config.yaml (single source of truth).
         # LLM_MODEL/OPENAI_MODEL env vars are NOT checked — config.yaml is
         # authoritative.  This avoids conflicts in multi-agent setups where
@@ -3808,14 +3735,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         _config_model = (_model_config.get("default") or _model_config.get("model") or "") if isinstance(_model_config, dict) else (_model_config or "")
         _DEFAULT_CONFIG_MODEL = ""
         self.model = model or _config_model or _DEFAULT_CONFIG_MODEL
-        # Read max_tokens from config (env var override: HERMES_MAX_TOKENS)
-        _env_mt = os.environ.get("HERMES_MAX_TOKENS")
-        if _env_mt:
-            try:
-                self.max_tokens = int(_env_mt)
-            except (ValueError, TypeError):
-                self.max_tokens = None
-        elif isinstance(_model_config, dict):
+        if isinstance(_model_config, dict):
             _mt = _model_config.get("max_tokens")
             self.max_tokens = _mt if isinstance(_mt, int) else None
         else:
@@ -3845,7 +3765,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self.requested_provider = (
             provider
             or CLI_CONFIG["model"].get("provider")
-            or os.getenv("HERMES_INFERENCE_PROVIDER")
             or "auto"
         )
         self._provider_source: Optional[str] = None
@@ -3865,18 +3784,15 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self.api_key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         else:
             self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY")
-        # Max turns priority: CLI arg > config file > env var > default
+        # Max turns priority: CLI arg > canonical config key > default.
         if max_turns is not None:  # CLI arg was explicitly set
             self.max_turns = max_turns
         elif CLI_CONFIG["agent"].get("max_turns"):
             self.max_turns = CLI_CONFIG["agent"]["max_turns"]
-        elif CLI_CONFIG.get("max_turns"):  # Backwards compat: root-level max_turns
+        elif CLI_CONFIG.get("max_turns"):
+            # Preserve the previous root-level config schema until migration
+            # writes the value under ``agent``.
             self.max_turns = CLI_CONFIG["max_turns"]
-        elif os.getenv("HERMES_MAX_ITERATIONS"):
-            try:
-                self.max_turns = int(os.getenv("HERMES_MAX_ITERATIONS", ""))
-            except (TypeError, ValueError):
-                self.max_turns = 90
         else:
             self.max_turns = 90
         
@@ -3902,17 +3818,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self.checkpoint_max_total_size_mb = cp_cfg.get("max_total_size_mb", 500)
         self.checkpoint_max_file_size_mb = cp_cfg.get("max_file_size_mb", 10)
         self.pass_session_id = pass_session_id
-        # --ignore-rules: honor either the constructor flag or the env var set
-        # by `fabric chat --ignore-rules` in fabric_cli/main.py. When true we
-        # pass skip_context_files=True and skip_memory=True to AIAgent so
-        # AGENTS.md/SOUL.md/.cursorrules and persistent memory are not loaded.
-        self.ignore_rules = ignore_rules or os.environ.get("HERMES_IGNORE_RULES") == "1"
+        self.session_source = source or "cli"
+        # --ignore-rules is an invocation flag, not a persistent environment
+        # contract. It skips context files and persistent memory for this run.
+        self.ignore_rules = ignore_rules
         
-        # Ephemeral system prompt: env var takes precedence, then config
-        self.system_prompt = (
-            os.getenv("HERMES_EPHEMERAL_SYSTEM_PROMPT", "")
-            or CLI_CONFIG["agent"].get("system_prompt", "")
-        )
+        self.system_prompt = CLI_CONFIG["agent"].get("system_prompt", "")
         self.personalities = CLI_CONFIG["agent"].get("personalities", {})
         
         # Ephemeral prefill messages (few-shot priming, never persisted)
@@ -4011,12 +3922,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         # Opportunistic state.db maintenance — runs at most once per
         # min_interval_hours, tracked via state_meta in state.db itself so
-        # it's shared across all Hermes processes for this HERMES_HOME.
+        # it's shared across all Fabric processes for this FABRIC_HOME.
         # Never blocks startup on failure.
         _run_state_db_auto_maintenance(self._session_db)
 
         # Opportunistic shadow-repo cleanup — deletes orphan/stale
-        # checkpoint repos under ~/.hermes/checkpoints/.  Opt-in via
+        # checkpoint repos under ~/.fabric/checkpoints/.  Opt-in via
         # checkpoints.auto_prune, idempotent via .last_prune marker.
         _run_checkpoint_auto_maintenance()
 
@@ -4033,7 +3944,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self.session_id = f"{timestamp_str}_{short_uuid}"
         
         # History file for persistent input recall across sessions
-        self._history_file = _fabric_home / ".hermes_history"
+        self._history_file = _fabric_home / "input_history"
         self._last_invalidate: float = 0.0  # throttle UI repaints
         self._app = None
 
@@ -4807,7 +4718,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
     def _pet_resolve_config(self) -> None:
         """(Re)resolve the active pet from config — picks up live enable/disable/
 
-        switch made via ``/pet`` or ``hermes pets`` without a restart, mirroring
+        switch made via ``/pet`` or ``fabric pets`` without a restart, mirroring
         the TUI's steady poll. Cheap and fail-open: any problem disables the pet.
         """
         try:
@@ -5805,7 +5716,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             if self.show_timestamps:
                 label = f"{label} {datetime.now().strftime(getattr(self, 'timestamp_format', '%H:%M'))}"
             w = self._scrollback_box_width()
-            fill = w - 2 - HermesCLI._status_bar_display_width(label)
+            fill = w - 2 - FabricCLI._status_bar_display_width(label)
             _cprint(f"\n{_ACCENT}╭─{label}{'─' * max(fill - 1, 0)}╮{_RST}")
 
         self._stream_buf += text
@@ -6197,7 +6108,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         
         # Tool discovery is intentionally deferred on the Termux bare prompt
         # path; availability warnings are shown once tools are initialized.
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+        if not _defer_agent_startup:
             self._show_tool_availability_warnings()
 
         # Warn about low context lengths (common with local servers). Keep
@@ -6225,24 +6136,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 self._console_print(
                     "[dim]   Fix: Set model.context_length in config.yaml, or increase your server's context setting[/]"
                 )
-
-        # Warn if the configured model is a Nous Hermes LLM (not agentic)
-        from fabric_cli.model_switch import is_nous_hermes_non_agentic
-
-        model_name = getattr(self, "model", "") or ""
-        if is_nous_hermes_non_agentic(model_name):
-            self._console_print()
-            self._console_print(
-                "[bold yellow]⚠  Nous Research Hermes 3 & 4 models are NOT agentic and are not "
-                "designed for use with Fabric.[/]"
-            )
-            self._console_print(
-                "[dim]   They lack tool-calling capabilities required for agent workflows. "
-                "Consider using an agentic model (Claude, GPT, Gemini, DeepSeek, etc.).[/]"
-            )
-            self._console_print(
-                "[dim]   Switch with: /model sonnet  or  /model gpt5[/]"
-            )
 
         self._console_print()
 
@@ -6321,7 +6214,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
     def _try_attach_clipboard_image(self) -> bool:
         """Check clipboard for an image and attach it if found.
 
-        Saves the image to ~/.hermes/images/ and appends the path to
+        Saves the image to ~/.fabric/images/ and appends the path to
         ``_attached_images``.  Returns True if an image was attached.
         """
         from fabric_cli.clipboard import save_clipboard_image
@@ -6496,7 +6389,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
     def _show_status(self):
         """Show compact startup status line."""
         # Avoid pulling the full tool registry into the bare Termux prompt path.
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") == "1":
+        if _defer_agent_startup:
             tool_status = "tools deferred"
         else:
             tools = get_tool_definitions(enabled_toolsets=self.enabled_toolsets, quiet_mode=True)
@@ -7092,7 +6985,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     self.agent._session_db_created = False
                     self._session_db.create_session(
                         session_id=self.session_id,
-                        source=os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                        source=self.session_source,
                         model=self.model,
                         model_config={
                             "max_iterations": self.max_turns,
@@ -7204,7 +7097,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
 
     def save_conversation(self):
-        """Save the current conversation to a JSON snapshot under ~/.hermes/sessions/saved/.
+        """Save the current conversation to a JSON snapshot under ~/.fabric/sessions/saved/.
 
         The snapshot is a convenience export for sharing or off-line inspection;
         every message is already persisted incrementally to the SQLite session
@@ -8313,7 +8206,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         Usage:
             /codex-runtime                       — show current state
-            /codex-runtime auto                  — Hermes default (chat_completions)
+            /codex-runtime auto                  — Fabric default (chat_completions)
             /codex-runtime codex_app_server      — hand turns to codex subprocess
             /codex-runtime on / off              — synonyms for the above
         """
@@ -9409,19 +9302,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         Reads from ``tools.approval._session_yolo`` (the same set that
         ``enable_session_yolo`` / ``disable_session_yolo`` write to) so the
         status bar reflects the actual bypass state instead of a stale env
-        var. Also honors the process-start ``--yolo`` flag, which freezes
-        ``HERMES_YOLO_MODE`` into ``_YOLO_MODE_FROZEN`` before tool imports
-        happen.
+        var. The process-start ``--yolo`` flag is registered in this same
+        per-session store before the first turn.
         """
         try:
-            from tools.approval import (
-                _YOLO_MODE_FROZEN,
-                is_session_yolo_enabled,
-            )
+            from tools.approval import is_session_yolo_enabled
         except Exception:
             return False
-        if _YOLO_MODE_FROZEN:
-            return True
         # Use ``getattr`` so test fixtures that build a CLI via ``__new__``
         # (skipping ``__init__``) don't trip an AttributeError here; the
         # status-bar builders swallow exceptions silently but lose every
@@ -9434,13 +9321,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
         Per-session toggle that mirrors the gateway and TUI ``/yolo`` handlers
         (see ``gateway/run.py:_handle_yolo_command`` and
-        ``tui_gateway/server.py`` key=="yolo"). We deliberately do NOT mutate
-        ``HERMES_YOLO_MODE`` here — that env var is read once at module import
-        time into ``tools.approval._YOLO_MODE_FROZEN`` to keep prompt-injected
-        skills from flipping the bypass mid-session, so setting it after CLI
-        startup is a silent no-op. Routing through ``enable_session_yolo`` /
-        ``disable_session_yolo`` gives the same auditable, per-session bypass
-        the other surfaces have. ``run_conversation`` binds
+        ``tui_gateway/server.py`` key=="yolo"). Routing through
+        ``enable_session_yolo`` / ``disable_session_yolo`` gives every surface
+        the same auditable bypass. ``run_conversation`` binds
         ``self.session_id`` as the active approval session key via
         ``set_current_session_key`` so the bypass takes effect on the very
         next dangerous command in this run.
@@ -9774,8 +9657,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         It's agent-independent (a portal fetch gated on "a Nous account is logged in",
         NOT the inference-provider string), so /usage shows the block even in the TUI
         slash-worker subprocess that resumes WITHOUT a live agent. Fail-open and
-        wall-clock-bounded inside the helper; also honors HERMES_DEV_CREDITS_FIXTURE
-        for offline testing — same behavior as every other surface.
+        wall-clock-bounded inside the helper.
         """
         from agent.account_usage import nous_credits_lines
 
@@ -9806,7 +9688,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         if not view.logged_in:
             print()
             _cprint(f"  💳 {_d('Not logged into Nous Portal.')}")
-            print("  Run `fabric portal` to log in, then /credits.")
+            print(
+                "  Run `fabric portal --client-id <registered-client-id>` "
+                "to log in, then /credits."
+            )
             return
 
         print()
@@ -9895,7 +9780,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 _cprint(f"  💳 {_d(_msg)}")
             else:
                 _cprint(f"  💳 {_d('Not logged into Nous Portal.')}")
-                print("  Run `fabric portal` to log in, then /billing.")
+                print(
+                    "  Run `fabric portal --client-id <registered-client-id>` "
+                    "to log in, then /billing."
+                )
             return
 
         # Any sub-arg is intentionally ignored — always open the menu.
@@ -10259,7 +10147,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         )
         _cprint(f"  {_d(_scope_msg)}")
         if not getattr(self, "_app", None):
-            print("  Run `fabric portal` and approve terminal billing, then retry.")
+            print(
+                "  Run `fabric portal --client-id <registered-client-id>` and "
+                "approve terminal billing, then retry."
+            )
             return
         confirm_choices = [
             ("yes", "Re-authorize now", "open the portal to grant billing access"),
@@ -10880,7 +10771,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             print(f"  ❌ MCP reload failed: {e}")
 
     def _reload_skills(self) -> None:
-        """Reload skills: rescan ~/.hermes/skills/ and queue a note for the
+        """Reload skills: rescan ~/.fabric/skills/ and queue a note for the
         next user turn.
 
         Skills don't need to live in the system prompt for the model to use
@@ -11427,9 +11318,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 
             # Use MP3 output for CLI playback (afplay doesn't handle OGG well).
             # The TTS tool may auto-convert MP3->OGG, but the original MP3 remains.
-            os.makedirs(os.path.join(tempfile.gettempdir(), "hermes_voice"), exist_ok=True)
+            os.makedirs(os.path.join(tempfile.gettempdir(), "fabric_voice"), exist_ok=True)
             mp3_path = os.path.join(
-                tempfile.gettempdir(), "hermes_voice",
+                tempfile.gettempdir(), "fabric_voice",
                 f"tts_{time.strftime('%Y%m%d_%H%M%S')}.mp3",
             )
 
@@ -12306,7 +12197,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                         label = " Fabric "
                         if self.show_timestamps:
                             label = f"{label}{datetime.now().strftime(getattr(self, 'timestamp_format', '%H:%M'))} "
-                        fill = w - 2 - HermesCLI._status_bar_display_width(label)
+                        fill = w - 2 - FabricCLI._status_bar_display_width(label)
                         _cprint(f"\n{_ACCENT}╭─{label}{'─' * max(fill - 1, 0)}╮{_RST}")
                     _cprint(f"{_STREAM_PAD}{sentence.rstrip()}")
 
@@ -12353,14 +12244,19 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 # bind the same contextvar before invoking the agent.
                 try:
                     from tools.approval import (
+                        reset_fabric_interactive_context,
                         reset_current_session_key,
+                        set_fabric_interactive_context,
                         set_current_session_key,
                     )
+                    _interactive_token = set_fabric_interactive_context(True)
                     _approval_session_token = set_current_session_key(
                         self.session_id or "default"
                     )
                 except Exception:
+                    reset_fabric_interactive_context = None  # type: ignore[assignment]
                     reset_current_session_key = None  # type: ignore[assignment]
+                    _interactive_token = None
                     _approval_session_token = None
                 agent_message = _voice_prefix + message if _voice_prefix else message
                 # Prepend pending notes via _prepend_note_to_message, which
@@ -12432,6 +12328,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     if _approval_session_token is not None and reset_current_session_key is not None:
                         try:
                             reset_current_session_key(_approval_session_token)
+                        except Exception:
+                            pass
+                    if _interactive_token is not None and reset_fabric_interactive_context is not None:
+                        try:
+                            reset_fabric_interactive_context(_interactive_token)
                         except Exception:
                             pass
 
@@ -12918,7 +12819,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             # include `-p <profile>` for non-default profiles. Without this,
             # copying the hint from a non-default profile fails to find the
             # session on the next invocation. The "default" and "custom"
-            # profile names use the standard HERMES_HOME, so no -p needed.
+            # profile names use the standard FABRIC_HOME, so no -p needed.
             try:
                 from fabric_cli.profiles import get_active_profile_name
                 _active_profile = get_active_profile_name()
@@ -13208,13 +13109,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             _welcome_color = _welcome_skin.get_color("banner_text", "#FFF8DC")
         except Exception:
             try:
-                from fabric_cli.fabric_brand import fabric_brand_enabled, PRODUCT_NAME
-                if fabric_brand_enabled():
-                    _welcome_text = f"Welcome to {PRODUCT_NAME}. Type your message or /help for commands."
-                else:
-                    _welcome_text = "Fabric. Type a message or /help for commands."
+                from fabric_cli.fabric_brand import PRODUCT_NAME
+
+                _welcome_text = f"Welcome to {PRODUCT_NAME}. Type your message or /help for commands."
             except Exception:
-                _welcome_text = "Fabric. Type a message or /help for commands."
+                _welcome_text = "Welcome to Fabric. Type your message or /help for commands."
             _welcome_color = "#FFF8DC"
         self._console_print(f"[{_welcome_color}]{_welcome_text}[/]")
 
@@ -13237,7 +13136,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # main thread simply blocks on the remaining import work instead of
         # redoing it. Skipped when agent startup is explicitly deferred
         # (Termux) — that path defers heavy work on purpose.
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+        if not _defer_agent_startup:
             def _prewarm_agent_runtime() -> None:
                 try:
                     import run_agent  # noqa: F401  (imports model_tools + tool registry)
@@ -13252,15 +13151,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             ).start()
 
         # Redaction opt-out warning (#17691): ON by default, loud when off.
-        # The redactor snapshots its state at import time so any toggle now
-        # won't affect the running process — we just want the operator to
-        # see that they're running without the safety net.
         try:
-            _redact_raw = os.getenv("HERMES_REDACT_SECRETS", "true")
-            if _redact_raw.lower() not in {"1", "true", "yes", "on"}:
+            _security = self.config.get("security", {})
+            _redact_enabled = not isinstance(_security, dict) or bool(
+                _security.get("redact_secrets", True)
+            )
+            if not _redact_enabled:
                 self._console_print(
                     "[bold red]⚠  Secret redaction is DISABLED[/] "
-                    f"(HERMES_REDACT_SECRETS={_redact_raw}). "
                     "API keys and tokens may appear verbatim in chat output, "
                     "session JSONs, and logs. Set "
                     "[cyan]security.redact_secrets: true[/] in config.yaml "
@@ -13269,7 +13167,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         except Exception:
             pass
         # First-time OpenClaw-residue banner — fires once if ~/.openclaw/ exists
-        # after an OpenClaw→Hermes migration (especially migrations done by
+        # after an OpenClaw→Fabric migration (especially migrations done by
         # OpenClaw's own tool, which doesn't archive the source directory).
         try:
             from agent.onboarding import (
@@ -13394,10 +13292,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._voice_tts_done = threading.Event()  # Signals TTS playback finished
         self._voice_tts_done.set()  # Initially "done" (no TTS pending)
 
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+        if not _defer_agent_startup:
             self._install_tool_callbacks()
 
-        if os.environ.get("HERMES_DEFER_AGENT_STARTUP") != "1":
+        if not _defer_agent_startup:
             self._ensure_tirith_security()
         
         # Key bindings for the input area
@@ -13639,7 +13537,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 without requiring terminal settings changes. Ctrl+J (the raw
                 LF keystroke) also triggers this by virtue of being the same
                 key code — a harmless side effect since Ctrl+J has no
-                conflicting Hermes binding. See issue #22379.
+                conflicting Fabric binding. See issue #22379.
                 """
                 event.current_buffer.insert_text('\n')
 
@@ -14887,7 +14785,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                 term_rows = get_app().output.get_size().rows
             except Exception:
                 term_rows = shutil.get_terminal_size((100, 24)).lines
-            scroll_offset, visible = HermesCLI._compute_model_picker_viewport(
+            scroll_offset, visible = FabricCLI._compute_model_picker_viewport(
                 selected, state.get("_scroll_offset", 0), len(choices), term_rows,
             )
             state["_scroll_offset"] = scroll_offset
@@ -15139,7 +15037,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             import prompt_toolkit.renderer as _pt_renderer
             from prompt_toolkit.renderer import _output_screen_diff as _orig_osd
 
-            if not getattr(_pt_renderer, "_hermes_osd_patched", False):
+            if not getattr(_pt_renderer, "_fabric_osd_patched", False):
                 def _patched_output_screen_diff(
                     app, output, screen, current_pos, color_depth,
                     previous_screen, last_style, is_done, full_screen,
@@ -15177,7 +15075,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
                     )
 
                 _pt_renderer._output_screen_diff = _patched_output_screen_diff
-                _pt_renderer._hermes_osd_patched = True
+                _pt_renderer._fabric_osd_patched = True
         except Exception:
             pass
 
@@ -15213,6 +15111,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         
         # Background thread to process inputs and run agent
         def process_loop():
+            from tools.approval import set_fabric_interactive_context
+
+            set_fabric_interactive_context(True)
             while not self._should_exit:
                 try:
                     # Check for pending input with timeout
@@ -15418,7 +15319,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             spawned with ``os.setsid`` and therefore survives as an orphan
             with PPID=1.
 
-            Grace window (``HERMES_SIGTERM_GRACE``, default 1.5 s) gives
+            A fixed 1.5-second grace window gives
             the daemon time to: detect the interrupt (next 200 ms poll) →
             call _kill_process (SIGTERM + 1 s wait + SIGKILL if needed) →
             return from _wait_for_process.  ``time.sleep`` releases the
@@ -15442,12 +15343,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             try:
                 if getattr(self, "agent", None) and getattr(self, "_agent_running", False):
                     self.agent.interrupt(f"received signal {signum}")
-                    try:
-                        _grace = float(os.getenv("HERMES_SIGTERM_GRACE", "1.5"))
-                    except (TypeError, ValueError):
-                        _grace = 1.5
-                    if _grace > 0:
-                        time.sleep(_grace)
+                    time.sleep(1.5)
             except Exception:
                 pass  # never block signal handling
             # Prefer a clean prompt_toolkit exit over `raise KeyboardInterrupt()`.
@@ -15722,19 +15618,18 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
 # Main Entry Point
 # ============================================================================
 
-def _run_kanban_goal_loop_q(cli: "HermesCLI", first_response: str) -> None:
+def _run_kanban_goal_loop_q(cli: "FabricCLI", first_response: str) -> None:
     """Drive a kanban goal_mode worker through the Ralph-style goal loop.
 
-    Called from the quiet single-query path AFTER the worker's first turn,
-    only when ``HERMES_KANBAN_GOAL_MODE`` is set (dispatcher-spawned
-    goal_mode card). Wires the worker's ``run_conversation`` and the kanban
-    DB into ``goals.run_kanban_goal_loop``. All errors are swallowed by the
-    caller — a broken goal loop must never wedge a worker, the dispatcher's
-    claim TTL / crash detection is the backstop.
+    Called from the quiet single-query path after a goal-mode worker's first
+    turn. Wires the worker's ``run_conversation`` and the Kanban DB into
+    ``goals.run_kanban_goal_loop``. All errors are swallowed by the caller —
+    a broken goal loop must never wedge a worker; the dispatcher's claim TTL
+    and crash detection are the backstop.
     """
-    import os as _os
+    from fabric_cli.kanban_runtime import current_worker_task_id
 
-    task_id = (_os.environ.get("HERMES_KANBAN_TASK") or "").strip()
+    task_id = current_worker_task_id()
     if not task_id:
         return
 
@@ -15836,6 +15731,10 @@ def main(
     pass_session_id: bool = False,
     ignore_user_config: bool = False,
     ignore_rules: bool = False,
+    defer_agent_startup: bool = False,
+    accept_hooks: bool = False,
+    yolo: bool = False,
+    source: str | None = None,
 ):
     """
     Fabric CLI - Interactive AI Assistant
@@ -15870,7 +15769,13 @@ def main(
         python cli.py -w                         # Start in isolated git worktree
         python cli.py -w -q "Fix issue #123"     # Single query in worktree
     """
-    global _active_worktree
+    global _active_worktree, CLI_CONFIG
+    global _defer_agent_startup, _deferred_accept_hooks
+
+    if ignore_user_config:
+        CLI_CONFIG = load_cli_config(ignore_user_config=True)
+    _defer_agent_startup = defer_agent_startup
+    _deferred_accept_hooks = accept_hooks
 
     # Force UTF-8 stdio on Windows before any banner/print() runs — the
     # Rich console prints Unicode box-drawing characters that would
@@ -15881,10 +15786,6 @@ def main(
     except Exception:
         pass
 
-    # Signal to terminal_tool that we're in interactive mode
-    # This enables interactive sudo password prompts with timeout
-    os.environ["HERMES_INTERACTIVE"] = "1"
-    
     # Handle gateway mode (messaging + cron)
     if gateway:
         import asyncio
@@ -15925,7 +15826,7 @@ def main(
     query = query or q
     
     # Parse toolsets - handle both string and tuple/list inputs
-    # Default to hermes-cli toolset which includes cronjob management tools
+    # Default to fabric-cli toolset which includes cronjob management tools
     toolsets_list = None
     if toolsets:
         if isinstance(toolsets, str):
@@ -15939,7 +15840,7 @@ def main(
                 else:
                     toolsets_list.append(str(t))
     else:
-        # Coding posture (base Hermes): with no explicit --toolsets, collapse
+        # Coding posture (base Fabric): with no explicit --toolsets, collapse
         # to the coding toolset (+ enabled MCP servers) when sitting in a code
         # workspace. See agent/coding_context.py.
         _coding = None
@@ -15958,7 +15859,7 @@ def main(
     parsed_skills = _parse_skills_argument(skills)
 
     # Create CLI instance
-    cli = HermesCLI(
+    cli = FabricCLI(
         model=model,
         toolsets=toolsets_list,
         provider=provider,
@@ -15971,7 +15872,13 @@ def main(
         checkpoints=checkpoints,
         pass_session_id=pass_session_id,
         ignore_rules=ignore_rules,
+        source=source,
     )
+
+    if yolo:
+        from tools.approval import enable_session_yolo
+
+        enable_session_yolo(cli.session_id or "default")
 
     if parsed_skills:
         skills_prompt, loaded_skills, missing_skills = build_preloaded_skills_prompt(
@@ -16027,7 +15934,7 @@ def main(
     atexit.register(_run_cleanup)
 
     # Also install signal handlers in single-query / `-q` mode.  Interactive
-    # mode registers its own inside HermesCLI.run(), but `-q` runs
+    # mode registers its own inside FabricCLI.run(), but `-q` runs
     # cli.agent.run_conversation() below and AIAgent spawns worker threads
     # for tools — so when SIGTERM arrives on the main thread, raising
     # KeyboardInterrupt only unwinds the main thread, not the worker
@@ -16039,20 +15946,14 @@ def main(
     # per-thread interrupt flag the worker's poll loop checks every 200 ms.
     # Give the worker a grace window to call _kill_process (SIGTERM to the
     # process group, then SIGKILL after 1 s), then raise KeyboardInterrupt
-    # so main unwinds normally.  HERMES_SIGTERM_GRACE overrides the 1.5 s
-    # default for debugging.
+    # so main unwinds normally.
     def _signal_handler_q(signum, frame):
         logger.debug("Received signal %s in single-query mode", signum)
         try:
             _agent = getattr(cli, "agent", None)
             if _agent is not None:
                 _agent.interrupt(f"received signal {signum}")
-                try:
-                    _grace = float(os.getenv("HERMES_SIGTERM_GRACE", "1.5"))
-                except (TypeError, ValueError):
-                    _grace = 1.5
-                if _grace > 0:
-                    time.sleep(_grace)
+                time.sleep(1.5)
         except Exception:
             pass  # never block signal handling
         # Kanban worker exit path (#28181): SIGTERM hits a dispatcher-spawned
@@ -16067,7 +15968,9 @@ def main(
         # first so the final debug trace isn't lost; SIGALRM deadman guards
         # the flush against any rare blocking-I/O case (the reporter measured
         # flush in <1ms; the alarm is a failsafe, not the common path).
-        if os.environ.get("HERMES_KANBAN_TASK"):
+        from fabric_cli.kanban_runtime import is_kanban_worker
+
+        if is_kanban_worker():
             try:
                 import signal as _sig_mod
                 if hasattr(_sig_mod, "SIGALRM"):
@@ -16112,7 +16015,10 @@ def main(
             # path or URL into a kanban task body never get it routed to the
             # model's vision input.
             single_query_image_urls: list[str] = []
-            _kanban_task_id = os.environ.get("HERMES_KANBAN_TASK", "").strip()
+            from fabric_cli.kanban_runtime import get_kanban_runtime_context
+
+            _kanban_context = get_kanban_runtime_context()
+            _kanban_task_id = _kanban_context.task_id
             if _kanban_task_id:
                 try:
                     from fabric_cli import kanban_db as _kb
@@ -16212,7 +16118,7 @@ def main(
                         cli.agent.quiet_mode = True
                         cli.agent.suppress_status_output = True
                         # Suppress streaming display callbacks so stdout stays
-                        # machine-readable (no styled "Hermes" box, no tool-gen
+                        # machine-readable (no styled "Fabric" box, no tool-gen
                         # status lines).  The response is printed once below.
                         cli.agent.stream_delta_callback = None
                         cli.agent.tool_gen_callback = None
@@ -16253,10 +16159,10 @@ def main(
                         # goal_mode card keeps working in THIS session until an
                         # auxiliary judge agrees the card is done, the worker
                         # terminates the task itself, or the turn budget runs
-                        # out (→ sticky block). Gated on the env vars the
-                        # dispatcher sets in `_default_spawn`; a no-op for every
-                        # normal worker and every non-kanban `-q` run.
-                        if os.environ.get("HERMES_KANBAN_GOAL_MODE") == "1":
+                        # out (→ sticky block). Gated on the immutable launch
+                        # context from `_default_spawn`; a no-op for every
+                        # normal worker and non-Kanban `-q` run.
+                        if _kanban_context.goal_mode:
                             try:
                                 _run_kanban_goal_loop_q(cli, response)
                             except Exception as _goal_exc:
@@ -16280,7 +16186,7 @@ def main(
                         _exit_code = 0
                         if isinstance(result, dict) and result.get("failed"):
                             _exit_code = 1
-                            if os.environ.get("HERMES_KANBAN_TASK") and result.get(
+                            if _kanban_context.is_worker and result.get(
                                 "failure_reason"
                             ) in ("rate_limit", "billing"):
                                 try:

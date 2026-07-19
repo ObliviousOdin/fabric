@@ -19,7 +19,7 @@ class TestMatrixHiddenOnWindows:
         """Sanity: matrix is still in the picker on Linux/macOS."""
         import fabric_cli.gateway as gateway_mod
 
-        monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+        monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
         monkeypatch.setattr(gateway_mod.sys, "platform", "linux")
         platforms = gateway_mod._all_platforms()
         keys = {p["key"] for p in platforms}
@@ -28,7 +28,7 @@ class TestMatrixHiddenOnWindows:
     def test_matrix_present_on_macos(self, monkeypatch):
         import fabric_cli.gateway as gateway_mod
 
-        monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+        monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
         monkeypatch.setattr(gateway_mod.sys, "platform", "darwin")
         platforms = gateway_mod._all_platforms()
         keys = {p["key"] for p in platforms}
@@ -38,7 +38,7 @@ class TestMatrixHiddenOnWindows:
         """The actual gate: matrix must NOT appear on Windows."""
         import fabric_cli.gateway as gateway_mod
 
-        monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+        monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
         monkeypatch.setattr(gateway_mod.sys, "platform", "win32")
         platforms = gateway_mod._all_platforms()
         keys = {p["key"] for p in platforms}
@@ -51,7 +51,7 @@ class TestMatrixHiddenOnWindows:
         """Gating must only drop matrix, not collateral damage."""
         import fabric_cli.gateway as gateway_mod
 
-        monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+        monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
         monkeypatch.setattr(gateway_mod.sys, "platform", "win32")
         platforms = gateway_mod._all_platforms()
         keys = {p["key"] for p in platforms}
@@ -67,7 +67,10 @@ class TestMatrixHiddenOnWindows:
 def test_fabric_gateway_picker_is_small(monkeypatch):
     import fabric_cli.gateway as gateway_mod
 
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
     monkeypatch.setattr(gateway_mod.sys, "platform", "linux")
 
     platforms = gateway_mod._all_platforms()

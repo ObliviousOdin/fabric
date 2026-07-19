@@ -58,10 +58,10 @@ def bundles_env(tmp_path, monkeypatch):
     bundles_dir = tmp_path / "skill-bundles"
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
-    monkeypatch.setenv("HERMES_BUNDLES_DIR", str(bundles_dir))
-    # Patch SKILLS_DIR so skill loading hits our temp tree.
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+    # Keep skill loading on the profile-scoped temp tree.
     import tools.skills_tool as skills_tool_module
-    monkeypatch.setattr(skills_tool_module, "SKILLS_DIR", skills_dir)
+    monkeypatch.setattr(skills_tool_module, "_skills_dir", lambda: skills_dir)
     # Reset module-level cache between tests.
     import agent.skill_bundles as mod
     mod._bundles_cache = {}

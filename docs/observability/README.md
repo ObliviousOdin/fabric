@@ -39,12 +39,11 @@ def on_post_tool_call(**kwargs):
 The plugin manager injects this field into every hook payload:
 
 ```text
-telemetry_schema_version = "hermes.observer.v1"
+telemetry_schema_version = "fabric.observer.v1"
 ```
 
-That value is a stable protocol identifier retained for plugin compatibility;
-it is not the current product name. Changing it requires a versioned observer
-protocol migration rather than a branding-only replacement.
+That value is the canonical Fabric observer protocol identifier. Changing it
+requires a versioned observer protocol migration.
 
 Hook callbacks are fail-open. Fabric catches callback exceptions, logs a
 warning, and keeps the agent loop running.

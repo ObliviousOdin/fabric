@@ -1,4 +1,4 @@
-"""CLI handlers for the ``hermes proxy`` subcommand."""
+"""CLI handlers for the ``fabric proxy`` subcommand."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def _visible_adapter_names() -> list[str]:
 
 
 def _default_adapter_name() -> str:
-    """Preserve the legacy Nous default only when that provider is enabled."""
+    """Use Nous as the default only when that provider is enabled."""
     return "nous" if fabric_model_provider_visible("nous") else "xai"
 
 
@@ -127,7 +127,7 @@ def cmd_proxy_list_providers(args: Any) -> int:
 
 
 def cmd_proxy(args: Any) -> int:
-    """Dispatch ``hermes proxy <subcommand>``."""
+    """Dispatch ``fabric proxy <subcommand>``."""
     sub = getattr(args, "proxy_command", None)
     if sub == "start":
         return cmd_proxy_start(args)

@@ -18,11 +18,11 @@ import pytest
 
 
 @pytest.fixture
-def hermes_home(monkeypatch):
-    d = tempfile.mkdtemp(prefix="hermes_wa_test_")
-    home = os.path.join(d, ".hermes")
+def fabric_home(monkeypatch):
+    d = tempfile.mkdtemp(prefix="write_approval_test_")
+    home = os.path.join(d, ".fabric")
     os.makedirs(home)
-    monkeypatch.setenv("HERMES_HOME", home)
+    monkeypatch.setenv("FABRIC_HOME", home)
     yield home
     shutil.rmtree(d, ignore_errors=True)
 
@@ -38,14 +38,14 @@ def _set_approval(subsystem, enabled):
 # Config resolution
 # ---------------------------------------------------------------------------
 
-def test_default_gate_is_off(hermes_home):
+def test_default_gate_is_off(fabric_home):
     from tools import write_approval as wa
     # Default: gate off → writes flow freely.
     assert wa.write_approval_enabled("memory") is False
     assert wa.write_approval_enabled("skills") is False
 
 
-def test_invalid_subsystem_is_off(hermes_home):
+def test_invalid_subsystem_is_off(fabric_home):
     from tools import write_approval as wa
     assert wa.write_approval_enabled("bogus") is False
 
@@ -69,7 +69,7 @@ def test_normalize_enabled_coerces_values():
 # Memory gate
 # ---------------------------------------------------------------------------
 
-def test_memory_gate_off_allows_write(hermes_home):
+def test_memory_gate_off_allows_write(fabric_home):
     # Default (gate off) → write straight through, no staging.
     from tools.memory_tool import memory_tool, MemoryStore
     from tools import write_approval as wa
@@ -80,7 +80,7 @@ def test_memory_gate_off_allows_write(hermes_home):
     assert wa.pending_count("memory") == 0
 
 
-def test_memory_gate_on_no_interactive_stages(hermes_home):
+def test_memory_gate_on_no_interactive_stages(fabric_home):
     # Gate on, no approval callback / not a gateway context → stage.
     from tools.memory_tool import memory_tool, MemoryStore
     from tools import write_approval as wa
@@ -96,7 +96,7 @@ def test_memory_gate_on_no_interactive_stages(hermes_home):
     assert pend[0]["id"] == r["pending_id"]
 
 
-def test_memory_gate_on_then_apply(hermes_home):
+def test_memory_gate_on_then_apply(fabric_home):
     from tools.memory_tool import memory_tool, MemoryStore, apply_memory_pending
     from tools import write_approval as wa
     _set_approval("memory", True)
@@ -109,7 +109,7 @@ def test_memory_gate_on_then_apply(hermes_home):
     assert "approved entry" in store.user_entries[0]
 
 
-def test_cli_memory_approve_without_live_agent_uses_fresh_store(hermes_home, capsys):
+def test_cli_memory_approve_without_live_agent_uses_fresh_store(fabric_home, capsys):
     """#46783: ``/memory approve`` from a context with no live agent (e.g. the
     Desktop GUI) passed ``memory_store=None`` into the shared handler, which
     returned "memory store unavailable" and applied nothing. The CLI handler must
@@ -198,7 +198,7 @@ async def test_gateway_memory_status_uses_shared_read_only_snapshot(monkeypatch)
     assert result == "shared status: eligible"
 
 
-def test_load_on_disk_store_honors_configured_char_limits(hermes_home, monkeypatch):
+def test_load_on_disk_store_honors_configured_char_limits(fabric_home, monkeypatch):
     """load_on_disk_store() must read memory.memory_char_limit /
     user_char_limit from config so approvals applied without a live agent
     enforce the SAME caps as the live agent (agent_init.py). Falls back to
@@ -404,13 +404,13 @@ def _stage_governed_create(
 
 
 def _attest_governed_batch(
-    smt, hermes_home, draft, record, observations_data=None
+    smt, fabric_home, draft, record, observations_data=None
 ):
     from tools import write_approval as wa
 
     assert "Review token:" in wa.skill_pending_diff(record)
     name = record["payload"]["name"]
-    observations_path = Path(hermes_home) / f"{name}-observations.json"
+    observations_path = Path(fabric_home) / f"{name}-observations.json"
     observations_path.write_text(
         json.dumps(observations_data or _governed_observations()),
         encoding="utf-8",
@@ -422,13 +422,13 @@ def _attest_governed_batch(
     return evaluated
 
 
-def _ready_governed_create(smt, hermes_home, name, origin):
+def _ready_governed_create(smt, fabric_home, name, origin):
     draft, record = _stage_governed_create(smt, name, origin)
-    _attest_governed_batch(smt, hermes_home, draft, record)
+    _attest_governed_batch(smt, fabric_home, draft, record)
     return draft, record
 
 
-def test_governed_promotion_requires_contract_before_review_or_claim(hermes_home):
+def test_governed_promotion_requires_contract_before_review_or_claim(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -450,10 +450,10 @@ def test_governed_promotion_requires_contract_before_review_or_claim(hermes_home
     refused = handle_pending_subcommand(wa.SKILLS, ["approve", draft["pending_id"]])
     assert "Governed promotion checks failed" in refused
     assert smt._find_skill("missing-governance") is None
-    assert not (Path(hermes_home) / "pending" / "skills" / ".transactions").exists()
+    assert not (Path(fabric_home) / "pending" / "skills" / ".transactions").exists()
 
 
-def test_governed_promotion_rejects_invalid_and_expired_contracts(hermes_home):
+def test_governed_promotion_rejects_invalid_and_expired_contracts(fabric_home):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
     from tools.skill_provenance import LEARN_REQUEST
@@ -481,7 +481,7 @@ def test_governed_promotion_rejects_invalid_and_expired_contracts(hermes_home):
 
 @pytest.mark.parametrize("scan_mode", ["raises", "finding"])
 def test_governed_security_scan_is_mandatory_and_fail_closed(
-    hermes_home, monkeypatch, scan_mode
+    fabric_home, monkeypatch, scan_mode
 ):
     from types import SimpleNamespace
 
@@ -520,7 +520,7 @@ def test_governed_security_scan_is_mandatory_and_fail_closed(
 
 
 def test_governed_eval_missing_failing_passing_and_append_invalidation(
-    hermes_home
+    fabric_home
 ):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
@@ -534,13 +534,13 @@ def test_governed_eval_missing_failing_passing_and_append_invalidation(
 
     failing = _governed_observations()
     failing["positive"][0]["selected"] = False
-    path = Path(hermes_home) / "failing-observations.json"
+    path = Path(fabric_home) / "failing-observations.json"
     path.write_text(json.dumps(failing), encoding="utf-8")
     failed = smt.evaluate_skill_pending_batch(draft["pending_id"], path)
     assert failed["success"] is False
     assert "evaluation failed" in failed["error"].lower()
 
-    _attest_governed_batch(smt, hermes_home, draft, record)
+    _attest_governed_batch(smt, fabric_home, draft, record)
     assert "Evaluation: passing attestation is current" in wa.skill_pending_diff(record)
     batch_id = record["batch_id"]
     evaluation_path = smt._evaluation_path(batch_id)
@@ -555,7 +555,7 @@ def test_governed_eval_missing_failing_passing_and_append_invalidation(
         wa.SKILLS, ["approve", draft["pending_id"]]
     )
     assert "evaluation is stale" in refused_tamper
-    _attest_governed_batch(smt, hermes_home, draft, record)
+    _attest_governed_batch(smt, fabric_home, draft, record)
     assert evaluation_path.is_file()
 
     token = set_current_write_origin(LEARN_REQUEST)
@@ -578,7 +578,7 @@ def test_governed_eval_missing_failing_passing_and_append_invalidation(
 
 
 def test_permission_expansion_is_visible_and_bound_to_human_review(
-    hermes_home
+    fabric_home
 ):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
@@ -614,7 +614,7 @@ def test_permission_expansion_is_visible_and_bound_to_human_review(
     ):
         assert expected in review
     assert "delete_source" not in review.split("Permission expansion", 1)[1]
-    _attest_governed_batch(smt, hermes_home, draft, record)
+    _attest_governed_batch(smt, fabric_home, draft, record)
 
     review_path = smt._review_path(record["batch_id"])
     attestation = json.loads(review_path.read_text(encoding="utf-8"))
@@ -626,7 +626,7 @@ def test_permission_expansion_is_visible_and_bound_to_human_review(
 
 
 def test_skill_provenance_read_failure_never_downgrades_to_foreground(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     import tools.skill_manager_tool as smt
     from tools import skill_provenance
@@ -649,7 +649,7 @@ def test_skill_provenance_read_failure_never_downgrades_to_foreground(
 
 
 def test_multi_skill_governed_batch_requires_and_attests_every_final_tree(
-    hermes_home
+    fabric_home
 ):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
@@ -667,7 +667,7 @@ def test_multi_skill_governed_batch_requires_and_attests_every_final_tree(
     assert "multi-governed-b: candidate" in review
     assert "Action 6/6" in review
 
-    observations = Path(hermes_home) / "multi-observations.json"
+    observations = Path(fabric_home) / "multi-observations.json"
     observations.write_text(
         json.dumps(
             {
@@ -690,7 +690,7 @@ def test_multi_skill_governed_batch_requires_and_attests_every_final_tree(
     assert smt._find_skill("multi-governed-b") is not None
 
 
-def test_skill_gate_off_allows_create(hermes_home):
+def test_skill_gate_off_allows_create(fabric_home):
     # Default (gate off) → skill is created normally, not staged.
     import importlib
     import tools.skill_manager_tool as smt
@@ -702,7 +702,7 @@ def test_skill_gate_off_allows_create(hermes_home):
 
 
 @pytest.mark.parametrize("origin", ["background_review", "learn_request"])
-def test_governed_skill_origins_quarantine_even_when_gate_off(hermes_home, origin):
+def test_governed_skill_origins_quarantine_even_when_gate_off(fabric_home, origin):
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
     from tools.skill_provenance import (
@@ -729,7 +729,7 @@ def test_governed_skill_origins_quarantine_even_when_gate_off(hermes_home, origi
     assert rec["lifecycle"] == "draft"
 
 
-def test_quarantined_multi_action_draft_promotes_in_order(hermes_home):
+def test_quarantined_multi_action_draft_promotes_in_order(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
@@ -779,7 +779,7 @@ def test_quarantined_multi_action_draft_promotes_in_order(hermes_home):
     assert wa.pending_count("skills") == 0
 
 
-def test_approving_one_action_promotes_its_whole_draft_batch(hermes_home):
+def test_approving_one_action_promotes_its_whole_draft_batch(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
@@ -821,7 +821,7 @@ def test_approving_one_action_promotes_its_whole_draft_batch(hermes_home):
     assert wa.pending_count(wa.SKILLS) == 0
 
 
-def test_invalid_later_action_is_rejected_before_staging(hermes_home):
+def test_invalid_later_action_is_rejected_before_staging(fabric_home):
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
     from tools.skill_provenance import (
@@ -855,7 +855,7 @@ def test_invalid_later_action_is_rejected_before_staging(hermes_home):
 
 
 def test_atomic_batch_rolls_back_first_action_when_replay_fails(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
@@ -909,7 +909,7 @@ def _named_skill(name, body="body"):
     ["create", "edit", "patch", "write_file", "remove_file", "delete"],
 )
 def test_promotion_conflict_retains_draft_for_every_skill_mutation(
-    hermes_home, action
+    fabric_home, action
 ):
     import importlib
 
@@ -991,7 +991,7 @@ def test_promotion_conflict_retains_draft_for_every_skill_mutation(
     assert wa.get_pending(wa.SKILLS, draft["pending_id"]) is not None
 
 
-def test_patch_preview_uses_same_fuzzy_semantics_as_replay(hermes_home):
+def test_patch_preview_uses_same_fuzzy_semantics_as_replay(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
@@ -1023,7 +1023,7 @@ def test_patch_preview_uses_same_fuzzy_semantics_as_replay(hermes_home):
     assert "Hello   world" not in text
 
 
-def test_staging_draft_does_not_invalidate_active_skill_prompt_cache(hermes_home):
+def test_staging_draft_does_not_invalidate_active_skill_prompt_cache(fabric_home):
     from unittest.mock import patch
 
     from tools.skill_manager_tool import skill_manage
@@ -1048,7 +1048,7 @@ def test_staging_draft_does_not_invalidate_active_skill_prompt_cache(hermes_home
     clear_cache.assert_not_called()
 
 
-def test_promoted_background_create_keeps_curator_provenance(hermes_home):
+def test_promoted_background_create_keeps_curator_provenance(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -1056,7 +1056,7 @@ def test_promoted_background_create_keeps_curator_provenance(hermes_home):
     from tools.skill_usage import get_record
 
     draft, _record = _ready_governed_create(
-        smt, hermes_home, "background-draft-owner", BACKGROUND_REVIEW
+        smt, fabric_home, "background-draft-owner", BACKGROUND_REVIEW
     )
     out = handle_pending_subcommand(
         wa.SKILLS, ["approve", draft["pending_id"]]
@@ -1066,7 +1066,7 @@ def test_promoted_background_create_keeps_curator_provenance(hermes_home):
     assert get_record("background-draft-owner")["created_by"] == "agent"
 
 
-def test_promoted_background_delete_uses_recoverable_archive(hermes_home):
+def test_promoted_background_delete_uses_recoverable_archive(fabric_home):
     from pathlib import Path
 
     from fabric_cli.write_approval_commands import handle_pending_subcommand
@@ -1125,11 +1125,11 @@ def test_promoted_background_delete_uses_recoverable_archive(hermes_home):
     assert "Promoted 1" in out
     assert _find_skill("archive-candidate") is None
     assert (
-        Path(hermes_home) / "skills" / ".archive" / "archive-candidate"
+        Path(fabric_home) / "skills" / ".archive" / "archive-candidate"
     ).is_dir()
 
 
-def test_quarantine_persistence_failure_is_fail_closed(hermes_home, monkeypatch):
+def test_quarantine_persistence_failure_is_fail_closed(fabric_home, monkeypatch):
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
     from tools.skill_provenance import (
@@ -1157,7 +1157,7 @@ def test_quarantine_persistence_failure_is_fail_closed(hermes_home, monkeypatch)
     assert wa.pending_count("skills") == 0
 
 
-def test_skill_gate_on_always_stages(hermes_home):
+def test_skill_gate_on_always_stages(fabric_home):
     # Skills stage even in the foreground (too big to review inline).
     from tools.skill_manager_tool import skill_manage
     from tools import write_approval as wa
@@ -1168,12 +1168,8 @@ def test_skill_gate_on_always_stages(hermes_home):
     assert wa.pending_count("skills") == 1
 
 
-def test_skill_gate_on_then_apply_writes_file(hermes_home):
-    # SKILLS_DIR is resolved at import time, so reload the skill module under
-    # this test's HERMES_HOME to exercise the real on-disk write path.
-    import importlib
+def test_skill_gate_on_then_apply_writes_file(fabric_home):
     import tools.skill_manager_tool as smt
-    importlib.reload(smt)
     from tools import write_approval as wa
     _set_approval("skills", True)
     r = json.loads(smt.skill_manage("create", "applied-skill", content=_SKILL))
@@ -1183,7 +1179,7 @@ def test_skill_gate_on_then_apply_writes_file(hermes_home):
     assert smt._find_skill("applied-skill") is not None
 
 
-def test_skill_create_diff_is_full_content(hermes_home):
+def test_skill_create_diff_is_full_content(fabric_home):
     from tools.skill_manager_tool import skill_manage
     from tools import write_approval as wa
     _set_approval("skills", True)
@@ -1193,7 +1189,7 @@ def test_skill_create_diff_is_full_content(hermes_home):
     assert "name: test-skill" in diff
 
 
-def test_skill_approval_requires_durable_full_batch_review(hermes_home):
+def test_skill_approval_requires_durable_full_batch_review(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
@@ -1220,7 +1216,7 @@ def test_skill_approval_requires_durable_full_batch_review(hermes_home):
     assert "Promoted 1" in promoted
 
 
-def test_full_batch_review_is_invalidated_when_action_is_appended(hermes_home):
+def test_full_batch_review_is_invalidated_when_action_is_appended(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
@@ -1284,7 +1280,7 @@ def test_full_batch_review_is_invalidated_when_action_is_appended(hermes_home):
     )
 
 
-def test_altered_pending_record_cannot_reuse_review_attestation(hermes_home):
+def test_altered_pending_record_cannot_reuse_review_attestation(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     from tools.skill_manager_tool import _find_skill, skill_manage
@@ -1297,7 +1293,7 @@ def test_altered_pending_record_cannot_reuse_review_attestation(hermes_home):
 
     path = (
         os.path.join(
-            hermes_home, "pending", "skills", f"{draft['pending_id']}.json"
+            fabric_home, "pending", "skills", f"{draft['pending_id']}.json"
         )
     )
     with open(path, encoding="utf-8") as handle:
@@ -1315,7 +1311,7 @@ def test_altered_pending_record_cannot_reuse_review_attestation(hermes_home):
 
 
 def test_duplicate_concurrent_skill_approval_is_idempotent(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Lock
@@ -1363,7 +1359,7 @@ def test_duplicate_concurrent_skill_approval_is_idempotent(
     ],
 )
 def test_skill_promotion_recovers_each_durable_crash_phase(
-    hermes_home, monkeypatch, phase, committed
+    fabric_home, monkeypatch, phase, committed
 ):
     import importlib
 
@@ -1401,7 +1397,7 @@ def test_skill_promotion_recovers_each_durable_crash_phase(
 
 
 def test_category_mode_symlink_and_sibling_survive_rollback(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -1443,7 +1439,7 @@ def test_category_mode_symlink_and_sibling_survive_rollback(
 
 
 def test_immediate_cache_publication_failure_rolls_skill_bytes_back(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -1467,7 +1463,7 @@ def test_immediate_cache_publication_failure_rolls_skill_bytes_back(
 
 
 def test_default_promotion_defers_prompt_cache_invalidation(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -1493,7 +1489,7 @@ def test_default_promotion_defers_prompt_cache_invalidation(
 
 
 def test_skills_approve_now_explicitly_invalidates_prompt_cache(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
@@ -1521,7 +1517,7 @@ def test_skills_approve_now_explicitly_invalidates_prompt_cache(
 
 
 def test_promotion_revalidates_after_snapshot_and_preserves_manual_edit(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -1567,7 +1563,7 @@ def test_promotion_revalidates_after_snapshot_and_preserves_manual_edit(
 
 
 def test_approved_replay_revalidates_at_the_mutation_call_boundary(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -1612,7 +1608,7 @@ def test_approved_replay_revalidates_at_the_mutation_call_boundary(
 
 
 def test_commit_journal_failure_rolls_back_instead_of_publishing(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -1641,7 +1637,7 @@ def test_commit_journal_failure_rolls_back_instead_of_publishing(
 
 
 def test_recovery_restores_partially_claimed_multi_action_batch(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     import importlib
 
@@ -1682,7 +1678,7 @@ def test_recovery_restores_partially_claimed_multi_action_batch(
         destination_path = os.fspath(destination)
         if (
             os.path.dirname(source_path)
-            == os.path.join(hermes_home, "pending", "skills")
+            == os.path.join(fabric_home, "pending", "skills")
             and os.path.basename(os.path.dirname(destination_path)) == "claims"
         ):
             claims_seen += 1
@@ -1709,7 +1705,7 @@ def test_recovery_restores_partially_claimed_multi_action_batch(
 
 
 def test_recovery_restores_sidecars_after_crash_inside_telemetry(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     import importlib
 
@@ -1719,7 +1715,7 @@ def test_recovery_restores_sidecars_after_crash_inside_telemetry(
     from tools.skill_provenance import BACKGROUND_REVIEW
 
     draft, record = _ready_governed_create(
-        smt, hermes_home, "inner-side-effect-crash", BACKGROUND_REVIEW
+        smt, fabric_home, "inner-side-effect-crash", BACKGROUND_REVIEW
     )
 
     original_mark = skill_usage.mark_agent_created
@@ -1746,7 +1742,7 @@ def test_recovery_restores_sidecars_after_crash_inside_telemetry(
 
 
 def test_recovery_restores_archive_after_crash_inside_delete_replay(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     import importlib
 
@@ -1821,7 +1817,7 @@ def test_recovery_restores_archive_after_crash_inside_delete_replay(
     assert not (smt._skills_dir() / ".usage.json.lock").exists()
 
 
-def test_successful_patch_preserves_modes_and_unrelated_symlinks(hermes_home):
+def test_successful_patch_preserves_modes_and_unrelated_symlinks(fabric_home):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
 
@@ -1855,7 +1851,7 @@ def test_successful_patch_preserves_modes_and_unrelated_symlinks(hermes_home):
     assert os.readlink(target / "references" / "canonical") == "../SKILL.md"
 
 
-def test_committed_cleanup_failure_is_finalized_on_restart(hermes_home, monkeypatch):
+def test_committed_cleanup_failure_is_finalized_on_restart(fabric_home, monkeypatch):
     import importlib
 
     from tools import write_approval as wa
@@ -1885,7 +1881,7 @@ def test_committed_cleanup_failure_is_finalized_on_restart(hermes_home, monkeypa
     assert smt.find_skill_pending_receipt(draft["pending_id"])["decision"] == "promoted"
 
 
-def test_retained_transaction_can_restore_exact_prior_bytes(hermes_home):
+def test_retained_transaction_can_restore_exact_prior_bytes(fabric_home):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
 
@@ -1910,7 +1906,7 @@ def test_retained_transaction_can_restore_exact_prior_bytes(hermes_home):
 
 
 def test_retained_rollback_cache_failure_is_recovered_before_terminal(
-    hermes_home, monkeypatch
+    fabric_home, monkeypatch
 ):
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt
@@ -1942,7 +1938,7 @@ def test_retained_rollback_cache_failure_is_recovered_before_terminal(
     assert smt._find_skill("rollback-cache-retry") is None
 
 
-def test_skill_reject_receipt_is_idempotent(hermes_home):
+def test_skill_reject_receipt_is_idempotent(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     from tools.skill_manager_tool import skill_manage
@@ -1959,7 +1955,7 @@ def test_skill_reject_receipt_is_idempotent(hermes_home):
     assert "already rejected" in second
 
 
-def test_new_pending_ids_are_128_bit_and_legacy_ids_still_validate(hermes_home):
+def test_new_pending_ids_are_128_bit_and_legacy_ids_still_validate(fabric_home):
     from tools import write_approval as wa
 
     record = wa.stage_write(
@@ -1977,7 +1973,7 @@ def test_new_pending_ids_are_128_bit_and_legacy_ids_still_validate(hermes_home):
 # Pending store CRUD
 # ---------------------------------------------------------------------------
 
-def test_pending_store_roundtrip(hermes_home):
+def test_pending_store_roundtrip(fabric_home):
     from tools import write_approval as wa
     rec = wa.stage_write("memory", {"action": "add", "target": "user", "content": "x"},
                          summary="add x", origin="foreground")
@@ -1989,7 +1985,7 @@ def test_pending_store_roundtrip(hermes_home):
     assert wa.get_pending("memory", rec["id"]) is None
 
 
-def test_pending_stage_never_overwrites_on_id_collision(hermes_home, monkeypatch):
+def test_pending_stage_never_overwrites_on_id_collision(fabric_home, monkeypatch):
     from types import SimpleNamespace
 
     from tools import write_approval as wa
@@ -2034,10 +2030,10 @@ def test_pending_stage_never_overwrites_on_id_collision(hermes_home, monkeypatch
         "dead/beef",
     ],
 )
-def test_pending_ids_reject_traversal_and_noncanonical_forms(hermes_home, pending_id):
+def test_pending_ids_reject_traversal_and_noncanonical_forms(fabric_home, pending_id):
     from tools import write_approval as wa
 
-    victim = os.path.join(hermes_home, "victim.json")
+    victim = os.path.join(fabric_home, "victim.json")
     with open(victim, "w", encoding="utf-8") as handle:
         handle.write("do not delete")
 
@@ -2046,12 +2042,12 @@ def test_pending_ids_reject_traversal_and_noncanonical_forms(hermes_home, pendin
     assert open(victim, encoding="utf-8").read() == "do not delete"
 
 
-def test_pending_crud_rejects_symlink_record_and_redirected_store(hermes_home):
+def test_pending_crud_rejects_symlink_record_and_redirected_store(fabric_home):
     from tools import write_approval as wa
 
-    pending = os.path.join(hermes_home, "pending", "skills")
+    pending = os.path.join(fabric_home, "pending", "skills")
     os.makedirs(pending)
-    victim = os.path.join(hermes_home, "victim.json")
+    victim = os.path.join(fabric_home, "victim.json")
     with open(victim, "w", encoding="utf-8") as handle:
         json.dump({"id": "deadbeef", "subsystem": "skills"}, handle)
     os.symlink(victim, os.path.join(pending, "deadbeef.json"))
@@ -2062,7 +2058,7 @@ def test_pending_crud_rejects_symlink_record_and_redirected_store(hermes_home):
 
     os.unlink(os.path.join(pending, "deadbeef.json"))
     os.rmdir(pending)
-    outside = os.path.join(hermes_home, "outside")
+    outside = os.path.join(fabric_home, "outside")
     os.mkdir(outside)
     os.symlink(outside, pending)
     staged = wa.stage_write(
@@ -2075,7 +2071,7 @@ def test_pending_crud_rejects_symlink_record_and_redirected_store(hermes_home):
     assert os.listdir(outside) == []
 
 
-def test_pending_store_rejects_unknown_subsystem(hermes_home):
+def test_pending_store_rejects_unknown_subsystem(fabric_home):
     from tools import write_approval as wa
 
     with pytest.raises(ValueError, match="Unsupported pending subsystem"):
@@ -2086,14 +2082,14 @@ def test_pending_store_rejects_unknown_subsystem(hermes_home):
 # Shared command handler
 # ---------------------------------------------------------------------------
 
-def test_handle_pending_list_empty(hermes_home):
+def test_handle_pending_list_empty(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     out = handle_pending_subcommand(wa.MEMORY, ["pending"])
     assert "No pending memory" in out
 
 
-def test_handle_approve_all(hermes_home):
+def test_handle_approve_all(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools.memory_tool import MemoryStore
     from tools import write_approval as wa
@@ -2108,7 +2104,7 @@ def test_handle_approve_all(hermes_home):
     assert len(store.user_entries) == 2
 
 
-def test_handle_reject(hermes_home):
+def test_handle_reject(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     rec = wa.stage_write("skills", {"action": "create", "name": "s"},
@@ -2118,7 +2114,7 @@ def test_handle_reject(hermes_home):
     assert wa.pending_count("skills") == 0
 
 
-def test_pending_commands_reject_path_like_ids_without_touching_files(hermes_home):
+def test_pending_commands_reject_path_like_ids_without_touching_files(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
 
@@ -2129,7 +2125,7 @@ def test_pending_commands_reject_path_like_ids_without_touching_files(hermes_hom
         assert "Invalid pending" in out
 
 
-def test_handle_approval_on(hermes_home):
+def test_handle_approval_on(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     captured = {}
@@ -2141,7 +2137,7 @@ def test_handle_approval_on(hermes_home):
     assert "on" in out
 
 
-def test_handle_approval_off(hermes_home):
+def test_handle_approval_off(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     captured = {}
@@ -2153,7 +2149,7 @@ def test_handle_approval_off(hermes_home):
     assert "off" in out
 
 
-def test_handle_mode_alias_still_works(hermes_home):
+def test_handle_mode_alias_still_works(fabric_home):
     # 'mode' is kept as a back-compat alias for 'approval'.
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
@@ -2166,7 +2162,7 @@ def test_handle_mode_alias_still_works(hermes_home):
     assert "on" in out
 
 
-def test_handle_approval_invalid(hermes_home):
+def test_handle_approval_invalid(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     out = handle_pending_subcommand(wa.MEMORY, ["approval", "bogus"],
@@ -2174,7 +2170,7 @@ def test_handle_approval_invalid(hermes_home):
     assert "Invalid value" in out
 
 
-def test_handle_unknown_subcommand_returns_none(hermes_home):
+def test_handle_unknown_subcommand_returns_none(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     # An unrecognized /skills subcommand (e.g. 'search') must return None so
@@ -2196,7 +2192,7 @@ def approval_callback_cleanup():
     set_approval_callback(None)
 
 
-def test_memory_inline_approve_writes(hermes_home, approval_callback_cleanup):
+def test_memory_inline_approve_writes(fabric_home, approval_callback_cleanup):
     from tools.memory_tool import memory_tool, MemoryStore
     from tools.terminal_tool import set_approval_callback
     from tools import write_approval as wa
@@ -2219,7 +2215,7 @@ def test_memory_inline_approve_writes(hermes_home, approval_callback_cleanup):
     assert "approved fact" in calls[0][0]
 
 
-def test_memory_inline_deny_blocks(hermes_home, approval_callback_cleanup):
+def test_memory_inline_deny_blocks(fabric_home, approval_callback_cleanup):
     from tools.memory_tool import memory_tool, MemoryStore
     from tools.terminal_tool import set_approval_callback
     from tools import write_approval as wa
@@ -2234,7 +2230,7 @@ def test_memory_inline_deny_blocks(hermes_home, approval_callback_cleanup):
     assert wa.pending_count("memory") == 0  # denied, not staged
 
 
-def test_memory_inline_callback_error_stages(hermes_home, approval_callback_cleanup):
+def test_memory_inline_callback_error_stages(fabric_home, approval_callback_cleanup):
     # If the prompt machinery fails, fall back to staging — never drop silently.
     from tools.memory_tool import memory_tool, MemoryStore
     from tools.terminal_tool import set_approval_callback
@@ -2250,7 +2246,7 @@ def test_memory_inline_callback_error_stages(hermes_home, approval_callback_clea
     assert wa.pending_count("memory") == 1
 
 
-def test_gateway_context_stages_not_prompts(hermes_home, monkeypatch):
+def test_gateway_context_stages_not_prompts(fabric_home, monkeypatch):
     # A gateway session has no per-thread CLI callback; the dangerous-command
     # /approve round-trip lives in the pending-queue machinery which the gate
     # does not use. The gate must stage, never attempt an inline prompt
@@ -2258,8 +2254,6 @@ def test_gateway_context_stages_not_prompts(hermes_home, monkeypatch):
     from tools.memory_tool import memory_tool, MemoryStore
     from tools import write_approval as wa
     _set_approval("memory", True)
-    monkeypatch.setenv("HERMES_GATEWAY_SESSION", "1")
-
     store = MemoryStore(); store.load_from_disk()
     r = json.loads(memory_tool("add", "memory", "gateway fact", store=store))
     assert r.get("staged") is True
@@ -2267,7 +2261,7 @@ def test_gateway_context_stages_not_prompts(hermes_home, monkeypatch):
     assert wa.pending_count("memory") == 1
 
 
-def test_skills_never_prompt_inline_even_with_callback(hermes_home, approval_callback_cleanup):
+def test_skills_never_prompt_inline_even_with_callback(fabric_home, approval_callback_cleanup):
     # Skills always stage — even when an interactive callback is registered.
     from tools.skill_manager_tool import skill_manage
     from tools.terminal_tool import set_approval_callback
@@ -2285,7 +2279,7 @@ def test_skills_never_prompt_inline_even_with_callback(hermes_home, approval_cal
     assert wa.pending_count("skills") == 1
 
 
-def test_memory_invalid_params_rejected_before_staging(hermes_home):
+def test_memory_invalid_params_rejected_before_staging(fabric_home):
     # Param validation must run BEFORE the gate so a broken write is rejected
     # immediately instead of staged and failing at approve time.
     from tools.memory_tool import memory_tool, MemoryStore
@@ -2298,7 +2292,7 @@ def test_memory_invalid_params_rejected_before_staging(hermes_home):
 
 
 def test_skills_rollback_slash_requires_exact_id_and_preserves_stale_guard(
-    hermes_home
+    fabric_home
 ):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
@@ -2326,7 +2320,7 @@ def test_skills_rollback_slash_requires_exact_id_and_preserves_stale_guard(
     assert "active skill bytes changed" in stale.lower()
 
 
-def test_skills_rollback_slash_restores_latest_eligible_transaction(hermes_home):
+def test_skills_rollback_slash_restores_latest_eligible_transaction(fabric_home):
     from fabric_cli.write_approval_commands import handle_pending_subcommand
     from tools import write_approval as wa
     import tools.skill_manager_tool as smt

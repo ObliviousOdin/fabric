@@ -1,5 +1,5 @@
 import { sessionTitle } from '@/lib/chat-runtime'
-import type { SessionInfo } from '@/types/hermes'
+import type { SessionInfo } from '@/types/fabric'
 
 export type PetOverlaySessionStatus = 'active' | 'attention' | 'idle' | 'working'
 

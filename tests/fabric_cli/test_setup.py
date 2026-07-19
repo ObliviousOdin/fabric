@@ -58,7 +58,7 @@ def test_first_time_setup_is_fabric_branded_and_offers_gpt_or_grok(
     tmp_path, monkeypatch, capsys
 ):
     """The default setup front door must not advertise upstream Nous services."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     monkeypatch.setattr(setup_mod, "is_interactive_stdin", lambda: True)
     monkeypatch.setattr("fabric_cli.auth.get_active_provider", lambda: None)
@@ -87,7 +87,6 @@ def test_first_time_setup_is_fabric_branded_and_offers_gpt_or_grok(
     assert captured["question"] == "How would you like to set up Fabric?"
     assert any("ChatGPT, Grok, or both" in choice for choice in captured["choices"])
     assert captured["default"] == 0
-    assert "Hermes" not in rendered
     assert "Nous" not in rendered
     assert "⚕" not in rendered
     assert "nousresearch" not in rendered.lower()
@@ -98,9 +97,7 @@ def test_completed_default_guided_setup_transcript_is_customer_clean(
     tmp_path, monkeypatch, capsys
 ):
     """Exercise the complete default wizard, not just its opening picker."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     monkeypatch.setattr("fabric_cli.config.is_managed", lambda: False)
     monkeypatch.setattr(setup_mod, "is_interactive_stdin", lambda: True)
@@ -131,7 +128,6 @@ def test_completed_default_guided_setup_transcript_is_customer_clean(
     rendered = capsys.readouterr().out
     assert "Tool Availability Summary" in rendered
     assert "Fabric Setup Wizard" in rendered
-    assert "Hermes" not in rendered
     assert "Nous" not in rendered
     assert "⚕" not in rendered
     assert "nousresearch" not in rendered.lower()
@@ -143,7 +139,7 @@ def test_guided_setup_connects_chatgpt_then_grok_as_fallback(
     tmp_path, monkeypatch
 ):
     """Both subscription logins run once and preserve the chosen primary."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     config = load_config()
     calls = []
     active = []
@@ -209,7 +205,7 @@ def test_guided_setup_can_make_grok_primary_and_chatgpt_fallback(
     tmp_path, monkeypatch
 ):
     """Primary selection controls sign-in order and the persisted route order."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     config = load_config()
     calls = []
 
@@ -254,7 +250,7 @@ def test_full_setup_defers_gateway_service_until_after_tools(
     tmp_path, monkeypatch
 ):
     """Platforms are known to tools, but service restart happens afterward."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     monkeypatch.setattr(setup_mod, "is_interactive_stdin", lambda: True)
     monkeypatch.setattr("fabric_cli.auth.get_active_provider", lambda: None)
@@ -338,16 +334,17 @@ def test_quick_setup_tool_labels_do_not_expose_upstream_branding(
     rendered = "\n".join(captured)
     assert "Nous" not in rendered
     assert "nousresearch" not in rendered.lower()
-    assert "Hermes" not in rendered
 
 
-def test_setup_portal_namespace_is_blocked_when_legacy_provider_is_hidden(
+def test_setup_portal_namespace_is_blocked_when_provider_is_hidden(
     tmp_path, monkeypatch, capsys
 ):
     """A direct Namespace cannot bypass the parser-level capability gate."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
     monkeypatch.setattr("fabric_cli.config.is_managed", lambda: False)
     monkeypatch.setattr(setup_mod, "is_interactive_stdin", lambda: True)
 
@@ -357,33 +354,43 @@ def test_setup_portal_namespace_is_blocked_when_legacy_provider_is_hidden(
     setup_mod.run_setup_wizard(SimpleNamespace(portal=True))
 
     assert calls == []
-    assert "Legacy Portal setup is not enabled" in capsys.readouterr().out
+    assert "Nous Portal setup is not enabled" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(
-    "env_name,env_value",
+    "capabilities",
     [
-        ("FABRIC_MODEL_PROVIDERS", "nous"),
-        ("FABRIC_CAPABILITY_CATALOG", "0"),
+        {"model_providers": ["nous"]},
+        {"enabled": False},
     ],
 )
-def test_setup_portal_namespace_dispatches_under_explicit_legacy_opt_in(
-    tmp_path, monkeypatch, env_name, env_value
+def test_setup_portal_namespace_dispatches_under_explicit_nous_opt_in(
+    tmp_path, monkeypatch, capabilities
 ):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv(env_name, env_value)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: capabilities,
+    )
     monkeypatch.setattr("fabric_cli.config.is_managed", lambda: False)
     monkeypatch.setattr(setup_mod, "is_interactive_stdin", lambda: True)
 
     calls = []
-    monkeypatch.setattr(setup_mod, "_run_portal_one_shot", calls.append)
 
-    setup_mod.run_setup_wizard(SimpleNamespace(portal=True))
+    def _capture_portal(config, *, args=None):
+        calls.append((config, args))
+
+    monkeypatch.setattr(setup_mod, "_run_portal_one_shot", _capture_portal)
+
+    args = SimpleNamespace(
+        portal=True,
+        client_id="registered-nous-client",
+    )
+    setup_mod.run_setup_wizard(args)
 
     assert len(calls) == 1
-    assert isinstance(calls[0], dict)
+    assert isinstance(calls[0][0], dict)
+    assert calls[0][1] is args
 
 
 def test_webhook_setup_points_to_fabric_docs(monkeypatch, capsys):
@@ -401,7 +408,7 @@ def test_webhook_setup_points_to_fabric_docs(monkeypatch, capsys):
 
 def test_setup_delegates_to_select_provider_and_model(tmp_path, monkeypatch):
     """setup_model_provider calls select_provider_and_model and syncs config."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     _stub_tts(monkeypatch)
 
@@ -425,7 +432,7 @@ def test_setup_delegates_to_select_provider_and_model(tmp_path, monkeypatch):
 def test_setup_syncs_openrouter_from_disk(tmp_path, monkeypatch):
     """When select_provider_and_model saves OpenRouter config to disk,
     the wizard's config dict picks it up."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     _stub_tts(monkeypatch)
 
@@ -447,7 +454,7 @@ def test_setup_syncs_openrouter_from_disk(tmp_path, monkeypatch):
 
 def test_setup_syncs_nous_from_disk(tmp_path, monkeypatch):
     """Nous OAuth writes config to disk; wizard config dict must pick it up."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     _stub_tts(monkeypatch)
 
@@ -469,7 +476,7 @@ def test_setup_syncs_nous_from_disk(tmp_path, monkeypatch):
 
 def test_setup_custom_providers_synced(tmp_path, monkeypatch):
     """custom_providers written by select_provider_and_model must survive."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     _stub_tts(monkeypatch)
 
@@ -611,7 +618,7 @@ def test_setup_gateway_in_container_shows_docker_guidance(monkeypatch, capsys):
 
 def test_setup_syncs_custom_provider_removal_from_disk(tmp_path, monkeypatch):
     """Removing the last custom provider in model setup should persist."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     _stub_tts(monkeypatch)
 
@@ -636,7 +643,7 @@ def test_setup_syncs_custom_provider_removal_from_disk(tmp_path, monkeypatch):
 
 def test_setup_cancel_preserves_existing_config(tmp_path, monkeypatch):
     """When the user cancels provider selection, existing config is preserved."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     _stub_tts(monkeypatch)
 
@@ -662,7 +669,7 @@ def test_setup_cancel_preserves_existing_config(tmp_path, monkeypatch):
 
 def test_setup_exception_in_select_gracefully_handled(tmp_path, monkeypatch):
     """If select_provider_and_model raises, setup continues with existing config."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     _stub_tts(monkeypatch)
 
@@ -679,7 +686,7 @@ def test_setup_exception_in_select_gracefully_handled(tmp_path, monkeypatch):
 
 def test_setup_keyboard_interrupt_gracefully_handled(tmp_path, monkeypatch):
     """KeyboardInterrupt during provider selection is handled."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
     _stub_tts(monkeypatch)
 
@@ -697,7 +704,7 @@ def test_select_provider_and_model_warns_if_named_custom_provider_disappears(
     tmp_path, monkeypatch, capsys
 ):
     """If a saved custom provider is deleted mid-selection, show a warning instead of silently doing nothing."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
 
     cfg = load_config()
@@ -728,7 +735,7 @@ def test_select_provider_and_model_warns_if_named_custom_provider_disappears(
 def test_select_provider_and_model_accepts_named_provider_from_providers_section(
     tmp_path, monkeypatch, capsys
 ):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     _clear_provider_env(monkeypatch)
 
     cfg = load_config()
@@ -760,19 +767,21 @@ def test_select_provider_and_model_accepts_named_provider_from_providers_section
     assert "Active provider:  volcengine-plan" in out
 
 
-def test_select_provider_and_model_neutralizes_hidden_legacy_active_provider(
+def test_select_provider_and_model_neutralizes_hidden_opt_in_active_provider(
     tmp_path, monkeypatch, capsys
 ):
-    """An existing legacy config must not leak its provider/model into setup."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    """A hidden opt-in config must not leak its provider/model into setup."""
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
     _clear_provider_env(monkeypatch)
 
     cfg = load_config()
     cfg["model"] = {
         "provider": "nous",
-        "default": "hermes-legacy-model",
+        "default": "stale-test-model",
     }
     save_config(cfg)
     captured_picker = {}
@@ -792,7 +801,7 @@ def test_select_provider_and_model_neutralizes_hidden_legacy_active_provider(
     assert "Configured provider (not in Fabric catalog)" in out
     assert "configured model hidden" in out
     assert "Nous" not in out
-    assert "hermes-legacy-model" not in out
+    assert "stale-test-model" not in out
     assert captured_picker["choices"][-1] == "Leave unchanged"
     assert captured_picker["default"] == len(captured_picker["choices"]) - 1
     assert load_config()["model"]["provider"] == "nous"
@@ -801,15 +810,14 @@ def test_select_provider_and_model_neutralizes_hidden_legacy_active_provider(
 def test_select_provider_and_model_restores_legacy_active_provider_with_opt_in(
     tmp_path, monkeypatch, capsys
 ):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "nous".split(",")})
     _clear_provider_env(monkeypatch)
 
     cfg = load_config()
     cfg["model"] = {
         "provider": "nous",
-        "default": "hermes-legacy-model",
+        "default": "stale-test-model",
     }
     save_config(cfg)
     monkeypatch.setattr(
@@ -823,12 +831,12 @@ def test_select_provider_and_model_restores_legacy_active_provider_with_opt_in(
     out = capsys.readouterr().out
 
     assert "Active provider:  Nous Portal" in out
-    assert "Current model:    hermes-legacy-model" in out
+    assert "Current model:    stale-test-model" in out
 
 
 def test_codex_setup_uses_runtime_access_token_for_live_model_list(tmp_path, monkeypatch):
     """Codex model list fetching uses the runtime access token."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test-key")
     _clear_provider_env(monkeypatch)
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-test-key")
@@ -851,7 +859,7 @@ def test_codex_setup_uses_runtime_access_token_for_live_model_list(tmp_path, mon
 
 def test_modal_setup_can_use_nous_subscription_without_modal_creds(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("fabric_cli.setup.managed_nous_tools_enabled", lambda: True)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     config = load_config()
 
     def fake_prompt_choice(question, choices, default=0):
@@ -893,7 +901,7 @@ def test_modal_setup_can_use_nous_subscription_without_modal_creds(tmp_path, mon
 
 def test_modal_setup_persists_direct_mode_when_user_chooses_their_own_account(tmp_path, monkeypatch):
     monkeypatch.setattr("fabric_cli.setup.managed_nous_tools_enabled", lambda: True)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.delenv("MODAL_TOKEN_ID", raising=False)
     monkeypatch.delenv("MODAL_TOKEN_SECRET", raising=False)
     config = load_config()
@@ -935,10 +943,12 @@ def test_modal_setup_persists_direct_mode_when_user_chooses_their_own_account(tm
 def test_modal_setup_hides_nous_billing_when_catalog_is_not_opted_in(
     tmp_path, monkeypatch, capsys
 ):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
     monkeypatch.setattr("fabric_cli.setup.managed_nous_tools_enabled", lambda: True)
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path))
     monkeypatch.setenv("MODAL_TOKEN_ID", "token-id")
     monkeypatch.setenv("MODAL_TOKEN_SECRET", "token-secret")
     config = load_config()
@@ -977,28 +987,12 @@ def test_modal_setup_hides_nous_billing_when_catalog_is_not_opted_in(
 # _setup_slack wizard migrated to the slack plugin's interactive_setup (#41112).
 
 
-def test_prompt_yes_no_returns_default_when_noninteractive_env_set(monkeypatch):
-    """HERMES_NONINTERACTIVE=1 (set by dashboard/desktop spawns) must make
-    prompt_yes_no fall back to its default instead of reading stdin."""
-    monkeypatch.setenv("HERMES_NONINTERACTIVE", "1")
-
-    def _boom(*_a, **_k):
-        raise AssertionError("input() must not be called in non-interactive mode")
-
-    monkeypatch.setattr("builtins.input", _boom)
-
-    assert setup_mod.prompt_yes_no("Install it now?", True) is True
-    assert setup_mod.prompt_yes_no("Install it now?", False) is False
-
-
 def test_prompt_yes_no_eof_returns_default_instead_of_exiting(monkeypatch):
     """A closed/redirected stdin (EOFError) must yield the default, not abort.
 
     Regression: the Windows gateway start path asks "Install it now?" when the
     service is not installed; spawned from the desktop app (stdin=DEVNULL) the
     EOFError used to sys.exit(1), killing every desktop-triggered restart."""
-    monkeypatch.delenv("HERMES_NONINTERACTIVE", raising=False)
-
     def _eof(*_a, **_k):
         raise EOFError
 
@@ -1010,8 +1004,6 @@ def test_prompt_yes_no_eof_returns_default_instead_of_exiting(monkeypatch):
 
 def test_prompt_yes_no_keyboard_interrupt_still_exits(monkeypatch):
     """Ctrl+C is an explicit user abort and must keep exiting."""
-    monkeypatch.delenv("HERMES_NONINTERACTIVE", raising=False)
-
     def _interrupt(*_a, **_k):
         raise KeyboardInterrupt
 

@@ -1,8 +1,4 @@
-"""CLI handlers for ``fabric migrate ...``.
-
-Includes model-setting migrations and the safe legacy-home migration from
-``~/.hermes`` to ``~/.fabric``.
-"""
+"""CLI handlers for explicit third-party model retirement migrations."""
 from __future__ import annotations
 
 import sys
@@ -18,63 +14,8 @@ def cmd_migrate(args: Any) -> int:
     sub = getattr(args, "migrate_type", None)
     if sub == "xai":
         return cmd_migrate_xai(args)
-    if sub == "home":
-        return cmd_migrate_home(args)
-
-    print("usage: fabric migrate {home|xai} [options]", file=sys.stderr)
+    print("usage: fabric migrate xai [options]", file=sys.stderr)
     return 2
-
-
-def cmd_migrate_home(args: Any) -> int:
-    """Preview or apply a verified ``~/.hermes`` → ``~/.fabric`` migration."""
-    from fabric_cli.home_migrate import (
-        HomeMigrationError,
-        default_fabric_home,
-        default_legacy_home,
-        format_plan,
-        migrate_home,
-        result_json,
-    )
-
-    source = Path(getattr(args, "source", "") or default_legacy_home()).expanduser()
-    target = Path(getattr(args, "target", "") or default_fabric_home()).expanduser()
-    apply = bool(getattr(args, "apply", False))
-    include_old_engine = bool(getattr(args, "include_old_engine", False))
-    merge_existing = bool(getattr(args, "merge_existing", False))
-
-    print(format_plan(source, target, include_old_engine=include_old_engine))
-    if not apply:
-        print()
-        print("Dry-run only — no files changed.")
-        target_seeded = target.is_dir() and any(target.iterdir())
-        merge_flag = " --merge-existing" if target_seeded else ""
-        print(
-            "Stop the existing gateway, then run "
-            f"`fabric migrate home --apply{merge_flag}`."
-        )
-        return 0
-
-    try:
-        result = migrate_home(
-            source,
-            target,
-            archive_source=not bool(getattr(args, "keep_source", False)),
-            include_old_engine=include_old_engine,
-            allow_running=bool(getattr(args, "allow_running", False)),
-            merge_existing=merge_existing,
-        )
-    except HomeMigrationError as exc:
-        print(f"Fabric home migration refused: {exc}", file=sys.stderr)
-        return 1
-    except Exception as exc:
-        print(f"Fabric home migration failed: {exc}", file=sys.stderr)
-        return 1
-
-    print()
-    print("✓ Fabric home migration complete")
-    print(result_json(result))
-    print("Next: run `fabric doctor --fix`, then `fabric gateway install`.")
-    return 0
 
 
 def cmd_migrate_xai(args: Any) -> int:

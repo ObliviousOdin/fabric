@@ -1,13 +1,12 @@
 """Tests for gateway restart-loop defenses (#30719).
 
 Covers:
-- Defense 1: gateway stop/restart refuse when _HERMES_GATEWAY=1
+- Defense 1: gateway stop/restart refuse inside the gateway process
 - Defense 2: cron create rejects prompts containing gateway lifecycle commands
 - _contains_gateway_lifecycle_command pattern matching
 """
 
 import json
-import os
 from argparse import Namespace
 
 import pytest
@@ -28,11 +27,10 @@ class TestGatewayLifecyclePattern:
     @pytest.mark.parametrize("text", [
         "fabric gateway restart",
         "fabric gateway stop",
-        "hermes  gateway  restart",         # double spaces
-        "Hermez Gateway Restart".lower().replace("z", "s"),  # case handled
-        "HERMES GATEWAY RESTART",           # uppercase
+        "fabric  gateway  restart",         # double spaces
+        "FABRIC GATEWAY RESTART",           # uppercase
     ])
-    def test_hermes_gateway_commands(self, text):
+    def test_fabric_gateway_commands(self, text):
         assert _contains_gateway_lifecycle_command(text), f"Should match: {text!r}"
 
     @pytest.mark.parametrize("text", [
@@ -48,8 +46,8 @@ class TestGatewayLifecyclePattern:
 
     @pytest.mark.parametrize("text", [
         "kill fabric gateway process",
-        "pkill -f hermes.*gateway",
-        "pkill -f gateway.*hermes",          # inverse token order
+        "pkill -f fabric.*gateway",
+        "pkill -f gateway.*fabric",          # inverse token order
     ])
     def test_kill_commands(self, text):
         assert _contains_gateway_lifecycle_command(text), f"Should match: {text!r}"
@@ -58,7 +56,7 @@ class TestGatewayLifecyclePattern:
         "restart the server application",
         "fabric cron list",
         "fabric update",
-        "hermes config set model claude",
+        "fabric config set model claude",
         "echo 'just a normal cron job'",
         "run the backup script",
         "gateway is running fine",
@@ -68,13 +66,13 @@ class TestGatewayLifecyclePattern:
         # foot-gun (#30719 lists only those).
         "fabric gateway start",
         "fabric gateway start --all",
-        # Tightened launchctl/systemctl branches: ops on NON-gateway hermes
-        # services must not be falsely blocked (the old `.*hermes` matched any
-        # hermes token).
-        "launchctl unload ai.hermes.update-checker.plist",
-        "launchctl restart ai.hermes.daemon",
-        "systemctl restart hermes-meta.service",
-        "systemctl restart hermes-cron-helper",
+        # Tightened launchctl/systemctl branches: ops on NON-gateway fabric
+        # services must not be falsely blocked (the old `.*fabric` matched any
+        # fabric token).
+        "launchctl unload ai.fabric.update-checker.plist",
+        "launchctl restart ai.fabric.daemon",
+        "systemctl restart fabric-meta.service",
+        "systemctl restart fabric-cron-helper",
         # Regression (#30728 follow-up): legit prompts that merely mention an
         # unrelated gateway + a restart must NOT be blocked. The cron prompt is
         # fed to an LLM, not a shell, so substring detection on English text is
@@ -98,11 +96,11 @@ class TestCronCreateLifecycleBlock:
         monkeypatch.setattr("cron.jobs.JOBS_FILE", tmp_path / "cron" / "jobs.json")
         monkeypatch.setattr("cron.jobs.OUTPUT_DIR", tmp_path / "cron" / "output")
 
-    def test_block_hermes_gateway_restart(self, capsys):
+    def test_block_fabric_gateway_restart(self, capsys):
         args = Namespace(
             cron_command="create",
             schedule="30m",
-            prompt="Upgrade hermes then run fabric gateway restart",
+            prompt="Upgrade fabric then run fabric gateway restart",
             name=None,
             deliver=None,
             repeat=None,
@@ -141,10 +139,10 @@ class TestCronCreateLifecycleBlock:
 
     def test_block_script_with_lifecycle_command(self, tmp_path, capsys, monkeypatch):
         # A no_agent job whose script IS the job (the issue's real abuse path:
-        # restart_hermes_gateway_once.sh). The script must live under
-        # HERMES_HOME/scripts so the scheduler — and the guard — resolve it.
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        scripts_dir = tmp_path / ".hermes" / "scripts"
+        # restart_fabric_gateway_once.sh). The script must live under
+        # FABRIC_HOME/scripts so the scheduler — and the guard — resolve it.
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
+        scripts_dir = tmp_path / ".fabric" / "scripts"
         scripts_dir.mkdir(parents=True)
         (scripts_dir / "restart.sh").write_text("#!/bin/bash\nfabric gateway restart\n")
         args = Namespace(
@@ -217,10 +215,21 @@ class TestCronCreateLifecycleBlock:
 # ---------------------------------------------------------------------------
 
 class TestGatewaySelfTargetingGuard:
-    """Verify fabric gateway stop/restart refuse when _HERMES_GATEWAY=1."""
+    """Verify fabric gateway stop/restart refuse inside the gateway process."""
+
+    @staticmethod
+    def _set_process_surface(monkeypatch, *, gateway: bool) -> None:
+        from fabric_cli import process_context
+
+        surface = (
+            process_context.ProcessSurface.GATEWAY
+            if gateway
+            else process_context.ProcessSurface.COMMAND
+        )
+        monkeypatch.setattr(process_context, "_PROCESS_SURFACE", surface)
 
     def test_stop_refuses_inside_gateway(self, monkeypatch):
-        monkeypatch.setenv("_HERMES_GATEWAY", "1")
+        self._set_process_surface(monkeypatch, gateway=True)
         from fabric_cli.gateway import gateway_command
         args = Namespace(gateway_command="stop", all=False, system=False)
         with pytest.raises(SystemExit) as exc_info:
@@ -228,7 +237,7 @@ class TestGatewaySelfTargetingGuard:
         assert exc_info.value.code == 1
 
     def test_restart_refuses_inside_gateway(self, monkeypatch):
-        monkeypatch.setenv("_HERMES_GATEWAY", "1")
+        self._set_process_surface(monkeypatch, gateway=True)
         from fabric_cli.gateway import gateway_command
         args = Namespace(gateway_command="restart", all=False, system=False)
         with pytest.raises(SystemExit) as exc_info:
@@ -236,11 +245,11 @@ class TestGatewaySelfTargetingGuard:
         assert exc_info.value.code == 1
 
     def test_stop_allows_outside_gateway(self, monkeypatch):
-        # With the gateway marker unset, the self-targeting guard must NOT
+        # Outside the gateway process, the self-targeting guard must NOT
         # fire. Prove control reaches the real stop path (rather than driving
         # real signal delivery, which would trip the live-system guard) by
         # short-circuiting the first downstream call with a sentinel.
-        monkeypatch.delenv("_HERMES_GATEWAY", raising=False)
+        self._set_process_surface(monkeypatch, gateway=False)
         import fabric_cli.gateway as gw
 
         class _Reached(Exception):
@@ -256,10 +265,9 @@ class TestGatewaySelfTargetingGuard:
             gw.gateway_command(args)
 
     def test_restart_allows_outside_gateway(self, monkeypatch):
-        # Same as above for restart: guard must not fire when the marker is
-        # unset. The first thing restart does after the guard is the s6
+        # Same as above for restart: the first thing after the guard is the s6
         # dispatch check — sentinel it so we never reach real signal delivery.
-        monkeypatch.delenv("_HERMES_GATEWAY", raising=False)
+        self._set_process_surface(monkeypatch, gateway=False)
         import fabric_cli.gateway as gw
 
         class _Reached(Exception):
@@ -280,7 +288,7 @@ class TestGatewaySelfTargetingGuard:
 # ---------------------------------------------------------------------------
 
 class TestTerminalToolGatewayLifecycleGuard:
-    """terminal_tool must refuse gateway lifecycle commands when _HERMES_GATEWAY=1.
+    """terminal_tool must refuse lifecycle commands inside the gateway.
 
     Issue #37453: systemctl --user restart fabric-gateway runs as a child of the
     gateway process.  When systemd delivers SIGTERM the gateway kills its own
@@ -298,17 +306,21 @@ class TestTerminalToolGatewayLifecycleGuard:
     def _minimal_config(self):
         return {"env_type": "local", "cwd": "/tmp", "timeout": 60, "lifetime_seconds": 3600}
 
-    def _patch_env(self, monkeypatch, fake_env, *, inside_gateway: bool):
+    def _patch_context(self, monkeypatch, fake_env, *, inside_gateway: bool):
         import tools.terminal_tool as tt
+        from fabric_cli import process_context
+
         eid = "default"
         monkeypatch.setattr(tt, "_active_environments", {eid: fake_env})
         monkeypatch.setattr(tt, "_last_activity", {eid: 0.0})
         monkeypatch.setattr(tt, "_task_env_overrides", {})
         monkeypatch.setattr(tt, "_get_env_config", self._minimal_config)
-        if inside_gateway:
-            monkeypatch.setenv("_HERMES_GATEWAY", "1")
-        else:
-            monkeypatch.delenv("_HERMES_GATEWAY", raising=False)
+        surface = (
+            process_context.ProcessSurface.GATEWAY
+            if inside_gateway
+            else process_context.ProcessSurface.COMMAND
+        )
+        monkeypatch.setattr(process_context, "_PROCESS_SURFACE", surface)
 
     @pytest.mark.parametrize("cmd", [
         "systemctl restart fabric-gateway",
@@ -316,11 +328,11 @@ class TestTerminalToolGatewayLifecycleGuard:
         "systemctl stop fabric-gateway.service",
         "fabric gateway restart",
         "launchctl kickstart gui/501/ai.fabric.gateway",
-        "pkill -f hermes.*gateway",
+        "pkill -f fabric.*gateway",
     ])
     def test_blocks_lifecycle_commands_inside_gateway(self, monkeypatch, cmd):
         import tools.terminal_tool as tt
-        self._patch_env(monkeypatch, self._make_fake_env(), inside_gateway=True)
+        self._patch_context(monkeypatch, self._make_fake_env(), inside_gateway=True)
 
         result = json.loads(tt.terminal_tool(command=cmd))
 
@@ -329,7 +341,7 @@ class TestTerminalToolGatewayLifecycleGuard:
 
     def test_force_true_cannot_bypass_block(self, monkeypatch):
         import tools.terminal_tool as tt
-        self._patch_env(monkeypatch, self._make_fake_env(), inside_gateway=True)
+        self._patch_context(monkeypatch, self._make_fake_env(), inside_gateway=True)
 
         result = json.loads(tt.terminal_tool(
             command="systemctl restart fabric-gateway", force=True
@@ -339,7 +351,7 @@ class TestTerminalToolGatewayLifecycleGuard:
         assert "Blocked" in result["error"]
 
     def test_safe_systemctl_commands_pass_through(self, monkeypatch):
-        """Non-hermes systemctl commands must not be blocked by this guard."""
+        """Non-fabric systemctl commands must not be blocked by this guard."""
         import tools.terminal_tool as tt
 
         calls = []
@@ -350,7 +362,7 @@ class TestTerminalToolGatewayLifecycleGuard:
                 calls.append(command)
                 return {"output": "Active: running", "returncode": 0}
 
-        self._patch_env(monkeypatch, _FakeEnv(), inside_gateway=True)
+        self._patch_context(monkeypatch, _FakeEnv(), inside_gateway=True)
         monkeypatch.setattr(tt, "_check_all_guards", lambda cmd, env, **kwargs: {"approved": True})
 
         result = json.loads(tt.terminal_tool(command="systemctl status nginx"))
@@ -359,7 +371,7 @@ class TestTerminalToolGatewayLifecycleGuard:
         assert calls == ["systemctl status nginx"]
 
     def test_guard_inactive_outside_gateway(self, monkeypatch):
-        """Without _HERMES_GATEWAY=1 the lifecycle guard must not fire."""
+        """Outside the gateway process the lifecycle guard must not fire."""
         import tools.terminal_tool as tt
 
         calls = []
@@ -370,7 +382,7 @@ class TestTerminalToolGatewayLifecycleGuard:
                 calls.append(command)
                 return {"output": "restarting...", "returncode": 0}
 
-        self._patch_env(monkeypatch, _FakeEnv(), inside_gateway=False)
+        self._patch_context(monkeypatch, _FakeEnv(), inside_gateway=False)
         monkeypatch.setattr(tt, "_check_all_guards", lambda cmd, env, **kwargs: {"approved": True})
 
         result = json.loads(tt.terminal_tool(command="systemctl restart fabric-gateway"))
@@ -429,12 +441,12 @@ class TestLifecycleGuardModule:
         check_gateway_lifecycle("clean prompt", str(tmp_path / "nonexistent.sh"))
 
     def test_relative_script_resolved_under_scripts_dir(self, tmp_path, monkeypatch):
-        """A bare/relative script name resolves under HERMES_HOME/scripts (the
+        """A bare/relative script name resolves under FABRIC_HOME/scripts (the
         same place the scheduler runs it from) — otherwise the guard would read
         a nonexistent relative path and scan prompt-only content."""
         from cron.lifecycle_guard import GatewayLifecycleBlocked, check_gateway_lifecycle
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        scripts_dir = tmp_path / ".hermes" / "scripts"
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
+        scripts_dir = tmp_path / ".fabric" / "scripts"
         scripts_dir.mkdir(parents=True)
         (scripts_dir / "restart.sh").write_text(
             "launchctl kickstart -k gui/501/ai.fabric.gateway\n"
@@ -473,8 +485,8 @@ class TestCreateJobBlocksLifecycleCommands:
     def test_cronjob_tool_surfaces_block_as_error(self, tmp_path, monkeypatch):
         """End-to-end through the model tool: the block comes back as
         result['error'] with the #30719 hint, not an unhandled exception."""
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        (tmp_path / ".hermes").mkdir(parents=True)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
+        (tmp_path / ".fabric").mkdir(parents=True)
         from tools.cronjob_tools import cronjob
         result = json.loads(cronjob(
             action="create", schedule="0 9 * * *",
@@ -495,8 +507,8 @@ class TestRestartLoopGuard:
 
     @pytest.fixture(autouse=True)
     def _isolate_state(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-        (tmp_path / ".hermes").mkdir(parents=True)
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
+        (tmp_path / ".fabric").mkdir(parents=True)
         import gateway.restart_loop_guard as rlg
         rlg.clear()
 

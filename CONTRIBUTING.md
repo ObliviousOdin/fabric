@@ -32,7 +32,7 @@ A quick search before you build saves your time and keeps the PR queue clean —
 - **If an open PR already addresses it**, consider reviewing or improving that one instead of opening a competing duplicate.
 - **For larger work**, comment on the issue to signal you're working on it, so others don't start the same thing.
 
-Related: [issue #38284](https://github.com/NousResearch/hermes-agent/issues/38284) covers the agent-side analog — Fabric itself checking existing issues and PRs before deep self-troubleshooting. This section is the human-contributor complement.
+Fabric itself checks existing issues and PRs before deep self-troubleshooting. This section is the human-contributor complement.
 
 ---
 
@@ -73,7 +73,7 @@ If your skill is specialized, community-contributed, or niche, it's better suite
 
 Standalone memory plugins:
 
-- Implement the same `MemoryProvider` ABC (`agent/memory_provider.py`) — `sync_turn`, `prefetch`, `shutdown`, and optionally `post_setup(hermes_home, config)` for setup-wizard integration
+- Implement the same `MemoryProvider` ABC (`agent/memory_provider.py`) — `sync_turn`, `prefetch`, `shutdown`, and optionally `post_setup(fabric_home, config)` for setup-wizard integration
 - Use the same discovery system — `discover_memory_providers()` picks them up from user/project plugin directories and pip entry points
 - Integrate with `fabric memory setup` via `post_setup()` — no need to touch core code
 - Can register their own CLI subcommands via `register_cli(subparser)` in a `cli.py` file
@@ -235,7 +235,7 @@ pytest tests/ -v
 ```
 fabric-agent/
 ├── run_agent.py              # AIAgent class — core conversation loop, tool dispatch, session persistence
-├── cli.py                    # HermesCLI class — interactive TUI, prompt_toolkit integration
+├── cli.py                    # FabricCLI class — interactive TUI, prompt_toolkit integration
 ├── model_tools.py            # Tool orchestration (thin layer over tools/registry.py)
 ├── toolsets.py               # Tool groupings and platform presets (including legacy-named compatibility IDs)
 ├── fabric_state.py           # SQLite session database with FTS5 full-text search, session titles
@@ -320,7 +320,7 @@ fabric-agent/
 | `~/.fabric/state.db` | SQLite session database |
 | `~/.fabric/sessions/` | Gateway routing index (`sessions.json`), request-dump breadcrumbs, gateway `*.jsonl` transcripts, and (optionally) per-session JSON snapshots when `sessions.write_json_snapshots: true` is set. The per-session snapshots are off by default; state.db is canonical. |
 | `~/.fabric/cron/` | Scheduled job data |
-| `~/.fabric/whatsapp/session/` | WhatsApp bridge credentials |
+| `~/.fabric/platforms/whatsapp/session/` | WhatsApp bridge credentials |
 
 ---
 
@@ -419,7 +419,7 @@ imported by `discover_builtin_tools()` in `tools/registry.py` when `model_tools`
 loads. There is **no** manual import list in `model_tools.py` to maintain.
 
 You must still add the tool name to the appropriate list in `toolsets.py`
-(for example `_HERMES_CORE_TOOLS` or a dedicated toolset); otherwise the tool
+(for example `_FABRIC_CORE_TOOLS` or a dedicated toolset); otherwise the tool
 registers but is never exposed to the agent. If you introduce a new toolset,
 add it in `toolsets.py` and wire it into the relevant platform presets.
 
@@ -952,8 +952,6 @@ After the [litellm supply chain compromise](https://github.com/BerriAI/litellm/i
 # ❌ Rejected — too loose for pre-1.0 (allows 80 minor versions)
 "some-package>=0.20,<1"
 ```
-
-**Reference PRs:** [#2796](https://github.com/NousResearch/hermes-agent/pull/2796) (litellm removal), [#2810](https://github.com/NousResearch/hermes-agent/pull/2810) (upper bounds pass), [#9801](https://github.com/NousResearch/hermes-agent/pull/9801) (SHA pinning + supply-chain-audit CI).
 
 ---
 

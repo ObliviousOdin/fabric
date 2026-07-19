@@ -177,12 +177,12 @@ async def test_named_telegram_private_topic_is_created_before_delivery(tmp_path,
     monkeypatch.setattr("gateway.delivery.get_fabric_home", lambda: tmp_path)
     adapter = RecordingAdapter()
     router = DeliveryRouter(GatewayConfig(), adapters={Platform.TELEGRAM: adapter})
-    target = DeliveryTarget.parse("telegram:722341991:Hermes API Test")
+    target = DeliveryTarget.parse("telegram:722341991:API Test Topic")
 
     await router._deliver_to_platform(target, "hello", metadata=None)
 
     assert adapter.ensure_dm_topic_calls == [
-        {"chat_id": "722341991", "topic_name": "Hermes API Test", "force_create": False}
+        {"chat_id": "722341991", "topic_name": "API Test Topic", "force_create": False}
     ]
     assert adapter.calls == [
         {
@@ -419,5 +419,3 @@ async def test_save_failure_during_truncation_raises_for_non_chunking_adapter(tm
     # retry (footer needs the path) re-raises.
     with pytest.raises(OSError, match="No space left on device"):
         await router._deliver_to_platform(target, long_content, metadata={"job_id": "job7"})
-
-

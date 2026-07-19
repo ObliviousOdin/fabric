@@ -1,4 +1,4 @@
-# ☤ ASCII Video
+# ASCII Video
 
 Renders any content as colored ASCII character video. Audio, video, images, text, or pure math in, MP4/GIF/PNG sequence out. Full RGB color per character cell, 1080p 24fps default. No GPU.
 
@@ -72,7 +72,7 @@ Each sorted dark-to-bright, each a different visual texture. Validated against t
 | Alchemical | ` ☉☽♀♂♃♄♅♆♇` | Esoteric |
 | Arrows | ` ←↑→↓↔↕↖↗↘↙` | Directional, kinetic |
 | Music | ` ♪♫♬♩♭♮♯○●` | Musical |
-| Project-specific | ` .·~=≈∞⚡☿✦★⊕◊◆▲▼●■` | Themed per project |
+| Project-specific | ` .·~=≈∞⚡✦★⊕◊◆▲▼●■` | Themed per project |
 
 Custom palettes are built per project to match the content.
 

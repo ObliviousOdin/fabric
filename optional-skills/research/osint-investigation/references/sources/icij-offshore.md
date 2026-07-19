@@ -84,8 +84,10 @@ python3 SKILL_DIR/scripts/fetch_icij_offshore.py --entity "EXAMPLE CORP" \
     --force-refresh --out data/icij.csv
 ```
 
-First call downloads the ~70 MB ZIP under `~/.cache/fabric-osint/icij/`
-(or `$HERMES_OSINT_CACHE/icij/`). Subsequent calls reuse the cache for 30 days.
+First call downloads the ~70 MB ZIP under `~/.cache/fabric-osint/icij/` by
+default. Set `FABRIC_OSINT_CACHE` to relocate the shared OSINT cache root, or
+pass `--cache-dir` for a per-run override. Subsequent calls reuse the cache for
+30 days.
 
 ## 8. Legal & Licensing
 

@@ -5,19 +5,29 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _use_default_capability_config(monkeypatch):
+    """These tests exercise the curated defaults, unlike the suite default."""
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
+
 
 def test_fabric_catalog_enabled_defaults_on(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-
     from fabric_cli.fabric_capabilities import fabric_catalog_enabled
 
     assert fabric_catalog_enabled() is True
 
 
-def test_fabric_catalog_empty_env_means_default_on(monkeypatch):
-    # docker-compose passthrough sets FABRIC_CAPABILITY_CATALOG="" when the
-    # host var is unset — that must NOT disable the catalog.
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "")
+def test_fabric_catalog_explicitly_enabled(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {"enabled": True},
+    )
 
     from fabric_cli.fabric_capabilities import fabric_catalog_enabled
 
@@ -25,7 +35,10 @@ def test_fabric_catalog_empty_env_means_default_on(monkeypatch):
 
 
 def test_fabric_catalog_can_be_disabled(monkeypatch):
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {"enabled": False},
+    )
 
     from fabric_cli.fabric_capabilities import fabric_catalog_enabled
 
@@ -33,9 +46,6 @@ def test_fabric_catalog_can_be_disabled(monkeypatch):
 
 
 def test_filter_fabric_keys_preserves_allowed_order(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_GATEWAY_PLATFORMS", raising=False)
-
     from fabric_cli.fabric_capabilities import FABRIC_GATEWAY_PLATFORMS, filter_fabric_keys
 
     values = ["telegram", "discord", "slack", "api_server", "openai-codex"]
@@ -48,7 +58,10 @@ def test_filter_fabric_keys_preserves_allowed_order(monkeypatch):
 
 
 def test_filter_fabric_keys_returns_all_when_catalog_disabled(monkeypatch):
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {"enabled": False},
+    )
 
     from fabric_cli.fabric_capabilities import FABRIC_GATEWAY_PLATFORMS, filter_fabric_keys
 
@@ -65,7 +78,7 @@ def test_fabric_provider_sets_are_curated():
     )
 
     assert FABRIC_GATEWAY_PLATFORMS == ("discord", "slack", "api_server")
-    # Keep the proven multi-model baseline while excluding the legacy Nous
+    # Keep the proven multi-model baseline while excluding the opt-in Nous
     # Portal integration. Additions remain welcome without turning this into
     # an enumeration-count/change-detector test.
     expected_major_providers = {
@@ -87,9 +100,6 @@ def test_fabric_provider_sets_are_curated():
 
 
 def test_canonical_providers_are_fabric_filtered(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-
     import fabric_cli.models as models
     from fabric_cli.fabric_capabilities import FABRIC_MODEL_PROVIDERS
 
@@ -103,7 +113,7 @@ def test_canonical_providers_are_fabric_filtered(monkeypatch):
 
 
 def test_canonical_providers_can_show_upstream_catalog(monkeypatch):
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
 
     import fabric_cli.models as models
 
@@ -114,25 +124,22 @@ def test_canonical_providers_can_show_upstream_catalog(monkeypatch):
     assert "anthropic" in slugs
 
 
-def test_legacy_nous_visibility_requires_explicit_opt_in(monkeypatch):
+def test_nous_visibility_requires_explicit_opt_in(monkeypatch):
     from fabric_cli.fabric_capabilities import fabric_model_provider_visible
 
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
     assert fabric_model_provider_visible("openai-codex") is True
     assert fabric_model_provider_visible("xai") is True
     assert fabric_model_provider_visible("nous") is False
 
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-api,nous".split(",")})
     assert fabric_model_provider_visible("nous") is True
 
-    monkeypatch.setenv("FABRIC_CAPABILITY_CATALOG", "0")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"enabled": False})
     assert fabric_model_provider_visible("nous") is True
 
 
 def test_model_inventory_unconfigured_rows_are_fabric_filtered(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-codex,xai-oauth")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-codex,xai-oauth".split(",")})
 
     from fabric_cli.inventory import ConfigContext, build_models_payload
 
@@ -150,8 +157,6 @@ def test_model_inventory_unconfigured_rows_are_fabric_filtered(monkeypatch):
 
 
 def test_model_inventory_authenticated_rows_are_fabric_filtered(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
 
     from fabric_cli.inventory import ConfigContext, build_models_payload
 
@@ -229,7 +234,7 @@ def test_classic_model_picker_requests_visible_unconfigured_providers(monkeypatc
         _open_model_picker=open_picker,
     )
 
-    cli_mod.HermesCLI._handle_model_switch(self_, "/model")
+    cli_mod.FabricCLI._handle_model_switch(self_, "/model")
 
     assert captured["kwargs"] == {
         "include_unconfigured": True,
@@ -259,16 +264,18 @@ def test_classic_model_picker_routes_unconfigured_codex_to_setup(monkeypatch):
     )
     self_._close_model_picker = lambda: setattr(self_, "_model_picker_state", None)
 
-    cli_mod.HermesCLI._handle_model_picker_selection(self_)
+    cli_mod.FabricCLI._handle_model_picker_selection(self_)
 
     assert self_._model_picker_state is None
     assert any("OpenAI Codex needs setup" in line for line in messages)
     assert any("fabric auth add openai-codex" in line for line in messages)
 
 
-def test_csv_env_override_narrows_a_catalog(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "anthropic")
+def test_config_list_narrows_a_catalog(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {"model_providers": ["anthropic"]},
+    )
 
     import fabric_cli.models as models
 
@@ -277,9 +284,13 @@ def test_csv_env_override_narrows_a_catalog(monkeypatch):
     assert slugs == ["anthropic"]
 
 
-def test_csv_env_override_widens_beyond_the_default(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-codex, Bedrock ,azure-foundry")
+def test_config_list_widens_beyond_the_default(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {
+            "model_providers": ["openai-codex", " Bedrock ", "azure-foundry"]
+        },
+    )
 
     import fabric_cli.models as models
 
@@ -288,9 +299,11 @@ def test_csv_env_override_widens_beyond_the_default(monkeypatch):
     assert slugs == ["openai-codex", "bedrock", "azure-foundry"]
 
 
-def test_all_sentinel_lifts_filtering_for_one_catalog(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "all")
+def test_null_lifts_filtering_for_one_catalog(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {"model_providers": None},
+    )
 
     import fabric_cli.models as models
     from fabric_cli.fabric_capabilities import FABRIC_GATEWAY_PLATFORMS, filter_fabric_keys
@@ -307,9 +320,11 @@ def test_all_sentinel_lifts_filtering_for_one_catalog(monkeypatch):
     ]
 
 
-def test_star_sentinel_lifts_filtering_for_one_catalog(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_GATEWAY_PLATFORMS", "*")
+def test_null_lifts_gateway_filtering(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {"gateway_platforms": None},
+    )
 
     from fabric_cli.fabric_capabilities import FABRIC_GATEWAY_PLATFORMS, filter_fabric_keys
 
@@ -317,9 +332,8 @@ def test_star_sentinel_lifts_filtering_for_one_catalog(monkeypatch):
     assert filter_fabric_keys(values, FABRIC_GATEWAY_PLATFORMS) == values
 
 
-def test_empty_env_override_falls_back_to_default(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_GATEWAY_PLATFORMS", "   ")
+def test_missing_config_list_falls_back_to_default(monkeypatch):
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {})
 
     from fabric_cli.fabric_capabilities import FABRIC_GATEWAY_PLATFORMS, filter_fabric_keys
 
@@ -331,9 +345,11 @@ def test_empty_env_override_falls_back_to_default(monkeypatch):
     ]
 
 
-def test_env_override_reaches_the_memory_picker(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MEMORY_PROVIDERS", "mem0,supermemory")
+def test_config_override_reaches_the_memory_picker(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {"memory_providers": ["mem0", "supermemory"]},
+    )
 
     from fabric_cli import memory_setup
 
@@ -356,19 +372,17 @@ def test_env_override_reaches_the_memory_picker(monkeypatch):
     assert [name for name, _desc, _provider in providers] == ["mem0", "supermemory"]
 
 
-def test_every_catalog_has_a_distinct_env_var():
-    # The env-override map is keyed by the default tuples; a content collision
-    # between two catalogs would disable overrides (fail-open), so catch it
-    # here instead of in production.
+def test_every_catalog_has_a_distinct_config_key():
+    # A content collision between two default tuples would make one config
+    # field unreachable, so catch that invariant here.
     from fabric_cli import fabric_capabilities as fc
 
-    assert fc._ENV_OVERRIDES_ENABLED is True
-    assert len(fc._CATALOG_ENV_VARS) == 5
+    assert len(fc._CATALOG_CONFIG_KEYS) == 5
 
 
 def test_fabric_canonical_providers_fails_open(monkeypatch):
-    # If the fork-owned catalog module misbehaves, pickers must degrade to the
-    # full upstream catalog, never crash (FABRIC_FORK.md fail-open rule).
+    # If the catalog module misbehaves, pickers must degrade to the full
+    # catalog rather than crashing.
     import fabric_cli.models as models
 
     def boom(*_args, **_kwargs):
@@ -379,21 +393,17 @@ def test_fabric_canonical_providers_fails_open(monkeypatch):
     assert slugs == [p.slug for p in models.CANONICAL_PROVIDERS]
 
 
-def test_custom_allow_lists_are_not_env_overridable(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "all")
+def test_custom_allow_lists_are_not_config_overridable(monkeypatch):
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": None})
 
     from fabric_cli.fabric_capabilities import filter_fabric_keys
 
     # An ad-hoc allow-list that is not one of the module catalogs must filter
-    # exactly as passed, regardless of catalog env overrides.
+    # exactly as passed, regardless of catalog config overrides.
     assert filter_fabric_keys(["a", "b", "c"], ("b",)) == ["b"]
 
 
 def test_fabric_memory_provider_filter_keeps_honcho_and_localish_defaults(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MEMORY_PROVIDERS", raising=False)
-
     from fabric_cli.fabric_capabilities import FABRIC_MEMORY_PROVIDERS, filter_fabric_keys
 
     providers = [
@@ -414,9 +424,6 @@ def test_fabric_memory_provider_filter_keeps_honcho_and_localish_defaults(monkey
 
 
 def test_memory_setup_picker_filters_to_fabric_defaults(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MEMORY_PROVIDERS", raising=False)
-
     from fabric_cli import memory_setup
 
     class FakeProvider:
@@ -446,9 +453,6 @@ def test_memory_setup_picker_filters_to_fabric_defaults(monkeypatch):
 def test_memory_picker_keeps_configured_and_user_installed_providers(
     tmp_path, monkeypatch
 ):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MEMORY_PROVIDERS", raising=False)
-
     from fabric_cli import memory_setup
     from plugins import memory as memory_plugins
 

@@ -13,13 +13,11 @@ from fabric_cli import web_server
 
 
 @pytest.fixture
-def console_client(monkeypatch, _isolate_hermes_home):
+def console_client(monkeypatch, _isolate_fabric_home):
     previous_auth_required = getattr(web_server.app.state, "auth_required", None)
     previous_bound_host = getattr(web_server.app.state, "bound_host", None)
     web_server.app.state.auth_required = False
     web_server.app.state.bound_host = None
-    monkeypatch.setattr(web_server, "_DASHBOARD_EMBEDDED_CHAT_ENABLED", True)
-
     client = TestClient(web_server.app)
     try:
         yield client
@@ -103,7 +101,7 @@ def test_console_ws_confirmed_command_executes_after_confirmation(console_client
 
 
 def test_console_ws_uses_hosted_context_for_opt_data_policy(console_client, monkeypatch):
-    monkeypatch.setattr(web_server, "_default_hermes_root_is_opt_data", lambda: True)
+    monkeypatch.setattr(web_server, "_default_fabric_root_is_opt_data", lambda: True)
 
     with console_client.websocket_connect(_url()) as conn:
         ready = conn.receive_json()
@@ -117,13 +115,13 @@ def test_console_ws_uses_hosted_context_for_opt_data_policy(console_client, monk
 
 
 def test_console_ws_cancel_returns_to_prompt(console_client, monkeypatch):
-    from fabric_cli.console_engine import ConsoleResult, HermesConsoleEngine
+    from fabric_cli.console_engine import ConsoleResult, FabricConsoleEngine
 
     def slow_execute(self, line: str, *, confirmed: bool = False):
         time.sleep(0.5)
         return ConsoleResult("ok", output="late", command=line)
 
-    monkeypatch.setattr(HermesConsoleEngine, "execute", slow_execute)
+    monkeypatch.setattr(FabricConsoleEngine, "execute", slow_execute)
 
     with console_client.websocket_connect(_url()) as conn:
         assert conn.receive_json()["type"] == "ready"

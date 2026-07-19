@@ -22,7 +22,7 @@ def server():
         "sys.modules",
         {
             "fabric_constants": MagicMock(
-                get_fabric_home=MagicMock(return_value="/tmp/hermes_test_review_summary")
+                get_fabric_home=MagicMock(return_value="/tmp/test_home_review_summary")
             ),
             "fabric_cli.env_loader": MagicMock(),
             "fabric_cli.banner": MagicMock(),
@@ -86,7 +86,7 @@ def test_init_session_attaches_background_review_callback(server, monkeypatch):
     captured_emits.clear()
 
     # Invoke the callback the way AIAgent._spawn_background_review would.
-    cb("💾 Self-improvement review: Skill 'hermes-release' patched")
+    cb("💾 Self-improvement review: Skill 'release-helper' patched")
 
     # Exactly one review.summary event should have been emitted, bound to
     # the session id we passed in, carrying the full message text.
@@ -95,7 +95,7 @@ def test_init_session_attaches_background_review_callback(server, monkeypatch):
     event, sid, payload = matched[0]
     assert sid == "sid-abc"
     assert payload == {
-        "text": "💾 Self-improvement review: Skill 'hermes-release' patched"
+        "text": "💾 Self-improvement review: Skill 'release-helper' patched"
     }
 
 
@@ -164,4 +164,3 @@ def test_load_memory_notifications_normalization(server, monkeypatch, raw, expec
     display = {} if raw is None else {"memory_notifications": raw}
     monkeypatch.setattr(server, "_load_cfg", lambda: {"display": display})
     assert server._load_memory_notifications() == expected
-

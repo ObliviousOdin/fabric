@@ -24,8 +24,6 @@ Plus ``lock_path(path)`` — a context-manager returning a per-path lock to
 wrap the whole read→modify→write block. And ``writes_since(task_id,
 since_ts, paths)`` for the subagent-completion reminder in delegate_tool.
 
-All methods are no-ops when ``HERMES_DISABLE_FILE_STATE_GUARD=1`` is set.
-
 This module is intentionally separate from ``_read_tracker`` in
 ``file_tools.py`` — that tracker is per-task and handles consecutive-read
 loop detection, which is a different concern.
@@ -98,8 +96,6 @@ class FileStateRegistry:
         partial: bool = False,
         mtime: Optional[float] = None,
     ) -> None:
-        if _disabled():
-            return
         if mtime is None:
             try:
                 mtime = os.path.getmtime(resolved)
@@ -124,8 +120,6 @@ class FileStateRegistry:
         (a write is an implicit read — the agent now knows the current
         content).
         """
-        if _disabled():
-            return
         if mtime is None:
             try:
                 mtime = os.path.getmtime(resolved)
@@ -151,8 +145,6 @@ class FileStateRegistry:
         Returns ``None`` when the write is safe.  Does not raise — callers
         decide whether to block or warn.
         """
-        if _disabled():
-            return None
         with self._state_lock:
             stamp = self._reads.get(task_id, {}).get(resolved)
             last_writer = self._last_writer.get(resolved)
@@ -227,8 +219,6 @@ class FileStateRegistry:
         Used by delegate_task to append a "subagent modified files the
         parent previously read" reminder to the delegation result.
         """
-        if _disabled():
-            return {}
         paths_set = set(paths)
         out: Dict[str, List[str]] = defaultdict(list)
         with self._state_lock:
@@ -243,8 +233,6 @@ class FileStateRegistry:
 
     def known_reads(self, task_id: str) -> List[str]:
         """Return the list of resolved paths this agent has read."""
-        if _disabled():
-            return []
         with self._state_lock:
             return list(self._reads.get(task_id, {}).keys())
 
@@ -264,11 +252,6 @@ _registry = FileStateRegistry()
 
 def get_registry() -> FileStateRegistry:
     return _registry
-
-
-def _disabled() -> bool:
-    # Re-read each call so tests can toggle via monkeypatch.setenv.
-    return os.environ.get("HERMES_DISABLE_FILE_STATE_GUARD", "").strip() == "1"
 
 
 def _fmt_ts(ts: float) -> str:

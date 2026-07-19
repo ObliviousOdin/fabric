@@ -17,6 +17,24 @@ final class PairingPayloadTests: XCTestCase {
         XCTAssertNil(PairingPayload.parse("https://agent.example.test/other#pair=\(pairing)"))
     }
 
+    func testRejectsDirectServerAddresses() {
+        XCTAssertNil(PairingPayload.parse("https://agent.example.test"))
+        XCTAssertNil(PairingPayload.parse("https://agent.example.test?token=secret"))
+    }
+
+    func testRejectsMissingOrContradictoryAuthenticationPayloads() {
+        let invalid = [
+            "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=token",
+            "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=gated&token=unexpected",
+            "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=other",
+            "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test",
+        ]
+
+        for pairing in invalid {
+            XCTAssertNil(PairingPayload.parse(pairing))
+        }
+    }
+
     func testRejectsUnknownVersionAndCredentialBearingGatewayURL() {
         XCTAssertNil(PairingPayload.parse(
             "fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test"
@@ -24,5 +42,16 @@ final class PairingPayloadTests: XCTestCase {
         XCTAssertNil(PairingPayload.parse(
             "fabric://pair?v=1&url=https%3A%2F%2Fuser%3Apass%40agent.example.test"
         ))
+    }
+
+    func testValidatesManualServerAddressesSeparately() {
+        XCTAssertEqual(
+            GatewayBaseURL.parse(" https://agent.example.test/fabric/ ")?.absoluteString,
+            "https://agent.example.test/fabric/"
+        )
+        XCTAssertNil(GatewayBaseURL.parse("fabric://pair?v=1"))
+        XCTAssertNil(GatewayBaseURL.parse("https://user:pass@agent.example.test"))
+        XCTAssertNil(GatewayBaseURL.parse("https://agent.example.test?token=secret"))
+        XCTAssertNil(GatewayBaseURL.parse("https://agent.example.test/#fragment"))
     }
 }

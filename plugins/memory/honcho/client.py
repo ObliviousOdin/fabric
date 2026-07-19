@@ -1,7 +1,7 @@
 """Honcho client initialization and configuration.
 
 Resolution order for config file:
-  1. $HERMES_HOME/honcho.json  (instance-local, enables isolated Hermes instances)
+  1. $FABRIC_HOME/honcho.json  (profile-local)
   2. ~/.honcho/config.json     (global, shared across all Honcho-enabled apps)
   3. Environment variables     (HONCHO_API_KEY, HONCHO_ENVIRONMENT)
 
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-HOST = "hermes"
+HOST = "fabric"
 
 
 def profile_host_key(profile: str | None) -> str:
@@ -44,27 +44,16 @@ def profile_host_key(profile: str | None) -> str:
 
 
 def _host_block(raw: dict, host: str) -> dict:
-    """Return host config, accepting legacy dot-form profile host keys."""
-    hosts = raw.get("hosts") or {}
-    block = hosts.get(host, {})
-    if block or not host.startswith(f"{HOST}_"):
-        return block
-    legacy = f"{HOST}.{host[len(HOST) + 1:]}"
-    return hosts.get(legacy, {})
+    """Return the canonical host block for ``host``."""
+    return (raw.get("hosts") or {}).get(host, {})
 
 
 def resolve_active_host() -> str:
     """Derive the Honcho host key from the active Fabric profile.
 
-    Resolution order:
-      1. Profile-owned HERMES_HONCHO_HOST value (explicit override)
-      2. Active profile name via profiles system -> ``hermes.<profile>``
-      3. Fallback: ``"hermes"`` (default profile)
+    The active profile maps to ``fabric_<profile>``; the default profile maps
+    to ``fabric``.
     """
-    explicit = str(profile_env("HERMES_HONCHO_HOST", "") or "").strip()
-    if explicit:
-        return explicit
-
     try:
         from fabric_cli.profiles import get_active_profile_name
         profile = get_active_profile_name()
@@ -83,8 +72,8 @@ def resolve_config_path() -> Path:
     """Return the active Honcho config path.
 
     Resolution order:
-      1. $HERMES_HOME/honcho.json      (profile-local, if it exists)
-      2. ~/.hermes/honcho.json          (default profile — shared host blocks live here)
+      1. $FABRIC_HOME/honcho.json       (profile-local, if it exists)
+      2. ~/.fabric/honcho.json          (default profile — shared host blocks live here)
       3. ~/.honcho/config.json          (global, cross-app interop)
 
     Returns the global path if none exist (for first-time setup writes).
@@ -106,7 +95,7 @@ _VALID_RECALL_MODES = {"hybrid", "context", "tools"}
 
 
 def _normalize_recall_mode(val: str) -> str:
-    """Normalize legacy recall mode values (e.g. 'auto' → 'hybrid')."""
+    """Return a supported recall mode, accepting Honcho's former auto value."""
     val = _RECALL_MODE_ALIASES.get(val, val)
     return val if val in _VALID_RECALL_MODES else "hybrid"
 
@@ -114,10 +103,7 @@ def _normalize_recall_mode(val: str) -> str:
 def _resolve_bool(*vals, default: bool) -> bool:
     """Resolve a bool config field: first non-None wins, else default.
 
-    Variadic to support aliased keys (e.g. ``pinUserPeer`` shadowing
-    ``pinPeerName`` for backwards compatibility).  Pass values in
-    precedence order: caller's preferred alias first, then fallback
-    aliases, in (host, root) interleaving as needed.
+    Pass values in precedence order; the first configured value wins.
     """
     for val in vals:
         if val is not None:
@@ -209,7 +195,7 @@ def _parse_dialectic_depth_levels(host_val, root_val, depth: int) -> list[str] |
 
 
 # Default HTTP timeout (seconds) applied when no explicit timeout is
-# configured via HonchoClientConfig.timeout, honcho.timeout / requestTimeout,
+# configured via HonchoClientConfig.timeout, honcho.timeout,
 # or HONCHO_TIMEOUT. Honcho calls happen on the post-response path of
 # run_conversation; without a cap the agent can block indefinitely when
 # the Honcho backend is unreachable, preventing the gateway from
@@ -236,16 +222,18 @@ def _resolve_optional_float(*values: Any) -> float | None:
 
 
 _VALID_OBSERVATION_MODES = {"unified", "directional"}
-_OBSERVATION_MODE_ALIASES = {"shared": "unified", "separate": "directional", "cross": "directional"}
-
-
+_OBSERVATION_MODE_ALIASES = {
+    "shared": "unified",
+    "separate": "directional",
+    "cross": "directional",
+}
 def _normalize_observation_mode(val: str) -> str:
     """Normalize observation mode values."""
     val = _OBSERVATION_MODE_ALIASES.get(val, val)
     return val if val in _VALID_OBSERVATION_MODES else "directional"
 
 
-# Observation presets — granular booleans derived from legacy string mode.
+# Observation presets — granular booleans derived from the configured mode.
 # Explicit per-peer config always wins over presets.
 _OBSERVATION_PRESETS = {
     "directional": {
@@ -295,7 +283,7 @@ class HonchoClientConfig:
     """Configuration for Honcho client, resolved for a specific host."""
 
     host: str = HOST
-    workspace_id: str = "hermes"
+    workspace_id: str = "fabric"
     api_key: str | None = None
     environment: str = "production"
     # Optional base URL for self-hosted Honcho (overrides environment mapping)
@@ -304,7 +292,7 @@ class HonchoClientConfig:
     timeout: float | None = None
     # Identity
     peer_name: str | None = None
-    ai_peer: str = "hermes"
+    ai_peer: str = "fabric"
     # When True, ``peer_name`` wins over any gateway-supplied runtime
     # identity (Telegram UID, Discord ID, …) when resolving the user peer.
     # This keeps memory unified across platforms for single-user deployments
@@ -333,7 +321,7 @@ class HonchoClientConfig:
     # honcho_reasoning tool param (agentic). When false, always uses
     # dialecticReasoningLevel and ignores model-provided overrides.
     dialectic_dynamic: bool = True
-    # Max chars of dialectic result to inject into Hermes system prompt
+    # Max chars of dialectic result to inject into the Fabric system prompt
     dialectic_max_chars: int = 600
     # Dialectic depth: how many .chat() calls per dialectic cycle (1-3).
     # Depth 1: single call. Depth 2: self-audit + targeted synthesis.
@@ -361,8 +349,7 @@ class HonchoClientConfig:
     # Eager init in tools mode — when true, initializes session during
     # initialize() instead of deferring to first tool call
     init_on_session_start: bool = False
-    # Observation mode: legacy string shorthand ("directional" or "unified").
-    # Kept for backward compat; granular per-peer booleans below are preferred.
+    # Observation mode shorthand ("directional" or "unified").
     observation_mode: str = "directional"
     # Per-peer observation booleans — maps 1:1 to Honcho's SessionPeerConfig.
     # Resolved from "observation" object in config, falling back to observation_mode preset.
@@ -376,19 +363,18 @@ class HonchoClientConfig:
     sessions: dict[str, str] = field(default_factory=dict)
     # Raw global config for anything else consumers need
     raw: dict[str, Any] = field(default_factory=dict)
-    # True when Honcho was explicitly configured for this host (hosts.hermes
-    # block exists or enabled was set explicitly), vs auto-enabled from a
-    # stray HONCHO_API_KEY env var.
+    # Used only to preserve the Honcho observation default for existing
+    # generic honcho.json configurations.
     explicitly_configured: bool = False
     # Originating config file. Kept private so callers cannot accidentally
-    # persist it as user configuration; the client pool and OAuth refresh use
-    # it to keep concurrently-active profiles isolated from one another.
+    # persist it as user configuration; the client pool uses it to keep
+    # concurrently-active profiles isolated from one another.
     _config_path: Path | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def from_env(
         cls,
-        workspace_id: str = "hermes",
+        workspace_id: str = "fabric",
         host: str | None = None,
         *,
         config_path: Path | None = None,
@@ -418,7 +404,7 @@ class HonchoClientConfig:
     ) -> HonchoClientConfig:
         """Create config from the resolved Honcho config path.
 
-        Resolution: $HERMES_HOME/honcho.json -> ~/.honcho/config.json -> env vars.
+        Resolution: $FABRIC_HOME/honcho.json -> ~/.honcho/config.json -> env vars.
         When host is None, derives it from the active Fabric profile.
         """
         resolved_host = host or resolve_active_host()
@@ -434,10 +420,7 @@ class HonchoClientConfig:
             return cls.from_env(host=resolved_host, config_path=path)
 
         host_block = _host_block(raw, resolved_host)
-        # A hosts.hermes block or explicit enabled flag means the user
-        # intentionally configured Honcho for this host.
         _explicitly_configured = bool(host_block) or raw.get("enabled") is True
-
         # Explicit host block fields win, then flat/global, then defaults
         workspace = (
             host_block.get("workspace")
@@ -520,12 +503,6 @@ class HonchoClientConfig:
             peer_name=host_block.get("peerName") or raw.get("peerName"),
             ai_peer=ai_peer,
             pin_peer_name=_resolve_bool(
-                # ``pinUserPeer`` is the clearer name (the resolver pins
-                # the user-side peer to ``peerName``, ignoring runtime
-                # identity).  ``pinPeerName`` is the original key from
-                # #14984 and stays accepted for backward compatibility.
-                # Host-level keys win over root-level; among same-level
-                # keys, ``pinUserPeer`` wins over ``pinPeerName``.
                 host_block.get("pinUserPeer"),
                 host_block.get("pinPeerName"),
                 raw.get("pinUserPeer"),
@@ -603,11 +580,6 @@ class HonchoClientConfig:
                 raw.get("initOnSessionStart"),
                 default=False,
             ),
-            # Migration guard: existing configs without an explicit
-            # observationMode keep the old "unified" default so users
-            # aren't silently switched to full bidirectional observation.
-            # New installations (no host block, no credentials) get
-            # "directional" (all observations on) as the new default.
             observation_mode=_normalize_observation_mode(
                 host_block.get("observationMode")
                 or raw.get("observationMode")
@@ -690,7 +662,7 @@ class HonchoClientConfig:
 
         Resolution order:
           1. Gateway session key (stable per-chat identifier from gateway platforms)
-          2. per-session strategy — Hermes session_id ({timestamp}_{hex}); authoritative,
+          2. per-session strategy — Fabric session_id ({timestamp}_{hex}); authoritative,
              so a generated title never remaps a live conversation
           3. Manual directory override from sessions map
           4. Fabric session title (from /title command; non-per-session)
@@ -801,11 +773,13 @@ def _resolve_client_options(
         try:
             from fabric_cli.config import load_config
 
-            hermes_cfg = load_config()
-            honcho_cfg = hermes_cfg.get("honcho", {})
+            fabric_cfg = load_config()
+            honcho_cfg = fabric_cfg.get("honcho", {})
             if isinstance(honcho_cfg, dict):
                 if not resolved_base_url:
-                    resolved_base_url = honcho_cfg.get("base_url", "").strip() or None
+                    resolved_base_url = (
+                        str(honcho_cfg.get("base_url") or "").strip() or None
+                    )
                 if resolved_timeout is None:
                     resolved_timeout = _resolve_optional_float(
                         honcho_cfg.get("timeout"),
@@ -918,8 +892,8 @@ def _client_pool_key(
 def _apply_fresh_oauth_token(config: HonchoClientConfig) -> None:
     """Refresh a near-expiry OAuth grant and point ``config.api_key`` at it.
 
-    No-op for static API keys or when refresh fails (fail-open: the stale token
-    is left in place and the existing 401 handling degrades gracefully).
+    This is a no-op for static API keys. Refresh failures fail open: the stale
+    token remains in place and existing request handling absorbs any 401.
     """
     try:
         from plugins.memory.honcho import oauth
@@ -936,10 +910,10 @@ def _refresh_cached_oauth(
     config: HonchoClientConfig,
     slot: SingletonSlot["Honcho"],
 ) -> None:
-    """Rotate the cached client's Bearer in place when its OAuth token is stale.
+    """Rotate a cached client's bearer when its OAuth token is stale.
 
-    If the SDK shape changed and the in-place rotation can't apply, the slot is
-    reset so the next acquisition rebuilds with the fresh token.
+    If the SDK can no longer accept an in-place token update, reset the slot so
+    the next acquisition rebuilds the client with the rotated credential.
     """
     try:
         from plugins.memory.honcho import oauth
@@ -978,20 +952,20 @@ def get_honcho_client(config: HonchoClientConfig | None = None) -> Honcho:
             _refresh_cached_oauth(cached, config, slot)
             return cached
 
-    # Refresh a near-expiry OAuth grant before the first build so the client
-    # starts with a live access token rather than 401ing an hour in.
+    # Refresh before the first build so an OAuth-backed client starts with a
+    # live access token instead of waiting for a request to fail.
     _apply_fresh_oauth_token(config)
 
     if not config.api_key and not config.base_url:
         raise ValueError(
             "Honcho API key not found. "
             "Get your API key at https://app.honcho.dev, "
-            "then run 'fabric honcho setup' or set HONCHO_API_KEY. "
+            "then run 'fabric memory setup honcho' or set HONCHO_API_KEY. "
             "For local instances, set HONCHO_BASE_URL instead."
         )
 
-    # OAuth refresh can replace config.api_key. The pool identity is stable
-    # for a stored grant, but the constructor must receive the fresh token.
+    # OAuth refresh may replace config.api_key. The pool identity remains
+    # stable for the stored grant, while the constructor gets the live token.
     effective_api_key = _effective_api_key(config, resolved_base_url)
     slot = _honcho_client_pool.slot_for(pool_key)
 
@@ -1022,7 +996,7 @@ def get_honcho_client(config: HonchoClientConfig | None = None) -> Honcho:
             raise ImportError(
                 "honcho-ai is required for Honcho integration. "
                 "Install it with: pip install honcho-ai  "
-                "(or run `fabric honcho setup` to configure)."
+                "(or run `fabric memory setup honcho` to configure)."
             )
 
         if resolved_base_url:

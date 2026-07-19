@@ -234,18 +234,6 @@ fabric moa bootstrap subscriptions
 fabric moa delete review
 ```
 
-## Benchmarks
-
-On HermesBench, a two-model MoA preset — `claude-opus-4.8` aggregating over a `gpt-5.5` reference — outscores either model run on its own:
-
-| Model | HermesBench score |
-|---|---|
-| **Opus aggregator (opus-4.8 + gpt-5.5 reference) — MoA** | **0.8202** |
-| `anthropic/claude-opus-4.8` | 0.7607 |
-| `openai/gpt-5.5` | 0.7412 |
-
-The MoA configuration beats its strongest component (opus-4.8) by ~6 points, confirming that aggregating a second perspective lifts quality on hard tasks rather than just averaging the two.
-
 ## Prompt caching
 
 MoA is built so the **main conversation's prompt cache is never broken**. Selecting a MoA preset is a normal model selection: it does not mutate past context, swap toolsets, or rebuild the system prompt mid-conversation. Your conversation history, system prompt, and tool schema stay byte-stable, so the cached prefix every other model relies on is preserved exactly as it would be for a plain model. Switching to or away from a MoA preset costs the same cache invalidation as any other `/model` switch — no more.

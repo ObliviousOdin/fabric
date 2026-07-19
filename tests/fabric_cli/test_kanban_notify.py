@@ -13,15 +13,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 @pytest.fixture
 def kanban_home(tmp_path, monkeypatch):
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    # Allow the kanban notifier path-validator to upload artifacts the
-    # tests write under ``tmp_path``. Without this, every artifact-delivery
-    # test silently drops files because ``tmp_path`` isn't inside the
-    # default ``MEDIA_DELIVERY_SAFE_ROOTS`` cache dirs.
-    monkeypatch.setenv("HERMES_MEDIA_ALLOW_DIRS", str(tmp_path))
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config_readonly",
+        lambda: {"gateway": {"strict": False}},
+    )
     kb.init_db()
     return home
 
@@ -502,13 +501,6 @@ async def test_notifier_uploads_artifacts_on_completion(kanban_home, tmp_path, m
     from gateway.config import Platform
     from tools import kanban_tools as kt
 
-    # ``_deliver_kanban_artifacts`` routes candidates through
-    # ``BasePlatformAdapter.filter_local_delivery_paths``, which only accepts
-    # paths under ``MEDIA_DELIVERY_SAFE_ROOTS`` or roots explicitly allowlisted
-    # via ``HERMES_MEDIA_ALLOW_DIRS``. Test fixtures live under ``tmp_path``,
-    # so allowlist it for the duration of the test.
-    monkeypatch.setenv("HERMES_MEDIA_ALLOW_DIRS", str(tmp_path))
-
     # Materialize real files so os.path.isfile passes inside the helper.
     chart_path = tmp_path / "q3-revenue.png"
     chart_path.write_bytes(b"PNG-fake-bytes")
@@ -524,15 +516,12 @@ async def test_notifier_uploads_artifacts_on_completion(kanban_home, tmp_path, m
 
     # Use the production handler so we exercise the full path: tool args
     # → metadata.artifacts → event payload promotion.
-    import os
-    os.environ["HERMES_KANBAN_TASK"] = tid
-    try:
+    from fabric_cli.kanban_runtime import scoped_kanban_runtime_context
+    with scoped_kanban_runtime_context(task_id=tid, profile="worker1"):
         out = kt._handle_complete({
             "summary": "rendered the chart",
             "artifacts": [str(chart_path), str(report_path)],
         })
-    finally:
-        os.environ.pop("HERMES_KANBAN_TASK", None)
     import json as _json
     assert _json.loads(out)["ok"] is True
 
@@ -560,7 +549,7 @@ async def test_notifier_uploads_artifacts_on_completion(kanban_home, tmp_path, m
     fake_adapter.send = AsyncMock(side_effect=_send)
     fake_adapter.send_multiple_images = AsyncMock(side_effect=_send_images)
     fake_adapter.send_document = AsyncMock(side_effect=_send_document)
-    # extract_local_files is used internally for legacy path fallback;
+    # extract_local_files is used internally for plain-path fallback;
     # the real BasePlatformAdapter implementation lives there, so wire it.
     from gateway.platforms.base import BasePlatformAdapter
     fake_adapter.extract_local_files = BasePlatformAdapter.extract_local_files
@@ -596,10 +585,6 @@ async def test_notifier_artifact_delivery_skips_missing_files(kanban_home, tmp_p
     from gateway.config import Platform
     from tools import kanban_tools as kt
 
-    # Allow ``tmp_path`` through the media-delivery safety filter. See the
-    # companion test for the full explanation.
-    monkeypatch.setenv("HERMES_MEDIA_ALLOW_DIRS", str(tmp_path))
-
     real_pdf = tmp_path / "real.pdf"
     real_pdf.write_bytes(b"%PDF-fake")
 
@@ -610,15 +595,12 @@ async def test_notifier_artifact_delivery_skips_missing_files(kanban_home, tmp_p
     finally:
         conn.close()
 
-    import os
-    os.environ["HERMES_KANBAN_TASK"] = tid
-    try:
+    from fabric_cli.kanban_runtime import scoped_kanban_runtime_context
+    with scoped_kanban_runtime_context(task_id=tid, profile="worker1"):
         kt._handle_complete({
             "summary": "one real, one ghost",
             "artifacts": [str(real_pdf), "/tmp/definitely-does-not-exist.pdf"],
         })
-    finally:
-        os.environ.pop("HERMES_KANBAN_TASK", None)
 
     runner = object.__new__(GatewayRunner)
     runner._running = True

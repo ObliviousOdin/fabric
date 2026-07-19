@@ -80,13 +80,13 @@ class TestEnvFileReadBlocking:
             error = get_read_block_error(path)
             assert error is None, f"{path} should be allowed"
 
-    def test_allowed_hermes_env(self):
-        """Hermes' own .env inside HERMES_HOME is NOT blocked by this rule
+    def test_allowed_fabric_env(self):
+        """Fabric's own .env inside FABRIC_HOME is NOT blocked by this rule
         (it's handled by other mechanisms). Only project-local .env is blocked."""
-        # Note: hermes internal .env is in ~/.hermes/.env which is NOT a project-local
+        # Note: fabric internal .env is in ~/.fabric/.env which is NOT a project-local
         # path, but the basename check applies to ANY .env. This is intentional —
-        # even ~/.hermes/.env should not be readable via read_file.
-        error = get_read_block_error(os.path.expanduser("~/.hermes/.env"))
+        # even ~/.fabric/.env should not be readable via read_file.
+        error = get_read_block_error(os.path.expanduser("~/.fabric/.env"))
         assert error is not None
 
     def test_blocked_set_is_lowercase(self):
@@ -101,28 +101,28 @@ class TestEnvFileReadBlocking:
 
 
 class TestCacheFileReadBlocking:
-    """Internal Hermes cache files must remain blocked."""
+    """Internal Fabric cache files must remain blocked."""
 
     def test_hub_index_cache_blocked(self, tmp_path):
         """Hub index-cache reads are blocked."""
-        hermes_home = tmp_path / ".hermes"
-        cache = hermes_home / "skills" / ".hub" / "index-cache" / "data.json"
+        fabric_home = tmp_path / ".fabric"
+        cache = fabric_home / "skills" / ".hub" / "index-cache" / "data.json"
         cache.parent.mkdir(parents=True)
         cache.write_text("{}")
 
-        with patch("agent.file_safety._hermes_home_path", return_value=hermes_home):
+        with patch("agent.file_safety._fabric_home_path", return_value=fabric_home):
             error = get_read_block_error(str(cache))
             assert error is not None
             assert "internal Fabric cache" in error
 
     def test_hub_directory_blocked(self, tmp_path):
         """Hub directory reads are blocked."""
-        hermes_home = tmp_path / ".hermes"
-        hub = hermes_home / "skills" / ".hub" / "metadata.json"
+        fabric_home = tmp_path / ".fabric"
+        hub = fabric_home / "skills" / ".hub" / "metadata.json"
         hub.parent.mkdir(parents=True)
         hub.write_text("{}")
 
-        with patch("agent.file_safety._hermes_home_path", return_value=hermes_home):
+        with patch("agent.file_safety._fabric_home_path", return_value=fabric_home):
             error = get_read_block_error(str(hub))
             assert error is not None
 
@@ -145,19 +145,19 @@ class TestProviderAccountReadBlocking:
             "state-snapshots/snap-a/.provider-account-repair/invalid.json",
             "profiles/ops/state-snapshots/snap-b/provider-accounts.json",
             "profiles/ops/state-snapshots/snap-b/.provider-account-repair/invalid.json",
-            "backups/hermes-backup-default.zip",
-            "profiles/ops/backups/hermes-backup-ops.zip",
+            "backups/fabric-backup-default.zip",
+            "profiles/ops/backups/fabric-backup-ops.zip",
         ],
     )
     def test_blocks_default_and_named_profile_artifacts(self, tmp_path, relative):
-        hermes_root = tmp_path / ".hermes"
-        target = hermes_root / relative
+        fabric_root = tmp_path / ".fabric"
+        target = fabric_root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("private-provider-account-state")
 
         with (
-            patch("agent.file_safety._hermes_home_path", return_value=hermes_root),
-            patch("agent.file_safety._hermes_root_path", return_value=hermes_root),
+            patch("agent.file_safety._fabric_home_path", return_value=fabric_root),
+            patch("agent.file_safety._fabric_root_path", return_value=fabric_root),
         ):
             error = get_read_block_error(str(target))
 
@@ -167,9 +167,9 @@ class TestProviderAccountReadBlocking:
     def test_named_profile_denial_does_not_enumerate_profiles(
         self, tmp_path, monkeypatch
     ):
-        hermes_root = tmp_path / ".hermes"
+        fabric_root = tmp_path / ".fabric"
         target = (
-            hermes_root
+            fabric_root
             / "profiles/ops/state-snapshots/snap/provider-accounts.json"
         )
         target.parent.mkdir(parents=True)
@@ -181,8 +181,8 @@ class TestProviderAccountReadBlocking:
         )
 
         with (
-            patch("agent.file_safety._hermes_home_path", return_value=hermes_root),
-            patch("agent.file_safety._hermes_root_path", return_value=hermes_root),
+            patch("agent.file_safety._fabric_home_path", return_value=fabric_root),
+            patch("agent.file_safety._fabric_root_path", return_value=fabric_root),
         ):
             error = get_read_block_error(str(target))
 
@@ -191,14 +191,14 @@ class TestProviderAccountReadBlocking:
     def test_backup_like_basename_alone_is_not_blocked_outside_backup_tree(
         self, tmp_path
     ):
-        hermes_root = tmp_path / ".hermes"
-        hermes_root.mkdir()
-        archive = tmp_path / "hermes-backup-2026-07-11.payload"
+        fabric_root = tmp_path / ".fabric"
+        fabric_root.mkdir()
+        archive = tmp_path / "fabric-backup-2026-07-11.payload"
         archive.write_bytes(b"ordinary project report")
 
         with (
-            patch("agent.file_safety._hermes_home_path", return_value=hermes_root),
-            patch("agent.file_safety._hermes_root_path", return_value=hermes_root),
+            patch("agent.file_safety._fabric_home_path", return_value=fabric_root),
+            patch("agent.file_safety._fabric_root_path", return_value=fabric_root),
         ):
             error = get_read_block_error(str(archive))
 
@@ -213,12 +213,12 @@ class TestProviderAccountReadBlocking:
 class TestCombinedGuards:
     """Both guards should work independently without interference."""
 
-    def test_env_guard_works_regardless_of_hermes_home(self, tmp_path):
-        """The env basename guard does not depend on HERMES_HOME resolution."""
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
+    def test_env_guard_works_regardless_of_fabric_home(self, tmp_path):
+        """The env basename guard does not depend on FABRIC_HOME resolution."""
+        fabric_home = tmp_path / ".fabric"
+        fabric_home.mkdir()
 
-        with patch("agent.file_safety._hermes_home_path", return_value=hermes_home):
+        with patch("agent.file_safety._fabric_home_path", return_value=fabric_home):
             # Regular project .env should still be blocked
             error = get_read_block_error("/workspace/.env")
             assert error is not None
@@ -229,12 +229,12 @@ class TestCombinedGuards:
 
     def test_cache_guard_still_works_with_env_guard(self, tmp_path):
         """Cache file blocking still works when env guard is active."""
-        hermes_home = tmp_path / ".hermes"
-        cache = hermes_home / "skills" / ".hub" / "index-cache" / "x"
+        fabric_home = tmp_path / ".fabric"
+        cache = fabric_home / "skills" / ".hub" / "index-cache" / "x"
         cache.parent.mkdir(parents=True)
         cache.write_text("")
 
-        with patch("agent.file_safety._hermes_home_path", return_value=hermes_home):
+        with patch("agent.file_safety._fabric_home_path", return_value=fabric_home):
             error = get_read_block_error(str(cache))
             assert error is not None
             assert "internal Fabric cache" in error

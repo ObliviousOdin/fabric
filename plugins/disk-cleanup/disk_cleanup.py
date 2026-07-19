@@ -15,7 +15,7 @@ Rules:
   - chrome-profile→ prompt after 14 days (deep only)
   - >500 MB files → prompt always (deep only)
 
-Scope: strictly FABRIC_HOME and /tmp/fabric-* (plus the legacy temp prefix)
+Scope: strictly FABRIC_HOME and /tmp/fabric-*
 Never touches: ~/.fabric/logs/ or any system directory.
 """
 
@@ -33,16 +33,8 @@ try:
 except Exception:  # pragma: no cover — plugin may load before constants resolves
     import os
 
-    _FABRIC_HOME_ENV = "FABRIC_HOME"
-    # public-release-audit: allow-legacy-compat -- honor the previous home override during migration
-    _LEGACY_HOME_ENV = "HERMES_HOME"
-
     def get_fabric_home() -> Path:  # type: ignore[no-redef]
-        val = (
-            os.environ.get(_FABRIC_HOME_ENV)
-            or os.environ.get(_LEGACY_HOME_ENV)
-            or ""
-        ).strip()
+        val = os.environ.get("FABRIC_HOME", "").strip()
         return Path(val).resolve() if val else (Path.home() / ".fabric").resolve()
 
 
@@ -76,15 +68,14 @@ def is_safe_path(path: Path) -> bool:
 
     Rejects Windows mounts (``/mnt/c`` etc.) and any system directory.
     """
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     try:
-        path.resolve().relative_to(hermes_home)
+        path.resolve().relative_to(fabric_home)
         return True
     except (ValueError, OSError):
         pass
-    # Keep the historical prefix so cleanup remains safe across an upgrade.
     parts = path.parts
-    if len(parts) >= 3 and parts[1] == "tmp" and parts[2].startswith(("fabric-", "hermes-")):
+    if len(parts) >= 3 and parts[1] == "tmp" and parts[2].startswith("fabric-"):
         return True
     return False
 
@@ -164,7 +155,7 @@ _EMPTY_DIR_SWEEP_PRUNE_DIRS = frozenset({
 })
 
 
-# Paths under $HERMES_HOME that must NEVER be deleted by quick(),
+# Paths under $FABRIC_HOME that must NEVER be deleted by quick(),
 # regardless of what the stored category says.  This is a defense-in-depth
 # guard against stale tracked.json entries from before #34840.
 _PROTECTED_CRON_PATHS: set[str] = set()
@@ -182,12 +173,12 @@ def _is_protected_cron_path(p: Path) -> bool:
     protected, because deleting it wholesale erases every job's retained run
     history at once.
     """
-    # Lazily build the set once per process so HERMES_HOME is resolved
+    # Lazily build the set once per process so FABRIC_HOME is resolved
     # exactly once.
     if not _PROTECTED_CRON_PATHS:
-        hermes_home = get_fabric_home()
+        fabric_home = get_fabric_home()
         for parent in ("cron", "cronjobs"):
-            base = hermes_home / parent
+            base = fabric_home / parent
             _PROTECTED_CRON_PATHS.add(str(base))
             _PROTECTED_CRON_PATHS.add(str(base / "output"))
             _PROTECTED_CRON_PATHS.add(str(base / "jobs.json"))
@@ -372,15 +363,15 @@ def quick() -> Dict[str, Any]:
         else:
             new_tracked.append(item)
 
-    # Remove empty dirs under HERMES_HOME, but never recurse into known
-    # durable state trees.  Some installs place the Hermes checkout, venv,
-    # and desktop build under HERMES_HOME; a full rglob over that tree can
+    # Remove empty dirs under FABRIC_HOME, but never recurse into known
+    # durable state trees.  Some installs place the Fabric checkout, venv,
+    # and desktop build under FABRIC_HOME; a full rglob over that tree can
     # stall the gateway event loop for minutes.
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     empty_removed = 0
     sweep_stack: List[Tuple[Path, bool]] = []
     try:
-        for top in hermes_home.iterdir():
+        for top in fabric_home.iterdir():
             if (
                 top.is_dir()
                 and not top.is_symlink()
@@ -563,9 +554,9 @@ def guess_category(path: Path) -> Optional[str]:
         return None
 
     # Skip the state dir itself, logs, memory files, sessions, config.
-    hermes_home = get_fabric_home()
+    fabric_home = get_fabric_home()
     try:
-        rel = path.resolve().relative_to(hermes_home)
+        rel = path.resolve().relative_to(fabric_home)
         top = rel.parts[0] if rel.parts else ""
         if top in {
             "disk-cleanup", "logs", "memories", "sessions", "config.yaml",

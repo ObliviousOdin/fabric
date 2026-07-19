@@ -1,14 +1,39 @@
+import argparse
 import os
 import sys
 
 # Stop a ``utils/`` (or ``proxy/``, ``ui/``) package in the launch directory
-# from shadowing Hermes's own top-level modules.  ``fabric_bootstrap`` lives at
+# from shadowing Fabric's own top-level modules.  ``fabric_bootstrap`` lives at
 # the repo root next to this package, so importing it is safe before the guard
 # runs (its name won't collide with a user package), and it owns the canonical
 # path-hardening logic shared with the other entry points.
 import fabric_bootstrap
 
-fabric_bootstrap.harden_import_path()
+_runtime_parser = argparse.ArgumentParser(add_help=False)
+_runtime_parser.add_argument("--source-root")
+_runtime_parser.add_argument("--package-revision")
+_runtime_parser.add_argument("--launch-context")
+_runtime_args, _unknown_args = _runtime_parser.parse_known_args()
+
+fabric_bootstrap.harden_import_path(src_root=_runtime_args.source_root)
+
+from fabric_cli.package_metadata import configure_packaged_revision
+
+configure_packaged_revision(_runtime_args.package_revision)
+
+from fabric_cli.launch_context import set_ignore_rules, set_ignore_user_config
+from fabric_cli.tui_launch_context import (
+    configure_tui_launch_context,
+    consume_tui_launch_context,
+    get_tui_launch_context,
+)
+
+configure_tui_launch_context(
+    consume_tui_launch_context(_runtime_args.launch_context)
+)
+_launch_context = get_tui_launch_context()
+set_ignore_user_config(_launch_context.ignore_user_config)
+set_ignore_rules(_launch_context.ignore_rules)
 
 import json
 import logging
@@ -31,11 +56,11 @@ _mcp_discovery_thread = None
 def _install_sidecar_publisher() -> None:
     """Mirror every dispatcher emit to the dashboard sidebar via WS.
 
-    Activated by `HERMES_TUI_SIDECAR_URL`, set by the dashboard's
-    ``/api/pty`` endpoint when a chat tab passes a ``channel`` query param.
+    Activated by the launch descriptor written by the dashboard's ``/api/pty``
+    endpoint when a chat tab passes a ``channel`` query parameter.
     Best-effort: connect failure or runtime drop falls back to stdio-only.
     """
-    url = os.environ.get("HERMES_TUI_SIDECAR_URL")
+    url = get_tui_launch_context().sidecar_url
 
     if not url:
         return
@@ -51,22 +76,13 @@ def _install_sidecar_publisher() -> None:
 # falling back to ``os._exit(0)`` so a wedged worker mid-flush can't
 # strand the process.  1s covers the gateway's own shutdown work
 # (thread-pool drain + session finalize) on every machine we've
-# tested; override via ``HERMES_TUI_GATEWAY_SHUTDOWN_GRACE_S`` if a
-# slower environment needs more headroom (e.g. encrypted disks
-# flushing checkpoints) and accept that a longer grace also means a
-# longer wait when shutdown actually deadlocks.
+# tested. Keep this private reliability constant out of the user environment;
+# changing it affects the hard-exit safety guarantee.
 _DEFAULT_SHUTDOWN_GRACE_S = 1.0
 
 
 def _shutdown_grace_seconds() -> float:
-    raw = (os.environ.get("HERMES_TUI_GATEWAY_SHUTDOWN_GRACE_S") or "").strip()
-    if not raw:
-        return _DEFAULT_SHUTDOWN_GRACE_S
-    try:
-        value = float(raw)
-    except ValueError:
-        return _DEFAULT_SHUTDOWN_GRACE_S
-    return value if value > 0 else _DEFAULT_SHUTDOWN_GRACE_S
+    return _DEFAULT_SHUTDOWN_GRACE_S
 
 
 def _log_signal(signum: int, frame) -> None:
@@ -82,11 +98,9 @@ def _log_signal(signum: int, frame) -> None:
     Termination semantics: ``sys.exit(0)`` here used to race the worker
     pool — a thread holding ``_stdout_lock`` mid-flush would block the
     interpreter shutdown indefinitely.  We now log the stack, give the
-    process the configured shutdown grace
-    (``HERMES_TUI_GATEWAY_SHUTDOWN_GRACE_S``, default
-    ``_DEFAULT_SHUTDOWN_GRACE_S``) to drain naturally on a background
-    thread, and fall back to ``os._exit(0)`` so a wedged write/flush
-    can never strand the process.
+    process a bounded shutdown grace to drain naturally on a background
+    thread, and fall back to ``os._exit(0)`` so a wedged write/flush can never
+    strand the process.
     """
     # SIGPIPE and SIGHUP don't exist on Windows — build the lookup
     # dict from attributes that actually exist on the current platform.
@@ -166,7 +180,7 @@ def _log_signal(signum: int, frame) -> None:
 #
 # SIGPIPE and SIGHUP don't exist on Windows; guard each installation
 # with hasattr so ``python -m tui_gateway.entry`` (spawned by
-# ``hermes --tui``) imports cleanly there.  SIGBREAK (Windows' Ctrl+Break)
+# ``fabric --tui``) imports cleanly there.  SIGBREAK (Windows' Ctrl+Break)
 # is installed when available as a weaker equivalent of SIGHUP.
 if hasattr(signal, "SIGPIPE"):
     signal.signal(signal.SIGPIPE, signal.SIG_IGN)
@@ -241,9 +255,9 @@ def mcp_discovery_in_flight() -> bool:
     and the banner/tool count will be stale until they arrive.
 
     There are two independent discovery-thread owners by surface: the stdio
-    ``hermes --tui`` path spawns ITS thread here (``_mcp_discovery_thread``),
+    ``fabric --tui`` path spawns ITS thread here (``_mcp_discovery_thread``),
     while the desktop app + dashboard WebSocket sidecar (``tui_gateway/ws.py``)
-    and ``Fabric dashboard`` spawn theirs via
+    and ``fabric dashboard`` spawn theirs via
     ``fabric_cli.mcp_startup.start_background_mcp_discovery``. The late-refresh
     scheduler imports this function regardless of surface, so it MUST consult
     both — checking only the entry thread left the desktop/dashboard surfaces
@@ -316,7 +330,7 @@ def main():
     # MCP tool discovery — runs in a background daemon thread so a slow or
     # unreachable MCP server can't freeze TUI startup.  Previously this ran
     # inline before ``gateway.ready``, which meant any configured-but-down
-    # server stalled the whole shell on "summoning hermes…" for the full
+    # server stalled the whole shell on its startup status for the full
     # connect-retry backoff (e.g. a dead stdio/http server burns 1+2+4s of
     # retries → ~7s of dead air before the composer appears).  Discovery is
     # idempotent and registers tools into the shared registry as servers

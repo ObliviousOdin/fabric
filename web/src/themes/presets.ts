@@ -9,10 +9,7 @@ import { fabricDarkTheme, fabricLightTheme } from "./generated";
  * corner-radius all shift to match the theme's personality.
  *
  * Selectable hand-authored theme names must stay in sync with the backend's
- * `_BUILTIN_DASHBOARD_THEMES` list in `fabric_cli/web_server.py`. The legacy
- * Fabric Blue/Teal definitions remain below solely as compatibility data for
- * old persisted ids; they are intentionally absent from `BUILTIN_THEMES`,
- * which is the primary theme-picker catalog.
+ * `_BUILTIN_DASHBOARD_THEMES` list in `fabric_cli/web_server.py`.
  */
 
 // ---------------------------------------------------------------------------
@@ -42,22 +39,6 @@ const DEFAULT_LAYOUT: ThemeLayout = {
 // Themes
 // ---------------------------------------------------------------------------
 
-export const fabricTealTheme: DashboardTheme = {
-  name: "fabric-teal",
-  label: "Fabric Teal (Heritage)",
-  description: "The original dark teal Fabric dashboard skin",
-  palette: {
-    background: { hex: "#041c1c", alpha: 1 },
-    midground: { hex: "#ffe6cb", alpha: 1 },
-    foreground: { hex: "#ffffff", alpha: 0 },
-    warmGlow: "rgba(255, 189, 56, 0.35)",
-    noiseOpacity: 1,
-  },
-  typography: DEFAULT_TYPOGRAPHY,
-  layout: DEFAULT_LAYOUT,
-  terminalBackground: "#000000",
-};
-
 /** Canonical fallback for fresh installs and unknown theme ids. */
 export const defaultTheme: DashboardTheme = fabricLightTheme;
 
@@ -83,34 +64,6 @@ export const midnightTheme: DashboardTheme = {
   layout: {
     ...DEFAULT_LAYOUT,
     radius: "0.75rem",
-  },
-};
-
-export const emberTheme: DashboardTheme = {
-  name: "ember",
-  label: "Ember",
-  description: "Warm crimson and bronze — forge vibes",
-  palette: {
-    background: { hex: "#1a0a06", alpha: 1 },
-    midground: { hex: "#ffd8b0", alpha: 1 },
-    foreground: { hex: "#ffffff", alpha: 0 },
-    warmGlow: "rgba(249, 115, 22, 0.38)",
-    noiseOpacity: 1,
-  },
-  typography: {
-    ...DEFAULT_TYPOGRAPHY,
-    fontSans: `"Spectral", Georgia, "Times New Roman", serif`,
-    fontMono: `"IBM Plex Mono", ${SYSTEM_MONO}`,
-    fontUrl:
-      "https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap",
-  },
-  layout: {
-    ...DEFAULT_LAYOUT,
-    radius: "0.25rem",
-  },
-  colorOverrides: {
-    destructive: "#c92d0f",
-    warning: "#f97316",
   },
 };
 
@@ -191,57 +144,12 @@ export const roseTheme: DashboardTheme = {
   },
 };
 
-/** Light mode — vivid Fabric-blue accents on a cream canvas. */
-export const fabricBlueTheme: DashboardTheme = {
-  name: "fabric-blue",
-  label: "Fabric Blue",
-  description: "Light mode — vivid Fabric-blue accents on cream canvas",
-  palette: {
-    background: { hex: "#E8F2FD", alpha: 1 },
-    midground: { hex: "#0053FD", alpha: 1 },
-    foreground: { hex: "#170d02", alpha: 0 },
-    warmGlow: "rgba(0, 83, 253, 0.12)",
-    noiseOpacity: 0,
-  },
-  typography: DEFAULT_TYPOGRAPHY,
-  layout: DEFAULT_LAYOUT,
-  terminalBackground: "#f5f8fc",
-  terminalForeground: "#170d02",
-  seriesColors: {
-    inputTokenAccent: "#001934",
-    outputTokenAccent: "#0053fd",
-  },
-  swatchColors: ["#170d02", "#0053FD", "#E8F2FD"],
-};
-
-/**
- * Same look as ``defaultTheme`` but with a larger root font size, looser
- * line-height, and ``spacious`` density so every rem-based size in the
- * dashboard scales up. For users who find the default 15px UI too dense.
- */
-export const defaultLargeTheme: DashboardTheme = {
-  name: "default-large",
-  label: "Fabric Teal (Heritage, Large)",
-  description: "The original Fabric Teal skin with roomier spacing",
-  palette: fabricTealTheme.palette,
-  typography: {
-    ...DEFAULT_TYPOGRAPHY,
-    baseSize: "18px",
-    lineHeight: "1.65",
-  },
-  layout: {
-    ...DEFAULT_LAYOUT,
-    density: "spacious",
-  },
-};
-
 export const BUILTIN_THEMES: Record<string, DashboardTheme> = {
   // Generated pair (normal-contrast variants; the provider swaps in the
   // high-contrast variants via the contrast preference).
   "fabric-dark": fabricDarkTheme,
   "fabric-light": fabricLightTheme,
   midnight: midnightTheme,
-  ember: emberTheme,
   mono: monoTheme,
   cyberpunk: cyberpunkTheme,
   rose: roseTheme,

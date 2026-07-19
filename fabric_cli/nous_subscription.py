@@ -26,7 +26,7 @@ from tools.tool_backend_helpers import (
 
 
 _DEFAULT_PLATFORM_TOOLSETS = {
-    "cli": "hermes-cli",
+    "cli": "fabric-cli",
 }
 
 # Maps a tools_config provider's ``managed_nous_feature`` to the tool-pool
@@ -240,12 +240,10 @@ def _local_stt_backend_available() -> bool:
     ``apply_nous_managed_defaults`` from flipping a working local setup
     to the managed gateway.
     """
-    if get_env_value("HERMES_LOCAL_STT_COMMAND"):
-        return True
     try:
-        from tools.transcription_tools import _HAS_FASTER_WHISPER
+        from tools.transcription_tools import _HAS_FASTER_WHISPER, _has_local_command
 
-        return bool(_HAS_FASTER_WHISPER)
+        return bool(_HAS_FASTER_WHISPER) or bool(_has_local_command())
     except Exception:
         return False
 
@@ -435,13 +433,7 @@ def get_nous_subscription_features(
     direct_openai_stt = bool(resolve_openai_audio_api_key())
     direct_groq_stt = bool(get_env_value("GROQ_API_KEY"))
     direct_mistral_stt = bool(get_env_value("MISTRAL_API_KEY"))
-    try:
-        from tools.transcription_tools import _HAS_FASTER_WHISPER
-        local_stt_available = bool(_HAS_FASTER_WHISPER) or bool(
-            get_env_value("HERMES_LOCAL_STT_COMMAND")
-        )
-    except Exception:
-        local_stt_available = bool(get_env_value("HERMES_LOCAL_STT_COMMAND"))
+    local_stt_available = _local_stt_backend_available()
 
     # When use_gateway is set, suppress direct credentials for managed detection
     if web_use_gateway:

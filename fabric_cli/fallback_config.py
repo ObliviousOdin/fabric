@@ -49,11 +49,11 @@ def _entry_identity(entry: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def get_fallback_chain(config: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Return the effective fallback chain merged across old and new config keys.
+    """Return the effective fallback chain across both supported schemas.
 
     ``fallback_providers`` remains the primary source of truth and keeps its
-    order. Legacy ``fallback_model`` entries are appended afterwards unless
-    they target the same provider/model/base_url route as an earlier entry.
+    order. A previous-schema ``fallback_model`` entry is appended afterwards
+    unless it targets the same provider/model/base_url route as an earlier entry.
     The returned list always contains fresh dict copies.
     """
 

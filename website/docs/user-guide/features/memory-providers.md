@@ -15,10 +15,7 @@ connection or healthy service. Setting both `memory.memory_enabled: false` and
 `memory.user_profile_enabled: false` disables all memory, including the selected
 external provider.
 
-:::note Runtime directory
-Profile files currently remain under the compatibility path `~/.fabric/` (or
-`$FABRIC_HOME`). Use the `fabric` CLI in new Fabric instructions.
-:::
+Profile files live under `~/.fabric/` (or `$FABRIC_HOME`).
 
 ## Quick Start
 
@@ -162,8 +159,6 @@ The auto-injected dialectic also scales its reasoning level by query length (lon
 fabric memory setup        # select "honcho" — runs the Honcho-specific post-setup
 ```
 
-The legacy `fabric honcho setup` command still works (it now redirects to `fabric memory setup`), but is only registered after Honcho is the configured memory provider.
-
 **Config:** `$FABRIC_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global). Resolution order: `$FABRIC_HOME/honcho.json` > `~/.fabric/honcho.json` > `~/.honcho/config.json`. See the [config reference](https://github.com/ObliviousOdin/fabric/blob/main/plugins/memory/honcho/README.md) and the [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/fabric).
 
 <details>
@@ -235,10 +230,6 @@ The legacy `fabric honcho setup` command still works (it now redirects to `fabri
 
 </details>
 
-:::tip Migrating from `fabric honcho`
-If you previously used `fabric honcho setup`, your config and all server-side data are intact. Select it through the setup wizard again or manually set `memory.provider: honcho`; a new session will attempt initialization once static readiness passes.
-:::
-
 **Multi-peer setup:**
 
 Honcho models conversations as peers exchanging messages — one user peer plus one AI peer per Fabric profile, all sharing a workspace. The workspace is the shared environment: the user peer is global across profiles, each AI peer is its own identity. Every AI peer builds an independent representation / card from its own observations, so a `coder` profile stays code-oriented while a `writer` profile stays editorial against the same user.
@@ -249,7 +240,7 @@ The mapping:
 |---------|-----------|
 | **Workspace** | Shared environment. All Fabric profiles under one workspace see the same user identity. |
 | **User peer** (`peerName`) | The human. Shared across profiles in the workspace. |
-| **AI peer** (`aiPeer`) | One per Fabric profile. The compatibility host key remains `fabric` → default; `fabric.<profile>` for others. |
+| **AI peer** (`aiPeer`) | One per Fabric profile. Host keys are `fabric` for the default profile and `fabric.<profile>` for named profiles. |
 | **Observation** | Per-peer toggles controlling what Honcho models from whose messages. `directional` (default, all four on) or `unified` (single-observer pool). |
 
 ### New profile, fresh Honcho peer
@@ -266,7 +257,7 @@ fabric profile create coder --clone
 fabric honcho sync
 ```
 
-Scans every Fabric profile, creates host blocks for any profile without one, inherits settings from the compatibility `fabric` block, and creates the new AI peers eagerly. Idempotent — skips profiles that already have a host block.
+Scans every Fabric profile, creates host blocks for any profile without one, inherits settings from the default `fabric` block, and creates the new AI peers eagerly. Idempotent — skips profiles that already have a host block.
 
 ### Per-profile observation
 
@@ -471,7 +462,7 @@ The plugin authenticates with `X-API-Key` and uses the server's `/search` / `/me
 |-----|---------|-------------|
 | `mode` | `platform` | `platform` (Mem0 Cloud) or `oss` (self-managed, in-process) |
 | `host` | — | Self-hosted Mem0 server URL (Docker dashboard). Routes over HTTP with `X-API-Key`; don't combine with `mode: oss` |
-| `user_id` | `fabric-user` | User identifier |
+| `user_id` | `default-user` | User identifier |
 | `agent_id` | `fabric` | Agent identifier |
 | `rerank` | `false` | Rerank search results for relevance (platform mode only) |
 
@@ -665,7 +656,7 @@ echo 'SUPERMEMORY_API_KEY=***' >> ~/.fabric/.env
 - Full-session ingest — the entire conversation is sent once at session boundaries
 - Session-end conversation ingest (to `/v4/conversations`) for richer profile + graph building in Supermemory
 - Profile facts injected on first turn and at configurable intervals
-- **Profile-scoped containers** — use `{identity}` in `container_tag` (the current compatibility default is `fabric-{identity}` → `fabric-coder`) to isolate memories per Fabric profile
+- **Profile-scoped containers** — use `{identity}` in `container_tag` (the default is `fabric-{identity}` → `fabric-coder`) to isolate memories per Fabric profile
 - **Multi-container mode** — enable `enable_custom_container_tags` with a `custom_containers` list to let the agent read/write across named containers. Automatic operations stay on the primary container.
 
 <details>

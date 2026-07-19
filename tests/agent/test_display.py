@@ -17,6 +17,17 @@ from agent.display import (
 )
 
 
+def test_spinner_pause_state_is_process_local():
+    from agent.display import is_spinner_paused, set_spinner_paused
+
+    set_spinner_paused(True)
+    try:
+        assert is_spinner_paused() is True
+    finally:
+        set_spinner_paused(False)
+    assert is_spinner_paused() is False
+
+
 @pytest.fixture(autouse=True)
 def reset_tool_preview_max_len():
     set_tool_preview_max_len(0)
@@ -236,7 +247,7 @@ class TestCuteToolMessagePreviewLength:
 
     def test_path_preview_uses_positive_configured_limit_not_default(self):
         set_tool_preview_max_len(80)
-        path = "/tmp/hermes-test-preview-length/deeply/nested/path/test-output.txt"
+        path = "/tmp/preview-length-test/deeply/nested/path/test-output.txt"
 
         line = get_cute_tool_message("read_file", {"path": path}, 0.1)
 

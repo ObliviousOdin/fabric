@@ -13,7 +13,7 @@ downstream consumers (CI / `fabric update`) rely on:
 We do NOT spin up a real cua-driver — that lives in the cua-driver
 integration test suite (libs/cua-driver/rust/tests/integration/
 test_health_report_mcp.py). Here we mock the subprocess and assert the
-Hermes-side adapter behaves correctly against the documented response
+Fabric-side adapter behaves correctly against the documented response
 shape.
 """
 
@@ -290,7 +290,7 @@ class TestJsonOutput:
         assert parsed == _ok_report()
 
 
-# ── HERMES_CUA_DRIVER_CMD resolution ───────────────────────────────────────
+# ── cua-driver command resolution ──────────────────────────────────────────
 
 
 class TestDriverCmdResolution:
@@ -305,21 +305,18 @@ class TestDriverCmdResolution:
              patch("subprocess.Popen", return_value=proc), \
              patch("sys.stdout", new_callable=StringIO):
             doctor.run_doctor(driver_cmd="/custom/path/cua-driver")
-        # shutil.which should have been called with the explicit arg, not
-        # the env-var / default resolver.
+        # shutil.which should have been called with the explicit argument.
         which_mock.assert_called_with("/custom/path/cua-driver")
 
-    def test_env_var_used_when_no_arg_given(self, monkeypatch):
+    def test_canonical_driver_name_used_when_no_arg_given(self):
         from tools.computer_use import doctor
 
-        monkeypatch.setenv("HERMES_CUA_DRIVER_CMD", "/env/path/cua-driver")
         proc = _fake_proc_with_responses(
             {"jsonrpc": "2.0", "id": 1, "result": {}},
             {"jsonrpc": "2.0", "id": 2, "result": {"structuredContent": _ok_report()}},
         )
-        with patch("shutil.which", return_value="/env/path/cua-driver") as which_mock, \
+        with patch("shutil.which", return_value="/usr/local/bin/cua-driver") as which_mock, \
              patch("subprocess.Popen", return_value=proc), \
              patch("sys.stdout", new_callable=StringIO):
             doctor.run_doctor()
-        # First (and only) which call should have used the env var.
-        which_mock.assert_called_with("/env/path/cua-driver")
+        which_mock.assert_called_with("cua-driver")

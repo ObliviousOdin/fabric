@@ -218,7 +218,7 @@ def make_runner(platform: Platform, session_entry: SessionEntry = None) -> "Gate
     runner._show_reasoning = False
 
     runner._is_user_authorized = lambda _source: True
-    runner._set_session_env = lambda _context: None
+    runner._bind_session_context = lambda _context: None
     runner._handle_message_with_agent = AsyncMock(return_value="agent-handled-default")
     runner._should_send_voice_reply = lambda *_a, **_kw: False
     runner._send_voice_reply = AsyncMock()
@@ -317,7 +317,7 @@ def adapter(platform, runner):
 # ═══════════════════════════════════════════════════════════════════════════
 
 BOT_USER_ID = 99999
-BOT_USER_NAME = "HermesBot"
+BOT_USER_NAME = "TestBot"
 CHANNEL_ID = 22222
 GUILD_ID = 44444
 THREAD_ID = 33333

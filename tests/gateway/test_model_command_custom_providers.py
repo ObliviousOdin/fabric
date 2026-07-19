@@ -28,9 +28,9 @@ def _make_event(text="/model"):
 
 @pytest.mark.asyncio
 async def test_handle_model_command_lists_saved_custom_provider(tmp_path, monkeypatch):
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    (hermes_home / "config.yaml").write_text(
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    (fabric_home / "config.yaml").write_text(
         yaml.safe_dump(
             {
                 "model": {
@@ -53,10 +53,10 @@ async def test_handle_model_command_lists_saved_custom_provider(tmp_path, monkey
 
     import gateway.run as gateway_run
 
-    monkeypatch.setattr(gateway_run, "_fabric_home", hermes_home)
+    monkeypatch.setattr(gateway_run, "_fabric_home", fabric_home)
     monkeypatch.setattr("agent.models_dev.fetch_models_dev", lambda: {})
 
-    token = set_fabric_home_override(hermes_home)
+    token = set_fabric_home_override(fabric_home)
     try:
         result = await _make_runner()._handle_model_command(_make_event())
     finally:
@@ -77,9 +77,9 @@ async def test_direct_model_switch_offloads_to_thread(tmp_path, monkeypatch):
 
     from fabric_cli.model_switch import ModelSwitchResult
 
-    hermes_home = tmp_path / ".hermes"
-    hermes_home.mkdir()
-    (hermes_home / "config.yaml").write_text(
+    fabric_home = tmp_path / ".fabric"
+    fabric_home.mkdir()
+    (fabric_home / "config.yaml").write_text(
         yaml.safe_dump(
             {"model": {"default": "gpt-5.4", "provider": "openrouter"}}
         ),
@@ -88,7 +88,7 @@ async def test_direct_model_switch_offloads_to_thread(tmp_path, monkeypatch):
 
     import gateway.run as gateway_run
 
-    monkeypatch.setattr(gateway_run, "_fabric_home", hermes_home)
+    monkeypatch.setattr(gateway_run, "_fabric_home", fabric_home)
 
     # Fail the switch so the handler returns before _finish_switch (which needs
     # full runner state) — we only care that the offload happened.
@@ -106,7 +106,7 @@ async def test_direct_model_switch_offloads_to_thread(tmp_path, monkeypatch):
 
     monkeypatch.setattr(asyncio, "to_thread", _spy_to_thread)
 
-    token = set_fabric_home_override(hermes_home)
+    token = set_fabric_home_override(fabric_home)
     try:
         result = await _make_runner()._handle_model_command(
             _make_event("/model gpt-5.4")

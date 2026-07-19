@@ -84,7 +84,7 @@ def _make_runner():
     runner._show_reasoning = False
     runner._service_tier = None
     runner._is_user_authorized = lambda _source: True
-    runner._set_session_env = lambda _context: None
+    runner._bind_session_context = lambda _context: None
     runner._should_send_voice_reply = lambda *_args, **_kwargs: False
     runner._send_voice_reply = AsyncMock()
     runner._capture_gateway_honcho_if_configured = lambda *args, **kwargs: None
@@ -92,8 +92,8 @@ def _make_runner():
 
     # Simulate agent actively running for this session so the guard fires.
     # Note: the stale-eviction branch calls agent.get_activity_summary() and
-    # compares seconds_since_activity against HERMES_AGENT_TIMEOUT. Return a
-    # dict with recent activity so the eviction path doesn't clear our
+    # compares seconds_since_activity against the configured gateway timeout.
+    # Return a dict with recent activity so the eviction path doesn't clear our
     # fake running agent before the toggle guard runs.
     import time
     sk = build_session_key(_make_source())

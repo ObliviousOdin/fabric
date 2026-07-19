@@ -1,8 +1,7 @@
 """Consent-flow tests for the shell-hook allowlist.
 
-Covers the prompt/non-prompt decision tree: TTY vs non-TTY, and the
-three accept-hooks channels (--accept-hooks, HERMES_ACCEPT_HOOKS env,
-hooks_auto_accept: config key).
+Covers the prompt/non-prompt decision tree: TTY vs non-TTY, and the two
+accept-hooks channels (--accept-hooks and hooks_auto_accept config).
 """
 
 from __future__ import annotations
@@ -17,8 +16,7 @@ from agent import shell_hooks
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_home"))
-    monkeypatch.delenv("HERMES_ACCEPT_HOOKS", raising=False)
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric_home"))
     shell_hooks.reset_for_tests()
     yield
     shell_hooks.reset_for_tests()
@@ -130,21 +128,6 @@ class TestNonTTYFlow:
             registered = shell_hooks.register_from_config(
                 {"hooks": {"on_session_start": [{"command": str(script)}]}},
                 accept_hooks=True,
-            )
-        assert len(registered) == 1
-
-    def test_no_tty_with_env_accepts(self, tmp_path, monkeypatch):
-        from fabric_cli import plugins
-
-        script = _write_hook_script(tmp_path)
-        plugins._plugin_manager = plugins.PluginManager()
-        monkeypatch.setenv("HERMES_ACCEPT_HOOKS", "1")
-
-        with patch("sys.stdin") as mock_stdin:
-            mock_stdin.isatty.return_value = False
-            registered = shell_hooks.register_from_config(
-                {"hooks": {"on_session_start": [{"command": str(script)}]}},
-                accept_hooks=False,
             )
         assert len(registered) == 1
 
@@ -309,4 +292,3 @@ class TestHooksAutoAcceptParsing:
         assert shell_hooks._resolve_effective_accept(
             {"hooks_auto_accept": "false"}, accept_hooks_arg=True,
         ) is True
-

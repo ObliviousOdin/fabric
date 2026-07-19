@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import stat
 import time
@@ -48,6 +49,14 @@ def _prompt_from_values(values: dict[str, str], *, forbidden: set[str] | None = 
         return values.get(label, default or "")
 
     return _prompt
+
+
+def test_sync_trace_follows_standard_debug_logging(caplog):
+    with caplog.at_level(logging.INFO, logger=openviking_module.__name__):
+        assert openviking_module._sync_trace_enabled() is False
+
+    with caplog.at_level(logging.DEBUG, logger=openviking_module.__name__):
+        assert openviking_module._sync_trace_enabled() is True
 
 
 def _allow_setup_validation(monkeypatch, *, root_access: bool = False):
@@ -228,7 +237,6 @@ def test_named_profile_does_not_inherit_launch_ovcli_config_pointer(tmp_path, mo
     )
     named_home = tmp_path / "profiles" / "worker"
     monkeypatch.setenv("FABRIC_HOME", str(named_home))
-    monkeypatch.setenv("HERMES_HOME", str(named_home))
     monkeypatch.setenv("OPENVIKING_CLI_CONFIG_FILE", str(launch_path))
     monkeypatch.setattr("fabric_cli.config.load_env", lambda: {})
 
@@ -331,9 +339,9 @@ def test_link_ovcli_profile_removes_stale_inline_config(tmp_path):
 
 def test_post_setup_existing_profile_picker_validates_and_links_saved_profile(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
-    env_path = hermes_home / ".env"
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
+    env_path = fabric_home / ".env"
     env_path.write_text("OPENVIKING_ENDPOINT=http://old.local\nOTHER_KEY=keep\n", encoding="utf-8")
     openviking_home = tmp_path / ".openviking"
     openviking_home.mkdir()
@@ -344,7 +352,7 @@ def test_post_setup_existing_profile_picker_validates_and_links_saved_profile(tm
         json.dumps({"url": "https://vps.example", "api_key": "user-key"}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.setattr(openviking_module.Path, "home", staticmethod(lambda: tmp_path))
 
     from fabric_cli import memory_setup
@@ -365,7 +373,7 @@ def test_post_setup_existing_profile_picker_validates_and_links_saved_profile(tm
     monkeypatch.setattr(memory_setup, "_curses_select", lambda *args, **kwargs: next(choices))
     config = {"memory": {}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
     assert validate_calls == [{
         "endpoint": "https://vps.example",
@@ -387,9 +395,9 @@ def test_post_setup_existing_profile_picker_validates_and_links_saved_profile(tm
 
 def test_post_setup_create_remote_user_profile_can_mirror_to_openviking_store(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.setattr(openviking_module.Path, "home", staticmethod(lambda: tmp_path))
     _allow_setup_validation(monkeypatch)
 
@@ -403,36 +411,36 @@ def test_post_setup_create_remote_user_profile_can_mirror_to_openviking_store(tm
         _prompt_from_values({
             "OpenViking server URL": "https://openviking.example",
             "OpenViking user API key": "user-secret",
-            "Fabric peer ID in OpenViking": "hermes",
+            "Fabric peer ID in OpenViking": "fabric",
             "OpenViking profile name": "VPS",
         }),
     )
     config = {"memory": {}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
     mirrored_path = tmp_path / ".openviking" / "ovcli.conf.VPS"
     assert mirrored_path.exists()
     assert json.loads(mirrored_path.read_text(encoding="utf-8")) == {
         "url": "https://openviking.example",
         "api_key": "user-secret",
-        "actor_peer_id": "hermes",
+        "actor_peer_id": "fabric",
     }
     assert config["memory"]["provider"] == "openviking"
     assert config["memory"]["openviking"] == {
         "use_ovcli_config": True,
         "ovcli_config_path": str(mirrored_path),
     }
-    env_path = hermes_home / ".env"
+    env_path = fabric_home / ".env"
     if env_path.exists():
         assert "OPENVIKING_" not in env_path.read_text(encoding="utf-8")
 
 
-def test_post_setup_create_remote_user_can_keep_hermes_only(tmp_path, monkeypatch):
+def test_post_setup_create_remote_user_can_keep_fabric_only(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     _allow_setup_validation(monkeypatch)
 
     from fabric_cli import memory_setup
@@ -450,11 +458,11 @@ def test_post_setup_create_remote_user_can_keep_hermes_only(tmp_path, monkeypatc
     )
     config = {"memory": {}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
     assert config["memory"]["provider"] == "openviking"
     assert config["memory"]["openviking"] == {"use_ovcli_config": False}
-    env_text = (hermes_home / ".env").read_text(encoding="utf-8")
+    env_text = (fabric_home / ".env").read_text(encoding="utf-8")
     assert "OPENVIKING_ENDPOINT=https://openviking.example" in env_text
     assert "OPENVIKING_API_KEY=user-secret" in env_text
     assert "OPENVIKING_AGENT=agent" in env_text
@@ -463,9 +471,9 @@ def test_post_setup_create_remote_user_can_keep_hermes_only(tmp_path, monkeypatc
 
 def test_post_setup_create_openviking_service_validates_after_api_key(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
     from fabric_cli import memory_setup
 
@@ -496,7 +504,7 @@ def test_post_setup_create_openviking_service_validates_after_api_key(tmp_path, 
     )
     config = {"memory": {}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
     assert validation_calls == [(
         {
@@ -510,7 +518,7 @@ def test_post_setup_create_openviking_service_validates_after_api_key(tmp_path, 
         },
         True,
     )]
-    env_text = (hermes_home / ".env").read_text(encoding="utf-8")
+    env_text = (fabric_home / ".env").read_text(encoding="utf-8")
     assert "OPENVIKING_ENDPOINT=https://api.vikingdb.cn-beijing.volces.com/openviking" in env_text
     assert "OPENVIKING_API_KEY=service-secret" in env_text
     assert "OPENVIKING_AGENT=agent" in env_text
@@ -518,16 +526,16 @@ def test_post_setup_create_openviking_service_validates_after_api_key(tmp_path, 
 
 def test_post_setup_remote_blank_api_key_cancels_without_saving(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.setattr(openviking_module, "_validate_openviking_reachability", lambda endpoint: (True, ""))
 
-    from fabric_cli import config as hermes_config
+    from fabric_cli import config as fabric_config
     from fabric_cli import memory_setup
 
     save_config = MagicMock()
-    monkeypatch.setattr(hermes_config, "save_config", save_config)
+    monkeypatch.setattr(fabric_config, "save_config", save_config)
     choices = iter([1, 0, 1])
     monkeypatch.setattr(memory_setup, "_curses_select", lambda *args, **kwargs: next(choices))
     monkeypatch.setattr(
@@ -540,18 +548,18 @@ def test_post_setup_remote_blank_api_key_cancels_without_saving(tmp_path, monkey
     )
     config = {"memory": {"provider": "builtin"}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
     save_config.assert_not_called()
     assert config == {"memory": {"provider": "builtin"}}
-    assert not (hermes_home / ".env").exists()
+    assert not (fabric_home / ".env").exists()
 
 
 def test_post_setup_user_key_path_can_route_detected_root_key_to_root_setup(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
     from fabric_cli import memory_setup
 
@@ -581,10 +589,10 @@ def test_post_setup_user_key_path_can_route_detected_root_key_to_root_setup(tmp_
     monkeypatch.setattr(memory_setup, "_prompt", fake_prompt)
     config = {"memory": {}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
     assert prompt_events.count("Fabric peer ID in OpenViking") == 1
-    env_text = (hermes_home / ".env").read_text(encoding="utf-8")
+    env_text = (fabric_home / ".env").read_text(encoding="utf-8")
     assert "OPENVIKING_API_KEY=root-secret" in env_text
     assert "OPENVIKING_ACCOUNT=acct" in env_text
     assert "OPENVIKING_USER=alice" in env_text
@@ -593,9 +601,9 @@ def test_post_setup_user_key_path_can_route_detected_root_key_to_root_setup(tmp_
 
 def test_post_setup_root_key_path_can_route_detected_user_key_to_user_setup(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
     from fabric_cli import memory_setup
 
@@ -621,9 +629,9 @@ def test_post_setup_root_key_path_can_route_detected_user_key_to_user_setup(tmp_
     )
     config = {"memory": {}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
-    env_text = (hermes_home / ".env").read_text(encoding="utf-8")
+    env_text = (fabric_home / ".env").read_text(encoding="utf-8")
     assert "OPENVIKING_API_KEY=user-secret" in env_text
     assert "OPENVIKING_AGENT=agent" in env_text
     assert "OPENVIKING_ACCOUNT" not in env_text
@@ -684,8 +692,8 @@ def test_start_local_openviking_server_uses_endpoint_host_and_port(monkeypatch):
 
 
 def test_start_local_openviking_server_writes_output_to_log(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "fabric"
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     popen_calls = []
 
     class FakeProcess:
@@ -694,7 +702,7 @@ def test_start_local_openviking_server_writes_output_to_log(tmp_path, monkeypatc
     def fake_popen(args, **kwargs):
         popen_calls.append((args, kwargs))
         assert kwargs["stdout"] is kwargs["stderr"]
-        assert kwargs["stdout"].name == str(hermes_home / "logs" / "openviking-server.log")
+        assert kwargs["stdout"].name == str(fabric_home / "logs" / "openviking-server.log")
         assert not kwargs["stdout"].closed
         return FakeProcess()
 
@@ -704,7 +712,7 @@ def test_start_local_openviking_server_writes_output_to_log(tmp_path, monkeypatc
     started, message = openviking_module._start_local_openviking_server("http://127.0.0.1:1934")
 
     assert started is True
-    assert str(hermes_home / "logs" / "openviking-server.log") in message
+    assert str(fabric_home / "logs" / "openviking-server.log") in message
     assert popen_calls
 
 
@@ -937,7 +945,7 @@ def test_runtime_openviking_waiter_attaches_client_after_health_recovers(monkeyp
     provider._api_key = "secret"
     provider._account = "acct"
     provider._user = "alice"
-    provider._agent = "hermes"
+    provider._agent = "fabric"
     statuses = []
 
     provider._finish_runtime_openviking_start(
@@ -1106,9 +1114,9 @@ def test_initialize_does_not_emit_cli_warning_when_callback_absent(monkeypatch):
 
 def test_post_setup_local_server_down_can_offer_autostart(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.setattr(openviking_module, "_validate_openviking_setup_values", lambda values, *, require_api_key=False: (True, "", None))
 
     from fabric_cli import memory_setup
@@ -1135,23 +1143,23 @@ def test_post_setup_local_server_down_can_offer_autostart(tmp_path, monkeypatch)
     )
     config = {"memory": {}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
     assert started == ["http://localhost:1933"]
     assert reachability_calls == ["http://localhost:1933"]
-    env_text = (hermes_home / ".env").read_text(encoding="utf-8")
+    env_text = (fabric_home / ".env").read_text(encoding="utf-8")
     assert "OPENVIKING_ENDPOINT=http://localhost:1933" in env_text
     assert "OPENVIKING_API_KEY" not in env_text
 
 
 def test_post_setup_invalid_env_profile_can_create_new_config(tmp_path, monkeypatch):
     _clear_openviking_env(monkeypatch)
-    hermes_home = tmp_path / "hermes"
-    hermes_home.mkdir()
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir()
     ovcli_path = tmp_path / "broken" / "ovcli.conf"
     ovcli_path.parent.mkdir()
     ovcli_path.write_text("{", encoding="utf-8")
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
     monkeypatch.setenv("OPENVIKING_CLI_CONFIG_FILE", str(ovcli_path))
     _allow_setup_validation(monkeypatch)
 
@@ -1170,7 +1178,7 @@ def test_post_setup_invalid_env_profile_can_create_new_config(tmp_path, monkeypa
     )
     config = {"memory": {}}
 
-    OpenVikingMemoryProvider().post_setup(str(hermes_home), config)
+    OpenVikingMemoryProvider().post_setup(str(fabric_home), config)
 
     assert ovcli_path.read_text(encoding="utf-8") == "{"
     assert config["memory"]["openviking"] == {"use_ovcli_config": False}
@@ -1336,14 +1344,14 @@ def test_tool_add_resource_uploads_file_uri(tmp_path):
     assert result["root_uri"] == "viking://resources/sample"
 
 
-def test_tool_add_resource_rejects_hermes_credential_file_upload(tmp_path, monkeypatch):
+def test_tool_add_resource_rejects_fabric_credential_file_upload(tmp_path, monkeypatch):
     import agent.file_safety as fs
 
-    hermes_home = tmp_path / "hermes_home"
-    hermes_home.mkdir()
-    auth_json = hermes_home / "auth.json"
+    fabric_home = tmp_path / "fabric_home"
+    fabric_home.mkdir()
+    auth_json = fabric_home / "auth.json"
     auth_json.write_text('{"OPENROUTER_API_KEY":"sk-test-secret"}', encoding="utf-8")
-    monkeypatch.setattr(fs, "_hermes_home_path", lambda: hermes_home)
+    monkeypatch.setattr(fs, "_fabric_home_path", lambda: fabric_home)
 
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
@@ -1430,17 +1438,17 @@ def test_tool_add_resource_directory_zip_skips_symlink_escape(tmp_path):
     assert b"do not upload" not in b"".join(archive_entries["payloads"].values())
 
 
-def test_tool_add_resource_directory_zip_skips_hermes_credential_files(tmp_path, monkeypatch):
+def test_tool_add_resource_directory_zip_skips_fabric_credential_files(tmp_path, monkeypatch):
     import agent.file_safety as fs
 
-    hermes_home = tmp_path / "hermes_home"
-    hermes_home.mkdir()
-    (hermes_home / "guide.md").write_text("# Guide\n", encoding="utf-8")
-    (hermes_home / "auth.json").write_text(
+    fabric_home = tmp_path / "fabric_home"
+    fabric_home.mkdir()
+    (fabric_home / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    (fabric_home / "auth.json").write_text(
         '{"OPENROUTER_API_KEY":"sk-test-secret"}',
         encoding="utf-8",
     )
-    monkeypatch.setattr(fs, "_hermes_home_path", lambda: hermes_home)
+    monkeypatch.setattr(fs, "_fabric_home_path", lambda: fabric_home)
 
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
@@ -1453,15 +1461,15 @@ def test_tool_add_resource_directory_zip_skips_hermes_credential_files(tmp_path,
                 name: archive.read(name)
                 for name in archive.namelist()
             }
-        return "upload_hermes_home.zip"
+        return "upload_fabric_home.zip"
 
     provider._client.upload_temp_file.side_effect = inspect_upload
     provider._client.post.return_value = {
         "status": "ok",
-        "result": {"root_uri": "viking://resources/hermes_home"},
+        "result": {"root_uri": "viking://resources/fabric_home"},
     }
 
-    result = json.loads(provider._tool_add_resource({"url": str(hermes_home)}))
+    result = json.loads(provider._tool_add_resource({"url": str(fabric_home)}))
 
     assert result["status"] == "added"
     assert archive_entries["names"] == ["guide.md"]
@@ -1568,7 +1576,7 @@ def test_get_tool_schemas_includes_narrow_forget_tool():
 
 
 def test_handle_tool_call_forget_deletes_exact_memory_file_uri():
-    uri = "viking://user/peers/hermes/memories/preferences/mem_abc123.md"
+    uri = "viking://user/peers/fabric/memories/preferences/mem_abc123.md"
     provider = OpenVikingMemoryProvider()
     provider._client = MagicMock()
     provider._client.delete.return_value = {
@@ -1640,7 +1648,7 @@ def test_handle_tool_call_forget_allows_non_generated_dot_md_memory_file():
     "viking://resources/project/doc.md",
     "viking://resources/project/memories/mem_abc123.md",
     "viking://memories/preferences/mem_abc123.md",
-    "viking://agent/hermes/memories/preferences/mem_abc123.md",
+    "viking://agent/fabric/memories/preferences/mem_abc123.md",
     "viking://user/skills/example/SKILL.md",
     "viking://user/sessions/session-1/messages.jsonl",
     "viking://user/memories/preferences/",
@@ -1664,7 +1672,7 @@ def test_viking_client_delete_uses_identity_headers(monkeypatch):
         api_key="test-key",
         account="acct",
         user="alice",
-        agent="hermes",
+        agent="fabric",
     )
     captured = {}
 
@@ -1687,7 +1695,7 @@ def test_viking_client_delete_uses_identity_headers(monkeypatch):
     assert captured["url"] == "https://example.com/api/v1/fs"
     assert captured["kwargs"]["params"] == {"uri": "viking://user/memories/x.md"}
     assert captured["kwargs"]["headers"]["Authorization"] == "Bearer test-key"
-    assert captured["kwargs"]["headers"]["X-OpenViking-Actor-Peer"] == "hermes"
+    assert captured["kwargs"]["headers"]["X-OpenViking-Actor-Peer"] == "fabric"
 
 
 def test_viking_client_post_allows_per_request_timeout(monkeypatch):
@@ -1696,7 +1704,7 @@ def test_viking_client_post_allows_per_request_timeout(monkeypatch):
         api_key="test-key",
         account="acct",
         user="alice",
-        agent="hermes",
+        agent="fabric",
     )
     captured = {}
 
@@ -1803,12 +1811,12 @@ def test_viking_client_headers_include_bearer_when_api_key_set():
         api_key="test-key",
         account="acct",
         user="usr",
-        agent="hermes",
+        agent="fabric",
     )
     headers = client._headers()
     assert headers["X-API-Key"] == "test-key"
     assert headers["Authorization"] == "Bearer test-key"
-    assert headers["X-OpenViking-Actor-Peer"] == "hermes"
+    assert headers["X-OpenViking-Actor-Peer"] == "fabric"
     assert "X-OpenViking-Agent" not in headers
     assert "X-OpenViking-Account" not in headers
     assert "X-OpenViking-User" not in headers
@@ -1821,12 +1829,12 @@ def test_viking_client_headers_send_tenant_in_local_mode():
         api_key="",
         account="default",
         user="default",
-        agent="hermes",
+        agent="fabric",
     )
     headers = client._headers()
     assert headers["X-OpenViking-Account"] == "default"
     assert headers["X-OpenViking-User"] == "default"
-    assert headers["X-OpenViking-Actor-Peer"] == "hermes"
+    assert headers["X-OpenViking-Actor-Peer"] == "fabric"
     assert "X-OpenViking-Agent" not in headers
     assert "Authorization" not in headers
 
@@ -1839,12 +1847,12 @@ def test_viking_client_headers_send_tenant_when_empty_falls_back_to_default(monk
         api_key="",
         account="",
         user="",
-        agent="hermes",
+        agent="fabric",
     )
     headers = client._headers()
     assert headers["X-OpenViking-Account"] == "default"
     assert headers["X-OpenViking-User"] == "default"
-    assert headers["X-OpenViking-Actor-Peer"] == "hermes"
+    assert headers["X-OpenViking-Actor-Peer"] == "fabric"
     assert "X-OpenViking-Agent" not in headers
     assert "Authorization" not in headers
     assert "X-API-Key" not in headers
@@ -1856,7 +1864,7 @@ def test_viking_client_headers_can_include_tenant_for_trusted_retry():
         api_key="test-key",
         account="real-account",
         user="real-user",
-        agent="hermes",
+        agent="fabric",
     )
     headers = client._headers(include_tenant=True)
     assert headers["X-OpenViking-Account"] == "real-account"
@@ -1870,7 +1878,7 @@ def test_viking_client_retries_with_tenant_headers_for_trusted_mode(monkeypatch)
         api_key="test-key",
         account="acct",
         user="usr",
-        agent="hermes",
+        agent="fabric",
     )
     captured_headers = []
 
@@ -1915,7 +1923,7 @@ def test_viking_client_health_sends_auth_headers(monkeypatch):
         api_key="test-key",
         account="",
         user="",
-        agent="hermes",
+        agent="fabric",
     )
     captured = {}
 
@@ -1928,7 +1936,7 @@ def test_viking_client_health_sends_auth_headers(monkeypatch):
     assert client.health() is True
     assert captured["url"] == "https://example.com/health"
     assert captured["headers"]["Authorization"] == "Bearer test-key"
-    assert captured["headers"]["X-OpenViking-Actor-Peer"] == "hermes"
+    assert captured["headers"]["X-OpenViking-Actor-Peer"] == "fabric"
     assert "X-OpenViking-Agent" not in captured["headers"]
     assert "X-OpenViking-Account" not in captured["headers"]
     assert "X-OpenViking-User" not in captured["headers"]
@@ -1940,7 +1948,7 @@ def test_viking_client_validate_auth_uses_authenticated_system_status(monkeypatc
         api_key="test-key",
         account="acct",
         user="alice",
-        agent="hermes",
+        agent="fabric",
     )
     captured = {}
 
@@ -1962,7 +1970,7 @@ def test_viking_client_validate_auth_uses_authenticated_system_status(monkeypatc
     }
     assert captured["url"] == "https://example.com/api/v1/system/status"
     assert captured["headers"]["Authorization"] == "Bearer test-key"
-    assert captured["headers"]["X-OpenViking-Actor-Peer"] == "hermes"
+    assert captured["headers"]["X-OpenViking-Actor-Peer"] == "fabric"
     assert "X-OpenViking-Account" not in captured["headers"]
     assert "X-OpenViking-User" not in captured["headers"]
 
@@ -1974,7 +1982,7 @@ def test_viking_client_validate_root_access_uses_admin_accounts(monkeypatch):
         api_key="root-key",
         account="",
         user="",
-        agent="hermes",
+        agent="fabric",
     )
     captured = {}
 
@@ -1993,7 +2001,7 @@ def test_viking_client_validate_root_access_uses_admin_accounts(monkeypatch):
     assert client.validate_root_access() == {"status": "ok", "result": []}
     assert captured["url"] == "https://example.com/api/v1/admin/accounts"
     assert captured["headers"]["Authorization"] == "Bearer root-key"
-    assert captured["headers"]["X-OpenViking-Actor-Peer"] == "hermes"
+    assert captured["headers"]["X-OpenViking-Actor-Peer"] == "fabric"
     assert "X-OpenViking-Account" not in captured["headers"]
     assert "X-OpenViking-User" not in captured["headers"]
 
@@ -2030,7 +2038,7 @@ def test_validate_openviking_auth_uses_status_without_health(monkeypatch):
             assert api_key == "test-key"
             assert account == "acct"
             assert user == "alice"
-            assert agent == "hermes"
+            assert agent == "fabric"
 
         def validate_auth(self):
             events.append("status")
@@ -2043,7 +2051,7 @@ def test_validate_openviking_auth_uses_status_without_health(monkeypatch):
         "api_key": "test-key",
         "account": "acct",
         "user": "alice",
-        "agent": "hermes",
+        "agent": "fabric",
     })
 
     assert ok is True
@@ -2060,7 +2068,7 @@ def test_validate_openviking_root_access_uses_admin_endpoint(monkeypatch):
             assert api_key == "root-key"
             assert account == ""
             assert user == ""
-            assert agent == "hermes"
+            assert agent == "fabric"
 
         def validate_root_access(self):
             events.append("admin")
@@ -2116,7 +2124,7 @@ def test_validate_openviking_setup_values_local_dev_no_key_uses_health_only(monk
     monkeypatch.setattr(openviking_module, "_VikingClient", FakeVikingClient)
 
     ok, message, role = openviking_module._validate_openviking_setup_values(
-        {"endpoint": "localhost", "agent": "hermes"}
+        {"endpoint": "localhost", "agent": "fabric"}
     )
 
     assert ok is True
@@ -2348,7 +2356,7 @@ def test_sync_turn_captures_session_id_before_worker_runs():
     provider._api_key = ""
     provider._account = "acct"
     provider._user = "usr"
-    provider._agent = "hermes"
+    provider._agent = "fabric"
     provider._session_id = "old-sid"
 
     started = threading.Event()
@@ -2393,7 +2401,7 @@ def test_sync_turn_captures_session_id_before_worker_runs():
     assert captured_payloads == [{
         "messages": [
             {"role": "user", "parts": [{"type": "text", "text": "u"}]},
-            {"role": "assistant", "parts": [{"type": "text", "text": "a"}], "peer_id": "hermes"},
+            {"role": "assistant", "parts": [{"type": "text", "text": "a"}], "peer_id": "fabric"},
         ]
     }]
 
@@ -2405,7 +2413,7 @@ def test_sync_turn_retries_batch_write_with_fresh_client():
     provider._api_key = ""
     provider._account = "acct"
     provider._user = "usr"
-    provider._agent = "hermes"
+    provider._agent = "fabric"
     provider._session_id = "sid-1"
 
     clients = []
@@ -2437,7 +2445,7 @@ def test_sync_turn_retries_batch_write_with_fresh_client():
         {
             "messages": [
                 {"role": "user", "parts": [{"type": "text", "text": "u"}]},
-                {"role": "assistant", "parts": [{"type": "text", "text": "a"}], "peer_id": "hermes"},
+                {"role": "assistant", "parts": [{"type": "text", "text": "a"}], "peer_id": "fabric"},
             ]
         },
     )]
@@ -2450,7 +2458,7 @@ def test_sync_turn_structured_messages_include_assistant_peer_id():
     provider._api_key = ""
     provider._account = "acct"
     provider._user = "usr"
-    provider._agent = "hermes"
+    provider._agent = "fabric"
     provider._session_id = "sid-structured"
 
     captured = []
@@ -2494,7 +2502,7 @@ def test_sync_turn_structured_messages_include_assistant_peer_id():
         {
             "messages": [
                 {"role": "user", "parts": [{"type": "text", "text": "u"}]},
-                {"role": "assistant", "parts": [{"type": "text", "text": "Looking."}], "peer_id": "hermes"},
+                {"role": "assistant", "parts": [{"type": "text", "text": "Looking."}], "peer_id": "fabric"},
                 {
                     "role": "assistant",
                     "parts": [
@@ -2507,9 +2515,9 @@ def test_sync_turn_structured_messages_include_assistant_peer_id():
                             "tool_status": "completed",
                         }
                     ],
-                    "peer_id": "hermes",
+                    "peer_id": "fabric",
                 },
-                {"role": "assistant", "parts": [{"type": "text", "text": "a"}], "peer_id": "hermes"},
+                {"role": "assistant", "parts": [{"type": "text", "text": "a"}], "peer_id": "fabric"},
             ]
         },
     )]
@@ -2797,7 +2805,7 @@ def test_sync_turn_tracks_writer_under_session_id():
     provider._api_key = ""
     provider._account = "acct"
     provider._user = "usr"
-    provider._agent = "hermes"
+    provider._agent = "fabric"
     provider._session_id = "sid-1"
 
     release = threading.Event()
@@ -2843,7 +2851,7 @@ def test_on_memory_write_uses_content_write_independent_of_session_rotation():
     provider._api_key = ""
     provider._account = "acct"
     provider._user = "usr"
-    provider._agent = "hermes"
+    provider._agent = "fabric"
     provider._session_id = "old-sid"
 
     in_ctor = threading.Event()
@@ -2881,7 +2889,7 @@ def test_on_memory_write_uses_content_write_independent_of_session_rotation():
     assert captured_payloads[0]["content"] == "remember this"
     assert captured_payloads[0]["mode"] == "create"
     assert captured_payloads[0]["uri"].startswith(
-        "viking://user/peers/hermes/memories/preferences/mem_"
+        "viking://user/peers/fabric/memories/preferences/mem_"
     )
 
 
@@ -2894,7 +2902,7 @@ def test_shutdown_waits_for_memory_write_worker(monkeypatch):
     provider._api_key = ""
     provider._account = "acct"
     provider._user = "usr"
-    provider._agent = "hermes"
+    provider._agent = "fabric"
 
     worker_started = threading.Event()
     release_worker = threading.Event()
@@ -2949,8 +2957,8 @@ def test_on_memory_write_ignores_non_add_actions(action, content, monkeypatch):
     provider._api_key = ""
     provider._account = "acct"
     provider._user = "usr"
-    provider._agent = "hermes"
-    uri = "viking://user/peers/hermes/memories/preferences/mem_abc123.md"
+    provider._agent = "fabric"
+    uri = "viking://user/peers/fabric/memories/preferences/mem_abc123.md"
     spawned = []
 
     class StubThread:
@@ -2980,7 +2988,7 @@ def _make_prefetch_provider() -> OpenVikingMemoryProvider:
     provider._api_key = ""
     provider._account = "acct"
     provider._user = "usr"
-    provider._agent = "hermes"
+    provider._agent = "fabric"
     return provider
 
 
@@ -3048,7 +3056,7 @@ def test_prefetch_uses_session_search_when_session_id_available(monkeypatch):
                 "result": {
                     "memories": [
                         {
-                            "uri": "viking://user/peers/hermes/memories/events/mem_1.md",
+                            "uri": "viking://user/peers/fabric/memories/events/mem_1.md",
                             "score": 0.9,
                             "abstract": "session-aware memory",
                         },
@@ -3098,7 +3106,7 @@ def test_prefetch_falls_back_to_find_when_session_search_fails(monkeypatch):
                 "result": {
                     "memories": [
                         {
-                            "uri": "viking://user/peers/hermes/memories/events/mem_2.md",
+                            "uri": "viking://user/peers/fabric/memories/events/mem_2.md",
                             "score": 0.8,
                             "abstract": "non-session fallback",
                         },
@@ -3174,7 +3182,7 @@ def test_prefetch_reads_l2_content_and_ignores_skills_by_default(monkeypatch):
                 "result": {
                     "memories": [
                         {
-                            "uri": "viking://user/peers/hermes/memories/events/mem_3.md",
+                            "uri": "viking://user/peers/fabric/memories/events/mem_3.md",
                             "score": 0.9,
                             "level": 2,
                             "category": "events",
@@ -3203,7 +3211,7 @@ def test_prefetch_reads_l2_content_and_ignores_skills_by_default(monkeypatch):
     assert captured_reads == [
         (
             "/api/v1/content/read",
-            {"uri": "viking://user/peers/hermes/memories/events/mem_3.md"},
+            {"uri": "viking://user/peers/fabric/memories/events/mem_3.md"},
         )
     ]
     assert "full memory content" in context
@@ -3225,7 +3233,7 @@ def test_prefetch_reads_empty_abstract_content_within_budget(monkeypatch):
                 "result": {
                     "memories": [
                         {
-                            "uri": "viking://user/peers/hermes/memories/one.md",
+                            "uri": "viking://user/peers/fabric/memories/one.md",
                             "score": 0.9,
                             "abstract": "",
                         },
@@ -3245,10 +3253,10 @@ def test_prefetch_reads_empty_abstract_content_within_budget(monkeypatch):
     context = provider.prefetch("anything")
 
     assert [params["uri"] for _path, params in captured_reads] == [
-        "viking://user/peers/hermes/memories/one.md",
+        "viking://user/peers/fabric/memories/one.md",
     ]
     assert (
-        "content for viking://user/peers/hermes/memories/one.md"
+        "content for viking://user/peers/fabric/memories/one.md"
         in context
     )
 
@@ -3267,7 +3275,7 @@ def test_prefetch_caps_full_content_reads(monkeypatch):
                 "result": {
                     "memories": [
                         {
-                            "uri": f"viking://user/peers/hermes/memories/events/mem_{idx}.md",
+                            "uri": f"viking://user/peers/fabric/memories/events/mem_{idx}.md",
                             "score": 0.9 - (idx * 0.01),
                             "level": 2,
                             "category": "events",
@@ -3290,8 +3298,8 @@ def test_prefetch_caps_full_content_reads(monkeypatch):
     context = provider.prefetch("anything")
 
     assert len(captured_reads) == 2
-    assert "full content for viking://user/peers/hermes/memories/events/mem_0.md" in context
-    assert "full content for viking://user/peers/hermes/memories/events/mem_1.md" in context
+    assert "full content for viking://user/peers/fabric/memories/events/mem_0.md" in context
+    assert "full content for viking://user/peers/fabric/memories/events/mem_1.md" in context
     assert "short abstract 2" in context
 
 
@@ -3311,7 +3319,7 @@ def test_prefetch_uses_bounded_http_timeouts(monkeypatch):
                 "result": {
                     "memories": [
                         {
-                            "uri": "viking://user/peers/hermes/memories/events/mem_timeout.md",
+                            "uri": "viking://user/peers/fabric/memories/events/mem_timeout.md",
                             "score": 0.9,
                             "level": 2,
                             "category": "events",

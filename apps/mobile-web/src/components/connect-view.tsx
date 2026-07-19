@@ -25,9 +25,7 @@ interface ConnectViewProps {
 type AuthTab = "cookie" | "token";
 
 function injectedAuthRequired(): boolean {
-  return (
-    window.__FABRIC_AUTH_REQUIRED__ ?? window.__HERMES_AUTH_REQUIRED__ ?? false
-  );
+  return window.__FABRIC_AUTH_REQUIRED__ ?? false;
 }
 
 export function ConnectView({

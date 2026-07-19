@@ -60,14 +60,6 @@ class TestRuntimeProviderUsesScope:
         with pytest.raises(ss.UnscopedSecretError):
             _getenv("OPENROUTER_API_KEY")
 
-    def test_getenv_global_var_still_reads_environ(self, monkeypatch):
-        from fabric_cli.runtime_provider import _getenv
-        monkeypatch.setenv("HERMES_MAX_ITERATIONS", "42")
-        ss.set_multiplex_active(True)
-        # global var: no scope needed, no raise
-        assert _getenv("HERMES_MAX_ITERATIONS") == "42"
-
-
 class TestMcpInterpolationUsesScope:
     """MCP config ${VAR} interpolation resolves through the secret scope."""
 
@@ -263,9 +255,9 @@ async def test_concurrent_profiles_keep_prompt_routing_auth_and_fallback_local(
             f"  provider: provider-{marker}\n"
             "  api_key: ${PROVIDER_KEY}\n"
             f"  base_url: https://provider-{marker}.example/v1\n"
+            "prefill_messages_file: prefill.json\n"
             "agent:\n"
             "  system_prompt: profile-${PROMPT_TOKEN}\n"
-            "  prefill_messages_file: prefill.json\n"
             "  service_tier: fast\n"
             "provider_routing:\n"
             f"  order: [route-{marker}]\n"
@@ -331,14 +323,10 @@ async def test_concurrent_profiles_keep_prompt_routing_auth_and_fallback_local(
             barrier.wait(timeout=2)
             config = _load_gateway_runtime_config()
             gateway_config = runner._authorization_gateway_config()
-            prompt = runner._load_ephemeral_system_prompt(
-                config,
-                allow_process_env=False,
-            )
+            prompt = runner._load_ephemeral_system_prompt(config)
             prefill = runner._load_prefill_messages(
                 config,
                 config_home=home,
-                allow_process_env=False,
             )
             runtime_model, runtime = runner._resolve_session_agent_runtime(
                 source=source,

@@ -1,15 +1,8 @@
-"""Fabric product branding additive overlay — auto-launch the local dashboard.
+"""Offer to launch the local dashboard after interactive setup or auth.
 
 After an operator finishes brain setup (``fabric setup`` / ``fabric auth add``,
 including the device-code login surfaced in the Fabric Agent Console), offer to
 bring the Fabric dashboard up so they aren't left to start it by hand.
-
-This is a *pure additive convenience*: it only runs **after** the underlying
-upstream command has already succeeded, never alters auth/setup behavior, and
-lives in its own module so it adds no merge surface to upstream files. The two
-call sites (``cmd_auth``/``cmd_setup``) add a few clearly-marked lines each.
-
-See FABRIC-PATCHES.md.
 """
 
 from __future__ import annotations
@@ -23,8 +16,24 @@ DASHBOARD_PORT = 9119
 
 
 def _autostart_pref() -> str:
-    """``FABRIC_DASHBOARD_AUTOSTART``: '1' = always, '0' = never, '' = ask."""
-    return (os.environ.get("FABRIC_DASHBOARD_AUTOSTART") or "").strip()
+    """Return ``always``, ``never``, or ``ask`` from dashboard config."""
+    try:
+        from fabric_cli.config import load_config_readonly
+
+        config = load_config_readonly()
+        dashboard = config.get("dashboard", {}) if isinstance(config, dict) else {}
+        raw = dashboard.get("autostart", "ask") if isinstance(dashboard, dict) else "ask"
+    except Exception:
+        raw = "ask"
+
+    if isinstance(raw, bool):
+        return "always" if raw else "never"
+    value = str(raw or "ask").strip().lower()
+    if value in {"always", "on", "true", "yes", "1"}:
+        return "always"
+    if value in {"never", "off", "false", "no", "0"}:
+        return "never"
+    return "ask"
 
 
 def _is_interactive() -> bool:
@@ -49,15 +58,15 @@ def maybe_launch_dashboard(args, *, trigger: str) -> None:
     Gated so it never surprises scripted/headless callers (e.g. the gateway
     pairing scripts, which run non-interactively):
 
-      * ``--no-dashboard`` or ``FABRIC_DASHBOARD_AUTOSTART=0`` → skip
-      * already running                                       → just print URL
-      * not a TTY and not ``FABRIC_DASHBOARD_AUTOSTART=1``     → print a tip, skip
-      * otherwise prompt (default yes), unless ``=1`` forces it
+      * ``--no-dashboard`` or ``dashboard.autostart: never`` → skip
+      * already running                                      → just print URL
+      * not a TTY and autostart is not ``always``            → print a tip, skip
+      * otherwise prompt (default yes), unless ``always`` forces it
     """
     if getattr(args, "no_dashboard", False):
         return
     pref = _autostart_pref()
-    if pref == "0":
+    if pref == "never":
         return
 
     url = f"http://{DASHBOARD_HOST}:{DASHBOARD_PORT}"
@@ -66,7 +75,7 @@ def maybe_launch_dashboard(args, *, trigger: str) -> None:
         print(f"Fabric dashboard already running at {url}")
         return
 
-    if pref != "1":
+    if pref != "always":
         if not _is_interactive():
             # Don't spin up a long-running server behind a non-interactive
             # caller's back — tell them how and move on.

@@ -1,4 +1,4 @@
-"""Prompt-size diagnostic: ``hermes prompt-size``.
+"""Prompt-size diagnostic: ``fabric prompt-size``.
 
 Reports a byte/char breakdown of the system prompt the agent would build for
 a fresh session — system prompt total, the ``<available_skills>`` index,
@@ -17,8 +17,12 @@ import json
 import re
 from typing import Any, Dict, List, Tuple
 
-# The skills index is wrapped in this tag pair inside the stable tier.
-_SKILLS_BLOCK_RE = re.compile(r"<available_skills>.*?</available_skills>", re.DOTALL)
+# The skills index is wrapped in this tag pair inside the stable tier.  The
+# opening tag carries bounded-index metadata (for example, ``mode`` and
+# ``count``), so include attributes when extracting the complete block.
+_SKILLS_BLOCK_RE = re.compile(
+    r"<available_skills\b[^>]*>.*?</available_skills>", re.DOTALL
+)
 
 
 def _bytes(s: str) -> int:
@@ -147,7 +151,7 @@ def render_breakdown(data: Dict[str, Any]) -> str:
 
 
 def cmd_prompt_size(args: Any) -> None:
-    """Entry point for ``hermes prompt-size``."""
+    """Entry point for ``fabric prompt-size``."""
     platform = getattr(args, "platform", "cli") or "cli"
     as_json = getattr(args, "json", False)
     try:

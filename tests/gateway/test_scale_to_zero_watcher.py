@@ -165,7 +165,7 @@ def test_bg_work_false_when_quiet():
 def _arm_runner(monkeypatch, platform_states, *, enabled=True, wake_url="https://wake.example"):
     """Build a GatewayRunner stand-in whose config.platforms mirrors a real load:
     `platform_states` is {Platform: enabled_bool}; everything runs the REAL
-    _scale_to_zero_should_arm. Only the env flag + wake_url resolution are stubbed."""
+    _scale_to_zero_should_arm. Only the config gate + wake_url resolution are stubbed."""
     from types import SimpleNamespace
 
     from gateway.config import PlatformConfig
@@ -174,7 +174,7 @@ def _arm_runner(monkeypatch, platform_states, *, enabled=True, wake_url="https:/
     platforms = {p: PlatformConfig(enabled=en) for p, en in platform_states.items()}
     r.config = SimpleNamespace(platforms=platforms)
 
-    monkeypatch.setattr("gateway.scale_to_zero.scale_to_zero_enabled", lambda *a, **k: enabled)
+    monkeypatch.setattr(r, "_scale_to_zero_enabled", lambda: enabled)
     monkeypatch.setattr("gateway.relay.relay_wake_url", lambda: wake_url)
     return r
 
@@ -221,8 +221,8 @@ def test_arm_when_no_platform_enabled_at_all(monkeypatch):
     assert r._scale_to_zero_should_arm() is True
 
 
-def test_no_arm_when_not_opted_in(monkeypatch):
-    """Relay-only but the Labs stamp is off ⇒ never arm (fail-safe default)."""
+def test_no_arm_when_disabled(monkeypatch):
+    """Relay-only but the config gate is off ⇒ never arm (fail-safe default)."""
     from gateway.platforms.base import Platform
 
     r = _arm_runner(monkeypatch, {Platform.RELAY: True}, enabled=False)

@@ -6,6 +6,7 @@ import { formatRefValue } from '@/components/assistant-ui/directive-text'
 import { useI18n } from '@/i18n'
 import { attachmentId, contextPath, pathLabel } from '@/lib/chat-runtime'
 import { readDesktopFileDataUrl, selectDesktopPaths } from '@/lib/desktop-fs'
+import { SESSION_REFERENCE_MIME } from '@/lib/drag-transfer'
 import { normalize } from '@/lib/text'
 import {
   addComposerAttachment,
@@ -51,7 +52,7 @@ export function isImagePath(filePath: string): boolean {
  */
 export async function attachmentPreviewDataUrl(filePath: string): Promise<string> {
   try {
-    const local = await window.hermesDesktop?.readFileDataUrl?.(filePath)
+    const local = await window.fabricDesktop?.readFileDataUrl?.(filePath)
 
     if (local) {
       return local
@@ -77,13 +78,11 @@ export interface DroppedFile {
   lineEnd?: number
 }
 
-/** MIME emitted by in-app drag sources (project tree, gutter line numbers).
- * Payload is JSON `{ path; isDirectory?; line?; lineEnd? }[]`. */
-export const HERMES_PATHS_MIME = 'application/x-hermes-paths'
+export { SESSION_REFERENCE_MIME } from '@/lib/drag-transfer'
 
 /**
  * Eagerly resolve files from a drop event into [File?, path, isDirectory?]
- * triples. Internal Hermes sources (e.g. the project tree) ride on a custom
+ * triples. Internal Fabric sources (e.g. the project tree) ride on a custom
  * MIME and produce path-only entries; OS drops produce File-bearing entries.
  *
  * Must be called synchronously from inside the drop handler — `DataTransfer`
@@ -94,12 +93,12 @@ export function extractDroppedFiles(transfer: DataTransfer): DroppedFile[] {
   const result: DroppedFile[] = []
   const seenPaths = new Set<string>()
   const seenFiles = new Set<File>()
-  const getPath = window.hermesDesktop?.getPathForFile
+  const getPath = window.fabricDesktop?.getPathForFile
 
   // In-app drags first — they carry richer metadata (isDirectory) than the
   // File-based fallback can provide, and produce no overlapping native files.
   try {
-    const internalRaw = transfer.getData(HERMES_PATHS_MIME)
+    const internalRaw = transfer.getData(SESSION_REFERENCE_MIME)
 
     if (internalRaw) {
       const parsed = JSON.parse(internalRaw) as {
@@ -420,7 +419,7 @@ export function useComposerActions({ activeSessionId, currentCwd, requestGateway
       try {
         const buffer = await blob.arrayBuffer()
         const data = new Uint8Array(buffer)
-        const savedPath = await window.hermesDesktop?.saveImageBuffer(data, blobExtension(blob))
+        const savedPath = await window.fabricDesktop?.saveImageBuffer(data, blobExtension(blob))
 
         if (!savedPath) {
           notify({ kind: 'error', title: copy.imageAttach, message: copy.imageWriteFailed })
@@ -462,7 +461,7 @@ export function useComposerActions({ activeSessionId, currentCwd, requestGateway
   const pasteClipboardImage = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
       try {
-        const path = await window.hermesDesktop?.saveClipboardImage()
+        const path = await window.fabricDesktop?.saveClipboardImage()
 
         if (!path) {
           if (!silent) {
@@ -562,7 +561,7 @@ export function useComposerActions({ activeSessionId, currentCwd, requestGateway
         }
 
         const fallbackPath =
-          !knownPath && window.hermesDesktop?.getPathForFile ? window.hermesDesktop.getPathForFile(file) : ''
+          !knownPath && window.fabricDesktop?.getPathForFile ? window.fabricDesktop.getPathForFile(file) : ''
 
         const filePath = knownPath || fallbackPath || ''
         const isImage = file.type.startsWith('image/') || isImagePath(file.name) || (filePath && isImagePath(filePath))

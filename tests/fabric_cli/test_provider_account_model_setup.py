@@ -14,7 +14,6 @@ from fabric_cli import provider_accounts as accounts
 def _select_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("FABRIC_HOME", str(home))
-    monkeypatch.setenv("HERMES_HOME", str(home))
 
 
 def _codex_credentials() -> dict[str, object]:

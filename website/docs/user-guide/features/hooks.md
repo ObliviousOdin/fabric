@@ -1446,13 +1446,12 @@ printf '{}\n'
 
 Each unique `(event, command)` pair prompts the user for approval the first time Fabric sees it, then persists the decision to `~/.fabric/shell-hooks-allowlist.json`. Subsequent runs (CLI or gateway) skip the prompt.
 
-Three escape hatches bypass the interactive prompt — any one is sufficient:
+Two explicit controls bypass the interactive prompt — either is sufficient:
 
 1. `--accept-hooks` flag on the CLI (e.g. `fabric --accept-hooks chat`)
-2. `HERMES_ACCEPT_HOOKS=1` environment variable
-3. `hooks_auto_accept: true` in `cli-config.yaml`
+2. `hooks_auto_accept: true` in `config.yaml`
 
-Non-TTY runs (gateway, cron, CI) need one of these three — otherwise any newly-added hook silently stays un-registered and logs a warning.
+Non-TTY runs (gateway, cron, CI) need one of these controls — otherwise any newly-added hook silently stays unregistered and logs a warning.
 
 **Script edits are silently trusted.** The allowlist keys on the exact command string, not the script's hash, so editing the script on disk does not invalidate consent. `fabric hooks doctor` flags mtime drift so you can spot edits and decide whether to re-approve.
 

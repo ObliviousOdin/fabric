@@ -47,7 +47,11 @@ export function PortalCard({ portal }: { portal: PortalStatus }) {
         )}
         {!portal.logged_in && (
           <p className="text-xs text-muted-foreground">
-            Log in with <span className="font-mono">fabric portal</span>.
+            Log in with{" "}
+            <span className="font-mono">
+              fabric portal --client-id &lt;registered-client-id&gt;
+            </span>
+            .
           </p>
         )}
       </CardContent>

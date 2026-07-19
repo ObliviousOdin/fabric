@@ -17,7 +17,7 @@ Config via config.yaml:
     byterover:
       auto_extract: false  # disable automatic brv curate hooks
 
-Working directory: $HERMES_HOME/byterover/ (profile-scoped context tree)
+Working directory: $FABRIC_HOME/byterover/ (profile-scoped context tree)
 """
 
 from __future__ import annotations
@@ -71,9 +71,8 @@ def _coerce_bool(value: Any, default: bool = False) -> bool:
 def _load_plugin_config() -> Dict[str, Any]:
     """Read ByteRover's profile-scoped memory config.
 
-    New memory-provider setup stores non-secret provider settings under
-    ``memory.<provider>``.  Some users also set ``memory.provider_config`` from
-    early docs/issues, so accept it as a compatibility fallback.
+    Provider-specific settings take precedence over the shared
+    ``memory.provider_config`` schema used by memory-provider setup.
     """
     try:
         from fabric_cli.config import load_config
@@ -87,9 +86,9 @@ def _load_plugin_config() -> Dict[str, Any]:
         if isinstance(provider_config, dict) and provider_config:
             return dict(provider_config)
 
-        legacy_config = memory_config.get("provider_config", {})
-        if isinstance(legacy_config, dict):
-            return dict(legacy_config)
+        common_config = memory_config.get("provider_config", {})
+        if isinstance(common_config, dict):
+            return dict(common_config)
     except Exception:
         pass
     return {}

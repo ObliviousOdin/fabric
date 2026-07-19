@@ -7,7 +7,6 @@ web/package-lock.json linguist-generated=true
 *.sh        text eol=lf
 Dockerfile  text eol=lf
 *.dockerfile text eol=lf
-docker/entrypoint.sh text eol=lf
 
 # Windows command scripts require CRLF in worktrees but normalized Git storage.
 *.bat text eol=crlf

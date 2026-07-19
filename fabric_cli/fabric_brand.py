@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 PRODUCT_NAME = "Fabric"
 VENDOR_NAME = "Fabric"
 DOCS_URL_DEFAULT = "https://obliviousodin.github.io/fabric/"
@@ -31,11 +29,6 @@ FABRIC_HELP_GUIDANCE = (
 )
 
 
-def fabric_brand_enabled() -> bool:
-    """Return True because Fabric is the native product identity."""
-    return True
-
-
 def resolve_agent_identity() -> str:
     return FABRIC_AGENT_IDENTITY
 
@@ -49,7 +42,7 @@ def resolve_help_guidance() -> str:
 
 
 def docs_url() -> str:
-    return (os.environ.get("FABRIC_DOCS_URL") or DOCS_URL_DEFAULT).strip() or DOCS_URL_DEFAULT
+    return DOCS_URL_DEFAULT
 
 
 def product_label() -> str:

@@ -42,21 +42,22 @@ def _fmt_pending(pending: list) -> str:
 def _resolve_origin() -> Optional[Dict[str, Any]]:
     """Best-effort current-chat origin from session env (CLI and gateway both set it).
 
-    Mirrors cron's ``_origin_from_env`` so an accepted suggestion's job delivers
+    Mirrors cron's ``_origin_from_context`` so an accepted suggestion's job delivers
     back to the chat where it was accepted. Returns None if unavailable, in
     which case create_job falls back to a configured home channel.
     """
     try:
-        from gateway.session_context import get_session_env
+        from gateway.session_context import get_session_context
 
-        platform = get_session_env("HERMES_SESSION_PLATFORM")
-        chat_id = get_session_env("HERMES_SESSION_CHAT_ID")
+        context = get_session_context()
+        platform = context.platform
+        chat_id = context.chat_id
         if platform and chat_id:
             return {
                 "platform": platform,
                 "chat_id": chat_id,
-                "chat_name": get_session_env("HERMES_SESSION_CHAT_NAME") or None,
-                "thread_id": get_session_env("HERMES_SESSION_THREAD_ID") or None,
+                "chat_name": context.chat_name or None,
+                "thread_id": context.thread_id or None,
             }
     except Exception:
         pass

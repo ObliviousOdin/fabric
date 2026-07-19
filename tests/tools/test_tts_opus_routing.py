@@ -4,21 +4,15 @@ from unittest.mock import Mock
 
 import pytest
 
-from gateway.session_context import _UNSET, _VAR_MAP
+from gateway.session_context import reset_session_vars, set_session_vars
 from tools import tts_tool
 
 
-def _reset_session_context() -> None:
-    for var in _VAR_MAP.values():
-        var.set(_UNSET)
-
-
 @pytest.fixture(autouse=True)
-def _clean_session_platform(monkeypatch):
-    _reset_session_context()
-    monkeypatch.delenv("HERMES_SESSION_PLATFORM", raising=False)
+def _clean_session_platform():
+    reset_session_vars()
     yield
-    _reset_session_context()
+    reset_session_vars()
 
 
 async def _write_edge_output(_text: str, output_path: str, _tts_config: dict) -> str:
@@ -55,7 +49,7 @@ def test_edge_telegram_converts_to_opus_voice(tmp_path, monkeypatch):
 
     convert = Mock(side_effect=fake_convert)
 
-    monkeypatch.setenv("HERMES_SESSION_PLATFORM", "telegram")
+    set_session_vars(platform="telegram")
     monkeypatch.setattr(tts_tool, "_load_tts_config", lambda: {"provider": "edge"})
     monkeypatch.setattr(tts_tool, "_import_edge_tts", lambda: object())
     monkeypatch.setattr(tts_tool, "_generate_edge_tts", _write_edge_output)

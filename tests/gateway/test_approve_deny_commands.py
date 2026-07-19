@@ -8,9 +8,9 @@ Supports multiple concurrent approvals (parallel subagents, execute_code)
 via a per-session queue.
 """
 
-import os
 import threading
 import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -62,7 +62,7 @@ def _make_runner():
     runner._fallback_model = None
     runner._show_reasoning = False
     runner._is_user_authorized = lambda _source: True
-    runner._set_session_env = lambda _context: None
+    runner._bind_session_context = lambda _context: None
     return runner
 
 
@@ -74,6 +74,21 @@ def _clear_approval_state():
     mod._session_approved.clear()
     mod._permanent_approved.clear()
     mod._pending.clear()
+
+
+@contextmanager
+def _gateway_approval_context(session_key: str):
+    """Bind the task-local gateway identity used by approval routing."""
+    from gateway.session_context import clear_session_vars, set_session_vars
+
+    tokens = set_session_vars(
+        platform="test_gateway",
+        session_key=session_key,
+    )
+    try:
+        yield
+    finally:
+        clear_session_vars(tokens)
 
 
 # ------------------------------------------------------------------
@@ -437,11 +452,6 @@ class TestBlockingApprovalE2E:
 
     def setup_method(self):
         _clear_approval_state()
-        os.environ.pop("HERMES_YOLO_MODE", None)
-        os.environ.pop("HERMES_INTERACTIVE", None)
-        os.environ.pop("HERMES_GATEWAY_SESSION", None)
-        os.environ.pop("HERMES_EXEC_ASK", None)
-        os.environ.pop("HERMES_SESSION_KEY", None)
 
     def test_blocking_approval_approve_once(self):
         """check_all_command_guards blocks until resolve_gateway_approval is called."""
@@ -461,17 +471,12 @@ class TestBlockingApprovalE2E:
             from tools.approval import reset_current_session_key, set_current_session_key
 
             token = set_current_session_key(session_key)
-            os.environ["HERMES_GATEWAY_SESSION"] = "1"
-            os.environ["HERMES_EXEC_ASK"] = "1"
-            os.environ["HERMES_SESSION_KEY"] = session_key
             try:
-                result_holder[0] = check_all_command_guards(
-                    "rm -rf /important", "local"
-                )
+                with _gateway_approval_context(session_key):
+                    result_holder[0] = check_all_command_guards(
+                        "rm -rf /important", "local"
+                    )
             finally:
-                os.environ.pop("HERMES_GATEWAY_SESSION", None)
-                os.environ.pop("HERMES_EXEC_ASK", None)
-                os.environ.pop("HERMES_SESSION_KEY", None)
                 reset_current_session_key(token)
 
         t = threading.Thread(target=agent_thread)
@@ -509,17 +514,12 @@ class TestBlockingApprovalE2E:
             from tools.approval import reset_current_session_key, set_current_session_key
 
             token = set_current_session_key(session_key)
-            os.environ["HERMES_GATEWAY_SESSION"] = "1"
-            os.environ["HERMES_EXEC_ASK"] = "1"
-            os.environ["HERMES_SESSION_KEY"] = session_key
             try:
-                result_holder[0] = check_all_command_guards(
-                    "rm -rf /important", "local"
-                )
+                with _gateway_approval_context(session_key):
+                    result_holder[0] = check_all_command_guards(
+                        "rm -rf /important", "local"
+                    )
             finally:
-                os.environ.pop("HERMES_GATEWAY_SESSION", None)
-                os.environ.pop("HERMES_EXEC_ASK", None)
-                os.environ.pop("HERMES_SESSION_KEY", None)
                 reset_current_session_key(token)
 
         t = threading.Thread(target=agent_thread)
@@ -552,19 +552,14 @@ class TestBlockingApprovalE2E:
             from tools.approval import reset_current_session_key, set_current_session_key
 
             token = set_current_session_key(session_key)
-            os.environ["HERMES_GATEWAY_SESSION"] = "1"
-            os.environ["HERMES_EXEC_ASK"] = "1"
-            os.environ["HERMES_SESSION_KEY"] = session_key
             try:
-                with patch("tools.approval._get_approval_config",
-                           return_value={"gateway_timeout": 1}):
-                    result_holder[0] = check_all_command_guards(
-                        "rm -rf /important", "local"
-                    )
+                with _gateway_approval_context(session_key):
+                    with patch("tools.approval._get_approval_config",
+                               return_value={"gateway_timeout": 1}):
+                        result_holder[0] = check_all_command_guards(
+                            "rm -rf /important", "local"
+                        )
             finally:
-                os.environ.pop("HERMES_GATEWAY_SESSION", None)
-                os.environ.pop("HERMES_EXEC_ASK", None)
-                os.environ.pop("HERMES_SESSION_KEY", None)
                 reset_current_session_key(token)
 
         t = threading.Thread(target=agent_thread)
@@ -594,15 +589,10 @@ class TestBlockingApprovalE2E:
                 from tools.approval import reset_current_session_key, set_current_session_key
 
                 token = set_current_session_key(session_key)
-                os.environ["HERMES_GATEWAY_SESSION"] = "1"
-                os.environ["HERMES_EXEC_ASK"] = "1"
-                os.environ["HERMES_SESSION_KEY"] = session_key
                 try:
-                    results[idx] = check_all_command_guards(cmd, "local")
+                    with _gateway_approval_context(session_key):
+                        results[idx] = check_all_command_guards(cmd, "local")
                 finally:
-                    os.environ.pop("HERMES_GATEWAY_SESSION", None)
-                    os.environ.pop("HERMES_EXEC_ASK", None)
-                    os.environ.pop("HERMES_SESSION_KEY", None)
                     reset_current_session_key(token)
             return run
 
@@ -651,15 +641,10 @@ class TestBlockingApprovalE2E:
                 from tools.approval import reset_current_session_key, set_current_session_key
 
                 token = set_current_session_key(session_key)
-                os.environ["HERMES_GATEWAY_SESSION"] = "1"
-                os.environ["HERMES_EXEC_ASK"] = "1"
-                os.environ["HERMES_SESSION_KEY"] = session_key
                 try:
-                    results[idx] = check_all_command_guards(cmd, "local")
+                    with _gateway_approval_context(session_key):
+                        results[idx] = check_all_command_guards(cmd, "local")
                 finally:
-                    os.environ.pop("HERMES_GATEWAY_SESSION", None)
-                    os.environ.pop("HERMES_EXEC_ASK", None)
-                    os.environ.pop("HERMES_SESSION_KEY", None)
                     reset_current_session_key(token)
             return run
 
@@ -712,13 +697,8 @@ class TestFallbackNoCallback:
         """
         from tools.approval import check_all_command_guards
 
-        os.environ["HERMES_EXEC_ASK"] = "1"
-        os.environ["HERMES_SESSION_KEY"] = "no-callback-test"
-        try:
+        with _gateway_approval_context("no-callback-test"):
             result = check_all_command_guards("rm -rf /important", "local")
-        finally:
-            os.environ.pop("HERMES_EXEC_ASK", None)
-            os.environ.pop("HERMES_SESSION_KEY", None)
 
         assert result["approved"] is False
         assert result.get("status") == "pending_approval"
@@ -731,90 +711,43 @@ class TestFallbackNoCallback:
 
 
 class TestCrossSessionApprovalIsolation:
-    """Regression for #24100.
-
-    The gateway used to write the per-turn session key to the
-    process-global ``os.environ["HERMES_SESSION_KEY"]`` inside
-    ``GatewayRunner._run_agent``. Because ``os.environ`` is process-global,
-    a concurrent gateway session (e.g. a second Discord thread) clobbered
-    the value, and a tool worker thread whose approval contextvar was unset
-    fell back to ``os.environ`` and read the *wrong* session key — routing
-    the "Command Approval Required" prompt to the wrong thread.
-
-    The fix removes that ``os.environ`` write; routing is driven solely by
-    the ``_approval_session_key`` contextvar. These tests assert that a
-    worker thread carrying session A's contextvar resolves to session A
-    even when ``os.environ`` has been clobbered to session B.
-    """
+    """Concurrent approval routing remains isolated by task-local identity."""
 
     def setup_method(self):
         _clear_approval_state()
-        os.environ.pop("HERMES_SESSION_KEY", None)
 
-    def teardown_method(self):
-        os.environ.pop("HERMES_SESSION_KEY", None)
-
-    def test_contextvar_wins_over_clobbered_environ(self):
-        """get_current_session_key honors the contextvar, not stale env."""
+    def test_approval_context_overrides_general_session_context(self):
         from tools.approval import (
             get_current_session_key,
             reset_current_session_key,
             set_current_session_key,
         )
 
-        # Simulate a concurrent session B having written process-global env
-        # last (the "last writer wins" clobber that caused #24100).
-        os.environ["HERMES_SESSION_KEY"] = "session-B"
+        from gateway.session_context import clear_session_vars, set_session_vars
 
+        session_tokens = set_session_vars(session_key="session-B")
         token = set_current_session_key("session-A")
         try:
-            # The worker running under session A's contextvar must resolve
-            # to session A, NOT the env-pinned session B.
             assert get_current_session_key() == "session-A"
         finally:
             reset_current_session_key(token)
+            clear_session_vars(session_tokens)
 
-    def test_unset_contextvar_does_not_fall_back_to_clobbered_environ(self):
-        """The resolver must not leak a concurrent session's clobbered
-        ``os.environ`` value once the session-context vars are cleared (#24100).
-
-        This exercises the resolver contract directly (not a separate worker
-        thread): while the session-context var holds a key, resolution returns
-        it; after ``clear_session_vars`` marks the vars explicitly cleared, the
-        ``os.environ`` fallback is suppressed and resolution must NOT return the
-        stale, process-global value a concurrent session wrote. Under the buggy
-        gateway that value would be another live session's key; here we assert
-        the resolver never surfaces it.
-        """
+    def test_cleared_context_returns_default_scope(self):
         from gateway.session_context import clear_session_vars, set_session_vars
         from tools.approval import get_current_session_key
 
-        # Simulate: concurrent session B was the last to clobber os.environ
-        # under the OLD buggy gateway. With the fix this write never happens,
-        # but we set it here to prove the resolver no longer trusts it once
-        # the session-context contextvars are explicitly cleared (as the
-        # gateway does in its finally block via clear_session_vars()).
-        os.environ["HERMES_SESSION_KEY"] = "session-B-stale"
-
-        # The gateway explicitly clears its session contextvars at turn end;
-        # clear_session_vars sets them to "" to *suppress* the os.environ
-        # fallback. A bare worker thread therefore must NOT see session-B.
         tokens = set_session_vars(session_key="session-A")
         try:
             assert get_current_session_key() == "session-A"
         finally:
             clear_session_vars(tokens)
 
-        # After clearing, resolution returns the explicit empty/default —
-        # never the clobbered process-global value from session B.
-        assert get_current_session_key() != "session-B-stale", (
-            "resolver leaked a concurrent session's clobbered os.environ "
-            "value — #24100 regression"
-        )
+        assert get_current_session_key() == "default"
 
     def test_approval_prompt_routes_to_originating_session(self):
         """A dangerous command in session A's worker thread notifies
-        session A's callback, even though os.environ points at session B."""
+        session A's callback and never session B's callback."""
         from tools.approval import (
             check_all_command_guards,
             register_gateway_notify,
@@ -828,22 +761,16 @@ class TestCrossSessionApprovalIsolation:
         register_gateway_notify("session-A", lambda d: notified_a.append(d))
         register_gateway_notify("session-B", lambda d: notified_b.append(d))
 
-        # Concurrent session B clobbered the process-global env var last.
-        os.environ["HERMES_SESSION_KEY"] = "session-B"
-        os.environ["HERMES_GATEWAY_SESSION"] = "1"
-        os.environ["HERMES_EXEC_ASK"] = "1"
-
         result_holder = [None]
 
         def worker_a():
-            # This worker belongs to session A — only its contextvar is set;
-            # it deliberately does NOT touch os.environ (mirroring the fixed
-            # gateway, which no longer writes HERMES_SESSION_KEY).
+            # This worker belongs to session A and binds only task-local state.
             token = set_current_session_key("session-A")
             try:
-                result_holder[0] = check_all_command_guards(
-                    "rm -rf /important", "local"
-                )
+                with _gateway_approval_context("session-A"):
+                    result_holder[0] = check_all_command_guards(
+                        "rm -rf /important", "local"
+                    )
             finally:
                 reset_current_session_key(token)
 
@@ -865,18 +792,15 @@ class TestCrossSessionApprovalIsolation:
             assert result_holder[0] is not None
             assert result_holder[0]["approved"] is True
         finally:
-            os.environ.pop("HERMES_GATEWAY_SESSION", None)
-            os.environ.pop("HERMES_EXEC_ASK", None)
             unregister_gateway_notify("session-A")
             unregister_gateway_notify("session-B")
 
     def test_two_concurrent_sessions_route_to_own_queue_contextvar_only(self):
         """Cross-session isolation driven by contextvars ALONE (#24100).
 
-        Two concurrent worker threads with DISTINCT session keys each set
-        only ``set_current_session_key()`` — they deliberately never write
-        ``os.environ["HERMES_SESSION_KEY"]``. This proves the contextvar is
-        sufficient post-fix, and would FAIL if contextvar routing regressed
+        Two concurrent worker threads have distinct task-local session
+        identities. This proves task-local routing is sufficient and would fail if
+        context routing regressed
         (the prior 'parallel' tests share one key and dual-set env+contextvar,
         so they cannot guard this invariant). Each session's dangerous command
         must land in its OWN gateway queue, and resolving one must not resolve
@@ -892,11 +816,6 @@ class TestCrossSessionApprovalIsolation:
             unregister_gateway_notify,
         )
 
-        # No HERMES_SESSION_KEY in os.environ at all — pure contextvar routing.
-        os.environ.pop("HERMES_SESSION_KEY", None)
-        os.environ["HERMES_GATEWAY_SESSION"] = "1"
-        os.environ["HERMES_EXEC_ASK"] = "1"
-
         register_gateway_notify("sess-A", lambda d: None)
         register_gateway_notify("sess-B", lambda d: None)
 
@@ -905,7 +824,8 @@ class TestCrossSessionApprovalIsolation:
         def worker(key, cmd):
             token = set_current_session_key(key)
             try:
-                results[key] = check_all_command_guards(cmd, "local")
+                with _gateway_approval_context(key):
+                    results[key] = check_all_command_guards(cmd, "local")
             finally:
                 reset_current_session_key(token)
 
@@ -945,7 +865,5 @@ class TestCrossSessionApprovalIsolation:
             resolve_gateway_approval("sess-B", "deny")
             ta.join(timeout=2)
             tb.join(timeout=2)
-            os.environ.pop("HERMES_GATEWAY_SESSION", None)
-            os.environ.pop("HERMES_EXEC_ASK", None)
             unregister_gateway_notify("sess-A")
             unregister_gateway_notify("sess-B")

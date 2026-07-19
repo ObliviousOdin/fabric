@@ -1,4 +1,4 @@
-"""Tests for file write safety and FABRIC_WRITE_SAFE_ROOT sandboxing.
+"""Tests for file write safety and configured write-root sandboxing.
 
 Based on PR #1085 by ismoilh (salvaged).
 """
@@ -25,167 +25,58 @@ class TestStaticDenyList:
         assert _is_write_denied("/etc/shadow") is True
 
 
-class TestSafeWriteRoot:
-    """FABRIC_WRITE_SAFE_ROOT should sandbox writes to a specific subtree."""
+class TestSafeWriteRoots:
+    """``security.write_safe_roots`` confines file writes to configured trees."""
 
-    def test_fabric_safe_root_is_canonical(self, tmp_path: Path, monkeypatch):
-        safe_root = tmp_path / "fabric-workspace"
-        child = safe_root / "file.txt"
+    @pytest.fixture(autouse=True)
+    def _config(self, monkeypatch):
+        self.roots: list[str] = []
+        monkeypatch.setattr(
+            "agent.file_safety._configured_write_safe_roots",
+            lambda: list(self.roots),
+        )
+        monkeypatch.setattr(
+            "agent.file_safety._is_published_container_install",
+            lambda: False,
+        )
+
+    def test_empty_config_allows_regular_path(self, tmp_path: Path):
+        assert _is_write_denied(str(tmp_path / "regular.txt")) is False
+
+    def test_inside_root_allowed_and_outside_denied(self, tmp_path: Path):
+        safe_root = tmp_path / "workspace"
         safe_root.mkdir()
+        self.roots[:] = [str(safe_root)]
 
-        monkeypatch.setenv("FABRIC_WRITE_SAFE_ROOT", str(safe_root))
-        monkeypatch.delenv("HERMES_WRITE_SAFE_ROOT", raising=False)
-        assert _is_write_denied(str(child)) is False
+        assert _is_write_denied(str(safe_root / "subdir" / "file.txt")) is False
+        assert _is_write_denied(str(tmp_path / "outside.txt")) is True
 
-    def test_fabric_safe_root_wins_over_legacy(self, tmp_path: Path, monkeypatch):
-        fabric_root = tmp_path / "fabric-workspace"
-        legacy_root = tmp_path / "legacy-workspace"
-        fabric_root.mkdir()
-        legacy_root.mkdir()
+    def test_multiple_roots_are_supported(self, tmp_path: Path):
+        root_a = tmp_path / "a"
+        root_b = tmp_path / "b"
+        root_a.mkdir()
+        root_b.mkdir()
+        self.roots[:] = [str(root_a), str(root_b), str(root_a)]
 
-        monkeypatch.setenv("FABRIC_WRITE_SAFE_ROOT", str(fabric_root))
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(legacy_root))
-        assert _is_write_denied(str(fabric_root / "file.txt")) is False
-        assert _is_write_denied(str(legacy_root / "file.txt")) is True
+        assert _is_write_denied(str(root_a / "one.txt")) is False
+        assert _is_write_denied(str(root_b / "two.txt")) is False
+        assert _is_write_denied(str(tmp_path / "outside.txt")) is True
 
-    def test_writes_inside_safe_root_are_allowed(self, tmp_path: Path, monkeypatch):
-        safe_root = tmp_path / "workspace"
-        child = safe_root / "subdir" / "file.txt"
-        os.makedirs(child.parent, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(safe_root))
-        assert _is_write_denied(str(child)) is False
-
-    def test_writes_to_safe_root_itself_are_allowed(self, tmp_path: Path, monkeypatch):
-        safe_root = tmp_path / "workspace"
-        os.makedirs(safe_root, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(safe_root))
-        assert _is_write_denied(str(safe_root)) is False
-
-    def test_writes_outside_safe_root_are_denied(self, tmp_path: Path, monkeypatch):
-        safe_root = tmp_path / "workspace"
-        outside = tmp_path / "other" / "file.txt"
-        os.makedirs(safe_root, exist_ok=True)
-        os.makedirs(outside.parent, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(safe_root))
-        assert _is_write_denied(str(outside)) is True
-
-    def test_safe_root_env_ignores_empty_value(self, tmp_path: Path, monkeypatch):
-        target = tmp_path / "regular.txt"
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", "")
-        assert _is_write_denied(str(target)) is False
-
-    def test_safe_root_unset_allows_all(self, tmp_path: Path, monkeypatch):
-        target = tmp_path / "regular.txt"
-        monkeypatch.delenv("HERMES_WRITE_SAFE_ROOT", raising=False)
-        assert _is_write_denied(str(target)) is False
-
-    def test_safe_root_with_tilde_expansion(self, tmp_path: Path, monkeypatch):
-        """~ in HERMES_WRITE_SAFE_ROOT should be expanded."""
-        # Use a real subdirectory of tmp_path so we can test tilde-style paths
-        safe_root = tmp_path / "workspace"
-        inside = safe_root / "file.txt"
-        os.makedirs(safe_root, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", str(safe_root))
-        assert _is_write_denied(str(inside)) is False
-
-    def test_safe_root_does_not_override_static_deny(self, tmp_path: Path, monkeypatch):
-        """Even if a static-denied path is inside the safe root, it's still denied."""
-        # Point safe root at home to include ~/.ssh
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", os.path.expanduser("~"))
+    def test_static_denylist_still_wins(self):
+        self.roots[:] = [os.path.expanduser("~")]
         assert _is_write_denied(os.path.expanduser("~/.ssh/id_rsa")) is True
 
-
-class TestMultipleSafeWriteRoots:
-    """HERMES_WRITE_SAFE_ROOT with multiple colon-separated directories."""
-
-    def test_write_inside_first_root_allowed(self, tmp_path: Path, monkeypatch):
-        root_a = tmp_path / "workspace_a"
-        root_b = tmp_path / "workspace_b"
-        child = root_a / "subdir" / "file.txt"
-        os.makedirs(child.parent, exist_ok=True)
-        os.makedirs(root_b, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", f"{root_a}{os.pathsep}{root_b}")
-        assert _is_write_denied(str(child)) is False
-
-    def test_write_inside_second_root_allowed(self, tmp_path: Path, monkeypatch):
-        root_a = tmp_path / "workspace_a"
-        root_b = tmp_path / "workspace_b"
-        child = root_b / "subdir" / "file.txt"
-        os.makedirs(child.parent, exist_ok=True)
-        os.makedirs(root_a, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", f"{root_a}{os.pathsep}{root_b}")
-        assert _is_write_denied(str(child)) is False
-
-    def test_write_outside_all_roots_denied(self, tmp_path: Path, monkeypatch):
-        root_a = tmp_path / "workspace_a"
-        root_b = tmp_path / "workspace_b"
-        outside = tmp_path / "other" / "file.txt"
-        os.makedirs(root_a, exist_ok=True)
-        os.makedirs(root_b, exist_ok=True)
-        os.makedirs(outside.parent, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", f"{root_a}{os.pathsep}{root_b}")
-        assert _is_write_denied(str(outside)) is True
-
-    def test_trailing_separator_ignored(self, tmp_path: Path, monkeypatch):
-        root = tmp_path / "workspace"
-        inside = root / "file.txt"
-        os.makedirs(root, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", f"{root}{os.pathsep}")
-        assert _is_write_denied(str(inside)) is False
-
-    def test_leading_separator_ignored(self, tmp_path: Path, monkeypatch):
-        root = tmp_path / "workspace"
-        inside = root / "file.txt"
-        os.makedirs(root, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", f"{os.pathsep}{root}")
-        assert _is_write_denied(str(inside)) is False
-
-    def test_double_separator_ignored(self, tmp_path: Path, monkeypatch):
-        root_a = tmp_path / "workspace_a"
-        root_b = tmp_path / "workspace_b"
-        os.makedirs(root_a, exist_ok=True)
-        os.makedirs(root_b, exist_ok=True)
-
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", f"{root_a}{os.pathsep}{os.pathsep}{root_b}")
-        # Both roots should still be active
-        assert _is_write_denied(str(root_a / "file.txt")) is False
-        assert _is_write_denied(str(root_b / "file.txt")) is False
-
-    def test_all_separators_yields_empty_set(self, tmp_path: Path, monkeypatch):
-        target = tmp_path / "regular.txt"
-        monkeypatch.setenv("HERMES_WRITE_SAFE_ROOT", os.pathsep * 3)
-        assert _is_write_denied(str(target)) is False
-
-    def test_static_deny_still_wins_with_multiple_roots(self, tmp_path: Path, monkeypatch):
-        """Static deny list takes priority even when multiple safe roots include home."""
-        root = tmp_path / "workspace"
-        os.makedirs(root, exist_ok=True)
-
-        monkeypatch.setenv(
-            "HERMES_WRITE_SAFE_ROOT",
-            f"{root}{os.pathsep}{os.path.expanduser('~')}",
+    def test_published_container_defaults_to_fabric_home(self, tmp_path: Path, monkeypatch):
+        monkeypatch.setattr(
+            "agent.file_safety._is_published_container_install",
+            lambda: True,
         )
-        assert _is_write_denied(os.path.expanduser("~/.ssh/id_rsa")) is True
-
-    def test_duplicate_roots_deduplicated(self, tmp_path: Path, monkeypatch):
-        root = tmp_path / "workspace"
-        inside = root / "file.txt"
-        os.makedirs(root, exist_ok=True)
-
-        monkeypatch.setenv(
-            "HERMES_WRITE_SAFE_ROOT",
-            f"{root}{os.pathsep}{root}",
+        monkeypatch.setattr(
+            "agent.file_safety._fabric_home_path",
+            lambda: tmp_path / "fabric-home",
         )
-        assert _is_write_denied(str(inside)) is False
+        assert _is_write_denied(str(tmp_path / "fabric-home" / "file.txt")) is False
+        assert _is_write_denied(str(tmp_path / "outside.txt")) is True
 
 
 class TestCheckSensitivePathMacOSBypass:
@@ -268,12 +159,12 @@ class TestAtomicWrite:
             os.chmod(locked, 0o700)  # restore for cleanup
         assert res.error is not None
         assert target.read_text() == "ORIGINAL\n"
-        assert [p for p in os.listdir(locked) if ".hermes-tmp" in p] == []
+        assert [p for p in os.listdir(locked) if ".fabric-tmp" in p] == []
 
     def test_no_temp_file_leaked_on_success(self, ops, tmp_path: Path):
         target = tmp_path / "f.txt"
         ops.write_file(str(target), "hello\n")
-        assert [p for p in os.listdir(tmp_path) if ".hermes-tmp" in p] == []
+        assert [p for p in os.listdir(tmp_path) if ".fabric-tmp" in p] == []
 
     def test_special_chars_roundtrip(self, ops, tmp_path: Path):
         target = tmp_path / "special.txt"

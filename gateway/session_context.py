@@ -1,97 +1,56 @@
 """
 Session-scoped context variables for the Fabric gateway.
 
-Replaces the previous ``os.environ``-based session state
-(``HERMES_SESSION_PLATFORM``, ``HERMES_SESSION_CHAT_ID``, etc.) with
-Python's ``contextvars.ContextVar``.
-
 **Why this matters**
 
-The gateway processes messages concurrently via ``asyncio``.  When two
-messages arrive at the same time the old code did:
-
-    os.environ["HERMES_SESSION_THREAD_ID"] = str(context.source.thread_id)
-
-Because ``os.environ`` is *process-global*, Message A's value was
-silently overwritten by Message B before Message A's agent finished
-running.  Background-task notifications and tool calls therefore routed
-to the wrong thread.
+The gateway processes messages concurrently via ``asyncio``. The legacy
+implementation stored each message's routing identity in process-global
+environment state. Message A's value could therefore be overwritten by
+Message B before Message A's agent finished running, routing background-task
+notifications and tool calls to the wrong thread.
 
 ``contextvars.ContextVar`` values are *task-local*: each ``asyncio``
 task (and any ``run_in_executor`` thread it spawns) gets its own copy,
 so concurrent messages never interfere.
 
-**Backward compatibility**
-
-The public helper ``get_session_env(name, default="")`` mirrors the old
-``os.getenv("HERMES_SESSION_*", ...)`` calls.  Existing tool code only
-needs to replace the import + call site:
-
-    # before
-    import os
-    platform = os.getenv("HERMES_SESSION_PLATFORM", "")
-
-    # after
-    from gateway.session_context import get_session_env
-    platform = get_session_env("HERMES_SESSION_PLATFORM", "")
+Consumers read an immutable typed snapshot. Session identity is deliberately
+not exported to child-process environments; subprocess entrypoints that need a
+session receive it explicitly in their argv or request payload.
 """
 
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
 
 # Sentinel to distinguish "never set in this context" from "explicitly set to empty".
-# When a contextvar holds _UNSET, we fall back to os.environ (CLI/cron compat).
-# When it holds "" (after clear_session_vars resets it), we return "" — no fallback.
 _UNSET: Any = object()
-
-# Process-level flag: has any code in this process bound a session via
-# set_session_vars()? Concurrent multi-session hosts (the messaging gateway, the
-# ACP adapter, the API server, the TUI, cron) all do; a pure single-process
-# CLI/one-shot that never engages the session-context system does not.
-#
-# The subprocess-env bridge (tools/environments/local.py) reads this to choose
-# its leak policy: when engaged, the ContextVars are authoritative and an _UNSET
-# var means "no session bound in THIS task" — so a process-global os.environ
-# mirror (written last-writer-wins by whatever concurrent session ran most
-# recently) must NOT be inherited into a child process. When never engaged, the
-# os.environ fallback is preserved (no concurrency to leak across). Monotonic
-# latch — once any host binds a session, the process stays engaged for life.
-_session_context_engaged: bool = False
-
-
-def session_context_engaged() -> bool:
-    """True if any session has been bound via set_session_vars in this process.
-
-    See the ``_session_context_engaged`` comment for the leak-policy rationale.
-    """
-    return _session_context_engaged
 
 # ---------------------------------------------------------------------------
 # Per-task session variables
 # ---------------------------------------------------------------------------
 
-_SESSION_PLATFORM: ContextVar = ContextVar("HERMES_SESSION_PLATFORM", default=_UNSET)
-_SESSION_SOURCE: ContextVar = ContextVar("HERMES_SESSION_SOURCE", default=_UNSET)
-_SESSION_CHAT_ID: ContextVar = ContextVar("HERMES_SESSION_CHAT_ID", default=_UNSET)
-_SESSION_CHAT_NAME: ContextVar = ContextVar("HERMES_SESSION_CHAT_NAME", default=_UNSET)
-_SESSION_THREAD_ID: ContextVar = ContextVar("HERMES_SESSION_THREAD_ID", default=_UNSET)
-_SESSION_USER_ID: ContextVar = ContextVar("HERMES_SESSION_USER_ID", default=_UNSET)
-_SESSION_USER_NAME: ContextVar = ContextVar("HERMES_SESSION_USER_NAME", default=_UNSET)
-_SESSION_KEY: ContextVar = ContextVar("HERMES_SESSION_KEY", default=_UNSET)
-_SESSION_ID: ContextVar = ContextVar("HERMES_SESSION_ID", default=_UNSET)
+_SESSION_PLATFORM: ContextVar = ContextVar("session.platform", default=_UNSET)
+_SESSION_SOURCE: ContextVar = ContextVar("session.source", default=_UNSET)
+_SESSION_CHAT_ID: ContextVar = ContextVar("session.chat_id", default=_UNSET)
+_SESSION_CHAT_NAME: ContextVar = ContextVar("session.chat_name", default=_UNSET)
+_SESSION_THREAD_ID: ContextVar = ContextVar("session.thread_id", default=_UNSET)
+_SESSION_USER_ID: ContextVar = ContextVar("session.user_id", default=_UNSET)
+_SESSION_USER_NAME: ContextVar = ContextVar("session.user_name", default=_UNSET)
+_SESSION_KEY: ContextVar = ContextVar("session.key", default=_UNSET)
+_SESSION_ID: ContextVar = ContextVar("session.id", default=_UNSET)
 # In-process UI session/window id for multi-session desktop/TUI hosts. This is
-# intentionally separate from HERMES_SESSION_ID: the latter is the durable
-# conversation/session-db id, while the UI id is the live frontend tab/window
+# intentionally separate from the task-local durable conversation/session-db
+# id: the UI id is the live frontend tab/window
 # that commissioned a detached completion. Background completions use it as a
 # precise return address so a stale/rotated durable session key cannot be
 # consumed by whichever desktop poller wakes first.
-_SESSION_UI_SESSION_ID: ContextVar = ContextVar("HERMES_UI_SESSION_ID", default=_UNSET)
+_SESSION_UI_SESSION_ID: ContextVar = ContextVar("session.ui_id", default=_UNSET)
 # ID of the message that triggered the current turn. Used as a reply anchor
 # so background-process notifications stay inside the originating Telegram
 # private-chat topic (those lanes route only with thread id + reply anchor).
-_SESSION_MESSAGE_ID: ContextVar = ContextVar("HERMES_SESSION_MESSAGE_ID", default=_UNSET)
+_SESSION_MESSAGE_ID: ContextVar = ContextVar("session.message_id", default=_UNSET)
 
-_SESSION_PROFILE: ContextVar = ContextVar("HERMES_SESSION_PROFILE", default=_UNSET)
+_SESSION_PROFILE: ContextVar = ContextVar("session.profile", default=_UNSET)
 
 # Whether the current session's delivery channel can route an ASYNC completion
 # back to the agent AFTER the current turn ends (i.e. wake a fresh turn).
@@ -112,46 +71,98 @@ _SESSION_PROFILE: ContextVar = ContextVar("HERMES_SESSION_PROFILE", default=_UNS
 # and any contextvar-unaware path keep working. Stateless adapters opt OUT by
 # setting ``supports_async_delivery = False`` on the adapter class; the gateway
 # propagates that into this contextvar at session-bind time.
-_SESSION_ASYNC_DELIVERY: ContextVar = ContextVar("HERMES_SESSION_ASYNC_DELIVERY", default=_UNSET)
+_SESSION_ASYNC_DELIVERY: ContextVar = ContextVar("session.async_delivery", default=_UNSET)
 
 # Cron auto-delivery vars — set per-job in run_job() so concurrent jobs
 # don't clobber each other's delivery targets.
-_CRON_AUTO_DELIVER_PLATFORM: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_PLATFORM", default=_UNSET)
-_CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_CHAT_ID", default=_UNSET)
-_CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar("HERMES_CRON_AUTO_DELIVER_THREAD_ID", default=_UNSET)
+_CRON_AUTO_DELIVER_PLATFORM: ContextVar = ContextVar(
+    "cron_delivery.platform", default=_UNSET
+)
+_CRON_AUTO_DELIVER_CHAT_ID: ContextVar = ContextVar(
+    "cron_delivery.chat_id", default=_UNSET
+)
+_CRON_AUTO_DELIVER_THREAD_ID: ContextVar = ContextVar(
+    "cron_delivery.thread_id", default=_UNSET
+)
 
-_VAR_MAP = {
-    "HERMES_SESSION_PLATFORM": _SESSION_PLATFORM,
-    "HERMES_SESSION_SOURCE": _SESSION_SOURCE,
-    "HERMES_SESSION_CHAT_ID": _SESSION_CHAT_ID,
-    "HERMES_SESSION_CHAT_NAME": _SESSION_CHAT_NAME,
-    "HERMES_SESSION_THREAD_ID": _SESSION_THREAD_ID,
-    "HERMES_SESSION_USER_ID": _SESSION_USER_ID,
-    "HERMES_SESSION_USER_NAME": _SESSION_USER_NAME,
-    "HERMES_SESSION_KEY": _SESSION_KEY,
-    "HERMES_SESSION_ID": _SESSION_ID,
-    "HERMES_UI_SESSION_ID": _SESSION_UI_SESSION_ID,
-    "HERMES_SESSION_MESSAGE_ID": _SESSION_MESSAGE_ID,
-    "HERMES_SESSION_PROFILE": _SESSION_PROFILE,
-    "HERMES_CRON_AUTO_DELIVER_PLATFORM": _CRON_AUTO_DELIVER_PLATFORM,
-    "HERMES_CRON_AUTO_DELIVER_CHAT_ID": _CRON_AUTO_DELIVER_CHAT_ID,
-    "HERMES_CRON_AUTO_DELIVER_THREAD_ID": _CRON_AUTO_DELIVER_THREAD_ID,
-}
+
+@dataclass(frozen=True)
+class SessionRuntimeContext:
+    platform: str = ""
+    source: str = ""
+    chat_id: str = ""
+    chat_name: str = ""
+    thread_id: str = ""
+    user_id: str = ""
+    user_name: str = ""
+    session_key: str = ""
+    session_id: str = ""
+    ui_session_id: str = ""
+    message_id: str = ""
+    profile: str = ""
+
+
+@dataclass(frozen=True)
+class CronDeliveryContext:
+    platform: str = ""
+    chat_id: str = ""
+    thread_id: str = ""
+
+
+def _read_text(var: ContextVar, default: str = "") -> str:
+    value = var.get()
+    if value is _UNSET:
+        return default
+    return "" if value is None else str(value)
+
+
+def get_session_context() -> SessionRuntimeContext:
+    """Return a stable typed snapshot of the active task's session."""
+    return SessionRuntimeContext(
+        platform=_read_text(_SESSION_PLATFORM),
+        source=_read_text(_SESSION_SOURCE),
+        chat_id=_read_text(_SESSION_CHAT_ID),
+        chat_name=_read_text(_SESSION_CHAT_NAME),
+        thread_id=_read_text(_SESSION_THREAD_ID),
+        user_id=_read_text(_SESSION_USER_ID),
+        user_name=_read_text(_SESSION_USER_NAME),
+        session_key=_read_text(_SESSION_KEY),
+        session_id=_read_text(_SESSION_ID),
+        ui_session_id=_read_text(_SESSION_UI_SESSION_ID),
+        message_id=_read_text(_SESSION_MESSAGE_ID),
+        profile=_read_text(_SESSION_PROFILE),
+    )
+
+
+def get_cron_delivery_context() -> CronDeliveryContext:
+    """Return the active scheduled job's explicit delivery target."""
+    return CronDeliveryContext(
+        platform=_read_text(_CRON_AUTO_DELIVER_PLATFORM),
+        chat_id=_read_text(_CRON_AUTO_DELIVER_CHAT_ID),
+        thread_id=_read_text(_CRON_AUTO_DELIVER_THREAD_ID),
+    )
 
 
 def set_current_session_id(session_id: str) -> None:
-    """Synchronize ``HERMES_SESSION_ID`` across ContextVar and ``os.environ``.
+    """Update the active task-local session id.
 
     Long-lived single-process entrypoints like the CLI can rotate sessions via
     ``/new``, ``/resume``, ``/branch``, or compression splits without
-    reconstructing the entire agent. Tools still consult
-    ``get_session_env("HERMES_SESSION_ID")`` with an ``os.environ`` fallback,
-    so both storage paths must move together when the active session changes.
+    reconstructing the entire agent.
     """
-    import os
-
-    os.environ["HERMES_SESSION_ID"] = session_id
     _SESSION_ID.set(session_id)
+
+
+def get_current_session_id(default: str = "") -> str:
+    """Return the active task-local durable session id.
+
+    The durable database session id is an in-process agent concern. It is
+    deliberately not exported to child processes.
+    """
+    value = _SESSION_ID.get()
+    if value is _UNSET:
+        return default
+    return value
 
 
 def set_session_vars(
@@ -173,8 +184,8 @@ def set_session_vars(
     """Set all session context variables and return reset tokens.
 
     Call ``clear_session_vars(tokens)`` in a ``finally`` block when the handler
-    exits. Note ``clear_session_vars`` resets every var to ``""`` (to suppress
-    the ``os.environ`` fallback) rather than restoring prior values — these
+    exits. Note ``clear_session_vars`` resets every var to ``""`` rather than
+    restoring prior values — these
     helpers are not nestable/stack-safe, and the returned tokens are accepted
     only for API compatibility.
 
@@ -185,11 +196,6 @@ def set_session_vars(
     ``_SESSION_ASYNC_DELIVERY`` / ``async_delivery_supported``). Stateless
     request/response adapters (the API server) pass ``False``.
     """
-    # Mark the session-context machinery engaged for this process. The
-    # subprocess-env bridge uses this to switch from "os.environ fallback" to
-    # "ContextVar-authoritative, strip on _UNSET" — see session_context_engaged.
-    global _session_context_engaged
-    _session_context_engaged = True
     tokens = [
         _SESSION_PLATFORM.set(platform),
         _SESSION_SOURCE.set(source),
@@ -214,12 +220,32 @@ def set_session_vars(
     return tokens
 
 
+def set_cron_delivery_context(
+    *,
+    platform: str = "",
+    chat_id: str = "",
+    thread_id: str = "",
+) -> list:
+    """Bind a scheduled job's delivery target to the current task."""
+    return [
+        _CRON_AUTO_DELIVER_PLATFORM.set(platform),
+        _CRON_AUTO_DELIVER_CHAT_ID.set(chat_id),
+        _CRON_AUTO_DELIVER_THREAD_ID.set(thread_id),
+    ]
+
+
+def clear_cron_delivery_context(tokens: list | None = None) -> None:
+    """Clear the current task's scheduled delivery target."""
+    _CRON_AUTO_DELIVER_PLATFORM.set("")
+    _CRON_AUTO_DELIVER_CHAT_ID.set("")
+    _CRON_AUTO_DELIVER_THREAD_ID.set("")
+
+
 def clear_session_vars(tokens: list) -> None:
     """Mark session context variables as explicitly cleared.
 
-    Sets all variables to ``""`` so that ``get_session_env`` returns an empty
-    string instead of falling back to (potentially stale) ``os.environ``
-    values.  The *tokens* argument is accepted for API compatibility with
+    Sets all variables to ``""`` so that readers observe an explicitly cleared
+    context. The *tokens* argument is accepted for API compatibility with
     callers that saved the return value of ``set_session_vars``, but the
     actual clearing uses ``var.set("")`` rather than ``var.reset(token)``
     to ensure the "explicitly cleared" state is distinguishable from
@@ -257,8 +283,7 @@ def reset_session_vars() -> None:
     """Reset every session context variable to ``_UNSET`` for THIS context.
 
     Distinct from :func:`clear_session_vars`, which sets the vars to ``""``
-    ("explicitly cleared" — suppresses the os.environ fallback and is used when
-    a handler *finishes*).  This helper restores the ``_UNSET`` sentinel
+    when a handler finishes. This helper restores the ``_UNSET`` sentinel
     ("never bound in this context"), which is what a freshly-spawned task should
     look like *before* it binds its own session.
 
@@ -268,27 +293,35 @@ def reset_session_vars() -> None:
     ``copy_context``).  When message B's task is spawned from a context where a
     concurrent message A had already called :func:`set_session_vars`, B inherits
     A's **set** ContextVars.  Until B calls its own ``set_session_vars`` there is
-    a window where any subprocess B spawns (e.g. a tool shelling out) reads
-    *A's* ``HERMES_SESSION_*`` identity via the subprocess-env bridge.  The
-    bridge's ``_UNSET``-strip guard cannot help: the vars are not ``_UNSET``,
-    they are set-to-A.  Calling ``reset_session_vars`` at the top of the
-    per-message handler drops the inherited identity so the window strips safe
-    (no session) instead of leaking the foreign one; the handler then binds its
-    own via ``set_session_vars`` a few steps later.  See
-    tests/tools/test_local_env_session_leak.py and
-    tests/gateway/test_session_context_inheritance.py.
+    a window where B could read A's task-local identity. Calling
+    ``reset_session_vars`` at the top of the per-message handler drops that
+    inherited identity before B binds its own context a few steps later.
 
-    Note ``_SESSION_ASYNC_DELIVERY`` lives outside ``_VAR_MAP`` (it is a bool
-    capability flag read via :func:`async_delivery_supported`, not a string
-    ``HERMES_SESSION_*`` env var read via :func:`get_session_env`), so it is
-    reset explicitly below. Without it, a task spawned from a context where a
+    ``_SESSION_ASYNC_DELIVERY`` is reset explicitly below. Without it, a task
+    spawned from a context where a
     sibling adapter bound ``async_delivery=False`` (the stateless API server)
     inherits that ``False`` through the pre-bind window, and
     ``async_delivery_supported`` wrongly reports the new turn's channel as
     unable to route a background completion until ``set_session_vars`` runs.
     """
-    for var in _VAR_MAP.values():
+    for var in (
+        _SESSION_PLATFORM,
+        _SESSION_SOURCE,
+        _SESSION_CHAT_ID,
+        _SESSION_CHAT_NAME,
+        _SESSION_THREAD_ID,
+        _SESSION_USER_ID,
+        _SESSION_USER_NAME,
+        _SESSION_KEY,
+        _SESSION_UI_SESSION_ID,
+        _SESSION_MESSAGE_ID,
+        _SESSION_PROFILE,
+        _CRON_AUTO_DELIVER_PLATFORM,
+        _CRON_AUTO_DELIVER_CHAT_ID,
+        _CRON_AUTO_DELIVER_THREAD_ID,
+    ):
         var.set(_UNSET)
+    _SESSION_ID.set(_UNSET)
     # Reset the async-delivery capability to "never bound here" (_UNSET) for the
     # same inheritance-leak reason as the mapped vars above — see clear_session_vars,
     # which resets this var on the handler-exit path for the symmetric concern.
@@ -299,32 +332,6 @@ def reset_session_vars() -> None:
         clear_session_cwd()
     except Exception:
         pass
-
-
-def get_session_env(name: str, default: str = "") -> str:
-    """Read a session context variable by its legacy ``HERMES_SESSION_*`` name.
-
-    Drop-in replacement for ``os.getenv("HERMES_SESSION_*", default)``.
-
-    Resolution order:
-    1. Context variable (set by the gateway for concurrency-safe access).
-       If the variable was explicitly set (even to ``""``) via
-       ``set_session_vars`` or ``clear_session_vars``, that value is
-       returned — **no fallback to os.environ**.
-    2. ``os.environ`` (only when the context variable was never set in
-       this context — i.e. CLI, cron scheduler, and test processes that
-       don't use ``set_session_vars`` at all).
-    3. *default*
-    """
-    import os
-
-    var = _VAR_MAP.get(name)
-    if var is not None:
-        value = var.get()
-        if value is not _UNSET:
-            return value
-    # Fall back to os.environ for CLI, cron, and test compatibility
-    return os.getenv(name, default)
 
 
 def async_delivery_supported() -> bool:

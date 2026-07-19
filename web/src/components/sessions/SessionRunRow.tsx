@@ -28,7 +28,6 @@ export interface SessionRunRowProps {
   onDelete: () => void;
   onRename: (id: string, title: string) => Promise<void>;
   onExport: (id: string) => void;
-  resumeInChatEnabled: boolean;
 }
 
 /**
@@ -47,7 +46,6 @@ export function SessionRunRow({
   onDelete,
   onRename,
   onExport,
-  resumeInChatEnabled,
 }: SessionRunRowProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(session.title ?? "");
@@ -154,21 +152,19 @@ export function SessionRunRow({
 
   const actions = (
     <>
-      {resumeInChatEnabled && (
-        <Button
-          ghost
-          size="icon"
-          className="text-muted-foreground hover:text-success"
-          aria-label={t.sessions.resumeInChat}
-          title={t.sessions.resumeInChat}
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/chat?resume=${encodeURIComponent(session.id)}`);
-          }}
-        >
-          <Play />
-        </Button>
-      )}
+      <Button
+        ghost
+        size="icon"
+        className="text-muted-foreground hover:text-success"
+        aria-label={t.sessions.resumeInChat}
+        title={t.sessions.resumeInChat}
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate(`/workspace/chat?resume=${encodeURIComponent(session.id)}`);
+        }}
+      >
+        <Play />
+      </Button>
 
       <Button
         ghost

@@ -1,5 +1,5 @@
-Hermes Agent security-guidance plugin
-=====================================
+Fabric security-guidance plugin
+===============================
 
 This plugin (plugins/security-guidance/) includes work originally
 published in the claude-plugins-official repository by Anthropic, PBC.,
@@ -23,8 +23,8 @@ unmodified.
 Original work
 -------------
 
-The Hermes-side plugin glue code (__init__.py, plugin.yaml, README.md,
-tests) is original work by NousResearch and is licensed under the MIT
-License that applies to the rest of the fabric-agent project, except
+The Fabric-side plugin glue code (__init__.py, plugin.yaml, README.md,
+tests) is original work by Nous Research and is licensed under the MIT
+License that applies to the rest of the Fabric project, except
 where it imports from patterns.py — that import does not change the
 license of either file.

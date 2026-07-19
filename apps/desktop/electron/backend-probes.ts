@@ -2,7 +2,7 @@
  * backend-probes.ts
  *
  * Cheap "does this candidate backend actually work" checks used by
- * resolveHermesBackend (main.ts). The resolver walks a ladder of
+ * resolveFabricBackend (main.ts). The resolver walks a ladder of
  * candidates -- bootstrap marker, `fabric` on PATH, system Python with
  * fabric_cli installed -- and historically returned the first candidate
  * whose binary existed on disk. That assumption breaks when a user has
@@ -23,7 +23,7 @@
  *   - 5s timeout (a hung interpreter beats forever, but we still give
  *     slow disks / cold caches room to breathe)
  *   - stdio ignored (we only care about exit code; stdout/stderr are
- *     not surfaced to the user, just to recentHermesLog for forensics
+ *     not surfaced to the user, just to recentFabricLog for forensics
  *     via the caller's catch block if it chooses)
  *   - any throw -> false (never propagate -- resolver wants a boolean)
  *
@@ -43,7 +43,7 @@ const PROBE_TIMEOUT_MS = 5000
  *
  * @returns {string}
  */
-function hermesRuntimeImportProbe() {
+function fabricRuntimeImportProbe() {
   return 'import yaml; import dotenv; import fabric_cli.config'
 }
 
@@ -51,7 +51,7 @@ function hermesRuntimeImportProbe() {
  * Return true iff the Fabric runtime import probe exits 0.
  *
  * Used to gate the "fallback to system Python with fabric_cli installed"
- * rung of resolveHermesBackend. Without this, a system Python 3.11-3.13
+ * rung of resolveFabricBackend. Without this, a system Python 3.11-3.13
  * registered in PEP 514 makes findSystemPython() succeed regardless of
  * whether fabric_cli has actually been pip-installed into its
  * site-packages -- and the resolver returns a backend that immediately
@@ -65,13 +65,13 @@ function hermesRuntimeImportProbe() {
  * @param {object} [opts.env] - Additional environment for the probe.
  * @returns {boolean}
  */
-function canImportHermesCli(pythonPath: string, opts: { env?: Record<string, string> } = {}) {
+function canImportFabricCli(pythonPath: string, opts: { env?: Record<string, string> } = {}) {
   if (!pythonPath) {
     return false
   }
 
   try {
-    execFileSync(pythonPath, ['-c', hermesRuntimeImportProbe()], {
+    execFileSync(pythonPath, ['-c', fabricRuntimeImportProbe()], {
       env: { ...process.env, ...(opts.env || {}) },
       stdio: 'ignore',
       timeout: PROBE_TIMEOUT_MS,
@@ -85,10 +85,10 @@ function canImportHermesCli(pythonPath: string, opts: { env?: Record<string, str
 }
 
 /**
- * Return true iff `<hermesCommand> --version` exits 0.
+ * Return true iff `<fabricCommand> --version` exits 0.
  *
  * Used to gate the "existing `fabric` on PATH" rung. Without this, a
- * stale hermes.cmd shim left behind by an uninstalled pip install (or
+ * stale fabric.cmd shim left behind by an uninstalled pip install (or
  * a half-built venv whose `fabric` entry-point points at a deleted
  * Python) survives findOnPath() and gets selected as the backend.
  *
@@ -96,21 +96,21 @@ function canImportHermesCli(pythonPath: string, opts: { env?: Record<string, str
  * here -- `--version` is the cheapest "is this binary alive" smoke
  * test that every fabric_cli entry-point has supported since 0.1.
  *
- * @param {string} hermesCommand - Resolved absolute path to a hermes
+ * @param {string} fabricCommand - Resolved absolute path to a fabric
  *   executable (or an interpreter+script wrapper).
  * @param {boolean} [opts.shell] - Whether to run through a shell. For
  *   .cmd/.bat shims on Windows execFileSync needs shell:true to find
  *   the cmd interpreter; mirrors the same flag isCommandScript() drives
- *   in resolveHermesBackend.
+ *   in resolveFabricBackend.
  * @returns {boolean}
  */
-function verifyHermesCli(hermesCommand: string, opts?: { shell?: boolean }) {
-  if (!hermesCommand) {
+function verifyFabricCli(fabricCommand: string, opts?: { shell?: boolean }) {
+  if (!fabricCommand) {
     return false
   }
 
   try {
-    execFileSync(hermesCommand, ['--version'], {
+    execFileSync(fabricCommand, ['--version'], {
       stdio: 'ignore',
       timeout: PROBE_TIMEOUT_MS,
       shell: Boolean(opts?.shell),
@@ -123,4 +123,4 @@ function verifyHermesCli(hermesCommand: string, opts?: { shell?: boolean }) {
   }
 }
 
-export { canImportHermesCli, hermesRuntimeImportProbe, PROBE_TIMEOUT_MS, verifyHermesCli }
+export { canImportFabricCli, fabricRuntimeImportProbe, PROBE_TIMEOUT_MS, verifyFabricCli }

@@ -8,7 +8,7 @@ import okhttp3.HttpUrl
 /**
  * Minimal in-memory cookie jar for the gated-auth REST flow (OkHttp ships
  * with no cookie handling). Holds the gateway session cookies
- * (`hermes_session_at`/`_rt` and their `__Host-`/`__Secure-` variants) for
+ * (the dashboard access and refresh cookies, including secure variants) for
  * the life of the process. Deliberately not persisted: restarting the app
  * means signing in again, which beats storing auth material on disk before
  * the Keystore hardening lands.

@@ -95,6 +95,14 @@ class TestBuildLearnPrompt:
         # The single most-violated rule must be explicit in the prompt.
         assert "60" in _AUTHORING_STANDARDS
 
+    def test_requires_the_canonical_fabric_metadata_namespace(self):
+        assert "metadata.fabric.tags" in _AUTHORING_STANDARDS
+        assert (
+            "do not author product-specific metadata under any\n"
+            "  other namespace"
+        ) in _AUTHORING_STANDARDS
+        assert "do not author new metadata.fabric blocks" not in _AUTHORING_STANDARDS
+
     def test_teaches_the_full_hardline_standards(self):
         # description length — otherwise distilled skills miss platform gating,
         # author credit, and the tool-framing table. Lock the coverage in.

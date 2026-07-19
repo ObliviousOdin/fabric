@@ -1,14 +1,14 @@
 """Tests for GHSA-96vc-wcxf-jjff and GHSA-qg5c-hvr5-hjgr.
 
 Two related ACP approval-flow issues:
-- 96vc: ACP didn't set HERMES_EXEC_ASK, so `check_all_command_guards`
-  took the non-interactive auto-approve path and never consulted the
-  ACP-supplied callback.
+- 96vc: ACP did not bind interactive turn context, so
+  `check_all_command_guards` took the non-interactive auto-approve path and
+  never consulted the ACP-supplied callback.
 - qg5c: `_approval_callback` was a module-global in terminal_tool;
   overlapping ACP sessions overwrote each other's callback slot.
 
 Both fixed together by:
-1. Setting HERMES_EXEC_ASK inside _run_agent (wraps the agent call).
+1. Binding task-local interactive context around the agent call.
 2. Storing the callback in thread-local state so concurrent executor
    threads don't collide.
 """
@@ -142,7 +142,7 @@ class TestThreadLocalApprovalCallback:
         """ACP's ThreadPoolExecutor reuses threads. Two ACP sessions that land
         on the same reused thread must not share the interactive sudo password
         cache. The fix wraps each session in contextvars.copy_context() and
-        binds HERMES_SESSION_KEY per session, so the cache scope key differs
+        binds a task-local session key per session, so the cache scope differs
         across sessions even when the underlying thread is identical.
         """
         import contextvars
@@ -192,24 +192,10 @@ class TestThreadLocalApprovalCallback:
         assert runs[1] == ("acp-session-B", "", "bravo-secret")
 
 
-class TestAcpExecAskGate:
-    """GHSA-96vc-wcxf-jjff: ACP's _run_agent must set HERMES_INTERACTIVE so
-    that tools.approval.check_all_command_guards takes the CLI-interactive
-    path (consults the registered callback via prompt_dangerous_approval)
-    instead of the non-interactive auto-approve shortcut.
+class TestAcpInteractiveContextGate:
+    """ACP binds context-local interactive state before running an agent turn."""
 
-    (HERMES_EXEC_ASK takes the gateway-queue path which requires a
-    notify_cb registered in _gateway_notify_cbs — not applicable to ACP,
-    which uses a direct callback shape.)"""
-
-    def test_interactive_env_var_routes_to_callback(self, monkeypatch):
-        """When HERMES_INTERACTIVE is set and an approval callback is
-        registered, a dangerous command must route through the callback."""
-        # Clean env
-        monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
-        monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
+    def test_unbound_context_keeps_noninteractive_path(self, monkeypatch):
 
         from tools.approval import check_all_command_guards
 
@@ -219,28 +205,13 @@ class TestAcpExecAskGate:
             called_with.append((command, description))
             return "once"
 
-        # Without HERMES_INTERACTIVE: takes auto-approve path, callback NOT called
         result = check_all_command_guards(
             "rm -rf /tmp/test-exec-ask", "local", approval_callback=fake_cb,
         )
         assert result["approved"] is True
         assert called_with == [], (
-            "without HERMES_INTERACTIVE the non-interactive auto-approve "
-            "path should fire without consulting the callback"
+            "an unbound context must stay on the non-interactive path"
         )
-
-        # With HERMES_INTERACTIVE: callback IS called, approval flows through it
-        monkeypatch.setenv("HERMES_INTERACTIVE", "1")
-        called_with.clear()
-        result = check_all_command_guards(
-            "rm -rf /tmp/test-exec-ask", "local", approval_callback=fake_cb,
-        )
-        assert called_with, (
-            "with HERMES_INTERACTIVE the approval path should consult the "
-            "registered callback — this was the ACP bypass in "
-            "GHSA-96vc-wcxf-jjff"
-        )
-        assert result["approved"] is True
 
     def test_interactive_context_var_routes_to_callback_without_env(
         self, monkeypatch,
@@ -248,19 +219,15 @@ class TestAcpExecAskGate:
         """Context-local interactive flag must work without touching os.environ.
 
         Concurrent ACP sessions run on a shared ThreadPoolExecutor, so the
-        interactive flag is now a contextvar instead of a process-global env
-        var — one session can no longer clobber another's flag mid-run
+        The interactive flag is a contextvar, so one session cannot clobber
+        another's flag mid-run
         (GHSA-96vc-wcxf-jjff).
         """
-        monkeypatch.delenv("HERMES_INTERACTIVE", raising=False)
-        monkeypatch.delenv("HERMES_GATEWAY_SESSION", raising=False)
-        monkeypatch.delenv("HERMES_EXEC_ASK", raising=False)
-        monkeypatch.delenv("HERMES_YOLO_MODE", raising=False)
 
         from tools.approval import (
             check_all_command_guards,
-            reset_hermes_interactive_context,
-            set_hermes_interactive_context,
+            reset_fabric_interactive_context,
+            set_fabric_interactive_context,
         )
 
         called_with = []
@@ -269,7 +236,7 @@ class TestAcpExecAskGate:
             called_with.append((command, description))
             return "once"
 
-        tok = set_hermes_interactive_context(True)
+        tok = set_fabric_interactive_context(True)
         try:
             result = check_all_command_guards(
                 "rm -rf /tmp/test-context-interactive",
@@ -277,10 +244,10 @@ class TestAcpExecAskGate:
                 approval_callback=fake_cb,
             )
         finally:
-            reset_hermes_interactive_context(tok)
+            reset_fabric_interactive_context(tok)
 
         assert called_with, (
-            "set_hermes_interactive_context(True) should route dangerous "
-            "commands through the callback without HERMES_INTERACTIVE in env"
+            "set_fabric_interactive_context(True) should route dangerous "
+            "commands through the registered callback"
         )
         assert result["approved"] is True

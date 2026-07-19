@@ -69,7 +69,7 @@ from agent.usage_pricing import estimate_usage_cost, normalize_usage
 from fabric_constants import PARTIAL_STREAM_STUB_ID
 from fabric_logging import set_session_context
 from tools.skill_provenance import set_current_write_origin
-from utils import base_url_host_matches, env_var_enabled
+from utils import base_url_host_matches
 
 logger = logging.getLogger(__name__)
 
@@ -265,18 +265,18 @@ def _print_billing_or_entitlement_guidance(
 
 
 def _try_refresh_nous_paid_entitlement_credentials(agent) -> bool:
-    """Refresh Nous runtime credentials after a fresh paid-entitlement check."""
+    """Refresh Nous credentials after confirming paid account access."""
     try:
         from fabric_cli.nous_account import get_nous_portal_account_info
 
         account_info = get_nous_portal_account_info(force_fresh=True)
         if account_info.paid_service_access is not True:
             return False
-        return agent._try_refresh_nous_client_credentials(
-            force=True,
-        )
+        return agent._try_refresh_nous_client_credentials(force=True)
     except Exception:
         return False
+
+
 
 
 def _restore_or_build_system_prompt(agent, system_message, conversation_history):
@@ -623,7 +623,7 @@ def run_conversation(
 
     # Optional opt-in runtime: if api_mode == codex_app_server, hand the
     # turn to the codex app-server subprocess (terminal/file ops/patching
-    # all run inside Codex). Default Hermes path is bypassed entirely.
+    # all run inside Codex). Default Fabric path is bypassed entirely.
     # See agent/transports/codex_app_server_session.py for the adapter
     # and references/codex-app-server-runtime.md for the rationale.
     if agent.api_mode == "codex_app_server":
@@ -837,9 +837,9 @@ def run_conversation(
         # NOTE: Plugin context from pre_llm_call hooks is injected into the
         # user message (see injection block above), NOT the system prompt.
         # This is intentional — system prompt modifications break the prompt
-        # cache prefix.  The system prompt is reserved for Hermes internals.
+        # cache prefix.  The system prompt is reserved for Fabric internals.
         #
-        # Hermes invariant: the system prompt is built ONCE per session
+        # Fabric invariant: the system prompt is built ONCE per session
         # (cached on ``_cached_system_prompt``) and replayed verbatim on
         # every turn.  We send it as a single content string so the
         # bytes are byte-stable across turns and upstream prompt caches
@@ -1250,9 +1250,6 @@ def run_conversation(
                         )
                 except Exception:
                     pass
-
-                if env_var_enabled("HERMES_DUMP_REQUESTS"):
-                    agent._dump_api_request_debug(api_kwargs, reason="preflight")
 
                 # Always prefer the streaming path — even without stream
                 # consumers.  Streaming gives us fine-grained health
@@ -2735,30 +2732,54 @@ def run_conversation(
                 ):
                     _retry.nous_auth_retry_attempted = True
                     if agent._try_refresh_nous_client_credentials(force=True):
-                        print(f"{agent.log_prefix}🔐 Nous agent key refreshed after 401. Retrying request...")
+                        print(
+                            f"{agent.log_prefix}🔐 Nous agent key refreshed after 401. "
+                            "Retrying request..."
+                        )
                         continue
-                    # Credential refresh didn't help — show diagnostic info.
-                    # Most common causes: Portal OAuth expired/revoked,
-                    # account out of credits, or agent key blocked.
-                    from fabric_constants import display_fabric_home as _dhh_fn
-                    _dhh = _dhh_fn()
-                    _body_text = ""
+                    from fabric_constants import display_fabric_home
+
+                    response_text = ""
                     try:
-                        _body = getattr(api_error, "body", None) or getattr(api_error, "response", None)
-                        if _body is not None:
-                            _body_text = str(_body)[:200]
+                        response = getattr(api_error, "body", None) or getattr(
+                            api_error,
+                            "response",
+                            None,
+                        )
+                        if response is not None:
+                            response_text = str(response)[:200]
                     except Exception:
                         pass
-                    print(f"{agent.log_prefix}🔐 Nous 401 — Portal authentication failed.")
-                    if _body_text:
-                        print(f"{agent.log_prefix}   Response: {_body_text}")
-                    if not _print_nous_entitlement_guidance(agent, "Nous model access"):
-                        print(f"{agent.log_prefix}   Most likely: Portal OAuth expired, account out of credits, or agent key revoked.")
+                    print(
+                        f"{agent.log_prefix}🔐 Nous 401 — Portal authentication failed."
+                    )
+                    if response_text:
+                        print(f"{agent.log_prefix}   Response: {response_text}")
+                    if not _print_nous_entitlement_guidance(
+                        agent,
+                        "Nous model access",
+                    ):
+                        print(
+                            f"{agent.log_prefix}   Most likely: Portal OAuth expired, "
+                            "account out of credits, or agent key revoked."
+                        )
                     print(f"{agent.log_prefix}   Troubleshooting:")
-                    print(f"{agent.log_prefix}     • Re-authenticate: fabric auth add nous")
-                    print(f"{agent.log_prefix}     • Check credits / billing: https://portal.nousresearch.com")
-                    print(f"{agent.log_prefix}     • Verify stored credentials: {_dhh}/auth.json")
-                    print(f"{agent.log_prefix}     • Switch providers temporarily: /model <model> --provider openrouter")
+                    print(
+                        f"{agent.log_prefix}     • Re-authenticate: fabric auth add nous "
+                        "--client-id <registered-client-id>"
+                    )
+                    print(
+                        f"{agent.log_prefix}     • Check credits / billing: "
+                        "https://portal.nousresearch.com"
+                    )
+                    print(
+                        f"{agent.log_prefix}     • Verify stored credentials: "
+                        f"{display_fabric_home()}/auth.json"
+                    )
+                    print(
+                        f"{agent.log_prefix}     • Switch providers temporarily: "
+                        "/model <model> --provider openrouter"
+                    )
                 if (
                     agent.provider == "copilot"
                     and status_code == 401
@@ -2800,10 +2821,10 @@ def run_conversation(
                     from fabric_constants import display_fabric_home as _dhh_fn
                     _dhh = _dhh_fn()
                     print(f"{agent.log_prefix}     • Check ANTHROPIC_TOKEN in {_dhh}/.env for Fabric-managed OAuth/setup tokens")
-                    print(f"{agent.log_prefix}     • Check ANTHROPIC_API_KEY in {_dhh}/.env for API keys or legacy token values")
+                    print(f"{agent.log_prefix}     • Check ANTHROPIC_API_KEY in {_dhh}/.env for API keys")
                     print(f"{agent.log_prefix}     • For API keys: verify at https://platform.claude.com/settings/keys")
                     print(f"{agent.log_prefix}     • For Claude Code: run 'claude /login' to refresh, then retry")
-                    print(f"{agent.log_prefix}     • Legacy cleanup: fabric config set ANTHROPIC_TOKEN \"\"")
+                    print(f"{agent.log_prefix}     • Clear stale tokens: fabric config set ANTHROPIC_TOKEN \"\"")
                     print(f"{agent.log_prefix}     • Clear stale keys: fabric config set ANTHROPIC_API_KEY \"\"")
 
                 # Thinking block signature recovery.
@@ -3249,7 +3270,7 @@ def run_conversation(
                 # this on the next pass and try fallback or bail.
                 #
                 # IMPORTANT: Nous Portal multiplexes multiple upstream
-                # providers (DeepSeek, Kimi, MiMo, Hermes).  A 429 can
+                # providers (DeepSeek, Kimi, MiMo). A 429 can
                 # also mean an UPSTREAM provider is out of capacity
                 # for one specific model -- transient, clears in
                 # seconds, nothing to do with the caller's quota.
@@ -3313,7 +3334,7 @@ def run_conversation(
 
                 # Actionable hint for GitHub Models (Azure) 413 errors.
                 # The free tier enforces a hard 8K token cap per request,
-                # which Hermes' system prompt + tool schemas alone exceed.
+                # which Fabric's system prompt + tool schemas alone exceed.
                 # Compression can't help — the floor is the system prompt
                 # itself, not the conversation — so surface a clear "not
                 # compatible" message instead of looping into three futile
@@ -3784,7 +3805,11 @@ def run_conversation(
                             else:  # nous
                                 agent._vprint(f"{agent.log_prefix}   💡 Nous Portal OAuth token was rejected (HTTP 401). Your token may be", force=True)
                                 agent._vprint(f"{agent.log_prefix}      expired, revoked, or your account may be out of credits. To fix:", force=True)
-                                agent._vprint(f"{agent.log_prefix}      1. Re-authenticate: fabric portal", force=True)
+                                agent._vprint(
+                                    f"{agent.log_prefix}      1. Re-authenticate: fabric portal "
+                                    "--client-id <registered-client-id>",
+                                    force=True,
+                                )
                                 agent._vprint(f"{agent.log_prefix}      2. Check your portal account: https://portal.nousresearch.com", force=True)
                                 # ``:free`` is OpenRouter slug syntax; Nous Portal will reject
                                 # the model name even after a successful re-auth.
@@ -4662,7 +4687,7 @@ def run_conversation(
                 try:
                     # Persist the assistant tool-call turn before any tool
                     # side effects run. If a destructive tool restarts or
-                    # terminates Hermes mid-turn, resume logic still sees the
+                    # terminates Fabric mid-turn, resume logic still sees the
                     # exact tool-call block that already executed.
                     agent._flush_messages_to_session_db(messages, conversation_history)
                 except Exception as exc:

@@ -16,7 +16,7 @@ The client entrypoint is `src/entry.tsx`. It exits early if `stdin` is not a TTY
 python -m tui_gateway.entry
 ```
 
-Interpreter resolution order is: `HERMES_PYTHON` → `PYTHON` → `$VIRTUAL_ENV/bin/python` → `./.venv/bin/python` → `./venv/bin/python` → `python3` (or `python` on Windows).
+Interpreter resolution order is: launcher-provided interpreter → `PYTHON` → `$VIRTUAL_ENV/bin/python` → `./.venv/bin/python` → `./venv/bin/python` → `python3` (or `python` on Windows).
 
 The transport is newline-delimited JSON-RPC over stdio:
 
@@ -87,7 +87,7 @@ npm run test:watch
 - `src/app/inputSelectionStore.ts` — nanostore exposing the active text-input selection handle
 - `src/app/gatewayContext.tsx` — React context for the gateway client
 - `src/app/gatewayRecovery.ts` — pure function that decides whether to respawn and resume after a gateway crash, with a 3-attempt / 60 s budget
-- `src/app/setupHandoff.ts` — launches external `Fabric setup`, suspends Ink while it runs, opens a new session on success
+- `src/app/setupHandoff.ts` — launches external `fabric setup`, suspends Ink while it runs, opens a new session on success
 - `src/app/scroll.ts` — scrolls the viewport while keeping the text selection anchor in sync
 - `src/app/interfaces.ts` — internal interfaces (ComposerActions, GatewayRpc, etc.)
 
@@ -194,7 +194,7 @@ Notes:
 - Completion requests are debounced by 60 ms. Input starting with `/` uses `complete.slash`. A trailing token that starts with `./`, `../`, `~/`, `/`, or `@` uses `complete.path`.
 - Text pastes are inserted inline directly into the draft. Nothing is newline-flattened.
 - `Cmd/Ctrl+G` (or `Alt+G` in VSCode/Cursor, which intercept the primary keystroke for Find Next) writes the current draft, including any multiline buffer, to a temp file, suspends Ink, launches `$EDITOR`, then restores the TUI and submits the saved text if the editor exits cleanly.
-- Input history is stored in `~/.fabric/.hermes_history` or under `FABRIC_HOME`.
+- Input history is stored in `~/.fabric/input_history` or under `FABRIC_HOME`.
 
 ## Rendering
 
@@ -248,7 +248,7 @@ The following commands are handled directly by the TUI client. Unrecognized comm
 `/credits` — Nous credit balance and browser top-up
 
 ### Setup (`setup.ts`)
-`/setup` — launches external `Fabric setup` wizard, suspends Ink while it runs
+`/setup` — launches external `fabric setup` wizard, suspends Ink while it runs
 
 ### Debug (`debug.ts`)
 `/heapdump`, `/mem` — V8 memory diagnostics
@@ -347,7 +347,7 @@ ui-tui/
       interfaces.ts                 internal interfaces (ComposerActions, GatewayRpc, etc.)
       overlayStore.ts               nanostores for overlay state
       scroll.ts                     viewport scroll with text-selection anchor sync
-      setupHandoff.ts               launches external Fabric setup, suspends Ink while it runs
+      setupHandoff.ts               launches external fabric setup, suspends Ink while it runs
       spawnHistoryStore.ts          ring buffer of finished subagent fan-out snapshots
       turnController.ts             stateful turn lifecycle driver (streaming, tools, reasoning)
       turnStore.ts                  nanostore for turn state (streaming, tools, reasoning, subagents)
@@ -380,7 +380,6 @@ ui-tui/
       appOverlays.tsx            overlay routing (pickers, prompts)
       billingOverlay.tsx         billing overlay
       branding.tsx               banner + session summary
-      fpsOverlay.tsx             FPS debug overlay
       helpHint.tsx               contextual help hint
       markdown.tsx               Markdown-to-Ink renderer
       maskedPrompt.tsx           masked input for sudo / secrets
@@ -399,7 +398,7 @@ ui-tui/
       todoPanel.tsx              todo list panel
 
     config/
-      env.ts                     environment variable resolution and Termux/mouse defaults
+      env.ts                     internal launch bridges and Termux/mouse defaults
       limits.ts                  paste size, live-render and history limits
       timing.ts                  streaming batch and debounce timing constants
 
@@ -437,8 +436,7 @@ ui-tui/
       emoji.ts                   emoji and variation selector width helpers
       externalCli.ts             external CLI subprocess launcher
       externalLink.ts            open URLs in the system browser
-      forceTruecolor.ts          24-bit truecolor override before chalk imports
-      fpsStore.ts                Ink frame FPS tracker nanostore
+      forceTruecolor.ts          terminal color normalization before chalk imports
       fuzzy.ts                   lightweight fuzzy subsequence scorer
       gracefulExit.ts            clean shutdown with failsafe timeout
       history.ts                 persistent input history (read/append to disk)
@@ -446,12 +444,11 @@ ui-tui/
       liveProgress.ts            todo helpers and tool-shelf message assembly
       mathUnicode.ts             best-effort LaTeX → Unicode for inline math
       memory.ts                  V8 heap snapshot and diagnostics helpers
-      memoryMonitor.ts           automatic heap-dump trigger on high usage
+      memoryMonitor.ts           automatic memory diagnostics on high usage
       messages.ts                transcript message append helpers
       openExternalUrl.ts         platform-aware URL opener (macOS/Linux/Windows)
       osc52.ts                   OSC 52 terminal clipboard copy sequence
-      parentLog.ts               append-only log to ~/.fabric/tui-parent.log
-      perfPane.tsx               FPS / render perf overlay pane
+      parentLog.ts               parent lifecycle entries in the TUI gateway crash log
       platform.ts                platform-aware keybinding and SSH detection helpers
       precisionWheel.ts          high-precision scroll wheel with sticky-frame budget
       prompt.ts                  composer prompt text helpers (Termux-safe)
@@ -486,5 +483,5 @@ tui_gateway/
   entry.py               stdio entrypoint
   server.py              RPC handlers and session logic
   render.py              optional rich/ANSI bridge
-  slash_worker.py        persistent HermesCLI subprocess for slash commands
+  slash_worker.py        persistent FabricCLI subprocess for slash commands
 ```

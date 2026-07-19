@@ -51,8 +51,8 @@ The P0 gaps are:
 - skill usage is counted, but task outcomes are not measured;
 - runtime permissions are inherited from the session rather than leased to an
   active skill;
-- the public `metadata.fabric` authoring contract and legacy
-  `metadata.hermes` runtime readers have diverged;
+- the public `metadata.fabric` authoring contract and runtime readers have
+  diverged;
 - every active skill name and description is placed in the cached prompt, which
   will not scale to a substantially larger catalog.
 
@@ -126,10 +126,8 @@ invalid. Expired TTLs emit the stable non-fatal `source_expired` finding so an
 installed skill remains usable, but promotion must treat that finding as a
 blocker. `ttl_days: 0` expires at the retrieval instant.
 
-`metadata.fabric` is canonical inside `SKILL.md`. Readers accept
-`metadata.hermes` as a legacy fallback until the shipped corpus and external
-ecosystem have migrated. When both exist, canonical Fabric values win and
-legacy values fill only missing keys.
+`metadata.fabric` is the only supported Fabric metadata namespace inside
+`SKILL.md`.
 
 ## Governed lifecycle
 

@@ -21,8 +21,7 @@ use tokio::sync::Mutex;
 /// How the installer was invoked. Resolved once from the process args in
 /// `run()` and exposed to the frontend via `get_mode` so it can route to the
 /// install flow (first-run onboarding) or the update flow (driven by the
-/// desktop app handing off via `Fabric-Setup.exe --update`; staged legacy
-/// `Hermes-Setup.exe` helpers use the same flag during rolling upgrades).
+/// desktop app handing off via `Fabric-Setup.exe --update`).
 ///
 /// Bare launch (double-click, first-run) => Install.
 /// `--update` (spawned by the desktop's "Update" button) => Update.
@@ -94,7 +93,7 @@ fn get_mode(state: tauri::State<'_, Arc<AppState>>) -> AppMode {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Tracing → bootstrap-installer.log under HERMES_HOME/logs/ so install
+    // Tracing → bootstrap-installer.log under FABRIC_HOME/logs/ so install
     // failures leave a trail for support. Console output also goes here in
     // debug builds.
     let _guard = paths::init_logging();
@@ -125,18 +124,18 @@ pub fn run() {
             // its existing behavior (Windows users relaunch via the Start
             // Menu/Desktop shortcuts that install.ps1 creates, and a
             // reliable detached relaunch there needs the DETACHED_PROCESS +
-            // startup-grace handling used by launch_hermes_desktop — out of
+            // startup-grace handling used by launch_fabric_desktop — out of
             // scope here). So this is a pure no-op on non-macOS.
             //
             // `--reinstall`/`--repair` opts out so a broken install can be
             // repaired by re-running setup instead of launching the bad app.
             if cfg!(target_os = "macos") && mode == AppMode::Install && !force_setup {
                 let install_root = paths::install_root();
-                if bootstrap::hermes_is_installed(&install_root) {
+                if bootstrap::fabric_is_installed(&install_root) {
                     match bootstrap::spawn_installed_desktop(&install_root) {
                         Ok(()) => {
                             // Brief grace so the spawned app is registered
-                            // before we exit (mirrors launch_hermes_desktop).
+                            // before we exit (mirrors launch_fabric_desktop).
                             std::thread::sleep(std::time::Duration::from_millis(200));
                             tracing::info!(
                                 "Fabric already installed — relaunched desktop; exiting installer"
@@ -177,10 +176,8 @@ pub fn run() {
             update::start_update,
             // Hand-off
             bootstrap::launch_fabric_desktop,
-            bootstrap::launch_hermes_desktop,
             // Diagnostics
             paths::get_log_path,
-            paths::get_hermes_home,
             paths::get_fabric_home,
             paths::open_log_dir,
         ])

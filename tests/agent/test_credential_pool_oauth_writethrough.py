@@ -56,7 +56,7 @@ def profile_and_root(tmp_path, monkeypatch):
     """Wire a profile auth store + a distinct global-root auth store on disk.
 
     The pytest seat belt in ``_write_through_provider_state_to_global_root``
-    only refuses the *real* user's ``$HOME/.hermes/auth.json``; a tmp_path
+    only refuses the *real* user's ``$HOME/.fabric/auth.json``; a tmp_path
     root is allowed, so point HOME away from the tmp root to keep the guard
     from tripping on these fixtures.
     """
@@ -193,7 +193,7 @@ def test_write_through_helper_is_noop_in_classic_mode(monkeypatch, tmp_path):
 def test_codex_pool_refresh_holds_auth_store_lock_across_post(monkeypatch, tmp_path):
     """The Codex OAuth pool refresh must POST under the cross-process auth lock.
 
-    Codex refresh tokens are single-use. If two Hermes processes both read the
+    Codex refresh tokens are single-use. If two Fabric processes both read the
     same on-disk token and both POST it, the loser gets ``refresh_token_reused``.
     Serializing the sync -> refresh POST -> write-back sequence through the
     shared ``_auth_store_lock`` closes that window: a second process blocks on
@@ -255,4 +255,3 @@ def test_codex_pool_refresh_holds_auth_store_lock_across_post(monkeypatch, tmp_p
     assert refreshed.refresh_token == "rotated-refresh"
     # The invariant: the single-use token POST ran inside the auth-store lock.
     assert lock_held["during_post"] is True
-

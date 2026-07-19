@@ -31,14 +31,14 @@ def _h_profile(args):  # pragma: no cover - identity only
 
 
 def _profile_parser():
-    p = argparse.ArgumentParser(prog="hermes")
+    p = argparse.ArgumentParser(prog="fabric")
     sub = p.add_subparsers(dest="command")
     build_profile_parser(sub, cmd_profile=_h_profile)
     return p
 
 
 def _gateway_parser():
-    p = argparse.ArgumentParser(prog="hermes")
+    p = argparse.ArgumentParser(prog="fabric")
     sub = p.add_subparsers(dest="command")
     build_gateway_parser(
         sub,
@@ -104,7 +104,7 @@ def test_gateway_lifecycle_accepts_legacy_platform_flag():
 
 
 def test_gateway_enroll_dispatch(monkeypatch):
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-api,nous".split(",")})
     p = _gateway_parser()
     ns = p.parse_args(
         [
@@ -127,8 +127,10 @@ def test_gateway_enroll_dispatch(monkeypatch):
 
 
 def test_gateway_enroll_hidden_by_default(monkeypatch, capsys):
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
     p = _gateway_parser()
 
     with pytest.raises(SystemExit):
@@ -138,13 +140,15 @@ def test_gateway_enroll_hidden_by_default(monkeypatch, capsys):
 
 
 def test_proxy_default_is_xai_in_curated_mode(monkeypatch):
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
     ns = _gateway_parser().parse_args(["proxy", "start"])
     assert ns.provider == "xai"
 
 
-def test_proxy_legacy_default_is_nous_when_enabled(monkeypatch):
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
+def test_proxy_explicit_nous_default_when_enabled(monkeypatch):
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-api,nous".split(",")})
     ns = _gateway_parser().parse_args(["proxy", "start"])
     assert ns.provider == "nous"

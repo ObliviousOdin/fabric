@@ -14,8 +14,7 @@ import urllib.request
 DEFAULT_UA = (
     "fabric-osint-investigation/0.2 "
     "(+https://github.com/ObliviousOdin/fabric; "
-    "set FABRIC_OSINT_UA env var to identify yourself per "
-    "Wikimedia / SEC fair-use guidance)"
+    "set FABRIC_OSINT_UA to identify your client)"
 )
 
 
@@ -41,7 +40,6 @@ def get(
     h = {
         "User-Agent": user_agent
         or os.environ.get("FABRIC_OSINT_UA")
-        or os.environ.get("HERMES_OSINT_UA")
         or DEFAULT_UA
     }
     if headers:

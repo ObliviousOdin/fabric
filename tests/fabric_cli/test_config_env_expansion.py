@@ -106,12 +106,9 @@ class TestExpandEnvVars:
         )
 
         worker_home = tmp_path / "profiles" / "worker"
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "launch"))
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "launch"))
         token = set_fabric_home_override(worker_home)
         try:
-            assert _expand_env_vars("${HERMES_HOME}/memory.db") == (
-                f"{worker_home}/memory.db"
-            )
             assert _expand_env_vars("${FABRIC_HOME}/memory.db") == (
                 f"{worker_home}/memory.db"
             )
@@ -259,11 +256,11 @@ class TestLoadConfigCacheEnvStaleness:
         os.utime(policy_a, ns=(same_ns, same_ns))
         os.utime(policy_b, ns=(same_ns, same_ns))
 
-        monkeypatch.setenv("HERMES_MANAGED_DIR", str(managed_a))
+        monkeypatch.setenv("FABRIC_MANAGED_DIR", str(managed_a))
         managed_scope.invalidate_managed_cache()
         assert load_config()["timezone"] == "Mars/One"
 
-        monkeypatch.setenv("HERMES_MANAGED_DIR", str(managed_b))
+        monkeypatch.setenv("FABRIC_MANAGED_DIR", str(managed_b))
         managed_scope.invalidate_managed_cache()
         assert load_config()["timezone"] == "Mars/Two"
 
@@ -281,7 +278,7 @@ class TestLoadCliConfigExpansion:
         config_file.write_text(config_yaml)
 
         monkeypatch.setenv("TEST_VISION_KEY_XYZ", "vis-key-123")
-        # Patch the hermes home so load_cli_config finds our test config
+        # Patch the fabric home so load_cli_config finds our test config
         monkeypatch.setattr("cli._fabric_home", tmp_path)
 
         from cli import load_cli_config

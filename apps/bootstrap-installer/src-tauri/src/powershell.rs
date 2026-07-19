@@ -34,13 +34,12 @@ pub type CancelRx = mpsc::Receiver<()>;
 
 /// Spawns install.ps1 / install.sh with the given args and streams output.
 ///
-/// `hermes_home_override` propagates under both the canonical and compatibility
-/// names so every installer generation writes to the directory we resolved.
+/// `fabric_home_override` pins every installer generation to the resolved home.
 pub async fn run_script(
     script_path: &Path,
     args: &[String],
     sink: StreamSink,
-    hermes_home_override: Option<&str>,
+    fabric_home_override: Option<&str>,
     mut cancel_rx: Option<CancelRx>,
 ) -> Result<ScriptResult> {
     let mut cmd = build_command(script_path, args);
@@ -49,13 +48,12 @@ pub async fn run_script(
     // during self-update. Pin child scripts to a stable directory so bash/zsh
     // never starts from a deleted cwd and emits getcwd/job-working-directory
     // errors at the end of an otherwise successful install.
-    if let Some(cwd) = stable_script_cwd(script_path, hermes_home_override) {
+    if let Some(cwd) = stable_script_cwd(script_path, fabric_home_override) {
         cmd.current_dir(cwd);
     }
 
-    if let Some(home) = hermes_home_override {
+    if let Some(home) = fabric_home_override {
         cmd.env("FABRIC_HOME", home);
-        cmd.env("HERMES_HOME", home);
     }
 
     cmd.stdin(Stdio::null())
@@ -155,8 +153,8 @@ pub async fn run_script(
     })
 }
 
-fn stable_script_cwd<'a>(script_path: &'a Path, hermes_home_override: Option<&'a str>) -> Option<&'a Path> {
-    if let Some(home) = hermes_home_override {
+fn stable_script_cwd<'a>(script_path: &'a Path, fabric_home_override: Option<&'a str>) -> Option<&'a Path> {
+    if let Some(home) = fabric_home_override {
         let path = Path::new(home);
         if path.is_dir() {
             return Some(path);
@@ -340,7 +338,7 @@ info line
     }
 
     #[test]
-    fn stable_script_cwd_prefers_existing_hermes_home() {
+    fn stable_script_cwd_prefers_existing_fabric_home() {
         let script = Path::new("/tmp/install.sh");
         let cwd = stable_script_cwd(script, Some("/"));
         assert_eq!(cwd, Some(Path::new("/")));

@@ -1,6 +1,25 @@
 import Foundation
 
-/// Parsed `fabric://pair` payload from a pairing QR
+/// Validation for a server address entered directly by the user.
+enum GatewayBaseURL {
+    static func parse(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            !trimmed.isEmpty,
+            !trimmed.unicodeScalars.contains(where: { $0.value <= 32 }),
+            let components = URLComponents(string: trimmed),
+            components.scheme?.lowercased() == "http" || components.scheme?.lowercased() == "https",
+            !(components.host ?? "").isEmpty,
+            components.user == nil,
+            components.password == nil,
+            components.query == nil,
+            components.fragment == nil
+        else { return nil }
+        return components.url
+    }
+}
+
+/// Parsed version-1 `fabric://pair` payload from a pairing QR
 /// (emitted by `fabric mobile`; contract in `fabric_cli/mobile_pairing.py`).
 ///
 /// - `auth == "token"`: `token` is the session credential; connect directly.
@@ -11,73 +30,78 @@ struct PairingPayload: Equatable {
     let gated: Bool
     let token: String?
 
-    /// Parse a scanned string. Accepts the canonical `fabric://pair?...` URI
-    /// and, as a convenience, a plain `http(s)://...` URL (treated as gated
-    /// unless it carries a `token` query parameter).
+    private static let gatedKeys: Set<String> = ["v", "url", "auth"]
+    private static let tokenKeys = gatedKeys.union(["token"])
+
+    /// Parse either the canonical payload or the browser landing URL whose
+    /// fragment contains that payload. Direct server addresses belong to
+    /// `GatewayBaseURL`, not this machine-readable contract.
     static func parse(_ raw: String) -> PairingPayload? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let components = URLComponents(string: trimmed) else { return nil }
-
-        if components.scheme == "fabric" {
-            guard components.host == "pair" else { return nil }
-            var urlString: String?
-            var auth = "gated"
-            var token: String?
-            var version: String?
-            for item in components.queryItems ?? [] {
-                switch item.name {
-                case "v": version = item.value
-                case "url": urlString = item.value
-                case "auth": auth = item.value ?? "gated"
-                case "token": token = item.value
-                default: break
-                }
-            }
-            guard
-                version == "1",
-                let urlString,
-                let url = validatedBaseURL(urlString)
-            else { return nil }
-            let gated = auth != "token" || (token ?? "").isEmpty
-            return PairingPayload(baseURL: url, gated: gated, token: gated ? nil : token)
+        if components.scheme?.lowercased() == "fabric" {
+            return parsePayload(components)
         }
 
-        if components.scheme == "http" || components.scheme == "https" {
-            if components.path == "/mobile/pair", let fragment = components.percentEncodedFragment {
-                let wrapped = URLComponents(string: "fabric://fragment?\(fragment)")?
-                    .queryItems?
-                    .first(where: { $0.name == "pair" })?
-                    .value
-                guard let wrapped else { return nil }
-                return parse(wrapped)
-            }
-            guard components.fragment == nil else { return nil }
-
-            let token = components.queryItems?.first(where: { $0.name == "token" })?.value
-            var bare = components
-            bare.queryItems = nil
-            guard let baseString = bare.string, let base = validatedBaseURL(baseString) else {
-                return nil
-            }
-            if let token, !token.isEmpty {
-                return PairingPayload(baseURL: base, gated: false, token: token)
-            }
-            return PairingPayload(baseURL: base, gated: true, token: nil)
-        }
-
-        return nil
-    }
-
-    private static func validatedBaseURL(_ raw: String) -> URL? {
         guard
-            let components = URLComponents(string: raw),
-            components.scheme == "http" || components.scheme == "https",
+            components.scheme?.lowercased() == "http" || components.scheme?.lowercased() == "https",
             !(components.host ?? "").isEmpty,
             components.user == nil,
             components.password == nil,
+            components.path == "/mobile/pair",
             components.query == nil,
-            components.fragment == nil
+            let fragment = components.percentEncodedFragment,
+            let fragmentItems = parameters(from: fragment),
+            Set(fragmentItems.keys) == ["pair"],
+            let wrapped = fragmentItems["pair"],
+            let payload = URLComponents(string: wrapped)
         else { return nil }
-        return components.url
+        return parsePayload(payload)
+    }
+
+    private static func parsePayload(_ components: URLComponents) -> PairingPayload? {
+        guard
+            components.scheme?.lowercased() == "fabric",
+            components.host == "pair",
+            components.user == nil,
+            components.password == nil,
+            components.port == nil,
+            components.path.isEmpty,
+            components.fragment == nil,
+            let query = components.percentEncodedQuery,
+            let params = parameters(from: query),
+            params["v"] == "1",
+            let rawBaseURL = params["url"],
+            let baseURL = GatewayBaseURL.parse(rawBaseURL)
+        else { return nil }
+
+        switch params["auth"] {
+        case "gated":
+            guard Set(params.keys) == gatedKeys else { return nil }
+            return PairingPayload(baseURL: baseURL, gated: true, token: nil)
+        case "token":
+            guard
+                Set(params.keys) == tokenKeys,
+                let token = params["token"],
+                !token.isEmpty
+            else { return nil }
+            return PairingPayload(baseURL: baseURL, gated: false, token: token)
+        default:
+            return nil
+        }
+    }
+
+    private static func parameters(from encoded: String) -> [String: String]? {
+        guard let items = URLComponents(string: "fabric://parameters?\(encoded)")?.queryItems else {
+            return nil
+        }
+        var values: [String: String] = [:]
+        for item in items {
+            guard !item.name.isEmpty, let value = item.value, values[item.name] == nil else {
+                return nil
+            }
+            values[item.name] = value
+        }
+        return values
     }
 }

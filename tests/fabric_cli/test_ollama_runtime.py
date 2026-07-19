@@ -544,7 +544,7 @@ def test_direct_cloud_alias_probe_never_claims_local_ollama_applicability(tmp_pa
 
 
 def test_auth_failure_and_serialization_never_expose_secret(tmp_path):
-    secret = "fabric-super-secret"
+    secret = "test-super-secret"
     snapshot = _build(
         tmp_path,
         api_key=secret,

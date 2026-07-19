@@ -1,4 +1,4 @@
-"""Base class for all Hermes execution environment backends.
+"""Base class for all Fabric execution environment backends.
 
 Unified spawn-per-call model: every command spawns a fresh ``bash -c`` process.
 A session snapshot (env vars, functions, aliases) is captured once at init and
@@ -25,19 +25,6 @@ from fabric_cli._subprocess_compat import windows_hide_flags
 from tools.interrupt import is_interrupted
 
 logger = logging.getLogger(__name__)
-
-# Opt-in debug tracing for the interrupt/activity/poll machinery.  Set
-# HERMES_DEBUG_INTERRUPT=1 to log loop entry/exit, periodic heartbeats, and
-# every is_interrupted() state change from _wait_for_process.  Off by default
-# to avoid flooding production gateway logs.
-_DEBUG_INTERRUPT = bool(os.getenv("HERMES_DEBUG_INTERRUPT"))
-
-if _DEBUG_INTERRUPT:
-    # AIAgent's quiet_mode path (run_agent.py) forces the `tools` logger to
-    # ERROR on CLI startup, which would silently swallow every trace we emit.
-    # Force this module's own logger back to INFO so the trace is visible in
-    # agent.log regardless of quiet-mode.  Scoped to the opt-in case only.
-    logger.setLevel(logging.INFO)
 
 # Thread-local activity callback.  The agent sets this before a tool call so
 # long-running _wait_for_process loops can report liveness to the gateway.
@@ -83,7 +70,7 @@ def get_sandbox_dir() -> Path:
     """Return the host-side root for all sandbox storage (Docker workspaces,
     Singularity overlays/SIF cache, etc.).
 
-    Configurable via TERMINAL_SANDBOX_DIR. Defaults to {HERMES_HOME}/sandboxes/.
+    Configurable via TERMINAL_SANDBOX_DIR. Defaults to {FABRIC_HOME}/sandboxes/.
     """
     custom = os.getenv("TERMINAL_SANDBOX_DIR")
     if custom:
@@ -279,7 +266,7 @@ class _ThreadedProcessHandle:
 
 
 def _cwd_marker(session_id: str) -> str:
-    return f"__HERMES_CWD_{session_id}__"
+    return f"__SESSION_CWD_{session_id}__"
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +275,7 @@ def _cwd_marker(session_id: str) -> str:
 
 
 class BaseEnvironment(ABC):
-    """Common interface and unified execution flow for all Hermes backends.
+    """Common interface and unified execution flow for all Fabric backends.
 
     Subclasses implement ``_run_bash()`` and ``cleanup()``.  The base class
     provides ``execute()`` with session snapshot sourcing, CWD tracking,
@@ -317,8 +304,8 @@ class BaseEnvironment(ABC):
 
         self._session_id = uuid.uuid4().hex[:12]
         temp_dir = self.get_temp_dir().rstrip("/") or "/"
-        self._snapshot_path = f"{temp_dir}/hermes-snap-{self._session_id}.sh"
-        self._cwd_file = f"{temp_dir}/hermes-cwd-{self._session_id}.txt"
+        self._snapshot_path = f"{temp_dir}/fabric-snap-{self._session_id}.sh"
+        self._cwd_file = f"{temp_dir}/fabric-cwd-{self._session_id}.txt"
         self._cwd_marker = _cwd_marker(self._session_id)
         self._snapshot_ready = False
 
@@ -371,7 +358,7 @@ class BaseEnvironment(ABC):
         # ``C:/Users/...``-shaped paths without glob-splitting the colon or
         # tripping on drive letters.  On POSIX this is a no-op (no colons /
         # special chars in a /tmp path).  Previously unquoted interpolation
-        # caused ``C:/Users/.../hermes-snap-*.sh: No such file or directory``
+        # caused ``C:/Users/.../fabric-snap-*.sh: No such file or directory``
         # errors on Windows, leaking via stderr (merged into stdout on Linux
         # backends) into every terminal-tool response.
         _quoted_snap = shlex.quote(self._snapshot_path)
@@ -409,8 +396,8 @@ class BaseEnvironment(ABC):
             # ``declare -f`` with no name args dumps ALL functions, so an empty
             # name list (only private funcs present) would otherwise leak the
             # very functions we meant to drop.
-            f"__hermes_fns=$(declare -F | awk '{{print $3}}' | grep -vE '^_[^_]') || true\n"
-            f"[ -n \"$__hermes_fns\" ] && declare -f $__hermes_fns "
+            f"__fabric_fns=$(declare -F | awk '{{print $3}}' | grep -vE '^_[^_]') || true\n"
+            f"[ -n \"$__fabric_fns\" ] && declare -f $__fabric_fns "
             f">> {_snap_tmp} 2>/dev/null || true\n"
             f"alias -p >> {_snap_tmp}\n"
             f"echo 'shopt -s expand_aliases' >> {_snap_tmp}\n"
@@ -502,8 +489,8 @@ class BaseEnvironment(ABC):
 
         # Run the actual command
         parts.append(f"eval '{escaped}'")
-        parts.append("__hermes_ec=$?")
-        # Restrict Hermes metadata files without changing the user's command
+        parts.append("__fabric_ec=$?")
+        # Restrict Fabric metadata files without changing the user's command
         # umask. Snapshot files may contain env-carried secrets.
         parts.append("umask 077")
 
@@ -526,7 +513,7 @@ class BaseEnvironment(ABC):
         parts.append(
             f"printf '\\n{self._cwd_marker}%s{self._cwd_marker}\\n' \"$(pwd -P)\""
         )
-        parts.append("exit $__hermes_ec")
+        parts.append("exit $__fabric_ec")
 
         return "\n".join(parts)
 
@@ -537,7 +524,7 @@ class BaseEnvironment(ABC):
     @staticmethod
     def _embed_stdin_heredoc(command: str, stdin_data: str) -> str:
         """Append stdin_data as a shell heredoc to the command string."""
-        delimiter = f"HERMES_STDIN_{uuid.uuid4().hex[:12]}"
+        delimiter = f"STDIN_PAYLOAD_{uuid.uuid4().hex[:12]}"
         return f"{command} << '{delimiter}'\n{stdin_data}\n{delimiter}"
 
     # ------------------------------------------------------------------
@@ -695,18 +682,19 @@ class BaseEnvironment(ABC):
             "start": _now,
         }
 
-        # --- Debug tracing (opt-in via HERMES_DEBUG_INTERRUPT=1) -------------
+        # --- Debug tracing (enabled by logging.level=DEBUG / --verbose) ------
         # Captures loop entry/exit, interrupt state changes, and periodic
         # heartbeats so we can diagnose "agent never sees the interrupt"
         # reports without reproducing locally.
+        debug_interrupt = logger.isEnabledFor(logging.DEBUG)
         _tid = threading.current_thread().ident
         _pid = getattr(proc, "pid", None)
         _iter_count = 0
         _last_heartbeat = _now
         _last_interrupt_state = False
         _cb_was_none = _get_activity_callback() is None
-        if _DEBUG_INTERRUPT:
-            logger.info(
+        if debug_interrupt:
+            logger.debug(
                 "[interrupt-debug] _wait_for_process ENTER tid=%s pid=%s "
                 "timeout=%ss activity_cb=%s initial_interrupt=%s",
                 _tid, _pid, timeout,
@@ -719,8 +707,8 @@ class BaseEnvironment(ABC):
             while proc.poll() is None:
                 _iter_count += 1
                 if is_interrupted():
-                    if _DEBUG_INTERRUPT:
-                        logger.info(
+                    if debug_interrupt:
+                        logger.debug(
                             "[interrupt-debug] _wait_for_process INTERRUPT DETECTED "
                             "tid=%s pid=%s iter=%d elapsed=%.1fs — killing process group",
                             _tid, _pid, _iter_count, time.monotonic() - _activity_state["start"],
@@ -732,8 +720,8 @@ class BaseEnvironment(ABC):
                         "returncode": 130,
                     }
                 if time.monotonic() > deadline:
-                    if _DEBUG_INTERRUPT:
-                        logger.info(
+                    if debug_interrupt:
+                        logger.debug(
                             "[interrupt-debug] _wait_for_process TIMEOUT "
                             "tid=%s pid=%s iter=%d timeout=%ss",
                             _tid, _pid, _iter_count, timeout,
@@ -754,9 +742,9 @@ class BaseEnvironment(ABC):
                 # Heartbeat every ~30s: proves the loop is alive and reports
                 # the activity-callback state (thread-local, can get clobbered
                 # by nested tool calls or executor thread reuse).
-                if _DEBUG_INTERRUPT and time.monotonic() - _last_heartbeat >= 30.0:
+                if debug_interrupt and time.monotonic() - _last_heartbeat >= 30.0:
                     _cb_now_none = _get_activity_callback() is None
-                    logger.info(
+                    logger.debug(
                         "[interrupt-debug] _wait_for_process HEARTBEAT "
                         "tid=%s pid=%s iter=%d elapsed=%.0fs "
                         "interrupt=%s activity_cb=%s%s",
@@ -788,8 +776,8 @@ class BaseEnvironment(ABC):
             # python exits and the child is reparented to init (PPID=1) and
             # keeps running as an orphan.  Killing the process group here
             # guarantees the tool's side effects stop when the agent stops.
-            if _DEBUG_INTERRUPT:
-                logger.info(
+            if debug_interrupt:
+                logger.debug(
                     "[interrupt-debug] _wait_for_process EXCEPTION_EXIT "
                     "tid=%s pid=%s iter=%d elapsed=%.1fs — killing subprocess group before re-raise",
                     _tid, _pid, _iter_count,
@@ -812,8 +800,8 @@ class BaseEnvironment(ABC):
         except Exception:
             pass
 
-        if _DEBUG_INTERRUPT:
-            logger.info(
+        if debug_interrupt:
+            logger.debug(
                 "[interrupt-debug] _wait_for_process EXIT (natural) "
                 "tid=%s pid=%s iter=%d elapsed=%.1fs returncode=%s",
                 _tid, _pid, _iter_count,
@@ -839,7 +827,7 @@ class BaseEnvironment(ABC):
         self._extract_cwd_from_output(result)
 
     def _extract_cwd_from_output(self, result: dict):
-        """Parse the __HERMES_CWD_{session}__ marker from stdout output.
+        """Parse the __SESSION_CWD_{session}__ marker from stdout output.
 
         Updates self.cwd and strips the marker from result["output"].
         Used by remote backends (Docker, SSH, Modal, Daytona, Singularity).

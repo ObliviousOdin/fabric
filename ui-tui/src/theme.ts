@@ -1,3 +1,5 @@
+import { TUI_LAUNCH_CONTEXT } from './config/runtime.js'
+
 export interface ThemeColors {
   primary: string
   accent: string
@@ -337,19 +339,14 @@ export const LIGHT_THEME: Theme = {
   bannerHero: ''
 }
 
-const TRUE_RE = /^(?:1|true|yes|on)$/
-const FALSE_RE = /^(?:0|false|no|off)$/
-
 // TERM_PROGRAM fallback allow-list for terminals whose default profile is
 // light and which may not expose COLORFGBG. This currently includes Apple
-// Terminal. Explicit HERMES_TUI_THEME / COLORFGBG signals above still win,
-// so dark Apple Terminal profiles that advertise a dark background stay dark.
+// Terminal. COLORFGBG still wins, so dark Apple Terminal profiles that
+// advertise a dark background stay dark.
 const LIGHT_DEFAULT_TERM_PROGRAMS = new Set<string>(['Apple_Terminal'])
 
-// Best-effort RGB → luminance check.  Currently only accepts a 3- or
-// 6-digit hex value (with or without a leading `#`); the env var name
-// `HERMES_TUI_BACKGROUND` is intentionally generic so a future OSC11
-// query helper can cache its answer there too, but additional formats
+// Best-effort RGB → luminance check. Currently only accepts a 3- or
+// 6-digit hex value (with or without a leading `#`). Additional formats
 // (rgb()/hsl()/named colours) would need explicit parsing here first.
 const LUMA_LIGHT_THRESHOLD = 0.6
 
@@ -385,18 +382,13 @@ function backgroundLuminance(raw: string): null | number {
 
 // Pick light vs dark with ordered, explainable signals (#11300):
 //
-//   1. `HERMES_TUI_LIGHT` boolean — `1`/`true`/`yes`/`on` → light;
-//      `0`/`false`/`no`/`off` → dark.  Either explicit value wins
-//      regardless of any later signal.
-//   2. `HERMES_TUI_THEME` named override — `light` / `dark` win over
-//      every signal below.
-//   3. `HERMES_TUI_BACKGROUND` hex hint (3- or 6-digit) — luminance
+//   1. Launch-context background hint (3- or 6-digit) — luminance
 //      ≥ LUMA_LIGHT_THRESHOLD → light.
-//   4. `COLORFGBG` last field — XFCE / rxvt / Terminal.app emit
+//   2. `COLORFGBG` last field — XFCE / rxvt / Terminal.app emit
 //      slot 7 or 15 on light profiles; 0–15 ranges are otherwise
 //      treated as authoritatively dark so the TERM_PROGRAM
 //      allow-list below cannot override an explicit dark profile.
-//   5. `TERM_PROGRAM` light-default allow-list.
+//   3. `TERM_PROGRAM` light-default allow-list.
 //
 // Anything we can't decide stays dark — the default Fabric palette
 // is the dark one.
@@ -404,29 +396,10 @@ export function detectLightMode(
   env: NodeJS.ProcessEnv = process.env,
   // Injectable so tests can prove the COLORFGBG-over-TERM_PROGRAM
   // precedence rule even though the production allow-list is empty.
-  lightDefaultTermPrograms: ReadonlySet<string> = LIGHT_DEFAULT_TERM_PROGRAMS
+  lightDefaultTermPrograms: ReadonlySet<string> = LIGHT_DEFAULT_TERM_PROGRAMS,
+  backgroundHint = TUI_LAUNCH_CONTEXT.terminal_background ?? ''
 ): boolean {
-  const lightFlag = (env.HERMES_TUI_LIGHT ?? '').trim().toLowerCase()
-
-  if (TRUE_RE.test(lightFlag)) {
-    return true
-  }
-
-  if (FALSE_RE.test(lightFlag)) {
-    return false
-  }
-
-  const themeFlag = (env.HERMES_TUI_THEME ?? '').trim().toLowerCase()
-
-  if (themeFlag === 'light') {
-    return true
-  }
-
-  if (themeFlag === 'dark') {
-    return false
-  }
-
-  const bgHint = backgroundLuminance(env.HERMES_TUI_BACKGROUND ?? '')
+  const bgHint = backgroundLuminance(backgroundHint)
 
   if (bgHint !== null) {
     return bgHint >= LUMA_LIGHT_THRESHOLD

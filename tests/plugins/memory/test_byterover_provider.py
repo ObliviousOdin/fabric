@@ -2,7 +2,17 @@
 
 import threading
 
+import plugins.memory.byterover as byterover
 from plugins.memory.byterover import ByteRoverMemoryProvider
+
+
+def test_shared_provider_config_remains_available(monkeypatch):
+    monkeypatch.setattr(
+        "fabric_cli.config.load_config",
+        lambda: {"memory": {"provider_config": {"auto_extract": False}}},
+    )
+
+    assert byterover._load_plugin_config() == {"auto_extract": False}
 
 
 def test_auto_extract_false_skips_sync_turn(monkeypatch):

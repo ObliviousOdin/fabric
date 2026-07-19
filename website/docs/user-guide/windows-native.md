@@ -86,9 +86,8 @@ New Fabric profiles use `%LOCALAPPDATA%\fabric` by default:
 | `%LOCALAPPDATA%\fabric\logs\`       | Agent, gateway, update, and desktop logs                         |
 | `%LOCALAPPDATA%\fabric\fabric-agent\venv\Scripts\` | Default native CLI launchers                         |
 
-`FABRIC_HOME` selects another data root. `FABRIC_HOME` and several
-`HERMES_DESKTOP_*` variables remain internal compatibility inputs; new
-instructions use Fabric names wherever a first-class Fabric name is implemented.
+`FABRIC_HOME` selects another data root. Desktop installer/runtime handoffs are
+private process state, not user-configurable settings.
 
 After installation, a new PowerShell window should resolve the Fabric launcher:
 
@@ -98,11 +97,9 @@ Get-Command fabric  # defaults to %LOCALAPPDATA%\fabric\fabric-agent\venv\Script
 
 ## Shell execution {#how-fabric-runs-shell-commands-on-windows}
 
-The terminal tool uses Git Bash on native Windows. The compatibility resolver
-checks the configured Git-Bash path, a managed PortableGit install, a system
-Git-for-Windows install, then other supported Bash locations. Existing
-installations may still configure `HERMES_GIT_BASH_PATH`; treat it as a technical
-compatibility key, not product branding.
+The terminal tool uses Git Bash on native Windows. The resolver checks Fabric's
+managed PortableGit install, a system Git-for-Windows install, then other
+supported Bash locations.
 
 When a command has a Windows `.cmd` shim, invoke the shim resolved from `PATH`
 rather than hard-coding the extensionless Node script.

@@ -6,11 +6,11 @@ do an `initialize` handshake, then drive `thread/start` + `turn/start` and
 consume streaming `item/*` notifications until `turn/completed`.
 
 This module is the wire-level speaker only. Higher-level concerns (event
-projection into Hermes' display, approval bridging, transcript projection into
+projection into Fabric's display, approval bridging, transcript projection into
 AIAgent.messages, plugin migration) live in sibling modules.
 
 Status: optional opt-in runtime gated behind `model.openai_runtime ==
-"codex_app_server"`. Hermes' default tool dispatch is unchanged when this
+"codex_app_server"`. Fabric's default tool dispatch is unchanged when this
 runtime is not selected.
 """
 
@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from tools.environments.local import hermes_subprocess_env
+from tools.environments.local import fabric_subprocess_env
 
 # Default minimum codex version we test against. The PR sets this from the
 # `codex --version` parsed at install time; bumping is a one-line change here.
@@ -80,53 +80,68 @@ class CodexAppServerClient:
         # model-chosen agentic loop that executes shell commands, so it
         # legitimately needs LLM provider credentials (inherit_credentials=True)
         # to authenticate against the model endpoint. But the previous
-        # `os.environ.copy()` also handed it every Tier-1 Hermes secret — gateway
+        # `os.environ.copy()` also handed it every Tier-1 Fabric secret — gateway
         # bot tokens, GitHub auth, Modal/Daytona infra tokens, the dashboard
         # session token, AUXILIARY_* side-LLM keys, GATEWAY_RELAY_* auth — none
         # of which a coding subprocess has any use for. Route through the
         # centralized helper so Tier-1 + dynamic-internal secrets are always
         # stripped while provider creds still flow, matching copilot_acp_client
         # (#29157 sibling spawn-site gap).
-        spawn_env = hermes_subprocess_env(inherit_credentials=True)
+        spawn_env = fabric_subprocess_env(inherit_credentials=True)
         if env:
             spawn_env.update(env)
         if codex_home:
             spawn_env["CODEX_HOME"] = codex_home
 
         app_server_args = list(extra_args or [])
+        self._owned_context_paths: list[str] = []
         # Kanban workers must be able to write their handoff/status back to
         # the board DB, which lives outside the per-task workspace. Keep the
         # Codex sandbox on, but add the Kanban root as the only extra writable
         # root. Without this, codex-runtime workers finish their actual work
         # but crash/block when kanban_complete/kanban_block writes SQLite.
-        if spawn_env.get("HERMES_KANBAN_TASK"):
-            kanban_db = spawn_env.get("HERMES_KANBAN_DB")
-            configured_home = spawn_env.get("FABRIC_HOME") or spawn_env.get(
-                "HERMES_HOME"
-            )
-            if not configured_home:
-                from fabric_constants import get_fabric_home
+        from fabric_cli.kanban_runtime import (
+            get_kanban_runtime_context,
+            worker_context_argv,
+            write_kanban_runtime_context,
+        )
 
-                configured_home = str(get_fabric_home())
-            kanban_root = (
-                os.path.dirname(kanban_db)
-                if kanban_db
-                else spawn_env.get(
-                    "HERMES_KANBAN_ROOT",
-                    os.path.join(
-                        configured_home,
-                        "kanban",
-                    ),
-                )
-            )
+        worker_context = get_kanban_runtime_context()
+        if worker_context.is_worker:
+            writable_roots: list[str] = []
+            for candidate in (
+                os.path.dirname(worker_context.db_path),
+                worker_context.workspaces_root,
+                worker_context.workspace,
+            ):
+                if candidate and candidate not in writable_roots:
+                    writable_roots.append(candidate)
             app_server_args.extend(
                 [
                     "-c",
                     'sandbox_mode="workspace-write"',
                     "-c",
-                    f'sandbox_workspace_write.writable_roots=["{kanban_root}"]',
+                    "sandbox_workspace_write.writable_roots="
+                    + json.dumps(writable_roots, separators=(",", ":")),
                     "-c",
                     "sandbox_workspace_write.network_access=false",
+                ]
+            )
+            # Codex launches the managed Fabric-tools MCP server as a child of
+            # app-server. Give that process its own one-use descriptor; the
+            # worker's original descriptor was already consumed and unlinked.
+            mcp_context_path = write_kanban_runtime_context(worker_context)
+            self._owned_context_paths.append(str(mcp_context_path))
+            mcp_args = [
+                "-m",
+                "agent.transports.fabric_tools_mcp_server",
+                *worker_context_argv(mcp_context_path),
+            ]
+            app_server_args.extend(
+                [
+                    "-c",
+                    "mcp_servers.fabric-tools.args="
+                    + json.dumps(mcp_args, separators=(",", ":")),
                 ]
             )
 
@@ -134,14 +149,18 @@ class CodexAppServerClient:
         # Codex emits tracing to stderr; default WARN keeps it quiet for users.
         spawn_env.setdefault("RUST_LOG", "warn")
 
-        self._proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=0,
-            env=spawn_env,
-        )
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+                env=spawn_env,
+            )
+        except Exception:
+            self._cleanup_context_paths()
+            raise
         self._next_id = 1
         self._pending: dict[int, _Pending] = {}
         self._pending_lock = threading.Lock()
@@ -161,7 +180,7 @@ class CodexAppServerClient:
 
     def initialize(
         self,
-        client_name: str = "hermes",
+        client_name: str = "fabric",
         client_title: str = "Fabric",
         client_version: str = "0.1",
         capabilities: Optional[dict] = None,
@@ -203,6 +222,20 @@ class CodexAppServerClient:
                 self._proc.wait(timeout=1.0)
             except Exception:
                 pass
+        finally:
+            self._cleanup_context_paths()
+
+    def _cleanup_context_paths(self) -> None:
+        """Remove descriptors that a child never got far enough to consume."""
+
+        for raw_path in self._owned_context_paths:
+            try:
+                from pathlib import Path
+
+                Path(raw_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        self._owned_context_paths.clear()
 
     def __enter__(self) -> "CodexAppServerClient":
         return self

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import type { SystemStats } from '@/hermes'
+import type { SystemStats } from '@/fabric'
 
 /** How many samples the sparklines retain. */
 const HISTORY = 40
@@ -9,17 +9,23 @@ type Series = 'cpu' | 'disk' | 'down' | 'gpu' | 'load' | 'mem' | 'up' | 'vram'
 type History = Partial<Record<Series, number[]>>
 
 function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
+  if (n < 1024) {return `${n} B`}
+
+  if (n < 1024 * 1024) {return `${(n / 1024).toFixed(1)} KB`}
+
+  if (n < 1024 * 1024 * 1024) {return `${(n / (1024 * 1024)).toFixed(1)} MB`}
+
   return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
 function fmtRate(bytesPerSec: number | null | undefined): string {
-  if (bytesPerSec == null || Number.isNaN(bytesPerSec)) return '—'
+  if (bytesPerSec == null || Number.isNaN(bytesPerSec)) {return '—'}
   const v = Math.max(0, bytesPerSec)
-  if (v < 1024) return `${v.toFixed(0)} B/s`
-  if (v < 1024 * 1024) return `${(v / 1024).toFixed(0)} KB/s`
+
+  if (v < 1024) {return `${v.toFixed(0)} B/s`}
+
+  if (v < 1024 * 1024) {return `${(v / 1024).toFixed(0)} KB/s`}
+
   return `${(v / (1024 * 1024)).toFixed(1)} MB/s`
 }
 
@@ -29,10 +35,13 @@ function Spark({ values, max, height = 24 }: { height?: number; max?: number; va
     const n = values.length
     const W = 100
     const H = height
+
     if (n === 0) {
       const mid = H / 2
+
       return { area: '', line: `M0,${mid} L${W},${mid}` }
     }
+
     const lo = Math.min(...values)
     const hi = max ?? Math.max(...values, lo + 1)
     const span = Math.max((max ?? hi) - (max != null ? 0 : lo), 1e-6)
@@ -42,6 +51,7 @@ function Spark({ values, max, height = 24 }: { height?: number; max?: number; va
     const yAt = (v: number) => H - pad - ((Math.min(Math.max(v, base), base + span) - base) / span) * (H - pad * 2)
     const pts = values.map((v, i) => `${i ? 'L' : 'M'}${xAt(i).toFixed(2)},${yAt(v).toFixed(2)}`)
     const linePath = pts.join(' ')
+
     return { area: `${linePath} L${W},${H} L0,${H} Z`, line: linePath }
   }, [values, max, height])
 
@@ -113,14 +123,16 @@ export function HostStatsPanel({ stats }: { stats: SystemStats | null }) {
   const [history, setHistory] = useState<History>({})
 
   useEffect(() => {
-    if (!stats) return
+    if (!stats) {return}
     setHistory(prev => {
       const out: History = { ...prev }
+
       const add = (key: Series, v: number | null | undefined) => {
-        if (typeof v !== 'number' || Number.isNaN(v)) return
+        if (typeof v !== 'number' || Number.isNaN(v)) {return}
         const arr = (prev[key] ?? []).concat(v)
         out[key] = arr.length > HISTORY ? arr.slice(-HISTORY) : arr
       }
+
       add('cpu', stats.cpu_percent)
       add('mem', stats.memory?.percent)
       add('disk', stats.disk?.percent)
@@ -130,11 +142,12 @@ export function HostStatsPanel({ stats }: { stats: SystemStats | null }) {
       const gpu = stats.gpus?.[0]
       add('gpu', gpu?.util_percent)
       add('vram', gpu?.mem_percent ?? undefined)
+
       return out
     })
   }, [stats])
 
-  if (!stats) return null
+  if (!stats) {return null}
   const gpu = stats.gpus?.[0]
 
   return (

@@ -21,8 +21,6 @@ def temp_pyproject(tmp_path, monkeypatch):
 
         [project.scripts]
         fabric = "fabric_cli.main:main"
-        fabric-agent = "run_agent:main"
-        fabric-acp = "acp_adapter.entry:main"
     """
         )
     )
@@ -41,8 +39,7 @@ def fake_scripts_dir(tmp_path):
 
 class TestVerifyConsoleScriptsInstalled:
     def test_no_action_when_all_shims_present(self, temp_pyproject, fake_scripts_dir):
-        for name in ("fabric", "fabric-agent", "fabric-acp"):
-            (fake_scripts_dir / f"{name}.exe").write_bytes(b"fake")
+        (fake_scripts_dir / "fabric.exe").write_bytes(b"fake")
 
         with patch("fabric_cli.main._is_windows", return_value=True), \
              patch("fabric_cli.main._venv_scripts_dir", return_value=fake_scripts_dir), \
@@ -56,9 +53,6 @@ class TestVerifyConsoleScriptsInstalled:
     def test_triggers_reinstall_when_fabric_exe_missing(
         self, temp_pyproject, fake_scripts_dir
     ):
-        (fake_scripts_dir / "fabric-agent.exe").write_bytes(b"fake")
-        (fake_scripts_dir / "fabric-acp.exe").write_bytes(b"fake")
-
         with patch("fabric_cli.main._is_windows", return_value=True), \
              patch("fabric_cli.main._venv_scripts_dir", return_value=fake_scripts_dir), \
              patch("fabric_cli.main._run_quarantined_install") as mock_install:
@@ -81,12 +75,6 @@ class TestVerifyConsoleScriptsInstalled:
 
         mock_install.assert_not_called()
 
-    def test_load_console_script_names_reads_pyproject(self, temp_pyproject):
-        from fabric_cli.main import _load_console_script_names
-
-        names = _load_console_script_names()
-        assert names == ["fabric", "fabric-agent", "fabric-acp"]
-
     def test_primary_install_success_still_verifies_scripts(self):
         import fabric_cli.main as main_mod
 
@@ -104,13 +92,12 @@ class TestVerifyConsoleScriptsInstalled:
         )
         mock_verify.assert_called_once_with(["uv", "pip"], env={"VIRTUAL_ENV": "x"})
 
-    def test_quarantine_shims_include_declared_console_scripts(
+    def test_quarantine_shims_include_only_fabric_executable(
         self, temp_pyproject, fake_scripts_dir
     ):
         import fabric_cli.main as main_mod
 
         with patch("fabric_cli.main._is_windows", return_value=True):
-            names = {path.name for path in main_mod._hermes_exe_shims(fake_scripts_dir)}
+            names = {path.name for path in main_mod._fabric_exe_shims(fake_scripts_dir)}
 
-        assert {"fabric.exe", "fabric-agent.exe", "fabric-acp.exe"} <= names
-        assert "fabric-gateway.exe" in names
+        assert names == {"fabric.exe"}

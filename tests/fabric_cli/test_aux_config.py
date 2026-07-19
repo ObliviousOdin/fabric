@@ -26,6 +26,13 @@ from fabric_cli.main import (
 # ── Default config ──────────────────────────────────────────────────────────
 
 
+def _use_curated_capability_catalog(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "fabric_cli.fabric_capabilities._load_capabilities_config",
+        lambda: {},
+    )
+
+
 def test_title_generation_present_in_default_config():
     """`title_generation` task must be defined in DEFAULT_CONFIG.
 
@@ -98,10 +105,9 @@ def test_format_aux_current_handles_non_dict():
 
 
 def test_format_aux_current_neutralizes_hidden_provider_by_default(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    _use_curated_capability_catalog(monkeypatch)
 
-    task_cfg = {"provider": "nous", "model": "hermes-legacy-model"}
+    task_cfg = {"provider": "nous", "model": "stale-test-model"}
 
     assert _format_aux_current(task_cfg) == (
         "configured provider (not in Fabric catalog)"
@@ -113,13 +119,12 @@ def test_format_aux_current_neutralizes_hidden_provider_by_default(monkeypatch):
     )
 
 
-def test_format_aux_current_restores_hidden_provider_with_explicit_opt_in(monkeypatch):
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "nous")
+def test_format_aux_current_shows_hidden_provider_with_explicit_opt_in(monkeypatch):
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "nous".split(",")})
 
-    task_cfg = {"provider": "nous", "model": "hermes-legacy-model"}
+    task_cfg = {"provider": "nous", "model": "stale-test-model"}
 
-    assert _format_aux_current(task_cfg) == "nous · hermes-legacy-model"
+    assert _format_aux_current(task_cfg) == "nous · stale-test-model"
 
 
 # ── _save_aux_choice ────────────────────────────────────────────────────────
@@ -128,9 +133,9 @@ def test_format_aux_current_restores_hidden_provider_with_explicit_opt_in(monkey
 def test_save_aux_choice_persists_to_config_yaml(tmp_path, monkeypatch):
     """Saving a task writes provider/model/base_url/api_key to auxiliary.<task>."""
     from pathlib import Path
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    (tmp_path / ".hermes").mkdir(exist_ok=True)
+    (tmp_path / ".fabric").mkdir(exist_ok=True)
 
     _save_aux_choice(
         "vision", provider="openrouter", model="google/gemini-2.5-flash",
@@ -146,9 +151,9 @@ def test_save_aux_choice_persists_to_config_yaml(tmp_path, monkeypatch):
 def test_save_aux_choice_preserves_timeout(tmp_path, monkeypatch):
     """Saving must NOT clobber user-tuned timeout values."""
     from pathlib import Path
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    (tmp_path / ".hermes").mkdir(exist_ok=True)
+    (tmp_path / ".fabric").mkdir(exist_ok=True)
 
     # Default vision timeout is 120
     cfg_before = load_config()
@@ -165,9 +170,9 @@ def test_save_aux_choice_preserves_timeout(tmp_path, monkeypatch):
 def test_save_aux_choice_does_not_touch_main_model(tmp_path, monkeypatch):
     """Aux config must never mutate model.default / model.provider / model.base_url."""
     from pathlib import Path
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    (tmp_path / ".hermes").mkdir(exist_ok=True)
+    (tmp_path / ".fabric").mkdir(exist_ok=True)
 
     # Simulate a configured main model
     from fabric_cli.config import save_config
@@ -199,9 +204,9 @@ def test_save_aux_choice_does_not_touch_main_model(tmp_path, monkeypatch):
 def test_save_aux_choice_creates_missing_task_entry(tmp_path, monkeypatch):
     """Saving a task that was wiped from config.yaml should recreate it."""
     from pathlib import Path
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    (tmp_path / ".hermes").mkdir(exist_ok=True)
+    (tmp_path / ".fabric").mkdir(exist_ok=True)
 
     # Remove vision from config entirely
     from fabric_cli.config import save_config
@@ -221,9 +226,9 @@ def test_save_aux_choice_creates_missing_task_entry(tmp_path, monkeypatch):
 
 def test_reset_aux_to_auto_clears_routing_preserves_timeouts(tmp_path, monkeypatch):
     from pathlib import Path
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    (tmp_path / ".hermes").mkdir(exist_ok=True)
+    (tmp_path / ".fabric").mkdir(exist_ok=True)
 
     # Configure two tasks non-auto, and bump a timeout
     _save_aux_choice("vision", provider="openrouter", model="gpt-4o")
@@ -253,9 +258,9 @@ def test_reset_aux_to_auto_clears_routing_preserves_timeouts(tmp_path, monkeypat
 def test_reset_aux_to_auto_idempotent(tmp_path, monkeypatch):
     """Second reset on already-auto config returns 0 without errors."""
     from pathlib import Path
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    (tmp_path / ".hermes").mkdir(exist_ok=True)
+    (tmp_path / ".fabric").mkdir(exist_ok=True)
 
     assert _reset_aux_to_auto() == 0
     _save_aux_choice("vision", provider="nous", model="gemini-3-flash")
@@ -269,9 +274,9 @@ def test_reset_aux_to_auto_idempotent(tmp_path, monkeypatch):
 def test_select_provider_and_model_dispatches_to_aux_menu(tmp_path, monkeypatch):
     """Picking 'Configure auxiliary models...' in the provider list calls _aux_config_menu."""
     from pathlib import Path
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    (tmp_path / ".hermes").mkdir(exist_ok=True)
+    (tmp_path / ".fabric").mkdir(exist_ok=True)
 
     from fabric_cli import main as main_mod
 
@@ -299,9 +304,9 @@ def test_select_provider_and_model_dispatches_to_aux_menu(tmp_path, monkeypatch)
 def test_leave_unchanged_replaces_cancel_label(tmp_path, monkeypatch):
     """The bottom cancel entry now reads 'Leave unchanged' (UX polish)."""
     from pathlib import Path
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    (tmp_path / ".hermes").mkdir(exist_ok=True)
+    (tmp_path / ".fabric").mkdir(exist_ok=True)
 
     from fabric_cli import main as main_mod
 
@@ -329,8 +334,7 @@ def test_leave_unchanged_replaces_cancel_label(tmp_path, monkeypatch):
 def test_aux_menu_default_copy_is_fabric_branded(monkeypatch, capsys):
     from fabric_cli import main as main_mod
 
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    _use_curated_capability_catalog(monkeypatch)
     monkeypatch.setattr("fabric_cli.config.load_config", lambda: {})
     monkeypatch.setattr(
         main_mod,
@@ -342,7 +346,6 @@ def test_aux_menu_default_copy_is_fabric_branded(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert "Fabric uses your main model" in output
-    assert "Hermes" not in output
     assert "Nous" not in output
     assert "nousresearch" not in output.lower()
 
@@ -350,15 +353,14 @@ def test_aux_menu_default_copy_is_fabric_branded(monkeypatch, capsys):
 def test_aux_menu_neutralizes_existing_hidden_provider_state(monkeypatch, capsys):
     from fabric_cli import main as main_mod
 
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    _use_curated_capability_catalog(monkeypatch)
     monkeypatch.setattr(
         "fabric_cli.config.load_config",
         lambda: {
             "auxiliary": {
                 "vision": {
                     "provider": "nous",
-                    "model": "hermes-legacy-model",
+                    "model": "stale-test-model",
                 }
             }
         },
@@ -377,7 +379,7 @@ def test_aux_menu_neutralizes_existing_hidden_provider_state(monkeypatch, capsys
     assert "configured provider (not in Fabric catalog)" in rendered
     assert "Nous" not in rendered
     assert "nous ·" not in rendered.lower()
-    assert "hermes-legacy-model" not in rendered
+    assert "stale-test-model" not in rendered
 
 
 def test_aux_provider_picker_applies_fabric_catalog_after_auth_discovery(
@@ -385,8 +387,7 @@ def test_aux_provider_picker_applies_fabric_catalog_after_auth_discovery(
 ):
     from fabric_cli import main as main_mod
 
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    _use_curated_capability_catalog(monkeypatch)
     monkeypatch.setattr("fabric_cli.config.load_config", lambda: {})
     monkeypatch.setattr(
         "fabric_cli.model_switch.list_authenticated_providers",
@@ -419,15 +420,14 @@ def test_aux_provider_picker_preserves_hidden_current_route_on_enter(
 ):
     from fabric_cli import main as main_mod
 
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.delenv("FABRIC_MODEL_PROVIDERS", raising=False)
+    _use_curated_capability_catalog(monkeypatch)
     monkeypatch.setattr(
         "fabric_cli.config.load_config",
         lambda: {
             "auxiliary": {
                 "vision": {
                     "provider": "nous",
-                    "model": "hermes-legacy-model",
+                    "model": "stale-test-model",
                     "base_url": "https://inference-api.nousresearch.com/v1",
                 }
             }
@@ -464,23 +464,22 @@ def test_aux_provider_picker_preserves_hidden_current_route_on_enter(
     assert "configured provider (not in Fabric catalog)" in rendered
     assert "Nous" not in rendered
     assert "nousresearch" not in rendered.lower()
-    assert "hermes-legacy-model" not in rendered
+    assert "stale-test-model" not in rendered
 
 
-def test_aux_provider_picker_restores_nous_under_explicit_legacy_opt_in(
+def test_aux_provider_picker_shows_nous_under_explicit_opt_in(
     monkeypatch, capsys
 ):
     from fabric_cli import main as main_mod
 
-    monkeypatch.delenv("FABRIC_CAPABILITY_CATALOG", raising=False)
-    monkeypatch.setenv("FABRIC_MODEL_PROVIDERS", "openai-api,nous")
+    monkeypatch.setattr("fabric_cli.fabric_capabilities._load_capabilities_config", lambda: {"model_providers": "openai-api,nous".split(",")})
     monkeypatch.setattr(
         "fabric_cli.config.load_config",
         lambda: {
             "auxiliary": {
                 "vision": {
                     "provider": "nous",
-                    "model": "hermes-legacy-model",
+                    "model": "stale-test-model",
                 }
             }
         },
@@ -505,7 +504,7 @@ def test_aux_provider_picker_restores_nous_under_explicit_legacy_opt_in(
 
     rendered = "\n".join([capsys.readouterr().out, *captured["choices"]])
     assert "Nous Portal" in rendered
-    assert "nous · hermes-legacy-model" in rendered
+    assert "nous · stale-test-model" in rendered
     nous_idx = next(
         i for i, label in enumerate(captured["choices"]) if "Nous Portal" in label
     )

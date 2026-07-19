@@ -84,15 +84,15 @@ def _present_api_key_link(url: str, *, label: str, open_browser: bool) -> None:
 def _build_login_env(environ: Optional[Mapping[str, str]]) -> dict[str, str]:
     """Build a minimal environment for the downloaded third-party CLI.
 
-    ``hermes_subprocess_env`` intentionally preserves unknown environment
+    ``fabric_subprocess_env`` intentionally preserves unknown environment
     variables because normal terminal children may need them. A setup child
     downloaded through ``npx`` has a tighter trust boundary, so copy only the
     process essentials allowlisted above; arbitrary application secrets such
     as ``DATABASE_URL`` or ``NPM_TOKEN`` must never cross it.
     """
-    from tools.environments.local import hermes_subprocess_env
+    from tools.environments.local import fabric_subprocess_env
 
-    base_env = hermes_subprocess_env(inherit_credentials=False)
+    base_env = fabric_subprocess_env(inherit_credentials=False)
     child_env = {
         key: value
         for key, value in base_env.items()

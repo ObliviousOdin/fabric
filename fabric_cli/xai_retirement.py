@@ -4,7 +4,7 @@ Source: https://docs.x.ai/developers/migration/may-15-retirement
 
 Pure logic: walks a Fabric config dict, returns issues for any reference
 to a retired xAI model. No I/O, no CLI dependencies — testable in isolation
-and reusable from both `fabric doctor` and a future `hermes migrate xai`.
+and reusable from both `fabric doctor` and a future `fabric migrate xai`.
 """
 from __future__ import annotations
 

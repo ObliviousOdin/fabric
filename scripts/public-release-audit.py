@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Fail closed when a public Fabric snapshot exposes private brand context.
+"""Fail closed when a public Fabric snapshot exposes stale identity context.
 
 The audit uses only the Python standard library so it can run before project
-dependencies are installed.  It scans the filesystem rather than Git's index;
-that is important for release worktrees assembled before the first public
-commit.
+dependencies are installed. Public metadata checks scan the working tree;
+product-identity checks separately inspect exact tracked Git blobs, including
+binary files and symlink targets.
 """
 
 from __future__ import annotations
 
 import argparse
-import ast
 import os
 import re
 import subprocess
@@ -21,6 +20,12 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from fabric_identity_audit import audit_tracked_identity  # noqa: E402
+
 CANONICAL_REPOSITORY = "https://github.com/ObliviousOdin/fabric"
 CANONICAL_RAW = "https://raw.githubusercontent.com/ObliviousOdin/fabric/main"
 CANONICAL_REMOTE_RE = re.compile(
@@ -58,22 +63,20 @@ LEGAL_ATTRIBUTION_FILES = frozenset(
 DOCUMENT_SUFFIXES = frozenset(
     {".example", ".json", ".md", ".mdx", ".rst", ".toml", ".txt", ".yaml", ".yml"}
 )
-SOURCE_SUFFIXES = frozenset(
-    {".cjs", ".cmd", ".js", ".jsx", ".mjs", ".ps1", ".py", ".rs", ".sh", ".ts", ".tsx"}
-)
-HASH_COMMENT_SOURCE_SUFFIXES = frozenset({".ps1", ".sh"})
 
-# These files necessarily contain the forbidden patterns they enforce. Tests
-# live under ``tests/`` and are already excluded by ``_is_test_path``.
-AUDIT_IMPLEMENTATION_FILES = frozenset(
-    {"scripts/fabric-brand-audit.py", "scripts/public-release-audit.py"}
-)
-
+_FORMER_PRODUCT = "Her" + "mes"
+_FORMER_PRODUCT_RE = re.escape(_FORMER_PRODUCT)
+_FORMER_PRODUCT_LOWER_RE = re.escape(_FORMER_PRODUCT.lower())
 _PRIVATE_BRAND = "ra" + "bot"
 _PRIVATE_OWNER = _PRIVATE_BRAND + "inc"
 _PERSONAL_NAME = "ch" + "anna"
 
 GLOBAL_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
+    (
+        "retired-identity",
+        re.compile(_FORMER_PRODUCT_RE, re.IGNORECASE),
+        "retired product identity",
+    ),
     (
         "private-brand",
         re.compile(_PRIVATE_BRAND, re.IGNORECASE),
@@ -108,6 +111,16 @@ GLOBAL_PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
         re.compile(r"(?:^|[/\\])\.rstack(?:[/\\]|$)", re.IGNORECASE),
         "private tooling topology",
     ),
+)
+
+NONCANONICAL_REPOSITORY_RE = re.compile(
+    r"(?:github\.com|raw\.githubusercontent\.com)/NousResearch/"
+    rf"(?:{_FORMER_PRODUCT_LOWER_RE}-agent|fabric-agent)(?:\.git)?|"
+    rf"github:NousResearch/(?:{_FORMER_PRODUCT_LOWER_RE}-agent|fabric-agent)|"
+    rf"git@github\.com:NousResearch/(?:{_FORMER_PRODUCT_LOWER_RE}-agent|fabric-agent)"
+    r"(?:\.git)?|fabric-agent\.nousresearch\.com|"
+    r"github\.com/ObliviousOdin/fabric-[A-Za-z0-9_.-]+",
+    re.IGNORECASE,
 )
 
 # Immutable debt ledger for metadata already published on ``main``. This is
@@ -214,122 +227,6 @@ LEGACY_GIT_HISTORY_BASELINE: frozenset[tuple[str, str]] = frozenset(
     }
 )
 
-LEGACY_REPOSITORY_RE = re.compile(
-    r"(?:github\.com|raw\.githubusercontent\.com)/NousResearch/"
-    r"(?:hermes-agent|fabric-agent)(?:\.git)?|"
-    r"github:NousResearch/(?:hermes-agent|fabric-agent)|"
-    r"git@github\.com:NousResearch/(?:hermes-agent|fabric-agent)(?:\.git)?|"
-    r"fabric-agent\.nousresearch\.com|"
-    r"github\.com/ObliviousOdin/fabric-[A-Za-z0-9_.-]+",
-    re.IGNORECASE,
-)
-
-# Historical citations are the only public exception to the legacy repository
-# ban. Keep this deliberately exact: repository roots, docs, releases, support
-# links, non-numeric issue paths, and every other upstream route must fail.
-HISTORICAL_PROVENANCE_URL_RE = re.compile(
-    r"https://github\.com/NousResearch/hermes-agent/(?:issues|pull)/[0-9]+"
-    r"(?=$|[\s\]\[(){}<>\"'`,.;:!?#])",
-    re.IGNORECASE,
-)
-
-LEGACY_PRODUCT_RE = re.compile(
-    r"\bHermes\s+(?:Agent|Desktop|CLI|TUI|Gateway|Console|Dashboard|app|"
-    r"application|session|installation|setup|config(?:uration)?|profile|home|"
-    r"runtime|tool(?:s)?|skill(?:s)?|command|backend|frontend|service|process|"
-    r"repository|repo|docs?|documentation)\b|"
-    r"\b(?:install|start|run|use|launch|restart|configure|open|update|"
-    r"uninstall)\s+Hermes\b|"
-    r"\bHermes\s+(?:is|ships|runs|supports|loads|uses|provides|includes|"
-    r"stores|reads|writes|creates|can|will|should|must)\b",
-    re.IGNORECASE,
-)
-
-# Catch labels such as ``Hermes Chat`` and a bare product name in structured
-# metadata. Keep this case-sensitive so lowercase protocol/package identifiers
-# remain available for backwards compatibility.
-LEGACY_STANDALONE_PRODUCT_RE = re.compile(r"\bHermes\b")
-
-# Model families, required upstream provenance, and explicitly named
-# compatibility identifiers are not product-brand leaks.
-ALLOWED_LEGACY_PRODUCT_INTRINSIC_RE = re.compile(
-    r"\bHermes(?:[- ]?(?:2|3|4)(?:\.\d+)?(?:-[0-9]+[Bb])?|Bench)\b|"
-    r"\bHermes\s+(?:models?|model family|parser|compatibility|protocol|schema|"
-    r"header|cookie|identifier|entry[ -]?point|adaptation|port)\b|"
-    r"\bX-Hermes-[A-Za-z0-9-]+\b"
-)
-ALLOWED_LEGACY_PRODUCT_DOCUMENT_CONTEXT_RE = re.compile(
-    r"\b(?:legacy|compatibility|backward-compatible|upstream|original|modified "
-    r"software from)\s+Hermes\b|"
-    r"\bHermes(?:\.app|\.exe|-Setup\.exe)\b"
-)
-
-# Compatibility annotations are intentionally narrow and source-only. They
-# may suppress a bare historical identifier/path constant, never a sentence,
-# command, User-Agent, or other rendered customer copy. The marker must be on
-# the same or immediately preceding source line and include a justification.
-SOURCE_COMPATIBILITY_ANNOTATION_RE = re.compile(
-    r"(?:#|//|/\*|\*)\s*public-release-audit:\s*allow-legacy-compat\s+--\s+\S",
-    re.IGNORECASE,
-)
-SOURCE_COMPATIBILITY_LITERAL_RE = re.compile(
-    r"(?:"
-    r"\.hermes|~[/\\]\.hermes(?:[/\\][A-Za-z0-9_.-]+)*|"
-    r"%LOCALAPPDATA%[/\\]+hermes(?:[/\\][A-Za-z0-9_.-]+)*|"
-    r"hermes-agent|hermes|Hermes(?:\.app|\.exe|-Setup\.exe)?|"
-    r"HERMES_[A-Z0-9_]+|X-Hermes-[A-Za-z0-9-]+|"
-    r"hermes(?:\.[A-Za-z0-9_-]+)+"
-    r")"
-)
-QUOTED_SOURCE_LITERAL_RE = re.compile(
-    r"(?P<quote>[\"'`])(?P<value>(?:\\.|(?!\1).)*?)(?P=quote)"
-)
-NON_PYTHON_RENDERED_CONTEXT_RE = re.compile(
-    r"\b(?:echo|print(?:ln)?|console\.[A-Za-z_]+|log(?:ger)?\.[A-Za-z_]+|"
-    r"panic|throw|return|send|respond|title|description|message|status|"
-    r"user-agent)\b",
-    re.IGNORECASE,
-)
-
-LEGACY_INLINE_COMMAND_RE = re.compile(
-    r"`hermes(?=`|\s)(?:[^`\n]*)`",
-    re.IGNORECASE,
-)
-
-LEGACY_COMMAND_LINE_RE = re.compile(
-    r"^[ \t]*(?:[$>]\s*)?hermes(?=\s|$)",
-    re.IGNORECASE,
-)
-
-LEGACY_SOURCE_COMMAND_RE = re.compile(
-    r"(?<![A-Za-z0-9_./-])hermes(?=\s+(?:--?[A-Za-z0-9]|[A-Za-z][\w-]*))"
-)
-LEGACY_SHEBANG_RE = re.compile(
-    r"^#![^\n]*(?:[/\s])hermes(?=\s|$)",
-    re.IGNORECASE,
-)
-LEGACY_HOME_GUIDANCE_RE = re.compile(
-    r"~[/\\]\.hermes\b|(?<![A-Za-z0-9_.-])\.hermes(?=$|[/\\])|"
-    r"%LOCALAPPDATA%[/\\]+hermes\b|\bHERMES_HOME\b"
-)
-LEGACY_SOURCE_HOME_RE = re.compile(
-    r"~[/\\]\.hermes\b|(?<![A-Za-z0-9_.-])\.hermes(?=$|[/\\])|"
-    r"%LOCALAPPDATA%[/\\]+hermes\b"
-)
-EXPLICIT_COMPATIBILITY_CONTEXT_RE = re.compile(
-    r"\b(?:legacy|compatibility|backward-compatible|migrat(?:e|ion)|rollback|"
-    r"old install|older install)\b",
-    re.IGNORECASE,
-)
-LEGACY_OUTBOUND_IDENTITY_RE = re.compile(
-    r"(?:HermesAgent|Hermes-Agent|hermes-dashboard)(?=[/ (]|$)|"
-    r"User-Agent.{0,120}(?:HermesAgent|Hermes-Agent|[\"']Hermes[\"'])|"
-    r"X-BILLING-INVOKE-ORIGIN.{0,80}HermesAgent",
-    re.IGNORECASE,
-)
-
-FENCED_BLOCK_RE = re.compile(r"(?ms)^```[^\n]*\n(.*?)^```")
-
 PERSONAL_DOC_PATH_RE = re.compile(r"(?<![A-Za-z0-9:])/(?:Users)/([^/\s`\"')]+)")
 PUBLIC_PATH_PLACEHOLDERS = frozenset(
     {
@@ -359,6 +256,7 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "persist-credentials: false",
         "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
         "run: python3 -m unittest discover -s tests/scripts -p 'test_*audit.py'",
+        "run: python3 scripts/fabric_identity_audit.py",
         "run: python3 scripts/public-release-audit.py",
         "run: python3 scripts/fabric-brand-audit.py --mode public",
     ),
@@ -424,12 +322,12 @@ CANONICAL_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "NOTICE": (
         "Copyright (c) 2026 ObliviousOdin and Fabric contributors",
         "Apache License, Version 2.0",
-        "Hermes Agent by Nous Research",
-        "LICENSES/MIT-hermes-agent.txt",
+        "software by Nous Research",
+        "LICENSES/MIT-nous-research.txt",
     ),
-    # The upstream MIT notice must ship verbatim alongside the Apache-2.0
-    # distribution license — its terms require preservation.
-    "LICENSES/MIT-hermes-agent.txt": (
+    # The upstream MIT notice must ship alongside the Apache-2.0 distribution
+    # license; its copyright and permission terms require preservation.
+    "LICENSES/MIT-nous-research.txt": (
         "MIT License",
         "Copyright (c) 2025 Nous Research",
     ),
@@ -466,7 +364,6 @@ EXPECTED_PUBLIC_WORKFLOWS = frozenset(
     }
 )
 PRIVATE_REPOSITORY_PREFIXES = (
-    ".hermes/",
     ".plans/",
     ".rstack/",
     "docs/decisions/",
@@ -497,6 +394,7 @@ UNSAFE_PUBLISH_RE = re.compile(
 )
 
 PUBLIC_BRAND_AUDIT_COMMAND = "python3 scripts/fabric-brand-audit.py --mode public"
+IDENTITY_AUDIT_COMMAND = "python3 scripts/fabric_identity_audit.py"
 PUBLIC_RELEASE_AUDIT_COMMAND = "python3 scripts/public-release-audit.py"
 BRAND_AUDIT_TEST_COMMAND = (
     "python3 -m unittest discover -s tests/scripts -p 'test_*audit.py'"
@@ -540,6 +438,8 @@ def iter_repository_entries(root: Path) -> Iterator[Path]:
             if path.is_symlink():
                 yield path
         for filename in sorted(filenames):
+            if filename in SKIP_DIRECTORY_NAMES:
+                continue
             yield base / filename
 
 
@@ -589,251 +489,6 @@ def _is_customer_document(relative: str) -> bool:
     ):
         return False
     return True
-
-
-def _is_customer_source(relative: str) -> bool:
-    path = Path(relative)
-    if (
-        path.suffix.lower() not in SOURCE_SUFFIXES
-        or _is_test_path(relative)
-        or relative in AUDIT_IMPLEMENTATION_FILES
-    ):
-        return False
-    return True
-
-
-def _has_explicit_compatibility_context(text: str, start: int, end: int) -> bool:
-    window = text[max(0, start - 100) : min(len(text), end + 140)]
-    return bool(EXPLICIT_COMPATIBILITY_CONTEXT_RE.search(window))
-
-
-def _legacy_product_matches(
-    text: str, *, allow_document_context: bool = True
-) -> Iterator[re.Match[str]]:
-    """Yield legacy product references, excluding models/provenance/compat."""
-
-    seen: set[tuple[int, int]] = set()
-    for pattern in (LEGACY_PRODUCT_RE, LEGACY_STANDALONE_PRODUCT_RE):
-        for match in pattern.finditer(text):
-            key = (match.start(), match.end())
-            if key in seen:
-                continue
-            seen.add(key)
-            token = LEGACY_STANDALONE_PRODUCT_RE.search(match.group(0))
-            token_start = match.start() + (token.start() if token else 0)
-            token_end = match.start() + (token.end() if token else len(match.group(0)))
-            window_start = max(0, token_start - 100)
-            window = text[window_start : min(len(text), token_end + 140)]
-            allowed_patterns = [ALLOWED_LEGACY_PRODUCT_INTRINSIC_RE]
-            if allow_document_context:
-                allowed_patterns.append(ALLOWED_LEGACY_PRODUCT_DOCUMENT_CONTEXT_RE)
-            if any(
-                window_start + allowed.start() <= token_start
-                and window_start + allowed.end() >= token_end
-                for allowed_pattern in allowed_patterns
-                for allowed in allowed_pattern.finditer(window)
-            ):
-                continue
-            yield match
-
-
-def _has_source_compatibility_annotation(
-    source_lines: list[str], line_number: int
-) -> bool:
-    """Return whether a justified compatibility marker is immediately adjacent."""
-
-    if line_number < 1:
-        return False
-    start = max(0, line_number - 2)
-    end = min(len(source_lines), line_number)
-    return any(
-        SOURCE_COMPATIBILITY_ANNOTATION_RE.search(source_lines[index])
-        for index in range(start, end)
-    )
-
-
-def _is_annotated_compatibility_literal(
-    value: str, source_lines: list[str], line_number: int
-) -> bool:
-    """Allow only a bare compatibility identifier with an adjacent marker."""
-
-    return bool(
-        SOURCE_COMPATIBILITY_LITERAL_RE.fullmatch(value)
-        and _has_source_compatibility_annotation(source_lines, line_number)
-    )
-
-
-def _python_literal_is_static_compatibility(
-    node: ast.Constant,
-    parents: dict[ast.AST, ast.AST],
-    source_lines: list[str],
-) -> bool:
-    """Reject annotations on strings that are directly rendered or returned."""
-
-    line_number = getattr(node, "lineno", 0)
-    source_line = (
-        source_lines[line_number - 1]
-        if 0 < line_number <= len(source_lines)
-        else ""
-    )
-    if LEGACY_OUTBOUND_IDENTITY_RE.search(source_line):
-        return False
-
-    current: ast.AST = node
-    while current in parents:
-        current = parents[current]
-        if isinstance(
-            current,
-            (
-                ast.Call,
-                ast.FormattedValue,
-                ast.JoinedStr,
-                ast.Raise,
-                ast.Return,
-                ast.Yield,
-                ast.YieldFrom,
-            ),
-        ):
-            return False
-        if isinstance(current, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
-            return True
-    return False
-
-
-def _source_line_match_is_annotated_compatibility(
-    line: str,
-    match: re.Match[str],
-    source_lines: list[str],
-    line_number: int,
-) -> bool:
-    """Apply the same narrow annotation rule to non-Python source lines."""
-
-    if not _has_source_compatibility_annotation(source_lines, line_number):
-        return False
-    if NON_PYTHON_RENDERED_CONTEXT_RE.search(line):
-        return False
-    for literal in QUOTED_SOURCE_LITERAL_RE.finditer(line):
-        if (
-            literal.start("value") <= match.start()
-            and literal.end("value") >= match.end()
-            and SOURCE_COMPATIBILITY_LITERAL_RE.fullmatch(literal.group("value"))
-        ):
-            return True
-    return False
-
-
-def _document_command_matches(text: str) -> Iterator[tuple[int, str]]:
-    """Yield offsets for legacy commands that are actually formatted as code."""
-
-    for match in LEGACY_INLINE_COMMAND_RE.finditer(text):
-        yield match.start(), match.group(0)
-    for block in FENCED_BLOCK_RE.finditer(text):
-        block_text = block.group(1)
-        offset = block.start(1)
-        for line in block_text.splitlines(keepends=True):
-            match = LEGACY_COMMAND_LINE_RE.search(line)
-            if match:
-                yield offset + match.start(), match.group(0)
-            offset += len(line)
-
-
-def _python_docstring_ids(tree: ast.AST) -> set[int]:
-    docstrings: set[int] = set()
-    for owner in ast.walk(tree):
-        if not isinstance(owner, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        if not owner.body:
-            continue
-        first = owner.body[0]
-        if (
-            isinstance(first, ast.Expr)
-            and isinstance(first.value, ast.Constant)
-            and isinstance(first.value.value, str)
-        ):
-            docstrings.add(id(first.value))
-    return docstrings
-
-
-def _customer_source_identity_matches(
-    relative: str, text: str
-) -> Iterator[tuple[int, str]]:
-    """Yield likely emitted legacy product strings, excluding code commentary."""
-
-    if relative.endswith(".py"):
-        try:
-            tree = ast.parse(text, filename=relative)
-        except SyntaxError:
-            return
-        docstrings = _python_docstring_ids(tree)
-        parents = {
-            child: parent
-            for parent in ast.walk(tree)
-            for child in ast.iter_child_nodes(parent)
-        }
-        source_lines = text.splitlines()
-        for node in ast.walk(tree):
-            if (
-                not isinstance(node, ast.Constant)
-                or not isinstance(node.value, str)
-                or id(node) in docstrings
-            ):
-                continue
-            line_number = getattr(node, "lineno", 1)
-            if (
-                _is_annotated_compatibility_literal(
-                    node.value, source_lines, line_number
-                )
-                and _python_literal_is_static_compatibility(
-                    node, parents, source_lines
-                )
-            ):
-                continue
-            matches = list(
-                _legacy_product_matches(
-                    node.value, allow_document_context=False
-                )
-            )
-            matches.extend(LEGACY_SOURCE_COMMAND_RE.finditer(node.value))
-            matches.extend(LEGACY_OUTBOUND_IDENTITY_RE.finditer(node.value))
-            matches.extend(LEGACY_SOURCE_HOME_RE.finditer(node.value))
-            for match in matches:
-                yield line_number, match.group(0)
-        return
-
-    source_lines = text.splitlines()
-    hash_comments = Path(relative).suffix.lower() in HASH_COMMENT_SOURCE_SUFFIXES
-    in_block_comment = False
-    for line_number, line in enumerate(source_lines, start=1):
-        stripped = line.lstrip()
-        if in_block_comment:
-            if "*/" in stripped:
-                in_block_comment = False
-            continue
-        if stripped.startswith("/*"):
-            if "*/" not in stripped[2:]:
-                in_block_comment = True
-            continue
-        if stripped.startswith(("//", "*")):
-            continue
-        is_shebang = hash_comments and stripped.startswith("#!")
-        if hash_comments and stripped.startswith("#") and not is_shebang:
-            continue
-        if not is_shebang and not any(quote in line for quote in ('"', "'", "`")):
-            continue
-        matches = list(
-            _legacy_product_matches(line, allow_document_context=False)
-        )
-        matches.extend(LEGACY_SOURCE_COMMAND_RE.finditer(line))
-        matches.extend(LEGACY_OUTBOUND_IDENTITY_RE.finditer(line))
-        matches.extend(LEGACY_SOURCE_HOME_RE.finditer(line))
-        if is_shebang:
-            matches.extend(LEGACY_SHEBANG_RE.finditer(stripped))
-        for match in matches:
-            if _source_line_match_is_annotated_compatibility(
-                line, match, source_lines, line_number
-            ):
-                continue
-            yield line_number, match.group(0)
 
 
 def _active_run_offset(text: str, command: str) -> int:
@@ -949,6 +604,7 @@ def _audit_brand_workflow_contract(relative: str, text: str) -> list[Issue]:
 
     if Path(relative).name == "public-ci.yml":
         tests_offset = _active_run_offset(text, BRAND_AUDIT_TEST_COMMAND)
+        identity_offset = _active_run_offset(text, IDENTITY_AUDIT_COMMAND)
         _append_required_step_issues(
             issues,
             relative=relative,
@@ -957,6 +613,15 @@ def _audit_brand_workflow_contract(relative: str, text: str) -> list[Issue]:
             missing_message="active brand-audit regression test step is missing",
             conditional_message="brand-audit regression tests must be unconditional (remove if:)",
             continue_message="brand-audit regression tests may not continue on error",
+        )
+        _append_required_step_issues(
+            issues,
+            relative=relative,
+            text=text,
+            offset=identity_offset,
+            missing_message="active tracked-identity audit step is missing",
+            conditional_message="tracked-identity audit must be unconditional (remove if:)",
+            continue_message="tracked-identity audit may not continue on error",
         )
         return issues
 
@@ -1156,7 +821,7 @@ def _audit_workflow_safety(relative: str, text: str) -> list[Issue]:
                     "workflow-surface",
                     relative,
                     0,
-                    "public history audits require fetch-depth: 0 on every checkout",
+                    "public release audits require fetch-depth: 0 on every checkout",
                 )
             )
     if Path(relative).name == "public-ci.yml" and not re.search(
@@ -1169,7 +834,7 @@ def _audit_workflow_safety(relative: str, text: str) -> list[Issue]:
                 "workflow-surface",
                 relative,
                 0,
-                "PR history audit must checkout the actual head SHA, not the synthetic merge ref",
+                "PR audits must checkout the actual head SHA, not the synthetic merge ref",
             )
         )
     if Path(relative).name in {"docs-pages.yml", "public-ci.yml"}:
@@ -1209,75 +874,23 @@ def audit_repository(root: Path = ROOT) -> list[Issue]:
                     Issue(rule, relative, _line_number(text, match.start()), message)
                 )
 
+        for match in NONCANONICAL_REPOSITORY_RE.finditer(text):
+            issues.append(
+                Issue(
+                    "repository-route",
+                    relative,
+                    _line_number(text, match.start()),
+                    "non-canonical Fabric repository route",
+                )
+            )
+
         if (
             _is_test_path(relative)
             or _is_legal_attribution_path(relative)
         ):
             continue
 
-        provenance_spans = [
-            (match.start(), match.end())
-            for match in HISTORICAL_PROVENANCE_URL_RE.finditer(text)
-        ]
-        for match in LEGACY_REPOSITORY_RE.finditer(text):
-            if any(
-                start <= match.start() and end >= match.end()
-                for start, end in provenance_spans
-            ):
-                continue
-            issues.append(
-                Issue(
-                    "repository-route",
-                    relative,
-                    _line_number(text, match.start()),
-                    "legacy or non-canonical Fabric repository route",
-                )
-            )
-
         if _is_customer_document(relative):
-            for match in _legacy_product_matches(text):
-                issues.append(
-                    Issue(
-                        "customer-product",
-                        relative,
-                        _line_number(text, match.start()),
-                        "customer documentation presents the legacy product identity",
-                    )
-                )
-            for offset, _matched_text in _document_command_matches(text):
-                issues.append(
-                    Issue(
-                        "customer-command",
-                        relative,
-                        _line_number(text, offset),
-                        "customer documentation invokes the legacy executable",
-                    )
-                )
-            for match in LEGACY_HOME_GUIDANCE_RE.finditer(text):
-                if _has_explicit_compatibility_context(text, match.start(), match.end()):
-                    continue
-                issues.append(
-                    Issue(
-                        "customer-home",
-                        relative,
-                        _line_number(text, match.start()),
-                        "customer guidance uses the legacy home name; use FABRIC_HOME/~/.fabric",
-                    )
-                )
-            for match in LEGACY_OUTBOUND_IDENTITY_RE.finditer(text):
-                if any(
-                    start <= match.start() and end >= match.end()
-                    for start, end in provenance_spans
-                ):
-                    continue
-                issues.append(
-                    Issue(
-                        "customer-outbound",
-                        relative,
-                        _line_number(text, match.start()),
-                        "public metadata uses a legacy outbound product identifier",
-                    )
-                )
             for match in PERSONAL_DOC_PATH_RE.finditer(text):
                 username = match.group(1)
                 if username.lower() in PUBLIC_PATH_PLACEHOLDERS or username.startswith("<"):
@@ -1297,19 +910,6 @@ def audit_repository(root: Path = ROOT) -> list[Issue]:
                         relative,
                         _line_number(text, match.start()),
                         "old private checkout name; public examples must use 'fabric'",
-                    )
-                )
-
-        if _is_customer_source(relative):
-            for line_number, _matched_text in _customer_source_identity_matches(
-                relative, text
-            ):
-                issues.append(
-                    Issue(
-                        "customer-source",
-                        relative,
-                        line_number,
-                        "customer-visible source string uses legacy product identity",
                     )
                 )
 
@@ -1451,7 +1051,7 @@ def audit_git_history(root: Path = ROOT) -> list[Issue]:
         matched_rules = {
             rule
             for rule, pattern, _message in GLOBAL_PATTERNS
-            if pattern.search(metadata)
+            if rule != "retired-identity" and pattern.search(metadata)
         }
         for matched_rule in sorted(matched_rules):
             if (commit, matched_rule) in LEGACY_GIT_HISTORY_BASELINE:
@@ -1469,6 +1069,7 @@ def audit_git_history(root: Path = ROOT) -> list[Issue]:
 
 def _summarize(issues: Iterable[Issue], limit: int) -> int:
     priority = {
+        "tracked-identity": 0,
         "git-history": 0,
         "git-remote": 0,
         "private-brand": 1,
@@ -1495,7 +1096,10 @@ def _summarize(issues: Iterable[Issue], limit: int) -> int:
         ),
     )
     if not materialized:
-        print("public-release-audit: OK (public identity and repository routes)")
+        print(
+            "public-release-audit: OK (tracked identity, public metadata, "
+            "and repository routes)"
+        )
         return 0
 
     print(f"PUBLIC RELEASE AUDIT FAILED: {len(materialized)} issue(s)")
@@ -1519,8 +1123,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit < 1:
         parser.error("--limit must be positive")
     root = args.root.resolve()
+    identity_issues = [
+        Issue("tracked-identity", issue.path, issue.line, issue.kind)
+        for issue in audit_tracked_identity(root)
+    ]
     return _summarize(
-        [*audit_repository(root), *audit_git_history(root)],
+        [*identity_issues, *audit_repository(root), *audit_git_history(root)],
         args.limit,
     )
 

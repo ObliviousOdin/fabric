@@ -1,6 +1,6 @@
 name: nemo_relay
 version: "0.1.0"
-description: "Optional NeMo Relay observability for Fabric. Opt in with `fabric plugins enable observability/nemo_relay`; HERMES_NEMO_RELAY_* env vars configure exports after the plugin is enabled."
+description: "Optional NeMo Relay observability for Fabric. Opt in with `fabric plugins enable observability/nemo_relay`; configure exports under observability.nemo_relay in config.yaml."
 author: NousResearch
 hooks:
   - on_session_start

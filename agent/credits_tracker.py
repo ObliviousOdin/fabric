@@ -33,7 +33,6 @@ the raw strings the server sent (never re-parsed to float).
 from __future__ import annotations
 
 import logging
-import os
 import re
 import time
 from dataclasses import dataclass
@@ -579,105 +578,6 @@ def parse_credits_headers(
         return None
 
 
-# ── Dev test fixtures (HERMES_DEV_CREDITS_FIXTURE) ───────────────────────────
-# Throwaway dev scaffolding: trigger any notice state on demand for testing,
-# without real spend or Redis seeding. Set HERMES_DEV_CREDITS_FIXTURE to either a
-# state NAME (fixed for the session) or a FILE PATH whose contents are a state
-# name (re-read every turn → flip states live: `echo depleted > /tmp/cf`, take a
-# turn; `echo healthy > /tmp/cf`, take a turn → recovery).
-#
-# A fixture drives THREE surfaces uniformly, so the whole credits UX is testable
-# offline: (1) the per-turn capture/notice path (_capture_credits), (2) the
-# cold-start seed at session open (conversation_loop → depletion/warn90 hydrate
-# immediately), and (3) the /usage view (nous_credits_lines renders the fixture).
-# `clear` / `none` / unset → real behaviour. Delete with the rest of the
-# HERMES_DEV_CREDITS scaffolding.
-_DEV_FIXTURES: dict[str, dict] = {
-    "healthy": dict(  # used_fraction ~0.1, paid → no notice (recovery target)
-        remaining_micros=30_340_000, remaining_usd="30.34",
-        subscription_micros=18_000_000, subscription_usd="18.00",
-        subscription_limit_micros=20_000_000, subscription_limit_usd="20.00",
-        purchased_micros=12_340_000, purchased_usd="12.34",
-        denominator_kind="subscription_cap", paid_access=True,
-    ),
-    "sub_50pct": dict(  # used_fraction == 0.5 → credits.usage band 50 (info)
-        remaining_micros=10_000_000, remaining_usd="10.00",
-        subscription_micros=10_000_000, subscription_usd="10.00",
-        subscription_limit_micros=20_000_000, subscription_limit_usd="20.00",
-        denominator_kind="subscription_cap", paid_access=True,
-    ),
-    "sub_75pct": dict(  # used_fraction == 0.75 → credits.usage band 75 (warn)
-        remaining_micros=5_000_000, remaining_usd="5.00",
-        subscription_micros=5_000_000, subscription_usd="5.00",
-        subscription_limit_micros=20_000_000, subscription_limit_usd="20.00",
-        denominator_kind="subscription_cap", paid_access=True,
-    ),
-    "sub_90pct": dict(  # used_fraction == 0.9 → credits.usage band 90 (warn)
-        remaining_micros=2_000_000, remaining_usd="2.00",
-        subscription_micros=2_000_000, subscription_usd="2.00",
-        subscription_limit_micros=20_000_000, subscription_limit_usd="20.00",
-        denominator_kind="subscription_cap", paid_access=True,
-    ),
-    "grant_exhausted": dict(  # used_fraction == 1.0 + purchased>0 → credits.grant_spent
-        remaining_micros=12_340_000, remaining_usd="12.34",
-        subscription_micros=0, subscription_usd="0.00",
-        subscription_limit_micros=20_000_000, subscription_limit_usd="20.00",
-        purchased_micros=12_340_000, purchased_usd="12.34",
-        denominator_kind="subscription_cap", paid_access=True,
-    ),
-    "depleted": dict(  # paid_access False → credits.depleted (sticky)
-        remaining_micros=0, remaining_usd="0.00",
-        subscription_micros=0, subscription_usd="0.00",
-        purchased_micros=0, purchased_usd="0.00",
-        paid_access=False, disabled_reason="out_of_credits",
-    ),
-    "debt": dict(  # subscription in debt (negative, the only signed field) → depleted
-        remaining_micros=0, remaining_usd="0.00",
-        subscription_micros=-5_000_000, subscription_usd="-5.00",
-        subscription_limit_micros=20_000_000, subscription_limit_usd="20.00",
-        purchased_micros=0, purchased_usd="0.00",
-        denominator_kind="subscription_cap", paid_access=False,
-        disabled_reason="out_of_credits",
-    ),
-}
-
-
-def dev_fixture_credits_state() -> Optional[CreditsState]:
-    """Return a fixture CreditsState for HERMES_DEV_CREDITS_FIXTURE, or None.
-
-    The env value is a state name, OR a path to a file whose contents are a state
-    name (re-read each call → flip states live without a restart). Unknown name /
-    "clear" / "none" / unset → None (normal behaviour). Throwaway test scaffolding.
-
-    Hard prod-leak guard: a fixture applies ONLY when the dev flag HERMES_DEV_CREDITS
-    is also on, so a stray HERMES_DEV_CREDITS_FIXTURE (leaked into a shell profile, a
-    container env, a launch plist, …) can never surface fabricated balances/notices
-    on a real account.
-    """
-    if not is_truthy_value(os.environ.get("HERMES_DEV_CREDITS")):
-        return None
-    raw = os.environ.get("HERMES_DEV_CREDITS_FIXTURE", "").strip()
-    if not raw:
-        return None
-    name = raw
-    if os.path.sep in raw or "/" in raw:  # looks like a path → read the name from the file
-        try:
-            with open(raw, "r", encoding="utf-8") as fh:
-                name = fh.read().strip()
-        except OSError:
-            return None
-    spec = _DEV_FIXTURES.get(name.lower())
-    if not spec:
-        return None
-    # Stamp the fields the REAL parser always guarantees, so a fixture state is
-    # field-identical to a parse_credits_headers() result from equivalent headers
-    # (verified by the differential test): version is always 1, and purchased_usd
-    # is always a valid usd string (the parser rejects a missing/empty one, so a
-    # real zero-top-up account still carries "0.00"). Specs may override these.
-    merged = {"version": 1, "purchased_usd": "0.00", **spec}
-    return CreditsState(**merged, from_header=True, captured_at=time.time())
-
-
 def _credits_state_from_account(info) -> Optional[CreditsState]:
     """Map a NousPortalAccountInfo into a header-shaped CreditsState for the seed.
 
@@ -739,7 +639,7 @@ def _hydrate_seed_state(agent, state) -> None:
 
 
 def seed_credits_at_session_start(agent) -> bool:
-    """Hydrate agent._credits_state from /api/oauth/account (or a dev fixture) and
+    """Hydrate agent._credits_state from /api/oauth/account and
     fire the notice policy, so depletion / usage-band warnings show at session OPEN.
 
     Shared by (a) the TUI/desktop agent build (fires at "ready", before any message)
@@ -756,17 +656,6 @@ def seed_credits_at_session_start(agent) -> bool:
         # Idempotent: don't re-seed if state already exists (seed or live header).
         if getattr(agent, "_credits_state", None) is not None:
             return False
-        fixture = None
-        try:
-            fixture = dev_fixture_credits_state()
-        except Exception:
-            fixture = None
-        if fixture is not None:
-            # Synchronous: a fixture is instant (no network), and tests rely on the
-            # state + notice landing before this returns.
-            _hydrate_seed_state(agent, fixture)
-            return True
-
         # Real portal fetch is FIRE-AND-FORGET: a slow/unreachable portal must never
         # delay session "ready". A daemon thread hydrates + emits when it resolves,
         # re-checking idempotency first (a live inference header may land before it).

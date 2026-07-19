@@ -47,7 +47,7 @@ enabled.
 - A browser available anywhere you can open the printed verification URL
 
 :::warning xAI may restrict OAuth API access by tier
-xAI's backend enforces its own allowlist on the OAuth API surface and has been seen to reject standard SuperGrok subscribers with `HTTP 403` (see issue [#26847](https://github.com/NousResearch/hermes-agent/issues/26847)) even though the in-app subscription is active. If OAuth login succeeds in the browser but inference returns 403, set `XAI_API_KEY` and switch to the API-key path (`provider: xai`) — that surface is not subject to the same gating today.
+xAI's backend enforces its own allowlist on the OAuth API surface and has been seen to reject standard SuperGrok subscribers with `HTTP 403` even though the in-app subscription is active. If OAuth login succeeds in the browser but inference returns 403, set `XAI_API_KEY` and switch to the API-key path (`provider: xai`) — that surface is not subject to the same gating today.
 :::
 
 ## Quick Start
@@ -328,7 +328,6 @@ OAuth completed in the browser, tokens are saved, but inference or token refresh
 This is **not** necessarily a stale-token problem—re-running `fabric model` will
 not change a provider-side entitlement. xAI's backend has been observed to restrict
 OAuth API access by subscription tier even when the consumer subscription is active
-(upstream issue [#26847](https://github.com/NousResearch/hermes-agent/issues/26847)).
 
 **Fix:** set `XAI_API_KEY` and switch to the API-key path:
 

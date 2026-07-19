@@ -44,23 +44,10 @@ _PEER_GONE_ERRNOS = frozenset({
 
 logger = logging.getLogger(__name__)
 
-# Optional knob: when true, StdioTransport does not call ``stream.flush``
-# after writing.  Use this on environments where a half-closed pipe (TUI
-# Node parent quit while the gateway is still emitting events) makes
-# flush block long enough to starve the rest of the worker pool.
-#
-# IMPORTANT: Python text stdout is fully buffered when attached to a
-# pipe (the TUI case), so this knob ONLY makes sense when the gateway
-# is launched with ``-u`` or ``PYTHONUNBUFFERED=1``.  Without one of
-# those, JSON-RPC frames will accumulate in the buffer and the TUI
-# will hang waiting for ``gateway.ready``.  Default stays off so the
-# existing flush-after-write behaviour is unchanged.
-_DISABLE_FLUSH = (os.environ.get("HERMES_TUI_GATEWAY_NO_FLUSH", "") or "").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+# Private test seam for exercising the half-closed-pipe path. Production stdio
+# always flushes every JSON-RPC frame; otherwise a buffered pipe can strand the
+# TUI waiting for ``gateway.ready``.
+_DISABLE_FLUSH = False
 
 
 @runtime_checkable
@@ -76,7 +63,7 @@ class Transport(Protocol):
 
 _current_transport: contextvars.ContextVar[Optional[Transport]] = (
     contextvars.ContextVar(
-        "hermes_gateway_transport",
+        "fabric_gateway_transport",
         default=None,
     )
 )

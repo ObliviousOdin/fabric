@@ -37,8 +37,8 @@ def _install_fake_honcho_sdk(monkeypatch, constructor) -> None:
 class TestHonchoClientConfigDefaults:
     def test_default_values(self):
         config = HonchoClientConfig()
-        assert config.host == "hermes"
-        assert config.workspace_id == "hermes"
+        assert config.host == "fabric"
+        assert config.workspace_id == "fabric"
         assert config.api_key is None
         assert config.environment == "production"
         assert config.timeout is None
@@ -116,7 +116,7 @@ class TestFromGlobalConfig:
             "workspace": "my-workspace",
             "environment": "staging",
             "peerName": "alice",
-            "aiPeer": "hermes-custom",
+            "aiPeer": "custom-agent",
             "enabled": True,
             "saveMessages": False,
             "contextTokens": 2000,
@@ -124,14 +124,14 @@ class TestFromGlobalConfig:
             "sessionPeerPrefix": True,
             "sessions": {"/home/user/proj": "my-session"},
             "hosts": {
-                "hermes": {
+                "fabric": {
                     "workspace": "override-ws",
                     "aiPeer": "override-ai",
                 }
             }
         }))
-        # Isolate from real ~/.hermes/honcho.json
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "isolated"))
+        # Isolate from real ~/.fabric/honcho.json
+        monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "isolated"))
 
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.api_key == "***"
@@ -152,7 +152,7 @@ class TestFromGlobalConfig:
             "workspace": "root-ws",
             "aiPeer": "root-ai",
             "hosts": {
-                "hermes": {
+                "fabric": {
                     "workspace": "host-ws",
                     "aiPeer": "host-ai",
                 }
@@ -209,7 +209,7 @@ class TestFromGlobalConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "contextTokens": 1000,
-            "hosts": {"hermes": {"contextTokens": 2000}},
+            "hosts": {"fabric": {"contextTokens": 2000}},
         }))
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.context_tokens == 2000
@@ -220,7 +220,7 @@ class TestFromGlobalConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "recallMode": "tools",
-            "hosts": {"hermes": {"recallMode": "context"}},
+            "hosts": {"fabric": {"recallMode": "context"}},
         }))
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.recall_mode == "context"
@@ -271,7 +271,7 @@ class TestFromGlobalConfig:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "baseUrl": "http://root:9000",
-            "hosts": {"hermes": {"baseUrl": "http://host-block:9001"}},
+            "hosts": {"fabric": {"baseUrl": "http://host-block:9001"}},
         }))
 
         config = HonchoClientConfig.from_global_config(config_path=config_file)
@@ -354,63 +354,63 @@ class TestResolveSessionName:
 
 
 class TestResolveConfigPath:
-    def test_prefers_hermes_home_when_exists(self, tmp_path):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        local_cfg = hermes_home / "honcho.json"
+    def test_prefers_fabric_home_when_exists(self, tmp_path):
+        fabric_home = tmp_path / "fabric"
+        fabric_home.mkdir()
+        local_cfg = fabric_home / "honcho.json"
         local_cfg.write_text('{"apiKey": "local"}')
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
+        with patch.dict(os.environ, {"FABRIC_HOME": str(fabric_home)}):
             result = resolve_config_path()
         assert result == local_cfg
 
     def test_falls_back_to_default_profile_when_no_local(self, tmp_path, monkeypatch):
-        # Profile mode: HERMES_HOME points at ~/.hermes/profiles/<name>, so
-        # _get_default_fabric_home() must resolve back to ~/.hermes — that's
+        # Profile mode: FABRIC_HOME points at ~/.fabric/profiles/<name>, so
+        # _get_default_fabric_home() must resolve back to ~/.fabric — that's
         # the bug the HOME-anchored helper fixes (vs. blindly using Path.home()).
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
-        default_home = fake_home / ".hermes"
+        default_home = fake_home / ".fabric"
         profile_home = default_home / "profiles" / "work"
         profile_home.mkdir(parents=True)
         default_cfg = default_home / "honcho.json"
         default_cfg.write_text('{"apiKey": "default-key"}')
 
         monkeypatch.setattr(Path, "home", lambda: fake_home)
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
         result = resolve_config_path()
 
         assert _get_default_fabric_home() == default_home
         assert result == default_cfg
 
-    def test_falls_back_to_global_without_hermes_home_env(self, tmp_path):
+    def test_falls_back_to_global_without_fabric_home_env(self, tmp_path):
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
 
         with patch.dict(os.environ, {}, clear=False), \
              patch.object(Path, "home", return_value=fake_home):
-            os.environ.pop("HERMES_HOME", None)
+            os.environ.pop("FABRIC_HOME", None)
             result = resolve_config_path()
         assert result == fake_home / ".honcho" / "config.json"
 
     def test_global_fallback_uses_home_at_call_time(self, tmp_path):
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
+        fabric_home = tmp_path / "fabric"
+        fabric_home.mkdir()
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}), \
+        with patch.dict(os.environ, {"FABRIC_HOME": str(fabric_home)}), \
              patch.object(Path, "home", return_value=fake_home):
             assert resolve_global_config_path() == fake_home / ".honcho" / "config.json"
             assert resolve_config_path() == fake_home / ".honcho" / "config.json"
 
     def test_from_global_config_uses_default_profile_fallback(self, tmp_path, monkeypatch):
         # Profile mode: from_global_config() reads the default-profile honcho.json
-        # via the HOME-anchored helper, not Path.home() / ".hermes".
+        # via the HOME-anchored helper, not Path.home() / ".fabric".
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
-        default_home = fake_home / ".hermes"
+        default_home = fake_home / ".fabric"
         profile_home = default_home / "profiles" / "work"
         profile_home.mkdir(parents=True)
         default_cfg = default_home / "honcho.json"
@@ -420,7 +420,7 @@ class TestResolveConfigPath:
         }))
 
         monkeypatch.setattr(Path, "home", lambda: fake_home)
-        monkeypatch.setenv("HERMES_HOME", str(profile_home))
+        monkeypatch.setenv("FABRIC_HOME", str(profile_home))
 
         config = HonchoClientConfig.from_global_config()
 
@@ -428,15 +428,15 @@ class TestResolveConfigPath:
         assert config.workspace_id == "default-ws"
 
     def test_from_global_config_uses_local_path(self, tmp_path):
-        hermes_home = tmp_path / "hermes"
-        hermes_home.mkdir()
-        local_cfg = hermes_home / "honcho.json"
+        fabric_home = tmp_path / "fabric"
+        fabric_home.mkdir()
+        local_cfg = fabric_home / "honcho.json"
         local_cfg.write_text(json.dumps({
             "apiKey": "***",
             "workspace": "local-ws",
         }))
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}), \
+        with patch.dict(os.environ, {"FABRIC_HOME": str(fabric_home)}), \
              patch.object(Path, "home", return_value=tmp_path):
             config = HonchoClientConfig.from_global_config()
         assert config.api_key == "***"
@@ -445,64 +445,37 @@ class TestResolveConfigPath:
 
 class TestResolveActiveHost:
     def test_profile_host_key_uses_honcho_safe_separator(self):
-        assert profile_host_key("coder") == "hermes_coder"
-        assert profile_host_key("default") == "hermes"
+        assert profile_host_key("coder") == "fabric_coder"
+        assert profile_host_key("default") == "fabric"
 
-    def test_default_returns_hermes(self):
+    def test_default_returns_fabric(self):
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            os.environ.pop("HERMES_HOME", None)
-            assert resolve_active_host() == "hermes"
-
-    def test_explicit_env_var_wins(self):
-        with patch.dict(os.environ, {"HERMES_HONCHO_HOST": "hermes.coder"}):
-            assert resolve_active_host() == "hermes.coder"
-
-    def test_named_profile_does_not_inherit_launch_host_selector(
-        self, monkeypatch, tmp_path
-    ):
-        named_home = tmp_path / "profiles" / "worker"
-        monkeypatch.setenv("FABRIC_HOME", str(named_home))
-        monkeypatch.setenv("HERMES_HOME", str(named_home))
-        monkeypatch.setenv("HERMES_HONCHO_HOST", "hermes_launch")
-        monkeypatch.setattr("fabric_cli.config.load_env", lambda: {})
-
-        with patch("fabric_cli.profiles.get_active_profile_name", return_value="worker"):
-            assert resolve_active_host() == "hermes_worker"
-
-        monkeypatch.setattr(
-            "fabric_cli.config.load_env",
-            lambda: {"HERMES_HONCHO_HOST": "hermes_worker_override"},
-        )
-        assert resolve_active_host() == "hermes_worker_override"
+            os.environ.pop("FABRIC_HOME", None)
+            assert resolve_active_host() == "fabric"
 
     def test_profile_name_derives_host(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
             with patch("fabric_cli.profiles.get_active_profile_name", return_value="coder"):
-                assert resolve_active_host() == "hermes_coder"
+                assert resolve_active_host() == "fabric_coder"
 
-    def test_default_profile_returns_hermes(self):
+    def test_default_profile_returns_fabric(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
             with patch("fabric_cli.profiles.get_active_profile_name", return_value="default"):
-                assert resolve_active_host() == "hermes"
+                assert resolve_active_host() == "fabric"
 
-    def test_custom_profile_returns_hermes(self):
+    def test_custom_profile_returns_fabric(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
             with patch("fabric_cli.profiles.get_active_profile_name", return_value="custom"):
-                assert resolve_active_host() == "hermes"
+                assert resolve_active_host() == "fabric"
 
     def test_profiles_import_failure_falls_back(self):
         import sys
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
             # Temporarily remove fabric_cli.profiles to simulate import failure
             saved = sys.modules.get("fabric_cli.profiles")
             sys.modules["fabric_cli.profiles"] = None  # type: ignore
             try:
-                assert resolve_active_host() == "hermes"
+                assert resolve_active_host() == "fabric"
             finally:
                 if saved is not None:
                     sys.modules["fabric_cli.profiles"] = saved
@@ -513,36 +486,36 @@ class TestResolveActiveHost:
 class TestProfileScopedConfig:
     def test_from_env_uses_profile_host(self):
         with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
-            config = HonchoClientConfig.from_env(host="hermes_coder")
-        assert config.host == "hermes_coder"
-        assert config.workspace_id == "hermes"  # shared workspace
-        assert config.ai_peer == "hermes_coder"
+            config = HonchoClientConfig.from_env(host="fabric_coder")
+        assert config.host == "fabric_coder"
+        assert config.workspace_id == "fabric"  # shared workspace
+        assert config.ai_peer == "fabric_coder"
 
     def test_from_env_default_workspace_preserved_for_default_host(self):
         with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
-            config = HonchoClientConfig.from_env(host="hermes")
-        assert config.host == "hermes"
-        assert config.workspace_id == "hermes"
+            config = HonchoClientConfig.from_env(host="fabric")
+        assert config.host == "fabric"
+        assert config.workspace_id == "fabric"
 
     def test_from_global_config_reads_profile_host_block(self, tmp_path):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "apiKey": "shared-key",
             "hosts": {
-                "hermes": {"aiPeer": "hermes", "peerName": "alice"},
-                "hermes_coder": {
-                    "aiPeer": "hermes_coder",
+                "fabric": {"aiPeer": "fabric", "peerName": "alice"},
+                "fabric_coder": {
+                    "aiPeer": "fabric_coder",
                     "peerName": "alice-coder",
                     "workspace": "coder-ws",
                 },
             },
         }))
         config = HonchoClientConfig.from_global_config(
-            host="hermes_coder", config_path=config_file,
+            host="fabric_coder", config_path=config_file,
         )
-        assert config.host == "hermes_coder"
+        assert config.host == "fabric_coder"
         assert config.workspace_id == "coder-ws"
-        assert config.ai_peer == "hermes_coder"
+        assert config.ai_peer == "fabric_coder"
         assert config.peer_name == "alice-coder"
 
     def test_from_global_config_auto_resolves_host(self, tmp_path):
@@ -550,30 +523,13 @@ class TestProfileScopedConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "hosts": {
-                "hermes_dreamer": {"peerName": "dreamer-user"},
+                "fabric_dreamer": {"peerName": "dreamer-user"},
             },
         }))
-        with patch("plugins.memory.honcho.client.resolve_active_host", return_value="hermes_dreamer"):
+        with patch("plugins.memory.honcho.client.resolve_active_host", return_value="fabric_dreamer"):
             config = HonchoClientConfig.from_global_config(config_path=config_file)
-        assert config.host == "hermes_dreamer"
+        assert config.host == "fabric_dreamer"
         assert config.peer_name == "dreamer-user"
-
-    def test_from_global_config_reads_legacy_dot_profile_host_block(self, tmp_path):
-        config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({
-            "apiKey": "key",
-            "hosts": {
-                "hermes.dreamer": {"peerName": "dreamer-user"},
-            },
-        }))
-        config = HonchoClientConfig.from_global_config(
-            host="hermes_dreamer",
-            config_path=config_file,
-        )
-        assert config.host == "hermes_dreamer"
-        assert config.peer_name == "dreamer-user"
-        assert config.workspace_id == "hermes_dreamer"
-
 
 class TestObservationModeMigration:
     """Existing configs without explicit observationMode keep 'unified' default."""
@@ -583,7 +539,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {"enabled": True, "aiPeer": "hermes"}},
+            "hosts": {"fabric": {"enabled": True, "aiPeer": "fabric"}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "unified"
@@ -600,7 +556,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {"enabled": True, "observationMode": "directional"}},
+            "hosts": {"fabric": {"enabled": True, "observationMode": "directional"}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "directional"
@@ -611,7 +567,7 @@ class TestObservationModeMigration:
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
             "observationMode": "unified",
-            "hosts": {"hermes": {"enabled": True}},
+            "hosts": {"fabric": {"enabled": True}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "unified"
@@ -621,7 +577,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {
+            "hosts": {"fabric": {
                 "enabled": True,
                 "observation": {
                     "user": {"observeMe": True, "observeOthers": False},
@@ -657,7 +613,7 @@ class TestGetHonchoClient:
         cfg = HonchoClientConfig(
             api_key="test-key",
             timeout=91.0,
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
@@ -672,11 +628,11 @@ class TestGetHonchoClient:
         not importlib.util.find_spec("honcho"),
         reason="honcho SDK not installed"
     )
-    def test_hermes_config_timeout_override_used_when_config_timeout_missing(self):
+    def test_fabric_config_timeout_used_when_client_timeout_missing(self):
         fake_honcho = MagicMock(name="Honcho")
         cfg = HonchoClientConfig(
             api_key="test-key",
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
@@ -698,7 +654,7 @@ class TestGetHonchoClient:
         fake_honcho = MagicMock(name="Honcho")
         cfg = HonchoClientConfig(
             api_key="test-key",
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
@@ -714,16 +670,19 @@ class TestGetHonchoClient:
         not importlib.util.find_spec("honcho"),
         reason="honcho SDK not installed"
     )
-    def test_hermes_request_timeout_alias_used(self):
+    def test_fabric_request_timeout_alias_used(self):
         fake_honcho = MagicMock(name="Honcho")
         cfg = HonchoClientConfig(
             api_key="test-key",
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
         with patch("honcho.Honcho", return_value=fake_honcho) as mock_honcho, \
-             patch("fabric_cli.config.load_config", return_value={"honcho": {"request_timeout": "77.5"}}):
+             patch(
+                 "fabric_cli.config.load_config",
+                 return_value={"honcho": {"request_timeout": "77.5"}},
+             ):
             client = get_honcho_client(cfg)
 
         assert client is fake_honcho
@@ -750,11 +709,11 @@ class TestGetHonchoClient:
             "timeout": 30,
         }))
         alpha_config = HonchoClientConfig.from_global_config(
-            host="hermes_alpha",
+            host="fabric_alpha",
             config_path=alpha_path,
         )
         beta_config = HonchoClientConfig.from_global_config(
-            host="hermes_beta",
+            host="fabric_beta",
             config_path=beta_path,
         )
 
@@ -766,16 +725,6 @@ class TestGetHonchoClient:
             return client
 
         _install_fake_honcho_sdk(monkeypatch, fake_honcho)
-        monkeypatch.setattr(
-            honcho_client,
-            "_apply_fresh_oauth_token",
-            lambda config: None,
-        )
-        monkeypatch.setattr(
-            honcho_client,
-            "_refresh_cached_oauth",
-            lambda client, config, slot: None,
-        )
         monkeypatch.setattr("fabric_cli.config.load_config", lambda: {})
 
         alpha = get_honcho_client(alpha_config)
@@ -802,7 +751,7 @@ class TestGetHonchoClient:
     ):
         worker_count = 12
         config = HonchoClientConfig(
-            host="hermes_alpha",
+            host="fabric_alpha",
             workspace_id="alpha-workspace",
             api_key="alpha-static-secret",
             timeout=30,
@@ -823,16 +772,6 @@ class TestGetHonchoClient:
             return types.SimpleNamespace(kwargs=kwargs)
 
         _install_fake_honcho_sdk(monkeypatch, fake_honcho)
-        monkeypatch.setattr(
-            honcho_client,
-            "_apply_fresh_oauth_token",
-            lambda current: None,
-        )
-        monkeypatch.setattr(
-            honcho_client,
-            "_refresh_cached_oauth",
-            lambda client, current, slot: None,
-        )
         monkeypatch.setattr("fabric_cli.config.load_config", lambda: {})
 
         def acquire_client():
@@ -857,7 +796,7 @@ class TestGetHonchoClient:
     ):
         configs = [
             HonchoClientConfig(
-                host=f"hermes_{profile}",
+                host=f"fabric_{profile}",
                 workspace_id=f"{profile}-workspace",
                 api_key=f"{profile}-static-secret",
                 timeout=30,
@@ -873,16 +812,6 @@ class TestGetHonchoClient:
             return client
 
         _install_fake_honcho_sdk(monkeypatch, fake_honcho)
-        monkeypatch.setattr(
-            honcho_client,
-            "_apply_fresh_oauth_token",
-            lambda config: None,
-        )
-        monkeypatch.setattr(
-            honcho_client,
-            "_refresh_cached_oauth",
-            lambda client, config, slot: None,
-        )
         monkeypatch.setattr("fabric_cli.config.load_config", lambda: {})
 
         first_clients = [get_honcho_client(config) for config in configs]
@@ -907,17 +836,17 @@ class TestGetHonchoClient:
 
         config_path = tmp_path / "alpha" / "honcho.json"
         config = HonchoClientConfig(
-            host="hermes_alpha",
+            host="fabric_alpha",
             workspace_id="alpha-workspace",
             api_key="hch-at-old",
             timeout=30,
             raw={
                 "hosts": {
-                    "hermes_alpha": {
+                    "fabric_alpha": {
                         "apiKey": "hch-at-old",
                         "oauth": {
                             "refreshToken": "hch-rt-secret",
-                            "clientId": "hermes-desktop",
+                            "clientId": "registered-honcho-client",
                             "tokenEndpoint": "https://example.test/oauth/token",
                             "scope": "write",
                         },
@@ -935,10 +864,12 @@ class TestGetHonchoClient:
 
         _install_fake_honcho_sdk(monkeypatch, fake_honcho)
         monkeypatch.setattr("fabric_cli.config.load_config", lambda: {})
-        ensure_fresh = MagicMock(side_effect=[
-            ("hch-at-old", False),
-            ("hch-at-new", True),
-        ])
+        ensure_fresh = MagicMock(
+            side_effect=[
+                ("hch-at-old", False),
+                ("hch-at-new", True),
+            ]
+        )
         monkeypatch.setattr(oauth, "ensure_fresh_token", ensure_fresh)
 
         first = get_honcho_client(config)
@@ -949,10 +880,9 @@ class TestGetHonchoClient:
         assert config.api_key == "hch-at-new"
         assert len(honcho_client._honcho_client_pool._slots) == 1
         assert [call.args for call in ensure_fresh.call_args_list] == [
-            (config_path, "hermes_alpha"),
-            (config_path, "hermes_alpha"),
+            (config_path, "fabric_alpha"),
+            (config_path, "fabric_alpha"),
         ]
-
 
 class TestResolveSessionNameGatewayKey:
     """Regression tests for gateway_session_key priority in resolve_session_name.
@@ -1112,7 +1042,7 @@ class TestDialecticDepthParsing:
         config_file.write_text(json.dumps({
             "apiKey": "***",
             "dialecticDepth": 1,
-            "hosts": {"hermes": {"dialecticDepth": 3}},
+            "hosts": {"fabric": {"dialecticDepth": 3}},
         }))
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.dialectic_depth == 3
@@ -1197,7 +1127,7 @@ class TestGetHonchoClientBaseUrlDoublePrefixFix:
         cfg = HonchoClientConfig(
             api_key=None,
             base_url="http://localhost:38000/v3",
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
@@ -1221,7 +1151,7 @@ class TestGetHonchoClientBaseUrlDoublePrefixFix:
         cfg = HonchoClientConfig(
             api_key=None,
             base_url="http://localhost:38000",
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
@@ -1245,7 +1175,7 @@ class TestGetHonchoClientBaseUrlDoublePrefixFix:
         cfg = HonchoClientConfig(
             api_key="cloud-key",
             base_url="https://api.honcho.dev",
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
@@ -1270,7 +1200,7 @@ class TestGetHonchoClientBaseUrlDoublePrefixFix:
         cfg = HonchoClientConfig(
             api_key="cloud-key",
             base_url="https://api.honcho.dev/v3",
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
@@ -1313,7 +1243,7 @@ class TestGetHonchoClientBaseUrlDoublePrefixFix:
         cfg = HonchoClientConfig(
             api_key="self-host-key",
             base_url=raw_url,
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 
@@ -1337,7 +1267,7 @@ class TestGetHonchoClientBaseUrlDoublePrefixFix:
         cfg = HonchoClientConfig(
             api_key=None,
             base_url="http://127.0.0.1:38000/v3/",
-            workspace_id="hermes",
+            workspace_id="fabric",
             environment="production",
         )
 

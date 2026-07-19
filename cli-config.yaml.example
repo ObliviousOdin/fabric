@@ -1,6 +1,20 @@
 # Fabric CLI Configuration
 # Copy this file to cli-config.yaml and customize as needed.
-# This file configures the CLI behavior. Environment variables in .env take precedence.
+# This file configures Fabric behavior. Use .env only for credentials and secrets.
+
+# =============================================================================
+# Capability Catalogs
+# =============================================================================
+# Setup and picker surfaces advertise these curated integration sets. Set
+# enabled: false to expose every registered integration. Set one list to null
+# to expose only that catalog in full, or replace a list with your own slugs.
+capabilities:
+  enabled: true
+  gateway_platforms: [discord, slack, api_server]
+  model_providers: [openrouter, ollama, lmstudio, anthropic, openai-codex, openai-api, xai-oauth, gemini, deepseek, xai, ollama-cloud]
+  memory_providers: [honcho, holographic, hindsight]
+  tts_providers: [openai, piper, command]
+  stt_providers: [local, openai, command]
 
 # =============================================================================
 # Model Configuration
@@ -13,10 +27,10 @@ model:
   # Inference provider selection:
   #   "auto"         - Auto-detect from credentials (default)
   #   "openrouter"   - OpenRouter (requires: OPENROUTER_API_KEY or OPENAI_API_KEY)
-  #   "nous"         - Nous Portal OAuth (requires: hermes auth add nous)
+  #   "nous"         - Nous Portal OAuth (requires: fabric auth add nous)
   #   "nous-api"     - Nous Portal API key (requires: NOUS_API_KEY)
   #   "anthropic"    - Direct Anthropic API (requires: ANTHROPIC_API_KEY)
-  #   "openai-codex" - OpenAI Codex (requires: hermes auth)
+  #   "openai-codex" - OpenAI Codex (requires: fabric auth)
   #   "copilot"      - GitHub Copilot / GitHub Models (requires: GITHUB_TOKEN)
   #   "gemini"      - Use Google AI Studio direct (requires: GOOGLE_API_KEY or GEMINI_API_KEY)
   #   "zai"         - Use z.ai / ZhipuAI GLM models (requires: GLM_API_KEY)
@@ -112,12 +126,10 @@ model:
 # Anthropic, and Anthropic-compatible providers), the fallback chain, and
 # client rebuilds during credential rotation.  For OpenAI-wire chat
 # completions (streaming and non-streaming) the configured value is also
-# used as the per-request ``timeout=`` kwarg so it wins over the legacy
-# HERMES_API_TIMEOUT env var (which still applies when no config is set).
-# ``stale_timeout_seconds`` controls the non-streaming stale-call detector and
-# wins over the legacy HERMES_API_CALL_STALE_TIMEOUT env var. Leaving these
-# unset keeps the legacy defaults (HERMES_API_TIMEOUT=1800s,
-# HERMES_API_CALL_STALE_TIMEOUT=90s, native Anthropic 900s). The
+# used as the per-request ``timeout=`` kwarg.
+# ``stale_timeout_seconds`` controls the non-streaming stale-call detector.
+# Leaving these unset uses the built-in defaults (request timeout 1800s,
+# stale-call timeout 90s, native Anthropic 900s). The
 # implicit non-stream stale detector is auto-disabled for local endpoints
 # and can scale upward for very large contexts.
 #
@@ -358,6 +370,14 @@ terminal:
 #   tirith_fail_open: true      # Allow commands if tirith unavailable
 
 # =============================================================================
+# Cron Scheduler
+# =============================================================================
+# cron:
+#   inactivity_timeout_seconds: 600  # Agent idle timeout; 0 means unlimited
+#   script_timeout_seconds: 3600     # Pre-run script timeout
+#   max_parallel_jobs: 4             # Concurrent due jobs
+
+# =============================================================================
 # Browser Tool Configuration
 # =============================================================================
 browser:
@@ -413,7 +433,7 @@ compression:
   # compaction doesn't fire with half the window still free; set above 0.75 to override.
   threshold: 0.50
 
-  # Existing Codex gpt-5.5 behavior: raise Fabric' compaction trigger to 85%
+  # Existing Codex gpt-5.5 behavior: raise Fabric's compaction trigger to 85%
   # for the ChatGPT Codex OAuth route. Set false to opt back down to threshold.
   codex_gpt55_autoraise: true
 
@@ -429,10 +449,10 @@ compression:
   protect_last_n: 20
 
   # Codex app-server (codex CLI runtime) thread-compaction mode. The codex
-  # agent owns the real thread context on this runtime, so Fabric' summarizer
+  # agent owns the real thread context on this runtime, so Fabric's summarizer
   # cannot shrink it — compaction goes through the app server instead.
   #   native = let Codex decide when to compact its own thread (default)
-  #   hermes = let Fabric threshold trigger Codex thread/compact/start
+  #   fabric = let Fabric threshold trigger Codex thread/compact/start
   #   off    = Fabric will not auto-trigger compaction; Codex may still compact natively
   codex_app_server_auto: native
 
@@ -484,10 +504,10 @@ prompt_caching:
 # Provider options:
 #   "auto"       - Best available: OpenRouter → Nous Portal → main endpoint (default)
 #   "openrouter" - Force OpenRouter (requires OPENROUTER_API_KEY)
-#   "nous"       - Force Nous Portal (requires: hermes auth add nous)
+#   "nous"       - Force Nous Portal (requires: fabric auth add nous)
 #   "gemini"      - Force Google AI Studio direct (requires: GOOGLE_API_KEY or GEMINI_API_KEY)
 #   "ollama-cloud" - Ollama Cloud (requires: OLLAMA_API_KEY)
-#   "codex"       - Force Codex OAuth (requires: hermes model → Codex).
+#   "codex"       - Force Codex OAuth (requires: fabric model → Codex).
 #                  Uses gpt-5.3-codex which supports vision.
 #   "main"       - Use your custom endpoint (OPENAI_BASE_URL + OPENAI_API_KEY).
 #                  Works with OpenAI API, local models, or any OpenAI-compatible
@@ -598,6 +618,13 @@ session_reset:
 # local runtime lease registry cannot be read or locked.
 max_concurrent_sessions: null
 
+# Optional relay scale-to-zero policy. The gateway only arms this when no
+# direct messaging adapter is active and the relay has a registered wake URL.
+# gateway:
+#   scale_to_zero:
+#     enabled: false
+#     idle_timeout_minutes: 5
+
 # When true, group/channel chats use one session per participant when the platform
 # provides a user ID. This is the secure default and prevents users in the same
 # room from sharing context, interrupts, and token costs. Set false only if you
@@ -675,6 +702,14 @@ skills:
   #   - /home/shared/team-skills
 
 # =============================================================================
+# Plugins
+# =============================================================================
+plugins:
+  # Project-local plugins execute Python controlled by the current repository.
+  # Keep disabled unless you explicitly trust ./.fabric/plugins/ in that repo.
+  allow_project_plugins: false
+
+# =============================================================================
 # Agent Behavior
 # =============================================================================
 agent:
@@ -711,7 +746,7 @@ agent:
   # coding surfaces (CLI, TUI, desktop) and programmatic callers, and disables
   # it on conversational messaging surfaces (Telegram, Discord, etc.) where the
   # verification summary would reach a human as chat noise. Set true or false to
-  # force it on or off; the HERMES_VERIFY_ON_STOP env var (1/0) takes precedence.
+  # force it on or off.
   # verify_on_stop: auto
 
   # Standing operator instructions for the coding posture (when Fabric is in a
@@ -771,7 +806,7 @@ agent:
 # If a platform isn't listed here, its built-in default is used.
 #
 # You can use EITHER:
-#   - A preset like "hermes-cli" or "hermes-telegram" (curated tool set)
+#   - A preset like "fabric-cli" or "fabric-telegram" (curated tool set)
 #   - A list of individual toolsets to compose your own (see list below)
 #
 # Supported platform keys: cli, telegram, discord, whatsapp, slack, qqbot, teams, google_chat
@@ -780,8 +815,8 @@ agent:
 #
 #   # Use presets (same as defaults):
 #   platform_toolsets:
-#     cli: [hermes-cli]
-#     telegram: [hermes-telegram]
+#     cli: [fabric-cli]
+#     telegram: [fabric-telegram]
 #
 #   # Custom: give Telegram only web + terminal + file + planning:
 #   platform_toolsets:
@@ -796,29 +831,29 @@ agent:
 #     discord: [web, vision, skills, todo]
 #
 # If not set, defaults are:
-#   cli:           hermes-cli            (everything + cronjob management)
-#   telegram:      hermes-telegram       (terminal, file, web, vision, image, tts, browser, skills, todo, cronjob, messaging)
-#   discord:       hermes-discord        (same as telegram)
-#   whatsapp:      hermes-whatsapp       (same as telegram)
-#   slack:         hermes-slack          (same as telegram)
-#   signal:        hermes-signal         (same as telegram)
-#   homeassistant: hermes-homeassistant  (same as telegram)
-#   qqbot:            hermes-qqbot            (same as telegram)
-#   teams:            hermes-teams            (same as telegram)
-#   google_chat:      hermes-google_chat      (same as telegram)
+#   cli:           fabric-cli            (everything + cronjob management)
+#   telegram:      fabric-telegram       (terminal, file, web, vision, image, tts, browser, skills, todo, cronjob, messaging)
+#   discord:       fabric-discord        (same as telegram)
+#   whatsapp:      fabric-whatsapp       (same as telegram)
+#   slack:         fabric-slack          (same as telegram)
+#   signal:        fabric-signal         (same as telegram)
+#   homeassistant: fabric-homeassistant  (same as telegram)
+#   qqbot:         fabric-qqbot          (same as telegram)
+#   teams:         fabric-teams          (same as telegram)
+#   google_chat:   fabric-google_chat    (same as telegram)
 #
 platform_toolsets:
-  cli: [hermes-cli]
-  telegram: [hermes-telegram]
-  discord: [hermes-discord]
-  whatsapp: [hermes-whatsapp]
-  slack: [hermes-slack]
-  signal: [hermes-signal]
-  homeassistant: [hermes-homeassistant]
-  qqbot: [hermes-qqbot]
-  yuanbao: [hermes-yuanbao]
-  teams: [hermes-teams]
-  google_chat: [hermes-google_chat]
+  cli: [fabric-cli]
+  telegram: [fabric-telegram]
+  discord: [fabric-discord]
+  whatsapp: [fabric-whatsapp]
+  slack: [fabric-slack]
+  signal: [fabric-signal]
+  homeassistant: [fabric-homeassistant]
+  qqbot: [fabric-qqbot]
+  yuanbao: [fabric-yuanbao]
+  teams: [fabric-teams]
+  google_chat: [fabric-google_chat]
 
 # =============================================================================
 # Gateway Platform Settings
@@ -888,12 +923,12 @@ platform_toolsets:
 #   cronjob      - cronjob (create/list/update/pause/resume/run/remove scheduled tasks)
 #
 # PRESETS (curated bundles):
-#   hermes-cli       - All of the above except send_message
-#   hermes-telegram  - terminal, file, web, vision, image_gen, tts, browser,
+#   fabric-cli       - All of the above except send_message
+#   fabric-telegram  - terminal, file, web, vision, image_gen, tts, browser,
 #                      skills, todo, cronjob, send_message
-#   hermes-discord   - Same as hermes-telegram
-#   hermes-whatsapp  - Same as hermes-telegram
-#   hermes-slack     - Same as hermes-telegram
+#   fabric-discord   - Same as fabric-telegram
+#   fabric-whatsapp  - Same as fabric-telegram
+#   fabric-slack     - Same as fabric-telegram
 #
 # COMPOSITE:
 #   debugging    - terminal + web + file
@@ -922,7 +957,7 @@ platform_toolsets:
 # Tool configuration is managed per-platform via platform_toolsets above.
 # Use `fabric tools` to configure interactively, or edit platform_toolsets directly.
 #
-# CLI override: hermes chat --toolsets terminal,web,file
+# CLI override: fabric chat --toolsets terminal,web,file
 
 # =============================================================================
 # MCP (Model Context Protocol) Servers
@@ -1006,6 +1041,7 @@ stt:
   local:
     model: "base"              # tiny | base | small | medium | large-v3 | turbo
     # language: ""             # auto-detect; set to "en", "es", "fr", etc. to force
+    # command: ""              # optional shell template with {input_path}, {output_dir}, {language}, {model}
   openai:
     model: "whisper-1"         # whisper-1 | gpt-4o-mini-transcribe | gpt-4o-transcribe
   # mistral:
@@ -1200,13 +1236,10 @@ display:
   #
   # Built-in skins:
   #   default        — Classic Fabric gold/kawaii
-  #   ares           — Crimson/bronze war-god theme with spinner wings
   #   mono           — Clean grayscale monochrome
   #   slate          — Cool blue developer-focused
   #   daylight       — Bright light-mode theme
   #   warm-lightmode — Warm paper-tone light-mode theme
-  #   poseidon       — Sea-green/teal Olympian theme
-  #   sisyphus       — Earthy stone-and-moss theme
   #   charizard      — Fiery orange dragon theme
   #
   # Custom skins: drop a YAML file in ~/.fabric/skins/<name>.yaml
@@ -1285,8 +1318,7 @@ display:
 #
 # First-use consent: each (event, command) pair prompts once on a TTY, then
 # is persisted to ~/.fabric/shell-hooks-allowlist.json.  Non-interactive
-# runs (gateway, cron) need --accept-hooks, HERMES_ACCEPT_HOOKS=1, or the
-# hooks_auto_accept key below.
+# runs (gateway, cron) need --accept-hooks or the hooks_auto_accept key below.
 #
 # See website/docs/user-guide/features/hooks.md for the full JSON wire
 # protocol and worked examples.
@@ -1333,24 +1365,24 @@ updates:
 # =============================================================================
 # OAuth gate configuration for `fabric dashboard --host <non-loopback>`.
 # The bundled Nous Portal plugin reads these on startup; settings here are
-# the canonical surface. Each can be overridden by an environment variable:
-#
-#   dashboard.oauth.client_id   <-  HERMES_DASHBOARD_OAUTH_CLIENT_ID
-#   dashboard.oauth.portal_url  <-  HERMES_DASHBOARD_PORTAL_URL
-#   dashboard.public_url        <-  HERMES_DASHBOARD_PUBLIC_URL
-#
-# Env wins when set to a non-empty value. This is what Fly.io's platform-
-# secret injection uses to push per-deploy client_ids without needing to
-# bake a config.yaml into the image. Empty env values are treated as unset
-# so a provisioned-but-not-populated secret can't shadow a valid entry here.
-#
-# Local dev / on-prem deploys should typically set these via config.yaml
-# (the ~/.fabric/.env file is reserved for API keys and secrets).
+# the canonical and sole runtime surface. Any string may use `${VAR}` to
+# resolve a value from the process environment or ~/.fabric/.env.
 #
 # dashboard:
+#   autostart: "ask"  # "ask" | "always" | "never" after setup/auth
 #   oauth:
 #     client_id: ""    # agent:{instance_id}; Portal provisions this at deploy
 #     portal_url: ""   # blank → default https://portal.nousresearch.com
+#
+#   # Trusted-LAN/VPN username/password gate. Prefer a scrypt hash so the
+#   # plaintext password is not stored at rest. Run `fabric dashboard` on a
+#   # non-loopback host interactively to configure this automatically.
+#   basic_auth:
+#     username: "admin"
+#     password_hash: "scrypt$16384$8$1$...$..."
+#     # password: "choose-a-strong-password" # plaintext fallback
+#     secret: "<32+ random bytes>" # stable across restarts
+#     session_ttl_seconds: 43200
 #
 #   # Force the absolute base URL the OAuth callback (and any other public
 #   # URL the dashboard hands to external systems) is built from. Set this
@@ -1360,7 +1392,7 @@ updates:
 #   # full proxy header chains).
 #   #
 #   # When set, the value is the complete authority: scheme + host +
-#   # optional path prefix (e.g. "https://example.com/hermes"). The OAuth
+#   # optional path prefix (e.g. "https://example.com/fabric"). The OAuth
 #   # callback URL becomes "<public_url>/auth/callback" — X-Forwarded-Prefix
 #   # is IGNORED on this code path because the operator has explicitly
 #   # declared the public URL and we no longer need to guess.
@@ -1368,25 +1400,25 @@ updates:
 #   # Leave empty to use the existing proxy-header reconstruction (the
 #   # default — works on Fly.io out of the box).
 #   #
-#   #   public_url: "https://example.com/hermes"
+#   #   public_url: "https://example.com/fabric"
+#
+#   # Optional Files-page root. When set, dashboard browsing is locked here.
+#   # files_root: "/srv/fabric-files"
+#
+#   # Optional host used by the dashboard-spawned TUI child for its internal
+#   # WebSocket connection. Blank derives it from the dashboard bind host.
+#   # ws_host: "127.0.0.1"
 #
 # -----------------------------------------------------------------------------
 # Self-hosted OIDC dashboard auth (generic OpenID Connect — Authentik,
 # Keycloak, Zitadel, Authelia, Auth0, Okta, Google, …). Use this INSTEAD of the
 # nous block above when gating the dashboard with your own identity provider.
-# Each setting can be overridden by an environment variable:
-#
-#   dashboard.oauth.self_hosted.issuer         <-  HERMES_DASHBOARD_OIDC_ISSUER
-#   dashboard.oauth.self_hosted.client_id      <-  HERMES_DASHBOARD_OIDC_CLIENT_ID
-#   dashboard.oauth.self_hosted.scopes         <-  HERMES_DASHBOARD_OIDC_SCOPES
-#   dashboard.oauth.self_hosted.client_secret  <-  HERMES_DASHBOARD_OIDC_CLIENT_SECRET
-#
 # dashboard:
 #   oauth:
 #     provider: self-hosted
 #     self_hosted:
-#       issuer: "https://auth.example.com/application/o/hermes/"  # required
-#       client_id: "hermes-dashboard"                             # required
+#       issuer: "https://auth.example.com/application/o/fabric/"  # required
+#       client_id: "fabric-dashboard"                             # required
 #       scopes: "openid profile email"                            # optional
 #
 #       # OPTIONAL — set ONLY if your IDP registered the client as
@@ -1395,10 +1427,7 @@ updates:
 #       # (client_secret_basic or client_secret_post, auto-selected from the
 #       # IDP's discovery doc) IN ADDITION to PKCE. Leave unset for a public
 #       # (PKCE-only) client — the common case.
-#       #
-#       # This is a CREDENTIAL: prefer setting HERMES_DASHBOARD_OIDC_CLIENT_SECRET
-#       # in ~/.fabric/.env over putting it here in config.yaml.
-#       #   client_secret: ""
+#       client_secret: "<confidential-client secret>"
 
 # =============================================================================
 # External secret sources

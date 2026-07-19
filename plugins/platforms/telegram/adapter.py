@@ -223,7 +223,7 @@ from plugins.platforms.telegram.telegram_network import (
     discover_fallback_ips,
     parse_fallback_ip_env,
 )
-from utils import atomic_replace, env_float, env_int
+from utils import atomic_replace, env_int
 
 _TELEGRAM_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 _TELEGRAM_IMAGE_MIME_TO_EXT = {
@@ -420,7 +420,7 @@ _UPDATER_STOP_TIMEOUT = 15.0
 # after _drain_polling_connections(), particularly when both primary and fallback
 # Telegram endpoints are unreachable. Bounding start_polling() prevents the
 # reconnect ladder from stalling indefinitely and allows the heartbeat loop to
-# trigger its own recovery path. Refs: NousResearch/fabric-agent#59614
+# trigger its own recovery path.
 _UPDATER_START_TIMEOUT = 30.0
 
 
@@ -463,39 +463,11 @@ class TelegramAdapter(BasePlatformAdapter):
     # ≤320 codepoints (one short paragraph) settles in ~180ms; ≤1024
     # (a normal paragraph) in ~240ms; longer waits the configured cap.
     # Always clamped to ``_text_batch_delay_seconds`` so an operator can lower
-    # the cap further via env var.
+    # the cap further in config.yaml.
     _TEXT_BATCH_FAST_LEN = 320
     _TEXT_BATCH_FAST_DELAY_S = 0.18
     _TEXT_BATCH_SHORT_LEN = 1024
     _TEXT_BATCH_SHORT_DELAY_S = 0.24
-
-    @staticmethod
-    def _env_float_clamped(
-        name: str,
-        default: float,
-        *,
-        min_value: Optional[float] = None,
-        max_value: Optional[float] = None,
-    ) -> float:
-        """Read a float env var, reject non-finite values, and clamp to bounds.
-
-        Guarantees the returned value is a finite number usable directly in
-        ``asyncio.sleep()`` and similar APIs that reject NaN / Inf.
-        """
-        import math
-
-        raw = os.getenv(name)
-        try:
-            value = float(raw) if raw is not None else float(default)
-        except (TypeError, ValueError):
-            value = float(default)
-        if not math.isfinite(value):
-            value = float(default)
-        if min_value is not None:
-            value = max(value, min_value)
-        if max_value is not None:
-            value = min(value, max_value)
-        return value
 
     @property
     def message_len_fn(self):
@@ -543,7 +515,9 @@ class TelegramAdapter(BasePlatformAdapter):
         )
         # Buffer rapid/album photo updates so Telegram image bursts are handled
         # as a single MessageEvent instead of self-interrupting multiple turns.
-        self._media_batch_delay_seconds = env_float("HERMES_TELEGRAM_MEDIA_BATCH_DELAY_SECONDS", 0.8)
+        self._media_batch_delay_seconds = self._coerce_float_extra(
+            "media_batch_delay_seconds", 0.8
+        )
         self._pending_photo_batches: Dict[str, MessageEvent] = {}
         self._pending_photo_batch_tasks: Dict[str, asyncio.Task] = {}
         self._media_group_events: Dict[str, MessageEvent] = {}
@@ -555,14 +529,14 @@ class TelegramAdapter(BasePlatformAdapter):
         # in ``_calc_text_batch_delay`` below, ≤320-codepoint replies settle
         # in ~180ms.  All bounds are conservative for Telegram's
         # ~1 edit/s flood envelope.
-        self._text_batch_delay_seconds = self._env_float_clamped(
-            "HERMES_TELEGRAM_TEXT_BATCH_DELAY_SECONDS",
+        self._text_batch_delay_seconds = self._coerce_float_extra(
+            "text_batch_delay_seconds",
             0.3,
             min_value=0.08,
             max_value=2.0,
         )
-        self._text_batch_split_delay_seconds = self._env_float_clamped(
-            "HERMES_TELEGRAM_TEXT_BATCH_SPLIT_DELAY_SECONDS",
+        self._text_batch_split_delay_seconds = self._coerce_float_extra(
+            "text_batch_split_delay_seconds",
             1.0,
             min_value=self._text_batch_delay_seconds,
             max_value=4.0,
@@ -972,7 +946,7 @@ class TelegramAdapter(BasePlatformAdapter):
 
         Supergroup/forum topics use ``message_thread_id``. True Bot API Direct
         Messages topics can opt in with explicit ``direct_messages_topic_id``
-        metadata. Hermes-created private-chat topic lanes are marked with
+        metadata. Fabric-created private-chat topic lanes are marked with
         ``telegram_dm_topic_reply_fallback``. Live replies send the private
         topic thread id together with a reply anchor; synthetic/resumed sends
         without an anchor use ``direct_messages_topic_id`` when metadata has it.
@@ -1271,11 +1245,36 @@ class TelegramAdapter(BasePlatformAdapter):
         min_value: Optional[float] = None,
         max_value: Optional[float] = None,
     ) -> float:
+        import math
+
         value = self.config.extra.get(key) if getattr(self.config, "extra", None) else None
         if value is None:
             return default
         try:
             parsed = float(value)
+        except (TypeError, ValueError):
+            return default
+        if not math.isfinite(parsed):
+            return default
+        if min_value is not None:
+            parsed = max(parsed, min_value)
+        if max_value is not None:
+            parsed = min(parsed, max_value)
+        return parsed
+
+    def _coerce_int_extra(
+        self,
+        key: str,
+        default: int,
+        *,
+        min_value: Optional[int] = None,
+        max_value: Optional[int] = None,
+    ) -> int:
+        value = self.config.extra.get(key) if getattr(self.config, "extra", None) else None
+        if value is None:
+            return default
+        try:
+            parsed = int(value)
         except (TypeError, ValueError):
             return default
         if min_value is not None:
@@ -1298,7 +1297,7 @@ class TelegramAdapter(BasePlatformAdapter):
     # the RAW agent markdown so richer constructs (tables, task lists,
     # collapsible details, math, ...) render natively. The legacy MarkdownV2
     # send() path stays as the fallback for unsupported/oversized content and
-    # older PTB/clients. Streaming edits stay on Hermes' existing MarkdownV2
+    # older PTB/clients. Streaming edits stay on Fabric's existing MarkdownV2
     # edit path for now; finalization can re-send as rich and delete the stale
     # preview until rich_message edit support is wired directly.
     # ------------------------------------------------------------------
@@ -1981,7 +1980,7 @@ class TelegramAdapter(BasePlatformAdapter):
         try:
             # Same watchdog bound as the reconnect ladders: a wedged httpx
             # connection pool can hang start_polling() forever at bootstrap
-            # too (#59614). A propagating TimeoutError is a builtins
+            # too. A propagating TimeoutError is a builtins
             # TimeoutError (OSError subclass), so the except below classifies
             # it via _looks_like_network_error and schedules background
             # recovery instead of blocking connect() indefinitely.
@@ -2070,7 +2069,6 @@ class TelegramAdapter(BasePlatformAdapter):
                     # "in-flight" and skips triggering a new reconnect, and
                     # the gateway silently drops messages for hours.
                     # Bounding stop() lets the reconnect ladder always advance.
-                    # Refs: NousResearch/fabric-agent#58270
                     await asyncio.wait_for(app.updater.stop(), timeout=_UPDATER_STOP_TIMEOUT)
                 except asyncio.TimeoutError:
                     logger.warning(
@@ -2093,7 +2091,6 @@ class TelegramAdapter(BasePlatformAdapter):
             # out within PTB's internal flow. Bounding start_polling() prevents
             # the reconnect ladder from stalling indefinitely and allows the
             # heartbeat loop to trigger its own recovery path.
-            # Refs: NousResearch/fabric-agent#59614
             try:
                 await asyncio.wait_for(
                     app.updater.start_polling(
@@ -2499,7 +2496,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     raise RuntimeError("Telegram application was torn down during conflict reconnect")
                 # Same watchdog bound as the network-error ladder: an
                 # exhausted pool hangs start_polling() on the conflict path
-                # identically (#59614). Timeout converts to RuntimeError so
+                # identically. Timeout converts to RuntimeError so
                 # the except below logs a readable message and schedules the
                 # next conflict attempt instead of wedging attempt N forever.
                 try:
@@ -2924,7 +2921,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 if not self._bot:
                     return
                 # Telegram allows up to 100 commands but has an undocumented
-                # payload size limit (~4KB total).  Hermes defaults to 60 to
+                # payload size limit (~4KB total).  Fabric defaults to 60 to
                 # keep built-ins plus common skill commands visible while
                 # staying under the threshold; users can tune the cap via
                 # platforms.telegram.extra.command_menu.
@@ -3041,25 +3038,18 @@ class TelegramAdapter(BasePlatformAdapter):
 
             # PTB defaults (pool_timeout=1s) are too aggressive on flaky networks and
             # can trigger "Pool timeout: All connections in the connection pool are occupied"
-            # during reconnect/bootstrap. Use safer defaults and allow env overrides.
-            def _env_int(name: str, default: int) -> int:
-                try:
-                    return int(os.getenv(name, str(default)))
-                except (TypeError, ValueError):
-                    return default
-
-            def _env_float(name: str, default: float) -> float:
-                try:
-                    return float(os.getenv(name, str(default)))
-                except (TypeError, ValueError):
-                    return default
-
+            # during reconnect/bootstrap. Use safer defaults with optional
+            # ``platforms.telegram.extra`` overrides.
             request_kwargs = {
-                "connection_pool_size": _env_int("HERMES_TELEGRAM_HTTP_POOL_SIZE", 512),
-                "pool_timeout": _env_float("HERMES_TELEGRAM_HTTP_POOL_TIMEOUT", 8.0),
-                "connect_timeout": _env_float("HERMES_TELEGRAM_HTTP_CONNECT_TIMEOUT", 10.0),
-                "read_timeout": _env_float("HERMES_TELEGRAM_HTTP_READ_TIMEOUT", 20.0),
-                "write_timeout": _env_float("HERMES_TELEGRAM_HTTP_WRITE_TIMEOUT", 20.0),
+                "connection_pool_size": self._coerce_int_extra(
+                    "http_pool_size", 512, min_value=1
+                ),
+                "pool_timeout": self._coerce_float_extra("http_pool_timeout", 8.0),
+                "connect_timeout": self._coerce_float_extra(
+                    "http_connect_timeout", 10.0
+                ),
+                "read_timeout": self._coerce_float_extra("http_read_timeout", 20.0),
+                "write_timeout": self._coerce_float_extra("http_write_timeout", 20.0),
             }
 
             # CLOSE_WAIT fd leak (#31599, same class as #18451): PTB's
@@ -3102,7 +3092,7 @@ class TelegramAdapter(BasePlatformAdapter):
                     kwargs["limits"] = _pool_limits
                 return kwargs
 
-            disable_fallback = (os.getenv("HERMES_TELEGRAM_DISABLE_FALLBACK_IPS", "").strip().lower() in {"1", "true", "yes", "on"})
+            disable_fallback = self._coerce_bool_extra("disable_fallback_ips", False)
             fallback_ips = self._fallback_ips()
             if not fallback_ips:
                 logger.warning("[%s] Discovering Telegram API fallback IPs via DNS-over-HTTPS…", self.name)
@@ -3159,7 +3149,7 @@ class TelegramAdapter(BasePlatformAdapter):
                 )
             else:
                 if disable_fallback:
-                    logger.info("[%s] Telegram fallback-IP transport disabled via env", self.name)
+                    logger.info("[%s] Telegram fallback-IP transport disabled by config", self.name)
                 request = HTTPXRequest(**request_kwargs, httpx_kwargs=_with_limits())
                 get_updates_request = HTTPXRequest(
                     **request_kwargs, httpx_kwargs=_with_limits()
@@ -3197,7 +3187,7 @@ class TelegramAdapter(BasePlatformAdapter):
             except ImportError:
                 NetworkError = TimedOut = OSError  # type: ignore[misc,assignment]
             _max_connect = 8
-            _init_timeout = _env_float("HERMES_TELEGRAM_INIT_TIMEOUT", 30.0)
+            _init_timeout = self._coerce_float_extra("init_timeout", 30.0)
             for _attempt in range(_max_connect):
                 try:
                     logger.warning(
@@ -3228,7 +3218,7 @@ class TelegramAdapter(BasePlatformAdapter):
                         raise OSError(
                             f"Telegram initialization timed out after {_max_connect} attempts "
                             f"({_init_timeout:.0f}s each). Check network connectivity to api.telegram.org "
-                            f"or set HERMES_TELEGRAM_HTTP_CONNECT_TIMEOUT to a lower value."
+                            "or lower platforms.telegram.extra.http_connect_timeout."
                         )
                 except (NetworkError, TimedOut, OSError) as init_err:
                     if _attempt < _max_connect - 1:
@@ -6933,7 +6923,7 @@ class TelegramAdapter(BasePlatformAdapter):
         # Telegram parses mentions server-side and emits MessageEntity objects
         # (type=mention for @username, type=text_mention for @FirstName targeting
         # a user without a public username). Those entities are authoritative:
-        # raw substring matches like "foo@hermes_bot.example" are not mentions
+        # raw substring matches like "foo@test_bot.example" are not mentions
         # (bug #12545). Entities also correctly handle @handles inside URLs, code
         # blocks, and quoted text, where a regex scan would over-match.
         for source_text, entities in _iter_sources():
@@ -6977,7 +6967,7 @@ class TelegramAdapter(BasePlatformAdapter):
     def _explicit_bot_mentions_exclude_self(self, message: Message) -> bool:
         """Return True when explicit bot handles target other bots, not this one.
 
-        Telegram groups can contain several Hermes bot profiles. A message like
+        Telegram groups can contain several Fabric bot profiles. A message like
         ``@bot3 hi @bot4`` must not wake ``@bot1`` through reply/wake-word
         fallbacks. Treat explicit bot-handle mentions as an exclusive routing
         hint: if at least one @...bot username is present and none matches this
@@ -7344,7 +7334,7 @@ class TelegramAdapter(BasePlatformAdapter):
         In some Telegram environments (groups, supergroups where the bot can
         see its own messages), getUpdates returns the bot's own outgoing
         messages as updates.  These must be filtered out so they are not
-        counted as incoming unread messages in the Hermes inbox.
+        counted as incoming unread messages in the Fabric inbox.
         """
         if not self._bot:
             return False
@@ -7380,7 +7370,7 @@ class TelegramAdapter(BasePlatformAdapter):
         # Filter out the bot's own messages (returned by getUpdates in some
         # environments like groups/supergroups where the bot can see its own
         # messages).  Without this, outbound messages are counted as incoming
-        # unread in the Hermes inbox (#52363).
+        # unread in the Fabric inbox (#52363).
         if self._is_own_message(message):
             return False
 
@@ -8561,21 +8551,22 @@ class TelegramAdapter(BasePlatformAdapter):
 
 
 def _resolve_notifications_mode() -> str:
-    """Resolve the Telegram notification mode (all/important) from env or
-    config.yaml display.platforms.telegram.notifications, defaulting to
-    'important'.  Mirrors the post-construction logic that used to live in
-    gateway/run.py::_create_adapter()."""
-    mode = os.getenv("HERMES_TELEGRAM_NOTIFICATIONS", "")
-    if not mode:
-        try:
-            from gateway.config import load_gateway_config
-            from gateway.run import cfg_get
-            _gw_cfg = load_gateway_config()
-            _raw = cfg_get(_gw_cfg, "display", "platforms", "telegram", "notifications")
-            if _raw not in {None, ""}:
-                mode = str(_raw).strip().lower()
-        except Exception:
-            pass
+    """Resolve ``display.platforms.telegram.notifications`` from config.yaml."""
+    mode = ""
+    try:
+        from fabric_cli.config import load_config_readonly
+
+        cfg = load_config_readonly()
+        raw = (
+            cfg.get("display", {})
+            .get("platforms", {})
+            .get("telegram", {})
+            .get("notifications")
+        )
+        if raw not in {None, ""}:
+            mode = str(raw).strip().lower()
+    except (AttributeError, TypeError):
+        pass
     mode = mode or "important"
     if mode not in {"all", "important"}:
         logger.warning(
@@ -8735,6 +8726,20 @@ def _apply_yaml_config(yaml_cfg: dict, telegram_cfg: dict) -> dict | None:
     for _key in ("guest_mode", "disable_link_previews", "observe_unmentioned_group_messages"):
         if _key in telegram_cfg:
             extras.setdefault(_key, telegram_cfg[_key])
+    for _key in (
+        "media_batch_delay_seconds",
+        "text_batch_delay_seconds",
+        "text_batch_split_delay_seconds",
+        "http_pool_size",
+        "http_pool_timeout",
+        "http_connect_timeout",
+        "http_read_timeout",
+        "http_write_timeout",
+        "disable_fallback_ips",
+        "init_timeout",
+    ):
+        if _key in telegram_cfg:
+            extras.setdefault(_key, telegram_cfg[_key])
     # Pass through telegram-specific extra keys (e.g. base_url proxy override),
     # but EXCLUDE the generic shared-config keys that _merge_platform_map in
     # gateway/config.py already merges with correct top-level-over-nested
@@ -8755,7 +8760,7 @@ def _apply_yaml_config(yaml_cfg: dict, telegram_cfg: dict) -> dict | None:
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Fabric plugin system."""
     ctx.register_platform(
         name="telegram",
         label="Telegram",

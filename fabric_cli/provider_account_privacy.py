@@ -39,9 +39,6 @@ _TEMP_PREFIX = ".provider-accounts.json.tmp."
 _PRIVATE_STATE_DIRS = frozenset({"backups", "state-snapshots"})
 _PRIVATE_BACKUP_STAGING_PREFIX = ".fabric-private-backup-"
 
-# public-release-audit: allow-legacy-compat -- classifies state copied from the previous home layout
-_LEGACY_HOME_DIRNAME = ".hermes"
-
 PRIVATE_BACKUP_ZIP_COMMENT = b"fabric-private-full-backup-v1"
 PRIVATE_BACKUP_ZIP_ENTRY = ".fabric-private-full-backup-v1"
 
@@ -619,7 +616,7 @@ def _normalized_member(name_bytes: bytes, flags: int) -> tuple[str, ...] | None:
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         return None
     parts = tuple(part for part in path.parts if part)
-    if parts and parts[0] in {".fabric", _LEGACY_HOME_DIRNAME}:
+    if parts and parts[0] == ".fabric":
         parts = parts[1:]
     return parts
 

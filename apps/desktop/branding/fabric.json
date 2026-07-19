@@ -20,11 +20,6 @@
       "scheme": "fabric",
       "name": "Fabric Protocol",
       "primary": true
-    },
-    {
-      "scheme": "hermes",
-      "name": "Fabric Compatibility Protocol",
-      "legacy": true
     }
   ],
   "assets": {

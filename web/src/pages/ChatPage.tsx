@@ -72,19 +72,11 @@ import { useI18n } from "@/i18n";
 // ``rotate`` mints a new token — used when the user explicitly starts a fresh
 // session so the old keep-alive PTY is NOT reattached (the registry reaps it).
 const PTY_ATTACH_TOKEN_KEY = "fabric.pty.token.chat";
-const LEGACY_PTY_ATTACH_TOKEN_KEY = "hermes.pty.token.chat";
 function ptyAttachToken(rotate = false): string {
   let t = "";
   if (!rotate) {
     try {
-      t =
-        window.localStorage.getItem(PTY_ATTACH_TOKEN_KEY) ??
-        window.localStorage.getItem(LEGACY_PTY_ATTACH_TOKEN_KEY) ??
-        "";
-      if (t) {
-        window.localStorage.setItem(PTY_ATTACH_TOKEN_KEY, t);
-        window.localStorage.removeItem(LEGACY_PTY_ATTACH_TOKEN_KEY);
-      }
+      t = window.localStorage.getItem(PTY_ATTACH_TOKEN_KEY) ?? "";
     } catch {
       /* private mode / storage blocked */
     }
@@ -95,7 +87,6 @@ function ptyAttachToken(rotate = false): string {
     t = Array.from(a, (b) => b.toString(16).padStart(2, "0")).join("");
     try {
       window.localStorage.setItem(PTY_ATTACH_TOKEN_KEY, t);
-      window.localStorage.removeItem(LEGACY_PTY_ATTACH_TOKEN_KEY);
     } catch {
       /* ignore */
     }
@@ -179,9 +170,9 @@ export default function ChatPage({
   // so a missing token there is expected, not an error.
   const [banner, setBanner] = useState<string | null>(() =>
     typeof window !== "undefined" &&
-    !window.__HERMES_SESSION_TOKEN__ &&
-    !window.__HERMES_AUTH_REQUIRED__
-      ? "Session token unavailable. Open this page through `Fabric dashboard`, not directly."
+    !window.__DASHBOARD_AUTH_TOKEN__ &&
+    !window.__DASHBOARD_AUTH_REQUIRED__
+      ? "Session token unavailable. Open this page through `fabric dashboard`, not directly."
       : null,
   );
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
@@ -483,8 +474,8 @@ export default function ChatPage({
     const host = hostRef.current;
     if (!host) return;
 
-    const token = window.__HERMES_SESSION_TOKEN__;
-    const gated = !!window.__HERMES_AUTH_REQUIRED__;
+    const token = window.__DASHBOARD_AUTH_TOKEN__;
+    const gated = !!window.__DASHBOARD_AUTH_REQUIRED__;
     // Banner already initialised above; just bail before wiring xterm/WS.
     // In gated mode the token is absent by design — api.buildWsUrl() mints
     // a WS ticket instead, so don't bail; let the effect reach that path.
@@ -764,7 +755,7 @@ export default function ChatPage({
       });
     });
 
-    // WebSocket. In gated mode (``window.__HERMES_AUTH_REQUIRED__``) this
+    // WebSocket. In gated mode (``window.__DASHBOARD_AUTH_REQUIRED__``) this
     // awaits a single-use ticket via /api/auth/ws-ticket before opening;
     // in loopback mode it resolves synchronously against the injected
     // session token. The IIFE keeps the outer effect synchronous so its
@@ -800,12 +791,12 @@ export default function ChatPage({
       // refresh/transient drops. A forced-fresh start rotates the token so
       // the previous keep-alive PTY is not reattached (registry reaps it).
       params.attach = ptyAttachToken(forceFresh);
-      // Profile-scoped chat: the PTY child gets HERMES_HOME pointed at the
+      // Profile-scoped chat: the PTY child gets FABRIC_HOME pointed at the
       // selected profile, so the conversation runs with that profile's model,
       // skills, memory, and sessions (see web_server._resolve_chat_argv).
       if (chatProfile) params.profile = chatProfile;
       // Terminal canvas hint: the server forwards this as
-      // HERMES_TUI_BACKGROUND so the TUI child picks the light/dark
+      // the launch descriptor so the TUI child picks the light/dark
       // palette matching the xterm canvas it will actually render on.
       params.bg = terminalSessionTheme.background;
       const url = await api.buildWsUrl("/api/pty", params);
@@ -1145,7 +1136,7 @@ export default function ChatPage({
     >
       <div
         ref={hostRef}
-        className="hermes-chat-xterm-host min-h-0 min-w-0 flex-1"
+        className="fabric-chat-xterm-host min-h-0 min-w-0 flex-1"
       />
 
       {/* NS-504: the agent process exited (e.g. `/exit` or a new session).
@@ -1239,7 +1230,7 @@ export default function ChatPage({
 
 declare global {
   interface Window {
-    __HERMES_SESSION_TOKEN__?: string;
-    __HERMES_AUTH_REQUIRED__?: boolean;
+    __DASHBOARD_AUTH_TOKEN__?: string;
+    __DASHBOARD_AUTH_REQUIRED__?: boolean;
   }
 }

@@ -231,7 +231,7 @@ struct BackgroundProcess: Identifiable, Hashable {
 
 /// Public body of `GET /api/status`. Only the fields the client needs;
 /// `authRequired` distinguishes a gated gateway (provider login + WS tickets)
-/// from legacy token auth (`authModeFromStatus` in
+/// from direct token auth (`authModeFromStatus` in
 /// `apps/desktop/electron/connection-config.ts`).
 struct GatewayStatus {
     let authRequired: Bool

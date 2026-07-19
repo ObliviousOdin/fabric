@@ -4,7 +4,7 @@ Cron job scheduler - executes due jobs.
 Provides tick() which checks for due jobs and runs them. The gateway
 calls this every 60 seconds from a background thread.
 
-Uses a file-based lock (~/.hermes/cron/.tick.lock) so only one tick
+Uses a file-based lock (~/.fabric/cron/.tick.lock) so only one tick
 runs at a time if multiple processes overlap.
 """
 
@@ -42,7 +42,7 @@ from fabric_constants import get_fabric_home
 from fabric_cli._subprocess_compat import windows_hide_flags
 from fabric_cli.config import load_config, _expand_env_vars
 from fabric_cli.fallback_config import get_fallback_chain
-from fabric_time import now as _hermes_now
+from fabric_time import now as _fabric_now
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +237,14 @@ _LEGACY_HOME_TARGET_ENV_VARS = {
     "QQBOT_HOME_CHANNEL": "QQ_HOME_CHANNEL",
 }
 
-from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_run, claim_dispatch
+from cron.jobs import (
+    advance_next_run,
+    claim_dispatch,
+    get_cron_inactivity_timeout_seconds,
+    get_due_jobs,
+    mark_job_run,
+    save_job_output,
+)
 
 # Sentinel: when a cron agent has nothing new to report, it can start its
 # response with this marker to suppress delivery.  Output is still saved
@@ -535,26 +542,10 @@ def _interpreter_shutting_down(exc: Optional[BaseException] = None) -> bool:
     return False
 
 
-# Backward-compatible module override used by tests and emergency monkeypatches.
-_fabric_home: Path | None = None
-
-
-def _get_fabric_home() -> Path:
-    """Resolve Fabric home dynamically while preserving test monkeypatch hooks.
-
-    Cron is per-profile by design (#4707): the in-process ticker runs inside a
-    profile-scoped gateway, so resolving the active HERMES_HOME at call time
-    means a profile's jobs are stored AND executed under that profile's home
-    (its .env, config.yaml, scripts, skills). Do not freeze this at import or
-    anchor it at the shared default root — either re-breaks profile isolation.
-    """
-    return _fabric_home or get_fabric_home()
-
-
 def _get_lock_paths() -> tuple[Path, Path]:
-    """Resolve cron lock paths at call time so profile/env changes are honored."""
-    hermes_home = _get_fabric_home()
-    lock_dir = hermes_home / "cron"
+    """Resolve profile-scoped lock paths through the canonical Fabric home."""
+    fabric_home = get_fabric_home()
+    lock_dir = fabric_home / "cron"
     return lock_dir, lock_dir / ".tick.lock"
 
 
@@ -618,7 +609,7 @@ def _target_matches_origin(origin: dict, platform_name: str, chat_id: str,
 
     Mirroring is scoped to the origin session by design (see
     ``_maybe_mirror_cron_delivery``). A job created from a live gateway chat
-    stamps that chat as ``origin`` (``cronjob_tools._origin_from_env``), and
+    stamps that chat as ``origin`` (``cronjob_tools._origin_from_context``), and
     that session is guaranteed to exist — it is the very conversation the user
     was in when they scheduled the job. Fan-out targets (``deliver=all``,
     explicit ``platform:chat_id`` to some *other* chat, or a home-channel
@@ -1973,39 +1964,28 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 
 
 _DEFAULT_SCRIPT_TIMEOUT = 3600  # seconds (1 hour)
-# Backward-compatible module override used by tests and emergency monkeypatches.
-_SCRIPT_TIMEOUT = _DEFAULT_SCRIPT_TIMEOUT
 
 
 def _get_script_timeout() -> int:
-    """Resolve cron pre-run script timeout from module/env/config with a safe default."""
-    if _SCRIPT_TIMEOUT != _DEFAULT_SCRIPT_TIMEOUT:
-        try:
-            timeout = int(float(_SCRIPT_TIMEOUT))
-            if timeout > 0:
-                return timeout
-        except Exception:
-            logger.warning("Invalid patched _SCRIPT_TIMEOUT=%r; using env/config/default", _SCRIPT_TIMEOUT)
-
-    env_value = os.getenv("HERMES_CRON_SCRIPT_TIMEOUT", "").strip()
-    if env_value:
-        try:
-            timeout = int(float(env_value))
-            if timeout > 0:
-                return timeout
-        except Exception:
-            logger.warning("Invalid HERMES_CRON_SCRIPT_TIMEOUT=%r; using config/default", env_value)
-
+    """Resolve the pre-run script timeout from ``config.yaml``."""
     try:
         cfg = load_config() or {}
         cron_cfg = cfg.get("cron", {}) if isinstance(cfg, dict) else {}
-        configured = cron_cfg.get("script_timeout_seconds")
-        if configured is not None:
+        configured = (
+            cron_cfg.get("script_timeout_seconds", _DEFAULT_SCRIPT_TIMEOUT)
+            if isinstance(cron_cfg, dict)
+            else _DEFAULT_SCRIPT_TIMEOUT
+        )
+        if not isinstance(configured, bool):
             timeout = int(float(configured))
             if timeout > 0:
                 return timeout
     except Exception as exc:
         logger.debug("Failed to load cron script timeout from config: %s", exc)
+    logger.warning(
+        "Invalid cron.script_timeout_seconds; using default %ss",
+        _DEFAULT_SCRIPT_TIMEOUT,
+    )
 
     return _DEFAULT_SCRIPT_TIMEOUT
 
@@ -2013,7 +1993,7 @@ def _get_script_timeout() -> int:
 def _run_job_script(script_path: str) -> tuple[bool, str]:
     """Execute a cron job's data-collection script and capture its output.
 
-    Scripts must reside within HERMES_HOME/scripts/.  Both relative and
+    Scripts must reside within FABRIC_HOME/scripts/.  Both relative and
     absolute paths are resolved and validated against this directory to
     prevent arbitrary script execution via path traversal or absolute
     path injection.
@@ -2029,19 +2009,19 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
     (the `memory-watchdog.sh` pattern) without wrapping them in Python.
 
     Subprocess environment is passed through ``_sanitize_subprocess_env`` so
-    provider credentials and other Hermes-managed secrets are not inherited
+    provider credentials and other Fabric-managed secrets are not inherited
     (SECURITY.md §2.3), matching terminal and MCP child processes.
 
     Args:
         script_path: Path to the script.  Relative paths are resolved
-            against HERMES_HOME/scripts/.  Absolute and ~-prefixed paths
+            against FABRIC_HOME/scripts/.  Absolute and ~-prefixed paths
             are also validated to ensure they stay within the scripts dir.
 
     Returns:
         (success, output) — on failure *output* contains the error message so the
         LLM can report the problem to the user.
     """
-    scripts_dir = _get_fabric_home() / "scripts"
+    scripts_dir = get_fabric_home() / "scripts"
     scripts_dir.mkdir(parents=True, exist_ok=True)
     scripts_dir_resolved = scripts_dir.resolve()
 
@@ -2052,7 +2032,7 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
         path = (scripts_dir / raw).resolve()
 
     # Guard against path traversal, absolute path injection, and symlink
-    # escape — scripts MUST reside within HERMES_HOME/scripts/.
+    # escape — scripts MUST reside within FABRIC_HOME/scripts/.
     try:
         path.relative_to(scripts_dir_resolved)
     except ValueError:
@@ -2608,7 +2588,7 @@ def run_job(
                 except OSError:
                     pass
 
-        now_iso = _hermes_now().strftime("%Y-%m-%d %H:%M:%S")
+        now_iso = _fabric_now().strftime("%Y-%m-%d %H:%M:%S")
 
         if not ok:
             # Script crashed / timed out / exited non-zero.  Deliver the
@@ -2699,12 +2679,12 @@ def run_job(
             silent_doc = (
                 f"# Cron Job: {job_name}\n\n"
                 f"**Job ID:** {job_id}\n"
-                f"**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                f"**Run Time:** {_fabric_now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 "Script gate returned `wakeAgent=false` — agent skipped.\n"
             )
             return True, silent_doc, SILENT_MARKER, None
 
-    _cron_session_id = f"cron_{job_id}_{_hermes_now().strftime('%Y%m%d_%H%M%S')}"
+    _cron_session_id = f"cron_{job_id}_{_fabric_now().strftime('%Y%m%d_%H%M%S')}"
     _prompt_job = dict(job)
     _prompt_job["_permission_scope"] = _cron_session_id
     try:
@@ -2727,7 +2707,7 @@ def run_job(
         blocked_doc = (
             f"# Cron Job: {job_name}\n\n"
             f"**Job ID:** {job_id}\n"
-            f"**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"**Run Time:** {_fabric_now().strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"**Status:** BLOCKED\n\n"
             "The assembled prompt (user prompt + loaded skill content) tripped "
             "the cron injection scanner and the agent was NOT run.\n\n"
@@ -2748,48 +2728,42 @@ def run_job(
 
     agent = None
 
-    # Mark this as a cron session so the approval system can apply cron_mode.
-    # This env var is process-wide and persists for the lifetime of the
-    # scheduler process — every job this process runs is a cron job.
-    os.environ["HERMES_CRON_SESSION"] = "1"
-
     # Use ContextVars for per-job session/delivery state so parallel jobs
     # don't clobber each other's targets (os.environ is process-global).
-    from gateway.session_context import set_session_vars, clear_session_vars, _VAR_MAP
+    from gateway.session_context import (
+        clear_cron_delivery_context,
+        clear_session_vars,
+        set_cron_delivery_context,
+        set_session_vars,
+    )
 
     # Cron execution is an internal scheduler context, not a live inbound
-    # gateway message. Do not seed HERMES_SESSION_* contextvars from the
+    # gateway message. Do not seed task-local session identity from the
     # stored ``origin`` (which is delivery routing metadata, not a sender
     # identity). Several tool consumers branch on these vars during job
     # execution and would otherwise behave as if a real user from the
     # origin chat was driving the agent:
     #   - tools/terminal_tool.py: background-process notification routing
-    #     (notify_on_complete / watch_patterns) reads HERMES_SESSION_PLATFORM
-    #     and HERMES_SESSION_CHAT_ID to populate watcher_platform / chat_id,
+    #     (notify_on_complete / watch_patterns) reads the active platform and
+    #     chat address to populate watcher_platform / chat_id,
     #     which would route completion notifications to the origin chat
-    #     instead of via HERMES_CRON_AUTO_DELIVER_* below.
+    #     instead of via the explicit cron-delivery context below.
     #   - tools/tts_tool.py: picks Opus vs MP3 based on
-    #     HERMES_SESSION_PLATFORM == "telegram".
+    #     whether the active platform is Telegram.
     #   - tools/skills_tool.py + agent/prompt_builder.py: per-platform
     #     skill-disable lists and the system-prompt cache key both consume
-    #     HERMES_SESSION_PLATFORM.
+    #     the active platform.
     #   - tools/send_message_tool.py: mirror source labelling and the
-    #     send_message gate read HERMES_SESSION_PLATFORM.
+    #     send_message gate read the active platform.
     # Cron output delivery itself reads job["origin"] directly via
-    # _resolve_origin(job) and the HERMES_CRON_AUTO_DELIVER_* vars set
-    # below, so clearing HERMES_SESSION_* here does not affect delivery.
+    # _resolve_origin(job) and the dedicated delivery context set below, so
+    # clearing interactive session identity here does not affect delivery.
     _ctx_tokens = set_session_vars(
         platform="",
         chat_id="",
         chat_name="",
     )
-    _cron_delivery_vars = (
-        "HERMES_CRON_AUTO_DELIVER_PLATFORM",
-        "HERMES_CRON_AUTO_DELIVER_CHAT_ID",
-        "HERMES_CRON_AUTO_DELIVER_THREAD_ID",
-    )
-    for _var_name in _cron_delivery_vars:
-        _VAR_MAP[_var_name].set("")
+    _cron_delivery_tokens = set_cron_delivery_context()
 
     # Per-job working directory.  When set (and validated at create/update
     # time), we point TERMINAL_CWD at it so:
@@ -2829,6 +2803,15 @@ def run_job(
     else:
         _terminal_cwd_lock.acquire_read()
 
+    # Apply cron-specific approval policy only to this job's copied execution
+    # context. A process-global marker would affect concurrent gateway turns.
+    from tools.approval import (
+        reset_cron_approval_context,
+        set_cron_approval_context,
+    )
+
+    _cron_approval_token = set_cron_approval_context(True)
+
     # Everything after the acquire MUST live inside this try, so the finally
     # below always releases the lock even if the env override or any later
     # statement raises.  A leaked writer would deadlock the whole scheduler
@@ -2843,7 +2826,7 @@ def run_job(
         # changes take effect without a gateway restart. Route through
         # load_fabric_dotenv (not a bare load_dotenv) and reset the secret-
         # source cache first: startup already applied external secrets and
-        # recorded this HERMES_HOME in _APPLIED_HOMES, so a naive reload would
+        # recorded this FABRIC_HOME in _APPLIED_HOMES, so a naive reload would
         # re-apply only the .env placeholder and never re-resolve a Bitwarden/
         # BSM-backed secret — leaving cron jobs 401'ing on the placeholder
         # (#33465). Clearing the cache forces the re-pull; the resolved secret
@@ -2856,30 +2839,32 @@ def run_job(
             reset_secret_source_cache,
         )
         reset_secret_source_cache()
-        load_fabric_dotenv(hermes_home=_get_fabric_home())
+        load_fabric_dotenv(fabric_home=get_fabric_home())
 
         delivery_target = _resolve_delivery_target(job)
         if delivery_target:
-            _VAR_MAP["HERMES_CRON_AUTO_DELIVER_PLATFORM"].set(delivery_target["platform"])
-            _VAR_MAP["HERMES_CRON_AUTO_DELIVER_CHAT_ID"].set(str(delivery_target["chat_id"]))
-            _VAR_MAP["HERMES_CRON_AUTO_DELIVER_THREAD_ID"].set(
-                ""
-                if delivery_target.get("thread_id") is None
-                else str(delivery_target["thread_id"])
+            set_cron_delivery_context(
+                platform=delivery_target["platform"],
+                chat_id=str(delivery_target["chat_id"]),
+                thread_id=(
+                    ""
+                    if delivery_target.get("thread_id") is None
+                    else str(delivery_target["thread_id"])
+                ),
             )
 
-        # Model resolution precedence: per-job override > HERMES_MODEL env >
-        # config.yaml ``model:`` (string or ``{default: ...}``). The per-job
+        # Model resolution precedence: per-job override > config.yaml ``model:``
+        # (string or ``{default: ...}``). The per-job
         # value is intentionally re-read from storage every tick so a
         # ``cronjob action=update model=...`` after a failed run takes effect
         # on the next tick — there is no in-memory cache.
-        model = job.get("model") or os.getenv("HERMES_MODEL") or ""
+        model = job.get("model") or ""
 
         # Load config.yaml for model, reasoning, prefill, toolsets, provider routing
         _cfg = {}
         try:
             import yaml
-            _cfg_path = str(_get_fabric_home() / "config.yaml")
+            _cfg_path = str(get_fabric_home() / "config.yaml")
             if os.path.exists(_cfg_path):
                 with open(_cfg_path, encoding="utf-8") as _f:
                     _cfg = yaml.safe_load(_f) or {}
@@ -2893,8 +2878,7 @@ def run_job(
                 except Exception:
                     pass
                 _cfg = _expand_env_vars(_cfg)
-                # Coerce null/missing to {} so a falsy default never
-                # clobbers an already-resolved env value with ``None``.
+                # Coerce null/missing to {} before resolving the default.
                 _model_cfg = _cfg.get("model") or {}
                 if not job.get("model"):
                     if isinstance(_model_cfg, str):
@@ -2908,14 +2892,13 @@ def run_job(
         except Exception as e:
             logger.warning("Job '%s': failed to load config.yaml, using defaults: %s", job_id, e)
 
-        # Fail fast if no model resolved from job / env / config.yaml: an empty
+        # Fail fast if no model resolved from the job or config.yaml: an empty
         # model otherwise reaches the provider as an opaque 400 (#23979).
         if not (isinstance(model, str) and model.strip()):
             raise RuntimeError(
                 f"Cron job '{job_name}' has no model configured "
-                f"(job.model={job.get('model')!r}, "
-                f"HERMES_MODEL={os.getenv('HERMES_MODEL', '')!r}, "
-                "config.yaml model.default missing or empty). "
+                f"(job.model={job.get('model')!r}; "
+                "config.yaml model.default is missing or empty). "
                 f"Set a per-job model via "
                 f"`cronjob action=update job_id={job_id} model=<name>` or set a "
                 "default with `fabric model <name>`."
@@ -2937,20 +2920,20 @@ def run_job(
             _cfg.get("agent", {}).get("reasoning_effort", "")
         )
 
-        # Prefill messages from env or config.yaml. The top-level
-        # prefill_messages_file key is canonical; agent.prefill_messages_file is
-        # retained as a legacy fallback for older CLI/godmode configs.
+        # Prefer the top-level schema while still reading the previous value
+        # nested under ``agent``.
         prefill_messages = None
-        agent_cfg = _cfg.get("agent", {}) if isinstance(_cfg.get("agent", {}), dict) else {}
+        agent_config = _cfg.get("agent", {})
+        if not isinstance(agent_config, dict):
+            agent_config = {}
         prefill_file = (
-            os.getenv("HERMES_PREFILL_MESSAGES_FILE", "")
-            or _cfg.get("prefill_messages_file", "")
-            or agent_cfg.get("prefill_messages_file", "")
+            _cfg.get("prefill_messages_file", "")
+            or agent_config.get("prefill_messages_file", "")
         )
         if prefill_file:
             pfpath = Path(prefill_file).expanduser()
             if not pfpath.is_absolute():
-                pfpath = _get_fabric_home() / pfpath
+                pfpath = get_fabric_home() / pfpath
             if pfpath.exists():
                 try:
                     with open(pfpath, "r", encoding="utf-8") as _pf:
@@ -2982,11 +2965,8 @@ def run_job(
         _guard_job_credential_exfil(job)
 
         try:
-            # Do not inject HERMES_INFERENCE_PROVIDER here. resolve_runtime_provider()
-            # already prefers persisted config over stale shell/env overrides when
-            # no explicit provider is requested. Passing the env var here short-
-            # circuits that precedence and can resurrect old providers (for
-            # example DeepSeek) for cron jobs that do not pin provider/model.
+            # Do not inject an ambient provider here. Persisted config is the
+            # default when a job does not explicitly pin provider/model.
             runtime_kwargs = {
                 "requested": job.get("provider"),
             }
@@ -3131,7 +3111,7 @@ def run_job(
             disabled_toolsets=_resolve_cron_disabled_toolsets(_cfg),
             quiet_mode=True,
             # Cron jobs should always inherit the user's SOUL.md identity from
-            # HERMES_HOME. When a workdir is configured, also inject project
+            # FABRIC_HOME. When a workdir is configured, also inject project
             # context files (AGENTS.md / CLAUDE.md / .cursorrules) from there.
             # Without a workdir, keep cwd context discovery disabled.
             skip_context_files=not bool(_job_workdir),
@@ -3145,23 +3125,12 @@ def run_job(
         # Run the agent with an *inactivity*-based timeout: the job can run
         # for hours if it's actively calling tools / receiving stream tokens,
         # but a hung API call or stuck tool with no activity for the configured
-        # duration is caught and killed.  Default 600s (10 min inactivity);
-        # override via HERMES_CRON_TIMEOUT env var.  0 = unlimited.
+        # duration is caught and killed. ``cron.inactivity_timeout_seconds``
+        # defaults to 600s (10 min inactivity); 0 means unlimited.
         #
         # Uses the agent's built-in activity tracker (updated by
         # _touch_activity() on every tool call, API call, and stream delta).
-        _raw_cron_timeout = os.getenv("HERMES_CRON_TIMEOUT", "").strip()
-        if _raw_cron_timeout:
-            try:
-                _cron_timeout = float(_raw_cron_timeout)
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Invalid HERMES_CRON_TIMEOUT=%r; using default 600s",
-                    _raw_cron_timeout,
-                )
-                _cron_timeout = 600.0
-        else:
-            _cron_timeout = 600.0
+        _cron_timeout = get_cron_inactivity_timeout_seconds(_cfg)
         _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
         _POLL_INTERVAL = 5.0
         _cron_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -3297,7 +3266,7 @@ def run_job(
         output = f"""# Cron Job: {job_name}
 
 **Job ID:** {job_id}
-**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}
+**Run Time:** {_fabric_now().strftime('%Y-%m-%d %H:%M:%S')}
 **Schedule:** {job.get('schedule_display', 'N/A')}
 
 ## Prompt
@@ -3319,7 +3288,7 @@ def run_job(
         output = f"""# Cron Job: {job_name} (FAILED)
 
 **Job ID:** {job_id}
-**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}
+**Run Time:** {_fabric_now().strftime('%Y-%m-%d %H:%M:%S')}
 **Schedule:** {job.get('schedule_display', 'N/A')}
 
 ## Prompt
@@ -3335,6 +3304,7 @@ def run_job(
         return False, output, "", error_msg
 
     finally:
+        reset_cron_approval_context(_cron_approval_token)
         # Restore TERMINAL_CWD to whatever it was before this job ran.  We
         # only ever mutate it when the job has a workdir; see the setup block
         # at the top of run_job for the serialization guarantee.
@@ -3351,8 +3321,7 @@ def run_job(
             _terminal_cwd_lock.release_read()
         # Clean up ContextVar session/delivery state for this job.
         clear_session_vars(_ctx_tokens)
-        for _var_name in _cron_delivery_vars:
-            _VAR_MAP[_var_name].set("")
+        clear_cron_delivery_context(_cron_delivery_tokens)
         if _session_db:
             # Title the cron session from the job (name → short prompt → id) so
             # sidebars/history show a meaningful label instead of the injected
@@ -3362,7 +3331,7 @@ def run_job(
             # suffix keeps it unique against the sessions.title index across runs.
             try:
                 _title_base = " ".join(job_name.split())[:60].strip() or f"cron {job_id}"
-                _cron_title = f"{_title_base} · {_hermes_now().strftime('%b %d %H:%M')}"
+                _cron_title = f"{_title_base} · {_fabric_now().strftime('%b %d %H:%M')}"
                 _session_db.set_session_title(_cron_session_id, _cron_title)
             except (Exception, KeyboardInterrupt) as e:
                 logger.debug("Job '%s': failed to set cron session title: %s", job_id, e)
@@ -3458,7 +3427,7 @@ def run_one_job(job: dict, *, adapters=None, loop=None, verbose: bool = False) -
         )
 
         _scope_token = set_secret_scope(
-            build_profile_secret_scope(_get_fabric_home())
+            build_profile_secret_scope(get_fabric_home())
         )
         # Defer the cron agent's async-resource teardown until AFTER delivery.
         # run_job normally closes the agent (and reaps stale async clients) in
@@ -3613,11 +3582,11 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True) -> i
         due_jobs = get_due_jobs()
 
         if verbose and not due_jobs:
-            logger.info("%s - No jobs due", _hermes_now().strftime('%H:%M:%S'))
+            logger.info("%s - No jobs due", _fabric_now().strftime('%H:%M:%S'))
             return 0
 
         if verbose:
-            logger.info("%s - %s job(s) due", _hermes_now().strftime('%H:%M:%S'), len(due_jobs))
+            logger.info("%s - %s job(s) due", _fabric_now().strftime('%H:%M:%S'), len(due_jobs))
 
         # Advance next_run_at for all recurring jobs FIRST, under the file lock,
         # before any execution begins.  This preserves at-most-once semantics.
@@ -3627,25 +3596,20 @@ def tick(verbose: bool = True, adapters=None, loop=None, sync: bool = True) -> i
         for job in due_jobs:
             advance_next_run(job["id"])
 
-        # Resolve max parallel workers: env var > config.yaml > unbounded.
-        # Set HERMES_CRON_MAX_PARALLEL=1 to restore old serial behaviour.
+        # Resolve max parallel workers from config.yaml (null/0 = unbounded).
         _max_workers: Optional[int] = None
         try:
-            _env_par = os.getenv("HERMES_CRON_MAX_PARALLEL", "").strip()
-            if _env_par:
-                _max_workers = int(_env_par) or None
+            _ucfg = load_config() or {}
+            _cron_cfg = _ucfg.get("cron", {}) if isinstance(_ucfg, dict) else {}
+            _cfg_par = (
+                _cron_cfg.get("max_parallel_jobs")
+                if isinstance(_cron_cfg, dict)
+                else None
+            )
+            if _cfg_par is not None and not isinstance(_cfg_par, bool):
+                _max_workers = int(_cfg_par) or None
         except (ValueError, TypeError):
-            logger.warning("Invalid HERMES_CRON_MAX_PARALLEL value; defaulting to unbounded")
-        if _max_workers is None:
-            try:
-                _ucfg = load_config() or {}
-                _cfg_par = (
-                    _ucfg.get("cron", {}) if isinstance(_ucfg, dict) else {}
-                ).get("max_parallel_jobs")
-                if _cfg_par is not None:
-                    _max_workers = int(_cfg_par) or None
-            except Exception:
-                pass
+            logger.warning("Invalid cron.max_parallel_jobs; defaulting to unbounded")
 
         if verbose:
             logger.info(

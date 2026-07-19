@@ -7,7 +7,7 @@ invalidation on switch, compression safety invariant, oversized tool-output
 handling) are tracked separately.
 
 Mirrors the expensive-model guard pattern: merge into ``ModelSwitchResult.warning_message``
-so Herm TUI, CLI, and gateway surfaces that already show switch warnings pick it up.
+so Fabric TUI, CLI, and gateway surfaces that already show switch warnings pick it up.
 """
 
 from __future__ import annotations

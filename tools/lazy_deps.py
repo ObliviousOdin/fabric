@@ -1,7 +1,7 @@
 """
 Lazy dependency installer for opt-in Fabric backends.
 
-Many Hermes features (Mistral TTS, ElevenLabs TTS, Honcho memory, Bedrock,
+Many Fabric features (Mistral TTS, ElevenLabs TTS, Honcho memory, Bedrock,
 Slack, Matrix, etc.) require Python packages that not every user needs. The
 historical approach was to bundle them all under ``pyproject.toml`` extras
 (``fabric-agent[all]``) and install them eagerly at setup time. That has
@@ -27,9 +27,9 @@ Security model:
 * **Venv-scoped by default.** Installs target ``sys.executable`` in the
   active venv. We never touch the system Python.
 * **Durable-target mode (immutable images).** When the deployment seals the
-  agent's own venv (the Docker image sets ``HERMES_DISABLE_LAZY_INSTALLS=1``
-  and makes ``/opt/hermes`` read-only), setting
-  ``HERMES_LAZY_INSTALL_TARGET`` redirects lazy installs to a writable
+  agent's own venv (the Docker image sets ``FABRIC_DISABLE_LAZY_INSTALLS=1``
+  and makes ``/opt/fabric`` read-only), setting
+  ``FABRIC_LAZY_INSTALL_TARGET`` redirects lazy installs to a writable
   directory on the durable data volume (e.g. ``/opt/data/lazy-packages``).
   That directory is **appended to the end of ``sys.path``** — never
   prepended, never exported via ``PYTHONPATH`` — so the agent's own
@@ -38,7 +38,7 @@ Security model:
   a module the core already ships. The worst a bad/incompatible backend
   package can do is fail to import and report itself unavailable — the agent
   core stays healthy. This is the structural guarantee that a lazily
-  installed package cannot brick Hermes, which is what made it safe to seal
+  installed package cannot brick Fabric, which is what made it safe to seal
   the venv in the first place. Compiled-wheel safety across image rebuilds
   is handled by an ABI/Python-version stamp on the target subdir (see
   :func:`_ensure_target_ready`).
@@ -146,7 +146,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     "memory.hindsight": ("hindsight-client==0.6.1",),
     # supermemory + mem0 are opt-in cloud memory providers with their own
     # SDKs. On the published Docker image the agent venv is sealed
-    # (HERMES_DISABLE_LAZY_INSTALLS=1) and lazy installs are redirected to the
+    # (FABRIC_DISABLE_LAZY_INSTALLS=1) and lazy installs are redirected to the
     # durable target — so, like honcho/hindsight, these MUST go through
     # ensure() to be installable there. Without an allowlist entry + an
     # ensure() call at the import site, the SDK never installs on a hosted
@@ -219,7 +219,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
     # ─── Tools ─────────────────────────────────────────────────────────────
     # ACP adapter (VS Code / Zed / JetBrains integration)
     "tool.acp": ("agent-client-protocol==0.9.0",),
-    # Dashboard (`Fabric dashboard`)
+    # Dashboard (`fabric dashboard`)
     "tool.dashboard": (
         "fastapi==0.133.1",
         "uvicorn[standard]==0.41.0",
@@ -241,7 +241,7 @@ LAZY_DEPS: dict[str, tuple[str, ...]] = {
         "mcp==1.28.1",
         "starlette==1.3.1",  # OSV-fixed floors — keep in sync with pyproject [computer-use]
     ),
-    # HF Agent Trace Viewer upload (hermes trace upload / /upload-trace).
+    # HF Agent Trace Viewer upload (fabric trace upload / /upload-trace).
     "tool.trace_upload": ("huggingface-hub==1.2.3",),
 }
 
@@ -298,9 +298,7 @@ class _InstallResult:
 # security.allow_lazy_installs in config.yaml. When unset, lazy installs go
 # into the active venv as before.
 _LAZY_TARGET_ENV = "FABRIC_LAZY_INSTALL_TARGET"
-_LEGACY_LAZY_TARGET_ENV = "HERMES_LAZY_INSTALL_TARGET"
 _DISABLE_LAZY_INSTALLS_ENV = "FABRIC_DISABLE_LAZY_INSTALLS"
-_LEGACY_DISABLE_LAZY_INSTALLS_ENV = "HERMES_DISABLE_LAZY_INSTALLS"
 
 # Name of the stamp file written into the target dir recording the Python
 # X.Y + ABI it was populated for. If a container rebuild bumps the
@@ -328,11 +326,7 @@ def _lazy_install_target() -> Optional[Path]:
     Returns a path only when :data:`_LAZY_TARGET_ENV` is set to a non-empty
     value. The directory is created on demand by :func:`_ensure_target_ready`.
     """
-    raw = (
-        os.environ.get(_LAZY_TARGET_ENV)
-        or os.environ.get(_LEGACY_LAZY_TARGET_ENV)
-        or ""
-    ).strip()
+    raw = os.environ.get(_LAZY_TARGET_ENV, "").strip()
     if not raw:
         return None
     return Path(raw)
@@ -435,7 +429,7 @@ def _allow_lazy_installs() -> bool:
     1. ``security.allow_lazy_installs: false`` in config.yaml is an absolute
        opt-out — it disables installs in BOTH venv-scoped and durable-target
        modes. This is the user-facing kill switch.
-    2. ``HERMES_DISABLE_LAZY_INSTALLS=1`` seals the *agent venv* (set by the
+    2. ``FABRIC_DISABLE_LAZY_INSTALLS=1`` seals the *agent venv* (set by the
        immutable Docker image). It blocks venv-scoped installs — UNLESS a
        durable install target is configured, in which case installs are
        redirected there (a path that structurally cannot break the sealed
@@ -459,10 +453,7 @@ def _allow_lazy_installs() -> bool:
     # (2) Sealed-venv env var: blocks ONLY when there is no safe durable
     # target to redirect into. With a target set, the install goes to the
     # data volume (append-only on sys.path), so the seal is preserved.
-    disable_lazy_installs = (
-        os.environ.get(_DISABLE_LAZY_INSTALLS_ENV)
-        or os.environ.get(_LEGACY_DISABLE_LAZY_INSTALLS_ENV)
-    )
+    disable_lazy_installs = os.environ.get(_DISABLE_LAZY_INSTALLS_ENV)
     if disable_lazy_installs == "1":
         return _lazy_install_target() is not None
 
@@ -623,7 +614,7 @@ def _core_constraints_file() -> Optional[Path]:
             lines.append(f"{name}=={ver}")
         if not lines:
             return None
-        fd, path = tempfile.mkstemp(prefix="hermes-core-constraints-", suffix=".txt")
+        fd, path = tempfile.mkstemp(prefix="core-constraints-", suffix=".txt")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write("\n".join(sorted(lines)) + "\n")
         return Path(path)
@@ -670,8 +661,8 @@ def _venv_pip_install(specs: tuple[str, ...], *, timeout: int = 300) -> _Install
 
     try:
         venv_root = Path(sys.executable).parent.parent
-        from tools.environments.local import hermes_subprocess_env
-        uv_env = hermes_subprocess_env(inherit_credentials=False)
+        from tools.environments.local import fabric_subprocess_env
+        uv_env = fabric_subprocess_env(inherit_credentials=False)
         uv_env["VIRTUAL_ENV"] = str(venv_root)
 
         # Tier 1: uv (preferred — fast, doesn't need pip in the venv)

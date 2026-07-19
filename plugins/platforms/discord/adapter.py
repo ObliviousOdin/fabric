@@ -60,15 +60,6 @@ _DISCORD_NONCONVERSATIONAL_METADATA_KEYS = frozenset({
     "non_conversational",
     "non_conversational_history",
 })
-# Upgrade-bridge fallback only. The primary mechanism is the persisted
-# non-conversational message-ID set populated from explicitly marked sends
-# (metadata["non_conversational"]). These regexes exist solely to recognize
-# status bumps emitted by an older gateway version that pre-dates the marking,
-# so they don't partition history after an upgrade. New emitters should set the
-# metadata flag, not rely on a regex here.
-# public-release-audit: allow-legacy-compat -- recognize update notices emitted before the Fabric rename
-_LEGACY_UPDATE_BRAND = "Hermes"
-
 _DISCORD_NONCONVERSATIONAL_HISTORY_MESSAGE_PATTERNS = (
     re.compile(r"^\s*💾\s*Self-improvement review:\s+\S[\s\S]*$", re.IGNORECASE),
     # Legacy/background-review test doubles used this shorter form before the
@@ -84,7 +75,7 @@ _DISCORD_NONCONVERSATIONAL_HISTORY_MESSAGE_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        rf"^\s*(?:✅|❌)\s+(?:Fabric|{re.escape(_LEGACY_UPDATE_BRAND)}) update\s+"
+        r"^\s*(?:✅|❌)\s+Fabric update\s+"
         r"(?:finished|failed|timed out)[\s\S]*$",
         re.IGNORECASE,
     ),
@@ -110,7 +101,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parents[3]))
 from gateway.config import Platform, PlatformConfig
 
 from gateway.platforms.helpers import MessageDeduplicator, ThreadParticipationTracker, convert_table_to_bullets
-from utils import atomic_json_write, env_float, env_int
+from utils import atomic_json_write
 from gateway.platforms.base import (
     BasePlatformAdapter,
     MessageEvent,
@@ -342,18 +333,37 @@ def _build_allowed_mentions():
     )
 
 
+def _extra_float(config: PlatformConfig, key: str, default: float) -> float:
+    """Read a numeric Discord setting from ``PlatformConfig.extra``."""
+    raw = config.extra.get(key, default)
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring invalid discord.%s=%r", key, raw)
+        return default
+
+
+def _extra_int(config: PlatformConfig, key: str, default: int) -> int:
+    """Read an integer Discord setting from ``PlatformConfig.extra``."""
+    raw = config.extra.get(key, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring invalid discord.%s=%r", key, raw)
+        return default
+
+
 def _discord_ready_timeout_seconds() -> float:
-    """Return the Discord ready wait timeout during gateway startup."""
-    raw = os.getenv("HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT", "").strip()
-    if raw:
-        try:
-            return max(0.0, float(raw))
-        except ValueError:
-            logger.warning(
-                "Ignoring invalid HERMES_GATEWAY_PLATFORM_CONNECT_TIMEOUT=%r",
-                raw,
-            )
-    return 30.0
+    """Return the canonical gateway platform-connect timeout."""
+    try:
+        from fabric_cli.config import load_config_readonly
+
+        config = load_config_readonly()
+        gateway = config.get("gateway", {}) if isinstance(config, dict) else {}
+        raw = gateway.get("platform_connect_timeout", 30.0)
+        return max(0.0, float(raw))
+    except (AttributeError, TypeError, ValueError):
+        return 30.0
 
 
 class VoiceReceiver:
@@ -723,7 +733,7 @@ def _read_dm_role_auth_guild() -> Optional[int]:
 
     Reads ``discord.dm_role_auth_guild`` from config.yaml. This is
     deliberately a config.yaml-only setting (not an env var): per repo
-    policy, ``~/.hermes/.env`` is for secrets only, and this is a
+    policy, ``~/.fabric/.env`` is for secrets only, and this is a
     behavioral setting. Guild IDs aren't secrets.
 
     Accepts ints or numeric strings in the config. Anything else
@@ -829,8 +839,12 @@ class DiscordAdapter(BasePlatformAdapter):
         self._voice_clients: Dict[int, Any] = {}  # guild_id -> VoiceClient
         self._voice_locks: Dict[int, asyncio.Lock] = {}  # guild_id -> serialize join/leave
         # Text batching: merge rapid successive messages (Telegram-style)
-        self._text_batch_delay_seconds = env_float("HERMES_DISCORD_TEXT_BATCH_DELAY_SECONDS", 0.6)
-        self._text_batch_split_delay_seconds = env_float("HERMES_DISCORD_TEXT_BATCH_SPLIT_DELAY_SECONDS", 2.0)
+        self._text_batch_delay_seconds = _extra_float(
+            config, "text_batch_delay_seconds", 0.6
+        )
+        self._text_batch_split_delay_seconds = _extra_float(
+            config, "text_batch_split_delay_seconds", 2.0
+        )
         self._pending_text_batches: Dict[str, MessageEvent] = {}
         self._pending_text_batch_tasks: Dict[str, asyncio.Task] = {}
         self._voice_text_channels: Dict[int, int] = {}  # guild_id -> text_channel_id
@@ -869,13 +883,12 @@ class DiscordAdapter(BasePlatformAdapter):
         # lets us detect the zombie state, close the wedged client, and trip the
         # existing retryable-fatal reconnect path.  Knobs are surfaced in
         # config.yaml as ``discord.liveness_interval_seconds`` /
-        # ``discord.liveness_failure_threshold`` (bridged to these env vars by
-        # ``_apply_yaml_config``); set either to 0 to disable.
-        self._liveness_interval_seconds = env_float(
-            "HERMES_DISCORD_LIVENESS_INTERVAL_SECONDS", 60.0
+        # ``discord.liveness_failure_threshold``; set either to 0 to disable.
+        self._liveness_interval_seconds = _extra_float(
+            config, "liveness_interval_seconds", 60.0
         )
-        self._liveness_failure_threshold = env_int(
-            "HERMES_DISCORD_LIVENESS_FAILURE_THRESHOLD", 3
+        self._liveness_failure_threshold = _extra_int(
+            config, "liveness_failure_threshold", 3
         )
         self._liveness_task: Optional[asyncio.Task] = None
         # True while disconnect() is intentionally closing discord.py. The
@@ -1389,8 +1402,8 @@ class DiscordAdapter(BasePlatformAdapter):
 
         Fix: await all pending text-batch tasks before delegating to the base
         cancel. The flush deadline is clamped below the gateway's per-adapter
-        disconnect budget (``HERMES_GATEWAY_ADAPTER_DISCONNECT_TIMEOUT``, default
-        5s) so the gateway's outer ``wait_for`` can't hard-cancel us mid-flush —
+        disconnect budget (5s) so the gateway's outer ``wait_for`` can't
+        hard-cancel us mid-flush —
         we cancel our own stragglers cleanly inside the budget instead.
         """
         pending = list(self._pending_text_batch_tasks.values())
@@ -1422,18 +1435,9 @@ class DiscordAdapter(BasePlatformAdapter):
         Kept strictly below the gateway's per-adapter disconnect budget so the
         gateway's outer ``asyncio.wait_for`` (which wraps this whole method) does
         not cancel an in-progress flush before we get a chance to cancel our own
-        stragglers gracefully. Mirrors the env var the gateway reads in
-        ``GatewayRunner._adapter_disconnect_timeout_secs``.
+        stragglers gracefully.
         """
         budget = 5.0  # mirrors gateway _ADAPTER_DISCONNECT_TIMEOUT_SECS_DEFAULT
-        raw = os.getenv("HERMES_GATEWAY_ADAPTER_DISCONNECT_TIMEOUT", "").strip()
-        if raw:
-            try:
-                parsed = float(raw)
-                if parsed > 0:
-                    budget = parsed
-            except ValueError:
-                pass
         # Stay strictly below the budget so the gateway's outer wait_for can't
         # pre-empt our own straggler cancellation. Reserve ~20% (min 0.5s) of
         # headroom, and never let the floor push us back up to/over the budget
@@ -1760,7 +1764,7 @@ class DiscordAdapter(BasePlatformAdapter):
         return "safe"
 
     def _canonicalize_app_command_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Reduce command payloads to the semantic fields Hermes manages."""
+        """Reduce command payloads to the semantic fields Fabric manages."""
         contexts = payload.get("contexts")
         integration_types = payload.get("integration_types")
         return {
@@ -2811,7 +2815,7 @@ class DiscordAdapter(BasePlatformAdapter):
         # Synthesise the ack via the configured TTS provider, then layer it.
         import uuid as _uuid
         audio_path = os.path.join(
-            tempfile.gettempdir(), "hermes_voice",
+            tempfile.gettempdir(), "fabric_voice",
             f"ack_{_uuid.uuid4().hex[:12]}.mp3",
         )
         os.makedirs(os.path.dirname(audio_path), exist_ok=True)
@@ -3233,7 +3237,7 @@ class DiscordAdapter(BasePlatformAdapter):
         return bool(channel_ids & allowed)
 
     def _is_pairing_approved_user(self, user_id: str) -> bool:
-        """True when the Discord user has an explicit Hermes pairing grant."""
+        """True when the Discord user has an explicit Fabric pairing grant."""
         user_id = str(user_id or "").strip()
         if not user_id:
             return False
@@ -5324,7 +5328,7 @@ class DiscordAdapter(BasePlatformAdapter):
         titles don't show raw <@id>, <@&id>, or <#id> markers — the ID
         isn't meaningful to humans glancing at the thread list (#6336).
         Real semantic naming is done after the first agent turn, when
-        Hermes has an LLM-generated session title and can safely rename
+        Fabric has an LLM-generated session title and can safely rename
         only this newly-created thread.
         """
         content = (content or "").strip()
@@ -5357,7 +5361,7 @@ class DiscordAdapter(BasePlatformAdapter):
             try:
                 thread = await message.create_thread(name=thread_name, auto_archive_duration=1440)
                 try:
-                    setattr(thread, "_hermes_auto_thread_initial_name", thread_name)
+                    setattr(thread, "_fabric_auto_thread_initial_name", thread_name)
                 except Exception:
                     pass
                 return thread
@@ -5373,7 +5377,7 @@ class DiscordAdapter(BasePlatformAdapter):
                         reason=reason,
                     )
                     try:
-                        setattr(thread, "_hermes_auto_thread_initial_name", thread_name)
+                        setattr(thread, "_fabric_auto_thread_initial_name", thread_name)
                     except Exception:
                         pass
                     return thread
@@ -6340,7 +6344,7 @@ class DiscordAdapter(BasePlatformAdapter):
             role_authorized=role_authorized,
             auto_thread_created=auto_threaded_channel is not None,
             auto_thread_initial_name=(
-                getattr(auto_threaded_channel, "_hermes_auto_thread_initial_name", None)
+                getattr(auto_threaded_channel, "_fabric_auto_thread_initial_name", None)
                 or self._derive_auto_thread_name(message.content or "")
             ) if auto_threaded_channel is not None else None,
         )
@@ -6701,7 +6705,7 @@ def _component_check_auth(
     Mirrors the gateway's external-surface authorization model: component
     button clicks must be explicitly authorized by a Discord user/role
     allowlist, a global user allowlist, an explicit allow-all flag, or
-    the pairing store (``hermes pairing approve``).
+    the pairing store (``fabric pairing approve``).
 
     Behavior:
 
@@ -6760,7 +6764,7 @@ def _component_check_auth(
             return True
 
     # Check pairing store — mirrors ``authz_mixin._check_authorization``
-    # so users approved via ``hermes pairing approve`` can interact with
+    # so users approved via ``fabric pairing approve`` can interact with
     # component buttons even without DISCORD_ALLOWED_USERS set.
     if uid:
         try:
@@ -8167,7 +8171,6 @@ def interactive_setup() -> None:
                     f"SOUL.md already exists — left unchanged. "
                     f"Display name for this setup: {agent_name}"
                 )
-            save_env_value("FABRIC_AGENT_NAME", agent_name)
         except Exception as exc:
             print_warning(f"Could not write agent name: {exc}")
 
@@ -8395,17 +8398,20 @@ def _apply_yaml_config(yaml_cfg: dict, discord_cfg: dict) -> dict | None:
     if _discord_rtm is not None and not os.getenv("DISCORD_REPLY_TO_MODE"):
         _rtm_str = "off" if _discord_rtm is False else str(_discord_rtm).lower()
         os.environ["DISCORD_REPLY_TO_MODE"] = _rtm_str
-    # liveness probe knobs: detect zombie clients behind dead proxies/NATs and
-    # force a reconnect (#26656).  Bridged to the env vars the adapter reads in
-    # __init__; set either to 0 to disable.  config.yaml is the user-facing
-    # surface — these env vars are an internal mechanism only.
-    lis = discord_cfg.get("liveness_interval_seconds")
-    if lis is not None and not os.getenv("HERMES_DISCORD_LIVENESS_INTERVAL_SECONDS"):
-        os.environ["HERMES_DISCORD_LIVENESS_INTERVAL_SECONDS"] = str(lis)
-    lft = discord_cfg.get("liveness_failure_threshold")
-    if lft is not None and not os.getenv("HERMES_DISCORD_LIVENESS_FAILURE_THRESHOLD"):
-        os.environ["HERMES_DISCORD_LIVENESS_FAILURE_THRESHOLD"] = str(lft)
-    return None  # all settings flow through env; nothing to merge into extras
+    # Adapter-owned numeric settings flow directly through PlatformConfig.extra.
+    # Top-level ``discord:`` remains supported by seeding those values here;
+    # nested ``platforms.discord.extra`` values were already merged by the
+    # gateway loader and therefore take precedence.
+    seeded: dict[str, object] = {}
+    for key in (
+        "text_batch_delay_seconds",
+        "text_batch_split_delay_seconds",
+        "liveness_interval_seconds",
+        "liveness_failure_threshold",
+    ):
+        if key in discord_cfg and key not in platform_extra_cfg:
+            seeded[key] = discord_cfg[key]
+    return seeded or None
 
 
 def _is_connected(config) -> bool:
@@ -8427,7 +8433,7 @@ def _build_adapter(config):
 
 
 def register(ctx) -> None:
-    """Plugin entry point — called by the Hermes plugin system."""
+    """Plugin entry point — called by the Fabric plugin system."""
     ctx.register_platform(
         name="discord",
         label="Discord",

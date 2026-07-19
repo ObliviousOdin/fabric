@@ -101,7 +101,7 @@ Create `~/.fabric/profiles/research-bot/distribution.yaml`:
 name: research-bot
 version: 1.0.0
 description: "Autonomous research assistant with arXiv and web tools"
-hermes_requires: ">=0.12.0"
+fabric_requires: ">=0.12.0"
 author: "Your Name"
 license: "MIT"
 
@@ -138,7 +138,6 @@ auth.json
 state.db
 state.db-shm
 state.db-wal
-fabric_state.db
 response_store.db
 response_store.db-shm
 response_store.db-wal
@@ -158,10 +157,6 @@ workspace/
 home/
 
 # Caches & generated artifacts
-image_cache/
-audio_cache/
-document_cache/
-browser_screenshots/
 cache/
 
 # Infrastructure (should not be in profile dir, but safe to exclude)
@@ -181,7 +176,7 @@ backups/
 
 # Logs
 errors.log
-.hermes_history
+input_history
 ```
 
 This mirrors the [hard-excluded paths](#whats-not-in-a-distribution-ever) that the installer strips on its end. Anything else you want to keep out of the repo (scratch files, large assets, local-only skills) should also go in here.
@@ -487,7 +482,7 @@ You built Fabric-on-top — maybe a compliance-monitoring harness, a customer-su
 name: telemetry-harness
 version: 2.3.1
 description: "Compliance telemetry harness — monitors and reviews regulated workflows"
-hermes_requires: ">=0.13.0"
+fabric_requires: ">=0.13.0"
 author: "Acme Compliance Inc."
 license: "Commercial"
 

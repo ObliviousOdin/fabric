@@ -10,9 +10,9 @@
 //! `{jsonrpc, method: "event", params: {type, session_id?, payload?}}`.
 //! The server emits a `gateway.ready` event immediately after accept.
 //!
-//! Local auth is a query-string session token
-//! (`?token=<HERMES_DASHBOARD_SESSION_TOKEN>`): pin one via that env var when
-//! spawning your own backend, or scrape `window.__HERMES_SESSION_TOKEN__`
+//! Local auth is a query-string token. Pin one with
+//! `fabric serve --auth-token <TOKEN>` when spawning your own backend, or read
+//! `window.__DASHBOARD_AUTH_TOKEN__`
 //! from `GET /` of a running `fabric dashboard`. Gated remote deployments use
 //! single-use `?ticket=` credentials instead (30 s TTL — mint right before
 //! every connect).

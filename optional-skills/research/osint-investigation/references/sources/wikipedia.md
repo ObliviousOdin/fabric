@@ -18,8 +18,10 @@ inclusion is real, but anything past that bar is well-cross-referenced.
 - **Wikidata SPARQL:** `https://query.wikidata.org/sparql` (more powerful but aggressively rate-limited)
 - **Auth:** None, but **a meaningful User-Agent is required**
 
-Set `HERMES_OSINT_UA` to something identifying (e.g. `your-app/1.0 (you@example.com)`).
-Wikimedia returns HTTP 429 to generic UAs.
+The bundled client sends a descriptive project URL in its User-Agent. Set
+`FABRIC_OSINT_UA` to identify your own client (for example,
+`your-app/1.0 (you@example.com)`). Wikimedia may return HTTP 429 to
+unidentified generic clients.
 
 ## 3. Data Schema
 

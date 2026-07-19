@@ -2435,10 +2435,11 @@ class TestConcurrencyDefaults(unittest.TestCase):
                 self.assertEqual(_load_config()["max_concurrent_children"], 8)
 
     def test_load_config_prefers_cli_config_when_user_config_ignored(self):
-        # `fabric chat --ignore-user-config` sets HERMES_IGNORE_USER_CONFIG=1,
-        # which only load_cli_config() honors. The delegation loader must keep
+        # The delegation loader must keep
         # CLI_CONFIG authoritative under the flag so user config.yaml
         # delegation keys stay suppressed.
+        from fabric_cli.launch_context import set_ignore_user_config
+
         ignoring_cli = types.ModuleType("cli")
         ignoring_cli.CLI_CONFIG = {
             "delegation": {
@@ -2448,14 +2449,17 @@ class TestConcurrencyDefaults(unittest.TestCase):
         }
         user_config = {"delegation": {"max_concurrent_children": 50}}
 
-        with patch.dict("sys.modules", {"cli": ignoring_cli}):
-            with patch.dict(os.environ, {"HERMES_IGNORE_USER_CONFIG": "1"}):
+        set_ignore_user_config(True)
+        try:
+            with patch.dict("sys.modules", {"cli": ignoring_cli}):
                 with patch(
                     "fabric_cli.config.load_config_readonly",
                     return_value=user_config,
                 ) as mock_loader:
                     self.assertEqual(_load_config()["max_concurrent_children"], 4)
                     mock_loader.assert_not_called()
+        finally:
+            set_ignore_user_config(False)
 
     @patch("tools.delegate_tool._load_config", return_value={})
     def test_default_is_three(self, mock_cfg):

@@ -1,14 +1,12 @@
 """Tests for the stale-dashboard handling run at the end of ``fabric update``.
 
-``fabric update`` detects ``hermes dashboard`` processes left over from the
+``fabric update`` detects ``fabric dashboard`` processes left over from the
 previous version and kills them (SIGTERM + SIGKILL grace, or ``taskkill /F``
 on Windows).  Without this, the running backend silently serves stale Python
 against a freshly-updated JS bundle, producing 401s / empty data.
 
-History:
-- #16872 introduced the warn-only helper (``_warn_stale_dashboard_processes``).
-- #17049 fixed a Windows wmic UnicodeDecodeError crash on non-UTF-8 locales.
-- This file now also covers the kill semantics that replaced the warning.
+History: #17049 fixed a Windows wmic UnicodeDecodeError crash on non-UTF-8
+locales. This file covers the later kill semantics.
 """
 
 from __future__ import annotations
@@ -23,7 +21,6 @@ import pytest
 from fabric_cli.main import (
     _find_stale_dashboard_pids,
     _kill_stale_dashboard_processes,
-    _warn_stale_dashboard_processes,  # back-compat alias
 )
 
 
@@ -47,7 +44,6 @@ def _refresh_bindings_against_live_module():
     """
     global _find_stale_dashboard_pids
     global _kill_stale_dashboard_processes
-    global _warn_stale_dashboard_processes
 
     live = sys.modules.get("fabric_cli.main")
     if live is None:
@@ -55,7 +51,6 @@ def _refresh_bindings_against_live_module():
 
     _find_stale_dashboard_pids = live._find_stale_dashboard_pids
     _kill_stale_dashboard_processes = live._kill_stale_dashboard_processes
-    _warn_stale_dashboard_processes = live._warn_stale_dashboard_processes
     yield
 
 
@@ -110,7 +105,7 @@ class TestFindStaleDashboardPids:
                 returncode=0,
                 stdout="\n".join([
                     _ps_line(12345, "python3 -m fabric_cli.main dashboard --port 9119"),
-                    _ps_line(12346, "hermes dashboard --port 9120 --no-open"),
+                    _ps_line(12346, "fabric dashboard --port 9120 --no-open"),
                     _ps_line(12347, "python /home/x/fabric_cli/main.py dashboard"),
                 ]) + "\n",
                 stderr="",
@@ -123,7 +118,7 @@ class TestFindStaleDashboardPids:
                 returncode=0,
                 stdout="\n".join([
                     _ps_line(os.getpid(), "python3 -m fabric_cli.main dashboard"),
-                    _ps_line(12345, "hermes dashboard --port 9119"),
+                    _ps_line(12345, "fabric dashboard --port 9119"),
                 ]) + "\n",
                 stderr="",
             )
@@ -162,8 +157,8 @@ class TestFindStaleDashboardPids:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="\n".join([
-                    _ps_line(99999, "grep hermes dashboard"),
-                    _ps_line(12345, "hermes dashboard --port 9119"),
+                    _ps_line(99999, "grep fabric dashboard"),
+                    _ps_line(12345, "fabric dashboard --port 9119"),
                 ]) + "\n",
                 stderr="",
             )
@@ -176,8 +171,8 @@ class TestFindStaleDashboardPids:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="\n".join([
-                    "notapid hermes dashboard --bad",
-                    _ps_line(12345, "hermes dashboard --port 9119"),
+                    "notapid fabric dashboard --bad",
+                    _ps_line(12345, "fabric dashboard --port 9119"),
                     "   ",
                 ]) + "\n",
                 stderr="",
@@ -193,9 +188,9 @@ class TestFindStaleDashboardPids:
             mock_run.return_value = MagicMock(
                 returncode=0,
                 stdout="\n".join([
-                    _ps_line(11111, "hermes dashboard --port 9119"),
-                    _ps_line(22222, "hermes dashboard --port 9120"),
-                    _ps_line(33333, "hermes dashboard --port 9121"),
+                    _ps_line(11111, "fabric dashboard --port 9119"),
+                    _ps_line(22222, "fabric dashboard --port 9120"),
+                    _ps_line(33333, "fabric dashboard --port 9121"),
                 ]) + "\n",
                 stderr="",
             )
@@ -210,7 +205,7 @@ class TestFindStaleDashboardPids:
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
-                stdout=_ps_line(12345, "hermes dashboard --port 9119") + "\n",
+                stdout=_ps_line(12345, "fabric dashboard --port 9119") + "\n",
                 stderr="",
             )
             pids = _find_stale_dashboard_pids(exclude_pids=None)
@@ -221,7 +216,7 @@ class TestFindStaleDashboardPids:
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(
                 returncode=0,
-                stdout=_ps_line(12345, "hermes dashboard --port 9119") + "\n",
+                stdout=_ps_line(12345, "fabric dashboard --port 9119") + "\n",
                 stderr="",
             )
             pids = _find_stale_dashboard_pids(exclude_pids={12345})
@@ -236,6 +231,14 @@ class TestKillStaleDashboardPosix:
         with patch("fabric_cli.main._find_stale_dashboard_pids", return_value=[]):
             _kill_stale_dashboard_processes()
         assert capsys.readouterr().out == ""
+
+    def test_explicit_desktop_backend_exclusions_reach_scanner(self):
+        with patch(
+            "fabric_cli.main._find_stale_dashboard_pids", return_value=[]
+        ) as find:
+            _kill_stale_dashboard_processes(exclude_pids={12345, 23456})
+
+        find.assert_called_once_with(exclude_pids={12345, 23456})
 
     def test_sigterm_graceful_exit(self, capsys):
         """Processes that exit on SIGTERM (the probe gets ProcessLookupError)
@@ -376,14 +379,6 @@ class TestKillStaleDashboardWindows:
         out = capsys.readouterr().out
         assert "✗ failed to stop PID 12345" in out
         assert "Access is denied" in out
-
-
-class TestBackCompatAlias:
-    """``_warn_stale_dashboard_processes`` is kept as an alias for the
-    new kill function so old imports don't break."""
-
-    def test_alias_is_the_kill_function(self):
-        assert _warn_stale_dashboard_processes is _kill_stale_dashboard_processes
 
 
 class TestWindowsWmicEncoding:

@@ -15,13 +15,11 @@ __pycache__/
 .env.production.local
 .env.development
 .env.test
-.hermes-docker/
 .notebooklm-home/
 .notebooklm-cli-venv/
 .notebooklm-playwright/
 .pip-cache/
 .uv-cache/
-compose.hermes.local.yml
 export*
 __pycache__/model_tools.cpython-310.pyc
 __pycache__/web_tools.cpython-310.pyc
@@ -32,7 +30,6 @@ test_durations.json
 .pytest-cache/
 tmp/
 temp_vision_images/
-hermes-*/*
 examples/
 tests/quick_test_dataset.jsonl
 tests/sample_dataset.jsonl
@@ -51,7 +48,6 @@ agent-browser/
 privvy*
 images/
 __pycache__/
-hermes_agent.egg-info/
 fabric_agent.egg-info/
 wandb/
 testlogs
@@ -115,13 +111,13 @@ docs/superpowers/*
 # Working directory for Fabric session state (~/.fabric/ at runtime;
 # also created in-repo when an agent operates in this checkout). Plans, audit
 # logs, and per-session caches are never artifacts of the codebase.
-.hermes/
+.fabric/
 
 # Desktop/bootstrap install marker written into the managed checkout root by the
 # bootstrap installer. It is Fabric-managed runtime state, never a code change —
 # ignore it so `fabric update`'s `git stash push --include-untracked` does not
 # treat it as a local edit and autostash it on every run (#38529).
-.hermes-bootstrap-complete
+.fabric-bootstrap-complete
 
 # Interrupted-update breadcrumb + recovery lock written next to the shared venv
 # by `fabric update` / launch-time self-heal. Runtime state, never a code change
@@ -136,7 +132,7 @@ scripts/out/
 # Per-release changelog drafts. These exist only transiently during a release
 # cut (passed to `gh release create --notes-file`); the GitHub Release itself
 # stores the published notes. They are not a build artifact and must never be
-# committed to the repo root. See the hermes-release skill.
+# committed to the repo root. See the release workflow documentation.
 RELEASE_v*.md
 
 # Desktop demo-run scratch output (Fabric writes demo/*.txt during recorded

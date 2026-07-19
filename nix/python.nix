@@ -111,7 +111,7 @@ let
       );
 
   editableOverlay = workspace.mkEditablePyprojectOverlay {
-    root = "$HERMES_PYTHON_SRC_ROOT"; # resolved at shellHook time
+    root = "$REPO_ROOT"; # resolved at shellHook time
   };
 
   workspaceRoot = ./..;

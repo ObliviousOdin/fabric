@@ -2,7 +2,7 @@
 Fabric CLI - Unified command-line interface for Fabric.
 
 Provides subcommands for:
-- fabric chat          - Interactive chat (same as ./hermes)
+- fabric chat          - Interactive chat (same as ./fabric)
 - fabric gateway       - Run gateway in foreground
 - fabric gateway start - Start gateway service
 - fabric gateway stop  - Stop gateway service

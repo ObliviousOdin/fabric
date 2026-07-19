@@ -1,24 +1,16 @@
 """Fabric default capability catalog.
 
 Setup surfaces start from a curated default set while the full adapter and
-provider catalog remains available. Three levels of control are resolved at
-call time so a container restart is enough to apply them:
-
-- ``FABRIC_CAPABILITY_CATALOG=0`` exposes the full catalogs on every surface.
-- Each catalog accepts a CSV override in the environment variable of the
-  same name, e.g. ``FABRIC_MODEL_PROVIDERS="anthropic,openrouter,bedrock"``.
-  Keys are matched case-insensitively against catalog slugs. The special
-  value ``all`` (or ``*``) lifts filtering for that catalog only.
-- Unset or empty override -> the curated default tuple below.
+provider catalog remains available. User overrides live under
+``capabilities`` in config.yaml: ``enabled: false`` exposes every catalog,
+and each ``*_providers`` / ``gateway_platforms`` list can replace its curated
+default. A null list exposes that catalog in full.
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Iterable
 from typing import TypeVar
-
-from utils import is_truthy_value
 
 T = TypeVar("T")
 
@@ -26,9 +18,8 @@ FABRIC_GATEWAY_PLATFORMS = ("discord", "slack", "api_server")
 # Curated multi-model default (canonical-catalog order): subscription/OAuth
 # providers used by the setup wizard (openai-codex, xai-oauth), the major direct
 # APIs, one aggregator (openrouter), and local/self-hosted options that fit
-# edge devices (ollama, lmstudio, plus distinct ollama-cloud). The legacy Nous
-# Portal remains opt-in, and everything else stays available via the CSV
-# override or FABRIC_CAPABILITY_CATALOG=0.
+# edge devices (ollama, lmstudio, plus distinct ollama-cloud). Nous Portal
+# remains opt-in, and everything else stays available through config.yaml.
 FABRIC_MODEL_PROVIDERS = (
     "openrouter",
     "ollama",
@@ -46,59 +37,59 @@ FABRIC_MEMORY_PROVIDERS = ("honcho", "holographic", "hindsight")
 FABRIC_TTS_PROVIDERS = ("openai", "piper", "command")
 FABRIC_STT_PROVIDERS = ("local", "openai", "command")
 
-# Each default tuple doubles as the lookup key for its override env var, so
-# call sites keep passing the constant and never learn about the env layer.
-# Two catalogs sharing an identical default tuple would silently shadow each
-# other in this map; in that configuration mistake, disable env overrides and
-# keep the curated defaults rather than crash existing call sites at
-# import time. tests/fabric_cli/test_fabric_capabilities.py asserts the map
-# is complete so the mistake cannot land silently.
-_CATALOG_ENV_VARS: dict[tuple[str, ...], str] = {
-    FABRIC_GATEWAY_PLATFORMS: "FABRIC_GATEWAY_PLATFORMS",
-    FABRIC_MODEL_PROVIDERS: "FABRIC_MODEL_PROVIDERS",
-    FABRIC_MEMORY_PROVIDERS: "FABRIC_MEMORY_PROVIDERS",
-    FABRIC_TTS_PROVIDERS: "FABRIC_TTS_PROVIDERS",
-    FABRIC_STT_PROVIDERS: "FABRIC_STT_PROVIDERS",
+# Each default tuple doubles as the lookup key for its config field, so call
+# sites keep passing the constant and never learn about config structure.
+_CATALOG_CONFIG_KEYS: dict[tuple[str, ...], str] = {
+    FABRIC_GATEWAY_PLATFORMS: "gateway_platforms",
+    FABRIC_MODEL_PROVIDERS: "model_providers",
+    FABRIC_MEMORY_PROVIDERS: "memory_providers",
+    FABRIC_TTS_PROVIDERS: "tts_providers",
+    FABRIC_STT_PROVIDERS: "stt_providers",
 }
-_ENV_OVERRIDES_ENABLED = len(_CATALOG_ENV_VARS) == 5
 
-_ALL_SENTINELS = {"all", "*"}
+
+def _load_capabilities_config() -> dict:
+    """Load the canonical catalog config without creating an import cycle."""
+    try:
+        from fabric_cli.config import load_config
+
+        section = load_config().get("capabilities") or {}
+        return section if isinstance(section, dict) else {}
+    except Exception:
+        return {}
 
 
 def fabric_catalog_enabled() -> bool:
-    # Present-but-empty must mean "default" (compose passthrough sets empty
-    # strings for unset host vars), so strip before the truthy check.
-    raw = (os.environ.get("FABRIC_CAPABILITY_CATALOG") or "").strip()
-    if not raw:
-        return True
-    return is_truthy_value(raw, default=True)
+    return _load_capabilities_config().get("enabled", True) is not False
 
 
 def _normalize_key(value: object) -> str:
     return str(value or "").strip().lower()
 
 
-def _split_csv(raw: str) -> list[str]:
-    return [token.strip() for token in raw.split(",") if token.strip()]
-
-
 def fabric_allowed_keys(allowed: Iterable[str]) -> list[str] | None:
     """Resolve the effective allow-list for a catalog.
 
     Returns ``None`` when filtering should be skipped entirely (the catalog is
-    globally disabled, or the catalog's env override is ``all``/``*``).
-    Otherwise returns the override CSV entries when set, or ``allowed`` as-is.
+    globally disabled or the catalog's config value is null). Otherwise
+    returns the configured list or ``allowed`` as-is.
     """
-    if not fabric_catalog_enabled():
+    section = _load_capabilities_config()
+    if section.get("enabled", True) is False:
         return None
     defaults = tuple(allowed)
-    env_var = _CATALOG_ENV_VARS.get(defaults) if _ENV_OVERRIDES_ENABLED else None
-    if env_var:
-        raw = (os.environ.get(env_var) or "").strip()
-        if raw:
-            if raw.lower() in _ALL_SENTINELS:
+    config_key = _CATALOG_CONFIG_KEYS.get(defaults)
+    if config_key:
+        if config_key in section:
+            configured = section[config_key]
+            if configured is None:
                 return None
-            return _split_csv(raw)
+            if isinstance(configured, (list, tuple)):
+                return [
+                    str(item).strip()
+                    for item in configured
+                    if str(item).strip()
+                ]
     return list(defaults)
 
 
@@ -142,9 +133,9 @@ def fabric_model_provider_visible(slug: str) -> bool:
     """Return whether a model-provider integration belongs on Fabric setup UI.
 
     This gate is also used for provider-owned auxiliary tool rows, so hiding a
-    legacy model provider does not leave its subscription upsells elsewhere in
+    opt-in model provider does not leave its subscription upsells elsewhere in
     the setup wizard. The full catalog remains available through the
-    existing catalog opt-outs documented above.
+    existing config controls documented above.
     """
     effective = fabric_allowed_keys(FABRIC_MODEL_PROVIDERS)
     if effective is None:

@@ -13,7 +13,6 @@ Fabric automatically discovers and loads context files that shape how it behaves
 | File | Purpose | Discovery |
 |------|---------|-----------| 
 | **.fabric.md** / **FABRIC.md** | Canonical Fabric project instructions (highest priority) | Nearest file from CWD through the git root |
-| **.hermes.md** / **HERMES.md** | Legacy filename compatibility for existing projects | Same discovery and priority group as Fabric project instructions |
 | **AGENTS.md** | Project instructions, conventions, architecture | CWD at startup + subdirectories progressively |
 | **CLAUDE.md** | Claude Code context files (also detected) | CWD at startup + subdirectories progressively |
 | **SOUL.md** | Global personality and tone customization for this Fabric instance | `FABRIC_HOME/SOUL.md` only |
@@ -21,7 +20,7 @@ Fabric automatically discovers and loads context files that shape how it behaves
 | **.cursor/rules/*.mdc** | Cursor IDE rule modules | CWD only |
 
 :::info Priority system
-Only **one** project context type is loaded at startup (first match wins): Fabric project file → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. For Fabric project files, the nearest directory wins; within that directory the name order is `.fabric.md` → `FABRIC.md` → `.hermes.md` → `HERMES.md`. The pre-Fabric names are compatibility aliases for existing repositories; use a Fabric name for new files. **SOUL.md** is loaded independently as the agent identity (slot #1).
+Only **one** project context type is loaded at startup (first match wins): Fabric project file → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. For Fabric project files, the nearest directory wins; within that directory the name order is `.fabric.md` → `FABRIC.md`. **SOUL.md** is loaded independently as the agent identity (slot #1).
 :::
 
 ## AGENTS.md
@@ -107,7 +106,7 @@ This means your existing Cursor conventions automatically apply when using Fabri
 
 Context files are loaded by `build_context_files_prompt()` in `agent/prompt_builder.py`:
 
-1. **Scan project context** — searches the CWD and then its parents through the git root for the nearest `.fabric.md`, `FABRIC.md`, `.hermes.md`, or `HERMES.md`; if none exists, checks `AGENTS.md` → `CLAUDE.md` → `.cursorrules` in the CWD (first type wins)
+1. **Scan project context** — searches the CWD and then its parents through the git root for the nearest `.fabric.md` or `FABRIC.md`; if none exists, checks `AGENTS.md` → `CLAUDE.md` → `.cursorrules` in the CWD (first type wins)
 2. **Content is read** — each file is read as UTF-8 text
 3. **Security scan** — content is checked for prompt injection patterns
 4. **Truncation** — sources exceeding the resolved dynamic or explicitly configured cap are head/tail truncated (70% head, 20% tail, with a marker in the middle)

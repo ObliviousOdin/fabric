@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Google Workspace API CLI for Fabric.
 
-Uses the Google Workspace CLI (`gws`) when available, but preserves the
-existing Fabric-facing JSON contract and falls back to the Python client
-libraries if `gws` is not installed.
+Uses the Google Workspace CLI (`gws`) when available, normalizes results to
+the skill's JSON contract, and falls back to the Python client libraries if
+`gws` is not installed.
 
 Usage:
   python google_api.py gmail search "is:unread" [--max 10]
@@ -80,9 +80,6 @@ def _stored_token_scopes() -> list[str]:
 
 
 def _gws_binary() -> str | None:
-    override = os.getenv("HERMES_GWS_BIN")
-    if override:
-        return override
     return shutil.which("gws")
 
 

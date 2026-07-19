@@ -1,11 +1,13 @@
 #!/usr/bin/env -S node --max-old-space-size=8192 --expose-gc
-// Must be first import. If the user explicitly opts into truecolor, this
-// nudges chalk / supports-color before either package is initialized.
+// Must be first so terminal color normalization runs before chalk and
+// supports-color initialize.
 import './lib/forceTruecolor.js'
 
 import type { FrameEvent } from '@fabric/ink'
 
+import { HEAPDUMP_ON_START } from './config/diagnostics.js'
 import { DASHBOARD_TUI_MODE, TERMUX_TUI_MODE } from './config/env.js'
+import { GATEWAY_RUNTIME_OPTIONS } from './config/runtime.js'
 import { GatewayClient } from './gatewayClient.js'
 import { setupGracefulExit } from './lib/gracefulExit.js'
 import { formatBytes, type HeapDumpResult, performHeapDump } from './lib/memory.js'
@@ -48,7 +50,7 @@ if (TERMUX_TUI_MODE) {
   process.stdout.write('\x1b[2J\x1b[H\x1b[3J')
 }
 
-const gw = new GatewayClient()
+const gw = new GatewayClient(GATEWAY_RUNTIME_OPTIONS)
 
 gw.start()
 
@@ -115,7 +117,7 @@ const stopMemoryMonitor = startMemoryMonitor({
   }
 })
 
-if (process.env.HERMES_HEAPDUMP_ON_START === '1') {
+if (HEAPDUMP_ON_START) {
   void performHeapDump('manual')
 }
 
@@ -128,8 +130,7 @@ const [ink, { App }, { logFrameEvent }, { trackFrame }] = await Promise.all([
   import('./lib/fpsStore.js')
 ])
 
-// Both consumers are undefined when their env flags are off; only attach
-// onFrame when at least one is on so ink skips timing in the default case.
+// Ink only collects frame timings when a diagnostics consumer is active.
 const onFrame =
   logFrameEvent || trackFrame
     ? (event: FrameEvent) => {

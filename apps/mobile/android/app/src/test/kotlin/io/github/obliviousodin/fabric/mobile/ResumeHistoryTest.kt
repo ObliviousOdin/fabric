@@ -34,7 +34,10 @@ class ResumeHistoryTest {
                 })
                 add(buildJsonObject {
                     put("type", "approval.request")
-                    put("payload", buildJsonObject { put("description", "Run a command") })
+                    put("payload", buildJsonObject {
+                        put("request_id", "approval-1")
+                        put("description", "Run a command")
+                    })
                 })
             })
             put("inflight", buildJsonObject {
@@ -393,6 +396,32 @@ class ResumeHistoryTest {
         assertEquals(duplicateCommandApproval, queue.first)
         queue.clear()
         assertTrue(queue.items.isEmpty())
+    }
+
+    @Test
+    fun approvalEventsRequireAnAuthoritativeRequestId() {
+        val missing = GatewayEvent(
+            type = "approval.request",
+            sessionId = "runtime-123",
+            payload = buildJsonObject { put("description", "Run a command") },
+        )
+        val blank = GatewayEvent(
+            type = "approval.request",
+            sessionId = "runtime-123",
+            payload = buildJsonObject { put("request_id", "  ") },
+        )
+        val valid = GatewayEvent(
+            type = "approval.request",
+            sessionId = "runtime-123",
+            payload = buildJsonObject {
+                put("request_id", "approval-1")
+                put("command", "pwd")
+            },
+        )
+
+        assertNull(ChatSessionController.approvalFromEvent(missing))
+        assertNull(ChatSessionController.approvalFromEvent(blank))
+        assertEquals("approval-1", ChatSessionController.approvalFromEvent(valid)?.requestId)
     }
 
     @Test

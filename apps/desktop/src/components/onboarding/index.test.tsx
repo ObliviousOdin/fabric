@@ -8,13 +8,13 @@ import {
   type OnboardingContext,
   startManualProviderOAuth
 } from '@/store/onboarding'
-import type { OAuthProvider } from '@/types/hermes'
+import type { OAuthProvider } from '@/types/fabric'
 
 import { DesktopOnboardingOverlay, Picker } from '.'
 
 function provider(id: string, name = id): OAuthProvider {
   return {
-    cli_command: `hermes login ${id}`,
+    cli_command: `fabric login ${id}`,
     docs_url: `https://example.com/${id}`,
     flow: 'pkce',
     id,
@@ -82,7 +82,7 @@ afterEach(() => {
     manual: false,
     localEndpoint: false
   })
-  Reflect.deleteProperty(window, 'hermesDesktop')
+  Reflect.deleteProperty(window, 'fabricDesktop')
   vi.restoreAllMocks()
 })
 
@@ -133,7 +133,7 @@ describe('onboarding Picker', () => {
     fireEvent.click(skip)
 
     expect($desktopOnboarding.get().firstRunSkipped).toBe(true)
-    expect(window.localStorage.getItem('hermes-onboarding-skipped-v1')).toBe('1')
+    expect(window.localStorage.getItem('fabric-onboarding-skipped-v1')).toBe('1')
   })
 
   it('hides "choose later" in manual (add-provider) mode', () => {
@@ -159,7 +159,7 @@ describe('onboarding Picker', () => {
       throw new Error(`unexpected api path: ${path}`)
     })
 
-    Object.defineProperty(window, 'hermesDesktop', {
+    Object.defineProperty(window, 'fabricDesktop', {
       configurable: true,
       value: { api }
     })

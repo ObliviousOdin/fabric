@@ -1091,10 +1091,9 @@ def check_image_generation_requirements() -> bool:
     1. The in-tree FAL backend (FAL_KEY or managed gateway).
     2. Any plugin-registered provider whose ``is_available()`` returns True.
 
-    Plugins win only when the in-tree FAL path is NOT ready, which matches
-    the historical behavior: shipping hermes with a FAL key configured
-    should still expose the tool. The active selection among ready
-    providers is resolved per-call by ``image_gen.provider``.
+    Plugins win only when the in-tree FAL path is NOT ready. A configured,
+    ready in-tree FAL backend must continue to expose the tool. The active
+    selection among ready providers is resolved per-call by ``image_gen.provider``.
     """
     try:
         if check_fal_api_key():

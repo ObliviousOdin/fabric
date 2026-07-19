@@ -23,8 +23,8 @@ param(
     # exact ref.  Precedence: Commit > Tag > Branch.
     [string]$Commit = "",
     [string]$Tag = "",
-    [string]$FabricHome = $(if ($env:FABRIC_HOME) { $env:FABRIC_HOME } elseif ($env:HERMES_HOME) { $env:HERMES_HOME } else { "$env:LOCALAPPDATA\fabric" }),
-    [string]$InstallDir = $(if ($env:FABRIC_INSTALL_DIR) { $env:FABRIC_INSTALL_DIR } elseif ($env:FABRIC_HOME) { "$env:FABRIC_HOME\fabric-agent" } elseif ($env:HERMES_HOME) { "$env:HERMES_HOME\fabric-agent" } else { "$env:LOCALAPPDATA\fabric\fabric-agent" }),
+    [string]$FabricHome = $(if ($env:FABRIC_HOME) { $env:FABRIC_HOME } else { "$env:LOCALAPPDATA\fabric" }),
+    [string]$InstallDir = $(if ($env:FABRIC_INSTALL_DIR) { $env:FABRIC_INSTALL_DIR } elseif ($env:FABRIC_HOME) { "$env:FABRIC_HOME\fabric-agent" } else { "$env:LOCALAPPDATA\fabric\fabric-agent" }),
 
     # --- Stage protocol (additive; default invocation behaves as before) ----
     # See the "Stage protocol" section near the bottom of the file for the
@@ -552,7 +552,7 @@ function Resolve-UvCmd {
     }
 
     # Fall back to PATH (covers edge cases where the installer ran in a
-    # sibling process and HERMES_HOME wasn't propagated).
+    # sibling process and FABRIC_HOME wasn't propagated).
     if (Get-Command uv -ErrorAction SilentlyContinue) {
         $script:UvCmd = "uv"
         return
@@ -733,16 +733,14 @@ function Install-Git {
     recoverable: if it ever breaks, ``Remove-Item %LOCALAPPDATA%\fabric\git``
     and re-running this installer fully recovers.
 
-    After install we locate ``bash.exe`` and persist the path in
-    ``HERMES_GIT_BASH_PATH`` (User scope) so Fabric can find it in a fresh
-    shell without a second PATH refresh.
+    The installed Git directories are added to the user PATH so fresh shells
+    can resolve both ``git.exe`` and ``bash.exe``.
     #>
     Write-Info "Checking Git..."
 
     if (Get-Command git -ErrorAction SilentlyContinue) {
         $version = git --version
         Write-Success "Git found ($version)"
-        Set-GitBashEnvVar
         return $true
     }
 
@@ -853,7 +851,6 @@ function Install-Git {
 
         $version = & $gitExe --version
         Write-Success "Git $version installed to $gitDir (portable, user-scoped)"
-        Set-GitBashEnvVar
         return $true
     } catch {
         Write-Err "Could not install portable Git: $_"
@@ -863,58 +860,6 @@ function Install-Git {
         Write-Info "shell commands (same as Claude Code and other coding agents)."
         return $false
     }
-}
-
-function Set-GitBashEnvVar {
-    <#
-    .SYNOPSIS
-    Locate ``bash.exe`` from an already-installed Git and persist the path in
-    ``HERMES_GIT_BASH_PATH`` (User env scope) so Fabric can find it even before
-    PATH propagation completes in a newly-spawned shell.
-    #>
-    $candidates = @()
-
-    # Our own portable Git install is ALWAYS checked first, so a broken
-    # system Git doesn't hijack us.  If the user had a working system Git
-    # we'd have returned early from Install-Git's fast path and never called
-    # this with a system-Git-only installation anyway.
-    #
-    # Layouts:
-    #   PortableGit (our default): $FabricHome\git\bin\bash.exe
-    #   MinGit (32-bit fallback):  $FabricHome\git\usr\bin\bash.exe
-    $candidates += "$FabricHome\git\bin\bash.exe"       # PortableGit layout (primary)
-    $candidates += "$FabricHome\git\usr\bin\bash.exe"   # MinGit / PortableGit usr\bin fallback
-
-    # git.exe on PATH can tell us where the install root is
-    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
-    if ($gitCmd) {
-        $gitExe = $gitCmd.Source
-        # Git for Windows (full installer): <root>\cmd\git.exe + <root>\bin\bash.exe
-        # MinGit:                           <root>\cmd\git.exe + <root>\usr\bin\bash.exe
-        $gitRoot = Split-Path (Split-Path $gitExe -Parent) -Parent
-        $candidates += "$gitRoot\bin\bash.exe"
-        $candidates += "$gitRoot\usr\bin\bash.exe"
-    }
-
-    # Standard system install locations as a final fallback.  Note:
-    # ProgramFiles(x86) can't be referenced via ${env:...} string interpolation
-    # because of the parens -- use [Environment]::GetEnvironmentVariable().
-    $candidates += "${env:ProgramFiles}\Git\bin\bash.exe"
-    $pf86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
-    if ($pf86) { $candidates += "$pf86\Git\bin\bash.exe" }
-    $candidates += "${env:LocalAppData}\Programs\Git\bin\bash.exe"
-
-    foreach ($candidate in $candidates) {
-        if ($candidate -and (Test-Path $candidate)) {
-            [Environment]::SetEnvironmentVariable("HERMES_GIT_BASH_PATH", $candidate, "User")
-            $env:HERMES_GIT_BASH_PATH = $candidate
-            Write-Info "Set HERMES_GIT_BASH_PATH=$candidate"
-            return
-        }
-    }
-
-    Write-Warn "Could not locate bash.exe -- Fabric may not find Git Bash."
-    Write-Info "If needed, set HERMES_GIT_BASH_PATH manually to your bash.exe path."
 }
 
 # The desktop build runs Vite ^8, which refuses to start on Node outside
@@ -1667,8 +1612,6 @@ function Install-Venv {
             }
             # The launcher CLI (fabric.exe) plus its child tree.
             & taskkill /F /T /IM fabric.exe /FI "PID ne $myPid" 2>$null | Out-Null
-            # Stop the legacy executable too during an in-place upgrade.
-            & taskkill /F /T /IM hermes.exe /FI "PID ne $myPid" 2>$null | Out-Null
             # taskkill /IM fabric.exe is NOT enough: the gateway/agent that a
             # scheduled task or watchdog autostarts runs as
             # `pythonw.exe -m fabric_cli.main gateway run` straight out of
@@ -1973,7 +1916,7 @@ except Exception:
         # uv on Windows can register fabric.exe in dist-info/RECORD but fail to
         # materialise the .exe (file lock during self-update, distlib edge case).
         # Catch it here so a fresh install/update does not finish with a broken
-        # `fabric` command while fabric-agent.exe / fabric-acp.exe exist
+        # `fabric` command even when dist-info metadata was written successfully.
         $scriptsDir = Join-Path $InstallDir "venv\Scripts"
         $pythonExe = Join-Path $scriptsDir "python.exe"
         if ((Test-Path $scriptsDir) -and (Test-Path $pythonExe)) {
@@ -2059,22 +2002,22 @@ function Set-PathVariable {
     Write-Info "Setting up fabric command..."
     
     if ($NoVenv) {
-        $hermesBin = "$InstallDir"
+        $fabricBin = "$InstallDir"
     } else {
-        $hermesBin = "$InstallDir\venv\Scripts"
+        $fabricBin = "$InstallDir\venv\Scripts"
     }
     
     # Add the venv Scripts dir to user PATH so fabric is globally available
     # On Windows, the fabric.exe in venv\Scripts\ has the venv Python baked in
     $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
     
-    if ($currentPath -notlike "*$hermesBin*") {
+    if ($currentPath -notlike "*$fabricBin*") {
         [Environment]::SetEnvironmentVariable(
             "Path",
-            "$hermesBin;$currentPath",
+            "$fabricBin;$currentPath",
             "User"
         )
-        Write-Success "Added to user PATH: $hermesBin"
+        Write-Success "Added to user PATH: $fabricBin"
     } else {
         Write-Info "PATH already configured"
     }
@@ -2087,13 +2030,10 @@ function Set-PathVariable {
         [Environment]::SetEnvironmentVariable("FABRIC_HOME", $FabricHome, "User")
         Write-Success "Set FABRIC_HOME=$FabricHome"
     }
-    # Keep the legacy runtime variable in sync for compatibility modules.
-    [Environment]::SetEnvironmentVariable("HERMES_HOME", $FabricHome, "User")
     $env:FABRIC_HOME = $FabricHome
-    $env:HERMES_HOME = $FabricHome
     
     # Update current session
-    $env:Path = "$hermesBin;$env:Path"
+    $env:Path = "$fabricBin;$env:Path"
     
     Write-Success "fabric command ready"
 }
@@ -2101,7 +2041,7 @@ function Set-PathVariable {
 function Write-BootstrapMarker {
     # Writes $InstallDir\.fabric-bootstrap-complete which tells the Fabric
     # desktop app (apps/desktop/electron/main.ts) "install.ps1 ran
-    # successfully — DON'T trigger the legacy first-launch bootstrap
+    # successfully — DON'T trigger the first-launch bootstrap
     # runner."
     #
     # Schema mirrors what main.ts's writeBootstrapMarker() / isBootstrap
@@ -2178,14 +2118,15 @@ function Write-BootstrapMarker {
 function Copy-ConfigTemplates {
     Write-Info "Setting up configuration files..."
     
-    # Create the HERMES_HOME directory structure ($FabricHome, default %LOCALAPPDATA%\fabric)
+    # Create the FABRIC_HOME directory structure ($FabricHome, default %LOCALAPPDATA%\fabric)
     New-Item -ItemType Directory -Force -Path "$FabricHome\cron" | Out-Null
     New-Item -ItemType Directory -Force -Path "$FabricHome\sessions" | Out-Null
     New-Item -ItemType Directory -Force -Path "$FabricHome\logs" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$FabricHome\pairing" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$FabricHome\platforms\pairing" | Out-Null
     New-Item -ItemType Directory -Force -Path "$FabricHome\hooks" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$FabricHome\image_cache" | Out-Null
-    New-Item -ItemType Directory -Force -Path "$FabricHome\audio_cache" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$FabricHome\cache\images" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$FabricHome\cache\audio" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$FabricHome\cache\documents" | Out-Null
     New-Item -ItemType Directory -Force -Path "$FabricHome\memories" | Out-Null
     New-Item -ItemType Directory -Force -Path "$FabricHome\skills" | Out-Null
 
@@ -2621,7 +2562,7 @@ function Install-Desktop {
     # itself, ~150MB), then run `npm run pack` in apps/desktop which
     # produces the unpacked binary at apps/desktop/release/<os>-unpacked/.
     #
-    # The Tauri bootstrap installer's launch_hermes_desktop command
+    # The Tauri bootstrap installer's launch_fabric_desktop command
     # resolves apps/desktop/release/win-unpacked/Fabric.exe directly,
     # so an "unpacked" build (electron-builder --dir) is enough — we
     # don't need to produce an NSIS/MSI artifact here.
@@ -3063,14 +3004,14 @@ function Start-GatewayIfConfigured {
 
     if (-not $hasMessaging) { return }
 
-    $hermesCmd = "$InstallDir\venv\Scripts\fabric.exe"
-    if (-not (Test-Path $hermesCmd)) {
-        $hermesCmd = "fabric"
+    $fabricCmd = "$InstallDir\venv\Scripts\fabric.exe"
+    if (-not (Test-Path $fabricCmd)) {
+        $fabricCmd = "fabric"
     }
 
     # If WhatsApp is enabled but not yet paired, run foreground for QR scan
     $whatsappEnabled = $content | Where-Object { $_ -match "^WHATSAPP_ENABLED=true" }
-    $whatsappSession = "$FabricHome\whatsapp\session\creds.json"
+    $whatsappSession = "$FabricHome\platforms\whatsapp\session\creds.json"
     if ($whatsappEnabled -and -not (Test-Path $whatsappSession)) {
         Write-Host ""
         Write-Info "WhatsApp is enabled but not yet paired."
@@ -3083,7 +3024,7 @@ function Start-GatewayIfConfigured {
             $response = Read-Host "Pair WhatsApp now? [Y/n]"
             if ($response -eq "" -or $response -match "^[Yy]") {
                 try {
-                    & $hermesCmd whatsapp
+                    & $fabricCmd whatsapp
                 } catch {
                     # Expected after pairing completes
                 }
@@ -3113,7 +3054,7 @@ function Start-GatewayIfConfigured {
         Write-Info "Starting gateway in background..."
         try {
             $logFile = "$FabricHome\logs\gateway.log"
-            Start-Process -FilePath $hermesCmd -ArgumentList "gateway" `
+            Start-Process -FilePath $fabricCmd -ArgumentList "gateway" `
                 -RedirectStandardOutput $logFile `
                 -RedirectStandardError "$FabricHome\logs\gateway-error.log" `
                 -WindowStyle Hidden

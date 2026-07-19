@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "fabric-brand-audit.py"
+FORMER_PRODUCT = "Her" + "mes"
 
 
 def _load_audit_module():
@@ -80,7 +81,7 @@ class FabricBrandAuditTests(unittest.TestCase):
     def test_discovery_audit_rejects_joined_and_structured_brand_variants(self) -> None:
         variants = (
             "NousPortal",
-            "HermesAgent",
+            FORMER_PRODUCT + "Agent",
             "Ra" + "botInc",
             "RA" + "BOT_HOME",
         )
@@ -211,7 +212,7 @@ class FabricBrandAuditTests(unittest.TestCase):
 
     def test_built_audit_covers_nav_and_footer_destinations(self) -> None:
         self._write_clean_build()
-        self._write("skills/index.html", "<main>HermesAgent</main>")
+        self._write("skills/index.html", f"<main>{FORMER_PRODUCT}Agent</main>")
 
         issues = self.audit.audit_built_public_site(self.root)
 

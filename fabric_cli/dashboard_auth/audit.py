@@ -4,10 +4,8 @@ Profile-aware location: ``$FABRIC_HOME/logs/dashboard-auth.log``.
 Format: one JSON object per line. Token-like fields are stripped before
 serialisation to avoid leaking refresh tokens or JWTs to disk.
 
-This module deliberately keeps a minimal dependency surface — no imports
-from ``fabric_constants`` or other fabric_cli modules — so it can be
-imported safely from middleware code that loads early in the startup
-sequence.
+This module depends only on the import-safe ``fabric_constants`` resolver and
+the standard library, so middleware can load it early in startup.
 """
 from __future__ import annotations
 
@@ -15,16 +13,14 @@ import datetime as _dt
 import enum
 import json
 import logging
-import os
 import threading
 from pathlib import Path
 from typing import Any
 
+from fabric_constants import get_fabric_home
+
 _log = logging.getLogger(__name__)
 _write_lock = threading.Lock()
-
-# public-release-audit: allow-legacy-compat -- reads the previous home variable during upgrades
-_LEGACY_HOME_ENV = "HERMES_HOME"
 
 # Field names that must never appear in the log raw. Any kwarg matching
 # these is silently dropped.
@@ -55,18 +51,8 @@ class AuditEvent(enum.Enum):
 
 
 def _resolve_log_path() -> Path:
-    """``$FABRIC_HOME/logs/dashboard-auth.log`` with the standard fallback.
-
-    Mirrors ``fabric_constants.get_fabric_home`` semantics: env var wins,
-    else ``~/.fabric``. A local copy avoids an import cycle with the
-    middleware which lives below ``fabric_cli``.
-    """
-    home = (
-        os.environ.get("FABRIC_HOME")
-        or os.environ.get(_LEGACY_HOME_ENV)
-        or str(Path.home() / ".fabric")
-    )
-    return Path(home) / "logs" / "dashboard-auth.log"
+    """Return the profile-scoped dashboard authentication audit log."""
+    return get_fabric_home() / "logs" / "dashboard-auth.log"
 
 
 def audit_log(event: AuditEvent, **fields: Any) -> None:

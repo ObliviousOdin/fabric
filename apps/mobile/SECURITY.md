@@ -28,7 +28,7 @@ reached, the attacker has to already be a device on your tailnet. That is
 Fabric login) instead of one.
 
 The June 2026 hardening enforces the floor: a non-loopback bind **refuses to
-start without an auth provider**, and rejects the legacy session-token path
+start without an auth provider**, and rejects the session-token path
 on the WebSocket. There is no unauthenticated public bind.
 
 ## Can I drop Tailscale and expose Fabric directly?
@@ -95,7 +95,9 @@ dashboard:
 
 ```bash
 # or, without editing config:
-export HERMES_DASHBOARD_BASIC_AUTH_TOTP_SECRET="JBSWY3DPEHPK3PXP..."
+dashboard:
+  basic_auth:
+    totp_secret: "JBSWY3DPEHPK3PXP..."
 ```
 
 Once set, `/api/auth/providers` reports `requires_totp: true`, the mobile

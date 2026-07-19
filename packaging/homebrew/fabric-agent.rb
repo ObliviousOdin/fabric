@@ -24,14 +24,10 @@ class FabricAgent < Formula
     venv.pip_install resources
     venv.pip_install buildpath
 
-    %w[fabric fabric-agent fabric-acp].each do |exe|
-      next unless (libexec/"bin"/exe).exist?
-
-      (bin/exe).write_env_script(
-        libexec/"bin"/exe,
-        FABRIC_MANAGED: "homebrew"
-      )
-    end
+    (bin/"fabric").write_env_script(
+      libexec/"bin"/"fabric",
+      FABRIC_MANAGED: "homebrew"
+    )
   end
 
   test do

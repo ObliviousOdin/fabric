@@ -328,7 +328,7 @@ def test_view_empty_allowlists_allow_with_explicit_allow_all(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Pairing store: users approved via ``hermes pairing approve`` must be
+# Pairing store: users approved via ``fabric pairing approve`` must be
 # authorized even without DISCORD_ALLOWED_USERS / DISCORD_ALLOWED_ROLES.
 # ---------------------------------------------------------------------------
 
@@ -462,4 +462,3 @@ def test_other_views_not_admin_gated():
         session_key="s", confirm_id="c", allowed_user_ids={"11111"}
     )
     assert sc._check_auth(_interaction(11111)) is True
-

@@ -57,7 +57,7 @@ function resolveThresholds(criticalBytes?: number, highBytes?: number) {
 // pulls the full ~414KB Ink bundle (React, renderer, components, hooks) onto
 // the critical path before the Python gateway can even be spawned. That
 // serialised roughly 150ms of Node work in front of gw.start() on every
-// cold `hermes --tui` launch.
+// cold `fabric --tui` launch.
 //
 // evictInkCaches only runs inside `tick()`, which fires on a 10s timer and
 // only when heap pressure crosses the high-water mark — by then Ink has
@@ -115,9 +115,7 @@ export function startMemoryMonitor({
   // Cooldown prevents repeated auto dumps when heap oscillates around the
   // threshold (issue #21767). `dumped` alone is not enough — it clears on
   // every transition back to `normal`.
-  const cooldownRaw = process.env.HERMES_AUTO_HEAPDUMP_COOLDOWN_MS?.trim()
-  const cooldownParsed = cooldownRaw ? Number(cooldownRaw) : NaN
-  const cooldownMs = Number.isFinite(cooldownParsed) && cooldownParsed >= 0 ? cooldownParsed : 600_000
+  const cooldownMs = 600_000
   let lastAutoDumpAt = 0
 
   const tick = async () => {

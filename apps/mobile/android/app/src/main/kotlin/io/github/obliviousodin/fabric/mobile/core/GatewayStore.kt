@@ -156,8 +156,8 @@ object GatewayStore {
             GatewayCredentialStore.write(context, id, legacy)
             legacy
         }.getOrNull()
-        // Fail closed: never retain the legacy plaintext after a migration
-        // attempt, even when the platform keystore is unavailable.
+        // Fail closed: never retain the plaintext after a migration attempt,
+        // even when the platform keystore is unavailable.
         prefs(context).edit().remove(KEY_TOKEN_PREFIX + id).apply()
         return migrated
     }

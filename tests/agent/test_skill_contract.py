@@ -25,7 +25,7 @@ def _valid_contract(name: str = "demo-skill", version: str = "1.2.3") -> dict:
         "identity": {
             "name": name,
             "version": version,
-            "owner": "fabric@example.com",
+            "owner": "owner@example.test",
             "license": "Apache-2.0",
         },
         "compatibility": {

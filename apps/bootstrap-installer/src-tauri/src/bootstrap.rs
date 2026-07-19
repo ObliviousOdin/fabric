@@ -3,7 +3,7 @@
 //! Direct port of `runBootstrap` from `apps/desktop/electron/bootstrap-runner.ts`.
 //! Drives install.ps1 / install.sh stage-by-stage, emits progress events
 //! over the Tauri `bootstrap` channel, writes a forensic log to
-//! HERMES_HOME/logs/bootstrap-<timestamp>.log.
+//! FABRIC_HOME/logs/bootstrap-<timestamp>.log.
 //!
 //! Lifecycle:
 //!   1. `start_bootstrap` (Tauri command) → spawns the worker task.
@@ -43,9 +43,9 @@ pub struct StartBootstrapArgs {
     /// bootstrap-runner passes false to avoid building-while-running.
     #[serde(default = "default_true")]
     pub include_desktop: bool,
-    /// Optional override for HERMES_HOME. Tests use this; production
+    /// Optional override for FABRIC_HOME. Tests use this; production
     /// almost always falls back to the OS default.
-    pub hermes_home: Option<String>,
+    pub fabric_home: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -168,7 +168,7 @@ pub async fn launch_fabric_desktop(
     install_root: String,
 ) -> Result<(), String> {
     let install_root = PathBuf::from(install_root);
-    let exe_path = resolve_hermes_desktop_exe(&install_root).ok_or_else(|| {
+    let exe_path = resolve_fabric_desktop_exe(&install_root).ok_or_else(|| {
         format!(
             "Couldn't find a built Fabric desktop at {}. The desktop build step \
              may have been skipped or failed. Run `fabric desktop` from a \
@@ -183,7 +183,7 @@ pub async fn launch_fabric_desktop(
     // bundle through LaunchServices instead of exec'ing Contents/MacOS/<name>
     // directly; this matches user double-click/open behavior and avoids cwd /
     // quarantine oddities after a self-update rebuild. Resolution prefers the
-    // Fabric bundle/executable but accepts legacy Hermes names.
+    // canonical Fabric bundle/executable.
     let mut cmd = desktop_launch_command(&exe_path, &install_root);
     #[cfg(target_os = "windows")]
     {
@@ -208,22 +208,8 @@ pub async fn launch_fabric_desktop(
     Ok(())
 }
 
-/// Compatibility command for an older packaged webview. New builds invoke
-/// `launch_fabric_desktop`; keeping this alias makes mixed-version repair and
-/// update handoffs safe.
-#[tauri::command]
-pub async fn launch_hermes_desktop(
-    app: AppHandle,
-    install_root: String,
-) -> Result<(), String> {
-    launch_fabric_desktop(app, install_root).await
-}
-
-/// Walk the well-known electron-builder unpacked-app paths under
-/// `install_root`. Fabric candidates are deliberately grouped before every
-/// legacy Hermes candidate, including across architectures, so a machine with
-/// both builds always launches the newly branded app.
-pub(crate) fn resolve_hermes_desktop_exe(install_root: &std::path::Path) -> Option<PathBuf> {
+/// Walk the canonical electron-builder unpacked-app paths under `install_root`.
+pub(crate) fn resolve_fabric_desktop_exe(install_root: &std::path::Path) -> Option<PathBuf> {
     for p in desktop_release_candidates(install_root, std::env::consts::OS) {
         if p.exists() {
             return Some(p);
@@ -257,42 +243,33 @@ fn desktop_release_candidates_for_arch(
     let mut candidates = Vec::new();
     match target_os {
         "windows" => {
-            // public-release-audit: allow-legacy-compat -- discover pre-Fabric desktop executables during upgrades
-            for exe in ["Fabric.exe", "Hermes.exe"] {
-                for dir in platform_dirs {
-                    candidates.push(release.join(*dir).join(exe));
-                }
+            for dir in platform_dirs {
+                candidates.push(release.join(*dir).join("Fabric.exe"));
             }
         }
         "macos" => {
-            // public-release-audit: allow-legacy-compat -- discover pre-Fabric desktop bundles during upgrades
-            for (bundle, exe) in [("Fabric.app", "Fabric"), ("Hermes.app", "Hermes")] {
-                for dir in platform_dirs {
-                    candidates.push(
-                        release
-                            .join(*dir)
-                            .join(bundle)
-                            .join("Contents")
-                            .join("MacOS")
-                            .join(exe),
-                    );
-                }
+            for dir in platform_dirs {
+                candidates.push(
+                    release
+                        .join(*dir)
+                        .join("Fabric.app")
+                        .join("Contents")
+                        .join("MacOS")
+                        .join("Fabric"),
+                );
             }
         }
         _ => {
-            // public-release-audit: allow-legacy-compat -- discover pre-Fabric desktop executables during upgrades
-            for exe in ["Fabric", "fabric", "hermes", "Hermes"] {
-                for dir in platform_dirs {
-                    candidates.push(release.join(*dir).join(exe));
-                }
+            for dir in platform_dirs {
+                candidates.push(release.join(*dir).join("Fabric"));
             }
         }
     }
     candidates
 }
 
-pub(crate) fn resolve_hermes_desktop_app(install_root: &std::path::Path) -> Option<PathBuf> {
-    let exe = resolve_hermes_desktop_exe(install_root)?;
+pub(crate) fn resolve_fabric_desktop_app(install_root: &std::path::Path) -> Option<PathBuf> {
+    let exe = resolve_fabric_desktop_exe(install_root)?;
     #[cfg(target_os = "macos")]
     {
         // .../<name>.app/Contents/MacOS/<name> -> .../<name>.app
@@ -312,16 +289,16 @@ pub(crate) fn resolve_hermes_desktop_app(install_root: &std::path::Path) -> Opti
 /// True when a prior install completed (bootstrap-complete marker present) AND a
 /// launchable desktop app exists on disk. Used by the installer's launcher fast
 /// path so a bare re-open just opens Fabric instead of re-running setup.
-pub(crate) fn hermes_is_installed(install_root: &std::path::Path) -> bool {
-    install_root.join(".hermes-bootstrap-complete").exists()
-        && resolve_hermes_desktop_exe(install_root).is_some()
+pub(crate) fn fabric_is_installed(install_root: &std::path::Path) -> bool {
+    install_root.join(".fabric-bootstrap-complete").exists()
+        && resolve_fabric_desktop_exe(install_root).is_some()
 }
 
 /// Spawn the already-built desktop app, detached. Returns Err if no built app
 /// exists or the spawn fails, so the caller can fall back to showing the
 /// installer UI.
 pub(crate) fn spawn_installed_desktop(install_root: &std::path::Path) -> std::io::Result<()> {
-    let exe = resolve_hermes_desktop_exe(install_root).ok_or_else(|| {
+    let exe = resolve_fabric_desktop_exe(install_root).ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::NotFound, "no built Fabric desktop app")
     })?;
     let mut cmd = desktop_launch_command_std(&exe, install_root);
@@ -329,7 +306,7 @@ pub(crate) fn spawn_installed_desktop(install_root: &std::path::Path) -> std::io
     {
         use std::os::windows::process::CommandExt;
         // DETACHED_PROCESS = 0x00000008 — keep the desktop alive after the
-        // installer exits, mirroring launch_hermes_desktop. Kept correct here
+        // installer exits, mirroring launch_fabric_desktop. Kept correct here
         // even though the only caller is macOS-gated today, so future reuse on
         // Windows doesn't reintroduce the relaunch race.
         cmd.creation_flags(0x0000_0008);
@@ -341,7 +318,7 @@ pub(crate) fn spawn_installed_desktop(install_root: &std::path::Path) -> std::io
 pub(crate) fn open_macos_app_detached(app_bundle: &std::path::Path) -> std::io::Result<()> {
     let mut cmd = std::process::Command::new("/usr/bin/open");
     cmd.arg(app_bundle);
-    cmd.current_dir(crate::paths::hermes_home());
+    cmd.current_dir(crate::paths::fabric_home());
     cmd.spawn().map(|_child| ())
 }
 
@@ -364,7 +341,7 @@ fn desktop_launch_command(
         if let Some(app_bundle) = app_bundle_for_exe(exe_path) {
             let mut cmd = tokio::process::Command::new("/usr/bin/open");
             cmd.arg(app_bundle);
-            cmd.current_dir(crate::paths::hermes_home());
+            cmd.current_dir(crate::paths::fabric_home());
             return cmd;
         }
     }
@@ -383,7 +360,7 @@ fn desktop_launch_command_std(
         if let Some(app_bundle) = app_bundle_for_exe(exe_path) {
             let mut cmd = std::process::Command::new("/usr/bin/open");
             cmd.arg(app_bundle);
-            cmd.current_dir(crate::paths::hermes_home());
+            cmd.current_dir(crate::paths::fabric_home());
             return cmd;
         }
     }
@@ -450,7 +427,6 @@ async fn run_bootstrap(
 
     let source_note = match &script.source {
         ScriptSource::DevCheckout => "dev checkout",
-        ScriptSource::Bundled => "bundled",
         ScriptSource::Cached => "cached",
         ScriptSource::Downloaded => "downloaded",
     };
@@ -478,7 +454,7 @@ async fn run_bootstrap(
         &app,
         &script.path,
         &manifest_args_full,
-        args.hermes_home.as_deref(),
+        args.fabric_home.as_deref(),
         None,
         Some("__manifest__".to_string()),
     )
@@ -500,7 +476,7 @@ async fn run_bootstrap(
         return Err(anyhow!(err));
     }
 
-    let mut manifest: Manifest = powershell::parse_manifest(&manifest_result.stdout).ok_or_else(|| {
+    let manifest: Manifest = powershell::parse_manifest(&manifest_result.stdout).ok_or_else(|| {
         let err = format!(
             "install.ps1 -Manifest produced no parseable JSON payload\n{}",
             truncate(&manifest_result.stdout, 4000)
@@ -514,13 +490,6 @@ async fn run_bootstrap(
         );
         anyhow!(err)
     })?;
-
-    // The stage protocol is an internal compatibility contract shared with
-    // legacy installers. Keep stable stage ids/categories, but never leak an
-    // legacy product name into the visible progress list.
-    for stage in &mut manifest.stages {
-        stage.title = fabric_display_copy(&stage.title);
-    }
 
     emit_event(
         &app,
@@ -592,7 +561,7 @@ async fn run_bootstrap(
             &app,
             &script.path,
             &stage_args,
-            args.hermes_home.as_deref(),
+            args.fabric_home.as_deref(),
             local_cancel_rx,
             Some(stage.name.clone()),
         )
@@ -676,7 +645,6 @@ async fn run_bootstrap(
                 let err = frame
                     .reason
                     .clone()
-                    .map(|reason| fabric_display_copy(&reason))
                     .unwrap_or_else(|| format!("exit code {:?}", stage_result.exit_code));
                 emit_event(
                     &app,
@@ -700,18 +668,16 @@ async fn run_bootstrap(
         }
     }
 
-    // 4. Resolve install_root. Current scripts clone to `fabric-agent`; the
-    // resolver retains `hermes-agent` as an upgrade fallback.
-    let hermes_home = args
-        .hermes_home
+    // 4. Resolve the canonical install root.
+    let fabric_home = args
+        .fabric_home
         .clone()
-        .unwrap_or_else(|| crate::paths::hermes_home().to_string_lossy().into_owned());
-    let install_root = crate::paths::install_root_for_home(Path::new(&hermes_home));
+        .unwrap_or_else(|| crate::paths::fabric_home().to_string_lossy().into_owned());
+    let install_root = crate::paths::install_root_for_home(Path::new(&fabric_home));
 
-    // Stage both HERMES_HOME/fabric-setup and its hermes-setup compatibility
-    // copy so new and legacy desktops can hand off to the same updater.
-    if let Err(err) = crate::paths::copy_self_to_hermes_home() {
-        tracing::warn!(?err, "failed to copy installer into HERMES_HOME (non-fatal)");
+    // Stage the updater at FABRIC_HOME/fabric-setup.
+    if let Err(err) = crate::paths::copy_self_to_fabric_home() {
+        tracing::warn!(?err, "failed to copy installer into FABRIC_HOME (non-fatal)");
         emit_log(&format!(
             "[bootstrap] warning: could not stage updater binary: {err}"
         ));
@@ -744,7 +710,7 @@ async fn run_install_script(
     app: &AppHandle,
     script_path: &std::path::Path,
     args: &[String],
-    hermes_home_override: Option<&str>,
+    fabric_home_override: Option<&str>,
     cancel_rx: Option<mpsc::Receiver<()>>,
     stage_name: Option<String>,
 ) -> Result<powershell::ScriptResult> {
@@ -796,7 +762,7 @@ async fn run_install_script(
         }),
     };
 
-    powershell::run_script(script_path, args, sink, hermes_home_override, cancel_rx)
+    powershell::run_script(script_path, args, sink, fabric_home_override, cancel_rx)
         .await
         .map_err(|e| {
             tracing::error!(?e, "install script invocation failed");
@@ -879,27 +845,13 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn fabric_display_copy(value: &str) -> String {
-    value
-        .replace("Fabric AGENT", "FABRIC")
-        .replace("Fabric Agent", "Fabric")
-        // public-release-audit: allow-legacy-compat -- normalize copy returned by older installers
-        .replace("Hermes", "Fabric")
-        .replace("`fabric`", "`fabric`")
-        .replace("Fabric command", "fabric command")
-        // public-release-audit: allow-legacy-compat -- normalize home guidance returned by older installers
-        .replace("~/.hermes", "~/.fabric")
-        // public-release-audit: allow-legacy-compat -- normalize Windows home guidance returned by older installers
-        .replace("%LOCALAPPDATA%\\hermes", "%LOCALAPPDATA%\\fabric")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn unique_tmp_dir(tag: &str) -> PathBuf {
         let base = std::env::temp_dir().join(format!(
-            "hermes-bootstrap-test-{tag}-{}-{}",
+            "fabric-bootstrap-test-{tag}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -912,13 +864,11 @@ mod tests {
 
     // Build a fake built-desktop release tree at the platform's expected path
     // and return (install_root, expected_app_bundle_or_exe).
-    fn make_release_tree(install_root: &Path, branded: bool) -> PathBuf {
+    fn make_release_tree(install_root: &Path) -> PathBuf {
         let release = install_root.join("apps").join("desktop").join("release");
         if cfg!(target_os = "macos") {
-            // public-release-audit: allow-legacy-compat -- exercise upgrades from pre-Fabric desktop bundles
-            let app_name = if branded { "Fabric.app" } else { "Hermes.app" };
-            // public-release-audit: allow-legacy-compat -- exercise upgrades from pre-Fabric desktop executables
-            let exe_name = if branded { "Fabric" } else { "Hermes" };
+            let app_name = "Fabric.app";
+            let exe_name = "Fabric";
             let macos_dir = release
                 .join("mac-arm64")
                 .join(app_name)
@@ -930,14 +880,13 @@ mod tests {
         } else if cfg!(target_os = "windows") {
             let dir = release.join("win-unpacked");
             std::fs::create_dir_all(&dir).unwrap();
-            // public-release-audit: allow-legacy-compat -- exercise upgrades from pre-Fabric Windows executables
-            let exe = dir.join(if branded { "Fabric.exe" } else { "Hermes.exe" });
+            let exe = dir.join("Fabric.exe");
             std::fs::write(&exe, b"stub").unwrap();
             exe
         } else {
             let dir = release.join("linux-unpacked");
             std::fs::create_dir_all(&dir).unwrap();
-            let exe = dir.join(if branded { "fabric" } else { "hermes" });
+            let exe = dir.join("Fabric");
             std::fs::write(&exe, b"stub").unwrap();
             exe
         }
@@ -945,14 +894,14 @@ mod tests {
 
     // The relaunch / install target is derived from the rebuilt desktop app.
     // On macOS this MUST resolve to the .app bundle (what `open` relaunches and
-    // what the updater ditto's over /Applications/Hermes.app). A regression in
+    // what the updater ditto's over /Applications/Fabric.app). A regression in
     // this derivation breaks the post-update auto-relaunch, so guard it.
     #[test]
-    fn resolve_hermes_desktop_app_finds_built_bundle() {
+    fn resolve_fabric_desktop_app_finds_built_bundle() {
         let root = unique_tmp_dir("app-ok");
-        let expected = make_release_tree(&root, true);
+        let expected = make_release_tree(&root);
 
-        let resolved = resolve_hermes_desktop_app(&root)
+        let resolved = resolve_fabric_desktop_app(&root)
             .expect("should resolve the freshly-built desktop app");
 
         #[cfg(target_os = "macos")]
@@ -972,54 +921,7 @@ mod tests {
     }
 
     #[test]
-    fn desktop_resolution_prefers_fabric_and_accepts_legacy_hermes() {
-        let root = unique_tmp_dir("preference");
-        let legacy = make_release_tree(&root, false);
-        let legacy_exe = resolve_hermes_desktop_exe(&root).expect("legacy app remains launchable");
-        #[cfg(target_os = "macos")]
-        assert!(legacy_exe.starts_with(&legacy));
-        #[cfg(not(target_os = "macos"))]
-        assert_eq!(legacy_exe, legacy);
-
-        let fabric = make_release_tree(&root, true);
-        let preferred = resolve_hermes_desktop_exe(&root).expect("Fabric app is launchable");
-        #[cfg(target_os = "macos")]
-        assert!(preferred.starts_with(&fabric));
-        #[cfg(not(target_os = "macos"))]
-        assert_eq!(preferred, fabric);
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn every_desktop_platform_lists_fabric_before_hermes() {
-        let root = Path::new("/install");
-        for os in ["windows", "macos", "linux"] {
-            let names: Vec<String> = desktop_release_candidates(root, os)
-                .iter()
-                .map(|p| p.to_string_lossy().into_owned())
-                .collect();
-            let first_legacy = names
-                .iter()
-                .position(|p| p.to_ascii_lowercase().contains("hermes"))
-                .expect("legacy candidate is retained");
-            assert!(
-                names[..first_legacy]
-                    .iter()
-                    .any(|p| p.to_ascii_lowercase().contains("fabric")),
-                "{os} must prefer a Fabric candidate"
-            );
-            assert!(
-                names[first_legacy..]
-                    .iter()
-                    .all(|p| !p.to_ascii_lowercase().contains("fabric")),
-                "all Fabric candidates must precede historical candidates on {os}"
-            );
-        }
-    }
-
-    #[test]
-    fn desktop_resolution_prefers_native_architecture_within_each_brand() {
+    fn desktop_resolution_prefers_native_architecture() {
         let root = Path::new("/install");
         let arm = desktop_release_candidates_for_arch(root, "macos", "aarch64");
         assert!(arm[0].to_string_lossy().contains("mac-arm64/Fabric.app"));
@@ -1030,27 +932,27 @@ mod tests {
         assert!(win_arm[0].to_string_lossy().contains("win-arm64-unpacked/Fabric.exe"));
         let win_x64 = desktop_release_candidates_for_arch(root, "windows", "x86_64");
         assert!(win_x64[0].to_string_lossy().contains("win-unpacked/Fabric.exe"));
+
+        let linux_arm = desktop_release_candidates_for_arch(root, "linux", "aarch64");
+        assert!(linux_arm[0]
+            .to_string_lossy()
+            .contains("linux-arm64-unpacked/Fabric"));
+        let linux_x64 = desktop_release_candidates_for_arch(root, "linux", "x86_64");
+        assert!(linux_x64[0]
+            .to_string_lossy()
+            .contains("linux-unpacked/Fabric"));
     }
 
     #[test]
-    fn resolve_hermes_desktop_app_is_none_without_a_build() {
+    fn resolve_fabric_desktop_app_is_none_without_a_build() {
         let root = unique_tmp_dir("app-none");
         // No release tree created.
         assert!(
-            resolve_hermes_desktop_app(&root).is_none(),
+            resolve_fabric_desktop_app(&root).is_none(),
             "no resolved app when nothing has been built"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    #[test]
-    fn customer_stage_copy_is_fabric_branded_without_touching_compat_paths() {
-        assert_eq!(
-            fabric_display_copy("Download Fabric and install Fabric command"),
-            "Download Fabric and install fabric command"
-        );
-        // public-release-audit: allow-legacy-compat -- verify conversion of the previous home-directory token
-        assert_eq!(fabric_display_copy("~/.hermes"), "~/.fabric");
-        assert_eq!(fabric_display_copy("Fabric AGENT"), "FABRIC");
-    }
+
 }

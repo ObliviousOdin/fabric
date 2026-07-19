@@ -153,7 +153,7 @@ def test_s6_running_false_when_comm_unreadable(
 ) -> None:
     """Regression: /proc/1/exe was unreadable to UID 10000 and
     resolve() silently returned the unresolved path, making detection
-    always-False inside the container under the hermes user. The new
+    always-False inside the container under the fabric user. The new
     probe must FAIL CLOSED — not raise — when /proc/1/comm can't be
     read.
     """
@@ -430,7 +430,7 @@ def test_s6_manager_kind_and_supports_registration() -> None:
 #
 # The skeleton helper pre-creates the dirs and FIFOs that s6-supervise
 # would otherwise create as root mode 0700, locking out the
-# unprivileged hermes user from every lifecycle op. These tests run
+# unprivileged fabric user from every lifecycle op. These tests run
 # against tmp_path and assert the produced layout — the live-container
 # verification (against real s6-svc / s6-svstat) lives in
 # tests/docker/test_s6_profile_gateway_integration.py.
@@ -478,7 +478,7 @@ def test_seed_supervise_skeleton_handles_log_subservice(tmp_path) -> None:
 
     Without this, ``unregister_profile_gateway``'s rmtree would EACCES
     on the logger's root-owned supervise dir even after the parent
-    slot's supervise/ was hermes-owned.
+    slot's supervise/ was fabric-owned.
     """
     import stat
 
@@ -549,12 +549,11 @@ def test_s6_register_creates_service_dir_and_triggers_scan(
     run_text = run_path.read_text()
     assert "export HOME=/opt/data" in run_text
     assert "fabric -p coder gateway run" in run_text
-    assert "s6-setuidgid hermes" in run_text
-    # Sentinel marking this as the supervised-child invocation. Without
-    # it, the supervised `gateway run` would re-enter the s6 redirect
-    # in `_gateway_command_inner` and recurse. See the matching guard
-    # in fabric_cli/gateway.py::_gateway_command_inner.
-    assert "export HERMES_S6_SUPERVISED_CHILD=1" in run_text
+    assert "s6-setuidgid fabric" in run_text
+    # Explicit argv is the supervised-child contract and recursion guard.
+    assert (
+        "fabric -p coder gateway run --replace --supervised-service" in run_text
+    )
 
     log_run = svc_dir / "log" / "run"
     assert log_run.is_file()
@@ -632,6 +631,14 @@ def test_s6_register_staging_dir_is_dotfile_hidden_from_svscan(
     assert (s6_scandir / "gateway-coder").is_dir()
 
 
+def test_s6_default_service_uses_explicit_root_profile() -> None:
+    run_text = S6ServiceManager._render_run_script("default", {})
+
+    assert (
+        "fabric -p default gateway run --replace --supervised-service" in run_text
+    )
+
+
 def test_s6_register_start_now_false_writes_down_marker(
     s6_scandir, fake_subprocess_run,
 ) -> None:
@@ -677,7 +684,7 @@ def test_render_run_script_resets_home_before_exec() -> None:
     run_text = S6ServiceManager._render_run_script("coder", {})
 
     assert "export HOME=/opt/data" in run_text
-    assert "exec s6-setuidgid hermes fabric -p coder gateway run --replace" in run_text
+    assert "exec s6-setuidgid fabric fabric -p coder gateway run --replace" in run_text
 
 
 def test_render_run_script_uses_replace_to_take_over_stale_holder() -> None:
@@ -685,19 +692,20 @@ def test_render_run_script_uses_replace_to_take_over_stale_holder() -> None:
 
     Without ``--replace`` a gateway started OUTSIDE s6 (a stray shell
     ``fabric gateway run``, an agent action, the Open WebUI helper) holds
-    the per-HERMES_HOME PID lock; the supervised slot then execs a bare
+    the per-FABRIC_HOME PID lock; the supervised slot then execs a bare
     ``gateway run``, hits the "Another gateway instance is already
     running" guard, exits non-zero, and s6 restarts it — a restart loop
     that never binds. ``--replace`` makes the supervised gateway reap the
     stale holder and win, so s6 is authoritative for the slot.
 
-    Covers both the default (root HERMES_HOME, no ``-p``) and named-profile
-    render paths.
+    Covers both the explicit default root and named-profile render paths.
     """
     default_text = S6ServiceManager._render_run_script("default", {})
-    # Root profile: bare `fabric gateway run --replace` (no -p flag).
-    assert "fabric gateway run --replace" in default_text
-    assert "hermes -p default" not in default_text
+    # Root profile is explicit so sticky active-profile state cannot retarget it.
+    assert (
+        "fabric -p default gateway run --replace --supervised-service"
+        in default_text
+    )
     # Every exec line that launches the gateway must carry --replace, so
     # neither the non-root nor the privilege-drop branch can spin.
     gateway_execs = [
@@ -843,11 +851,11 @@ def test_s6_lifecycle_persists_named_profile_desired_state(
 ) -> None:
     import json
 
-    hermes_home = tmp_path / "hermes-home"
-    profile_dir = hermes_home / "profiles" / "coder"
+    fabric_home = tmp_path / "fabric-home"
+    profile_dir = fabric_home / "profiles" / "coder"
     profile_dir.mkdir(parents=True)
     (s6_scandir / "gateway-coder").mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
     mgr = S6ServiceManager(scandir=s6_scandir)
     mgr.start("gateway-coder")
@@ -866,14 +874,14 @@ def test_s6_lifecycle_persists_default_profile_desired_state(
 ) -> None:
     import json
 
-    hermes_home = tmp_path / "hermes-home"
-    hermes_home.mkdir()
+    fabric_home = tmp_path / "fabric-home"
+    fabric_home.mkdir()
     (s6_scandir / "gateway-default").mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home / "profiles" / "coder"))
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home / "profiles" / "coder"))
 
     mgr = S6ServiceManager(scandir=s6_scandir)
     mgr.start("gateway-default")
-    state = json.loads((hermes_home / "gateway_state.json").read_text())
+    state = json.loads((fabric_home / "gateway_state.json").read_text())
     assert state["desired_state"] == "running"
 
 
@@ -1109,27 +1117,27 @@ def test_s6_log_run_chowns_gateways_parent(s6_scandir, fake_subprocess_run) -> N
     Regression guard for #45258: `mkdir -p` creates the gateways/ parent
     root-owned on a root-context boot, and a leaf-only chown leaves it that
     way. Every profile registered later then runs its log service as the
-    dropped hermes user and s6-log crash-loops on `mkdir: Permission denied`.
+    dropped fabric user and s6-log crash-loops on `mkdir: Permission denied`.
     """
     mgr = S6ServiceManager(scandir=s6_scandir)
     mgr.register_profile_gateway("coder")
 
     log_text = (s6_scandir / "gateway-coder" / "log" / "run").read_text()
 
-    parent_chown = 'chown hermes:hermes "$FABRIC_HOME/logs/gateways"'
+    parent_chown = 'chown fabric:fabric "$FABRIC_HOME/logs/gateways"'
     assert parent_chown in log_text, (
         "log/run must chown the logs/gateways parent so profiles added "
         f"after a root-context boot can create their leaf dirs. Saw: {log_text!r}"
     )
     # Non-recursive on purpose: sibling profile leaf dirs are each managed
     # by their own log/run; a recursive parent chown would race them.
-    assert 'chown -R hermes:hermes "$FABRIC_HOME/logs/gateways"' not in log_text
+    assert 'chown -R fabric:fabric "$FABRIC_HOME/logs/gateways"' not in log_text
 
     # Ordering: mkdir creates the parent, then the parent chown repairs its
     # ownership, then the leaf chown — all before s6-log execs.
     mkdir_idx = log_text.index('mkdir -p "$log_dir"')
     parent_idx = log_text.index(parent_chown)
-    leaf_idx = log_text.index('chown -R hermes:hermes "$log_dir"')
+    leaf_idx = log_text.index('chown -R fabric:fabric "$log_dir"')
     exec_idx = log_text.index("s6-log 1 ")
     assert mkdir_idx < parent_idx < leaf_idx < exec_idx
 

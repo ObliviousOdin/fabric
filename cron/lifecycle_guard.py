@@ -1,7 +1,7 @@
 """Gateway lifecycle guard for cron job creation (#30719).
 
 An agent running inside a gateway can schedule a cron job that calls
-``fabric gateway restart`` (or ``launchctl kickstart ai.hermes.gateway``
+``fabric gateway restart`` (or ``launchctl kickstart ai.fabric.gateway``
 or ``systemctl restart Fabric-gateway``).  When the cron fires, the
 gateway dies, the supervisor (launchd KeepAlive / systemd Restart=)
 revives it, auto-resume picks up the offending session, and the resumed
@@ -15,18 +15,18 @@ direct shell-level gateway-lifecycle command.  It is enforced at
 tool (which calls ``create_job`` directly, bypassing the CLI layer).
 
 The pattern is intentionally command-shaped: it anchors on a concrete
-command identifier (``fabric gateway``, ``launchctl ... hermes-gateway``,
-``systemctl ... hermes-gateway``, ``pkill`` against the gateway) so it
+command identifier (``fabric gateway``, ``launchctl ... fabric-gateway``,
+``systemctl ... fabric-gateway``, ``pkill`` against the gateway) so it
 cannot fire on prose.  A cron ``prompt`` is fed to a future LLM, not a
 shell, so an over-broad substring match on English ("Kong API gateway
 autoscaling and restart behavior") would produce a high false-positive
 rate without preventing the actual foot-gun, which requires a real
 command shape.
 
-This is a defence-in-depth layer.  ``tools/terminal_tool.py`` already
-blocks these commands at *execution* time when ``_HERMES_GATEWAY=1``, and
-``fabric gateway stop|restart`` refuse to self-target from inside the
-gateway.  Blocking at *creation* time as well means the agent gets an
+This is a defence-in-depth layer. ``tools/terminal_tool.py`` already blocks
+these commands at *execution* time when hosted by the gateway, and ``fabric
+gateway stop|restart`` refuse to self-target there. Blocking at *creation*
+time as well means the agent gets an
 immediate, informative rejection instead of scheduling a job that will
 only fail (silently) when it fires.
 """
@@ -47,19 +47,18 @@ class GatewayLifecycleBlocked(ValueError):
 # actual shell-command-shaped strings, not on prose.
 _GATEWAY_LIFECYCLE_PATTERN = re.compile(
     r"(?i)"
-    # Branch A: fabric/fabric gateway restart|stop — the canonical foot-gun.
+    # Branch A: fabric gateway restart|stop — the canonical foot-gun.
     # `start` is intentionally excluded: starting a gateway from inside a
     # gateway is benign (a no-op or "already running" error), and a
     # legitimate cron job might start a sibling profile's gateway.
-    r"(?:(?:fabric|hermes)\s+gateway\s+(?:restart|stop))"
-    # Branch B: launchctl ops on fabric/fabric gateway labels.
-    # labels look like `ai.fabric.gateway` / `fabric-gateway` (and legacy hermes).
-    r"|(?:launchctl\s+(?:kickstart|unload|load|stop|restart)\b[^\n]*\b(?:fabric|hermes)[.\-]?gateway)"
-    # Branch C: systemctl ops on fabric/fabric gateway units.
-    r"|(?:systemctl\s+(?:-\S+\s+)*(?:restart|stop|start)\b[^\n]*\b(?:fabric|hermes)[.\-]?gateway)"
-    # Branch D: pkill / kill targeting the fabric/fabric gateway process.
-    r"|(?:p?kill\b[^\n]*\b(?:fabric|hermes)\b[^\n]*\bgateway)"
-    r"|(?:p?kill\b[^\n]*\bgateway\b[^\n]*\b(?:fabric|hermes))"
+    r"(?:fabric\s+gateway\s+(?:restart|stop))"
+    # Branch B: launchctl ops on Fabric gateway labels.
+    r"|(?:launchctl\s+(?:kickstart|unload|load|stop|restart)\b[^\n]*\bfabric[.\-]?gateway)"
+    # Branch C: systemctl ops on Fabric gateway units.
+    r"|(?:systemctl\s+(?:-\S+\s+)*(?:restart|stop|start)\b[^\n]*\bfabric[.\-]?gateway)"
+    # Branch D: pkill / kill targeting the Fabric gateway process.
+    r"|(?:p?kill\b[^\n]*\bfabric\b[^\n]*\bgateway)"
+    r"|(?:p?kill\b[^\n]*\bgateway\b[^\n]*\bfabric)"
 )
 
 
@@ -74,10 +73,10 @@ def _resolve_script_path(script_path: str) -> Path:
     """Resolve a cron ``script`` value the same way the scheduler does.
 
     The scheduler (``cron.scheduler``) resolves a bare/relative script path
-    under ``<HERMES_HOME>/scripts/`` and only accepts absolute paths as-is.
+    under ``<FABRIC_HOME>/scripts/`` and only accepts absolute paths as-is.
     We MUST mirror that here so the guard scans the file that will actually
     run — otherwise a job whose script lives at the scheduler's real location
-    (``~/.hermes/scripts/restart.sh``) but is passed as the bare name
+    (``~/.fabric/scripts/restart.sh``) but is passed as the bare name
     ``restart.sh`` would read as a nonexistent relative path and silently
     scan prompt-only content, letting the command through.
     """

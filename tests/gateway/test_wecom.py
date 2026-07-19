@@ -276,6 +276,35 @@ class TestCallbackDispatch:
 
 
 class TestPolicyHelpers:
+    def test_upstream_camel_case_config_fields_are_accepted(self):
+        from plugins.platforms.wecom.adapter import WeComAdapter
+
+        adapter = WeComAdapter(
+            PlatformConfig(
+                enabled=True,
+                extra={
+                    "websocketUrl": "wss://wecom.example/ws",
+                    "dm_policy": "allowlist",
+                    "allowFrom": ["user-1"],
+                    "group_policy": "allowlist",
+                    "groupAllowFrom": ["group-1"],
+                },
+            )
+        )
+
+        assert adapter._ws_url == "wss://wecom.example/ws"
+        assert adapter._allow_from == ["user-1"]
+        assert adapter._group_allow_from == ["group-1"]
+
+    def test_wecom_websocket_env_is_used_when_config_is_absent(self, monkeypatch):
+        from plugins.platforms.wecom.adapter import WeComAdapter
+
+        monkeypatch.setenv("WECOM_WEBSOCKET_URL", "wss://wecom.example/env")
+
+        adapter = WeComAdapter(PlatformConfig(enabled=True))
+
+        assert adapter._ws_url == "wss://wecom.example/env"
+
     def test_dm_allowlist(self):
         from plugins.platforms.wecom.adapter import WeComAdapter
 

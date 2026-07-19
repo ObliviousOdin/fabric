@@ -27,10 +27,13 @@ from unittest.mock import patch
 import pytest
 
 from tools.skills_hub import (
+    HubSourceAuthority,
+    HubSourceKind,
     SkillBundle,
     bundle_content_hash,
     uninstall_skill,
 )
+from tools.skill_install import capture_tree_snapshot
 from tools.skills_guard import content_hash
 
 
@@ -82,8 +85,25 @@ class TestUninstallPathTraversal:
         return skills_dir, hub_dir, victim
 
     def _write_lock(self, hub_dir: Path, entries: dict) -> None:
+        canonical_entries = {}
+        for name, raw_entry in entries.items():
+            entry = dict(raw_entry)
+            source = entry.setdefault("source", "test")
+            identifier = entry.setdefault("identifier", f"test/{name}")
+            trust_level = entry.setdefault("trust_level", "community")
+            entry.setdefault("files", [])
+            entry.setdefault("metadata", {})
+            entry["source_authority"] = HubSourceAuthority(
+                adapter=HubSourceKind.UNVERIFIED,
+                remote_identifier=identifier,
+                bundle_source=source,
+                trust_level=trust_level,
+            ).as_dict()
+            canonical_entries[name] = entry
         lock_path = hub_dir / "lock.json"
-        lock_path.write_text(json.dumps({"version": 1, "installed": entries}))
+        lock_path.write_text(
+            json.dumps({"version": 1, "installed": canonical_entries})
+        )
 
     def test_traversal_via_parent_segments_rejected(self, hub_setup):
         """install_path: "../do-not-delete" must NOT escape SKILLS_DIR."""
@@ -96,14 +116,14 @@ class TestUninstallPathTraversal:
             },
         })
 
-        ok, msg = uninstall_skill("evil")
+        outcome = uninstall_skill("evil")
 
-        assert ok is False
+        assert outcome.committed is False
         assert (
-            "outside" in msg
-            or "resolves" in msg
-            or "skills directory" in msg
-            or "Unsafe install path" in msg
+            "outside" in outcome.message
+            or "resolves" in outcome.message
+            or "skills directory" in outcome.message
+            or "Unsafe install path" in outcome.message
         )
         # The victim directory MUST still exist.
         assert victim.exists()
@@ -120,11 +140,11 @@ class TestUninstallPathTraversal:
             },
         })
 
-        ok, msg = uninstall_skill("evil")
+        outcome = uninstall_skill("evil")
 
         # SKILLS_DIR / "<absolute>" still results in an absolute path,
         # which when resolved is outside skills_dir. Must be refused.
-        assert ok is False
+        assert outcome.committed is False
         assert victim.exists()
 
     def test_symlink_escape_rejected(self, tmp_path, hub_setup):
@@ -143,10 +163,10 @@ class TestUninstallPathTraversal:
             },
         })
 
-        ok, msg = uninstall_skill("trap")
+        outcome = uninstall_skill("trap")
 
         # realpath resolves the symlink → outside skills_dir → refused.
-        assert ok is False
+        assert outcome.committed is False
         assert victim.exists()
         assert (victim / "important.txt").exists()
 
@@ -163,12 +183,13 @@ class TestUninstallPathTraversal:
                 "source": "https://example.com",
                 "trust_level": "community",
                 "version": "1.0",
+                "attested_tree_sha256": capture_tree_snapshot(legit).tree_sha256,
             },
         })
 
-        ok, msg = uninstall_skill("my-skill")
+        outcome = uninstall_skill("my-skill")
 
-        assert ok is True
+        assert outcome.committed is True
         assert not legit.exists()
 
 

@@ -2,7 +2,7 @@
 
 Complements ``tests/tools/test_windows_compat.py`` (which does source-level
 pattern linting) with cross-platform-mocked tests that exercise the actual
-code paths Hermes takes on native Windows.
+code paths Fabric takes on native Windows.
 
 Runs on Linux CI — every test mocks ``sys.platform``, ``subprocess.run``,
 and ``os.kill`` as needed to simulate Windows behavior without requiring a
@@ -35,7 +35,6 @@ class TestConfigureWindowsStdio:
     - set PYTHONIOENCODING / PYTHONUTF8 without overriding explicit user settings
     - reconfigure sys.stdout/stderr/stdin to UTF-8 on Windows
     - flip the console code page to CP_UTF8 (65001) via ctypes
-    - respect HERMES_DISABLE_WINDOWS_UTF8 opt-out
     """
 
     @pytest.fixture(autouse=True)
@@ -71,7 +70,6 @@ class TestConfigureWindowsStdio:
         # Pretend the user has no prior setting
         monkeypatch.delenv("PYTHONIOENCODING", raising=False)
         monkeypatch.delenv("PYTHONUTF8", raising=False)
-        monkeypatch.delenv("HERMES_DISABLE_WINDOWS_UTF8", raising=False)
         monkeypatch.delenv("EDITOR", raising=False)
         monkeypatch.delenv("VISUAL", raising=False)
 
@@ -143,24 +141,6 @@ class TestConfigureWindowsStdio:
 
         stdio.configure_windows_stdio()
         assert os.environ["PYTHONIOENCODING"] == "latin-1"
-
-    @pytest.mark.parametrize("optout", ["1", "true", "True", "yes"])
-    def test_disable_flag_short_circuits(self, monkeypatch, optout):
-        from fabric_cli import stdio
-
-        monkeypatch.setattr(stdio, "is_windows", lambda: True)
-        monkeypatch.setenv("HERMES_DISABLE_WINDOWS_UTF8", optout)
-
-        reconfigure_hit = []
-        monkeypatch.setattr(
-            stdio,
-            "_reconfigure_stream",
-            lambda *a, **kw: reconfigure_hit.append(True),
-        )
-
-        result = stdio.configure_windows_stdio()
-        assert result is False
-        assert reconfigure_hit == [], "opt-out must skip stream reconfiguration"
 
     def test_reconfigure_stream_handles_missing_method(self, monkeypatch):
         """StringIO-like objects without .reconfigure() must not blow up."""
@@ -459,7 +439,6 @@ class TestReadmeFabricWindowsGuidance:
         assert "Windows PowerShell" in source
         assert "https://raw.githubusercontent.com/ObliviousOdin/fabric/main/scripts/install.sh" in source
         assert "https://raw.githubusercontent.com/ObliviousOdin/fabric/main/scripts/install.ps1" in source
-        assert "fabric-agent.nousresearch.com/install.ps1" not in source
 
     def test_windows_guide_documents_native_and_wsl2_paths(self):
         root = Path(__file__).resolve().parents[2]
@@ -591,7 +570,7 @@ class TestSubprocessCompatHelpers:
         """CREATE_BREAKAWAY_FROM_JOB is load-bearing for the GUI-driven update path.
 
         Without it, the gateway-respawn watcher spawned by ``fabric update``
-        (which runs under hermes-setup.exe, itself a grandchild of the
+        (which runs under fabric-setup.exe, itself a grandchild of the
         Electron Desktop app) gets reaped when Electron exits and its
         Win32 job object is torn down by the OS.  Result: gateway dies
         during update and never comes back.
@@ -711,7 +690,7 @@ class TestCodeExecutionTransportTcpFallback:
 
     We can't easily execute the sandbox on Linux CI in Windows mode, but we
     CAN assert that the generated client module supports both AF_UNIX and
-    AF_INET endpoints based on the HERMES_RPC_SOCKET format.
+    AF_INET endpoints based on its generated endpoint descriptor.
     """
 
     def test_generated_client_handles_tcp_endpoint(self):
@@ -841,7 +820,7 @@ class TestLocalEnvironmentWindowsTempDir:
                 f"POSIX temp dir must start with '/'; got {tmp_dir!r}"
             )
 
-    def test_source_has_windows_branch_using_hermes_home(self):
+    def test_source_has_windows_branch_using_fabric_home(self):
         root = Path(__file__).resolve().parents[2]
         source = (root / "tools" / "environments" / "local.py").read_text(encoding="utf-8")
         assert "if _IS_WINDOWS:" in source
@@ -924,7 +903,7 @@ class TestGatewayDetachedWatcherWindowsFlags:
     launcher must use CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS on
     Windows, not silent start_new_session=True."""
 
-    def test_hermes_cli_gateway_uses_compat_kwargs(self):
+    def test_fabric_cli_gateway_uses_compat_kwargs(self):
         root = Path(__file__).resolve().parents[2]
         source = (root / "fabric_cli" / "gateway.py").read_text(encoding="utf-8")
         assert "windows_detach_popen_kwargs" in source, (
@@ -1057,7 +1036,7 @@ class TestGatewayDetachedWatcherWindowsFlags:
         )
         assert '_popen_kwargs["env"]' in block, (
             "Inlined respawn must overlay env (VIRTUAL_ENV / PYTHONPATH / "
-            "HERMES_HOME) so the windowless base pythonw resolves fabric_cli."
+            "FABRIC_HOME) so the windowless base pythonw resolves fabric_cli."
         )
 
 
@@ -1117,16 +1096,17 @@ class TestWindowlessGatewayRestartSpec:
         with mock.patch.object(gw.sys, "platform", "win32"), mock.patch.object(
             gw, "_resolve_detached_python", side_effect=fake_resolve
         ), mock.patch.object(
-            gw, "_stable_gateway_working_dir", return_value="C:/hermes"
+            gw, "_stable_gateway_working_dir", return_value="C:/fabric"
         ), mock.patch(
-            "fabric_cli.config.get_fabric_home", return_value="C:/hermes"
+            "fabric_cli.config.get_fabric_home", return_value="C:/fabric"
         ):
             new_argv, cwd, env = gw.windowless_gateway_restart_spec(list(argv))
 
         assert new_argv[0] == "C:/base/pythonw.exe"
-        # Everything after the interpreter is byte-for-byte preserved.
-        assert new_argv[1:] == argv[1:]
-        assert cwd == "C:/hermes"
+        # Existing arguments are preserved and the launch mode is explicit.
+        assert new_argv[1:-1] == argv[1:]
+        assert new_argv[-1] == "--detached-service"
+        assert cwd == "C:/fabric"
         assert env["VIRTUAL_ENV"] == str(Path("C:/venv"))
         assert "PYTHONPATH" in env
         assert "site-packages" in env["PYTHONPATH"]

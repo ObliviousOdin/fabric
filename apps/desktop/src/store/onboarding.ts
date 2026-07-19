@@ -1,6 +1,6 @@
 import { atom } from 'nanostores'
 
-import { brandText, desktopBrand } from '@/brand'
+import { desktopBrand } from '@/brand'
 import {
   cancelOAuthSession,
   configureLocalOllama,
@@ -17,12 +17,12 @@ import {
   startOAuthLogin,
   submitOAuthCode,
   validateProviderCredential
-} from '@/hermes'
+} from '@/fabric'
 import { supportsAccountOwnershipChoice } from '@/lib/provider-account-route'
 import { evaluateRuntimeReadiness, type RuntimeReadinessResult } from '@/lib/runtime-readiness'
 import { notify, notifyError } from '@/store/notifications'
 import { $activeGatewayProfile, normalizeProfileKey } from '@/store/profile'
-import type { ModelOptionProvider, OAuthProvider, OAuthStartResponse } from '@/types/hermes'
+import type { ModelOptionProvider, OAuthProvider, OAuthStartResponse } from '@/types/fabric'
 
 type PkceStart = Extract<OAuthStartResponse, { flow: 'pkce' }>
 type DeviceStart = Extract<OAuthStartResponse, { flow: 'device_code' }>
@@ -118,8 +118,8 @@ export interface OnboardingContext {
   requestGateway: <T = unknown>(method: string, params?: Record<string, unknown>) => Promise<T>
 }
 
-const CONFIGURED_CACHE_KEY = 'hermes-desktop-onboarded-v1'
-const SKIP_CACHE_KEY = 'hermes-onboarding-skipped-v1'
+const CONFIGURED_CACHE_KEY = 'fabric-desktop-onboarded-v1'
+const SKIP_CACHE_KEY = 'fabric-onboarding-skipped-v1'
 const POLL_MS = 2000
 const COPY_FLASH_MS = 1500
 export const DEFAULT_ONBOARDING_REASON = 'No inference provider is configured.'
@@ -233,15 +233,15 @@ function shellArgument(value: string): string {
 function scopeExternalProviderCommand(provider: OAuthProvider, profile: string): OAuthProvider {
   const command = provider.cli_command.trim()
 
-  // Commands owned by Fabric/Hermes honor the global profile selector. The
+  // Commands owned by Fabric honor the global profile selector. The
   // remaining external commands (for example `copilot /login` and
   // `claude setup-token`) own their credentials outside Fabric and must remain
   // byte-for-byte unchanged.
-  if (!/^(?:fabric|hermes)(?:\s|$)/.test(command)) {
+  if (!/^fabric(?:\s|$)/.test(command)) {
     return provider
   }
 
-  const scopedCommand = command.replace(/^(fabric|hermes)(?=\s|$)/, `$1 --profile ${shellArgument(profile)}`)
+  const scopedCommand = command.replace(/^fabric(?=\s|$)/, `fabric --profile ${shellArgument(profile)}`)
 
   return { ...provider, cli_command: scopedCommand }
 }
@@ -526,8 +526,8 @@ function providerResolutionFailure(reason: null | string) {
   const detail = reason?.trim()
 
   return detail
-    ? brandText(`Connected, but Fabric still cannot resolve a usable provider. ${detail}`)
-    : brandText('Connected, but Fabric still cannot resolve a usable provider.')
+    ? `Connected, but Fabric still cannot resolve a usable provider. ${detail}`
+    : 'Connected, but Fabric still cannot resolve a usable provider.'
 }
 
 async function refreshProviders() {
@@ -719,9 +719,8 @@ export async function refreshOnboarding(ctx: OnboardingContext) {
       id: 'runtime-not-ready',
       kind: 'error',
       title: 'Runtime not ready',
-      message: brandText(
+      message:
         'Fabric could not verify the running backend on startup. Some features may be unavailable until the gateway is reachable.'
-      )
     })
 
     return false
@@ -747,9 +746,9 @@ export async function refreshOnboarding(ctx: OnboardingContext) {
 // OS open and is commonly blocked anyway. window.open is only for previews
 // where the desktop bridge is genuinely absent.
 async function openSignInUrl(url: string) {
-  if (window.hermesDesktop?.openExternal) {
+  if (window.fabricDesktop?.openExternal) {
     try {
-      const opened = await (window.hermesDesktop.openExternal as (target: string) => Promise<unknown>)(url)
+      const opened = await (window.fabricDesktop.openExternal as (target: string) => Promise<unknown>)(url)
 
       if (opened === false) {
         throw new Error('The sign-in page could not be opened.')
@@ -1185,7 +1184,7 @@ export async function recheckExternalSignin(ctx: OnboardingContext) {
         provider,
         message:
           reason?.trim() ||
-          brandText(`Fabric still cannot reach ${provider.name}. Run \`${provider.cli_command}\` in a terminal first.`)
+          `Fabric still cannot reach ${provider.name}. Run \`${provider.cli_command}\` in a terminal first.`
       }),
     { oauthEpoch: flowEpoch, profile }
   )
@@ -1440,7 +1439,7 @@ async function persistOnboardingLocalEndpoint(
     if (!runtime.ready) {
       const detail = (runtime.reason ?? '').trim()
 
-      return { ok: false, message: detail || brandText(`Saved, but Fabric still cannot reach ${url}.`) }
+      return { ok: false, message: detail || `Saved, but Fabric still cannot reach ${url}.` }
     }
 
     if (completeDesktopOnboarding(profile)) {

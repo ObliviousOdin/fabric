@@ -94,4 +94,4 @@ The Python runtime, desktop app, web dashboard, TUI, skills, plugins, and docume
 
 ## License and Attribution
 
-Fabric is distributed under the [Apache License 2.0](LICENSE). Upstream and third-party attribution is summarized in [NOTICE](NOTICE) and component-level license files, including the preserved MIT notice from the upstream Hermes Agent software in [LICENSES/MIT-hermes-agent.txt](LICENSES/MIT-hermes-agent.txt).
+Fabric is distributed under the [Apache License 2.0](LICENSE). Upstream and third-party attribution is summarized in [NOTICE](NOTICE) and component-level license files, including the preserved MIT notice for upstream Nous Research software in [LICENSES/MIT-nous-research.txt](LICENSES/MIT-nous-research.txt).

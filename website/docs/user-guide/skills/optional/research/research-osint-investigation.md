@@ -132,7 +132,8 @@ python3 SKILL_DIR/scripts/fetch_ofac_sdn.py --out data/ofac_sdn.csv
 
 # ICIJ Offshore Leaks — downloads ~70 MB bulk CSV on first use,
 # then searches it locally. Cached for 30 days under
-# $FABRIC_OSINT_CACHE/icij/ (default: ~/.cache/fabric-osint/icij/).
+# $FABRIC_OSINT_CACHE/icij/ (default: ~/.cache/fabric-osint/icij/;
+# override either with --cache-dir).
 python3 SKILL_DIR/scripts/fetch_icij_offshore.py --entity "EXAMPLE CORP" \
     --out data/icij.csv
 ```
@@ -160,7 +161,7 @@ python3 SKILL_DIR/scripts/fetch_wayback.py --url "example.com" \
     --match host --collapse digest --out data/wayback.csv
 
 # Wikipedia + Wikidata — narrative bio + structured facts
-# Set HERMES_OSINT_UA=your-app/1.0 (your@email) to identify yourself
+# Set FABRIC_OSINT_UA=your-app/1.0 (your@email) to identify yourself
 python3 SKILL_DIR/scripts/fetch_wikipedia.py --query "Bill Gates" \
     --out data/wp.csv
 

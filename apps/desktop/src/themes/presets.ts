@@ -91,9 +91,6 @@ export const fabricTheme: DesktopTheme = {
   typography: DEFAULT_TYPOGRAPHY
 }
 
-/** @deprecated Internal compatibility export for pre-Fabric imports. */
-export const nousTheme = fabricTheme
-
 /** Deep blue-violet with cool accents. Matches the dashboard midnight theme. */
 export const midnightTheme: DesktopTheme = {
   name: 'midnight',
@@ -128,43 +125,6 @@ export const midnightTheme: DesktopTheme = {
   typography: {
     fontMono: `"JetBrains Mono", ${SYSTEM_MONO}`,
     fontUrl: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap'
-  }
-}
-
-/** Warm crimson and bronze — forge vibes. Matches the CLI ares skin. */
-export const emberTheme: DesktopTheme = {
-  name: 'ember',
-  label: 'Ember',
-  description: 'Warm crimson and bronze — forge vibes',
-  colors: {
-    background: '#160800',
-    foreground: '#ffd8b0',
-    card: '#1e0e04',
-    cardForeground: '#ffd8b0',
-    muted: '#2a1408',
-    mutedForeground: '#aa7a56',
-    popover: '#221008',
-    popoverForeground: '#ffd8b0',
-    primary: '#ffd8b0',
-    primaryForeground: '#160800',
-    secondary: '#341800',
-    secondaryForeground: '#f0c090',
-    accent: '#301600',
-    accentForeground: '#e8c080',
-    border: '#3a1c08',
-    input: '#3a1c08',
-    ring: '#d97316',
-    midground: '#d97316',
-    destructive: '#c43010',
-    destructiveForeground: '#fef2f2',
-    sidebarBackground: '#100600',
-    sidebarBorder: '#2a1004',
-    userBubble: '#2a1000',
-    userBubbleBorder: '#4a2010'
-  },
-  typography: {
-    fontMono: `"IBM Plex Mono", ${SYSTEM_MONO}`,
-    fontUrl: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap'
   }
 }
 
@@ -277,7 +237,6 @@ export const slateTheme: DesktopTheme = {
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
   fabric: fabricTheme,
   midnight: midnightTheme,
-  ember: emberTheme,
   mono: monoTheme,
   cyberpunk: cyberpunkTheme,
   slate: slateTheme

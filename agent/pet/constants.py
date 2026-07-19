@@ -1,9 +1,8 @@
 """Pet sprite geometry + animation-state taxonomy.
 
 These values are the common petdex/Codex pet geometry. The real ``pet.json``
-usually only carries ``id``/``displayName``/``description``/``spritesheetPath``;
-row taxonomy is inferred from the atlas shape so Fabric can render both legacy
-8-row sheets and current 9-row Codex sheets.
+usually only carries ``id``/``displayName``/``description``/``spritesheetPath``.
+The engine uses the current nine-row atlas taxonomy.
 """
 
 from __future__ import annotations
@@ -11,9 +10,7 @@ from __future__ import annotations
 from enum import Enum
 
 # Frame geometry (pixels). Current Codex/petdex spritesheets are 8 columns x 9
-# rows (1536x1872), while older Hermes/petdex sheets used 9 columns x 8 rows
-# (1728x1664). Renderers derive both row taxonomy and real column count from the
-# concrete sheet, so either shape works.
+# rows (1536x1872).
 FRAME_W = 192
 FRAME_H = 208
 
@@ -78,7 +75,7 @@ def resolve_cols(scale: float, unicode_cols: int = 0) -> int:
 class PetState(str, Enum):
     """Animation state a pet can be shown in.
 
-    These are Hermes' activity state names. They are not always identical to the
+    These are the UI activity-state names. They are not always identical to the
     source atlas row names: Codex-format pets use rows like ``jumping`` /
     ``running`` while the UI keeps the shorter ``jump`` / ``run`` names.
     """
@@ -91,19 +88,6 @@ class PetState(str, Enum):
     JUMP = "jump"
     WAITING = "waiting"
 
-
-# Legacy Hermes/petdex row order (top -> bottom) used by the older 8-row,
-# 9-column atlas shape.
-LEGACY_STATE_ROWS: list[str] = [
-    PetState.IDLE.value,
-    PetState.WAVE.value,
-    PetState.RUN.value,
-    PetState.FAILED.value,
-    PetState.REVIEW.value,
-    PetState.JUMP.value,
-    "extra1",
-    "extra2",
-]
 
 # Current Petdex row order (top -> bottom) used by 1536x1872 atlases:
 # 8 columns x 9 rows of 192x208 cells.
@@ -123,7 +107,7 @@ CODEX_STATE_ROWS: list[str] = [
 # format because generated pets and the public Codex pet contract use it.
 STATE_ROWS: list[str] = CODEX_STATE_ROWS
 
-# Canonical Hermes activity names -> accepted row-name aliases in descending
+# Canonical activity names -> accepted row-name aliases in descending
 # preference. This keeps our internal state names stable (`wave`/`jump`/`run`)
 # while matching Petdex's current `waving`/`jumping`/`running` taxonomy.
 STATE_ALIASES: dict[str, tuple[str, ...]] = {
@@ -145,15 +129,9 @@ def state_aliases_for(state: "PetState | str") -> tuple[str, ...]:
 
 
 def state_rows_for_grid(row_count: int | None) -> list[str]:
-    """Return the row taxonomy for a spritesheet with *row_count* rows."""
-    try:
-        rows = int(row_count or 0)
-    except (TypeError, ValueError):
-        rows = 0
-
-    if rows >= len(CODEX_STATE_ROWS):
-        return CODEX_STATE_ROWS
-    return LEGACY_STATE_ROWS
+    """Return the canonical row taxonomy for a spritesheet."""
+    del row_count
+    return CODEX_STATE_ROWS
 
 
 def state_row_index(state: "PetState | str", row_count: int | None = None) -> int:

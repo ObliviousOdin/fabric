@@ -9,20 +9,20 @@ class TestResolveApiKey:
 
     def test_returns_api_key_from_root(self, monkeypatch):
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
         assert honcho_cli._resolve_api_key({"apiKey": "root-key"}) == "root-key"
 
     def test_returns_api_key_from_host_block(self, monkeypatch):
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
-        cfg = {"hosts": {"hermes": {"apiKey": "host-key"}}, "apiKey": "root-key"}
+        cfg = {"hosts": {"fabric": {"apiKey": "host-key"}}, "apiKey": "root-key"}
         assert honcho_cli._resolve_api_key(cfg) == "host-key"
 
     def test_returns_local_for_base_url_without_api_key(self, monkeypatch):
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
         monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
         cfg = {"baseUrl": "http://localhost:8000"}
@@ -30,14 +30,14 @@ class TestResolveApiKey:
 
     def test_returns_local_for_base_url_env_var(self, monkeypatch):
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
         monkeypatch.setenv("HONCHO_BASE_URL", "http://10.0.0.5:8000")
         assert honcho_cli._resolve_api_key({}) == "local"
 
     def test_returns_empty_when_nothing_configured(self, monkeypatch):
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
         monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
         assert honcho_cli._resolve_api_key({}) == ""
@@ -45,7 +45,7 @@ class TestResolveApiKey:
     def test_rejects_garbage_base_url_without_scheme(self, monkeypatch):
         """Obvious non-URL literals in baseUrl (typos) must not pass the guard."""
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
         monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
         # Boolean literals, pure digits, and bare identifiers without
@@ -65,7 +65,7 @@ class TestResolveApiKey:
         parsed scheme explicitly.
         """
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
         monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
         # file:/// parses with scheme='file' but empty netloc, so the
@@ -78,7 +78,7 @@ class TestResolveApiKey:
 
     def test_accepts_https_base_url(self, monkeypatch):
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
         monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
         assert honcho_cli._resolve_api_key({"baseUrl": "https://honcho.example.com"}) == "local"
@@ -93,7 +93,7 @@ class TestResolveApiKey:
         The SDK itself still rejects malformed URLs at connect time.
         """
         import plugins.memory.honcho.cli as honcho_cli
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.delenv("HONCHO_API_KEY", raising=False)
         monkeypatch.delenv("HONCHO_BASE_URL", raising=False)
         for legacy in ("localhost:8000", "10.0.0.5:8000", "honcho.local:8080", "host.example.com"):
@@ -112,7 +112,7 @@ class TestCmdSetupLocalJwt:
         monkeypatch.setattr(honcho_cli, "_read_config", lambda: dict(initial_cfg))
         monkeypatch.setattr(honcho_cli, "_local_config_path", lambda: cfg_path)
         monkeypatch.setattr(honcho_cli, "_config_path", lambda: cfg_path)
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.setattr(honcho_cli, "_ensure_sdk_installed", lambda: True)
 
         written = {}
@@ -156,7 +156,7 @@ class TestCmdSetupLocalJwt:
         # Top-level apiKey must remain unset (cloud field).
         assert not cfg.get("apiKey")
         # The new local JWT belongs under the host block.
-        host_block = (cfg.get("hosts") or {}).get("hermes") or {}
+        host_block = (cfg.get("hosts") or {}).get("fabric") or {}
         assert host_block.get("apiKey") == "my-local-jwt-token"
 
     def test_local_setup_blank_jwt_keeps_local_no_auth(self, monkeypatch, tmp_path):
@@ -175,8 +175,156 @@ class TestCmdSetupLocalJwt:
         assert cfg is not None
         assert cfg.get("baseUrl") == "http://localhost:8000"
         assert not cfg.get("apiKey")
-        host_block = (cfg.get("hosts") or {}).get("hermes") or {}
+        host_block = (cfg.get("hosts") or {}).get("fabric") or {}
         assert not host_block.get("apiKey")
+
+
+class TestCmdSetupOAuth:
+    """Cloud setup must use an operator-provided Honcho OAuth client."""
+
+    def _patch_setup(self, monkeypatch, tmp_path):
+        import plugins.memory.honcho.cli as honcho_cli
+
+        cfg = {"hosts": {"fabric": {}}}
+        cfg_path = tmp_path / "honcho.json"
+        monkeypatch.setattr(honcho_cli, "_read_config", lambda: cfg)
+        monkeypatch.setattr(honcho_cli, "_local_config_path", lambda: cfg_path)
+        monkeypatch.setattr(honcho_cli, "_config_path", lambda: cfg_path)
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
+        monkeypatch.setattr(honcho_cli, "_ensure_sdk_installed", lambda: True)
+        monkeypatch.setattr(honcho_cli, "_gateway_platforms", lambda: [])
+
+        written = {}
+        monkeypatch.setattr(
+            honcho_cli,
+            "_write_config",
+            lambda value, path=None: written.setdefault("cfg", value),
+        )
+        monkeypatch.setattr(
+            "fabric_cli.config.load_config",
+            lambda: {"memory": {}},
+            raising=False,
+        )
+        monkeypatch.setattr(
+            "fabric_cli.config.save_config",
+            lambda value: None,
+            raising=False,
+        )
+
+        class _FakeClientConfig:
+            workspace_id = "fabric"
+            peer_name = "lyra"
+            ai_peer = "fabric"
+            observation_mode = "directional"
+            write_frequency = "async"
+            recall_mode = "hybrid"
+            session_strategy = "per-session"
+
+            def resolve_session_name(self):
+                return "test-session"
+
+        monkeypatch.setattr(
+            "plugins.memory.honcho.client.HonchoClientConfig.from_global_config",
+            lambda host=None: _FakeClientConfig(),
+        )
+        monkeypatch.setattr(
+            "plugins.memory.honcho.client.reset_honcho_client",
+            lambda: None,
+        )
+        monkeypatch.setattr(
+            "plugins.memory.honcho.client.get_honcho_client",
+            lambda config: object(),
+        )
+        return honcho_cli, cfg, cfg_path, written
+
+    def test_registered_client_id_is_forwarded_and_persisted(
+        self, monkeypatch, tmp_path
+    ):
+        from plugins.memory.honcho.oauth import OAuthCredential
+
+        honcho_cli, cfg, cfg_path, written = self._patch_setup(
+            monkeypatch, tmp_path
+        )
+        monkeypatch.delenv("HONCHO_OAUTH_CLIENT_ID", raising=False)
+        seen = {}
+
+        def _authorize(**kwargs):
+            seen.update(kwargs)
+            return OAuthCredential(
+                access_token="hch-at-connected",
+                refresh_token="hch-rt-connected",
+                expires_at=9_999_999_999,
+                client_id=kwargs["client_id"],
+                token_endpoint="https://api.honcho.dev/oauth/token",
+                consent_peer_name="lyra",
+            )
+
+        monkeypatch.setattr(
+            "plugins.memory.honcho.oauth_flow.authorize_via_loopback",
+            _authorize,
+        )
+
+        def _prompt(label, default=None, secret=False):
+            if label == "Cloud or local?":
+                return "cloud"
+            if label == "OAuth or API key?":
+                return "oauth"
+            if label == "Registered Honcho OAuth client ID":
+                return "registered-honcho-client"
+            return default if default is not None else ""
+
+        monkeypatch.setattr(honcho_cli, "_prompt", _prompt)
+
+        honcho_cli.cmd_setup(SimpleNamespace())
+
+        assert seen["config_path"] == cfg_path
+        assert seen["client_id"] == "registered-honcho-client"
+        assert seen["source"] == "fabric-cli"
+        assert seen["apply_config"] is False
+        assert callable(seen["open_url"])
+        host = cfg["hosts"]["fabric"]
+        assert host["apiKey"] == "hch-at-connected"
+        assert host["oauth"]["clientId"] == "registered-honcho-client"
+        assert host["peerName"] == "lyra"
+        assert written["cfg"] is cfg
+
+    def test_missing_client_id_stops_before_browser_flow(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        honcho_cli, _cfg, _cfg_path, written = self._patch_setup(
+            monkeypatch, tmp_path
+        )
+        monkeypatch.delenv("HONCHO_OAUTH_CLIENT_ID", raising=False)
+        called = False
+
+        def _authorize(**kwargs):
+            nonlocal called
+            called = True
+            raise AssertionError("browser flow must not start without a client ID")
+
+        monkeypatch.setattr(
+            "plugins.memory.honcho.oauth_flow.authorize_via_loopback",
+            _authorize,
+        )
+
+        def _prompt(label, default=None, secret=False):
+            if label == "Cloud or local?":
+                return "cloud"
+            if label == "OAuth or API key?":
+                return "oauth"
+            if label == "Registered Honcho OAuth client ID":
+                return ""
+            return default if default is not None else ""
+
+        monkeypatch.setattr(honcho_cli, "_prompt", _prompt)
+
+        honcho_cli.cmd_setup(SimpleNamespace())
+
+        assert called is False
+        assert written == {}
+        output = capsys.readouterr().out
+        assert "requires a registered client ID" in output
+        assert "HONCHO_OAUTH_CLIENT_ID" in output
 
 
 class TestCmdStatus:
@@ -189,10 +337,10 @@ class TestCmdStatus:
         class FakeConfig:
             enabled = True
             api_key = "root-key"
-            workspace_id = "hermes"
-            host = "hermes"
+            workspace_id = "fabric"
+            host = "fabric"
             base_url = None
-            ai_peer = "hermes"
+            ai_peer = "fabric"
             peer_name = "eri"
             recall_mode = "hybrid"
             user_observe_me = True
@@ -207,7 +355,7 @@ class TestCmdStatus:
             reasoning_heuristic = True
 
             def resolve_session_name(self):
-                return "hermes"
+                return "fabric"
 
         monkeypatch.setattr(honcho_cli, "_read_config", lambda: {"apiKey": "***"})
         monkeypatch.setattr(honcho_cli, "_config_path", lambda: cfg_path)
@@ -243,10 +391,10 @@ class TestCmdStatus:
         class FakeConfig:
             enabled = True
             api_key = "hch-at-deadbeef"
-            workspace_id = "claude-code"
-            host = "hermes"
+            workspace_id = "fabric"
+            host = "fabric"
             base_url = None
-            ai_peer = "hermes"
+            ai_peer = "fabric"
             peer_name = "eri"
             recall_mode = "hybrid"
             user_observe_me = True
@@ -261,22 +409,22 @@ class TestCmdStatus:
             reasoning_heuristic = True
             raw = {
                 "hosts": {
-                    "hermes": {
+                    "fabric": {
                         "apiKey": "hch-at-deadbeef",
                         "oauth": {
                             "refreshToken": "hch-rt-x",
-                            "clientId": "fabric-agent",
+                            "clientId": "registered-honcho-client",
                             "tokenEndpoint": "https://api.honcho.dev/oauth/token",
-                            "expiresAt": 9999999999,
+                            "expiresAt": 9_999_999_999,
                         },
-                    }
-                }
+                    },
+                },
             }
 
             def resolve_session_name(self):
-                return "hermes"
+                return "fabric"
 
-        monkeypatch.setattr(honcho_cli, "_read_config", lambda: {})
+        monkeypatch.setattr(honcho_cli, "_read_config", lambda: {"apiKey": "***"})
         monkeypatch.setattr(honcho_cli, "_config_path", lambda: cfg_path)
         monkeypatch.setattr(honcho_cli, "_local_config_path", lambda: cfg_path)
         monkeypatch.setattr(honcho_cli, "_active_profile_name", lambda: "default")
@@ -284,16 +432,18 @@ class TestCmdStatus:
             "plugins.memory.honcho.client.HonchoClientConfig.from_global_config",
             lambda host=None: FakeConfig(),
         )
-        monkeypatch.setattr("plugins.memory.honcho.client.get_honcho_client", lambda cfg: object())
+        monkeypatch.setattr(
+            "plugins.memory.honcho.client.get_honcho_client",
+            lambda cfg: object(),
+        )
         monkeypatch.setattr(honcho_cli, "_show_peer_cards", lambda hcfg, client: None)
         monkeypatch.setitem(__import__("sys").modules, "honcho", SimpleNamespace())
 
         honcho_cli.cmd_status(SimpleNamespace(all=False))
 
         out = capsys.readouterr().out
-        assert "Auth:           OAuth (fabric-agent" in out
-        assert "API key:" not in out
-
+        assert "Auth:           OAuth (registered-honcho-client" in out
+        assert "Auth:           API key" not in out
 
 class TestCloneHonchoForProfile:
     """Identity-key carryover during profile cloning.
@@ -322,7 +472,7 @@ class TestCloneHonchoForProfile:
         cfg = {
             "apiKey": "***",
             "hosts": {
-                "hermes": {
+                "fabric": {
                     "userPeerAliases": {"7654321": "eri", "discord-491827364": "eri"},
                     "peerName": "eri",
                 },
@@ -331,14 +481,14 @@ class TestCloneHonchoForProfile:
         honcho_cli, written = self._setup_clone_env(monkeypatch, tmp_path, cfg)
         ok = honcho_cli.clone_honcho_for_profile("coder")
         assert ok is True
-        new_block = written["cfg"]["hosts"]["hermes_coder"]
+        new_block = written["cfg"]["hosts"]["fabric_coder"]
         assert new_block["userPeerAliases"] == {"7654321": "eri", "discord-491827364": "eri"}
 
     def test_runtime_peer_prefix_carries_into_cloned_profile(self, monkeypatch, tmp_path):
         cfg = {
             "apiKey": "***",
             "hosts": {
-                "hermes": {
+                "fabric": {
                     "runtimePeerPrefix": "telegram_",
                     "peerName": "eri",
                 },
@@ -347,14 +497,14 @@ class TestCloneHonchoForProfile:
         honcho_cli, written = self._setup_clone_env(monkeypatch, tmp_path, cfg)
         ok = honcho_cli.clone_honcho_for_profile("coder")
         assert ok is True
-        new_block = written["cfg"]["hosts"]["hermes_coder"]
+        new_block = written["cfg"]["hosts"]["fabric_coder"]
         assert new_block["runtimePeerPrefix"] == "telegram_"
 
     def test_legacy_pin_peer_name_migrates_to_canonical_on_clone(self, monkeypatch, tmp_path):
         cfg = {
             "apiKey": "***",
             "hosts": {
-                "hermes": {
+                "fabric": {
                     "pinPeerName": True,
                     "peerName": "eri",
                 },
@@ -363,19 +513,19 @@ class TestCloneHonchoForProfile:
         honcho_cli, written = self._setup_clone_env(monkeypatch, tmp_path, cfg)
         ok = honcho_cli.clone_honcho_for_profile("coder")
         assert ok is True
-        new_block = written["cfg"]["hosts"]["hermes_coder"]
+        new_block = written["cfg"]["hosts"]["fabric_coder"]
         assert new_block["pinUserPeer"] is True
         assert "pinPeerName" not in new_block
 
     def test_unset_identity_keys_do_not_appear_in_cloned_profile(self, monkeypatch, tmp_path):
         cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {"peerName": "eri"}},
+            "hosts": {"fabric": {"peerName": "eri"}},
         }
         honcho_cli, written = self._setup_clone_env(monkeypatch, tmp_path, cfg)
         ok = honcho_cli.clone_honcho_for_profile("coder")
         assert ok is True
-        new_block = written["cfg"]["hosts"]["hermes_coder"]
+        new_block = written["cfg"]["hosts"]["fabric_coder"]
         assert "userPeerAliases" not in new_block
         assert "runtimePeerPrefix" not in new_block
         assert "pinUserPeer" not in new_block
@@ -391,7 +541,7 @@ class TestSetupWizardDeploymentShape:
     Choice [2] (me + others, pooled) aliases the operator's own runtime IDs.
 
     These tests mock gateway detection and script the interactive _prompt
-    calls, asserting the resulting hermes_host block so the tree's routing
+    calls, asserting the resulting fabric_host block so the tree's routing
     semantics stay locked even as adjacent prompts are added.
     """
 
@@ -406,7 +556,7 @@ class TestSetupWizardDeploymentShape:
         monkeypatch.setattr(honcho_cli, "_read_config", lambda: cfg)
         monkeypatch.setattr(honcho_cli, "_config_path", lambda: cfg_path)
         monkeypatch.setattr(honcho_cli, "_local_config_path", lambda: cfg_path)
-        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "hermes")
+        monkeypatch.setattr(honcho_cli, "_host_key", lambda: "fabric")
         monkeypatch.setattr(honcho_cli, "_ensure_sdk_installed", lambda: True)
         monkeypatch.setattr(honcho_cli, "_write_config", lambda *a, **k: None)
         # Gate detection is mocked so tests control whether the tree runs.
@@ -424,8 +574,8 @@ class TestSetupWizardDeploymentShape:
 
         class _FakeClientCfg:
             def resolve_session_name(self):
-                return "hermes-test"
-            workspace_id = "hermes"
+                return "test-session"
+            workspace_id = "fabric"
             peer_name = "eri"
             ai_peer = "hermetika"
             observation_mode = "directional"
@@ -449,8 +599,7 @@ class TestSetupWizardDeploymentShape:
         # Scripted _prompt: pop answers in order. Default-return for unconsumed prompts.
         answer_iter = iter(answers)
         def _scripted_prompt(label, default=None, secret=False):
-            # Auth-method prompt is orthogonal to shape; auto-answer apikey so the answer lists stay shape-only.
-            if "OAuth" in label:
+            if "OAuth or API key?" in label:
                 return "apikey"
             try:
                 return next(answer_iter)
@@ -459,7 +608,7 @@ class TestSetupWizardDeploymentShape:
         monkeypatch.setattr(honcho_cli, "_prompt", _scripted_prompt)
 
         honcho_cli.cmd_setup(SimpleNamespace())
-        return cfg["hosts"]["hermes"]
+        return cfg["hosts"]["fabric"]
 
     def test_just_me_pins_and_clears_aliases(self, monkeypatch, tmp_path):
         answers = [
@@ -467,13 +616,13 @@ class TestSetupWizardDeploymentShape:
             "",                # api key (keep)
             "eri",             # peer name
             "hermetika",       # ai peer
-            "hermes",          # workspace
+            "fabric",          # workspace
             "1",               # tree: just me ← key answer
             # remaining prompts fall through to defaults
         ]
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {
+            "hosts": {"fabric": {
                 "userPeerAliases": {"old": "stale"},
                 "runtimePeerPrefix": "old_",
             }},
@@ -489,7 +638,7 @@ class TestSetupWizardDeploymentShape:
             "",                # api key (keep)
             "eri",             # peer name
             "hermetika",       # ai peer
-            "hermes",          # workspace
+            "fabric",          # workspace
             "3",               # tree: only other people
             "telegram_",       # runtime peer prefix
         ]
@@ -507,7 +656,7 @@ class TestSetupWizardDeploymentShape:
             "",                # api key (keep)
             "eri",             # peer name
             "hermetika",       # ai peer
-            "hermes",          # workspace
+            "fabric",          # workspace
             "2",               # tree: me + other people
             "y",               # keep my memory pooled? → hybrid
             "7654321",        # telegram uid
@@ -529,14 +678,14 @@ class TestSetupWizardDeploymentShape:
         # except for the on-load migration onto the canonical key.
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {
+            "hosts": {"fabric": {
                 "pinPeerName": True,
                 "userPeerAliases": {"keep": "me"},
                 "runtimePeerPrefix": "keep_",
             }},
         }
         answers = [
-            "cloud", "", "eri", "hermetika", "hermes", "s",
+            "cloud", "", "eri", "hermetika", "fabric", "s",
         ]
         host = self._run_setup(monkeypatch, tmp_path, answers=answers, initial_cfg=initial_cfg)
         assert host["pinUserPeer"] is True
@@ -551,14 +700,14 @@ class TestSetupWizardDeploymentShape:
         """
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {"pinPeerName": True, "peerName": "eri"}},
+            "hosts": {"fabric": {"pinPeerName": True, "peerName": "eri"}},
         }
         answers = [
             "cloud",           # deployment
             "",                # api key (keep)
             "eri",             # peer name
             "hermetika",       # ai peer
-            "hermes",          # workspace
+            "fabric",          # workspace
             "3",               # tree: only others — triggers the orphan guard
             "y",               # pool my own memory instead? → hybrid
             "7654321",        # telegram uid
@@ -576,10 +725,10 @@ class TestSetupWizardDeploymentShape:
         up with per-user peers (no aliases)."""
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {"pinPeerName": True, "peerName": "eri"}},
+            "hosts": {"fabric": {"pinPeerName": True, "peerName": "eri"}},
         }
         answers = [
-            "cloud", "", "eri", "hermetika", "hermes",
+            "cloud", "", "eri", "hermetika", "fabric",
             "3",               # tree: only others — triggers the orphan guard
             "n",               # decline pooling, accept orphaning
             "telegram_",       # runtime peer prefix
@@ -599,13 +748,13 @@ class TestSetupWizardDeploymentShape:
         """
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {"pinUserPeer": True, "peerName": "eri"}},
+            "hosts": {"fabric": {"pinUserPeer": True, "peerName": "eri"}},
         }
         # Exhaust the iterator before the choice prompt so the scripted
         # mock falls through to the prompt's default (the detected shape →
         # choice "1").  Scripting an explicit "" would NOT exercise that
         # fallthrough — the mock returns it literally.
-        answers = ["cloud", "", "eri", "hermetika", "hermes"]
+        answers = ["cloud", "", "eri", "hermetika", "fabric"]
         host = self._run_setup(monkeypatch, tmp_path, answers=answers, initial_cfg=initial_cfg)
         # Scrub-then-write normalises onto the canonical pinUserPeer.
         assert host["pinUserPeer"] is True
@@ -621,13 +770,13 @@ class TestSetupWizardDeploymentShape:
         """
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {
+            "hosts": {"fabric": {
                 "pinUserPeer": False,
                 "pinPeerName": True,
                 "peerName": "eri",
             }},
         }
-        answers = ["cloud", "", "eri", "hermetika", "hermes"]
+        answers = ["cloud", "", "eri", "hermetika", "fabric"]
         host = self._run_setup(monkeypatch, tmp_path, answers=answers, initial_cfg=initial_cfg)
         assert host["pinUserPeer"] is False
         assert "pinPeerName" not in host
@@ -639,9 +788,9 @@ class TestSetupWizardDeploymentShape:
         initial_cfg = {
             "apiKey": "***",
             "userPeerAliases": {"7654321": "eri"},
-            "hosts": {"hermes": {"peerName": "eri"}},
+            "hosts": {"fabric": {"peerName": "eri"}},
         }
-        answers = ["cloud", "", "eri", "hermetika", "hermes"]
+        answers = ["cloud", "", "eri", "hermetika", "fabric"]
         host = self._run_setup(monkeypatch, tmp_path, answers=answers, initial_cfg=initial_cfg)
         assert host["pinUserPeer"] is False
         # Hybrid materialises the root aliases into the host so subsequent
@@ -663,10 +812,10 @@ class TestSetupWizardDeploymentShape:
         initial_cfg = {
             "apiKey": "***",
             "userPeerAliases": {"baseline": "eri"},
-            "hosts": {"hermes": {"peerName": "eri"}},
+            "hosts": {"fabric": {"peerName": "eri"}},
         }
         answers = [
-            "cloud", "", "eri", "hermetika", "hermes",
+            "cloud", "", "eri", "hermetika", "fabric",
             "3",               # explicit per-user override of detected hybrid
         ]
         host = self._run_setup(monkeypatch, tmp_path, answers=answers, initial_cfg=initial_cfg)
@@ -679,13 +828,13 @@ class TestSetupWizardDeploymentShape:
         """
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {
+            "hosts": {"fabric": {
                 "pinUserPeer": False,
                 "peerName": "eri",
             }},
         }
         answers = [
-            "cloud", "", "eri", "hermetika", "hermes",
+            "cloud", "", "eri", "hermetika", "fabric",
             "1",
         ]
         host = self._run_setup(monkeypatch, tmp_path, answers=answers, initial_cfg=initial_cfg)
@@ -696,9 +845,9 @@ class TestSetupWizardDeploymentShape:
         the 'configure anyway?' prompt leaves identity mapping untouched."""
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {"peerName": "eri"}},
+            "hosts": {"fabric": {"peerName": "eri"}},
         }
-        answers = ["cloud", "", "eri", "hermetika", "hermes", "n"]
+        answers = ["cloud", "", "eri", "hermetika", "fabric", "n"]
         host = self._run_setup(
             monkeypatch, tmp_path, answers=answers, initial_cfg=initial_cfg,
             gateway_platforms=[],
@@ -712,9 +861,9 @@ class TestSetupWizardDeploymentShape:
         whether the gateway is running; 'no' skips the mapping step."""
         initial_cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {"peerName": "eri"}},
+            "hosts": {"fabric": {"peerName": "eri"}},
         }
-        answers = ["cloud", "", "eri", "hermetika", "hermes", "n"]
+        answers = ["cloud", "", "eri", "hermetika", "fabric", "n"]
         host = self._run_setup(
             monkeypatch, tmp_path, answers=answers, initial_cfg=initial_cfg,
             gateway_platforms=None,
@@ -725,7 +874,7 @@ class TestSetupWizardDeploymentShape:
         """The [e] escape hatch lets a power user set pinUserPeer + an alias +
         prefix directly, bypassing the intent tree."""
         answers = [
-            "cloud", "", "eri", "hermetika", "hermes",
+            "cloud", "", "eri", "hermetika", "fabric",
             "e",               # tree: edit raw keys
             "false",           # pinUserPeer
             "99887766=eri",    # one alias pair
@@ -750,7 +899,7 @@ class TestCloneCarriesPinUserPeer:
 
         cfg = {
             "apiKey": "***",
-            "hosts": {"hermes": {"pinUserPeer": True, "peerName": "eri"}},
+            "hosts": {"fabric": {"pinUserPeer": True, "peerName": "eri"}},
         }
         cfg_path = tmp_path / "config.json"
         cfg_path.write_text("{}")
@@ -765,7 +914,7 @@ class TestCloneCarriesPinUserPeer:
 
         ok = honcho_cli.clone_honcho_for_profile("partner")
         assert ok is True
-        new_block = written["cfg"]["hosts"]["hermes_partner"]
+        new_block = written["cfg"]["hosts"]["fabric_partner"]
         assert new_block["pinUserPeer"] is True
 
 

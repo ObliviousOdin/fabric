@@ -5,7 +5,7 @@ import { desktopBrand } from '@/brand'
 import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Input } from '@/components/ui/input'
-import { getGlobalModelOptions } from '@/hermes'
+import { getGlobalModelOptions } from '@/fabric'
 import { useI18n } from '@/i18n'
 import { Check, ChevronLeft, Cpu, KeyRound, Loader2 } from '@/lib/icons'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
@@ -26,7 +26,7 @@ import {
   setOnboardingMode,
   startProviderOAuth
 } from '@/store/onboarding'
-import type { ModelOptionProvider, OAuthProvider } from '@/types/hermes'
+import type { ModelOptionProvider, OAuthProvider } from '@/types/fabric'
 
 import { DocsLink, FlowPanel, Status } from './flow'
 import { KeyProviderRow, ProviderRow, sortProviders } from './providers'

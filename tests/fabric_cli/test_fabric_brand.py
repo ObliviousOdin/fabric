@@ -3,34 +3,23 @@
 from __future__ import annotations
 
 
-def test_fabric_identity_is_silent_and_named_fabric(monkeypatch):
-    monkeypatch.setenv("FABRIC_BRAND", "1")
-
+def test_agent_identity_is_canonically_fabric():
     from fabric_cli.fabric_brand import FABRIC_AGENT_IDENTITY, resolve_agent_identity
 
     text = resolve_agent_identity()
     assert text == FABRIC_AGENT_IDENTITY
     assert "Fabric" in text
-    lowered = text.lower()
-    assert "hermes" not in lowered
-    assert "nous" not in lowered
 
 
-def test_fabric_help_guidance_is_silent(monkeypatch):
-    monkeypatch.setenv("FABRIC_BRAND", "1")
-
+def test_help_guidance_points_to_fabric_docs():
     from fabric_cli.fabric_brand import resolve_help_guidance
 
     text = resolve_help_guidance().lower()
     assert "fabric" in text
     assert "obliviousodin.github.io/fabric/" in text
-    assert "hermes" not in text
-    assert "nous" not in text
 
 
-def test_legacy_brand_toggle_cannot_disable_public_identity(monkeypatch):
-    monkeypatch.setenv("FABRIC_BRAND", "0")
-
+def test_identity_resolvers_share_canonical_constants():
     from fabric_cli.fabric_brand import (
         FABRIC_AGENT_IDENTITY,
         FABRIC_HELP_GUIDANCE,
@@ -45,17 +34,7 @@ def test_legacy_brand_toggle_cannot_disable_public_identity(monkeypatch):
     assert resolve_help_guidance() == FABRIC_HELP_GUIDANCE
 
 
-def test_fabric_brand_enabled_defaults_on(monkeypatch):
-    monkeypatch.delenv("FABRIC_BRAND", raising=False)
-
-    from fabric_cli.fabric_brand import fabric_brand_enabled
-
-    assert fabric_brand_enabled() is True
-
-
-def test_system_prompt_uses_fabric_identity_when_branded(monkeypatch):
-    monkeypatch.setenv("FABRIC_BRAND", "1")
-
+def test_system_prompt_uses_fabric_identity():
     from types import SimpleNamespace
     from unittest.mock import patch
 
@@ -89,4 +68,4 @@ def test_system_prompt_uses_fabric_identity_when_branded(monkeypatch):
 
     assert FABRIC_AGENT_IDENTITY in stable
     assert FABRIC_HELP_GUIDANCE in stable
-    assert "Hermes Agent" not in stable
+    assert "Fabric Agent" not in stable

@@ -78,7 +78,7 @@ from gateway.platforms.yuanbao_proto import (
     _parse_fields,
     WS_HEARTBEAT_RUNNING,
     WS_HEARTBEAT_FINISH,
-    HERMES_INSTANCE_ID,
+    YUANBAO_PROXY_INSTANCE_ID,
     decode_conn_msg,
     decode_inbound_push,
     decode_forward_msg_data,
@@ -103,13 +103,13 @@ logger = logging.getLogger(__name__)
 # Version / platform constants (used in AUTH_BIND and sign-token headers)
 # ---------------------------------------------------------------------------
 try:
-    from fabric_cli import __version__ as _HERMES_VERSION
+    from fabric_cli import __version__ as _FABRIC_VERSION
 except ImportError:
-    _HERMES_VERSION = "0.0.0"
+    _FABRIC_VERSION = "0.0.0"
 
-_APP_VERSION = _HERMES_VERSION
-_BOT_VERSION = _HERMES_VERSION
-_YUANBAO_INSTANCE_ID = str(HERMES_INSTANCE_ID)  # single source: yuanbao_proto.HERMES_INSTANCE_ID
+_APP_VERSION = _FABRIC_VERSION
+_BOT_VERSION = _FABRIC_VERSION
+_YUANBAO_INSTANCE_ID = str(YUANBAO_PROXY_INSTANCE_ID)
 _OPERATION_SYSTEM = sys.platform
 
 # ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ _YB_RES_REF_RE = re.compile(
 )
 
 # Patched local-media anchors once an inbound resource has been downloaded to the local cache. 
-#   [image: /opt/data/image_cache/img_xxx.bmp]
+#   [image: /opt/data/cache/images/img_xxx.bmp]
 #   [file: report.pdf → /opt/data/.../report.pdf]
 #   (and any future kind, e.g. [video: /opt/.../clip.mp4])
 _YB_LOCAL_MEDIA_RE = re.compile(r"\[(\w+):[^\]]*?(/[^\]]+?)\s*\]")

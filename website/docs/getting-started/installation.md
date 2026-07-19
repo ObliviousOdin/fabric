@@ -46,7 +46,7 @@ fabric status
 
 New installs store profile data under `~/.fabric`. `FABRIC_HOME` can select a
 different root. See the [environment-variable reference](/reference/environment-variables)
-for migration-only compatibility inputs used by older installs.
+for credential variables and supported process-level overrides.
 
 ## Native desktop app
 
@@ -169,7 +169,7 @@ valuable profile before removal.
 | Desktop build cannot find Node/npm    | Run `fabric doctor`, then repeat from the Fabric checkout                                                      |
 | Electron download fails               | Retry once on a stable connection; use only assets from the official Fabric release page                      |
 | Provider saved but chat fails         | Run `fabric status --deep` and inspect the named auth, entitlement, context, or egress failure                |
-| A previous Fabric install is detected | Stop its services and use the explicit Fabric home-migration flow; never merge credential directories by hand |
+| An existing Fabric install is detected | Stop its services, back up the active profile, and use the supported update or uninstall flow; never merge credential directories by hand |
 
 Use [Diagnose and Repair Fabric](/getting-started/repair) for the non-destructive
 recovery ladder.

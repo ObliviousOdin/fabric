@@ -40,7 +40,7 @@ fallback_providers:
 Each entry requires both `provider` and `model`. Entries missing either field are ignored.
 
 :::note `fallback_model` vs `fallback_providers`
-`fallback_providers` (plural, list) is the current config shape and supports multiple fallbacks tried in order. `fallback_model` (singular) is the legacy single-fallback key — Fabric still honors it for back-compat, but `fabric fallback` writes the current `fallback_providers` key and migrates legacy config on write. When both are set, `fallback_providers` takes priority.
+`fallback_providers` (plural, list) is the current config shape and supports multiple fallbacks tried in order. The previous `fallback_model` shape remains readable until `fabric fallback` folds it into `fallback_providers` on write. When both are set, `fallback_providers` takes priority.
 :::
 
 ### Supported Providers
@@ -48,7 +48,7 @@ Each entry requires both `provider` and `model`. Entries missing either field ar
 | Provider | Value | Requirements |
 |----------|-------|-------------|
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` |
-| Nous Portal | `nous` | `fabric setup --portal` (fresh) or `fabric auth add nous` (OAuth) |
+| Nous Portal | `nous` | `fabric setup --portal --client-id <registered-client-id>` (fresh) or `fabric auth add nous --client-id <registered-client-id>` (OAuth) |
 | OpenAI Codex | `openai-codex` | `fabric model` (ChatGPT OAuth) |
 | GitHub Copilot | `copilot` | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` |
 | GitHub Copilot ACP | `copilot-acp` | External process (editor integration) |
@@ -66,7 +66,7 @@ Each entry requires both `provider` and `model`. Entries missing either field ar
 | xAI (Grok) | `xai` (alias `grok`) | `XAI_API_KEY` (optional: `XAI_BASE_URL`) |
 | xAI Grok OAuth (SuperGrok) | `xai-oauth` (alias `grok-oauth`) | `fabric model` → xAI Grok OAuth (browser login; SuperGrok subscription) |
 | AWS Bedrock | `bedrock` | Standard boto3 auth (`AWS_REGION` + `AWS_PROFILE` or `AWS_ACCESS_KEY_ID`) |
-| Qwen Portal (OAuth) | `qwen-oauth` | `fabric model` (Qwen Portal OAuth; optional: `HERMES_QWEN_BASE_URL`) |
+| Qwen Portal (OAuth) | `qwen-oauth` | `fabric model` (Qwen Portal OAuth) |
 | MiniMax (OAuth) | `minimax-oauth` | `fabric model` (MiniMax portal OAuth) |
 | OpenCode Zen | `opencode-zen` | `OPENCODE_ZEN_API_KEY` |
 | OpenCode Go | `opencode-go` | `OPENCODE_GO_API_KEY` |
@@ -144,7 +144,7 @@ model:
 
 fallback_providers:
   - provider: nous
-    model: nous-hermes-3
+    model: <provider-model-id>
 ```
 
 **Local model as fallback for cloud:**

@@ -80,7 +80,6 @@ def test_cli_pull_streams_verifies_and_writes_sanitized_ledger(tmp_path: Path) -
     config_path.write_text("{}\n", encoding="utf-8")
     env = dict(os.environ)
     env.pop("FABRIC_HOME", None)
-    env.pop("HERMES_HOME", None)
     env.update({
         "HOME": str(home),
         "PYTHONPATH": str(Path(__file__).resolve().parents[2]),

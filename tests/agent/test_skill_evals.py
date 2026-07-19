@@ -82,7 +82,7 @@ def _valid_manifest() -> dict:
                 "baseline_for": "select-relevant-request",
                 "expect": {
                     "selected": False,
-                    "output": {"forbidden_substrings": ["fabric-eval-failure"]}
+                    "output": {"forbidden_substrings": ["eval-failure-marker"]}
                 },
             },
         ],

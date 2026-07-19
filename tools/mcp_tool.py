@@ -295,7 +295,7 @@ def _check_logging_callback_support() -> bool:
     Mirrors ``_check_message_handler_support`` for backward compatibility
     with older MCP SDK versions.  Without a logging_callback, the SDK's
     default handler silently discards every ``notifications/message`` a
-    server emits, so server-side diagnostics never reach Hermes' logs.
+    server emits, so server-side diagnostics never reach Fabric's logs.
     """
     if not _MCP_AVAILABLE:
         return False
@@ -655,7 +655,7 @@ def _wrap_command_with_watchdog(command: str, args: list) -> tuple[str, list]:
 
 
 # ---------------------------------------------------------------------------
-# MCP ImageContent block → Hermes MEDIA tag
+# MCP ImageContent block → Fabric MEDIA tag
 # ---------------------------------------------------------------------------
 
 
@@ -670,7 +670,7 @@ def _mcp_image_extension_for_mime_type(mime_type: str) -> str:
 
 def _cache_mcp_image_block(block) -> str:
     """Cache an MCP ``ImageContent`` block to the shared image cache and
-    return a ``MEDIA:<path>`` tag that Hermes gateways know how to render.
+    return a ``MEDIA:<path>`` tag that Fabric gateways know how to render.
 
     Returns an empty string when *block* is not an image, when the base64
     payload is malformed, or when the cache helper rejects the bytes (e.g.
@@ -1351,7 +1351,7 @@ class ElicitationHandler:
 
     Elicitation lets a server ask the client to collect structured input from
     the user mid-tool-call (e.g. payment authorization, OAuth confirmation).
-    Form-mode elicitations are routed through Hermes' existing approval
+    Form-mode elicitations are routed through Fabric's existing approval
     system (``tools.approval.prompt_dangerous_approval``), which surfaces
     the prompt on whichever surface the active session uses -- CLI, TUI,
     Telegram, Slack, etc. URL-mode elicitations are declined as unsupported.
@@ -1444,7 +1444,7 @@ class ElicitationHandler:
         # normalizes the answer to one of accept / decline / cancel.
         #
         # The recv-loop task that fires this callback does NOT inherit
-        # the agent's contextvars (HERMES_SESSION_PLATFORM etc.). When
+        # the agent's task-local session context. When
         # the MCP tool wrapper captured the agent's context onto
         # owner._pending_call_context we replay it here via
         # contextvars.Context.run so the gateway-platform detection in
@@ -1560,7 +1560,7 @@ class MCPServerTask:
         # contextvars snapshot of the agent task that's currently in
         # session.call_tool(). The MCP recv loop dispatches incoming
         # elicitation/create requests on a SEPARATE asyncio task whose
-        # context doesn't inherit HERMES_SESSION_PLATFORM, so the
+        # context doesn't inherit the active platform, so the
         # elicitation handler has no way to detect the gateway session
         # that triggered the call. Capturing the agent's context here
         # and replaying it inside the elicitation callback restores
@@ -1679,7 +1679,7 @@ class MCPServerTask:
         """Build a ``logging_callback`` for ``ClientSession``.
 
         Routes MCP ``notifications/message`` log notifications from the
-        server into Hermes' logging (agent.log via fabric_logging), tagged
+        server into Fabric's logging (agent.log via fabric_logging), tagged
         with the server name.  Without this, the SDK's default callback
         silently discards them, so server-side warnings/errors during a
         tool call were invisible.  Port of anomalyco/opencode#34529.
@@ -2293,7 +2293,7 @@ class MCPServerTask:
                             '"method":"initialize",'
                             '"params":{"protocolVersion":"2025-03-26",'
                             '"capabilities":{},'
-                            '"clientInfo":{"name":"hermes-probe",'
+                            '"clientInfo":{"name":"fabric-probe",'
                             '"version":"0.1"}}}'
                         ),
                     )
@@ -2623,7 +2623,7 @@ class MCPServerTask:
         # Set up elicitation handler if enabled and SDK types are available.
         # Servers use elicitation/create to ask the client for structured
         # input mid-tool-call (e.g. payment authorization). The handler
-        # routes those requests through Hermes' approval system.
+        # routes those requests through Fabric's approval system.
         elicitation_config = config.get("elicitation", {})
         if elicitation_config.get("enabled", True) and _MCP_ELICITATION_TYPES:
             self._elicitation = ElicitationHandler(self.name, elicitation_config, owner=self)
@@ -3579,7 +3579,7 @@ def _ensure_mcp_loop():
 
 
 def _wrap_with_home_override(coro: "Coroutine") -> "Coroutine":
-    """Carry the caller's context-local HERMES_HOME override into ``coro``.
+    """Carry the caller's context-local FABRIC_HOME override into ``coro``.
 
     Returns ``coro`` unchanged when no override is active. Otherwise wraps
     it so the override is set inside the coroutine's own (task-local)
@@ -3632,7 +3632,7 @@ def _run_on_mcp_loop(coro_or_factory, timeout: float = 30):
 
     coro = coro_or_factory() if callable(coro_or_factory) else coro_or_factory
 
-    # Propagate the context-local HERMES_HOME override onto the MCP loop.
+    # Propagate the context-local FABRIC_HOME override onto the MCP loop.
     # Tasks scheduled via run_coroutine_threadsafe are created INSIDE the
     # loop thread, so they copy the loop thread's context — not the
     # scheduling thread's. A per-request profile scope (the dashboard's
@@ -3753,9 +3753,9 @@ def _load_mcp_config() -> Dict[str, dict]:
     """
     try:
         from fabric_cli.config import load_config
-        from utils import env_var_enabled as _env_enabled
+        from fabric_cli.launch_context import safe_mode_enabled
 
-        if _env_enabled("HERMES_SAFE_MODE"):
+        if safe_mode_enabled():
             return {}
         config = load_config()
         servers = config.get("mcp_servers")
@@ -3974,13 +3974,13 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
             # Collect text from content blocks. MCP tool results can also
             # include ImageContent blocks (screenshot / Blockbench / Playwright
             # etc.); cache those via the gateway's image-cache helper so they
-            # flow through Hermes' MEDIA: tag convention and out to messaging
+            # flow through Fabric's MEDIA: tag convention and out to messaging
             # adapters that render images natively. Without this, image blocks
             # were silently dropped and the agent got an empty response.
             #
             # Distilled from #17915 (c3115644151) and #10848 (gnanirahulnutakki),
             # both too stale to cherry-pick. #10848's approach (integrate with
-            # Hermes' MEDIA tag + cache_image_from_bytes) was the cleaner of
+            # Fabric's MEDIA tag + cache_image_from_bytes) was the cleaner of
             # the two — plugs into existing infrastructure.
             parts: List[str] = []
             for block in (result.content or []):
@@ -4471,7 +4471,7 @@ def _normalize_mcp_input_schema(schema: dict | None) -> dict:
 def sanitize_mcp_name_component(value: str) -> str:
     """Return an MCP name component safe for tool and prefix generation.
 
-    Preserves Hermes's historical behavior of converting hyphens to
+    Converts hyphens to
     underscores, and also replaces any other character outside
     ``[A-Za-z0-9_]`` with ``_`` so generated tool names are compatible with
     provider validation rules.
@@ -4501,7 +4501,7 @@ def mcp_prefixed_tool_name(server_name: str, tool_name: str) -> str:
 
 
 def _convert_mcp_schema(server_name: str, mcp_tool) -> dict:
-    """Convert an MCP tool listing to the Hermes registry schema format.
+    """Convert an MCP tool listing to the Fabric registry schema format.
 
     Args:
         server_name: The logical server name for prefixing.
@@ -5161,7 +5161,7 @@ def probe_mcp_server_tools() -> Dict[str, List[tuple]]:
 
     Designed for ``fabric tools`` interactive configuration — connects to each
     enabled server, grabs tool names and descriptions, then disconnects.
-    Does NOT register tools in the Hermes registry.
+    Does NOT register tools in the Fabric registry.
 
     Returns:
         Dict mapping server name to list of (tool_name, description) tuples.
@@ -5490,7 +5490,7 @@ def _kill_orphaned_mcp_children(
     sessions are not disrupted.
 
     Sends SIGTERM, waits 2 seconds, then escalates to SIGKILL for any
-    survivors, avoiding shared-resource collisions when multiple hermes
+    survivors, avoiding shared-resource collisions when multiple fabric
     processes run on the same host (each has its own ``_stdio_pids`` dict).
 
     On POSIX, signals are sent via ``os.killpg`` to the spawn-time pgid when

@@ -59,11 +59,10 @@ def test_default_fabric_art_resolves_skin_colors_and_renders_without_color():
 def test_public_fabric_art_exports_are_directly_printable_for_plugins():
     assert "{" not in banner.FABRIC_AGENT_LOGO
     assert "{" not in banner.FABRIC_MARK
-    assert banner.HERMES_AGENT_LOGO == banner.FABRIC_AGENT_LOGO
-    assert banner.HERMES_CADUCEUS == banner.FABRIC_MARK
+    assert banner.FABRIC_AGENT_LOGO.strip()
 
     console = Console(record=True, force_terminal=True, color_system="truecolor")
-    console.print(banner.HERMES_AGENT_LOGO)
+    console.print(banner.FABRIC_AGENT_LOGO)
 
     assert "\x1b[" in console.export_text(styles=True)
 
@@ -332,9 +331,9 @@ def test_build_welcome_banner_moa_provider_shows_preset_and_aggregator(tmp_path,
     """With provider='moa', the banner renders the preset + aggregator, not a bare slug."""
     import yaml
 
-    home = tmp_path / ".hermes"
+    home = tmp_path / ".fabric"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("FABRIC_HOME", str(home))
     (home / "config.yaml").write_text(
         yaml.safe_dump(
             {
@@ -378,8 +377,8 @@ def test_build_welcome_banner_moa_provider_shows_preset_and_aggregator(tmp_path,
 
 def test_build_welcome_banner_non_moa_unchanged(tmp_path, monkeypatch):
     """A normal provider still renders the bare model slug, no MoA prefix."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
-    (tmp_path / ".hermes").mkdir()
+    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / ".fabric"))
+    (tmp_path / ".fabric").mkdir()
 
     with (
         patch.object(model_tools, "check_tool_availability", return_value=([], [])),

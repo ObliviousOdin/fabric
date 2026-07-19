@@ -1,7 +1,7 @@
-"""Lightweight internationalization (i18n) for Hermes static user-facing messages.
+"""Lightweight internationalization (i18n) for Fabric static user-facing messages.
 
 Scope (thin slice, by design): only the highest-impact static strings shown
-to the user by Hermes itself -- approval prompts, a handful of gateway slash
+to the user by Fabric itself -- approval prompts, a handful of gateway slash
 command replies, restart-drain notices.  Agent-generated output, log lines,
 error tracebacks, tool outputs, and slash-command descriptions all stay in
 English.
@@ -21,9 +21,8 @@ Usage::
 
 Language resolution order:
     1. Explicit ``lang=`` argument passed to :func:`t`
-    2. ``HERMES_LANGUAGE`` environment variable (for tests / quick override)
-    3. ``display.language`` from config.yaml
-    4. ``"en"`` (baseline)
+    2. ``display.language`` from config.yaml
+    3. ``"en"`` (baseline)
 
 Supported languages: en, zh, ja, de, es, fr, tr, uk.  Unknown values fall back to en.
 """
@@ -31,7 +30,6 @@ Supported languages: en, zh, ja, de, es, fr, tr, uk.  Unknown values fall back t
 from __future__ import annotations
 
 import logging
-import os
 import sysconfig
 import threading
 from functools import lru_cache
@@ -90,11 +88,9 @@ def _locales_dir() -> Path:
 
     Resolution order, first existing wins:
 
-    1. ``HERMES_BUNDLED_LOCALES`` env var -- set by the Nix wrapper (or any
-       sealed-packaging system) to point at the installed catalog directory.
-    2. ``<repo-root>/locales`` -- source checkouts and ``pip install -e .``,
+    1. ``<repo-root>/locales`` -- source checkouts and ``pip install -e .``,
        where the working tree sits next to ``agent/``.
-    3. ``<sysconfig data|purelib|platlib>/locales`` -- pip wheel installs.
+    2. ``<sysconfig data|purelib|platlib>/locales`` -- pip wheel installs.
        setuptools ``data-files`` extracts ``locales/*.yaml`` under the
        interpreter's ``data`` scheme; the other schemes are checked as a
        safety net for nonstandard layouts.
@@ -103,17 +99,6 @@ def _locales_dir() -> Path:
     ``_load_catalog`` error messages informative -- it logs the path it
     looked at -- rather than raising.
     """
-    override = os.getenv("HERMES_BUNDLED_LOCALES", "").strip()
-    if override:
-        candidate = Path(override)
-        if candidate.is_dir():
-            return candidate
-        logger.warning(
-            "HERMES_BUNDLED_LOCALES points to a non-directory path (%s); "
-            "falling back to bundled/source locale resolution",
-            override,
-        )
-
     # agent/i18n.py -> agent/ -> repo root (source checkout, editable install)
     source_dir = Path(__file__).resolve().parent.parent / "locales"
     if source_dir.is_dir():
@@ -181,7 +166,7 @@ def _load_catalog(lang: str) -> dict[str, str]:
         return {}
 
     try:
-        import yaml  # PyYAML is already a hermes dependency
+        import yaml  # PyYAML is already a fabric dependency
         with path.open("r", encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
     except Exception as exc:
@@ -239,10 +224,7 @@ def reset_language_cache() -> None:
 
 
 def get_language() -> str:
-    """Resolve the active language using env > config > default order."""
-    env_lang = os.environ.get("HERMES_LANGUAGE")
-    if env_lang:
-        return _normalize_lang(env_lang)
+    """Resolve the active language using config, then the default."""
     cfg_lang = _config_language_cached()
     if cfg_lang:
         return cfg_lang
@@ -257,7 +239,7 @@ def t(key: str, lang: str | None = None, **format_kwargs: Any) -> str:
     key
         Dotted path into the catalog, e.g. ``"approval.choose_long"``.
     lang
-        Explicit language override.  Takes precedence over env + config.
+        Explicit language override.  Takes precedence over config.
     **format_kwargs
         ``str.format`` substitution arguments (``t("gateway.drain", count=3)``
         expects a catalog entry with a ``{count}`` placeholder).

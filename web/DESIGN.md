@@ -3,7 +3,6 @@
 This document is the source of truth for Fabric-owned Workspace and Admin
 surfaces, dashboard plugins, and future engineering handoff. It replaces the
 inherited upstream console language as the canonical product experience.
-Historical skins remain compatibility seams; they do not define Fabric.
 
 ## Product character
 
@@ -185,7 +184,7 @@ hierarchy or forcing technical inventory into Workspace.
   to settings.
 - Detailed gateway state, restart/update controls, version, and authentication
   diagnostics belong in Admin/System or a compact system popover.
-- Light/dark is a quick preference. The full legacy/custom theme gallery lives
+- Light/dark is a quick preference. The custom theme gallery lives
   under Advanced rather than occupying the primary rail.
 
 ## Work surfaces
@@ -241,11 +240,10 @@ Canonical icons use a 20–24px grid, 1.75–2px stroke, round caps and joins, a
 first-party thread, handoff, approval, artifact, provenance, and memory-conflict
 icons are developed. No emoji or Unicode glyphs stand in for interface icons.
 
-## Compatibility
+## Extension dependencies
 
-- Existing theme IDs and plugin globals remain compatibility seams.
-- Fabric Light/Dark are the canonical pair. Historical teal, blue, and novelty
-  themes are optional skins, not examples of the Fabric product language.
+- Fabric Light/Dark are the canonical pair. Optional themes do not define the
+  Fabric product language.
 - Existing `@nous-research/ui` code may continue to provide behavior while
   Fabric-owned wrappers take over rendering and visual decisions.
 - New dashboard plugins consume host semantic tokens and motif utilities.

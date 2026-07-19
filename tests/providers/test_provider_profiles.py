@@ -408,12 +408,6 @@ class TestOpenRouterProfile:
 
 
 class TestNousProfile:
-    def test_tags(self):
-        from agent.portal_tags import nous_portal_tags
-        p = get_provider_profile("nous")
-        body = p.build_extra_body()
-        assert body["tags"] == nous_portal_tags()
-
     def test_auth_type(self):
         p = get_provider_profile("nous")
         assert p.auth_type == "oauth_device_code"

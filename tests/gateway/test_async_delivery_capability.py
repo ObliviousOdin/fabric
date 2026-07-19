@@ -24,7 +24,7 @@ import pytest
 from gateway.session_context import (
     async_delivery_supported,
     clear_session_vars,
-    get_session_env,
+    get_session_context,
     set_session_vars,
 )
 
@@ -48,7 +48,7 @@ class TestAsyncDeliverySupported:
         try:
             assert async_delivery_supported() is True
             # Platform metadata stays readable alongside the capability.
-            assert get_session_env("HERMES_SESSION_PLATFORM") == "telegram"
+            assert get_session_context().platform == "telegram"
         finally:
             clear_session_vars(tokens)
 
@@ -63,7 +63,7 @@ class TestAsyncDeliverySupported:
             assert async_delivery_supported() is False
             # Platform must still be readable for routing/diagnostics even
             # though delivery is unsupported.
-            assert get_session_env("HERMES_SESSION_PLATFORM") == "api_server"
+            assert get_session_context().platform == "api_server"
         finally:
             clear_session_vars(tokens)
 
@@ -106,14 +106,14 @@ class TestAdapterCapabilityFlag:
         _bind_api_server_session, which hardwires async_delivery=False — a new
         route physically cannot reintroduce the silent no-op (#10760)."""
         from gateway.platforms.api_server import APIServerAdapter
-        from gateway.session_context import clear_session_vars, get_session_env
+        from gateway.session_context import clear_session_vars, get_session_context
 
         tokens = APIServerAdapter._bind_api_server_session(
             chat_id="c1", session_key="sk1", session_id="sid1"
         )
         try:
             assert async_delivery_supported() is False
-            assert get_session_env("HERMES_SESSION_PLATFORM") == "api_server"
+            assert get_session_context().platform == "api_server"
         finally:
             clear_session_vars(tokens)
 

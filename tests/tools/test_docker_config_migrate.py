@@ -23,12 +23,11 @@ def _load_script_module():
     return module
 
 
-def _run_migration(hermes_home: Path, **env_overrides: str) -> subprocess.CompletedProcess[str]:
+def _run_migration(fabric_home: Path, **env_overrides: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env.update(
         {
-            "HERMES_HOME": str(hermes_home),
-            "HERMES_SKIP_CHMOD": "1",
+            "FABRIC_HOME": str(fabric_home),
             "PYTHONPATH": str(REPO_ROOT),
         }
     )
@@ -131,19 +130,6 @@ def test_docker_config_migrate_does_not_rewrite_invalid_yaml(tmp_path: Path) -> 
     assert not list(tmp_path.glob("*.bak-*"))
 
 
-def test_docker_config_migrate_skip_env_leaves_config_unchanged(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    original = yaml.safe_dump({"_config_version": 11})
-    config_path.write_text(original, encoding="utf-8")
-
-    proc = _run_migration(tmp_path, HERMES_SKIP_CONFIG_MIGRATION="1")
-
-    assert proc.returncode == 0, proc.stderr
-    assert "skipping config migration" in proc.stdout
-    assert config_path.read_text(encoding="utf-8") == original
-    assert not list(tmp_path.glob("*.bak-*"))
-
-
 def test_docker_config_migrate_restores_backups_after_failed_migration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -207,7 +193,7 @@ def test_docker_config_migrate_restores_backups_when_version_does_not_advance(
 def test_docker_config_migrate_second_boot_preserves_env_byte_for_byte(tmp_path: Path) -> None:
     """Regression for #51579: booting ``gateway run`` twice (i.e. a host
     reboot under ``--restart unless-stopped``) must not strip or rewrite
-    ``$HERMES_HOME/.env``. The first boot migrates the stale config and bumps
+    ``$FABRIC_HOME/.env``. The first boot migrates the stale config and bumps
     ``_config_version``; the second boot must be a no-op that leaves ``.env``
     byte-identical to what the user supplied.
 

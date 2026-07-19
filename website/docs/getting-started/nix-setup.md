@@ -56,7 +56,7 @@ fabric setup
 fabric --tui
 ```
 
-After `nix profile install`, `fabric`, `fabric-agent`, and `fabric-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `fabric setup` walks you through provider selection, `fabric gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.fabric/`.
+After `nix profile install`, `fabric` is on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `fabric setup` walks you through provider selection, `fabric gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.fabric/`.
 
 :::warning Messaging platforms (Discord, Telegram, Slack)
 The default package includes ALL libraries fabric-agent might need. if you want a smaller variant, check the other flake outputs. 
@@ -149,7 +149,7 @@ When `container.enable = true` and `addToSystemPackages = true`, **every** `fabr
 - The routing is transparent: `fabric chat`, `fabric sessions list`, `fabric version`, etc. all exec into the container under the hood
 - All CLI flags are forwarded as-is
 - If the container isn't running, the CLI retries briefly (5s with a spinner for interactive use, 10s silently for scripts) then fails with a clear error — no silent fallback
-- For developers working on the fabric codebase, set `HERMES_DEV=1` to bypass container routing and run the local checkout directly
+- Developers working on a source checkout can invoke it explicitly with `uv run python -m fabric_cli.main` instead of the system wrapper
 
 Set `container.hostUsers` to create a `~/.fabric` symlink to the service state directory, so the host CLI and the container share sessions, config, and memories:
 
@@ -554,7 +554,7 @@ When fabric runs via the NixOS module, the following CLI commands are **blocked*
 
 This prevents drift between what Nix declares and what's on disk. Detection uses two signals:
 
-1. **`HERMES_MANAGED=true`** environment variable — set by the systemd service, visible to the gateway process
+1. An internal process marker injected by the systemd service (not a user-configurable setting)
 2. **`.managed` marker file** in `FABRIC_HOME` — set by the activation script, visible to interactive shells (e.g., `docker exec -it fabric-agent fabric config set ...` is also blocked)
 
 To change configuration, edit your Nix config and run `sudo nixos-rebuild switch`.
@@ -627,16 +627,13 @@ The NixOS module supports declarative plugin installation — no imperative `fab
 
 ### Directory Plugins (`extraPlugins`)
 
-For plugins that are just a source tree with `plugin.yaml` + `__init__.py` (e.g., [hermes-lcm](https://github.com/stephenschoettler/hermes-lcm)):
+For plugins that are just a source tree with `plugin.yaml` + `__init__.py`:
 
 ```nix
 services.fabric-agent.extraPlugins = [
-  (pkgs.fetchFromGitHub {
-    owner = "stephenschoettler";
-    repo = "hermes-lcm";
-    rev = "v0.7.0";
-    hash = "sha256-...";
-  })
+  (pkgs.runCommand "my-fabric-plugin" {} ''
+    cp -r ${./my-plugin} $out
+  '')
 ];
 ```
 
@@ -644,19 +641,14 @@ Plugins are symlinked into `$FABRIC_HOME/plugins/` at activation time. Fabric di
 
 ### Entry-Point Plugins (`extraPythonPackages`)
 
-For pip-packaged plugins that register via `[project.entry-points."hermes_agent.plugins"]` (e.g., [rtk-hermes](https://github.com/ogallotti/rtk-hermes)):
+For pip-packaged plugins that register via `[project.entry-points."fabric_agent.plugins"]`:
 
 ```nix
 services.fabric-agent.extraPythonPackages = [
   (pkgs.python312Packages.buildPythonPackage {
-    pname = "rtk-hermes";
+    pname = "my-fabric-plugin";
     version = "1.0.0";
-    src = pkgs.fetchFromGitHub {
-      owner = "ogallotti";
-      repo = "rtk-hermes";
-      rev = "v1.0.0";
-      hash = "sha256-...";
-    };
+    src = ./my-plugin;
     format = "pyproject";
     build-system = [ pkgs.python312Packages.setuptools ];
   })
@@ -749,7 +741,7 @@ Plugins still need to be enabled in `config.yaml`. Add them via the declarative 
 
 ```nix
 services.fabric-agent.settings.plugins.enabled = [
-  "hermes-lcm"
+  "my-plugin"
   "rtk-rewrite"
 ];
 ```
@@ -798,10 +790,10 @@ The flake includes build-time verification that runs in CI and locally:
 nix flake check
 
 # Individual checks
-nix build .#checks.x86_64-linux.package-contents   # binaries exist + version
+nix build .#checks.x86_64-linux.package-contents   # executable exists + version
 nix build .#checks.x86_64-linux.entry-points-sync  # pyproject.toml ↔ Nix package sync
 nix build .#checks.x86_64-linux.cli-commands        # gateway/config subcommands
-nix build .#checks.x86_64-linux.managed-guard       # HERMES_MANAGED blocks mutation
+nix build .#checks.x86_64-linux.managed-guard       # managed installs block mutation
 nix build .#checks.x86_64-linux.bundled-skills      # skills present in package
 nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves user keys
 ```
@@ -811,10 +803,10 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 
 | Check | What it tests |
 |---|---|
-| `package-contents` | `fabric` and `fabric-agent` binaries exist and `fabric version` runs |
+| `package-contents` | The `fabric` executable exists and `fabric version` runs |
 | `entry-points-sync` | Every `[project.scripts]` entry in `pyproject.toml` has a wrapped binary in the Nix package |
 | `cli-commands` | `fabric --help` exposes `gateway` and `config` subcommands |
-| `managed-guard` | `HERMES_MANAGED=true fabric config set ...` prints the NixOS error |
+| `managed-guard` | Managed service/marker detection blocks `fabric config set ...` with the NixOS error |
 | `bundled-skills` | Bundled and optional skill directories contain SKILL.md files and resolve from immutable wheel data in the sealed Python environment |
 | `config-roundtrip` | 7 merge scenarios: fresh install, Nix override, user key preservation, mixed merge, MCP additive merge, nested deep merge, idempotency |
 

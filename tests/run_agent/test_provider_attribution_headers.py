@@ -1,4 +1,4 @@
-"""Attribution default_headers applied per provider via base-URL detection."""
+"""Required and user-configured headers applied per provider."""
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -6,7 +6,7 @@ from run_agent import AIAgent
 
 
 @patch("run_agent.OpenAI")
-def test_openrouter_base_url_applies_or_headers(mock_openai):
+def test_openrouter_base_url_applies_fabric_headers(mock_openai):
     mock_openai.return_value = MagicMock()
     agent = AIAgent(
         api_key="test-key",
@@ -76,7 +76,7 @@ def test_nvidia_local_base_url_does_not_apply_billing_origin_header(mock_openai)
         skip_memory=True,
     )
     agent._client_kwargs["default_headers"] = {
-        "X-BILLING-INVOKE-ORIGIN": "HermesAgent",
+        "X-BILLING-INVOKE-ORIGIN": "FabricAgent",
     }
 
     agent._apply_client_headers_for_base_url("http://localhost:8000/v1")
@@ -90,7 +90,7 @@ def test_routed_client_preserves_openai_sdk_custom_headers(mock_openai):
     routed_client = SimpleNamespace(
         api_key="test-key",
         base_url="https://integrate.api.nvidia.com/v1",
-        _custom_headers={"X-BILLING-INVOKE-ORIGIN": "HermesAgent"},
+        _custom_headers={"X-Required-Protocol": "enabled"},
     )
 
     with patch("agent.auxiliary_client.resolve_provider_client", return_value=(
@@ -106,7 +106,7 @@ def test_routed_client_preserves_openai_sdk_custom_headers(mock_openai):
         )
 
     headers = agent._client_kwargs["default_headers"]
-    assert headers["X-BILLING-INVOKE-ORIGIN"] == "HermesAgent"
+    assert headers["X-Required-Protocol"] == "enabled"
 
 
 @patch("run_agent.OpenAI")
@@ -136,12 +136,6 @@ def test_routed_client_preserves_openai_sdk_default_headers(mock_openai):
 
 @patch("run_agent.OpenAI")
 def test_gmi_base_url_picks_up_profile_user_agent(mock_openai):
-    """GMI declares User-Agent on its ProviderProfile.default_headers.
-
-    The ``_apply_client_headers_for_base_url`` else-branch looks up the
-    provider profile and applies its default_headers, so no GMI-specific
-    branch is needed in run_agent.
-    """
     mock_openai.return_value = MagicMock()
     agent = AIAgent(
         api_key="test-key",
@@ -250,8 +244,8 @@ def test_user_default_headers_win_over_provider_defaults(mock_openai):
         agent._apply_client_headers_for_base_url("https://openrouter.ai/api/v1")
 
     headers = agent._client_kwargs["default_headers"]
-    assert headers["X-Title"] == "MyApp"  # user override wins
-    assert headers["HTTP-Referer"] == "https://github.com/ObliviousOdin/fabric"  # default preserved
+    assert headers["X-Title"] == "MyApp"
+    assert headers["HTTP-Referer"] == "https://github.com/ObliviousOdin/fabric"
 
 
 @patch("run_agent.OpenAI")
@@ -271,7 +265,7 @@ def test_no_user_default_headers_leaves_provider_defaults_untouched(mock_openai)
 
     headers = agent._client_kwargs["default_headers"]
     assert headers["HTTP-Referer"] == "https://github.com/ObliviousOdin/fabric"
-    assert "User-Agent" not in headers  # nothing injected when unconfigured
+    assert "User-Agent" not in headers
 
 
 @patch("run_agent.OpenAI")

@@ -104,8 +104,7 @@ The short version:
 
 - Generated Fabric Light/Dark are the canonical theme pair, built from neutral
   woven surfaces and `#4628CC` as the single brand/action accent. Expressive
-  themes remain optional presets; old teal/blue identities migrate to the
-  canonical pair.
+  themes remain optional presets.
 - Product language uses sentence case and the theme's system-humanist sans.
   Monospace is only for technical values such as IDs, branches, paths, and logs.
 - Body copy is at least 14px and interactive targets are at least 44×44px.

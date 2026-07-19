@@ -195,11 +195,11 @@ class TestVerifyCoreDependencies:
         self, temp_pyproject, fake_venv_python
     ):
         """Regression: the ``--reinstall -e .`` repair must
-        quarantine the running ``hermes.exe`` on Windows before installing.
+        quarantine the running ``fabric.exe`` on Windows before installing.
 
         That reinstall rewrites the editable entry-point shims, and on Windows
         pip can't overwrite the live launcher — so without quarantine the shim
-        is left missing and ``hermes`` drops off PATH. Previously this path
+        is left missing and ``fabric`` drops off PATH. Previously this path
         called ``_run_install_with_heartbeat`` directly, bypassing the
         quarantine that the primary install path performs.
         """
@@ -223,14 +223,14 @@ class TestVerifyCoreDependencies:
              patch("fabric_cli.main._is_windows", return_value=True), \
              patch("fabric_cli.main._venv_scripts_dir", return_value=fake_scripts), \
              patch("fabric_cli.main._run_install_with_heartbeat"), \
-             patch("fabric_cli.main._quarantine_running_hermes_exe", return_value=[]) as mock_quar:
+             patch("fabric_cli.main._quarantine_running_fabric_exe", return_value=[]) as mock_quar:
 
             from fabric_cli.main import _verify_core_dependencies_installed
             _verify_core_dependencies_installed(["uv", "pip"], env=env)
 
             assert mock_quar.called, (
                 "the --reinstall -e . repair must quarantine the running "
-                "hermes.exe on Windows"
+                "fabric.exe on Windows"
             )
             assert mock_quar.call_args[0][0] == fake_scripts
 

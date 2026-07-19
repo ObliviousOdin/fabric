@@ -5,17 +5,17 @@ run`` was the standard pattern — the gateway ran as the container's
 main process, container exit code matched gateway exit code, no
 supervision. With s6 as PID 1, the same invocation now auto-redirects
 to the supervised path (`gateway start`) so users get auto-restart on
-crash and a supervised dashboard alongside (when ``HERMES_DASHBOARD=1``).
+crash.
 
 These tests verify the three load-bearing properties of that redirect:
 
   1. The default invocation **does** redirect (container stays up via
      ``sleep infinity`` while s6 supervises ``gateway-default``).
-  2. ``--no-supervise`` / ``HERMES_GATEWAY_NO_SUPERVISE=1`` opts out.
-  3. The supervised process itself does NOT recurse — the
-     ``HERMES_S6_SUPERVISED_CHILD`` sentinel breaks the loop.
+  2. ``--no-supervise`` opts out.
+  3. The supervised process itself does NOT recurse — its explicit hidden
+     argv contract breaks the loop.
 
-Every ``docker exec`` runs as ``hermes`` per the conftest module
+Every ``docker exec`` runs as ``fabric`` per the conftest module
 docstring; see ``tests/docker/conftest.py`` for rationale.
 """
 from __future__ import annotations
@@ -58,7 +58,7 @@ def _wait_for_gateway_or_exit(
     CMD process (not supervised by s6).  Under CI load the gateway can
     take well over 6s to finish Python imports and reach the gateway
     entrypoint — a fixed ``time.sleep(6)`` races.  Polling for
-    ``pgrep -f 'hermes.*gateway'`` (the gateway is running) or
+    ``pgrep -f 'fabric.*gateway'`` (the gateway is running) or
     ``docker inspect`` returning ``exited`` is both faster on quick
     machines and flake-free on slow ones.
     """
@@ -75,7 +75,7 @@ def _wait_for_gateway_or_exit(
             # Check if the gateway process is actually running in the
             # foreground (the no-supervise path).  If it is, we're done.
             pgrep = docker_exec_sh(
-                container, "pgrep -f 'hermes.*gateway' >/dev/null 2>&1",
+                container, "pgrep -f 'fabric.*gateway' >/dev/null 2>&1",
             )
             if pgrep.returncode == 0:
                 return "running"
@@ -166,7 +166,7 @@ def test_gateway_run_redirects_to_supervised(
     )
 
 
-def test_gateway_run_no_supervise_flag_preserves_legacy_behavior(
+def test_gateway_run_no_supervise_flag_preserves_foreground_behavior(
     built_image: str, container_name: str,
 ) -> None:
     """``docker run <image> gateway run --no-supervise`` opts out of
@@ -238,49 +238,11 @@ def test_gateway_run_no_supervise_flag_preserves_legacy_behavior(
     # already enough to confirm the redirect didn't fire.
 
 
-def test_gateway_run_no_supervise_env_var(
-    built_image: str, container_name: str,
-) -> None:
-    """Env-var opt-out works identically to the CLI flag.
-
-    Useful when users can't easily change their `docker run` args
-    (orchestration templates, K8s manifests) but can set env vars.
-    """
-    start_container(
-        built_image, container_name,
-        "HERMES_GATEWAY_NO_SUPERVISE=1",
-        cmd="gateway run",
-    )
-
-    # Same as the CLI-flag test: wait for the gateway to start or
-    # the container to exit, instead of a blind time.sleep(6).
-    status = _wait_for_gateway_or_exit(container_name, deadline_s=60.0)
-
-    logs = subprocess.run(
-        ["docker", "logs", container_name],
-        capture_output=True, text=True, timeout=10,
-    )
-    combined = logs.stdout + logs.stderr
-    assert "s6 supervision" not in combined, (
-        f"env-var opt-out should have skipped the redirect; "
-        f"breadcrumb in logs:\n{combined}"
-    )
-
-    # Same as the CLI-flag test: the slot exists (reconciler creates
-    # it) but should not have want-state up.
-    if status == "running":
-        assert not _svstat_wants_up(container_name, "gateway-default"), (
-            "HERMES_GATEWAY_NO_SUPERVISE=1: gateway-default has "
-            "want-state up, implying the redirect dispatched `start` "
-            f"despite the env-var opt-out. svstat:\n{_svstat(container_name)!r}"
-        )
-
-
 def test_supervised_gateway_does_not_recurse(
     built_image: str, container_name: str,
 ) -> None:
-    """The HERMES_S6_SUPERVISED_CHILD sentinel must prevent the
-    supervised ``fabric gateway run`` from re-entering the redirect.
+    """The explicit service argv flag must prevent the supervised
+    ``fabric gateway run`` from re-entering the redirect.
 
     If recursion happened, every supervised gateway start would itself
     re-dispatch to s6 and exec ``sleep infinity`` — so the supervised
@@ -312,7 +274,7 @@ def test_supervised_gateway_does_not_recurse(
     # respawn fresh `gateway run` processes on every cycle, leaving
     # multiple Python-process descendants under the gateway-default
     # supervise tree.
-    r = docker_exec_sh(container_name, "ps -eo pid,cmd | grep -v grep | grep -E 'python.*hermes.*gateway run' | wc -l")
+    r = docker_exec_sh(container_name, "ps -eo pid,cmd | grep -v grep | grep -E 'python.*fabric.*gateway run' | wc -l")
     assert r.returncode == 0
     n = int(r.stdout.strip() or 0)
     assert n <= 1, (
@@ -343,66 +305,12 @@ def test_supervised_gateway_does_not_recurse(
     )
 
 
-def test_dashboard_supervised_when_env_set(
-    built_image: str, container_name: str,
-) -> None:
-    """When ``HERMES_DASHBOARD=1`` is set, ``docker run <image> gateway
-    run`` should result in BOTH the gateway and the dashboard being
-    supervised by s6 — the dashboard slot was always there but only
-    activates with the env var. This is the headline benefit of the
-    redirect: one container = supervised gateway + supervised
-    dashboard, with zero extra user effort.
-    """
-    start_container(
-        built_image, container_name,
-        "HERMES_DASHBOARD=1",
-        cmd="gateway run",
-    )
-
-    # Wait for the redirect to fire (the breadcrumb appears in docker
-    # logs when the CMD process reaches the redirect logic). This is
-    # the same signal the other gateway-run tests use.
-    # A fixed time.sleep(5) was racing: start_container returns when
-    # cont-init finishes, but the redirect (which creates the
-    # gateway-default s6 slot) happens later in the CMD process.
-    wait_for_docker_logs(
-        container_name, "s6 supervision", deadline_s=60.0,
-    )
-
-    # Poll for both slots to report want-up, using the same
-    # _svstat_wants_up helper the other tests use. A simple
-    # `grep 'want up'` is wrong: when the service is already up,
-    # s6-svstat output is "up (pid ...) Ns" with no literal "want up"
-    # — the want-up intent is implied by the absence of "want down".
-    ok_gateway = False
-    end = time.monotonic() + 30.0
-    while time.monotonic() < end:
-        if _svstat_wants_up(container_name, "gateway-default"):
-            ok_gateway = True
-            break
-        time.sleep(0.5)
-    assert ok_gateway, (
-        f"gateway-default slot not want-up: {_svstat(container_name)!r}"
-    )
-
-    ok_dash = False
-    end = time.monotonic() + 30.0
-    while time.monotonic() < end:
-        if _svstat_wants_up(container_name, "dashboard"):
-            ok_dash = True
-            break
-        time.sleep(0.5)
-    assert ok_dash, (
-        f"dashboard slot not want-up: {_svstat(container_name, 'dashboard')!r}"
-    )
-
-
 def test_supervised_gateway_stdout_reaches_docker_logs(
     built_image: str, container_name: str,
 ) -> None:
     """The supervised gateway's stdout — including the rich-console
     startup banner — must reach ``docker logs``, not just the rotated
-    log file under ``${HERMES_HOME}/logs/gateways/<profile>/current``.
+    log file under ``${FABRIC_HOME}/logs/gateways/<profile>/current``.
 
     Without the ``1`` action directive in ``_render_log_run``, s6-log
     swallows the gateway's stdout into the file and ``docker logs``
@@ -417,7 +325,7 @@ def test_supervised_gateway_stdout_reaches_docker_logs(
     /init's stdout = container stdout = ``docker logs``) AND also
     writes a timestamped copy to the rotated file. Best of both.
 
-    We assert by looking for the literal banner glyph (``⚕``) — a
+    We assert by looking for the literal banner glyph (``✦``) — a
     distinctive character that won't appear in stderr-routed
     Python-logging output, so its presence in ``docker logs`` proves
     the stdout-tee is working.

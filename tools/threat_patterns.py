@@ -58,10 +58,7 @@ MAX_SCAN_CHARS = 65_536
 # bypasses without introducing unbounded repetition.
 _FILLER = r"(?:\w+\s+){0,8}"
 
-_CANONICAL_STATE_HOME_NAME = ".fabric"
-# public-release-audit: allow-legacy-compat -- detect attacks against pre-Fabric homes.
-_LEGACY_STATE_HOME_NAME = ".hermes"
-_STATE_HOME_PATTERN = rf"(?:{re.escape(_CANONICAL_STATE_HOME_NAME)}|{re.escape(_LEGACY_STATE_HOME_NAME)})"
+_STATE_HOME_PATTERN = re.escape(".fabric")
 _FABRIC_ENV_PATH_PATTERN = rf"(?:\$HOME/|~/){_STATE_HOME_PATTERN}/\.env"
 _FABRIC_CONFIG_WRITE_PATTERN = (
     rf"(update|modify|edit|write|change|append|add\s+to)\s+"
@@ -114,7 +111,7 @@ _PATTERNS: List[Tuple[str, str, str]] = [
     (rf'never\s+{_FILLER}(?:create|write)\s+{_FILLER}(?:script|file)\s+{_FILLER}disk', "anti_forensic_disk", "context"),
     # Environment-variable unsetting targeting known agent runtimes —
     # this is pure attack behavior (Brainworm sub-session bypass).
-    (r'unset\s+\w*(?:CLAUDE|CODEX|HERMES|AGENT|OPENAI|ANTHROPIC)\w*', "env_var_unset_agent", "context"),
+    (r'unset\s+\w*(?:CLAUDE|CODEX|FABRIC|AGENT|OPENAI|ANTHROPIC)\w*', "env_var_unset_agent", "context"),
 
     # ── Known C2 / red-team framework names (near-zero false positive
     #    outside security research; warn-only by default) ─────────────
@@ -138,9 +135,9 @@ _PATTERNS: List[Tuple[str, str, str]] = [
     # ── Persistence / SSH backdoor (strict scope — memory + skills) ──
     (r'authorized_keys', "ssh_backdoor", "strict"),
     (r'\$HOME/\.ssh|\~/\.ssh', "ssh_access", "strict"),
-    (_FABRIC_ENV_PATH_PATTERN, "hermes_env", "strict"),
+    (_FABRIC_ENV_PATH_PATTERN, "fabric_env", "strict"),
     (r'(update|modify|edit|write|change|append|add\s+to)\s+[^\n]{0,2048}(?:AGENTS\.md|CLAUDE\.md|\.cursorrules|\.clinerules)', "agent_config_mod", "strict"),
-    (_FABRIC_CONFIG_WRITE_PATTERN, "hermes_config_mod", "strict"),
+    (_FABRIC_CONFIG_WRITE_PATTERN, "fabric_config_mod", "strict"),
 
     # ── Hardcoded secrets ────────────────────────────────────────────
     (r'(?:api[_-]?key|token|secret|password)\s*[=:]\s*["\'][A-Za-z0-9+/=_-]{20,}', "hardcoded_secret", "strict"),
@@ -251,7 +248,7 @@ def scan_for_threats(content: str, scope: str = "context") -> List[str]:
     # Normalise to NFKC so full-width / compatibility Unicode variants
     # (e.g. ｃａｔ → cat, Ａ → A) are folded to their ASCII counterparts before
     # the regex engine sees them.  This prevents homograph substitution from
-    # bypassing keyword checks (e.g. ``ｃａｔ ~/.hermes/.env``).  NOTE: this
+    # bypassing keyword checks (e.g. ``ｃａｔ ~/.fabric/.env``).  NOTE: this
     # does NOT defend against cross-script confusables (Cyrillic ``а`` U+0430),
     # which NFKC leaves untouched — that needs a TR#39 confusable database.
     normalised = unicodedata.normalize("NFKC", content)

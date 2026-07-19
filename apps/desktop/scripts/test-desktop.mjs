@@ -14,6 +14,7 @@ const DESKTOP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const RELEASE_ROOT = path.join(DESKTOP_ROOT, 'release')
 const PLATFORM = process.platform
 const BRAND = loadDesktopBrand()
+const SKIP_BUILD = process.argv.includes('--skip-build')
 
 // Platform-specific packaged-app layout. The thin installer ships an Electron
 // app shell plus extraResources (install-stamp.json + native-deps/) -- it
@@ -51,8 +52,7 @@ const APP = (() => {
   }
 })()
 
-// Default Fabric home for non-sandboxed runs. Existing legacy homes are
-// selected by main.ts; this path describes a clean modern install.
+// Default Fabric home for non-sandboxed runs.
 const DEFAULT_FABRIC_HOME = (() => {
   if (PLATFORM === 'win32' && process.env.LOCALAPPDATA) {
     return path.join(process.env.LOCALAPPDATA, BRAND.cliName)
@@ -111,7 +111,7 @@ function ensurePlatformBuilds() {
 }
 
 function ensurePackagedApp() {
-  if (process.env.HERMES_DESKTOP_SKIP_BUILD === '1' && exists(APP.binary)) {
+  if (SKIP_BUILD && exists(APP.binary)) {
     return
   }
 
@@ -158,7 +158,7 @@ function ensureDmg() {
   if (PLATFORM !== 'darwin') {
     die('DMG mode is macOS-only; on Windows use the `nsis` mode instead.')
   }
-  if (process.env.HERMES_DESKTOP_SKIP_BUILD === '1' && exists(resolveDmgPath())) {
+  if (SKIP_BUILD && exists(resolveDmgPath())) {
     return
   }
   run('npm', ['run', 'dist:mac:dmg'])
@@ -168,7 +168,7 @@ function ensureNsis() {
   if (PLATFORM !== 'win32') {
     die('NSIS mode is win32-only; on macOS use the `dmg` mode instead.')
   }
-  if (process.env.HERMES_DESKTOP_SKIP_BUILD === '1' && resolveNsisPath()) {
+  if (SKIP_BUILD && resolveNsisPath()) {
     return
   }
   run('npm', ['run', 'dist:win:nsis'])
@@ -252,16 +252,13 @@ function launchFresh() {
     env[key] = value
   }
 
-  env.HERMES_DESKTOP_CWD = cwd
-  env.HERMES_DESKTOP_IGNORE_EXISTING = '1'
-  env.HERMES_DESKTOP_TEST_MODE = 'fresh-install'
-  env.HERMES_DESKTOP_USER_DATA_DIR = userDataDir
   env.FABRIC_HOME = fabricHome
-  env.HERMES_HOME = fabricHome
-  delete env.HERMES_DESKTOP_HERMES
-  delete env.HERMES_DESKTOP_HERMES_ROOT
 
-  const child = spawn(APP.binary, [], {
+  const child = spawn(APP.binary, [
+    `--user-data-dir=${userDataDir}`,
+    `--workspace-cwd=${cwd}`,
+    '--ignore-existing'
+  ], {
     cwd: os.homedir(),
     detached: true,
     env,
@@ -293,9 +290,9 @@ function validateBundle() {
   }
 
   // Negative assertion: the OLD fat-installer factory payload must NOT be
-  // present anymore. If a stray ship of hermes_cli sneaks back in we want
+  // present anymore. If a stray ship of fabric_cli sneaks back in we want
   // to fail loudly rather than re-introduce the 400MB delta we just removed.
-  const staleFactoryMarker = path.join(APP.resourcesPath, 'hermes-agent', 'hermes_cli', 'main.py')
+  const staleFactoryMarker = path.join(APP.resourcesPath, 'fabric-agent', 'fabric_cli', 'main.py')
   if (exists(staleFactoryMarker)) {
     die(`Thin-installer regression: factory-payload file should NOT be in the package: ${staleFactoryMarker}`)
   }
@@ -366,13 +363,13 @@ function validateBundle() {
   const normalized = files.map(f => f.replace(/\\/g, '/').replace(/^\/+/, ''))
   const forbiddenIdentityAssets = [
     'dist/nous-girl.jpg',
-    'dist/hermes.png',
-    'dist/hermes-sprite.png',
-    'dist/hermes-frames/',
+    'dist/fabric.png',
+    'dist/fabric-sprite.png',
+    'dist/fabric-frames/',
     'public/nous-girl.jpg',
-    'public/hermes.png',
-    'public/hermes-sprite.png',
-    'public/hermes-frames/'
+    'public/fabric.png',
+    'public/fabric-sprite.png',
+    'public/fabric-frames/'
   ]
   const leakedIdentityAsset = normalized.find(file =>
     forbiddenIdentityAssets.some(forbidden =>
@@ -418,7 +415,7 @@ function help() {
   npm run test:desktop:all       # build installer, validate app payload, print paths
 
 Fast rerun (skip rebuild if the packaged app already exists):
-  HERMES_DESKTOP_SKIP_BUILD=1 npm run test:desktop:fresh
+  npm run test:desktop:fresh -- --skip-build
 `)
 }
 

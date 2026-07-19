@@ -28,7 +28,7 @@ from utils import normalize_proxy_url
 
 logger = logging.getLogger(__name__)
 
-# Audio file extensions Hermes recognizes for native audio delivery.
+# Audio file extensions Fabric recognizes for native audio delivery.
 # Kept in sync with tools/send_message_tool.py and cron/scheduler.py via
 # should_send_media_as_audio() below.
 _AUDIO_EXTS = frozenset({'.ogg', '.opus', '.mp3', '.wav', '.m4a', '.flac'})
@@ -46,21 +46,11 @@ def _platform_name(platform) -> str:
     return str(value or "").lower()
 
 
-def _float_env(name: str, default: float) -> float:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        return default
-
-
 def _thread_metadata_for_source(source, reply_to_message_id: str | None = None) -> dict | None:
     """Build platform-aware thread metadata for adapter sends.
 
     Most platforms route threaded sends with a generic ``thread_id`` metadata
-    value. Telegram private-chat topics created through Hermes' DM-topic helper
+    value. Telegram private-chat topics created through Fabric's DM-topic helper
     are exposed in updates as ``message_thread_id`` plus a reply anchor. Live
     user-message replies route with ``message_thread_id`` + ``reply_to_message_id``;
     synthetic/resumed sends that have no reply anchor fall back to Telegram's
@@ -92,7 +82,7 @@ def _reply_anchor_for_event(event) -> str | None:
     """Return reply_to id for platforms that need reply semantics.
 
     Telegram forum/supergroup topics should be routed by topic metadata, not by
-    replying to the triggering message. Hermes-created Telegram private-chat
+    replying to the triggering message. Fabric-created Telegram private-chat
     topic lanes prefer replying to the triggering user message so the answer
     stays attached to the active lane; synthetic/resumed sends fall back to
     ``direct_messages_topic_id`` metadata when no message id is available.
@@ -496,7 +486,7 @@ sys.path.insert(0, str(_Path(__file__).resolve().parents[2]))
 
 from gateway.config import Platform, PlatformConfig
 from gateway.session import SessionSource, build_session_key
-from fabric_constants import get_default_fabric_root, get_hermes_dir, get_fabric_home
+from fabric_constants import get_default_fabric_root, get_fabric_dir, get_fabric_home
 
 
 GATEWAY_SECRET_CAPTURE_UNSUPPORTED_MESSAGE = (
@@ -569,13 +559,13 @@ async def _ssrf_redirect_guard(response):
 
 # Import-time default. Tests monkeypatch this; the get_*_cache_dir() getters
 # re-resolve per call so the active profile override is honored.
-IMAGE_CACHE_DIR = get_hermes_dir("cache/images", "image_cache")
+IMAGE_CACHE_DIR = get_fabric_dir("cache/images")
 
 
-def _resolve_cache_dir(constant_name: str, new_subpath: str, old_name: str) -> Path:
-    """Resolve fresh via get_hermes_dir (active profile), unless a test has
+def _resolve_cache_dir(constant_name: str, subpath: str) -> Path:
+    """Resolve fresh via get_fabric_dir (active profile), unless a test has
     monkeypatched the constant away from its import-time default."""
-    fresh = get_hermes_dir(new_subpath, old_name)
+    fresh = get_fabric_dir(subpath)
     current = globals().get(constant_name)
     default = _CACHE_DIR_IMPORT_DEFAULTS.get(constant_name)
     if current is not None and default is not None and current != default:
@@ -675,7 +665,7 @@ async def _read_httpx_body_with_limit(response, *, media_type: str) -> bytes:
 
 def get_image_cache_dir() -> Path:
     """Return the image cache directory, creating it if it doesn't exist."""
-    d = _resolve_cache_dir("IMAGE_CACHE_DIR", "cache/images", "image_cache")
+    d = _resolve_cache_dir("IMAGE_CACHE_DIR", "cache/images")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -817,12 +807,12 @@ def cleanup_image_cache(max_age_hours: int = 24) -> int:
 # here so the STT tool (OpenAI Whisper) can transcribe them from local files.
 # ---------------------------------------------------------------------------
 
-AUDIO_CACHE_DIR = get_hermes_dir("cache/audio", "audio_cache")
+AUDIO_CACHE_DIR = get_fabric_dir("cache/audio")
 
 
 def get_audio_cache_dir() -> Path:
     """Return the audio cache directory, creating it if it doesn't exist."""
-    d = _resolve_cache_dir("AUDIO_CACHE_DIR", "cache/audio", "audio_cache")
+    d = _resolve_cache_dir("AUDIO_CACHE_DIR", "cache/audio")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -916,7 +906,7 @@ async def cache_audio_from_url(url: str, ext: str = ".ogg", retries: int = 2) ->
 # here so the agent can reference them by local file path.
 # ---------------------------------------------------------------------------
 
-VIDEO_CACHE_DIR = get_hermes_dir("cache/videos", "video_cache")
+VIDEO_CACHE_DIR = get_fabric_dir("cache/videos")
 
 SUPPORTED_VIDEO_TYPES = {
     ".mp4": "video/mp4",
@@ -929,7 +919,7 @@ SUPPORTED_VIDEO_TYPES = {
 
 def get_video_cache_dir() -> Path:
     """Return the video cache directory, creating it if it doesn't exist."""
-    d = _resolve_cache_dir("VIDEO_CACHE_DIR", "cache/videos", "video_cache")
+    d = _resolve_cache_dir("VIDEO_CACHE_DIR", "cache/videos")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -951,8 +941,8 @@ def cache_video_from_bytes(data: bytes, ext: str = ".mp4") -> str:
 # here so the agent can reference them by local file path.
 # ---------------------------------------------------------------------------
 
-DOCUMENT_CACHE_DIR = get_hermes_dir("cache/documents", "document_cache")
-SCREENSHOT_CACHE_DIR = get_hermes_dir("cache/screenshots", "browser_screenshots")
+DOCUMENT_CACHE_DIR = get_fabric_dir("cache/documents")
+SCREENSHOT_CACHE_DIR = get_fabric_dir("cache/screenshots")
 
 # Import-time defaults; _resolve_cache_dir compares against these to tell a
 # test monkeypatch from an unmodified constant.
@@ -964,36 +954,25 @@ _CACHE_DIR_IMPORT_DEFAULTS = {
     "SCREENSHOT_CACHE_DIR": SCREENSHOT_CACHE_DIR,
 }
 
-_HERMES_HOME = get_fabric_home()
-_HERMES_ROOT = get_default_fabric_root()
-MEDIA_DELIVERY_ALLOW_DIRS_ENV = "HERMES_MEDIA_ALLOW_DIRS"
-MEDIA_DELIVERY_TRUST_RECENT_ENV = "HERMES_MEDIA_TRUST_RECENT_FILES"
-MEDIA_DELIVERY_TRUST_RECENT_SECONDS_ENV = "HERMES_MEDIA_TRUST_RECENT_SECONDS"
-# Strict mode toggles the original allowlist+recency path-validation behavior.
+_FABRIC_HOME = get_fabric_home()
+_FABRIC_ROOT = get_default_fabric_root()
+# Strict mode toggles the allowlist+recency path-validation behavior.
 # Off by default — symmetric with inbound (we accept any document type the
 # user uploads), and with the denylist still blocking obvious credential /
 # system paths. Operators running public-facing gateways where prompt
 # injection from one user could exfiltrate the host's secrets to that same
 # user should set this to true.
-MEDIA_DELIVERY_STRICT_ENV = "HERMES_MEDIA_DELIVERY_STRICT"
 MEDIA_DELIVERY_SAFE_ROOTS = (
     IMAGE_CACHE_DIR,
     AUDIO_CACHE_DIR,
     VIDEO_CACHE_DIR,
     DOCUMENT_CACHE_DIR,
     SCREENSHOT_CACHE_DIR,
-    _HERMES_HOME / "image_cache",
-    _HERMES_HOME / "audio_cache",
-    _HERMES_HOME / "video_cache",
-    _HERMES_HOME / "document_cache",
-    _HERMES_HOME / "browser_screenshots",
-    # Canonical cache layout — listed alongside the legacy *_cache dirs so
-    # generated artifacts deliver on installs that have both (#31733).
-    _HERMES_HOME / "cache" / "images",
-    _HERMES_HOME / "cache" / "audio",
-    _HERMES_HOME / "cache" / "videos",
-    _HERMES_HOME / "cache" / "documents",
-    _HERMES_HOME / "cache" / "screenshots",
+    _FABRIC_HOME / "cache" / "images",
+    _FABRIC_HOME / "cache" / "audio",
+    _FABRIC_HOME / "cache" / "videos",
+    _FABRIC_HOME / "cache" / "documents",
+    _FABRIC_HOME / "cache" / "screenshots",
 )
 
 # Default recency window for trusting freshly-produced files (seconds).
@@ -1052,20 +1031,20 @@ _MEDIA_DELIVERY_CACHE_SUBDIRS = (
 
 
 def _profile_cache_roots() -> List[Path]:
-    """Return per-profile canonical cache roots under the shared Hermes root.
+    """Return per-profile canonical cache roots under the shared Fabric root.
 
     Profile gateways write generated artifacts to
     ``<root>/profiles/<name>/cache/{images,audio,...}``. The static safe-roots
-    list only covers the *active* HERMES_HOME's cache, so a gateway running at
-    the root (e.g. ``HERMES_HOME=/opt/data``) while the model emits a
+    list only covers the *active* FABRIC_HOME's cache, so a gateway running at
+    the root (e.g. ``FABRIC_HOME=/opt/data``) while the model emits a
     profile-scoped path silently fails delivery. Enumerated dynamically at
     check time so profiles created after startup are covered, and so the
     resolved profile path is allowlisted *before* the ``/root`` system denylist
-    is consulted (which otherwise wins when HERMES_HOME is symlinked under a
+    is consulted (which otherwise wins when FABRIC_HOME is symlinked under a
     denied prefix and $HOME is not that prefix). See issue #31733.
     """
     roots: List[Path] = []
-    profiles_dir = _HERMES_ROOT / "profiles"
+    profiles_dir = _FABRIC_ROOT / "profiles"
     try:
         profile_dirs = [p for p in profiles_dir.iterdir() if p.is_dir()]
     except OSError:
@@ -1080,15 +1059,30 @@ def _media_delivery_allowed_roots() -> List[Path]:
     """Return roots from which model-emitted local media may be delivered."""
     roots = [Path(root) for root in MEDIA_DELIVERY_SAFE_ROOTS]
     roots.extend(_profile_cache_roots())
-    extra_roots = os.environ.get(MEDIA_DELIVERY_ALLOW_DIRS_ENV, "")
-    for chunk in extra_roots.split(os.pathsep):
-        for raw_root in chunk.split(","):
-            raw_root = raw_root.strip()
-            if not raw_root:
-                continue
-            root = Path(os.path.expanduser(raw_root))
-            if root.is_absolute():
-                roots.append(root)
+    try:
+        from fabric_cli.config import load_config_readonly
+
+        gateway_cfg = load_config_readonly().get("gateway", {})
+        extra_roots = (
+            gateway_cfg.get("media_delivery_allow_dirs", [])
+            if isinstance(gateway_cfg, dict)
+            else []
+        )
+    except Exception:
+        extra_roots = []
+    chunks = extra_roots if isinstance(extra_roots, (list, tuple)) else [extra_roots]
+    for chunk in chunks:
+        chunk = str(chunk or "")
+        # A scalar retains support for os.pathsep/comma-separated config values.
+        pieces = chunk.split(os.pathsep)
+        for piece in pieces:
+            for raw_root in piece.split(","):
+                raw_root = raw_root.strip()
+                if not raw_root:
+                    continue
+                root = Path(os.path.expanduser(raw_root))
+                if root.is_absolute():
+                    roots.append(root)
     return roots
 
 
@@ -1097,17 +1091,29 @@ def _media_delivery_recency_seconds() -> float:
 
     0 disables recency-based trust entirely (pure-allowlist mode).
     """
-    raw = os.environ.get(MEDIA_DELIVERY_TRUST_RECENT_ENV, "1").strip().lower()
-    if raw in ("0", "false", "no", "off", ""):
+    try:
+        from fabric_cli.config import load_config_readonly
+
+        gateway_cfg = load_config_readonly().get("gateway", {})
+    except Exception:
+        gateway_cfg = {}
+    if not isinstance(gateway_cfg, dict):
+        gateway_cfg = {}
+    trust_recent = gateway_cfg.get("trust_recent_files", True)
+    if isinstance(trust_recent, str):
+        trust_recent = trust_recent.strip().lower() in ("1", "true", "yes", "on")
+    if not trust_recent:
         return 0.0
     try:
-        custom = os.environ.get(MEDIA_DELIVERY_TRUST_RECENT_SECONDS_ENV, "").strip()
-        if custom:
-            seconds = float(custom)
-            return max(0.0, seconds)
+        seconds = float(
+            gateway_cfg.get(
+                "trust_recent_files_seconds",
+                _MEDIA_DELIVERY_TRUST_RECENT_DEFAULT_SECONDS,
+            )
+        )
+        return max(0.0, seconds)
     except (TypeError, ValueError):
-        pass
-    return float(_MEDIA_DELIVERY_TRUST_RECENT_DEFAULT_SECONDS)
+        return float(_MEDIA_DELIVERY_TRUST_RECENT_DEFAULT_SECONDS)
 
 
 def _media_delivery_strict_mode() -> bool:
@@ -1121,8 +1127,16 @@ def _media_delivery_strict_mode() -> bool:
     gateways where prompt injection from one user shouldn't be able to
     exfiltrate the host's secrets to that same user.
     """
-    raw = os.environ.get(MEDIA_DELIVERY_STRICT_ENV, "0").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    try:
+        from fabric_cli.config import load_config_readonly
+
+        gateway_cfg = load_config_readonly().get("gateway", {})
+        raw = gateway_cfg.get("strict", False) if isinstance(gateway_cfg, dict) else False
+    except Exception:
+        raw = False
+    if isinstance(raw, str):
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    return bool(raw)
 
 
 def _media_delivery_denied_paths() -> List[Path]:
@@ -1131,13 +1145,13 @@ def _media_delivery_denied_paths() -> List[Path]:
     home = Path(os.path.expanduser("~"))
     for sub in _MEDIA_DELIVERY_DENIED_HOME_SUBPATHS:
         denied.append(home / sub)
-    # The active Fabric profile and shared Hermes root both contain control
+    # The active Fabric profile and shared Fabric root both contain control
     # files and credentials. Only cache subdirectories under them are
     # explicitly allowlisted above (matched BEFORE this denylist in
     # validate_media_delivery_path, so generated media still delivers).
     #
     # These are the per-file credential / secret stores that live at the
-    # HERMES_HOME root. The set mirrors the canonical read guard in
+    # FABRIC_HOME root. The set mirrors the canonical read guard in
     # agent/file_safety.py (get_read_block_error / build_write_denied_*) so the
     # delivery (read/exfil) side can't trail the write side: a credential the
     # agent is forbidden to write or read must also never be auto-attached to a
@@ -1173,14 +1187,14 @@ def _media_delivery_denied_paths() -> List[Path]:
     # tag can't deliver a live bearer token as a native attachment.
     # (session/kanban SQLite stores are handled by #41071 — kept out here.)
     _ROOT_CREDENTIAL_DIRS = (
-        "pairing",
+        os.path.join("platforms", "pairing"),
         "mcp-tokens",
     )
-    for hermes_root in (_HERMES_HOME, _HERMES_ROOT):
+    for fabric_root in (_FABRIC_HOME, _FABRIC_ROOT):
         for rel in _ROOT_CREDENTIAL_FILES:
-            denied.append(hermes_root / rel)
+            denied.append(fabric_root / rel)
         for rel in _ROOT_CREDENTIAL_DIRS:
-            denied.append(hermes_root / rel)
+            denied.append(fabric_root / rel)
     return denied
 
 
@@ -1194,14 +1208,14 @@ def _is_private_provider_delivery_path(path: Path, *, capability=None) -> bool:
     return (
         classify_pinned_provider_account_path(
             capability,
-            active_home=_HERMES_HOME,
-            fabric_root=_HERMES_ROOT,
+            active_home=_FABRIC_HOME,
+            fabric_root=_FABRIC_ROOT,
         )
         if capability is not None
         else is_private_provider_account_path(
             path,
-            active_home=_HERMES_HOME,
-            fabric_root=_HERMES_ROOT,
+            active_home=_FABRIC_HOME,
+            fabric_root=_FABRIC_ROOT,
         )
     )
 
@@ -1218,7 +1232,7 @@ def _path_under_denied_prefix(
     denylist so that a non-root gateway can't deliver another user's home, but
     on a root-run gateway ``$HOME=/root`` and the operator's own deliverables
     (``/root/work/proposal.docx``) live directly under it. The credential
-    sub-directories inside home (``~/.ssh``, ``~/.aws``, ...) and Hermes
+    sub-directories inside home (``~/.ssh``, ``~/.aws``, ...) and Fabric
     secrets (``~/.fabric/.env``, ``auth.json``) are *separate, more-specific*
     denied paths, so they stay blocked regardless of this exception — it can
     only un-block a plain file sitting in the running user's home tree, never a
@@ -1281,10 +1295,10 @@ def _validated_media_delivery_capability(path: str):
     will hand the agent any file the user uploads, and the agent can hand
     back any file that isn't a credential.
 
-    Strict mode (opt-in via ``gateway.strict`` in ``config.yaml`` or
-    ``HERMES_MEDIA_DELIVERY_STRICT=1``): the file MUST live under a
-    Hermes-managed cache, under an operator-allowlisted root
-    (``HERMES_MEDIA_ALLOW_DIRS``), or be freshly produced inside the
+    Strict mode (opt-in via ``gateway.strict`` in ``config.yaml``): the file
+    MUST live under a
+    Fabric-managed cache, under an operator-allowlisted root
+    (``gateway.media_delivery_allow_dirs``), or be freshly produced inside the
     configured recency window. Suitable for public-facing bots where
     prompt injection from one user shouldn't be able to exfiltrate the
     host's secrets to that same user.
@@ -1733,7 +1747,7 @@ def _strip_media_tag_directives(text: str) -> str:
 
 def get_document_cache_dir() -> Path:
     """Return the document cache directory, creating it if it doesn't exist."""
-    d = _resolve_cache_dir("DOCUMENT_CACHE_DIR", "cache/documents", "document_cache")
+    d = _resolve_cache_dir("DOCUMENT_CACHE_DIR", "cache/documents")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -2029,8 +2043,8 @@ class TextDebounceState:
 
 _PLAINTEXT_GATEWAY_RESTART_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^(?:please\s+)?restart\s+(?:the\s+)?gateway[.!?\s]*$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?restart\s+(?:the\s+)?hermes\s+gateway[.!?\s]*$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?restart\s+hermes[.!?\s]*$", re.IGNORECASE),
+    re.compile(r"^(?:please\s+)?restart\s+(?:the\s+)?fabric\s+gateway[.!?\s]*$", re.IGNORECASE),
+    re.compile(r"^(?:please\s+)?restart\s+fabric[.!?\s]*$", re.IGNORECASE),
 )
 
 
@@ -2682,7 +2696,7 @@ class BasePlatformAdapter(ABC):
     # the watcher/drain loops). False for stateless request/response adapters
     # (the API server): every route closes its channel when the turn ends, so
     # there is nowhere to push a later completion. The gateway propagates this
-    # into the ``HERMES_SESSION_ASYNC_DELIVERY`` contextvar at session-bind
+    # into task-local session context at session-bind
     # time; tools read it via ``async_delivery_supported()`` and refuse to make
     # a delivery promise they can't keep. A new stateless adapter only needs to
     # set this to False to stay correct-by-default.
@@ -2697,7 +2711,7 @@ class BasePlatformAdapter(ABC):
     splits_long_messages: bool = False
 
     # The command prefix users can always TYPE on this platform to reach
-    # Hermes commands.  Default "/" (most platforms deliver "/approve" etc.
+    # Fabric commands.  Default "/" (most platforms deliver "/approve" etc.
     # as plain message text).  Platforms where typing a leading "/" is
     # intercepted or restricted by the client (Slack blocks native slash
     # commands inside threads; Matrix clients reserve "/" for client-local
@@ -2747,21 +2761,12 @@ class BasePlatformAdapter(ABC):
         self._active_sessions: Dict[str, asyncio.Event] = {}
         self._pending_messages: Dict[str, MessageEvent] = {}
         self._session_tasks: Dict[str, asyncio.Task] = {}
-        # Legacy busy_text_mode env var; when unset the runner syncs the
-        # resolved value (driven by busy_input_mode) onto the adapter after
-        # construction (gateway/run.py). Default to "interrupt" so a stray
-        # pre-sync read matches the single-knob default rather than silently
-        # queueing.
-        self._busy_text_mode: str = (
-            os.environ.get("HERMES_GATEWAY_BUSY_TEXT_MODE", "interrupt").strip().lower()
-            or "interrupt"
-        )
-        self._busy_text_debounce_seconds: float = _float_env(
-            "HERMES_GATEWAY_BUSY_TEXT_DEBOUNCE_SECONDS", 0.35
-        )
-        self._busy_text_hard_cap_seconds: float = _float_env(
-            "HERMES_GATEWAY_BUSY_TEXT_HARD_CAP_SECONDS", 1.0
-        )
+        # The runner syncs display.busy_input_mode onto the adapter after
+        # construction. These debounce values are transport implementation
+        # constants rather than hidden environment contracts.
+        self._busy_text_mode: str = "interrupt"
+        self._busy_text_debounce_seconds: float = 0.35
+        self._busy_text_hard_cap_seconds: float = 1.0
         self._text_debounce: dict[str, TextDebounceState] = {}
         # Background message-processing tasks spawned by handle_message().
         # Gateway shutdown cancels these so an old gateway instance doesn't keep
@@ -2898,7 +2903,7 @@ class BasePlatformAdapter(ABC):
         final-editing the preview.
 
         Some adapters can send richer final messages than their current edit
-        implementation supports. Telegram is the motivating case: Hermes sends
+        implementation supports. Telegram is the motivating case: Fabric sends
         final replies through ``sendRichMessage`` but still finalizes streamed
         previews through its existing MarkdownV2 edit path until Bot API 10.1's
         ``rich_message`` edit parameter is wired directly. Such adapters
@@ -3946,7 +3951,7 @@ class BasePlatformAdapter(ABC):
 
         Serialized tool results frequently embed a previous reply's text, e.g.::
 
-            {"result": "MEDIA:/Users/x/.hermes/media/generated/stale.png"}
+            {"result": "MEDIA:/Users/x/.fabric/media/generated/stale.png"}
 
         Here the ``MEDIA:`` is part of stored text, not an outbound directive,
         but the bare-path branch of ``MEDIA_TAG_CLEANUP_RE`` would still match it
@@ -5179,28 +5184,34 @@ class BasePlatformAdapter(ABC):
         self._start_session_processing(event, session_key)
     
     @staticmethod
-    def _get_human_delay() -> float:
+    def _get_human_delay(config: dict | None = None) -> float:
         """
         Return a random delay in seconds for human-like response pacing.
 
-        Reads from env vars:
-          HERMES_HUMAN_DELAY_MODE: "off" (default) | "natural" | "custom"
-          HERMES_HUMAN_DELAY_MIN_MS: minimum delay in ms (default 800, custom mode)
-          HERMES_HUMAN_DELAY_MAX_MS: maximum delay in ms (default 2500, custom mode)
+        Settings come from the top-level ``human_delay`` config section.
         """
-        mode = os.getenv("HERMES_HUMAN_DELAY_MODE", "off").lower()
+        if config is None:
+            try:
+                from fabric_cli.config import load_config
+
+                config = load_config().get("human_delay") or {}
+            except Exception:
+                config = {}
+        mode = str(config.get("mode", "off") or "off").strip().lower()
         if mode == "off":
             return 0.0
         if mode == "natural":
             min_ms, max_ms = 800, 2500
             return random.uniform(min_ms / 1000.0, max_ms / 1000.0)
-        # custom mode — tolerate malformed env vars instead of crashing.
+        if mode != "custom":
+            return 0.0
+        # Custom mode tolerates malformed config instead of crashing.
         try:
-            min_ms = int(os.getenv("HERMES_HUMAN_DELAY_MIN_MS", "800"))
+            min_ms = int(config.get("min_ms", 800))
         except (TypeError, ValueError):
             min_ms = 800
         try:
-            max_ms = int(os.getenv("HERMES_HUMAN_DELAY_MAX_MS", "2500"))
+            max_ms = int(config.get("max_ms", 2500))
         except (TypeError, ValueError):
             max_ms = 2500
         return random.uniform(min_ms / 1000.0, max_ms / 1000.0)
@@ -5638,7 +5649,7 @@ class BasePlatformAdapter(ABC):
             # session (e.g. deferred background-review notifications).
             #
             # Snapshot the callback generation HERE (after the agent has run),
-            # not at the top of this task.  _hermes_run_generation is set on
+            # not at the top of this task.  _fabric_run_generation is set on
             # the interrupt event by GatewayRunner._bind_adapter_run_generation
             # during _handle_message_with_agent — which happens DURING the
             # self._message_handler(event) await above.  Snapshotting earlier
@@ -5647,7 +5658,7 @@ class BasePlatformAdapter(ABC):
             # fresher run's callbacks.
             _callback_generation = getattr(
                 interrupt_event,
-                "_hermes_run_generation",
+                "_fabric_run_generation",
                 None,
             )
             if hasattr(self, "pop_post_delivery_callback"):

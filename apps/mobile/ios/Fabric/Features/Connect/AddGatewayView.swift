@@ -27,12 +27,7 @@ struct AddGatewayView: View {
     @State private var showScanner = false
 
     private var parsedURL: URL? {
-        guard
-            let url = URL(string: urlText.trimmingCharacters(in: .whitespacesAndNewlines)),
-            url.scheme == "http" || url.scheme == "https",
-            url.host() != nil
-        else { return nil }
-        return url
+        GatewayBaseURL.parse(urlText)
     }
 
     private var canSave: Bool {

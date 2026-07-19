@@ -82,7 +82,7 @@ class TestIsCodingContext:
         assert cc.is_coding_context(platform="cli", cwd=tmp_path, config={}) is True
 
     @pytest.mark.parametrize(
-        "context_name", [".fabric.md", "FABRIC.md", ".hermes.md", "HERMES.md"]
+        "context_name", [".fabric.md", "FABRIC.md"]
     )
     def test_project_context_file_marks_non_git_workspace(self, tmp_path, context_name):
         (tmp_path / context_name).write_text("# Project rules\n")
@@ -194,10 +194,10 @@ class TestProjectFacts:
     def test_context_files_listed(self, tmp_path):
         _git_init(tmp_path)
         (tmp_path / ".fabric.md").write_text("# canonical rules")
-        (tmp_path / "HERMES.md").write_text("# compatibility rules")
+        (tmp_path / "FABRIC.md").write_text("# uppercase project rules")
         (tmp_path / "AGENTS.md").write_text("# rules")
         block = cc.build_coding_workspace_block(tmp_path)
-        assert "Context files: .fabric.md, HERMES.md, AGENTS.md" in block
+        assert "Context files: .fabric.md, FABRIC.md, AGENTS.md" in block
 
     def test_worktree_detected_without_primary_path(self, tmp_path):
         # A linked worktree should be detected, but the output must NOT contain
@@ -420,7 +420,7 @@ class TestEditFormatSteering:
         # editors) steer to replace, not neutral.
         for m in (
             "google/gemini-3-pro", "deepseek-v3.2", "qwen3-coder",
-            "moonshot/kimi-k2", "zai/glm-4.6", "nousresearch/hermes-4-405b",
+            "moonshot/kimi-k2", "zai/glm-4.6",
         ):
             assert cc._model_family(m) == "replace"
         # Unknown family and no model both fall through to neutral wording.

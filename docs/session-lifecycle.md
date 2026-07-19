@@ -366,7 +366,7 @@ When a reset triggers:
 ## 7. Restart Recovery Flow
 
 The restart recovery system ensures that in-flight sessions are preserved across gateway
-restarts, crashes, and drain timeouts. It is the solution to [issue #7536](https://github.com/NousResearch/hermes-agent/issues/7536).
+restarts, crashes, and drain timeouts.
 
 ### Startup Recovery Sequence
 

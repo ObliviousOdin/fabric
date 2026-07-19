@@ -351,7 +351,6 @@ Deeper reference material, domain tooling to package into skills, and niche or e
 | [tjboudreaux/cc-skills-vc-fundraising](https://github.com/tjboudreaux/cc-skills-vc-fundraising) | C | community skill pack | Startup Fundraising | Verify at ingest |
 | [tuanductran/hr-skills](https://github.com/tuanductran/hr-skills) | C | community skill pack | Organization Design And People Operations | Verify at ingest |
 | [vaquarkhan/compliance-agent-skills](https://github.com/vaquarkhan/compliance-agent-skills) | C | compliance skill pack | compliance, HIPAA, security, governance | Verify at ingest |
-| [wassermanproductions/master-canvas-hermes-plugin](https://github.com/wassermanproductions/master-canvas-hermes-plugin) | C | community skill pack | Video Pre-Production | Verify at ingest |
 | [wulaosiji/founder-skills](https://github.com/wulaosiji/founder-skills) | C | community skill pack | Startup Fundraising | Verify at ingest |
 
 ## Quarantined sources (1)
@@ -402,4 +401,3 @@ Non-negotiable rules:
 ## Proposing a source
 
 To propose a new source, edit `website/static/api/skills-sources.json` and open a pull request with the canonical URL, publisher type, categories, license status, and known risk flags. New sources start at the lowest tier that fits the evidence and move up only after review — the pipeline above is the bar, not the paperwork.
-

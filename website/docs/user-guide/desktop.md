@@ -4,17 +4,12 @@ title: "Fabric Desktop"
 description: "Use Fabric's native macOS, Windows, and Linux app for chat, providers, local models, memory, skills, projects, and operations."
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # Fabric Desktop
 
 Fabric Desktop brings chat, projects, model controls, memory, and skills into
 one app. It uses the same profile as the CLI, TUI, web dashboard, API, and
 messaging gateway, so your provider accounts, sessions, and approvals carry
 across instead of living in a desktop-only database.
-
-<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-home.jpg')} width="1172" height="768" alt="Fabric Desktop home screen with a new-chat composer and local Ollama model selected." />
-<p className="docs-figure-caption">The actual Fabric Desktop home screen, running against an isolated local profile with Ollama selected.</p>
 
 The app targets **macOS, Windows, and Linux**. See
 [Platform Support](/getting-started/platform-support) for the distinction
@@ -49,12 +44,12 @@ Useful launch controls:
 | `--skip-build`       | Launch an existing build without rebuilding                      |
 | `--force-build`      | Ignore the content stamp and rebuild                             |
 | `--build-only`       | Build without launching                                          |
-| `--ignore-existing`  | Ignore a legacy CLI found on `PATH` during backend resolution    |
-| `--fabric-root PATH` | Compatibility flag that selects an engine source checkout        |
+| `--ignore-existing`  | Ignore an existing CLI found on `PATH` during backend resolution |
+| `--fabric-root PATH` | Select an engine source checkout for development                 |
 | `--fake-boot`        | Exercise deterministic startup states for development/QA         |
 
-`--fabric-root` and the `HERMES_DESKTOP_*` variables are internal compatibility
-interfaces. They do not control the visible product identity.
+`--fabric-root` is a development interface. Desktop installer/process handoffs
+are internal, not user-configurable, and must not be added to `.env`.
 
 ## Interfaces that share the profile
 
@@ -171,9 +166,6 @@ public, metadata, credential-bearing, and unsafe URLs are rejected.
 See [Local Ollama](/guides/local-ollama-setup) for context-window,
 tool-capability, egress, and troubleshooting guidance.
 
-<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-model-settings.jpg')} width="1172" height="768" alt="Fabric Desktop model settings showing Ollama Local with qwen3:8b selected." loading="lazy" />
-<p className="docs-figure-caption">Desktop model settings use the same profile-level route as every other Fabric surface.</p>
-
 ## Memory and skills
 
 Desktop consumes the same profile-local memory and skill registries as the CLI.
@@ -230,14 +222,18 @@ authentication provider. Never expose a basic-password backend directly to the
 public internet.
 :::
 
-For a trusted VPN test, put the compatibility auth variables in
-`~/.fabric/.env` on the backend:
+For a trusted VPN test, configure the provider in `~/.fabric/config.yaml`:
 
-```bash
-HERMES_DASHBOARD_BASIC_AUTH_USERNAME=admin
-HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=choose-a-strong-password
-HERMES_DASHBOARD_BASIC_AUTH_SECRET=replace-with-a-long-random-secret
+```yaml
+dashboard:
+  basic_auth:
+    username: admin
+    password: choose-a-strong-password # or use password_hash (preferred)
+    secret: replace-with-a-long-random-secret
 ```
+
+Credential fields may use config's `${VAR}` interpolation if you prefer to
+keep the underlying values in `~/.fabric/.env`.
 
 Then start the backend on the machine's private/VPN address:
 

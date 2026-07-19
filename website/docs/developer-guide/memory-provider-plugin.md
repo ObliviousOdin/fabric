@@ -43,7 +43,7 @@ class MyMemoryProvider(MemoryProvider):
         """Called once at agent startup.
 
         kwargs always includes:
-          hermes_home (str): Active FABRIC_HOME path. Use for storage.
+          fabric_home (str): Active FABRIC_HOME path. Use for storage.
         """
         self._api_key = os.environ.get("MY_API_KEY", "")
         self._session_id = session_id
@@ -68,7 +68,7 @@ class MyMemoryProvider(MemoryProvider):
 | Method | Purpose | Must Implement? |
 |--------|---------|-----------------|
 | `get_config_schema()` | Declare config fields for `fabric memory setup` | **Yes** |
-| `save_config(values, hermes_home)` | Write non-secret config to native location | **Yes** (unless env-var-only) |
+| `save_config(values, fabric_home)` | Write non-secret config to native location | **Yes** (unless env-var-only) |
 
 ### Optional Hooks
 
@@ -121,11 +121,11 @@ Every field in `get_config_schema()` is prompted during `fabric memory setup`. P
 ## Save Config
 
 ```python
-def save_config(self, values: dict, hermes_home: str) -> None:
+def save_config(self, values: dict, fabric_home: str) -> None:
     """Write non-secret config to your native location."""
     import json
     from pathlib import Path
-    config_path = Path(hermes_home) / "my-provider.json"
+    config_path = Path(fabric_home) / "my-provider.json"
     config_path.write_text(json.dumps(values, indent=2))
 ```
 
@@ -179,7 +179,7 @@ workspace data.
 
 ## Profile Isolation
 
-All storage paths **must** use the `hermes_home` kwarg from `initialize()`, not hardcoded `~/.fabric`:
+All storage paths **must** use the `fabric_home` kwarg from `initialize()`, not hardcoded `~/.fabric`:
 
 ```python
 # CORRECT — profile-scoped

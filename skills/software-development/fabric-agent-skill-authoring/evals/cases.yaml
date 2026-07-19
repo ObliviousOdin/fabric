@@ -52,7 +52,7 @@ cases:
     expect:
       output:
         required_substrings: [metadata.fabric, pending]
-        forbidden_substrings: [metadata.hermes]
+        forbidden_substrings: [deprecated metadata namespace]
 
   - id: compares-without-authoring-guidance
     category: baseline

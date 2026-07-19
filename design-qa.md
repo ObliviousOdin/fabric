@@ -62,14 +62,10 @@ Date: 2026-07-16
 
 ## Comparison setup
 
-- The approved exploratory source visuals were session-only artifacts and are
-  unavailable outside that Product Design session. This record does not claim
-  repo-only reproduction of the source comparison; the final implementation
-  captures below are the portable release evidence.
-- Final Browser docked implementation: `website/static/img/product/fabric-desktop-live-view-browser.png`
-- Final Browser PiP implementation: `website/static/img/product/fabric-desktop-live-view-browser-pip.png`
-- Final Computer Use docked state: `website/static/img/product/fabric-desktop-live-view-computer-use.png`
-- Final Computer Use PiP state: `website/static/img/product/fabric-desktop-live-view-computer-use-pip.png`
+- The approved exploratory source visuals and final comparison captures were
+  session-only review artifacts; they are intentionally not distributed in the
+  repository. This record documents the completed interaction and visual checks
+  without depending on retired screenshot binaries.
 - Theme: Fabric Light
 - State: real Browser frame from Example Domain plus a real Computer Use capture of Calculator
 

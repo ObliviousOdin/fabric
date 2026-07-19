@@ -45,7 +45,7 @@ The full set of keys:
 | `timeout` | `60` | Seconds Fabric waits for an approval reply before timing out. |
 | `cron_mode` | `deny` | How [cron jobs](./features/cron.md) behave headlessly when they trigger a dangerous-command prompt. `deny` blocks the command (the agent must find another path); `approve` auto-approves everything in cron context. |
 | `mcp_reload_confirm` | `true` | When true, `/reload-mcp` asks before rebuilding the MCP tool set. Rebuilding invalidates the provider prompt cache (tool schemas live in the system prompt), so the next message re-sends full input tokens. Users who click **Always Approve** flip this key to `false`. |
-| `destructive_slash_confirm` | `true` | When true, destructive session slash commands (`/clear`, `/new`, `/reset`, `/undo`) prompt before discarding conversation state. Three-option dialog (Approve Once / Always Approve / Cancel) routed through native yes/no buttons on Telegram, Discord, and Slack; text fallback elsewhere. Users who click **Always Approve** flip this key to `false`. TUI uses its own modal overlay (set `HERMES_TUI_NO_CONFIRM=1` to opt out there). |
+| `destructive_slash_confirm` | `true` | When true, destructive session slash commands (`/clear`, `/new`, `/reset`, `/undo`) prompt before discarding conversation state. Three-option dialog (Approve Once / Always Approve / Cancel) routed through native yes/no buttons on Telegram, Discord, and Slack; text fallback elsewhere. Users who click **Always Approve** flip this key to `false`. |
 
 | Mode | Behavior |
 |------|----------|
@@ -59,11 +59,10 @@ Setting `approvals.mode: off` disables all safety prompts. Use only in trusted e
 
 ### YOLO Mode
 
-YOLO mode bypasses **all** dangerous command approval prompts for the current session. It can be activated three ways:
+YOLO mode bypasses **all** dangerous command approval prompts for the current session. It can be activated two ways:
 
 1. **CLI flag**: Start a session with `fabric --yolo` or `fabric chat --yolo`
 2. **Slash command**: Type `/yolo` during a session to toggle it on/off
-3. **Environment variable**: Set `HERMES_YOLO_MODE=1`
 
 The `/yolo` command is a **toggle** — each use flips the mode on or off:
 
@@ -75,7 +74,7 @@ The `/yolo` command is a **toggle** — each use flips the mode on or off:
   ⚠ YOLO mode OFF — dangerous commands will require approval.
 ```
 
-YOLO mode is available in both CLI and gateway sessions. Internally, it sets the `HERMES_YOLO_MODE` environment variable which is checked before every command execution.
+YOLO mode is available in both CLI and gateway sessions.
 
 When YOLO is active, Fabric shows two persistent visual reminders so it's hard to forget that approval prompts are bypassed:
 
@@ -213,7 +212,7 @@ On messaging platforms, the agent sends the dangerous command details to the cha
 - Reply **yes**, **y**, **approve**, **ok**, or **go** to approve
 - Reply **no**, **n**, **deny**, or **cancel** to deny
 
-The `HERMES_EXEC_ASK=1` environment variable is automatically set when running the gateway.
+Gateway sessions use the same approval policy and deliver approval requests through the configured messaging platform.
 
 ### Permanent Allowlist
 
@@ -347,10 +346,9 @@ docker exec -u fabric fabric-agent fabric pairing approve telegram ABC12DEF
 If you already ran the command as root and the user is still unauthorized,
 restart the container — the entrypoint will fix ownership on the next start.
 
-[i10270]: https://github.com/NousResearch/hermes-agent/issues/10270
 :::
 
-**Storage:** Pairing data is stored in `~/.fabric/pairing/` with per-platform JSON files:
+**Storage:** Pairing data is stored in `~/.fabric/platforms/pairing/` with per-platform JSON files:
 - `{platform}-pending.json` — pending pairing requests
 - `{platform}-approved.json` — approved users
 - `_rate_limits.json` — rate limit and lockout tracking

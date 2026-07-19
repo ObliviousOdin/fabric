@@ -35,19 +35,21 @@ The dispatcher matches `task.assignee` against either a Fabric profile name (the
 
 ### 2. A spawn mechanism
 
-For Fabric profile lanes, the dispatcher's `_default_spawn` runs `fabric -p <assignee> chat -q <prompt>` (or the equivalent module form when the `fabric` shim isn't on `$PATH`) inside the task's pinned workspace, with these env vars set:
+For Fabric profile lanes, the dispatcher's `_default_spawn` runs `fabric -p <assignee> chat -q <prompt>` (or the equivalent module form when the `fabric` shim isn't on `$PATH`) inside the task's pinned workspace, with these private handoff values set. They are injected by the dispatcher; do not export them or store them in `.env`:
 
-| Variable | Carries |
+| Descriptor field | Carries |
 |---|---|
-| `HERMES_KANBAN_TASK` | the task id the worker is operating on |
-| `HERMES_KANBAN_DB` | absolute path to the per-board SQLite file |
-| `HERMES_KANBAN_BOARD` | board slug |
-| `HERMES_KANBAN_WORKSPACES_ROOT` | root of the board's workspace tree |
-| `HERMES_KANBAN_WORKSPACE` | absolute path to *this* task's workspace |
-| `HERMES_KANBAN_RUN_ID` | the current run's id (for the lifecycle gate) |
-| `HERMES_KANBAN_CLAIM_LOCK` | the claim lock string (`<host>:<pid>:<uuid>`) |
-| `HERMES_PROFILE` | the worker's own profile name (for `kanban_comment` author attribution) |
-| `HERMES_TENANT` | tenant namespace, if the task has one |
+| `task_id` | the task id the worker is operating on |
+| `db_path` | absolute path to the per-board SQLite file |
+| `board` | board slug |
+| `workspaces_root` | root of the board's workspace tree |
+| `workspace` | absolute path to *this* task's workspace |
+| `branch` | deterministic worktree branch, when applicable |
+| `run_id` | the current run's id (for the lifecycle gate) |
+| `claim_lock` | the claim lock string (`<host>:<pid>:<uuid>`) |
+| `profile` | the worker's own profile name (for comment author attribution) |
+| `tenant` | tenant namespace, if the task has one |
+| `goal_mode`, `goal_max_turns` | optional goal-loop contract |
 
 For non-Fabric lanes (registered via a plugin), the plugin supplies its own `spawn_fn` callable that gets `task`, `workspace`, and `board` and returns an optional pid for crash detection.
 
@@ -105,11 +107,11 @@ A specialisation of the profile lane: an orchestrator is a Fabric profile whose 
 
 ## Adding an external CLI worker lane
 
-Wiring a non-Fabric CLI tool (Codex CLI, Claude Code CLI, OpenCode CLI, a local coding-model runner, etc.) as a kanban worker lane is *not yet a paved path*. The dispatcher's spawn function is pluggable (`spawn_fn` is a parameter on `dispatch_once`), and a plugin could register its own `spawn_fn` for a non-Fabric assignee, but the surrounding integration work — wrapping the CLI's exit code into `kanban_complete` / `kanban_block` calls, mapping the CLI's workspace/sandbox conventions onto the dispatcher's `HERMES_KANBAN_WORKSPACE` env, handling auth and per-CLI policy — is still per-integration design work.
+Wiring a non-Fabric CLI tool (Codex CLI, Claude Code CLI, OpenCode CLI, a local coding-model runner, etc.) as a Kanban worker lane is *not yet a paved path*. The dispatcher's spawn function is pluggable (`spawn_fn` is a parameter on `dispatch_once`), and a plugin could register its own `spawn_fn` for a non-Fabric assignee, but the surrounding integration work — wrapping the CLI's exit code into lifecycle calls, mapping the task workspace and sandbox conventions, and handling auth and per-CLI policy — is still per-integration design work.
 
 If you're considering adding a CLI lane, open an issue describing the specific CLI and the workflow you're trying to enable. The contract above is the constraints any such lane must satisfy; the implementation shape (one plugin per CLI vs a generic CLI-runner plugin parameterised by config) is open.
 
-The historical issue for this is [#19931](https://github.com/NousResearch/hermes-agent/issues/19931) and the closed-not-merged Codex-specific PR [#19924](https://github.com/NousResearch/hermes-agent/pull/19924) — those describe the original architecture proposal but didn't land a runner.
+The historical issue for this is #19931 and the closed-not-merged Codex-specific PR #19924 — those describe the original architecture proposal but didn't land a runner.
 
 ## Failure modes the dispatcher handles
 

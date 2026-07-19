@@ -22,7 +22,7 @@ Cron jobs can:
 All of this is available to Fabric itself through the `cronjob` tool, so you can create, pause, edit, and remove jobs by asking in plain language — no CLI required.
 
 :::tip
-At creation, an unpinned job (one you don't give an explicit `provider`/`model`) follows the global default selected by `fabric model` — and Fabric **snapshots** that provider and model on the job. If the global default later changes, the job **fails closed**: it skips the run, makes no inference call, and sends an alert telling you to pin the provider/model explicitly (`cronjob action=update job_id=… provider=… model=…`) to proceed. This prevents an unattended job from silently inheriting a switch to a paid provider/model and spending money you didn't intend ([#44585](https://github.com/NousResearch/hermes-agent/issues/44585)). To make a job deliberately track your global default, pin it to the new values after changing them. For unattended runs, choose a route with automatic credential refresh and verify it before scheduling.
+At creation, an unpinned job (one you don't give an explicit `provider`/`model`) follows the global default selected by `fabric model` — and Fabric **snapshots** that provider and model on the job. If the global default later changes, the job **fails closed**: it skips the run, makes no inference call, and sends an alert telling you to pin the provider/model explicitly (`cronjob action=update job_id=… provider=… model=…`) to proceed. This prevents an unattended job from silently inheriting a switch to a paid provider/model and spending money you didn't intend (#44585). To make a job deliberately track your global default, pin it to the new values after changing them. For unattended runs, choose a route with automatic credential refresh and verify it before scheduling.
 :::
 
 :::warning
@@ -408,10 +408,12 @@ Pre-run scripts (attached via the `script` parameter) have a default timeout of 
 ```yaml
 # ~/.fabric/config.yaml
 cron:
-  script_timeout_seconds: 1800   # 30 minutes
+  inactivity_timeout_seconds: 600  # idle agent timeout; 0 means unlimited
+  script_timeout_seconds: 1800     # pre-run script timeout (30 minutes)
+  max_parallel_jobs: 4             # concurrent due jobs
 ```
 
-Or set the `HERMES_CRON_SCRIPT_TIMEOUT` environment variable. The resolution order is: env var → config.yaml → 3600s default.
+If omitted, the defaults are 600 seconds of agent inactivity, 3600 seconds for a pre-run script, and four concurrent jobs.
 
 ## No-agent mode (script-only jobs)
 
@@ -713,7 +715,7 @@ The same pattern works for any data source you can query from a script — Postg
 Fabric's own `~/.fabric/state.db` is an internal schema that changes between releases. Don't query it from a pre-run gate — point at your own database or feed instead.
 :::
 
-Credit: this recipe set was prompted by @iankar8's exploration in [#2654](https://github.com/NousResearch/hermes-agent/pull/2654), which proposed adding sql/file/command triggers as a parallel mechanism. The `script` + `wakeAgent` gate already covers all three cases at $0, so the work landed as documentation instead.
+Credit: this recipe set was prompted by @iankar8's exploration in #2654, which proposed adding sql/file/command triggers as a parallel mechanism. The `script` + `wakeAgent` gate already covers all three cases at $0, so the work landed as documentation instead.
 
 ### Chaining jobs: `context_from`
 

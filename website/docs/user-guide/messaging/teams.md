@@ -56,9 +56,9 @@ Teams cannot deliver messages to `localhost`. For local development, use any tun
 
 ```bash
 # devtunnel (Microsoft)
-devtunnel create fabric-bot --allow-anonymous
-devtunnel port create fabric-bot -p 3978 --protocol https  # replace 3978 with TEAMS_PORT if changed
-devtunnel host fabric-bot
+devtunnel create assistant-bot --allow-anonymous
+devtunnel port create assistant-bot -p 3978 --protocol https  # replace 3978 with TEAMS_PORT if changed
+devtunnel host assistant-bot
 
 # ngrok
 ngrok http 3978  # replace 3978 with TEAMS_PORT if changed
@@ -239,7 +239,7 @@ Make sure your configured port (`TEAMS_PORT`, default `3978`) is reachable from 
 | Bot responds with auth errors | Verify `TEAMS_CLIENT_ID`, `TEAMS_CLIENT_SECRET`, and `TEAMS_TENANT_ID` are all set correctly |
 | `No inference provider configured` | Check that `ANTHROPIC_API_KEY` (or another provider key) is set in `~/.fabric/.env` |
 | Bot receives messages but ignores them | Your AAD object ID may not be in `TEAMS_ALLOWED_USERS`. Run `teams status --verbose` to find it |
-| Tunnel URL changes on restart | devtunnel URLs are persistent if you use a named tunnel (`devtunnel create fabric-bot`). ngrok and cloudflared generate a new URL each run unless you have a paid plan — update the bot endpoint with `teams app update` when it changes |
+| Tunnel URL changes on restart | devtunnel URLs are persistent if you use a named tunnel (`devtunnel create assistant-bot`). ngrok and cloudflared generate a new URL each run unless you have a paid plan — update the bot endpoint with `teams app update` when it changes |
 | Teams shows "This bot is not responding" | The webhook returned an error. Check `docker logs fabric` for tracebacks |
 | `[teams] Failed to connect` in logs | The SDK failed to authenticate. Double-check your credentials and that the tenant ID matches the account you used in `teams login` |
 

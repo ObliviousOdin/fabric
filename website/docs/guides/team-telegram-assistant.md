@@ -42,7 +42,7 @@ Every Telegram bot starts with **@BotFather** — Telegram's official bot for cr
 
 2. **Send `/newbot`** — BotFather will ask you two things:
    - **Display name** — what users see (e.g., `Team Fabric Assistant`)
-   - **Username** — must end in `bot` (e.g., `myteam_fabric_bot`)
+   - **Username** — must end in `bot` (e.g., `myteam_assistant_bot`)
 
 3. **Copy the bot token** — BotFather replies with something like:
    ```
@@ -419,7 +419,7 @@ fabric gateway stop && fabric gateway start
 | Gateway logs | `journalctl --user -u fabric-gateway` (Linux) or `~/.fabric/logs/gateway.log` (macOS) |
 | Cron job output | `~/.fabric/cron/output/{job_id}/{timestamp}.md` |
 | Cron job definitions | `~/.fabric/cron/jobs.json` |
-| Pairing data | `~/.fabric/pairing/` |
+| Pairing data | `~/.fabric/platforms/pairing/` |
 | Session history | `~/.fabric/sessions/` |
 
 ---

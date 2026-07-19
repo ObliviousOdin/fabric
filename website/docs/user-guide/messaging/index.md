@@ -416,12 +416,6 @@ display:
 | `error` | Only the final message when the exit code is non-zero |
 | `off` | No process watcher messages at all |
 
-You can also set this via environment variable:
-
-```bash
-HERMES_BACKGROUND_NOTIFICATIONS=result
-```
-
 ### Use Cases
 
 - **Server monitoring** — "/background Check the health of all services and alert me if anything is down"

@@ -6,7 +6,7 @@ description: "Build wrapper CLIs that extend the Fabric TUI with custom widgets,
 
 # Extending the CLI
 
-Fabric exposes protected extension hooks on `HermesCLI` so wrapper CLIs can add widgets, keybindings, and layout customizations without overriding the 1000+ line `run()` method. This keeps your extension decoupled from internal changes.
+Fabric exposes protected extension hooks on `FabricCLI` so wrapper CLIs can add widgets, keybindings, and layout customizations without overriding the 1000+ line `run()` method. This keeps your extension decoupled from internal changes.
 
 ## Extension points
 
@@ -28,12 +28,12 @@ The first three are new protected hooks. The last two already existed.
 #!/usr/bin/env python3
 """my_cli.py — Example wrapper CLI that extends Fabric."""
 
-from cli import HermesCLI
+from cli import FabricCLI
 from prompt_toolkit.layout import FormattedTextControl, Window
 from prompt_toolkit.filters import Condition
 
 
-class MyCLI(HermesCLI):
+class MyCLI(FabricCLI):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -571,7 +571,7 @@ Five touchpoints:
 
 ### 8. Toolsets
 
-1. **`toolsets.py`** — Add `"fabric-newplat"` toolset definition with `_HERMES_CORE_TOOLS`
+1. **`toolsets.py`** — Add `"fabric-newplat"` toolset definition with `_FABRIC_CORE_TOOLS`
 2. **`toolsets.py`** — Add `"fabric-newplat"` to the `"fabric-gateway"` includes list
 
 ### 9. Optional: Platform Hints

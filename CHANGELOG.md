@@ -8,7 +8,6 @@ All notable changes to Fabric are documented in this file.
 
 - Live host infrastructure monitor across surfaces. New `fabric monitor` (alias `fabric top`) renders CPU (aggregate + per-core), memory, disk, load, network throughput, and GPU/VRAM in a live terminal panel (`--once` / `--json` for snapshots). The web dashboard Host card and desktop Command Center → System panel poll the same shared `fabric_cli.system_stats` collector over `/api/system/stats`, so metrics never drift. GPU uses `pynvml` when available and falls back to `nvidia-smi`.
 - New `fabric disk` command to see and reclaim Fabric's storage. `fabric disk usage` (alias `du`) breaks down how much space each store under `~/.fabric` is using — caches, sessions, memory, databases, backups, and more — largest-first, with a grand total and the free space left on the volume (`--json` for machine-readable output, `--profile NAME` to inspect another profile). `fabric disk clean` reclaims regenerable data (caches, rotated log backups, diagnostic traces, temp scratch, re-downloadable media); it is a dry-run preview by default and only deletes with `--yes`, never touching sessions, the state database, memories, credentials, config, backups, the cron control-plane, or persistent sandbox/browser/worktree state. `--only`/`--skip` choose categories.
-- The Achievements **Team Leaderboard** can now host its relay from the dashboard. A **Host on this machine** button starts and supervises the relay (surviving a dashboard restart), a **Detect** button reads a running relay plus this machine's Tailscale identity to **auto-fill a shareable Relay URL**, and the panel surfaces `fabric setup tailscale` for the Tailscale QR login — no more typing a host address you have to look up. Tailscale reads and connection reuse `fabric_cli.tailscale_setup`.
 - Added a bundled `venture-studio` skill category with 13 new skills covering the idea-to-market arc: brainstorming, build-something-people-want, product-taste, impeccable-craft, design-studio, proposal-writing, business-planning, website-building, webapp-development, rstack, ios-app-development, d2c-smart-products, and hardware-manufacturing. The default skills overview now answers venture questions — ideation, business plans, proposals, websites, web and iOS apps, D2C smart products, and manufacturing (CAD, PCB, EVT/DVT/PVT, production) — instead of only the classic tool-centric set.
 - Added the Skills Ecosystem Directory: a curated, trust-tiered map of 224 external agent-skill sources (first-party vendor repos, expert packs, marketplaces, MCP registries, research references) published at `reference/skills-ecosystem-directory` with a machine-readable copy at `/api/skills-sources.json`.
 - Added a `skills-index` workflow that rebuilds the unified skills index twice daily and redeploys the docs site, so the Skills Hub page and `fabric skills search` stop serving a stale catalog. The index build now also crawls 177 curated, tree-verified skill-pack taps (~2,400 skills across 113 repos) from the ecosystem directory using rate-limit-cheap tree + raw fetches.
@@ -20,7 +19,6 @@ All notable changes to Fabric are documented in this file.
 
 ### Fixed
 
-- The Achievements Team Leaderboard now diagnoses Tailscale, tailnet, host, relay-port/health, and invite-credential failures separately instead of showing every outage as a generic timeout. Invites are masked and preflighted before Join, Retry works without a page reload, copied diagnostics exclude credentials and session/metric data, and verified local hosts gain restart, health telemetry, and redacted log recovery controls.
 - The docs-site Skills Hub no longer falls back to a broken, near-empty legacy snapshot when the unified index is missing: the committed fallback caches were refreshed (OpenAI tap 0 → 44 skills after its `skills/.curated/` move) and the new `venture-studio` and `web-development` categories now render with proper labels and icons.
 
 ## [0.21.0] - 2026-07-16
@@ -28,13 +26,13 @@ All notable changes to Fabric are documented in this file.
 ### Added
 
 - Fabric Desktop now opens Browser and Computer Use activity in a docked Agent Live View beside chat, with pause, close, and a resizable always-on-top picture-in-picture window that docks back into the same session.
-- Added Browser and Computer Use Live View guides with step-by-step product screenshots and clear performance and model-context behavior.
+- Added Browser and Computer Use Live View guides with step-by-step instructions and clear performance and model-context behavior.
 
 ### Changed
 
 - On local Desktop backends, Browser Live View now pulls one bounded active-tab frame at a time over a dedicated authenticated visual connection, starts at most two captures per second for each browser session, and never shares the chat, model-output, tool-event, or approval socket.
 - Computer Use Live View reuses screenshots returned by existing actions instead of adding another screen-capture loop; neither viewer adds model tools, prompt text, context tokens, or model calls.
-- Computer Use documentation now uses the current CuaDriver permission flow, `PATH`-based local-build selection, and `config.yaml` telemetry setting instead of legacy Hermes environment overrides.
+- Computer Use documentation now uses the current CuaDriver permission flow, `PATH`-based local-build selection, and `config.yaml` telemetry setting.
 - Documentation impact contracts now map Desktop, Browser automation, and Computer Use code to their narrative guides so CI requires those docs to evolve with future behavior changes.
 
 ### Fixed

@@ -5,12 +5,6 @@ brokers and people-search sites and removes it. It runs automatically wherever i
 to a human only where a site demands a CAPTCHA it cannot clear, a government ID, a phone call, or a
 fax.
 
-<p align="center">
-  <img src="assets/unbroker.png"
-       alt="unbroker: autonomous removal pipeline (exposure field, the loop, ledger, re-scan horizon)"
-       width="720">
-</p>
-
 ## About
 
 Hundreds of data brokers publish people's names, current and prior addresses, phone numbers, emails,

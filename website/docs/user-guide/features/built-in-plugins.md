@@ -20,8 +20,8 @@ The `PluginManager` scans four sources, in order:
 
 1. **Bundled** — `<repo>/plugins/<name>/` (what this page documents)
 2. **User** — `~/.fabric/plugins/<name>/`
-3. **Project** — `./.fabric/plugins/<name>/` (requires `FABRIC_ENABLE_PROJECT_PLUGINS=1`)
-4. **Pip entry points** — `hermes_agent.plugins`
+3. **Project** — `./.fabric/plugins/<name>/` (requires `plugins.allow_project_plugins: true` in `config.yaml`)
+4. **Pip entry points** — `fabric_agent.plugins`
 
 On name collision, later sources win — a user plugin named `disk-cleanup` would replace the bundled one.
 
@@ -111,7 +111,6 @@ column names the governing contract.
 | `image_gen/openai` | image backend | `image_gen.provider` | OpenAI `gpt-image-2` image generation backend (alternative to FAL) |
 | `image_gen/openai-codex` | image backend | `image_gen.provider` | OpenAI image generation via Codex OAuth |
 | `image_gen/xai` | image backend | `image_gen.provider` | xAI `grok-2-image` backend |
-| `fabric-achievements` | dashboard integration | Bundled dashboard discovery | Steam-style collectible badges generated from your real Fabric session history, plus an opt-in team leaderboard |
 | `kanban` | dashboard integration | Bundled dashboard discovery | Persistent Work surface at `/workspace/work` with Board, Graph, and Outline views. See [Kanban Multi-Agent](./kanban.md). |
 | `team-pages` | hidden dashboard integration | Direct route only | Optional config-driven reference pages at `/admin/integrations/team-pages`; distinct from Agents and Work. |
 
@@ -211,19 +210,21 @@ fabric plugins enable observability/langfuse
 Then put the credentials in `~/.fabric/.env`:
 
 ```bash
-HERMES_LANGFUSE_PUBLIC_KEY=pk-lf-...
-HERMES_LANGFUSE_SECRET_KEY=sk-lf-...
-HERMES_LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
 ```
+
+For a self-hosted server, set `observability.langfuse.base_url` in
+`config.yaml`.
 
 **How it works:**
 
 | Hook | Behaviour |
 |---|---|
-| `pre_api_request` / `pre_llm_call` | Open (or reuse) a per-turn root span "Fabric turn". Start a `generation` child observation for this API call with serialized recent messages as input. |
-| `post_api_request` / `post_llm_call` | Close the generation, attach `usage_details`, `cost_details`, `finish_reason`, assistant output + tool calls. If no tool calls and non-empty content, close the turn. |
+| `pre_api_request` | Open (or reuse) a per-turn root span "Fabric turn". Start a `generation` child observation for this API call with serialized recent messages as input. |
+| `post_api_request` | Close the generation, attach `usage_details`, `cost_details`, `finish_reason`, assistant output + tool calls. If no tool calls and non-empty content, close the turn. |
 | `pre_tool_call` | Start a `tool` child observation with sanitized `args`. |
-| `post_tool_call` | Close the tool observation with sanitized `result`. `read_file` payloads get summarized (head + tail + omitted-line count) so a huge file read stays under `HERMES_LANGFUSE_MAX_CHARS`. |
+| `post_tool_call` | Close the tool observation with sanitized `result`. `read_file` payloads get summarized (head + tail + omitted-line count) so a huge file read stays under `observability.langfuse.max_chars`. |
 
 Session grouping keys off the Fabric session ID (or task ID for sub-agents) via `langfuse.propagate_attributes`, so everything in a single `fabric chat` session lives under one Langfuse session.
 
@@ -234,17 +235,18 @@ fabric plugins list                 # observability/langfuse should show "enable
 fabric chat -q "hello"              # check the Langfuse UI for a "Fabric turn" trace
 ```
 
-**Optional tuning** (in `.env`):
+**Optional tuning** (in `config.yaml`):
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `HERMES_LANGFUSE_ENV` | — | Environment tag on traces (`production`, `staging`, …) |
-| `HERMES_LANGFUSE_RELEASE` | — | Release/version tag |
-| `HERMES_LANGFUSE_SAMPLE_RATE` | `1.0` | Sampling rate passed to the SDK (0.0–1.0) |
-| `HERMES_LANGFUSE_MAX_CHARS` | `12000` | Per-field truncation for message content / tool args / tool results |
-| `HERMES_LANGFUSE_DEBUG` | `false` | Verbose plugin logging to `agent.log` |
-
-Fabric-prefixed and standard SDK env vars (`LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`) are both accepted — Fabric-prefixed wins when both are set.
+```yaml
+observability:
+  langfuse:
+    base_url: https://cloud.langfuse.com
+    environment: production
+    release: v1.0.0
+    sample_rate: 0.5
+    max_chars: 12000
+    debug: false
+```
 
 **Performance:** the Langfuse client is cached after the first hook call. If credentials or SDK are missing, that decision is also cached — subsequent hooks fast-return without re-checking env vars or reloading config.
 
@@ -279,83 +281,6 @@ The agent kicks off the meeting join, streams the transcription back into its co
 **When to use it:** recurring standups where you want a bot to transcribe + summarize for async attendees; deposition-style interviews where you want structured notes; any case where you'd otherwise need Fireflies / Otter / Grain. When you'd rather not have an AI listening in — don't enable it.
 
 **Disabling:** `fabric plugins disable google_meet`. Any cached transcripts and recordings stay in `~/.fabric/cache/google_meet/` until you remove them.
-
-### fabric-achievements
-
-Adds a **Steam-style achievements tab to the dashboard** — 60+ collectible, tiered badges generated from your real Fabric session history. Tool-chain feats, debugging patterns, vibe-coding streaks, skill/memory usage, model/provider variety, lifestyle quirks (weekend and night sessions). Originally authored by [@PCinkusz](https://github.com/PCinkusz) as an external plugin; brought in-tree so it stays in lockstep with Fabric feature changes.
-
-**How it works:**
-
-- Scans your entire `~/.fabric/state.db` session history on the dashboard backend
-- Per-session stats are cached by `(started_at, last_active)` fingerprint, so only new or changed sessions re-analyze on subsequent scans
-- First-ever scan runs in a background thread — the dashboard never blocks waiting for it, even on databases with thousands of sessions
-- Unlock state is persisted to `$FABRIC_HOME/plugins/fabric-achievements/state.json`
-
-**Tier progression:** Copper → Silver → Gold → Diamond → Olympian. Each card exposes a "What counts" section listing the exact metric being tracked.
-
-**Achievement states:**
-
-| State | Meaning |
-|---|---|
-| Unlocked | At least one tier achieved |
-| Discovered | Known achievement, progress visible, not yet earned |
-| Secret | Hidden until Fabric detects the first related signal in your history |
-
-**API** — routes mount under `/api/plugins/fabric-achievements/`:
-
-| Endpoint | Purpose |
-|---|---|
-| `GET /achievements` | Full catalog with per-badge unlock state (returns a pending placeholder while the first cold scan is running) |
-| `GET /scan-status` | State of the background scanner: `idle` / `running` / `failed`, last duration, run count |
-| `GET /recent-unlocks` | Twenty most recently unlocked badges, newest first |
-| `GET /sessions/{id}/badges` | Badges earned primarily in one specific session |
-| `POST /rescan` | Manual synchronous rescan (blocks; use when the user clicks the rescan button) |
-| `POST /reset-state` | Clear unlock history and cached snapshot |
-| `GET /team`, `GET /team/leaderboard` | Team leaderboard state / ranked roster (opt-in; see below) |
-| `POST /team/create`, `/team/join`, `/team/leave`, `/team/settings`, `/team/publish`, `/team/rotate`, `/team/kick` | Team lifecycle, sharing toggle, and owner controls |
-| `POST /team/preflight` | Non-mutating layered diagnostics for a new invite or the current team connection |
-| `GET /team/host/status`, `POST /team/host/probe` | Detect a running relay + this machine's Tailscale identity to auto-fill a shareable URL; validate a candidate relay URL (see hosting below) |
-| `POST /team/host/start`, `POST /team/host/stop`, `POST /team/host/restart`, `GET /team/host/logs` | Start/stop a managed relay; guarded owner restart and bounded redacted log viewing |
-
-**Team leaderboard (opt-in cross-user sharing):** A second **Team Leaderboard** tab lets several Fabric users compare achievements. It keeps the local-first promise — the achievement scanner still never sends session history anywhere. When you opt into a team, the *only* data that leaves your machine is an **aggregate profile**: a tier-weighted score, unlock/tier/category counts, up to five unlocked-badge names from the static catalogue, and a display name you choose. Session titles, transcripts, file paths, and raw metrics are never sent — enforced by `build_leaderboard_profile`, re-validated by the relay's `sanitize_profile`, and pinned by a golden test (`tests/plugins/test_leaderboard_privacy.py`).
-
-Members connect through a small **relay** — a stdlib-only, self-hostable service (`python -m relay` from `plugins/fabric-achievements/`; see its [README](https://github.com/ObliviousOdin/fabric/tree/main/plugins/fabric-achievements/relay)). Creating a team returns a shareable invite code (`fbl1_…`) that others paste to join. Invite values are masked by default. The browser decodes only a safe team/host preview locally; the backend then checks Tailscale (when applicable), tailnet suffix, DNS, host reachability, TCP/health, and credentials before Join is enabled. Public HTTPS, LAN, and loopback relays do not become dependent on Tailscale. Private Tailscale Serve and public Tailscale Funnel share the `https://*.ts.net` form, so an anonymous response is not treated as proof of either mode. A verified, connected target keeps the direct Tailscale diagnostic path. Without a usable matching Tailscale connection, Fabric probes `/health` without credentials, direct first and then through a redirect-blocked HTTPS proxy route; credentials use only the exact route that answered. A dedicated **Retry** runs preflight again without a page reload, and **Copy diagnostic** uses a strict allowlist that excludes raw invites, join secrets, member tokens, sessions/transcripts, and achievement metrics. The browser never contacts the relay directly — each dashboard proxies server-to-server through the routes above, so the loopback/OAuth auth model is untouched. Sharing is a toggle; the team owner can reset the invite (rotate) or remove members. Scores are self-reported, so it's a friendly board for teams that trust each other, not an adversarial ranking. The `/team/*` routes stay behind the dashboard auth gate (they carry secrets and write state) and are deliberately **not** in the public-paths allowlist.
-
-**Hosting the board from the dashboard:** the tab's **Advanced: host a private leaderboard (Tailscale)** panel makes being the host one click. **Host on this machine** starts the relay for you (`POST /team/host/start`), supervises it (pid + start-time recorded in `relay.json`, so **Stop** and status survive a dashboard restart), and health-checks it — no copy-paste terminal command. The dashboard then **auto-fills the Relay URL**, preferring this machine's Tailscale MagicDNS name (`something.ts.net`) and verifying that the resulting tailnet URL answers as a Fabric relay from the host machine; a relay bound only to `127.0.0.1` is reported as not tailnet-reachable instead. The probe validates DNS and binding, not each teammate's Tailscale ACL access. Without Tailscale it falls back to `http://127.0.0.1:9137` for a same-machine trial. **Detect** re-checks status without starting or stopping anything. Reading Tailscale identity and connecting reuse `fabric_cli.tailscale_setup` (the code behind `fabric setup tailscale`); the interactive QR login stays that CLI command, which the panel surfaces when Tailscale is installed but not connected. If a relay is already answering on the port, **Host** adopts it rather than starting a second one.
-
-The managed relay binds narrowly to this node's connected Tailscale IPv4 address, or to `127.0.0.1` when Tailscale is unavailable. It does not expose the plain-HTTP relay to every LAN interface by default. The relay is designed to sit behind Tailscale (or a TLS proxy), never directly on the public internet (see the [relay README](https://github.com/ObliviousOdin/fabric/tree/main/plugins/fabric-achievements/relay)).
-
-If an existing board becomes unavailable, the dashboard reports the specific connection state (`INVITE_INVALID`, `TAILSCALE_MISSING`, `TAILSCALE_UNAVAILABLE`, `TAILSCALE_DISCONNECTED`, `WRONG_TAILNET`, `HOST_OFFLINE`, `HOST_PROBE_UNAVAILABLE`, `HOST_REACHABLE_RELAY_DOWN`, or `RELAY_REACHABLE_INVITE_INVALID`) instead of a generic timeout. A connected board reports `CONNECTED`. Members receive a targeted instruction; an owner receives **Restart relay** only when Fabric proves the membership URL matches this dashboard's exact managed PID/start-time record. That proof recognizes only an exact MagicDNS HTTPS `:443` facade to the managed default local relay on `:9137`; arbitrary host and port translations are rejected. The host card also shows uptime, bind address, last successful health, and advertised MagicDNS probe, and can display a bounded redacted relay-log tail.
-
-**State files** — live under `$FABRIC_HOME/plugins/fabric-achievements/`:
-
-| File | Contents |
-|---|---|
-| `state.json` | Unlock history: which badges you've earned and when. Stable across Fabric updates. |
-| `scan_snapshot.json` | Last completed scan payload (served immediately on dashboard load) |
-| `scan_checkpoint.json` | Per-session stats cache keyed by fingerprint (makes warm rescans fast) |
-| `team.json` | Team leaderboard membership (relay URL, team/member ids, per-member token, sharing toggle). Only present if you join a team. |
-| `relay.json` | Dashboard-managed relay's pid, port, and start-time. Only present if you host a relay from the dashboard; lets **Stop** and status survive a restart. |
-| `relay-health.json` | Secret-free timestamps for the last local and advertised-MagicDNS health checks. |
-| `roster.json` | The relay's own persisted team rosters (aggregate profiles only). Only present if you host a relay from the dashboard. |
-
-**Performance notes:**
-
-- Cold scan on ~8,000 sessions takes a few minutes. It runs in a background thread on first dashboard request; the UI sees a pending placeholder and polls `/scan-status`.
-- **Incremental results during a cold scan** — the scanner publishes a partial snapshot every ~250 sessions so each dashboard refresh shows more badges unlocked as the scan progresses. No minute-long stare at zeros.
-- Warm rescan reuses per-session stats for every session whose `started_at` + `last_active` fingerprint matches the checkpoint — completes in seconds even on large histories.
-- The in-memory snapshot TTL is 120s; stale requests serve the old snapshot immediately and kick a background refresh. You never wait on a spinner just because TTL expired.
-
-**Enabling:** Nothing to enable — `fabric-achievements` is a bundled
-dashboard-only plugin (no lifecycle hooks and no model-visible tools). Its
-`dashboard/manifest.json` makes the tab available when the dashboard starts,
-unless the plugin is explicitly denied.
-
-**Opting out:** Add `fabric-achievements` to `plugins.disabled` in
-`config.yaml`. Its state files under
-`$FABRIC_HOME/plugins/fabric-achievements/` survive, so re-enabling preserves
-your unlock history. Do not edit the bundled manifest; an update would restore
-the shipped file.
 
 ### kanban (Work)
 

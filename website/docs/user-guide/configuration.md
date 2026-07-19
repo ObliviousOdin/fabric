@@ -57,8 +57,30 @@ Settings are resolved in this order (highest priority first):
 4. **Built-in defaults** — hardcoded safe defaults when nothing else is set
 
 :::info Rule of Thumb
-Secrets (API keys, bot tokens, passwords) go in `.env`. Everything else (model, terminal backend, compression settings, memory limits, toolsets) goes in `config.yaml`. When both are set, `config.yaml` wins for non-secret settings.
+API keys and bot tokens normally go in `.env`. Everything else (model, terminal backend, compression settings, memory limits, toolsets) goes in `config.yaml`. A subsystem may define an explicit credential field in `config.yaml`; when it does, that field is canonical and can use `${VAR}` interpolation when you prefer to keep the underlying value in `.env`. Dashboard authentication uses this pattern.
 :::
+
+### Capability catalogs
+
+Setup screens and pickers start with curated platform and provider lists. The
+underlying integrations remain installed; this section controls which
+unconfigured integrations those discovery surfaces advertise.
+
+```yaml
+capabilities:
+  enabled: true
+  gateway_platforms: [discord, slack, api_server]
+  model_providers: [openrouter, anthropic, openai-codex, openai-api, gemini]
+  memory_providers: [honcho, holographic, hindsight]
+  tts_providers: [openai, piper, command]
+  stt_providers: [local, openai, command]
+```
+
+Set `capabilities.enabled: false` to expose every registered integration. To
+open only one catalog, set that list to `null`; for example,
+`capabilities.model_providers: null`. A YAML list replaces the curated default
+for that catalog. These are behavioral settings and have no environment-variable
+equivalents.
 
 :::tip Org deployments
 An administrator can pin specific config and secret values that a standard user
@@ -86,11 +108,11 @@ For AI provider setup (OpenRouter, Anthropic, Copilot, custom endpoints, self-ho
 
 ### Provider Timeouts
 
-You can set `providers.<id>.request_timeout_seconds` for a provider-wide request timeout, plus `providers.<id>.models.<model>.timeout_seconds` for a model-specific override. Applies to the primary turn client on every transport (OpenAI-wire, native Anthropic, Anthropic-compatible), the fallback chain, rebuilds after credential rotation, and (for OpenAI-wire) the per-request timeout kwarg — so the configured value wins over the legacy `HERMES_API_TIMEOUT` env var.
+You can set `providers.<id>.request_timeout_seconds` for a provider-wide request timeout, plus `providers.<id>.models.<model>.timeout_seconds` for a model-specific override. Applies to the primary turn client on every transport (OpenAI-wire, native Anthropic, Anthropic-compatible), the fallback chain, rebuilds after credential rotation, and (for OpenAI-wire) the per-request timeout kwarg.
 
-You can also set `providers.<id>.stale_timeout_seconds` for the non-streaming stale-call detector, plus `providers.<id>.models.<model>.stale_timeout_seconds` for a model-specific override. This wins over the legacy `HERMES_API_CALL_STALE_TIMEOUT` env var.
+You can also set `providers.<id>.stale_timeout_seconds` for the non-streaming stale-call detector, plus `providers.<id>.models.<model>.stale_timeout_seconds` for a model-specific override.
 
-Leaving these unset keeps the legacy defaults (`HERMES_API_TIMEOUT=1800`s, `HERMES_API_CALL_STALE_TIMEOUT=90`s, native Anthropic 900s). The non-streaming stale detector is auto-disabled for local endpoints when left implicit and can scale upward for very large contexts. Not currently wired for AWS Bedrock (both `bedrock_converse` and AnthropicBedrock SDK paths use boto3 with its own timeout configuration). See the commented example in [`cli-config.yaml.example`](https://github.com/ObliviousOdin/fabric/blob/main/cli-config.yaml.example).
+Leaving these unset uses the built-in defaults (1800-second request timeout, 90-second stale-call timeout, native Anthropic 900 seconds). The non-streaming stale detector is auto-disabled for local endpoints when left implicit and can scale upward for very large contexts. Not currently wired for AWS Bedrock (both `bedrock_converse` and AnthropicBedrock SDK paths use boto3 with its own timeout configuration). See the commented example in [`cli-config.yaml.example`](https://github.com/ObliviousOdin/fabric/blob/main/cli-config.yaml.example).
 
 ## Update Behavior
 
@@ -177,21 +199,11 @@ terminal:
   home_mode: profile
 ```
 
-In that mode tool subprocesses use `{FABRIC_HOME}/home` as `HOME`. Fabric also
-sets `HERMES_REAL_HOME` so scripts can still locate the actual user home when
-they need it. Container backends keep using `{FABRIC_HOME}/home` in `auto` mode
-because that directory lives on the persistent Fabric data volume.
-
-Scripts that need to distinguish profile state from the real user home should
-prefer `FABRIC_HOME` for Fabric data and `HERMES_REAL_HOME` for the account home:
-
-```python
-from pathlib import Path
-import os
-
-hermes_home = Path(os.environ["FABRIC_HOME"])
-real_home = Path(os.environ.get("HERMES_REAL_HOME", os.environ["HOME"]))
-```
+In that mode tool subprocesses use `{FABRIC_HOME}/home` as `HOME`. Container
+backends also use that directory in `auto` mode because it lives on the
+persistent Fabric data volume. Fabric does not inject a second environment
+variable for the account home; code that genuinely needs the operating-system
+account directory should resolve it through the platform's user database.
 
 :::warning
 The agent has the same filesystem access as your user account. Use `fabric tools` to disable tools you don't want, or switch to Docker for sandboxing.
@@ -244,7 +256,7 @@ terminal:
 
 **`terminal.docker_network`** (default `true`; env: `TERMINAL_DOCKER_NETWORK`) — set to `false` to run the sandbox container with `--network=none`, cutting off all network egress from agent commands. This applies to the execution container used by `terminal`, `execute_code`, and the file tools. Because containers persist across Fabric processes, flipping this to `false` while an older networked container exists will remove that container and start a fresh air-gapped one (a warning is logged); background processes running inside it are lost. Prefer this key over passing `--network=none` through `docker_extra_args`.
 
-**Requirements:** Docker Desktop or Docker Engine installed and running. Fabric probes `$PATH` plus common macOS install locations (`/usr/local/bin/docker`, `/opt/homebrew/bin/docker`, Docker Desktop app bundle). Podman is supported out of the box: set `HERMES_DOCKER_BINARY=podman` (or the full path) to force it when both are installed.
+**Requirements:** Docker Desktop, Docker Engine, or Podman installed and running. Fabric probes `$PATH` plus common macOS install locations (`/usr/local/bin/docker`, `/opt/homebrew/bin/docker`, Docker Desktop app bundle) and selects an available container runtime automatically.
 
 #### Container lifecycle
 
@@ -262,7 +274,7 @@ When a Fabric process exits — `/quit`, closing a TUI session, gateway shutdown
 
 | Trigger | When it fires |
 |---|---|
-| `docker_persist_across_processes: false` | Explicit per-process isolation. Every `cleanup()` does `stop` + `rm -f`. Matches behavior from before [issue #20561](https://github.com/NousResearch/hermes-agent/issues/20561). |
+| `docker_persist_across_processes: false` | Explicit per-process isolation. Every `cleanup()` does `stop` + `rm -f`. Matches behavior from before issue #20561. |
 | Idle reaper (`lifetime_seconds`, default 300s) | Only when the env is `persist_across_processes=false`. Persist-mode envs are no-op'd; container survives the idle sweep. |
 | Orphan reaper at next startup | Sweeps **Exited** fabric-labeled containers older than `2 × lifetime_seconds` (default 600s = 10 min), scoped to the current profile. **Running containers are never touched** — sibling-process safety. Set `docker_orphan_reaper: false` to disable. |
 | Direct user action | `docker rm -f`, `docker system prune`, Docker Desktop restart. We don't set `--restart=always`, so a host reboot leaves the container `Exited` (its CoW layer survives and gets reused on next startup, but bg processes are gone). |
@@ -272,7 +284,7 @@ Edge cases worth knowing:
 - **OOM kill of in-container PID 1** transitions the container to `Exited`. Next reuse will `docker start` it; filesystem state survives, bg processes do not.
 - **Switching profiles** isolates containers from each other — a container labeled `fabric-profile=work` is invisible to a Fabric process running under `fabric-profile=research`. The orphan reaper is profile-scoped too, so cross-profile containers don't get reaped accidentally, but they also won't get cleaned up automatically until you start Fabric again under their original profile.
 
-Parallel subagents spawned via `delegate_task(tasks=[...])` share this one container — concurrent `cd`, env mutations, and writes to the same path will collide. If a subagent needs an isolated sandbox, it must register a per-task image override via `register_task_env_overrides()`, which RL and benchmark environments (TerminalBench2, HermesSweEnv, etc.) do automatically for their per-task Docker images.
+Parallel subagents spawned via `delegate_task(tasks=[...])` share this one container — concurrent `cd`, env mutations, and writes to the same path will collide. If a subagent needs an isolated sandbox, it must register a per-task image override via `register_task_env_overrides()`, as benchmark environments do for their per-task Docker images.
 
 **Security hardening:**
 - `--cap-drop ALL` with only `DAC_OVERRIDE`, `CHOWN`, `FOWNER` added back
@@ -304,7 +316,6 @@ Every key under `terminal:` has an env-var override of the form `TERMINAL_<KEY_U
 | `TERMINAL_CONTAINER_PERSISTENT` | `container_persistent` | `true` / `false` — controls the bind-mount workspace dirs, distinct from `docker_persist_across_processes` |
 | `TERMINAL_LIFETIME_SECONDS` | `lifetime_seconds` | Idle reaper window |
 | `TERMINAL_TIMEOUT` | `timeout` | Per-command timeout |
-| `HERMES_DOCKER_BINARY` | _none_ | Force a specific docker/podman binary path |
 
 ### SSH Backend
 
@@ -852,18 +863,18 @@ goals:
 
 Fabric has separate timeout layers for streaming, plus a stale detector for non-streaming calls. The stale detectors auto-adjust for local providers only when you leave them at their implicit defaults.
 
-| Timeout | Default | Local providers | Config / env |
-|---------|---------|----------------|--------------|
-| Socket read timeout | 120s | Auto-raised to 1800s | `HERMES_STREAM_READ_TIMEOUT` |
-| Stale stream detection | 180s | Auto-disabled | `HERMES_STREAM_STALE_TIMEOUT` |
-| Stale non-stream detection | 300s | Auto-disabled when left implicit | `providers.<id>.stale_timeout_seconds` or `HERMES_API_CALL_STALE_TIMEOUT` |
-| API call (non-streaming) | 1800s | Unchanged | `providers.<id>.request_timeout_seconds` / `timeout_seconds` or `HERMES_API_TIMEOUT` |
+| Timeout | Default | Local providers | Configuration |
+|---------|---------|----------------|---------------|
+| Socket read timeout | 120s | Auto-raised to 1800s | `providers.<id>.request_timeout_seconds` / model `timeout_seconds` |
+| Stale stream detection | 180s | Auto-disabled when left implicit | `providers.<id>.stale_timeout_seconds` / model `stale_timeout_seconds` |
+| Stale non-stream detection | 300s | Auto-disabled when left implicit | `providers.<id>.stale_timeout_seconds` / model `stale_timeout_seconds` |
+| API call (non-streaming) | 1800s | Unchanged | `providers.<id>.request_timeout_seconds` / model `timeout_seconds` |
 
-The **socket read timeout** controls how long httpx waits for the next chunk of data from the provider. Local LLMs can take minutes for prefill on large contexts before producing the first token, so Fabric raises this to 30 minutes when it detects a local endpoint. If you explicitly set `HERMES_STREAM_READ_TIMEOUT`, that value is always used regardless of endpoint detection.
+The **socket read timeout** controls how long httpx waits for the next chunk of data from the provider. Local LLMs can take minutes for prefill on large contexts before producing the first token, so Fabric raises this to 30 minutes when it detects a local endpoint. An explicit provider or model request timeout takes precedence over endpoint detection.
 
-The **stale stream detection** kills connections that receive SSE keep-alive pings but no actual content. This is disabled entirely for local providers since they don't send keep-alive pings during prefill.
+The **stale stream detection** kills connections that receive SSE keep-alive pings but no actual content. It is disabled for local providers when left implicit. An explicit provider or model stale timeout re-enables it with the configured value.
 
-The **stale non-stream detection** kills non-streaming calls that produce no response for too long. By default Fabric disables this on local endpoints to avoid false positives during long prefills. If you explicitly set `providers.<id>.stale_timeout_seconds`, `providers.<id>.models.<model>.stale_timeout_seconds`, or `HERMES_API_CALL_STALE_TIMEOUT`, that explicit value is honored even on local endpoints.
+The **stale non-stream detection** kills non-streaming calls that produce no response for too long. By default Fabric disables this on local endpoints to avoid false positives during long prefills. If you explicitly set `providers.<id>.stale_timeout_seconds` or `providers.<id>.models.<model>.stale_timeout_seconds`, that explicit value is honored even on local endpoints.
 
 ## Context Pressure Warnings
 
@@ -1432,15 +1443,13 @@ Example footer:
   • concepts/rag-pipeline.md — [patch] Could not find match for old_string
 ```
 
-Set `file_mutation_verifier: false` (or `HERMES_FILE_MUTATION_VERIFIER=0`) to suppress the footer. The verifier only fires when real failures are outstanding at turn end — a model that retries a failed patch and succeeds within the same turn will not trigger it for that file.
+Set `display.file_mutation_verifier: false` to suppress the footer. The verifier only fires when real failures are outstanding at turn end — a model that retries a failed patch and succeeds within the same turn will not trigger it for that file.
 
 ### UI language for static messages
 
 The `display.language` setting translates a small set of static user-facing messages — the CLI approval prompt, a handful of gateway slash-command replies (e.g. restart-drain notices, "approval expired", "goal cleared"). It does **not** translate agent responses, log lines, tool output, error tracebacks, or slash-command descriptions — those stay in English. If you want the agent itself to reply in another language, just tell it in your prompt or system message.
 
 Supported values: `en` (default), `zh` (Simplified Chinese), `zh-hant` (Traditional Chinese), `ja` (Japanese), `de` (German), `es` (Spanish), `fr` (French), `tr` (Turkish), `uk` (Ukrainian), `af` (Afrikaans), `ko` (Korean), `it` (Italian), `ga` (Irish), `pt` (Portuguese), `ru` (Russian), `hu` (Hungarian). Unknown values fall back to English.
-
-You can also set this per-session with the `HERMES_LANGUAGE` env var, which overrides the config value.
 
 ```yaml
 display:
@@ -1872,7 +1881,7 @@ approvals:
 |------|----------|
 | `manual` (default) | Prompt the user before executing any flagged command. In the CLI, shows an interactive approval dialog. In messaging, queues a pending approval request. |
 | `smart` | Use an auxiliary LLM to assess whether a flagged command is actually dangerous. Low-risk commands are auto-approved with session-level persistence. Genuinely risky commands are escalated to the user. |
-| `off` | Skip all approval checks. Equivalent to `HERMES_YOLO_MODE=true`. **Use with caution.** |
+| `off` | Skip all approval checks. Equivalent to launching with `--yolo`. **Use with caution.** |
 
 Smart mode is particularly useful for reducing approval fatigue — it lets the agent work more autonomously on safe operations while still catching genuinely destructive commands.
 
@@ -1949,7 +1958,6 @@ Fabric uses two different context scopes:
 |------|---------|-------|
 | `SOUL.md` | **Primary agent identity** — defines who the agent is (slot #1 in the system prompt) | `~/.fabric/SOUL.md` or `$FABRIC_HOME/SOUL.md` |
 | `.fabric.md` / `FABRIC.md` | Canonical project-specific instructions (highest priority) | Nearest file from CWD through the git root |
-| `.hermes.md` / `HERMES.md` | Legacy compatibility names for Fabric project instructions | Same nearest-file search |
 | `AGENTS.md` | Portable project-specific instructions and coding conventions | CWD at startup; subdirectories discovered progressively |
 | `CLAUDE.md` | Claude Code context files (also detected) | Working directory only |
 | `.cursorrules` | Cursor IDE rules (also detected) | Working directory only |
@@ -1957,7 +1965,7 @@ Fabric uses two different context scopes:
 
 - **SOUL.md** is the agent's primary identity. It occupies slot #1 in the system prompt, completely replacing the built-in default identity. Edit it to fully customize who the agent is.
 - If SOUL.md is missing, empty, or cannot be loaded, Fabric falls back to a built-in default identity.
-- **Project context files use a priority system** — only ONE type is loaded at startup (first match wins): Fabric project file → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. Fabric project files use `.fabric.md` → `FABRIC.md` → `.hermes.md` → `HERMES.md` within the nearest matching directory; the pre-Fabric names are compatibility-only. SOUL.md is loaded independently.
+- **Project context files use a priority system** — only ONE type is loaded at startup (first match wins): Fabric project file → `AGENTS.md` → `CLAUDE.md` → `.cursorrules`. Fabric project files use `.fabric.md` → `FABRIC.md` within the nearest matching directory. SOUL.md is loaded independently.
 - **AGENTS.md** can be hierarchical during a session: the CWD file is loaded at startup, then relevant subdirectory files are discovered lazily and appended to tool results without changing the cached system prompt.
 - Fabric automatically seeds a default `SOUL.md` if one does not already exist.
 - Loaded startup context sources use smart truncation. An explicit `context_file_max_chars` pins the cap; otherwise it scales with the model window from a 20,000-character floor up to a 500,000-character ceiling.
@@ -1980,8 +1988,6 @@ Override the working directory:
 terminal:
   cwd: /home/myuser/projects
 ```
-
-`MESSAGING_CWD` and direct `TERMINAL_CWD` entries in `~/.fabric/.env` are legacy compatibility fallbacks. New configurations should use `terminal.cwd`.
 
 ## Network
 
@@ -2013,12 +2019,17 @@ Configuration for the [web dashboard](/user-guide/features/web-dashboard) — vi
 
 ```yaml
 dashboard:
-  theme: "default"            # "default" | "midnight" | "ember" | "mono" | "cyberpunk" | "rose"
+  theme: "fabric-light"       # "fabric-light" | "fabric-dark" | "midnight" | "mono" | "cyberpunk" | "rose"
   show_token_analytics: false # Re-enable the (local-estimate-only) token/cost analytics surfaces
-  public_url: ""              # Full public authority for OAuth redirect_uri (env: HERMES_DASHBOARD_PUBLIC_URL)
+  public_url: ""              # Full public authority for OAuth redirect_uri
   oauth:                      # Portal OAuth gate (engaged with --host and not --insecure)
     client_id: ""             # agent:{instance_id} — Portal provisions this
     portal_url: ""            # blank → plugin default (production Portal)
+    self_hosted:              # Optional standards-based OIDC provider
+      issuer: ""
+      client_id: ""
+      scopes: "openid profile email"
+      client_secret: ""       # confidential clients only; supports ${VAR}
   basic_auth:                 # Self-hosted username/password gate (dashboard_auth/basic plugin)
     username: ""              # blank → plugin no-op
     password_hash: ""         # scrypt$... (preferred — no plaintext at rest)
@@ -2030,4 +2041,4 @@ dashboard:
 - `theme` — dashboard visual theme.
 - `show_token_analytics` — off by default. The Analytics page and token/cost figures are a **local lower-bound estimate** (they exclude auxiliary calls, retries, fallbacks, and cache writes), so they can read far below the provider bill. Set `true` only if you understand they're not billing.
 - `public_url` — when set, this is the complete authority (scheme + host + optional path prefix) the OAuth `redirect_uri` is built from. Set it for deploys behind reverse proxies that don't reliably forward `X-Forwarded-*` headers. Leave empty to use proxy-header reconstruction.
-- `oauth` / `basic_auth` — auth provider config read by the bundled dashboard-auth plugins. See [Web Dashboard](/user-guide/features/web-dashboard) for full auth setup.
+- `oauth` / `basic_auth` — the sole auth-provider config read by the bundled dashboard-auth plugins. Credential values may use the standard `${VAR}` interpolation when you prefer to keep their underlying values in `~/.fabric/.env`. See [Web Dashboard](/user-guide/features/web-dashboard) for full auth setup.

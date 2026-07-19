@@ -17,7 +17,6 @@ from pathlib import Path
 
 _FABRIC_HOME = Path(
     os.environ.get("FABRIC_HOME")
-    or os.environ.get("HERMES_HOME")
     or Path.home() / ".fabric"
 )
 DATA_DIR = _FABRIC_HOME / "skills" / "productivity" / "memento-flashcards" / "data"

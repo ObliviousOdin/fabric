@@ -11,7 +11,6 @@ A partial `fabric update`, interrupted venv repair, or stale CA-bundle environme
 
 Fabric uses OpenAI/httpx and requests-based clients for provider calls, model metadata, gateway delivery, and web tools. Those clients inherit CA bundle settings from:
 
-- `HERMES_CA_BUNDLE`
 - `SSL_CERT_FILE`
 - `REQUESTS_CA_BUNDLE`
 - `CURL_CA_BUNDLE`
@@ -49,6 +48,5 @@ python -m pip install --force-reinstall certifi openai httpx
 
 For a custom/corporate CA setup, fix the env var so it points at a real PEM bundle, or unset it if Fabric should use the bundled `certifi` store.
 
-## Environment escape hatch
-
-Set `HERMES_SKIP_SSL_GUARD=1` to bypass the preflight check. This is intended only for sandboxed or managed-trust environments where the Python CA path looks unusual but downstream clients are known to work.
+Managed environments should provide a valid custom trust store through
+`SSL_CERT_FILE`; Fabric does not bypass TLS validation.

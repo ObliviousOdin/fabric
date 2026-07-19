@@ -47,7 +47,7 @@ fabric claw migrate --source /custom/path/.openclaw  # Custom source
 
 The CLI command runs the same migration script described below. Use this skill (via the agent) when you want an interactive, guided migration with dry-run previews and per-item conflict resolution.
 
-**First-time setup:** The `Fabric setup` wizard automatically detects `~/.openclaw` and offers migration before configuration begins.
+**First-time setup:** The `fabric setup` wizard automatically detects `~/.openclaw` and offers migration before configuration begins.
 
 ## What this skill does
 

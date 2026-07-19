@@ -5,8 +5,6 @@ sidebar_label: Browser
 sidebar_position: 5
 ---
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
-
 # Browser Automation
 
 Fabric includes a full browser automation toolset with multiple backend options:
@@ -40,9 +38,6 @@ When a conversation in the Fabric Desktop app starts using a browser tool,
 current target, the latest browser frame, and a session-scoped timeline of the
 agent's browser actions.
 
-<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-browser.png')} width="1172" height="640" alt="Fabric Desktop showing a browser conversation with Agent Live View docked in the right side panel, including the current page and recent browser actions." />
-<p className="docs-figure-caption">The Browser tool opens Agent Live View automatically beside the conversation, with the current page and recent actions.</p>
-
 ### Use the docked view
 
 1. Start Fabric Desktop and ask the agent to use the Browser tool. For example:
@@ -64,9 +59,6 @@ agent's browser actions.
 1. Select **Pop out picture-in-picture** in the Live View title bar.
 2. Move or resize the always-on-top window while the agent works.
 3. Select **Return to side panel** to dock it again.
-
-<img className="docs-product-figure" src={useBaseUrl('/img/product/fabric-desktop-live-view-browser-pip.png')} width="520" height="420" alt="Fabric Browser Agent Live View in a compact always-on-top picture-in-picture window with pause, dock, and close controls." loading="lazy" />
-<p className="docs-figure-caption">Pop out picture-in-picture keeps the same browser session visible above other windows; Return to side panel docks it again.</p>
 
 Both surfaces follow the same conversation and browser session. Popping the
 view out, pausing it, or docking it does not restart the browser, the agent, or

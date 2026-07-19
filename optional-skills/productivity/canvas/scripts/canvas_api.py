@@ -28,11 +28,7 @@ def _check_config():
     if not CANVAS_BASE_URL:
         missing.append("CANVAS_BASE_URL")
     if missing:
-        fabric_home = (
-            os.environ.get("FABRIC_HOME")
-            or os.environ.get("HERMES_HOME")
-            or os.path.expanduser("~/.fabric")
-        )
+        fabric_home = os.environ.get("FABRIC_HOME") or os.path.expanduser("~/.fabric")
         fabric_env = os.path.join(fabric_home, ".env")
         print(
             f"Missing required environment variables: {', '.join(missing)}\n"

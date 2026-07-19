@@ -15,7 +15,7 @@ Every Telegram bot requires an API token issued by [@BotFather](https://t.me/Bot
 1. Open Telegram and search for **@BotFather**, or visit [t.me/BotFather](https://t.me/BotFather)
 2. Send `/newbot`
 3. Choose a **display name** (e.g., "Fabric") — this can be anything
-4. Choose a **username** — this must be unique and end in `bot` (e.g., `my_fabric_bot`)
+4. Choose a **username** — this must be unique and end in `bot` (e.g., `my_assistant_bot`)
 5. BotFather replies with your **API token**. It looks like this:
 
 ```
@@ -1029,7 +1029,7 @@ Behavior:
 - Use `*` in any of these to allow any sender/chat.
 - This layers on top of existing mention/pattern triggers and on top of `group_topics` + `ignored_threads`.
 
-### Migration from before [PR #17686](https://github.com/NousResearch/hermes-agent/pull/17686)
+### Migration from before PR #17686
 
 Prior to this split, `TELEGRAM_GROUP_ALLOWED_USERS` was the only knob and users put **chat IDs** in it. For backward compatibility, chat-ID-shaped values (starting with `-`) in `TELEGRAM_GROUP_ALLOWED_USERS` are still honored as chat IDs and a deprecation warning is logged once. Migration:
 
@@ -1285,7 +1285,7 @@ Telegram fires a push notification on every message the bot sends. For long agen
 | Mode | Behavior |
 |------|----------|
 | `important` (default) | Only **final responses**, **approval prompts**, and **slash-command confirmations** ring. Tool progress, streaming chunks, and status messages are delivered with `disable_notification=true`. |
-| `all` | Every outgoing message fires a push notification. Legacy behavior; opt in if you genuinely want to hear about every tool call. |
+| `all` | Every outgoing message fires a push notification; opt in if you genuinely want to hear about every tool call. |
 
 Configure in `~/.fabric/config.yaml`:
 
@@ -1294,12 +1294,6 @@ display:
   platforms:
     telegram:
       notifications: important   # or "all"
-```
-
-Env override (handy for quick A/B testing):
-
-```bash
-HERMES_TELEGRAM_NOTIFICATIONS=all
 ```
 
 Unknown values log a warning and fall back to `important`.

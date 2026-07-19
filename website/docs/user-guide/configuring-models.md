@@ -40,13 +40,18 @@ The picker has two columns:
 - **Left** — authenticated providers. Only providers you've set up (API key set, OAuth'd, or defined as a custom endpoint) show up here. If a provider is missing, head to **Keys** and add its credential.
 - **Right** — the curated model list for the selected provider. These are the agentic models Fabric recommends for that provider, not the raw `/models` dump (which on OpenRouter includes 400+ models including TTS, image generators, and rerankers).
 
+For Nous Portal, establish the OAuth client contract from a terminal before
+using the dashboard: `fabric auth add nous --client-id <registered-client-id>`.
+The dashboard reuses that stored client ID and will not substitute its separate
+self-hosted dashboard registration identity.
+
 Type in the filter box to narrow by provider name, slug, or model ID.
 
 Pick a model, hit **Switch**, and Fabric writes it to `~/.fabric/config.yaml` under the `model` section. **This applies to new sessions only** — any chat tab you already have open keeps running whatever model it started with. To hot-swap the current chat, use the `/model` slash command inside it.
 
 ### Mid-session switches and context warnings
 
-When you switch models **inside an active session** (Herm TUI model picker, `fabric` CLI, or `/model` on Telegram/Discord), Fabric estimates whether your **next message** will run **preflight context compression** against the new model's window. If the session is already near or above that model's compression threshold (see [Context Compression](./configuration.md#context-compression)), the switch reply includes a warning — the same `warning_message` path used for expensive-model notices. The switch still applies immediately; compression runs on the **first user message after the switch**, before the model answers.
+When you switch models **inside an active session** (Fabric TUI model picker, `fabric` CLI, or `/model` on Telegram/Discord), Fabric estimates whether your **next message** will run **preflight context compression** against the new model's window. If the session is already near or above that model's compression threshold (see [Context Compression](./configuration.md#context-compression)), the switch reply includes a warning — the same `warning_message` path used for expensive-model notices. The switch still applies immediately; compression runs on the **first user message after the switch**, before the model answers.
 
 :::warning Mid-session switches reset the prompt cache
 Prompt caches are keyed to the model serving the request, so any mid-conversation model change — an explicit `/model` switch, an [automatic fallback](./features/fallback-providers.md), or a [credential-pool](./features/credential-pools.md) rotation onto a different account — means the next message re-reads the entire conversation at full input-token price instead of the cached (~75–90% discounted) rate. On a long session this one-time re-read can dwarf the per-token difference between the two models. Switch when you need to, but prefer doing it early in a conversation or right after starting a fresh session.
@@ -265,4 +270,4 @@ curl -X POST -H "Content-Type: application/json" -H "X-Fabric-Session-Token: $TO
   http://localhost:PORT/api/model/set
 ```
 
-The session token is injected into the dashboard HTML at startup and rotates on every server restart. Grab it from the browser devtools (`window.__HERMES_SESSION_TOKEN__`) if you're scripting against a running dashboard.
+The auth token is injected into the dashboard HTML at startup and rotates on every server restart. Grab it from the browser devtools (`window.__DASHBOARD_AUTH_TOKEN__`) if you're scripting against a running dashboard.

@@ -29,7 +29,7 @@ Primary files:
 The cached system prompt is assembled as three ordered tiers (see `agent/system_prompt.py`):
 
 1. **stable** — identity (`SOUL.md` or fallback), tool/model guidance, skills prompt, environment hints, platform hints
-2. **context** — caller-supplied `system_message` plus project context files (`.fabric.md` / `FABRIC.md` / `AGENTS.md` / `CLAUDE.md` / `.cursorrules`; legacy Hermes filenames remain compatible)
+2. **context** — caller-supplied `system_message` plus project context files (`.fabric.md` / `FABRIC.md` / `AGENTS.md` / `CLAUDE.md` / `.cursorrules`)
 3. **volatile** — built-in memory snapshot (`MEMORY.md`), user profile snapshot (`USER.md`), external memory-provider block, timestamp/session/model/provider line
 
 The final system prompt is then joined as: `stable` → `context` → `volatile`.
@@ -194,7 +194,7 @@ def build_context_files_prompt(cwd=None, skip_soul=False):
 
     # Priority: first match wins — only ONE project context loaded
     project_context = (
-        _load_fabric_md(cwd_path)       # 1. Fabric names + legacy Hermes names (nearest through git root)
+        _load_fabric_md(cwd_path)       # 1. Fabric project context (nearest through git root)
         or _load_agents_md(cwd_path)    # 2. AGENTS.md (cwd only)
         or _load_claude_md(cwd_path)    # 3. CLAUDE.md (cwd only)
         or _load_cursorrules(cwd_path)  # 4. .cursorrules / .cursor/rules/*.mdc
@@ -226,7 +226,6 @@ def build_context_files_prompt(cwd=None, skip_soul=False):
 | Priority | Files | Search scope | Notes |
 |----------|-------|-------------|-------|
 | 1 | `.fabric.md`, `FABRIC.md` | Nearest from CWD through git root | Canonical Fabric project context |
-| 1 (compatibility) | `.hermes.md`, `HERMES.md` | Same nearest-file search | Legacy names accepted for existing projects |
 | 2 | `AGENTS.md` | CWD only | Common agent instruction file |
 | 3 | `CLAUDE.md` | CWD only | Claude Code compatibility |
 | 4 | `.cursorrules`, `.cursor/rules/*.mdc` | CWD only | Cursor compatibility |
@@ -234,7 +233,7 @@ def build_context_files_prompt(cwd=None, skip_soul=False):
 All context files are:
 - **Security scanned** — checked for prompt injection patterns (invisible unicode, "ignore previous instructions", credential exfiltration attempts)
 - **Truncated** — capped by explicit `context_file_max_chars` when set; otherwise by a model-window-aware limit (20,000-character floor, 500,000 ceiling), using a 70/20 head/tail ratio with a truncation marker
-- **YAML frontmatter stripped** — frontmatter in the selected Fabric project file (canonical or compatibility name) is removed (reserved for future config overrides)
+- **YAML frontmatter stripped** — frontmatter in the selected Fabric project file is removed (reserved for future config overrides)
 
 ## API-call-time-only layers
 
@@ -257,7 +256,7 @@ Local memory and user profile data are captured in the system prompt's **volatil
 
 `agent/prompt_builder.py` scans and sanitizes project context files using a **priority system** — only one type is loaded (first match wins):
 
-1. `.fabric.md` / `FABRIC.md` (canonical), then `.hermes.md` / `HERMES.md` (compatibility), using the nearest directory from CWD through the git root
+1. `.fabric.md` / `FABRIC.md`, using the nearest directory from CWD through the git root
 2. `AGENTS.md` (CWD at startup; subdirectories discovered progressively during the session via `agent/subdirectory_hints.py`)
 3. `CLAUDE.md` (CWD only)
 4. `.cursorrules` / `.cursor/rules/*.mdc` (CWD only)
@@ -278,10 +277,10 @@ Most users should treat `agent/prompt_builder.py` as implementation code, not a 
 
 - `~/.fabric/SOUL.md` — replace the built-in default identity block with your own agent persona and standing behavior.
 - `~/.fabric/MEMORY.md` and `~/.fabric/USER.md` — provide durable cross-session facts and user profile data that should be snapshotted into new sessions.
-- Project context files such as `.fabric.md`, `FABRIC.md`, `AGENTS.md`, `CLAUDE.md`, or `.cursorrules` — inject repo-specific working rules. Existing `.hermes.md` and `HERMES.md` files remain supported as compatibility names.
+- Project context files such as `.fabric.md`, `FABRIC.md`, `AGENTS.md`, `CLAUDE.md`, or `.cursorrules` — inject repo-specific working rules.
 - Skills — package reusable workflows and references without editing core prompt code.
 - Optional system prompt config / API overrides — add deployment-specific instruction text without forking Fabric.
-- Ephemeral overlays such as `HERMES_EPHEMERAL_SYSTEM_PROMPT` or prefill messages — add turn-scoped guidance that should not become part of the cached prompt prefix.
+- Prefill messages add turn-scoped guidance without becoming part of the cached prompt prefix.
 
 ### When to edit code instead
 

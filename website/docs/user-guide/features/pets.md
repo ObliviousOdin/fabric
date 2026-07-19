@@ -126,7 +126,6 @@ Generation uses the active [image-generation provider](/user-guide/features/imag
 
 - Resolution order prefers Nous Portal → OpenAI → OpenRouter.
 - If no reference-capable backend is configured, generation surfaces an actionable error pointing you to `fabric tools` → Image Generation. (Installing/adopting existing gallery pets needs no image backend.)
-- Override the backend with the `HERMES_PET_IMAGE_PROVIDER` env var (e.g. `HERMES_PET_IMAGE_PROVIDER=openrouter`).
 
 ## Desktop app
 

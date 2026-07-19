@@ -8353,29 +8353,6 @@
    "as_of": "2026-07-17"
   },
   {
-   "id": "wassermanproductions-master-canvas-hermes-plugin",
-   "name": "wassermanproductions/master-canvas-hermes-plugin",
-   "url": "https://github.com/wassermanproductions/master-canvas-hermes-plugin",
-   "source_type": "community skill pack",
-   "publisher_type": "community",
-   "trust_tier": "C",
-   "categories": [
-    "Video Pre-Production"
-   ],
-   "primary_use": "1 skills discovered in the agent-skills atlas pass (Video Pre-Production).",
-   "why_include": "Atlas wave: validated SKILL.md tree with 1 skills; 2 stars, last push 2026-07-14.",
-   "license_status": "Verify at ingest",
-   "mirror_policy": "Mirror only after license, security, and evaluation gates",
-   "formats": [
-    "Agent Skills / SKILL.md"
-   ],
-   "risk_flags": [],
-   "provenance_note": "Added from the 2026-07 agent-skills atlas research pass; tree-verified via repo file listing.",
-   "recommended_wave": 3,
-   "review_priority": "normal",
-   "as_of": "2026-07-17"
-  },
-  {
    "id": "luojiangyong-muse-video-skill",
    "name": "LuoJiangYong/muse-video-skill",
    "url": "https://github.com/LuoJiangYong/muse-video-skill",

@@ -8,11 +8,7 @@ description: "How Fabric remembers across sessions — MEMORY.md, USER.md, provi
 
 Fabric has bounded, curated memory that persists across sessions. This lets it remember your preferences, your projects, your environment, and things it has learned.
 
-:::note Runtime directory
-Current installations still store profile data under the compatibility path
-`~/.fabric/` (or `$FABRIC_HOME`). That path is an implementation detail, not the
-product name. Use the `fabric` CLI in all new instructions.
-:::
+Profile data is stored under `~/.fabric/` (or `$FABRIC_HOME`).
 
 ## How It Works
 

@@ -17,7 +17,7 @@ Conversational style and visual style are separate concepts:
 
 ```bash
 /skin                # show the current skin and list available skins
-/skin ares           # switch to a built-in skin
+/skin mono           # switch to a built-in skin
 /skin mytheme        # switch to a custom skin from ~/.fabric/skins/mytheme.yaml
 ```
 
@@ -33,13 +33,10 @@ display:
 | Skin | Description | Agent branding | Visual character |
 |------|-------------|----------------|------------------|
 | `default` | Fabric — primary violet and kawaii | `Fabric` | Violet borders, lavender accents, the Fabric mark, and kawaii faces in spinners. |
-| `ares` | War-god theme — crimson and bronze | `Ares Agent` | Deep crimson borders with bronze accents. Aggressive spinner verbs ("forging", "marching", "tempering steel"). Custom sword-and-shield ASCII art banner. |
 | `mono` | Monochrome — clean grayscale | `Fabric` | All grays — no color. Borders are `#555555`, text is `#c9d1d9`. Ideal for minimal terminal setups or screen recordings. |
 | `slate` | Cool blue — developer-focused | `Fabric` | Royal blue borders (`#4169e1`), soft blue text. Calm and professional. No custom spinner — uses default faces. |
 | `daylight` | Light theme for bright terminals with dark text and cool blue accents | `Fabric` | Designed for white or bright terminals. Dark slate text with blue borders, pale status surfaces, and a light completion menu that stays readable in light terminal profiles. |
 | `warm-lightmode` | Warm brown/gold text for light terminal backgrounds | `Fabric` | Warm parchment tones for light terminals. Dark brown text with saddle-brown accents, cream-colored status surfaces. An earthy alternative to the cooler daylight theme. |
-| `poseidon` | Ocean-god theme — deep blue and seafoam | `Poseidon Agent` | Deep blue to seafoam gradient. Ocean-themed spinners ("charting currents", "sounding the depth"). Trident ASCII art banner. |
-| `sisyphus` | Sisyphean theme — austere grayscale with persistence | `Sisyphus Agent` | Light grays with stark contrast. Boulder-themed spinners ("pushing uphill", "resetting the boulder", "enduring the loop"). Boulder-and-hill ASCII art banner. |
 | `charizard` | Volcanic theme — burnt orange and ember | `Charizard Agent` | Warm burnt orange to ember gradient. Fire-themed spinners ("banking into the draft", "measuring burn"). Dragon-silhouette ASCII art banner. |
 
 ## Complete list of configurable keys
@@ -79,10 +76,10 @@ Controls the animated spinner shown while waiting for API responses.
 
 | Key | Type | Description | Example |
 |-----|------|-------------|---------|
-| `waiting_faces` | list of strings | Faces cycled while waiting for API response | `["(⚔)", "(⛨)", "(▲)"]` |
-| `thinking_faces` | list of strings | Faces cycled during model reasoning | `["(⚔)", "(⌁)", "(<>)"]` |
-| `thinking_verbs` | list of strings | Verbs shown in spinner messages | `["forging", "plotting", "hammering plans"]` |
-| `wings` | list of [left, right] pairs | Decorative brackets around the spinner | `[["⟪⚔", "⚔⟫"], ["⟪▲", "▲⟫"]]` |
+| `waiting_faces` | list of strings | Faces cycled while waiting for API response | `["(·)", "(··)", "(···)"]` |
+| `thinking_faces` | list of strings | Faces cycled during model reasoning | `["(⌁)", "(<>)", "(◇)"]` |
+| `thinking_verbs` | list of strings | Verbs shown in spinner messages | `["thinking", "planning", "checking"]` |
+| `wings` | list of [left, right] pairs | Decorative brackets around the spinner | `[["⟪", "⟫"], ["[", "]"]]` |
 
 When spinner values are empty (like in `default` and `mono`), hardcoded defaults from `display.py` are used.
 
@@ -148,21 +145,21 @@ colors:
 
 spinner:
   waiting_faces:
-    - "(⚔)"
-    - "(⛨)"
-    - "(▲)"
+    - "(·)"
+    - "(··)"
+    - "(···)"
   thinking_faces:
-    - "(⚔)"
     - "(⌁)"
     - "(<>)"
+    - "(◇)"
   thinking_verbs:
     - "processing"
     - "analyzing"
     - "computing"
     - "evaluating"
   wings:
-    - ["⟪⚡", "⚡⟫"]
-    - ["⟪●", "●⟫"]
+    - ["⟪", "⟫"]
+    - ["[", "]"]
 
 branding:
   agent_name: "My Agent"
@@ -176,7 +173,7 @@ tool_prefix: "┊"
 
 # Per-tool emoji overrides (optional)
 tool_emojis:
-  terminal: "⚔"
+  terminal: ">_"
   web_search: "🔮"
   read_file: "📄"
 

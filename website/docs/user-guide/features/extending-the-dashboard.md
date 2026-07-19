@@ -283,16 +283,13 @@ Each built-in ships its own palette, typography, and layout — switching produc
 | **Fabric Light** (`fabric-light`) | Warm neutral + Fabric purple | System stack, 15px | 0.5rem radius, comfortable |
 | **Fabric Dark** (`fabric-dark`) | Violet charcoal + Fabric purple | System stack, 15px | 0.5rem radius, comfortable |
 | **Midnight** (`midnight`) | Deep blue-violet | Inter + JetBrains Mono, 14px | 0.75rem radius, comfortable |
-| **Ember** (`ember`) | Warm crimson + bronze | Spectral (serif) + IBM Plex Mono, 15px | 0.25rem radius, comfortable |
 | **Mono** (`mono`) | Grayscale | IBM Plex Sans + IBM Plex Mono, 13px | 0 radius, compact |
 | **Cyberpunk** (`cyberpunk`) | Neon green on black | Share Tech Mono everywhere, 14px | 0 radius, compact |
 | **Rosé** (`rose`) | Pink + ivory | Fraunces (serif) + DM Mono, 16px | 1rem radius, spacious |
 
 Expressive presets that reference Google Fonts load the stylesheet on demand —
 the first time you switch to one, a `<link>` tag is injected into `<head>`.
-The canonical Light/Dark pair uses the system stack. Retired `default`, Teal,
-Blue, Lens, and Nous IDs migrate to the generated pair and are not selectable
-themes.
+The canonical Light/Dark pair uses the system stack.
 
 ### Full theme YAML reference
 
@@ -369,9 +366,9 @@ step with `fabric plugins install owner/repo --enable`, or enable an existing
 checkout with `fabric plugins enable <name>`.
 
 Plugins don't bundle React, ReactDOM, or UI components. They use the **Plugin
-SDK** exposed on `window.__FABRIC_PLUGIN_SDK__` (with the legacy Hermes name kept
-as an alias). This keeps plugin bundles small and, more importantly, ensures the
-host and every plugin share one React renderer.
+SDK** exposed on `window.__FABRIC_PLUGIN_SDK__`. This keeps plugin bundles small
+and, more importantly, ensures the host and every plugin share one React
+renderer.
 
 ### Quick start — your first plugin
 
@@ -405,8 +402,8 @@ Write the JS bundle (a plain IIFE — no build step needed):
 (function () {
   "use strict";
 
-  const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
-  const Plugins = window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__;
+  const Plugins = window.__FABRIC_PLUGINS__;
   const { React } = SDK;
   const { Card, CardHeader, CardTitle, CardContent } = SDK.components;
 
@@ -514,12 +511,11 @@ Need a different icon? Open a PR to `web/src/components/sidebar/nav-model.ts`'s
 
 ### The Plugin SDK
 
-Everything a plugin needs is on `window.__FABRIC_PLUGIN_SDK__`. The legacy
-`window.__HERMES_PLUGIN_SDK__` global points to the same object for compatibility.
+Everything a plugin needs is on `window.__FABRIC_PLUGIN_SDK__`.
 Plugins should never bundle their own React renderer.
 
 ```javascript
-const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
+const SDK = window.__FABRIC_PLUGIN_SDK__;
 
 SDK.sdkVersion               // host SDK contract version
 
@@ -600,9 +596,9 @@ Slots let a plugin inject components into named locations of the app shell — t
 Register from inside the plugin bundle:
 
 ```javascript
-(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+(window.__FABRIC_PLUGINS__)
   .registerSlot("my-plugin", "sidebar", MySidebar);
-(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+(window.__FABRIC_PLUGINS__)
   .registerSlot("my-plugin", "header-left", MyCrest);
 ```
 
@@ -647,7 +643,7 @@ function PinnedSessionsBanner() {
   );
 }
 
-(window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__)
+(window.__FABRIC_PLUGINS__)
   .registerSlot("my-plugin", "sessions:top", PinnedSessionsBanner);
 ```
 
@@ -710,8 +706,8 @@ Minimal example — pin a banner to the top of the Sessions page:
 ```javascript
 // ~/.fabric/plugins/session-notes/dashboard/dist/index.js
 (function () {
-  const SDK = window.__FABRIC_PLUGIN_SDK__ ?? window.__HERMES_PLUGIN_SDK__;
-  const Plugins = window.__FABRIC_PLUGINS__ ?? window.__HERMES_PLUGINS__;
+  const SDK = window.__FABRIC_PLUGIN_SDK__;
+  const Plugins = window.__FABRIC_PLUGINS__;
   const { React } = SDK;
   const { Card, CardContent } = SDK.components;
 
@@ -868,7 +864,7 @@ The dashboard scans three directories for `dashboard/manifest.json`:
 | 1 (wins on conflict) | `~/.fabric/plugins/<name>/dashboard/` | `user` |
 | 2 | `<repo>/plugins/memory/<name>/dashboard/` | `bundled` |
 | 2 | `<repo>/plugins/<name>/dashboard/` | `bundled` |
-| 3 | `./.fabric/plugins/<name>/dashboard/` | `project` — only when `FABRIC_ENABLE_PROJECT_PLUGINS` is set |
+| 3 | `./.fabric/plugins/<name>/dashboard/` | `project` — only when `plugins.allow_project_plugins: true` |
 
 Discovery results are cached per dashboard process. After adding a new plugin, either:
 
@@ -891,7 +887,7 @@ curl http://127.0.0.1:9119/api/dashboard/plugins/rescan
 
 #### Plugin load lifecycle
 
-1. Dashboard loads. `main.tsx` exposes the SDK on `window.__FABRIC_PLUGIN_SDK__` and the registry on `window.__FABRIC_PLUGINS__`; the `window.__HERMES_*` compatibility globals remain aliases.
+1. Dashboard loads. `main.tsx` exposes the SDK on `window.__FABRIC_PLUGIN_SDK__` and the registry on `window.__FABRIC_PLUGINS__`.
 2. `App.tsx` calls `usePlugins()` → fetches `GET /api/dashboard/plugins`.
 3. For each manifest: CSS `<link>` is injected (if declared), then a `<script>` tag loads the JS bundle.
 4. The plugin's IIFE runs and calls `window.__FABRIC_PLUGINS__.register(name, Component)` — and optionally `.registerSlot(name, slot, Component)` for each slot.
@@ -928,7 +924,6 @@ If a plugin's script fails to load (404, syntax error, exception during IIFE), t
 | `window.__FABRIC_PLUGIN_SDK__` | object | `registry.ts` — SDK version, host React/ReactDOM, hooks, UI components, icons, authenticated API/WS helpers, and utils. |
 | `window.__FABRIC_PLUGINS__.register(name, Component)` | function | Register a plugin's main component for the host to mount. |
 | `window.__FABRIC_PLUGINS__.registerSlot(name, slot, Component)` | function | Register into a named shell slot. |
-| `window.__HERMES_PLUGIN_SDK__`, `window.__HERMES_PLUGINS__` | aliases | Backward-compatible aliases of the Fabric globals. |
 
 ---
 

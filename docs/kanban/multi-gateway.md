@@ -26,8 +26,6 @@ kanban:
   dispatch_in_gateway: false
 ```
 
-Or set the env var: `HERMES_KANBAN_DISPATCH_IN_GATEWAY=false`
-
 ## What each gateway does
 
 | Gateway role | dispatch_in_gateway | Opens per-board DBs? | Runs dispatcher + notifier? |

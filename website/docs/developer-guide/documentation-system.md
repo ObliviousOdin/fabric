@@ -85,20 +85,18 @@ The reason must be specific; template placeholders and bare “N/A” declaratio
 not bypass the check. This gives maintainers an auditable alternative to empty
 documentation churn.
 
-## Legacy identity audit
+## Fabric identity audit
 
-The source audit extracts every `FABRIC_*` and `HERMES_*` token from authored
-Markdown/MDX and requires an exact backing occurrence in non-document repository
-source. This distinguishes live compatibility identifiers from stale examples.
+The source audit extracts every `FABRIC_*` token from authored Markdown/MDX and
+requires an exact backing occurrence in non-document repository source. This
+keeps public contracts synchronized with the implementation.
 
 Rare wildcard families can be recorded in the explicit exemption ledger in
 `docs/documentation-contracts.json`; each exemption requires a concrete reason.
 Do not use the ledger to preserve a removed command or variable.
 
-First-party skills must author UI metadata under `metadata.fabric`. The runtime may
-continue reading `metadata.hermes` from user and third-party skills for backward
-compatibility, but the repository audit rejects that legacy namespace in shipped
-`SKILL.md` frontmatter.
+First-party skills and third-party skills must author Fabric UI metadata under
+`metadata.fabric`; no alternate product namespace is supported.
 
 ## Extending the system
 

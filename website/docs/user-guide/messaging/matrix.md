@@ -179,7 +179,7 @@ register_new_matrix_user -c /etc/synapse/homeserver.yaml http://localhost:8008
 ### Option B: Use matrix.org or Another Public Homeserver
 
 1. Go to [Element Web](https://app.element.io) and create a new account.
-2. Pick a username for your bot (e.g., `fabric-bot`).
+2. Pick a username for your bot (e.g., `assistant-bot`).
 
 ### Option C: Use Your Own Account
 
@@ -400,7 +400,7 @@ For backwards compatibility, `MATRIX_ENCRYPTION=true` still enables required E2E
 
 When E2EE is enabled, Fabric:
 
-- Stores encryption keys in `~/.fabric/platforms/matrix/store/` (legacy installs: `~/.fabric/matrix/store/`)
+- Stores encryption keys in `~/.fabric/platforms/matrix/store/`
 - Uploads device keys on first connection
 - Decrypts incoming messages and encrypts outgoing messages automatically
 - Auto-joins encrypted rooms when invited
@@ -585,7 +585,7 @@ such as `!important` remain normal chat messages.
 
 ### Bot joins rooms but silently drops every message (clock skew)
 
-**Cause**: The host's system clock is set ahead of real time. The Matrix adapter applies a 5-second startup-grace filter (`event_ts < startup_ts - 5`) to ignore events replayed from initial sync. When the wall clock is ahead, every incoming event looks "older than startup" and is dropped before reaching the message handler — the bot appears connected but never replies. See [#12614](https://github.com/NousResearch/hermes-agent/issues/12614).
+**Cause**: The host's system clock is set ahead of real time. The Matrix adapter applies a 5-second startup-grace filter (`event_ts < startup_ts - 5`) to ignore events replayed from initial sync. When the wall clock is ahead, every incoming event looks "older than startup" and is dropped before reaching the message handler — the bot appears connected but never replies. See #12614.
 
 **Symptom**: Gateway log shows `Matrix: dropped N live events as 'too old' more than 30s after startup`.
 
@@ -791,7 +791,7 @@ services:
       MATRIX_ACCESS_TOKEN: "syt_..."
       MATRIX_ALLOWED_USERS: "@you:matrix.example.org"
       MATRIX_ENCRYPTION: "true"
-      MATRIX_DEVICE_ID: "HERMES_BOT"
+      MATRIX_DEVICE_ID: "BOT_DEVICE"
 
       # Proxy mode — forward to host agent
       GATEWAY_PROXY_URL: "http://192.168.1.100:8642"
@@ -867,7 +867,7 @@ messages never reach `_on_room_message`.
 
 **Fix**: Fabric uses an explicit sync loop that calls `client.handle_sync()` on
 both the initial sync and every incremental sync response. This matches the
-diagnosis in upstream [issue #7914](https://github.com/NousResearch/hermes-agent/issues/7914) and closed [PR #37807](https://github.com/NousResearch/hermes-agent/pull/37807), but keeps Fabric's own
+diagnosis in upstream issue #7914 and closed PR #37807, but keeps Fabric's own
 background maintenance tasks (joined-room tracking, invite handling, E2EE key
 share) instead of delegating the full lifecycle to `client.start()`. If inbound
 messages still fail after a gateway restart, verify handlers are registered before

@@ -70,7 +70,7 @@ You'll need these values from the dashboard — the wizard prompts for them in t
 Temporary access tokens expire after **24 hours**, which means a token generated today stops working tomorrow.  For production deployments use a **System User permanent token**:
 
 1. Go to [business.facebook.com/latest/settings](https://business.facebook.com/latest/settings) → **System users** (left sidebar).
-2. **Add** → name (e.g. `fabric-bot`) → role: **Admin**.
+2. **Add** → name (e.g. `assistant-bot`) → role: **Admin**.
 3. Select the new user → **Assign Assets**:
    - Select your app → toggle **Manage app** under Full control.
    - Select your WhatsApp account → toggle **Manage WhatsApp Business Accounts** under Full control.

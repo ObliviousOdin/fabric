@@ -325,7 +325,7 @@ sequenceDiagram
 
 ### Walkthrough
 
-1. **User input** — [`cli.py:HermesCLI.run_session`](https://github.com/ObliviousOdin/fabric/blob/main/optional-skills/software-development/code-wiki/<link>)
+1. **User input** — [`cli.py:FabricCLI.run_session`](https://github.com/ObliviousOdin/fabric/blob/main/optional-skills/software-development/code-wiki/<link>)
 2. **Message dispatch** — [`run_agent.py:AIAgent.chat`](https://github.com/ObliviousOdin/fabric/blob/main/optional-skills/software-development/code-wiki/<link>)
 ````
 

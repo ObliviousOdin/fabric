@@ -22,22 +22,22 @@ Key implementation files:
 ## Boot flow
 
 ```text
-fabric acp / fabric-acp / python -m acp_adapter
+fabric acp
   -> acp_adapter.entry.main()
   -> parse --version / --check / --setup before server startup
   -> load ~/.fabric/.env
   -> configure stderr logging
-  -> construct HermesACPAgent
+  -> construct FabricACPAgent
   -> acp.run_agent(agent, use_unstable_protocol=True)
 ```
 
-The Zed ACP Registry path launches the same adapter through `uvx --from 'fabric-agent[acp]==<version>' fabric-acp`, pointed at the `fabric-agent` PyPI release.
+The Zed ACP Registry path launches the same adapter through `uvx --from 'fabric-agent[acp]==<version>' fabric acp`, pointed at the `fabric-agent` PyPI release.
 
 Stdout is reserved for ACP JSON-RPC transport. Human-readable logs go to stderr.
 
 ## Major components
 
-### `HermesACPAgent`
+### `FabricACPAgent`
 
 `acp_adapter/server.py` implements the ACP agent protocol.
 
@@ -181,4 +181,4 @@ ACP temporarily installs an approval callback on the terminal tool during prompt
 - `tests/acp/` — ACP test suite
 - `toolsets.py` — `fabric-acp` toolset definition
 - `fabric_cli/main.py` — `fabric acp` CLI subcommand
-- `pyproject.toml` — `[acp]` optional dependency + `fabric-acp` script
+- `pyproject.toml` — `[acp]` optional dependency and the `fabric` script

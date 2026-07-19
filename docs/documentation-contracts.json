@@ -29,10 +29,7 @@
       "**/*.mdx"
     ]
   },
-  "documented_token_exemptions": {
-    "HERMES_NEMO_RELAY_ATIF_": "Documentation wildcard for the backed HERMES_NEMO_RELAY_ATIF_* variable family.",
-    "HERMES_NEMO_RELAY_ATOF_": "Documentation wildcard for the backed HERMES_NEMO_RELAY_ATOF_* variable family."
-  },
+  "documented_token_exemptions": {},
   "impact_contracts": [
     {
       "code_paths": [

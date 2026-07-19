@@ -25,7 +25,7 @@ if [ -n "${GH_TOKEN:-}" ]; then
     _GH_SELECTED_TOKEN="$GH_TOKEN"
 elif [ -n "$GITHUB_TOKEN" ]; then
     _GH_SELECTED_TOKEN="$GITHUB_TOKEN"
-elif _fabric_env="${FABRIC_HOME:-${HERMES_HOME:-$HOME/.fabric}}/.env"; [ -f "$_fabric_env" ]; then
+elif _fabric_env="${FABRIC_HOME:-$HOME/.fabric}/.env"; [ -f "$_fabric_env" ]; then
     _GH_SELECTED_TOKEN=$(grep "^GITHUB_TOKEN=" "$_fabric_env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\n\r')
     _GH_SELECTED_TOKEN="${_GH_SELECTED_TOKEN%\"}"
     _GH_SELECTED_TOKEN="${_GH_SELECTED_TOKEN#\"}"

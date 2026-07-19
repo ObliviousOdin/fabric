@@ -224,17 +224,19 @@ Select **Custom endpoint** and follow the prompts. It will ask for the base URL 
 
 Fabric automatically detects local endpoints (localhost, LAN IPs) and relaxes its streaming timeouts. No configuration needed for most setups.
 
-If you still hit timeout errors (e.g. very large contexts on slow hardware), you can override the streaming read timeout:
+If you still hit timeout errors (for example, very large contexts on slow
+hardware), set a request timeout for the local provider in `config.yaml`:
 
-```bash
-# In your .env — raise from the 120s default to 30 minutes
-HERMES_STREAM_READ_TIMEOUT=1800
+```yaml
+providers:
+  ollama:
+    request_timeout_seconds: 3600
 ```
 
-| Timeout | Default | Local auto-adjustment | Env var override |
-|---------|---------|----------------------|------------------|
-| Stream read (socket-level) | 120s | Raised to 1800s | `HERMES_STREAM_READ_TIMEOUT` |
-| Stale stream detection | 180s | Disabled entirely | `HERMES_STREAM_STALE_TIMEOUT` |
-| API call (non-streaming) | 1800s | No change needed | `HERMES_API_TIMEOUT` |
+| Timeout | Default | Local auto-adjustment | Configuration |
+|---------|---------|----------------------|---------------|
+| Stream read (socket-level) | 120s | Raised to 1800s | `providers.<id>.request_timeout_seconds` / model `timeout_seconds` |
+| Stale stream detection | 180s | Disabled when left implicit | `providers.<id>.stale_timeout_seconds` / model `stale_timeout_seconds` |
+| API call (non-streaming) | 1800s | No change needed | `providers.<id>.request_timeout_seconds` / model `timeout_seconds` |
 
 The stream read timeout is the one most likely to cause issues — it's the socket-level deadline for receiving the next chunk of data. During prefill on large contexts, local models may produce no output for minutes while processing the prompt. The auto-detection handles this transparently.

@@ -55,13 +55,12 @@ maintainers. They're disabled by default—install only what you actually want.
 ```bash
 fabric mcp                # interactive picker (default)
 fabric mcp catalog        # plain-text list, scriptable
-fabric mcp install n8n    # install a catalog entry by name
+fabric mcp install <name> # install a catalog entry by name
 ```
 
 The picker shows each entry with its current status:
 
 ```
-n8n          available              Manage and inspect n8n workflows from Fabric
 linear       enabled                Linear issue/project management (remote OAuth)
 github       installed (disabled)   GitHub repo + PR tools
 ```

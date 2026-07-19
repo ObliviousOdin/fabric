@@ -43,8 +43,6 @@ fabric memory setup honcho
 # select "local", enter base URL (e.g. http://localhost:8000)
 ```
 
-See: https://docs.honcho.dev/v3/guides/integrations/hermes#running-honcho-locally-with-hermes
-
 ### Verify
 
 ```bash
@@ -206,11 +204,11 @@ Each Fabric profile gets its own Honcho AI peer while sharing the same workspace
 
 ```bash
 fabric profile create coder --clone
-# creates host block hermes.coder, AI peer "coder", inherits config from default
+# creates host block fabric.coder, AI peer "coder", inherits config from default
 ```
 
 What `--clone` does for Honcho:
-1. Creates a `hermes.coder` host block in `honcho.json`
+1. Creates a `fabric.coder` host block in `honcho.json`
 2. Sets `aiPeer: "coder"` (the profile name)
 3. Inherits `workspace`, `peerName`, `writeFrequency`, `recallMode`, etc. from default
 4. Eagerly creates the peer in Honcho so it exists before first message
@@ -228,7 +226,7 @@ Override any setting in the host block:
 ```json
 {
   "hosts": {
-    "hermes.coder": {
+    "fabric.coder": {
       "aiPeer": "coder",
       "recallMode": "tools",
       "dialecticDepth": 2,

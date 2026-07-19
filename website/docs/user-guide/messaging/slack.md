@@ -260,10 +260,9 @@ Then in Slack:
 4. **Save**. Slack will prompt to reinstall the app if scopes or slash
    commands changed.
 
-### Legacy `/fabric <subcommand>` still works
+### `/fabric` catch-all command
 
-For backward compatibility with older manifests, you can still type
-`/fabric btw run the tests` — Fabric routes it the same way as `/btw
+You can type `/fabric btw run the tests` — Fabric routes it the same way as `/btw
 run the tests`. Free-form questions also work: `/fabric what's the
 weather?` is treated as a regular message.
 

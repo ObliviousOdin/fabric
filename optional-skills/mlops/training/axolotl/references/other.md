@@ -3194,26 +3194,6 @@ val_set_size: 0.1
 output_dir: ./outputs/lora-out
 ```
 
-Example 4 (yaml):
-```yaml
-base_model: NousResearch/Nous-Fabric-llama-1b-v1
-
-load_in_8bit: true
-adapter: lora
-
-# Training settings
-micro_batch_size: 2
-num_epochs: 3
-learning_rate: 0.0003
-
-# Your dataset
-datasets:
-  - path: my_data.jsonl        # Your local data file
-    type: alpaca               # Or other format
-```
-
----
-
 ## Multipack (Sample Packing)
 
 **URL:** https://docs.axolotl.ai/docs/multipack.html

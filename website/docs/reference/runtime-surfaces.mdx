@@ -18,7 +18,7 @@ as [`runtime-surfaces.json`](https://obliviousodin.github.io/fabric/api/runtime-
 | api-server | OpenAI-compatible API server platform | `gateway/platforms/api_server.py::APIServerAdapter` |
 | batch | Parallel batch runner | `batch_runner.py::main` |
 | bootstrap-installer | Native bootstrap installer | `apps/bootstrap-installer/src/app.tsx::App` |
-| classic-cli | Classic interactive CLI | `cli.py::HermesCLI` |
+| classic-cli | Classic interactive CLI | `cli.py::FabricCLI` |
 | cron | Cron automation scheduler | `cron/scheduler.py::tick` |
 | documentation-site | Documentation website | `website/docusaurus.config.ts::config` |
 | electron-desktop | Electron desktop application | `apps/desktop/src/app/desktop-controller.tsx::DesktopController` |
@@ -64,7 +64,6 @@ Default route: `/workspace/home`.
 
 | Plugin | Tab path | Override | Layout | Slots | Manifest |
 | --- | --- | --- | --- | --- | --- |
-| Fabric Achievements | `/achievements` | — | page | — | `plugins/fabric-achievements/dashboard/manifest.json` |
 | Work | `/work` | `/workspace/work` | workspace | chat:rail | `plugins/kanban/dashboard/manifest.json` |
 | Team Pages | `/admin/integrations/team-pages` | — | page | — | `plugins/team-pages/dashboard/manifest.json` |
 
@@ -313,10 +312,6 @@ separately and can be narrower than this registry scope.
 
 ## Toolsets
 
-IDs beginning with `hermes-` are live pre-Fabric compatibility identifiers.
-Keep them for existing configuration, but use canonical `fabric-` IDs for new
-toolsets and integrations.
-
 | Toolset | Status | Description | Tools | Includes |
 | --- | --- | --- | --- | --- |
 | `browser` | canonical | Browser automation for web interaction (navigate, click, type, scroll, iframes, hold-click) with web search for finding URLs | 13 | — |
@@ -330,37 +325,36 @@ toolsets and integrations.
 | `delegation` | canonical | Spawn subagents with isolated context for complex subtasks | 1 | — |
 | `discord` | canonical | Discord read and participate tools (fetch messages, search members, create threads) | 1 | — |
 | `discord_admin` | canonical | Discord server management (list channels/roles, pin messages, assign roles) | 1 | — |
-| `fabric-gateway` | canonical | Gateway toolset - union of all messaging platform tools | 0 | hermes-telegram, hermes-discord, hermes-whatsapp, hermes-slack, hermes-signal, hermes-bluebubbles, hermes-homeassistant, hermes-email, hermes-sms, hermes-mattermost, hermes-matrix, hermes-dingtalk, hermes-feishu, hermes-wecom, hermes-wecom-callback, hermes-weixin, hermes-qqbot, hermes-webhook, hermes-yuanbao |
+| `fabric-acp` | canonical | Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI | 29 | — |
+| `fabric-api-server` | canonical | OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message) | 35 | — |
+| `fabric-bluebubbles` | canonical | BlueBubbles iMessage bot toolset - Apple iMessage via local BlueBubbles server | 49 | — |
+| `fabric-cli` | canonical | Full interactive CLI toolset - all default tools plus cronjob management | 49 | — |
+| `fabric-cron` | canonical | Default cron toolset - same core tools as fabric-cli; gated by `fabric tools` | 49 | — |
+| `fabric-dingtalk` | canonical | DingTalk bot toolset - enterprise messaging platform (full access) | 49 | — |
+| `fabric-discord` | canonical | Discord bot toolset - full access (terminal has safety checks via dangerous command approval) | 51 | — |
+| `fabric-email` | canonical | Email bot toolset - interact with Fabric via email (IMAP/SMTP) | 49 | — |
+| `fabric-feishu` | canonical | Feishu/Lark bot toolset - enterprise messaging via Feishu/Lark (full access) | 54 | — |
+| `fabric-gateway` | canonical | Gateway toolset - union of all messaging platform tools | 0 | fabric-telegram, fabric-discord, fabric-whatsapp, fabric-slack, fabric-signal, fabric-bluebubbles, fabric-homeassistant, fabric-email, fabric-sms, fabric-mattermost, fabric-matrix, fabric-dingtalk, fabric-feishu, fabric-wecom, fabric-wecom-callback, fabric-weixin, fabric-qqbot, fabric-webhook, fabric-yuanbao |
+| `fabric-homeassistant` | canonical | Home Assistant bot toolset - smart home event monitoring and control | 49 | — |
+| `fabric-matrix` | canonical | Matrix bot toolset - decentralized encrypted messaging (full access) | 49 | — |
+| `fabric-mattermost` | canonical | Mattermost bot toolset - self-hosted team messaging (full access) | 49 | — |
+| `fabric-qqbot` | canonical | QQBot toolset - QQ messaging via Official Bot API v2 (full access) | 49 | — |
+| `fabric-signal` | canonical | Signal bot toolset - encrypted messaging platform (full access) | 49 | — |
+| `fabric-slack` | canonical | Slack bot toolset - full access for workspace use (terminal has safety checks) | 49 | — |
+| `fabric-sms` | canonical | SMS bot toolset - interact with Fabric via SMS (Twilio) | 49 | — |
+| `fabric-telegram` | canonical | Telegram bot toolset - full access for personal use (terminal has safety checks) | 49 | — |
+| `fabric-webhook` | canonical | Webhook toolset - receive and process external webhook events | 4 | — |
+| `fabric-wecom` | canonical | WeCom bot toolset - enterprise WeChat messaging (full access) | 49 | — |
+| `fabric-wecom-callback` | canonical | WeCom callback toolset - enterprise self-built app messaging (full access) | 49 | — |
+| `fabric-weixin` | canonical | Weixin bot toolset - personal WeChat messaging via iLink (full access) | 49 | — |
+| `fabric-whatsapp` | canonical | WhatsApp bot toolset - similar to Telegram (personal messaging, more trusted) | 49 | — |
+| `fabric-yuanbao` | canonical | Yuanbao Bot 元宝消息平台工具集 - 群信息、成员查询、私聊、贴纸表情 | 54 | — |
 | `feishu_doc` | canonical | Read Feishu/Lark document content | 1 | — |
 | `feishu_drive` | canonical | Feishu/Lark document comment operations (list, reply, add) | 4 | — |
 | `file` | canonical | File manipulation tools: read, write, patch (with fuzzy matching), and search (content + files) | 4 | — |
-| `hermes-acp` | pre-Fabric compatibility ID | Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI | 29 | — |
-| `hermes-api-server` | pre-Fabric compatibility ID | OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message) | 35 | — |
-| `hermes-bluebubbles` | pre-Fabric compatibility ID | BlueBubbles iMessage bot toolset - Apple iMessage via local BlueBubbles server | 49 | — |
-| `hermes-cli` | pre-Fabric compatibility ID | Full interactive CLI toolset - all default tools plus cronjob management | 49 | — |
-| `hermes-cron` | pre-Fabric compatibility ID | Default cron toolset - same core tools as hermes-cli; gated by `fabric tools` | 49 | — |
-| `hermes-dingtalk` | pre-Fabric compatibility ID | DingTalk bot toolset - enterprise messaging platform (full access) | 49 | — |
-| `hermes-discord` | pre-Fabric compatibility ID | Discord bot toolset - full access (terminal has safety checks via dangerous command approval) | 51 | — |
-| `hermes-email` | pre-Fabric compatibility ID | Email bot toolset - interact with Fabric via email (IMAP/SMTP) | 49 | — |
-| `hermes-feishu` | pre-Fabric compatibility ID | Feishu/Lark bot toolset - enterprise messaging via Feishu/Lark (full access) | 54 | — |
-| `hermes-gateway` | pre-Fabric compatibility ID | Gateway toolset - union of all messaging platform tools | 0 | hermes-telegram, hermes-discord, hermes-whatsapp, hermes-slack, hermes-signal, hermes-bluebubbles, hermes-homeassistant, hermes-email, hermes-sms, hermes-mattermost, hermes-matrix, hermes-dingtalk, hermes-feishu, hermes-wecom, hermes-wecom-callback, hermes-weixin, hermes-qqbot, hermes-webhook, hermes-yuanbao |
-| `hermes-homeassistant` | pre-Fabric compatibility ID | Home Assistant bot toolset - smart home event monitoring and control | 49 | — |
-| `hermes-matrix` | pre-Fabric compatibility ID | Matrix bot toolset - decentralized encrypted messaging (full access) | 49 | — |
-| `hermes-mattermost` | pre-Fabric compatibility ID | Mattermost bot toolset - self-hosted team messaging (full access) | 49 | — |
-| `hermes-qqbot` | pre-Fabric compatibility ID | QQBot toolset - QQ messaging via Official Bot API v2 (full access) | 49 | — |
-| `hermes-signal` | pre-Fabric compatibility ID | Signal bot toolset - encrypted messaging platform (full access) | 49 | — |
-| `hermes-slack` | pre-Fabric compatibility ID | Slack bot toolset - full access for workspace use (terminal has safety checks) | 49 | — |
-| `hermes-sms` | pre-Fabric compatibility ID | SMS bot toolset - interact with Fabric via SMS (Twilio) | 49 | — |
-| `hermes-telegram` | pre-Fabric compatibility ID | Telegram bot toolset - full access for personal use (terminal has safety checks) | 49 | — |
-| `hermes-webhook` | pre-Fabric compatibility ID | Webhook toolset - receive and process external webhook events | 4 | — |
-| `hermes-wecom` | pre-Fabric compatibility ID | WeCom bot toolset - enterprise WeChat messaging (full access) | 49 | — |
-| `hermes-wecom-callback` | pre-Fabric compatibility ID | WeCom callback toolset - enterprise self-built app messaging (full access) | 49 | — |
-| `hermes-weixin` | pre-Fabric compatibility ID | Weixin bot toolset - personal WeChat messaging via iLink (full access) | 49 | — |
-| `hermes-whatsapp` | pre-Fabric compatibility ID | WhatsApp bot toolset - similar to Telegram (personal messaging, more trusted) | 49 | — |
-| `hermes-yuanbao` | pre-Fabric compatibility ID | Yuanbao Bot 元宝消息平台工具集 - 群信息、成员查询、私聊、贴纸表情 | 54 | — |
 | `homeassistant` | canonical | Home Assistant smart home control and monitoring | 4 | — |
 | `image_gen` | canonical | Creative generation tools (images) | 1 | — |
-| `kanban` | canonical | Kanban multi-agent coordination — only active when the agent is spawned by the kanban dispatcher (HERMES_KANBAN_TASK env set). The dispatcher runs inside the gateway by default; see `kanban.dispatch_in_gateway` in config.yaml. Lets workers mark tasks done with structured handoffs, block for human input, heartbeat during long ops, comment on threads, and (for orchestrators) list, unblock, and fan out tasks. | 9 | — |
+| `kanban` | canonical | Kanban multi-agent coordination — only active when the agent is spawned by the kanban dispatcher. The dispatcher runs inside the gateway by default; see `kanban.dispatch_in_gateway` in config.yaml. Lets workers mark tasks done with structured handoffs, block for human input, heartbeat during long ops, comment on threads, and (for orchestrators) list, unblock, and fan out tasks. | 9 | — |
 | `memory` | canonical | Persistent memory across sessions (personal notes + user profile) | 1 | — |
 | `project` | canonical | Desktop Projects — create/switch named workspaces (GUI sessions only) | 3 | — |
 | `safe` | canonical | Safe toolkit without terminal access | 0 | web, vision, image_gen |

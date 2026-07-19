@@ -30,8 +30,8 @@ fabric [global-options] <command> [subcommand/options]
 | `--yolo` | Bypass dangerous-command approval prompts. |
 | `--pass-session-id` | Include the session ID in the agent's system prompt. |
 | `--ignore-user-config` | Ignore `~/.fabric/config.yaml` and fall back to built-in defaults. Credentials in `.env` are still loaded. |
-| `--ignore-rules` | Skip project context (`.fabric.md`, `FABRIC.md`, compatibility context names, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`), `SOUL.md`, memory, and preloaded skills. |
-| `--tui` | Launch the [TUI](../user-guide/tui.md) instead of the classic CLI. Equivalent to `HERMES_TUI=1`. Always wins over `display.interface`. |
+| `--ignore-rules` | Skip project context (`.fabric.md`, `FABRIC.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`), `SOUL.md`, memory, and preloaded skills. |
+| `--tui` | Launch the [TUI](../user-guide/tui.md) instead of the classic CLI. Always wins over `display.interface`. |
 | `--cli` | Force the classic prompt_toolkit REPL. Use this to override `display.interface: tui` for a single invocation. |
 | `--dev` | With `--tui`: run the TypeScript sources directly via `tsx` instead of the prebuilt bundle (for TUI contributors). |
 
@@ -51,7 +51,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric whatsapp-cloud` | Configure the official Meta WhatsApp Business Cloud API adapter (Business account + public webhook required). Distinct from `fabric whatsapp` (Baileys personal-account bridge). |
 | `fabric slack` | Slack helpers (currently: generate the app manifest with every command as a native slash). |
 | `fabric auth` | Manage credentials — add, list, remove, reset, status, logout. Handles OAuth flows for Codex/Nous/Anthropic. |
-| `fabric login` / `logout` | **Deprecated** — use `fabric auth` instead. |
+| `fabric logout` | Clear authentication for an inference provider. |
 | `fabric send` | Send a one-shot message to a configured messaging platform (Telegram, Discord, Slack, Signal, SMS, …). Useful from shell scripts, cron jobs, CI hooks, and monitoring daemons — no agent loop, no LLM. |
 | `fabric secrets` | Manage Bitwarden Secrets Manager and 1Password secret sources for resolving API keys at process startup. |
 | `fabric migrate` | Diagnose and (optionally) rewrite `config.yaml` to replace references to retired models or deprecated settings (e.g. `migrate xai`). |
@@ -84,7 +84,7 @@ fabric [global-options] <command> [subcommand/options]
 | `fabric acp` | Run Fabric as an ACP server for editor integration. |
 | `fabric mcp` | Manage MCP server configurations and run Fabric as an MCP server. |
 | `fabric plugins` | Manage Fabric plugins (install, enable, disable, remove). |
-| `fabric portal` | Nous Portal status, subscription link, and Tool Gateway routing. See [Tool Gateway](../user-guide/features/tool-gateway.md). |
+| `fabric portal` | Nous Portal onboarding, status, subscription link, and Tool Gateway routing. First login requires `--client-id <registered-client-id>`. See [Tool Gateway](../user-guide/features/tool-gateway.md). |
 | `fabric tools` | Configure enabled tools per platform. |
 | `fabric computer-use` | Install or check the cua-driver backend (macOS Computer Use). |
 | `fabric pets` | Browse, install, and select [petdex](../user-guide/features/pets.md) animated pets shown across the CLI, TUI, and desktop app. Subcommands: `list`, `install`, `select`, `show`, `off`, `scale`, `remove`, `doctor`. |
@@ -156,15 +156,13 @@ answer=$(fabric -z "summarize this" < /path/to/file.txt)
 
 Per-run overrides (no mutation to `~/.fabric/config.yaml`):
 
-| Flag | Equivalent env var | Purpose |
-|---|---|---|
-| `-m` / `--model <model>` | `HERMES_INFERENCE_MODEL` | Override the model for this run |
-| `--provider <provider>` | _(none)_ | Override the provider for this run |
+| Flag | Purpose |
+|---|---|
+| `-m` / `--model <model>` | Override the model for this run |
+| `--provider <provider>` | Override the provider for this run |
 
 ```bash
 fabric -z "…" --provider openrouter --model openai/gpt-5.5
-# or:
-HERMES_INFERENCE_MODEL=anthropic/claude-sonnet-4.6 fabric -z "…"
 ```
 
 Same agent, same tools, same skills — just strips every interactive / cosmetic layer. If you need tool output in the transcript too, use `fabric chat -q` instead; `-z` is explicitly for "I only want the final answer".
@@ -238,7 +236,6 @@ Subcommands:
 | `install` | Install as a systemd (Linux) or launchd (macOS) background service. |
 | `uninstall` | Remove the installed service. |
 | `setup` | Interactive messaging-platform setup. |
-| `migrate-legacy` | Remove legacy `fabric.service` units left over from pre-rename installs. Profile units (`fabric-gateway-<profile>.service`) and unrelated services are never touched. Flags: `--dry-run`, `-y`/`--yes`. |
 | `enroll` | Experimental: enroll this gateway with a relay connector and save relay credentials for connector-backed platforms. |
 
 Options:
@@ -246,7 +243,7 @@ Options:
 | Option | Description |
 |--------|-------------|
 | `--all` | On `start` / `restart` / `stop`: act on **every profile's** gateway, not just the active `FABRIC_HOME`. Useful if you run multiple profiles side-by-side and want to restart them all after `fabric update`. |
-| `--no-supervise` | On `run`: inside the s6-overlay Docker image, opt out of auto-supervision and use pre-s6 foreground semantics — gateway runs as the container's main process with no auto-restart. No-op outside the s6 image. Equivalent to setting `HERMES_GATEWAY_NO_SUPERVISE=1`. |
+| `--no-supervise` | On `run`: inside the s6-overlay Docker image, opt out of auto-supervision and use pre-s6 foreground semantics — gateway runs as the container's main process with no auto-restart. No-op outside the s6 image. |
 
 `fabric gateway enroll` accepts `--token`, `--connector-url`, `--gateway-id`, and `--wake-url`. It exchanges the enrollment token with the connector and writes the resulting `GATEWAY_RELAY_ID`, `GATEWAY_RELAY_SECRET`, `GATEWAY_RELAY_DELIVERY_KEY`, optional `GATEWAY_RELAY_URL`, and (when `--wake-url` is given) `GATEWAY_RELAY_WAKE_URL` values to the active profile's `.env`.
 
@@ -315,19 +312,25 @@ Options:
 | `--non-interactive` | Use defaults / environment values without prompts. |
 | `--reset` | Reset configuration to defaults before setup. |
 | `--reconfigure` | Backwards-compat alias — bare `fabric setup` on an existing install now does this by default. |
-| `--portal` | One-shot Nous Portal setup: log in via OAuth, set Nous as the inference provider, and opt into the [Tool Gateway](../user-guide/features/tool-gateway.md). Skips the rest of the wizard. |
+| `--portal` | One-shot Nous Portal setup: log in via OAuth, set Nous as the inference provider, and opt into the [Tool Gateway](../user-guide/features/tool-gateway.md). Skips the rest of the wizard. First-time login also requires `--client-id <registered-client-id>`. |
+| `--client-id <id>` | Registered Nous OAuth client ID used by `--portal`; required for first-time login. |
 
 ## `fabric portal`
 
 ```bash
-fabric portal [status|open|tools]
+fabric portal --client-id <registered-client-id>
+fabric portal login --client-id <registered-client-id>
+fabric portal [info|status|open|tools]
 ```
 
-Inspect Nous Portal auth, Tool Gateway routing, and reach the subscription page. Subcommand-less invocation runs `status`.
+Run the one-shot Nous login, model selection, and Tool Gateway setup. A
+first-time login requires an explicitly supplied registered Nous OAuth client
+ID. Use the subcommands below to inspect an existing login or open the Portal.
 
 | Subcommand | Description |
 |------------|-------------|
-| `status` (default) | Portal auth state + per-tool Tool Gateway routing summary. Also shown when no subcommand is given. |
+| `login` (default) | Run the one-shot onboarding flow. Requires `--client-id <registered-client-id>` for first-time login. |
+| `info` / `status` | Portal auth state + per-tool Tool Gateway routing summary. |
 | `open` | Open `portal.nousresearch.com/manage-subscription` in your default browser. |
 | `tools` | List every Tool Gateway partner (Firecrawl, FAL, OpenAI TTS, Browser Use, Modal) and which are routed via Nous. |
 
@@ -517,11 +520,10 @@ On-demand vulnerability scan against [OSV.dev](https://osv.dev). Covers the Fabr
 | `--skip-mcp` | off | Skip scanning pinned MCP servers in `config.yaml`. |
 
 
-## `fabric login` / `fabric logout` *(Deprecated)*
+## `fabric logout`
 
-:::caution
-`fabric login` has been removed. Use `fabric auth` to manage OAuth credentials, `fabric model` to select a provider, or `fabric setup` for full interactive setup.
-:::
+Clear authentication for the active inference provider, or select one with
+`--provider`. Credential pools can also be managed through `fabric auth`.
 
 ## `fabric auth`
 
@@ -533,6 +535,7 @@ fabric auth list                                         # Show all pools
 fabric auth list openrouter                              # Show specific provider
 fabric auth add openrouter --api-key sk-or-v1-xxx        # Add API key
 fabric auth add anthropic --type oauth                   # Add OAuth credential
+fabric auth add nous --client-id <registered-client-id>  # Add Nous device-code OAuth
 fabric auth remove openrouter 2                          # Remove by index
 fabric auth reset openrouter                             # Clear cooldowns
 fabric auth status anthropic                             # Show auth status for a provider
@@ -541,6 +544,12 @@ fabric auth spotify                                      # Authenticate Fabric w
 ```
 
 Subcommands: `add`, `list`, `remove`, `reset`, `status`, `logout`, `spotify`. When called with no subcommand, launches the interactive management wizard.
+
+Nous Portal does not have a built-in Fabric OAuth client ID. A first-time
+login therefore requires an explicitly supplied, registered Nous OAuth client
+ID. Refresh, scope step-up, shared-profile import, and dashboard sign-in reuse
+the client ID stored by that successful login; if it is missing, run the
+command above again with `--client-id`.
 
 ## `fabric status`
 
@@ -643,9 +652,9 @@ Multi-profile, multi-project collaboration board. Each install can host many boa
 
 | Flag | Purpose |
 |------|---------|
-| `--board <slug>` | Operate on a specific board. Defaults to the current board (set via `fabric kanban boards switch`, the `HERMES_KANBAN_BOARD` env var, or `default`). |
+| `--board <slug>` | Operate on a specific board. Defaults to the board selected by `fabric kanban boards switch`, or `default`. |
 
-**This is the human / scripting surface.** Agent workers spawned by the dispatcher drive the board through a dedicated `kanban_*` [toolset](/user-guide/features/kanban#how-workers-interact-with-the-board) (`kanban_show`, `kanban_complete`, `kanban_block`, `kanban_create`, `kanban_link`, `kanban_comment`, `kanban_heartbeat`; orchestrator profiles also get `kanban_list` and `kanban_unblock`) instead of shelling to `fabric kanban`. Workers have `HERMES_KANBAN_BOARD` pinned in their env so they physically cannot see other boards.
+**This is the human / scripting surface.** Agent workers spawned by the dispatcher drive the board through a dedicated `kanban_*` [toolset](/user-guide/features/kanban#how-workers-interact-with-the-board) (`kanban_show`, `kanban_complete`, `kanban_block`, `kanban_create`, `kanban_link`, `kanban_comment`, `kanban_heartbeat`; orchestrator profiles also get `kanban_list` and `kanban_unblock`) instead of shelling to `fabric kanban`. Workers receive a private board scope from the dispatcher so they physically cannot see other boards.
 
 | Action | Purpose |
 |--------|---------|
@@ -707,7 +716,7 @@ fabric kanban boards rm atm10-server
 fabric kanban boards rm atm10-server --delete
 ```
 
-Board resolution order (highest precedence first): `--board <slug>` flag → `HERMES_KANBAN_BOARD` env var → `~/.fabric/kanban/current` file → `default`.
+Board resolution order for user commands (highest precedence first): `--board <slug>` flag → `~/.fabric/kanban/current` file → `default`. Dispatcher-spawned workers receive their board scope internally.
 
 All actions are also available as a slash command in the gateway (`/kanban …`), with the same argument surface — including `boards` subcommands and the `--board` flag.
 
@@ -942,7 +951,6 @@ Inspect and manage the shadow git store at `~/.fabric/checkpoints/` — the stor
 | `list` | Alias for `status`. |
 | `prune` | Force a cleanup sweep — delete orphan and stale projects, GC the store, enforce the size cap. Ignores the 24h idempotency marker. |
 | `clear` | Delete the entire checkpoint base. Irreversible; asks for confirmation unless `-f`. |
-| `clear-legacy` | Delete only the `legacy-<timestamp>/` archives produced by the v1→v2 migration. |
 
 ### Options
 
@@ -952,7 +960,7 @@ Inspect and manage the shadow git store at `~/.fabric/checkpoints/` — the stor
 | `--retention-days N` | `prune` | Drop projects whose `last_touch` is older than N days (default 7). |
 | `--max-size-mb N` | `prune` | After the orphan/stale pass, drop the oldest commit per project until total store size ≤ N MB (default 500). |
 | `--keep-orphans` | `prune` | Skip deleting projects whose working directory no longer exists. |
-| `-f`, `--force` | `clear`, `clear-legacy` | Skip the confirmation prompt. |
+| `-f`, `--force` | `clear` | Skip the confirmation prompt. |
 
 ### Examples
 
@@ -960,7 +968,6 @@ Inspect and manage the shadow git store at `~/.fabric/checkpoints/` — the stor
 fabric checkpoints                                  # status overview
 fabric checkpoints prune --retention-days 3         # aggressive cleanup
 fabric checkpoints prune --max-size-mb 200          # tighten size cap once
-fabric checkpoints clear-legacy -f                  # drop v1 archive dirs
 fabric checkpoints clear -f                         # wipe everything
 ```
 
@@ -1448,13 +1455,6 @@ fabric acp
 
 Starts Fabric as an ACP (Agent Client Protocol) stdio server for editor integration.
 
-Related entrypoints:
-
-```bash
-fabric-acp
-python -m acp_adapter
-```
-
 Install support first:
 
 ```bash
@@ -1475,7 +1475,7 @@ Manage MCP (Model Context Protocol) server configurations and run Fabric as an M
 |------------|-------------|
 | *(none)* or `picker` | Interactive catalog picker — browse Fabric-curated MCPs and install/enable/disable. |
 | `catalog` | List Fabric-curated MCPs (plain text, scriptable). |
-| `install <name>` | Install a catalog entry (e.g. `fabric mcp install n8n`). |
+| `install <name>` | Install a catalog entry by its catalog name. |
 | `serve [-v\|--verbose]` | Run Fabric as an MCP server — expose conversations to other agents. |
 | `add <name> [--url URL] [--command CMD] [--auth oauth\|header] [--args ...]` | Add a custom MCP server with automatic tool discovery. `--args` passes the remaining argv to the stdio command, so put it last. |
 | `remove <name>` (alias: `rm`) | Remove an MCP server from config. |
@@ -1684,13 +1684,13 @@ Launch the web dashboard — a browser-based UI for managing configuration, API 
 
 ### `fabric dashboard register`
 
-Register this install as a self-hosted dashboard with your Nous Portal account. Creates an OAuth client, writes `HERMES_DASHBOARD_OAUTH_CLIENT_ID` into `~/.fabric/.env`, and prints how to engage the login gate. Requires being logged in (`fabric setup`).
+Register this install as a self-hosted dashboard with your Nous Portal account. Creates an OAuth client, writes `dashboard.oauth.client_id` into `~/.fabric/config.yaml`, and prints how to engage the login gate. Requires being logged in (`fabric setup`).
 
 | Option | Description |
 |--------|-------------|
 | `--name` | Human-readable label for the dashboard (default: auto-generated). |
 | `--redirect-uri` | Public HTTPS OAuth redirect URI (e.g. `https://fabric.example.com/auth/callback`). Omit for localhost-only use. |
-| `--portal-url` | Override the Nous Portal base URL for registration (default: the portal you logged into). Also settable via `HERMES_DASHBOARD_PORTAL_URL`. |
+| `--portal-url` | Override the Nous Portal base URL for registration (default: the portal you logged into). |
 
 ```bash
 # Default — opens browser to http://127.0.0.1:9119
@@ -1785,8 +1785,7 @@ Additional behavior:
 - **Gateway restart.** After a successful update, Fabric attempts to restart all running gateway profiles automatically so they pick up the new code. Use `fabric gateway restart` when you want to restart a gateway without applying an update.
 - **Local source changes.** For git installs, dirty tracked files and untracked files are auto-stashed before branch checkout or pull (`git stash push --include-untracked`). Interactive terminal updates ask before restoring the stash. Non-interactive updates restore it by default; set `updates.non_interactive_local_changes: discard` only on managed installs where local source edits should be thrown away after a successful pull. If stash restore conflicts or the pull fails, the stash is left in place for manual recovery.
 - **npm lockfile churn.** Before stashing or switching branches, Fabric makes a best-effort cleanup of tracked `package-lock.json` diffs produced by npm install/build steps. Commit or manually stash intentional lockfile edits before running `fabric update`.
-- **Pairing data snapshot.** Even when `--backup` is off, `fabric update` takes a lightweight snapshot of `~/.fabric/pairing/` and the Feishu comment rules before `git pull`. You can roll it back with `fabric backup restore --state pre-update` if a pull rewrites a file you were editing.
-- **Legacy `fabric.service` warning.** If Fabric detects a pre-rename `fabric.service` systemd unit (instead of the current `fabric-gateway.service`), it prints a one-time migration hint so you can avoid flap-loop issues.
+- **Pairing data snapshot.** Even when `--backup` is off, `fabric update` takes a lightweight snapshot of `~/.fabric/platforms/pairing/` and the Feishu comment rules before `git pull`. You can roll it back with `fabric backup restore --state pre-update` if a pull rewrites a file you were editing.
 - **Exit codes.** `0` on success, `1` on pull/install/post-install errors, `2` on unexpected working-tree changes that block `git pull`.
 
 ## Maintenance commands

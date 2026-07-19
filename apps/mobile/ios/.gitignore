@@ -4,3 +4,8 @@ Fabric/Info.plist
 DerivedData/
 build/
 *.xcuserstate
+
+# Local signing overrides (real team id / profiles) — never commit.
+Signing.xcconfig
+*.mobileprovision
+*.p12

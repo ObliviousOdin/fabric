@@ -1,0 +1,71 @@
+# XcodeGen manifest for the Fabric iOS client.
+# Generate the project with:  xcodegen generate
+# (The .xcodeproj is derived output and stays untracked.)
+name: FabricMobile
+options:
+  bundleIdPrefix: io.github.obliviousodin
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Fabric:
+    type: application
+    platform: iOS
+    sources:
+      - Fabric
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.obliviousodin.fabric.mobile
+        PRODUCT_NAME: Fabric
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: Fabric/Info.plist
+      properties:
+        CFBundleDisplayName: Fabric
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.obliviousodin.fabric.mobile.pairing
+            CFBundleURLSchemes:
+              - fabric
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UILaunchScreen: {}
+        NSCameraUsageDescription: >-
+          Fabric uses the camera to scan the pairing QR code shown by
+          `fabric mobile`.
+        NSLocalNetworkUsageDescription: >-
+          Fabric connects to the Fabric gateway running on your local network
+          or tailnet.
+        # `fabric serve` on a LAN/tailnet host is plain http; the ATS
+        # exception covers local + private-range networking only. Public
+        # gateways must be https.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  FabricTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - FabricTests
+    dependencies:
+      - target: Fabric
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.obliviousodin.fabric.mobile.tests
+schemes:
+  Fabric:
+    build:
+      targets:
+        Fabric: all
+        FabricTests: [test]
+    test:
+      targets:
+        - FabricTests

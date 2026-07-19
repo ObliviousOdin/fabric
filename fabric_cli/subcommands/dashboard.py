@@ -75,6 +75,26 @@ def _add_server_runtime_args(parser) -> None:
     # `Fabric dashboard` / `fabric serve` cmdlines and SIGTERM them directly —
     # the same path `fabric update` uses to clean up stale servers.
     parser.add_argument(
+        "--qr",
+        action="store_true",
+        help=(
+            "Print a mobile-pairing QR code after startup. Non-loopback binds "
+            "emit a URL-only QR (the app then signs in against the configured "
+            "auth provider); loopback/tunnel token mode embeds the session "
+            "token in the QR."
+        ),
+    )
+    parser.add_argument(
+        "--qr-url",
+        dest="qr_url",
+        default="",
+        help=(
+            "Public base URL to advertise in the pairing QR instead of the "
+            "bind address — e.g. the HTTPS URL of a `tailscale serve` or SSH "
+            "tunnel fronting a loopback bind."
+        ),
+    )
+    parser.add_argument(
         "--stop",
         action="store_true",
         help="Stop all running Fabric web server processes and exit",

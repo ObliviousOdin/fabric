@@ -30,8 +30,57 @@ export interface GatewayEvent<P = unknown> {
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
 export type GatewayRequestId = number | string
 
+export interface JsonRpcRequest<P = Record<string, unknown>> {
+  id: GatewayRequestId
+  jsonrpc: '2.0'
+  method: string
+  params: P
+}
+
+export interface JsonRpcError {
+  code: number
+  data?: unknown
+  message: string
+}
+
+export interface JsonRpcSuccess<R = unknown> {
+  id: GatewayRequestId
+  jsonrpc?: '2.0'
+  result: R
+}
+
+export interface JsonRpcFailure {
+  error: JsonRpcError
+  id: GatewayRequestId | null
+  jsonrpc?: '2.0'
+}
+
+export type GatewayRpcErrorKind = 'aborted' | 'closed' | 'connect' | 'rpc' | 'send' | 'timeout'
+
+export class GatewayRpcError extends Error {
+  readonly code?: number
+  readonly data?: unknown
+  readonly kind: GatewayRpcErrorKind
+  readonly method?: string
+  readonly originalCause?: unknown
+
+  constructor(
+    kind: GatewayRpcErrorKind,
+    message: string,
+    options: { code?: number; data?: unknown; method?: string; cause?: unknown } = {}
+  ) {
+    super(message)
+    this.name = kind === 'aborted' ? 'AbortError' : 'GatewayRpcError'
+    this.kind = kind
+    this.code = options.code
+    this.data = options.data
+    this.method = options.method
+    this.originalCause = options.cause
+  }
+}
+
 export interface JsonRpcFrame {
-  error?: { message?: string }
+  error?: Partial<JsonRpcError>
   id?: GatewayRequestId | null
   method?: string
   params?: GatewayEvent
@@ -41,6 +90,7 @@ export interface JsonRpcFrame {
 export type WebSocketLike = WebSocket
 
 type PendingCall = {
+  method: string
   reject: (error: Error) => void
   resolve: (value: unknown) => void
   timer?: ReturnType<typeof setTimeout>
@@ -116,7 +166,7 @@ export class JsonRpcGatewayClient {
 
       this.socket = null
       this.setState('closed')
-      this.rejectAllPending(new Error(this.options.closedErrorMessage))
+      this.rejectAllPending(new GatewayRpcError('closed', this.options.closedErrorMessage))
     })
 
     await new Promise<void>((resolve, reject) => {
@@ -151,7 +201,7 @@ export class JsonRpcGatewayClient {
         settled = true
         cleanup()
         this.setState('error')
-        reject(new Error(this.options.connectErrorMessage))
+        reject(new GatewayRpcError('connect', this.options.connectErrorMessage))
       }
 
       socket.addEventListener('open', onOpen, { once: true })
@@ -177,7 +227,7 @@ export class JsonRpcGatewayClient {
             this.socket = null
           }
           this.setState('error')
-          reject(new Error(this.options.connectErrorMessage))
+          reject(new GatewayRpcError('connect', this.options.connectErrorMessage))
         }, this.options.connectTimeoutMs)
       }
     })
@@ -195,7 +245,7 @@ export class JsonRpcGatewayClient {
     } finally {
       this.socket = null
       this.setState('closed')
-      this.rejectAllPending(new Error(this.options.closedErrorMessage))
+      this.rejectAllPending(new GatewayRpcError('closed', this.options.closedErrorMessage))
     }
   }
 
@@ -236,11 +286,13 @@ export class JsonRpcGatewayClient {
     const socket = this.socket
 
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error(this.options.notConnectedErrorMessage))
+      return Promise.reject(
+        new GatewayRpcError('closed', this.options.notConnectedErrorMessage, { method })
+      )
     }
 
     if (signal?.aborted) {
-      return Promise.reject(new DOMException('Aborted', 'AbortError'))
+      return Promise.reject(new GatewayRpcError('aborted', 'Aborted', { method }))
     }
 
     const id = this.options.createRequestId(++this.nextId)
@@ -254,6 +306,7 @@ export class JsonRpcGatewayClient {
       }
 
       const pending: PendingCall = {
+        method,
         resolve: value => {
           detach()
           resolve(value as T)
@@ -268,7 +321,7 @@ export class JsonRpcGatewayClient {
         pending.timer = setTimeout(() => {
           if (this.pending.delete(id)) {
             detach()
-            reject(new Error(`request timed out: ${method}`))
+            reject(new GatewayRpcError('timeout', `request timed out: ${method}`, { method }))
           }
         }, timeoutMs)
       }
@@ -283,7 +336,7 @@ export class JsonRpcGatewayClient {
           }
           this.pending.delete(id)
           detach()
-          reject(new DOMException('Aborted', 'AbortError'))
+          reject(new GatewayRpcError('aborted', 'Aborted', { method }))
         }
         signal.addEventListener('abort', onAbort, { once: true })
       }
@@ -302,7 +355,13 @@ export class JsonRpcGatewayClient {
       } catch (error) {
         this.clearPending(id)
         detach()
-        reject(error instanceof Error ? error : new Error(String(error)))
+        reject(
+          new GatewayRpcError(
+            'send',
+            error instanceof Error ? error.message : String(error),
+            { cause: error, method }
+          )
+        )
       }
     })
   }
@@ -327,7 +386,13 @@ export class JsonRpcGatewayClient {
       this.clearPending(frame.id)
 
       if (frame.error) {
-        call.reject(new Error(frame.error.message || 'Fabric RPC failed'))
+        call.reject(
+          new GatewayRpcError('rpc', frame.error.message || 'Fabric RPC failed', {
+            code: frame.error.code,
+            data: frame.error.data,
+            method: call.method
+          })
+        )
       } else {
         call.resolve(frame.result)
       }
@@ -360,13 +425,20 @@ export class JsonRpcGatewayClient {
     }
   }
 
-  private rejectAllPending(error: Error): void {
+  private rejectAllPending(error: GatewayRpcError): void {
     for (const [id, call] of this.pending) {
       if (call.timer) {
         clearTimeout(call.timer)
       }
 
-      call.reject(error)
+      call.reject(
+        new GatewayRpcError(error.kind, error.message, {
+          code: error.code,
+          data: error.data,
+          method: call.method,
+          cause: error.originalCause
+        })
+      )
       this.pending.delete(id)
     }
   }

@@ -3543,6 +3543,114 @@ def test_session_create_does_not_persist_empty_row(monkeypatch):
         server._sessions.pop(sid, None)
 
 
+def test_session_resume_reuses_unpersisted_live_composer(monkeypatch):
+    """A client can leave and reopen a new chat before its first prompt.
+
+    Empty composers intentionally have no DB row, so resume must attach to the
+    live record from session.active_list before attempting durable lookup.
+    """
+    lookups = []
+
+    class _FakeDB:
+        def get_session(self, key):
+            lookups.append(("id", key))
+            return None
+
+        def get_session_by_title(self, key):
+            lookups.append(("title", key))
+            return None
+
+    monkeypatch.setattr(server, "_get_db", lambda: _FakeDB())
+    monkeypatch.setattr(server, "_start_agent_build", lambda *a, **k: None)
+    monkeypatch.setattr(
+        server.threading,
+        "Timer",
+        lambda *a, **k: types.SimpleNamespace(daemon=False, start=lambda: None),
+    )
+
+    created = server.handle_request(
+        {"id": "1", "method": "session.create", "params": {"cols": 80}}
+    )
+    assert created is not None
+    sid = created["result"]["session_id"]
+    session_key = created["result"]["stored_session_id"]
+    request_id = "resume-clarify"
+    server._pending[request_id] = (sid, threading.Event())
+    server._pending_prompt_payloads[request_id] = (
+        "clarify.request",
+        {"request_id": request_id, "question": "Choose", "choices": ["A", "B"]},
+    )
+    try:
+        active = server.handle_request(
+            {"id": "2", "method": "session.active_list", "params": {}}
+        )
+        assert active is not None
+        row = next(item for item in active["result"]["sessions"] if item["id"] == sid)
+        assert row["session_key"] == session_key
+
+        resumed = server.handle_request(
+            {
+                "id": "3",
+                "method": "session.resume",
+                "params": {"session_id": row["session_key"]},
+            }
+        )
+        assert resumed is not None
+
+        assert resumed["result"]["session_id"] == sid
+        assert resumed["result"]["resumed"] == session_key
+        assert resumed["result"]["history_version"] == 0
+        assert resumed["result"]["messages"] == []
+        assert resumed["result"]["pending_interactions"] == [
+            {
+                "type": "clarify.request",
+                "payload": {
+                    "request_id": request_id,
+                    "question": "Choose",
+                    "choices": ["A", "B"],
+                },
+            }
+        ]
+        assert lookups == []
+    finally:
+        server._pending.pop(request_id, None)
+        server._pending_prompt_payloads.pop(request_id, None)
+        server._sessions.pop(sid, None)
+
+
+def test_live_session_payload_restores_redacted_pending_approval(monkeypatch):
+    session = {
+        "session_key": "stored-session",
+        "created_at": 1.0,
+        "history": [],
+        "history_lock": threading.Lock(),
+        "history_version": 0,
+        "running": True,
+    }
+    approval = {
+        "id": "approval-1",
+        "command": "curl -H 'Authorization: Bearer secret-value' https://example.test",
+        "summary": "Run command",
+    }
+
+    monkeypatch.setattr(
+        "tools.approval.get_pending_gateway_approvals",
+        lambda key: [approval] if key == "stored-session" else [],
+    )
+
+    payload = server._live_session_payload("sid", session, touch=False)
+
+    interactions = payload["pending_interactions"]
+    assert len(interactions) == 1
+    assert interactions[0]["type"] == "approval.request"
+    restored = interactions[0]["payload"]
+    assert restored["id"] == "approval-1"
+    assert restored["summary"] == "Run command"
+    assert "secret-value" not in restored["command"]
+    assert "Authorization: Bearer" in restored["command"]
+    assert approval["command"].endswith("secret-value' https://example.test")
+
+
 def test_ensure_session_db_row_persists_explicit_cwd(monkeypatch, tmp_path):
     """An explicitly chosen workspace is persisted as the session cwd."""
     created = []
@@ -6246,6 +6354,7 @@ def test_prompt_submit_history_version_mismatch_surfaces_warning(monkeypatch):
         complete_calls = [a for a in emits if a[0] == "message.complete"]
         assert len(complete_calls) == 1
         _, _, payload = complete_calls[0]
+        assert payload["history_persisted"] is False
         assert "warning" in payload, (
             "message.complete must include a 'warning' field on "
             "history_version mismatch — otherwise the UI silently "
@@ -6305,6 +6414,8 @@ def test_prompt_submit_history_version_match_persists_normally(monkeypatch):
         complete_calls = [a for a in emits if a[0] == "message.complete"]
         assert len(complete_calls) == 1
         _, _, payload = complete_calls[0]
+        assert payload["history_version"] == 1
+        assert payload["history_persisted"] is True
         assert "warning" not in payload
     finally:
         server._sessions.pop("sid", None)

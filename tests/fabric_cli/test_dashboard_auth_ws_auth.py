@@ -488,6 +488,46 @@ class TestWsHostOriginGuardOrigins:
         ws = self._ws(origin="http://127.0.0.1:5174", host="127.0.0.1:8080")
         assert web_server._ws_host_origin_is_allowed(ws) is True
 
+    def test_loopback_explicit_https_tunnel_origin_allowed(
+        self, loopback_app, monkeypatch
+    ):
+        monkeypatch.setattr(
+            web_server.app.state,
+            "trusted_public_hosts",
+            {"fabric.example.test"},
+            raising=False,
+        )
+        monkeypatch.setattr(
+            web_server.app.state,
+            "trusted_public_origins",
+            {"https://fabric.example.test"},
+            raising=False,
+        )
+        ws = self._ws(
+            origin="https://fabric.example.test", host="fabric.example.test"
+        )
+        assert web_server._ws_host_origin_is_allowed(ws) is True
+
+    def test_loopback_tunnel_origin_rejects_scheme_downgrade(
+        self, loopback_app, monkeypatch
+    ):
+        monkeypatch.setattr(
+            web_server.app.state,
+            "trusted_public_hosts",
+            {"fabric.example.test"},
+            raising=False,
+        )
+        monkeypatch.setattr(
+            web_server.app.state,
+            "trusted_public_origins",
+            {"https://fabric.example.test"},
+            raising=False,
+        )
+        ws = self._ws(
+            origin="http://fabric.example.test", host="fabric.example.test"
+        )
+        assert web_server._ws_host_origin_is_allowed(ws) is False
+
     def test_loopback_cross_site_http_origin_rejected(self, loopback_app):
         # DNS-rebinding / cross-site: a real web attacker can only present an
         # http(s) origin, and that must still be rejected.

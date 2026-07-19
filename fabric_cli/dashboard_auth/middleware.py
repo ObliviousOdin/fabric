@@ -70,6 +70,11 @@ def _path_is_public(path: str) -> bool:
     """
     if path in PUBLIC_API_PATHS:
         return True
+    # The mobile SPA and pairing landing must load before a user has a
+    # provider session so they can render the password/OAuth connection UI.
+    # Keep this exact/prefix-safe: ``/mobileevil`` must not bypass the gate.
+    if path == "/mobile" or path.startswith("/mobile/"):
+        return True
     return any(
         path == prefix or path.startswith(prefix)
         for prefix in _GATE_PUBLIC_PREFIXES

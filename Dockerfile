@@ -117,6 +117,7 @@ WORKDIR /opt/hermes
 # workspace to real content instead of stopping at a bare package.json.
 COPY package.json package-lock.json ./
 COPY web/package.json web/
+COPY apps/mobile-web/package.json apps/mobile-web/
 COPY ui-tui/package.json ui-tui/
 COPY ui-tui/packages/fabric-ink/ ui-tui/packages/fabric-ink/
 # apps/shared/ is copied IN FULL because web/package.json references it as a
@@ -186,10 +187,16 @@ RUN uv sync --frozen --no-install-project --extra all --extra messaging --extra 
 # Copy only the frontend source trees first so that Python-only changes don't
 # invalidate the (relatively slow) web + ui-tui build layer.
 COPY web/ web/
+COPY apps/mobile-web/ apps/mobile-web/
+COPY apps/design-system/src/ apps/design-system/src/
+COPY apps/design-system/scripts/ apps/design-system/scripts/
 COPY ui-tui/ ui-tui/
 COPY apps/shared/ apps/shared/
-RUN cd web && npm run build && \
-    cd ../ui-tui && npm run build
+RUN node apps/design-system/scripts/generate-tokens.mjs && \
+    cd web && npm run build && \
+    cd ../apps/mobile-web && npm run build && \
+    cd ../.. && \
+    cd ui-tui && npm run build
 
 # ---------- Source code ----------
 # .dockerignore excludes node_modules, so the installs above survive.
@@ -277,6 +284,7 @@ COPY --chmod=0755 docker/cont-init.d/02-reconcile-profiles /etc/cont-init.d/02-r
 
 # ---------- Runtime ----------
 ENV FABRIC_WEB_DIST=/opt/hermes/fabric_cli/web_dist
+ENV FABRIC_MOBILE_WEB_DIST=/opt/hermes/fabric_cli/mobile_web_dist
 # Point the TUI launcher at the prebuilt bundle baked at build time (Layer 8:
 # `ui-tui && npm run build`). This makes _make_tui_argv take the prebuilt-bundle
 # fast path (`node --expose-gc /opt/hermes/ui-tui/dist/entry.js`) and skip the
@@ -284,10 +292,10 @@ ENV FABRIC_WEB_DIST=/opt/hermes/fabric_cli/web_dist
 # nix/packaged-release path the launcher was designed for.
 #
 # Why this is required (not just an optimization): the root package-lock.json
-# describes the WHOLE monorepo workspace set (root + web + ui-tui + apps/*),
-# but the image only installs root/web/ui-tui (apps/* — the desktop app — is
-# never `npm install`ed here). So the actualized node_modules permanently
-# disagrees with the canonical lock, _tui_need_npm_install() returns True on
+# describes the WHOLE monorepo workspace set. The image installs the root,
+# web, ui-tui, shared transport, and mobile-web workspaces, but intentionally
+# excludes the Electron desktop workspace. Its actualized node_modules therefore
+# permanently disagrees with the canonical lock, _tui_need_npm_install() returns True on
 # every launch, and the runtime `npm install` it triggers (a) can never
 # converge against the partial monorepo and (b) races itself across concurrent
 # embedded-chat (/api/pty) connections → ENOTEMPTY → the chat tab dies with a

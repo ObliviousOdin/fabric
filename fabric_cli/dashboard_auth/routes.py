@@ -168,6 +168,7 @@ async def api_auth_providers() -> Any:
                 "supports_password": bool(
                     getattr(p, "supports_password", False)
                 ),
+                "requires_totp": bool(getattr(p, "requires_totp", False)),
             }
             for p in providers
         ],
@@ -459,6 +460,9 @@ class _PasswordLoginBody(BaseModel):
     provider: str
     username: str
     password: str
+    # Optional second-factor code (TOTP). Ignored by providers without a
+    # second factor; required by those advertising requires_totp.
+    otp: str = ""
     next: str = ""
 
 
@@ -505,9 +509,18 @@ async def auth_password_login(request: Request, body: _PasswordLoginBody):
         raise HTTPException(status_code=404, detail="Unknown provider")
 
     try:
-        session = p.complete_password_login(
-            username=body.username, password=body.password
-        )
+        # Pass the second-factor code ONLY to providers that advertise they
+        # need it. Providers predating the `otp` parameter (and third-party
+        # providers with the older two-arg signature) keep the original call
+        # shape, so adding TOTP support to one provider can't break another.
+        if getattr(p, "requires_totp", False):
+            session = p.complete_password_login(
+                username=body.username, password=body.password, otp=body.otp
+            )
+        else:
+            session = p.complete_password_login(
+                username=body.username, password=body.password
+            )
     except InvalidCredentialsError:
         audit_log(
             AuditEvent.LOGIN_FAILURE,

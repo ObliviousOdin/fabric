@@ -57,6 +57,7 @@
 
         tui = full.fabricTui;
         web = full.fabricWeb;
+        mobile-web = full.fabricMobileWeb;
         desktop = full.fabricDesktop;
       };
     };

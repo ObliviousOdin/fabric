@@ -159,6 +159,14 @@ class DashboardAuthProvider(ABC):
     # and are completely unaffected.
     supports_password: bool = False
 
+    # When True, ``complete_password_login`` additionally requires a valid
+    # second-factor code (TOTP). Surfaced on ``/api/auth/providers`` so a
+    # client shows a code field alongside username/password. A capability
+    # flag only — it says nothing about any individual login attempt, so it
+    # is not a password-was-correct oracle. Default False leaves single-factor
+    # providers unchanged.
+    requires_totp: bool = False
+
     # When True, this provider can verify a non-interactive bearer token
     # (``verify_token``) presented on a single request by a service-to-service
     # caller — no login, no cookie, no refresh. This is the generic
@@ -200,9 +208,14 @@ class DashboardAuthProvider(ABC):
     def revoke_session(self, *, refresh_token: str) -> None: ...
 
     def complete_password_login(
-        self, *, username: str, password: str
+        self, *, username: str, password: str, otp: str = ""
     ) -> "Session":
         """Verify a username/password pair and mint a :class:`Session`.
+
+        `otp` is an optional second-factor code (TOTP). Providers that
+        advertise ``requires_totp = True`` must verify it; providers with no
+        second factor ignore it. The route always passes it through, so a
+        provider can adopt TOTP without a route change.
 
         Only called when ``supports_password`` is True (the
         ``/auth/password-login`` route guards on the flag). The default

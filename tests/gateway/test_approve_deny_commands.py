@@ -155,6 +155,27 @@ class TestBlockingGatewayApproval:
         assert not e2.event.is_set()
         assert len(_gateway_queues[session_key]) == 1
 
+    def test_resolve_single_targets_request_id(self):
+        """Identical approvals remain independently targetable by transport ID."""
+        from tools.approval import (
+            resolve_gateway_approval,
+            _ApprovalEntry, _gateway_queues,
+        )
+
+        session_key = "test-request-id"
+        first = _ApprovalEntry({"command": "same", "request_id": "approval-1"})
+        second = _ApprovalEntry({"command": "same", "request_id": "approval-2"})
+        _gateway_queues[session_key] = [first, second]
+
+        count = resolve_gateway_approval(
+            session_key, "once", request_id="approval-2"
+        )
+
+        assert count == 1
+        assert not first.event.is_set()
+        assert second.event.is_set()
+        assert _gateway_queues[session_key] == [first]
+
     def test_unregister_signals_all_entries(self):
         """unregister_gateway_notify signals all waiting entries to prevent hangs."""
         from tools.approval import (

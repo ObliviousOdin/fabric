@@ -459,6 +459,7 @@ EXPECTED_PUBLIC_WORKFLOWS = frozenset(
     {
         "desktop-packaging.yml",
         "docs-pages.yml",
+        "mobile.yml",
         "public-ci.yml",
         "release-channels.yml",
         "skills-index.yml",

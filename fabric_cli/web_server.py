@@ -141,6 +141,12 @@ except ImportError:
 
 _WEB_DIST_OVERRIDE = os.environ.get("FABRIC_WEB_DIST") or os.environ.get("HERMES_WEB_DIST")
 WEB_DIST = Path(_WEB_DIST_OVERRIDE) if _WEB_DIST_OVERRIDE else Path(__file__).parent / "web_dist"
+_MOBILE_WEB_DIST_OVERRIDE = os.environ.get("FABRIC_MOBILE_WEB_DIST")
+MOBILE_WEB_DIST = (
+    Path(_MOBILE_WEB_DIST_OVERRIDE)
+    if _MOBILE_WEB_DIST_OVERRIDE
+    else Path(__file__).parent / "mobile_web_dist"
+)
 _log = logging.getLogger(__name__)
 
 _EVENT_REPLAY_MAX_CHANNELS = 16
@@ -517,7 +523,11 @@ def should_require_auth(host: str, allow_public: bool = False) -> bool:
     return host not in _LOOPBACK_HOST_VALUES
 
 
-def _is_accepted_host(host_header: str, bound_host: str) -> bool:
+def _is_accepted_host(
+    host_header: str,
+    bound_host: str,
+    trusted_hosts: Optional[set[str]] = None,
+) -> bool:
     """True if the Host header targets the interface we bound to.
 
     Accepts:
@@ -545,6 +555,9 @@ def _is_accepted_host(host_header: str, bound_host: str) -> bool:
     else:
         host_only = h.rsplit(":", 1)[0] if ":" in h else h
     host_only = host_only.lower()
+
+    if trusted_hosts and host_only in trusted_hosts:
+        return True
 
     # 0.0.0.0 bind means operator explicitly opted into all-interfaces
     # (requires --insecure per web_server.start_server). No Host-layer
@@ -578,7 +591,8 @@ async def host_header_middleware(request: Request, call_next):
     bound_host = getattr(app.state, "bound_host", None)
     if bound_host:
         host_header = request.headers.get("host", "")
-        if not _is_accepted_host(host_header, bound_host):
+        trusted_hosts = getattr(app.state, "trusted_public_hosts", set())
+        if not _is_accepted_host(host_header, bound_host, trusted_hosts):
             return JSONResponse(
                 status_code=400,
                 content={
@@ -16018,8 +16032,9 @@ def _ws_host_origin_reason(ws: "WebSocket") -> Optional[str]:
     if not bound_host:
         return None
 
+    trusted_hosts = getattr(app.state, "trusted_public_hosts", set())
     host_header = ws.headers.get("host", "")
-    if not _is_accepted_host(host_header, bound_host):
+    if not _is_accepted_host(host_header, bound_host, trusted_hosts):
         return f"host_mismatch host={host_header or '?'} bound={bound_host}"
 
     origin = ws.headers.get("origin", "")
@@ -16035,6 +16050,11 @@ def _ws_host_origin_reason(ws: "WebSocket") -> Optional[str]:
 
     if not parsed.netloc:
         return f"origin_mismatch origin={origin} bound={bound_host}"
+
+    origin_key = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+    trusted_origins = getattr(app.state, "trusted_public_origins", set())
+    if origin_key in trusted_origins:
+        return None
 
     if not _is_accepted_host(parsed.netloc, bound_host):
         return f"origin_mismatch origin={origin} bound={bound_host}"
@@ -17523,6 +17543,52 @@ def _normalise_prefix(raw: Optional[str]) -> str:
     return normalise_prefix(raw)
 
 
+def mount_mobile_spa(application: FastAPI) -> None:
+    """Mount the opt-in mobile PWA without widening ``fabric serve``.
+
+    Routes exist before the dashboard catch-all, but return 404 unless
+    ``start_server(mobile_client=True)`` enabled this surface. This preserves
+    the headless contract for desktop's ordinary ``fabric serve`` backend.
+    """
+
+    def _enabled() -> bool:
+        return bool(getattr(application.state, "mobile_client_enabled", False))
+
+    def _index_response() -> Response:
+        html = (MOBILE_WEB_DIST / "index.html").read_text(encoding="utf-8")
+        gated = bool(getattr(application.state, "auth_required", False))
+        bootstrap = (
+            "<script>"
+            f"window.__FABRIC_AUTH_REQUIRED__={'true' if gated else 'false'};"
+            'window.__FABRIC_BASE_PATH__="";'
+            "</script>"
+        )
+        html = html.replace("</head>", f"{bootstrap}</head>", 1)
+        return HTMLResponse(
+            html,
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
+
+    @application.get("/mobile", include_in_schema=False)
+    async def mobile_root():
+        if not _enabled() or not (MOBILE_WEB_DIST / "index.html").is_file():
+            raise HTTPException(status_code=404, detail="Fabric Mobile is not enabled")
+        return _index_response()
+
+    @application.get("/mobile/{full_path:path}", include_in_schema=False)
+    async def mobile_spa(full_path: str):
+        if not _enabled() or not (MOBILE_WEB_DIST / "index.html").is_file():
+            raise HTTPException(status_code=404, detail="Fabric Mobile is not enabled")
+        target = (MOBILE_WEB_DIST / full_path).resolve()
+        if (
+            full_path
+            and target.is_relative_to(MOBILE_WEB_DIST.resolve())
+            and target.is_file()
+        ):
+            return FileResponse(target)
+        return _index_response()
+
+
 def mount_spa(application: FastAPI):
     """Mount the built SPA. Falls back to index.html for client-side routing.
 
@@ -18827,6 +18893,7 @@ _mount_plugin_api_routes()
 from fabric_cli.dashboard_auth.routes import router as _dashboard_auth_router  # noqa: E402
 app.include_router(_dashboard_auth_router)
 
+mount_mobile_spa(app)
 mount_spa(app)
 
 
@@ -18932,6 +18999,9 @@ def start_server(
     allow_public: bool = False,
     initial_profile: str = "",
     headless: bool = False,
+    pairing_qr: bool = False,
+    pairing_qr_url: str = "",
+    mobile_client: bool = False,
 ):
     """Start the web UI server.
 
@@ -18943,6 +19013,11 @@ def start_server(
     ``headless`` is the ``serve`` path: the JSON-RPC/WS backend with no UI
     build and no SPA mount (mount_spa() honours ``FABRIC_SERVE_HEADLESS``), so
     the banner announces the bind rather than a browser URL.
+
+    ``pairing_qr`` (``--qr``) prints a ``fabric://pair`` QR after the ready
+    banner so a mobile client can connect by scanning; ``pairing_qr_url``
+    (``--qr-url``) overrides the advertised base URL for tunnel fronts. See
+    ``fabric_cli/mobile_pairing.py`` for the payload contract.
     """
     from agent.egress_policy import (
         EgressPolicyConfigurationError,
@@ -18964,6 +19039,21 @@ def start_server(
 
     import uvicorn
 
+    app.state.trusted_public_hosts = set()
+    app.state.trusted_public_origins = set()
+    if pairing_qr_url:
+        from fabric_cli.mobile_pairing import validate_pairing_base_url
+
+        try:
+            pairing_qr_url = validate_pairing_base_url(pairing_qr_url)
+        except ValueError as exc:
+            raise SystemExit(f"Invalid pairing QR URL: {exc}") from None
+        advertised = urllib.parse.urlsplit(pairing_qr_url)
+        app.state.trusted_public_hosts = {str(advertised.hostname).lower()}
+        app.state.trusted_public_origins = {
+            f"{advertised.scheme.lower()}://{advertised.netloc.lower()}"
+        }
+
     try:
         from fabric_cli.nous_auth_keepalive import start_nous_auth_keepalive
 
@@ -18976,6 +19066,7 @@ def start_server(
     # uses this to decide whether to refuse the bind, log the gate-on
     # banner, and enable uvicorn proxy_headers.
     app.state.auth_required = should_require_auth(host)
+    app.state.mobile_client_enabled = mobile_client
 
     # ``--insecure`` no longer disables the auth gate (June 2026 hardening:
     # the hermes-0day MCP-persistence campaign abused unauthenticated public
@@ -19137,6 +19228,16 @@ def start_server(
                 print(f"  Fabric backend listening on {host}:{actual_port}")
             else:
                 print(f"  Fabric Web UI → http://{host}:{actual_port}")
+            if pairing_qr:
+                from fabric_cli.mobile_pairing import print_pairing_info
+
+                print_pairing_info(
+                    bound_host=host,
+                    port=actual_port,
+                    auth_required=bool(app.state.auth_required),
+                    session_token=_SESSION_TOKEN,
+                    override_url=pairing_qr_url,
+                )
             _maybe_open_browser(host, actual_port, open_browser, initial_profile)
 
             # Collapse the peer-hangup teardown flood (#50005). When the Desktop

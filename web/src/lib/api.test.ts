@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, setManagementProfile } from "./api";
+import { api, fetchJSON, setManagementProfile } from "./api";
 
 const SESSION_HEADER = "X-Fabric-Session-Token";
 
@@ -257,6 +257,23 @@ describe("memory profile scoping", () => {
       "/api/memory?profile=research%20team",
       "/api/dashboard/plugins/hub?profile=research%20team",
       "/api/dashboard/plugin-providers?profile=research%20team",
+    ]);
+  });
+});
+
+describe("dashboard plugin profile scoping", () => {
+  it("scopes achievements reads and mutations to the selected management profile", async () => {
+    vi.stubGlobal("window", {});
+    const fetchMock = jsonFetchMock({ ok: true });
+    vi.stubGlobal("fetch", fetchMock);
+    setManagementProfile("research team");
+
+    await fetchJSON("/api/plugins/achievements/summary");
+    await fetchJSON("/api/plugins/achievements/refresh", { method: "POST" });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/plugins/achievements/summary?profile=research%20team",
+      "/api/plugins/achievements/refresh?profile=research%20team",
     ]);
   });
 });

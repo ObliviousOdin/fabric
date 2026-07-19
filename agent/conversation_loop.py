@@ -1650,12 +1650,7 @@ def run_conversation(
                 # configured fallback once, otherwise return the refusal.
                 if finish_reason == "content_filter":
                     _refusal_transport = agent._get_transport()
-                    if agent.api_mode == "anthropic_messages":
-                        _refusal_result = _refusal_transport.normalize_response(
-                            response, strip_tool_prefix=agent._is_anthropic_oauth
-                        )
-                    else:
-                        _refusal_result = _refusal_transport.normalize_response(response)
+                    _refusal_result = _refusal_transport.normalize_response(response)
                     _refusal_text = (getattr(_refusal_result, "content", None) or "").strip()
                     # Some refusals carry the explanation only in the reasoning
                     # channel; fall back to it so the user sees *something*.
@@ -1759,12 +1754,7 @@ def run_conversation(
                     # would have been appended in the non-truncated path.
                     _trunc_msg = None
                     _trunc_transport = agent._get_transport()
-                    if agent.api_mode == "anthropic_messages":
-                        _trunc_result = _trunc_transport.normalize_response(
-                            response, strip_tool_prefix=agent._is_anthropic_oauth
-                        )
-                    else:
-                        _trunc_result = _trunc_transport.normalize_response(response)
+                    _trunc_result = _trunc_transport.normalize_response(response)
                     _trunc_msg = _trunc_result
 
                     _trunc_content = getattr(_trunc_msg, "content", None) if _trunc_msg else None
@@ -4250,10 +4240,7 @@ def run_conversation(
 
         try:
             _transport = agent._get_transport()
-            _normalize_kwargs = {}
-            if agent.api_mode == "anthropic_messages":
-                _normalize_kwargs["strip_tool_prefix"] = agent._is_anthropic_oauth
-            normalized = _transport.normalize_response(response, **_normalize_kwargs)
+            normalized = _transport.normalize_response(response)
             assistant_message = normalized
             finish_reason = normalized.finish_reason
             

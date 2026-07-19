@@ -234,9 +234,8 @@ function scopeExternalProviderCommand(provider: OAuthProvider, profile: string):
   const command = provider.cli_command.trim()
 
   // Commands owned by Fabric honor the global profile selector. The
-  // remaining external commands (for example `copilot /login` and
-  // `claude setup-token`) own their credentials outside Fabric and must remain
-  // byte-for-byte unchanged.
+  // remaining external commands (for example `copilot /login`) own their
+  // credentials outside Fabric and must remain byte-for-byte unchanged.
   if (!/^fabric(?:\s|$)/.test(command)) {
     return provider
   }

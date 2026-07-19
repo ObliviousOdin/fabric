@@ -6,31 +6,28 @@ adapter — all provider-specific logic is isolated here.
 
 Auth supports:
   - Regular API keys (sk-ant-api*) → x-api-key header
-  - OAuth setup-tokens (sk-ant-oat*) → Bearer auth + beta header
-  - Claude Code credentials (~/.claude.json or ~/.claude/.credentials.json) → Bearer auth
+  - OAuth/setup-token-shaped credentials (sk-ant-oat*) → Bearer auth, sent as-is
+
+Fabric identifies itself honestly to Anthropic's API. It does not read, mint,
+or reuse Claude Code's (or any other first-party client's) OAuth credentials,
+and does not send any other client's identity headers.
 """
 
 import copy
 import json
 import logging
 import os
-import platform
-import secrets
-import stat
-import subprocess
-from pathlib import Path
 from urllib.parse import urlparse
 
-from fabric_constants import get_fabric_home
 from typing import Any, Dict, List, Optional, Tuple
 from utils import base_url_host_matches, normalize_proxy_env_vars
 
 # NOTE: `import anthropic` is deliberately NOT at module top — the SDK pulls
 # ~220 ms of imports (anthropic.types, anthropic.lib.tools._beta_runner, etc.)
-# and the 3 usage sites (build_anthropic_client, build_anthropic_bedrock_client,
-# read_claude_code_credentials_from_keychain) are all on cold user-triggered
-# paths. Access via the `_get_anthropic_sdk()` accessor below, which caches
-# the module after the first call and returns None on ImportError.
+# and its usage sites (build_anthropic_client, build_anthropic_bedrock_client)
+# are on cold user-triggered paths. Access via the `_get_anthropic_sdk()`
+# accessor below, which caches the module after the first call and returns
+# None on ImportError.
 _anthropic_sdk: Any = ...  # sentinel — None means "tried and missing"
 
 
@@ -331,70 +328,17 @@ _CONTEXT_1M_BETA = "context-1m-2025-08-07"
 # See https://platform.claude.com/docs/en/build-with-claude/fast-mode
 _FAST_MODE_BETA = "fast-mode-2026-02-01"
 
-# Additional beta headers required for OAuth/subscription auth.
-# Matches what Claude Code (and pi-ai / OpenCode) send.
-_OAUTH_ONLY_BETAS = [
-    "claude-code-20250219",
-    "oauth-2025-04-20",
-]
-
-# Claude Code identity — required for OAuth requests to be routed correctly.
-# Without these, Anthropic's infrastructure intermittently 500s OAuth traffic.
-# The version must stay reasonably current — Anthropic rejects OAuth requests
-# when the spoofed user-agent version is too far behind the actual release.
-_CLAUDE_CODE_VERSION_FALLBACK = "2.1.74"
-_claude_code_version_cache: Optional[str] = None
-
-
-def _detect_claude_code_version() -> str:
-    """Detect the installed Claude Code version, fall back to a static constant.
-
-    Anthropic's OAuth infrastructure validates the user-agent version and may
-    reject requests with a version that's too old.  Detecting dynamically means
-    users who keep Claude Code updated never hit stale-version 400s.
-    """
-    import subprocess as _sp
-
-    for cmd in ("claude", "claude-code"):
-        try:
-            result = _sp.run(
-                [cmd, "--version"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                # Output is like "2.1.74 (Claude Code)" or just "2.1.74"
-                version = result.stdout.strip().split()[0]
-                if version and version[0].isdigit():
-                    return version
-        except Exception:
-            pass
-    return _CLAUDE_CODE_VERSION_FALLBACK
-
-
-_CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude."
-_MCP_TOOL_PREFIX = "mcp__"
-
-
-def _get_claude_code_version() -> str:
-    """Lazily detect the installed Claude Code version when OAuth headers need it."""
-    global _claude_code_version_cache
-    if _claude_code_version_cache is None:
-        _claude_code_version_cache = _detect_claude_code_version()
-    return _claude_code_version_cache
-
 
 def _is_oauth_token(key: str) -> bool:
-    """Check if the key is an Anthropic OAuth/setup token.
+    """Check if the key is an Anthropic OAuth/setup-token-shaped credential.
 
-    Positively identifies Anthropic OAuth tokens by their key format:
+    Fabric does not use these for native Anthropic requests (they are scoped
+    to Anthropic's own first-party clients), but still recognizes the shape so
+    a stray OAuth-style value never gets silently sent as a plain API key.
+
     - ``sk-ant-oat`` prefix → OAuth setup/access tokens
     - ``eyJ`` prefix → JWTs from the Anthropic OAuth flow
     - ``cc-`` prefix → Claude Code OAuth access tokens (from CLAUDE_CODE_OAUTH_TOKEN)
-
-    Unknown ``sk-ant-*`` families are not assumed to be OAuth. Anthropic also
-    issues non-OAuth key families (for example Admin API keys), and treating an
-    unknown API key as OAuth selects Bearer auth plus Claude Code transforms.
-    Non-Anthropic keys (MiniMax, Alibaba, etc.) likewise return False.
     """
     if not key:
         return False
@@ -838,16 +782,13 @@ def build_anthropic_client(
         if common_betas:
             kwargs["default_headers"] = {"anthropic-beta": ",".join(common_betas)}
     elif _is_oauth_token(api_key):
-        # OAuth access token / setup-token → Bearer auth + Claude Code identity.
-        # Anthropic routes OAuth requests based on user-agent and headers;
-        # without Claude Code's fingerprint, requests get intermittent 500s.
-        all_betas = common_betas + _OAUTH_ONLY_BETAS
+        # OAuth/setup-token-shaped credential → Bearer auth, identified honestly
+        # as Fabric. These tokens are scoped to Anthropic's own first-party
+        # clients, so Anthropic's API is expected to reject them here rather
+        # than Fabric spoofing another client's identity to get them accepted.
         kwargs["auth_token"] = api_key
-        kwargs["default_headers"] = {
-            "anthropic-beta": ",".join(all_betas),
-            "user-agent": f"claude-code/{_get_claude_code_version()} (external, cli)",
-            "x-app": "cli",
-        }
+        if common_betas:
+            kwargs["default_headers"] = {"anthropic-beta": ",".join(common_betas)}
     else:
         # Regular API key → x-api-key header + common betas
         kwargs["api_key"] = api_key
@@ -904,689 +845,18 @@ def build_anthropic_bedrock_client(region: str):
     )
 
 
-def _read_claude_code_credentials_from_keychain() -> Optional[Dict[str, Any]]:
-    """Read Claude Code OAuth credentials from the macOS Keychain.
-
-    Claude Code >=2.1.114 stores credentials in the macOS Keychain under the
-    service name "Claude Code-credentials" rather than (or in addition to)
-    the JSON file at ~/.claude/.credentials.json.
-
-    The password field contains a JSON string with the same claudeAiOauth
-    structure as the JSON file.
-
-    Returns dict with {accessToken, refreshToken?, expiresAt?} or None.
-    """
-    if platform.system() != "Darwin":
-        return None
-
-    try:
-        # Read the "Claude Code-credentials" generic password entry
-        result = subprocess.run(
-            ["security", "find-generic-password",
-             "-s", "Claude Code-credentials",
-             "-w"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            stdin=subprocess.DEVNULL,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        logger.debug("Keychain: security command not available or timed out")
-        return None
-
-    if not isinstance(result.returncode, int) or result.returncode != 0:
-        logger.debug("Keychain: no usable entry found for 'Claude Code-credentials'")
-        return None
-
-    if not isinstance(result.stdout, str):
-        logger.debug("Keychain: security command returned a non-text payload")
-        return None
-    raw = result.stdout.strip()
-    if not raw:
-        return None
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.debug("Keychain: credentials payload is not valid JSON")
-        return None
-
-    oauth_data = data.get("claudeAiOauth")
-    if oauth_data and isinstance(oauth_data, dict):
-        access_token = oauth_data.get("accessToken", "")
-        if access_token:
-            return {
-                "accessToken": access_token,
-                "refreshToken": oauth_data.get("refreshToken", ""),
-                "expiresAt": oauth_data.get("expiresAt", 0),
-                "source": "macos_keychain",
-            }
-
-    return None
-
-
-def _read_claude_code_credentials_from_file() -> Optional[Dict[str, Any]]:
-    """Read Claude Code OAuth credentials from ~/.claude/.credentials.json.
-
-    Returns dict with {accessToken, refreshToken?, expiresAt?, source} or None.
-    """
-    cred_path = Path.home() / ".claude" / ".credentials.json"
-    if not cred_path.exists():
-        return None
-    try:
-        data = json.loads(cred_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, IOError) as e:
-        logger.debug("Failed to read ~/.claude/.credentials.json: %s", e)
-        return None
-
-    oauth_data = data.get("claudeAiOauth")
-    if not (oauth_data and isinstance(oauth_data, dict)):
-        return None
-    access_token = oauth_data.get("accessToken", "")
-    if not access_token:
-        return None
-    return {
-        "accessToken": access_token,
-        "refreshToken": oauth_data.get("refreshToken", ""),
-        "expiresAt": oauth_data.get("expiresAt", 0),
-        "source": "claude_code_credentials_file",
-    }
-
-
-def read_claude_code_credentials() -> Optional[Dict[str, Any]]:
-    """Read refreshable Claude Code OAuth credentials.
-
-    Reads from two possible sources and reconciles them:
-      1. macOS Keychain (Darwin only) — "Claude Code-credentials" entry
-      2. ~/.claude/.credentials.json file
-
-    Selection rules when both are present:
-      - If exactly one is non-expired, prefer that one. (Handles the case
-        where Claude Code refreshes one source but not the other — observed
-        in the wild on Claude Code 2.1.x.)
-      - Otherwise, prefer the source with the later ``expiresAt`` so that
-        any subsequent refresh uses the most recent ``refreshToken``.
-
-    This intentionally excludes ~/.claude.json primaryApiKey. Opencode's
-    subscription flow is OAuth/setup-token based with refreshable credentials,
-    and native direct Anthropic provider usage should follow that path rather
-    than auto-detecting Claude's first-party managed key.
-
-    Returns dict with {accessToken, refreshToken?, expiresAt?, source} or None.
-    """
-    kc_creds = _read_claude_code_credentials_from_keychain()
-    file_creds = _read_claude_code_credentials_from_file()
-
-    if kc_creds and file_creds:
-        kc_valid = is_claude_code_token_valid(kc_creds)
-        file_valid = is_claude_code_token_valid(file_creds)
-        if kc_valid and not file_valid:
-            return kc_creds
-        if file_valid and not kc_valid:
-            return file_creds
-        # Both valid or both expired: prefer the later expiresAt so the
-        # downstream refresh path uses the freshest refresh_token.
-        kc_exp = kc_creds.get("expiresAt", 0) or 0
-        file_exp = file_creds.get("expiresAt", 0) or 0
-        return kc_creds if kc_exp >= file_exp else file_creds
-
-    return kc_creds or file_creds
-
-
-def is_claude_code_token_valid(creds: Dict[str, Any]) -> bool:
-    """Check if Claude Code credentials have a non-expired access token."""
-    import time
-
-    expires_at = creds.get("expiresAt", 0)
-    if not expires_at:
-        # No expiry set (managed keys) — valid if token is present
-        return bool(creds.get("accessToken"))
-
-    # expiresAt is in milliseconds since epoch
-    now_ms = int(time.time() * 1000)
-    # Allow 60 seconds of buffer
-    return now_ms < (expires_at - 60_000)
-
-
-def refresh_anthropic_oauth_pure(refresh_token: str, *, use_json: bool = False) -> Dict[str, Any]:
-    """Refresh an Anthropic OAuth token without mutating local credential files."""
-    import time
-    import urllib.parse
-    import urllib.request
-
-    if not refresh_token:
-        raise ValueError("refresh_token is required")
-
-    client_id = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-    if use_json:
-        data = json.dumps({
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "client_id": client_id,
-        }).encode()
-        content_type = "application/json"
-    else:
-        data = urllib.parse.urlencode({
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "client_id": client_id,
-        }).encode()
-        content_type = "application/x-www-form-urlencoded"
-
-    token_endpoints = [
-        "https://platform.claude.com/v1/oauth/token",
-        "https://console.anthropic.com/v1/oauth/token",
-    ]
-    last_error = None
-    for endpoint in token_endpoints:
-        req = urllib.request.Request(
-            endpoint,
-            data=data,
-            headers={
-                "Content-Type": content_type,
-                "User-Agent": _OAUTH_TOKEN_USER_AGENT,
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                result = json.loads(resp.read().decode())
-        except Exception as exc:
-            last_error = exc
-            logger.debug("Anthropic token refresh failed at %s: %s", endpoint, exc)
-            continue
-
-        access_token = result.get("access_token", "")
-        if not access_token:
-            raise ValueError("Anthropic refresh response was missing access_token")
-        next_refresh = result.get("refresh_token", refresh_token)
-        expires_in = result.get("expires_in", 3600)
-        return {
-            "access_token": access_token,
-            "refresh_token": next_refresh,
-            "expires_at_ms": int(time.time() * 1000) + (expires_in * 1000),
-        }
-
-    if last_error is not None:
-        raise last_error
-    raise ValueError("Anthropic token refresh failed")
-
-
-def _refresh_oauth_token(creds: Dict[str, Any]) -> Optional[str]:
-    """Attempt to refresh an expired Claude Code OAuth token.
-
-    Claude Code's OAuth refresh tokens are single-use: a successful refresh
-    rotates the pair and invalidates the old refresh token. Claude Code itself
-    also refreshes on its own schedule (IDE/CLI activity), so by the time
-    Fabric notices an expired token, Claude Code may have already rotated it.
-    POSTing our now-stale refresh token in that window races Claude Code and
-    fails with ``invalid_grant``.
-
-    So before refreshing, re-read the live credential sources. If Claude Code
-    has already produced a valid token, adopt it and skip the POST entirely.
-    Only fall back to refreshing ourselves when no fresh credential is found.
-    """
-    # Claude Code may have already refreshed — adopt its token rather than
-    # racing it with our (possibly already-rotated) refresh token. Only adopt
-    # when the live re-read produced a DIFFERENT token with a real future
-    # expiry: re-adopting the same credential we were just handed would be a
-    # no-op, and a 0/absent ``expiresAt`` means "managed key / unknown expiry"
-    # (see is_claude_code_token_valid) which must NOT be treated as a fresh
-    # refresh here.
-    current = read_claude_code_credentials()
-    if current:
-        current_token = current.get("accessToken", "")
-        current_exp = current.get("expiresAt", 0) or 0
-        if (
-            current_token
-            and current_token != creds.get("accessToken", "")
-            and current_exp > 0
-            and is_claude_code_token_valid(current)
-        ):
-            logger.debug("Adopted Claude Code's already-refreshed OAuth token")
-            return current_token
-
-    refresh_token = (current or {}).get("refreshToken", "") or creds.get("refreshToken", "")
-    if not refresh_token:
-        logger.debug("No refresh token available — cannot refresh")
-        return None
-
-    try:
-        refreshed = refresh_anthropic_oauth_pure(refresh_token, use_json=False)
-        _write_claude_code_credentials(
-            refreshed["access_token"],
-            refreshed["refresh_token"],
-            refreshed["expires_at_ms"],
-        )
-        logger.debug("Successfully refreshed Claude Code OAuth token")
-        return refreshed["access_token"]
-    except Exception as e:
-        logger.debug("Failed to refresh Claude Code token: %s", e)
-        return None
-
-
-def _write_claude_code_credentials(
-    access_token: str,
-    refresh_token: str,
-    expires_at_ms: int,
-    *,
-    scopes: Optional[list] = None,
-) -> None:
-    """Write refreshed credentials back to ~/.claude/.credentials.json.
-
-    The optional *scopes* list (e.g. ``["user:inference", "user:profile", ...]``)
-    is persisted so that Claude Code's own auth check recognises the credential
-    as valid.  Claude Code >=2.1.81 gates on the presence of ``"user:inference"``
-    in the stored scopes before it will use the token.
-    """
-    cred_path = Path.home() / ".claude" / ".credentials.json"
-    try:
-        # Read existing file to preserve other fields
-        existing = {}
-        if cred_path.exists():
-            existing = json.loads(cred_path.read_text(encoding="utf-8"))
-
-        oauth_data: Dict[str, Any] = {
-            "accessToken": access_token,
-            "refreshToken": refresh_token,
-            "expiresAt": expires_at_ms,
-        }
-        if scopes is not None:
-            oauth_data["scopes"] = scopes
-        elif "claudeAiOauth" in existing and "scopes" in existing["claudeAiOauth"]:
-            # Preserve previously-stored scopes when the refresh response
-            # does not include a scope field.
-            oauth_data["scopes"] = existing["claudeAiOauth"]["scopes"]
-
-        existing["claudeAiOauth"] = oauth_data
-
-        cred_path.parent.mkdir(parents=True, exist_ok=True)
-        # Per-process random suffix avoids collisions between concurrent
-        # writers and stale leftovers from a prior crashed write.
-        _tmp_cred = cred_path.with_suffix(f".tmp.{os.getpid()}.{secrets.token_hex(4)}")
-        try:
-            # Create the temp file atomically at 0o600. The previous
-            # write_text + post-replace chmod opened a TOCTOU window where
-            # both the temp file and the destination briefly inherited the
-            # process umask (commonly 0o644 = world-readable), exposing
-            # Claude Code OAuth tokens to other local users between create
-            # and chmod. Mirrors agent/google_oauth.py (#19673) and
-            # tools/mcp_oauth.py (#21148). Parent dir (~/.claude/) is
-            # owned by Claude Code itself, so we leave its mode alone.
-            fd = os.open(
-                str(_tmp_cred),
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                stat.S_IRUSR | stat.S_IWUSR,
-            )
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(existing, fh, indent=2)
-                fh.flush()
-                os.fsync(fh.fileno())
-            os.replace(_tmp_cred, cred_path)
-        except OSError:
-            try:
-                _tmp_cred.unlink(missing_ok=True)
-            except OSError:
-                pass
-            raise
-    except (OSError, IOError) as e:
-        logger.debug("Failed to write refreshed credentials: %s", e)
-
-
-def _resolve_claude_code_token_from_credentials(creds: Optional[Dict[str, Any]] = None) -> Optional[str]:
-    """Resolve a token from Claude Code credential files, refreshing if needed."""
-    creds = creds or read_claude_code_credentials()
-    if creds and is_claude_code_token_valid(creds):
-        logger.debug("Using Claude Code credentials (auto-detected)")
-        return creds["accessToken"]
-    if creds:
-        logger.debug("Claude Code credentials expired — attempting refresh")
-        refreshed = _refresh_oauth_token(creds)
-        if refreshed:
-            return refreshed
-        logger.debug("Token refresh failed — re-run 'claude setup-token' to reauthenticate")
-    return None
-
-
-def _prefer_refreshable_claude_code_token(env_token: str, creds: Optional[Dict[str, Any]]) -> Optional[str]:
-    """Prefer Claude Code creds when a persisted env OAuth token would shadow refresh.
-
-    The setup flow once persisted tokens into ANTHROPIC_TOKEN. That makes
-    later refresh impossible because the static env token wins before we ever
-    inspect Claude Code's refreshable credential file. If we have a refreshable
-    Claude Code credential record, prefer it over the static env OAuth token.
-    """
-    if not env_token or not _is_oauth_token(env_token) or not isinstance(creds, dict):
-        return None
-    if not creds.get("refreshToken"):
-        return None
-
-    resolved = _resolve_claude_code_token_from_credentials(creds)
-    if resolved and resolved != env_token:
-        logger.debug(
-            "Preferring Claude Code credential file over static env OAuth token so refresh can proceed"
-        )
-        return resolved
-    return None
-
-
-def _resolve_anthropic_pool_token() -> Optional[str]:
-    """Return the first available Anthropic OAuth token from credential_pool.
-
-    Read-only: enumerates with ``clear_expired=False, refresh=False`` so a bare
-    token *resolve* (which runs from diagnostic/read-only call sites such as
-    ``account_usage`` and ``fabric models``) never mutates ``~/.fabric/auth.json``
-    or makes a network refresh call. Refresh-on-expiry is owned by the API call
-    path's pool recovery, not the resolver.
-    """
-    try:
-        from agent.credential_pool import AUTH_TYPE_OAUTH, load_pool
-    except Exception:
-        return None
-
-    try:
-        pool = load_pool("anthropic")
-        # Enumerate read-only (clear_expired=False, refresh=False): never persist
-        # to auth.json or trigger a network refresh from a bare resolve. select()
-        # is deliberately NOT used — it runs clear_expired=True, refresh=True,
-        # which would violate this read-only contract.
-        entries = pool._available_entries(clear_expired=False, refresh=False)
-    except Exception:
-        logger.debug("Failed to read Anthropic credential_pool", exc_info=True)
-        return None
-
-    for entry in entries:
-        if getattr(entry, "auth_type", None) != AUTH_TYPE_OAUTH:
-            continue
-        # access_token is a declared field but a persisted entry can carry an
-        # explicit null (or a partially-written OAuth entry), so coerce before
-        # strip — a bare None.strip() here would escape the try/excepts above
-        # and crash the whole resolver, taking down the source #5 fallback too.
-        # Matches the aux-client analog (auxiliary_client.py: str(key or "")).
-        token = (getattr(entry, "access_token", None) or "").strip()
-        if token:
-            return token
-
-    return None
-
-
 def resolve_anthropic_token() -> Optional[str]:
-    """Resolve an Anthropic token from all available sources.
+    """Resolve an Anthropic API key from the environment.
 
-    Priority:
-      1. ANTHROPIC_TOKEN env var (OAuth/setup token saved by Fabric)
-      2. CLAUDE_CODE_OAUTH_TOKEN env var
-      3. Claude Code credentials (~/.claude.json or ~/.claude/.credentials.json)
-         — with automatic refresh if expired and a refresh token is available
-      4. Anthropic credential_pool OAuth entry (~/.fabric/auth.json)
-      5. ANTHROPIC_API_KEY env var (regular API key)
+    Fabric authenticates to native Anthropic with a regular API key only —
+    it does not read, mint, or reuse Claude Code's or any other first-party
+    client's OAuth/subscription credentials.
 
     Returns the token string or None.
     """
-    creds = read_claude_code_credentials()
-
-    # 1. Fabric-managed OAuth/setup token env var
-    token = os.getenv("ANTHROPIC_TOKEN", "").strip()
-    if token:
-        preferred = _prefer_refreshable_claude_code_token(token, creds)
-        if preferred:
-            return preferred
-        return token
-
-    # 2. CLAUDE_CODE_OAUTH_TOKEN (used by Claude Code for setup-tokens)
-    cc_token = os.getenv("CLAUDE_CODE_OAUTH_TOKEN", "").strip()
-    if cc_token:
-        preferred = _prefer_refreshable_claude_code_token(cc_token, creds)
-        if preferred:
-            return preferred
-        return cc_token
-
-    # 3. Claude Code credential file
-    resolved_claude_token = _resolve_claude_code_token_from_credentials(creds)
-    if resolved_claude_token:
-        return resolved_claude_token
-
-    # 4. Fabric credential_pool OAuth entry.
-    resolved_pool_token = _resolve_anthropic_pool_token()
-    if resolved_pool_token:
-        return resolved_pool_token
-
-    # 5. Regular API key. OAuth-shaped values belong only in the canonical
-    # OAuth sources above; accepting one here would preserve the retired
-    # API-key-variable fallback indefinitely.
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if api_key and not _is_oauth_token(api_key):
         return api_key
-
-    return None
-
-
-def run_oauth_setup_token() -> Optional[str]:
-    """Run 'claude setup-token' interactively and return the resulting token.
-
-    Checks multiple sources after the subprocess completes:
-      1. Claude Code credential files (may be written by the subprocess)
-      2. CLAUDE_CODE_OAUTH_TOKEN / ANTHROPIC_TOKEN env vars
-
-    Returns the token string, or None if no credentials were obtained.
-    Raises FileNotFoundError if the 'claude' CLI is not installed.
-    """
-    import shutil
-    import subprocess
-
-    claude_path = shutil.which("claude")
-    if not claude_path:
-        raise FileNotFoundError(
-            "The 'claude' CLI is not installed. "
-            "Install it with: npm install -g @anthropic-ai/claude-code"
-        )
-
-    # Run interactively — stdin/stdout/stderr inherited so the user can
-    # complete the OAuth login prompt. Must keep inherited stdin; the TUI-EOF
-    # concern does not apply to an interactive login the user explicitly
-    # invokes.  noqa: subprocess-stdin
-    try:
-        subprocess.run([claude_path, "setup-token"])
-    except (KeyboardInterrupt, EOFError):
-        return None
-
-    # Check if credentials were saved to Claude Code's config files
-    creds = read_claude_code_credentials()
-    if creds and is_claude_code_token_valid(creds):
-        return creds["accessToken"]
-
-    # Check env vars that may have been set
-    for env_var in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_TOKEN"):
-        val = os.getenv(env_var, "").strip()
-        if val:
-            return val
-
-    return None
-
-
-# ── Fabric-native PKCE OAuth flow ────────────────────────────────────────
-# Mirrors the flow used by Claude Code, pi-ai, and OpenCode.
-# Stores credentials in ~/.fabric/.anthropic_oauth.json (our own file).
-
-_OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-# Anthropic migrated the OAuth token endpoint to platform.claude.com;
-# console.anthropic.com now 404s. Callers should iterate _OAUTH_TOKEN_URLS
-# (new host first, console fallback). _OAUTH_TOKEN_URL is kept as the primary
-# for backward compatibility with existing imports and now points at the live host.
-_OAUTH_TOKEN_URLS = [
-    "https://platform.claude.com/v1/oauth/token",
-    "https://console.anthropic.com/v1/oauth/token",
-]
-_OAUTH_TOKEN_URL = _OAUTH_TOKEN_URLS[0]
-# User-Agent sent on the OAuth *token endpoint* (login exchange + refresh).
-# Anthropic rate-limits (HTTP 429) any token-endpoint request whose UA starts
-# with ``claude-code/`` — verified empirically against platform.claude.com:
-# ``claude-code/2.1.200`` and ``Mozilla/5.0`` -> 429; ``axios/*``, ``node``,
-# and SDK-style UAs -> 400 (reached code validation). The real Claude Code CLI
-# exchanges the auth code with a bare axios client (``axios/<ver>``), NOT its
-# ``claude-code/`` inference UA. We mirror that here. NOTE: the *inference* path
-# (build_anthropic_kwargs) still uses the ``claude-code/`` UA + ``x-app: cli`` —
-# that fingerprint is required there and is NOT throttled on the messages API.
-_OAUTH_TOKEN_USER_AGENT = "axios/1.7.9"
-_OAUTH_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
-_OAUTH_SCOPES = "org:create_api_key user:profile user:inference"
-def _get_fabric_oauth_file() -> Path:
-    return get_fabric_home() / ".anthropic_oauth.json"
-
-
-def _generate_pkce() -> tuple:
-    """Generate PKCE code_verifier and code_challenge (S256)."""
-    import base64
-    import hashlib
-    import secrets
-
-    verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode()).digest()
-    ).rstrip(b"=").decode()
-    return verifier, challenge
-
-
-def run_fabric_oauth_login_pure() -> Optional[Dict[str, Any]]:
-    """Run Fabric-native OAuth PKCE flow and return credential state."""
-    import secrets
-    import time
-    import webbrowser
-
-    verifier, challenge = _generate_pkce()
-    oauth_state = secrets.token_urlsafe(32)
-
-    params = {
-        "code": "true",
-        "client_id": _OAUTH_CLIENT_ID,
-        "response_type": "code",
-        "redirect_uri": _OAUTH_REDIRECT_URI,
-        "scope": _OAUTH_SCOPES,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-        "state": oauth_state,
-    }
-    from urllib.parse import urlencode
-
-    auth_url = f"https://claude.ai/oauth/authorize?{urlencode(params)}"
-
-    print()
-    print("Authorize Fabric with your Claude Pro/Max subscription.")
-    print()
-    print("╭─ Claude Pro/Max Authorization ────────────────────╮")
-    print("│                                                   │")
-    print("│  Open this link in your browser:                  │")
-    print("╰───────────────────────────────────────────────────╯")
-    print()
-    print(f"  {auth_url}")
-    print()
-
-    try:
-        from fabric_cli.auth import _can_open_graphical_browser as _can_open_gui
-    except Exception:
-        _can_open_gui = lambda: True  # noqa: E731 — degrade to prior behavior
-
-    if _can_open_gui():
-        try:
-            webbrowser.open(auth_url)
-            print("  (Browser opened automatically)")
-        except Exception:
-            pass
-
-    print()
-    print("After authorizing, you'll see a code. Paste it below.")
-    print()
-    try:
-        auth_code = input("Authorization code: ").strip()
-    except (KeyboardInterrupt, EOFError):
-        return None
-
-    if not auth_code:
-        print("No code entered.")
-        return None
-
-    splits = auth_code.split("#")
-    code = splits[0]
-    received_state = splits[1] if len(splits) > 1 else ""
-
-    # Validate state to prevent CSRF (RFC 6749 §10.12)
-    if received_state != oauth_state:
-        logger.warning("OAuth state mismatch — possible CSRF, aborting")
-        return None
-
-    try:
-        import urllib.request
-
-        exchange_data = json.dumps({
-            "grant_type": "authorization_code",
-            "client_id": _OAUTH_CLIENT_ID,
-            "code": code,
-            "state": received_state,
-            "redirect_uri": _OAUTH_REDIRECT_URI,
-            "code_verifier": verifier,
-        }).encode()
-
-        # Anthropic migrated the OAuth token endpoint to platform.claude.com;
-        # console.anthropic.com now 404s. Try the new host first, then fall
-        # back to console for older deployments (mirrors the refresh path).
-        # UA is _OAUTH_TOKEN_USER_AGENT (a non-claude-code UA) — see the
-        # constant's definition for why the token endpoint must not send
-        # claude-code/ (429 UA-prefix block).
-        result = None
-        last_error = None
-        for endpoint in _OAUTH_TOKEN_URLS:
-            req = urllib.request.Request(
-                endpoint,
-                data=exchange_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "User-Agent": _OAUTH_TOKEN_USER_AGENT,
-                },
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=15) as resp:
-                    result = json.loads(resp.read().decode())
-                break
-            except Exception as exc:
-                last_error = exc
-                logger.debug("Anthropic token exchange failed at %s: %s", endpoint, exc)
-                continue
-
-        if result is None:
-            raise last_error if last_error is not None else ValueError(
-                "Anthropic token exchange failed"
-            )
-    except Exception as e:
-        print(f"Token exchange failed: {e}")
-        return None
-
-    access_token = result.get("access_token", "")
-    refresh_token = result.get("refresh_token", "")
-    expires_in = result.get("expires_in", 3600)
-
-    if not access_token:
-        print("No access token in response.")
-        return None
-
-    expires_at_ms = int(time.time() * 1000) + (expires_in * 1000)
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "expires_at_ms": expires_at_ms,
-    }
-
-
-def read_fabric_oauth_credentials() -> Optional[Dict[str, Any]]:
-    """Read Fabric-managed OAuth credentials from ~/.fabric/.anthropic_oauth.json."""
-    oauth_file = _get_fabric_oauth_file()
-    if oauth_file.exists():
-        try:
-            data = json.loads(oauth_file.read_text(encoding="utf-8"))
-            if data.get("accessToken"):
-                return data
-        except (json.JSONDecodeError, OSError, IOError) as e:
-            logger.debug("Failed to read Fabric OAuth credentials: %s", e)
     return None
 
 
@@ -2499,7 +1769,6 @@ def build_anthropic_kwargs(
     max_tokens: Optional[int],
     reasoning_config: Optional[Dict[str, Any]],
     tool_choice: Optional[str] = None,
-    is_oauth: bool = False,
     preserve_dots: bool = False,
     context_length: Optional[int] = None,
     base_url: str | None = None,
@@ -2529,9 +1798,6 @@ def build_anthropic_kwargs(
     large, Anthropic may still reject the request.  The caller must detect
     "max_tokens too large given prompt" errors and retry with a smaller cap
     (see parse_available_output_tokens_from_error + _ephemeral_max_output_tokens).
-
-    When *is_oauth* is True, applies Claude Code compatibility transforms:
-    system prompt prefix, tool name prefixing, and prompt sanitization.
 
     When *preserve_dots* is True, model name dots are not converted to hyphens
     (for Alibaba/DashScope anthropic-compatible endpoints: qwen3.5-plus).
@@ -2565,71 +1831,6 @@ def build_anthropic_kwargs(
     # branch is not taken.
     if context_length and effective_max_tokens > context_length:
         effective_max_tokens = max(context_length - 1, 1)
-
-    # ── OAuth: Claude Code identity ──────────────────────────────────
-    if is_oauth:
-        # 1. Prepend Claude Code system prompt identity
-        cc_block = {"type": "text", "text": _CLAUDE_CODE_SYSTEM_PREFIX}
-        if isinstance(system, list):
-            system = [cc_block] + system
-        elif isinstance(system, str) and system:
-            system = [cc_block, {"type": "text", "text": system}]
-        else:
-            system = [cc_block]
-
-        # 2. Sanitize system prompt — replace product name references
-        #    to avoid Anthropic's server-side content filters.
-        for block in system:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = block.get("text", "")
-                text = text.replace("Fabric", "Claude Code")
-                text = text.replace("Fabric agent", "Claude Code")
-                text = text.replace("fabric-agent", "claude-code")
-                text = text.replace("Nous Research", "Anthropic")
-                block["text"] = text
-
-        # 3. Normalize tool names so NOTHING goes on the OAuth wire with a
-        #    single-underscore ``mcp_`` prefix.  Anthropic's subscription/OAuth
-        #    billing classifier treats a single-underscore ``mcp_`` tool name as
-        #    a third-party-app fingerprint and rejects the request with HTTP 400
-        #    "Third-party apps now draw from extra usage, not plan limits"
-        #    (verified empirically: a single ``mcp_foo`` tool flips a request
-        #    from plan-billing to the extra-usage lane; ``mcp__foo`` is accepted).
-        #
-        #    Two cases, both must land on the double-underscore ``mcp__`` form:
-        #      a) bare Fabric-native tools (``read_file``)  -> ``mcp__read_file``
-        #      b) native MCP server tools registered under their full
-        #         single-underscore ``mcp_<server>_<tool>`` name
-        #         (``mcp_linear_get_issue``) -> ``mcp__linear_get_issue``
-        #    Case (b) is the gap that the bare ``mcp_``->``mcp__`` constant swap
-        #    left open: those tools were *skipped* and stayed single-underscore,
-        #    so any session with an MCP server configured still tripped the
-        #    classifier. normalize_response reverses both forms via registry
-        #    lookup so the dispatcher still sees the original name. GH-25255.
-        def _to_oauth_wire_name(name: str) -> str:
-            if name.startswith("mcp__"):
-                return name  # already correct, don't double-prefix
-            if name.startswith("mcp_"):
-                # single-underscore native MCP tool -> promote to double
-                return "mcp__" + name[len("mcp_"):]
-            return _MCP_TOOL_PREFIX + name  # bare name -> mcp__<name>
-
-        if anthropic_tools:
-            for tool in anthropic_tools:
-                if "name" in tool:
-                    tool["name"] = _to_oauth_wire_name(tool["name"])
-
-        # 4. Apply the same normalization to tool names in message history
-        #    (tool_use blocks) so replayed turns match the wire names above.
-        for msg in anthropic_messages:
-            content = msg.get("content")
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict):
-                        if block.get("type") == "tool_use" and "name" in block:
-                            block["name"] = _to_oauth_wire_name(block["name"])
-                        elif block.get("type") == "tool_result" and "tool_use_id" in block:
-                            pass  # tool_result uses ID, not name
 
     kwargs: Dict[str, Any] = {
         "model": model,
@@ -2728,8 +1929,6 @@ def build_anthropic_kwargs(
             base_url,
             drop_context_1m_beta=drop_context_1m_beta,
         ))
-        if is_oauth:
-            betas.extend(_OAUTH_ONLY_BETAS)
         betas.append(_FAST_MODE_BETA)
         kwargs["extra_headers"] = {"anthropic-beta": ",".join(betas)}
 

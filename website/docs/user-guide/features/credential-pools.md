@@ -51,11 +51,9 @@ fabric auth add openrouter --api-key sk-or-v1-your-second-key
 
 # Add a second Anthropic key
 fabric auth add anthropic --type api-key --api-key sk-ant-api03-your-second-key
-
-# Add an Anthropic OAuth credential (requires Claude Max plan + extra usage credits)
-fabric auth add anthropic --type oauth
-# Opens browser for OAuth login
 ```
+
+Fabric authenticates to native Anthropic with API keys only — there is no OAuth/subscription login for Anthropic (see [NOTICE](https://github.com/ObliviousOdin/fabric/blob/main/NOTICE) for why).
 
 Check your pools:
 
@@ -69,10 +67,8 @@ openrouter (2 credentials):
   #1  OPENROUTER_API_KEY   api_key env:OPENROUTER_API_KEY ←
   #2  backup-key           api_key manual
 
-anthropic (3 credentials):
-  #1  anthropic_pkce       oauth   anthropic_pkce ←
-  #2  claude_code          oauth   claude_code
-  #3  ANTHROPIC_API_KEY    api_key env:ANTHROPIC_API_KEY
+anthropic (1 credential):
+  #1  ANTHROPIC_API_KEY    api_key env:ANTHROPIC_API_KEY ←
 ```
 
 The `←` marks the currently selected credential.
@@ -96,10 +92,10 @@ What would you like to do?
   5. Exit
 ```
 
-For providers that support both API keys and OAuth (Anthropic, Nous, Codex), the add flow asks which type:
+For providers that support both API keys and OAuth (Nous, Codex, xAI), the add flow asks which type:
 
 ```
-anthropic supports both API keys and OAuth login.
+nous supports both API keys and OAuth login.
   1. API key (paste a key from the provider dashboard)
   2. OAuth login (authenticate via browser)
 Type [1/2]:
@@ -184,8 +180,6 @@ Fabric automatically discovers credentials from multiple sources and seeds the p
 |--------|---------|-------------|
 | Environment variables | `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` | Yes |
 | OAuth tokens (auth.json) | Codex device code, Nous device code | Yes |
-| Claude Code credentials | `~/.claude/.credentials.json` | Yes (Anthropic) |
-| Fabric PKCE OAuth | `~/.fabric/auth.json` | Yes (Anthropic) |
 | Custom endpoint config | `model.api_key` in config.yaml | Yes (custom endpoints) |
 | Manual entries | Added via `fabric auth add` | Persisted in auth.json |
 

@@ -1044,7 +1044,7 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("novita",         "NovitaAI",                 "NovitaAI (Cloud: Model API, Agent Sandbox, GPU Cloud)"),
     ProviderEntry("ollama",         "Ollama (Local)",           "Ollama (Local models through the native /api/chat protocol)"),
     ProviderEntry("lmstudio",       "LM Studio",                "LM Studio (Local desktop app with built-in model server)"),
-    ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models via API key or Claude Code)"),
+    ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models via API key)"),
     ProviderEntry("openai-codex",   "OpenAI Codex",             "OpenAI Codex (Codex CLI via ChatGPT subscription or API key)"),
     ProviderEntry("openai-api",     "OpenAI API",               "OpenAI API (api.openai.com, API key)"),
     ProviderEntry("alibaba",        "Qwen Cloud",               "Qwen Cloud / DashScope (Qwen + multi-provider)"),
@@ -2740,12 +2740,11 @@ def _fetch_anthropic_models(
 ) -> Optional[list[str]]:
     """Fetch available models from the Anthropic /v1/models endpoint.
 
-    Uses resolve_anthropic_token() to find credentials (env vars or
-    Claude Code auto-discovery) unless api_key is provided explicitly.
-    Returns sorted model IDs or None.
+    Uses resolve_anthropic_token() to find an API key from the environment
+    unless api_key is provided explicitly. Returns sorted model IDs or None.
     """
     try:
-        from agent.anthropic_adapter import resolve_anthropic_token, _is_oauth_token
+        from agent.anthropic_adapter import resolve_anthropic_token
     except ImportError:
         return None
 
@@ -2753,14 +2752,10 @@ def _fetch_anthropic_models(
     if not token:
         return None
 
-    headers: dict[str, str] = {"anthropic-version": "2023-06-01"}
-    is_oauth = _is_oauth_token(token)
-    if is_oauth:
-        headers["Authorization"] = f"Bearer {token}"
-        from agent.anthropic_adapter import _COMMON_BETAS, _OAUTH_ONLY_BETAS, _CONTEXT_1M_BETA
-        headers["anthropic-beta"] = ",".join(_COMMON_BETAS + _OAUTH_ONLY_BETAS)
-    else:
-        headers["x-api-key"] = token
+    headers: dict[str, str] = {
+        "anthropic-version": "2023-06-01",
+        "x-api-key": token,
+    }
 
     def _do_request(h: dict[str, str]):
         req = urllib.request.Request(
@@ -2771,31 +2766,7 @@ def _fetch_anthropic_models(
             return json.loads(resp.read().decode())
 
     try:
-        try:
-            data = _do_request(headers)
-        except urllib.error.HTTPError as http_err:
-            # Reactive recovery for OAuth subscriptions that reject the 1M
-            # context beta with 400 "long context beta is not yet available
-            # for this subscription". Retry once without the beta; re-raise
-            # anything else so the outer except logs it.
-            if (
-                is_oauth
-                and http_err.code == 400
-            ):
-                try:
-                    body_text = http_err.read().decode(errors="ignore").lower()
-                except Exception:
-                    body_text = ""
-                if "long context beta" in body_text and "not yet available" in body_text:
-                    headers["anthropic-beta"] = ",".join(
-                        [b for b in _COMMON_BETAS if b != _CONTEXT_1M_BETA]
-                        + list(_OAUTH_ONLY_BETAS)
-                    )
-                    data = _do_request(headers)
-                else:
-                    raise
-            else:
-                raise
+        data = _do_request(headers)
         models = [m["id"] for m in data.get("data", []) if m.get("id")]
         # Sort: latest/largest first (opus > sonnet > haiku, higher version first)
         return sorted(models, key=lambda m: (

@@ -1565,10 +1565,11 @@ def test_load_pool_removes_nous_device_code_when_singleton_quarantined(tmp_path,
 
 
 def test_load_pool_removes_stale_file_backed_singleton_entry(tmp_path, monkeypatch):
+    """Fabric doesn't auto-discover Anthropic OAuth credentials at all (see
+    NOTICE) — any pre-existing claude_code/anthropic_pkce pool entry from
+    before this behavior changed is pruned unconditionally on load."""
     monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
     _write_auth_store(
         tmp_path,
         {
@@ -1588,15 +1589,6 @@ def test_load_pool_removes_stale_file_backed_singleton_entry(tmp_path, monkeypat
                 ]
             },
         },
-    )
-
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_fabric_oauth_credentials",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: None,
     )
 
     from agent.credential_pool import load_pool
@@ -1656,11 +1648,11 @@ def test_load_pool_migrates_nous_provider_state_preserves_tls(tmp_path, monkeypa
 
 
 def test_singleton_seed_does_not_clobber_manual_oauth_entry(tmp_path, monkeypatch):
+    """Fabric never auto-seeds Anthropic OAuth credentials (see NOTICE) — a
+    manually-added pool entry survives untouched, and no second entry
+    appears alongside it."""
     monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
-    monkeypatch.setattr("fabric_cli.auth.is_provider_explicitly_configured", lambda pid: True)
     _write_auth_store(
         tmp_path,
         {
@@ -1682,102 +1674,22 @@ def test_singleton_seed_does_not_clobber_manual_oauth_entry(tmp_path, monkeypatc
         },
     )
 
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_fabric_oauth_credentials",
-        lambda: {
-            "accessToken": "seeded-token",
-            "refreshToken": "seeded-refresh",
-            "expiresAt": 1711234999000,
-        },
-    )
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: None,
-    )
-
     from agent.credential_pool import load_pool
 
     pool = load_pool("anthropic")
     entries = pool.entries()
 
-    assert len(entries) == 2
-    assert {entry.source for entry in entries} == {
-        "manual:anthropic_pkce",
-        "anthropic_pkce",
-    }
-
-
-def test_load_pool_prefers_anthropic_env_token_over_file_backed_oauth(tmp_path, monkeypatch):
-    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("ANTHROPIC_TOKEN", "env-override-token")
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
-    _write_auth_store(tmp_path, {"version": 1, "providers": {}})
-
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_fabric_oauth_credentials",
-        lambda: {
-            "accessToken": "file-backed-token",
-            "refreshToken": "refresh-token",
-            "expiresAt": int(time.time() * 1000) + 3_600_000,
-        },
-    )
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: None,
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("anthropic")
-    entry = pool.select()
-
-    assert entry is not None
-    assert entry.source == "env:ANTHROPIC_TOKEN"
-    assert entry.access_token == "env-override-token"
+    assert len(entries) == 1
+    assert entries[0].source == "manual:anthropic_pkce"
 
 
 def test_load_pool_api_key_path_skips_oauth_autodiscovery(tmp_path, monkeypatch):
-    """API-key auth path: autodiscovered OAuth creds must NOT be seeded.
-
-    When the user picks "Anthropic API key" at `fabric setup`,
-    `save_anthropic_api_key()` writes ANTHROPIC_API_KEY and zeros
-    ANTHROPIC_TOKEN.  That env-var pattern is the explicit signal that the
-    user opted into the API-key path and explicitly OUT of the OAuth
-    masquerade (Claude Code identity injection + `mcp_` tool-name rewrite
-    + claude-cli user-agent).  Autodiscovered Claude Code / Fabric PKCE
-    tokens from other tools' credential files must NOT be silently mixed
-    into the anthropic pool — otherwise rotation on a 401/429 could flip
-    the session onto OAuth credentials mid-conversation.
-    """
+    """Fabric authenticates to native Anthropic with an API key only (see
+    NOTICE) — no OAuth credential is ever auto-discovered or seeded,
+    regardless of what other env vars or files exist on the machine."""
     monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-explicit-user-key")
-    monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
     _write_auth_store(tmp_path, {"version": 1, "providers": {}})
-    monkeypatch.setattr("fabric_cli.auth.is_provider_explicitly_configured", lambda pid: True)
-
-    pkce_called = {"n": 0}
-    cc_called = {"n": 0}
-
-    def _fake_pkce():
-        pkce_called["n"] += 1
-        return {
-            "accessToken": "sk-ant-oat01-pkce-token",
-            "refreshToken": "pkce-refresh",
-            "expiresAt": int(time.time() * 1000) + 3_600_000,
-        }
-
-    def _fake_cc():
-        cc_called["n"] += 1
-        return {
-            "accessToken": "sk-ant-oat01-claude-code-token",
-            "refreshToken": "cc-refresh",
-            "expiresAt": int(time.time() * 1000) + 3_600_000,
-        }
-
-    monkeypatch.setattr("agent.anthropic_adapter.read_fabric_oauth_credentials", _fake_pkce)
-    monkeypatch.setattr("agent.anthropic_adapter.read_claude_code_credentials", _fake_cc)
 
     from agent.credential_pool import load_pool
 
@@ -1786,27 +1698,17 @@ def test_load_pool_api_key_path_skips_oauth_autodiscovery(tmp_path, monkeypatch)
 
     # Only the explicit API-key entry should be in the pool.
     assert sources == {"env:ANTHROPIC_API_KEY"}, f"got {sources}"
-    # And we should not have even called the autodiscovery readers.
-    assert pkce_called["n"] == 0
-    assert cc_called["n"] == 0
 
 
 def test_load_pool_api_key_path_prunes_stale_oauth_entries(tmp_path, monkeypatch):
-    """Switching OAuth -> API key must prune stale OAuth entries from auth.json.
-
-    Without this, a user who logs into OAuth (seeding `claude_code` or
-    `anthropic_pkce` into auth.json) and later switches to the API key at
-    `fabric setup` would still have those OAuth entries dormant on disk.
-    Pool rotation on a transient 401 could revive them and flip the
-    session onto the OAuth masquerade.
-    """
+    """A pre-existing claude_code pool entry (from before Fabric stopped
+    auto-discovering Anthropic OAuth credentials) is pruned on load,
+    leaving only the current API key."""
     monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-explicit-user-key")
-    monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
 
     # Plant a stale claude_code entry in the on-disk pool (as if a previous
-    # OAuth session seeded it).
+    # Fabric version had auto-discovered it).
     _write_auth_store(
         tmp_path,
         {
@@ -1829,9 +1731,6 @@ def test_load_pool_api_key_path_prunes_stale_oauth_entries(tmp_path, monkeypatch
             },
         },
     )
-    monkeypatch.setattr("fabric_cli.auth.is_provider_explicitly_configured", lambda pid: True)
-    monkeypatch.setattr("agent.anthropic_adapter.read_fabric_oauth_credentials", lambda: None)
-    monkeypatch.setattr("agent.anthropic_adapter.read_claude_code_credentials", lambda: None)
 
     from agent.credential_pool import load_pool
 
@@ -1841,44 +1740,6 @@ def test_load_pool_api_key_path_prunes_stale_oauth_entries(tmp_path, monkeypatch
     # Stale claude_code entry must be gone, API key must be present.
     assert "claude_code" not in sources
     assert "env:ANTHROPIC_API_KEY" in sources
-
-
-def test_load_pool_oauth_path_still_autodiscovers(tmp_path, monkeypatch):
-    """OAuth path: ANTHROPIC_TOKEN set, autodiscovery still fires.
-
-    Regression guard: the API-key gate must not affect users who chose the
-    OAuth path at `fabric setup`.  When ANTHROPIC_TOKEN is set (and
-    ANTHROPIC_API_KEY is empty), autodiscovered Claude Code creds should
-    still be seeded into the pool as before.
-    """
-    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("ANTHROPIC_TOKEN", "sk-ant-oat01-explicit-oauth-token")
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
-    _write_auth_store(tmp_path, {"version": 1, "providers": {}})
-    monkeypatch.setattr("fabric_cli.auth.is_provider_explicitly_configured", lambda pid: True)
-
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_fabric_oauth_credentials",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: {
-            "accessToken": "sk-ant-oat01-autodiscovered-cc",
-            "refreshToken": "cc-refresh",
-            "expiresAt": int(time.time() * 1000) + 3_600_000,
-        },
-    )
-
-    from agent.credential_pool import load_pool
-
-    pool = load_pool("anthropic")
-    sources = {entry.source for entry in pool.entries()}
-
-    # Both env OAuth token and autodiscovered Claude Code creds should be there.
-    assert "env:ANTHROPIC_TOKEN" in sources
-    assert "claude_code" in sources
 
 
 def test_least_used_strategy_selects_lowest_count(tmp_path, monkeypatch):
@@ -2324,29 +2185,16 @@ def test_release_lease_decrements_counter(tmp_path, monkeypatch):
 
 
 def test_load_pool_does_not_seed_claude_code_when_anthropic_not_configured(tmp_path, monkeypatch):
-    """Claude Code credentials must not be auto-seeded when the user never selected anthropic."""
+    """Claude Code credentials are never auto-seeded — Fabric authenticates to
+    native Anthropic with an API key only (see NOTICE), regardless of what
+    other providers the user has configured."""
     monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
     _write_auth_store(tmp_path, {"version": 1, "credential_pool": {}})
-
-    # Claude Code credentials exist on disk
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: {"accessToken": "sk-ant...oken", "refreshToken": "rt", "expiresAt": 9999999999999},
-    )
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_fabric_oauth_credentials",
-        lambda: None,
-    )
-    # User configured kimi-coding, NOT anthropic
-    monkeypatch.setattr(
-        "fabric_cli.auth.is_provider_explicitly_configured",
-        lambda pid: pid == "kimi-coding",
-    )
 
     from agent.credential_pool import load_pool
     pool = load_pool("anthropic")
 
-    # Should NOT have seeded the claude_code entry
+    # Should NOT have seeded any claude_code entry
     assert pool.entries() == []
 
 
@@ -3224,137 +3072,3 @@ def test_remove_index_does_not_resurrect_via_disk_merge(tmp_path, monkeypatch):
     assert final_ids == ["cred-A"]
 
 
-# ---------------------------------------------------------------------------
-# _sync_anthropic_entry_from_credentials_file — parity fix tests
-# ---------------------------------------------------------------------------
-
-def _make_anthropic_claude_code_pool(tmp_path, monkeypatch, *, access_token, refresh_token, expires_at_ms=9_999_999_999_000):
-    """Helper: load an Anthropic pool seeded with a single claude_code entry."""
-    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
-    _write_auth_store(tmp_path, {"version": 1, "credential_pool": {}})
-    monkeypatch.setattr("fabric_cli.auth.is_provider_explicitly_configured", lambda pid: pid == "anthropic")
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_fabric_oauth_credentials",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: {"accessToken": access_token, "refreshToken": refresh_token, "expiresAt": expires_at_ms},
-    )
-    from agent.credential_pool import load_pool
-    pool = load_pool("anthropic")
-    entry = pool.select()
-    assert entry is not None
-    assert entry.source == "claude_code"
-    return pool, entry
-
-
-def test_sync_anthropic_entry_access_token_only_changed(tmp_path, monkeypatch):
-    """Sync must trigger when access_token rotates but refresh_token stays the same.
-
-    This is the parity-fix case: the old code checked only refresh_token,
-    so a silent access_token re-issue left the pool with a stale bearer token.
-    """
-    pool, entry = _make_anthropic_claude_code_pool(
-        tmp_path, monkeypatch,
-        access_token="old-access",
-        refresh_token="shared-refresh",
-    )
-
-    # Credentials file: new access_token, same refresh_token
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: {"accessToken": "new-access", "refreshToken": "shared-refresh", "expiresAt": 9_999_999_999_000},
-    )
-
-    synced = pool._sync_anthropic_entry_from_credentials_file(entry)
-
-    assert synced is not entry, "sync must return a new entry object"
-    assert synced.access_token == "new-access"
-    assert synced.refresh_token == "shared-refresh"
-
-
-def test_sync_anthropic_entry_refresh_token_changed(tmp_path, monkeypatch):
-    """Sync must trigger when refresh_token rotates (single-use rotation path)."""
-    pool, entry = _make_anthropic_claude_code_pool(
-        tmp_path, monkeypatch,
-        access_token="access-v1",
-        refresh_token="refresh-v1",
-    )
-
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: {"accessToken": "access-v2", "refreshToken": "refresh-v2", "expiresAt": 9_999_999_999_000},
-    )
-
-    synced = pool._sync_anthropic_entry_from_credentials_file(entry)
-
-    assert synced is not entry
-    assert synced.access_token == "access-v2"
-    assert synced.refresh_token == "refresh-v2"
-
-
-def test_sync_anthropic_entry_tokens_unchanged_no_op(tmp_path, monkeypatch):
-    """Sync must be a no-op when credentials file matches the pool entry."""
-    pool, entry = _make_anthropic_claude_code_pool(
-        tmp_path, monkeypatch,
-        access_token="same-access",
-        refresh_token="same-refresh",
-    )
-
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: {"accessToken": "same-access", "refreshToken": "same-refresh", "expiresAt": 9_999_999_999_000},
-    )
-
-    synced = pool._sync_anthropic_entry_from_credentials_file(entry)
-
-    assert synced is entry, "no-op sync must return the original entry object"
-
-
-def test_sync_anthropic_entry_clears_all_error_fields(tmp_path, monkeypatch):
-    """Syncing fresh tokens must clear all six error/status fields on the entry.
-
-    Before the fix, last_error_reason / last_error_message / last_error_reset_at
-    were left set, so a previously-exhausted entry could stay stuck even after
-    fresh tokens arrived from the credentials file.
-    """
-    from dataclasses import replace as dc_replace
-    from agent.credential_pool import STATUS_EXHAUSTED
-
-    pool, entry = _make_anthropic_claude_code_pool(
-        tmp_path, monkeypatch,
-        access_token="stale-access",
-        refresh_token="stale-refresh",
-    )
-
-    now = time.time()
-    exhausted = dc_replace(
-        entry,
-        last_status=STATUS_EXHAUSTED,
-        last_status_at=now,
-        last_error_code=401,
-        last_error_reason="token_expired",
-        last_error_message="Access token has expired",
-        last_error_reset_at=now + 300,
-    )
-    pool._replace_entry(entry, exhausted)
-
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: {"accessToken": "fresh-access", "refreshToken": "fresh-refresh", "expiresAt": 9_999_999_999_000},
-    )
-
-    synced = pool._sync_anthropic_entry_from_credentials_file(exhausted)
-
-    assert synced is not exhausted
-    assert synced.access_token == "fresh-access"
-    assert synced.last_status is None
-    assert synced.last_status_at is None
-    assert synced.last_error_code is None
-    assert synced.last_error_reason is None
-    assert synced.last_error_message is None
-    assert synced.last_error_reset_at is None

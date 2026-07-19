@@ -3,9 +3,9 @@
 The invariant: ``self._is_anthropic_oauth`` must only ever be True when
 ``self.provider == 'anthropic'`` (native Anthropic).  Third-party providers
 that speak the Anthropic protocol (MiniMax, Zhipu GLM, Alibaba DashScope,
-Kimi, LiteLLM proxies, etc.) must never trip OAuth code paths — doing so
-injects Claude-Code identity headers and system prompts that cause
-401/403 from those endpoints.
+Kimi, LiteLLM proxies, etc.) must never trip OAuth-specific code paths —
+today that's limited to the reactive 1M-context-beta retry; the flag no
+longer drives any Claude-Code-identity or tool-name transform (see NOTICE).
 
 This test class covers all FIVE sites that assign ``_is_anthropic_oauth``:
 

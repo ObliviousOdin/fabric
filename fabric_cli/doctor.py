@@ -2040,41 +2040,14 @@ def run_doctor(args):
             return _ConnectivityResult("Anthropic API", [], [])
         try:
             import httpx
-            from agent.anthropic_adapter import (
-                _is_oauth_token,
-                _COMMON_BETAS,
-                _OAUTH_ONLY_BETAS,
-                _CONTEXT_1M_BETA,
-            )
-            headers = {"anthropic-version": "2023-06-01"}
-            is_oauth = _is_oauth_token(key)
-            if is_oauth:
-                headers["Authorization"] = f"Bearer {key}"
-                headers["anthropic-beta"] = ",".join(_COMMON_BETAS + _OAUTH_ONLY_BETAS)
-            else:
-                headers["x-api-key"] = key
+            headers = {
+                "anthropic-version": "2023-06-01",
+                "x-api-key": key,
+            }
             r = httpx.get(
                 "https://api.anthropic.com/v1/models",
                 headers=headers, timeout=10,
             )
-            # Reactive recovery: OAuth subscriptions without 1M context reject the
-            # request with 400 "long context beta is not yet available for this
-            # subscription". Retry once with that beta stripped so the doctor
-            # check doesn't falsely report Anthropic as unreachable.
-            if (
-                is_oauth
-                and r.status_code == 400
-                and "long context beta" in r.text.lower()
-                and "not yet available" in r.text.lower()
-            ):
-                headers["anthropic-beta"] = ",".join(
-                    [b for b in _COMMON_BETAS if b != _CONTEXT_1M_BETA]
-                    + list(_OAUTH_ONLY_BETAS)
-                )
-                r = httpx.get(
-                    "https://api.anthropic.com/v1/models",
-                    headers=headers, timeout=10,
-                )
             if r.status_code == 200:
                 return _ConnectivityResult(
                     "Anthropic API",

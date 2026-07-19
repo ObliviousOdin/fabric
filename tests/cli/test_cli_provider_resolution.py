@@ -477,14 +477,6 @@ def test_model_flow_anthropic_clears_stale_custom_key_and_mode(tmp_path, monkeyp
 
     monkeypatch.setattr("fabric_cli.auth.get_anthropic_key", lambda: "sk-ant-api03-test")
     monkeypatch.setattr(
-        "agent.anthropic_adapter.read_claude_code_credentials",
-        lambda: None,
-    )
-    monkeypatch.setattr(
-        "agent.anthropic_adapter.is_claude_code_token_valid",
-        lambda creds: False,
-    )
-    monkeypatch.setattr(
         "fabric_cli.model_setup_flows._prompt_auth_credentials_choice",
         lambda title: "use",
     )

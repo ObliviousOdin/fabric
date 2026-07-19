@@ -908,7 +908,7 @@ class TestExpiredCodexFallback:
         monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
 
         # Set up Anthropic as fallback
-        monkeypatch.setenv("ANTHROPIC_TOKEN", "sk-ant-oat01-test-fallback")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-test-fallback")
         with patch("agent.anthropic_adapter.build_anthropic_client") as mock_build:
             mock_build.return_value = MagicMock()
             from agent.auxiliary_client import _resolve_auto
@@ -3653,35 +3653,32 @@ class TestAuxiliaryAuthRefreshRetry:
         assert resp.choices[0].message.content == "fresh-async"
         mock_refresh.assert_called_once_with("openai-codex")
 
-    def test_refresh_provider_credentials_force_refreshes_anthropic_oauth_and_evicts_cache(self, monkeypatch):
+    def test_refresh_provider_credentials_anthropic_evicts_cache_on_valid_api_key(self, monkeypatch):
+        """Anthropic has no OAuth refresh path — _refresh_provider_credentials
+        just re-resolves ANTHROPIC_API_KEY and evicts the stale cached client
+        so the next call rebuilds against the current key."""
         stale_client = MagicMock()
         cache_key = ("anthropic", False, None, None, None)
 
         monkeypatch.setenv("ANTHROPIC_TOKEN", "")
         monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-fresh-key")
 
-        with (
-            patch("agent.auxiliary_client._client_cache", {cache_key: (stale_client, "claude-haiku-4-5-20251001", None)}),
-            patch("agent.anthropic_adapter.read_claude_code_credentials", return_value={
-                "accessToken": "expired-token",
-                "refreshToken": "refresh-token",
-                "expiresAt": 0,
-            }),
-            patch("agent.anthropic_adapter.refresh_anthropic_oauth_pure", return_value={
-                "access_token": "fresh-token",
-                "refresh_token": "refresh-token-2",
-                "expires_at_ms": 9999999999999,
-            }) as mock_refresh_oauth,
-            patch("agent.anthropic_adapter._write_claude_code_credentials") as mock_write,
-        ):
+        with patch("agent.auxiliary_client._client_cache", {cache_key: (stale_client, "claude-haiku-4-5-20251001", None)}):
             from agent.auxiliary_client import _refresh_provider_credentials
 
             assert _refresh_provider_credentials("anthropic") is True
 
-        mock_refresh_oauth.assert_called_once_with("refresh-token", use_json=False)
-        mock_write.assert_called_once_with("fresh-token", "refresh-token-2", 9999999999999)
         stale_client.close.assert_called_once()
+
+    def test_refresh_provider_credentials_anthropic_false_without_api_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_TOKEN", "")
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+        from agent.auxiliary_client import _refresh_provider_credentials
+
+        assert _refresh_provider_credentials("anthropic") is False
 
     @pytest.mark.asyncio
     async def test_async_call_llm_refreshes_anthropic_on_401_for_non_vision(self):

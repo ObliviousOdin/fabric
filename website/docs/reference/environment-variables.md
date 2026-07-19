@@ -73,7 +73,6 @@ not environment variables and do not belong in this reference.
 | `GEMINI_BASE_URL` | Override Google AI Studio base URL |
 | `ANTHROPIC_API_KEY` | Anthropic Console API key ([console.anthropic.com](https://console.anthropic.com/)) |
 | `ANTHROPIC_BASE_URL` | Override the Anthropic API base URL |
-| `ANTHROPIC_TOKEN` | Manual or legacy Anthropic OAuth/setup-token override |
 | `DASHSCOPE_API_KEY` | Qwen Cloud (Alibaba DashScope) API key for Qwen models ([modelstudio.console.alibabacloud.com](https://modelstudio.console.alibabacloud.com/)) |
 | `DASHSCOPE_BASE_URL` | Custom DashScope base URL (default: `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`; use `https://dashscope.aliyuncs.com/compatible-mode/v1` for mainland-China region) |
 | `ALIBABA_CODING_PLAN_API_KEY` | Qwen Coding Plan API key (`alibaba-coding-plan` provider) |
@@ -98,13 +97,12 @@ not environment variables and do not belong in this reference.
 | `OPENCODE_ZEN_BASE_URL` | Override OpenCode Zen base URL |
 | `OPENCODE_GO_API_KEY` | OpenCode Go API key — $10/month subscription for open models ([opencode.ai](https://opencode.ai/auth)) |
 | `OPENCODE_GO_BASE_URL` | Override OpenCode Go base URL |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Explicit Claude Code token override if you export one manually |
 | `VOICE_TOOLS_OPENAI_KEY` | Preferred OpenAI key for OpenAI speech-to-text and text-to-speech providers |
 | `FABRIC_HOME` | Override Fabric config directory (default: `~/.fabric`). Also scopes the gateway PID file and systemd service name, so multiple installations can run concurrently |
 
 ## Provider Auth (OAuth)
 
-For native Anthropic auth, Fabric prefers Claude Code's own credential files when they exist because those credentials can refresh automatically. **OAuth against Anthropic requires a Claude Max plan with purchased extra usage credits** — Fabric routes as Claude Code, which only draws from the Max plan's extra/overage credits, not the base Max allowance, and does not work on Claude Pro. Without Max + extra credits, use an API key instead. Environment variables such as `ANTHROPIC_TOKEN` remain useful as manual overrides, but they are no longer the preferred path for Claude Max login.
+Fabric authenticates to native Anthropic with `ANTHROPIC_API_KEY` only — there is no OAuth/subscription login for Anthropic, and Fabric does not read or reuse Claude Code's own credential files (see [NOTICE](https://github.com/ObliviousOdin/fabric/blob/main/NOTICE)). Other providers (Nous, OpenAI Codex, xAI, Qwen, MiniMax) support OAuth device-code or browser logins via `fabric auth add <provider>` / `fabric model`.
 
 | Variable | Description |
 |----------|-------------|

@@ -1560,7 +1560,6 @@ class _AnthropicCompletionsAdapter:
             max_tokens=max_tokens,
             reasoning_config=None,
             tool_choice=normalized_tool_choice,
-            is_oauth=self._is_oauth,
         )
         # Opus 4.7+ rejects any non-default temperature/top_p/top_k; only set
         # temperature for models that still accept it. build_anthropic_kwargs
@@ -1572,9 +1571,7 @@ class _AnthropicCompletionsAdapter:
 
         response = create_anthropic_message(self._client, anthropic_kwargs)
         _transport = get_transport("anthropic_messages")
-        _nr = _transport.normalize_response(
-            response, strip_tool_prefix=self._is_oauth
-        )
+        _nr = _transport.normalize_response(response)
 
         # ToolCall already duck-types as OpenAI shape (.type, .function.name,
         # .function.arguments) via properties, so no wrapping needed.
@@ -3803,12 +3800,9 @@ def _refresh_provider_credentials(provider: str) -> bool:
             _evict_cached_clients(normalized)
             return True
         if normalized == "anthropic":
-            from agent.anthropic_adapter import read_claude_code_credentials, _refresh_oauth_token, resolve_anthropic_token
+            from agent.anthropic_adapter import resolve_anthropic_token
 
-            creds = read_claude_code_credentials()
-            token = _refresh_oauth_token(creds) if isinstance(creds, dict) and creds.get("refreshToken") else None
-            if not str(token or "").strip():
-                token = resolve_anthropic_token()
+            token = resolve_anthropic_token()
             if not str(token or "").strip():
                 return False
             _evict_cached_clients(normalized)

@@ -726,37 +726,6 @@ class TestHasAnyProviderConfigured:
         from fabric_cli.main import _has_any_provider_configured
         assert _has_any_provider_configured() is True
 
-    def test_claude_code_creds_ignored_on_fresh_install(self, monkeypatch, tmp_path):
-        """Claude Code credentials should NOT skip the wizard when Fabric is unconfigured."""
-        from fabric_cli import config as config_module
-        from fabric_cli.auth import PROVIDER_REGISTRY
-        fabric_home = tmp_path / ".fabric"
-        fabric_home.mkdir()
-        monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
-        monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
-        monkeypatch.setattr("fabric_cli.copilot_auth.resolve_copilot_token", lambda: ("", ""))
-        # Clear all provider env vars so earlier checks don't short-circuit
-        _all_vars = {"OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-                      "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"}
-        for pconfig in PROVIDER_REGISTRY.values():
-            if pconfig.auth_type == "api_key":
-                _all_vars.update(pconfig.api_key_env_vars)
-        for var in _all_vars:
-            monkeypatch.delenv(var, raising=False)
-        # Prevent gh-cli / copilot auth fallback from leaking in
-        monkeypatch.setattr("fabric_cli.auth.get_auth_status", lambda _pid: {})
-        # Simulate valid Claude Code credentials
-        monkeypatch.setattr(
-            "agent.anthropic_adapter.read_claude_code_credentials",
-            lambda: {"accessToken": "sk-ant-test", "refreshToken": "ref-tok"},
-        )
-        monkeypatch.setattr(
-            "agent.anthropic_adapter.is_claude_code_token_valid",
-            lambda creds: True,
-        )
-        from fabric_cli.main import _has_any_provider_configured
-        assert _has_any_provider_configured() is False
-
     def test_config_provider_counts(self, monkeypatch, tmp_path):
         """config.yaml with model.provider set should count as configured."""
         import yaml
@@ -841,34 +810,6 @@ class TestHasAnyProviderConfigured:
         monkeypatch.setattr("fabric_cli.auth.get_auth_status", lambda _pid: {})
         from fabric_cli.main import _has_any_provider_configured
         assert _has_any_provider_configured() is False
-
-    def test_claude_code_creds_counted_when_fabric_configured(self, monkeypatch, tmp_path):
-        """Claude Code credentials should count when Fabric has been explicitly configured."""
-        import yaml
-        from fabric_cli import config as config_module
-        fabric_home = tmp_path / ".fabric"
-        fabric_home.mkdir()
-        # Write a config with a non-default model to simulate explicit configuration
-        config_file = fabric_home / "config.yaml"
-        config_file.write_text(yaml.dump({"model": {"default": "my-local-model"}}))
-        monkeypatch.setattr(config_module, "get_env_path", lambda: fabric_home / ".env")
-        monkeypatch.setattr(config_module, "get_fabric_home", lambda: fabric_home)
-        monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
-        # Clear all provider env vars
-        for var in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-                     "ANTHROPIC_TOKEN", "OPENAI_BASE_URL"):
-            monkeypatch.delenv(var, raising=False)
-        # Simulate valid Claude Code credentials
-        monkeypatch.setattr(
-            "agent.anthropic_adapter.read_claude_code_credentials",
-            lambda: {"accessToken": "sk-ant-test", "refreshToken": "ref-tok"},
-        )
-        monkeypatch.setattr(
-            "agent.anthropic_adapter.is_claude_code_token_valid",
-            lambda creds: True,
-        )
-        from fabric_cli.main import _has_any_provider_configured
-        assert _has_any_provider_configured() is True
 
 
 # =============================================================================

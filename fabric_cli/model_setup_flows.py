@@ -12,7 +12,7 @@ explicit import) so existing call sites — and test monkeypatches that target
 ``fabric_cli.main._model_flow_*`` — keep resolving against main.py's namespace.
 
 main.py-internal helpers the flows call (``_prompt_api_key``, ``_save_custom_provider``,
-the reasoning-effort/stepfun/qwen helpers, ``_run_anthropic_oauth_flow``, …) are
+the reasoning-effort/stepfun/qwen helpers, …) are
 imported lazily inside the flows (``from fabric_cli.main import ...`` resolves at
 call time, when main.py is fully loaded) so this module never imports
 ``fabric_cli.main`` at import time -> no import cycle.
@@ -2994,8 +2994,12 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
         print("No change.")
 
 def _model_flow_anthropic(config, current_model=""):
-    """Flow for Anthropic provider — OAuth subscription, API key, or Claude Code creds."""
-    from fabric_cli.main import _run_anthropic_oauth_flow
+    """Flow for Anthropic provider — API key only.
+
+    Fabric authenticates to native Anthropic with a regular API key. It does
+    not offer to sign in with a Claude Pro/Max subscription or read Claude
+    Code's own credentials — see NOTICE for why.
+    """
     from fabric_cli.auth import (
         _prompt_model_selection,
         _save_model_choice,
@@ -3013,51 +3017,27 @@ def _model_flow_anthropic(config, current_model=""):
     from fabric_cli.auth import get_anthropic_key
 
     existing_key = get_anthropic_key()
-    cc_available = False
-    try:
-        from agent.anthropic_adapter import (
-            read_claude_code_credentials,
-            is_claude_code_token_valid,
-            _is_oauth_token,
-        )
-
-        cc_creds = read_claude_code_credentials()
-        if cc_creds and is_claude_code_token_valid(cc_creds):
-            cc_available = True
-    except Exception:
-        pass
-
-    # Stale-OAuth guard: if the only existing cred is an expired OAuth token
-    # (no valid cc_creds to fall back on), treat it as missing so the re-auth
-    # path is offered instead of silently accepting a broken token.
-    existing_is_stale_oauth = False
-    if existing_key and _is_oauth_token(existing_key) and not cc_available:
-        existing_is_stale_oauth = True
-
-    has_creds = (bool(existing_key) and not existing_is_stale_oauth) or cc_available
+    has_creds = bool(existing_key)
     needs_auth = not has_creds
 
     if has_creds:
         # Show what we found
-        if existing_key:
-            from fabric_cli.env_loader import format_secret_source_suffix
-            from fabric_cli.auth import PROVIDER_REGISTRY
+        from fabric_cli.env_loader import format_secret_source_suffix
+        from fabric_cli.auth import PROVIDER_REGISTRY
 
-            # Surface which env var supplied the key so users with
-            # Bitwarden see "(from Bitwarden)" — without this, a detected
-            # BSM key looks identical to a key in .env and users assume
-            # nothing is wired up.
-            source_suffix = ""
-            for var in PROVIDER_REGISTRY["anthropic"].api_key_env_vars:
-                if os.getenv(var, "").strip() == existing_key:
-                    source_suffix = format_secret_source_suffix(var)
-                    if source_suffix:
-                        break
-            print(
-                f"  Anthropic credentials: {existing_key[:12]}... ✓{source_suffix}"
-            )
-        elif cc_available:
-            print("  Claude Code credentials: ✓ (auto-detected)")
+        # Surface which env var supplied the key so users with
+        # Bitwarden see "(from Bitwarden)" — without this, a detected
+        # BSM key looks identical to a key in .env and users assume
+        # nothing is wired up.
+        source_suffix = ""
+        for var in PROVIDER_REGISTRY["anthropic"].api_key_env_vars:
+            if os.getenv(var, "").strip() == existing_key:
+                source_suffix = format_secret_source_suffix(var)
+                if source_suffix:
+                    break
+        print(
+            f"  Anthropic credentials: {existing_key[:12]}... ✓{source_suffix}"
+        )
         print()
         choice = _prompt_auth_credentials_choice("Anthropic credentials:")
 
@@ -3068,44 +3048,21 @@ def _model_flow_anthropic(config, current_model=""):
         # choice == "use" or default: use existing, proceed to model selection
 
     if needs_auth:
-        # Show auth method choice
         print()
-        print("  Choose authentication method:")
+        print("  Get an API key at: https://platform.claude.com/settings/keys")
         print()
-        print("    1. Claude Pro/Max subscription (OAuth login)")
-        print("    2. Anthropic API key (pay-per-token)")
-        print("    3. Cancel")
-        print()
+        from fabric_cli.secret_prompt import masked_secret_prompt
+
         try:
-            choice = input("  Choice [1/2/3]: ").strip()
+            api_key = masked_secret_prompt("  API key (sk-ant-...): ").strip()
         except (KeyboardInterrupt, EOFError):
             print()
             return
-
-        if choice == "1":
-            if not _run_anthropic_oauth_flow(save_env_value):
-                return
-
-        elif choice == "2":
-            print()
-            print("  Get an API key at: https://platform.claude.com/settings/keys")
-            print()
-            from fabric_cli.secret_prompt import masked_secret_prompt
-
-            try:
-                api_key = masked_secret_prompt("  API key (sk-ant-...): ").strip()
-            except (KeyboardInterrupt, EOFError):
-                print()
-                return
-            if not api_key:
-                print("  Cancelled.")
-                return
-            save_anthropic_api_key(api_key, save_fn=save_env_value)
-            print("  ✓ API key saved.")
-
-        else:
-            print("  No change.")
+        if not api_key:
+            print("  Cancelled.")
             return
+        save_anthropic_api_key(api_key, save_fn=save_env_value)
+        print("  ✓ API key saved.")
     print()
 
     # Model selection

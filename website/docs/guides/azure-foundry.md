@@ -246,8 +246,8 @@ Important behaviour:
 - **`/v1` is stripped from the base URL.** The Anthropic SDK appends `/v1/messages` to every request URL — Fabric removes any trailing `/v1` before handing the URL to the SDK to avoid double-`/v1` paths.
 - **`api-version` is sent via `default_query`, not appended to the URL.** Azure Anthropic requires an `api-version` query string. Baking it into the base URL produces malformed paths like `/anthropic?api-version=.../v1/messages` and returns 404. Fabric passes `api-version=2025-04-15` via the Anthropic SDK's `default_query` instead.
 - **Bearer auth is used instead of `x-api-key`.** Azure's Anthropic-compatible route requires `Authorization: Bearer <key>` rather than Anthropic's native `x-api-key` header. Fabric detects `azure.com` in the base URL and routes the API key through the SDK's `auth_token` field so the right header reaches the upstream.
-- **1M context window beta header is kept.** Azure still gates the 1M-token Claude context (Opus 4.6/4.7, Sonnet 4.6) behind the `anthropic-beta: context-1m-2025-08-07` header. Fabric keeps that beta header on Azure paths (it's stripped from native Anthropic OAuth requests because some subscriptions reject it, but Azure requires it).
-- **OAuth token refresh is disabled.** Azure deployments use static API keys. The `~/.claude/.credentials.json` OAuth token refresh loop that applies to Anthropic Console is explicitly skipped for Azure endpoints to prevent the Claude Code OAuth token from overwriting your Azure key mid-session.
+- **1M context window beta header is kept.** Azure still gates the 1M-token Claude context (Opus 4.6/4.7, Sonnet 4.6) behind the `anthropic-beta: context-1m-2025-08-07` header. Fabric keeps that beta header on Azure paths (it's dropped on native Anthropic Console requests reactively if a subscription rejects it, but Azure requires it).
+- **Azure deployments use static API keys.** There is no OAuth/subscription login for Anthropic in Fabric, on Azure or otherwise — see [NOTICE](https://github.com/ObliviousOdin/fabric/blob/main/NOTICE).
 
 ## Alternative: `provider: anthropic` + Azure base URL
 

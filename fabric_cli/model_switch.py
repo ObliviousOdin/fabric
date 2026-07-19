@@ -2834,9 +2834,7 @@ def list_authenticated_providers(
                         has_creds = True
                         break
         # Check auth store and credential pool for non-env-var credentials.
-        # This applies to OAuth providers AND api_key providers that also
-        # support OAuth (e.g. anthropic supports both API key and Claude Code
-        # OAuth via external credential files).
+        # This applies to OAuth providers.
         if not has_creds:
             try:
                 from fabric_cli.auth import _load_auth_store
@@ -2860,26 +2858,6 @@ def list_authenticated_providers(
                     has_creds = True
             except Exception as exc:
                 logger.debug("Credential pool check failed for %s: %s", fabric_slug, exc)
-        # Fallback: check external credential files directly.
-        # The credential pool gates anthropic behind
-        # is_provider_explicitly_configured() to prevent auxiliary tasks
-        # from silently consuming Claude Code tokens (PR #4210).
-        # But the /model picker is discovery-oriented — we WANT to show
-        # providers the user can switch to, even if they aren't currently
-        # configured.
-        if not has_creds and fabric_slug == "anthropic":
-            try:
-                from agent.anthropic_adapter import (
-                    read_claude_code_credentials,
-                    read_fabric_oauth_credentials,
-                )
-                fabric_creds = read_fabric_oauth_credentials()
-                cc_creds = read_claude_code_credentials()
-                if (fabric_creds and fabric_creds.get("accessToken")) or \
-                   (cc_creds and cc_creds.get("accessToken")):
-                    has_creds = True
-            except Exception as exc:
-                logger.debug("Anthropic external creds check failed: %s", exc)
         if not has_creds:
             continue
 

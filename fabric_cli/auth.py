@@ -344,7 +344,7 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         name="Anthropic",
         auth_type="api_key",
         inference_base_url="https://api.anthropic.com",
-        api_key_env_vars=("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"),
+        api_key_env_vars=("ANTHROPIC_API_KEY",),
         base_url_env_var="ANTHROPIC_BASE_URL",
     ),
     "alibaba": ProviderConfig(
@@ -514,25 +514,21 @@ except Exception:
 # =============================================================================
 
 def get_anthropic_key() -> str:
-    """Return the first usable Anthropic credential, or ``""``.
+    """Return the Anthropic API key, or ``""``.
 
     Checks both the ``.env`` file and the process environment, preferring
     ``~/.fabric/.env`` so a deliberate key rotation isn't shadowed by a stale
-    shell export (matches the api-key resolution path — see #20591).  The
-    order mirrors the ``PROVIDER_REGISTRY["anthropic"].api_key_env_vars``
-    tuple:
+    shell export (matches the api-key resolution path — see #20591).
 
-        ANTHROPIC_API_KEY -> ANTHROPIC_TOKEN -> CLAUDE_CODE_OAUTH_TOKEN
+    Fabric does not accept OAuth/setup-token-shaped values here — those are
+    scoped to Anthropic's own first-party clients.
     """
     from agent.anthropic_adapter import _is_oauth_token
     from fabric_cli.config import get_env_value_prefer_dotenv
 
-    for var in PROVIDER_REGISTRY["anthropic"].api_key_env_vars:
-        value = get_env_value_prefer_dotenv(var) or ""
-        if var == "ANTHROPIC_API_KEY" and _is_oauth_token(value):
-            continue
-        if value:
-            return value
+    value = get_env_value_prefer_dotenv("ANTHROPIC_API_KEY") or ""
+    if value and not _is_oauth_token(value):
+        return value
     return ""
 
 

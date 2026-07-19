@@ -295,6 +295,9 @@ export interface Translations {
       completionSoundTitle: string
       completionSoundDesc: string
       completionSoundPreview: string
+      approvalSoundTitle: string
+      approvalSoundDesc: string
+      approvalSoundPreview: string
     }
     sections: Record<string, string>
     searchPlaceholder: Record<'about' | 'config' | 'gateway' | 'keys' | 'mcp' | 'sessions', string>
@@ -2012,6 +2015,14 @@ export interface Translations {
       alwaysTitle: string
       alwaysDescription: (pattern: string) => string
       alwaysAllow: string
+      detailsToggle: string
+      detailsShow: string
+      detailsHide: string
+      detailsPanelLabel: string
+      detailsReason: string
+      detailsTool: string
+      detailsWorkingDir: string
+      destructiveBadge: string
     }
     clarify: {
       notReady: string

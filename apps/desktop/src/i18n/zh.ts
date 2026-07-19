@@ -340,7 +340,11 @@ export const zh: Translations = {
       testUnsupported: '此系统不支持原生通知。',
       completionSoundTitle: '完成提示音',
       completionSoundDesc: '智能体回合结束时播放。可在此选择预设并预览。',
-      completionSoundPreview: '预览'
+      completionSoundPreview: '预览',
+      approvalSoundTitle: '审批提示音',
+      approvalSoundDesc:
+        '当有审批需要你处理、而 Fabric 恰好聚焦在该对话时播放短促提示音——这是唯一不会显示桌面通知的情况。遵循全局静音设置。',
+      approvalSoundPreview: '预览'
     },
     sections: {
       model: '模型',
@@ -2565,7 +2569,15 @@ export const zh: Translations = {
       alwaysTitle: '始终允许此命令？',
       alwaysDescription: pattern =>
         `这会将“${pattern}”模式加入永久允许列表 (~/.fabric/config.yaml)。Fabric 对类似命令将不再询问，包括当前会话和未来会话。`,
-      alwaysAllow: '始终允许'
+      alwaysAllow: '始终允许',
+      detailsToggle: '详情',
+      detailsShow: '显示审批详情',
+      detailsHide: '隐藏审批详情',
+      detailsPanelLabel: '审批详情',
+      detailsReason: '原因',
+      detailsTool: '工具',
+      detailsWorkingDir: '工作目录',
+      destructiveBadge: '破坏性操作——可能无法撤销'
     },
     clarify: {
       notReady: '澄清请求尚未就绪',

@@ -21,6 +21,17 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Deploy & Host',
+      collapsed: true,
+      items: [
+        'deploy/index',
+        'deploy/self-hosting',
+        'deploy/managed-hosting',
+        'deploy/compute-broker',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Using Fabric',
       collapsed: true,
       items: [

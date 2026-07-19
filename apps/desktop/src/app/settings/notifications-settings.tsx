@@ -5,10 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { useI18n } from '@/i18n'
+import { previewApprovalSound } from '@/lib/approval-sound'
 import { COMPLETION_SOUND_VARIANTS, previewCompletionSound } from '@/lib/completion-sound'
 import { triggerHaptic } from '@/lib/haptics'
 import { Bell, Play } from '@/lib/icons'
 import { cn } from '@/lib/utils'
+import { $approvalSoundEnabled, setApprovalSoundEnabled } from '@/store/approval-sound'
 import { $completionSoundVariantId, setCompletionSoundVariantId } from '@/store/completion-sound'
 import {
   $nativeNotifyPrefs,
@@ -58,6 +60,7 @@ export function NotificationsSettings() {
   const { t } = useI18n()
   const prefs = useStore($nativeNotifyPrefs)
   const completionSoundVariantId = useStore($completionSoundVariantId)
+  const approvalSoundEnabled = useStore($approvalSoundEnabled)
   const copy = t.settings.notifications
 
   const runTest = async () => {
@@ -132,6 +135,37 @@ export function NotificationsSettings() {
         }
         description={copy.completionSoundDesc}
         title={copy.completionSoundTitle}
+      />
+
+      <ListRow
+        action={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              className="gap-1.5"
+              onClick={() => {
+                previewApprovalSound()
+                triggerHaptic('crisp')
+              }}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <Play className="size-3.5" />
+              {copy.approvalSoundPreview}
+            </Button>
+
+            <Switch
+              aria-label={copy.approvalSoundTitle}
+              checked={approvalSoundEnabled}
+              onCheckedChange={on => {
+                triggerHaptic('selection')
+                setApprovalSoundEnabled(on)
+              }}
+            />
+          </div>
+        }
+        description={copy.approvalSoundDesc}
+        title={copy.approvalSoundTitle}
       />
 
       <div className="mt-4 flex flex-col gap-2">

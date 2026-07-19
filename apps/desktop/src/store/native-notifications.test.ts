@@ -1,9 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/lib/approval-sound', () => ({
+  playApprovalSound: vi.fn(),
+  previewApprovalSound: vi.fn()
+}))
+
+import { playApprovalSound } from '@/lib/approval-sound'
+
 import { $gateway } from './gateway'
 import {
   dispatchNativeNotification,
+  maybePlayApprovalSound,
   NATIVE_NOTIFICATION_KINDS,
+  resetApprovalSoundThrottle,
   respondToApprovalAction,
   sendTestNativeNotification,
   setNativeNotifyEnabled,
@@ -201,5 +210,58 @@ describe('respondToApprovalAction', () => {
     $gateway.set(null)
     await respondToApprovalAction('bg', 'approve')
     expect(request).not.toHaveBeenCalled()
+  })
+})
+
+describe('maybePlayApprovalSound', () => {
+  const playSound = vi.mocked(playApprovalSound)
+
+  beforeEach(() => {
+    playSound.mockClear()
+    resetApprovalSoundThrottle()
+    // Focused + visible → shouldFire suppresses the native banner, so the in-app
+    // cue is the only alert. This is exactly the gap #50 fills.
+    setWindowState({ focused: true, hidden: false })
+    setActiveSessionId('sess-1')
+  })
+
+  it('plays for a blocking approval on the focused active session', () => {
+    maybePlayApprovalSound('sess-1', 'rm -rf /tmp/x')
+    expect(playSound).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not replay the same session+command (reconnect replay)', () => {
+    maybePlayApprovalSound('sess-1', 'rm -rf /tmp/x')
+    maybePlayApprovalSound('sess-1', 'rm -rf /tmp/x')
+    expect(playSound).toHaveBeenCalledTimes(1)
+  })
+
+  it('plays again for a different command in the same session', () => {
+    maybePlayApprovalSound('sess-1', 'rm -rf /tmp/x')
+    maybePlayApprovalSound('sess-1', 'chmod -R 777 /tmp/y')
+    expect(playSound).toHaveBeenCalledTimes(2)
+  })
+
+  it('stays silent for an off-screen (non-active) session', () => {
+    maybePlayApprovalSound('sess-2', 'rm -rf /tmp/x')
+    expect(playSound).not.toHaveBeenCalled()
+  })
+
+  it('stays silent with no session id', () => {
+    maybePlayApprovalSound(null, 'rm -rf /tmp/x')
+    expect(playSound).not.toHaveBeenCalled()
+  })
+
+  it('stays silent when backgrounded — the native notification already sounds', () => {
+    setWindowState({ focused: false, hidden: false })
+    maybePlayApprovalSound('sess-1', 'rm -rf /tmp/x')
+    expect(playSound).not.toHaveBeenCalled()
+  })
+
+  it('plays again once the throttle is reset', () => {
+    maybePlayApprovalSound('sess-1', 'rm -rf /tmp/x')
+    resetApprovalSoundThrottle()
+    maybePlayApprovalSound('sess-1', 'rm -rf /tmp/x')
+    expect(playSound).toHaveBeenCalledTimes(2)
   })
 })

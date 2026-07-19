@@ -86,6 +86,7 @@ const PROFILE_SCOPED_PREFIXES = [
   "/api/env",
   "/api/mcp",
   "/api/memory",
+  "/api/plugins/achievements/",
   "/api/dashboard/plugins/hub",
   "/api/dashboard/plugin-providers",
   "/api/messaging/platforms",

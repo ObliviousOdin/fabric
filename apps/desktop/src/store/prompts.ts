@@ -72,7 +72,18 @@ export interface ApprovalRequest extends KeyedPrompt {
   // false when the backend won't honor a permanent allow (tirith warning) → hide "Always allow".
   allowPermanent?: boolean
   command: string
+  // The authoritative execution cwd the backend reports for this command (the
+  // remote cwd for non-local terminal backends). Absent on older backends —
+  // the details panel then omits the working-directory row rather than showing
+  // a possibly-wrong host directory.
+  cwd?: string
   description: string
+  // The guard that flagged the command (backend already sends these on the
+  // approval.request payload). Surfaced in the details panel as the "why" and
+  // used to badge destructive/high-risk approvals. Optional: older backends and
+  // the floating fallback may omit them.
+  patternKey?: string
+  patternKeys?: string[]
 }
 
 export interface SudoRequest extends KeyedPrompt {

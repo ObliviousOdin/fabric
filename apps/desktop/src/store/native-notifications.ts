@@ -1,5 +1,6 @@
 import { atom } from 'nanostores'
 
+import { playApprovalSound } from '@/lib/approval-sound'
 import { persistString, storedString } from '@/lib/storage'
 
 import { $gateway } from './gateway'
@@ -175,6 +176,46 @@ export function dispatchNativeNotification(input: NativeNotificationInput): void
     silent: input.silent,
     title: input.title
   })
+}
+
+// Approval cue de-dupe: a re-raised/replayed approval.request for the same
+// session+command (e.g. on gateway reconnect) must not replay the sound.
+// Self-evicting on a short window, like the native-notification throttle above.
+const APPROVAL_SOUND_WINDOW_MS = 2000
+const approvalSoundFiredAt = new Map<string, number>()
+
+// Test seam: clear the de-dupe ledger between cases.
+export function resetApprovalSoundThrottle(): void {
+  approvalSoundFiredAt.clear()
+}
+
+// Play the in-app approval cue when a blocking approval lands on the *focused*
+// active session — the one case shouldFire() suppresses the native OS
+// notification (it's neither backgrounded nor an off-screen session), so without
+// a sound a user who stepped away while Fabric stayed focused can miss it. For a
+// backgrounded app or an off-screen session the native notification already
+// carries its own sound, so staying silent here avoids doubling up.
+export function maybePlayApprovalSound(sessionId?: null | string, command?: string): void {
+  if (isBackgrounded() || !sessionId || sessionId !== $activeSessionId.get()) {
+    return
+  }
+
+  const now = Date.now()
+
+  for (const [key, at] of approvalSoundFiredAt) {
+    if (now - at >= APPROVAL_SOUND_WINDOW_MS) {
+      approvalSoundFiredAt.delete(key)
+    }
+  }
+
+  const dedupeKey = `${sessionId} ${command ?? ''}`
+
+  if (approvalSoundFiredAt.has(dedupeKey)) {
+    return
+  }
+
+  approvalSoundFiredAt.set(dedupeKey, now)
+  playApprovalSound()
 }
 
 // Resolve a pending approval from a notification button, mirroring the in-app

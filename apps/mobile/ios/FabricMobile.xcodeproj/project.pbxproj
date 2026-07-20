@@ -1,0 +1,656 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		010D7C7747AE0E123A4145D0 /* GatewayCapabilitiesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53A856CAC846194DFE6D0435 /* GatewayCapabilitiesTests.swift */; };
+		0160D0F6BB62086B3E42EFE3 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C179BCEF71B93C103470D8 /* ChatView.swift */; };
+		0871E7FC1CABD42A8047DD87 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 0AF1262DB9585F020AAAE281 /* PrivacyInfo.xcprivacy */; };
+		0DF48BADC421CB14C566FC95 /* LiveViewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2198E6499B493895E81AF58A /* LiveViewSheet.swift */; };
+		144E9F91E4AD4F76C9ECC634 /* FabricMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3A2D35BBEF8CE01D18A16A /* FabricMobileApp.swift */; };
+		196C73FCA0C0A797904623FA /* terminal.json in Resources */ = {isa = PBXBuildFile; fileRef = CF2716EFA82EA83E0668BB81 /* terminal.json */; };
+		1F96B393FF3EE32C3E36F02B /* PairingURI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D2601B6230C9D2249D80E9 /* PairingURI.swift */; };
+		235C95E12197DE57E2E10426 /* SessionListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6295AC1FB76C35B031EBEF24 /* SessionListView.swift */; };
+		281E9F3C240B42B32A80A195 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 114E502998A8CE6CA1C1BC89 /* Assets.xcassets */; };
+		33B4E2B72D53190870B70C80 /* GatewayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E788461E2DF03CA0F6128F9 /* GatewayStore.swift */; };
+		396A2DA544E0B421A74711BF /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 0D8B19EA1D35CF975801464B /* manifest.json */; };
+		3D62A0F123FA6CE8034FA163 /* FabricWorkContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAF5503C200A9D187123A534 /* FabricWorkContract.swift */; };
+		3F984918B9A4D16F35B8F690 /* malformed.json in Resources */ = {isa = PBXBuildFile; fileRef = 10AEFA659FBB938E31BD96F8 /* malformed.json */; };
+		425FC21992BAA963F72218EB /* GatewayAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64177EA0B0A9841984EEDC21 /* GatewayAPI.swift */; };
+		4293BB7B83E71DC14F4C462B /* gateway-capabilities-malformed.json in Resources */ = {isa = PBXBuildFile; fileRef = 29BFBA342706A1D6CB052C0C /* gateway-capabilities-malformed.json */; };
+		4A04017898D1F4CC2BA35202 /* JsonRpcGatewayClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = FACE05AECDAE13F55E07AC81 /* JsonRpcGatewayClient.swift */; };
+		4D146C379491DBA76D325E25 /* incompatible.json in Resources */ = {isa = PBXBuildFile; fileRef = 2EB3236C5337F2F7175AE109 /* incompatible.json */; };
+		4D7AE628A7A893F692173B96 /* gateway-capabilities-incompatible.json in Resources */ = {isa = PBXBuildFile; fileRef = 7FD48E3CADC1A4F2709D5D66 /* gateway-capabilities-incompatible.json */; };
+		56DF927DF13B7E77652A7E64 /* bootstrap-page-1.json in Resources */ = {isa = PBXBuildFile; fileRef = E74DD14448B2A54E9CFD93B0 /* bootstrap-page-1.json */; };
+		56ED4990736694157DA23A63 /* fabric-pairing-v2.json in Resources */ = {isa = PBXBuildFile; fileRef = 6D8F08A60A4586EE5893C3E9 /* fabric-pairing-v2.json */; };
+		5E926420C1DABB9AD689B4A9 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F55A105AD6902AC6D282B12B /* QRScannerView.swift */; };
+		69BE57442CC48B8D911610D2 /* additive-future.json in Resources */ = {isa = PBXBuildFile; fileRef = CFB96B2E1031E6C4519CCB98 /* additive-future.json */; };
+		88DC45C1FFD151294158331E /* replaced-ledger.json in Resources */ = {isa = PBXBuildFile; fileRef = A3D8FF63DA666046CAE8A11B /* replaced-ledger.json */; };
+		8CEA98F6B988474EE350B8DE /* FabricWorkSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */; };
+		8F190214F47E426DF730C91A /* legacy-mobile-methods.json in Resources */ = {isa = PBXBuildFile; fileRef = 67B8A44C68F860E47594E46E /* legacy-mobile-methods.json */; };
+		912FE7194FE58376B6E0136B /* delta.json in Resources */ = {isa = PBXBuildFile; fileRef = 2D075734769A0025DC152BAB /* delta.json */; };
+		9546BB85CA5D4DC19E6DA502 /* bootstrap-page-2.json in Resources */ = {isa = PBXBuildFile; fileRef = DE3236B367DE48627DE9B7D7 /* bootstrap-page-2.json */; };
+		9A3E38E43CCC7553DD744EF4 /* PairingPayloadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0C7BFE683A90163E7E3F9FB /* PairingPayloadTests.swift */; };
+		A09DECD1DC67AA4930E1C99B /* RemoteControlSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 866F3A31E7680B3C401BFD26 /* RemoteControlSheets.swift */; };
+		A2902C8EA6FE916ED775235A /* tombstone.json in Resources */ = {isa = PBXBuildFile; fileRef = 034D30BD2B95E176EC50AFA8 /* tombstone.json */; };
+		A29B062FC213F81EC60BDE0F /* ResumeHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5052E62B1392922749F8EC7B /* ResumeHistoryTests.swift */; };
+		A5C97656CFABB374990C50CA /* gateway-capabilities-v1.json in Resources */ = {isa = PBXBuildFile; fileRef = 82269ED2BBD6CF3FEBA37C14 /* gateway-capabilities-v1.json */; };
+		A7D097F9C0A4C377F8F62B79 /* InteractionReceiptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7429FE32EA73F2689A58B7D4 /* InteractionReceiptTests.swift */; };
+		AC09295728E05DBDCE169AA1 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 127EBA51A803EF79CFADA702 /* AppModel.swift */; };
+		AC9202423DA63CA28366139F /* WorkContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C540BD0C2DD543FE4AB8AE /* WorkContractTests.swift */; };
+		B4668491CA6D5572A9F78DDD /* ChatViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57442E4850DCF4E2DED9304D /* ChatViewModel.swift */; };
+		B66E75ED1E005D0AE02FFEB6 /* GatewayListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EBC35A073721043E19187A5 /* GatewayListView.swift */; };
+		C2A694075BB866A62DBE5290 /* FabricTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1311816760BD7CBE12AD28BC /* FabricTheme.swift */; };
+		C8DD6DFE4F69ABC930D40AE2 /* sensitive-attention.json in Resources */ = {isa = PBXBuildFile; fileRef = B498AEFFE50A8D9D969AE335 /* sensitive-attention.json */; };
+		D5AEDD93F518FC0224AD8B33 /* SavedGatewayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D717E0920AEB950A30325E44 /* SavedGatewayTests.swift */; };
+		D7BCBDB0C0A661B997F5FE8B /* cursor-expired.json in Resources */ = {isa = PBXBuildFile; fileRef = 94A8ED8E93E58F02C35EE9E1 /* cursor-expired.json */; };
+		DE41174B4AE13E9BECE8E9F8 /* AddGatewayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC16A8344D8694E0445ED56 /* AddGatewayView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		6DB9A679BBE41AC57A4C05E3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9263233CCF6D1388C76C53DC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 24DCD7FC4380267E22B93F7D;
+			remoteInfo = Fabric;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		034D30BD2B95E176EC50AFA8 /* tombstone.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = tombstone.json; sourceTree = "<group>"; };
+		0AF1262DB9585F020AAAE281 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		0D8B19EA1D35CF975801464B /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
+		10AEFA659FBB938E31BD96F8 /* malformed.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = malformed.json; sourceTree = "<group>"; };
+		114E502998A8CE6CA1C1BC89 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		127EBA51A803EF79CFADA702 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		1311816760BD7CBE12AD28BC /* FabricTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricTheme.swift; sourceTree = "<group>"; };
+		2198E6499B493895E81AF58A /* LiveViewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViewSheet.swift; sourceTree = "<group>"; };
+		29BFBA342706A1D6CB052C0C /* gateway-capabilities-malformed.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-malformed.json"; sourceTree = "<group>"; };
+		2C3A2D35BBEF8CE01D18A16A /* FabricMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricMobileApp.swift; sourceTree = "<group>"; };
+		2D075734769A0025DC152BAB /* delta.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = delta.json; sourceTree = "<group>"; };
+		2EB3236C5337F2F7175AE109 /* incompatible.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = incompatible.json; sourceTree = "<group>"; };
+		3F2CFA26661CC23DAE50B21F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5052E62B1392922749F8EC7B /* ResumeHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeHistoryTests.swift; sourceTree = "<group>"; };
+		53A856CAC846194DFE6D0435 /* GatewayCapabilitiesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayCapabilitiesTests.swift; sourceTree = "<group>"; };
+		57442E4850DCF4E2DED9304D /* ChatViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatViewModel.swift; sourceTree = "<group>"; };
+		58C179BCEF71B93C103470D8 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		5EBC35A073721043E19187A5 /* GatewayListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayListView.swift; sourceTree = "<group>"; };
+		6295AC1FB76C35B031EBEF24 /* SessionListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionListView.swift; sourceTree = "<group>"; };
+		64177EA0B0A9841984EEDC21 /* GatewayAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayAPI.swift; sourceTree = "<group>"; };
+		67B8A44C68F860E47594E46E /* legacy-mobile-methods.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "legacy-mobile-methods.json"; sourceTree = "<group>"; };
+		6D8F08A60A4586EE5893C3E9 /* fabric-pairing-v2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "fabric-pairing-v2.json"; sourceTree = "<group>"; };
+		7429FE32EA73F2689A58B7D4 /* InteractionReceiptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractionReceiptTests.swift; sourceTree = "<group>"; };
+		7FD48E3CADC1A4F2709D5D66 /* gateway-capabilities-incompatible.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-incompatible.json"; sourceTree = "<group>"; };
+		82269ED2BBD6CF3FEBA37C14 /* gateway-capabilities-v1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "gateway-capabilities-v1.json"; sourceTree = "<group>"; };
+		866F3A31E7680B3C401BFD26 /* RemoteControlSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteControlSheets.swift; sourceTree = "<group>"; };
+		89D2601B6230C9D2249D80E9 /* PairingURI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingURI.swift; sourceTree = "<group>"; };
+		8E788461E2DF03CA0F6128F9 /* GatewayStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayStore.swift; sourceTree = "<group>"; };
+		8EC16A8344D8694E0445ED56 /* AddGatewayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddGatewayView.swift; sourceTree = "<group>"; };
+		94A8ED8E93E58F02C35EE9E1 /* cursor-expired.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "cursor-expired.json"; sourceTree = "<group>"; };
+		A1C2E17FA35CD5F43CEAA5DB /* Fabric.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fabric.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A3D8FF63DA666046CAE8A11B /* replaced-ledger.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "replaced-ledger.json"; sourceTree = "<group>"; };
+		B0C7BFE683A90163E7E3F9FB /* PairingPayloadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingPayloadTests.swift; sourceTree = "<group>"; };
+		B171F59DCEB617099454272A /* FabricTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = FabricTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B498AEFFE50A8D9D969AE335 /* sensitive-attention.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "sensitive-attention.json"; sourceTree = "<group>"; };
+		CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricWorkSync.swift; sourceTree = "<group>"; };
+		CF2716EFA82EA83E0668BB81 /* terminal.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = terminal.json; sourceTree = "<group>"; };
+		CFB96B2E1031E6C4519CCB98 /* additive-future.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "additive-future.json"; sourceTree = "<group>"; };
+		D4C540BD0C2DD543FE4AB8AE /* WorkContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkContractTests.swift; sourceTree = "<group>"; };
+		D717E0920AEB950A30325E44 /* SavedGatewayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedGatewayTests.swift; sourceTree = "<group>"; };
+		DAF5503C200A9D187123A534 /* FabricWorkContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FabricWorkContract.swift; sourceTree = "<group>"; };
+		DE3236B367DE48627DE9B7D7 /* bootstrap-page-2.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-page-2.json"; sourceTree = "<group>"; };
+		E74DD14448B2A54E9CFD93B0 /* bootstrap-page-1.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "bootstrap-page-1.json"; sourceTree = "<group>"; };
+		F55A105AD6902AC6D282B12B /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
+		FACE05AECDAE13F55E07AC81 /* JsonRpcGatewayClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JsonRpcGatewayClient.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0E8152C7A0F246FFFD32AAA9 /* FabricTests */ = {
+			isa = PBXGroup;
+			children = (
+				53A856CAC846194DFE6D0435 /* GatewayCapabilitiesTests.swift */,
+				7429FE32EA73F2689A58B7D4 /* InteractionReceiptTests.swift */,
+				B0C7BFE683A90163E7E3F9FB /* PairingPayloadTests.swift */,
+				5052E62B1392922749F8EC7B /* ResumeHistoryTests.swift */,
+				D717E0920AEB950A30325E44 /* SavedGatewayTests.swift */,
+				D4C540BD0C2DD543FE4AB8AE /* WorkContractTests.swift */,
+			);
+			path = FabricTests;
+			sourceTree = "<group>";
+		};
+		10534D7B2D24FAD2F01D6152 /* Connect */ = {
+			isa = PBXGroup;
+			children = (
+				8EC16A8344D8694E0445ED56 /* AddGatewayView.swift */,
+				5EBC35A073721043E19187A5 /* GatewayListView.swift */,
+				F55A105AD6902AC6D282B12B /* QRScannerView.swift */,
+			);
+			path = Connect;
+			sourceTree = "<group>";
+		};
+		26D9402EB7BF3114EC7FCF79 /* mobile */ = {
+			isa = PBXGroup;
+			children = (
+				C2D08556344D690894D8BF04 /* contracts */,
+			);
+			name = mobile;
+			path = ..;
+			sourceTree = "<group>";
+		};
+		4CA38F495733D77181920E25 /* Fabric */ = {
+			isa = PBXGroup;
+			children = (
+				114E502998A8CE6CA1C1BC89 /* Assets.xcassets */,
+				3F2CFA26661CC23DAE50B21F /* Info.plist */,
+				0AF1262DB9585F020AAAE281 /* PrivacyInfo.xcprivacy */,
+				A76C882980F5C48C6EDAF020 /* App */,
+				DFC333FB049B1632A8B75E31 /* Core */,
+				F148A092ACB997745FD341F3 /* DesignSystem */,
+				6E161508508959A1E0CCEA45 /* Features */,
+			);
+			path = Fabric;
+			sourceTree = "<group>";
+		};
+		50EB366336E063C7752F0741 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A1C2E17FA35CD5F43CEAA5DB /* Fabric.app */,
+				B171F59DCEB617099454272A /* FabricTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		63A40C9A5D0F942D90F1A1C6 = {
+			isa = PBXGroup;
+			children = (
+				4CA38F495733D77181920E25 /* Fabric */,
+				0E8152C7A0F246FFFD32AAA9 /* FabricTests */,
+				26D9402EB7BF3114EC7FCF79 /* mobile */,
+				50EB366336E063C7752F0741 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		68ADBDF133F50D638CAC47C2 /* Sessions */ = {
+			isa = PBXGroup;
+			children = (
+				6295AC1FB76C35B031EBEF24 /* SessionListView.swift */,
+			);
+			path = Sessions;
+			sourceTree = "<group>";
+		};
+		6E161508508959A1E0CCEA45 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				A0C31EA2A8546AA13EE256BF /* Chat */,
+				10534D7B2D24FAD2F01D6152 /* Connect */,
+				68ADBDF133F50D638CAC47C2 /* Sessions */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		A0C31EA2A8546AA13EE256BF /* Chat */ = {
+			isa = PBXGroup;
+			children = (
+				58C179BCEF71B93C103470D8 /* ChatView.swift */,
+				57442E4850DCF4E2DED9304D /* ChatViewModel.swift */,
+				2198E6499B493895E81AF58A /* LiveViewSheet.swift */,
+				866F3A31E7680B3C401BFD26 /* RemoteControlSheets.swift */,
+			);
+			path = Chat;
+			sourceTree = "<group>";
+		};
+		A76C882980F5C48C6EDAF020 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				127EBA51A803EF79CFADA702 /* AppModel.swift */,
+				2C3A2D35BBEF8CE01D18A16A /* FabricMobileApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C2D08556344D690894D8BF04 /* contracts */ = {
+			isa = PBXGroup;
+			children = (
+				6D8F08A60A4586EE5893C3E9 /* fabric-pairing-v2.json */,
+				7FD48E3CADC1A4F2709D5D66 /* gateway-capabilities-incompatible.json */,
+				29BFBA342706A1D6CB052C0C /* gateway-capabilities-malformed.json */,
+				82269ED2BBD6CF3FEBA37C14 /* gateway-capabilities-v1.json */,
+				67B8A44C68F860E47594E46E /* legacy-mobile-methods.json */,
+				FF8D969572E83EC9A6326C1C /* fabric-work-v1 */,
+			);
+			path = contracts;
+			sourceTree = "<group>";
+		};
+		DFC333FB049B1632A8B75E31 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				DAF5503C200A9D187123A534 /* FabricWorkContract.swift */,
+				CB978B8F714B72E27A81EFA6 /* FabricWorkSync.swift */,
+				64177EA0B0A9841984EEDC21 /* GatewayAPI.swift */,
+				8E788461E2DF03CA0F6128F9 /* GatewayStore.swift */,
+				FACE05AECDAE13F55E07AC81 /* JsonRpcGatewayClient.swift */,
+				89D2601B6230C9D2249D80E9 /* PairingURI.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		F148A092ACB997745FD341F3 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				1311816760BD7CBE12AD28BC /* FabricTheme.swift */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		FF8D969572E83EC9A6326C1C /* fabric-work-v1 */ = {
+			isa = PBXGroup;
+			children = (
+				CFB96B2E1031E6C4519CCB98 /* additive-future.json */,
+				E74DD14448B2A54E9CFD93B0 /* bootstrap-page-1.json */,
+				DE3236B367DE48627DE9B7D7 /* bootstrap-page-2.json */,
+				94A8ED8E93E58F02C35EE9E1 /* cursor-expired.json */,
+				2D075734769A0025DC152BAB /* delta.json */,
+				2EB3236C5337F2F7175AE109 /* incompatible.json */,
+				10AEFA659FBB938E31BD96F8 /* malformed.json */,
+				0D8B19EA1D35CF975801464B /* manifest.json */,
+				A3D8FF63DA666046CAE8A11B /* replaced-ledger.json */,
+				B498AEFFE50A8D9D969AE335 /* sensitive-attention.json */,
+				CF2716EFA82EA83E0668BB81 /* terminal.json */,
+				034D30BD2B95E176EC50AFA8 /* tombstone.json */,
+			);
+			path = "fabric-work-v1";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		24DCD7FC4380267E22B93F7D /* Fabric */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1173F02FB540A7C155AA599C /* Build configuration list for PBXNativeTarget "Fabric" */;
+			buildPhases = (
+				823CAEDE541AAFB10829B531 /* Sources */,
+				29859CE02D9662BEF4DA09AD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Fabric;
+			packageProductDependencies = (
+			);
+			productName = Fabric;
+			productReference = A1C2E17FA35CD5F43CEAA5DB /* Fabric.app */;
+			productType = "com.apple.product-type.application";
+		};
+		DD07BB89E27BCCFDB788850F /* FabricTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7FE50A78C483C031DDEF2D2A /* Build configuration list for PBXNativeTarget "FabricTests" */;
+			buildPhases = (
+				66DC615DE63BF071705AA2B5 /* Sources */,
+				D78F557014DA930D15500876 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				04E8275F6CFC1E7350C55936 /* PBXTargetDependency */,
+			);
+			name = FabricTests;
+			packageProductDependencies = (
+			);
+			productName = FabricTests;
+			productReference = B171F59DCEB617099454272A /* FabricTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		9263233CCF6D1388C76C53DC /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					24DCD7FC4380267E22B93F7D = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 7A12C972C9F89252E2BA2D2D /* Build configuration list for PBXProject "FabricMobile" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 63A40C9A5D0F942D90F1A1C6;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 50EB366336E063C7752F0741 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				24DCD7FC4380267E22B93F7D /* Fabric */,
+				DD07BB89E27BCCFDB788850F /* FabricTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		29859CE02D9662BEF4DA09AD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				281E9F3C240B42B32A80A195 /* Assets.xcassets in Resources */,
+				0871E7FC1CABD42A8047DD87 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D78F557014DA930D15500876 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				69BE57442CC48B8D911610D2 /* additive-future.json in Resources */,
+				56DF927DF13B7E77652A7E64 /* bootstrap-page-1.json in Resources */,
+				9546BB85CA5D4DC19E6DA502 /* bootstrap-page-2.json in Resources */,
+				D7BCBDB0C0A661B997F5FE8B /* cursor-expired.json in Resources */,
+				912FE7194FE58376B6E0136B /* delta.json in Resources */,
+				56ED4990736694157DA23A63 /* fabric-pairing-v2.json in Resources */,
+				4D7AE628A7A893F692173B96 /* gateway-capabilities-incompatible.json in Resources */,
+				4293BB7B83E71DC14F4C462B /* gateway-capabilities-malformed.json in Resources */,
+				A5C97656CFABB374990C50CA /* gateway-capabilities-v1.json in Resources */,
+				4D146C379491DBA76D325E25 /* incompatible.json in Resources */,
+				8F190214F47E426DF730C91A /* legacy-mobile-methods.json in Resources */,
+				3F984918B9A4D16F35B8F690 /* malformed.json in Resources */,
+				396A2DA544E0B421A74711BF /* manifest.json in Resources */,
+				88DC45C1FFD151294158331E /* replaced-ledger.json in Resources */,
+				C8DD6DFE4F69ABC930D40AE2 /* sensitive-attention.json in Resources */,
+				196C73FCA0C0A797904623FA /* terminal.json in Resources */,
+				A2902C8EA6FE916ED775235A /* tombstone.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		66DC615DE63BF071705AA2B5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				010D7C7747AE0E123A4145D0 /* GatewayCapabilitiesTests.swift in Sources */,
+				A7D097F9C0A4C377F8F62B79 /* InteractionReceiptTests.swift in Sources */,
+				9A3E38E43CCC7553DD744EF4 /* PairingPayloadTests.swift in Sources */,
+				A29B062FC213F81EC60BDE0F /* ResumeHistoryTests.swift in Sources */,
+				D5AEDD93F518FC0224AD8B33 /* SavedGatewayTests.swift in Sources */,
+				AC9202423DA63CA28366139F /* WorkContractTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		823CAEDE541AAFB10829B531 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DE41174B4AE13E9BECE8E9F8 /* AddGatewayView.swift in Sources */,
+				AC09295728E05DBDCE169AA1 /* AppModel.swift in Sources */,
+				0160D0F6BB62086B3E42EFE3 /* ChatView.swift in Sources */,
+				B4668491CA6D5572A9F78DDD /* ChatViewModel.swift in Sources */,
+				144E9F91E4AD4F76C9ECC634 /* FabricMobileApp.swift in Sources */,
+				C2A694075BB866A62DBE5290 /* FabricTheme.swift in Sources */,
+				3D62A0F123FA6CE8034FA163 /* FabricWorkContract.swift in Sources */,
+				8CEA98F6B988474EE350B8DE /* FabricWorkSync.swift in Sources */,
+				425FC21992BAA963F72218EB /* GatewayAPI.swift in Sources */,
+				B66E75ED1E005D0AE02FFEB6 /* GatewayListView.swift in Sources */,
+				33B4E2B72D53190870B70C80 /* GatewayStore.swift in Sources */,
+				4A04017898D1F4CC2BA35202 /* JsonRpcGatewayClient.swift in Sources */,
+				0DF48BADC421CB14C566FC95 /* LiveViewSheet.swift in Sources */,
+				1F96B393FF3EE32C3E36F02B /* PairingURI.swift in Sources */,
+				5E926420C1DABB9AD689B4A9 /* QRScannerView.swift in Sources */,
+				A09DECD1DC67AA4930E1C99B /* RemoteControlSheets.swift in Sources */,
+				235C95E12197DE57E2E10426 /* SessionListView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		04E8275F6CFC1E7350C55936 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 24DCD7FC4380267E22B93F7D /* Fabric */;
+			targetProxy = 6DB9A679BBE41AC57A4C05E3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0607DC8A5FC513040A4AB52B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = Fabric/Info.plist;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.obliviousodin.fabric.mobile;
+				PRODUCT_NAME = Fabric;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		30422BFCD733BD6801CE7895 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.10;
+			};
+			name = Debug;
+		};
+		3CED8DAA3DECFBCFE66BB2EA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				INFOPLIST_FILE = Fabric/Info.plist;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.obliviousodin.fabric.mobile;
+				PRODUCT_NAME = Fabric;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		6F686143237AEE72B5601294 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.obliviousodin.fabric.mobile.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fabric.app/Fabric";
+			};
+			name = Release;
+		};
+		D21A86CB36160356AF912842 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.obliviousodin.fabric.mobile.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fabric.app/Fabric";
+			};
+			name = Debug;
+		};
+		E0B351F3FF6BD45BB21CD49F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.10;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1173F02FB540A7C155AA599C /* Build configuration list for PBXNativeTarget "Fabric" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3CED8DAA3DECFBCFE66BB2EA /* Debug */,
+				0607DC8A5FC513040A4AB52B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7A12C972C9F89252E2BA2D2D /* Build configuration list for PBXProject "FabricMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				30422BFCD733BD6801CE7895 /* Debug */,
+				E0B351F3FF6BD45BB21CD49F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		7FE50A78C483C031DDEF2D2A /* Build configuration list for PBXNativeTarget "FabricTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D21A86CB36160356AF912842 /* Debug */,
+				6F686143237AEE72B5601294 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 9263233CCF6D1388C76C53DC /* Project object */;
+}

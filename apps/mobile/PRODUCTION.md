@@ -230,12 +230,17 @@ A release is production-grade only when every applicable gate is satisfied.
 
 ## Current status
 
-The repository contains a packaged PWA and working native vertical slices, not
-a signed store release. Shared protocol, PWA, Android, and iOS simulator checks
-run in CI; `fabric mobile` is the documented gateway/pairing entry point.
-Physical-device acceptance, protected signing, store assets/automation, and
-publication remain open production gates. Passing a simulator build alone does
-not advance the support tier or justify a store release.
+The repository contains a packaged PWA and working native vertical slices. An
+initial iOS development preview has been signed, uploaded, installed, and used
+through internal TestFlight; it is evidence that the distribution path works,
+not a claim that the production gates are complete. Shared protocol, PWA,
+Android, and iOS simulator checks run in CI; `fabric mobile` is the documented
+gateway/pairing entry point. Repeatable clean-SHA archives, full physical-device
+acceptance, protected release automation, store assets, public beta delivery,
+and the native visual/state capture matrix remain open gates. See
+`IOS_RELEASES.md` for exact build evidence and `ROADMAP.md` for the phased parity
+program. Passing a simulator build alone does not advance the support tier or
+justify a store release.
 
 FMB-002 Durable Work remains an unadvertised control-plane preview. It stores
 bounded, redacted Job/Attention state in profile-private `work.db`; a phone

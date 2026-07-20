@@ -1,9 +1,10 @@
-# Derived output — regenerate with `xcodegen generate` from project.yml.
-FabricMobile.xcodeproj/
-Fabric/Info.plist
+# Derived output. The generic FabricMobile.xcodeproj and Fabric/Info.plist
+# bootstrap files are committed because Xcode Cloud validates the project
+# before post-clone scripts run. Regenerate both whenever project.yml changes.
 DerivedData/
 build/
 *.xcuserstate
+*.xcuserdatad/
 
 # Local signing overrides (real team id / profiles) — never commit.
 Signing.xcconfig

@@ -6,6 +6,8 @@ All notable changes to Fabric are documented in this file.
 
 ### Added
 
+- Added exact iOS release provenance: release project generation now requires a clean tracked checkout, derives the Git commit itself, embeds it as `FabricSourceRevision`, and records the packaged revision beside the merged SHA in the TestFlight ledger.
+- Added a phased Fabric iOS parity roadmap and TestFlight build ledger, plus an immutable Xcode project-generation contract with a CI-verified generic Xcode Cloud bootstrap and project-adjacent post-clone hook that keep release bundle overrides out of tracked source, map Xcode Cloud build numbers into `CFBundleVersion`, and run the same pinned generator path in GitHub CI and Xcode Cloud.
 - Rebuilt Achievements as the private, profile-local **Fabric Journey**: outcome-based onboarding, a chat/tool/delegation starter path, capability Paths, permanent mastery ranks, loss-free seasonal Momentum, daily and weekly quests, honest evidence labels, and separate You / local Profiles / self-reported Friendly leaderboards. Tracking is default-on but records only a closed content-free event vocabulary; users can pause collection, disable active-time reflection, export the metadata, or delete it without losing observed mastery. The original achievements remain available as Legacy history, and the plugin still adds no model tool or prompt content.
 - Restored Skills Hub discoverability inside **Admin → Integrations** with direct Skills Hub and MCP links while preserving the consolidated sidebar hierarchy.
 - Live host infrastructure monitor across surfaces. New `fabric monitor` (alias `fabric top`) renders CPU (aggregate + per-core), memory, disk, load, network throughput, and GPU/VRAM in a live terminal panel (`--once` / `--json` for snapshots). The web dashboard Host card and desktop Command Center → System panel poll the same shared `fabric_cli.system_stats` collector over `/api/system/stats`, so metrics never drift. GPU uses `pynvml` when available and falls back to `nvidia-smi`.
@@ -21,6 +23,7 @@ All notable changes to Fabric are documented in this file.
 
 ### Fixed
 
+- The public identity audit now closes every `git cat-file --batch` subprocess stream after full or early generator teardown, eliminating the repeated unclosed-file `ResourceWarning` noise from release-audit test runs.
 - The docs-site Skills Hub no longer falls back to a broken, near-empty legacy snapshot when the unified index is missing: the committed fallback caches were refreshed (OpenAI tap 0 → 44 skills after its `skills/.curated/` move) and the new `venture-studio` and `web-development` categories now render with proper labels and icons.
 
 ## [0.21.0] - 2026-07-16

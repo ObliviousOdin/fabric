@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -114,6 +115,39 @@ class FabricIdentityAuditTests(unittest.TestCase):
 
         self._stage("identity.txt")
         self.assertTrue(self.audit.audit_tracked_identity(self.root))
+
+    def test_batch_blob_reader_closes_every_subprocess_stream(self) -> None:
+        self._write("fabric.txt", b"Fabric only\n")
+        self._stage("fabric.txt")
+        entries, issues = self.audit.read_index(self.root)
+        self.assertEqual(issues, [])
+
+        real_popen = subprocess.Popen
+        processes = []
+
+        def capture_process(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            processes.append(process)
+            return process
+
+        with mock.patch.object(
+            self.audit.subprocess,
+            "Popen",
+            side_effect=capture_process,
+        ):
+            rows = list(self.audit.iter_index_blobs(self.root, entries))
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][1], b"Fabric only\n")
+        self.assertEqual(len(processes), 1)
+        process = processes[0]
+        self.assertIsNotNone(process.stdin)
+        self.assertIsNotNone(process.stdout)
+        self.assertIsNotNone(process.stderr)
+        self.assertTrue(process.stdin.closed)
+        self.assertTrue(process.stdout.closed)
+        self.assertTrue(process.stderr.closed)
+        self.assertEqual(process.returncode, 0)
 
     def test_missing_repository_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as raw_root:

@@ -19,6 +19,7 @@ on:
       - "tests/test_tui_gateway_server.py"
       - "tests/fabric_cli/test_dashboard_unified_launch.py"
       - "tests/fabric_cli/test_mobile_*.py"
+      - "tests/scripts/test_ios_project_generation.py"
       - ".github/workflows/mobile.yml"
   push:
     branches: [main]
@@ -39,6 +40,7 @@ on:
       - "tests/test_tui_gateway_server.py"
       - "tests/fabric_cli/test_dashboard_unified_launch.py"
       - "tests/fabric_cli/test_mobile_*.py"
+      - "tests/scripts/test_ios_project_generation.py"
       - ".github/workflows/mobile.yml"
 
 permissions:
@@ -115,22 +117,13 @@ jobs:
           persist-credentials: false
 
       - name: Generate the Xcode project
-        run: |
-          archive="$RUNNER_TEMP/xcodegen-2.46.0.tar.gz"
-          source_dir="$RUNNER_TEMP/xcodegen-source"
-          bin_dir="$RUNNER_TEMP/xcodegen-bin"
-          curl --fail --location --silent --show-error \
-            --output "$archive" \
-            https://github.com/yonaskolb/XcodeGen/archive/refs/tags/2.46.0.tar.gz
-          printf '%s  %s\n' \
-            'c83c7bd70255b0ddf4116dadce16bdf0e5939165b43a544e124de294ec84aa27' \
-            "$archive" | shasum --algorithm 256 --check
-          rm -rf "$source_dir" "$bin_dir"
-          mkdir -p "$source_dir" "$bin_dir"
-          tar -xzf "$archive" -C "$source_dir" --strip-components=1
-          swift build --package-path "$source_dir" --disable-sandbox --configuration release
-          cp "$source_dir/.build/release/xcodegen" "$bin_dir/xcodegen"
-          "$bin_dir/xcodegen" generate
+        run: ci_scripts/ci_post_clone.sh
+
+      - name: Verify the committed Xcode Cloud bootstrap is current
+        run: git diff --exit-code -- FabricMobile.xcodeproj Fabric/Info.plist
+
+      - name: Test the immutable iOS project-generation contract
+        run: python3 ../../../tests/scripts/test_ios_project_generation.py
 
       - name: Select an available iPhone simulator
         run: |
@@ -174,8 +167,13 @@ jobs:
         run: |
           app="build/DerivedData/Build/Products/Release-iphonesimulator/Fabric.app"
           plist="$app/Info.plist"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "0.1.0"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" = "1"
+          expected_version="$(sed -n 's/^[[:space:]]*MARKETING_VERSION: *"\([^"]*\)"/\1/p' project.yml)"
+          expected_build="$(sed -n 's/^[[:space:]]*CURRENT_PROJECT_VERSION: *"\([^"]*\)"/\1/p' project.yml)"
+          test -n "$expected_version"
+          test -n "$expected_build"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "$expected_version"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")" = "$expected_build"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :FabricSourceRevision' "$plist")" = "development"
           test "$(/usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations:0' "$plist")" = "UIInterfaceOrientationPortrait"
           test "$(/usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$plist")" = "false"
           privacy="$app/PrivacyInfo.xcprivacy"

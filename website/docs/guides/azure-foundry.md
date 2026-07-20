@@ -244,13 +244,10 @@ model:
 Important behaviour:
 
 - **`/v1` is stripped from the base URL.** The Anthropic SDK appends `/v1/messages` to every request URL — Fabric removes any trailing `/v1` before handing the URL to the SDK to avoid double-`/v1` paths.
-- **Modern Foundry routes need no `api-version` query.** `https://<resource>.services.ai.azure.com/anthropic` follows Microsoft's current Claude Messages API contract directly. Fabric retains `api-version=2025-04-15` only for the legacy `*.openai.azure.*` compatibility route.
-- **Static keys use `x-api-key`; Entra ID uses Bearer.** This matches Microsoft's Foundry contract. Fabric's callable Entra token path rewrites `Authorization: Bearer <fresh-jwt>` per request; a configured `AZURE_ANTHROPIC_KEY` remains an API key and is never put in the Bearer slot. The legacy `*.openai.azure.*` compatibility route retains its historical Bearer behavior.
-- **1M context window beta header is kept.** Azure still gates the 1M-token Claude context (Opus 4.6/4.7, Sonnet 4.6) behind the `anthropic-beta: context-1m-2025-08-07` header. Fabric keeps that beta header on Azure paths; native Anthropic API-key requests do not send it by default.
-- **Azure credentials stay Azure-scoped.** Use either an Azure-issued static
-  API key or the configured Microsoft Entra ID path described above. Fabric
-  does not use an Anthropic/Claude subscription OAuth credential on Azure (or
-  on native Anthropic) — see [NOTICE](https://github.com/ObliviousOdin/fabric/blob/main/NOTICE).
+- **`api-version` is sent via `default_query`, not appended to the URL.** Azure Anthropic requires an `api-version` query string. Baking it into the base URL produces malformed paths like `/anthropic?api-version=.../v1/messages` and returns 404. Fabric passes `api-version=2025-04-15` via the Anthropic SDK's `default_query` instead.
+- **Bearer auth is used instead of `x-api-key`.** Azure's Anthropic-compatible route requires `Authorization: Bearer <key>` rather than Anthropic's native `x-api-key` header. Fabric detects `azure.com` in the base URL and routes the API key through the SDK's `auth_token` field so the right header reaches the upstream.
+- **1M context window beta header is kept.** Azure still gates the 1M-token Claude context (Opus 4.6/4.7, Sonnet 4.6) behind the `anthropic-beta: context-1m-2025-08-07` header. Fabric keeps that beta header on Azure paths (it's stripped from native Anthropic OAuth requests because some subscriptions reject it, but Azure requires it).
+- **OAuth token refresh is disabled.** Azure deployments use static API keys. The `~/.claude/.credentials.json` OAuth token refresh loop that applies to Anthropic Console is explicitly skipped for Azure endpoints to prevent the Claude Code OAuth token from overwriting your Azure key mid-session.
 
 ## Alternative: `provider: anthropic` + Azure base URL
 
@@ -264,9 +261,9 @@ model:
   default: claude-sonnet-4-6
 ```
 
-With `AZURE_ANTHROPIC_KEY` set in `~/.fabric/.env`. Fabric recognizes the trusted Microsoft Foundry host family (`*.services.ai.azure.*`) together with the `/anthropic` path and sends the Azure key as `x-api-key`. A hostname that merely contains `azure` does not activate Azure credential handling.
+With `AZURE_ANTHROPIC_KEY` set in `~/.fabric/.env`. Fabric detects `azure.com` in the base URL and short-circuits around the Claude Code OAuth token chain so the Azure key is used directly with `x-api-key` auth.
 
-`key_env` is the canonical snake_case field name; `api_key_env` (and the camelCase `keyEnv` / `apiKeyEnv`) are accepted as aliases. If both `key_env` and `AZURE_ANTHROPIC_KEY` are set, the `key_env`-named env var wins. `ANTHROPIC_API_KEY` remains paired with native Anthropic by default so switching `model.base_url` cannot leak it to Azure. To use that generic variable with this deployment, also set `ANTHROPIC_BASE_URL` to the same endpoint; using `AZURE_ANTHROPIC_KEY` or `key_env` is clearer.
+`key_env` is the canonical snake_case field name; `api_key_env` (and the camelCase `keyEnv` / `apiKeyEnv`) are accepted as aliases. If both `key_env` and `AZURE_ANTHROPIC_KEY`/`ANTHROPIC_API_KEY` are set, the `key_env`-named env var wins.
 
 ## Model discovery
 
@@ -286,7 +283,7 @@ You can always type a deployment name directly — Fabric does not validate agai
 |----------|---------|
 | `AZURE_FOUNDRY_API_KEY` | Primary API key for Microsoft Foundry / Azure OpenAI (api_key mode) |
 | `AZURE_FOUNDRY_BASE_URL` | Endpoint URL (set via `fabric model`; env var is used as a fallback) |
-| `AZURE_ANTHROPIC_KEY` | Used by `provider: anthropic` + Azure base URL |
+| `AZURE_ANTHROPIC_KEY` | Used by `provider: anthropic` + Azure base URL (alternative to `ANTHROPIC_API_KEY`) |
 | `AZURE_TENANT_ID` | Entra ID tenant for service-principal flows |
 | `AZURE_CLIENT_ID` | Entra ID client ID (service principal, workload identity, or user-assigned managed identity) |
 | `AZURE_CLIENT_SECRET` | Service principal secret |
@@ -303,7 +300,7 @@ The Azure SDK reads the `AZURE_*` env vars directly. Fabric never inspects them 
 Azure serves gpt-5.x on `/chat/completions`, not `/responses`. Fabric handles this automatically when the URL contains `openai.azure.com`, but if you see a 401 with an `Invalid API key` body, check that `api_mode` in your `config.yaml` is `chat_completions`.
 
 **404 on `/v1/messages?api-version=.../v1/messages`.**
-This is the malformed-URL bug from older Azure Anthropic setups. Upgrade Fabric and remove the query string from `model.base_url`. Modern `*.services.ai.azure.*` Foundry routes send no `api-version`; the legacy `*.openai.azure.*` compatibility route keeps `api-version=2025-04-15` as a real query parameter rather than baking it into the base URL.
+This is the malformed-URL bug from pre-fix Azure Anthropic setups. Upgrade Fabric — the `api-version` parameter is now passed via `default_query` rather than baked into the base URL, so the SDK can't corrupt it during URL joining.
 
 **Wizard says "Auto-detection incomplete."**
 The endpoint rejected both the `/models` probe and the Anthropic Messages probe. This is normal for private endpoints behind a firewall or with an IP allow-list. Fall back to manual API mode selection and type your deployment name — everything still works, Fabric just can't prefill the picker.

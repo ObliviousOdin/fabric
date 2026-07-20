@@ -167,8 +167,9 @@ class TestAuthResolvesFromDotEnv:
     ):
         """Regression for #20591 (sibling site): get_anthropic_key() must also
         prefer ~/.fabric/.env over a stale shell export. This path resolves
-        ANTHROPIC_API_KEY and had the identical os.environ-first rotation bug
-        that the api-key resolution path did, just for Anthropic.
+        ANTHROPIC_API_KEY/ANTHROPIC_TOKEN/CLAUDE_CODE_OAUTH_TOKEN and had the
+        identical os.environ-first rotation bug that the api-key resolution
+        path did, just for Anthropic.
         """
         _write_env_file(isolated_fabric_home, ANTHROPIC_API_KEY="dotenv-fresh-anthropic")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "stale-shell-anthropic")
@@ -176,7 +177,7 @@ class TestAuthResolvesFromDotEnv:
         from fabric_cli.auth import get_anthropic_key
         assert get_anthropic_key() == "dotenv-fresh-anthropic"
 
-    def test_get_anthropic_key_ignores_legacy_oauth_env_vars(
+    def test_get_anthropic_key_ignores_oauth_in_api_key_slot(
         self, isolated_fabric_home, monkeypatch
     ):
         _write_env_file(
@@ -190,7 +191,7 @@ class TestAuthResolvesFromDotEnv:
 
         from fabric_cli.auth import get_anthropic_key
 
-        assert get_anthropic_key() == ""
+        assert get_anthropic_key() == "sk-ant-oat01-canonical-token"
 
 
 class TestAuthCredentialPoolFallback:
@@ -265,10 +266,21 @@ class TestAuthCredentialPoolFallback:
         mp.assert_not_called()
 
 
-class TestAnthropicEnvSeeding:
-    """Native Anthropic pool seeding accepts only ANTHROPIC_API_KEY."""
+class TestAnthropicEnvAuthTypeClassification:
+    """_seed_from_env must classify Anthropic env tokens by the sk-ant-oat prefix.
 
-    def _seed(self, env_var):
+    Regression for PR #16733: the previous heuristic tagged any token NOT
+    starting with `sk-ant-api` as OAuth. That misclassified admin keys
+    (`sk-ant-admin-*`), workspace keys, and any future API-key prefix as OAuth.
+    OAuth-typed entries with no refresh token are immediately marked exhausted
+    in _refresh_entry, so a legitimate admin key gets stuck EXHAUSTED on first
+    use and the pool rotates away from a working credential.
+
+    Only real Claude Code OAuth tokens (`sk-ant-oat-…`) should flow into the
+    OAuth refresh path.
+    """
+
+    def _seed(self, env_var, token):
         from agent.credential_pool import _seed_from_env
         entries = []
         _seed_from_env("anthropic", entries)
@@ -277,36 +289,12 @@ class TestAnthropicEnvSeeding:
         assert matching, f"expected a seeded entry for {env_var}, got {entries}"
         return matching[0]
 
-    def test_legacy_oauth_env_vars_are_not_seeded(self, isolated_fabric_home):
-        _write_env_file(
-            isolated_fabric_home,
-            ANTHROPIC_TOKEN="sk-ant-oat-fabric-legacy",
-            CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat-claude-code",
-        )
-
-        from agent.credential_pool import _seed_from_env
-
-        entries = []
-        changed, active_sources = _seed_from_env("anthropic", entries)
-
-        assert changed is False
-        assert active_sources == set()
-        assert entries == []
-
-    def test_oauth_token_in_api_key_slot_is_not_seeded(self, isolated_fabric_home):
-        _write_env_file(
-            isolated_fabric_home,
-            ANTHROPIC_API_KEY="sk-ant-oat01-wrong-slot",
-        )
-
-        from agent.credential_pool import _seed_from_env
-
-        entries = []
-        changed, active_sources = _seed_from_env("anthropic", entries)
-
-        assert changed is False
-        assert active_sources == set()
-        assert entries == []
+    def test_oauth_token_classified_as_oauth(self, isolated_fabric_home):
+        """sk-ant-oat- token from CLAUDE_CODE_OAUTH_TOKEN → AUTH_TYPE_OAUTH."""
+        from agent.credential_pool import AUTH_TYPE_OAUTH
+        _write_env_file(isolated_fabric_home, CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat-fake-12345")
+        entry = self._seed("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-fake-12345")
+        assert entry.auth_type == AUTH_TYPE_OAUTH
 
     def test_admin_key_classified_as_api_key(self, isolated_fabric_home):
         """sk-ant-admin- key from ANTHROPIC_API_KEY → AUTH_TYPE_API_KEY, not OAuth.
@@ -315,12 +303,12 @@ class TestAnthropicEnvSeeding:
         """
         from agent.credential_pool import AUTH_TYPE_API_KEY
         _write_env_file(isolated_fabric_home, ANTHROPIC_API_KEY="sk-ant-admin-fake-12345")
-        entry = self._seed("ANTHROPIC_API_KEY")
+        entry = self._seed("ANTHROPIC_API_KEY", "sk-ant-admin-fake-12345")
         assert entry.auth_type == AUTH_TYPE_API_KEY
 
     def test_standard_api_key_classified_as_api_key(self, isolated_fabric_home):
         """sk-ant-api- key → AUTH_TYPE_API_KEY (unchanged behaviour)."""
         from agent.credential_pool import AUTH_TYPE_API_KEY
         _write_env_file(isolated_fabric_home, ANTHROPIC_API_KEY="sk-ant-api-fake-12345")
-        entry = self._seed("ANTHROPIC_API_KEY")
+        entry = self._seed("ANTHROPIC_API_KEY", "sk-ant-api-fake-12345")
         assert entry.auth_type == AUTH_TYPE_API_KEY

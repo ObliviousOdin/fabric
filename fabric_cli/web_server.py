@@ -6514,15 +6514,7 @@ async def get_env_vars(profile: Optional[str] = None):
 async def set_env_var(body: EnvVarUpdate, profile: Optional[str] = None):
     try:
         with _profile_scope(body.profile or profile):
-            if body.key.strip().upper() == "ANTHROPIC_API_KEY":
-                from fabric_cli.config import save_anthropic_api_key
-
-                save_anthropic_api_key(
-                    body.value,
-                    save_fn=_save_profile_env_value,
-                )
-            else:
-                _save_profile_env_value(body.key, body.value)
+            _save_profile_env_value(body.key, body.value)
         return {"ok": True, "key": body.key}
     except ValueError as exc:
         # save_env_value raises ValueError for invalid names and for keys
@@ -6686,11 +6678,6 @@ async def remove_env_var(body: EnvVarDelete, profile: Optional[str] = None):
     try:
         with _profile_scope(body.profile or profile):
             removed = _remove_profile_env_value(body.key)
-            if body.key.strip().upper() == "ANTHROPIC_API_KEY":
-                # ANTHROPIC_TOKEN was Fabric's retired native OAuth slot.
-                # Removing the supported API key should not leave that stale
-                # credential behind in the same profile.
-                _remove_profile_env_value("ANTHROPIC_TOKEN")
         if not removed:
             raise HTTPException(status_code=404, detail=f"{body.key} not found in .env")
         return {"ok": True, "key": body.key}
@@ -8450,11 +8437,11 @@ async def test_messaging_platform(platform_id: str, profile: Optional[str] = Non
 # ---------------------------------------------------------------------------
 #
 # Phase 1 surfaces *which OAuth providers exist* and whether each is
-# connected, plus a disconnect button. The actual login flow (device-code
-# for Nous/Codex) still runs in the CLI for now; Phase 2 will add
-# in-browser flows. For unconnected providers we return the canonical
-# ``fabric auth add <provider>`` command so the dashboard can surface a
-# one-click copy.
+# connected, plus a disconnect button. The actual login flow (PKCE for
+# Anthropic, device-code for Nous/Codex) still runs in the CLI for now;
+# Phase 2 will add in-browser flows. For unconnected providers we return
+# the canonical ``fabric auth add <provider>`` command so the dashboard
+# can surface a one-click copy.
 
 
 def _truncate_token(value: Optional[str], visible: int = 6) -> str:
@@ -8482,71 +8469,119 @@ def _truncate_token(value: Optional[str], visible: int = 6) -> str:
     return f"…{s[-visible:]}"
 
 
-def _anthropic_key_status() -> Dict[str, Any]:
-    """Status for the read-only "Anthropic API Key" Accounts-tab card.
+def _anthropic_oauth_status() -> Dict[str, Any]:
+    """Status for the "Anthropic API Key" catalog entry.
 
-    Fabric authenticates to native Anthropic with a plain API key only (see
-    NOTICE) — this reports keys from ``ANTHROPIC_API_KEY`` and keys added with
-    ``fabric auth add anthropic --type api-key``. There is no OAuth login flow
-    to start from here.
+    Two sources, in priority order:
+    1. ``~/.fabric/.anthropic_oauth.json`` — Fabric-managed PKCE flow (what
+       this entry's Connect button writes)
+    2. Anthropic's API-key and token env vars (registry order) — from ``.env``,
+       the shell, or an external secret source like Bitwarden (whose keys are
+       injected into the process env during ``load_fabric_dotenv()``, so the
+       same check covers them)
+
+    Claude Code's ``~/.claude/.credentials.json`` is deliberately NOT read
+    here — it has its own dedicated catalog entry (``claude-code`` →
+    ``_claude_code_only_status``). Reporting it under the API-key entry
+    double-counts the token and shadows a real ANTHROPIC_API_KEY.
     """
     try:
-        from fabric_cli.auth import _resolve_anthropic_api_key
+        from agent.anthropic_adapter import (
+            _get_fabric_oauth_file,
+            _is_oauth_token,
+            read_fabric_oauth_credentials,
+        )
     except ImportError:
-        return {"logged_in": False, "source": None}
+        read_fabric_oauth_credentials = None  # type: ignore
+        _get_fabric_oauth_file = None  # type: ignore
+        _is_oauth_token = None  # type: ignore
 
-    value, source = _resolve_anthropic_api_key()
-    if not value:
-        return {"logged_in": False, "source": None}
-
-    if source.startswith("credential_pool"):
-        label = source.split(":", 1)[1] or "Anthropic API key"
-        is_global_fallback = source.startswith("credential_pool_global:")
+    fabric_creds = None
+    if read_fabric_oauth_credentials:
+        try:
+            fabric_creds = read_fabric_oauth_credentials()
+        except Exception:
+            fabric_creds = None
+    if fabric_creds and fabric_creds.get("accessToken"):
         return {
             "logged_in": True,
-            "source": (
-                "credential_pool_global"
-                if is_global_fallback
-                else "credential_pool"
-            ),
-            "source_label": (
-                f"default profile · fabric auth: {label}"
-                if is_global_fallback
-                else f"fabric auth: {label}"
-            ),
-            "token_preview": _truncate_token(value),
-            "expires_at": None,
-            "has_refresh_token": False,
+            "source": "anthropic_pkce",
+            "source_label": f"Anthropic PKCE ({_get_fabric_oauth_file() if _get_fabric_oauth_file else None})",
+            "token_preview": _truncate_token(fabric_creds.get("accessToken")),
+            "expires_at": fabric_creds.get("expiresAt"),
+            "has_refresh_token": bool(fabric_creds.get("refreshToken")),
         }
 
+    # Env-var / secret-source path. ``get_env_value`` honors the installed
+    # profile scope; do not add a raw ``os.getenv`` fallback here because an
+    # absent target key must not inherit the dashboard launch profile's token.
+    env_var_order: tuple = ("ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+    try:
+        from fabric_cli.auth import PROVIDER_REGISTRY
+        env_var_order = PROVIDER_REGISTRY["anthropic"].api_key_env_vars
+    except (ImportError, KeyError):
+        pass
+    try:
+        from fabric_cli.config import get_env_value
+    except ImportError:
+        get_env_value = None  # type: ignore
     try:
         from fabric_cli.env_loader import format_secret_source_suffix
     except ImportError:
         format_secret_source_suffix = None  # type: ignore
-    var = (
-        source.split(":", 1)[1]
-        if source.startswith("env:")
-        else "ANTHROPIC_API_KEY"
-    )
-    suffix = (
-        format_secret_source_suffix(var) if format_secret_source_suffix else ""
-    )
-    return {
-        "logged_in": True,
-        "source": "env_var",
-        "source_label": f"{var}{suffix}",
-        "token_preview": _truncate_token(value),
-        "expires_at": None,
-        "has_refresh_token": False,
-    }
+
+    for var in env_var_order:
+        value = get_env_value(var) if get_env_value else os.getenv(var)
+        if not value:
+            continue
+        if (
+            var == "ANTHROPIC_API_KEY"
+            and _is_oauth_token is not None
+            and _is_oauth_token(value)
+        ):
+            continue
+        suffix = format_secret_source_suffix(var) if format_secret_source_suffix else ""
+        return {
+            "logged_in": True,
+            "source": "env_var",
+            "source_label": f"{var}{suffix}",
+            "token_preview": _truncate_token(value),
+            "expires_at": None,
+            "has_refresh_token": False,
+        }
+    return {"logged_in": False, "source": None}
+
+
+def _claude_code_only_status() -> Dict[str, Any]:
+    """Surface Claude Code CLI credentials as their own provider entry.
+
+    Independent of the Anthropic entry above so users can see whether their
+    Claude Code subscription tokens are actively flowing into Fabric even
+    when they also have a separate Fabric-managed PKCE login.
+    """
+    try:
+        from agent.anthropic_adapter import read_claude_code_credentials
+        creds = read_claude_code_credentials()
+    except Exception:
+        creds = None
+    if creds and creds.get("accessToken"):
+        return {
+            "logged_in": True,
+            "source": "claude_code_cli",
+            "source_label": "~/.claude/.credentials.json",
+            "token_preview": _truncate_token(creds.get("accessToken")),
+            "expires_at": creds.get("expiresAt"),
+            "has_refresh_token": bool(creds.get("refreshToken")),
+        }
+    return {"logged_in": False, "source": None}
 
 
 def _copilot_acp_status() -> Dict[str, Any]:
     """Status for copilot-acp — credentials are owned by the Copilot CLI.
 
     There is no cheap programmatic credential probe for the ACP subprocess, so
-    this is a read-only "managed by the Copilot CLI" card: Fabric never claims
-    a login state it can't verify.
+    this is a read-only "managed by the Copilot CLI" card (like claude-code):
+    Fabric never claims a login state it can't verify.
     """
     return {
         "logged_in": False,
@@ -8564,15 +8599,13 @@ def _copilot_acp_status() -> Dict[str, Any]:
 # display order. They are the OVERRIDE BASE for ``_build_oauth_catalog()``,
 # which unions them with every accounts-tab provider in ``provider_catalog()``
 # so newly-added OAuth/external providers appear automatically (no hand edit).
-#
-# Anthropic's card is read-only (``flow: "external"``, no start/submit
-# handlers): Fabric authenticates to native Anthropic with a plain API key
-# only (see NOTICE) — there is no OAuth/subscription login to start here.
-#
+# This tuple also still includes two entries that are NOT catalog providers but
+# must show on the Accounts tab: the api-key Anthropic PKCE card and the
+# synthetic ``claude-code`` subscription row.
 # ``flow`` describes the OAuth shape so the modal can pick the right UI:
 # ``pkce`` = open URL + paste callback code, ``device_code`` = show code +
 # verification URL + poll, ``external`` = read-only (delegated to a third-party
-# CLI, or — for Anthropic — to Settings → Keys).
+# CLI like Claude Code or Qwen).
 _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
     {
         "id": "nous",
@@ -8630,16 +8663,24 @@ _OAUTH_PROVIDER_CATALOG: tuple[Dict[str, Any], ...] = (
         "docs_url": "https://docs.github.com/en/copilot",
         "status_fn": _copilot_acp_status,
     },
-    # Read-only: Fabric authenticates to native Anthropic with a plain API key
-    # only — no OAuth/subscription login (see NOTICE). This card reports
-    # ANTHROPIC_API_KEY status; there is no flow to start from here.
+    # ── Anthropic / Claude entries sit at the bottom: the API-key path
+    # first, then the subscription OAuth path (which only works with extra
+    # usage credits on top of a Claude Max plan — see disclaimer in name).
     {
         "id": "anthropic",
         "name": "Anthropic API Key",
-        "flow": "external",
-        "cli_command": "fabric auth add anthropic --type api-key",
+        "flow": "pkce",
+        "cli_command": "fabric auth add anthropic",
         "docs_url": "https://docs.claude.com/en/api/getting-started",
-        "status_fn": _anthropic_key_status,
+        "status_fn": _anthropic_oauth_status,
+    },
+    {
+        "id": "claude-code",
+        "name": "Anthropic OAuth: Required Extra Usage Credits to Use Subscription",
+        "flow": "external",
+        "cli_command": "claude setup-token",
+        "docs_url": "https://docs.claude.com/en/docs/claude-code",
+        "status_fn": _claude_code_only_status,
     },
 )
 
@@ -8746,26 +8787,25 @@ def _oauth_provider_disconnect_command(provider: Dict[str, Any]) -> Optional[str
     user's behalf via a silent API call). For the ones we know how to clear we
     instead hand the GUI a command it can *run in the embedded terminal* — the
     user sees exactly what executes, and Fabric then stops resolving the token.
-    Returns None for providers we can't safely clear (the GUI shows a manual hint).
+
+    Claude Code has no scriptable logout (only the interactive ``/logout``), so
+    we remove the credential the same way logout does: the macOS Keychain entry
+    (``Claude Code-credentials``) and/or the ``~/.claude/.credentials.json``
+    file — the two sources ``read_claude_code_credentials()`` consults. Returns
+    None for providers we can't safely clear (the GUI shows a manual hint).
     """
+    if provider.get("flow") != "external":
+        return None
+    if provider.get("id") == "claude-code":
+        rm_file = "rm -f ~/.claude/.credentials.json"
+        if sys.platform == "darwin":
+            return f'security delete-generic-password -s "Claude Code-credentials" 2>/dev/null; {rm_file}'
+        return rm_file
     return None
 
 
 def _oauth_provider_disconnect_hint(provider: Dict[str, Any], status: Dict[str, Any]) -> Optional[str]:
     """Return the manual disconnect path when the API cannot clear this provider."""
-    if provider.get("id") == "anthropic":
-        if status.get("source") == "credential_pool_global":
-            return (
-                "This key is inherited from the default profile. Switch to the "
-                "default profile, then remove it with `fabric auth remove "
-                "anthropic <credential>`."
-            )
-        if status.get("source") == "credential_pool":
-            return "Remove it with `fabric auth remove anthropic <credential>`."
-        # Env/.env-backed keys are managed by the Keys tab. Keep this as the
-        # empty-status fast-path hint too so DELETE never removes an external
-        # key source it cannot identify.
-        return "Remove the API key from Settings → Keys instead."
     if provider.get("flow") == "external":
         if _oauth_provider_disconnect_command(provider):
             # The GUI offers a one-click "run in terminal" path; this hint is the
@@ -8782,7 +8822,9 @@ def _build_oauth_catalog() -> list[Dict[str, Any]]:
 
     MEMBERSHIP is the union of:
       1. ``_OAUTH_PROVIDER_CATALOG`` — the explicit, hand-tuned cards that carry
-         bespoke flow / status_fn / cli_command, and
+         bespoke flow / status_fn / cli_command (including the api-key Anthropic
+         PKCE card and the synthetic claude-code subscription row, which are not
+         catalog providers), and
       2. every accounts-tab provider in the unified ``provider_catalog()`` (the
          ``fabric model`` universe) — so any OAuth/external provider added as a
          plugin appears automatically, with sensible defaults, even if no
@@ -8832,14 +8874,14 @@ async def list_oauth_providers(profile: Optional[str] = None):
     Response shape (per provider):
         id              stable identifier (used in DELETE path)
         name            human label
-        flow            "device_code" | "external"
+        flow            "pkce" | "device_code" | "external"
         cli_command     fallback CLI command for users to run manually
         disconnect_command  shell command that clears an external provider's
                             creds (run in the embedded terminal), else null
         docs_url        external docs/portal link for the "Learn more" link
         status:
           logged_in        bool — currently has usable creds
-          source           short slug ("device_code", "env_var", ...)
+          source           short slug ("anthropic_pkce", "claude_code", ...)
           source_label     human-readable origin (file path, env var name)
           token_preview    last N chars of the token, never the full token
           expires_at       ISO timestamp string or null
@@ -8920,6 +8962,28 @@ def _disconnect_oauth_provider_sync(
                 detail=f"{provider['name']} cannot be disconnected automatically. {disconnect_hint}",
             )
 
+        # Anthropic clears only the Fabric-managed PKCE file and auth-store entry.
+        # The separate claude-code catalog row is external/read-only and rejected
+        # above so we never pretend to remove ~/.claude/* credentials owned by the CLI.
+        if provider_id == "anthropic":
+            cleared = False
+            try:
+                from agent.anthropic_adapter import _get_fabric_oauth_file
+                oauth_file = _get_fabric_oauth_file()
+                if oauth_file.exists():
+                    oauth_file.unlink()
+                    cleared = True
+            except Exception:
+                pass
+            # Also clear the credential pool entry if present.
+            try:
+                from fabric_cli.auth import clear_provider_auth
+                cleared = clear_provider_auth("anthropic") or cleared
+            except Exception:
+                pass
+            _log.info("oauth/disconnect: %s", provider_id)
+            return {"ok": bool(cleared), "provider": provider_id}
+
         try:
             from fabric_cli.auth import clear_provider_auth
             cleared = clear_provider_auth(provider_id)
@@ -8935,10 +8999,21 @@ def _disconnect_oauth_provider_sync(
 
 
 # ---------------------------------------------------------------------------
-# OAuth Phase 2 — in-browser device-code flows
+# OAuth Phase 2 — in-browser PKCE & device-code flows
 # ---------------------------------------------------------------------------
 #
-# One flow shape is supported:
+# Two flow shapes are supported:
+#
+#   PKCE (Anthropic):
+#     1. POST /api/providers/oauth/anthropic/start
+#          → server generates code_verifier + challenge, builds claude.ai
+#            authorize URL, stashes verifier in _oauth_sessions[session_id]
+#          → returns { session_id, flow: "pkce", auth_url }
+#     2. UI opens auth_url in a new tab. User authorizes, copies code.
+#     3. POST /api/providers/oauth/anthropic/submit { session_id, code }
+#          → server exchanges (code + verifier) → tokens at console.anthropic.com
+#          → persists to ~/.fabric/.anthropic_oauth.json AND credential pool
+#          → returns { ok: true, status: "approved" }
 #
 #   Device code (Nous, OpenAI Codex):
 #     1. POST /api/providers/oauth/{nous|openai-codex}/start
@@ -9084,6 +9159,22 @@ def _oauth_mark_error_if_active(
         OAuthFlowErrorCode.IO_UNAVAILABLE,
     )
 
+# Import OAuth constants from canonical source instead of duplicating.
+# Guarded so fabric web still starts if anthropic_adapter is unavailable;
+# Phase 2 endpoints will return 501 in that case.
+try:
+    from agent.anthropic_adapter import (
+        _OAUTH_CLIENT_ID as _ANTHROPIC_OAUTH_CLIENT_ID,
+        _OAUTH_TOKEN_URL as _ANTHROPIC_OAUTH_TOKEN_URL,
+        _OAUTH_TOKEN_URLS as _ANTHROPIC_OAUTH_TOKEN_URLS,
+        _OAUTH_REDIRECT_URI as _ANTHROPIC_OAUTH_REDIRECT_URI,
+        _OAUTH_SCOPES as _ANTHROPIC_OAUTH_SCOPES,
+        _generate_pkce as _generate_pkce_pair,
+    )
+    _ANTHROPIC_OAUTH_AVAILABLE = True
+except ImportError:
+    _ANTHROPIC_OAUTH_AVAILABLE = False
+_ANTHROPIC_OAUTH_AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
 
 
 def _gc_oauth_sessions() -> None:
@@ -9120,6 +9211,66 @@ def _new_oauth_session(
     return reservation.session_id, reservation.session
 
 
+def _save_anthropic_oauth_creds(access_token: str, refresh_token: str, expires_at_ms: int) -> None:
+    """Persist Anthropic PKCE creds to both Fabric file AND credential pool.
+
+    Mirrors what auth_commands.add_command does so the dashboard flow leaves
+    the system in the same state as ``fabric auth add anthropic``.
+    """
+    from agent.anthropic_adapter import _get_fabric_oauth_file
+    oauth_file = _get_fabric_oauth_file()
+    payload = {
+        "accessToken": access_token,
+        "refreshToken": refresh_token,
+        "expiresAt": expires_at_ms,
+    }
+    # atomic_json_write creates the temp with mode 0o600 (via mkstemp) *before*
+    # any content is written, then fsyncs and atomically replaces the target.
+    # The previous os.replace + post-hoc chmod left a TOCTOU window in which the
+    # OAuth token file was world-readable at the default umask (0o644 on most
+    # hosts) between the rename and the chmod. atomic_json_write also preserves
+    # the existing file's owner and cleans up its temp on failure.
+    from utils import atomic_json_write
+
+    atomic_json_write(oauth_file, payload, indent=2, mode=0o600)
+    # Best-effort credential-pool insert. Failure here doesn't invalidate
+    # the file write — pool registration only matters for the rotation
+    # strategy, not for runtime credential resolution.
+    try:
+        from agent.credential_pool import (
+            PooledCredential,
+            load_pool,
+            AUTH_TYPE_OAUTH,
+            SOURCE_MANUAL,
+        )
+        import uuid
+        pool = load_pool("anthropic")
+        # Avoid duplicate entries: delete any prior dashboard-issued OAuth entry
+        existing = [e for e in pool.entries() if getattr(e, "source", "").startswith(f"{SOURCE_MANUAL}:dashboard_pkce")]
+        for e in existing:
+            try:
+                pool.remove_entry(getattr(e, "id", ""))
+            except Exception:
+                pass
+        entry = PooledCredential(
+            provider="anthropic",
+            id=uuid.uuid4().hex[:6],
+            label="dashboard PKCE",
+            auth_type=AUTH_TYPE_OAUTH,
+            priority=0,
+            source=f"{SOURCE_MANUAL}:dashboard_pkce",
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at_ms=expires_at_ms,
+        )
+        pool.add_entry(entry)
+    except Exception:
+        _log.warning(
+            "oauth credential pool mirror failed provider=anthropic code=%s",
+            OAuthFlowErrorCode.IO_UNAVAILABLE.value,
+        )
+
+
 def _oauth_start_session(
     provider_id: str,
     flow: str,
@@ -9136,6 +9287,186 @@ def _oauth_start_session(
     ):
         raise OAuthFlowError(OAuthFlowErrorCode.INVALID_STATE)
     return reservation.session_id, session
+
+
+def _start_anthropic_pkce(
+    profile: Optional[str] = None,
+    reservation: Optional[OAuthStartReservation] = None,
+) -> Dict[str, Any]:
+    """Begin PKCE flow. Returns the auth URL the UI should open."""
+    if not _ANTHROPIC_OAUTH_AVAILABLE:
+        raise HTTPException(status_code=501, detail="Anthropic OAuth not available (missing adapter)")
+    verifier, challenge = _generate_pkce_pair()
+    sid, sess = _oauth_start_session(
+        "anthropic", "pkce", profile, reservation
+    )
+    sess["verifier"] = verifier
+    sess["state"] = verifier  # Anthropic round-trips verifier as state
+    params = {
+        "code": "true",
+        "client_id": _ANTHROPIC_OAUTH_CLIENT_ID,
+        "response_type": "code",
+        "redirect_uri": _ANTHROPIC_OAUTH_REDIRECT_URI,
+        "scope": _ANTHROPIC_OAUTH_SCOPES,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": verifier,
+    }
+    auth_url = f"{_ANTHROPIC_OAUTH_AUTHORIZE_URL}?{urllib.parse.urlencode(params)}"
+    return {
+        "session_id": sid,
+        "flow": "pkce",
+        "auth_url": auth_url,
+        "expires_in": _OAUTH_SESSION_TTL_SECONDS,
+    }
+
+
+def _submit_anthropic_pkce(
+    session_id: str,
+    code_input: str,
+    profile: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Exchange authorization code for tokens. Persists on success."""
+    home = _resolve_oauth_home(profile)
+    sess = _provider_oauth_service.owned_session(
+        home=home,
+        provider_id="anthropic",
+        session_id=session_id,
+    )
+    with _oauth_sessions_lock:
+        if sess.get("flow") != "pkce":
+            raise OAuthFlowError(OAuthFlowErrorCode.NOT_FOUND)
+        if sess["status"] != "pending":
+            return {"ok": False, "status": sess["status"], "message": sess.get("error_message")}
+        _oauth_cancel_event_locked(sess)
+        # Session ownership is fixed at /start and credential persistence uses
+        # the service-captured canonical home, never this submit request.
+        verifier = sess["verifier"]
+        session_state = sess["state"]
+
+    def _failure_result(default_status: str, default_message: str) -> Dict[str, Any]:
+        """Prefer a concurrent cancel/expiry result over a stale local failure."""
+        with _oauth_sessions_lock:
+            current_status = sess.get("status")
+            current_message = sess.get("error_message")
+        if current_status in {"cancelled", "expired"}:
+            return {
+                "ok": False,
+                "status": current_status,
+                "message": current_message
+                or (
+                    "OAuth session cancelled"
+                    if current_status == "cancelled"
+                    else "OAuth session expired"
+                ),
+            }
+        return {"ok": False, "status": default_status, "message": default_message}
+
+    # Anthropic's redirect callback page formats the code as `<code>#<state>`.
+    # Strip the state suffix if present (we already have the verifier server-side).
+    parts = code_input.strip().split("#", 1)
+    code = parts[0].strip()
+    if not code:
+        return {"ok": False, "status": "error", "message": "No code provided"}
+    state_from_callback = parts[1] if len(parts) > 1 else ""
+
+    exchange_data = json.dumps({
+        "grant_type": "authorization_code",
+        "client_id": _ANTHROPIC_OAUTH_CLIENT_ID,
+        "code": code,
+        "state": state_from_callback or session_state,
+        "redirect_uri": _ANTHROPIC_OAUTH_REDIRECT_URI,
+        "code_verifier": verifier,
+    }).encode()
+    # Anthropic migrated the OAuth token endpoint to platform.claude.com;
+    # console.anthropic.com now 404s. Try the new host first, then fall back.
+    result = None
+    try:
+        for _endpoint in _ANTHROPIC_OAUTH_TOKEN_URLS:
+            _oauth_raise_if_cancelled(sess)
+            req = urllib.request.Request(
+                _endpoint,
+                data=exchange_data,
+                headers={
+                    "Content-Type": "application/json",
+                    "User-Agent": "fabric-dashboard/1.0",
+                },
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    result = json.loads(resp.read().decode())
+            except Exception:
+                continue
+            _oauth_raise_if_cancelled(sess)
+            break
+        _oauth_raise_if_cancelled(sess)
+    except _OAuthSessionCancelled:
+        return _failure_result("cancelled", "OAuth session cancelled")
+    if result is None:
+        _oauth_mark_error_if_active(
+            session_id,
+            sess,
+            RuntimeError(OAuthFlowErrorCode.IO_UNAVAILABLE.value),
+        )
+        return _failure_result(
+            "error",
+            stable_oauth_message(OAuthFlowErrorCode.IO_UNAVAILABLE),
+        )
+
+    try:
+        if not isinstance(result, dict):
+            raise ValueError("invalid token response")
+        access_token = result.get("access_token", "")
+        refresh_token = result.get("refresh_token", "")
+        expires_in = int(result.get("expires_in") or 3600)
+        if (
+            not isinstance(access_token, str)
+            or not access_token.strip()
+            or not isinstance(refresh_token, str)
+            or expires_in <= 0
+        ):
+            raise ValueError("invalid token response")
+    except Exception:
+        _oauth_mark_error_if_active(
+            session_id,
+            sess,
+            RuntimeError(OAuthFlowErrorCode.IO_UNAVAILABLE.value),
+        )
+        return _failure_result(
+            "error",
+            stable_oauth_message(OAuthFlowErrorCode.IO_UNAVAILABLE),
+        )
+    expires_at_ms = int(time.time() * 1000) + (expires_in * 1000)
+    try:
+        def _persist() -> None:
+            with _oauth_owner_scope(sess):
+                _save_anthropic_oauth_creds(
+                    access_token,
+                    refresh_token,
+                    expires_at_ms,
+                )
+
+        if not _oauth_commit_if_active(session_id, sess, _persist):
+            return _failure_result(
+                "error",
+                stable_oauth_message(OAuthFlowErrorCode.IO_UNAVAILABLE),
+            )
+    except Exception:
+        _oauth_mark_error_if_active(
+            session_id,
+            sess,
+            RuntimeError(OAuthFlowErrorCode.IO_UNAVAILABLE.value),
+        )
+        return _failure_result(
+            "error",
+            stable_oauth_message(OAuthFlowErrorCode.IO_UNAVAILABLE),
+        )
+    _log.info(
+        "oauth/pkce login completed provider=anthropic trace=%s",
+        _provider_oauth_service.trace_id(sess),
+    )
+    return {"ok": True, "status": "approved"}
 
 
 def _start_oauth_worker_thread(
@@ -10183,7 +10514,19 @@ async def start_oauth_login(
             )
             return _oauth_start_public_response(reservation, response)
 
-        if catalog_entry["flow"] == "device_code":
+        # The pkce branch is gated on provider_id == "anthropic" because
+        # `_start_anthropic_pkce()` is hardcoded to the Anthropic flow.
+        # Routing any other future pkce-flagged provider through it would
+        # silently launch the Anthropic OAuth flow (the bug fixed in this
+        # change for MiniMax). New PKCE providers must add their own
+        # start function and an explicit branch here.
+        if catalog_entry["flow"] == "pkce" and provider_id == "anthropic":
+            response = await run_in_threadpool(
+                _start_anthropic_pkce,
+                profile=profile,
+                reservation=reservation,
+            )
+        elif catalog_entry["flow"] == "device_code":
             response = await _start_device_code_flow(
                 provider_id,
                 profile=profile,
@@ -10229,6 +10572,44 @@ async def start_oauth_login(
         if reservation is not None:
             await _stabilize_interrupted_oauth_start(reservation)
         raise
+
+
+class OAuthSubmitBody(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+
+    session_id: str
+    code: str
+
+
+@app.post("/api/providers/oauth/{provider_id}/submit")
+async def submit_oauth_code(
+    provider_id: str,
+    request: Request,
+    profile: Optional[str] = None,
+):
+    """Submit the auth code for PKCE flows. Token-protected."""
+    _require_token(request)
+    try:
+        try:
+            raw_body = await _read_provider_account_body(request)
+            body = OAuthSubmitBody.model_validate(raw_body, strict=True)
+        except Exception:
+            raise OAuthFlowError(OAuthFlowErrorCode.INVALID_INPUT) from None
+        if provider_id != "anthropic":
+            raise OAuthFlowError(OAuthFlowErrorCode.INVALID_PROVIDER)
+        if not body.session_id.strip() or not body.code.strip():
+            raise OAuthFlowError(OAuthFlowErrorCode.INVALID_INPUT)
+        return await asyncio.get_running_loop().run_in_executor(
+            None,
+            _submit_anthropic_pkce,
+            body.session_id,
+            body.code,
+            profile,
+        )
+    except OAuthFlowError as exc:
+        return _oauth_flow_http_error(exc)
+    except Exception:
+        return _oauth_flow_http_error(OAuthFlowErrorCode.IO_UNAVAILABLE)
 
 
 @app.get("/api/providers/oauth/{provider_id}/poll/{session_id}")
@@ -12729,22 +13110,6 @@ async def add_credential_pool_entry(body: CredentialPoolAdd):
     api_key = (body.api_key or "").strip()
     if not provider or not api_key:
         raise HTTPException(status_code=400, detail="provider and api_key are required")
-    if provider == "anthropic":
-        from fabric_cli.config import (
-            _configured_anthropic_api_key_base_url,
-            _validate_anthropic_api_key,
-        )
-
-        anthropic_base_url = _configured_anthropic_api_key_base_url()
-        try:
-            api_key = _validate_anthropic_api_key(
-                api_key,
-                base_url=anthropic_base_url,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-    else:
-        anthropic_base_url = ""
 
     try:
         pool = load_pool(provider)
@@ -12757,7 +13122,6 @@ async def add_credential_pool_entry(body: CredentialPoolAdd):
             priority=0,
             source=SOURCE_MANUAL,
             access_token=api_key,
-            base_url=anthropic_base_url or None,
         )
         pool.add_entry(entry)
     except Exception as exc:

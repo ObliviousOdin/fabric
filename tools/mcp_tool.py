@@ -4483,7 +4483,9 @@ def sanitize_mcp_name_component(value: str) -> str:
 # convention shared by Claude Code, Codex, and OpenCode (anomalyco/opencode
 # #33533). The double-underscore delimiter disambiguates the server/tool
 # boundary even when either component contains underscores, and matches the
-# naming models are trained on.
+# naming models are trained on. It also aligns native registration with the
+# Anthropic-OAuth wire form (``_MCP_TOOL_PREFIX`` in anthropic_adapter.py),
+# removing the single->double rewrite that path previously had to perform.
 MCP_TOOL_NAME_PREFIX = "mcp__"
 _MCP_NAME_DELIM = "__"
 

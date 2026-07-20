@@ -34,9 +34,10 @@ HEADERS = {"X-Fabric-Session-Token": _SESSION_TOKEN}
 _VIRTUAL = {d.slug for d in provider_catalog() if d.auth_type == "virtual"}
 _EXEMPT = {"custom"} | _VIRTUAL
 
-# Providers intentionally represented on both desktop tabs. Anthropic's key is
-# configured on Keys while Accounts shows read-only status and credential-pool
-# management guidance; this is one API-key auth method, not a subscription login.
+# Providers that legitimately offer BOTH auth methods and so intentionally
+# appear on both desktop tabs (an API-key card AND an account sign-in card).
+# Anthropic supports a direct API key (Keys tab) and a subscription OAuth /
+# Claude Code login (Accounts tab); surfacing both is correct, not a bug.
 _DUAL_TAB = {"anthropic"}
 
 

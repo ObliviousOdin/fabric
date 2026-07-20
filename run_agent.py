@@ -1963,7 +1963,10 @@ class AIAgent:
         refresh path runs, letting long-running TUI sessions recover from
         stale tokens without an exit/reopen cycle.
 
-        Extend here for new providers as we discover them.
+        Extend here for new providers as we discover them (Anthropic's
+        Claude Max OAuth entitlement errors look distinct enough today that
+        the existing 1M-context-beta branch handles them; revisit if other
+        subscription tiers start producing the same loop signature).
         """
         if status_code not in {401, 403, None}:
             return False
@@ -4319,18 +4322,65 @@ class AIAgent:
         return True
 
     def _try_refresh_anthropic_client_credentials(self) -> bool:
-        """Return False because supported Anthropic credentials are static.
-
-        Native Anthropic OAuth refresh was removed. API-key rotation and
-        failover are owned by ``CredentialPool``; consulting a process-global
-        env var here would overwrite explicit/profile/pool credentials and can
-        send a native key to a third-party Anthropic-compatible endpoint.
-        """
-        # Clear stale snapshots/tests created by older code before returning.
-        self._is_anthropic_oauth = False
         if self.api_mode != "anthropic_messages" or not hasattr(self, "_anthropic_api_key"):
             return False
-        return False
+        # Only refresh credentials for the native Anthropic provider.
+        # Other anthropic_messages providers (MiniMax, Alibaba, etc.) use their own keys.
+        if self.provider != "anthropic":
+            return False
+        if getattr(self, "_disable_environment_proxy", False):
+            # Native Anthropic token resolution can refresh Claude Code OAuth
+            # against the remote auth plane and reads global credential files.
+            # A local route is bound to its explicit/profile-scoped key only.
+            return False
+        # Azure endpoints use static API keys — OAuth token rotation doesn't apply.
+        # Refreshing would pick up ~/.claude/.credentials.json OAuth token and break auth.
+        _base = getattr(self, "_anthropic_base_url", "") or ""
+        if "azure.com" in _base:
+            return False
+
+        try:
+            from agent.anthropic_adapter import resolve_anthropic_token, build_anthropic_client
+
+            new_token = resolve_anthropic_token()
+        except Exception as exc:
+            logger.debug("Anthropic credential refresh failed: %s", exc)
+            return False
+
+        if not isinstance(new_token, str) or not new_token.strip():
+            return False
+        new_token = new_token.strip()
+        if new_token == self._anthropic_api_key:
+            return False
+
+        authorized_base = self._authorize_primary_base_url(
+            getattr(self, "_anthropic_base_url", None)
+        )
+
+        try:
+            new_client = build_anthropic_client(
+                new_token,
+                authorized_base,
+                timeout=get_provider_request_timeout(self.provider, self.model),
+            )
+        except Exception as exc:
+            logger.warning("Failed to rebuild Anthropic client after credential refresh: %s", exc)
+            return False
+
+        old_client = self._anthropic_client
+        self._anthropic_client = new_client
+        self._anthropic_api_key = new_token
+        # Update OAuth flag — token type may have changed (API key ↔ OAuth).
+        # Only treat as OAuth on native Anthropic; third-party endpoints using
+        # the Anthropic protocol must not trip OAuth paths (#1739 & third-party
+        # identity-injection guard).
+        from agent.anthropic_adapter import _is_oauth_token
+        self._is_anthropic_oauth = _is_oauth_token(new_token) if self.provider == "anthropic" else False
+        try:
+            old_client.close()
+        except Exception:
+            pass
+        return True
 
     def _apply_client_headers_for_base_url(self, base_url: str) -> None:
         from agent.auxiliary_client import build_nvidia_nim_headers, build_or_headers
@@ -4430,7 +4480,7 @@ class AIAgent:
         runtime_base = self._authorize_primary_base_url(runtime_base)
 
         if self.api_mode == "anthropic_messages":
-            from agent.anthropic_adapter import build_anthropic_client
+            from agent.anthropic_adapter import build_anthropic_client, _is_oauth_token
 
             new_client = build_anthropic_client(
                 runtime_key, runtime_base,
@@ -4445,7 +4495,7 @@ class AIAgent:
             self._anthropic_api_key = runtime_key
             self._anthropic_base_url = runtime_base
             self._anthropic_client = new_client
-            self._is_anthropic_oauth = False
+            self._is_anthropic_oauth = _is_oauth_token(runtime_key) if self.provider == "anthropic" else False
             self.api_key = runtime_key
             self.base_url = runtime_base
             try:
@@ -4498,6 +4548,8 @@ class AIAgent:
         return pool.has_available()
 
     def _anthropic_messages_create(self, api_kwargs: dict):
+        if self.api_mode == "anthropic_messages":
+            self._try_refresh_anthropic_client_credentials()
         # Defensive: strip Responses-only kwargs that can leak in under an
         # api_mode-flip race (the Anthropic SDK raises a non-retryable
         # TypeError on them). See #31673.
@@ -4517,9 +4569,9 @@ class AIAgent:
         rather than always falling back to build_anthropic_client() which
         requires a direct Anthropic API key.
 
-        Honors ``self._oauth_1m_beta_disabled`` (the legacy name for the
-        reactive path that removes a rejected 1M-context beta) so the rebuilt
-        client carries the reduced beta set.
+        Honors ``self._oauth_1m_beta_disabled`` (set by the reactive recovery
+        path when an OAuth subscription rejects the 1M-context beta) so the
+        rebuilt client carries the reduced beta set.
         """
         _drop_1m = bool(getattr(self, "_oauth_1m_beta_disabled", False))
         if getattr(self, "provider", None) == "bedrock":

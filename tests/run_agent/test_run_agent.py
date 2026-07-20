@@ -5827,36 +5827,6 @@ class TestCredentialPoolRecovery:
         assert recovered is False
         agent._swap_credential.assert_not_called()
 
-    def test_anthropic_api_key_pool_rotates_on_permission_403(self, agent):
-        """API-key 403s are auth failures, not subscription entitlements."""
-        next_entry = SimpleNamespace(label="secondary", id="secondary")
-
-        class _Pool:
-            def try_refresh_current(self):
-                return None
-
-            def mark_exhausted_and_rotate(self, *, status_code, error_context=None):
-                assert status_code == 403
-                assert error_context == {"message": "API key lacks permission"}
-                return next_entry
-
-        agent.provider = "anthropic"
-        agent.api_mode = "anthropic_messages"
-        agent._credential_pool = _Pool()
-        agent._swap_credential = MagicMock()
-        agent._is_entitlement_failure = MagicMock(return_value=False)
-
-        recovered, retry_same = agent._recover_with_credential_pool(
-            status_code=403,
-            has_retried_429=False,
-            classified_reason=FailoverReason.auth,
-            error_context={"message": "API key lacks permission"},
-        )
-
-        assert recovered is True
-        assert retry_same is False
-        agent._swap_credential.assert_called_once_with(next_entry)
-
     def test_extract_api_error_context_uses_reset_timestamp_and_reason(self, agent):
         response = SimpleNamespace(headers={})
         error = SimpleNamespace(
@@ -6588,17 +6558,18 @@ class TestAnthropicBaseUrlPassthrough:
 
 
 class TestAnthropicCredentialRefresh:
-    def test_try_refresh_anthropic_client_credentials_is_static_noop(self):
+    def test_try_refresh_anthropic_client_credentials_rebuilds_client(self):
         with (
             patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
             patch("run_agent.check_toolset_requirements", return_value={}),
             patch("agent.anthropic_adapter.build_anthropic_client") as mock_build,
         ):
             old_client = MagicMock()
-            mock_build.return_value = old_client
+            new_client = MagicMock()
+            mock_build.side_effect = [old_client, new_client]
             agent = AIAgent(
-                api_key="eyJ.proxy.signature",
-                base_url="https://gateway.example/anthropic",
+                api_key="sk-ant-oat01-stale-token",
+                base_url="https://openrouter.ai/api/v1",
                 api_mode="anthropic_messages",
                 quiet_mode=True,
                 skip_context_files=True,
@@ -6606,21 +6577,22 @@ class TestAnthropicCredentialRefresh:
             )
 
         agent._anthropic_client = old_client
-        agent._anthropic_api_key = "eyJ.proxy.signature"
-        agent._anthropic_base_url = "https://gateway.example/anthropic"
+        agent._anthropic_api_key = "sk-ant-oat01-stale-token"
+        agent._anthropic_base_url = "https://api.anthropic.com"
         agent.provider = "anthropic"
 
         with (
-            patch("agent.anthropic_adapter.resolve_anthropic_token") as resolve,
-            patch("agent.anthropic_adapter.build_anthropic_client") as rebuild,
+            patch("agent.anthropic_adapter.resolve_anthropic_token", return_value="sk-ant-oat01-fresh-token"),
+            patch("agent.anthropic_adapter.build_anthropic_client", return_value=new_client) as rebuild,
         ):
-            assert agent._try_refresh_anthropic_client_credentials() is False
+            assert agent._try_refresh_anthropic_client_credentials() is True
 
-        resolve.assert_not_called()
-        rebuild.assert_not_called()
-        old_client.close.assert_not_called()
-        assert agent._anthropic_client is old_client
-        assert agent._anthropic_api_key == "eyJ.proxy.signature"
+        old_client.close.assert_called_once()
+        rebuild.assert_called_once_with(
+            "sk-ant-oat01-fresh-token", "https://api.anthropic.com", timeout=None,
+        )
+        assert agent._anthropic_client is new_client
+        assert agent._anthropic_api_key == "sk-ant-oat01-fresh-token"
 
     def test_try_refresh_anthropic_client_credentials_returns_false_when_token_unchanged(self):
         with (
@@ -6650,7 +6622,7 @@ class TestAnthropicCredentialRefresh:
         old_client.close.assert_not_called()
         rebuild.assert_not_called()
 
-    def test_anthropic_messages_create_does_not_preflight_static_key_refresh(self):
+    def test_anthropic_messages_create_preflights_refresh(self):
         with (
             patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
             patch("run_agent.check_toolset_requirements", return_value={}),
@@ -6674,7 +6646,7 @@ class TestAnthropicCredentialRefresh:
         with patch.object(agent, "_try_refresh_anthropic_client_credentials", return_value=True) as refresh:
             result = agent._anthropic_messages_create({"model": "claude-sonnet-4-20250514"})
 
-        refresh.assert_not_called()
+        refresh.assert_called_once_with()
         agent._anthropic_client.messages.stream.assert_called_once_with(model="claude-sonnet-4-20250514")
         agent._anthropic_client.messages.create.assert_not_called()
         assert result is response
@@ -7445,9 +7417,10 @@ class TestNormalizeCodexDictArguments:
 
 
 class TestOAuthFlagAfterCredentialRefresh:
-    """Removed native OAuth refresh cannot mutate the credential or flag."""
+    """_is_anthropic_oauth must update when token type changes during refresh."""
 
-    def test_oauth_shaped_refresh_is_not_attempted(self, agent):
+    def test_oauth_flag_updates_api_key_to_oauth(self, agent):
+        """Refreshing from API key to OAuth token must set flag to True."""
         agent.api_mode = "anthropic_messages"
         agent.provider = "anthropic"
         agent._anthropic_api_key = "sk-ant-api-old"
@@ -7462,10 +7435,11 @@ class TestOAuthFlagAfterCredentialRefresh:
         ):
             result = agent._try_refresh_anthropic_client_credentials()
 
-        assert result is False
-        assert agent._is_anthropic_oauth is False
+        assert result is True
+        assert agent._is_anthropic_oauth is True
 
-    def test_stale_oauth_flag_is_not_used_as_a_refresh_path(self, agent):
+    def test_oauth_flag_updates_oauth_to_api_key(self, agent):
+        """Refreshing from OAuth to API key must set flag to False."""
         agent.api_mode = "anthropic_messages"
         agent.provider = "anthropic"
         agent._anthropic_api_key = "sk-ant-oat01-old"
@@ -7480,26 +7454,22 @@ class TestOAuthFlagAfterCredentialRefresh:
         ):
             result = agent._try_refresh_anthropic_client_credentials()
 
-        assert result is False
+        assert result is True
         assert agent._is_anthropic_oauth is False
 
 
-class TestFallbackClearsRetiredAnthropicOAuthFlag:
-    """Fallback activation must never infer native OAuth from token shape."""
+class TestFallbackSetsOAuthFlag:
+    """_try_activate_fallback must set _is_anthropic_oauth for Anthropic fallbacks."""
 
-    def test_fallback_to_anthropic_proxy_jwt_keeps_flag_false(self, agent):
+    def test_fallback_to_anthropic_oauth_sets_flag(self, agent):
         agent._fallback_activated = False
-        agent._fallback_model = {
-            "provider": "anthropic",
-            "model": "claude-sonnet-4-6",
-            "base_url": "https://gateway.example/anthropic",
-        }
+        agent._fallback_model = {"provider": "anthropic", "model": "claude-sonnet-4-6"}
         agent._fallback_chain = [agent._fallback_model]
         agent._fallback_index = 0
 
         mock_client = MagicMock()
-        mock_client.base_url = "https://gateway.example/anthropic"
-        mock_client.api_key = "eyJ.proxy.signature"
+        mock_client.base_url = "https://api.anthropic.com/v1"
+        mock_client.api_key = "sk-ant-oat01-fallback-token"
 
         with (
             patch("agent.auxiliary_client.resolve_provider_client",
@@ -7512,7 +7482,7 @@ class TestFallbackClearsRetiredAnthropicOAuthFlag:
             result = agent._try_activate_fallback()
 
         assert result is True
-        assert agent._is_anthropic_oauth is False
+        assert agent._is_anthropic_oauth is True
 
     def test_fallback_to_anthropic_api_key_clears_flag(self, agent):
         agent._fallback_activated = False

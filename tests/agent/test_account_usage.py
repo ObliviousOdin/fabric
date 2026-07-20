@@ -235,21 +235,3 @@ def test_codex_usage_treats_wham_used_percent_as_used_not_remaining(monkeypatch)
     assert "14% used" in rendered
     assert "15% used" not in rendered
     assert "86% used" not in rendered
-
-
-def test_anthropic_api_key_usage_does_not_call_subscription_endpoint(monkeypatch):
-    monkeypatch.setattr(
-        account_usage.httpx,
-        "Client",
-        lambda **_kwargs: pytest.fail("Anthropic API-key status must not call OAuth usage"),
-    )
-
-    snapshot = account_usage.fetch_account_usage(
-        "anthropic",
-        api_key="sk-ant-api03-live-key",
-    )
-
-    assert snapshot is not None
-    assert snapshot.source == "api_key"
-    assert snapshot.available is False
-    assert "Anthropic Console" in snapshot.unavailable_reason

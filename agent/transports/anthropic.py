@@ -53,6 +53,7 @@ class AnthropicTransport(ProviderTransport):
             max_tokens: int
             reasoning_config: dict | None
             tool_choice: str | None
+            is_oauth: bool
             preserve_dots: bool
             context_length: int | None
             base_url: str | None
@@ -68,6 +69,7 @@ class AnthropicTransport(ProviderTransport):
             max_tokens=params.get("max_tokens", 16384),
             reasoning_config=params.get("reasoning_config"),
             tool_choice=params.get("tool_choice"),
+            is_oauth=params.get("is_oauth", False),
             preserve_dots=params.get("preserve_dots", False),
             context_length=params.get("context_length"),
             base_url=params.get("base_url"),
@@ -84,6 +86,9 @@ class AnthropicTransport(ProviderTransport):
         import json
         from agent.anthropic_adapter import _to_plain_data, _sanitize_replay_block
         from agent.transports.types import ToolCall
+
+        strip_tool_prefix = kwargs.get("strip_tool_prefix", False)
+        _MCP_PREFIX = "mcp__"
 
         text_parts = []
         reasoning_parts = []
@@ -125,10 +130,31 @@ class AnthropicTransport(ProviderTransport):
                 elif isinstance(block_dict, dict):
                     reasoning_details.append(block_dict)
             elif block.type == "tool_use":
+                name = block.name
+                if strip_tool_prefix and name.startswith(_MCP_PREFIX):
+                    # On the OAuth wire every tool carries a double-underscore
+                    # ``mcp__`` prefix (added in build_anthropic_kwargs to avoid
+                    # Anthropic's single-underscore third-party classifier).
+                    # Reverse it back to the name the registry/dispatcher knows.
+                    # Two original forms map onto the same ``mcp__`` wire name:
+                    #   ``mcp__read_file``       <- bare native tool ``read_file``
+                    #   ``mcp__linear_get_issue`` <- MCP server tool
+                    #                                ``mcp_linear_get_issue``
+                    # Resolve by registry lookup, preferring whichever original
+                    # is actually registered; never rewrite a name the LLM used
+                    # that already resolves natively. GH-25255.
+                    from tools.registry import registry as _tool_registry
+                    if not _tool_registry.get_entry(name):
+                        bare = name[len(_MCP_PREFIX):]            # read_file
+                        single = "mcp_" + bare                    # mcp_read_file / mcp_linear_get_issue
+                        if _tool_registry.get_entry(single):
+                            name = single
+                        elif _tool_registry.get_entry(bare):
+                            name = bare
                 tool_calls.append(
                     ToolCall(
                         id=block.id,
-                        name=block.name,
+                        name=name,
                         arguments=json.dumps(block.input),
                     )
                 )

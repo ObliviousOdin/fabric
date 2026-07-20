@@ -208,24 +208,6 @@ def test_maybe_wrap_anthropic_sdk_missing_falls_back():
     assert not isinstance(result, AnthropicAuxiliaryClient)
 
 
-def test_maybe_wrap_anthropic_does_not_fallback_after_key_rejection():
-    from agent.auxiliary_client import _maybe_wrap_anthropic
-
-    plain_client = MagicMock(name="plain_openai")
-    with patch(
-        "agent.anthropic_adapter.build_anthropic_client",
-        side_effect=ValueError("OAuth/setup tokens cannot be used"),
-    ):
-        with pytest.raises(ValueError, match="OAuth/setup tokens"):
-            _maybe_wrap_anthropic(
-                plain_client,
-                "claude-sonnet-4.6",
-                "sk-ant-oat01-retired",
-                "https://gateway.example/anthropic",
-                api_mode="anthropic_messages",
-            )
-
-
 # ---------------------------------------------------------------------------
 # Integration: resolve_provider_client for named kimi-coding provider
 # ---------------------------------------------------------------------------

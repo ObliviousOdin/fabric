@@ -123,7 +123,12 @@ def _detect_api_mode_for_url(base_url: str) -> Optional[str]:
     - Direct api.openai.com endpoints need the Responses API for GPT-5.x
       tool calls with reasoning (chat/completions returns 400).
     - Direct api.anthropic.com endpoints must use the native Messages
-      API (``/v1/messages``), never an OpenAI-compatible transport.
+      API (``/v1/messages``).  Anthropic also exposes an OpenAI-compat
+      ``/chat/completions`` shim on the same host, but Pro/Max OAuth
+      subscriptions are only billed against the native Messages route;
+      hitting the shim accounts against a separate "extra usage" pool
+      that is empty by default and surfaces as HTTP 400 "You're out of
+      extra usage."  See issue #32243.
     - Third-party Anthropic-compatible gateways (MiniMax, Zhipu GLM,
       LiteLLM proxies, etc.) conventionally expose the native Anthropic
       protocol under a ``/anthropic`` suffix — treat those as
@@ -240,72 +245,33 @@ def _anthropic_base_url_override_ok(base_url: str) -> bool:
     Azure Foundry, MiniMax/Zhipu/LiteLLM-style ``/anthropic`` proxies, Kimi's
     ``/coding`` route). But a config can carry a *stale* non-Anthropic URL — e.g.
     ``provider: anthropic`` left with ``base_url: https://openrouter.ai/api/v1``
-    after a provider switch — which would route Anthropic API traffic to an
-    OpenAI-compatible aggregator and 404. Ignore those.
+    after a provider switch — which would route Anthropic OAuth/setup-token
+    traffic to an OpenAI-compatible aggregator and 404. Ignore those.
 
     Returns True only when the URL plausibly speaks the Anthropic Messages
     protocol; otherwise the caller falls back to ``https://api.anthropic.com``.
     """
-    from agent.anthropic_adapter import _is_anthropic_messages_endpoint
+    candidate = (base_url or "").strip()
+    if not candidate:
+        return False
 
-    return _is_anthropic_messages_endpoint(base_url)
+    hostname = (base_url_hostname(candidate) or "").lower()
+    if not hostname:
+        return False
 
-
-def _explicit_anthropic_route(model_cfg: Dict[str, Any]) -> str:
-    """Return the endpoint that constrains Anthropic credential selection."""
-    from fabric_cli.config import _explicit_anthropic_api_key_base_url
-
-    return _explicit_anthropic_api_key_base_url(model_cfg).strip().rstrip("/")
-
-
-def _anthropic_pool_for_endpoint(
-    pool: Optional[CredentialPool],
-    endpoint: str,
-    *,
-    current_id: Optional[str] = None,
-) -> Optional[CredentialPool]:
-    """Restrict an Anthropic pool to credentials paired with *endpoint*.
-
-    The returned pool intentionally contains only matching tuples so later
-    401/429 recovery cannot rotate a live client onto a key for another host.
-    ``write_credential_pool`` merges omitted IDs, so status updates from this
-    filtered view do not delete unrelated endpoint rows on disk.
-    """
-    target = str(endpoint or "").strip().rstrip("/")
-    if pool is None or not target:
-        return pool
-    try:
-        entries = pool.entries()
-    except Exception:
-        return pool
-    if current_id is None:
-        try:
-            current = pool.current()
-        except Exception:
-            current = None
-        current_id = getattr(current, "id", None)
-    from agent.anthropic_adapter import _anthropic_endpoints_match
-
-    matching = [
-        entry
-        for entry in entries
-        if _anthropic_endpoints_match(
-            getattr(entry, "runtime_base_url", None)
-            or getattr(entry, "base_url", None),
-            target,
-        )
-    ]
-    filtered = CredentialPool(
-        "anthropic",
-        matching,
-        read_only=bool(getattr(pool, "read_only", False)),
-    )
-    if current_id and any(entry.id == current_id for entry in matching):
-        # This is a newly-created pool that is not visible to another thread
-        # yet. Preserve the already-selected tuple without selecting again:
-        # random could choose a sibling, while round-robin would rotate twice.
-        filtered._current_id = current_id
-    return filtered
+    # Official Anthropic / Claude hosts.
+    if hostname == "api.anthropic.com" or hostname.endswith(".anthropic.com") or hostname.endswith(".claude.com"):
+        return True
+    # Azure Foundry Anthropic endpoints (handled specially downstream).
+    if hostname.endswith(".azure.com"):
+        return True
+    # Anthropic-compatible proxies conventionally expose the native Messages
+    # protocol under a ``/anthropic`` suffix, and Kimi under ``/coding`` — same
+    # signal _detect_api_mode_for_url() uses to pick anthropic_messages.
+    if _detect_api_mode_for_url(candidate) == "anthropic_messages":
+        return True
+    # Bare api.kimi.com without the /coding path is not an Anthropic endpoint.
+    return False
 
 
 def _auto_detect_local_model(base_url: str) -> str:
@@ -500,13 +466,13 @@ def _resolve_runtime_from_pool_entry(
         base_url = base_url or (pconfig.inference_base_url if pconfig else "")
     elif provider == "anthropic":
         api_mode = "anthropic_messages"
-        # A pool key and its endpoint are one credential tuple. Config is only
-        # a fallback for legacy entries that do not carry a base URL.
-        base_url = (
-            base_url
-            or _explicit_anthropic_route(model_cfg)
-            or "https://api.anthropic.com"
-        )
+        cfg_provider = str(model_cfg.get("provider") or "").strip().lower()
+        cfg_base_url = ""
+        if cfg_provider == "anthropic":
+            cfg_base_url = str(model_cfg.get("base_url") or "").strip().rstrip("/")
+            if not _anthropic_base_url_override_ok(cfg_base_url):
+                cfg_base_url = ""
+        base_url = cfg_base_url or base_url or "https://api.anthropic.com"
     elif provider == "openrouter":
         base_url = base_url or OPENROUTER_BASE_URL
     elif provider == "xai":
@@ -1427,67 +1393,22 @@ def _resolve_explicit_runtime(
         return None
 
     if provider == "anthropic":
-        from fabric_cli.config import _validate_anthropic_api_key
-        from agent.anthropic_adapter import _anthropic_endpoints_match
-
-        configured_route = _explicit_anthropic_route(model_cfg)
-        base_url = (
-            explicit_base_url
-            or configured_route
-            or "https://api.anthropic.com"
-        )
+        cfg_provider = str(model_cfg.get("provider") or "").strip().lower()
+        cfg_base_url = ""
+        if cfg_provider == "anthropic":
+            cfg_base_url = str(model_cfg.get("base_url") or "").strip().rstrip("/")
+            if not _anthropic_base_url_override_ok(cfg_base_url):
+                cfg_base_url = ""
+        base_url = explicit_base_url or cfg_base_url or "https://api.anthropic.com"
         api_key = explicit_api_key
-        if api_key:
-            try:
-                api_key = _validate_anthropic_api_key(api_key, base_url=base_url)
-            except ValueError as exc:
-                raise AuthError(str(exc)) from exc
         if not api_key:
-            try:
-                pool = load_pool("anthropic")
-                pool = _anthropic_pool_for_endpoint(pool, base_url)
-                entry = pool.select() if pool.has_credentials() else None
-            except Exception:
-                pool = None
-                entry = None
-            if entry is not None:
-                runtime = _resolve_runtime_from_pool_entry(
-                    provider="anthropic",
-                    entry=entry,
-                    requested_provider=requested_provider,
-                    model_cfg=model_cfg,
-                    pool=pool,
-                )
-                runtime_base_url = str(
-                    runtime.get("base_url") or ""
-                ).strip().rstrip("/")
-                try:
-                    _validate_anthropic_api_key(
-                        str(runtime.get("api_key") or ""),
-                        base_url=runtime_base_url or base_url,
-                    )
-                except ValueError as exc:
-                    raise AuthError(str(exc)) from exc
-                return runtime
+            from agent.anthropic_adapter import resolve_anthropic_token
 
-            if not api_key:
-                try:
-                    credentials = resolve_api_key_provider_credentials(
-                        "anthropic"
-                    )
-                except Exception:
-                    credentials = {}
-                credential_base_url = str(
-                    credentials.get("base_url") or ""
-                ).strip().rstrip("/")
-                if _anthropic_endpoints_match(credential_base_url, base_url):
-                    api_key = str(
-                        credentials.get("api_key") or ""
-                    ).strip()
+            api_key = resolve_anthropic_token()
             if not api_key:
                 raise AuthError(
-                    "No Anthropic API key found. Set ANTHROPIC_API_KEY or add one with "
-                    "'fabric auth add anthropic --type api-key'."
+                    "No Anthropic credentials found. Set ANTHROPIC_TOKEN or ANTHROPIC_API_KEY, "
+                    "run 'claude setup-token', or authenticate with 'claude /login'."
                 )
         return {
             "provider": "anthropic",
@@ -1846,35 +1767,12 @@ def _resolve_runtime_provider_unchecked(
     # return provider="custom" with chat_completions api_mode and no valid key).
     # Instead, use the Azure key directly with anthropic_messages api_mode.
     _eff_base = (explicit_base_url or "").strip()
-    from agent.anthropic_adapter import (
-        _anthropic_endpoints_match,
-        _is_azure_anthropic_endpoint,
-    )
-
-    if (
-        requested_provider == "anthropic"
-        and _is_azure_anthropic_endpoint(_eff_base)
-    ):
-        _azure_key = (explicit_api_key or "").strip()
-        if not _azure_key:
-            try:
-                _paired = resolve_api_key_provider_credentials("anthropic")
-            except Exception:
-                _paired = {}
-            if _anthropic_endpoints_match(
-                str(_paired.get("base_url") or ""),
-                _eff_base,
-            ):
-                _azure_key = str(_paired.get("api_key") or "").strip()
-        from fabric_cli.config import _validate_anthropic_api_key
-
-        try:
-            _azure_key = _validate_anthropic_api_key(
-                _azure_key,
-                base_url=_eff_base,
-            )
-        except ValueError as exc:
-            raise AuthError(str(exc)) from exc
+    if requested_provider == "anthropic" and "azure.com" in _eff_base:
+        _azure_key = (
+            (explicit_api_key or "").strip()
+            or _getenv("AZURE_ANTHROPIC_KEY", "").strip()
+            or _getenv("ANTHROPIC_API_KEY", "").strip()
+        )
         return {
             "provider": "anthropic",
             "api_mode": "anthropic_messages",
@@ -2014,36 +1912,12 @@ def _resolve_runtime_provider_unchecked(
             and not has_runtime_override
         )
 
-    anthropic_route = (
-        _explicit_anthropic_route(model_cfg)
-        if provider == "anthropic"
-        else ""
-    )
     try:
         pool = load_pool(provider) if should_use_pool else None
-        if provider == "anthropic" and anthropic_route:
-            pool = _anthropic_pool_for_endpoint(pool, anthropic_route)
     except Exception:
         pool = None
     if pool and pool.has_credentials():
         entry = pool.select()
-        if provider == "anthropic" and entry is not None and not anthropic_route:
-            selected_endpoint = (
-                getattr(entry, "runtime_base_url", None)
-                or getattr(entry, "base_url", None)
-                or "https://api.anthropic.com"
-            )
-            pool = _anthropic_pool_for_endpoint(
-                pool,
-                selected_endpoint,
-                current_id=getattr(entry, "id", None),
-            )
-            if pool is not None:
-                try:
-                    narrowed_current = pool.current()
-                except Exception:
-                    narrowed_current = None
-                entry = narrowed_current or entry
         pool_api_key = ""
         if entry is not None:
             pool_api_key = (
@@ -2207,76 +2081,70 @@ def _resolve_runtime_provider_unchecked(
 
     # Anthropic (native Messages API)
     if provider == "anthropic":
-        # A profile endpoint constrains both pool selection and standalone key
-        # resolution. Without an explicit route, a selected pool tuple is
-        # authoritative; reaching this fallback means native Anthropic.
-        base_url = anthropic_route or "https://api.anthropic.com"
+        # Allow base URL override from config.yaml model.base_url, but only
+        # when the configured provider is anthropic — otherwise a non-Anthropic
+        # base_url (e.g. Codex endpoint) would leak into Anthropic requests.
+        cfg_provider = str(model_cfg.get("provider") or "").strip().lower()
+        cfg_base_url = ""
+        if cfg_provider == "anthropic":
+            cfg_base_url = (model_cfg.get("base_url") or "").strip().rstrip("/")
+            if not _anthropic_base_url_override_ok(cfg_base_url):
+                cfg_base_url = ""
+        base_url = cfg_base_url or "https://api.anthropic.com"
 
-        # Microsoft Foundry endpoints support their own key env/config hints in
-        # addition to ANTHROPIC_API_KEY, so resolve those before the native
-        # Anthropic API-key-only path.
-        from agent.anthropic_adapter import (
-            _anthropic_endpoints_match,
-            _is_azure_anthropic_endpoint,
+        # For Microsoft Foundry endpoints, use ANTHROPIC_API_KEY directly —
+        # Claude Code OAuth tokens (sk-ant-oat01) are not accepted by Azure.
+        # Azure keys don't start with "sk-ant-" so resolve_anthropic_token()
+        # would find the Claude Code OAuth token first (priority 3) and return
+        # that instead, causing 401s. Detect Azure endpoints and use the env
+        # key directly to bypass the OAuth priority chain.
+        _is_azure_endpoint = "azure.com" in base_url.lower() or (
+            cfg_base_url and "azure.com" in cfg_base_url.lower()
         )
-
-        _is_azure_endpoint = _is_azure_anthropic_endpoint(base_url)
         if _is_azure_endpoint:
-            # Resolve every ambient/configured key together with its owning
-            # endpoint. This single helper covers model key_env/api_key_env,
-            # inline keys, AZURE_ANTHROPIC_KEY, and ANTHROPIC_API_KEY without
-            # rebinding a resource-A secret to resource B.
-            try:
-                paired = resolve_api_key_provider_credentials("anthropic")
-            except Exception:
-                paired = {}
-            token = (
-                str(paired.get("api_key") or "").strip()
-                if _anthropic_endpoints_match(
-                    str(paired.get("base_url") or ""),
-                    base_url,
+            # Honor user-specified env var hints on the model config before
+            # falling back to the built-in AZURE_ANTHROPIC_KEY / ANTHROPIC_API_KEY
+            # chain.  Accept both `key_env` (Fabric canonical — matches the
+            # custom_providers field name) and `api_key_env` (documented in the
+            # Azure Foundry guide and read by many config importers).
+            # Matches the config.yaml examples in website/docs/guides/azure-foundry.md.
+            token = ""
+            for hint_key in ("key_env", "api_key_env"):
+                env_var = str(model_cfg.get(hint_key) or "").strip()
+                if env_var:
+                    token = _getenv(env_var, "").strip()
+                    if token:
+                        break
+            # Next: an inline api_key on the model config (useful in multi-profile
+            # setups that want to avoid env-var juggling).
+            if not token:
+                token = str(model_cfg.get("api_key") or "").strip()
+            # Finally fall back to the historical fixed names.
+            if not token:
+                token = (
+                    _getenv("AZURE_ANTHROPIC_KEY", "").strip()
+                    or _getenv("ANTHROPIC_API_KEY", "").strip()
                 )
-                else ""
-            )
             if not token:
                 raise AuthError(
-                    "No Azure Anthropic API key found. Set AZURE_ANTHROPIC_KEY, "
-                    "point key_env/api_key_env in your config.yaml model section "
-                    "at a custom env var, or explicitly pair ANTHROPIC_API_KEY "
-                    "with this endpoint using ANTHROPIC_BASE_URL."
+                    "No Azure Anthropic API key found. Set AZURE_ANTHROPIC_KEY or "
+                    "ANTHROPIC_API_KEY, or point key_env/api_key_env in your "
+                    "config.yaml model section at a custom env var."
                 )
-            from fabric_cli.config import _validate_anthropic_api_key
-
-            try:
-                token = _validate_anthropic_api_key(token, base_url=base_url)
-            except ValueError as exc:
-                raise AuthError(str(exc)) from exc
         else:
-            try:
-                paired = resolve_api_key_provider_credentials("anthropic")
-            except Exception:
-                paired = {}
-            paired_base_url = str(
-                paired.get("base_url") or ""
-            ).strip().rstrip("/")
-            token = (
-                str(paired.get("api_key") or "").strip()
-                if _anthropic_endpoints_match(paired_base_url, base_url)
-                else ""
-            )
+            from agent.anthropic_adapter import resolve_anthropic_token
+            token = resolve_anthropic_token()
             if not token:
                 raise AuthError(
-                    "No Anthropic API key found. Set ANTHROPIC_API_KEY or add one with "
-                    "'fabric auth add anthropic --type api-key'."
+                    "No Anthropic credentials found. Set ANTHROPIC_TOKEN or ANTHROPIC_API_KEY, "
+                    "run 'claude setup-token', or authenticate with 'claude /login'."
                 )
         return {
             "provider": "anthropic",
             "api_mode": "anthropic_messages",
             "base_url": base_url,
             "api_key": token,
-            "source": str(paired.get("source") or "env")
-            if not _is_azure_endpoint
-            else "env/config",
+            "source": "env",
             "requested_provider": requested_provider,
         }
 

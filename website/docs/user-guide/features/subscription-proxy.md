@@ -196,8 +196,8 @@ proxy is a credential-attaching pass-through.
 ## Future: more OAuth providers
 
 The adapter system is pluggable. Adding a new provider (e.g.
-HuggingFace or GitHub Copilot's chat endpoint) requires implementing
-`UpstreamAdapter` in
+HuggingFace, GitHub Copilot's chat endpoint, Anthropic via OAuth)
+requires implementing `UpstreamAdapter` in
 `fabric_cli/proxy/adapters/<provider>.py` and registering it in
 `adapters/__init__.py`. Providers that aren't OpenAI-compatible at the
 protocol level (Anthropic Messages API, for example) would need a

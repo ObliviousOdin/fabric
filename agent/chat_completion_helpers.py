@@ -677,6 +677,7 @@ def build_api_kwargs(agent, api_messages: list) -> dict:
             tools=tools_for_api,
             max_tokens=ephemeral_out if ephemeral_out is not None else agent.max_tokens,
             reasoning_config=agent.reasoning_config,
+            is_oauth=agent._is_anthropic_oauth,
             preserve_dots=agent._anthropic_preserve_dots(),
             context_length=ctx_len,
             base_url=getattr(agent, "_anthropic_base_url", None),
@@ -1246,7 +1247,6 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
         _authorize_auxiliary_route,
         _fallback_entry_api_key,
         _load_auxiliary_egress_context,
-        _normalize_aux_provider,
     )
 
     loaded_policy, fallback_route_config = _load_auxiliary_egress_context()
@@ -1443,25 +1443,6 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
             # primary-client rebuild (request-scoped clients, timeout
             # application, and credential recovery all consult this flag).
             agent._disable_environment_proxy = True
-        elif (
-            not fb_provider.startswith("custom:")
-            and _normalize_aux_provider(fb_provider) == "anthropic"
-        ):
-            # Preserve the raw provider through preflight and client
-            # resolution: the auxiliary router allows a saved custom provider
-            # to intentionally use an alias such as ``claude``. Only after a
-            # client has resolved may we consult expanded config to distinguish
-            # that named custom route from a real built-in alias. Canonicalize
-            # the latter so pool lookup, API-mode selection, recovery, and live
-            # runtime state all use the owning ``anthropic`` provider ID.
-            try:
-                from fabric_cli.runtime_provider import has_named_custom_provider
-
-                fb_is_named_custom = has_named_custom_provider(fb_provider)
-            except Exception:
-                fb_is_named_custom = False
-            if not fb_is_named_custom:
-                fb_provider = "anthropic"
         try:
             from fabric_cli.model_normalize import normalize_model_for_provider
 
@@ -1550,98 +1531,11 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
                     fb_provider, fb_model, _pool_provider,
                 )
                 agent._credential_pool = None
-        if fb_provider == "anthropic":
-            # Anthropic pools may contain native, Azure, and proxy tuples under
-            # one provider ID. Always rebuild the live view for the fallback's
-            # endpoint, including Anthropic-A -> Anthropic-B fallbacks. Keeping
-            # an existing same-provider view would let later recovery rotate
-            # back to the primary endpoint.
-            agent._credential_pool = None
         if getattr(agent, "_credential_pool", None) is None:
             try:
                 from agent.credential_pool import load_pool
 
                 fallback_pool = load_pool(fb_provider)
-                if fb_provider == "anthropic":
-                    from agent.anthropic_adapter import (
-                        _anthropic_endpoints_match,
-                    )
-                    from fabric_cli.runtime_provider import (
-                        _anthropic_pool_for_endpoint,
-                    )
-
-                    # ``resolve_provider_client`` selected the credential that
-                    # built ``fb_client`` from its own pool instance. Reloading
-                    # here creates another instance whose random/round-robin
-                    # strategy has no current entry; a later 401/429 could then
-                    # refresh or exhaust a sibling key instead of the key that
-                    # actually failed. Recover the selected tuple identity from
-                    # the client (or, for older wrappers, from the exact
-                    # endpoint+key pair) and prime the attached filtered view.
-                    live_key = str(
-                        getattr(fb_client, "api_key", "") or ""
-                    ).strip()
-                    selected_id = str(
-                        getattr(fb_client, "_fabric_credential_id", "") or ""
-                    ).strip()
-                    try:
-                        pool_entries = list(fallback_pool.entries())
-                    except Exception:
-                        pool_entries = []
-
-                    def _is_live_entry(candidate) -> bool:
-                        candidate_key = str(
-                            getattr(candidate, "runtime_api_key", None)
-                            or getattr(candidate, "access_token", "")
-                            or ""
-                        ).strip()
-                        candidate_url = str(
-                            getattr(candidate, "runtime_base_url", None)
-                            or getattr(candidate, "base_url", "")
-                            or ""
-                        ).strip()
-                        return bool(
-                            live_key
-                            and candidate_key == live_key
-                            and _anthropic_endpoints_match(
-                                candidate_url,
-                                fb_base_url,
-                            )
-                        )
-
-                    selected_entry = next(
-                        (
-                            candidate
-                            for candidate in pool_entries
-                            if selected_id
-                            and getattr(candidate, "id", None) == selected_id
-                            and _is_live_entry(candidate)
-                        ),
-                        None,
-                    )
-                    if selected_entry is None:
-                        selected_entry = next(
-                            (
-                                candidate
-                                for candidate in pool_entries
-                                if _is_live_entry(candidate)
-                            ),
-                            None,
-                        )
-                    selected_id = str(
-                        getattr(selected_entry, "id", "") or ""
-                    ).strip()
-                    fallback_pool = _anthropic_pool_for_endpoint(
-                        fallback_pool,
-                        fb_base_url,
-                        current_id=selected_id or None,
-                    )
-                    if not selected_id:
-                        # The live fallback uses an explicit/standalone key not
-                        # represented by this pool. Attaching unrelated endpoint
-                        # siblings would let recovery penalize or rotate them for
-                        # a request they never served.
-                        fallback_pool = None
                 if fallback_pool and fallback_pool.has_credentials():
                     agent._credential_pool = fallback_pool
                     logger.info(
@@ -1661,28 +1555,8 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
 
         if fb_api_mode == "anthropic_messages":
             # Build native Anthropic client instead of using OpenAI client
-            from agent.anthropic_adapter import (
-                _anthropic_endpoints_match,
-                build_anthropic_client,
-            )
-
-            effective_key = fb_client.api_key or ""
-            if fb_provider == "anthropic" and not effective_key:
-                try:
-                    from fabric_cli.auth import (
-                        resolve_api_key_provider_credentials,
-                    )
-
-                    paired = resolve_api_key_provider_credentials("anthropic")
-                except Exception:
-                    paired = {}
-                if _anthropic_endpoints_match(
-                    str(paired.get("base_url") or ""),
-                    fb_base_url,
-                ):
-                    effective_key = str(
-                        paired.get("api_key") or ""
-                    ).strip()
+            from agent.anthropic_adapter import build_anthropic_client, resolve_anthropic_token, _is_oauth_token
+            effective_key = (fb_client.api_key or resolve_anthropic_token() or "") if fb_provider == "anthropic" else (fb_client.api_key or "")
             agent.api_key = effective_key
             agent._anthropic_api_key = effective_key
             agent._anthropic_base_url = fb_base_url
@@ -1694,7 +1568,7 @@ def try_activate_fallback(agent, reason: "FailoverReason | None" = None) -> bool
                 agent._anthropic_base_url,
                 **_anthropic_build_kwargs,
             )
-            agent._is_anthropic_oauth = False
+            agent._is_anthropic_oauth = _is_oauth_token(effective_key) if fb_provider == "anthropic" else False
             agent.client = None
             agent._client_kwargs = {}
         else:
@@ -1950,9 +1824,10 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
                 _tsum = agent._get_transport()
                 _ant_kw = _tsum.build_kwargs(model=agent.model, messages=api_messages, tools=None,
                                max_tokens=agent.max_tokens, reasoning_config=agent.reasoning_config,
+                               is_oauth=agent._is_anthropic_oauth,
                                preserve_dots=agent._anthropic_preserve_dots())
                 summary_response = agent._anthropic_messages_create(_ant_kw)
-                _summary_result = _tsum.normalize_response(summary_response)
+                _summary_result = _tsum.normalize_response(summary_response, strip_tool_prefix=agent._is_anthropic_oauth)
                 final_response = (_summary_result.content or "").strip()
             else:
                 summary_response = agent._ensure_primary_openai_client(reason="iteration_limit_summary").chat.completions.create(**summary_kwargs)
@@ -1978,10 +1853,11 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
             elif agent.api_mode == "anthropic_messages":
                 _tretry = agent._get_transport()
                 _ant_kw2 = _tretry.build_kwargs(model=agent.model, messages=api_messages, tools=None,
+                                is_oauth=agent._is_anthropic_oauth,
                                 max_tokens=agent.max_tokens, reasoning_config=agent.reasoning_config,
                                 preserve_dots=agent._anthropic_preserve_dots())
                 retry_response = agent._anthropic_messages_create(_ant_kw2)
-                _retry_result = _tretry.normalize_response(retry_response)
+                _retry_result = _tretry.normalize_response(retry_response, strip_tool_prefix=agent._is_anthropic_oauth)
                 final_response = (_retry_result.content or "").strip()
             else:
                 summary_kwargs = {

@@ -75,11 +75,11 @@ def test_resolve_runtime_provider_nous_pool_uses_env_base_url_override(monkeypat
     assert resolved["base_url"] == "https://ai.wildebeest-newton.ts.net/v1"
 
 
-def test_resolve_runtime_provider_anthropic_pool_keeps_entry_endpoint(monkeypatch):
+def test_resolve_runtime_provider_anthropic_pool_respects_config_base_url(monkeypatch):
     class _Entry:
-        access_token = "eyJ.gateway-a.signature"
+        access_token = "pool-token"
         source = "manual"
-        base_url = "https://gateway-a.example/anthropic"
+        base_url = "https://api.anthropic.com"
 
     class _Pool:
         def has_credentials(self):
@@ -87,46 +87,6 @@ def test_resolve_runtime_provider_anthropic_pool_keeps_entry_endpoint(monkeypatc
 
         def select(self):
             return _Entry()
-
-    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-    monkeypatch.setattr(
-        rp,
-        "_get_model_config",
-        lambda: {"provider": "anthropic"},
-    )
-    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
-
-    resolved = rp.resolve_runtime_provider(requested="anthropic")
-
-    assert resolved["provider"] == "anthropic"
-    assert resolved["api_mode"] == "anthropic_messages"
-    assert resolved["api_key"] == "eyJ.gateway-a.signature"
-    assert resolved["base_url"] == "https://gateway-a.example/anthropic"
-
-
-def test_resolve_runtime_provider_anthropic_legacy_pool_uses_config_endpoint(monkeypatch):
-    # load_pool() backfills the configured endpoint on legacy rows before
-    # runtime selection; emulate that post-migration state here.
-    entry = rp.PooledCredential(
-        provider="anthropic",
-        id="legacy",
-        label="legacy",
-        auth_type="api_key",
-        priority=0,
-        source="manual",
-        access_token="legacy-pool-token",
-        base_url="https://proxy.example.com/anthropic",
-    )
-
-    class _Pool:
-        def has_credentials(self):
-            return True
-
-        def select(self):
-            return entry
-
-        def entries(self):
-            return [entry]
 
     monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
     monkeypatch.setattr(
@@ -141,7 +101,9 @@ def test_resolve_runtime_provider_anthropic_legacy_pool_uses_config_endpoint(mon
 
     resolved = rp.resolve_runtime_provider(requested="anthropic")
 
-    assert resolved["api_key"] == "legacy-pool-token"
+    assert resolved["provider"] == "anthropic"
+    assert resolved["api_mode"] == "anthropic_messages"
+    assert resolved["api_key"] == "pool-token"
     assert resolved["base_url"] == "https://proxy.example.com/anthropic"
 
 
@@ -179,179 +141,32 @@ def test_resolve_runtime_provider_anthropic_ignores_stale_aggregator_base_url(mo
         assert resolved["base_url"] == "https://api.anthropic.com", stale
 
 
-def test_anthropic_runtime_honors_suppressed_env_source(
-    monkeypatch, tmp_path
-):
-    fabric_home = tmp_path / ".fabric"
-    fabric_home.mkdir()
-    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-suppressed")
-    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-    monkeypatch.setattr(
-        rp,
-        "_get_model_config",
-        lambda: {"provider": "anthropic"},
-    )
+def test_resolve_runtime_provider_anthropic_keeps_azure_base_url(monkeypatch):
+    """Azure Foundry Anthropic endpoints are not anthropic.com hosts but are a
+    legitimate override — they must survive the stale-URL guard."""
 
-    from fabric_cli.auth import suppress_credential_source
-
-    suppress_credential_source("anthropic", "env:ANTHROPIC_API_KEY")
-
-    with pytest.raises(rp.AuthError, match="No Anthropic API key"):
-        rp.resolve_runtime_provider(requested="anthropic")
-
-
-def test_configured_azure_route_skips_unrelated_native_pool(monkeypatch):
-    """Configured Azure intent must not silently bill a native pool key."""
-
-    entry = rp.PooledCredential(
-        provider="anthropic",
-        id="native",
-        label="native",
-        auth_type="api_key",
-        priority=0,
-        source="manual",
-        access_token="sk-ant-api03-native",
-        base_url="https://api.anthropic.com",
-    )
+    class _Entry:
+        access_token = "pool-token"
+        source = "manual"
+        base_url = "https://api.anthropic.com"
 
     class _Pool:
         def has_credentials(self):
             return True
 
-        def entries(self):
-            return [entry]
-
-    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-    monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
-    monkeypatch.setattr(
-        rp,
-        "resolve_api_key_provider_credentials",
-        lambda provider: {
-            "api_key": "azure-resource-key",
-            "base_url": "https://myhost.services.ai.azure.com/anthropic",
-            "source": "env:AZURE_ANTHROPIC_KEY",
-        },
-    )
-    monkeypatch.setattr(
-        rp,
-        "_get_model_config",
-        lambda: {
-            "provider": "anthropic",
-            "base_url": "https://myhost.services.ai.azure.com/anthropic",
-        },
-    )
-
-    resolved = rp.resolve_runtime_provider(requested="anthropic")
-    assert resolved["base_url"] == "https://myhost.services.ai.azure.com/anthropic"
-    assert resolved["api_key"] == "azure-resource-key"
-
-
-def test_configured_azure_route_uses_only_matching_pool_tuple(monkeypatch):
-    target = "https://myhost.services.ai.azure.com/anthropic"
-    native = rp.PooledCredential(
-        provider="anthropic", id="native", label="native",
-        auth_type="api_key", priority=0, source="manual",
-        access_token="sk-ant-api03-native", base_url="https://api.anthropic.com",
-    )
-    azure = rp.PooledCredential(
-        provider="anthropic", id="azure", label="azure",
-        auth_type="api_key", priority=1, source="manual",
-        access_token="azure-resource-key", base_url=target,
-    )
-
-    class _Pool:
-        def has_credentials(self):
-            return True
-
-        def entries(self):
-            return [native, azure]
+        def select(self):
+            return _Entry()
 
     monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
     monkeypatch.setattr(rp, "load_pool", lambda provider: _Pool())
     monkeypatch.setattr(
         rp,
         "_get_model_config",
-        lambda: {"provider": "anthropic", "base_url": target},
+        lambda: {"provider": "anthropic", "base_url": "https://myhost.azure.com/anthropic"},
     )
 
     resolved = rp.resolve_runtime_provider(requested="anthropic")
-
-    assert resolved["base_url"] == target
-    assert resolved["api_key"] == "azure-resource-key"
-    assert [item.id for item in resolved["credential_pool"].entries()] == ["azure"]
-
-
-@pytest.mark.parametrize("strategy", ["random", "round_robin"])
-@pytest.mark.parametrize("status_code", [401, 429])
-def test_anthropic_selected_tuple_scopes_mixed_endpoint_rotation(
-    monkeypatch, strategy, status_code
-):
-    proxy_url = "https://gateway.example.com/anthropic"
-    proxy_primary = rp.PooledCredential(
-        provider="anthropic", id="proxy-primary", label="proxy primary",
-        auth_type="api_key", priority=0, source="manual",
-        access_token="proxy-key-primary", base_url=proxy_url,
-    )
-    native = rp.PooledCredential(
-        provider="anthropic", id="native", label="native",
-        auth_type="api_key", priority=1, source="manual",
-        access_token="sk-ant-api03-native", base_url="https://api.anthropic.com",
-    )
-    proxy_backup = rp.PooledCredential(
-        provider="anthropic", id="proxy-backup", label="proxy backup",
-        auth_type="api_key", priority=2, source="manual",
-        access_token="proxy-key-backup", base_url=proxy_url,
-    )
-
-    monkeypatch.setattr(
-        "agent.credential_pool.get_pool_strategy",
-        lambda provider: strategy,
-    )
-    monkeypatch.setattr(
-        "agent.credential_pool.write_credential_pool",
-        lambda *args, **kwargs: None,
-    )
-
-    def _choose_proxy_primary(entries):
-        return next(
-            (entry for entry in entries if entry.id == "proxy-primary"),
-            entries[0],
-        )
-
-    monkeypatch.setattr(
-        "agent.credential_pool.random.choice",
-        _choose_proxy_primary,
-    )
-    pool = rp.CredentialPool(
-        "anthropic", [proxy_primary, native, proxy_backup]
-    )
-    monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-    monkeypatch.setattr(
-        rp,
-        "_get_model_config",
-        lambda: {"provider": "anthropic"},
-    )
-    monkeypatch.setattr(rp, "_explicit_anthropic_route", lambda model_cfg: "")
-    monkeypatch.setattr(rp, "load_pool", lambda provider: pool)
-
-    resolved = rp.resolve_runtime_provider(requested="anthropic")
-
-    scoped_pool = resolved["credential_pool"]
-    assert resolved["api_key"] == "proxy-key-primary"
-    assert resolved["base_url"] == proxy_url
-    assert {entry.id for entry in scoped_pool.entries()} == {
-        "proxy-primary",
-        "proxy-backup",
-    }
-    assert scoped_pool.current().id == "proxy-primary"
-
-    rotated = scoped_pool.mark_exhausted_and_rotate(status_code=status_code)
-
-    assert rotated.id == "proxy-backup"
-    assert rotated.base_url == proxy_url
-    assert scoped_pool.current().id == "proxy-backup"
+    assert resolved["base_url"] == "https://myhost.azure.com/anthropic"
 
 
 def test_resolve_runtime_provider_anthropic_explicit_override_skips_pool(monkeypatch):
@@ -2581,22 +2396,14 @@ class TestAzureAnthropicEnvVarHint:
         base.update(overrides)
         return base
 
-    def _install_cfg(self, monkeypatch, **overrides):
-        cfg = self._cfg(**overrides)
-        monkeypatch.setattr(rp, "_get_model_config", lambda: cfg)
-        monkeypatch.setattr(
-            "fabric_cli.config.load_config",
-            lambda: {"model": cfg},
-        )
-        return cfg
-
     def test_key_env_hint_picks_custom_var(self, monkeypatch):
         """model.key_env names a non-default env var → that var's value is used."""
         monkeypatch.delenv("AZURE_ANTHROPIC_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("MY_CUSTOM_AZURE_KEY", "from-custom-var")
         monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch, key_env="MY_CUSTOM_AZURE_KEY")
+        monkeypatch.setattr(rp, "_get_model_config",
+                            lambda: self._cfg(key_env="MY_CUSTOM_AZURE_KEY"))
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
 
         resolved = rp.resolve_runtime_provider(requested="anthropic")
@@ -2610,7 +2417,8 @@ class TestAzureAnthropicEnvVarHint:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("DOCS_VARIANT_KEY", "from-docs-alias")
         monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch, api_key_env="DOCS_VARIANT_KEY")
+        monkeypatch.setattr(rp, "_get_model_config",
+                            lambda: self._cfg(api_key_env="DOCS_VARIANT_KEY"))
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
 
         resolved = rp.resolve_runtime_provider(requested="anthropic")
@@ -2623,7 +2431,8 @@ class TestAzureAnthropicEnvVarHint:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "should-not-win-either")
         monkeypatch.setenv("MY_PROVIDER_KEY", "winning-key")
         monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch, key_env="MY_PROVIDER_KEY")
+        monkeypatch.setattr(rp, "_get_model_config",
+                            lambda: self._cfg(key_env="MY_PROVIDER_KEY"))
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
 
         resolved = rp.resolve_runtime_provider(requested="anthropic")
@@ -2635,7 +2444,8 @@ class TestAzureAnthropicEnvVarHint:
         monkeypatch.delenv("AZURE_ANTHROPIC_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch, api_key="inline-azure-key")
+        monkeypatch.setattr(rp, "_get_model_config",
+                            lambda: self._cfg(api_key="inline-azure-key"))
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
 
         resolved = rp.resolve_runtime_provider(requested="anthropic")
@@ -2647,111 +2457,12 @@ class TestAzureAnthropicEnvVarHint:
         monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "historical-key")
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch)
+        monkeypatch.setattr(rp, "_get_model_config", lambda: self._cfg())
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
 
         resolved = rp.resolve_runtime_provider(requested="anthropic")
 
         assert resolved["api_key"] == "historical-key"
-
-    @pytest.mark.parametrize(
-        "provider_alias",
-        ["claude", "claude-oauth", "claude-code"],
-    )
-    def test_anthropic_alias_keeps_azure_route_and_key_hint(
-        self, monkeypatch, provider_alias
-    ):
-        """Persisted aliases must canonicalize before route/key selection."""
-        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "alias-azure-key")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
-        cfg = {
-            "provider": provider_alias,
-            "base_url": self._AZURE_URL,
-        }
-        monkeypatch.setattr(rp, "_get_model_config", lambda: cfg)
-        monkeypatch.setattr(
-            "fabric_cli.config.load_config",
-            lambda: {"model": cfg},
-        )
-        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
-
-        resolved = rp.resolve_runtime_provider(requested=provider_alias)
-
-        assert resolved["provider"] == "anthropic"
-        assert resolved["api_key"] == "alias-azure-key"
-        assert resolved["base_url"] == self._AZURE_URL
-
-    @pytest.mark.parametrize(
-        "credential",
-        ["sk-ant-oat01-retired", "cc-claude-code-token"],
-    )
-    def test_configured_azure_rejects_subscription_credentials(
-        self, monkeypatch, credential
-    ):
-        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", credential)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch)
-        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
-
-        with pytest.raises(rp.AuthError, match="No Azure Anthropic API key"):
-            rp.resolve_runtime_provider(requested="anthropic")
-
-    def test_explicit_azure_rejects_subscription_credentials(self, monkeypatch):
-        with pytest.raises(rp.AuthError, match="OAuth/setup tokens"):
-            rp.resolve_runtime_provider(
-                requested="anthropic",
-                explicit_api_key="sk-ant-oat01-retired",
-                explicit_base_url=self._AZURE_URL,
-            )
-
-    def test_explicit_azure_does_not_borrow_key_paired_elsewhere(
-        self, monkeypatch
-    ):
-        monkeypatch.delenv("AZURE_ANTHROPIC_KEY", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-native")
-        monkeypatch.setenv(
-            "ANTHROPIC_BASE_URL",
-            "https://gateway-a.example/anthropic",
-        )
-
-        with pytest.raises(rp.AuthError, match="No Anthropic API key"):
-            rp.resolve_runtime_provider(
-                requested="anthropic",
-                explicit_base_url=self._AZURE_URL,
-            )
-
-    def test_anthropic_base_url_override_keeps_its_own_paired_key(
-        self, monkeypatch
-    ):
-        monkeypatch.delenv("AZURE_ANTHROPIC_KEY", raising=False)
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-native")
-        monkeypatch.setenv(
-            "ANTHROPIC_BASE_URL",
-            "https://gateway-a.example/anthropic",
-        )
-        monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch)
-        monkeypatch.setattr(rp, "load_pool", lambda provider: None)
-
-        resolved = rp.resolve_runtime_provider(requested="anthropic")
-
-        assert resolved["base_url"] == "https://gateway-a.example/anthropic"
-        assert resolved["api_key"] == "sk-ant-api03-native"
-
-    def test_azure_lookalike_does_not_receive_azure_key(self, monkeypatch):
-        monkeypatch.setenv("AZURE_ANTHROPIC_KEY", "azure-secret")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setattr(rp, "_get_model_config", lambda: {})
-
-        with pytest.raises(rp.AuthError):
-            rp.resolve_runtime_provider(
-                requested="anthropic",
-                explicit_base_url=(
-                    "https://evil.services.ai.azure.attacker.example/anthropic"
-                ),
-            )
 
     def test_key_env_points_at_unset_var_falls_through(self, monkeypatch):
         """If key_env names an env var that isn't set, fall through to the
@@ -2760,7 +2471,8 @@ class TestAzureAnthropicEnvVarHint:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("UNSET_VAR", raising=False)
         monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch, key_env="UNSET_VAR")
+        monkeypatch.setattr(rp, "_get_model_config",
+                            lambda: self._cfg(key_env="UNSET_VAR"))
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
 
         resolved = rp.resolve_runtime_provider(requested="anthropic")
@@ -2773,7 +2485,7 @@ class TestAzureAnthropicEnvVarHint:
         monkeypatch.delenv("AZURE_ANTHROPIC_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        self._install_cfg(monkeypatch)
+        monkeypatch.setattr(rp, "_get_model_config", lambda: self._cfg())
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
 
         with pytest.raises(rp.AuthError, match="key_env"):
@@ -2784,26 +2496,25 @@ class TestAzureAnthropicEnvVarHint:
         still goes through the regular resolve_anthropic_token chain."""
         monkeypatch.setenv("MY_KEY", "custom-key-value")
         monkeypatch.setattr(rp, "resolve_provider", lambda *a, **k: "anthropic")
-        cfg = {
+        monkeypatch.setattr(rp, "_get_model_config", lambda: {
             "provider": "anthropic",
             "base_url": "https://api.anthropic.com",  # non-Azure
             "key_env": "MY_KEY",
-        }
-        monkeypatch.setattr(rp, "_get_model_config", lambda: cfg)
+        })
         monkeypatch.setattr(rp, "load_pool", lambda provider: None)
+        called = {"resolve_anthropic_token": False}
+        def _fake_resolve():
+            called["resolve_anthropic_token"] = True
+            return "token-from-resolver"
         monkeypatch.setattr(
-            rp,
-            "resolve_api_key_provider_credentials",
-            lambda provider: {
-                "api_key": "token-from-resolver",
-                "base_url": "https://api.anthropic.com/v1",
-                "source": "env:ANTHROPIC_API_KEY",
-            },
+            "agent.anthropic_adapter.resolve_anthropic_token",
+            _fake_resolve,
         )
 
         resolved = rp.resolve_runtime_provider(requested="anthropic")
 
         # The normal chain runs — key_env is not consulted off-Azure.
+        assert called["resolve_anthropic_token"] is True
         assert resolved["api_key"] == "token-from-resolver"
 
 

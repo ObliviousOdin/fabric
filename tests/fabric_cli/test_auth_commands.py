@@ -63,7 +63,6 @@ def _clear_provider_env(monkeypatch):
         "OPENROUTER_API_KEY",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_BASE_URL",
         "ANTHROPIC_TOKEN",
         "CLAUDE_CODE_OAUTH_TOKEN",
     ):
@@ -95,15 +94,21 @@ def test_auth_add_api_key_persists_manual_entry(tmp_path, monkeypatch):
     assert entry["access_token"] == "sk-or-manual"
 
 
-def test_auth_add_anthropic_oauth_is_rejected(tmp_path, monkeypatch):
-    """Fabric authenticates to native Anthropic with an API key only — there is
-    no OAuth/subscription login (see NOTICE). ``fabric auth add anthropic
-    --type oauth`` must fail with a clear message, not attempt any flow."""
+def test_auth_add_anthropic_oauth_persists_pool_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_TOKEN", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
     _write_auth_store(tmp_path, {"version": 1, "providers": {}})
+    token = _jwt_with_email("claude@example.com")
+    monkeypatch.setattr(
+        "agent.anthropic_adapter.run_fabric_oauth_login_pure",
+        lambda: {
+            "access_token": token,
+            "refresh_token": "refresh-token",
+            "expires_at_ms": 1711234567000,
+        },
+    )
 
     from fabric_cli.auth_commands import auth_add_command
 
@@ -113,54 +118,15 @@ def test_auth_add_anthropic_oauth_is_rejected(tmp_path, monkeypatch):
         api_key = None
         label = None
 
-    with pytest.raises(SystemExit, match="does not support OAuth"):
-        auth_add_command(_Args())
-
-
-def test_auth_add_anthropic_rejects_oauth_shaped_api_key(tmp_path, monkeypatch):
-    """Relabeling a retired OAuth token as an API key must not persist it."""
-    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
-    _write_auth_store(tmp_path, {"version": 1, "providers": {}})
-
-    from fabric_cli.auth_commands import auth_add_command
-
-    class _Args:
-        provider = "anthropic"
-        auth_type = "api-key"
-        api_key = "sk-ant-oat01-retired-token"
-        label = "not-an-api-key"
-
-    with pytest.raises(SystemExit, match="cannot be used as API keys"):
-        auth_add_command(_Args())
-
-    payload = json.loads((tmp_path / "fabric" / "auth.json").read_text())
-    assert payload.get("credential_pool", {}).get("anthropic") in (None, [])
-
-
-def test_auth_add_anthropic_accepts_jwt_for_configured_third_party(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setenv("FABRIC_HOME", str(tmp_path / "fabric"))
-    monkeypatch.setenv(
-        "ANTHROPIC_BASE_URL",
-        "https://gateway.example/anthropic",
-    )
-    _write_auth_store(tmp_path, {"version": 1, "providers": {}})
-
-    from fabric_cli.auth_commands import auth_add_command
-
-    class _Args:
-        provider = "anthropic"
-        auth_type = "api-key"
-        api_key = "eyJ.proxy.signature"
-        label = "proxy"
-
     auth_add_command(_Args())
 
     payload = json.loads((tmp_path / "fabric" / "auth.json").read_text())
-    entry = payload["credential_pool"]["anthropic"][0]
-    assert entry["access_token"] == "eyJ.proxy.signature"
-    assert entry["base_url"] == "https://gateway.example/anthropic"
+    entries = payload["credential_pool"]["anthropic"]
+    entry = next(item for item in entries if item["source"] == "manual:anthropic_pkce")
+    assert entry["label"] == "claude@example.com"
+    assert entry["source"] == "manual:anthropic_pkce"
+    assert entry["refresh_token"] == "refresh-token"
+    assert entry["expires_at_ms"] == 1711234567000
 
 
 def test_auth_add_qwen_oauth_sets_active_provider(tmp_path, monkeypatch):
@@ -1773,10 +1739,8 @@ def test_seed_from_singletons_respects_qwen_suppression(tmp_path, monkeypatch):
     assert active == set()
 
 
-def test_seed_from_singletons_never_seeds_anthropic_oauth(tmp_path, monkeypatch):
-    """Fabric authenticates to native Anthropic with an API key only — no OAuth
-    auto-discovery (Claude Code credentials or Fabric PKCE) happens, ever,
-    regardless of config or suppression state. See NOTICE."""
+def test_seed_from_singletons_respects_anthropic_pkce_suppression(tmp_path, monkeypatch):
+    """Anthropic PKCE must not re-seed when its canonical source is suppressed."""
     fabric_home = tmp_path / "fabric"
     fabric_home.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
@@ -1786,26 +1750,22 @@ def test_seed_from_singletons_never_seeds_anthropic_oauth(tmp_path, monkeypatch)
     (fabric_home / "auth.json").write_text(json.dumps({
         "version": 1,
         "providers": {},
+        "suppressed_sources": {"anthropic": ["anthropic_pkce"]},
     }))
+
+    # Stub the readers so only Anthropic PKCE is available.
+    import agent.anthropic_adapter as aa
+    monkeypatch.setattr(aa, "read_fabric_oauth_credentials", lambda: {
+        "accessToken": "tok", "refreshToken": "r", "expiresAt": 9999999999000,
+    })
+    monkeypatch.setattr(aa, "read_claude_code_credentials", lambda: None)
 
     from agent.credential_pool import _seed_from_singletons
     entries = []
     changed, active = _seed_from_singletons("anthropic", entries)
+    # Anthropic PKCE is suppressed and claude_code is absent, so nothing seeds.
     assert entries == []
-    assert active == set()
-    assert changed is False
-
-    # A stale pre-existing anthropic_pkce/claude_code pool entry gets pruned.
-    from agent.credential_pool import PooledCredential
-    stale = [
-        PooledCredential(
-            provider="anthropic", id="x", label="old", auth_type="oauth",
-            priority=0, source="anthropic_pkce", access_token="tok",
-        ),
-    ]
-    changed, active = _seed_from_singletons("anthropic", stale)
-    assert stale == []
-    assert changed is True
+    assert "anthropic_pkce" not in active
 
 
 def test_seed_custom_pool_respects_config_suppression(tmp_path, monkeypatch):
@@ -2005,3 +1965,66 @@ def test_auth_remove_codex_manual_device_code_suppresses_canonical(tmp_path, mon
 
     auth_remove_command(SimpleNamespace(provider="openai-codex", target="1"))
     assert is_source_suppressed("openai-codex", "device_code")
+
+
+def test_auth_remove_anthropic_manual_pkce_deletes_and_suppresses_source(
+    tmp_path, monkeypatch,
+):
+    """Manual Anthropic OAuth entries map back to the one canonical PKCE source."""
+    fabric_home = tmp_path / "fabric"
+    fabric_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("FABRIC_HOME", str(fabric_home))
+    (fabric_home / "config.yaml").write_text(
+        yaml.safe_dump({"model": {"provider": "anthropic", "model": "claude"}}),
+        encoding="utf-8",
+    )
+    oauth_payload = {
+        "accessToken": "oauth-token",
+        "refreshToken": "refresh-token",
+        "expiresAt": 9999999999000,
+    }
+    oauth_file = fabric_home / ".anthropic_oauth.json"
+    oauth_file.write_text(json.dumps(oauth_payload), encoding="utf-8")
+    _write_auth_store(
+        tmp_path,
+        {
+            "version": 1,
+            "providers": {},
+            "credential_pool": {
+                "anthropic": [{
+                    "id": "anthropic-1",
+                    "label": "manual-pkce",
+                    "auth_type": "oauth",
+                    "priority": 0,
+                    "source": "manual:anthropic_pkce",
+                    "access_token": "oauth-token",
+                    "refresh_token": "refresh-token",
+                    "expires_at_ms": 9999999999000,
+                }],
+            },
+        },
+    )
+
+    from types import SimpleNamespace
+    from fabric_cli.auth import is_source_suppressed
+    from fabric_cli.auth_commands import auth_remove_command
+
+    auth_remove_command(SimpleNamespace(provider="anthropic", target="1"))
+
+    assert not oauth_file.exists()
+    assert is_source_suppressed("anthropic", "anthropic_pkce")
+    assert not is_source_suppressed("anthropic", "manual:anthropic_pkce")
+
+    # Even if the canonical source reappears on disk, suppression keeps the
+    # user's removal stable across a fresh pool load.
+    oauth_file.write_text(json.dumps(oauth_payload), encoding="utf-8")
+    monkeypatch.setattr(
+        "agent.anthropic_adapter.read_claude_code_credentials",
+        lambda: None,
+    )
+    from agent.credential_pool import load_pool
+
+    assert all(
+        entry.source != "anthropic_pkce"
+        for entry in load_pool("anthropic").entries()
+    )

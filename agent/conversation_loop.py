@@ -211,18 +211,21 @@ def _billing_or_entitlement_message(
     provider_label = (provider or "").strip() or "the selected provider"
     model_label = (model or "").strip() or "the selected model"
 
-    # Native Anthropic in Fabric is API-key-only. Keep this guidance on the API
-    # billing surface; pointing at Claude subscription settings is incorrect
-    # for supported credentials and cannot fix an API credit/spend-limit error.
+    # Anthropic Claude Pro/Max OAuth subscriptions surface exhaustion of the
+    # metered "extra usage" bucket as a hard 400 ("You're out of extra
+    # usage"). Point at the exact settings page and note the cycle-reset
+    # option, since the generic "add credits with that provider" line doesn't
+    # apply to a subscription — the user waits for the reset or switches to an
+    # API key.
     if (provider or "").strip().lower() == "anthropic":
         lines = [
             (
-                f"{provider_label} reported that API billing, credits, or account "
-                f"entitlement is exhausted for {model_label}."
+                f"{provider_label} reported that your Claude subscription usage is "
+                f"exhausted for {model_label} (included quota + extra-usage credits)."
             ),
-            "Review credits, auto-reload, and spend limits in the Anthropic Console, "
-            "then retry.",
-            "You can also switch to another provider with "
+            "Options: wait for the billing cycle to reset, or add extra usage at "
+            "https://claude.ai/settings/usage",
+            "You can also switch to an Anthropic API key or another provider with "
             "/model <model> --provider <provider>.",
         ]
         return "\n".join(lines)
@@ -1647,7 +1650,12 @@ def run_conversation(
                 # configured fallback once, otherwise return the refusal.
                 if finish_reason == "content_filter":
                     _refusal_transport = agent._get_transport()
-                    _refusal_result = _refusal_transport.normalize_response(response)
+                    if agent.api_mode == "anthropic_messages":
+                        _refusal_result = _refusal_transport.normalize_response(
+                            response, strip_tool_prefix=agent._is_anthropic_oauth
+                        )
+                    else:
+                        _refusal_result = _refusal_transport.normalize_response(response)
                     _refusal_text = (getattr(_refusal_result, "content", None) or "").strip()
                     # Some refusals carry the explanation only in the reasoning
                     # channel; fall back to it so the user sees *something*.
@@ -1751,7 +1759,12 @@ def run_conversation(
                     # would have been appended in the non-truncated path.
                     _trunc_msg = None
                     _trunc_transport = agent._get_transport()
-                    _trunc_result = _trunc_transport.normalize_response(response)
+                    if agent.api_mode == "anthropic_messages":
+                        _trunc_result = _trunc_transport.normalize_response(
+                            response, strip_tool_prefix=agent._is_anthropic_oauth
+                        )
+                    else:
+                        _trunc_result = _trunc_transport.normalize_response(response)
                     _trunc_msg = _trunc_result
 
                     _trunc_content = getattr(_trunc_msg, "content", None) if _trunc_msg else None
@@ -2783,6 +2796,7 @@ def run_conversation(
                     and not _retry.anthropic_auth_retry_attempted
                 ):
                     _retry.anthropic_auth_retry_attempted = True
+                    from agent.anthropic_adapter import _is_oauth_token
                     from agent.azure_identity_adapter import is_token_provider
                     if agent._try_refresh_anthropic_client_credentials():
                         print(f"{agent.log_prefix}🔐 Anthropic credentials refreshed after 401. Retrying request...")
@@ -2800,13 +2814,17 @@ def run_conversation(
                         print(f"{agent.log_prefix}   Run `fabric doctor` for credential-chain diagnostics, or")
                         print(f"{agent.log_prefix}   `az login` if your developer session expired.")
                     else:
-                        print(f"{agent.log_prefix}   Auth method: API key")
+                        auth_method = "Bearer (OAuth/setup-token)" if _is_oauth_token(key) else "x-api-key (API key)"
+                        print(f"{agent.log_prefix}   Auth method: {auth_method}")
                         print(f"{agent.log_prefix}   Token prefix: {key[:12]}..." if isinstance(key, str) and len(key) > 12 else f"{agent.log_prefix}   Token: (empty or short)")
                     print(f"{agent.log_prefix}   Troubleshooting:")
                     from fabric_constants import display_fabric_home as _dhh_fn
                     _dhh = _dhh_fn()
+                    print(f"{agent.log_prefix}     • Check ANTHROPIC_TOKEN in {_dhh}/.env for Fabric-managed OAuth/setup tokens")
                     print(f"{agent.log_prefix}     • Check ANTHROPIC_API_KEY in {_dhh}/.env for API keys")
                     print(f"{agent.log_prefix}     • For API keys: verify at https://platform.claude.com/settings/keys")
+                    print(f"{agent.log_prefix}     • For Claude Code: run 'claude /login' to refresh, then retry")
+                    print(f"{agent.log_prefix}     • Clear stale tokens: fabric config set ANTHROPIC_TOKEN \"\"")
                     print(f"{agent.log_prefix}     • Clear stale keys: fabric config set ANTHROPIC_API_KEY \"\"")
 
                 # Thinking block signature recovery.
@@ -4232,7 +4250,10 @@ def run_conversation(
 
         try:
             _transport = agent._get_transport()
-            normalized = _transport.normalize_response(response)
+            _normalize_kwargs = {}
+            if agent.api_mode == "anthropic_messages":
+                _normalize_kwargs["strip_tool_prefix"] = agent._is_anthropic_oauth
+            normalized = _transport.normalize_response(response, **_normalize_kwargs)
             assistant_message = normalized
             finish_reason = normalized.finish_reason
             

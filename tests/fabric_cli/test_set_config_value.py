@@ -56,47 +56,6 @@ class TestExplicitAllowlist:
         # Must NOT appear in config.yaml
         assert key not in _read_config(_isolated_fabric_home)
 
-    def test_anthropic_rejects_oauth_shaped_value_without_writing(
-        self, _isolated_fabric_home
-    ):
-        with pytest.raises(ValueError, match="OAuth/setup tokens"):
-            set_config_value(
-                "ANTHROPIC_API_KEY",
-                "sk-ant-oat01-retired",
-            )
-
-        env_content = _read_env(_isolated_fabric_home)
-        assert "ANTHROPIC_API_KEY" not in env_content
-        assert "ANTHROPIC_TOKEN" not in env_content
-
-    def test_anthropic_api_key_clears_retired_token_slot(
-        self, _isolated_fabric_home
-    ):
-        (_isolated_fabric_home / ".env").write_text(
-            "ANTHROPIC_TOKEN=sk-ant-oat01-old\n",
-            encoding="utf-8",
-        )
-
-        set_config_value("ANTHROPIC_API_KEY", "sk-ant-api03-new")
-
-        env_content = _read_env(_isolated_fabric_home)
-        assert "ANTHROPIC_API_KEY=sk-ant-api03-new" in env_content
-        assert "ANTHROPIC_TOKEN=sk-ant-oat01-old" not in env_content
-
-    def test_anthropic_third_party_jwt_uses_paired_base_url(
-        self, _isolated_fabric_home
-    ):
-        (_isolated_fabric_home / ".env").write_text(
-            "ANTHROPIC_BASE_URL=https://gateway.example/anthropic\n",
-            encoding="utf-8",
-        )
-
-        set_config_value("ANTHROPIC_API_KEY", "eyJ.proxy.signature")
-
-        env_content = _read_env(_isolated_fabric_home)
-        assert "ANTHROPIC_API_KEY=eyJ.proxy.signature" in env_content
-        assert "ANTHROPIC_BASE_URL=https://gateway.example/anthropic" in env_content
-
 
 # ---------------------------------------------------------------------------
 # Catch-all patterns → .env
@@ -193,21 +152,6 @@ class TestFalsyValues:
         set_config_value("OPENROUTER_API_KEY", "")
         env_content = _read_env(_isolated_fabric_home)
         assert "OPENROUTER_API_KEY=" in env_content
-
-    def test_empty_anthropic_key_clears_supported_and_retired_slots(
-        self, _isolated_fabric_home
-    ):
-        (_isolated_fabric_home / ".env").write_text(
-            "ANTHROPIC_API_KEY=sk-ant-api03-old\n"
-            "ANTHROPIC_TOKEN=sk-ant-oat01-old\n",
-            encoding="utf-8",
-        )
-
-        set_config_value("ANTHROPIC_API_KEY", "")
-
-        env_content = _read_env(_isolated_fabric_home)
-        assert "ANTHROPIC_API_KEY=sk-ant-api03-old" not in env_content
-        assert "ANTHROPIC_TOKEN=sk-ant-oat01-old" not in env_content
 
     def test_empty_string_routes_to_config(self, _isolated_fabric_home):
         """Blanking a config key should write an empty string to config.yaml."""

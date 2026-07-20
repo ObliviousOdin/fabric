@@ -128,18 +128,6 @@ SUPPORTED_POOL_STRATEGIES = {
     STRATEGY_LEAST_USED,
 }
 
-# Native Anthropic authentication is API-key-only.  These sources were
-# written by older Fabric releases when Anthropic subscription OAuth and
-# Claude Code credential reuse were supported.  Keep the list centralized so
-# every legacy spelling (including manually-added variants) is removed during
-# the normal pool-load migration.
-_LEGACY_ANTHROPIC_OAUTH_SOURCE_NAMES = frozenset({
-    "anthropic_pkce",
-    "claude_code",
-    "anthropic_token",
-    "claude_code_oauth_token",
-})
-
 # Cooldown before retrying an exhausted credential.
 # Transient 401 auth failures cool down briefly so single-key setups can recover.
 # 429 (rate-limited), 402 (billing/quota), and other failures cool down after 1 hour.
@@ -280,56 +268,6 @@ def _next_priority(entries: List[PooledCredential]) -> int:
 def _is_manual_source(source: str) -> bool:
     normalized = (source or "").strip().lower()
     return normalized == SOURCE_MANUAL or normalized.startswith(f"{SOURCE_MANUAL}:")
-
-
-def _is_legacy_anthropic_oauth_entry(
-    entry: PooledCredential,
-    fallback_base_url: Optional[str] = None,
-) -> bool:
-    """Return whether an Anthropic pool row belongs to the removed OAuth path."""
-    source = (entry.source or "").strip().lower()
-    if source.startswith(f"{SOURCE_MANUAL}:"):
-        source = source.split(":", 1)[1]
-    if source.startswith("env:"):
-        source = source.split(":", 1)[1]
-    from agent.anthropic_adapter import _anthropic_api_key_shape_allowed
-
-    token = str(entry.access_token or "").strip()
-    return (
-        entry.auth_type == AUTH_TYPE_OAUTH
-        or source in _LEGACY_ANTHROPIC_OAUTH_SOURCE_NAMES
-        # Env-backed rows are persisted without their borrowed raw secret and
-        # rehydrated on load. An empty persisted access_token is therefore not
-        # evidence of a legacy OAuth credential and must keep its stable ID and
-        # cooldown/request metadata across loads.
-        or (
-            bool(token)
-            and not _anthropic_api_key_shape_allowed(
-                token,
-                entry.base_url or fallback_base_url,
-            )
-        )
-    )
-
-
-def _configured_anthropic_pool_base_url() -> str:
-    """Return the active Anthropic Messages endpoint for legacy pool rows.
-
-    Older manual API-key rows predate per-entry ``base_url`` persistence. A
-    JWT-shaped key is ambiguous without its endpoint: it is invalid for native
-    Anthropic, but can be a legitimate key for an explicitly configured proxy.
-    Use the same profile-aware endpoint resolver as the auth layer so migration
-    can preserve and backfill that key/endpoint pair instead of deleting it.
-    """
-    try:
-        from fabric_cli.config import _explicit_anthropic_api_key_base_url
-
-        base_url = _explicit_anthropic_api_key_base_url().strip().rstrip("/")
-        if base_url:
-            return base_url
-    except Exception:
-        pass
-    return "https://api.anthropic.com"
 
 
 def _exhausted_ttl(error_code: Optional[int]) -> int:
@@ -590,16 +528,9 @@ def _write_through_provider_state_to_global_root(
 
 
 class CredentialPool:
-    def __init__(
-        self,
-        provider: str,
-        entries: List[PooledCredential],
-        *,
-        read_only: bool = False,
-    ):
+    def __init__(self, provider: str, entries: List[PooledCredential]):
         self.provider = provider
         self._entries = sorted(entries, key=lambda entry: entry.priority)
-        self._read_only = bool(read_only)
         self._current_id: Optional[str] = None
         self._strategy = get_pool_strategy(provider)
         self._lock = threading.Lock()
@@ -616,11 +547,6 @@ class CredentialPool:
     def entries(self) -> List[PooledCredential]:
         return list(self._entries)
 
-    @property
-    def read_only(self) -> bool:
-        """Whether entries are inherited from another credential scope."""
-        return self._read_only
-
     def current(self) -> Optional[PooledCredential]:
         if not self._current_id:
             return None
@@ -634,12 +560,6 @@ class CredentialPool:
                 return
 
     def _persist(self, *, removed_ids: Optional[List[str]] = None) -> None:
-        if self._read_only:
-            # Named profiles inherit the default profile's pool as a runtime
-            # fallback. Status/rotation changes stay in memory; writing them
-            # through the active-profile writer would clone raw global secrets
-            # and make the fallback unexpectedly shadow its owner.
-            return
         write_credential_pool(
             self.provider,
             [entry.to_dict() for entry in self._entries],
@@ -699,6 +619,58 @@ class CredentialPool:
         self._replace_entry(entry, updated)
         self._persist()
         return updated
+
+    def _sync_anthropic_entry_from_credentials_file(self, entry: PooledCredential) -> PooledCredential:
+        """Sync a claude_code pool entry from ~/.claude/.credentials.json if tokens differ.
+
+        OAuth refresh tokens are single-use. When something external (e.g.
+        Claude Code CLI, or another profile's pool) refreshes the token, it
+        writes the new pair to ~/.claude/.credentials.json. The pool entry's
+        refresh token becomes stale. This method detects that and syncs.
+        """
+        if self.provider != "anthropic" or entry.source != "claude_code":
+            return entry
+        try:
+            from agent.anthropic_adapter import read_claude_code_credentials
+            creds = read_claude_code_credentials()
+            if not creds:
+                return entry
+            file_refresh = creds.get("refreshToken", "")
+            file_access = creds.get("accessToken", "")
+            file_expires = creds.get("expiresAt", 0)
+            # Sync when either token changed.  Access tokens can be re-issued
+            # without a new refresh token (silent re-issue path), so checking
+            # only refresh_token misses that case and leaves a stale
+            # access_token in the pool → 401 on every request until the pool
+            # entry's exhausted TTL expires.
+            entry_access = entry.access_token or ""
+            entry_refresh = entry.refresh_token or ""
+            if (file_access or file_refresh) and (
+                (file_access and file_access != entry_access)
+                or (file_refresh and file_refresh != entry_refresh)
+            ):
+                logger.debug(
+                    "Pool entry %s: syncing tokens from credentials file (tokens changed)",
+                    entry.id,
+                )
+                updated = replace(
+                    entry,
+                    access_token=file_access or entry.access_token,
+                    refresh_token=file_refresh or entry.refresh_token,
+                    expires_at_ms=file_expires or entry.expires_at_ms,
+                    last_status=None,
+                    last_status_at=None,
+                    last_error_code=None,
+                    last_error_reason=None,
+                    last_error_message=None,
+                    last_error_reset_at=None,
+                )
+                self._replace_entry(entry, updated)
+                self._persist()
+                return updated
+        except Exception as exc:
+            logger.debug("Failed to sync from credentials file: %s", exc)
+        return entry
 
     def _sync_codex_entry_from_auth_store(self, entry: PooledCredential) -> PooledCredential:
         """Sync a Codex device_code pool entry from auth.json if tokens differ.
@@ -1042,7 +1014,33 @@ class CredentialPool:
         self, entry: PooledCredential, *, force: bool
     ) -> Optional[PooledCredential]:
         try:
-            if self.provider == "openai-codex":
+            if self.provider == "anthropic":
+                from agent.anthropic_adapter import refresh_anthropic_oauth_pure
+
+                refreshed = refresh_anthropic_oauth_pure(
+                    entry.refresh_token,
+                    use_json=entry.source.endswith("anthropic_pkce"),
+                )
+                updated = replace(
+                    entry,
+                    access_token=refreshed["access_token"],
+                    refresh_token=refreshed["refresh_token"],
+                    expires_at_ms=refreshed["expires_at_ms"],
+                )
+                # Keep ~/.claude/.credentials.json in sync so that the
+                # fallback path (resolve_anthropic_token) and other profiles
+                # see the latest tokens.
+                if entry.source == "claude_code":
+                    try:
+                        from agent.anthropic_adapter import _write_claude_code_credentials
+                        _write_claude_code_credentials(
+                            refreshed["access_token"],
+                            refreshed["refresh_token"],
+                            refreshed["expires_at_ms"],
+                        )
+                    except Exception as wexc:
+                        logger.debug("Failed to write refreshed token to credentials file: %s", wexc)
+            elif self.provider == "openai-codex":
                 # Adopt fresher tokens from auth.json before spending the
                 # refresh_token — single-use tokens consumed by another Fabric
                 # process sharing the same auth.json singleton would otherwise
@@ -1091,6 +1089,46 @@ class CredentialPool:
                 return entry
         except Exception as exc:
             logger.debug("Credential refresh failed for %s/%s: %s", self.provider, entry.id, exc)
+            # For anthropic claude_code entries: the refresh token may have been
+            # consumed by another process. Check if ~/.claude/.credentials.json
+            # has a newer token pair and retry once.
+            if self.provider == "anthropic" and entry.source == "claude_code":
+                synced = self._sync_anthropic_entry_from_credentials_file(entry)
+                if synced.refresh_token != entry.refresh_token:
+                    logger.debug("Retrying refresh with synced token from credentials file")
+                    try:
+                        from agent.anthropic_adapter import refresh_anthropic_oauth_pure
+                        refreshed = refresh_anthropic_oauth_pure(
+                            synced.refresh_token,
+                            use_json=synced.source.endswith("anthropic_pkce"),
+                        )
+                        updated = replace(
+                            synced,
+                            access_token=refreshed["access_token"],
+                            refresh_token=refreshed["refresh_token"],
+                            expires_at_ms=refreshed["expires_at_ms"],
+                            last_status=STATUS_OK,
+                            last_status_at=None,
+                            last_error_code=None,
+                        )
+                        self._replace_entry(synced, updated)
+                        self._persist()
+                        try:
+                            from agent.anthropic_adapter import _write_claude_code_credentials
+                            _write_claude_code_credentials(
+                                refreshed["access_token"],
+                                refreshed["refresh_token"],
+                                refreshed["expires_at_ms"],
+                            )
+                        except Exception as wexc:
+                            logger.debug("Failed to write refreshed token to credentials file (retry path): %s", wexc)
+                        return updated
+                    except Exception as retry_exc:
+                        logger.debug("Retry refresh also failed: %s", retry_exc)
+                elif not self._entry_needs_refresh(synced):
+                    # Credentials file had a valid (non-expired) token — use it directly
+                    logger.debug("Credentials file has valid token, using without refresh")
+                    return synced
             # For xai-oauth: same race as nous — another process may have
             # consumed the refresh token between our proactive sync and the
             # HTTP call.  Re-check auth.json and adopt the fresh tokens if
@@ -1360,6 +1398,15 @@ class CredentialPool:
         entries_to_prune: List[str] = []
         available: List[PooledCredential] = []
         for entry in self._entries:
+            # For anthropic claude_code entries, sync from the credentials file
+            # before any status/refresh checks. This picks up tokens refreshed
+            # by other processes (Claude Code CLI, other Fabric profiles).
+            if (self.provider == "anthropic" and entry.source == "claude_code"
+                    and entry.last_status in {STATUS_EXHAUSTED, STATUS_DEAD}):
+                synced = self._sync_anthropic_entry_from_credentials_file(entry)
+                if synced is not entry:
+                    entry = synced
+                    cleared_any = True
             # For nous entries, sync from auth.json before status checks.
             # Another process may have successfully refreshed via
             # resolve_nous_runtime_credentials(), making this entry's
@@ -1594,8 +1641,6 @@ class CredentialPool:
         return refreshed
 
     def reset_statuses(self) -> int:
-        if self._read_only:
-            return 0
         count = 0
         new_entries = []
         for entry in self._entries:
@@ -1620,8 +1665,6 @@ class CredentialPool:
         return count
 
     def remove_index(self, index: int) -> Optional[PooledCredential]:
-        if self._read_only:
-            return None
         if index < 1 or index > len(self._entries):
             return None
         removed = self._entries.pop(index - 1)
@@ -1664,16 +1707,6 @@ class CredentialPool:
         return None, None, f'No credential matching "{raw}".'
 
     def add_entry(self, entry: PooledCredential) -> PooledCredential:
-        inherited_entries = list(self._entries)
-        inherited_current_id = self._current_id
-        was_read_only = self._read_only
-        if self._read_only:
-            # Adding inside a named profile creates its first local provider
-            # slice and intentionally shadows the inherited global fallback.
-            # Never include inherited siblings in that write.
-            self._entries = []
-            self._current_id = None
-            self._read_only = False
         entry = replace(entry, priority=_next_priority(self._entries))
         before = list(self._entries)
         self._entries.append(entry)
@@ -1694,25 +1727,9 @@ class CredentialPool:
                     PooledCredential.from_dict(self.provider, payload)
                     for payload in persisted
                 ]
-                if was_read_only and not restored:
-                    # No local slice was published. Restore the inherited
-                    # read-only view exactly; otherwise a transient disk error
-                    # would hide working global credentials for this process.
-                    self._entries = inherited_entries
-                    self._current_id = inherited_current_id
-                    self._read_only = True
-                else:
-                    self._entries = sorted(
-                        restored,
-                        key=lambda candidate: candidate.priority,
-                    )
+                self._entries = sorted(restored, key=lambda candidate: candidate.priority)
             except BaseException:
-                if was_read_only:
-                    self._entries = inherited_entries
-                    self._current_id = inherited_current_id
-                    self._read_only = True
-                else:
-                    self._entries = before
+                self._entries = before
             if self._current_id is not None and not any(
                 candidate.id == self._current_id for candidate in self._entries
             ):
@@ -1766,7 +1783,13 @@ def _normalize_pool_priorities(provider: str, entries: List[PooledCredential]) -
     if provider != "anthropic":
         return False
 
-    source_rank = {"env:ANTHROPIC_API_KEY": 0}
+    source_rank = {
+        "env:ANTHROPIC_TOKEN": 0,
+        "env:CLAUDE_CODE_OAUTH_TOKEN": 1,
+        "anthropic_pkce": 2,
+        "claude_code": 3,
+        "env:ANTHROPIC_API_KEY": 4,
+    }
     manual_entries = sorted(
         (entry for entry in entries if _is_manual_source(entry.source)),
         key=lambda entry: entry.priority,
@@ -1804,40 +1827,88 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             return False
 
     if provider == "anthropic":
-        # Fabric authenticates to native Anthropic with a plain API key only —
-        # it does not auto-discover or seed Claude Code's (or any other
-        # first-party client's) OAuth credentials into the pool. Prune every
-        # legacy OAuth row left over from before this behavior changed,
-        # including manual and env-backed variants.
-        configured_base_url = _configured_anthropic_pool_base_url()
-        retained: List[PooledCredential] = []
-        from agent.anthropic_adapter import _anthropic_api_key_shape_allowed
+        # Only auto-discover external credentials (Claude Code, Anthropic PKCE)
+        # when the user has explicitly configured anthropic as their provider.
+        # Without this gate, auxiliary client fallback chains silently read
+        # ~/.claude/.credentials.json without user consent.  See PR #4210.
+        try:
+            from fabric_cli.auth import is_provider_explicitly_configured
+            if not is_provider_explicitly_configured("anthropic"):
+                return changed, active_sources
+        except ImportError:
+            pass
 
-        for entry in entries:
-            if _is_legacy_anthropic_oauth_entry(entry, configured_base_url):
+        # API-key vs OAuth is a user-visible choice at `fabric setup` ("Claude
+        # Pro/Max subscription" vs "Anthropic API key").  The signal that the
+        # user picked the API-key path is: ANTHROPIC_API_KEY set in the env,
+        # AND no OAuth env vars set — `save_anthropic_api_key()` writes the
+        # API key and zeros ANTHROPIC_TOKEN; `save_anthropic_oauth_token()`
+        # does the inverse.  When that signal is present we MUST NOT seed
+        # autodiscovered OAuth tokens (~/.claude/.credentials.json from the
+        # Claude Code CLI or Anthropic PKCE credentials from an OAuth login)
+        # into the anthropic pool — otherwise rotation on a 401/429 silently
+        # flips the session onto an OAuth credential, which forces the Claude
+        # Code identity injection, `mcp_` tool-name rewrite, and claude-cli
+        # User-Agent header (`agent/anthropic_adapter.py:2128`).  Users who
+        # explicitly opted into the API-key path are explicitly opting OUT of
+        # that masquerade. Prefer ~/.fabric/.env over os.environ for the
+        # same reason `_seed_from_env` does — that's the authoritative file
+        # that `fabric setup` writes.
+        _env_file = load_env()
+
+        def _env_val(key: str) -> str:
+            return (_env_file.get(key) or _get_secret(key, "") or "").strip()
+
+        from agent.anthropic_adapter import _is_oauth_token
+
+        anthropic_api_key = _env_val("ANTHROPIC_API_KEY")
+        anthropic_oauth_env = (
+            _env_val("ANTHROPIC_TOKEN") or _env_val("CLAUDE_CODE_OAUTH_TOKEN")
+        )
+        api_key_path_explicit = bool(
+            anthropic_api_key
+            and not _is_oauth_token(anthropic_api_key)
+            and not anthropic_oauth_env
+        )
+
+        if api_key_path_explicit:
+            # Prune any stale autodiscovered OAuth entries that may have been
+            # seeded into the on-disk pool during a previous OAuth session.
+            # Without this, switching OAuth -> API key at setup leaves the
+            # OAuth entries dormant in auth.json forever and rotation on a
+            # transient 401 could revive them.
+            retained = [
+                entry for entry in entries
+                if entry.source not in {"anthropic_pkce", "claude_code"}
+            ]
+            if len(retained) != len(entries):
+                entries[:] = retained
                 changed = True
-                continue
-            token = str(entry.access_token or "").strip()
-            if (
-                not entry.base_url
-                and token
-                and _anthropic_api_key_shape_allowed(token, configured_base_url)
-            ):
-                # Persist the inferred endpoint once. Keeping the association
-                # only in memory would let a later config switch reinterpret
-                # and destructively prune a legitimate proxy credential.
-                inferred_base_url = (
-                    "https://api.anthropic.com"
-                    if token.startswith("sk-ant-")
-                    else configured_base_url
+            return changed, active_sources
+
+        from agent.anthropic_adapter import read_claude_code_credentials, read_fabric_oauth_credentials
+
+        for source_name, creds in (
+            ("anthropic_pkce", read_fabric_oauth_credentials()),
+            ("claude_code", read_claude_code_credentials()),
+        ):
+            if creds and creds.get("accessToken"):
+                if _is_suppressed(provider, source_name):
+                    continue
+                active_sources.add(source_name)
+                changed |= _upsert_entry(
+                    entries,
+                    provider,
+                    source_name,
+                    {
+                        "source": source_name,
+                        "auth_type": AUTH_TYPE_OAUTH,
+                        "access_token": creds.get("accessToken", ""),
+                        "refresh_token": creds.get("refreshToken"),
+                        "expires_at_ms": creds.get("expiresAt"),
+                        "label": label_from_token(creds.get("accessToken", ""), source_name),
+                    },
                 )
-                entry = replace(entry, base_url=inferred_base_url)
-                changed = True
-            retained.append(entry)
-        if len(retained) != len(entries):
-            changed = True
-        entries[:] = retained
-        return changed, active_sources
 
     elif provider == "nous":
         state = _load_provider_state(auth_store, "nous")
@@ -2170,7 +2241,11 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
 
     env_vars = list(pconfig.api_key_env_vars)
     if provider == "anthropic":
-        env_vars = ["ANTHROPIC_API_KEY"]
+        env_vars = [
+            "ANTHROPIC_TOKEN",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+        ]
 
     for env_var in env_vars:
         # Prefer ~/.fabric/.env over os.environ
@@ -2178,11 +2253,9 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
         if not token:
             continue
         if provider == "anthropic" and env_var == "ANTHROPIC_API_KEY":
-            from agent.anthropic_adapter import _anthropic_api_key_shape_allowed
-            from fabric_cli.config import _anthropic_env_api_key_base_url
+            from agent.anthropic_adapter import _is_oauth_token
 
-            configured_base_url = _anthropic_env_api_key_base_url()
-            if not _anthropic_api_key_shape_allowed(token, configured_base_url):
+            if _is_oauth_token(token):
                 # OAuth credentials have dedicated canonical sources. Do not
                 # seed an API-key entry that the client would reinterpret by
                 # token shape.
@@ -2191,11 +2264,14 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
         if _is_source_suppressed(provider, source):
             continue
         active_sources.add(source)
-        base_url = (
-            configured_base_url
-            if provider == "anthropic" and configured_base_url
-            else env_url or pconfig.inference_base_url
+        # Anthropic's canonical token variables flow into the OAuth refresh
+        # path; ANTHROPIC_API_KEY remains an API-key-only contract.
+        auth_type = (
+            AUTH_TYPE_OAUTH
+            if provider == "anthropic" and env_var != "ANTHROPIC_API_KEY"
+            else AUTH_TYPE_API_KEY
         )
+        base_url = env_url or pconfig.inference_base_url
         if provider == "kimi-coding":
             base_url = _resolve_kimi_base_url(token, pconfig.inference_base_url, env_url)
         elif provider == "zai":
@@ -2209,7 +2285,7 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
                 env_var=env_var,
                 token=token,
                 base_url=base_url,
-                auth_type=AUTH_TYPE_API_KEY,
+                auth_type=auth_type,
             ),
         )
     return changed, active_sources
@@ -2323,71 +2399,9 @@ def _seed_custom_pool(pool_key: str, entries: List[PooledCredential]) -> Tuple[b
     return changed, active_sources
 
 
-def _read_global_anthropic_pool_fallback() -> List[PooledCredential]:
-    """Return inherited Anthropic rows as a read-only runtime view.
-
-    Named profiles may use the default profile's pool when their local slice is
-    empty. Those inherited rows must never flow through the profile-targeted
-    writer. Missing endpoint metadata is also interpreted conservatively:
-    only an unmistakable native Console key can safely default to native;
-    opaque/JWT values require their owning endpoint to be stored at the scope
-    where the credential lives.
-    """
-    try:
-        global_store = auth_mod._load_global_auth_store()
-    except Exception:
-        return []
-    global_pool = (
-        global_store.get("credential_pool")
-        if isinstance(global_store, dict)
-        else None
-    )
-    payloads = (
-        global_pool.get("anthropic")
-        if isinstance(global_pool, dict)
-        else None
-    )
-    if not isinstance(payloads, list):
-        return []
-
-    native_base_url = "https://api.anthropic.com"
-    retained: List[PooledCredential] = []
-    for payload in payloads:
-        if not isinstance(payload, dict):
-            continue
-        try:
-            entry = PooledCredential.from_dict("anthropic", payload)
-        except Exception:
-            continue
-        token = str(entry.access_token or "").strip()
-        if not token:
-            # Borrowed env rows are sanitized on disk and cannot be rehydrated
-            # from another profile's environment.
-            continue
-        if not entry.base_url:
-            if not token.startswith("sk-ant-api"):
-                continue
-            entry = replace(entry, base_url=native_base_url)
-        if _is_legacy_anthropic_oauth_entry(entry, native_base_url):
-            continue
-        retained.append(entry)
-
-    _normalize_pool_priorities("anthropic", retained)
-    return retained
-
-
 def load_pool(provider: str) -> CredentialPool:
     provider = (provider or "").strip().lower()
-    # Anthropic normalization can prune legacy OAuth rows and backfill endpoint
-    # metadata. In a named profile, normalize only the active store's writable
-    # slice; ``read_credential_pool`` is fallback-aware and would otherwise
-    # copy inherited global secrets into the profile when those changes are
-    # persisted. Other providers retain their existing fallback behavior.
-    raw_entries = (
-        _read_local_pool_for_recovery(provider)
-        if provider == "anthropic"
-        else read_credential_pool(provider)
-    )
+    raw_entries = read_credential_pool(provider)
     disk_ids = {
         entry.get("id")
         for entry in raw_entries
@@ -2427,17 +2441,4 @@ def load_pool(provider: str) -> CredentialPool:
             [entry.to_dict() for entry in sorted(entries, key=lambda item: item.priority)],
             removed_ids=disk_ids - new_ids,
         )
-    # A profile may contain only a legacy Anthropic OAuth row while the
-    # default profile contains a valid API key. After local normalization and
-    # persistence, expose the global slice in memory on this same load. This is
-    # deliberately outside ``if changed`` so a pristine empty profile gets the
-    # same fallback without ever materializing inherited secrets locally.
-    inherited_global = False
-    if provider == "anthropic" and not entries:
-        entries = _read_global_anthropic_pool_fallback()
-        inherited_global = bool(entries)
-    return CredentialPool(
-        provider,
-        entries,
-        read_only=inherited_global,
-    )
+    return CredentialPool(provider, entries)

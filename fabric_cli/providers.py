@@ -99,6 +99,7 @@ FABRIC_OVERLAYS: Dict[str, FabricOverlay] = {
     ),
     "anthropic": FabricOverlay(
         transport="anthropic_messages",
+        extra_env_vars=("ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"),
     ),
     "zai": FabricOverlay(
         transport="openai_chat",
@@ -283,7 +284,6 @@ ALIASES: Dict[str, str] = {
 
     # anthropic
     "claude": "anthropic",
-    "claude-oauth": "anthropic",
     "claude-code": "anthropic",
 
     # github-copilot (models.dev ID)

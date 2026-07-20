@@ -31,7 +31,7 @@ You need at least one way to connect to an LLM. Use `fabric model` to switch pro
 | **OpenAI Codex** | `fabric model` (ChatGPT device-code sign-in; see the [Fabric guide](/guides/chatgpt-codex-subscription)) |
 | **GitHub Copilot** | `fabric model` (OAuth device code flow, `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `gh auth token`) |
 | **GitHub Copilot ACP** | `fabric model` (spawns local `copilot --acp --stdio`) |
-| **Anthropic** | `fabric model` or `ANTHROPIC_API_KEY` in `~/.fabric/.env` (API key only — see note below) |
+| **Anthropic** | `fabric model` (OAuth when available for the account; also supports an Anthropic API key or manual setup-token — see note below) |
 | **Nous Portal** | `fabric auth add nous --client-id <registered-client-id>` (device-code OAuth with a registered Nous OAuth client ID) |
 | **OpenRouter** | `OPENROUTER_API_KEY` in `~/.fabric/.env` |
 | **NovitaAI** | `NOVITA_API_KEY` in `~/.fabric/.env` (provider: `novita`; Model API, Agent Sandbox, and GPU Cloud) |
@@ -101,16 +101,30 @@ If you're trying to switch to a provider you haven't set up yet (e.g. you only h
 
 ### Anthropic (Native)
 
-Use Claude models directly through the Anthropic API — no OpenRouter proxy needed. Authenticates with a regular API key only; Fabric does not offer an OAuth/subscription login for Anthropic, and does not read or reuse Claude Code's own credentials (see [NOTICE](https://github.com/ObliviousOdin/fabric/blob/main/NOTICE)).
+Use Claude models directly through the Anthropic API — no OpenRouter proxy needed. Supports three auth methods:
+
+:::caution Anthropic OAuth availability
+Anthropic controls which accounts, plans, and usage pools may be used through OAuth, and those rules may change. Complete the OAuth flow through `fabric model` to check your account. If OAuth is unavailable or your account is not eligible, use an `ANTHROPIC_API_KEY`; API usage is billed by Anthropic under the organization associated with that key.
+:::
 
 ```bash
 # With an API key (pay-per-token)
 export ANTHROPIC_API_KEY=***
 fabric chat --provider anthropic --model claude-sonnet-4-6
 
-# Or authenticate through `fabric model`
+# Preferred: authenticate through `fabric model`
+# Fabric will use Claude Code's credential store directly when available
 fabric model
+
+# Manual override with a setup-token (fallback / legacy)
+export ANTHROPIC_TOKEN=***  # setup-token or manual OAuth token
+fabric chat --provider anthropic
+
+# Auto-detect Claude Code credentials (if you already use Claude Code)
+fabric chat --provider anthropic  # reads Claude Code credential files automatically
 ```
+
+When you choose Anthropic OAuth through `fabric model`, Fabric prefers Claude Code's own credential store over copying the token into `~/.fabric/.env`. That keeps refreshable Claude credentials refreshable.
 
 Or set it permanently:
 ```yaml
@@ -120,7 +134,7 @@ model:
 ```
 
 :::tip Aliases
-`--provider claude` and `--provider claude-code` also work as shorthand for `--provider anthropic` (a plain API key — there is no separate Claude Code credential path).
+`--provider claude` and `--provider claude-code` also work as shorthand for `--provider anthropic`.
 :::
 
 ### GitHub Copilot

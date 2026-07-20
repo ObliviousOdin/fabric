@@ -12,7 +12,7 @@ explicit import) so existing call sites — and test monkeypatches that target
 ``fabric_cli.main._model_flow_*`` — keep resolving against main.py's namespace.
 
 main.py-internal helpers the flows call (``_prompt_api_key``, ``_save_custom_provider``,
-the reasoning-effort/stepfun/qwen helpers, …) are
+the reasoning-effort/stepfun/qwen helpers, ``_run_anthropic_oauth_flow``, …) are
 imported lazily inside the flows (``from fabric_cli.main import ...`` resolves at
 call time, when main.py is fully loaded) so this module never imports
 ``fabric_cli.main`` at import time -> no import cycle.
@@ -23,7 +23,6 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
-import uuid
 
 from fabric_cli.config import clear_model_endpoint_credentials
 
@@ -81,11 +80,7 @@ def _prune_replaced_custom_model_config_credentials(
         return
 
 
-def _prompt_auth_credentials_choice(
-    title: str,
-    *,
-    reauth_label: str = "Reauthenticate (new OAuth login)",
-) -> str:
+def _prompt_auth_credentials_choice(title: str) -> str:
     """Prompt for reuse / reauthenticate / cancel with the standard radio UI.
 
     Returns one of ``"use"``, ``"reauth"``, ``"cancel"``. Falls back to a
@@ -93,7 +88,7 @@ def _prompt_auth_credentials_choice(
     """
     choices = [
         "Use existing credentials",
-        reauth_label,
+        "Reauthenticate (new OAuth login)",
         "Cancel",
     ]
     try:
@@ -2999,12 +2994,8 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
         print("No change.")
 
 def _model_flow_anthropic(config, current_model=""):
-    """Flow for Anthropic provider — API key only.
-
-    Fabric authenticates to native Anthropic with a regular API key. It does
-    not offer to sign in with a Claude Pro/Max subscription or read Claude
-    Code's own credentials — see NOTICE for why.
-    """
+    """Flow for Anthropic provider — OAuth subscription, API key, or Claude Code creds."""
+    from fabric_cli.main import _run_anthropic_oauth_flow
     from fabric_cli.auth import (
         _prompt_model_selection,
         _save_model_choice,
@@ -3019,227 +3010,102 @@ def _model_flow_anthropic(config, current_model=""):
     from fabric_cli.models import _PROVIDER_MODELS
 
     # Check ALL credential sources
-    from fabric_cli.auth import _resolve_anthropic_api_key_details
+    from fabric_cli.auth import get_anthropic_key
 
-    native_base_url = "https://api.anthropic.com"
-
-    def _is_native_endpoint(base_url: str) -> bool:
-        from utils import base_url_hostname
-
-        return base_url_hostname(base_url) == "api.anthropic.com"
-
-    def _persist_native_route() -> None:
-        """Keep a newly entered Console key away from proxy/Azure routes."""
-        # Native Anthropic is the default route. Clear any old explicit env
-        # override instead of pinning the native URL there: ANTHROPIC_BASE_URL
-        # outranks model.base_url, so persisting the default would silently
-        # shadow a later Azure/proxy configuration.
-        save_env_value("ANTHROPIC_BASE_URL", "")
-        cfg = load_config()
-        model = cfg.get("model")
-        if not isinstance(model, dict):
-            model = {"default": model} if model else {}
-            cfg["model"] = model
-        model["provider"] = "anthropic"
-        model["base_url"] = native_base_url
-        clear_model_endpoint_credentials(model)
-        save_config(cfg)
-
-    def _preserve_explicit_env_proxy_tuple() -> bool:
-        """Snapshot an env-owned proxy key before replacing the env slot.
-
-        ``ANTHROPIC_API_KEY`` can own only one endpoint at a time. Adding a
-        native Console key clears ``ANTHROPIC_BASE_URL`` and replaces that env
-        value, so an existing explicit proxy tuple would otherwise be lost.
-        Move it into Fabric's manual pool first, where its endpoint remains
-        attached and future proxy selections can still use it.
-        """
-        from agent.anthropic_adapter import _anthropic_endpoints_match
-        from agent.credential_pool import (
-            AUTH_TYPE_API_KEY,
-            SOURCE_MANUAL,
-            PooledCredential,
-            load_pool,
+    existing_key = get_anthropic_key()
+    cc_available = False
+    try:
+        from agent.anthropic_adapter import (
+            read_claude_code_credentials,
+            is_claude_code_token_valid,
+            _is_oauth_token,
         )
-        from fabric_cli.config import (
-            _validate_anthropic_api_key,
-            get_env_value_prefer_dotenv,
-        )
-        from utils import base_url_hostname
 
-        env_key = str(
-            get_env_value_prefer_dotenv("ANTHROPIC_API_KEY") or ""
-        ).strip()
-        env_base_url = str(
-            get_env_value_prefer_dotenv("ANTHROPIC_BASE_URL") or ""
-        ).strip().rstrip("/")
-        if not env_key or not env_base_url or _is_native_endpoint(env_base_url):
-            return False
+        cc_creds = read_claude_code_credentials()
+        if cc_creds and is_claude_code_token_valid(cc_creds):
+            cc_available = True
+    except Exception:
+        pass
 
-        # Revalidate the old secret against its own endpoint. A JWT/opaque
-        # proxy key must never be reinterpreted as a native Console key.
-        env_key = _validate_anthropic_api_key(
-            env_key,
-            base_url=env_base_url,
-        )
-        pool = load_pool("anthropic")
-        for entry in pool.entries():
-            if not str(entry.source or "").lower().startswith("manual"):
-                continue
-            if entry.runtime_api_key != env_key:
-                continue
-            if _anthropic_endpoints_match(
-                entry.runtime_base_url or entry.base_url,
-                env_base_url,
-            ):
-                return False
+    # Stale-OAuth guard: if the only existing cred is an expired OAuth token
+    # (no valid cc_creds to fall back on), treat it as missing so the re-auth
+    # path is offered instead of silently accepting a broken token.
+    existing_is_stale_oauth = False
+    if existing_key and _is_oauth_token(existing_key) and not cc_available:
+        existing_is_stale_oauth = True
 
-        host = base_url_hostname(env_base_url) or "Anthropic proxy"
-        pool.add_entry(
-            PooledCredential(
-                provider="anthropic",
-                id=uuid.uuid4().hex[:6],
-                label=f"{host} key (preserved by setup)",
-                auth_type=AUTH_TYPE_API_KEY,
-                priority=0,
-                source=SOURCE_MANUAL,
-                access_token=env_key,
-                base_url=env_base_url,
-            )
-        )
-        return True
-
-    existing_key, existing_source, existing_base_url = (
-        _resolve_anthropic_api_key_details()
-    )
-    existing_base_url = str(existing_base_url or native_base_url).rstrip("/")
-    existing_is_native = _is_native_endpoint(existing_base_url)
-    has_creds = bool(existing_key)
+    has_creds = (bool(existing_key) and not existing_is_stale_oauth) or cc_available
     needs_auth = not has_creds
 
     if has_creds:
         # Show what we found
-        from fabric_cli.env_loader import format_secret_source_suffix
-        from fabric_cli.auth import PROVIDER_REGISTRY
+        if existing_key:
+            from fabric_cli.env_loader import format_secret_source_suffix
+            from fabric_cli.auth import PROVIDER_REGISTRY
 
-        # Surface which env var supplied the key so users with
-        # Bitwarden see "(from Bitwarden)" — without this, a detected
-        # BSM key looks identical to a key in .env and users assume
-        # nothing is wired up.
-        source_suffix = ""
-        for var in PROVIDER_REGISTRY["anthropic"].api_key_env_vars:
-            if os.getenv(var, "").strip() == existing_key:
-                source_suffix = format_secret_source_suffix(var)
-                if source_suffix:
-                    break
-        print(
-            f"  Anthropic credentials: {existing_key[:12]}... ✓{source_suffix}"
-        )
-        if not existing_is_native:
-            print(f"  Credential endpoint: {existing_base_url}")
-        print()
-        managed_pool_strategy = ""
-        if existing_source.startswith("credential_pool"):
-            from agent.credential_pool import (
-                STRATEGY_FILL_FIRST,
-                get_pool_strategy,
+            # Surface which env var supplied the key so users with
+            # Bitwarden see "(from Bitwarden)" — without this, a detected
+            # BSM key looks identical to a key in .env and users assume
+            # nothing is wired up.
+            source_suffix = ""
+            for var in PROVIDER_REGISTRY["anthropic"].api_key_env_vars:
+                if os.getenv(var, "").strip() == existing_key:
+                    source_suffix = format_secret_source_suffix(var)
+                    if source_suffix:
+                        break
+            print(
+                f"  Anthropic credentials: {existing_key[:12]}... ✓{source_suffix}"
             )
-
-            strategy = get_pool_strategy("anthropic")
-            if strategy != STRATEGY_FILL_FIRST:
-                managed_pool_strategy = strategy
-
-        choice = _prompt_auth_credentials_choice(
-            "Anthropic credentials:",
-            reauth_label=(
-                "Manage pooled API keys"
-                if managed_pool_strategy
-                else (
-                    "Replace API key"
-                    if existing_is_native
-                    else "Add native Anthropic API key"
-                )
-            ),
-        )
+        elif cc_available:
+            print("  Claude Code credentials: ✓ (auto-detected)")
+        print()
+        choice = _prompt_auth_credentials_choice("Anthropic credentials:")
 
         if choice == "reauth":
-            if managed_pool_strategy:
-                print(
-                    "  This Anthropic pool uses the "
-                    f"'{managed_pool_strategy}' rotation strategy. Manage its "
-                    "keys with `fabric auth list`, `fabric auth remove`, and "
-                    "`fabric auth add anthropic --type api-key`."
-                )
-                return
             needs_auth = True
         elif choice == "cancel":
             return
         # choice == "use" or default: use existing, proceed to model selection
 
     if needs_auth:
+        # Show auth method choice
         print()
-        print(f"  Configure a native Anthropic API key for: {native_base_url}")
-        if existing_base_url and not existing_is_native:
-            print(
-                f"  The existing credential for {existing_base_url} will be "
-                "left unchanged."
-            )
-        print("  Get an API key at: https://platform.claude.com/settings/keys")
+        print("  Choose authentication method:")
         print()
-        from fabric_cli.secret_prompt import masked_secret_prompt
-
+        print("    1. Claude Pro/Max subscription (OAuth login)")
+        print("    2. Anthropic API key (pay-per-token)")
+        print("    3. Cancel")
+        print()
         try:
-            api_key = masked_secret_prompt("  API key (sk-ant-...): ").strip()
+            choice = input("  Choice [1/2/3]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print()
             return
-        if not api_key:
-            print("  Cancelled.")
+
+        if choice == "1":
+            if not _run_anthropic_oauth_flow(save_env_value):
+                return
+
+        elif choice == "2":
+            print()
+            print("  Get an API key at: https://platform.claude.com/settings/keys")
+            print()
+            from fabric_cli.secret_prompt import masked_secret_prompt
+
+            try:
+                api_key = masked_secret_prompt("  API key (sk-ant-...): ").strip()
+            except (KeyboardInterrupt, EOFError):
+                print()
+                return
+            if not api_key:
+                print("  Cancelled.")
+                return
+            save_anthropic_api_key(api_key, save_fn=save_env_value)
+            print("  ✓ API key saved.")
+
+        else:
+            print("  No change.")
             return
-        try:
-            from fabric_cli.auth import _replace_anthropic_pooled_api_key
-            from fabric_cli.config import _validate_anthropic_api_key
-
-            api_key = _validate_anthropic_api_key(
-                api_key,
-                base_url=native_base_url,
-            )
-
-            preserved_proxy_env = _preserve_explicit_env_proxy_tuple()
-
-            # Change the route before writing the new secret. If persistence
-            # is interrupted, the safe failure mode is a native route with no
-            # matching key, never a native Console key paired to the old
-            # proxy/Azure endpoint.
-            _persist_native_route()
-
-            replaced_pool_key = (
-                existing_source.startswith("credential_pool")
-                and existing_is_native
-                and _replace_anthropic_pooled_api_key(
-                    existing_key,
-                    api_key,
-                    current_base_url=existing_base_url,
-                )
-            )
-            if replaced_pool_key:
-                # Retire the old Fabric-managed OAuth slot without creating a
-                # competing env key; the updated pool row remains authoritative.
-                save_env_value("ANTHROPIC_TOKEN", "")
-            else:
-                # A proxy/Azure pool row is a separate credential tuple. Keep
-                # it intact and persist the new native key in the env-backed
-                # native row instead of transplanting the secret to that host.
-                save_anthropic_api_key(api_key, save_fn=save_env_value)
-            if preserved_proxy_env:
-                print(
-                    "  Existing proxy API key preserved in the Anthropic "
-                    "credential pool."
-                )
-        except ValueError as exc:
-            print(f"  ⚠ {exc}")
-            return
-        print("  ✓ API key saved.")
     print()
 
     # Model selection
@@ -3259,20 +3125,17 @@ def _model_flow_anthropic(config, current_model=""):
     if selected:
         _save_model_choice(selected)
 
-        # Update config with provider. Preserve an explicit Anthropic Messages
-        # endpoint because a third-party opaque/JWT API key is paired with that
-        # route; clear only stale URLs from a previous provider.
+        # Update config with provider — clear base_url since
+        # resolve_runtime_provider() always hardcodes Anthropic's URL.
+        # Leaving a stale base_url in config can contaminate other
+        # providers if the user switches without running 'fabric model'.
         cfg = load_config()
         model = cfg.get("model")
         if not isinstance(model, dict):
             model = {"default": model} if model else {}
             cfg["model"] = model
         model["provider"] = "anthropic"
-        from agent.anthropic_adapter import _is_anthropic_messages_endpoint
-
-        configured_base_url = str(model.get("base_url") or "").strip()
-        if not _is_anthropic_messages_endpoint(configured_base_url):
-            model.pop("base_url", None)
+        model.pop("base_url", None)
         clear_model_endpoint_credentials(model)
         save_config(cfg)
         deactivate_provider()

@@ -32,6 +32,10 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import List, Optional, Tuple
 
 from agent.skill_utils import is_excluded_skill_path
+from fabric_cli.work_backup import (
+    WORK_STORE_PRIVATE_BASENAMES,
+    is_work_store_private_basename,
+)
 
 _PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -118,6 +122,7 @@ _CLONE_ALL_HISTORY_EXCLUDE_ROOT: frozenset[str] = frozenset({
     "state.db",
     "state.db-wal",
     "state.db-shm",
+    *WORK_STORE_PRIVATE_BASENAMES,
     "sessions",
     "backups",
     "state-snapshots",
@@ -192,6 +197,9 @@ def _clone_all_copytree_ignore(source_dir: Path):
                 if entry.startswith(_PROVIDER_ACCOUNT_TEMP_FILE_PREFIX):
                     ignored.append(entry)
                     continue
+                if is_work_store_private_basename(entry):
+                    ignored.append(entry)
+                    continue
                 # History artifacts: excluded for ANY source profile.
                 if entry in _CLONE_ALL_HISTORY_EXCLUDE_ROOT:
                     ignored.append(entry)
@@ -217,6 +225,7 @@ _DEFAULT_EXPORT_EXCLUDE_ROOT = frozenset({
     "node_modules",         # npm packages
     # Databases & runtime state
     "state.db", "state.db-shm", "state.db-wal",
+    *WORK_STORE_PRIVATE_BASENAMES,
     "response_store.db", "response_store.db-shm", "response_store.db-wal",
     "gateway.pid", "gateway_state.json", "processes.json",
     "auth.json",            # API keys, OAuth tokens, credential pools
@@ -1978,6 +1987,9 @@ def _named_export_ignore(root_dir: Path):
         if at_root:
             ignored.update(provider_private & set(contents))
             ignored.update(
+                entry for entry in contents if is_work_store_private_basename(entry)
+            )
+            ignored.update(
                 entry
                 for entry in contents
                 if entry.startswith(_PROVIDER_ACCOUNT_TEMP_FILE_PREFIX)
@@ -2059,6 +2071,11 @@ def _safe_extract_profile_archive(archive: Path, destination: Path) -> None:
     with tarfile.open(archive, "r:gz") as tf:
         for member in tf.getmembers():
             parts = _normalize_profile_archive_parts(member.name)
+            # Work history is intentionally not portable through profile
+            # clone/export/import.  Live restore needs the cross-process
+            # lifecycle guard and ledger-id rotation specified by FMB-002.
+            if len(parts) >= 2 and is_work_store_private_basename(parts[1]):
+                continue
             target = destination.joinpath(*parts)
 
             if member.isdir():

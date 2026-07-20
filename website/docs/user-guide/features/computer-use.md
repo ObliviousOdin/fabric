@@ -70,6 +70,13 @@ The view follows the same conversation and Computer Use session in either
 position. Popping it out, pausing it, or docking it does not restart the agent
 or its current turn.
 
+The native mobile clients expose a separate read-only host-screen view only
+when the connected gateway advertises the exact `computer.screenshot` method.
+They poll for a PNG without sending pointer or keyboard input. Advertisement
+means the RPC exists; it does not prove that the host has a supported capture
+backend or permission, so capture failures remain an unavailable state rather
+than turning into remote control.
+
 While the view is visible and unpaused, Computer Use Live View can reuse at
 most one accepted, bounded screenshot from a `computer_use` completion. It does
 not start a second screen-capture loop. **Pause visual updates** freezes the

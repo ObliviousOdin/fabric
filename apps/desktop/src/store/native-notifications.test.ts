@@ -18,7 +18,7 @@ import {
   setNativeNotifyEnabled,
   setNativeNotifyKind
 } from './native-notifications'
-import { $approvalRequest, setApprovalRequest } from './prompts'
+import { $approvalRequest, clearAllPrompts, setApprovalRequest } from './prompts'
 import { $activeSessionId, setActiveSessionId } from './session'
 
 const desktopWindow = window as unknown as { fabricDesktop?: Window['fabricDesktop'] }
@@ -55,6 +55,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  clearAllPrompts()
+
   if (initialFabricDesktop) {
     desktopWindow.fabricDesktop = initialFabricDesktop
   } else {
@@ -139,11 +141,23 @@ describe('dispatchNativeNotification preferences', () => {
     expect(notify).toHaveBeenCalledTimes(1)
   })
 
-  it('forwards kind and sessionId to the bridge', () => {
+  it('forwards kind, requestId, and sessionId to the bridge', () => {
     setActiveSessionId('abc')
-    dispatchNativeNotification({ body: 'hi', kind: 'turnError', sessionId: 'abc', title: 'boom' })
+    dispatchNativeNotification({
+      body: 'hi',
+      kind: 'turnError',
+      requestId: 'approval-1',
+      sessionId: 'abc',
+      title: 'boom'
+    })
     expect(notify).toHaveBeenCalledWith(
-      expect.objectContaining({ body: 'hi', kind: 'turnError', sessionId: 'abc', title: 'boom' })
+      expect.objectContaining({
+        body: 'hi',
+        kind: 'turnError',
+        requestId: 'approval-1',
+        sessionId: 'abc',
+        title: 'boom'
+      })
     )
   })
 })
@@ -175,7 +189,7 @@ describe('$activeSessionId wiring', () => {
 })
 
 describe('respondToApprovalAction', () => {
-  const request = vi.fn().mockResolvedValue({ resolved: true })
+  const request = vi.fn().mockResolvedValue({ request_id: 'approval-1', resolved: 1 })
 
   beforeEach(() => {
     request.mockClear()
@@ -188,27 +202,59 @@ describe('respondToApprovalAction', () => {
 
   it('approves via approval.respond {choice: "once"} and clears the prompt', async () => {
     setActiveSessionId('bg')
-    setApprovalRequest({ command: 'rm -rf /', description: 'dangerous', sessionId: 'bg' })
+    setApprovalRequest({ command: 'rm -rf /', description: 'dangerous', requestId: 'approval-1', sessionId: 'bg' })
 
-    await respondToApprovalAction('bg', 'approve')
+    await respondToApprovalAction('bg', 'approval-1', 'approve')
 
-    expect(request).toHaveBeenCalledWith('approval.respond', { choice: 'once', session_id: 'bg' })
+    expect(request).toHaveBeenCalledWith('approval.respond', {
+      choice: 'once',
+      request_id: 'approval-1',
+      session_id: 'bg'
+    })
     expect($approvalRequest.get()).toBeNull()
   })
 
   it('rejects via approval.respond {choice: "deny"}', async () => {
-    await respondToApprovalAction('bg', 'reject')
-    expect(request).toHaveBeenCalledWith('approval.respond', { choice: 'deny', session_id: 'bg' })
+    await respondToApprovalAction('bg', 'approval-1', 'reject')
+    expect(request).toHaveBeenCalledWith('approval.respond', {
+      choice: 'deny',
+      request_id: 'approval-1',
+      session_id: 'bg'
+    })
   })
 
   it('ignores unknown action ids', async () => {
-    await respondToApprovalAction('bg', 'snooze')
+    await respondToApprovalAction('bg', 'approval-1', 'snooze')
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it('does not act without an authoritative request id', async () => {
+    await respondToApprovalAction('bg', undefined, 'approve')
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('keeps the prompt when the backend resolves zero approvals', async () => {
+    setActiveSessionId('bg')
+    setApprovalRequest({ command: 'rm -rf /', description: 'dangerous', requestId: 'approval-1', sessionId: 'bg' })
+    request.mockResolvedValueOnce({ resolved: 0 })
+
+    await respondToApprovalAction('bg', 'approval-1', 'approve')
+
+    expect($approvalRequest.get()?.requestId).toBe('approval-1')
+  })
+
+  it('does not clear a newer prompt after an old notification resolves', async () => {
+    setActiveSessionId('bg')
+    setApprovalRequest({ command: 'new command', description: 'dangerous', requestId: 'approval-2', sessionId: 'bg' })
+
+    await respondToApprovalAction('bg', 'approval-1', 'approve')
+
+    expect($approvalRequest.get()?.requestId).toBe('approval-2')
   })
 
   it('no-ops without a gateway', async () => {
     $gateway.set(null)
-    await respondToApprovalAction('bg', 'approve')
+    await respondToApprovalAction('bg', 'approval-1', 'approve')
     expect(request).not.toHaveBeenCalled()
   })
 })

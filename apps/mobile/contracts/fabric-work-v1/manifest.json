@@ -1,0 +1,72 @@
+{
+  "name": "fabric.work.fixture-manifest",
+  "version": 1,
+  "cases": [
+    {
+      "id": "bootstrap-page-1",
+      "file": "bootstrap-page-1.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "bootstrap-page-2",
+      "file": "bootstrap-page-2.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "delta",
+      "file": "delta.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "tombstone",
+      "file": "tombstone.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "terminal",
+      "file": "terminal.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "sensitive-attention",
+      "file": "sensitive-attention.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "malformed",
+      "file": "malformed.json",
+      "kind": "page",
+      "expected": "invalid"
+    },
+    {
+      "id": "incompatible",
+      "file": "incompatible.json",
+      "kind": "page",
+      "expected": "incompatible"
+    },
+    {
+      "id": "additive-future",
+      "file": "additive-future.json",
+      "kind": "page",
+      "expected": "verified"
+    },
+    {
+      "id": "replaced-ledger",
+      "file": "replaced-ledger.json",
+      "kind": "reset",
+      "expected": "verified"
+    },
+    {
+      "id": "cursor-expired",
+      "file": "cursor-expired.json",
+      "kind": "reset",
+      "expected": "verified"
+    }
+  ]
+}

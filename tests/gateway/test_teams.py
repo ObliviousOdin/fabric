@@ -4,7 +4,7 @@ import json
 import sys
 import types
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -325,6 +325,113 @@ class TestTeamsAdapterInit:
         adapter = TeamsAdapter(_make_config(client_id="id", client_secret="secret", tenant_id="tenant"))
         assert adapter.platform.value == "teams"
 
+
+class _ApprovalCard:
+    def __init__(self):
+        self.version = None
+        self.body = []
+        self.actions = []
+
+    def with_version(self, version):
+        self.version = version
+        return self
+
+    def with_body(self, body):
+        self.body = body
+        return self
+
+    def with_actions(self, actions):
+        self.actions = actions
+        return self
+
+
+class _ApprovalAction:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+class TestTeamsExecApproval:
+    @pytest.mark.anyio
+    async def test_card_retains_exact_request_id(self, monkeypatch):
+        adapter = TeamsAdapter(_make_config())
+        adapter._app = MagicMock()
+        adapter._send_card = AsyncMock(return_value=SimpleNamespace(id="msg-1"))
+        monkeypatch.setattr(_teams_mod, "AdaptiveCard", _ApprovalCard)
+        monkeypatch.setattr(_teams_mod, "ExecuteAction", _ApprovalAction)
+        monkeypatch.setattr(_teams_mod, "TextBlock", _ApprovalAction)
+
+        result = await adapter.send_exec_approval(
+            chat_id="conversation-1",
+            command="rm -rf /important",
+            session_key="same-session",
+            request_id="req-second",
+        )
+
+        assert result.success is True
+        card = adapter._send_card.await_args.args[1]
+        assert len(card.actions) == 4
+        assert {action.data["request_id"] for action in card.actions} == {"req-second"}
+        assert {action.data["session_key"] for action in card.actions} == {"same-session"}
+
+    @pytest.mark.anyio
+    async def test_card_action_resolves_exact_request_only(self, monkeypatch):
+        adapter = TeamsAdapter(_make_config())
+        monkeypatch.setenv("TEAMS_ALLOW_ALL_USERS", "true")
+        ctx = SimpleNamespace(
+            activity=SimpleNamespace(
+                value=SimpleNamespace(
+                    action=SimpleNamespace(
+                        data={
+                            "fabric_action": "approve_once",
+                            "session_key": "same-session",
+                            "request_id": "req-second",
+                            "cmd": "echo second",
+                            "desc": "test",
+                        }
+                    )
+                ),
+                from_=SimpleNamespace(id="user-1", aad_object_id="aad-1"),
+            )
+        )
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
+            await adapter._on_card_action(ctx)
+
+        mock_resolve.assert_called_once_with(
+            "same-session",
+            "once",
+            resolve_all=False,
+            request_id="req-second",
+        )
+
+    @pytest.mark.anyio
+    async def test_stale_card_action_is_not_rendered_as_success(self, monkeypatch):
+        adapter = TeamsAdapter(_make_config())
+        monkeypatch.setenv("TEAMS_ALLOW_ALL_USERS", "true")
+        ctx = SimpleNamespace(
+            activity=SimpleNamespace(
+                value=SimpleNamespace(
+                    action=SimpleNamespace(
+                        data={
+                            "fabric_action": "deny",
+                            "session_key": "same-session",
+                            "request_id": "req-stale",
+                        }
+                    )
+                ),
+                from_=SimpleNamespace(id="user-1", aad_object_id="aad-1"),
+            )
+        )
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=0):
+            response = await adapter._on_card_action(ctx)
+
+        # The stale path returns the adapter's expired/already-resolved card,
+        # never the requested allow/deny success label.
+        assert response.status == 200
+        body_repr = repr(response.body)
+        assert "Allowed" not in body_repr
+        assert "Denied" not in body_repr
 
 # ---------------------------------------------------------------------------
 # Tests: Plugin registration

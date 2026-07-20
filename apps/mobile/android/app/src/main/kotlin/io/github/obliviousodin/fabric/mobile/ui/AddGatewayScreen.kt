@@ -118,6 +118,10 @@ fun AddGatewaySheet(viewModel: AppViewModel, onDismiss: () -> Unit) {
             if (result.contents != null) probeResult = "Scanned code is not a Fabric pairing QR."
             return@rememberLauncherForActivityResult
         }
+        if (payload.enrollment != null) {
+            probeResult = "This QR requires secure device enrollment. Update Fabric Mobile and the gateway together, then scan a new QR."
+            return@rememberLauncherForActivityResult
+        }
         url = payload.baseUrl
         if (payload.token != null) {
             passwordMode = false

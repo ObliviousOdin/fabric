@@ -116,6 +116,19 @@ All slash commands work unchanged. A few are TUI-owned — they produce richer o
 
 Every other slash command (including installed skills, quick commands, and personality toggles) works identically to the classic CLI. See [Slash Commands Reference](../reference/slash-commands.md).
 
+## Blocking prompt ownership
+
+Approval, clarification, sudo, and secret prompts are addressed by both their
+owning session and the exact request ID emitted by the gateway. The TUI removes
+a prompt only when the response receipt echoes that request. A delayed response
+from an old overlay therefore cannot dismiss a newer prompt after a reconnect
+or session switch.
+
+Parallel tool calls may raise more than one approval for a session. The TUI
+queues those approvals in gateway-arrival order, shows one at a time, and
+promotes the next only after the backend confirms the current resolution. The
+same behavior applies when the TUI is embedded in the web dashboard.
+
 ## Live session switcher
 
 Use the live session switcher when you want one terminal to act as a dispatcher for several TUI sessions. It lists only sessions that are currently live in this TUI process; closed sessions remain saved transcripts and can still be reopened with `/resume` or `fabric --tui --resume <id-or-title>`.

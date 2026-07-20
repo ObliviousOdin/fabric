@@ -30,6 +30,8 @@ import os
 import threading
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
+from tui_gateway.auth_context import WSAuthContext
+
 # Errno values that mean "the peer is gone" rather than "the host has a
 # real I/O problem".  Anything outside this set re-raises so it surfaces
 # in the crash log instead of looking like a clean disconnect.
@@ -68,6 +70,18 @@ _current_transport: contextvars.ContextVar[Optional[Transport]] = (
     )
 )
 
+# Auth context is intentionally separate from the transport object.  A
+# transport can outlive an individual request, while every dispatch gets a
+# fresh correlation ID derived at the verified WebSocket boundary.  Keeping it
+# in a context variable makes the identity available to inline and pool-backed
+# handlers without widening every RPC method signature.
+_current_auth_context: contextvars.ContextVar[Optional[WSAuthContext]] = (
+    contextvars.ContextVar(
+        "fabric_gateway_auth_context",
+        default=None,
+    )
+)
+
 
 def current_transport() -> Optional[Transport]:
     """Return the transport bound for the current request, if any."""
@@ -82,6 +96,21 @@ def bind_transport(transport: Optional[Transport]):
 def reset_transport(token) -> None:
     """Restore the transport binding captured by :func:`bind_transport`."""
     _current_transport.reset(token)
+
+
+def current_auth_context() -> Optional[WSAuthContext]:
+    """Return server-derived auth facts for the current RPC, if any."""
+    return _current_auth_context.get()
+
+
+def bind_auth_context(auth_context: Optional[WSAuthContext]):
+    """Bind verified auth facts for the current dispatch context."""
+    return _current_auth_context.set(auth_context)
+
+
+def reset_auth_context(token) -> None:
+    """Restore the auth-context binding captured by :func:`bind_auth_context`."""
+    _current_auth_context.reset(token)
 
 
 class StdioTransport:

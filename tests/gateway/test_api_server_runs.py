@@ -10,7 +10,7 @@ Covers:
 
 import asyncio
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from aiohttp import web
@@ -308,7 +308,7 @@ class TestRunEvents:
 
 
     @pytest.mark.asyncio
-    async def test_approval_response_without_pending_returns_409(self, adapter):
+    async def test_approval_response_requires_exact_request_id(self, adapter):
         app = _create_runs_app(adapter)
         async with TestClient(TestServer(app)) as cli:
             with patch.object(adapter, "_create_agent") as mock_create:
@@ -327,12 +327,9 @@ class TestRunEvents:
                     f"/v1/runs/{run_id}/approval",
                     json={"choice": "once"},
                 )
-                assert approval_resp.status == 409
+                assert approval_resp.status == 400
                 approval_data = await approval_resp.json()
-                assert approval_data["error"]["code"] in {
-                    "approval_not_active",
-                    "approval_not_pending",
-                }
+                assert approval_data["error"]["code"] == "approval_request_id_required"
 
     @pytest.mark.asyncio
     async def test_approval_string_false_does_not_resolve_all(self, adapter):
@@ -341,12 +338,17 @@ class TestRunEvents:
         run_id = "run_bool_parse"
         adapter._run_statuses[run_id] = {"run_id": run_id, "status": "running"}
         adapter._run_approval_sessions[run_id] = "session-123"
+        adapter._run_approval_request_ids[run_id] = {"approval-123"}
 
         async with TestClient(TestServer(app)) as cli:
             with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
                 approval_resp = await cli.post(
                     f"/v1/runs/{run_id}/approval",
-                    json={"choice": "once", "all": "false"},
+                    json={
+                        "choice": "once",
+                        "request_id": "approval-123",
+                        "all": "false",
+                    },
                 )
 
         assert approval_resp.status == 200
@@ -354,11 +356,12 @@ class TestRunEvents:
             "session-123",
             "once",
             resolve_all=False,
+            request_id="approval-123",
         )
 
     @pytest.mark.asyncio
-    async def test_approval_resolve_all_is_scoped_to_target_run(self, auth_adapter):
-        """Same client session_id must not let one run approve another run's queue."""
+    async def test_exact_approval_is_scoped_to_target_run(self, auth_adapter):
+        """The second run's exact ID must not unblock the first run."""
         app = _create_runs_app(auth_adapter)
         async with TestClient(TestServer(app)) as cli:
             with patch.object(auth_adapter, "_create_agent") as mock_create:
@@ -400,10 +403,19 @@ class TestRunEvents:
                 with approval_mod._lock:
                     approval_mod._gateway_queues[victim_run] = [victim_entry]
                     approval_mod._gateway_queues[attacker_run] = [attacker_entry]
+                auth_adapter._run_approval_request_ids[victim_run] = {
+                    victim_entry.request_id
+                }
+                auth_adapter._run_approval_request_ids[attacker_run] = {
+                    attacker_entry.request_id
+                }
 
                 approval_resp = await cli.post(
                     f"/v1/runs/{attacker_run}/approval",
-                    json={"choice": "always", "resolve_all": True},
+                    json={
+                        "choice": "always",
+                        "request_id": attacker_entry.request_id,
+                    },
                     headers={"Authorization": "Bearer sk-secret"},
                 )
                 approval_data = await approval_resp.json()
@@ -425,6 +437,98 @@ class TestRunEvents:
                     approval_mod._gateway_queues.pop(victim_run, None)
                 victim_interrupted.set()
                 attacker_interrupted.set()
+
+    @pytest.mark.asyncio
+    async def test_programmatic_approval_rejects_resolve_all(self, adapter):
+        app = _create_runs_app(adapter)
+        run_id = "run_reject_all"
+        adapter._run_statuses[run_id] = {"run_id": run_id, "status": "running"}
+        adapter._run_approval_sessions[run_id] = "session-123"
+        adapter._run_approval_request_ids[run_id] = {"approval-123"}
+
+        async with TestClient(TestServer(app)) as cli:
+            with patch("tools.approval.resolve_gateway_approval") as mock_resolve:
+                response = await cli.post(
+                    f"/v1/runs/{run_id}/approval",
+                    json={
+                        "choice": "once",
+                        "request_id": "approval-123",
+                        "resolve_all": True,
+                    },
+                )
+                data = await response.json()
+
+        assert response.status == 400
+        assert data["error"]["code"] == "approval_resolve_all_unsupported"
+        mock_resolve.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_same_run_exact_approvals_are_independently_consumed(self, adapter):
+        """Resolving one request must not erase another request in the run."""
+        app = _create_runs_app(adapter)
+        run_id = "run-two-approvals"
+        adapter._run_statuses[run_id] = {"run_id": run_id, "status": "running"}
+        adapter._run_approval_sessions[run_id] = "session-two-approvals"
+        adapter._run_approval_request_ids[run_id] = {
+            "approval-a",
+            "approval-b",
+        }
+
+        async with TestClient(TestServer(app)) as cli:
+            with patch(
+                "tools.approval.resolve_gateway_approval", return_value=1
+            ) as mock_resolve:
+                first = await cli.post(
+                    f"/v1/runs/{run_id}/approval",
+                    json={"choice": "once", "request_id": "approval-a"},
+                )
+                assert first.status == 200
+                assert adapter._run_approval_request_ids[run_id] == {"approval-b"}
+                assert adapter._run_statuses[run_id]["status"] == "waiting_for_approval"
+
+                second = await cli.post(
+                    f"/v1/runs/{run_id}/approval",
+                    json={"choice": "deny", "request_id": "approval-b"},
+                )
+                assert second.status == 200
+
+        assert run_id not in adapter._run_approval_request_ids
+        assert adapter._run_statuses[run_id]["status"] == "running"
+        assert mock_resolve.call_args_list == [
+            call(
+                "session-two-approvals",
+                "once",
+                resolve_all=False,
+                request_id="approval-a",
+            ),
+            call(
+                "session-two-approvals",
+                "deny",
+                resolve_all=False,
+                request_id="approval-b",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("resolved", [0, 2])
+    async def test_approval_requires_exactly_one_resolution(self, adapter, resolved):
+        app = _create_runs_app(adapter)
+        run_id = f"run-nonexact-{resolved}"
+        adapter._run_statuses[run_id] = {"run_id": run_id, "status": "running"}
+        adapter._run_approval_sessions[run_id] = "session-nonexact"
+        adapter._run_approval_request_ids[run_id] = {"approval-exact"}
+
+        async with TestClient(TestServer(app)) as cli:
+            with patch(
+                "tools.approval.resolve_gateway_approval", return_value=resolved
+            ):
+                response = await cli.post(
+                    f"/v1/runs/{run_id}/approval",
+                    json={"choice": "once", "request_id": "approval-exact"},
+                )
+
+        assert response.status == 409
+        assert adapter._run_approval_request_ids[run_id] == {"approval-exact"}
 
 
     @pytest.mark.asyncio

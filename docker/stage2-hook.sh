@@ -318,6 +318,9 @@ fi
 for f in \
     auth.json auth.lock .env \
     state.db state.db-shm state.db-wal \
+    work.db work.db-shm work.db-wal work.db-journal \
+    work.db.init.lock work.db.lock work.db.lifecycle.lock \
+    work.db.lifecycle.guard work.db.owners.json \
     response_store.db response_store.db-shm response_store.db-wal \
     gateway.pid gateway.lock gateway_state.json processes.json \
     active_profile; do

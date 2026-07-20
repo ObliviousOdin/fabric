@@ -59,6 +59,42 @@ targets:
     platform: iOS
     sources:
       - FabricTests
+      - path: ../contracts/gateway-capabilities-v1.json
+        buildPhase: resources
+      - path: ../contracts/gateway-capabilities-incompatible.json
+        buildPhase: resources
+      - path: ../contracts/gateway-capabilities-malformed.json
+        buildPhase: resources
+      - path: ../contracts/legacy-mobile-methods.json
+        buildPhase: resources
+      - path: ../contracts/fabric-pairing-v2.json
+        buildPhase: resources
+      # Canonical v1 durable Work corpus. Keep each fixture as a resource so
+      # XCTest exercises the exact JSON shared with TypeScript and Kotlin.
+      - path: ../contracts/fabric-work-v1/manifest.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/bootstrap-page-1.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/bootstrap-page-2.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/delta.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/tombstone.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/terminal.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/sensitive-attention.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/malformed.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/incompatible.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/additive-future.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/replaced-ledger.json
+        buildPhase: resources
+      - path: ../contracts/fabric-work-v1/cursor-expired.json
+        buildPhase: resources
     dependencies:
       - target: Fabric
     settings:

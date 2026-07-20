@@ -3062,6 +3062,7 @@ def test_finalize_session_closes_slash_worker(monkeypatch):
     defense-in-depth and idempotent.
     """
     closed = {"count": 0}
+    cleared_sudo = []
 
     class _FakeWorker:
         def close(self):
@@ -3069,11 +3070,17 @@ def test_finalize_session_closes_slash_worker(monkeypatch):
 
     monkeypatch.setattr(server, "_notify_session_boundary", lambda *a, **k: None)
     monkeypatch.setattr(server, "_get_db", lambda: None)
+    monkeypatch.setattr(
+        "tools.terminal_tool.clear_cached_sudo_password",
+        lambda session_key: cleared_sudo.append(session_key),
+    )
 
-    session = _session(slash_worker=_FakeWorker())
+    session = _session(session_key="sudo-owner", slash_worker=_FakeWorker())
+    approval_key = server._approval_routing_key(session)
 
     server._finalize_session(session)
     assert closed["count"] == 1
+    assert cleared_sudo == [approval_key]
     assert session.get("_finalized") is True
 
     # Idempotent: a second finalize (or a follow-up teardown) must not
@@ -3592,7 +3599,9 @@ def test_live_session_payload_restores_redacted_pending_approval(monkeypatch):
 
     monkeypatch.setattr(
         "tools.approval.get_pending_gateway_approvals",
-        lambda key: [approval] if key == "stored-session" else [],
+        lambda key: [approval]
+        if key == server._approval_routing_key(session)
+        else [],
     )
 
     payload = server._live_session_payload("sid", session, touch=False)
@@ -4013,7 +4022,9 @@ def test_session_create_drops_pending_title_on_valueerror(monkeypatch):
 def test_config_set_yolo_toggles_session_scope():
     from tools.approval import clear_session, is_session_yolo_enabled
 
-    server._sessions["sid"] = _session()
+    session = _session()
+    server._sessions["sid"] = session
+    approval_key = server._approval_routing_key(session)
     try:
         resp_on = server.handle_request(
             {
@@ -4023,7 +4034,7 @@ def test_config_set_yolo_toggles_session_scope():
             }
         )
         assert resp_on["result"]["value"] == "1"
-        assert is_session_yolo_enabled("session-key") is True
+        assert is_session_yolo_enabled(approval_key) is True
 
         resp_off = server.handle_request(
             {
@@ -4033,9 +4044,9 @@ def test_config_set_yolo_toggles_session_scope():
             }
         )
         assert resp_off["result"]["value"] == "0"
-        assert is_session_yolo_enabled("session-key") is False
+        assert is_session_yolo_enabled(approval_key) is False
     finally:
-        clear_session("session-key")
+        clear_session(approval_key)
         server._sessions.clear()
 
 
@@ -4929,7 +4940,8 @@ def test_config_set_model_global_persists(monkeypatch):
         seen.update(kwargs)
         return result
 
-    server._sessions["sid"] = _session(agent=_Agent())
+    session = _session(agent=_Agent())
+    server._sessions["sid"] = session
     monkeypatch.setattr("fabric_cli.model_switch.switch_model", _switch_model)
     monkeypatch.setattr(server, "_restart_slash_worker", lambda sid, session: None)
     monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
@@ -5343,6 +5355,38 @@ def test_session_compress_syncs_session_key_after_rotation(monkeypatch):
         server._sessions.pop("sid", None)
 
 
+def test_session_compress_purges_parent_route_sudo_cache(monkeypatch):
+    """Compression cannot strand a password under the ended parent route."""
+    from tools import terminal_tool
+    from tools.approval import reset_current_session_key, set_current_session_key
+
+    session = _session(agent=types.SimpleNamespace(session_id="rotated-id"))
+    session["session_key"] = "old-key"
+    old_approval_key = server._approval_routing_key(session)
+
+    terminal_tool._reset_cached_sudo_passwords()
+    token = set_current_session_key(old_approval_key)
+    try:
+        terminal_tool._set_cached_sudo_password("do-not-retain")
+        assert terminal_tool._get_cached_sudo_password() == "do-not-retain"
+    finally:
+        reset_current_session_key(token)
+
+    monkeypatch.setattr(server, "_transfer_active_session_slot", lambda *a, **k: True)
+    monkeypatch.setattr(server, "_restart_slash_worker", lambda *a, **k: None)
+
+    try:
+        server._sync_session_key_after_compress("sid", session)
+
+        token = set_current_session_key(old_approval_key)
+        try:
+            assert terminal_tool._get_cached_sudo_password() == ""
+        finally:
+            reset_current_session_key(token)
+    finally:
+        terminal_tool._reset_cached_sudo_passwords()
+
+
 def test_prompt_submit_sets_approval_session_key(monkeypatch):
     from tools.approval import get_current_session_key
 
@@ -5365,7 +5409,8 @@ def test_prompt_submit_sets_approval_session_key(monkeypatch):
         def start(self):
             self._target()
 
-    server._sessions["sid"] = _session(agent=_Agent())
+    session = _session(agent=_Agent())
+    server._sessions["sid"] = session
     monkeypatch.setattr(server.threading, "Thread", _ImmediateThread)
     monkeypatch.setattr(server, "_emit", lambda *args, **kwargs: None)
     monkeypatch.setattr(server, "make_stream_renderer", lambda cols: None)
@@ -5380,7 +5425,7 @@ def test_prompt_submit_sets_approval_session_key(monkeypatch):
     )
 
     assert resp["result"]["status"] == "streaming"
-    assert captured["session_key"] == "session-key"
+    assert captured["session_key"] == server._approval_routing_key(session)
 
 
 def test_prompt_submit_expands_context_refs(monkeypatch):
@@ -6640,21 +6685,305 @@ def test_clear_pending_without_sid_clears_all():
 def test_respond_unpacks_sid_tuple_correctly():
     """After the (sid, Event) tuple change, _respond must still work."""
     ev = threading.Event()
+    server._sessions["sid_x"] = {"session_key": "session-x"}
     server._pending["rid-x"] = ("sid_x", ev)
+    server._pending_prompt_payloads["rid-x"] = (
+        "clarify.request",
+        {"request_id": "rid-x"},
+    )
     try:
         resp = server.handle_request(
             {
                 "id": "1",
                 "method": "clarify.respond",
-                "params": {"request_id": "rid-x", "answer": "the answer"},
+                "params": {
+                    "session_id": "sid_x",
+                    "request_id": "rid-x",
+                    "answer": "the answer",
+                },
             }
         )
         assert resp.get("result")
+        assert resp["result"]["request_id"] == "rid-x"
         assert ev.is_set()
         assert server._answers.get("rid-x") == "the answer"
+
+        duplicate = server.handle_request(
+            {
+                "id": "2",
+                "method": "clarify.respond",
+                "params": {
+                    "session_id": "sid_x",
+                    "request_id": "rid-x",
+                    "answer": "overwritten",
+                },
+            }
+        )
+        assert duplicate["error"]["code"] == 4009
+        assert server._answers.get("rid-x") == "the answer"
     finally:
+        server._sessions.pop("sid_x", None)
         server._pending.pop("rid-x", None)
+        server._pending_prompt_payloads.pop("rid-x", None)
         server._answers.pop("rid-x", None)
+
+
+def test_respond_wrong_session_does_not_release_or_store_answer():
+    ev = threading.Event()
+    server._sessions["sid_owner"] = {"session_key": "session-owner"}
+    server._sessions["sid_other"] = {"session_key": "session-other"}
+    server._pending["rid-owner"] = ("sid_owner", ev)
+    server._pending_prompt_payloads["rid-owner"] = (
+        "clarify.request",
+        {"request_id": "rid-owner"},
+    )
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "clarify.respond",
+                "params": {
+                    "session_id": "sid_other",
+                    "request_id": "rid-owner",
+                    "answer": "wrong-session-answer",
+                },
+            }
+        )
+        assert resp["error"]["code"] == 4009
+        assert not ev.is_set()
+        assert "rid-owner" not in server._answers
+    finally:
+        server._sessions.pop("sid_owner", None)
+        server._sessions.pop("sid_other", None)
+        server._pending.pop("rid-owner", None)
+        server._pending_prompt_payloads.pop("rid-owner", None)
+        server._answers.pop("rid-owner", None)
+
+
+def test_respond_wrong_prompt_kind_does_not_release_or_store_answer():
+    ev = threading.Event()
+    server._sessions["sid_owner"] = {"session_key": "session-owner"}
+    server._pending["rid-secret"] = ("sid_owner", ev)
+    server._pending_prompt_payloads["rid-secret"] = (
+        "secret.request",
+        {"request_id": "rid-secret"},
+    )
+    try:
+        resp = server.handle_request(
+            {
+                "id": "1",
+                "method": "clarify.respond",
+                "params": {
+                    "session_id": "sid_owner",
+                    "request_id": "rid-secret",
+                    "answer": "not-a-secret",
+                },
+            }
+        )
+        assert resp["error"]["code"] == 4009
+        assert not ev.is_set()
+        assert "rid-secret" not in server._answers
+    finally:
+        server._sessions.pop("sid_owner", None)
+        server._pending.pop("rid-secret", None)
+        server._pending_prompt_payloads.pop("rid-secret", None)
+        server._answers.pop("rid-secret", None)
+
+
+def test_close_claims_pending_prompt_before_late_response(monkeypatch):
+    ev = threading.Event()
+    server._sessions["sid-close"] = {"session_key": "session-close"}
+    server._pending["rid-close"] = ("sid-close", ev)
+    server._pending_prompt_payloads["rid-close"] = (
+        "sudo.request",
+        {"request_id": "rid-close"},
+    )
+    monkeypatch.setattr(server, "_finalize_session", lambda *args, **kwargs: None)
+    try:
+        assert server._close_session_by_id("sid-close") is True
+        assert ev.is_set()
+        assert server._answers["rid-close"] == ""
+
+        late = server.handle_request(
+            {
+                "id": "late",
+                "method": "sudo.respond",
+                "params": {
+                    "session_id": "sid-close",
+                    "request_id": "rid-close",
+                    "password": "too-late",
+                },
+            }
+        )
+        assert late["error"]["code"] == 4001
+        assert server._answers["rid-close"] == ""
+    finally:
+        server._sessions.pop("sid-close", None)
+        server._pending.pop("rid-close", None)
+        server._pending_prompt_payloads.pop("rid-close", None)
+        server._answers.pop("rid-close", None)
+
+
+def test_approval_respond_requires_exact_id_and_matching_receipt(monkeypatch):
+    session = {"session_key": "session-key"}
+    server._sessions["sid"] = session
+    calls = []
+
+    def _resolve(session_key, choice, *, resolve_all=False, request_id=None):
+        calls.append((session_key, choice, resolve_all, request_id))
+        return 1
+
+    monkeypatch.setattr("tools.approval.resolve_gateway_approval", _resolve)
+    try:
+        missing = server.handle_request(
+            {
+                "id": "missing",
+                "method": "approval.respond",
+                "params": {"session_id": "sid", "choice": "once"},
+            }
+        )
+        assert missing["error"]["code"] == 4002
+        assert calls == []
+
+        invalid = server.handle_request(
+            {
+                "id": "invalid",
+                "method": "approval.respond",
+                "params": {
+                    "session_id": "sid",
+                    "request_id": "approval-1",
+                    "choice": "yes",
+                },
+            }
+        )
+        assert invalid["error"]["code"] == 4002
+        assert calls == []
+
+        resolved = server.handle_request(
+            {
+                "id": "resolved",
+                "method": "approval.respond",
+                "params": {
+                    "session_id": "sid",
+                    "request_id": "approval-1",
+                    "choice": "allow",
+                },
+            }
+        )
+        assert resolved["result"] == {
+            "resolved": 1,
+            "request_id": "approval-1",
+            "choice": "once",
+        }
+        assert calls == [
+            (
+                server._approval_routing_key(session),
+                "once",
+                False,
+                "approval-1",
+            )
+        ]
+    finally:
+        server._sessions.pop("sid", None)
+
+
+def test_approval_respond_zero_resolution_is_error(monkeypatch):
+    server._sessions["sid"] = {"session_key": "session-key"}
+    monkeypatch.setattr("tools.approval.resolve_gateway_approval", lambda *args, **kwargs: 0)
+    try:
+        resp = server.handle_request(
+            {
+                "id": "stale",
+                "method": "approval.respond",
+                "params": {
+                    "session_id": "sid",
+                    "request_id": "approval-stale",
+                    "choice": "deny",
+                },
+            }
+        )
+        assert resp["error"]["code"] == 4009
+    finally:
+        server._sessions.pop("sid", None)
+
+
+def test_profile_qualified_approval_routing_isolates_cloned_session_keys(
+    monkeypatch, tmp_path
+):
+    from tools import approval as approval_mod
+
+    session_a = {
+        "session_key": "cloned-session",
+        "profile_home": str(tmp_path / "profile-a"),
+    }
+    session_b = {
+        "session_key": "cloned-session",
+        "profile_home": str(tmp_path / "profile-b"),
+    }
+    server._sessions["sid-a"] = session_a
+    server._sessions["sid-b"] = session_b
+    key_a = server._approval_routing_key(session_a)
+    key_b = server._approval_routing_key(session_b)
+    entry_a = approval_mod._ApprovalEntry(
+        {"command": "command-a", "request_id": "approval-a"}
+    )
+    entry_b = approval_mod._ApprovalEntry(
+        {"command": "command-b", "request_id": "approval-b"}
+    )
+    assert key_a != key_b
+    with approval_mod._lock:
+        approval_mod._gateway_queues[key_a] = [entry_a]
+        approval_mod._gateway_queues[key_b] = [entry_b]
+    monkeypatch.setattr(server, "_finalize_session", lambda *args, **kwargs: None)
+    try:
+        pending_b = server._session_pending_interactions("sid-b", session_b)
+        approval_ids_b = {
+            item["payload"].get("request_id")
+            for item in pending_b
+            if item["type"] == "approval.request"
+        }
+        assert approval_ids_b == {"approval-b"}
+
+        cross_profile = server.handle_request(
+            {
+                "id": "cross",
+                "method": "approval.respond",
+                "params": {
+                    "session_id": "sid-b",
+                    "request_id": "approval-a",
+                    "choice": "once",
+                },
+            }
+        )
+        assert cross_profile["error"]["code"] == 4009
+        assert not entry_a.event.is_set()
+        assert not entry_b.event.is_set()
+
+        assert server._close_session_by_id("sid-a") is True
+        assert entry_a.event.is_set()
+        assert entry_a.result == "deny"
+        assert not entry_b.event.is_set()
+
+        own_profile = server.handle_request(
+            {
+                "id": "own",
+                "method": "approval.respond",
+                "params": {
+                    "session_id": "sid-b",
+                    "request_id": "approval-b",
+                    "choice": "once",
+                },
+            }
+        )
+        assert own_profile["result"]["request_id"] == "approval-b"
+        assert entry_b.event.is_set()
+        assert entry_b.result == "once"
+    finally:
+        server._sessions.pop("sid-a", None)
+        server._sessions.pop("sid-b", None)
+        with approval_mod._lock:
+            approval_mod._gateway_queues.pop(key_a, None)
+            approval_mod._gateway_queues.pop(key_b, None)
 
 
 # ---------------------------------------------------------------------------

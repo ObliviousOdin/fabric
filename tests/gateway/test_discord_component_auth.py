@@ -13,6 +13,7 @@ handling, and fail-closed behavior so the parity cannot regress.
 """
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -208,6 +209,7 @@ def test_component_check_missing_user_with_allowlist_rejects():
 def test_exec_approval_view_accepts_role_allowlist():
     view = ExecApprovalView(
         session_key="sess-1",
+        request_id="req-1",
         allowed_user_ids={"11111"},
         allowed_role_ids={42},
     )
@@ -220,10 +222,74 @@ def test_exec_approval_view_accepts_role_allowlist():
 def test_exec_approval_view_role_default_is_empty_set():
     """Existing call sites that pass only allowed_user_ids must continue
     working with the legacy semantics (no role gate)."""
-    view = ExecApprovalView(session_key="sess-1", allowed_user_ids={"11111"})
+    view = ExecApprovalView(
+        session_key="sess-1", request_id="req-1", allowed_user_ids={"11111"}
+    )
     assert view.allowed_role_ids == set()
     assert view._check_auth(_interaction(11111)) is True
     assert view._check_auth(_interaction(99999)) is False
+
+
+@pytest.mark.asyncio
+async def test_exec_approval_view_resolves_exact_request_before_success():
+    view = ExecApprovalView(
+        session_key="same-session",
+        request_id="req-second",
+        allowed_user_ids={"11111"},
+    )
+    child = SimpleNamespace(disabled=False)
+    view.children = [child]
+    embed = MagicMock()
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=11111, roles=[], display_name="Alice"),
+        message=SimpleNamespace(embeds=[embed]),
+        response=SimpleNamespace(
+            send_message=AsyncMock(),
+            edit_message=AsyncMock(),
+        ),
+    )
+
+    with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
+        await view._resolve(interaction, "once", object(), "Approved once")
+
+    mock_resolve.assert_called_once_with(
+        "same-session",
+        "once",
+        resolve_all=False,
+        request_id="req-second",
+    )
+    assert view.resolved is True
+    assert child.disabled is True
+    interaction.response.edit_message.assert_awaited_once()
+    interaction.response.send_message.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_exec_approval_view_zero_resolve_is_non_success():
+    view = ExecApprovalView(
+        session_key="same-session",
+        request_id="req-stale",
+        allowed_user_ids={"11111"},
+    )
+    child = SimpleNamespace(disabled=False)
+    view.children = [child]
+    interaction = SimpleNamespace(
+        user=SimpleNamespace(id=11111, roles=[], display_name="Alice"),
+        message=SimpleNamespace(embeds=[MagicMock()]),
+        response=SimpleNamespace(
+            send_message=AsyncMock(),
+            edit_message=AsyncMock(),
+        ),
+    )
+
+    with patch("tools.approval.resolve_gateway_approval", return_value=0):
+        await view._resolve(interaction, "once", object(), "Approved once")
+
+    assert view.resolved is False
+    assert child.disabled is False
+    interaction.response.edit_message.assert_not_awaited()
+    interaction.response.send_message.assert_awaited_once()
+    assert "resolved or expired" in interaction.response.send_message.await_args.args[0]
 
 
 def test_slash_confirm_view_accepts_role_allowlist():
@@ -283,7 +349,9 @@ def test_clarify_choice_view_accepts_role_allowlist():
 @pytest.mark.parametrize(
     "view_factory",
     [
-        lambda: ExecApprovalView(session_key="s", allowed_user_ids=set()),
+        lambda: ExecApprovalView(
+            session_key="s", request_id="req-1", allowed_user_ids=set()
+        ),
         lambda: SlashConfirmView(session_key="s", confirm_id="c", allowed_user_ids=set()),
         lambda: UpdatePromptView(session_key="s", allowed_user_ids=set()),
         lambda: ClarifyChoiceView(
@@ -323,7 +391,9 @@ def test_model_picker_view_empty_allowlists_reject_by_default(monkeypatch):
 
 def test_view_empty_allowlists_allow_with_explicit_allow_all(monkeypatch):
     monkeypatch.setenv("DISCORD_ALLOW_ALL_USERS", "true")
-    view = ExecApprovalView(session_key="s", allowed_user_ids=set())
+    view = ExecApprovalView(
+        session_key="s", request_id="req-1", allowed_user_ids=set()
+    )
     assert view._check_auth(_interaction(99999)) is True
 
 
@@ -398,7 +468,9 @@ def test_admin_gate_resolver_on_parses_admins():
 
 def test_exec_view_gate_off_allows_admitted_user():
     """Gate off: an allowlisted (admitted) non-admin can approve, as today."""
-    view = ExecApprovalView(session_key="s", allowed_user_ids={"11111"})
+    view = ExecApprovalView(
+        session_key="s", request_id="req-1", allowed_user_ids={"11111"}
+    )
     assert view._check_auth(_interaction(11111)) is True
 
 
@@ -406,6 +478,7 @@ def test_exec_view_gate_on_admin_authorized():
     """Gate on: admitted user who is also an admin is authorized."""
     view = ExecApprovalView(
         session_key="s",
+        request_id="req-1",
         allowed_user_ids={"11111"},
         require_admin=True,
         admin_user_ids={"11111"},
@@ -417,6 +490,7 @@ def test_exec_view_gate_on_non_admin_rejected():
     """Gate on: admitted user who is NOT an admin is rejected at the button."""
     view = ExecApprovalView(
         session_key="s",
+        request_id="req-1",
         allowed_user_ids={"11111", "22222"},
         require_admin=True,
         admin_user_ids={"11111"},
@@ -431,6 +505,7 @@ def test_exec_view_gate_on_no_admins_fails_closed(caplog):
 
     view = ExecApprovalView(
         session_key="s",
+        request_id="req-1",
         allowed_user_ids={"11111"},
         require_admin=True,
         admin_user_ids=set(),
@@ -447,6 +522,7 @@ def test_exec_view_gate_on_non_admitted_user_rejected_before_admin_check():
     if they somehow appear in the admin set (admission is the first gate)."""
     view = ExecApprovalView(
         session_key="s",
+        request_id="req-1",
         allowed_user_ids=set(),  # nobody admitted, no pairing (autouse mock False)
         require_admin=True,
         admin_user_ids={"33333"},

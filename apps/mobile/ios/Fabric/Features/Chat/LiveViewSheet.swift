@@ -7,6 +7,7 @@ import SwiftUI
 /// sheet says so and stops rather than spinning.
 struct LiveViewSheet: View {
     let api: GatewayAPI
+    let supportsMethod: (String) -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var frame: UIImage?
@@ -82,6 +83,10 @@ struct LiveViewSheet: View {
 
     private func startPolling() {
         pollTask?.cancel()
+        guard supportsMethod("computer.screenshot") else {
+            errorText = "Live view is unavailable on this gateway."
+            return
+        }
         pollTask = Task {
             while !Task.isCancelled {
                 if !paused {

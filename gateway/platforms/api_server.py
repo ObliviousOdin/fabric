@@ -40,6 +40,7 @@ import os
 import socket as _socket
 import re
 import sqlite3
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -890,6 +891,11 @@ class APIServerAdapter(BasePlatformAdapter):
         # resolves requests by session key, while API clients address the
         # in-flight run by run_id.
         self._run_approval_sessions: Dict[str, str] = {}
+        # Authoritative approval-core request id currently exposed for each
+        # run. API clients must echo this exact id; run_id/session scope alone
+        # is not enough when approvals race or a stale control is retried.
+        self._run_approval_request_ids: Dict[str, set[str]] = {}
+        self._run_approval_lock = threading.RLock()
         self._session_db: Optional[Any] = None  # Lazy-init SessionDB for session continuity
         # Concurrency cap shared across all agent-serving endpoints
         # (/v1/chat/completions, /v1/responses, /v1/runs). Read from
@@ -4241,6 +4247,12 @@ class APIServerAdapter(BasePlatformAdapter):
 
                 def _approval_notify(approval_data: Dict[str, Any]) -> None:
                     event = dict(approval_data or {})
+                    request_id = str(event.get("request_id") or "").strip()
+                    if request_id:
+                        with self._run_approval_lock:
+                            self._run_approval_request_ids.setdefault(run_id, set()).add(
+                                request_id
+                            )
                     # Redact credentials from the command before it enters the
                     # SSE/API event stream — same egress bug as #48456, second
                     # transport: API/desktop clients would otherwise receive the
@@ -4398,6 +4410,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 self._active_run_agents.pop(run_id, None)
                 self._active_run_tasks.pop(run_id, None)
                 self._run_approval_sessions.pop(run_id, None)
+                with self._run_approval_lock:
+                    self._run_approval_request_ids.pop(run_id, None)
 
         task = asyncio.create_task(_run_and_close())
         self._active_run_tasks[run_id] = task
@@ -4501,15 +4515,25 @@ class APIServerAdapter(BasePlatformAdapter):
         except Exception:
             return web.json_response(_openai_error("Invalid JSON"), status=400)
 
-        raw_choice = str(body.get("choice", "")).strip().lower()
-        aliases = {"approve": "once", "approved": "once", "allow": "once"}
-        choice = aliases.get(raw_choice, raw_choice)
-        allowed = {"once", "session", "always", "deny"}
-        if choice not in allowed:
+        try:
+            from tools.approval import normalize_gateway_approval_choice
+
+            choice = normalize_gateway_approval_choice(body.get("choice"))
+        except (TypeError, ValueError):
             return web.json_response(
                 _openai_error(
                     "Invalid approval choice; expected one of: once, session, always, deny",
                     code="invalid_approval_choice",
+                ),
+                status=400,
+            )
+
+        request_id = str(body.get("request_id") or "").strip()
+        if not request_id:
+            return web.json_response(
+                _openai_error(
+                    "Approval request_id is required",
+                    code="approval_request_id_required",
                 ),
                 status=400,
             )
@@ -4528,19 +4552,46 @@ class APIServerAdapter(BasePlatformAdapter):
             _coerce_request_bool(body.get("all"), default=False)
             or _coerce_request_bool(body.get("resolve_all"), default=False)
         )
+        if resolve_all:
+            return web.json_response(
+                _openai_error(
+                    "Programmatic approval responses cannot resolve all pending requests",
+                    code="approval_resolve_all_unsupported",
+                ),
+                status=400,
+            )
+        with self._run_approval_lock:
+            request_is_pending = request_id in self._run_approval_request_ids.get(
+                run_id, set()
+            )
+        if not request_is_pending:
+            return web.json_response(
+                _openai_error(
+                    "Approval request is stale or no longer pending",
+                    code="approval_not_pending",
+                ),
+                status=409,
+            )
         try:
             from tools.approval import resolve_gateway_approval
 
             resolved = resolve_gateway_approval(
                 approval_session_key,
                 choice,
-                resolve_all=resolve_all,
+                resolve_all=False,
+                request_id=request_id,
             )
-        except Exception as exc:
+        except Exception:
             logger.exception("[api_server] approval resolution failed for run %s", run_id)
-            return web.json_response(_openai_error(str(exc)), status=500)
+            return web.json_response(
+                _openai_error(
+                    "Approval resolution failed",
+                    code="approval_resolution_failed",
+                ),
+                status=500,
+            )
 
-        if resolved <= 0:
+        if resolved != 1:
             return web.json_response(
                 _openai_error(
                     f"Run has no pending approval: {run_id}",
@@ -4549,13 +4600,26 @@ class APIServerAdapter(BasePlatformAdapter):
                 status=409,
             )
 
-        self._set_run_status(run_id, "running", last_event="approval.responded")
+        with self._run_approval_lock:
+            pending_ids = self._run_approval_request_ids.get(run_id)
+            if pending_ids is not None:
+                pending_ids.discard(request_id)
+                if not pending_ids:
+                    self._run_approval_request_ids.pop(run_id, None)
+            approvals_remain = bool(self._run_approval_request_ids.get(run_id))
+
+        self._set_run_status(
+            run_id,
+            "waiting_for_approval" if approvals_remain else "running",
+            last_event="approval.responded",
+        )
         q = self._run_streams.get(run_id)
         if q is not None:
             try:
                 q.put_nowait({
                     "event": "approval.responded",
                     "run_id": run_id,
+                    "request_id": request_id,
                     "timestamp": time.time(),
                     "choice": choice,
                     "resolved": resolved,
@@ -4566,6 +4630,7 @@ class APIServerAdapter(BasePlatformAdapter):
         return web.json_response({
             "object": "fabric.run.approval_response",
             "run_id": run_id,
+            "request_id": request_id,
             "choice": choice,
             "resolved": resolved,
         })
@@ -4635,6 +4700,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 self._active_run_agents.pop(run_id, None)
                 self._active_run_tasks.pop(run_id, None)
                 self._run_approval_sessions.pop(run_id, None)
+                with self._run_approval_lock:
+                    self._run_approval_request_ids.pop(run_id, None)
 
             stale_statuses = [
                 run_id

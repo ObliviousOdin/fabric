@@ -13,11 +13,16 @@ import type {
 } from '../gatewayTypes.js'
 import { isAction, isCopyShortcut, isMac, isVoiceToggleKey } from '../lib/platform.js'
 import { computePrecisionWheelStep, initPrecisionWheel } from '../lib/precisionWheel.js'
+import {
+  approvalResponseResolved,
+  ownedPromptResponseParams,
+  promptResponseMatches
+} from '../lib/promptResponses.js'
 import { computeWheelStep, initWheelAccelForHost } from '../lib/wheelAccel.js'
 
 import { getInputSelection } from './inputSelectionStore.js'
 import type { InputHandlerActions, InputHandlerContext, InputHandlerResult } from './interfaces.js'
-import { $isBlocked, $overlayState, patchOverlayState } from './overlayStore.js'
+import { $isBlocked, $overlayState, completeApproval, getOverlayState, patchOverlayState } from './overlayStore.js'
 import { turnController } from './turnController.js'
 import { patchTurnState } from './turnStore.js'
 import { getUiState } from './uiStore.js'
@@ -144,21 +149,50 @@ export function useInputHandlers(ctx: InputHandlerContext): InputHandlerResult {
     }
 
     if (overlay.approval) {
+      const approval = overlay.approval
+
       return gateway
-        .rpc<ApprovalRespondResponse>('approval.respond', { choice: 'deny', session_id: getUiState().sid })
-        .then(r => r && (patchOverlayState({ approval: null }), patchTurnState({ outcome: 'denied' })))
+        .rpc<ApprovalRespondResponse>('approval.respond', ownedPromptResponseParams(approval, { choice: 'deny' }))
+        .then(response => {
+          if (
+            !approvalResponseResolved(response, approval.requestId) ||
+            getOverlayState().approval?.requestId !== approval.requestId
+          ) {
+            return
+          }
+
+          completeApproval(approval.requestId)
+          patchTurnState({ outcome: 'denied' })
+        })
     }
 
     if (overlay.sudo) {
+      const sudo = overlay.sudo
+
       return gateway
-        .rpc<SudoRespondResponse>('sudo.respond', { password: '', request_id: overlay.sudo.requestId })
-        .then(r => r && (patchOverlayState({ sudo: null }), actions.sys('sudo cancelled')))
+        .rpc<SudoRespondResponse>('sudo.respond', ownedPromptResponseParams(sudo, { password: '' }))
+        .then(r => {
+          if (promptResponseMatches(r, sudo.requestId) && getOverlayState().sudo?.requestId === sudo.requestId) {
+            patchOverlayState({ sudo: null })
+            actions.sys('sudo cancelled')
+          }
+        })
     }
 
     if (overlay.secret) {
+      const secret = overlay.secret
+
       return gateway
-        .rpc<SecretRespondResponse>('secret.respond', { request_id: overlay.secret.requestId, value: '' })
-        .then(r => r && (patchOverlayState({ secret: null }), actions.sys('secret entry cancelled')))
+        .rpc<SecretRespondResponse>('secret.respond', ownedPromptResponseParams(secret, { value: '' }))
+        .then(r => {
+          if (
+            promptResponseMatches(r, secret.requestId) &&
+            getOverlayState().secret?.requestId === secret.requestId
+          ) {
+            patchOverlayState({ secret: null })
+            actions.sys('secret entry cancelled')
+          }
+        })
     }
 
     if (overlay.modelPicker) {

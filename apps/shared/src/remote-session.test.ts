@@ -115,6 +115,20 @@ describe("hydrateRemoteSession", () => {
 });
 
 describe("reduceRemoteSessionEvent", () => {
+  it("retains the opaque Work profile identity from session.info", () => {
+    const state = reduceRemoteSessionEvent(
+      createEmptyRemoteSession(),
+      event("session.info", {
+        profile_name: "Display name",
+        work_profile_id: "profile_11111111111111111111111111111111",
+      }),
+    );
+
+    expect(state.info.work_profile_id).toBe(
+      "profile_11111111111111111111111111111111",
+    );
+  });
+
   it("streams text around a completed tool without fabricating extra messages", () => {
     let state = appendOptimisticUserMessage(createEmptyRemoteSession(), "go");
     state = reduceRemoteSessionEvent(state, event("message.start", {}));
@@ -249,6 +263,21 @@ describe("reduceRemoteSessionEvent", () => {
 
     expect(missing).toBe(initial);
     expect(blank).toBe(initial);
+  });
+
+  it("ignores generic prompt requests with blank request ids", () => {
+    const initial = createEmptyRemoteSession();
+    const sudo = reduceRemoteSessionEvent(
+      initial,
+      event("sudo.request", { request_id: "   " }),
+    );
+    const secret = reduceRemoteSessionEvent(
+      initial,
+      event("secret.request", { request_id: "\t" }),
+    );
+
+    expect(sudo).toBe(initial);
+    expect(secret).toBe(initial);
   });
 });
 

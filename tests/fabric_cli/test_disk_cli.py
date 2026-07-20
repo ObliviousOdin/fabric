@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 import fabric_cli.disk as disk
+from fabric_cli.work_backup import WORK_STORE_PRIVATE_BASENAMES
 
 
 @pytest.fixture(autouse=True)
@@ -223,6 +224,7 @@ class TestCleanSafety:
     PROTECTED = [
         "state.db",
         "state.db-wal",
+        *sorted(WORK_STORE_PRIVATE_BASENAMES),
         "sessions/s.json",
         "memories/MEMORY.md",
         ".env",

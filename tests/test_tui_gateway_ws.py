@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import threading
 import time
 
@@ -40,6 +41,46 @@ def test_ws_startup_starts_background_mcp_discovery(monkeypatch):
         server._sessions.clear()
 
     assert calls == [{"logger": ws_mod._log, "thread_name": "tui-ws-mcp-discovery"}]
+
+
+def test_malformed_ws_json_never_logs_payload_secrets(monkeypatch, caplog):
+    sentinel = "FMB002-SECRET-MUST-NOT-LEAK"
+    received = 0
+    sent = []
+
+    monkeypatch.setattr(
+        mcp_startup,
+        "start_background_mcp_discovery",
+        lambda **_kw: None,
+    )
+
+    class FakeWS:
+        async def accept(self):
+            pass
+
+        async def send_text(self, line):
+            sent.append(line)
+
+        async def receive_text(self):
+            nonlocal received
+            received += 1
+            if received == 1:
+                return '{"secret":"' + sentinel
+            raise ws_mod._WebSocketDisconnect()
+
+        async def close(self):
+            pass
+
+    server._sessions.clear()
+    try:
+        with caplog.at_level(logging.WARNING, logger=ws_mod.__name__):
+            asyncio.run(ws_mod.handle_ws(FakeWS()))
+    finally:
+        server._sessions.clear()
+
+    assert any("parse error" in record.getMessage() for record in caplog.records)
+    assert all(sentinel not in record.getMessage() for record in caplog.records)
+    assert any('"code": -32700' in frame for frame in sent)
 
 
 def _run_disconnect(monkeypatch, seed):

@@ -383,19 +383,23 @@ export interface BackgroundStartResponse {
 }
 
 export interface ClarifyRespondResponse {
-  ok?: boolean
+  request_id?: string
+  status?: string
 }
 
 export interface ApprovalRespondResponse {
-  ok?: boolean
+  request_id?: string
+  resolved?: boolean | number
 }
 
 export interface SudoRespondResponse {
-  ok?: boolean
+  request_id?: string
+  status?: string
 }
 
 export interface SecretRespondResponse {
-  ok?: boolean
+  request_id?: string
+  status?: string
 }
 
 // ── Shell / clipboard / input ────────────────────────────────────────
@@ -691,7 +695,7 @@ export type GatewayEvent =
       type: 'clarify.request'
     }
   | {
-      payload: { allow_permanent?: boolean; command: string; description: string }
+      payload: { allow_permanent?: boolean; command: string; description: string; request_id: string }
       session_id?: string
       type: 'approval.request'
     }

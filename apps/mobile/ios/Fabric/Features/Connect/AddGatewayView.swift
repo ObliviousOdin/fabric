@@ -157,6 +157,10 @@ struct AddGatewayView: View {
             probeResult = "Scanned code is not a Fabric pairing QR."
             return
         }
+        if payload.enrollment != nil {
+            probeResult = "This QR requires secure device enrollment. Update Fabric Mobile and the gateway together, then scan a new QR."
+            return
+        }
         urlText = payload.baseURL.absoluteString
         if let scannedToken = payload.token {
             mode = .token

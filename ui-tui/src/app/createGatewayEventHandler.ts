@@ -19,7 +19,7 @@ import type { Msg, SubagentProgress, SubagentStatus } from '../types.js'
 
 import { applyDelegationStatus, getDelegationState } from './delegationStore.js'
 import type { GatewayEventHandlerContext } from './interfaces.js'
-import { getOverlayState, patchOverlayState } from './overlayStore.js'
+import { enqueueApproval, getOverlayState, patchOverlayState } from './overlayStore.js'
 import { flashPet } from './petFlashStore.js'
 import { turnController } from './turnController.js'
 import { getTurnState } from './turnStore.js'
@@ -767,18 +767,36 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
 
       case 'clarify.request':
         patchOverlayState({
-          clarify: { choices: ev.payload.choices, question: ev.payload.question, requestId: ev.payload.request_id }
+          clarify: {
+            choices: ev.payload.choices,
+            question: ev.payload.question,
+            requestId: ev.payload.request_id,
+            sessionId: ev.session_id || sid || undefined
+          }
         })
         setStatus('waiting for input…')
 
         return
       case 'approval.request': {
+        const requestId = typeof ev.payload.request_id === 'string' ? ev.payload.request_id : ''
+
+        // Exact request IDs are the authority for approval responses. A
+        // malformed/legacy event without one must never create an actionable
+        // prompt that could resolve a different queued approval.
+        if (!requestId.trim()) {
+          return
+        }
+
         const description = String(ev.payload.description ?? 'dangerous command')
         // Only an explicit false (tirith warning) drops the permanent-allow option.
         const allowPermanent = ev.payload.allow_permanent !== false
 
-        patchOverlayState({
-          approval: { allowPermanent, command: String(ev.payload.command ?? ''), description }
+        enqueueApproval({
+          allowPermanent,
+          command: String(ev.payload.command ?? ''),
+          description,
+          requestId,
+          sessionId: ev.session_id || sid || undefined
         })
         setStatus('approval needed')
 
@@ -786,14 +804,19 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
       }
 
       case 'sudo.request':
-        patchOverlayState({ sudo: { requestId: ev.payload.request_id } })
+        patchOverlayState({ sudo: { requestId: ev.payload.request_id, sessionId: ev.session_id || sid || undefined } })
         setStatus('sudo password needed')
 
         return
 
       case 'secret.request':
         patchOverlayState({
-          secret: { envVar: ev.payload.env_var, prompt: ev.payload.prompt, requestId: ev.payload.request_id }
+          secret: {
+            envVar: ev.payload.env_var,
+            prompt: ev.payload.prompt,
+            requestId: ev.payload.request_id,
+            sessionId: ev.session_id || sid || undefined
+          }
         })
         setStatus('secret input needed')
 

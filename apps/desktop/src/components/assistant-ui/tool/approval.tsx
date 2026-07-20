@@ -17,6 +17,11 @@ import { useI18n } from '@/i18n'
 import { humanizeApprovalReason, isDestructiveApproval, isHighRiskApproval } from '@/lib/approval-details'
 import { triggerHaptic } from '@/lib/haptics'
 import { AlertCircle, AlertTriangle, ChevronDown, Loader2 } from '@/lib/icons'
+import {
+  type ApprovalResolutionResponse,
+  approvalResponseResolved,
+  ownedPromptResponseParams
+} from '@/lib/prompt-responses'
 import { cn } from '@/lib/utils'
 import { $gateway } from '@/store/gateway'
 import { notifyError } from '@/store/notifications'
@@ -52,10 +57,10 @@ type ApprovalChoice = 'once' | 'session' | 'always' | 'deny'
 // (notably the auto-open-for-high-risk default) re-initializes. Keyed by
 // content, not object identity: the persistent floating fallback swaps
 // `request` across sessions without unmounting, and a reconnect can hand us a
-// fresh object for the same approval — keying on session+command re-fires the
-// risk default on a genuinely new approval while preserving a manual
+// fresh object for the same approval — keying on its authoritative request id
+// re-fires the risk default on a genuinely new approval while preserving a manual
 // expand/collapse within one.
-const approvalBarKey = (request: ApprovalRequest): string => `${request.sessionId ?? ''}:${request.command}`
+const approvalBarKey = (request: ApprovalRequest): string => request.requestId
 
 export const PendingToolApproval: FC<{ part: ToolPart }> = ({ part }) => {
   const request = useStore($approvalRequest)
@@ -164,7 +169,7 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
     async (choice: ApprovalChoice) => {
       // Another bar (or the keyboard path) may have already resolved this
       // approval; the atom is the single source of truth, so bail if it's gone.
-      if (busy || !$approvalRequest.get()) {
+      if (busy || !request.requestId || $approvalRequest.get()?.requestId !== request.requestId) {
         return
       }
 
@@ -177,18 +182,25 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
       setSubmitting(choice)
 
       try {
-        await gateway.request<{ resolved?: boolean }>('approval.respond', {
-          choice,
-          session_id: request.sessionId ?? undefined
-        })
+        const response = await gateway.request<ApprovalResolutionResponse>(
+          'approval.respond',
+          ownedPromptResponseParams(request, { choice })
+        )
+
+        if (!approvalResponseResolved(response, request.requestId)) {
+          setSubmitting(null)
+
+          return
+        }
+
         triggerHaptic(choice === 'deny' ? 'cancel' : 'submit')
-        clearApprovalRequest(request.sessionId)
+        clearApprovalRequest(request.sessionId, request.requestId)
       } catch (error) {
         notifyError(error, copy.sendFailed)
         setSubmitting(null)
       }
     },
-    [busy, copy.gatewayDisconnected, copy.sendFailed, gateway, request.sessionId]
+    [busy, copy.gatewayDisconnected, copy.sendFailed, gateway, request]
   )
 
   // ⌘/Ctrl+Enter → Run, Esc → Reject.

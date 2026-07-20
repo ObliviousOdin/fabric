@@ -135,6 +135,7 @@ fun CommandCatalogSheet(
 fun ProcessListSheet(
     api: GatewayApi,
     sessionId: String?,
+    canKill: Boolean,
     onDismiss: () -> Unit,
 ) {
     var processes by remember { mutableStateOf<List<BackgroundProcess>>(emptyList()) }
@@ -211,17 +212,20 @@ fun ProcessListSheet(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 if (process.status == "running" && sessionId != null) {
-                                    OutlinedButton(onClick = {
-                                        // Kill then refresh; errors land in loadError.
-                                        scope.launch {
-                                            try {
-                                                api.killProcess(sessionId, process.id)
-                                            } catch (e: Exception) {
-                                                loadError = e.message ?: e.toString()
+                                    OutlinedButton(
+                                        enabled = canKill,
+                                        onClick = {
+                                            // Kill then refresh; errors land in loadError.
+                                            scope.launch {
+                                                try {
+                                                    api.killProcess(sessionId, process.id)
+                                                } catch (e: Exception) {
+                                                    loadError = e.message ?: e.toString()
+                                                }
+                                                reloadKey++
                                             }
-                                            reloadKey++
-                                        }
-                                    }) {
+                                        },
+                                    ) {
                                         Text("Kill")
                                     }
                                 }

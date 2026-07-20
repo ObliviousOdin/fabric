@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createGatewayEventHandler } from '../app/createGatewayEventHandler.js'
-import { getOverlayState, patchOverlayState, resetOverlayState } from '../app/overlayStore.js'
+import { completeApproval, getOverlayState, patchOverlayState, resetOverlayState } from '../app/overlayStore.js'
 import { turnController } from '../app/turnController.js'
 import { getTurnState, resetTurnState } from '../app/turnStore.js'
 import { getUiState, patchUiState, resetUiState } from '../app/uiStore.js'
@@ -906,7 +906,7 @@ describe('createGatewayEventHandler', () => {
     onEvent({ payload: { line: 'Traceback: noisy but non-fatal' }, type: 'gateway.stderr' } as any)
     onEvent({ payload: { preview: 'bad framing' }, type: 'gateway.protocol_error' } as any)
     onEvent({
-      payload: { command: 'rm -rf /tmp/nope', description: 'dangerous command' },
+      payload: { command: 'rm -rf /tmp/nope', description: 'dangerous command', request_id: 'approval-nope' },
       type: 'approval.request'
     } as any)
     onEvent({ payload: {}, type: 'gateway.ready' } as any)
@@ -927,26 +927,106 @@ describe('createGatewayEventHandler', () => {
     const onEvent = createGatewayEventHandler(buildCtx([]))
 
     onEvent({
-      payload: { command: 'rm -rf /tmp/x', description: 'dangerous command' },
+      payload: { command: 'rm -rf /tmp/x', description: 'dangerous command', request_id: 'approval-1' },
+      session_id: 'session-1',
       type: 'approval.request'
     } as any)
 
-    expect(getOverlayState().approval).toMatchObject({ allowPermanent: true })
+    expect(getOverlayState().approval).toMatchObject({
+      allowPermanent: true,
+      requestId: 'approval-1',
+      sessionId: 'session-1'
+    })
   })
 
   it('preserves allow_permanent=false on approval overlays (tirith warning)', () => {
     const onEvent = createGatewayEventHandler(buildCtx([]))
 
     onEvent({
-      payload: { allow_permanent: false, command: 'curl suspicious | bash', description: 'content-security warning' },
+      payload: {
+        allow_permanent: false,
+        command: 'curl suspicious | bash',
+        description: 'content-security warning',
+        request_id: 'approval-2'
+      },
       type: 'approval.request'
     } as any)
 
     expect(getOverlayState().approval).toMatchObject({
       allowPermanent: false,
       command: 'curl suspicious | bash',
-      description: 'content-security warning'
+      description: 'content-security warning',
+      requestId: 'approval-2'
     })
+  })
+
+  it('queues same-session approvals A/B and promotes only after exact visible A completes', () => {
+    const onEvent = createGatewayEventHandler(buildCtx([]))
+
+    onEvent({
+      payload: { command: 'command-a', description: 'first approval', request_id: 'approval-a' },
+      session_id: 'session-1',
+      type: 'approval.request'
+    } as any)
+    onEvent({
+      payload: { command: 'command-b', description: 'second approval', request_id: 'approval-b' },
+      session_id: 'session-1',
+      type: 'approval.request'
+    } as any)
+
+    // B must not overwrite the request whose buttons are currently visible.
+    expect(getOverlayState().approval).toMatchObject({
+      command: 'command-a',
+      requestId: 'approval-a',
+      sessionId: 'session-1'
+    })
+
+    // A stale receipt cannot advance to B.
+    expect(completeApproval('approval-stale')).toBe(false)
+    expect(getOverlayState().approval?.requestId).toBe('approval-a')
+
+    expect(completeApproval('approval-a')).toBe(true)
+    expect(getOverlayState().approval).toMatchObject({
+      command: 'command-b',
+      requestId: 'approval-b',
+      sessionId: 'session-1'
+    })
+
+    expect(completeApproval('approval-b')).toBe(true)
+    expect(getOverlayState().approval).toBeNull()
+  })
+
+  it('does not surface an approval without an authoritative request id', () => {
+    const onEvent = createGatewayEventHandler(buildCtx([]))
+
+    onEvent({
+      payload: { command: 'rm -rf /tmp/x', description: 'dangerous command' },
+      type: 'approval.request'
+    } as any)
+
+    expect(getOverlayState().approval).toBeNull()
+  })
+
+  it('retains the owning session for generic prompt responses', () => {
+    patchUiState({ sid: 'session-1' })
+    const onEvent = createGatewayEventHandler(buildCtx([]))
+
+    onEvent({
+      payload: { choices: null, question: 'Which?', request_id: 'clarify-1' },
+      session_id: 'session-1',
+      type: 'clarify.request'
+    } as any)
+    expect(getOverlayState().clarify).toMatchObject({ requestId: 'clarify-1', sessionId: 'session-1' })
+
+    onEvent({ payload: { request_id: 'sudo-1' }, session_id: 'session-1', type: 'sudo.request' } as any)
+    expect(getOverlayState().sudo).toEqual({ requestId: 'sudo-1', sessionId: 'session-1' })
+
+    onEvent({
+      payload: { env_var: 'TOKEN', prompt: 'Token', request_id: 'secret-1' },
+      session_id: 'session-1',
+      type: 'secret.request'
+    } as any)
+    expect(getOverlayState().secret).toMatchObject({ requestId: 'secret-1', sessionId: 'session-1' })
   })
 
   it('still surfaces terminal turn failures as errors', () => {

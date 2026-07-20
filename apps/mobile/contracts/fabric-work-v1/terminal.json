@@ -1,0 +1,73 @@
+{
+  "contract": {
+    "name": "fabric.work",
+    "version": 1,
+    "min_compatible": 1
+  },
+  "ledger_id": "ledger_11111111111111111111111111111111",
+  "work_profile_id": "profile_11111111111111111111111111111111",
+  "mode": "delta",
+  "watermark": 105,
+  "cursor": 105,
+  "has_more": false,
+  "next_page_token": null,
+  "jobs": [],
+  "attention": [],
+  "events": [
+    {
+      "event_id": 105,
+      "event_type": "job.status_changed",
+      "subject_type": "job",
+      "subject_id": "job_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "job_id": "job_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "run_id": "run_dddddddddddddddddddddddddddddddd",
+      "subject_version": 3,
+      "subject": {
+        "job_id": "job_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "version": 3,
+        "kind": "background_prompt",
+        "status": "succeeded",
+        "title": "Prepare the mobile QA brief",
+        "summary": "The mobile QA brief is ready.",
+        "source": "mobile",
+        "source_session_key": "session-qa",
+        "runtime_session_id": "runtime-qa",
+        "attempt_count": 1,
+        "open_attention_count": 0,
+        "created_at": 1784451603000,
+        "started_at": 1784451604000,
+        "updated_at": 1784451607000,
+        "finished_at": 1784451607000,
+        "cancel_requested_at": null,
+        "runtime": {
+          "kind": "in_process_agent",
+          "execution_location": "gateway",
+          "requires_gateway_host_online": true,
+          "result_ref": "session:session-qa"
+        },
+        "current_run": {
+          "run_id": "run_dddddddddddddddddddddddddddddddd",
+          "attempt": 1,
+          "version": 3,
+          "status": "succeeded",
+          "runtime_kind": "in_process_agent",
+          "owner_state": "creator_bound",
+          "restart_behavior": "interrupt",
+          "claimed_at": 1784451603500,
+          "started_at": 1784451604000,
+          "updated_at": 1784451607000,
+          "finished_at": 1784451607000
+        },
+        "result_preview": {
+          "text": "QA brief prepared",
+          "artifact": "mobile-qa-brief.md"
+        },
+        "result_ref": "session:session-qa",
+        "result_omitted_reason": null,
+        "error": null
+      },
+      "tombstone": false,
+      "created_at": 1784451607000
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.obliviousodin.fabric.mobile.core.GatewayApi
 import io.github.obliviousodin.fabric.mobile.core.GatewayAuthMode
+import io.github.obliviousodin.fabric.mobile.core.GatewayCapabilityNegotiation
 import io.github.obliviousodin.fabric.mobile.core.GatewayConnectionState
 import io.github.obliviousodin.fabric.mobile.core.GatewayHttpException
 import io.github.obliviousodin.fabric.mobile.core.GatewayRpcException
@@ -12,6 +13,9 @@ import io.github.obliviousodin.fabric.mobile.core.GatewayStore
 import io.github.obliviousodin.fabric.mobile.core.JsonRpcGatewayClient
 import io.github.obliviousodin.fabric.mobile.core.PairingPayload
 import io.github.obliviousodin.fabric.mobile.core.SavedGateway
+import io.github.obliviousodin.fabric.mobile.core.allowsBaselineSessionCalls
+import io.github.obliviousodin.fabric.mobile.core.blockingMessage
+import io.github.obliviousodin.fabric.mobile.core.supportsGatewayMethod
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -33,6 +37,15 @@ sealed interface ConnectionPhase {
     data object Reconnecting : ConnectionPhase
     data object Connected : ConnectionPhase
 }
+
+internal fun isCurrentConnectionAttempt(
+    attempt: Int,
+    currentAttempt: Int,
+    phase: ConnectionPhase,
+    expectedPhase: ConnectionPhase,
+    isForeground: Boolean,
+): Boolean =
+    attempt == currentAttempt && phase == expectedPhase && isForeground
 
 /**
  * App-level state: the saved-gateway library, one shared client/socket, the
@@ -58,10 +71,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _activeGatewayId = MutableStateFlow<String?>(null)
     val activeGatewayId: StateFlow<String?> = _activeGatewayId.asStateFlow()
+
+    private val _capabilityNegotiation =
+        MutableStateFlow<GatewayCapabilityNegotiation?>(null)
+    val capabilityNegotiation: StateFlow<GatewayCapabilityNegotiation?> =
+        _capabilityNegotiation.asStateFlow()
     private val _pendingSignInGateway = MutableStateFlow<SavedGateway?>(null)
     val pendingSignInGateway: StateFlow<SavedGateway?> = _pendingSignInGateway.asStateFlow()
     private var connectionAttempt = 0
     private var connectingGatewayId: String? = null
+    private var connectionJob: Job? = null
     private var reconnectJob: Job? = null
     private var reconnectFailures = 0
     private var isForeground = true
@@ -78,6 +97,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     (state == GatewayConnectionState.CLOSED || state == GatewayConnectionState.ERROR)
                 ) {
                     activeChat()?.onTransportLost()
+                    _capabilityNegotiation.value = GatewayCapabilityNegotiation.Negotiating
                     _phase.value = ConnectionPhase.Reconnecting
                     _connectError.value = "Connection lost (${state.name.lowercase()})."
                     permitsAutomaticReconnect = true
@@ -134,6 +154,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val payload = raw?.let(PairingPayload::parse)
         if (payload == null) {
             _connectError.value = "This link is not a valid Fabric pairing link."
+            return
+        }
+        if (payload.enrollment != null) {
+            _connectError.value = "This QR requires secure device enrollment. Update Fabric Mobile and the gateway together, then scan a new QR."
             return
         }
         if (!payload.token.isNullOrEmpty()) {
@@ -196,7 +220,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         automaticReconnect: Boolean = false,
         resolveWsUrl: suspend () -> String,
     ) {
-        if (_phase.value == ConnectionPhase.Connecting) return
+        if (
+            !automaticReconnect &&
+            _phase.value == ConnectionPhase.Connecting &&
+            connectingGatewayId == gateway.id
+        ) return
         if (automaticReconnect && _phase.value != ConnectionPhase.Reconnecting) return
         if (!automaticReconnect) {
             reconnectJob?.cancel()
@@ -207,6 +235,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // Cancel an open or half-open transport before resolving the new
         // target. JsonRpcGatewayClient also binds reuse to the exact URL and
         // supersedes any older handshake.
+        connectionJob?.cancel()
+        connectionJob = null
         client.close()
         connectionAttempt++
         val attempt = connectionAttempt
@@ -216,9 +246,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             ConnectionPhase.Connecting
         }
         connectingGatewayId = gateway.id
+        _capabilityNegotiation.value = GatewayCapabilityNegotiation.Negotiating
         if (!automaticReconnect) _activeGatewayId.value = null
         _connectError.value = null
-        viewModelScope.launch {
+        connectionJob = viewModelScope.launch {
             try {
                 val url = resolveWsUrl()
                 val expectedPhase = if (automaticReconnect) {
@@ -226,12 +257,55 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     ConnectionPhase.Connecting
                 }
-                if (attempt != connectionAttempt || _phase.value != expectedPhase) return@launch
+                if (!isCurrentConnectionAttempt(
+                        attempt,
+                        connectionAttempt,
+                        _phase.value,
+                        expectedPhase,
+                        isForeground,
+                    )
+                ) return@launch
                 client.connect(url)
-                if (attempt != connectionAttempt || _phase.value != expectedPhase) return@launch
+                if (!isCurrentConnectionAttempt(
+                        attempt,
+                        connectionAttempt,
+                        _phase.value,
+                        expectedPhase,
+                        isForeground,
+                    )
+                ) return@launch
+                val negotiation = api.capabilities()
+                if (!isCurrentConnectionAttempt(
+                        attempt,
+                        connectionAttempt,
+                        _phase.value,
+                        expectedPhase,
+                        isForeground,
+                    )
+                ) return@launch
+                _capabilityNegotiation.value = negotiation
+                if (!negotiation.allowsBaselineSessionCalls()) {
+                    connectingGatewayId = null
+                    _activeGatewayId.value = gateway.id
+                    GatewayStore.setLastActive(app(), gateway.id)
+                    permitsAutomaticReconnect = false
+                    _connectError.value = negotiation.blockingMessage()
+                        ?: "This gateway cannot provide the required mobile session controls."
+                    _phase.value = ConnectionPhase.Disconnected
+                    if (!automaticReconnect) _screen.value = Screen.Sessions
+                    client.close()
+                    return@launch
+                }
                 if (automaticReconnect) {
                     activeChat()?.resumeAfterReconnect()?.getOrThrow()
-                    if (attempt != connectionAttempt || _phase.value != expectedPhase) return@launch
+                    if (!isCurrentConnectionAttempt(
+                            attempt,
+                            connectionAttempt,
+                            _phase.value,
+                            expectedPhase,
+                            isForeground,
+                        )
+                    ) return@launch
                 }
                 connectingGatewayId = null
                 _activeGatewayId.value = gateway.id
@@ -257,8 +331,11 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 } else {
                     permitsAutomaticReconnect = false
                     if (!automaticReconnect) _activeGatewayId.value = null
+                    _capabilityNegotiation.value = null
                     _phase.value = ConnectionPhase.Disconnected
                 }
+            } finally {
+                if (attempt == connectionAttempt) connectionJob = null
             }
         }
     }
@@ -272,11 +349,29 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         isForeground = false
         reconnectJob?.cancel()
         reconnectJob = null
-        if (_phase.value == ConnectionPhase.Connected) {
-            permitsAutomaticReconnect = true
-            activeChat()?.onTransportLost()
-            _phase.value = ConnectionPhase.Reconnecting
-            client.close()
+        when (_phase.value) {
+            ConnectionPhase.Connecting -> {
+                connectionAttempt++
+                connectionJob?.cancel()
+                connectionJob = null
+                permitsAutomaticReconnect = false
+                connectingGatewayId = null
+                _capabilityNegotiation.value = null
+                _connectError.value = "Connection paused while Fabric was in the background."
+                _phase.value = ConnectionPhase.Disconnected
+                client.close()
+            }
+            ConnectionPhase.Connected, ConnectionPhase.Reconnecting -> {
+                connectionAttempt++
+                connectionJob?.cancel()
+                connectionJob = null
+                permitsAutomaticReconnect = true
+                if (_phase.value == ConnectionPhase.Connected) activeChat()?.onTransportLost()
+                _capabilityNegotiation.value = GatewayCapabilityNegotiation.Negotiating
+                _phase.value = ConnectionPhase.Reconnecting
+                client.close()
+            }
+            ConnectionPhase.Disconnected -> Unit
         }
     }
 
@@ -336,12 +431,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() {
         connectionAttempt++
         permitsAutomaticReconnect = false
+        connectionJob?.cancel()
+        connectionJob = null
         reconnectJob?.cancel()
         reconnectJob = null
         reconnectFailures = 0
         connectingGatewayId = null
         activeChat()?.stop()
         _activeGatewayId.value = null
+        _capabilityNegotiation.value = null
         _screen.value = Screen.Sessions
         _phase.value = ConnectionPhase.Disconnected
         client.close()
@@ -364,6 +462,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             api = api,
             scope = viewModelScope,
             resumeStoredSessionId = resumeStoredSessionId,
+            supportsMethod = ::supportsGatewayMethod,
+            durableWorkNegotiation = { _capabilityNegotiation.value },
+            workGatewayId = { _activeGatewayId.value },
         )
         controller.start()
         _screen.value = Screen.Chat(controller, title)
@@ -371,6 +472,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun activeChat(): ChatSessionController? =
         (_screen.value as? Screen.Chat)?.controller
+
+    fun supportsGatewayMethod(method: String): Boolean =
+        _capabilityNegotiation.value.supportsGatewayMethod(method)
 
     override fun onCleared() {
         activeChat()?.stop()

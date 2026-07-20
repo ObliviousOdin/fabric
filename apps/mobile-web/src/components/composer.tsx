@@ -1,5 +1,6 @@
 import {
   IconArrowUp,
+  IconMoonStars,
   IconPaperclip,
   IconPlayerStopFilled,
 } from "@tabler/icons-react";
@@ -7,9 +8,13 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 interface ComposerProps {
   branch?: string;
+  canInterrupt: boolean;
+  canRunInBackground: boolean;
   disabled: boolean;
+  disabledPlaceholder?: string;
   model?: string;
   onInterrupt: () => Promise<void>;
+  onRunInBackground: (text: string) => Promise<void>;
   onSend: (text: string) => Promise<{ prefill?: string }>;
   onTextChange: (text: string) => void;
   running: boolean;
@@ -18,15 +23,20 @@ interface ComposerProps {
 
 export function Composer({
   branch,
+  canInterrupt,
+  canRunInBackground,
   disabled,
+  disabledPlaceholder,
   model,
   onInterrupt,
+  onRunInBackground,
   onSend,
   onTextChange,
   running,
   text,
 }: ComposerProps) {
   const [sending, setSending] = useState(false);
+  const [sendingInBackground, setSendingInBackground] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -65,6 +75,21 @@ export function Composer({
     }
   };
 
+  const submitInBackground = async () => {
+    const value = text.trim();
+    if (!value || disabled || !canRunInBackground || sendingInBackground) return;
+    setSendingInBackground(true);
+    onTextChange("");
+    try {
+      await onRunInBackground(value);
+    } catch {
+      // The gateway hook owns the pending mutation (including its exact text)
+      // so a timeout/reconnect retry cannot accidentally become a new submit.
+    } finally {
+      setSendingInBackground(false);
+    }
+  };
+
   return (
     <footer className="composer-shell">
       <div className="composer">
@@ -73,7 +98,7 @@ export function Composer({
           aria-label="Message Fabric"
           autoFocus
           disabled={disabled}
-          placeholder={disabled ? "Reconnect to continue" : "Message Fabric"}
+          placeholder={disabled ? disabledPlaceholder || "Reconnect to continue" : "Message Fabric"}
           rows={1}
           value={text}
           onChange={(event) => onTextChange(event.target.value)}
@@ -89,12 +114,34 @@ export function Composer({
           >
             <IconPaperclip size={19} />
           </button>
+          <button
+            className="icon-button attachment-button"
+            type="button"
+            aria-label="Run draft in background"
+            title="Run draft in background"
+            disabled={
+              disabled ||
+              !canRunInBackground ||
+              !text.trim() ||
+              sending ||
+              sendingInBackground
+            }
+            onClick={() => void submitInBackground()}
+          >
+            <IconMoonStars size={19} />
+          </button>
           <div className="composer-context" aria-label="Session context">
             {model && <span>{model}</span>}
             {branch && <span>{branch}</span>}
           </div>
           {running ? (
-            <button className="send-button stop" type="button" aria-label="Stop agent" onClick={() => void onInterrupt()}>
+            <button
+              className="send-button stop"
+              type="button"
+              aria-label={canInterrupt ? "Stop agent" : "Stop is unavailable on this gateway"}
+              disabled={!canInterrupt}
+              onClick={() => void onInterrupt()}
+            >
               <IconPlayerStopFilled size={14} />
             </button>
           ) : (

@@ -1,0 +1,20 @@
+[
+  "approval.respond",
+  "clarify.respond",
+  "commands.catalog",
+  "computer.screenshot",
+  "process.kill",
+  "process.list",
+  "prompt.background",
+  "prompt.submit",
+  "secret.respond",
+  "session.active_list",
+  "session.close",
+  "session.create",
+  "session.interrupt",
+  "session.list",
+  "session.resume",
+  "session.steer",
+  "slash.exec",
+  "sudo.respond"
+]

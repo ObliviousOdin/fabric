@@ -192,24 +192,16 @@ impl ActivityTracker {
                 self.open_requests.clear();
                 self.flash = Some((Flash::Error, now_ms + ERROR_FLASH_MS));
             }
-            "clarify.request" | "sudo.request" | "secret.request" => {
-                // These are routed through the server's `_block()` seam,
-                // which injects a request_id into the payload.
+            "clarify.request" | "approval.request" | "sudo.request" | "secret.request" => {
+                // The request id is the authority for every interactive
+                // response. Malformed or legacy events without one are
+                // intentionally non-actionable; synthesizing a key could let
+                // a later response target a different queued request.
                 if let Some(id) = event.payload.get("request_id").and_then(JsonValue::as_str) {
-                    self.open_requests.insert(id.to_owned());
+                    if !id.trim().is_empty() {
+                        self.open_requests.insert(id.to_owned());
+                    }
                 }
-            }
-            "approval.request" => {
-                // Approval prompts carry NO request_id on the wire — the
-                // payload is {command, description, ...} and resolution is
-                // FIFO via `approval.respond`. Track under a synthetic key
-                // (or the id, should the server ever add one).
-                let key = event
-                    .payload
-                    .get("request_id")
-                    .and_then(JsonValue::as_str)
-                    .unwrap_or("approval");
-                self.open_requests.insert(key.to_owned());
             }
             _ => {}
         }
@@ -371,8 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn approval_requests_wait_without_a_request_id() {
-        // approval.request payloads carry no request_id on the wire.
+    fn approval_requests_without_a_request_id_are_non_actionable() {
         let mut tracker = ActivityTracker::new();
         tracker.apply(&event("message.start", JsonValue::Null), 0);
         tracker.apply(&event("tool.start", JsonValue::Null), 5);
@@ -383,10 +374,9 @@ mod tests {
             ),
             10,
         );
-        assert_eq!(derive_pet_state(tracker.signals(10)), PetState::Waiting);
+        assert!(!tracker.signals(10).awaiting_input);
+        assert_eq!(derive_pet_state(tracker.signals(10)), PetState::Run);
 
-        // The prompt resolving (answered elsewhere / timed out) surfaces as
-        // the pending tool completing — WAITING must release.
         tracker.apply(&event("tool.complete", JsonValue::Null), 20);
         assert!(!tracker.signals(20).awaiting_input);
         assert_eq!(derive_pet_state(tracker.signals(20)), PetState::Run); // still busy

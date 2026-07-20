@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
@@ -681,6 +682,86 @@ class TestSkillView:
 
 
 class TestSkillViewSecureSetupOnLoad:
+    def test_secret_callback_propagates_with_tool_worker_context(self):
+        from tools.thread_context import propagate_context_to_thread
+
+        callback = lambda *_args, **_kwargs: {"success": True}  # noqa: E731
+        token = skills_tool_module.set_secret_capture_callback(callback)
+        try:
+            observed = []
+            worker = threading.Thread(
+                target=propagate_context_to_thread(
+                    lambda: observed.append(
+                        skills_tool_module.get_secret_capture_callback()
+                    )
+                )
+            )
+            worker.start()
+            worker.join(timeout=2)
+        finally:
+            skills_tool_module.reset_secret_capture_callback(token)
+
+        assert not worker.is_alive()
+        assert observed == [callback]
+
+    def test_secret_callbacks_are_isolated_across_concurrent_threads(self):
+        first_bound = threading.Event()
+        second_bound = threading.Event()
+        both_called = threading.Barrier(2)
+        calls = []
+        results = {}
+
+        def run_first():
+            def callback(var_name, prompt, metadata=None):
+                calls.append(("first", var_name))
+                return {"success": True, "skipped": False}
+
+            token = skills_tool_module.set_secret_capture_callback(callback)
+            try:
+                first_bound.set()
+                assert second_bound.wait(timeout=2)
+                results["first"] = skills_tool_module._capture_required_environment_variables(
+                    "first-skill",
+                    [{"name": "FIRST_SECRET", "prompt": "First secret"}],
+                )
+                both_called.wait(timeout=2)
+            finally:
+                skills_tool_module.reset_secret_capture_callback(token)
+
+        def run_second():
+            assert first_bound.wait(timeout=2)
+
+            def callback(var_name, prompt, metadata=None):
+                calls.append(("second", var_name))
+                return {"success": True, "skipped": False}
+
+            token = skills_tool_module.set_secret_capture_callback(callback)
+            try:
+                second_bound.set()
+                results["second"] = skills_tool_module._capture_required_environment_variables(
+                    "second-skill",
+                    [{"name": "SECOND_SECRET", "prompt": "Second secret"}],
+                )
+                both_called.wait(timeout=2)
+            finally:
+                skills_tool_module.reset_secret_capture_callback(token)
+
+        first = threading.Thread(target=run_first)
+        second = threading.Thread(target=run_second)
+        first.start()
+        second.start()
+        first.join(timeout=3)
+        second.join(timeout=3)
+
+        assert not first.is_alive()
+        assert not second.is_alive()
+        assert sorted(calls) == [
+            ("first", "FIRST_SECRET"),
+            ("second", "SECOND_SECRET"),
+        ]
+        assert results["first"]["missing_names"] == []
+        assert results["second"]["missing_names"] == []
+
     def test_requests_missing_required_env_and_continues(self, tmp_path, monkeypatch):
         monkeypatch.delenv("TENOR_API_KEY", raising=False)
         calls = []

@@ -610,7 +610,9 @@ class TelegramAdapter(BasePlatformAdapter):
         # Interactive model picker state per chat
         self._model_picker_state: Dict[str, dict] = {}
         # Approval button state: message_id → session_key
-        self._approval_state: Dict[int, str] = {}
+        # Telegram callback_data has a tight size limit, so buttons carry a
+        # short local handle and this map retains the authoritative core ID.
+        self._approval_state: Dict[int, Dict[str, str]] = {}
         # Slash-confirm button state: confirm_id → session_key (for /reload-mcp
         # and any other slash-confirm prompts; see GatewayRunner._request_slash_confirm).
         self._slash_confirm_state: Dict[str, str] = {}
@@ -4531,6 +4533,7 @@ class TelegramAdapter(BasePlatformAdapter):
 
     async def send_exec_approval(
         self, chat_id: str, command: str, session_key: str,
+        request_id: str,
         description: str = "dangerous command",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
@@ -4541,6 +4544,9 @@ class TelegramAdapter(BasePlatformAdapter):
         """
         if not self._bot:
             return SendResult(success=False, error="Not connected")
+        request_id = str(request_id or "").strip()
+        if not request_id:
+            return SendResult(success=False, error="Missing approval request ID")
 
         try:
             cmd_preview = command[:3800] + "..." if len(command) > 3800 else command
@@ -4593,8 +4599,11 @@ class TelegramAdapter(BasePlatformAdapter):
 
             msg = await self._send_message_with_thread_fallback(**kwargs)
 
-            # Store session_key keyed by approval_id for the callback handler
-            self._approval_state[approval_id] = session_key
+            # Store the exact core request behind the transport-local handle.
+            self._approval_state[approval_id] = {
+                "session_key": session_key,
+                "request_id": request_id,
+            }
 
             return SendResult(success=True, message_id=str(msg.message_id))
         except Exception as e:
@@ -5335,10 +5344,43 @@ class TelegramAdapter(BasePlatformAdapter):
                     await query.answer(text="⛔ You are not authorized to approve commands.")
                     return
 
-                session_key = self._approval_state.pop(approval_id, None)
-                if not session_key:
+                approval_state = self._approval_state.get(approval_id)
+                if not approval_state:
                     await query.answer(text="This approval has already been resolved.")
                     return
+
+                session_key = approval_state["session_key"]
+                request_id = approval_state["request_id"]
+
+                if (
+                    choice not in {"once", "session", "always", "deny"}
+                    or not request_id
+                ):
+                    await query.answer(text="Invalid approval data.")
+                    return
+
+                # Resolve the exact core waiter before presenting any success
+                # state or consuming the transport-local handle.
+                try:
+                    from tools.approval import resolve_gateway_approval
+                    count = resolve_gateway_approval(
+                        session_key,
+                        choice,
+                        resolve_all=False,
+                        request_id=request_id,
+                    )
+                except Exception as exc:
+                    logger.error("Failed to resolve gateway approval from Telegram button: %s", exc)
+                    count = 0
+
+                if count != 1:
+                    await query.answer(
+                        text="This approval has already been resolved or expired."
+                    )
+                    return
+
+                # No await occurs between the authoritative resolve and pop.
+                self._approval_state.pop(approval_id, None)
 
                 # Map choice to human-readable label
                 label_map = {
@@ -5362,17 +5404,11 @@ class TelegramAdapter(BasePlatformAdapter):
                 except Exception:
                     pass  # non-fatal if edit fails
 
-                # Resolve the approval — unblocks the agent thread
-                try:
-                    from tools.approval import resolve_gateway_approval
-                    count = resolve_gateway_approval(session_key, choice)
-                    logger.info(
-                        "Telegram button resolved %d approval(s) for session %s (choice=%s, user=%s)",
-                        count, session_key, choice, user_display,
-                    )
-                except Exception as exc:
-                    logger.error("Failed to resolve gateway approval from Telegram button: %s", exc)
-                    count = 0
+                logger.info(
+                    "Telegram button resolved %d approval(s) for session %s "
+                    "(request_id=%s, choice=%s, user=%s)",
+                    count, session_key, request_id, choice, user_display,
+                )
 
                 # Resume the typing indicator — paused when the approval was
                 # sent (gateway/run.py).  The text /approve and /deny paths

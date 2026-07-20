@@ -479,48 +479,57 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
         // Park it per-session (like clarify) so a *background* profile's turn can
         // raise it and wait — the sidebar flags "needs input" and the inline bar
         // surfaces once the user focuses that chat.
-        const command = typeof payload?.command === 'string' ? payload.command : ''
-        const description = typeof payload?.description === 'string' ? payload.description : 'dangerous command'
-        // The guard that flagged the command — the backend already sends these;
-        // surfaced in the details panel and used to badge destructive approvals.
-        const patternKey = typeof payload?.pattern_key === 'string' ? payload.pattern_key : undefined
+        const requestId = typeof payload?.request_id === 'string' ? payload.request_id : ''
 
-        const patternKeys = Array.isArray(payload?.pattern_keys)
-          ? payload.pattern_keys.filter((key): key is string => typeof key === 'string')
-          : undefined
+        // An approval without its authoritative id is deliberately
+        // non-actionable: session FIFO could otherwise approve the wrong
+        // command after a timeout, replay, or concurrent response.
+        if (requestId.trim()) {
+          const command = typeof payload?.command === 'string' ? payload.command : ''
+          const description = typeof payload?.description === 'string' ? payload.description : 'dangerous command'
+          // The guard that flagged the command — the backend already sends these;
+          // surfaced in the details panel and used to badge destructive approvals.
+          const patternKey = typeof payload?.pattern_key === 'string' ? payload.pattern_key : undefined
 
-        setApprovalRequest({
-          // false only when a tirith warning forbids it; backend omits the field otherwise.
-          allowPermanent: payload?.allow_permanent !== false,
-          command,
-          // Authoritative execution cwd from the backend (may differ from the
-          // session cwd for remote terminal backends); omitted by older backends.
-          cwd: typeof payload?.cwd === 'string' && payload.cwd ? payload.cwd : undefined,
-          description,
-          patternKey,
-          patternKeys,
-          sessionId: sessionId ?? null
-        })
+          const patternKeys = Array.isArray(payload?.pattern_keys)
+            ? payload.pattern_keys.filter((key): key is string => typeof key === 'string')
+            : undefined
 
-        if (sessionId) {
-          updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
+          setApprovalRequest({
+            // false only when a tirith warning forbids it; backend omits the field otherwise.
+            allowPermanent: payload?.allow_permanent !== false,
+            command,
+            // Authoritative execution cwd from the backend (may differ from the
+            // session cwd for remote terminal backends); omitted by older backends.
+            cwd: typeof payload?.cwd === 'string' && payload.cwd ? payload.cwd : undefined,
+            description,
+            patternKey,
+            patternKeys,
+            requestId,
+            sessionId: sessionId ?? null
+          })
+
+          if (sessionId) {
+            updateSessionState(sessionId, state => ({ ...state, needsInput: true }))
+          }
+
+          dispatchNativeNotification({
+            actions: [
+              { id: 'approve', text: translateNow('notifications.native.approveAction') },
+              { id: 'reject', text: translateNow('notifications.native.rejectAction') }
+            ],
+            body: command || description,
+            kind: 'approval',
+            requestId,
+            sessionId,
+            title: translateNow('notifications.native.approvalTitle')
+          })
+
+          // Focused active session gets no native banner (shouldFire suppresses
+          // it), so play an in-app cue there instead — otherwise a user who
+          // stepped away can miss the prompt and leave the agent blocked.
+          maybePlayApprovalSound(sessionId, command)
         }
-
-        dispatchNativeNotification({
-          actions: [
-            { id: 'approve', text: translateNow('notifications.native.approveAction') },
-            { id: 'reject', text: translateNow('notifications.native.rejectAction') }
-          ],
-          body: command || description,
-          kind: 'approval',
-          sessionId,
-          title: translateNow('notifications.native.approvalTitle')
-        })
-
-        // Focused active session gets no native banner (shouldFire suppresses
-        // it), so play an in-app cue there instead — otherwise a user who
-        // stepped away can miss the prompt and leave the agent blocked.
-        maybePlayApprovalSound(sessionId, command)
       } else if (event.type === 'sudo.request') {
         // Sudo password capture (tools/terminal_tool.py). Blocked on
         // sudo.respond {request_id, password}.
@@ -579,6 +588,7 @@ export function useGatewayEventHandler(deps: GatewayEventDeps) {
 
           void $gateway.get()?.request('terminal.read.respond', {
             request_id: requestId,
+            session_id: sessionId ?? undefined,
             text: result ? JSON.stringify(result) : ''
           })
         }

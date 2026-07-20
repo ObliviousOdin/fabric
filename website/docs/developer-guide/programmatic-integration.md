@@ -55,6 +55,8 @@ terminal.resize         clipboard.paste         image.attach
 
 `session.active_list`, `session.activate`, and `session.close` are the process-local live-session controls used by the TUI session switcher. Use `session.list` / `/resume` for saved transcript discovery; use the active-session methods only for sessions that are currently open in the TUI gateway process.
 
+Interactive response methods are exact-addressed. Send the owning `session_id` and the authoritative `request_id` from the corresponding event. `approval.respond` accepts `once`, `session`, `always`, or `deny` and succeeds only when its receipt echoes that ID with `resolved: 1`; FIFO/all-pending behavior is reserved for explicit legacy text commands.
+
 ### Events streamed back
 
 `message.delta`, `message.complete`, `tool.start`, `tool.progress`, `tool.complete`, `approval.request`, `clarify.request`, `sudo.request`, `secret.request`, `gateway.ready`, plus session lifecycle and error events.

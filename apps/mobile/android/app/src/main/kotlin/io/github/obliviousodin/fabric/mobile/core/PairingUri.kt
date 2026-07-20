@@ -70,22 +70,38 @@ object GatewayBaseUrl {
     }
 }
 
+enum class PairingEnrollmentAuth {
+    BROWSER,
+    LOCAL,
+}
+
+/** A v2 QR's opaque one-time handoff. It is not a token or saved credential. */
+data class PairingEnrollment(
+    val handle: String,
+    val auth: PairingEnrollmentAuth,
+)
+
 /**
- * Parsed version-1 `fabric://pair` payload from a pairing QR
+ * Parsed `fabric://pair` payload from a pairing QR
  * (emitted by `fabric mobile`; contract in fabric_cli/mobile_pairing.py).
  *
  * - `gated == false`: [token] is the session credential; connect directly.
  * - `gated == true`: the gateway requires a provider login; the app asks for
  *   username/password after the scan.
+ * - [enrollment] is a v2 handoff and must never fall through to a legacy
+ *   token/password path before the dedicated device-enrollment flow exists.
  */
 data class PairingPayload(
     val baseUrl: String,
     val gated: Boolean,
     val token: String?,
+    val enrollment: PairingEnrollment? = null,
 ) {
     companion object {
         private val gatedKeys = setOf("v", "url", "auth")
         private val tokenKeys = gatedKeys + "token"
+        private val enrollmentKeys = setOf("v", "url", "enrollment", "auth")
+        private val enrollmentHandle = Regex("^[A-Za-z0-9_-]{43,128}$")
 
         /**
          * Parse either the canonical payload or the browser landing URL whose
@@ -120,19 +136,47 @@ data class PairingPayload(
                 uri.rawFragment != null
             ) return null
             val params = parseParameters(uri.rawQuery) ?: return null
+            val rawBaseUrl = params["url"] ?: return null
+            val baseUrl = GatewayBaseUrl.parse(rawBaseUrl) ?: return null
+
+            if (params["v"] == "2") {
+                // GatewayBaseUrl deliberately normalizes cosmetic trailing
+                // slashes for manual entry. A machine-issued v2 origin must
+                // instead preserve strict wire grammar so every client makes
+                // the same enrollment decision.
+                val enrollmentUri = runCatching { URI(rawBaseUrl) }.getOrNull()
+                    ?: return null
+                if (
+                    params.keys != enrollmentKeys ||
+                    enrollmentUri.scheme?.lowercase() != "https" ||
+                    enrollmentUri.path.orEmpty() !in setOf("", "/")
+                ) return null
+                val handle = params["enrollment"]?.takeIf(enrollmentHandle::matches) ?: return null
+                val auth = when (params["auth"]) {
+                    "browser" -> PairingEnrollmentAuth.BROWSER
+                    "local" -> PairingEnrollmentAuth.LOCAL
+                    else -> return null
+                }
+                return PairingPayload(
+                    baseUrl = baseUrl,
+                    gated = false,
+                    token = null,
+                    enrollment = PairingEnrollment(handle = handle, auth = auth),
+                )
+            }
+
             if (params["v"] != "1") return null
-            val baseUrl = params["url"]?.let(GatewayBaseUrl::parse) ?: return null
 
             return when (params["auth"]) {
                 "gated" -> {
                     if (params.keys != gatedKeys) return null
-                    PairingPayload(baseUrl = baseUrl, gated = true, token = null)
+                    PairingPayload(baseUrl = baseUrl, gated = true, token = null, enrollment = null)
                 }
 
                 "token" -> {
                     val token = params["token"]?.takeIf { it.isNotEmpty() } ?: return null
                     if (params.keys != tokenKeys) return null
-                    PairingPayload(baseUrl = baseUrl, gated = false, token = token)
+                    PairingPayload(baseUrl = baseUrl, gated = false, token = token, enrollment = null)
                 }
 
                 else -> null

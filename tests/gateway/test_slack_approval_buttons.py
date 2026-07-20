@@ -1,6 +1,7 @@
 """Tests for Slack Block Kit approval buttons and thread context fetching."""
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -94,6 +95,7 @@ class TestSlackExecApproval:
             chat_id="C1",
             command="rm -rf /important",
             session_key="agent:main:slack:group:C1:1111",
+            request_id="req-1",
             description="dangerous deletion",
         )
 
@@ -117,9 +119,16 @@ class TestSlackExecApproval:
         assert "fabric_approve_session" in action_ids
         assert "fabric_approve_always" in action_ids
         assert "fabric_deny" in action_ids
-        # Each button carries the session key as value
+        # Each button carries the exact core request identity.
         for e in elements:
-            assert e["value"] == "agent:main:slack:group:C1:1111"
+            assert json.loads(e["value"]) == {
+                "session_key": "agent:main:slack:group:C1:1111",
+                "request_id": "req-1",
+            }
+        assert adapter._approval_requests["1234.5678"] == (
+            "agent:main:slack:group:C1:1111",
+            "req-1",
+        )
 
     @pytest.mark.asyncio
     async def test_sends_in_thread(self):
@@ -131,6 +140,7 @@ class TestSlackExecApproval:
             chat_id="C1",
             command="echo test",
             session_key="test-session",
+            request_id="req-thread",
             metadata={"thread_id": "9999.0000"},
         )
 
@@ -142,7 +152,7 @@ class TestSlackExecApproval:
         adapter = _make_adapter()
         adapter._app = None
         result = await adapter.send_exec_approval(
-            chat_id="C1", command="ls", session_key="s"
+            chat_id="C1", command="ls", session_key="s", request_id="req-offline"
         )
         assert result.success is False
 
@@ -154,7 +164,7 @@ class TestSlackExecApproval:
 
         long_cmd = "x" * 5000
         await adapter.send_exec_approval(
-            chat_id="C1", command=long_cmd, session_key="s"
+            chat_id="C1", command=long_cmd, session_key="s", request_id="req-long"
         )
 
         kwargs = mock_client.chat_postMessage.call_args[1]
@@ -174,7 +184,10 @@ class TestSlackApprovalAction:
     async def test_resolves_approval(self):
         adapter = _make_adapter()
         _attach_auth_runner(adapter)
-        adapter._approval_resolved["1234.5678"] = False
+        adapter._approval_requests["1234.5678"] = (
+            "agent:main:slack:group:C1:1111",
+            "req-1",
+        )
 
         ack = AsyncMock()
         body = {
@@ -190,7 +203,10 @@ class TestSlackApprovalAction:
         }
         action = {
             "action_id": "fabric_approve_once",
-            "value": "agent:main:slack:group:C1:1111",
+            "value": json.dumps({
+                "session_key": "agent:main:slack:group:C1:1111",
+                "request_id": "req-1",
+            }),
         }
 
         mock_client = adapter._team_clients["T1"]
@@ -200,7 +216,12 @@ class TestSlackApprovalAction:
             await adapter._handle_approval_action(ack, body, action)
 
         ack.assert_called_once()
-        mock_resolve.assert_called_once_with("agent:main:slack:group:C1:1111", "once")
+        mock_resolve.assert_called_once_with(
+            "agent:main:slack:group:C1:1111",
+            "once",
+            resolve_all=False,
+            request_id="req-1",
+        )
 
         # Message should be updated with decision
         mock_client.chat_update.assert_called_once()
@@ -211,7 +232,6 @@ class TestSlackApprovalAction:
     async def test_prevents_double_click(self):
         adapter = _make_adapter()
         _attach_auth_runner(adapter)
-        adapter._approval_resolved["1234.5678"] = True  # Already resolved
 
         ack = AsyncMock()
         body = {
@@ -221,7 +241,10 @@ class TestSlackApprovalAction:
         }
         action = {
             "action_id": "fabric_approve_once",
-            "value": "some-session",
+            "value": json.dumps({
+                "session_key": "some-session",
+                "request_id": "req-resolved",
+            }),
         }
 
         with patch("tools.approval.resolve_gateway_approval") as mock_resolve:
@@ -235,7 +258,7 @@ class TestSlackApprovalAction:
     async def test_deny_action(self):
         adapter = _make_adapter()
         _attach_auth_runner(adapter)
-        adapter._approval_resolved["1.2"] = False
+        adapter._approval_requests["1.2"] = ("session-key", "req-deny")
 
         ack = AsyncMock()
         body = {
@@ -245,7 +268,13 @@ class TestSlackApprovalAction:
             "channel": {"id": "C1"},
             "user": {"name": "alice", "id": "U_ALICE"},
         }
-        action = {"action_id": "fabric_deny", "value": "session-key"}
+        action = {
+            "action_id": "fabric_deny",
+            "value": json.dumps({
+                "session_key": "session-key",
+                "request_id": "req-deny",
+            }),
+        }
 
         mock_client = adapter._team_clients["T1"]
         mock_client.chat_update = AsyncMock()
@@ -253,14 +282,22 @@ class TestSlackApprovalAction:
         with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
             await adapter._handle_approval_action(ack, body, action)
 
-        mock_resolve.assert_called_once_with("session-key", "deny")
+        mock_resolve.assert_called_once_with(
+            "session-key",
+            "deny",
+            resolve_all=False,
+            request_id="req-deny",
+        )
         update_kwargs = mock_client.chat_update.call_args[1]
         assert "Denied by alice" in update_kwargs["text"]
 
     @pytest.mark.asyncio
     async def test_global_allowlist_blocks_unauthorized_click(self, monkeypatch):
         adapter = _make_adapter()
-        adapter._approval_resolved["1234.5678"] = False
+        adapter._approval_requests["1234.5678"] = (
+            "agent:main:slack:group:C1:1111",
+            "req-1",
+        )
         monkeypatch.delenv("SLACK_ALLOWED_USERS", raising=False)
         monkeypatch.delenv("SLACK_ALLOW_ALL_USERS", raising=False)
         monkeypatch.delenv("GATEWAY_ALLOW_ALL_USERS", raising=False)
@@ -274,7 +311,10 @@ class TestSlackApprovalAction:
         }
         action = {
             "action_id": "fabric_approve_once",
-            "value": "agent:main:slack:group:C1:1111",
+            "value": json.dumps({
+                "session_key": "agent:main:slack:group:C1:1111",
+                "request_id": "req-1",
+            }),
         }
 
         with patch("tools.approval.resolve_gateway_approval") as mock_resolve:
@@ -282,6 +322,64 @@ class TestSlackApprovalAction:
 
         ack.assert_called_once()
         mock_resolve.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_zero_resolve_keeps_buttons_and_local_state(self):
+        adapter = _make_adapter()
+        _attach_auth_runner(adapter)
+        adapter._approval_requests["1.2"] = ("session-key", "req-stale")
+        ack = AsyncMock()
+        body = {
+            "message": {"ts": "1.2", "blocks": []},
+            "channel": {"id": "C1"},
+            "user": {"name": "alice", "id": "U_ALICE"},
+        }
+        action = {
+            "action_id": "fabric_approve_once",
+            "value": json.dumps({
+                "session_key": "session-key",
+                "request_id": "req-stale",
+            }),
+        }
+        mock_client = adapter._team_clients["T1"]
+        mock_client.chat_update = AsyncMock()
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=0):
+            await adapter._handle_approval_action(ack, body, action)
+
+        assert adapter._approval_requests["1.2"] == ("session-key", "req-stale")
+        mock_client.chat_update.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resolves_exact_second_same_session_approval(self):
+        adapter = _make_adapter()
+        _attach_auth_runner(adapter)
+        adapter._approval_requests.update({
+            "1.1": ("session-key", "req-first"),
+            "1.2": ("session-key", "req-second"),
+        })
+        ack = AsyncMock()
+        body = {
+            "message": {"ts": "1.2", "blocks": []},
+            "channel": {"id": "C1"},
+            "user": {"name": "alice", "id": "U_ALICE"},
+        }
+        action = {
+            "action_id": "fabric_approve_once",
+            "value": json.dumps({
+                "session_key": "session-key",
+                "request_id": "req-second",
+            }),
+        }
+        adapter._team_clients["T1"].chat_update = AsyncMock()
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
+            await adapter._handle_approval_action(ack, body, action)
+
+        mock_resolve.assert_called_once_with(
+            "session-key", "once", resolve_all=False, request_id="req-second"
+        )
+        assert adapter._approval_requests == {"1.1": ("session-key", "req-first")}
 
 
 class TestSlackInteractiveAuth:

@@ -21,12 +21,14 @@ class TestMatrixExecApprovalReactions:
             chat_id="!room:example.org",
             command="rm -rf /tmp/test",
             session_key="sess-1",
+            request_id="req-1",
             description="dangerous",
         )
 
         assert result.success is True
-        assert adapter._approval_prompt_by_session["sess-1"] == "$evt1"
+        assert adapter._approval_prompt_by_session["sess-1"] == {"$evt1"}
         assert adapter._approval_prompts_by_event["$evt1"].session_key == "sess-1"
+        assert adapter._approval_prompts_by_event["$evt1"].request_id == "req-1"
         assert adapter._send_reaction.await_count == 3
         emojis = [call.args[2] for call in adapter._send_reaction.await_args_list]
         assert emojis == ["✅", "♾️", "❌"]
@@ -40,9 +42,12 @@ class TestMatrixExecApprovalReactions:
         # Resolve user_id so _is_self_sender doesn't defensively drop all traffic (#15763).
         adapter._user_id = "@bot:example.org"
         adapter._approval_prompts_by_event["$target"] = _MatrixApprovalPrompt(
-            session_key="sess-1", chat_id="!room:example.org", message_id="$target"
+            session_key="sess-1",
+            request_id="req-target",
+            chat_id="!room:example.org",
+            message_id="$target",
         )
-        adapter._approval_prompt_by_session["sess-1"] = "$target"
+        adapter._approval_prompt_by_session["sess-1"] = {"$target"}
 
         content = {"m.relates_to": {"event_id": "$target", "key": "✅"}}
         event = types.SimpleNamespace(
@@ -55,6 +60,83 @@ class TestMatrixExecApprovalReactions:
         with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
             await adapter._on_reaction(event)
 
-        mock_resolve.assert_called_once_with("sess-1", "once")
+        mock_resolve.assert_called_once_with(
+            "sess-1",
+            "once",
+            resolve_all=False,
+            request_id="req-target",
+        )
         assert "$target" not in adapter._approval_prompts_by_event
         assert "sess-1" not in adapter._approval_prompt_by_session
+
+    @pytest.mark.asyncio
+    async def test_reaction_resolves_exact_second_same_session_approval(self, monkeypatch):
+        monkeypatch.setenv("MATRIX_ALLOWED_USERS", "@liizfq:liizfq.top")
+        from plugins.platforms.matrix.adapter import MatrixAdapter, _MatrixApprovalPrompt
+
+        adapter = MatrixAdapter(
+            PlatformConfig(
+                enabled=True,
+                token="tok",
+                extra={"homeserver": "https://matrix.example.org"},
+            )
+        )
+        adapter._user_id = "@bot:example.org"
+        for event_id, request_id in (("$first", "req-first"), ("$second", "req-second")):
+            adapter._approval_prompts_by_event[event_id] = _MatrixApprovalPrompt(
+                session_key="sess-1",
+                request_id=request_id,
+                chat_id="!room:example.org",
+                message_id=event_id,
+            )
+        adapter._approval_prompt_by_session["sess-1"] = {"$first", "$second"}
+        event = types.SimpleNamespace(
+            sender="@liizfq:liizfq.top",
+            event_id="$reaction",
+            room_id="!room:example.org",
+            content={"m.relates_to": {"event_id": "$second", "key": "✅"}},
+        )
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=1) as mock_resolve:
+            await adapter._on_reaction(event)
+
+        mock_resolve.assert_called_once_with(
+            "sess-1", "once", resolve_all=False, request_id="req-second"
+        )
+        assert "$first" in adapter._approval_prompts_by_event
+        assert adapter._approval_prompt_by_session["sess-1"] == {"$first"}
+
+    @pytest.mark.asyncio
+    async def test_stale_reaction_does_not_consume_or_mark_prompt(self, monkeypatch):
+        monkeypatch.setenv("MATRIX_ALLOWED_USERS", "@liizfq:liizfq.top")
+        from plugins.platforms.matrix.adapter import MatrixAdapter, _MatrixApprovalPrompt
+
+        adapter = MatrixAdapter(
+            PlatformConfig(
+                enabled=True,
+                token="tok",
+                extra={"homeserver": "https://matrix.example.org"},
+            )
+        )
+        adapter._user_id = "@bot:example.org"
+        prompt = _MatrixApprovalPrompt(
+            session_key="sess-1",
+            request_id="req-stale",
+            chat_id="!room:example.org",
+            message_id="$target",
+        )
+        adapter._approval_prompts_by_event["$target"] = prompt
+        adapter._approval_prompt_by_session["sess-1"] = {"$target"}
+        event = types.SimpleNamespace(
+            sender="@liizfq:liizfq.top",
+            event_id="$reaction",
+            room_id="!room:example.org",
+            content={"m.relates_to": {"event_id": "$target", "key": "✅"}},
+        )
+
+        with patch("tools.approval.resolve_gateway_approval", return_value=0):
+            await adapter._on_reaction(event)
+
+        assert prompt.resolved is False
+        assert adapter._approval_prompts_by_event["$target"] is prompt
+        assert adapter._approval_prompt_by_session["sess-1"] == {"$target"}

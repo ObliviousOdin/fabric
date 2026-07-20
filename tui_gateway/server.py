@@ -1,11 +1,15 @@
 import atexit
+import base64
 import concurrent.futures
 import contextlib
 import contextvars
 import copy
+import hashlib
+import hmac
 import inspect
 import json
 import logging
+import math
 import os
 import queue
 import subprocess
@@ -13,6 +17,7 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -29,12 +34,16 @@ from fabric_cli.tui_launch_context import get_tui_launch_context
 from utils import is_truthy_value
 from tools.environments.local import fabric_subprocess_env
 from agent.replay_cleanup import sanitize_replay_history
+from tui_gateway.auth_context import WSAuthContext
 from tui_gateway import git_probe
 from tui_gateway.transport import (
     StdioTransport,
     Transport,
+    bind_auth_context,
     bind_transport,
+    current_auth_context,
     current_transport,
+    reset_auth_context,
     reset_transport,
 )
 from tui_gateway.visual_events import (
@@ -146,6 +155,9 @@ _stdout_lock = threading.Lock()
 _cfg_lock = threading.Lock()
 _sessions_lock = threading.RLock()  # reentrant: _close_session_by_id may run under callers that already hold it
 _prompt_lock = threading.Lock()
+_work_attention_lock = threading.RLock()
+_work_attention_by_request: dict[tuple[str, str], dict[str, Any]] = {}
+_WORK_PAGE_TOKEN_SECRET = os.urandom(32)
 _cfg_cache: dict | None = None
 _cfg_mtime: float | None = None
 _cfg_path = None
@@ -193,6 +205,11 @@ _LONG_HANDLERS = frozenset({
     "complete.path",
     "complete.slash",
     "llm.oneshot",
+    "attention.respond",
+    "job.create",
+    "job.cancel",
+    "job.sync",
+    "prompt.background",
     "memory.status",
     "model.disconnect",
     "model.options",
@@ -698,6 +715,12 @@ def _finalize_session_in_profile(
 ) -> None:
     """Finalize after the owning profile's home/credentials are installed."""
     _release_active_session_slot(session)
+    try:
+        from tools.terminal_tool import clear_cached_sudo_password
+
+        clear_cached_sudo_password(_approval_routing_key(session))
+    except Exception:
+        pass
     stop_event = session.get("_notif_stop")
     if stop_event is not None:
         stop_event.set()
@@ -845,14 +868,15 @@ def _teardown_session(session: dict | None, *, end_reason: str = "tui_close") ->
     """
     if not session:
         return
-    _finalize_session(session, end_reason=end_reason)
     try:
-        from tools.approval import unregister_gateway_notify
+        from tools.approval import clear_session, unregister_gateway_notify
 
-        if key := session.get("session_key"):
-            unregister_gateway_notify(key)
+        approval_key = _approval_routing_key(session)
+        clear_session(approval_key)
+        unregister_gateway_notify(approval_key)
     except Exception:
         pass
+    _finalize_session(session, end_reason=end_reason)
     try:
         agent = session.get("agent")
         if agent is not None and hasattr(agent, "close"):
@@ -890,6 +914,11 @@ def _close_session_by_id(sid: str, *, end_reason: str = "tui_close") -> bool:
     # (e.g. _finalize_session's per-session async-delegation interrupt) can't
     # recover its live id by scanning the dict — stamp it on the record.
     session["_sid"] = sid
+    # Closing is an authorization boundary. The session has already been
+    # removed from the live registry, so racing programmatic responses now
+    # fail; release all of its existing waiters before final teardown.
+    _cancel_work_attention_for_session(sid, session, reason=end_reason)
+    _clear_pending(sid)
     _teardown_session(session, end_reason=end_reason)
     return True
 
@@ -981,6 +1010,14 @@ def _shutdown_sessions() -> None:
         sids = list(_sessions)
     for sid in sids:
         _close_session_by_id(sid, end_reason="tui_shutdown")
+    # Work runners outlive client sessions by design, so tear them down only
+    # after every interactive session has released its foreground waiters.
+    try:
+        from tui_gateway.work_service import shutdown_work_services
+
+        shutdown_work_services(wait_for_scheduler=False)
+    except Exception:
+        logger.debug("work service shutdown failed", exc_info=True)
 
 
 # Last-resort net for any disconnect path that slips past the WS finally. TTL is
@@ -1487,7 +1524,88 @@ def _emit_approval_request(sid: str, data: dict | None) -> None:
                     payload["cwd"] = cwd
             except Exception:
                 pass
-    _emit("approval.request", sid, payload)
+    request_id = str(payload.get("request_id") or "").strip()
+    with _sessions_lock:
+        session = _sessions.get(sid)
+    if request_id and session is not None:
+        try:
+            service = _work_service_for_session(session)
+            approval_key = _approval_routing_key(session)
+
+            def deliver(choice: object) -> bool:
+                from tools.approval import resolve_gateway_approval
+
+                reason = None
+                if isinstance(choice, Mapping):
+                    reason = choice.get("reason")
+                    choice = choice.get("choice")
+                return (
+                    resolve_gateway_approval(
+                        approval_key,
+                        str(choice),
+                        resolve_all=False,
+                        reason=str(reason) if reason is not None else None,
+                        request_id=request_id,
+                    )
+                    == 1
+                )
+
+            def cancel() -> None:
+                from tools.approval import resolve_gateway_approval
+
+                resolve_gateway_approval(
+                    approval_key,
+                    "deny",
+                    resolve_all=False,
+                    request_id=request_id,
+                )
+
+            attention = service.create_attention_waiter(
+                source_session_key=_session_lookup_key(session, fallback=sid),
+                runtime_session_id=sid,
+                request_id=request_id,
+                kind="approval",
+                title="Approval required",
+                public_payload={
+                    key: payload[key]
+                    for key in ("allow_permanent", "command", "cwd", "description")
+                    if key in payload
+                },
+                deliver=deliver,
+                cancel=cancel,
+            )
+            payload["attention_id"] = attention["attention_id"]
+            payload["attention_version"] = attention["version"]
+            with _work_attention_lock:
+                _work_attention_by_request[(sid, request_id)] = {
+                    "attention_id": attention["attention_id"],
+                    "kind": "approval",
+                    "version": attention["version"],
+                }
+            _emit_work_changed(
+                sid,
+                service,
+                attention_id=str(attention["attention_id"]),
+            )
+        except Exception as exc:
+            # This compatibility notification remains available while durable
+            # work is unadvertised. The new attention.respond path still fails
+            # closed because no durable item exists.
+            logger.error(
+                "could not persist approval Attention sid=%s error_type=%s",
+                sid,
+                type(exc).__name__,
+            )
+    try:
+        _emit("approval.request", sid, payload)
+    except Exception:
+        # The durable Attention and gateway approval queue remain authoritative
+        # across a legacy transport loss; reconnecting clients can recover it.
+        logger.debug(
+            "legacy approval request emit failed sid=%s",
+            sid,
+            exc_info=True,
+        )
 
 
 def _status_update(sid: str, kind: str, text: str | None = None):
@@ -1536,8 +1654,185 @@ def _ok(rid, result: dict) -> dict:
     return {"jsonrpc": "2.0", "id": rid, "result": result}
 
 
-def _err(rid, code: int, msg: str) -> dict:
-    return {"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": msg}}
+def _err(rid, code: int, msg: str, data: dict | None = None) -> dict:
+    error = {"code": code, "message": msg}
+    if data is not None:
+        error["data"] = data
+    return {"jsonrpc": "2.0", "id": rid, "error": error}
+
+
+_WORK_ERROR_MESSAGES = {
+    "invalid_params": "Invalid work request",
+    "unsupported_job_kind": "Unsupported job kind",
+    "not_found": "Work item not found",
+    "idempotency_conflict": "Idempotency key conflicts with an earlier request",
+    "version_conflict": "Work item changed; refresh and retry",
+    "invalid_transition": "Work item cannot make that transition",
+    "runtime_owner_mismatch": "Work runtime is owned by another gateway process",
+    "attention_not_actionable": "Attention item is no longer actionable",
+    "waiter_unavailable": "Attention waiter is unavailable",
+    "cursor_expired": "Work cursor expired; bootstrap again",
+    "work_store_unavailable": "Work store is unavailable",
+    "work_capacity_exceeded": "Background work capacity is exhausted",
+    "work_operation_in_progress": "The identical work operation is still in progress",
+}
+_WORK_ERROR_NUMBERS = {
+    "invalid_params": -32602,
+    "unsupported_job_kind": -32040,
+    "not_found": -32004,
+    "idempotency_conflict": -32041,
+    "version_conflict": -32042,
+    "invalid_transition": -32043,
+    "runtime_owner_mismatch": -32044,
+    "attention_not_actionable": -32045,
+    "waiter_unavailable": -32046,
+    "cursor_expired": -32047,
+    "work_store_unavailable": -32048,
+    "work_capacity_exceeded": -32049,
+    "work_operation_in_progress": -32050,
+}
+_WORK_SAFE_ERROR_DATA = frozenset(
+    {"bootstrap", "event_floor", "found", "high_water", "ledger_id", "supported"}
+)
+
+
+class _UnsupportedJobKind(ValueError):
+    pass
+
+
+def _work_error_code(exc: BaseException) -> str:
+    from fabric_cli.work_ledger import (
+        AttentionNotActionable,
+        CursorExpired,
+        IdempotencyConflict,
+        InvalidPublicData,
+        InvalidTransition,
+        InvalidWorkIdentifier,
+        RuntimeOwnerMismatch as LedgerRuntimeOwnerMismatch,
+        VersionConflict,
+        WorkNotFound,
+        WorkOperationInProgress,
+        WorkStoreReplacedError,
+        WorkStoreUnavailable,
+    )
+    from tui_gateway.work_service import (
+        DeliveryOutcomeUnknown,
+        RuntimeOwnerMismatch,
+        WaiterAlreadyConsumed,
+        WaiterUnavailable,
+        WorkCapacityExceeded,
+        WorkSchedulerClosed,
+        WorkServiceClosed,
+        WorkStoreRebound,
+    )
+
+    if isinstance(exc, _UnsupportedJobKind):
+        return "unsupported_job_kind"
+    if isinstance(exc, (InvalidPublicData, InvalidWorkIdentifier, TypeError, ValueError)):
+        return "invalid_params"
+    if isinstance(exc, WorkNotFound):
+        return "not_found"
+    if isinstance(exc, IdempotencyConflict):
+        return "idempotency_conflict"
+    if isinstance(exc, VersionConflict):
+        return "version_conflict"
+    if isinstance(exc, InvalidTransition):
+        return "invalid_transition"
+    if isinstance(exc, (LedgerRuntimeOwnerMismatch, RuntimeOwnerMismatch)):
+        return "runtime_owner_mismatch"
+    if isinstance(exc, AttentionNotActionable):
+        return "attention_not_actionable"
+    if isinstance(
+        exc,
+        (WaiterUnavailable, WaiterAlreadyConsumed, DeliveryOutcomeUnknown),
+    ):
+        return "waiter_unavailable"
+    if isinstance(exc, CursorExpired):
+        return "cursor_expired"
+    if isinstance(exc, (WorkStoreReplacedError, WorkStoreRebound)):
+        return "cursor_expired"
+    if isinstance(exc, WorkCapacityExceeded):
+        return "work_capacity_exceeded"
+    if isinstance(exc, WorkOperationInProgress):
+        return "work_operation_in_progress"
+    if isinstance(
+        exc,
+        (WorkStoreUnavailable, WorkSchedulerClosed, WorkServiceClosed),
+    ):
+        return "work_store_unavailable"
+    return "work_store_unavailable"
+
+
+def _work_err(rid: Any, exc: BaseException) -> dict:
+    """Map internal failures to stable, sanitized work-protocol errors."""
+
+    code = _work_error_code(exc)
+    if code == "work_store_unavailable" and not hasattr(exc, "code"):
+        logger.error(
+            "unclassified work RPC failure error_type=%s",
+            type(exc).__name__,
+        )
+    data: dict[str, Any] = {"code": code}
+    raw_data = getattr(exc, "data", None)
+    if isinstance(raw_data, dict):
+        data.update({key: raw_data[key] for key in _WORK_SAFE_ERROR_DATA if key in raw_data})
+    if code == "cursor_expired":
+        data["bootstrap"] = True
+    if bool(getattr(exc, "retryable", False)) and code in {
+        "work_capacity_exceeded",
+        "work_operation_in_progress",
+        "work_store_unavailable",
+    }:
+        data["retryable"] = True
+    return _err(
+        rid,
+        _WORK_ERROR_NUMBERS[code],
+        _WORK_ERROR_MESSAGES[code],
+        data,
+    )
+
+
+def _work_require_params(
+    params: dict,
+    *,
+    allowed: frozenset[str],
+    required: frozenset[str],
+) -> None:
+    unknown = set(params) - allowed
+    missing = required - set(params)
+    if unknown or missing:
+        raise ValueError("work request fields do not match the method contract")
+    session_id = params.get("session_id")
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ValueError("session_id is required")
+
+
+def _work_token_encode(payload: dict[str, Any]) -> str:
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    signature = hmac.new(_WORK_PAGE_TOKEN_SECRET, body, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(body + signature).decode("ascii").rstrip("=")
+
+
+def _work_token_decode(token: object, *, expected_kind: str) -> dict[str, Any]:
+    if not isinstance(token, str) or not token or len(token) > 2048:
+        raise ValueError("invalid work page token")
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        decoded = base64.urlsafe_b64decode(padded.encode("ascii"))
+        body, supplied = decoded[:-32], decoded[-32:]
+        expected = hmac.new(_WORK_PAGE_TOKEN_SECRET, body, hashlib.sha256).digest()
+        if not hmac.compare_digest(supplied, expected):
+            raise ValueError("invalid work page token")
+        payload = json.loads(body)
+    except Exception as exc:
+        raise ValueError("invalid work page token") from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("kind") != expected_kind
+        or int(payload.get("expires_at", 0)) < int(time.time())
+    ):
+        raise ValueError("invalid or expired work page token")
+    return payload
 
 
 def method(name: str):
@@ -1546,6 +1841,51 @@ def method(name: str):
         return fn
 
     return dec
+
+
+@method("gateway.capabilities")
+def _(rid, params: dict) -> dict:
+    """Return the reviewed, process-wide mobile gateway protocol contract."""
+    from fabric_cli import __release_date__, __version__
+    from tui_gateway.gateway_capabilities import build_gateway_capabilities
+
+    return _ok(
+        rid,
+        build_gateway_capabilities(
+            _methods,
+            version=__version__,
+            release_date=__release_date__,
+        ),
+    )
+
+
+@method("connection.context")
+def _(rid, params: dict) -> dict:
+    """Return the redacted, server-derived context for this exact RPC.
+
+    This is deliberately a projection rather than a client-provided identity
+    echo.  The method ignores all params so a caller cannot choose a principal,
+    device, gateway scope, or correlation ID by sending similarly named JSON
+    fields.  Direct stdio callers have no WebSocket auth boundary and receive a
+    truthful unavailable state instead of a fabricated identity.
+    """
+    del params
+    auth_context = current_auth_context()
+    if auth_context is None:
+        return _ok(
+            rid,
+            {
+                "authenticated": False,
+                "auth_kind": "unavailable",
+                "principal_id": None,
+                "device_id": None,
+                "gateway_scope": None,
+                "correlation_id": None,
+                "credential_state": "unavailable",
+                "recovery": "Connect through an authenticated gateway.",
+            },
+        )
+    return _ok(rid, auth_context.public_projection())
 
 
 def _normalize_request(req: Any) -> tuple[Any, str, dict] | dict:
@@ -1579,7 +1919,11 @@ def handle_request(req: dict) -> dict | None:
     return fn(rid, params)
 
 
-def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
+def dispatch(
+    req: dict,
+    transport: Optional[Transport] = None,
+    auth_context: Optional[WSAuthContext] = None,
+) -> dict | None:
     """Route inbound RPCs — long handlers to the pool, everything else inline.
 
     Returns a response dict when handled inline. Returns None when the
@@ -1590,9 +1934,15 @@ def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
     including any events emitted by the handler — to the given transport.
     Omitting it falls back to the module-level stdio transport, preserving
     the original behaviour for ``tui_gateway.entry``.
+
+    *auth_context* is accepted only from the verified WebSocket upgrade path.
+    It remains context-local (including in long-handler pool work) so RPC
+    handlers can derive an action receipt without accepting any identity field
+    from client JSON.
     """
     t = transport or _stdio_transport
-    token = bind_transport(t)
+    transport_token = bind_transport(t)
+    auth_token = bind_auth_context(auth_context)
     try:
         normalized = _normalize_request(req)
         if isinstance(normalized, dict):
@@ -1617,7 +1967,8 @@ def dispatch(req: dict, transport: Optional[Transport] = None) -> dict | None:
 
         return None
     finally:
-        reset_transport(token)
+        reset_auth_context(auth_token)
+        reset_transport(transport_token)
 
 
 def _wait_agent(session: dict, rid: str, timeout: float = 30.0) -> dict | None:
@@ -1742,7 +2093,8 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 )
 
                 register_gateway_notify(
-                    key, lambda data: _emit_approval_request(sid, data)
+                    _approval_routing_key(current),
+                    lambda data: _emit_approval_request(sid, data),
                 )
                 notify_registered = True
                 load_permanent_allowlist()
@@ -1802,7 +2154,7 @@ def _start_agent_build(sid: str, session: dict) -> None:
                 try:
                     from tools.approval import unregister_gateway_notify
 
-                    unregister_gateway_notify(key)
+                    unregister_gateway_notify(_approval_routing_key(current))
                 except Exception:
                     pass
             ready.set()
@@ -2367,7 +2719,7 @@ def _clear_session_context(tokens: list) -> None:
 
 
 def _block(event: str, sid: str, payload: dict, timeout: int = 300) -> str:
-    rid = uuid.uuid4().hex[:8]
+    rid = uuid.uuid4().hex
     ev = threading.Event()
     with _prompt_lock:
         _pending[rid] = (sid, ev)
@@ -2384,6 +2736,165 @@ def _block(event: str, sid: str, payload: dict, timeout: int = 300) -> str:
         return _answers.pop(rid, "")
 
 
+_USER_ATTENTION_EVENTS = frozenset(
+    {"approval.request", "clarify.request", "sudo.request", "secret.request"}
+)
+
+
+def _block_user_attention(
+    event: str, sid: str, payload: dict, timeout: int = 300
+) -> str:
+    """Block on one human-attention interaction.
+
+    This seam is deliberately separate from machine-to-machine terminal reads
+    so FMB-002 can persist only user decisions without turning renderer buffer
+    requests into durable Trust Inbox items.
+    """
+    if event not in _USER_ATTENTION_EVENTS:
+        raise ValueError(f"unsupported user-attention event: {event}")
+    with _sessions_lock:
+        session = _sessions.get(sid)
+    if session is None:
+        return ""
+
+    kind = event.split(".", 1)[0]
+    titles = {
+        "approval": "Approval required",
+        "clarify": "Question requires an answer",
+        "sudo": "Administrator password required",
+        "secret": "Credential required",
+    }
+    public_payload = {
+        key: payload[key]
+        for key in ("choices", "command", "cwd", "env_var", "prompt", "question")
+        if key in payload
+    }
+    request_id = uuid.uuid4().hex
+    wait_event = threading.Event()
+    outgoing = dict(payload)
+    outgoing["request_id"] = request_id
+
+    def deliver(value: object) -> bool:
+        with _sessions_lock:
+            if _sessions.get(sid) is not session:
+                return False
+            with _prompt_lock:
+                entry = _pending.get(request_id)
+                if entry is None or entry[0] != sid:
+                    return False
+                _answers[request_id] = "" if value is None else str(value)
+                _pending.pop(request_id, None)
+                _pending_prompt_payloads.pop(request_id, None)
+                entry[1].set()
+                return True
+
+    def cancel() -> None:
+        with _prompt_lock:
+            entry = _pending.pop(request_id, None)
+            _pending_prompt_payloads.pop(request_id, None)
+            if entry is not None:
+                _answers[request_id] = ""
+                entry[1].set()
+
+    with _prompt_lock:
+        _pending[request_id] = (sid, wait_event)
+        _pending_prompt_payloads[request_id] = (event, dict(outgoing))
+
+    service = None
+    attention = None
+    post_create_abort = False
+    try:
+        service = _work_service_for_session(session)
+        attention = service.create_attention_waiter(
+            source_session_key=_session_lookup_key(session, fallback=sid),
+            runtime_session_id=sid,
+            request_id=request_id,
+            kind=kind,
+            title=titles[kind],
+            public_payload=public_payload,
+            deliver=deliver,
+            cancel=cancel,
+            sensitive=kind in {"sudo", "secret"},
+        )
+        outgoing["attention_id"] = attention["attention_id"]
+        outgoing["attention_version"] = attention["version"]
+        with _prompt_lock:
+            _pending_prompt_payloads[request_id] = (event, dict(outgoing))
+        with _work_attention_lock:
+            _work_attention_by_request[(sid, request_id)] = {
+                "attention_id": attention["attention_id"],
+                "kind": kind,
+                "version": attention["version"],
+            }
+        _emit_work_changed(
+            sid,
+            service,
+            attention_id=str(attention["attention_id"]),
+        )
+        try:
+            _emit(event, sid, outgoing)
+        except Exception:
+            # work.db + work.changed are authoritative.  A disconnected legacy
+            # transport must not abort the live waiter: a reconnecting client
+            # can discover and answer it through job.sync/attention.respond.
+            logger.debug(
+                "legacy attention request emit failed event=%s sid=%s",
+                event,
+                sid,
+                exc_info=True,
+            )
+        wait_event.wait(timeout=timeout)
+    except Exception as exc:
+        logger.error(
+            "durable attention bridge failed event=%s sid=%s error_type=%s",
+            event,
+            sid,
+            type(exc).__name__,
+        )
+        if attention is None:
+            cancel()
+            # Durable work remains unadvertised.  A corrupt/unavailable
+            # work.db must not destroy the established foreground interaction:
+            # after fully removing the failed durable registration, fall back
+            # to the exact-session ephemeral prompt path.
+            return _block(event, sid, dict(payload), timeout=timeout)
+        post_create_abort = True
+    finally:
+        if service is not None and attention is not None and not wait_event.is_set():
+            with contextlib.suppress(Exception):
+                if post_create_abort:
+                    changed = service.cancel_attention(
+                        str(attention["attention_id"]),
+                        terminal_reason="attention_setup_failed",
+                    )
+                else:
+                    changed = service.expire_attention(
+                        str(attention["attention_id"]),
+                        terminal_reason="waiter_timeout",
+                    )
+                if changed is not None:
+                    _emit_work_changed(
+                        sid,
+                        service,
+                        attention_id=str(attention["attention_id"]),
+                    )
+            cancel()
+        with _prompt_lock:
+            _pending.pop(request_id, None)
+            _pending_prompt_payloads.pop(request_id, None)
+            answer = _answers.pop(request_id, "")
+        with _work_attention_lock:
+            _work_attention_by_request.pop((sid, request_id), None)
+    return answer
+
+
+def _block_terminal_read(
+    sid: str, payload: dict, timeout: int = 30
+) -> str:
+    """Block on an ephemeral renderer-buffer response."""
+    return _block("terminal.read.request", sid, payload, timeout=timeout)
+
+
 def _clear_pending(sid: str | None = None) -> None:
     """Release pending prompts with an empty answer.
 
@@ -2397,6 +2908,8 @@ def _clear_pending(sid: str | None = None) -> None:
         for rid, (owner_sid, ev) in list(_pending.items()):
             if sid is None or owner_sid == sid:
                 _answers[rid] = ""
+                _pending.pop(rid, None)
+                _pending_prompt_payloads.pop(rid, None)
                 ev.set()
 
 
@@ -3527,8 +4040,20 @@ def _sync_session_key_after_compress(
             new_session_id,
         )
 
+    old_approval_key = _approval_routing_key(session)
+    try:
+        from tools.terminal_tool import clear_cached_sudo_password
+
+        clear_cached_sudo_password(old_approval_key)
+    except Exception:
+        # A compressed continuation must not inherit or strand a credential
+        # cached under the ended parent route. Approval-state migration below
+        # remains best-effort and independent from credential cleanup.
+        pass
+
     try:
         from tools.approval import (
+            clear_session,
             disable_session_yolo,
             enable_session_yolo,
             is_session_yolo_enabled,
@@ -3537,23 +4062,28 @@ def _sync_session_key_after_compress(
         )
 
         try:
-            unregister_gateway_notify(old_key)
+            unregister_gateway_notify(old_approval_key)
+        except Exception:
+            pass
+        try:
+            yolo_was_on = is_session_yolo_enabled(old_approval_key)
+        except Exception:
+            yolo_was_on = False
+        try:
+            clear_session(old_approval_key)
         except Exception:
             pass
         session["session_key"] = new_session_id
-        try:
-            yolo_was_on = is_session_yolo_enabled(old_key)
-        except Exception:
-            yolo_was_on = False
+        new_approval_key = _approval_routing_key(session)
         if yolo_was_on:
             try:
-                enable_session_yolo(new_session_id)
-                disable_session_yolo(old_key)
+                enable_session_yolo(new_approval_key)
+                disable_session_yolo(old_approval_key)
             except Exception:
                 pass
         try:
             register_gateway_notify(
-                new_session_id,
+                new_approval_key,
                 lambda data: _emit_approval_request(sid, data),
             )
         except Exception:
@@ -3745,8 +4275,9 @@ def _session_info(agent, session: dict | None = None) -> dict:
             is_session_yolo_enabled,
         )
 
+        approval_key = _approval_routing_key(session) if session else session_key
         session_yolo = (
-            bool(is_session_yolo_enabled(session_key)) if session_key else False
+            bool(is_session_yolo_enabled(approval_key)) if approval_key else False
         )
         yolo = bool(_YOLO_MODE_FROZEN) or session_yolo or _get_approval_mode() == "off"
     except Exception:
@@ -3772,6 +4303,7 @@ def _session_info(agent, session: dict | None = None) -> dict:
         "update_command": "",
         "usage": _get_usage(agent),
         "profile_name": _current_profile_name(),
+        "work_profile_id": _work_profile_id(session or {}),
     }
     try:
         from fabric_cli.config import (
@@ -4348,13 +4880,12 @@ def _agent_cbs(sid: str) -> dict:
         "notice_clear_callback": lambda key: _emit(
             "notification.clear", sid, {"key": key}
         ),
-        "clarify_callback": lambda q, c: _block(
+        "clarify_callback": lambda q, c: _block_user_attention(
             "clarify.request", sid, {"question": q, "choices": c}
         ),
         # read_terminal tool (desktop GUI): same blocking bridge as clarify — the
         # renderer answers terminal.read.respond with the serialized buffer.
-        "read_terminal_callback": lambda start=None, count=None: _block(
-            "terminal.read.request",
+        "read_terminal_callback": lambda start=None, count=None: _block_terminal_read(
             sid,
             {k: v for k, v in (("start", start), ("count", count)) if v is not None},
             timeout=30,
@@ -4421,14 +4952,16 @@ def _wire_callbacks(sid: str):
     from tools.skills_tool import set_secret_capture_callback
     from tools.project_tools import set_project_workspace_callback
 
-    set_sudo_password_callback(lambda: _block("sudo.request", sid, {}, timeout=120))
+    set_sudo_password_callback(
+        lambda: _block_user_attention("sudo.request", sid, {}, timeout=120)
+    )
     set_project_workspace_callback(_apply_project_workspace)
 
     def secret_cb(env_var, prompt, metadata=None):
         pl = {"prompt": prompt, "env_var": env_var}
         if metadata:
             pl["metadata"] = metadata
-        val = _block("secret.request", sid, pl)
+        val = _block_user_attention("secret.request", sid, pl)
         if not val:
             return {
                 "success": True,
@@ -4953,6 +5486,7 @@ def _make_agent(
     reasoning_config_override: dict | None = None,
     service_tier_override: str | None = None,
     platform_override: str | None = None,
+    callbacks_override: dict[str, Any] | None = None,
 ):
     from run_agent import AIAgent
     from fabric_cli.launch_context import ignore_rules_enabled
@@ -5106,7 +5640,7 @@ def _make_agent(
         skip_context_files=ignore_rules_enabled(),
         skip_memory=ignore_rules_enabled(),
         fallback_model=_load_fallback_model(),
-        **_agent_cbs(sid),
+        **(callbacks_override if callbacks_override is not None else _agent_cbs(sid)),
     )
 
 
@@ -5188,7 +5722,10 @@ def _init_session(
     try:
         from tools.approval import register_gateway_notify, load_permanent_allowlist
 
-        register_gateway_notify(key, lambda data: _emit_approval_request(sid, data))
+        register_gateway_notify(
+            _approval_routing_key(_sessions[sid]),
+            lambda data: _emit_approval_request(sid, data),
+        )
         load_permanent_allowlist()
     except Exception:
         pass
@@ -5798,6 +6335,7 @@ def _(rid, params: dict) -> dict:
                 "lazy": True,
                 "desktop_contract": DESKTOP_BACKEND_CONTRACT,
                 "profile_name": initial_profile_name,
+                "work_profile_id": _work_profile_id(_sessions[sid]),
             },
         },
     )
@@ -5956,6 +6494,7 @@ def _lazy_resume_info(
             "lazy": True,
             "desktop_contract": DESKTOP_BACKEND_CONTRACT,
             "profile_name": _current_profile_name(),
+            "work_profile_id": _work_profile_id_for_home(profile_home),
         }
     finally:
         _reset_profile_runtime_scope(profile_tokens)
@@ -6618,6 +7157,175 @@ def _session_profile_identity(session: dict) -> str:
     return _profile_identity(session.get("profile_home"))
 
 
+def _work_profile_id_for_home(profile_home: str | Path | None) -> str:
+    """Opaque stable client scope for one server-canonical profile home."""
+
+    identity = _profile_identity(profile_home)
+    digest = hashlib.sha256(
+        b"fabric.work.profile\0" + identity.encode("utf-8", errors="surrogatepass")
+    ).hexdigest()
+    return f"profile_{digest[:32]}"
+
+
+def _work_profile_id(session: dict) -> str:
+    return _work_profile_id_for_home(session.get("profile_home"))
+
+
+def _work_service_for_session(session: dict):
+    """Select work.db from a server-authorized live session profile."""
+
+    from tui_gateway.work_service import service_for_profile
+
+    return service_for_profile(Path(_session_profile_identity(session)))
+
+
+def _work_target_is_live(sid: str, *, profile_identity: str | None = None) -> bool:
+    with _sessions_lock:
+        session = _sessions.get(sid)
+        if session is None or session.get("_finalized"):
+            return False
+        if (
+            profile_identity is not None
+            and _session_profile_identity(session) != profile_identity
+        ):
+            return False
+        transport = session.get("transport")
+        return (
+            transport is not None
+            and transport is not _detached_ws_transport
+            and not _transport_is_dead(transport)
+        )
+
+
+def _work_live_profile_sids(service) -> tuple[str, ...]:
+    """Snapshot live sessions authorized for one profile-wide projection."""
+
+    profile_identity = _profile_identity(service.profile_home)
+    with _sessions_lock:
+        return tuple(
+            candidate_sid
+            for candidate_sid, session in _sessions.items()
+            if not session.get("_finalized")
+            and session.get("transport") is not None
+            and session.get("transport") is not _detached_ws_transport
+            and not _transport_is_dead(session.get("transport"))
+            and _session_profile_identity(session) == profile_identity
+        )
+
+
+def _emit_work_changed(
+    sid: str,
+    service,
+    *,
+    job_id: str | None = None,
+    attention_id: str | None = None,
+) -> None:
+    """Best-effort profile-wide wake-up after a committed transition."""
+
+    try:
+        profile_identity = _profile_identity(service.profile_home)
+        target_sids = _work_live_profile_sids(service)
+    except Exception:
+        logger.debug("work.changed target selection failed sid=%s", sid, exc_info=True)
+        return
+    if not target_sids:
+        return
+    try:
+        cursor = service.ledger.cursor_state()
+        payload: dict[str, Any] = {
+            "ledger_id": str(cursor["ledger_id"]),
+            "cursor_hint": int(cursor["high_water"]),
+            "work_profile_id": _work_profile_id_for_home(service.profile_home),
+        }
+        if job_id:
+            payload["job_id"] = job_id
+        if attention_id:
+            payload["attention_id"] = attention_id
+        for target_sid in target_sids:
+            try:
+                if _work_target_is_live(
+                    target_sid,
+                    profile_identity=profile_identity,
+                ):
+                    _emit("work.changed", target_sid, payload)
+            except Exception:
+                logger.debug(
+                    "work.changed target failed sid=%s",
+                    target_sid,
+                    exc_info=True,
+                )
+    except Exception:
+        logger.debug("work.changed hint failed sid=%s", sid, exc_info=True)
+
+
+def _work_spec_event_sid(spec) -> str:
+    try:
+        value = spec.agent_inputs().get("event_session_id")
+    except Exception:
+        return ""
+    return str(value or "")
+
+
+def _on_background_work_changed(spec, subject: dict, *, service=None) -> None:
+    if service is None:
+        from tui_gateway.work_service import cached_service_for_profile
+
+        service = cached_service_for_profile(spec.profile_home)
+    if service is None:
+        return
+    _emit_work_changed(
+        _work_spec_event_sid(spec),
+        service,
+        job_id=str(subject.get("job_id") or spec.job_id),
+    )
+
+
+def _cancel_work_attention_for_session(
+    sid: str,
+    session: dict | None,
+    *,
+    reason: str,
+) -> None:
+    if not sid or not session:
+        return
+    try:
+        service = _work_service_for_session(session)
+        changed = service.cancel_attention_session(sid, terminal_reason=reason)
+        for item in changed:
+            _emit_work_changed(
+                sid,
+                service,
+                attention_id=str(item.get("attention_id") or "") or None,
+            )
+    except Exception:
+        logger.debug("work attention teardown failed sid=%s", sid, exc_info=True)
+    finally:
+        with _work_attention_lock:
+            for key in [key for key in _work_attention_by_request if key[0] == sid]:
+                _work_attention_by_request.pop(key, None)
+
+
+def _approval_routing_key(session: dict) -> str:
+    """Return a profile-qualified key for process-global approval state.
+
+    Durable conversation IDs can be identical in cloned profiles. Approval
+    queues, notifier callbacks, and session-scoped YOLO state are process
+    globals, so a bare durable ID cannot authorize any of them safely.
+    """
+    durable_key = str(
+        session.get("session_key") or _session_lookup_key(session) or ""
+    )
+    profile_digest = hashlib.sha256(
+        _session_profile_identity(session).encode("utf-8", errors="surrogatepass")
+    ).hexdigest()[:24]
+    # The live scope also prevents two accidental viewers of the same
+    # profile/conversation from sharing a waiter registry. Reconnects that
+    # reattach this session dict retain the scope; a process restart cannot
+    # retain an in-memory approval, so a fresh scope is correct.
+    live_scope = str(session.setdefault("_approval_scope_id", uuid.uuid4().hex))
+    return f"tui:{profile_digest}:{live_scope}:{durable_key}"
+
+
 def _durable_session_key_profile_ambiguous(session_key: str) -> bool:
     """Whether a durable key is simultaneously live in multiple profiles.
 
@@ -6707,7 +7415,7 @@ def _session_pending_interactions(sid: str, session: dict) -> list[dict]:
         from gateway.run import _redact_approval_command
         from tools.approval import get_pending_gateway_approvals
 
-        key = _session_lookup_key(session, fallback=sid)
+        key = _approval_routing_key(session)
         for approval in get_pending_gateway_approvals(key):
             approval = dict(approval)
             if "command" in approval:
@@ -8893,11 +9601,16 @@ def _(rid, params: dict) -> dict:
     # _clear_pending() would collaterally cancel clarify/sudo/secret
     # prompts on unrelated sessions sharing the same tui_gateway
     # process, silently resolving them to empty strings.
+    _cancel_work_attention_for_session(
+        str(params.get("session_id") or ""), session, reason="session_interrupted"
+    )
     _clear_pending(params.get("session_id", ""))
     try:
         from tools.approval import resolve_gateway_approval
 
-        resolve_gateway_approval(session["session_key"], "deny", resolve_all=True)
+        resolve_gateway_approval(
+            _approval_routing_key(session), "deny", resolve_all=True
+        )
     except Exception:
         pass
     return _ok(rid, {"status": "interrupted"})
@@ -9730,7 +10443,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             )
 
             interactive_token = set_fabric_interactive_context(True)
-            approval_token = set_current_session_key(session["session_key"])
+            approval_token = set_current_session_key(_approval_routing_key(session))
             session_tokens = _set_session_context(
                 session["session_key"],
                 ui_session_id=sid,
@@ -9741,9 +10454,9 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             # The sudo password callback is thread-local (tools.terminal_tool
             # _callback_tls), so wiring it on the build thread doesn't reach this
             # turn thread — terminal sudo prompts would fall through to /dev/tty
-            # and hang the headless gateway. Re-wire here so the prompt routes to
-            # the sudo.request overlay. (secret capture is a module global, so
-            # re-running is a harmless no-op.)
+            # and hang the headless gateway. Secret capture is ContextVar-bound,
+            # so it must also be installed in this exact turn context; otherwise
+            # concurrent sessions can inherit no callback or the wrong callback.
             _wire_callbacks(sid)
             _sync_agent_model_with_config(sid, session)
             cwd = _session_cwd(session)
@@ -10845,53 +11558,1129 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5027, str(e))
 
 
-@method("prompt.background")
-def _(rid, params: dict) -> dict:
-    session, err = _sess(params, rid)
-    if err:
-        return err
-    text, parent = params.get("text", ""), params.get("session_id", "")
-    if not text:
-        return _err(rid, 4012, "text required")
-    task_id = f"bg_{uuid.uuid4().hex[:6]}"
+def _background_agent_inputs(session: dict, *, sid: str, task_id: str) -> dict[str, Any]:
+    """Snapshot reviewed JSON-only construction inputs, never credentials/objects."""
 
-    def run():
-        session_tokens = _set_session_context(task_id, cwd=_session_cwd(session))
-        profile_tokens = None
+    agent = session.get("agent")
+    model_override = session.get("model_override")
+    provider_from_model_override = None
+    if isinstance(model_override, dict):
+        # Session switch records may contain resolved api_key/base_url fields.
+        # Only the public model/provider selection is allowed into the queued
+        # immutable snapshot; credentials are rehydrated inside profile scope.
+        provider_from_model_override = (
+            str(model_override.get("provider") or "") or None
+        )
+        model_override = str(model_override.get("model") or "") or None
+    if not model_override and agent is not None:
+        model_override = str(getattr(agent, "model", "") or "") or None
+    provider_override = provider_from_model_override or (
+        (str(getattr(agent, "provider", "") or "") or None)
+        if agent is not None
+        else None
+    )
+    reasoning = getattr(agent, "reasoning_config", None) if agent is not None else None
+    if not isinstance(reasoning, dict):
+        reasoning = None
+    inputs = {
+        "cwd": _session_cwd(session),
+        "event_session_id": sid,
+        "model_override": model_override,
+        "platform_override": _session_source(session),
+        "provider_override": provider_override,
+        "reasoning_config_override": reasoning,
+        "service_tier_override": (
+            str(getattr(agent, "service_tier", "") or "") or None
+            if agent is not None
+            else None
+        ),
+        "task_id": task_id,
+    }
+    # Round-tripping here rejects any unexpected object that slipped into a
+    # reviewed field before BackgroundRunSpec takes its own immutable snapshot.
+    return json.loads(json.dumps(inputs, allow_nan=False))
+
+
+def _background_attention_payload(kind: str, payload: dict) -> dict[str, Any]:
+    allowed = {
+        "approval": ("allow_permanent", "command", "cwd", "description"),
+        "clarify": ("choices", "question"),
+        "sudo": (),
+        "secret": ("env_var", "prompt"),
+    }[kind]
+    result = {key: payload[key] for key in allowed if key in payload}
+    if kind == "approval" and "command" in result:
+        from gateway.run import _redact_approval_command
+
+        result["command"] = _redact_approval_command(result["command"])
+    return result
+
+
+def _create_background_attention(
+    spec,
+    control,
+    *,
+    kind: str,
+    payload: dict,
+    deliver,
+    cancel,
+    terminal=None,
+) -> dict:
+    from tui_gateway.work_service import WorkServiceClosed, cached_service_for_profile
+
+    service = cached_service_for_profile(spec.profile_home)
+    if service is None:
+        raise WorkServiceClosed("profile work service is unavailable")
+    request_id = str(payload.get("request_id") or uuid.uuid4().hex)
+    titles = {
+        "approval": "Approval required",
+        "clarify": "Question requires an answer",
+        "sudo": "Administrator password required",
+        "secret": "Credential required",
+    }
+    attention = service.create_attention_waiter(
+        source_session_key=spec.source_session_key,
+        runtime_session_id=spec.runtime_session_id,
+        request_id=request_id,
+        kind=kind,
+        title=titles[kind],
+        public_payload=_background_attention_payload(kind, payload),
+        deliver=deliver,
+        cancel=cancel,
+        terminal=terminal,
+        sensitive=kind in {"sudo", "secret"},
+        job_id=spec.job_id,
+        run_id=spec.run_id,
+    )
+    try:
         try:
-            profile_tokens = _set_profile_runtime_scope(session.get("profile_home"))
-            from run_agent import AIAgent
-
-            result = AIAgent(
-                **_background_agent_kwargs(session["agent"], task_id)
-            ).run_conversation(
-                user_message=text,
-                task_id=task_id,
+            service.set_job_waiting_attention(
+                spec,
+                waiting=True,
+                on_changed=lambda changed_spec, subject: _on_background_work_changed(
+                    changed_spec,
+                    subject,
+                    service=service,
+                ),
             )
+        except Exception:
+            # A second prompt while the Run is already waiting does not need a
+            # second Job transition; its own Attention event remains authoritative.
+            current = service.ledger.get_job(spec.job_id, detail=False)
+            if current.get("status") != "waiting_attention":
+                raise
+        event_sid = _work_spec_event_sid(spec)
+        outgoing = dict(payload)
+        outgoing.update(
+            {
+                "attention_id": attention["attention_id"],
+                "attention_version": attention["version"],
+                "request_id": request_id,
+            }
+        )
+        with _work_attention_lock:
+            _work_attention_by_request[(event_sid, request_id)] = {
+                "attention_id": attention["attention_id"],
+                "kind": kind,
+                "version": attention["version"],
+            }
+        _emit_work_changed(
+            event_sid,
+            service,
+            job_id=spec.job_id,
+            attention_id=str(attention["attention_id"]),
+        )
+        if event_sid and _work_target_is_live(event_sid):
+            try:
+                _emit(f"{kind}.request", event_sid, outgoing)
+            except Exception:
+                # The durable Attention remains actionable through sync after
+                # this legacy transport disconnects.
+                logger.debug(
+                    "background attention request emit failed kind=%s sid=%s",
+                    kind,
+                    event_sid,
+                    exc_info=True,
+                )
+        return attention
+    except BaseException:
+        with _work_attention_lock:
+            _work_attention_by_request.pop(
+                (_work_spec_event_sid(spec), request_id),
+                None,
+            )
+        with contextlib.suppress(Exception):
+            changed = service.cancel_attention(
+                str(attention["attention_id"]),
+                terminal_reason="attention_setup_failed",
+            )
+            if changed is not None:
+                _emit_work_changed(
+                    _work_spec_event_sid(spec),
+                    service,
+                    job_id=spec.job_id,
+                    attention_id=str(attention["attention_id"]),
+                )
+        raise
+
+
+def _block_background_attention(spec, control, kind: str, payload: dict, timeout: int) -> str:
+    wait_event = threading.Event()
+    terminal_event = threading.Event()
+    answer: list[str] = []
+
+    def deliver(value: object) -> bool:
+        if kind in {"clarify", "sudo", "secret"}:
+            control.mark_sensitive_input()
+        answer.append("" if value is None else str(value))
+        wait_event.set()
+        return True
+
+    def cancel() -> None:
+        wait_event.set()
+
+    attention = _create_background_attention(
+        spec,
+        control,
+        kind=kind,
+        payload=payload,
+        deliver=deliver,
+        cancel=cancel,
+        terminal=terminal_event.set,
+    )
+    answered = wait_event.wait(timeout=timeout)
+    if not answered:
+        from tui_gateway.work_service import cached_service_for_profile
+
+        service = cached_service_for_profile(spec.profile_home)
+        if service is not None:
+            with contextlib.suppress(Exception):
+                service.expire_attention(
+                    str(attention["attention_id"]),
+                    terminal_reason="waiter_timeout",
+                )
+                _emit_work_changed(
+                    _work_spec_event_sid(spec),
+                    service,
+                    job_id=spec.job_id,
+                    attention_id=str(attention["attention_id"]),
+                )
+    elif not terminal_event.wait(timeout=6):
+        # Raw delivery wakes this thread before the responder's SQLite commit.
+        # Never let the Run consume that value until the exact Attention is
+        # durably terminal; on an impossible local stall, fail closed by
+        # orphaning the waiter and discarding the raw value.
+        from tui_gateway.work_service import cached_service_for_profile
+
+        service = cached_service_for_profile(spec.profile_home)
+        if service is not None:
+            with contextlib.suppress(Exception):
+                service.cancel_attention(
+                    str(attention["attention_id"]),
+                    terminal_reason="resolution_commit_timeout",
+                )
+        answer.clear()
+    return answer[0] if answer else ""
+
+
+def _background_agent_callbacks(spec, control) -> dict[str, Any]:
+    sid = _work_spec_event_sid(spec)
+
+    def can_emit_transient() -> bool:
+        # Once a raw human response enters the Run, any later tool/reasoning
+        # payload may echo it.  Durable work events remain available, but the
+        # tainted transient stream is suppressed wholesale.
+        return not control.sensitive_input and _work_target_is_live(sid)
+
+    return {
+        "tool_start_callback": lambda tc_id, name, args: (
+            _on_tool_start(sid, tc_id, name, args)
+            if can_emit_transient()
+            else None
+        ),
+        "tool_complete_callback": lambda tc_id, name, args, result: (
+            _on_tool_complete(sid, tc_id, name, args, result)
+            if can_emit_transient()
+            else None
+        ),
+        "tool_progress_callback": (
+            lambda event_type, name=None, preview=None, args=None, **kwargs: (
+                _on_tool_progress(sid, event_type, name, preview, args, **kwargs)
+                if can_emit_transient()
+                else None
+            )
+        ),
+        "tool_gen_callback": lambda name: (
+            bool(_tool_progress_enabled(sid))
+            and can_emit_transient()
+            and bool(_emit("tool.generating", sid, {"name": name}))
+        ),
+        "thinking_callback": lambda text: (
+            _emit("thinking.delta", sid, {"text": text})
+            if can_emit_transient()
+            else None
+        ),
+        "reasoning_callback": lambda text: (
             _emit(
-                "background.complete",
-                parent,
+                "reasoning.delta",
+                sid,
+                {"text": text, **({"verbose": True} if _session_verbose(sid) else {})},
+            )
+            if can_emit_transient()
+            else None
+        ),
+        "status_callback": lambda kind, text=None: (
+            _status_update(sid, str(kind), None if text is None else str(text))
+            if can_emit_transient()
+            else None
+        ),
+        "notice_callback": lambda notice: (
+            _emit(
+                "notification.show",
+                sid,
                 {
-                    "task_id": task_id,
-                    "text": (
-                        result.get("final_response", str(result))
-                        if isinstance(result, dict)
-                        else str(result)
-                    ),
+                    "text": notice.text,
+                    "level": notice.level,
+                    "kind": notice.kind,
+                    "ttl_ms": notice.ttl_ms,
+                    "key": notice.key,
+                    "id": notice.id,
                 },
             )
-        except Exception as e:
-            _emit(
-                "background.complete",
-                parent,
-                {"task_id": task_id, "text": f"error: {e}"},
+            if can_emit_transient()
+            else None
+        ),
+        "notice_clear_callback": lambda key: (
+            _emit("notification.clear", sid, {"key": key})
+            if can_emit_transient()
+            else None
+        ),
+        "clarify_callback": lambda question, choices: _block_background_attention(
+            spec,
+            control,
+            "clarify",
+            {"question": question, "choices": choices},
+            300,
+        ),
+        "read_terminal_callback": lambda start=None, count=None: (
+            _block_terminal_read(
+                sid,
+                {
+                    key: value
+                    for key, value in (("start", start), ("count", count))
+                    if value is not None
+                },
+                timeout=30,
             )
-        finally:
-            _reset_profile_runtime_scope(profile_tokens)
-            _clear_session_context(session_tokens)
+            if can_emit_transient()
+            else ""
+        ),
+    }
 
-    threading.Thread(target=run, daemon=True).start()
-    return _ok(rid, {"task_id": task_id})
+
+def _run_durable_background_agent(spec, control):
+    """Build and execute a fresh AIAgent from an immutable run snapshot."""
+
+    from fabric_state import SessionDB
+    from tools.approval import (
+        register_gateway_notify,
+        reset_current_session_key,
+        reset_fabric_interactive_context,
+        set_current_session_key,
+        set_fabric_interactive_context,
+        unregister_gateway_notify,
+    )
+    from tools.skills_tool import (
+        reset_secret_capture_callback,
+        set_secret_capture_callback,
+    )
+    from tools.terminal_tool import set_sudo_password_callback
+
+    inputs = spec.agent_inputs()
+    task_id = str(inputs["task_id"])
+    event_sid = str(inputs.get("event_session_id") or "")
+    cwd = str(inputs.get("cwd") or "")
+    session_tokens = _set_session_context(
+        spec.interaction_key,
+        cwd=cwd,
+        ui_session_id=event_sid,
+    )
+    profile_tokens = None
+    approval_token = None
+    interactive_token = None
+    secret_token = None
+    session_db = None
+    agent = None
+
+    def approval_notify(data: dict) -> None:
+        payload = dict(data or {})
+        request_id = str(payload.get("request_id") or "")
+
+        def deliver(choice: object) -> bool:
+            from tools.approval import resolve_gateway_approval
+
+            reason = None
+            if isinstance(choice, Mapping):
+                reason = choice.get("reason")
+                choice = choice.get("choice")
+                if reason:
+                    control.mark_sensitive_input()
+            return (
+                resolve_gateway_approval(
+                    spec.interaction_key,
+                    str(choice),
+                    resolve_all=False,
+                    reason=str(reason) if reason is not None else None,
+                    request_id=request_id,
+                )
+                == 1
+            )
+
+        _create_background_attention(
+            spec,
+            control,
+            kind="approval",
+            payload=payload,
+            deliver=deliver,
+            cancel=lambda: deliver("deny"),
+        )
+
+    def secret_callback(env_var, prompt, metadata=None):
+        del metadata
+        value = _block_background_attention(
+            spec,
+            control,
+            "secret",
+            {"env_var": env_var, "prompt": prompt},
+            300,
+        )
+        if not value:
+            return {
+                "success": True,
+                "stored_as": env_var,
+                "validated": False,
+                "skipped": True,
+                "message": "skipped",
+            }
+        from fabric_cli.config import save_env_value_secure
+
+        return {
+            **save_env_value_secure(env_var, value),
+            "skipped": False,
+            "message": "ok",
+        }
+
+    try:
+        profile_tokens = _set_profile_runtime_scope(spec.profile_home)
+        approval_token = set_current_session_key(spec.interaction_key)
+        interactive_token = set_fabric_interactive_context(True)
+        register_gateway_notify(spec.interaction_key, approval_notify)
+        set_sudo_password_callback(
+            lambda: _block_background_attention(spec, control, "sudo", {}, 120)
+        )
+        secret_token = set_secret_capture_callback(secret_callback)
+        session_db = SessionDB(db_path=Path(spec.profile_home) / "state.db")
+        agent = _make_agent(
+            event_sid,
+            task_id,
+            session_id=task_id,
+            session_db=session_db,
+            model_override=inputs.get("model_override"),
+            provider_override=inputs.get("provider_override"),
+            reasoning_config_override=inputs.get("reasoning_config_override"),
+            service_tier_override=inputs.get("service_tier_override"),
+            platform_override=inputs.get("platform_override"),
+            callbacks_override=_background_agent_callbacks(spec, control),
+        )
+        control.attach_agent(agent)
+        return agent.run_conversation(user_message=spec.prompt, task_id=task_id)
+    finally:
+        service = None
+        with contextlib.suppress(Exception):
+            from tui_gateway.work_service import cached_service_for_profile
+
+            service = cached_service_for_profile(spec.profile_home)
+            if service is not None:
+                service.cancel_attention_session(
+                    spec.runtime_session_id,
+                    terminal_reason="run_finished",
+                )
+        unregister_gateway_notify(spec.interaction_key)
+        set_sudo_password_callback(None)
+        if secret_token is not None:
+            reset_secret_capture_callback(secret_token)
+        if agent is not None:
+            control.detach_agent(agent)
+            with contextlib.suppress(Exception):
+                agent.close()
+        if session_db is not None:
+            with contextlib.suppress(Exception):
+                session_db.close()
+        if approval_token is not None:
+            reset_current_session_key(approval_token)
+        if interactive_token is not None:
+            reset_fabric_interactive_context(interactive_token)
+        _reset_profile_runtime_scope(profile_tokens)
+        _clear_session_context(session_tokens)
+
+
+def _on_background_work_complete(spec, result: Any, error_code: str | None) -> None:
+    if isinstance(result, dict):
+        text = str(result.get("final_response") or "")
+    else:
+        text = "" if result is None else str(result)
+    if error_code:
+        text = "Background work cancelled" if error_code == "cancelled" else "Background work failed"
+    event_sid = _work_spec_event_sid(spec)
+    if not _work_target_is_live(event_sid):
+        return
+    _emit(
+        "background.complete",
+        event_sid,
+        {
+            "job_id": spec.job_id,
+            "task_id": spec.runtime_session_id,
+            "text": text,
+        },
+    )
+
+
+def _create_background_job_for_session(
+    session: dict,
+    *,
+    sid: str,
+    text: str,
+    title: str,
+    idempotency_key: str,
+    task_id: str,
+) -> dict[str, Any]:
+    service = _work_service_for_session(session)
+    return service.create_background_job(
+        runtime_session_id=task_id,
+        source_session_key=_session_lookup_key(session, fallback=sid),
+        text=text,
+        title=title,
+        idempotency_key=idempotency_key,
+        agent_inputs=_background_agent_inputs(session, sid=sid, task_id=task_id),
+        runner=_run_durable_background_agent,
+        source=_session_source(session),
+        on_changed=lambda spec, subject: _on_background_work_changed(
+            spec,
+            subject,
+            service=service,
+        ),
+        on_complete=_on_background_work_complete,
+    )
+
+
+@method("prompt.background")
+def _(rid, params: dict) -> dict:
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    text = params.get("text")
+    parent = str(params.get("session_id") or "")
+    if not isinstance(text, str) or not text:
+        return _err(rid, 4012, "text required")
+    task_id = f"bg_{uuid.uuid4().hex[:16]}"
+    try:
+        receipt = _create_background_job_for_session(
+            session,
+            sid=parent,
+            text=text,
+            title="Background work",
+            idempotency_key=f"legacy-background-{uuid.uuid4().hex}",
+            task_id=task_id,
+        )
+    except Exception as exc:
+        return _work_err(rid, exc)
+    return _ok(
+        rid,
+        {
+            "job_id": receipt["job"]["job_id"],
+            "task_id": task_id,
+        },
+    )
+
+
+def _work_session(
+    params: dict,
+    rid: Any,
+    *,
+    allowed: frozenset[str],
+    required: frozenset[str],
+) -> tuple[dict | None, dict | None]:
+    try:
+        _work_require_params(params, allowed=allowed, required=required)
+    except Exception as exc:
+        return None, _work_err(rid, exc)
+    return _sess_nowait(params, rid)
+
+
+def _work_string_list(value: object, *, field: str) -> list[str]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError(f"{field} must be an array of strings")
+    if len(value) > 100:
+        raise ValueError(f"{field} must contain at most 100 values")
+    return value
+
+
+def _work_list_before(
+    service,
+    token: object,
+    *,
+    kind: str,
+    id_field: str,
+) -> tuple[float, str] | None:
+    if token is None:
+        return None
+    decoded = _work_token_decode(token, expected_kind=kind)
+    if decoded.get("ledger_id") != service.ledger_id:
+        from fabric_cli.work_ledger import CursorExpired
+
+        raise CursorExpired(
+            "work list token belongs to another ledger",
+            data={"ledger_id": service.ledger_id, "bootstrap": True},
+        )
+    timestamp_hex = decoded.get("timestamp_hex")
+    subject_id = decoded.get(id_field)
+    if not isinstance(timestamp_hex, str) or not isinstance(subject_id, str):
+        raise ValueError("invalid work list token")
+    try:
+        timestamp = float.fromhex(timestamp_hex)
+    except ValueError as exc:
+        raise ValueError("invalid work list token") from exc
+    if not math.isfinite(timestamp):
+        raise ValueError("invalid work list token")
+    return timestamp, subject_id
+
+
+def _work_next_before(
+    service,
+    items: list[dict],
+    *,
+    cursor: tuple[float, str] | None,
+    requested_limit: int,
+    kind: str,
+    id_field: str,
+) -> str | None:
+    if len(items) < requested_limit or not items or cursor is None:
+        return None
+    last = items[-1]
+    timestamp, cursor_id = cursor
+    if cursor_id != last[id_field]:
+        raise ValueError("work list cursor does not match its page")
+    return _work_token_encode(
+        {
+            "expires_at": int(time.time()) + 900,
+            "kind": kind,
+            "ledger_id": service.ledger_id,
+            id_field: last[id_field],
+            "timestamp_hex": timestamp.hex(),
+        }
+    )
+
+
+def _work_bootstrap_page(
+    service,
+    *,
+    profile_id: str,
+    token: object = None,
+    limit: int = 500,
+) -> dict:
+    from fabric_cli.work_ledger import (
+        CursorExpired,
+        SYNC_MAX_BYTES,
+        validate_work_id,
+    )
+
+    decoded = None
+    if token is not None:
+        try:
+            decoded = _work_token_decode(token, expected_kind="work-bootstrap")
+            phase = str(decoded["phase"])
+            if phase not in {"jobs", "attention"}:
+                raise ValueError("invalid bootstrap phase")
+            last_id = str(decoded.get("last_id") or "")
+            if last_id:
+                validate_work_id(last_id, "job" if phase == "jobs" else "attn")
+            watermark = int(decoded["watermark"])
+            event_floor = int(decoded["event_floor"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CursorExpired(
+                "bootstrap token expired or became invalid",
+                data={"ledger_id": service.ledger_id, "bootstrap": True},
+            ) from exc
+        if (
+            decoded.get("ledger_id") != service.ledger_id
+            or decoded.get("profile_id") != profile_id
+        ):
+            raise CursorExpired(
+                "bootstrap token belongs to another work scope",
+                data={"ledger_id": service.ledger_id, "bootstrap": True},
+            )
+    else:
+        phase = "jobs"
+        last_id = ""
+        watermark = None
+        event_floor = None
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    jobs_has_more = False
+    attention_has_more = False
+    attention_seen = False
+
+    if phase == "jobs":
+        job_page = service.ledger.bootstrap_subject_page(
+            subject_type="job",
+            watermark=watermark,
+            event_floor=event_floor,
+            after_id=last_id or None,
+            limit=limit,
+        )
+        watermark = int(job_page["watermark"])
+        event_floor = int(job_page["event_floor"])
+        jobs = list(job_page["items"])
+        jobs_has_more = bool(job_page["has_more"])
+        candidates.extend(("jobs", item) for item in jobs)
+        if not jobs_has_more:
+            remaining = max(0, limit - len(jobs))
+            # A one-row lookahead avoids issuing an empty attention phase when
+            # the Job phase exactly fills the requested count.
+            attention_page = service.ledger.bootstrap_subject_page(
+                subject_type="attention",
+                watermark=watermark,
+                event_floor=event_floor,
+                limit=max(1, remaining),
+            )
+            attention_items = list(attention_page["items"])
+            attention_seen = bool(attention_items)
+            attention_has_more = bool(attention_page["has_more"]) or (
+                remaining == 0 and attention_seen
+            )
+            candidates.extend(
+                ("attention", item) for item in attention_items[:remaining]
+            )
+    elif phase == "attention":
+        attention_page = service.ledger.bootstrap_subject_page(
+            subject_type="attention",
+            watermark=watermark,
+            event_floor=event_floor,
+            after_id=last_id or None,
+            limit=limit,
+        )
+        watermark = int(attention_page["watermark"])
+        event_floor = int(attention_page["event_floor"])
+        attention_items = list(attention_page["items"])
+        attention_seen = bool(attention_items)
+        attention_has_more = bool(attention_page["has_more"])
+        candidates.extend(("attention", item) for item in attention_items)
+    else:  # pragma: no cover - validated signed-token state above
+        raise AssertionError("unreachable bootstrap phase")
+    assert watermark is not None and event_floor is not None
+
+    page: dict[str, Any] = {
+        "contract": {"name": "fabric.work", "version": 1, "min_compatible": 1},
+        "ledger_id": service.ledger_id,
+        "work_profile_id": profile_id,
+        "mode": "bootstrap",
+        "watermark": watermark,
+        "cursor": watermark,
+        "has_more": False,
+        "next_page_token": None,
+        "jobs": [],
+        "attention": [],
+        "events": [],
+    }
+    consumed = 0
+    last_emitted = {"jobs": last_id if phase == "jobs" else "", "attention": last_id if phase == "attention" else ""}
+    for candidate_phase, item in candidates:
+        if consumed >= limit:
+            break
+        bucket = "jobs" if candidate_phase == "jobs" else "attention"
+        trial = dict(page)
+        trial["jobs"] = list(page["jobs"])
+        trial["attention"] = list(page["attention"])
+        trial[bucket].append(item)
+        # Leave room for the signed continuation token and additive fields.
+        if len(json.dumps(trial, separators=(",", ":")).encode("utf-8")) > SYNC_MAX_BYTES - 4096:
+            break
+        page[bucket].append(item)
+        consumed += 1
+        last_emitted[bucket] = str(
+            item["job_id"] if bucket == "jobs" else item["attention_id"]
+        )
+
+    next_phase = ""
+    next_last_id = ""
+    if consumed < len(candidates):
+        pending_phase = candidates[consumed][0]
+        next_phase = pending_phase
+        next_last_id = last_emitted[pending_phase]
+    elif jobs_has_more:
+        next_phase = "jobs"
+        next_last_id = last_emitted["jobs"]
+    elif attention_has_more:
+        next_phase = "attention"
+        next_last_id = last_emitted["attention"]
+    elif phase == "jobs" and attention_seen and not page["attention"]:
+        next_phase = "attention"
+        next_last_id = ""
+
+    has_more = bool(next_phase)
+    if has_more:
+        if consumed == 0 and next_phase == phase and next_last_id == last_id:
+            raise ValueError("work bootstrap item exceeds wire budget")
+        page["has_more"] = True
+        page["next_page_token"] = _work_token_encode(
+            {
+                "event_floor": event_floor,
+                "expires_at": int(time.time()) + 300,
+                "kind": "work-bootstrap",
+                "ledger_id": service.ledger_id,
+                "phase": next_phase,
+                "last_id": next_last_id,
+                "profile_id": profile_id,
+                "watermark": watermark,
+            }
+        )
+    if len(json.dumps(page, separators=(",", ":")).encode("utf-8")) > SYNC_MAX_BYTES:
+        raise ValueError("work bootstrap page exceeds wire budget")
+    return page
+
+
+@method("job.create")
+def _(rid, params: dict) -> dict:
+    allowed = frozenset({"idempotency_key", "kind", "session_id", "text", "title"})
+    required = frozenset({"idempotency_key", "kind", "session_id", "text"})
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        if not isinstance(params["kind"], str):
+            raise ValueError("kind must be a string")
+        if params["kind"] != "background_prompt":
+            raise _UnsupportedJobKind()
+        title = params.get("title", "Background work")
+        if not isinstance(title, str):
+            raise ValueError("title must be a string")
+        task_id = f"bg_{uuid.uuid4().hex[:16]}"
+        receipt = _create_background_job_for_session(
+            session,
+            sid=str(params["session_id"]),
+            text=params["text"],
+            title=title,
+            idempotency_key=params["idempotency_key"],
+            task_id=task_id,
+        )
+        result = dict(receipt)
+        result["task_id"] = str(receipt["job"]["runtime_session_id"])
+        return _ok(rid, result)
+    except Exception as exc:
+        return _work_err(rid, exc)
+
+
+@method("job.get")
+def _(rid, params: dict) -> dict:
+    allowed = required = frozenset({"job_id", "session_id"})
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        return _ok(rid, _work_service_for_session(session).ledger.get_job(params["job_id"]))
+    except Exception as exc:
+        return _work_err(rid, exc)
+
+
+@method("job.list")
+def _(rid, params: dict) -> dict:
+    allowed = frozenset(
+        {"before", "kinds", "limit", "session_id", "source_session_key", "statuses"}
+    )
+    required = frozenset({"session_id"})
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        service = _work_service_for_session(session)
+        limit = params.get("limit", 100)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        statuses = (
+            _work_string_list(params["statuses"], field="statuses")
+            if "statuses" in params
+            else None
+        )
+        kinds = (
+            _work_string_list(params["kinds"], field="kinds")
+            if "kinds" in params
+            else None
+        )
+        source_session_key = params.get("source_session_key")
+        if source_session_key is not None and not isinstance(source_session_key, str):
+            raise ValueError("source_session_key must be a string")
+        jobs, list_cursor = service.ledger.list_jobs(
+            statuses=statuses,
+            kinds=kinds,
+            source_session_key=source_session_key,
+            limit=limit,
+            _include_cursor=True,
+            before=_work_list_before(
+                service,
+                params.get("before"),
+                kind="job-list",
+                id_field="job_id",
+            ),
+        )
+        return _ok(
+            rid,
+            {
+                "jobs": jobs,
+                "work_profile_id": _work_profile_id(session),
+                "next_before": _work_next_before(
+                    service,
+                    jobs,
+                    cursor=list_cursor,
+                    requested_limit=limit,
+                    kind="job-list",
+                    id_field="job_id",
+                ),
+            },
+        )
+    except Exception as exc:
+        return _work_err(rid, exc)
+
+
+@method("job.events")
+def _(rid, params: dict) -> dict:
+    allowed = frozenset({"after", "job_id", "limit", "session_id"})
+    required = frozenset({"after", "session_id"})
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        service = _work_service_for_session(session)
+        events = service.ledger.list_events(
+            after=params["after"],
+            job_id=params.get("job_id"),
+            limit=params.get("limit", 500),
+        )
+        return _ok(
+            rid,
+            {
+                "events": events,
+                "work_profile_id": _work_profile_id(session),
+                "cursor": int(events[-1]["event_id"] if events else params["after"]),
+            },
+        )
+    except Exception as exc:
+        return _work_err(rid, exc)
+
+
+@method("job.sync")
+def _(rid, params: dict) -> dict:
+    allowed = frozenset({"after", "ledger_id", "limit", "page_token", "session_id"})
+    required = frozenset({"session_id"})
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        service = _work_service_for_session(session)
+        limit = params.get("limit", 500)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        has_delta = "ledger_id" in params or "after" in params
+        if "page_token" in params and has_delta:
+            raise ValueError("page_token cannot be mixed with delta fields")
+        if has_delta:
+            if "ledger_id" not in params or "after" not in params:
+                raise ValueError("ledger_id and after are required together")
+            page = service.ledger.sync_delta(
+                ledger_id=params["ledger_id"],
+                after=params["after"],
+                limit=limit,
+            )
+            page["work_profile_id"] = _work_profile_id(session)
+        else:
+            page = _work_bootstrap_page(
+                service,
+                profile_id=_work_profile_id(session),
+                token=params.get("page_token"),
+                limit=limit,
+            )
+        return _ok(rid, page)
+    except Exception as exc:
+        return _work_err(rid, exc)
+
+
+@method("job.cancel")
+def _(rid, params: dict) -> dict:
+    allowed = required = frozenset(
+        {"expected_version", "idempotency_key", "job_id", "session_id"}
+    )
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        service = _work_service_for_session(session)
+        sid = str(params["session_id"])
+
+        def changed(_spec, subject: dict) -> None:
+            _emit_work_changed(
+                sid,
+                service,
+                job_id=str(subject.get("job_id") or params["job_id"]),
+            )
+
+        return _ok(
+            rid,
+            service.cancel_background_job(
+                job_id=params["job_id"],
+                expected_version=params["expected_version"],
+                idempotency_key=params["idempotency_key"],
+                on_changed=changed,
+            ),
+        )
+    except Exception as exc:
+        return _work_err(rid, exc)
+
+
+@method("attention.get")
+def _(rid, params: dict) -> dict:
+    allowed = required = frozenset({"attention_id", "session_id"})
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        return _ok(
+            rid,
+            _work_service_for_session(session).ledger.get_attention(
+                params["attention_id"]
+            ),
+        )
+    except Exception as exc:
+        return _work_err(rid, exc)
+
+
+@method("attention.list")
+def _(rid, params: dict) -> dict:
+    allowed = frozenset({"before", "job_id", "kinds", "limit", "session_id", "states"})
+    required = frozenset({"session_id"})
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        service = _work_service_for_session(session)
+        limit = params.get("limit", 100)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        states = (
+            _work_string_list(params["states"], field="states")
+            if "states" in params
+            else None
+        )
+        kinds = (
+            _work_string_list(params["kinds"], field="kinds")
+            if "kinds" in params
+            else None
+        )
+        attention, list_cursor = service.ledger.list_attention(
+            states=states,
+            kinds=kinds,
+            job_id=params.get("job_id"),
+            limit=limit,
+            _include_cursor=True,
+            before=_work_list_before(
+                service,
+                params.get("before"),
+                kind="attention-list",
+                id_field="attention_id",
+            ),
+        )
+        return _ok(
+            rid,
+            {
+                "attention": attention,
+                "work_profile_id": _work_profile_id(session),
+                "next_before": _work_next_before(
+                    service,
+                    attention,
+                    cursor=list_cursor,
+                    requested_limit=limit,
+                    kind="attention-list",
+                    id_field="attention_id",
+                ),
+            },
+        )
+    except Exception as exc:
+        return _work_err(rid, exc)
+
+
+@method("attention.respond")
+def _(rid, params: dict) -> dict:
+    allowed = frozenset(
+        {
+            "action",
+            "attention_id",
+            "expected_version",
+            "idempotency_key",
+            "reason",
+            "session_id",
+            "value",
+        }
+    )
+    required = frozenset(
+        {"action", "attention_id", "expected_version", "idempotency_key", "session_id"}
+    )
+    session, err = _work_session(params, rid, allowed=allowed, required=required)
+    if err:
+        return err
+    try:
+        service = _work_service_for_session(session)
+        attention = service.ledger.get_attention(params["attention_id"])
+        kind = str(attention["kind"])
+        action = params["action"]
+        if not isinstance(action, str):
+            raise ValueError("action must be a string")
+        if kind == "approval":
+            if "value" in params:
+                raise ValueError("approval responses do not accept value")
+            reason = params.get("reason")
+            if reason is not None and (
+                not isinstance(reason, str) or len(reason) > 1000
+            ):
+                raise ValueError("reason must be a string of at most 1000 characters")
+            if reason is not None and action != "deny":
+                raise ValueError("reason is accepted only when denying approval")
+            raw_value: object = {
+                "choice": action,
+                "reason": reason,
+            }
+        else:
+            if "reason" in params:
+                raise ValueError("reason is accepted only for approval")
+            if action == "submit" and "value" not in params:
+                raise ValueError("value is required for submit")
+            if action != "submit" and "value" in params:
+                raise ValueError("value is accepted only for submit")
+            raw_value = params["value"] if action == "submit" else ""
+            if not isinstance(raw_value, str):
+                raise ValueError("value must be a string")
+        receipt = service.respond_attention(
+            attention_id=params["attention_id"],
+            expected_version=params["expected_version"],
+            idempotency_key=params["idempotency_key"],
+            action=action,
+            raw_value=raw_value,
+        )
+        _emit_work_changed(
+            str(params["session_id"]),
+            service,
+            job_id=str(attention.get("job_id") or "") or None,
+            attention_id=str(attention["attention_id"]),
+        )
+        return _ok(rid, receipt)
+    except Exception as exc:
+        return _work_err(rid, exc)
 
 
 @method("preview.restart")
@@ -11016,15 +12805,79 @@ def _(rid, params: dict) -> dict:
 
 
 def _respond(rid, params, key):
-    r = params.get("request_id", "")
-    with _prompt_lock:
-        entry = _pending.get(r)
-        if not entry:
-            return _err(rid, 4009, f"no pending {key} request")
-        _, ev = entry
-        _answers[r] = params.get(key, "")
-        ev.set()
-    return _ok(rid, {"status": "ok"})
+    r = str(params.get("request_id") or "").strip()
+    sid = str(params.get("session_id") or "").strip()
+    if not r or not sid:
+        return _err(rid, 4002, "request_id and session_id are required")
+    # Human prompts created by _block_user_attention are durable. Resolve their
+    # exact Attention first; its registered waiter performs the legacy wake-up
+    # at most once. terminal.read intentionally stays on the ephemeral path.
+    if key != "text":
+        with _sessions_lock:
+            durable_session = _sessions.get(sid)
+        with _work_attention_lock:
+            durable = _work_attention_by_request.get((sid, r))
+        if durable_session is not None and durable is not None:
+            expected_kind = {
+                "answer": "clarify",
+                "password": "sudo",
+                "value": "secret",
+            }[key]
+            if durable.get("kind") != expected_kind:
+                return _err(rid, 4009, f"no pending {key} request for session")
+            try:
+                service = _work_service_for_session(durable_session)
+                receipt = service.respond_attention(
+                    attention_id=str(durable["attention_id"]),
+                    expected_version=int(durable["version"]),
+                    idempotency_key=f"legacy-{key}-{r}",
+                    action="submit",
+                    raw_value=params.get(key, ""),
+                )
+                _emit_work_changed(
+                    sid,
+                    service,
+                    attention_id=str(durable["attention_id"]),
+                )
+                return _ok(
+                    rid,
+                    {
+                        "status": "ok",
+                        "request_id": r,
+                        "attention_id": durable["attention_id"],
+                        "attention_receipt": receipt,
+                    },
+                )
+            except Exception as exc:
+                return _work_err(rid, exc)
+    # Use the same sessions -> prompts lock order as teardown. The response
+    # and close operations are therefore linearizable, and claiming the
+    # pending entry here makes duplicate responses fail without overwriting
+    # the first accepted answer.
+    with _sessions_lock:
+        if _sessions.get(sid) is None:
+            return _err(rid, 4001, "session not found")
+        with _prompt_lock:
+            entry = _pending.get(r)
+            if not entry:
+                return _err(rid, 4009, f"no pending {key} request")
+            owner_sid, ev = entry
+            if owner_sid != sid:
+                return _err(rid, 4009, f"no pending {key} request for session")
+            prompt = _pending_prompt_payloads.get(r)
+            expected_event = {
+                "answer": "clarify.request",
+                "text": "terminal.read.request",
+                "password": "sudo.request",
+                "value": "secret.request",
+            }.get(key)
+            if prompt is None or prompt[0] != expected_event:
+                return _err(rid, 4009, f"no pending {key} request for session")
+            _answers[r] = params.get(key, "")
+            _pending.pop(r, None)
+            _pending_prompt_payloads.pop(r, None)
+            ev.set()
+    return _ok(rid, {"status": "ok", "request_id": r})
 
 
 @method("clarify.respond")
@@ -11050,25 +12903,73 @@ def _(rid, params: dict) -> dict:
 
 @method("approval.respond")
 def _(rid, params: dict) -> dict:
-    session, err = _sess(params, rid)
+    session, err = _sess_nowait(params, rid)
     if err:
         return err
+    request_id = str(params.get("request_id") or "").strip()
+    if not request_id:
+        return _err(rid, 4002, "request_id is required")
+    resolve_all = params.get("all", False)
+    if resolve_all not in (None, False, 0, "", "0", "false", "False"):
+        return _err(rid, 4002, "all is not supported for programmatic approval responses")
+    durable = None
     try:
-        from tools.approval import resolve_gateway_approval
-
-        return _ok(
-            rid,
-            {
-                "resolved": resolve_gateway_approval(
-                    session["session_key"],
-                    params.get("choice", "deny"),
-                    resolve_all=params.get("all", False),
-                    request_id=str(params.get("request_id") or "") or None,
-                )
-            },
+        from tools.approval import (
+            normalize_gateway_approval_choice,
+            resolve_gateway_approval,
         )
-    except Exception as e:
-        return _err(rid, 5004, str(e))
+
+        choice = normalize_gateway_approval_choice(params.get("choice"))
+        sid = str(params.get("session_id") or "")
+        with _work_attention_lock:
+            durable = _work_attention_by_request.get((sid, request_id))
+        if durable is not None:
+            if durable.get("kind") != "approval":
+                return _err(rid, 4009, "no pending approval request for session")
+            service = _work_service_for_session(session)
+            receipt = service.respond_attention(
+                attention_id=str(durable["attention_id"]),
+                expected_version=int(durable["version"]),
+                idempotency_key=f"legacy-approval-{request_id}",
+                action=choice,
+                raw_value=choice,
+            )
+            _emit_work_changed(
+                sid,
+                service,
+                attention_id=str(durable["attention_id"]),
+            )
+            return _ok(
+                rid,
+                {
+                    "resolved": 1,
+                    "request_id": request_id,
+                    "choice": choice,
+                    "attention_id": durable["attention_id"],
+                    "attention_receipt": receipt,
+                },
+            )
+        with _sessions_lock:
+            if _sessions.get(sid) is not session:
+                return _err(rid, 4001, "session not found")
+            resolved = resolve_gateway_approval(
+                _approval_routing_key(session),
+                choice,
+                resolve_all=False,
+                request_id=request_id,
+            )
+    except (TypeError, ValueError):
+        return _err(rid, 4002, "invalid approval choice")
+    except Exception as exc:
+        if durable is not None:
+            return _work_err(rid, exc)
+        return _err(rid, 5004, "approval resolution failed")
+    if resolved != 1:
+        return _err(rid, 4009, "approval request is no longer pending")
+    return _ok(
+        rid,
+        {"resolved": 1, "request_id": request_id, "choice": choice},
+    )
 
 
 # ── Methods: config ──────────────────────────────────────────────────
@@ -11286,13 +13187,14 @@ def _(rid, params: dict) -> dict:
                 return _ok(rid, {"key": key, "value": nv, "scope": "global"})
 
             if session:
-                current = is_session_yolo_enabled(session["session_key"])
+                approval_key = _approval_routing_key(session)
+                current = is_session_yolo_enabled(approval_key)
                 enable = _resolve_toggle(current)
                 if enable:
-                    enable_session_yolo(session["session_key"])
+                    enable_session_yolo(approval_key)
                     nv = "1"
                 else:
-                    disable_session_yolo(session["session_key"])
+                    disable_session_yolo(approval_key)
                     nv = "0"
                 agent = session.get("agent")
                 if agent is not None:

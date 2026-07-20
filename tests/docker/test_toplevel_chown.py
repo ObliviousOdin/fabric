@@ -27,7 +27,14 @@ from tests.docker.conftest import (
 
 # The files the stage2 hook should repair (mirrors the allowlist in
 # stage2-hook.sh). We test a representative subset.
-ALLOWLISTED_FILES = ("auth.json", "state.db", "gateway.lock", "gateway_state.json")
+ALLOWLISTED_FILES = (
+    "auth.json",
+    "state.db",
+    "work.db",
+    "work.db.init.lock",
+    "gateway.lock",
+    "gateway_state.json",
+)
 
 
 def test_root_owned_state_files_repaired_on_boot(

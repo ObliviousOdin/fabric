@@ -63,6 +63,17 @@ class GatewayNotConnectedException : Exception("gateway not connected")
 
 class GatewayConnectException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
+/** An RPC may have reached the gateway before its response timed out. */
+class GatewayRequestTimeoutException(method: String) : Exception("request timed out: $method")
+
+/**
+ * A WebSocket failed after a request was handed to OkHttp but before its
+ * response arrived. Callers must treat a mutation's outcome as unknown and
+ * replay it only with the original idempotency key.
+ */
+class GatewayResponseUncertainException(message: String, cause: Throwable? = null) :
+    Exception(message, cause)
+
 /**
  * JSON-RPC 2.0 client over a single WebSocket.
  *
@@ -217,7 +228,7 @@ class JsonRpcGatewayClient(
                 deferred.await()
             }
         } catch (e: TimeoutCancellationException) {
-            throw GatewayRpcException("request timed out: $method")
+            throw GatewayRequestTimeoutException(method)
         } finally {
             pending.remove(id)
         }
@@ -270,7 +281,12 @@ class JsonRpcGatewayClient(
                 connectHandshake?.completeExceptionally(
                     GatewayConnectException("WebSocket connection failed", t)
                 )
-                rejectAllPending(t)
+                rejectAllPending(
+                    GatewayResponseUncertainException(
+                        "WebSocket failed while awaiting a response",
+                        t,
+                    )
+                )
             }
         }
     }

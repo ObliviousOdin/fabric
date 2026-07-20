@@ -32,6 +32,7 @@ import threading
 from typing import Any
 
 from tui_gateway import server
+from tui_gateway.auth_context import WSAuthContext
 
 _log = logging.getLogger(__name__)
 
@@ -39,7 +40,6 @@ _log = logging.getLogger(__name__)
 # to flush a WS frame before we mark the transport dead. Protects handler
 # threads from a wedged socket.
 _WS_WRITE_TIMEOUT_S = 10.0
-_WS_LOG_PAYLOAD_PREVIEW = 240
 
 # Per-token streaming frames are coalesced: buffered and flushed as a batch on
 # a short timer instead of waking the event loop once per token. A model reply
@@ -280,8 +280,17 @@ def _disable_nagle(ws: Any) -> None:
         _log.debug("ws TCP_NODELAY skip: %s", exc)
 
 
-async def handle_ws(ws: Any) -> None:
-    """Run one WebSocket session. Wire-compatible with ``tui_gateway.entry``."""
+async def handle_ws(
+    ws: Any,
+    *,
+    auth_context: WSAuthContext | None = None,
+) -> None:
+    """Run one WebSocket session. Wire-compatible with ``tui_gateway.entry``.
+
+    ``auth_context`` may only originate at the dashboard's verified upgrade
+    boundary.  It is never read from a WebSocket frame, and each accepted RPC
+    receives a fresh correlation ID before dispatch.
+    """
     peer = _ws_peer_label(ws)
     transport: WSTransport | None = None
     messages = 0
@@ -357,11 +366,14 @@ async def handle_ws(ws: Any) -> None:
             except json.JSONDecodeError as exc:
                 parse_errors += 1
                 _log.warning(
-                    "ws parse error peer=%s index=%d error=%s payload=%r",
+                    "ws parse error peer=%s index=%d error=%s "
+                    "line=%d column=%d char=%d",
                     peer,
                     messages,
-                    exc,
-                    line[:_WS_LOG_PAYLOAD_PREVIEW],
+                    exc.msg,
+                    exc.lineno,
+                    exc.colno,
+                    exc.pos,
                 )
                 ok = await transport.write_async(
                     {
@@ -384,8 +396,16 @@ async def handle_ws(ws: Any) -> None:
             # response dict, which we write here from the loop.
             req_id = req.get("id") if isinstance(req, dict) else None
             req_method = req.get("method") if isinstance(req, dict) else None
+            request_auth_context = (
+                auth_context.for_request() if auth_context is not None else None
+            )
             try:
-                resp = await asyncio.to_thread(server.dispatch, req, transport)
+                resp = await asyncio.to_thread(
+                    server.dispatch,
+                    req,
+                    transport,
+                    request_auth_context,
+                )
             except Exception:
                 dispatch_crashes += 1
                 _log.exception(

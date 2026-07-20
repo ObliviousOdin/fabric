@@ -278,6 +278,8 @@ def _run_restricted_doctor(config: dict, egress: dict, *, should_fix: bool) -> N
     else:
         check_info(f"{_DHH}/.env not present")
 
+    _check_work_store()
+
     if mode in {"local_ai", "air_gapped"}:
         _render_restricted_memory_doctor(config, mode)
 
@@ -392,6 +394,141 @@ def _fail_and_issue(text: str, detail: str, fix: str, issues: list[str]) -> None
     """Emit a check_fail and append the corresponding fix instruction."""
     check_fail(text, detail)
     issues.append(fix)
+
+
+def _format_local_bytes(value: int) -> str:
+    """Format a bounded local file size without importing the backup surface."""
+
+    amount = max(0, int(value))
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if amount < 1024 or unit == "GiB":
+            return f"{amount} {unit}"
+        amount //= 1024
+    return f"{amount} GiB"  # pragma: no cover - loop always returns
+
+
+def _classify_work_owner_summaries(owner_summaries):
+    """Classify persisted owners without granting doctor any recovery power."""
+
+    if not owner_summaries:
+        return {}
+    try:
+        from tui_gateway.work_service import (
+            OwnerClassification,
+            classify_owner_group,
+            create_process_owner_proof,
+        )
+
+        current_boot_token = create_process_owner_proof().boot_token
+        classifications = classify_owner_group(
+            (summary.owner for summary in owner_summaries),
+            current_boot_token=current_boot_token,
+        )
+        return {
+            owner: str(classification.value)
+            for owner, classification in classifications.items()
+            if isinstance(classification, OwnerClassification)
+        }
+    except Exception:
+        # Diagnostic liveness is advisory.  A failed probe must never be
+        # interpreted as a dead process or trigger reconciliation here.
+        return {}
+
+
+def _check_work_store(issues: list[str] | None = None) -> None:
+    """Render Work-ledger health strictly through the read-only inspector."""
+
+    from fabric_cli.work_ledger import inspect_work_store
+
+    _section("Durable Work store")
+    inspection = inspect_work_store(FABRIC_HOME)
+    if inspection.status == "missing":
+        check_info(f"{_DHH}/work.db not created yet (created only when Work is used)")
+        return
+    if inspection.status in {"live_wal", "live_rollback_journal"}:
+        if inspection.status == "live_wal":
+            transaction_label = "live WAL"
+            transaction_size = inspection.wal_size_bytes
+        else:
+            transaction_label = "live rollback journal"
+            transaction_size = inspection.rollback_journal_size_bytes
+        check_info(
+            f"Work ledger has a {transaction_label} "
+            f"({_format_local_bytes(transaction_size)}; "
+            "deep inspection skipped so doctor cannot modify its source sidecars)"
+        )
+        return
+    if not inspection.readable:
+        detail_parts = [inspection.status]
+        if inspection.schema_version is not None:
+            detail_parts.append(f"schema={inspection.schema_version}")
+        if inspection.application_id is not None:
+            detail_parts.append(f"application_id={inspection.application_id:#x}")
+        if inspection.schema_mismatches:
+            detail_parts.append(f"schema_mismatches={len(inspection.schema_mismatches)}")
+        check_warn(f"{_DHH}/work.db needs attention", f"({', '.join(detail_parts)})")
+        if issues is not None:
+            issues.append(
+                "Work ledger needs attention — take a private backup and inspect work.db "
+                "before starting a gateway"
+            )
+        return
+
+    check_ok(
+        f"{_DHH}/work.db is readable",
+        (
+            f"({_format_local_bytes(inspection.size_bytes)}; "
+            f"application_id={inspection.application_id:#x}; "
+            f"schema={inspection.schema_version}; "
+            f"ledger={inspection.ledger_id}; event_floor={inspection.event_floor})"
+        ),
+    )
+    if inspection.status == "legacy_schema":
+        check_warn(
+            "Work ledger uses the prior compatible schema",
+            "(the next normal Work-service open migrates it; doctor does not)",
+        )
+    if inspection.wal_size_bytes:
+        wal_detail = _format_local_bytes(inspection.wal_size_bytes)
+        if inspection.wal_size_bytes > 50 * 1024 * 1024:
+            check_warn(
+                f"Work WAL is large ({wal_detail})",
+                "(doctor will not checkpoint a live Work ledger)",
+            )
+        else:
+            check_info(f"Work WAL is {wal_detail}")
+
+    owner_states = _classify_work_owner_summaries(inspection.owner_summaries)
+    for summary in inspection.owner_summaries:
+        classification = owner_states.get(summary.owner, "owner_unverifiable")
+        count_parts = []
+        if summary.run_count:
+            count_parts.append(f"{summary.run_count} active Run(s)")
+        if summary.attention_count:
+            count_parts.append(f"{summary.attention_count} pending Attention item(s)")
+        detail = f"({', '.join(count_parts)}; {classification})"
+        if classification == "live":
+            check_ok(f"Work owner pid={summary.owner.pid} is live", detail)
+        elif classification in {"dead", "different_boot", "pid_reused"}:
+            check_warn(
+                f"Work owner pid={summary.owner.pid} is stale",
+                f"{detail}; next Work-service startup reconciles it",
+            )
+            if issues is not None:
+                issues.append(
+                    "Work ledger has a stale owner — restart the owning gateway to reconcile "
+                    "interrupted Work safely"
+                )
+        else:
+            check_warn(
+                f"Work owner pid={summary.owner.pid} cannot be verified",
+                f"{detail}; doctor leaves it untouched",
+            )
+    if inspection.owners_truncated:
+        check_warn(
+            "Work owner report was bounded",
+            "(more than 64 nonterminal owner groups; no recovery was attempted)",
+        )
 
 
 def _enabled_cli_toolsets_for_doctor() -> set[str] | None:
@@ -1558,6 +1695,8 @@ def run_doctor(args):
                 check_info(f"WAL file is {wal_size // (1024*1024)} MB (normal for active sessions)")
         except Exception:
             pass
+
+    _check_work_store(issues)
 
     _check_gateway_service_linger(issues)
     _check_s6_supervision(issues)

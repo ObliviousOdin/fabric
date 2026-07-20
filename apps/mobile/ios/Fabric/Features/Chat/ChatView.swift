@@ -26,7 +26,16 @@ struct ChatView: View {
             if model == nil {
                 let vm = ChatViewModel(
                     api: appModel.api,
-                    resumeStoredSessionId: resumeStoredSessionId
+                    resumeStoredSessionId: resumeStoredSessionId,
+                    supportsMethod: { method in
+                        appModel.supportsGatewayMethod(method)
+                    },
+                    durableWorkNegotiation: {
+                        appModel.capabilityNegotiation
+                    },
+                    workGatewayID: {
+                        appModel.activeGatewayId
+                    }
                 )
                 model = vm
                 await vm.start()
@@ -77,12 +86,18 @@ private struct ChatContentView: View {
 
             if let approval = model.pendingApproval {
                 approvalBanner(approval)
-                    .disabled(!model.sessionReady)
+                    .disabled(
+                        !model.sessionReady
+                            || !model.supportsGatewayMethod("approval.respond")
+                    )
             }
 
             if let prompt = model.pendingPrompt {
                 promptBanner(prompt)
-                    .disabled(!model.sessionReady)
+                    .disabled(
+                        !model.sessionReady
+                            || !model.supportsGatewayMethod(prompt.responseMethod)
+                    )
             }
 
             if let status = model.statusLine {
@@ -108,6 +123,10 @@ private struct ChatContentView: View {
                     } label: {
                         Label("Commands…", systemImage: "slash.circle")
                     }
+                    .disabled(
+                        !model.supportsGatewayMethod("commands.catalog")
+                            || !model.supportsGatewayMethod("slash.exec")
+                    )
                     Button {
                         let text = draft
                         draft = ""
@@ -115,17 +134,22 @@ private struct ChatContentView: View {
                     } label: {
                         Label("Run draft in background", systemImage: "moon.zzz")
                     }
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || !model.canSendInBackground
+                    )
                     Button {
                         showProcesses = true
                     } label: {
                         Label("Background processes…", systemImage: "terminal")
                     }
+                    .disabled(!model.supportsGatewayMethod("process.list"))
                     Button {
                         showLiveView = true
                     } label: {
                         Label("Live screen view…", systemImage: "display")
                     }
+                    .disabled(!model.supportsGatewayMethod("computer.screenshot"))
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -134,16 +158,23 @@ private struct ChatContentView: View {
             }
         }
         .sheet(isPresented: $showCommandCatalog) {
-            CommandCatalogSheet(api: model.api) { command in
+            CommandCatalogSheet(
+                api: model.api,
+                supportsMethod: model.supportsGatewayMethod
+            ) { command in
                 draft = command + " "
                 showCommandCatalog = false
             }
         }
         .sheet(isPresented: $showProcesses) {
-            ProcessListSheet(api: model.api, sessionId: model.sessionId)
+            ProcessListSheet(
+                api: model.api,
+                sessionId: model.sessionId,
+                supportsMethod: model.supportsGatewayMethod
+            )
         }
         .sheet(isPresented: $showLiveView) {
-            LiveViewSheet(api: model.api)
+            LiveViewSheet(api: model.api, supportsMethod: model.supportsGatewayMethod)
         }
     }
 
@@ -266,7 +297,10 @@ private struct ChatContentView: View {
             )
             .textFieldStyle(.roundedBorder)
             .lineLimit(1...5)
-            .disabled(!model.sessionReady)
+            .disabled(
+                !model.sessionReady
+                    || !model.supportsGatewayMethod(draftDispatchMethod)
+            )
 
             if model.busy {
                 // Steering send: injects the note without interrupting. The
@@ -282,7 +316,10 @@ private struct ChatContentView: View {
                         .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
                 .accessibilityLabel("Steer running turn")
-                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || !model.supportsGatewayMethod("session.steer")
+                )
 
                 Button {
                     Task { await model.interrupt() }
@@ -292,6 +329,7 @@ private struct ChatContentView: View {
                         .frame(minWidth: FabricTheme.minTarget, minHeight: FabricTheme.minTarget)
                 }
                 .accessibilityLabel("Interrupt running turn")
+                .disabled(!model.supportsGatewayMethod("session.interrupt"))
             } else {
                 Button {
                     let text = draft
@@ -306,12 +344,19 @@ private struct ChatContentView: View {
                 .disabled(
                     !model.sessionReady
                         || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || !model.supportsGatewayMethod(draftDispatchMethod)
                 )
             }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
         .disabled(!model.sessionReady)
+    }
+
+    private var draftDispatchMethod: String {
+        if model.busy { return "session.steer" }
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasPrefix("/") ? "slash.exec" : "prompt.submit"
     }
 }
 

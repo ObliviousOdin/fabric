@@ -42,6 +42,7 @@ async def test_exec_approval_mentions_allowed_users_when_enabled(monkeypatch):
         chat_id="99",
         command="make check",
         session_key="session-1",
+        request_id="req-1",
         description="dangerous command",
     )
 
@@ -67,6 +68,7 @@ async def test_exec_approval_does_not_mention_by_default(monkeypatch):
         chat_id="99",
         command="make check",
         session_key="session-1",
+        request_id="req-1",
     )
 
     assert result.success is True

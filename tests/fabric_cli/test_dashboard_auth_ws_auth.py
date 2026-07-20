@@ -13,6 +13,7 @@ pre-existing regression unrelated to dashboard-auth.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -228,6 +229,69 @@ class TestWsAuthOkGated:
         ticket = mint_ticket(user_id="u1", provider="stub")
         ws = _fake_ws(query={"ticket": ticket})
         assert web_server._ws_auth_ok(ws) is True
+
+    def test_ticket_authentication_retains_only_redacted_server_context(self, gated_app):
+        ticket = mint_ticket(user_id="mobile-owner@example.test", provider="stub")
+        result = web_server._ws_authenticate(_fake_ws(query={"ticket": ticket}))
+
+        assert result.reason is None
+        assert result.credential == "ticket"
+        assert result.auth_context is not None
+        projection = result.auth_context.public_projection()
+        assert projection["auth_kind"] == "provider_cookie"
+        assert projection["principal_id"].startswith("pri_")
+        assert projection["device_id"] is None
+        assert "mobile-owner@example.test" not in str(projection)
+        assert ticket not in str(projection)
+
+        # The helper itself is the one-use consumption boundary. Calling it
+        # again must fail rather than producing a second dispatch context.
+        replay = web_server._ws_authenticate(_fake_ws(query={"ticket": ticket}))
+        assert replay.reason == "ticket_invalid"
+        assert replay.auth_context is None
+
+    def test_gateway_ws_forwards_ticket_context_without_a_second_consume(
+        self, gated_app, monkeypatch
+    ):
+        from tui_gateway import ws as tui_ws
+
+        ticket = mint_ticket(user_id="mobile-owner@example.test", provider="stub")
+        ws = _fake_ws(query={"ticket": ticket}, path="/api/ws")
+        received = []
+
+        async def fake_handle(received_ws, *, auth_context=None):
+            received.append((received_ws, auth_context))
+
+        monkeypatch.setattr(tui_ws, "handle_ws", fake_handle)
+        monkeypatch.setattr(web_server, "_ws_request_is_allowed", lambda _ws: True)
+
+        asyncio.run(web_server.gateway_ws(ws))
+
+        assert len(received) == 1
+        assert received[0][0] is ws
+        context = received[0][1]
+        assert context is not None
+        assert context.auth_kind == "provider_cookie"
+        assert "mobile-owner@example.test" not in str(context.public_projection())
+
+        closed = []
+
+        async def close(*, code):
+            closed.append(code)
+
+        ws.close = close
+        asyncio.run(web_server.gateway_ws(ws))
+        assert closed == [4401]
+        assert len(received) == 1
+
+    def test_internal_gateway_child_has_no_end_user_principal(self, gated_app):
+        credential = internal_ws_credential()
+        result = web_server._ws_authenticate(_fake_ws(query={"internal": credential}))
+
+        assert result.reason is None
+        assert result.auth_context is not None
+        assert result.auth_context.auth_kind == "internal"
+        assert result.auth_context.principal_id is None
 
     def test_consumed_ticket_rejected(self, gated_app):
         ticket = mint_ticket(user_id="u1", provider="stub")

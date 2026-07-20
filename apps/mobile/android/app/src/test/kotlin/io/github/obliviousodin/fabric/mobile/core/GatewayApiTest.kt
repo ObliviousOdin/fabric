@@ -1,5 +1,7 @@
 package io.github.obliviousodin.fabric.mobile.core
 
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,6 +29,60 @@ class GatewayApiTest {
         }
         assertThrows(GatewayHttpException::class.java) {
             GatewayApi.websocketUrlWithTicket("http://8.8.8.8:9119", "ticket")
+        }
+    }
+
+    @Test
+    fun interactionReceiptMustMatchExactRequestAndResolution() {
+        requireMatchingInteractionReceipt(
+            buildJsonObject {
+                put("request_id", "approval-2")
+                put("resolved", 1)
+            },
+            requestId = "approval-2",
+            approval = true,
+        )
+
+        assertThrows(GatewayRpcException::class.java) {
+            requireMatchingInteractionReceipt(
+                buildJsonObject {
+                    put("request_id", "approval-1")
+                    put("resolved", 1)
+                },
+                requestId = "approval-2",
+                approval = true,
+            )
+        }
+        assertThrows(GatewayRpcException::class.java) {
+            requireMatchingInteractionReceipt(
+                buildJsonObject {
+                    put("request_id", "approval-2")
+                    put("resolved", 0)
+                },
+                requestId = "approval-2",
+                approval = true,
+            )
+        }
+    }
+
+    @Test
+    fun genericInteractionReceiptMustMatchExactRequest() {
+        requireMatchingInteractionReceipt(
+            buildJsonObject { put("request_id", "prompt-2") },
+            requestId = "prompt-2",
+        )
+
+        assertThrows(GatewayRpcException::class.java) {
+            requireMatchingInteractionReceipt(
+                buildJsonObject { put("request_id", "prompt-1") },
+                requestId = "prompt-2",
+            )
+        }
+        assertThrows(GatewayRpcException::class.java) {
+            requireMatchingInteractionReceipt(
+                buildJsonObject {},
+                requestId = "prompt-2",
+            )
         }
     }
 }

@@ -1,4 +1,10 @@
-# Fabric Mobile production goal
+# Fabric Mobile Production Foundation
+
+> **Scope note:** This document defines the first signed, supportable remote-chat
+> release and its non-negotiable safety/reliability gates. The post-v1 mobile
+> capability program builds on this foundation. Items excluded from this first
+> release are deferred to named FMB slices; they are not rejected from the
+> product roadmap.
 
 ## Goal
 
@@ -11,6 +17,31 @@ security, accessibility, reliability, and release requirements.
 The mobile apps are remote clients. Fabric's Python runtime, tools, files,
 browser automation, cron jobs, memory, and session database remain on the
 gateway host.
+
+## Design adoption boundary
+
+The supplied Fabric mobile UI kit is an audited interaction reference for this
+release, not a substitute for the production contract. Connect, Sessions/Chat,
+offline recovery, in-app attention, and read-only live evidence should follow
+the canonical Woven Operations tokens and state grammar in `DESIGN.md`. The
+broader artifact, automation, Code, share, widget, Live Activity, phone-audio,
+and attachment concepts remain assigned to later post-v1 slices.
+
+Two concept-kit patterns are prohibited in the production foundation:
+
+- A pairing QR must not contain a reusable gateway token. It may carry an
+  address and a one-time, short-lived, scope-bound enrollment credential whose
+  exchange writes the resulting device secret only to Keychain/Keystore.
+- Lock-screen notifications and Live Activities must not expose raw approval
+  commands or apply a high-risk action directly. They are minimal, redacted
+  hints that deep-link to the exact current in-app interaction for review.
+
+Before release, Connect, Sessions, Chat, pending attention, offline recovery,
+and read-only live evidence need same-state native captures in Fabric Light and
+Dark, including loading, empty, error, stale/offline, and permission-denied
+fixtures. Screenshot comparison complements rather than replaces Dynamic Type,
+VoiceOver, TalkBack, contrast, touch-target, lifecycle, and physical-device
+acceptance.
 
 ## Product boundary
 
@@ -80,6 +111,16 @@ and Kotlin ports must have contract tests for the same invariants. The
 same-origin app in `apps/mobile-web` is a PWA fallback and browser proof; it is
 not the native runtime.
 
+`gateway.capabilities` is the connection boundary. After every authenticated
+socket connect or reconnect, clients clear the previous snapshot, negotiate
+the versioned contract, reject stale attempt results, and only then issue
+session RPCs. Valid responses are method-authoritative. Only JSON-RPC
+`-32601` enables the reviewed shipped-v1 legacy set; malformed,
+incompatible, timeout, close, and other server failures fail closed for
+mutations. Contract v1 also requires every client to state that execution
+runs on the gateway, survives a phone disconnect but not a gateway restart,
+and requires the gateway host online.
+
 ## Threat model
 
 An authenticated mobile client can cause the gateway host to execute commands,
@@ -113,6 +154,12 @@ A release is production-grade only when every applicable gate is satisfied.
 
 - Backend gateway/auth contract suites pass.
 - Shared TypeScript reducer and transport suites pass.
+- The backend, TypeScript, Swift, and Kotlin capability parsers exercise the
+  same canonical valid, incompatible, malformed, and legacy-method fixtures.
+- Capability tests prove negotiation precedes session calls, stale server
+  switches cannot publish old snapshots, `-32601` is the only legacy path,
+  unknown additive fields remain compatible, and every existing RPC control
+  is gated by its exact advertised or reviewed-legacy method.
 - Swift and Kotlin contract tests cover history hydration, in-flight restore,
   whole-turn replay filtering, stable session identity, unpersisted
   completion warnings, and pending-interaction recovery.
@@ -176,8 +223,10 @@ A release is production-grade only when every applicable gate is satisfied.
    performance, localization resilience, and device QA.
 5. **Release engineering** — pinned toolchains, CI, signing templates, privacy
    declarations, versioning, and operator/runbook documentation.
-6. **Post-v1 capability** — OAuth system-browser flow, attachments/voice,
-   opt-in APNs/FCM notifications, and only then broader background behavior.
+6. **Post-v1 capability** — OAuth system-browser flow, resumable phone
+   attachments and a distinct phone-audio contract (never gateway-host
+   `voice.*`), opt-in APNs/FCM notifications, and only then broader background
+   behavior.
 
 ## Current status
 
@@ -187,3 +236,12 @@ run in CI; `fabric mobile` is the documented gateway/pairing entry point.
 Physical-device acceptance, protected signing, store assets/automation, and
 publication remain open production gates. Passing a simulator build alone does
 not advance the support tier or justify a store release.
+
+FMB-002 Durable Work remains an unadvertised control-plane preview. It stores
+bounded, redacted Job/Attention state in profile-private `work.db`; a phone
+disconnect can recover that state, while a gateway restart interrupts rather
+than replays in-process agent execution. Until every client and operations gate
+is complete, the released capability manifest keeps the legacy
+`prompt.background` path authoritative. Push and lock-screen actions remain
+deferred to FMB-003/FMB-004, after server-derived device identity and exact
+durable return-state contracts exist.

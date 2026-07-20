@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import pairingV2Fixture from "../../mobile/contracts/fabric-pairing-v2.json";
+
 import { parsePairingHash, parsePairingPayloadHash } from "./pairing";
 
 describe("parsePairingHash", () => {
@@ -20,8 +22,36 @@ describe("parsePairingHash", () => {
         baseUrl: "https://agent.example.test/",
         token: "private-session-token",
       },
+      kind: "legacy",
       pairingUri: pairing,
     });
+  });
+
+  it("recognizes a strict v2 enrollment handoff without creating a connection", () => {
+    const enrollment = "A".repeat(43);
+    const pairing =
+      `fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=${enrollment}&auth=browser`;
+
+    expect(parsePairingPayloadHash(`#pair=${encodeURIComponent(pairing)}`)).toEqual({
+      auth: "browser",
+      baseUrl: "https://agent.example.test/",
+      enrollment,
+      kind: "enrollment",
+      pairingUri: pairing,
+    });
+  });
+
+  it("agrees with the canonical v2 pairing corpus", () => {
+    for (const fixture of pairingV2Fixture.cases) {
+      const parsed = parsePairingPayloadHash(
+        `#pair=${encodeURIComponent(fixture.payload)}`,
+      );
+      if (fixture.valid) {
+        expect(parsed, fixture.id).toMatchObject({ kind: "enrollment" });
+      } else {
+        expect(parsed, fixture.id).toBeNull();
+      }
+    }
   });
 
   it("rejects missing or contradictory authentication payloads", () => {
@@ -29,6 +59,13 @@ describe("parsePairingHash", () => {
       "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=token",
       "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=gated&token=unexpected",
       "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=other",
+      `fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=${"A".repeat(42)}&auth=browser`,
+      `fabric://pair?v=2&url=http%3A%2F%2Fagent.example.test&enrollment=${"A".repeat(43)}&auth=browser`,
+      `fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=${"A".repeat(43)}&auth=browser&token=unexpected`,
+      `fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=${"A".repeat(43)}&auth=gated`,
+      "fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&url=https%3A%2F%2Fevil.example.test&auth=gated",
+      `fabric://pair/?v=2&url=https%3A%2F%2Fagent.example.test&enrollment=${"A".repeat(43)}&auth=browser`,
+      `fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test%2F%2F%2F&enrollment=${"A".repeat(43)}&auth=browser`,
     ];
 
     for (const pairing of invalid) {
@@ -46,6 +83,11 @@ describe("parsePairingHash", () => {
     expect(
       parsePairingHash(
         `#pair=${encodeURIComponent("fabric://pair?v=2&url=https%3A%2F%2Fagent.example.test")}`,
+      ),
+    ).toBeNull();
+    expect(
+      parsePairingHash(
+        `#pair=${encodeURIComponent("fabric://pair?v=1&url=https%3A%2F%2Fagent.example.test&auth=gated")}&pair=${encodeURIComponent("fabric://pair?v=1&url=https%3A%2F%2Fevil.example.test&auth=gated")}`,
       ),
     ).toBeNull();
     expect(

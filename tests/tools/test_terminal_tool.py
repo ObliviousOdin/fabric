@@ -135,6 +135,38 @@ def test_cached_sudo_password_isolated_by_session_key(monkeypatch):
         reset_current_session_key(session_a_token)
 
 
+def test_clear_cached_sudo_password_only_purges_target_session(monkeypatch):
+    monkeypatch.delenv("SUDO_PASSWORD", raising=False)
+    from tools.approval import reset_current_session_key, set_current_session_key
+
+    session_a_token = set_current_session_key("session-a")
+    try:
+        terminal_tool._set_cached_sudo_password("alpha-pass")
+    finally:
+        reset_current_session_key(session_a_token)
+
+    session_b_token = set_current_session_key("session-b")
+    try:
+        terminal_tool._set_cached_sudo_password("bravo-pass")
+    finally:
+        reset_current_session_key(session_b_token)
+
+    assert terminal_tool.clear_cached_sudo_password("session-a") is True
+    assert terminal_tool.clear_cached_sudo_password("session-a") is False
+
+    session_a_token = set_current_session_key("session-a")
+    try:
+        assert terminal_tool._get_cached_sudo_password() == ""
+    finally:
+        reset_current_session_key(session_a_token)
+
+    session_b_token = set_current_session_key("session-b")
+    try:
+        assert terminal_tool._get_cached_sudo_password() == "bravo-pass"
+    finally:
+        reset_current_session_key(session_b_token)
+
+
 def test_passwordless_sudo_skips_interactive_prompt_and_rewrite(monkeypatch):
     monkeypatch.delenv("SUDO_PASSWORD", raising=False)
     monkeypatch.delenv("TERMINAL_ENV", raising=False)

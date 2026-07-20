@@ -1,0 +1,42 @@
+{
+  "contract": {
+    "name": "fabric.work",
+    "version": 1,
+    "min_compatible": 1
+  },
+  "ledger_id": "ledger_11111111111111111111111111111111",
+  "work_profile_id": "profile_11111111111111111111111111111111",
+  "mode": "delta",
+  "watermark": 103,
+  "cursor": 103,
+  "has_more": false,
+  "next_page_token": null,
+  "jobs": [],
+  "attention": [],
+  "events": [
+    {
+      "event_id": 102,
+      "event_type": "attention.deleted",
+      "subject_type": "attention",
+      "subject_id": "attn_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "job_id": "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "run_id": "run_cccccccccccccccccccccccccccccccc",
+      "subject_version": 3,
+      "subject": null,
+      "tombstone": true,
+      "created_at": 1784451605000
+    },
+    {
+      "event_id": 103,
+      "event_type": "job.deleted",
+      "subject_type": "job",
+      "subject_id": "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "job_id": "job_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "run_id": "run_cccccccccccccccccccccccccccccccc",
+      "subject_version": 5,
+      "subject": null,
+      "tombstone": true,
+      "created_at": 1784451605000
+    }
+  ]
+}

@@ -181,7 +181,9 @@ declare global {
       signalDeepLinkReady?: () => Promise<{ ok: boolean }>
       onWindowStateChanged?: (callback: (payload: FabricWindowState) => void) => () => void
       onFocusSession?: (callback: (sessionId: string) => void) => () => void
-      onNotificationAction?: (callback: (payload: { actionId: string; sessionId?: string }) => void) => () => void
+      onNotificationAction?: (
+        callback: (payload: { actionId: string; requestId?: string; sessionId?: string }) => void
+      ) => () => void
       onPreviewFileChanged: (callback: (payload: FabricPreviewFileChanged) => void) => () => void
       onBackendExit: (callback: (payload: BackendExit) => void) => () => void
       onPowerResume?: (callback: () => void) => () => void
@@ -553,6 +555,7 @@ export interface FabricNotification {
   body?: string
   silent?: boolean
   kind?: string
+  requestId?: string
   sessionId?: string
   actions?: { id: string; text: string }[]
 }

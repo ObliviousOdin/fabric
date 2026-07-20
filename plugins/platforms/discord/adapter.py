@@ -5576,6 +5576,7 @@ class DiscordAdapter(BasePlatformAdapter):
 
     async def send_exec_approval(
         self, chat_id: str, command: str, session_key: str,
+        request_id: str,
         description: str = "dangerous command",
         metadata: Optional[dict] = None,
     ) -> SendResult:
@@ -5587,6 +5588,9 @@ class DiscordAdapter(BasePlatformAdapter):
         """
         if not self._client or not DISCORD_AVAILABLE:
             return SendResult(success=False, error="Not connected")
+        request_id = str(request_id or "").strip()
+        if not request_id:
+            return SendResult(success=False, error="Missing approval request ID")
 
         try:
             # Resolve channel — use thread_id from metadata if present
@@ -5645,6 +5649,7 @@ class DiscordAdapter(BasePlatformAdapter):
             )
             view = ExecApprovalView(
                 session_key=session_key,
+                request_id=request_id,
                 allowed_user_ids=self._allowed_user_ids,
                 allowed_role_ids=self._allowed_role_ids,
                 require_admin=require_admin,
@@ -6839,6 +6844,7 @@ def _define_discord_view_classes() -> None:
         def __init__(
             self,
             session_key: str,
+            request_id: str,
             allowed_user_ids: set,
             allowed_role_ids: Optional[set] = None,
             require_admin: bool = False,
@@ -6846,6 +6852,7 @@ def _define_discord_view_classes() -> None:
         ):
             super().__init__(timeout=_read_discord_prompt_timeout())
             self.session_key = session_key
+            self.request_id = str(request_id or "").strip()
             self.allowed_user_ids = allowed_user_ids
             self.allowed_role_ids = allowed_role_ids or set()
             # Opt-in admin gate for exec approval (default off → user-scope,
@@ -6907,6 +6914,37 @@ def _define_discord_view_classes() -> None:
                 )
                 return
 
+            if not self.request_id:
+                await interaction.response.send_message(
+                    "This approval is invalid or expired~", ephemeral=True
+                )
+                return
+
+            # Resolve the exact core waiter before presenting any success
+            # state or disabling controls. A stale/duplicate click remains a
+            # non-success response and cannot consume a sibling request.
+            try:
+                from tools.approval import resolve_gateway_approval
+
+                count = resolve_gateway_approval(
+                    self.session_key,
+                    choice,
+                    resolve_all=False,
+                    request_id=self.request_id,
+                )
+            except Exception as exc:
+                logger.error("Failed to resolve gateway approval from button: %s", exc)
+                await interaction.response.send_message(
+                    "This approval could not be resolved~", ephemeral=True
+                )
+                return
+            if count != 1:
+                await interaction.response.send_message(
+                    "This approval has already been resolved or expired~",
+                    ephemeral=True,
+                )
+                return
+
             self.resolved = True
 
             # Update the embed with the decision
@@ -6921,16 +6959,15 @@ def _define_discord_view_classes() -> None:
 
             await interaction.response.edit_message(embed=embed, view=self)
 
-            # Unblock the waiting agent thread via the gateway approval queue
-            try:
-                from tools.approval import resolve_gateway_approval
-                count = resolve_gateway_approval(self.session_key, choice)
-                logger.info(
-                    "Discord button resolved %d approval(s) for session %s (choice=%s, user=%s)",
-                    count, self.session_key, choice, interaction.user.display_name,
-                )
-            except Exception as exc:
-                logger.error("Failed to resolve gateway approval from button: %s", exc)
+            logger.info(
+                "Discord button resolved %d approval(s) for session %s "
+                "(request_id=%s, choice=%s, user=%s)",
+                count,
+                self.session_key,
+                self.request_id,
+                choice,
+                interaction.user.display_name,
+            )
 
         @discord.ui.button(label="Allow Once", style=discord.ButtonStyle.green)
         async def allow_once(

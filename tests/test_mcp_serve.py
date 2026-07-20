@@ -472,7 +472,7 @@ class TestEventBridge:
         assert len(b._queue) == 500
         assert b._cursor == 500
 
-    def test_approvals_lifecycle(self):
+    def test_approval_response_never_claims_synthetic_success(self):
         from mcp_serve import EventBridge
         b = EventBridge()
         b._pending_approvals["a1"] = {
@@ -482,8 +482,9 @@ class TestEventBridge:
         }
         assert len(b.list_pending_approvals()) == 1
         result = b.respond_to_approval("a1", "deny")
-        assert result["resolved"] is True
-        assert len(b.list_pending_approvals()) == 0
+        assert result["resolved"] is False
+        assert result["code"] == "approval_resolution_unavailable"
+        assert len(b.list_pending_approvals()) == 1
 
     def test_respond_nonexistent(self):
         from mcp_serve import EventBridge
@@ -887,23 +888,25 @@ class TestE2EPermissions:
         assert result["count"] == 1
         assert result["approvals"][0]["id"] == "a1"
 
-    def test_respond_allow(self, mcp_server_e2e, _event_loop):
+    def test_respond_allow_is_explicitly_unsupported(self, mcp_server_e2e, _event_loop):
         server, bridge = mcp_server_e2e
         bridge._pending_approvals["a1"] = {"id": "a1", "kind": "exec"}
         result = _run_tool(server, "permissions_respond",
                           {"id": "a1", "decision": "allow-once"})
-        assert result["resolved"] is True
-        assert result["decision"] == "allow-once"
-        # Should be gone now
+        assert result["resolved"] is False
+        assert result["code"] == "approval_resolution_unavailable"
+        # The bridge cannot deliver to the real waiter, so it must retain the
+        # observation rather than falsely marking it resolved.
         check = _run_tool(server, "permissions_list_open")
-        assert check["count"] == 0
+        assert check["count"] == 1
 
-    def test_respond_deny(self, mcp_server_e2e, _event_loop):
+    def test_respond_deny_is_explicitly_unsupported(self, mcp_server_e2e, _event_loop):
         server, bridge = mcp_server_e2e
         bridge._pending_approvals["a2"] = {"id": "a2", "kind": "plugin"}
         result = _run_tool(server, "permissions_respond",
                           {"id": "a2", "decision": "deny"})
-        assert result["resolved"] is True
+        assert result["resolved"] is False
+        assert result["code"] == "approval_resolution_unavailable"
 
     def test_respond_invalid_decision(self, mcp_server_e2e, _event_loop):
         server, bridge = mcp_server_e2e

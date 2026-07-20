@@ -68,13 +68,14 @@ Usage:
 
 import json
 import logging
+from contextvars import ContextVar, Token
 
 from fabric_constants import get_fabric_home, get_skills_dir, display_fabric_home
 import os
 import re
 from enum import Enum
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Dict, Any, List, Optional, Set, Tuple
+from typing import Dict, Any, Callable, List, Optional, Set, Tuple
 
 from tools.registry import registry, tool_error
 from fabric_cli.config import cfg_get
@@ -107,7 +108,10 @@ _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _REMOTE_ENV_BACKENDS = frozenset(
     {"docker", "singularity", "modal", "ssh", "daytona"}
 )
-_secret_capture_callback = None
+_secret_capture_callback: ContextVar[Optional[Callable[..., Any]]] = ContextVar(
+    "fabric_secret_capture_callback",
+    default=None,
+)
 
 
 def _skill_lookup_path_error(name: str) -> Optional[str]:
@@ -175,9 +179,36 @@ _INJECTION_PATTERNS: list = [
 ]
 
 
-def set_secret_capture_callback(callback) -> None:
-    global _secret_capture_callback
-    _secret_capture_callback = callback
+def get_secret_capture_callback():
+    """Return the secret prompt callback bound to the current task context.
+
+    ``ContextVar`` storage keeps concurrent gateway sessions from replacing
+    each other's callback.  Fabric's worker-thread dispatch already snapshots
+    and propagates the parent context, so tool calls retain the correct binding
+    when they move onto an executor thread.
+    """
+    callback_store = _secret_capture_callback
+    # A few focused tests historically monkeypatch this private name directly.
+    # Keep that test seam while production always stores a ContextVar here.
+    if isinstance(callback_store, ContextVar):
+        return callback_store.get()
+    return callback_store
+
+
+def set_secret_capture_callback(callback) -> Token:
+    """Bind *callback* to the current context and return its reset token.
+
+    Existing callers may continue to ignore the return value and clear the
+    binding with ``set_secret_capture_callback(None)``.  Scoped callers should
+    retain the token and pass it to :func:`reset_secret_capture_callback` so a
+    nested binding restores its predecessor instead of discarding it.
+    """
+    return _secret_capture_callback.set(callback)
+
+
+def reset_secret_capture_callback(token: Token) -> None:
+    """Restore the secret callback binding represented by *token*."""
+    _secret_capture_callback.reset(token)
 
 
 def skill_matches_platform(frontmatter: Dict[str, Any]) -> bool:
@@ -360,7 +391,8 @@ def _capture_required_environment_variables(
             "gateway_setup_hint": _gateway_setup_hint(),
         }
 
-    if _secret_capture_callback is None:
+    secret_capture_callback = get_secret_capture_callback()
+    if secret_capture_callback is None:
         return {
             "missing_names": missing_names,
             "setup_skipped": False,
@@ -378,7 +410,7 @@ def _capture_required_environment_variables(
             metadata["required_for"] = entry["required_for"]
 
         try:
-            callback_result = _secret_capture_callback(
+            callback_result = secret_capture_callback(
                 entry["name"],
                 entry["prompt"],
                 metadata,

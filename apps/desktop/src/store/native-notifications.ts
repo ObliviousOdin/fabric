@@ -1,6 +1,11 @@
 import { atom } from 'nanostores'
 
 import { playApprovalSound } from '@/lib/approval-sound'
+import {
+  type ApprovalResolutionResponse,
+  approvalResponseResolved,
+  ownedPromptResponseParams
+} from '@/lib/prompt-responses'
 import { persistString, storedString } from '@/lib/storage'
 
 import { $gateway } from './gateway'
@@ -143,6 +148,7 @@ export interface NativeNotificationInput {
   title: string
   body?: string
   sessionId?: null | string
+  requestId?: string
   /**
    * Not tied to a chat session (e.g. pet generation). Fires whenever the user
    * is away, bypassing the session-match gate that completion kinds normally
@@ -172,6 +178,7 @@ export function dispatchNativeNotification(input: NativeNotificationInput): void
     actions: input.actions,
     body: input.body,
     kind: input.kind,
+    requestId: input.requestId,
     sessionId: input.sessionId ?? undefined,
     silent: input.silent,
     title: input.title
@@ -219,11 +226,16 @@ export function maybePlayApprovalSound(sessionId?: null | string, command?: stri
 }
 
 // Resolve a pending approval from a notification button, mirroring the in-app
-// Run/Reject bar. Keyed by session id — a background approval has no local guard.
-export async function respondToApprovalAction(sessionId: null | string, actionId: string): Promise<void> {
+// Run/Reject bar. The notification round-trip carries the exact request id so
+// an old OS button cannot resolve or dismiss a newer approval in that session.
+export async function respondToApprovalAction(
+  sessionId: null | string,
+  requestId: string | undefined,
+  actionId: string
+): Promise<void> {
   const choice = actionId === 'approve' ? 'once' : actionId === 'reject' ? 'deny' : null
 
-  if (!choice) {
+  if (!choice || !requestId) {
     return
   }
 
@@ -234,8 +246,14 @@ export async function respondToApprovalAction(sessionId: null | string, actionId
   }
 
   try {
-    await gateway.request('approval.respond', { choice, session_id: sessionId ?? undefined })
-    clearApprovalRequest(sessionId)
+    const response = await gateway.request<ApprovalResolutionResponse>(
+      'approval.respond',
+      ownedPromptResponseParams({ requestId, sessionId }, { choice })
+    )
+
+    if (approvalResponseResolved(response, requestId)) {
+      clearApprovalRequest(sessionId, requestId)
+    }
   } catch {
     // Leave the prompt parked so the user can still resolve it in-app.
   }

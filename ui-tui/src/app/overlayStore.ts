@@ -1,6 +1,14 @@
 import { atom, computed } from 'nanostores'
 
+import type { ApprovalReq } from '../types.js'
+
 import type { OverlayState } from './interfaces.js'
+
+// Parallel tool calls can block on more than one approval in a single
+// session. The overlay renders one prompt at a time, so preserve the remaining
+// requests here in gateway-arrival order instead of letting a later event
+// overwrite the visible request.
+let approvalBacklog: ApprovalReq[] = []
 
 const buildOverlayState = (): OverlayState => ({
   agents: false,
@@ -64,7 +72,60 @@ export const patchOverlayState = (next: Partial<OverlayState> | ((state: Overlay
   $overlayState.set(typeof next === 'function' ? next($overlayState.get()) : { ...$overlayState.get(), ...next })
 
 /** Full reset — used by session/turn teardown and tests. */
-export const resetOverlayState = () => $overlayState.set(buildOverlayState())
+export const resetOverlayState = () => {
+  approvalBacklog = []
+  $overlayState.set(buildOverlayState())
+}
+
+export const enqueueApproval = (request: ApprovalReq) => {
+  const state = $overlayState.get()
+
+  if (!state.approval) {
+    patchOverlayState({ approval: request })
+
+    return
+  }
+
+  if (state.approval.requestId === request.requestId) {
+    patchOverlayState({ approval: request })
+
+    return
+  }
+
+  const existingIndex = approvalBacklog.findIndex(item => item.requestId === request.requestId)
+
+  if (existingIndex >= 0) {
+    approvalBacklog = approvalBacklog.map((item, index) => (index === existingIndex ? request : item))
+  } else {
+    approvalBacklog = [...approvalBacklog, request]
+  }
+}
+
+/**
+ * Remove one backend-confirmed approval by its authoritative id. Resolving the
+ * visible head immediately promotes its next sibling; a stale id is a no-op.
+ */
+export const completeApproval = (requestId: string): boolean => {
+  const state = $overlayState.get()
+
+  if (state.approval?.requestId === requestId) {
+    const [next = null, ...remaining] = approvalBacklog
+    approvalBacklog = remaining
+    patchOverlayState({ approval: next })
+
+    return true
+  }
+
+  const nextBacklog = approvalBacklog.filter(request => request.requestId !== requestId)
+
+  if (nextBacklog.length === approvalBacklog.length) {
+    return false
+  }
+
+  approvalBacklog = nextBacklog
+
+  return true
+}
 
 /**
  * Soft reset: drop FLOW-scoped overlays (approval / clarify / confirm / sudo
@@ -74,7 +135,8 @@ export const resetOverlayState = () => $overlayState.set(buildOverlayState())
  * every turn completion / interrupt; the old "reset everything" behaviour
  * silently closed /agents the moment delegation finished.
  */
-export const resetFlowOverlays = () =>
+export const resetFlowOverlays = () => {
+  approvalBacklog = []
   $overlayState.set({
     ...buildOverlayState(),
     agents: $overlayState.get().agents,
@@ -86,3 +148,4 @@ export const resetFlowOverlays = () =>
     sessions: $overlayState.get().sessions,
     skillsHub: $overlayState.get().skillsHub
   })
+}
